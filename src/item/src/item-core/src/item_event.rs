@@ -139,6 +139,49 @@ impl ItemCommonEventPayload for ItemPriceChangeEventPayload {
     }
 }
 
+#[derive(Debug, Clone, PartialEq)]
+#[allow(clippy::large_enum_variant)]
+pub enum LocalizedItemEventPayloadView {
+    Created(LocalizedItemCreatedEventPayloadView),
+    StateListed(LocalizedItemStateChangeEventPayloadView),
+    StateAvailable(LocalizedItemStateChangeEventPayloadView),
+    StateReserved(LocalizedItemStateChangeEventPayloadView),
+    StateSold(LocalizedItemStateChangeEventPayloadView),
+    StateRemoved(LocalizedItemStateChangeEventPayloadView),
+    PriceDiscovered(LocalizedItemPriceChangeEventPayloadView),
+    PriceDropped(LocalizedItemPriceChangeEventPayloadView),
+    PriceIncreased(LocalizedItemPriceChangeEventPayloadView),
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct LocalizedItemCreatedEventPayloadView {
+    pub shop_id: ShopId,
+    pub shops_item_id: ShopsItemId,
+    pub shop_name: ShopName,
+    pub title: Localized<Language, Title>,
+    pub description: Option<Localized<Language, Description>>,
+    pub price: Option<Price>,
+    pub state: ItemState,
+    pub url: Url,
+    pub images: Vec<Url>,
+    pub hash: ItemHash,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct LocalizedItemStateChangeEventPayloadView {
+    pub shop_id: ShopId,
+    pub shops_item_id: ShopsItemId,
+    pub hash: ItemHash,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct LocalizedItemPriceChangeEventPayloadView {
+    pub shop_id: ShopId,
+    pub shops_item_id: ShopsItemId,
+    pub price: Price,
+    pub hash: ItemHash,
+}
+
 #[cfg(feature = "test-data")]
 mod faker {
     use super::*;
