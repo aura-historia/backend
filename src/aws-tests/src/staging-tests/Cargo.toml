@@ -28,3 +28,4 @@ fake = { workspace = true }
 url = { workspace = true }
 search-filter-core = { workspace = true }
 futures-util = { workspace = true }
+item-core = { workspace = true }

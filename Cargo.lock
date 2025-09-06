@@ -3933,6 +3933,7 @@ dependencies = [
  "common",
  "fake",
  "futures-util",
+ "item-core",
  "item-dynamodb",
  "item-opensearch",
  "item-service",
