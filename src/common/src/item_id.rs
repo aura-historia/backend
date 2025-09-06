@@ -80,6 +80,12 @@ impl Display for ItemId {
     }
 }
 
+impl From<Uuid> for ItemId {
+    fn from(uuid: Uuid) -> Self {
+        ItemId(uuid)
+    }
+}
+
 impl TryFrom<String> for ItemId {
     type Error = uuid::Error;
     fn try_from(s: String) -> Result<Self, Self::Error> {

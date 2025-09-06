@@ -25,6 +25,12 @@ impl Display for EventId {
     }
 }
 
+impl From<Uuid> for EventId {
+    fn from(uuid: Uuid) -> Self {
+        EventId(uuid)
+    }
+}
+
 impl TryFrom<String> for EventId {
     type Error = uuid::Error;
     fn try_from(s: String) -> Result<Self, Self::Error> {

@@ -2088,6 +2088,7 @@ dependencies = [
  "serde_json",
  "time",
  "url",
+ "uuid",
 ]
 
 [[package]]
