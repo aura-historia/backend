@@ -55,7 +55,13 @@ pub async fn handle(
         .ok_or(ApiError::bad_request(BAD_PARAMETER).with_path_field("shopsItemId"))?;
 
     let item_data: GetItemData = service
-        .view_item(&shop_id, &shops_item_id, languages.as_slice(), &currency)
+        .view_item(
+            &shop_id,
+            &shops_item_id,
+            languages.as_slice(),
+            &currency,
+            false,
+        )
         .await?
         .into();
     let response = serde_json::to_string(&item_data).map_err(|err| {
@@ -118,7 +124,7 @@ mod tests {
         let mut service = MockGetItemService::default();
         service
             .expect_view_item()
-            .return_once(move |shop_id, shops_item_id, _, _| {
+            .return_once(move |shop_id, shops_item_id, _, _, _| {
                 let item = LocalizedItemView {
                     item_id: Default::default(),
                     event_id: EventId::new(),
@@ -134,6 +140,7 @@ mod tests {
                     hash: ItemHash::new(&None, &ItemState::Listed),
                     created: OffsetDateTime::now_utc(),
                     updated: OffsetDateTime::now_utc(),
+                    history: None,
                 };
                 Box::pin(async move { Ok(item) })
             });
@@ -157,7 +164,7 @@ mod tests {
         let mut service = MockGetItemService::default();
         service
             .expect_view_item()
-            .return_once(move |shop_id, shops_item_id, _, _| {
+            .return_once(move |shop_id, shops_item_id, _, _, _| {
                 let item = LocalizedItemView {
                     item_id: Default::default(),
                     event_id,
@@ -173,6 +180,7 @@ mod tests {
                     hash: ItemHash::new(&None, &ItemState::Listed),
                     created: OffsetDateTime::now_utc(),
                     updated: OffsetDateTime::now_utc(),
+                    history: None,
                 };
                 Box::pin(async move { Ok(item) })
             });
@@ -201,7 +209,7 @@ mod tests {
         let mut service = MockGetItemService::default();
         service
             .expect_view_item()
-            .return_once(move |shop_id, shops_item_id, _, _| {
+            .return_once(move |shop_id, shops_item_id, _, _, _| {
                 let item = LocalizedItemView {
                     item_id: Default::default(),
                     event_id,
@@ -217,6 +225,7 @@ mod tests {
                     hash: ItemHash::new(&None, &ItemState::Listed),
                     created: timestamp,
                     updated: timestamp,
+                    history: None,
                 };
                 Box::pin(async move { Ok(item) })
             });
@@ -292,7 +301,7 @@ mod tests {
         let mut service = MockGetItemService::default();
         service
             .expect_view_item()
-            .return_once(move |shop_id, shops_item_id, _, _| {
+            .return_once(move |shop_id, shops_item_id, _, _, _| {
                 let shop_id = shop_id.clone();
                 let shops_item_id = shops_item_id.clone();
                 Box::pin(async move { Err(GetItemError::ItemNotFound(shop_id, shops_item_id)) })

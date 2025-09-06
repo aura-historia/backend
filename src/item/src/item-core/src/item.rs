@@ -16,7 +16,7 @@ use crate::description::Description;
 use crate::hash::ItemHash;
 use crate::item_event::{
     ItemCreatedEventPayload, ItemEvent, ItemEventPayload, ItemPriceChangeEventPayload,
-    ItemStateChangeEventPayload,
+    ItemStateChangeEventPayload, LocalizedItemEventPayloadView,
 };
 use crate::shop_name::ShopName;
 use crate::title::Title;
@@ -197,6 +197,7 @@ pub struct LocalizedItemView {
     pub hash: ItemHash,
     pub created: OffsetDateTime,
     pub updated: OffsetDateTime,
+    pub history: Option<Vec<Event<ItemId, LocalizedItemEventPayloadView>>>,
 }
 
 #[cfg(feature = "test-data")]
@@ -296,6 +297,7 @@ mod faker {
                 hash: ItemHash::new(&native_price, &state),
                 created: OffsetDateTime::now_utc(),
                 updated: OffsetDateTime::now_utc(),
+                history: None,
             }
         }
     }

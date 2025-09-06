@@ -2,6 +2,8 @@ use async_trait::async_trait;
 use aws_sdk_dynamodb::config::http::HttpResponse;
 use aws_sdk_dynamodb::error::SdkError;
 use common::currency::domain::Currency;
+use common::event::Event;
+use common::item_id::ItemId;
 use common::language::domain::Language;
 use common::localized::Localized;
 use common::price::domain::{MonetaryAmountOverflowError, Price};
@@ -9,7 +11,13 @@ use common::shop_id::ShopId;
 use common::shops_item_id::ShopsItemId;
 use item_core::description::Description;
 use item_core::item::{Item, LocalizedItemView};
+use item_core::item_event::{
+    ItemEvent, ItemEventPayload, LocalizedItemCreatedEventPayloadView,
+    LocalizedItemEventPayloadView, LocalizedItemPriceChangeEventPayloadView,
+    LocalizedItemStateChangeEventPayloadView,
+};
 use item_core::title::Title;
+use item_dynamodb::item_event_record::ItemEventRecord;
 use item_dynamodb::repository::ItemDynamoDbRepository;
 use std::collections::HashMap;
 use tracing::error;
@@ -24,8 +32,11 @@ pub enum GetItemError {
 
     #[error("Encountered DynamoDB SdkError for GetItem: {0}")]
     SdkGetItemError(
-        #[from] Box<SdkError<aws_sdk_dynamodb::operation::get_item::GetItemError, HttpResponse>>,
+        #[from] SdkError<aws_sdk_dynamodb::operation::get_item::GetItemError, HttpResponse>,
     ),
+
+    #[error("Encountered DynamoDB SdkError for QueryItem: {0}")]
+    SdkQueryError(#[from] SdkError<aws_sdk_dynamodb::operation::query::QueryError, HttpResponse>),
 }
 
 #[cfg(feature = "api")]
@@ -45,7 +56,11 @@ pub mod api {
                 }
                 GetItemError::SdkGetItemError(err) => {
                     error!(error = ?err, "Encountered SdkGetItemError while getting item.");
-                    (*err).into()
+                    err.into()
+                }
+                GetItemError::SdkQueryError(err) => {
+                    error!(error = ?err, "Encountered SdkQueryError while querying item and its history.");
+                    err.into()
                 }
             }
         }
@@ -67,6 +82,7 @@ pub trait GetItemService {
         shops_item_id: &ShopsItemId,
         languages: &[Language],
         currency: &Currency,
+        history: bool,
     ) -> Result<LocalizedItemView, GetItemError>;
 }
 
@@ -90,8 +106,7 @@ impl<'a> GetItemService for GetItemServiceImpl<'a> {
         let item_record = self
             .repository
             .get_item_record(shop_id, shops_item_id)
-            .await
-            .map_err(Box::from)?
+            .await?
             .ok_or(GetItemError::ItemNotFound(
                 shop_id.clone(),
                 shops_item_id.clone(),
@@ -100,22 +115,34 @@ impl<'a> GetItemService for GetItemServiceImpl<'a> {
         Ok(item_record.into())
     }
 
+    #[tracing::instrument(skip(self), fields(shopId = %shop_id, shopsItemId = %shops_item_id))]
     async fn view_item(
         &self,
         shop_id: &ShopId,
         shops_item_id: &ShopsItemId,
         preferred_languages: &[Language],
         currency: &Currency,
+        history: bool,
     ) -> Result<LocalizedItemView, GetItemError> {
-        let item_record = self
-            .repository
-            .get_item_record(shop_id, shops_item_id)
-            .await
-            .map_err(Box::from)?
-            .ok_or(GetItemError::ItemNotFound(
-                shop_id.clone(),
-                shops_item_id.clone(),
-            ))?;
+        let (item_record, event_records) = if history {
+            self.repository
+                .query_item_record_and_event_records(shop_id, shops_item_id)
+                .await?
+                .ok_or(GetItemError::ItemNotFound(
+                    shop_id.clone(),
+                    shops_item_id.clone(),
+                ))?
+        } else {
+            let item_record = self
+                .repository
+                .get_item_record(shop_id, shops_item_id)
+                .await?
+                .ok_or(GetItemError::ItemNotFound(
+                    shop_id.clone(),
+                    shops_item_id.clone(),
+                ))?;
+            (item_record, vec![])
+        };
 
         let mut available_titles: HashMap<Language, Title> = HashMap::with_capacity(3);
         available_titles.insert(
@@ -144,11 +171,7 @@ impl<'a> GetItemService for GetItemServiceImpl<'a> {
         }
 
         let title = Language::resolve(preferred_languages, available_titles).unwrap_or_else(|| {
-            error!(
-                shopId = %shop_id,
-                shopsItemId = %shops_item_id,
-                "Failed resolving title. This SHOULD be impossible because the native title always exists."
-            );
+            error!("Failed resolving title. This SHOULD be impossible because the native title always exists.");
             Localized::new(Language::En, "Unknown title".into())
         });
         let description = Language::resolve(preferred_languages, available_descriptions);
@@ -174,6 +197,24 @@ impl<'a> GetItemService for GetItemServiceImpl<'a> {
                 .map(|amount| Price::new(amount.into(), Currency::Nzd)),
         };
 
+        let event_views = event_records
+            .into_iter()
+            .map(ItemEvent::try_from)
+            .filter_map(|event_res| match event_res {
+                Ok(event) => Some(event),
+                Err(err) => {
+                    error!(
+                        error = %err,
+                        fromType = %std::any::type_name::<ItemEventRecord>(),
+                        toType = %std::any::type_name::<ItemEvent>(),
+                        "Failed mapping types."
+                    );
+                    None
+                }
+            })
+            .map(|event| localize_item_event(event, preferred_languages, currency))
+            .collect();
+
         let item_view = LocalizedItemView {
             item_id: item_record.item_id,
             event_id: item_record.event_id,
@@ -189,15 +230,152 @@ impl<'a> GetItemService for GetItemServiceImpl<'a> {
             hash: item_record.hash,
             created: item_record.created,
             updated: item_record.updated,
+            history: if history { Some(event_views) } else { None },
         };
 
         Ok(item_view)
     }
 }
 
+fn localize_item_event(
+    event: ItemEvent,
+    preferred_languages: &[Language],
+    currency: &Currency,
+) -> Event<ItemId, LocalizedItemEventPayloadView> {
+    let payload = match event.payload {
+        ItemEventPayload::Created(payload) => {
+            let mut titles = payload.other_title;
+            titles.insert(
+                payload.native_title.localization,
+                payload.native_title.payload,
+            );
+            let mut descriptions = payload.other_description;
+            if let Some(native_description) = payload.native_description {
+                descriptions.insert(native_description.localization, native_description.payload);
+            }
+            let mut prices = payload.other_price;
+            if let Some(native_price) = payload.native_price {
+                prices.insert(native_price.currency, native_price.monetary_amount);
+            }
+            LocalizedItemEventPayloadView::Created(LocalizedItemCreatedEventPayloadView {
+                shop_id: payload.shop_id,
+                shops_item_id: payload.shops_item_id,
+                shop_name: payload.shop_name,
+                title: Language::resolve(preferred_languages, titles)
+                    .unwrap_or_else(|| {
+                        error!("Failed resolving title. This SHOULD be impossible because the native title always exists.");
+                        Localized::new(Language::En, "Unknown title".into())
+                    }),
+                description: Language::resolve(preferred_languages, descriptions),
+                price: prices
+                    .remove(currency)
+                    .map(|amount| Price::new(amount, *currency)),
+                state: payload.state,
+                url: payload.url,
+                images: payload.images,
+                hash: payload.hash,
+            })
+        }
+        ItemEventPayload::StateListed(payload) => {
+            LocalizedItemEventPayloadView::StateListed(LocalizedItemStateChangeEventPayloadView {
+                shop_id: payload.shop_id,
+                shops_item_id: payload.shops_item_id,
+                hash: payload.hash,
+            })
+        }
+        ItemEventPayload::StateAvailable(payload) => LocalizedItemEventPayloadView::StateAvailable(
+            LocalizedItemStateChangeEventPayloadView {
+                shop_id: payload.shop_id,
+                shops_item_id: payload.shops_item_id,
+                hash: payload.hash,
+            },
+        ),
+        ItemEventPayload::StateReserved(payload) => {
+            LocalizedItemEventPayloadView::StateReserved(LocalizedItemStateChangeEventPayloadView {
+                shop_id: payload.shop_id,
+                shops_item_id: payload.shops_item_id,
+                hash: payload.hash,
+            })
+        }
+        ItemEventPayload::StateSold(payload) => {
+            LocalizedItemEventPayloadView::StateSold(LocalizedItemStateChangeEventPayloadView {
+                shop_id: payload.shop_id,
+                shops_item_id: payload.shops_item_id,
+                hash: payload.hash,
+            })
+        }
+        ItemEventPayload::StateRemoved(payload) => {
+            LocalizedItemEventPayloadView::StateRemoved(LocalizedItemStateChangeEventPayloadView {
+                shop_id: payload.shop_id,
+                shops_item_id: payload.shops_item_id,
+                hash: payload.hash,
+            })
+        }
+        ItemEventPayload::PriceDiscovered(payload) => {
+            let mut prices = payload.other_price;
+            prices.insert(
+                payload.native_price.currency,
+                payload.native_price.monetary_amount,
+            );
+            LocalizedItemEventPayloadView::PriceDiscovered(
+                LocalizedItemPriceChangeEventPayloadView {
+                    shop_id: payload.shop_id,
+                    shops_item_id: payload.shops_item_id,
+                    price: Currency::resolve(&[*currency], prices).unwrap_or_else(|| {
+                        error!("Failed resolving price. This SHOULD be impossible because the native price always exists.");
+                        Price::new(0u64.into(), *currency)
+                    }),
+                    hash: payload.hash,
+                },
+            )
+        }
+        ItemEventPayload::PriceDropped(payload) => {
+            let mut prices = payload.other_price;
+            prices.insert(
+                payload.native_price.currency,
+                payload.native_price.monetary_amount,
+            );
+            LocalizedItemEventPayloadView::PriceDropped(
+                LocalizedItemPriceChangeEventPayloadView {
+                    shop_id: payload.shop_id,
+                    shops_item_id: payload.shops_item_id,
+                    price: Currency::resolve(&[*currency], prices).unwrap_or_else(|| {
+                        error!("Failed resolving price. This SHOULD be impossible because the native price always exists.");
+                        Price::new(0u64.into(), *currency)
+                    }),
+                    hash: payload.hash,
+                },
+            )
+        }
+        ItemEventPayload::PriceIncreased(payload) => {
+            let mut prices = payload.other_price;
+            prices.insert(
+                payload.native_price.currency,
+                payload.native_price.monetary_amount,
+            );
+            LocalizedItemEventPayloadView::PriceIncreased(
+                LocalizedItemPriceChangeEventPayloadView {
+                    shop_id: payload.shop_id,
+                    shops_item_id: payload.shops_item_id,
+                    price: Currency::resolve(&[*currency], prices).unwrap_or_else(|| {
+                        error!("Failed resolving price. This SHOULD be impossible because the native price always exists.");
+                        Price::new(0u64.into(), *currency)
+                    }),
+                    hash: payload.hash,
+                },
+            )
+        }
+    };
+    Event {
+        aggregate_id: event.aggregate_id,
+        event_id: event.event_id,
+        timestamp: event.timestamp,
+        payload,
+    }
+}
+
 #[cfg(test)]
 mod tests {
-
     mod find_item {
         use crate::get_service::{GetItemError, GetItemService, GetItemServiceImpl};
         use aws_sdk_dynamodb::{
@@ -302,7 +480,7 @@ mod tests {
         use item_dynamodb::{item_record::ItemRecord, repository::MockItemDynamoDbRepository};
 
         #[tokio::test]
-        async fn should_return_item_when_exists() {
+        async fn should_return_item_when_exists_without_history() {
             let mut repository = MockItemDynamoDbRepository::default();
             repository
                 .expect_get_item_record()
@@ -311,7 +489,34 @@ mod tests {
                 repository: &repository,
             };
             let actual = service
-                .view_item(&ShopId::new(), &ShopsItemId::new(), &[], &Currency::Eur)
+                .view_item(
+                    &ShopId::new(),
+                    &ShopsItemId::new(),
+                    &[],
+                    &Currency::Eur,
+                    false,
+                )
+                .await;
+            assert!(actual.is_ok());
+        }
+
+        #[tokio::test]
+        async fn should_return_item_when_exists_with_history() {
+            let mut repository = MockItemDynamoDbRepository::default();
+            repository
+                .expect_query_item_record_and_event_records()
+                .return_once(|_, _| Box::pin(async { Ok(Some(Faker.fake())) }));
+            let service = GetItemServiceImpl {
+                repository: &repository,
+            };
+            let actual = service
+                .view_item(
+                    &ShopId::new(),
+                    &ShopsItemId::new(),
+                    &[],
+                    &Currency::Eur,
+                    true,
+                )
                 .await;
             assert!(actual.is_ok());
         }
@@ -340,7 +545,7 @@ mod tests {
                 repository: &repository,
             };
             let actual_price = service
-                .view_item(&ShopId::new(), &ShopsItemId::new(), &[], &currency)
+                .view_item(&ShopId::new(), &ShopsItemId::new(), &[], &currency, false)
                 .await
                 .unwrap()
                 .price
@@ -383,6 +588,7 @@ mod tests {
                     &ShopsItemId::new(),
                     languages,
                     &Currency::Gbp,
+                    false,
                 )
                 .await
                 .unwrap()
@@ -425,6 +631,7 @@ mod tests {
                     &ShopsItemId::new(),
                     languages,
                     &Currency::Gbp,
+                    false,
                 )
                 .await
                 .unwrap()
@@ -468,6 +675,7 @@ mod tests {
                     &ShopsItemId::new(),
                     languages,
                     &Currency::Gbp,
+                    false,
                 )
                 .await
                 .unwrap()
@@ -512,6 +720,7 @@ mod tests {
                     &ShopsItemId::new(),
                     languages,
                     &Currency::Gbp,
+                    false,
                 )
                 .await
                 .unwrap()
@@ -553,6 +762,7 @@ mod tests {
                     &ShopsItemId::new(),
                     languages,
                     &Currency::Gbp,
+                    false,
                 )
                 .await
                 .unwrap()
@@ -572,7 +782,7 @@ mod tests {
                 repository: &repository,
             };
             let actual = service
-                .view_item(&shop_id, &shops_item_id, &[], &Currency::Eur)
+                .view_item(&shop_id, &shops_item_id, &[], &Currency::Eur, false)
                 .await;
 
             assert!(actual.is_err());
@@ -614,7 +824,7 @@ mod tests {
                 repository: &repository,
             };
             let actual = service
-                .view_item(&shop_id, &shops_item_id, &[], &Currency::Eur)
+                .view_item(&shop_id, &shops_item_id, &[], &Currency::Eur, false)
                 .await;
 
             assert!(actual.is_err());
