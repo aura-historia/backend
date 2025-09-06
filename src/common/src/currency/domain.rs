@@ -1,6 +1,9 @@
+use std::collections::HashMap;
+
 use crate::currency::command_data::CurrencyCommandData;
 use crate::currency::data::CurrencyData;
 use crate::currency::record::CurrencyRecord;
+use crate::price::domain::{MonetaryAmount, Price};
 
 #[derive(Copy, Clone, Eq, PartialEq, Debug, Hash)]
 pub struct MinorUnitExponent(pub u8);
@@ -36,6 +39,43 @@ pub enum Currency {
     Aud,
     Cad,
     Nzd,
+}
+
+impl Currency {
+    pub fn resolve(
+        preferred: &[Currency],
+        available: HashMap<Currency, MonetaryAmount>,
+    ) -> Option<Price> {
+        let mut available = available;
+        preferred
+            .iter()
+            .find_map(|currency| {
+                available
+                    .remove(currency)
+                    .map(|amount| Price::new(amount, *currency))
+            })
+            .or_else(|| {
+                available
+                    .remove(&Currency::Eur)
+                    .map(|amount| Price::new(amount, Currency::Eur))
+            })
+            .or_else(|| {
+                available
+                    .remove(&Currency::Usd)
+                    .map(|amount| Price::new(amount, Currency::Usd))
+            })
+            .or_else(|| {
+                available
+                    .remove(&Currency::Gbp)
+                    .map(|amount| Price::new(amount, Currency::Gbp))
+            })
+            .or_else(|| {
+                available
+                    .into_iter()
+                    .next()
+                    .map(|(currency, amount)| Price::new(amount, currency))
+            })
+    }
 }
 
 pub trait HasMinorUnitExponent {
