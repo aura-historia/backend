@@ -14,7 +14,7 @@ use item_opensearch::item_state_document::ItemStateDocument;
 use item_opensearch::item_update_document::ItemUpdateDocument;
 use item_opensearch::repository::{ItemOpenSearchRepository, ItemOpenSearchRepositoryImpl};
 use opensearch::http::Url;
-use search_filter_core::array_query::AnyOfQuery;
+use search_filter_core::any_of_query::AnyOfQuery;
 use search_filter_core::range_query::RangeQuery;
 use search_filter_core::search_filter::SearchFilter;
 use std::collections::HashMap;

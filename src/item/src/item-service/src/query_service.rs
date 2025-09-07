@@ -183,7 +183,7 @@ mod tests {
     use item_core::sort_item_field::SortItemField;
     use item_opensearch::{item_document::ItemDocument, repository::MockItemOpenSearchRepository};
     use search_filter_core::{
-        array_query::AnyOfQuery, range_query::RangeQuery, search_filter::SearchFilter,
+        any_of_query::AnyOfQuery, range_query::RangeQuery, search_filter::SearchFilter,
     };
     use serde::ser::Error;
     use time::macros::datetime;
