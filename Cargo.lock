@@ -3603,6 +3603,7 @@ name = "search-filter"
 version = "0.1.0"
 dependencies = [
  "search-filter-core",
+ "search-filter-dynamodb",
 ]
 
 [[package]]
@@ -3610,7 +3611,22 @@ name = "search-filter-core"
 version = "0.1.0"
 dependencies = [
  "common",
+ "serde",
+ "serde_json",
  "thiserror",
+ "time",
+ "uuid",
+]
+
+[[package]]
+name = "search-filter-dynamodb"
+version = "0.1.0"
+dependencies = [
+ "common",
+ "field",
+ "item-dynamodb",
+ "search-filter-core",
+ "serde",
  "time",
 ]
 

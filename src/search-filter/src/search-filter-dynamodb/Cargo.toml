@@ -1,0 +1,12 @@
+[package]
+name = "search-filter-dynamodb"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+common = { workspace = true, features = ["dynamodb"] }
+search-filter-core = { workspace = true }
+item-dynamodb = { workspace = true }
+serde = { workspace = true }
+field = { workspace = true }
+time = { workspace = true, features = ["local-offset", "macros", "formatting"] }

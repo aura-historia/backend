@@ -1,4 +1,4 @@
-use crate::{array_query::AnyOfQuery, range_query::RangeQuery, text_query::TextQuery};
+use crate::{any_of_query::AnyOfQuery, range_query::RangeQuery, text_query::TextQuery};
 use common::item_state::domain::ItemState;
 use common::price::domain::MonetaryAmount;
 use time::OffsetDateTime;
