@@ -49,3 +49,15 @@ impl TryFrom<&str> for SearchFilterId {
         Uuid::parse_str(s).map(Self)
     }
 }
+
+#[cfg(feature = "test-data")]
+mod fake {
+    use crate::search_filter_id::SearchFilterId;
+    use fake::Dummy;
+
+    impl<T> Dummy<T> for SearchFilterId {
+        fn dummy_with_rng<R: fake::Rng + ?Sized>(_config: &T, _rng: &mut R) -> Self {
+            Default::default()
+        }
+    }
+}

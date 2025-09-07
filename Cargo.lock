@@ -3611,6 +3611,8 @@ name = "search-filter-core"
 version = "0.1.0"
 dependencies = [
  "common",
+ "fake",
+ "search-filter-core",
  "serde",
  "serde_json",
  "thiserror",
@@ -3625,6 +3627,7 @@ dependencies = [
  "async-trait",
  "aws-sdk-dynamodb",
  "common",
+ "fake",
  "field",
  "item-dynamodb",
  "mockall",

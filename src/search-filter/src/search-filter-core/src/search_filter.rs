@@ -3,6 +3,7 @@ use common::item_state::domain::ItemState;
 use common::price::domain::MonetaryAmount;
 use time::OffsetDateTime;
 
+#[cfg_attr(feature = "test-data", derive(fake::Dummy))]
 #[derive(Debug, Clone)]
 pub struct SearchFilter {
     pub item_query: TextQuery,

@@ -15,3 +15,10 @@ tracing = { workspace = true }
 async-trait = { workspace = true }
 aws-sdk-dynamodb = { workspace = true }
 serde_dynamo = { workspace = true, features = [ "aws-sdk-dynamodb+1" ] }
+
+# Optional
+fake = { workspace = true, optional = true }
+
+[features]
+default = []
+test-data = ["fake", "common/test-data", "search-filter-core/test-data"]
