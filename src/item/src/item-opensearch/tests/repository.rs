@@ -276,7 +276,7 @@ async fn should_search_item_documents_when_all_arguments_are_given() {
             min: Some(100u64.into()),
             max: Some(999999u64.into()),
         }),
-        state_query: AnyOfQuery(HashSet::from_iter([
+        state_query: AnyOfQuery::from(HashSet::from_iter([
             ItemState::Available,
             ItemState::Listed,
         ])),
@@ -335,7 +335,7 @@ async fn should_search_item_documents_when_states_are_given(#[case] states: &[It
         item_query: "The same title".try_into().unwrap(),
         shop_name_query: None,
         price_query: None,
-        state_query: AnyOfQuery(HashSet::from_iter(states.iter().copied())),
+        state_query: AnyOfQuery::from(HashSet::from_iter(states.iter().copied())),
         created_query: None,
         updated_query: None,
     };
@@ -377,7 +377,7 @@ async fn should_search_item_documents_when_no_states_are_given() {
         item_query: "The same title".try_into().unwrap(),
         shop_name_query: None,
         price_query: None,
-        state_query: AnyOfQuery(HashSet::new()),
+        state_query: AnyOfQuery::from(HashSet::new()),
         created_query: None,
         updated_query: None,
     };

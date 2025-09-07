@@ -6,7 +6,8 @@ use std::{
 };
 
 #[derive(Debug, Clone)]
-pub struct AnyOfQuery<T: Eq + Hash>(pub HashSet<T>);
+#[cfg_attr(feature = "test-data", derive(fake::Dummy))]
+pub struct AnyOfQuery<T: Eq + Hash>(HashSet<T>);
 
 impl<T: Eq + Hash> Default for AnyOfQuery<T> {
     fn default() -> Self {

@@ -137,7 +137,6 @@ impl<'a> ItemOpenSearchRepository for ItemOpenSearchRepositoryImpl<'a> {
 
         match search_filter
             .state_query
-            .0
             .iter()
             .collect::<Vec<&ItemState>>()
             .as_slice()
