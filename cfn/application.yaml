@@ -232,6 +232,7 @@ Resources:
                 Action:
                   - dynamodb:GetItem
                   - dynamodb:BatchGetItem
+                  - dynamodb:Query
                 Resource: !GetAtt TableOne.Arn
   ItemApiGetItemLambda:
     Type: AWS::Lambda::Function
