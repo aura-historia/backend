@@ -18,7 +18,7 @@ use common::item_id::ItemKey;
 use common::shop_id::ShopId;
 use common::shops_item_id::ShopsItemId;
 use std::collections::HashMap;
-use tracing::error;
+use tracing::{error, warn};
 
 #[async_trait]
 #[allow(clippy::result_large_err)]
@@ -46,6 +46,12 @@ pub trait ItemDynamoDbRepository {
         shop_id: &ShopId,
         shops_item_id: &ShopsItemId,
     ) -> Result<Option<ItemRecord>, SdkError<GetItemError, HttpResponse>>;
+
+    async fn query_item_record_and_event_records(
+        &self,
+        shop_id: &ShopId,
+        shops_item_id: &ShopsItemId,
+    ) -> Result<Option<(ItemRecord, Vec<ItemEventRecord>)>, SdkError<QueryError, HttpResponse>>;
 
     async fn get_item_records(
         &self,
@@ -148,6 +154,7 @@ impl<'a> ItemDynamoDbRepository for ItemDynamoDbRepositoryImpl<'a> {
             .await
     }
 
+    #[tracing::instrument(skip(self), fields(shopId = %shop_id, shopsItemId = %shops_item_id))]
     async fn get_item_record(
         &self,
         shop_id: &ShopId,
@@ -158,7 +165,7 @@ impl<'a> ItemDynamoDbRepository for ItemDynamoDbRepositoryImpl<'a> {
             .get_item()
             .table_name(&self.table)
             .key("pk", AttributeValue::S(mk_pk(shop_id, shops_item_id)))
-            .key("sk", AttributeValue::S(mk_sk().to_owned()))
+            .key("sk", AttributeValue::S("item#materialized".to_owned()))
             .send()
             .await?
             .item
@@ -174,6 +181,95 @@ impl<'a> ItemDynamoDbRepository for ItemDynamoDbRepositoryImpl<'a> {
         Ok(rec)
     }
 
+    #[tracing::instrument(skip(self), fields(shopId = %shop_id, shopsItemId = %shops_item_id))]
+    async fn query_item_record_and_event_records(
+        &self,
+        shop_id: &ShopId,
+        shops_item_id: &ShopsItemId,
+    ) -> Result<Option<(ItemRecord, Vec<ItemEventRecord>)>, SdkError<QueryError, HttpResponse>>
+    {
+        let composite = self
+            .client
+            .query()
+            .table_name(&self.table)
+            .key_condition_expression("#pk = :pk_val AND begins_with(#sk, :sk_prefix)")
+            .expression_attribute_names("#pk", "pk")
+            .expression_attribute_names("#sk", "sk")
+            .expression_attribute_values(
+                ":pk_val",
+                AttributeValue::S(mk_pk(shop_id, shops_item_id)),
+            )
+            .expression_attribute_values(":sk_prefix", AttributeValue::S("item#".to_string()))
+            .scan_index_forward(true)
+            .into_paginator()
+            .send()
+            .try_collect()
+            .await?
+            .into_iter()
+            .flat_map(|qo| qo.items.unwrap_or_default())
+            .fold((None, None), |(materialized, events), record| match record
+                .get("sk")
+                .map(AttributeValue::as_s)
+                .and_then(Result::ok)
+                .map(String::as_str)
+            {
+                Some("item#materialized") => {
+                    match serde_dynamo::from_item::<_, ItemRecord>(record) {
+                        Ok(materialized) => (Some(materialized), events),
+                        Err(err) => {
+                            error!(
+                                error = %err,
+                                type = %std::any::type_name::<ItemRecord>(),
+                                "Failed deserializing ItemRecord."
+                            );
+                            (materialized, events)
+                        },
+                    }
+                },
+                Some(sk) if sk.starts_with("item#event#") => {
+                    match serde_dynamo::from_item::<_, ItemEventRecord>(record) {
+                        Ok(event) => {
+                            let mut events: Vec<ItemEventRecord> = events.unwrap_or_default();
+                            events.push(event);
+                            (materialized, Some(events))
+                        },
+                        Err(err) => {
+                            error!(
+                                error = %err,
+                                type = %std::any::type_name::<ItemEventRecord>(),
+                                "Failed deserializing ItemEventRecord."
+                            );
+                            (materialized, events)
+                        },
+                    }
+                },
+                Some(unknown_sk) => {
+                    error!(
+                        payload = ?record,
+                        "Attempted to deserialize but record in item-partition contains unknown value '{unknown_sk}' for field 'sk'. Skipping record."
+                    );
+                    (materialized, events)
+                },
+                None => {
+                    error!(
+                        payload = ?record,
+                        "Attempted to deserialize record in item-partition but no String-Field 'sk' exists. Skipping record."
+                    );
+                    (materialized, events)
+                }
+            });
+
+        match composite {
+            (None, None) => Ok(None),
+            (None, Some(_)) => {
+                warn!("Materialized ItemRecord does not exist.");
+                Ok(None)
+            }
+            (Some(materialized), None) => Ok(Some((materialized, vec![]))),
+            (Some(materialized), Some(events)) => Ok(Some((materialized, events))),
+        }
+    }
+
     async fn get_item_records(
         &self,
         item_keys: &Batch<ItemKey, 100>,
@@ -187,7 +283,10 @@ impl<'a> ItemDynamoDbRepository for ItemDynamoDbRepositoryImpl<'a> {
                     "pk".to_owned(),
                     AttributeValue::S(mk_pk(&item_key.shop_id, &item_key.shops_item_id)),
                 );
-                columns.insert("sk".to_owned(), AttributeValue::S(mk_sk().to_owned()));
+                columns.insert(
+                    "sk".to_owned(),
+                    AttributeValue::S("item#materialized".to_owned()),
+                );
                 columns
             })
             .collect();
@@ -265,7 +364,10 @@ impl<'a> ItemDynamoDbRepository for ItemDynamoDbRepositoryImpl<'a> {
                     "pk".to_owned(),
                     AttributeValue::S(mk_pk(&item_key.shop_id, &item_key.shops_item_id)),
                 );
-                columns.insert("sk".to_owned(), AttributeValue::S(mk_sk().to_owned()));
+                columns.insert(
+                    "sk".to_owned(),
+                    AttributeValue::S("item#materialized".to_owned()),
+                );
                 columns
             })
             .collect();
@@ -331,6 +433,7 @@ impl<'a> ItemDynamoDbRepository for ItemDynamoDbRepositoryImpl<'a> {
         Ok(batch_result)
     }
 
+    #[tracing::instrument(skip(self), fields(shopId = %shop_id))]
     async fn query_item_hashes(
         &self,
         shop_id: &ShopId,
@@ -348,7 +451,6 @@ impl<'a> ItemDynamoDbRepository for ItemDynamoDbRepositoryImpl<'a> {
                 AttributeValue::S(format!("shop_id#{shop_id}")),
             )
             .scan_index_forward(scan_index_forward)
-            .expression_attribute_names("#gsi_1_pk", "gsi_1_pk")
             .into_paginator()
             .send()
             .try_collect()
@@ -371,10 +473,6 @@ impl<'a> ItemDynamoDbRepository for ItemDynamoDbRepositoryImpl<'a> {
 
 pub fn mk_pk(shop_id: &ShopId, shops_item_id: &ShopsItemId) -> String {
     format!("item#shop_id#{shop_id}#shops_item_id#{shops_item_id}")
-}
-
-pub fn mk_sk() -> &'static str {
-    "item#materialized"
 }
 
 fn extract_item_key(map: HashMap<String, AttributeValue>) -> Result<ItemKey, String> {

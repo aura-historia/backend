@@ -153,6 +153,7 @@ impl<'a> QueryItemService for QueryItemServiceImpl<'a> {
                 hash: ItemHash::new(&price, &state),
                 created: item_document.created,
                 updated: item_document.updated,
+                history: None
             }
         })
         .collect::<Vec<_>>();

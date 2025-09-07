@@ -58,7 +58,7 @@ impl TryFrom<&str> for ItemKey {
 }
 
 #[cfg_attr(feature = "test-data", derive(fake::Dummy))]
-#[derive(Debug, Clone, Copy, PartialEq, PartialOrd, Eq, Hash, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, PartialOrd, Eq, Ord, Hash, Serialize, Deserialize)]
 #[serde(into = "String", try_from = "String")]
 pub struct ItemId(Uuid);
 
@@ -77,6 +77,12 @@ impl ItemId {
 impl Display for ItemId {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         write!(f, "{}", self.0)
+    }
+}
+
+impl From<Uuid> for ItemId {
+    fn from(uuid: Uuid) -> Self {
+        ItemId(uuid)
     }
 }
 

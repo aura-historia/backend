@@ -1,3 +1,4 @@
+use crate::get_item_event_data::GetItemEventData;
 use crate::item_state_data::ItemStateData;
 use common::event_id::EventId;
 use common::has_key::HasKey;
@@ -44,6 +45,9 @@ pub struct GetItemData {
 
     #[serde(with = "time::serde::rfc3339")]
     pub updated: OffsetDateTime,
+
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub history: Option<Vec<GetItemEventData>>,
 }
 
 impl HasKey for GetItemData {
@@ -73,6 +77,9 @@ impl From<LocalizedItemView> for GetItemData {
             images: item_view.images,
             created: item_view.created,
             updated: item_view.updated,
+            history: item_view
+                .history
+                .map(|events| events.into_iter().map(|event| event.into()).collect()),
         }
     }
 }
@@ -115,7 +122,11 @@ mod tests {
     use time::macros::utc_datetime;
     use url::Url;
 
-    use crate::{get_data::GetItemData, item_state_data::ItemStateData};
+    use crate::{
+        get_data::GetItemData,
+        get_item_event_data::{GetItemEventData, ItemEventPayloadData, ItemEventTypeData},
+        item_state_data::ItemStateData,
+    };
 
     #[test]
     fn should_serialize_get_item_data() {
@@ -140,6 +151,29 @@ mod tests {
             ],
             created: utc_datetime!(2025 - 05 - 05 0:00).into(),
             updated: utc_datetime!(2025 - 05 - 05 0:00).into(),
+            history: Some(vec![
+                GetItemEventData {
+                    event_type: ItemEventTypeData::StateAvailable,
+                    item_id,
+                    event_id,
+                    shop_id: shop_id.clone(),
+                    shops_item_id: shops_item_id.clone(),
+                    payload: ItemEventPayloadData::StateAvailable(ItemStateData::Available),
+                    timestamp: utc_datetime!(2025 - 05 - 05 0:00).into(),
+                },
+                GetItemEventData {
+                    event_type: ItemEventTypeData::PriceDropped,
+                    item_id,
+                    event_id,
+                    shop_id: shop_id.clone(),
+                    shops_item_id: shops_item_id.clone(),
+                    payload: ItemEventPayloadData::PriceDropped(PriceData::new(
+                        CurrencyData::Eur,
+                        42,
+                    )),
+                    timestamp: utc_datetime!(2025 - 05 - 05 0:00).into(),
+                },
+            ]),
         };
 
         let expected = json!({
@@ -164,7 +198,30 @@ mod tests {
             "url": "https://my-shop.de/item",
             "images": ["https://my-shop.de/item/images/1", "https://my-shop.de/item/images/2"],
             "created": "2025-05-05T00:00:00Z",
-            "updated": "2025-05-05T00:00:00Z"
+            "updated": "2025-05-05T00:00:00Z",
+            "history": [
+                {
+                    "eventType": "STATE_AVAILABLE",
+                    "itemId": item_id,
+                    "eventId": event_id,
+                    "shopId": shop_id,
+                    "shopsItemId": shops_item_id,
+                    "payload": "AVAILABLE",
+                    "timestamp": "2025-05-05T00:00:00Z",
+                },
+                {
+                    "eventType": "PRICE_DROPPED",
+                    "itemId": item_id,
+                    "eventId": event_id,
+                    "shopId": shop_id,
+                    "shopsItemId": shops_item_id,
+                    "payload": {
+                        "amount": 42,
+                        "currency": "EUR"
+                    },
+                    "timestamp": "2025-05-05T00:00:00Z",
+                }
+            ]
         });
 
         let actual = serde_json::to_value(dto).unwrap();

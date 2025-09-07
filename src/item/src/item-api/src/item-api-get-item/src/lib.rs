@@ -1,7 +1,8 @@
 use aws_lambda_events::apigw::{ApiGatewayV2httpRequest, ApiGatewayV2httpResponse};
+use aws_lambda_events::query_map::QueryMap;
 use common::api::api_gateway_v2_http_response_builder::ApiGatewayV2HttpResponseBuilder;
 use common::api::error::ApiError;
-use common::api::error_code::{BAD_PARAMETER, INTERNAL_SERVER_ERROR};
+use common::api::error_code::{BAD_PARAMETER, BAD_QUERY_PARAMETER_VALUE, INTERNAL_SERVER_ERROR};
 use common::currency::data::api::extract_currency_query;
 use common::language::data::api::extract_languages_header;
 use common::language::domain::Language;
@@ -55,7 +56,13 @@ pub async fn handle(
         .ok_or(ApiError::bad_request(BAD_PARAMETER).with_path_field("shopsItemId"))?;
 
     let item_data: GetItemData = service
-        .view_item(&shop_id, &shops_item_id, languages.as_slice(), &currency)
+        .view_item(
+            &shop_id,
+            &shops_item_id,
+            languages.as_slice(),
+            &currency,
+            extract_history_query(&event.payload.query_string_parameters)?,
+        )
         .await?
         .into();
     let response = serde_json::to_string(&item_data).map_err(|err| {
@@ -72,6 +79,21 @@ pub async fn handle(
         .last_modified(item_data.updated)
         .cors()
         .build())
+}
+
+fn extract_history_query(query: &QueryMap) -> Result<bool, ApiError> {
+    query
+        .first("history")
+        .map(|val| match val {
+            "true" => Ok(true),
+            "false" => Ok(false),
+            other => Err(ApiError::bad_request(BAD_QUERY_PARAMETER_VALUE)
+                .with_query_field("history")
+                .with_message(format!(
+                    "Expected any of: 'true' or 'false'. Got: '{other}'"
+                ))),
+        })
+        .unwrap_or(Ok(false))
 }
 
 #[cfg(test)]
@@ -118,7 +140,7 @@ mod tests {
         let mut service = MockGetItemService::default();
         service
             .expect_view_item()
-            .return_once(move |shop_id, shops_item_id, _, _| {
+            .return_once(move |shop_id, shops_item_id, _, _, _| {
                 let item = LocalizedItemView {
                     item_id: Default::default(),
                     event_id: EventId::new(),
@@ -134,6 +156,7 @@ mod tests {
                     hash: ItemHash::new(&None, &ItemState::Listed),
                     created: OffsetDateTime::now_utc(),
                     updated: OffsetDateTime::now_utc(),
+                    history: None,
                 };
                 Box::pin(async move { Ok(item) })
             });
@@ -157,7 +180,7 @@ mod tests {
         let mut service = MockGetItemService::default();
         service
             .expect_view_item()
-            .return_once(move |shop_id, shops_item_id, _, _| {
+            .return_once(move |shop_id, shops_item_id, _, _, _| {
                 let item = LocalizedItemView {
                     item_id: Default::default(),
                     event_id,
@@ -173,6 +196,7 @@ mod tests {
                     hash: ItemHash::new(&None, &ItemState::Listed),
                     created: OffsetDateTime::now_utc(),
                     updated: OffsetDateTime::now_utc(),
+                    history: None,
                 };
                 Box::pin(async move { Ok(item) })
             });
@@ -201,7 +225,7 @@ mod tests {
         let mut service = MockGetItemService::default();
         service
             .expect_view_item()
-            .return_once(move |shop_id, shops_item_id, _, _| {
+            .return_once(move |shop_id, shops_item_id, _, _, _| {
                 let item = LocalizedItemView {
                     item_id: Default::default(),
                     event_id,
@@ -217,6 +241,7 @@ mod tests {
                     hash: ItemHash::new(&None, &ItemState::Listed),
                     created: timestamp,
                     updated: timestamp,
+                    history: None,
                 };
                 Box::pin(async move { Ok(item) })
             });
@@ -227,6 +252,60 @@ mod tests {
                 .http_method(http::Method::GET)
                 .path_parameter("shopId", shop_id)
                 .path_parameter("shopsItemId", shops_item_id)
+                .build(),
+            context: Default::default(),
+        };
+        let response = handler(lambda_event, &service).await.unwrap();
+        assert_eq!(200, response.status_code);
+        assert_eq!(
+            "Wed, 01 Jan 2020 00:00:00 GMT",
+            response.headers.get(LAST_MODIFIED).unwrap()
+        );
+    }
+
+    #[tokio::test]
+    #[rstest::rstest]
+    #[case::default_false(None, false)]
+    #[case::accept_true(Some("true"), true)]
+    #[case::accept_false(Some("false"), false)]
+    async fn should_respect_history_query_param(
+        #[case] history_query_value: Option<&'static str>,
+        #[case] expected_history: bool,
+    ) {
+        let timestamp = datetime!(2020-01-01 0:00 UTC);
+        let event_id = EventId::new();
+        let mut service = MockGetItemService::default();
+        service
+            .expect_view_item()
+            .return_once(move |shop_id, shops_item_id, _, _, history| {
+                assert_eq!(expected_history, history);
+                let item = LocalizedItemView {
+                    item_id: Default::default(),
+                    event_id,
+                    shop_id: shop_id.clone(),
+                    shops_item_id: shops_item_id.clone(),
+                    shop_name: "".into(),
+                    title: Localized::new(Language::Es, "Native title".into()),
+                    description: None,
+                    price: None,
+                    state: ItemState::Listed,
+                    url: Url::parse("https://foo.com/boop").unwrap(),
+                    images: vec![],
+                    hash: ItemHash::new(&None, &ItemState::Listed),
+                    created: timestamp,
+                    updated: timestamp,
+                    history: None,
+                };
+                Box::pin(async move { Ok(item) })
+            });
+        let shop_id = ShopId::new();
+        let shops_item_id = ShopsItemId::new();
+        let lambda_event = LambdaEvent {
+            payload: ApiGatewayV2httpRequestProxy::builder()
+                .http_method(http::Method::GET)
+                .path_parameter("shopId", shop_id)
+                .path_parameter("shopsItemId", shops_item_id)
+                .try_query_string_parameter("history", history_query_value)
                 .build(),
             context: Default::default(),
         };
@@ -277,6 +356,27 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn should_400_when_history_query_param_value_invalid() {
+        let mut service = MockGetItemService::default();
+        service.expect_view_item().never();
+        let lambda_event = LambdaEvent {
+            payload: ApiGatewayV2httpRequestProxy::builder()
+                .http_method(http::Method::GET)
+                .path_parameter("shopId", ShopId::new())
+                .path_parameter("shopsItemId", ShopsItemId::new())
+                .query_string_parameter("history", "boop")
+                .build(),
+            context: Default::default(),
+        };
+
+        let response = handler(lambda_event, &service).await.unwrap();
+        assert_eq!(400, response.status_code);
+        let json = extract_apigw_response_json_body!(response);
+        assert_eq!(400, json["status"]);
+        assert_eq!("history", json["source"]["field"]);
+    }
+
+    #[tokio::test]
     async fn should_404_when_item_does_not_exist() {
         let shop_id = ShopId::new();
         let shops_item_id = ShopsItemId::new();
@@ -292,7 +392,7 @@ mod tests {
         let mut service = MockGetItemService::default();
         service
             .expect_view_item()
-            .return_once(move |shop_id, shops_item_id, _, _| {
+            .return_once(move |shop_id, shops_item_id, _, _, _| {
                 let shop_id = shop_id.clone();
                 let shops_item_id = shops_item_id.clone();
                 Box::pin(async move { Err(GetItemError::ItemNotFound(shop_id, shops_item_id)) })

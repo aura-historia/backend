@@ -1,19 +1,29 @@
+use std::collections::HashMap;
+
 use crate::item_event_type_record::ItemEventTypeRecord;
 use crate::item_state_record::ItemStateRecord;
+
 use common::currency::domain::Currency;
+use common::error::missing_field::MissingPersistenceField;
+use common::event::Event;
 use common::event_id::EventId;
 use common::has_key::HasKey;
 use common::item_id::{ItemId, ItemKey};
+use common::item_state::domain::ItemState;
 use common::language::domain::Language;
 use common::language::record::TextRecord;
+use common::localized::Localized;
+use common::price::domain::Price;
 use common::price::record::PriceRecord;
 use common::shop_id::ShopId;
 use common::shops_item_id::ShopsItemId;
+use field::field;
 use item_core::hash::ItemHash;
 use item_core::item_event::{
-    ItemCommonEventPayload, ItemEvent, ItemEventPayload, ItemPriceChangeEventPayload,
-    ItemStateChangeEventPayload,
+    ItemCommonEventPayload, ItemCreatedEventPayload, ItemEvent, ItemEventPayload,
+    ItemPriceChangeEventPayload, ItemStateChangeEventPayload,
 };
+use item_core::shop_name::ShopName;
 use serde::{Deserialize, Serialize};
 use time::format_description::well_known::Rfc3339;
 use time::{OffsetDateTime, error};
@@ -405,6 +415,154 @@ fn mk_price_event_record(
         images: None,
         hash: item_price_change_event_payload.hash,
         timestamp,
+    }
+}
+
+impl TryFrom<ItemEventRecord> for ItemEvent {
+    type Error = MissingPersistenceField;
+
+    fn try_from(record: ItemEventRecord) -> Result<Self, Self::Error> {
+        let shop_id = record.shop_id;
+        let shops_item_id = record.shops_item_id;
+        let hash = record.hash;
+        let mut other_price = HashMap::with_capacity(6);
+        if let Some(amount_eur) = record.price_eur {
+            other_price.insert(Currency::Eur, amount_eur.into());
+        }
+        if let Some(amount_gbp) = record.price_gbp {
+            other_price.insert(Currency::Gbp, amount_gbp.into());
+        }
+        if let Some(amount_usd) = record.price_usd {
+            other_price.insert(Currency::Usd, amount_usd.into());
+        }
+        if let Some(amount_aud) = record.price_aud {
+            other_price.insert(Currency::Aud, amount_aud.into());
+        }
+        if let Some(amount_cad) = record.price_cad {
+            other_price.insert(Currency::Cad, amount_cad.into());
+        }
+        if let Some(amount_nzd) = record.price_nzd {
+            other_price.insert(Currency::Nzd, amount_nzd.into());
+        }
+
+        let event = Event {
+            aggregate_id: record.item_id,
+            event_id: record.event_id,
+            timestamp: record.timestamp,
+            payload: match record.event_type {
+                ItemEventTypeRecord::Created => {
+                    let mut other_title = HashMap::with_capacity(2);
+                    if let Some(title_de) = record.title_de {
+                        other_title.insert(Language::De, title_de.into());
+                    }
+                    if let Some(title_en) = record.title_en {
+                        other_title.insert(Language::En, title_en.into());
+                    }
+
+                    let mut other_description = HashMap::with_capacity(2);
+                    if let Some(description_de) = record.description_de {
+                        other_description.insert(Language::De, description_de.into());
+                    }
+                    if let Some(description_en) = record.description_en {
+                        other_description.insert(Language::En, description_en.into());
+                    }
+
+                    ItemEventPayload::Created(ItemCreatedEventPayload {
+                        shop_id,
+                        shops_item_id,
+                        shop_name: record.shop_name.map(ShopName::from).ok_or(
+                            MissingPersistenceField::new(field!(shop_name@ItemEventRecord)),
+                        )?,
+                        native_title: record.title_native.map(Localized::from).ok_or(
+                            MissingPersistenceField::new(field!(title_native@ItemEventRecord)),
+                        )?,
+                        other_title,
+                        native_description: record.description_native.map(Localized::from),
+                        other_description,
+                        native_price: record.price_native.map(Price::from),
+                        other_price,
+                        state: record
+                            .state
+                            .map(ItemState::from)
+                            .ok_or(MissingPersistenceField::new(field!(state@ItemEventRecord)))?,
+                        url: record
+                            .url
+                            .ok_or(MissingPersistenceField::new(field!(url@ItemEventRecord)))?,
+                        images: record.images.unwrap_or_default(),
+                        hash,
+                    })
+                }
+                ItemEventTypeRecord::StateListed => {
+                    ItemEventPayload::StateListed(ItemStateChangeEventPayload {
+                        shop_id,
+                        shops_item_id,
+                        hash,
+                    })
+                }
+                ItemEventTypeRecord::StateAvailable => {
+                    ItemEventPayload::StateAvailable(ItemStateChangeEventPayload {
+                        shop_id,
+                        shops_item_id,
+                        hash,
+                    })
+                }
+                ItemEventTypeRecord::StateReserved => {
+                    ItemEventPayload::StateReserved(ItemStateChangeEventPayload {
+                        shop_id,
+                        shops_item_id,
+                        hash,
+                    })
+                }
+                ItemEventTypeRecord::StateSold => {
+                    ItemEventPayload::StateSold(ItemStateChangeEventPayload {
+                        shop_id,
+                        shops_item_id,
+                        hash,
+                    })
+                }
+                ItemEventTypeRecord::StateRemoved => {
+                    ItemEventPayload::StateRemoved(ItemStateChangeEventPayload {
+                        shop_id,
+                        shops_item_id,
+                        hash,
+                    })
+                }
+                ItemEventTypeRecord::PriceDiscovered => {
+                    ItemEventPayload::PriceDiscovered(ItemPriceChangeEventPayload {
+                        shop_id,
+                        shops_item_id,
+                        native_price: record.price_native.map(Price::from).ok_or(
+                            MissingPersistenceField::new(field!(price_native@ItemEventRecord)),
+                        )?,
+                        other_price,
+                        hash,
+                    })
+                }
+                ItemEventTypeRecord::PriceDropped => {
+                    ItemEventPayload::PriceDropped(ItemPriceChangeEventPayload {
+                        shop_id,
+                        shops_item_id,
+                        native_price: record.price_native.map(Price::from).ok_or(
+                            MissingPersistenceField::new(field!(price_native@ItemEventRecord)),
+                        )?,
+                        other_price,
+                        hash,
+                    })
+                }
+                ItemEventTypeRecord::PriceIncreased => {
+                    ItemEventPayload::PriceIncreased(ItemPriceChangeEventPayload {
+                        shop_id,
+                        shops_item_id,
+                        native_price: record.price_native.map(Price::from).ok_or(
+                            MissingPersistenceField::new(field!(price_native@ItemEventRecord)),
+                        )?,
+                        other_price,
+                        hash,
+                    })
+                }
+            },
+        };
+        Ok(event)
     }
 }
 
