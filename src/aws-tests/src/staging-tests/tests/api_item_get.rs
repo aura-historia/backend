@@ -80,6 +80,13 @@ async fn should_respond_200_with_history() {
             hash: ItemHash::new(&Some(event_1_price), &record.state.into()),
         }),
     };
+    let insert_res = repository
+        .put_item_event_records([event_1.clone().try_into().unwrap()].into())
+        .await
+        .unwrap();
+    assert!(insert_res.unprocessed_items.unwrap().is_empty());
+    tokio::time::sleep(Duration::from_secs(1)).await;
+
     let event_2_id = EventId::new();
     let event_2 = Event {
         aggregate_id: record.item_id,
@@ -92,13 +99,7 @@ async fn should_respond_200_with_history() {
         }),
     };
     let insert_res = repository
-        .put_item_event_records(
-            [
-                event_1.clone().try_into().unwrap(),
-                event_2.clone().try_into().unwrap(),
-            ]
-            .into(),
-        )
+        .put_item_event_records([event_2.clone().try_into().unwrap()].into())
         .await
         .unwrap();
     assert!(insert_res.unprocessed_items.unwrap().is_empty());
