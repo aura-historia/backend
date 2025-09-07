@@ -477,7 +477,11 @@ mod tests {
             shops_item_id::ShopsItemId,
         };
         use fake::{Fake, Faker};
-        use item_dynamodb::{item_record::ItemRecord, repository::MockItemDynamoDbRepository};
+        use item_dynamodb::{
+            item_event_record::ItemEventRecord, item_record::ItemRecord,
+            repository::MockItemDynamoDbRepository,
+        };
+        use itertools::Itertools;
 
         #[tokio::test]
         async fn should_return_item_when_exists_without_history() {
@@ -519,6 +523,41 @@ mod tests {
                 )
                 .await;
             assert!(actual.is_ok());
+        }
+
+        #[tokio::test]
+        async fn should_keep_history_in_exact_order_as_dynamodb_read() {
+            let mut repository = MockItemDynamoDbRepository::default();
+            let mut events = fake::vec![ItemEventRecord; 100];
+            events.sort_by(|l, r| l.item_id.cmp(&r.item_id));
+            let expected = events
+                .clone()
+                .into_iter()
+                .map(|record| record.item_id)
+                .collect_vec();
+            repository
+                .expect_query_item_record_and_event_records()
+                .return_once(|_, _| Box::pin(async { Ok(Some((Faker.fake(), events))) }));
+            let service = GetItemServiceImpl {
+                repository: &repository,
+            };
+            let actual = service
+                .view_item(
+                    &ShopId::new(),
+                    &ShopsItemId::new(),
+                    &[],
+                    &Currency::Eur,
+                    true,
+                )
+                .await
+                .unwrap()
+                .history
+                .unwrap()
+                .into_iter()
+                .map(|event| event.aggregate_id)
+                .collect_vec();
+
+            assert_eq!(expected, actual);
         }
 
         #[tokio::test]

@@ -80,13 +80,6 @@ async fn should_respond_200_with_history() {
             hash: ItemHash::new(&Some(event_1_price), &record.state.into()),
         }),
     };
-    let insert_res = repository
-        .put_item_event_records([event_1.clone().try_into().unwrap()].into())
-        .await
-        .unwrap();
-    assert!(insert_res.unprocessed_items.unwrap().is_empty());
-    tokio::time::sleep(Duration::from_secs(1)).await;
-
     let event_2_id = EventId::new();
     let event_2 = Event {
         aggregate_id: record.item_id,
@@ -99,7 +92,13 @@ async fn should_respond_200_with_history() {
         }),
     };
     let insert_res = repository
-        .put_item_event_records([event_2.clone().try_into().unwrap()].into())
+        .put_item_event_records(
+            [
+                event_1.clone().try_into().unwrap(),
+                event_2.clone().try_into().unwrap(),
+            ]
+            .into(),
+        )
         .await
         .unwrap();
     assert!(insert_res.unprocessed_items.unwrap().is_empty());
@@ -118,9 +117,9 @@ async fn should_respond_200_with_history() {
     let body = response.json::<serde_json::Value>().await.unwrap();
     let history = body["history"].as_array().unwrap();
     assert_eq!(2, history.len());
-    assert_eq!(event_1_id.to_string(), history[0]["itemId"]);
+    assert_eq!(event_1_id.to_string(), history[0]["eventId"]);
     assert_eq!("PRICE_DROPPED", history[0]["eventType"]);
-    assert_eq!("USD", history[0]["price"]["currency"]);
+    assert_eq!("USD", history[0]["payload"]["currency"]);
     assert_eq!(
         u64::from(
             event_1_price
@@ -128,9 +127,9 @@ async fn should_respond_200_with_history() {
                 .unwrap()
                 .monetary_amount
         ),
-        history[0]["price"]["amount"]
+        history[0]["payload"]["amount"]
     );
-    assert_eq!(event_2_id.to_string(), history[1]["itemId"]);
+    assert_eq!(event_2_id.to_string(), history[1]["eventId"]);
     assert_eq!("STATE_REMOVED", history[1]["eventType"]);
 }
 

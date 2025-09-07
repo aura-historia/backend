@@ -196,11 +196,7 @@ impl Price {
         currency: Currency,
     ) -> Result<Price, MonetaryAmountOverflowError> {
         let exchanged = Price {
-            monetary_amount: fx_rate.exchange(
-                self.currency,
-                self.currency,
-                self.monetary_amount,
-            )?,
+            monetary_amount: fx_rate.exchange(self.currency, currency, self.monetary_amount)?,
             currency,
         };
         Ok(exchanged)
