@@ -3622,12 +3622,17 @@ dependencies = [
 name = "search-filter-dynamodb"
 version = "0.1.0"
 dependencies = [
+ "async-trait",
+ "aws-sdk-dynamodb",
  "common",
  "field",
  "item-dynamodb",
+ "mockall",
  "search-filter-core",
  "serde",
+ "serde_dynamo",
  "time",
+ "tracing",
 ]
 
 [[package]]

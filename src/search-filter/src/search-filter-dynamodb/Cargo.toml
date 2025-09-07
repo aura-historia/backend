@@ -10,3 +10,8 @@ item-dynamodb = { workspace = true }
 serde = { workspace = true }
 field = { workspace = true }
 time = { workspace = true, features = ["local-offset", "macros", "formatting"] }
+mockall = { workspace = true }
+tracing = { workspace = true }
+async-trait = { workspace = true }
+aws-sdk-dynamodb = { workspace = true }
+serde_dynamo = { workspace = true, features = [ "aws-sdk-dynamodb+1" ] }
