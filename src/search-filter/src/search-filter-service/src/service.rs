@@ -22,6 +22,11 @@ pub enum SearchFilterError {
     SdkPutItemError(
         #[from] SdkError<aws_sdk_dynamodb::operation::put_item::PutItemError, HttpResponse>,
     ),
+
+    #[error("Encountered DynamoDB SdkError for DeleteItem: {0}")]
+    SdkDeleteItemError(
+        #[from] SdkError<aws_sdk_dynamodb::operation::delete_item::DeleteItemError, HttpResponse>,
+    ),
 }
 
 #[cfg(feature = "api")]
@@ -47,6 +52,10 @@ pub mod api {
                 }
                 SearchFilterError::SdkPutItemError(err) => {
                     error!(error = ?err, "Encountered SdkPutItemError while saving search-filter.");
+                    err.into()
+                }
+                SearchFilterError::SdkDeleteItemError(err) => {
+                    error!(error = ?err, "Encountered SdkDeleteItemError while deleting search-filter.");
                     err.into()
                 }
             }
@@ -151,6 +160,369 @@ impl<'a> SearchFilterService for SearchFilterServiceImpl<'a> {
     ) -> Result<(), SearchFilterError> {
         // exists guard
         let _ = self.find_search_filter(user_id, search_filter_id).await?;
-        self.delete_search_filter(user_id, search_filter_id).await
+        let _ = self
+            .repository
+            .delete_search_filter_record(user_id, search_filter_id)
+            .await?;
+        Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    mod find_search_filters {
+        use crate::service::{SearchFilterError, SearchFilterService, SearchFilterServiceImpl};
+        use aws_sdk_dynamodb::{
+            config::http::HttpResponse,
+            error::{ConnectorError, SdkError},
+        };
+        use common::sort::SortOrder;
+        use common::user_id::UserId;
+        use search_filter_dynamodb::repository::MockSearchFilterDynamoDbRepository;
+        use search_filter_dynamodb::search_filter_record::SearchFilterRecord;
+
+        #[rstest::rstest]
+        #[case::empty(0)]
+        #[case::non_empty(42)]
+        #[tokio::test]
+        async fn should_return_search_filters(#[case] count: usize) {
+            let mut repository = MockSearchFilterDynamoDbRepository::default();
+            repository
+                .expect_query_search_filter_records()
+                .return_once(move |_, _| {
+                    Box::pin(async move { Ok(fake::vec![SearchFilterRecord; count]) })
+                });
+            let service = SearchFilterServiceImpl {
+                repository: &repository,
+            };
+            let actual = service
+                .find_search_filters(&UserId::new(), &SortOrder::Asc)
+                .await;
+            assert!(actual.is_ok());
+        }
+
+        #[tokio::test]
+        #[rstest::rstest]
+        #[case::construction_failure(SdkError::construction_failure("Something went wrong"))]
+        #[case::timeout(SdkError::timeout_error("Something went wrong"))]
+        #[case::dispatch_failure(SdkError::dispatch_failure(ConnectorError::user("Something went wrong".into())))]
+        #[case::response_error(SdkError::response_error(
+            "Something went wrong",
+            HttpResponse::new(500u16.try_into().unwrap(), "{}".into())
+        ))]
+        #[case::service_error(SdkError::service_error(
+            aws_sdk_dynamodb::operation::query::QueryError::unhandled("Something went wrong"),
+            HttpResponse::new(500u16.try_into().unwrap(), "{}".into())
+        ))]
+        async fn should_propagate_sdk_error(
+            #[case] expected: SdkError<
+                aws_sdk_dynamodb::operation::query::QueryError,
+                aws_sdk_dynamodb::config::http::HttpResponse,
+            >,
+        ) {
+            let mut repository = MockSearchFilterDynamoDbRepository::default();
+            repository
+                .expect_query_search_filter_records()
+                .return_once(|_, _| Box::pin(async { Err(expected) }));
+            let service = SearchFilterServiceImpl {
+                repository: &repository,
+            };
+            let actual = service
+                .find_search_filters(&UserId::new(), &SortOrder::Desc)
+                .await;
+
+            assert!(actual.is_err());
+            match actual.unwrap_err() {
+                SearchFilterError::SdkQueryError(_) => {}
+                _ => panic!("expected SearchFilterError::SdkQueryError"),
+            }
+        }
+    }
+
+    mod find_search_filter {
+        use crate::service::{SearchFilterError, SearchFilterService, SearchFilterServiceImpl};
+        use aws_sdk_dynamodb::{
+            config::http::HttpResponse,
+            error::{ConnectorError, SdkError},
+        };
+        use common::user_id::UserId;
+        use fake::{Fake, Faker};
+        use search_filter_core::search_filter_id::SearchFilterId;
+        use search_filter_dynamodb::repository::MockSearchFilterDynamoDbRepository;
+
+        #[tokio::test]
+        async fn should_return_search_filter_when_exists() {
+            let mut repository = MockSearchFilterDynamoDbRepository::default();
+            repository
+                .expect_get_search_filter_record()
+                .return_once(|_, _| Box::pin(async { Ok(Some(Faker.fake())) }));
+            let service = SearchFilterServiceImpl {
+                repository: &repository,
+            };
+            let actual = service
+                .find_search_filter(&UserId::new(), &SearchFilterId::new())
+                .await;
+            assert!(actual.is_ok());
+        }
+
+        #[tokio::test]
+        async fn should_return_search_filter_not_found_error_when_not_exists() {
+            let mut repository = MockSearchFilterDynamoDbRepository::default();
+            repository
+                .expect_get_search_filter_record()
+                .return_once(|_, _| Box::pin(async { Ok(None) }));
+            let service = SearchFilterServiceImpl {
+                repository: &repository,
+            };
+            let user_id = UserId::new();
+            let search_filter_id = SearchFilterId::new();
+            let actual = service
+                .find_search_filter(&user_id, &search_filter_id)
+                .await;
+
+            assert!(actual.is_err());
+            match actual.unwrap_err() {
+                SearchFilterError::SearchFilterNotFound(err_user_id, err_search_filter_id) => {
+                    assert_eq!(err_user_id, user_id);
+                    assert_eq!(err_search_filter_id, search_filter_id);
+                }
+                _ => panic!("expected SearchFilterError::SearchFilterNotFound"),
+            }
+        }
+
+        #[tokio::test]
+        #[rstest::rstest]
+        #[case::construction_failure(SdkError::construction_failure("Something went wrong"))]
+        #[case::timeout(SdkError::timeout_error("Something went wrong"))]
+        #[case::dispatch_failure(SdkError::dispatch_failure(ConnectorError::user("Something went wrong".into())))]
+        #[case::response_error(SdkError::response_error(
+            "Something went wrong",
+            HttpResponse::new(500u16.try_into().unwrap(), "{}".into())
+        ))]
+        #[case::service_error(SdkError::service_error(
+            aws_sdk_dynamodb::operation::get_item::GetItemError::unhandled("Something went wrong"),
+            HttpResponse::new(500u16.try_into().unwrap(), "{}".into())
+        ))]
+        async fn should_propagate_sdk_error(
+            #[case] expected: SdkError<
+                aws_sdk_dynamodb::operation::get_item::GetItemError,
+                aws_sdk_dynamodb::config::http::HttpResponse,
+            >,
+        ) {
+            let mut repository = MockSearchFilterDynamoDbRepository::default();
+            repository
+                .expect_get_search_filter_record()
+                .return_once(|_, _| Box::pin(async { Err(expected) }));
+            let service = SearchFilterServiceImpl {
+                repository: &repository,
+            };
+            let actual = service
+                .find_search_filter(&UserId::new(), &SearchFilterId::new())
+                .await;
+
+            assert!(actual.is_err());
+            match actual.unwrap_err() {
+                SearchFilterError::SdkGetItemError(_) => {}
+                _ => panic!("expected SearchFilterError::SdkGetItemError"),
+            }
+        }
+    }
+
+    mod save_search_filter {
+        use crate::service::{SearchFilterError, SearchFilterService, SearchFilterServiceImpl};
+        use aws_sdk_dynamodb::{
+            config::http::HttpResponse,
+            error::{ConnectorError, SdkError},
+            operation::put_item::PutItemOutput,
+        };
+        use common::user_id::UserId;
+        use fake::{Fake, Faker};
+        use search_filter_dynamodb::repository::MockSearchFilterDynamoDbRepository;
+
+        #[tokio::test]
+        async fn should_save_search_filter() {
+            let mut repository = MockSearchFilterDynamoDbRepository::default();
+            repository
+                .expect_put_search_filter_record()
+                .return_once(|_| Box::pin(async { Ok(PutItemOutput::builder().build()) }));
+            let service = SearchFilterServiceImpl {
+                repository: &repository,
+            };
+            let actual = service
+                .save_search_filter(&UserId::new(), Faker.fake())
+                .await;
+            assert!(actual.is_ok());
+        }
+
+        #[tokio::test]
+        #[rstest::rstest]
+        #[case::construction_failure(SdkError::construction_failure("Something went wrong"))]
+        #[case::timeout(SdkError::timeout_error("Something went wrong"))]
+        #[case::dispatch_failure(SdkError::dispatch_failure(ConnectorError::user("Something went wrong".into())))]
+        #[case::response_error(SdkError::response_error(
+            "Something went wrong",
+            HttpResponse::new(500u16.try_into().unwrap(), "{}".into())
+        ))]
+        #[case::service_error(SdkError::service_error(
+            aws_sdk_dynamodb::operation::put_item::PutItemError::unhandled("Something went wrong"),
+            HttpResponse::new(500u16.try_into().unwrap(), "{}".into())
+        ))]
+        async fn should_propagate_sdk_error(
+            #[case] expected: SdkError<
+                aws_sdk_dynamodb::operation::put_item::PutItemError,
+                aws_sdk_dynamodb::config::http::HttpResponse,
+            >,
+        ) {
+            let mut repository = MockSearchFilterDynamoDbRepository::default();
+            repository
+                .expect_put_search_filter_record()
+                .return_once(|_| Box::pin(async { Err(expected) }));
+            let service = SearchFilterServiceImpl {
+                repository: &repository,
+            };
+            let actual = service
+                .save_search_filter(&UserId::new(), Faker.fake())
+                .await;
+
+            assert!(actual.is_err());
+            match actual.unwrap_err() {
+                SearchFilterError::SdkPutItemError(_) => {}
+                _ => panic!("expected SearchFilterError::SdkPutItemError"),
+            }
+        }
+    }
+
+    mod delete_search_filter {
+        use crate::service::{SearchFilterError, SearchFilterService, SearchFilterServiceImpl};
+        use aws_sdk_dynamodb::{
+            config::http::HttpResponse,
+            error::{ConnectorError, SdkError},
+            operation::delete_item::DeleteItemOutput,
+        };
+        use common::user_id::UserId;
+        use fake::{Fake, Faker};
+        use search_filter_core::search_filter_id::SearchFilterId;
+        use search_filter_dynamodb::repository::MockSearchFilterDynamoDbRepository;
+
+        #[tokio::test]
+        async fn should_delete_search_filter_when_exists() {
+            let mut repository = MockSearchFilterDynamoDbRepository::default();
+            repository
+                .expect_get_search_filter_record()
+                .return_once(|_, _| Box::pin(async { Ok(Some(Faker.fake())) }));
+            repository
+                .expect_delete_search_filter_record()
+                .return_once(|_, _| Box::pin(async { Ok(DeleteItemOutput::builder().build()) }));
+            let service = SearchFilterServiceImpl {
+                repository: &repository,
+            };
+            let actual = service
+                .delete_search_filter(&UserId::new(), &SearchFilterId::new())
+                .await;
+            assert!(actual.is_ok());
+        }
+
+        #[tokio::test]
+        async fn should_return_search_filter_not_found_error_when_not_exists() {
+            let mut repository = MockSearchFilterDynamoDbRepository::default();
+            repository
+                .expect_get_search_filter_record()
+                .return_once(|_, _| Box::pin(async { Ok(None) }));
+            let service = SearchFilterServiceImpl {
+                repository: &repository,
+            };
+
+            let user_id = UserId::new();
+            let search_filter_id = SearchFilterId::new();
+            let actual = service
+                .delete_search_filter(&user_id, &search_filter_id)
+                .await;
+
+            assert!(actual.is_err());
+            match actual.unwrap_err() {
+                SearchFilterError::SearchFilterNotFound(err_user_id, err_search_filter_id) => {
+                    assert_eq!(err_user_id, user_id);
+                    assert_eq!(err_search_filter_id, search_filter_id);
+                }
+                _ => panic!("expected SearchFilterError::SearchFilterNotFound"),
+            }
+        }
+
+        #[tokio::test]
+        #[rstest::rstest]
+        #[case::construction_failure(SdkError::construction_failure("Something went wrong"))]
+        #[case::timeout(SdkError::timeout_error("Something went wrong"))]
+        #[case::dispatch_failure(SdkError::dispatch_failure(ConnectorError::user("Something went wrong".into())))]
+        #[case::response_error(SdkError::response_error(
+            "Something went wrong",
+            HttpResponse::new(500u16.try_into().unwrap(), "{}".into())
+        ))]
+        #[case::service_error(SdkError::service_error(
+            aws_sdk_dynamodb::operation::get_item::GetItemError::unhandled("Something went wrong"),
+            HttpResponse::new(500u16.try_into().unwrap(), "{}".into())
+        ))]
+        async fn should_propagate_sdk_error_for_find(
+            #[case] expected: SdkError<
+                aws_sdk_dynamodb::operation::get_item::GetItemError,
+                aws_sdk_dynamodb::config::http::HttpResponse,
+            >,
+        ) {
+            let mut repository = MockSearchFilterDynamoDbRepository::default();
+            repository
+                .expect_get_search_filter_record()
+                .return_once(|_, _| Box::pin(async { Err(expected) }));
+            let service = SearchFilterServiceImpl {
+                repository: &repository,
+            };
+            let actual = service
+                .delete_search_filter(&UserId::new(), &SearchFilterId::new())
+                .await;
+
+            assert!(actual.is_err());
+            match actual.unwrap_err() {
+                SearchFilterError::SdkGetItemError(_) => {}
+                _ => panic!("expected SearchFilterError::SdkGetItemError"),
+            }
+        }
+
+        #[tokio::test]
+        #[rstest::rstest]
+        #[case::construction_failure(SdkError::construction_failure("Something went wrong"))]
+        #[case::timeout(SdkError::timeout_error("Something went wrong"))]
+        #[case::dispatch_failure(SdkError::dispatch_failure(ConnectorError::user("Something went wrong".into())))]
+        #[case::response_error(SdkError::response_error(
+            "Something went wrong",
+            HttpResponse::new(500u16.try_into().unwrap(), "{}".into())
+        ))]
+        #[case::service_error(SdkError::service_error(
+            aws_sdk_dynamodb::operation::delete_item::DeleteItemError::unhandled("Something went wrong"),
+            HttpResponse::new(500u16.try_into().unwrap(), "{}".into())
+        ))]
+        async fn should_propagate_sdk_error_for_delete(
+            #[case] expected: SdkError<
+                aws_sdk_dynamodb::operation::delete_item::DeleteItemError,
+                aws_sdk_dynamodb::config::http::HttpResponse,
+            >,
+        ) {
+            let mut repository = MockSearchFilterDynamoDbRepository::default();
+            repository
+                .expect_get_search_filter_record()
+                .return_once(|_, _| Box::pin(async { Ok(Some(Faker.fake())) }));
+            repository
+                .expect_delete_search_filter_record()
+                .return_once(|_, _| Box::pin(async { Err(expected) }));
+            let service = SearchFilterServiceImpl {
+                repository: &repository,
+            };
+            let actual = service
+                .delete_search_filter(&UserId::new(), &SearchFilterId::new())
+                .await;
+
+            assert!(actual.is_err());
+            match actual.unwrap_err() {
+                SearchFilterError::SdkDeleteItemError(_) => {}
+                _ => panic!("expected SearchFilterError::SdkDeleteItemError"),
+            }
+        }
     }
 }

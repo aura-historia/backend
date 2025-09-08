@@ -3653,12 +3653,14 @@ dependencies = [
  "fake",
  "item-dynamodb",
  "mockall",
+ "rstest",
  "search-filter-core",
  "search-filter-dynamodb",
  "search-filter-service",
  "serde_json",
  "thiserror",
  "time",
+ "tokio",
  "tracing",
 ]
 

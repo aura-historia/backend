@@ -20,7 +20,10 @@ fake = { workspace = true, optional = true }
 
 [dev-dependencies]
 serde_json = { workspace = true }
+rstest = { workspace = true }
 search-filter-service = { workspace = true, features = ["test-data", "api"] }
+item-dynamodb = { workspace = true, features = ["test-data"] }
+tokio = { workspace = true, features = ["macros"] }
 
 [features]
 default = []
