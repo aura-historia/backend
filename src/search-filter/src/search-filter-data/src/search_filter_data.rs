@@ -1,5 +1,6 @@
 use std::collections::HashSet;
 
+use common::{currency::data::CurrencyData, language::data::LanguageData};
 use item_data::item_state_data::ItemStateData;
 use search_filter_core::{range_query::RangeQuery, text_query::TextQuery};
 use serde::{Deserialize, Serialize};
@@ -8,6 +9,10 @@ use time::OffsetDateTime;
 #[cfg_attr(feature = "test-data", derive(fake::Dummy))]
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct SearchFilterData {
+    pub language: LanguageData,
+
+    pub currency: CurrencyData,
+
     #[serde(rename = "itemQuery")]
     pub item_query: TextQuery,
 
@@ -44,6 +49,7 @@ pub struct SearchFilterData {
 #[cfg(test)]
 mod tests {
     use crate::search_filter_data::SearchFilterData;
+    use common::{currency::data::CurrencyData, language::data::LanguageData};
     use item_data::item_state_data::ItemStateData;
     use search_filter_core::range_query::RangeQuery;
     use serde_json::json;
@@ -53,6 +59,8 @@ mod tests {
     #[test]
     fn should_serialize_full() {
         let search_filter = SearchFilterData {
+            language: LanguageData::De,
+            currency: CurrencyData::Eur,
             item_query: "Boop".try_into().unwrap(),
             shop_name_query: Some("Baap".try_into().unwrap()),
             price_query: Some(RangeQuery {
@@ -70,21 +78,23 @@ mod tests {
             }),
         };
         let expected = json!({
-           "itemQuery": "Boop",
-           "shopNameQuery": "Baap",
-           "price": {
-               "min": 37,
-               "max": 42
-           },
-           "state": ["AVAILABLE"],
-           "created": {
-               "min": "2000-05-04T00:00:00Z",
-               "max": "2025-05-04T00:00:00Z",
-           },
-           "updated": {
-               "min": "2000-05-04T00:00:00Z",
-               "max": "2025-05-04T00:00:00Z",
-           }
+            "language": "de",
+            "currency": "EUR",
+            "itemQuery": "Boop",
+            "shopNameQuery": "Baap",
+            "price": {
+                "min": 37,
+                "max": 42
+            },
+            "state": ["AVAILABLE"],
+            "created": {
+                "min": "2000-05-04T00:00:00Z",
+                "max": "2025-05-04T00:00:00Z",
+            },
+            "updated": {
+                "min": "2000-05-04T00:00:00Z",
+                "max": "2025-05-04T00:00:00Z",
+            }
         });
 
         let actual = serde_json::to_value(search_filter).unwrap();
@@ -95,23 +105,27 @@ mod tests {
     #[test]
     fn should_deserialize_full() {
         let json = json!({
-           "itemQuery": "Boop",
-           "shopNameQuery": "Baap",
-           "price": {
-               "min": 37,
-               "max": 42
-           },
-           "state": ["AVAILABLE"],
-           "created": {
-               "min": "2000-05-04T00:00:00Z",
-               "max": "2025-05-04T00:00:00Z",
-           },
-           "updated": {
-               "min": "2000-05-04T00:00:00Z",
-               "max": "2025-05-04T00:00:00Z",
-           }
+            "language": "de",
+            "currency": "EUR",
+            "itemQuery": "Boop",
+            "shopNameQuery": "Baap",
+            "price": {
+                "min": 37,
+                "max": 42
+            },
+            "state": ["AVAILABLE"],
+            "created": {
+                "min": "2000-05-04T00:00:00Z",
+                "max": "2025-05-04T00:00:00Z",
+            },
+            "updated": {
+                "min": "2000-05-04T00:00:00Z",
+                "max": "2025-05-04T00:00:00Z",
+            }
         });
         let expected = SearchFilterData {
+            language: LanguageData::De,
+            currency: CurrencyData::Eur,
             item_query: "Boop".try_into().unwrap(),
             shop_name_query: Some("Baap".try_into().unwrap()),
             price_query: Some(RangeQuery {
@@ -137,6 +151,8 @@ mod tests {
     #[test]
     fn should_serialize_minimal() {
         let search_filter = SearchFilterData {
+            language: LanguageData::De,
+            currency: CurrencyData::Eur,
             item_query: "Boop".try_into().unwrap(),
             shop_name_query: None,
             price_query: None,
@@ -145,7 +161,9 @@ mod tests {
             updated_query: None,
         };
         let expected = json!({
-           "itemQuery": "Boop",
+            "language": "de",
+            "currency": "EUR",
+            "itemQuery": "Boop",
         });
 
         let actual = serde_json::to_value(search_filter).unwrap();
@@ -156,9 +174,13 @@ mod tests {
     #[test]
     fn should_deserialize_minimal() {
         let json = json!({
-           "itemQuery": "Boop",
+            "language": "de",
+            "currency": "EUR",
+            "itemQuery": "Boop",
         });
         let expected = SearchFilterData {
+            language: LanguageData::De,
+            currency: CurrencyData::Eur,
             item_query: "Boop".try_into().unwrap(),
             shop_name_query: None,
             price_query: None,
