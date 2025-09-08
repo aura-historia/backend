@@ -1,4 +1,4 @@
-use crate::search_filter_record::SearchFilterRecord;
+use crate::search_filter_record::{SearchFilterRecord, mk_pk, mk_sk};
 use aws_sdk_dynamodb::{
     Client,
     config::http::HttpResponse,
@@ -32,7 +32,7 @@ pub trait SearchFilterDynamoDbRepository {
 
     async fn put_search_filter_record(
         &self,
-        record: &SearchFilterRecord,
+        record: SearchFilterRecord,
     ) -> Result<PutItemOutput, SdkError<PutItemError, HttpResponse>>;
 
     async fn delete_search_filter_record(
@@ -55,14 +55,6 @@ impl<'a> SearchFilterDynamoDbRepositoryImpl<'a> {
             table: table.into(),
         }
     }
-}
-
-fn mk_pk(user_id: &UserId) -> String {
-    format!("user#{user_id}")
-}
-
-fn mk_sk(search_filter_id: &SearchFilterId) -> String {
-    format!("search_filter#{search_filter_id}")
 }
 
 #[async_trait::async_trait]
@@ -128,7 +120,7 @@ impl<'a> SearchFilterDynamoDbRepository for SearchFilterDynamoDbRepositoryImpl<'
 
     async fn put_search_filter_record(
         &self,
-        record: &SearchFilterRecord,
+        record: SearchFilterRecord,
     ) -> Result<PutItemOutput, SdkError<PutItemError, HttpResponse>> {
         self.client
             .put_item()

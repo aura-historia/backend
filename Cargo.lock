@@ -3631,9 +3631,13 @@ dependencies = [
  "field",
  "item-dynamodb",
  "mockall",
+ "rstest",
  "search-filter-core",
+ "search-filter-dynamodb",
  "serde",
  "serde_dynamo",
+ "serial_test",
+ "test-api",
  "time",
  "tracing",
 ]

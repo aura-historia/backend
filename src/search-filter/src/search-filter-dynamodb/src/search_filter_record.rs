@@ -7,7 +7,7 @@ use serde::{Deserialize, Serialize};
 use std::collections::HashSet;
 use time::OffsetDateTime;
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct SearchFilterRecord {
     pub pk: String,
 
@@ -47,4 +47,62 @@ pub struct SearchFilterRecord {
 
     #[serde(with = "time::serde::rfc3339")]
     pub updated: OffsetDateTime,
+}
+
+pub fn mk_pk(user_id: &UserId) -> String {
+    format!("user#{user_id}")
+}
+
+pub fn mk_sk(search_filter_id: &SearchFilterId) -> String {
+    format!("search_filter#{search_filter_id}")
+}
+
+#[cfg(feature = "test-data")]
+mod fake {
+    use crate::search_filter_record::{SearchFilterRecord, mk_pk, mk_sk};
+    use fake::{Dummy, Fake, Faker};
+    use search_filter_core::range_query::RangeQuery;
+    use time::OffsetDateTime;
+
+    impl Dummy<Faker> for SearchFilterRecord {
+        fn dummy_with_rng<R: fake::Rng + ?Sized>(config: &Faker, rng: &mut R) -> Self {
+            let user_id = config.fake_with_rng(rng);
+            let search_filter_id = config.fake_with_rng(rng);
+            SearchFilterRecord {
+                pk: mk_pk(&user_id),
+                sk: mk_sk(&search_filter_id),
+                user_id,
+                search_filter_id,
+                item_query: config.fake_with_rng(rng),
+                shop_name_query: config.fake_with_rng(rng),
+                price_query: config.fake_with_rng(rng),
+                state_query: config.fake_with_rng(rng),
+                created_query: fake_range_query_datetime(config, rng),
+                updated_query: fake_range_query_datetime(config, rng),
+                created: OffsetDateTime::now_utc(),
+                updated: OffsetDateTime::now_utc(),
+            }
+        }
+    }
+
+    fn fake_range_query_datetime<R: fake::Rng + ?Sized>(
+        config: &Faker,
+        rng: &mut R,
+    ) -> Option<RangeQuery<OffsetDateTime>> {
+        if config.fake_with_rng(rng) {
+            None
+        } else {
+            let min = if config.fake_with_rng(rng) {
+                Some(OffsetDateTime::now_utc())
+            } else {
+                None
+            };
+            let max = if config.fake_with_rng(rng) {
+                Some(OffsetDateTime::now_utc())
+            } else {
+                None
+            };
+            Some(RangeQuery { min, max })
+        }
+    }
 }
