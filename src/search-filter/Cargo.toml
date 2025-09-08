@@ -6,3 +6,4 @@ edition = "2024"
 [dependencies]
 search-filter-core = { workspace = true }
 search-filter-dynamodb = { workspace = true }
+search-filter-service = { workspace = true }

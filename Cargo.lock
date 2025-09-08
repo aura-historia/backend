@@ -3604,6 +3604,7 @@ version = "0.1.0"
 dependencies = [
  "search-filter-core",
  "search-filter-dynamodb",
+ "search-filter-service",
 ]
 
 [[package]]
@@ -3638,6 +3639,25 @@ dependencies = [
  "serde_dynamo",
  "serial_test",
  "test-api",
+ "time",
+ "tracing",
+]
+
+[[package]]
+name = "search-filter-service"
+version = "0.1.0"
+dependencies = [
+ "async-trait",
+ "aws-sdk-dynamodb",
+ "common",
+ "fake",
+ "item-dynamodb",
+ "mockall",
+ "search-filter-core",
+ "search-filter-dynamodb",
+ "search-filter-service",
+ "serde_json",
+ "thiserror",
  "time",
  "tracing",
 ]
