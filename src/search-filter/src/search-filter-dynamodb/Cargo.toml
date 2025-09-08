@@ -28,4 +28,4 @@ rstest = { workspace = true }
 
 [features]
 default = []
-test-data = ["fake", "common/test-data", "search-filter-core/test-data"]
+test-data = ["fake", "common/test-data", "search-filter-core/test-data", "item-dynamodb/test-data"]

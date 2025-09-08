@@ -7,7 +7,7 @@ use std::ops::Deref;
 pub struct TextQueryTooShortError(usize);
 
 #[cfg_attr(feature = "test-data", derive(fake::Dummy))]
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(into = "String", try_from = "String")]
 pub struct TextQuery(
     #[cfg_attr(

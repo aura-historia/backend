@@ -38,7 +38,10 @@ derive_builder = "0.20.2"
 fake = { version = "4.4.0", features = ["derive", "time", "uuid"] }
 field = "0.1.0"
 search-filter = { path = "src/search-filter" }
+search-filter-api = { path = "src/search-filter/src/search-filter-api" }
+search-filter-api-get-search-filter = { path = "src/search-filter/src/search-filter-api/src/search-filter-api-get-search-filter" }
 search-filter-core = { path = "src/search-filter/src/search-filter-core" }
+search-filter-data = { path = "src/search-filter/src/search-filter-data" }
 search-filter-dynamodb = { path = "src/search-filter/src/search-filter-dynamodb" }
 search-filter-service = { path = "src/search-filter/src/search-filter-service" }
 futures = { version = "0.3.31", default-features = false }
