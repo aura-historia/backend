@@ -62,6 +62,8 @@ pub async fn handle(
                 .with_message(err.to_string())
         })?;
     let search_filter = SearchFilter {
+        language,
+        currency,
         item_query,
         shop_name_query: None,
         price_query: None,
@@ -71,7 +73,7 @@ pub async fn handle(
     };
 
     let search_result = service
-        .search_items(&search_filter, &language, &currency, &sort, &Some(page))
+        .search_items(&search_filter, &sort, &Some(page))
         .await?;
 
     let items = search_result
@@ -169,16 +171,14 @@ mod tests {
         };
 
         let mut service = MockQueryItemService::default();
-        service
-            .expect_search_items()
-            .return_once(|_, _, _, _, page| {
-                let count = page.map(|page| page.size).unwrap_or(20) as usize;
-                let search_result = SearchResult {
-                    hits: fake::vec![LocalizedItemView; count],
-                    total: 789,
-                };
-                Box::pin(async move { Ok(search_result) })
-            });
+        service.expect_search_items().return_once(|_, _, page| {
+            let count = page.map(|page| page.size).unwrap_or(20) as usize;
+            let search_result = SearchResult {
+                hits: fake::vec![LocalizedItemView; count],
+                total: 789,
+            };
+            Box::pin(async move { Ok(search_result) })
+        });
         let response = handler(lambda_event, &service).await.unwrap();
 
         assert_eq!(200, response.status_code);
@@ -205,16 +205,14 @@ mod tests {
         };
 
         let mut service = MockQueryItemService::default();
-        service
-            .expect_search_items()
-            .return_once(|_, _, _, _, page| {
-                let count = page.map(|page| page.size).unwrap() as usize;
-                let search_result = SearchResult {
-                    hits: fake::vec![LocalizedItemView; count],
-                    total: 789,
-                };
-                Box::pin(async move { Ok(search_result) })
-            });
+        service.expect_search_items().return_once(|_, _, page| {
+            let count = page.map(|page| page.size).unwrap() as usize;
+            let search_result = SearchResult {
+                hits: fake::vec![LocalizedItemView; count],
+                total: 789,
+            };
+            Box::pin(async move { Ok(search_result) })
+        });
         let response = handler(lambda_event, &service).await.unwrap();
 
         assert_eq!(200, response.status_code);

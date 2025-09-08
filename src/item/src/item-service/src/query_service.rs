@@ -44,8 +44,6 @@ pub trait QueryItemService {
     async fn search_items(
         &self,
         search_filter: &SearchFilter,
-        language: &Language,
-        currency: &Currency,
         sort: &Option<Sort<SortItemField>>,
         page: &Option<Page>,
     ) -> Result<SearchResult<LocalizedItemView>, SearchItemsError>;
@@ -66,21 +64,17 @@ impl<'a> QueryItemService for QueryItemServiceImpl<'a> {
     async fn search_items(
         &self,
         search_filter: &SearchFilter,
-        language: &Language,
-        currency: &Currency,
         sort: &Option<Sort<SortItemField>>,
         page: &Option<Page>,
     ) -> Result<SearchResult<LocalizedItemView>, SearchItemsError> {
         let search_response = self
             .repository
-            .search_item_documents(search_filter, language, currency, sort, page)
+            .search_item_documents(search_filter, sort, page)
             .await?;
 
         if search_response.timed_out {
             warn!(
                 searchFilter = ?search_filter,
-                language = ?language,
-                currency = %currency,
                 sort = ?sort,
                 page = ?page,
                 took = search_response.took,
@@ -106,7 +100,7 @@ impl<'a> QueryItemService for QueryItemServiceImpl<'a> {
                 available_descriptions.insert(Language::En, description_en.into());
             }
 
-            let title = Language::resolve(&[*language], available_titles).unwrap_or_else(|| {
+            let title = Language::resolve(&[search_filter.language], available_titles).unwrap_or_else(|| {
                 error!(
                     shopId = %item_document.shop_id,
                     shopsItemId = %item_document.shops_item_id,
@@ -114,9 +108,9 @@ impl<'a> QueryItemService for QueryItemServiceImpl<'a> {
                 );
                 Localized::new(Language::En, "Unknown title".into())
             });
-            let description = Language::resolve(&[*language], available_descriptions);
+            let description = Language::resolve(&[search_filter.language], available_descriptions);
 
-            let price = match currency {
+            let price = match search_filter.currency {
                 Currency::Eur => item_document
                     .price_eur
                     .map(|amount| Price::new(amount.into(), Currency::Eur)),
@@ -221,6 +215,8 @@ mod tests {
     #[rstest::rstest]
     #[case(
         SearchFilter {
+            language: Language::De,
+            currency: Currency::Eur,
             item_query: "Hallo Welt".try_into().unwrap(),
             shop_name_query: Some("Hallo Shop".try_into().unwrap()),
             price_query: Some(RangeQuery { min: Some(100u64.into()), max: Some(999999u64.into()) }),
@@ -228,14 +224,14 @@ mod tests {
             created_query: Some(RangeQuery { min: Some(datetime!(1000-01-01 0:00 UTC)), max: Some(datetime!(3000-01-01 0:00 UTC)) }),
             updated_query: Some(RangeQuery { min: Some(datetime!(1000-01-01 0:00 UTC)), max: Some(datetime!(3000-01-01 0:00 UTC)) }),
         },
-        Language::De,
-        Currency::Eur,
         Some(Sort { sort: SortItemField::Price, order: SortOrder::Asc }),
         Some(Page { from: 0, size: 20 }),
         100
     )]
     #[case(
         SearchFilter {
+            language: Language::En,
+            currency: Currency::Usd,
             item_query: "Hallo Welt".try_into().unwrap(),
             shop_name_query: Some("Hallo Shop".try_into().unwrap()),
             price_query: Some(RangeQuery { min: Some(100u64.into()), max: Some(999999u64.into()) }),
@@ -243,14 +239,14 @@ mod tests {
             created_query: Some(RangeQuery { min: Some(datetime!(1000-01-01 0:00 UTC)), max: Some(datetime!(3000-01-01 0:00 UTC)) }),
             updated_query: Some(RangeQuery { min: Some(datetime!(1000-01-01 0:00 UTC)), max: Some(datetime!(3000-01-01 0:00 UTC)) }),
         },
-        Language::En,
-        Currency::Usd,
         Some(Sort { sort: SortItemField::Price, order: SortOrder::Desc }),
         Some(Page { from: 10, size: 30 }),
         500
     )]
     #[case(
         SearchFilter {
+            language: Language::En,
+            currency: Currency::Gbp,
             item_query: "Hallo Welten!".try_into().unwrap(),
             shop_name_query: None,
             price_query: Some(RangeQuery { min: Some(100000u64.into()), max: Some(999999004u64.into()) }),
@@ -258,14 +254,14 @@ mod tests {
             created_query: Some(RangeQuery { min: None, max: Some(datetime!(3000-01-01 0:00 UTC)) }),
             updated_query: Some(RangeQuery { min: Some(datetime!(1000-01-01 0:00 UTC)), max: None }),
         },
-        Language::En,
-        Currency::Gbp,
         None,
         None,
         1111
     )]
     #[case(
         SearchFilter {
+            language: Language::Fr,
+            currency: Currency::Eur,
             item_query: "Hallo Welten!".try_into().unwrap(),
             shop_name_query: None,
             price_query: None,
@@ -273,14 +269,14 @@ mod tests {
             created_query: None,
             updated_query: None,
         },
-        Language::Fr,
-        Currency::Eur,
         None,
         None,
         123
     )]
     #[case(
         SearchFilter {
+            language: Language::Es,
+            currency: Currency::Eur,
             item_query: "Hallo Welten!".try_into().unwrap(),
             shop_name_query: None,
             price_query: None,
@@ -288,16 +284,12 @@ mod tests {
             created_query: None,
             updated_query: None,
         },
-        Language::Es,
-        Currency::Eur,
         None,
         None,
         1234
     )]
     async fn should_search_items(
         #[case] search_filter: SearchFilter,
-        #[case] language: Language,
-        #[case] currency: Currency,
         #[case] sort: Option<Sort<SortItemField>>,
         #[case] page: Option<Page>,
         #[case] count: usize,
@@ -305,13 +297,13 @@ mod tests {
         let mut repository = MockItemOpenSearchRepository::default();
         repository
             .expect_search_item_documents()
-            .return_once(move |_, _, _, _, _| {
+            .return_once(move |_, _, _| {
                 Box::pin(async move { Ok(mk_search_response(fake::vec![ItemDocument; count])) })
             });
         let service = QueryItemServiceImpl::new(&repository);
 
         let actual = service
-            .search_items(&search_filter, &language, &currency, &sort, &page)
+            .search_items(&search_filter, &sort, &page)
             .await
             .unwrap();
 
@@ -324,7 +316,7 @@ mod tests {
         let mut repository = MockItemOpenSearchRepository::default();
         repository
             .expect_search_item_documents()
-            .return_once(|_, _, _, _, _| {
+            .return_once(|_, _, _| {
                 Box::pin(async {
                     Err(opensearch::Error::from(serde_json::Error::custom(
                         "Something went wrong.",
@@ -336,6 +328,8 @@ mod tests {
         let actual = service
             .search_items(
                 &SearchFilter {
+                    language: Language::De,
+                    currency: Currency::Cad,
                     item_query: "Hallo Welten!".try_into().unwrap(),
                     shop_name_query: None,
                     price_query: None,
@@ -343,8 +337,6 @@ mod tests {
                     created_query: None,
                     updated_query: None,
                 },
-                &Language::De,
-                &Currency::Eur,
                 &None,
                 &None,
             )
@@ -365,7 +357,7 @@ mod tests {
         let mut repository = MockItemOpenSearchRepository::default();
         repository
             .expect_search_item_documents()
-            .return_once(move |_, _, _, _, _| {
+            .return_once(move |_, _, _| {
                 let items = fake::vec![ItemDocument; 369]
                     .into_iter()
                     .map(|mut item| {
@@ -385,6 +377,8 @@ mod tests {
         let actual = service
             .search_items(
                 &SearchFilter {
+                    language: Language::De,
+                    currency,
                     item_query: "Hallo Welten!".try_into().unwrap(),
                     shop_name_query: None,
                     price_query: None,
@@ -392,8 +386,6 @@ mod tests {
                     created_query: None,
                     updated_query: None,
                 },
-                &Language::De,
-                &currency,
                 &None,
                 &None,
             )
@@ -418,7 +410,7 @@ mod tests {
         let mut repository = MockItemOpenSearchRepository::default();
         repository
             .expect_search_item_documents()
-            .return_once(move |_, _, _, _, _| {
+            .return_once(move |_, _, _| {
                 let items = fake::vec![ItemDocument; 369]
                     .into_iter()
                     .map(|mut item| {
@@ -436,6 +428,8 @@ mod tests {
         let actual = service
             .search_items(
                 &SearchFilter {
+                    language,
+                    currency: Currency::Aud,
                     item_query: "Hallo Welten!".try_into().unwrap(),
                     shop_name_query: None,
                     price_query: None,
@@ -443,8 +437,6 @@ mod tests {
                     created_query: None,
                     updated_query: None,
                 },
-                &language,
-                &Currency::Aud,
                 &None,
                 &None,
             )

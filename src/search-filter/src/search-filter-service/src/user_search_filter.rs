@@ -20,6 +20,8 @@ impl From<SearchFilterRecord> for UserSearchFilter {
             user_id: record.user_id,
             search_filter_id: record.search_filter_id,
             search_filter: SearchFilter {
+                language: record.language.into(),
+                currency: record.currency.into(),
                 item_query: record.item_query,
                 shop_name_query: record.shop_name_query,
                 price_query: record
@@ -59,6 +61,8 @@ impl From<UserSearchFilter> for SearchFilterRecord {
                 .map(ItemStateRecord::from)
                 .collect(),
             created_query: user_search_filter.search_filter.created_query,
+            language: user_search_filter.search_filter.language.into(),
+            currency: user_search_filter.search_filter.currency.into(),
             updated_query: user_search_filter.search_filter.updated_query,
             created: user_search_filter.created,
             updated: user_search_filter.updated,

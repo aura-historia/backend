@@ -176,6 +176,8 @@ async fn should_materialize_item_in_opensearch_for_create_item_command() {
         let materialized = repository
             .search_item_documents(
                 &SearchFilter {
+                    language: common::language::domain::Language::En,
+                    currency: common::currency::domain::Currency::Eur,
                     item_query: "Exactly the expected title".try_into().unwrap(),
                     shop_name_query: None,
                     price_query: None,
@@ -183,8 +185,6 @@ async fn should_materialize_item_in_opensearch_for_create_item_command() {
                     created_query: None,
                     updated_query: None,
                 },
-                &common::language::domain::Language::En,
-                &common::currency::domain::Currency::Eur,
                 &None,
                 &None,
             )
@@ -268,6 +268,8 @@ async fn should_materialize_item_in_opensearch_for_update_item_command() {
         let materialized = repository
             .search_item_documents(
                 &SearchFilter {
+                    language: common::language::domain::Language::En,
+                    currency: common::currency::domain::Currency::Usd,
                     item_query: "Exactly the expected title".try_into().unwrap(),
                     shop_name_query: None,
                     price_query: None,
@@ -275,8 +277,6 @@ async fn should_materialize_item_in_opensearch_for_update_item_command() {
                     created_query: None,
                     updated_query: None,
                 },
-                &common::language::domain::Language::En,
-                &common::currency::domain::Currency::Usd,
                 &None,
                 &None,
             )

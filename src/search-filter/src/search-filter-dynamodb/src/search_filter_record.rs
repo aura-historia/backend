@@ -1,4 +1,4 @@
-use common::user_id::UserId;
+use common::{currency::record::CurrencyRecord, language::record::LanguageRecord, user_id::UserId};
 use item_dynamodb::item_state_record::ItemStateRecord;
 use search_filter_core::{
     range_query::RangeQuery, search_filter_id::SearchFilterId, text_query::TextQuery,
@@ -42,6 +42,10 @@ pub struct SearchFilterRecord {
     )]
     pub updated_query: Option<RangeQuery<OffsetDateTime>>,
 
+    pub language: LanguageRecord,
+
+    pub currency: CurrencyRecord,
+
     #[serde(with = "time::serde::rfc3339")]
     pub created: OffsetDateTime,
 
@@ -79,6 +83,8 @@ mod fake {
                 state_query: config.fake_with_rng(rng),
                 created_query: fake_range_query_datetime(config, rng),
                 updated_query: fake_range_query_datetime(config, rng),
+                language: config.fake_with_rng(rng),
+                currency: config.fake_with_rng(rng),
                 created: OffsetDateTime::now_utc(),
                 updated: OffsetDateTime::now_utc(),
             }

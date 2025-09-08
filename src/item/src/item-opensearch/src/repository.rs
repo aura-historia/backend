@@ -34,8 +34,6 @@ pub trait ItemOpenSearchRepository {
     async fn search_item_documents(
         &self,
         search_filter: &SearchFilter,
-        language: &Language,
-        currency: &Currency,
         sort: &Option<Sort<SortItemField>>,
         page: &Option<Page>,
     ) -> Result<SearchResponse<ItemDocument>, opensearch::Error>;
@@ -98,15 +96,13 @@ impl<'a> ItemOpenSearchRepository for ItemOpenSearchRepositoryImpl<'a> {
     async fn search_item_documents(
         &self,
         search_filter: &SearchFilter,
-        language: &Language,
-        currency: &Currency,
         sort: &Option<Sort<SortItemField>>,
         page: &Option<Page>,
     ) -> Result<SearchResponse<ItemDocument>, opensearch::Error> {
         let mut must = vec![];
         let mut filter = vec![];
 
-        let (title_field, description_field) = match language {
+        let (title_field, description_field) = match search_filter.language {
             Language::De => ("titleDe", "descriptionDe"),
             Language::En => ("titleEn", "descriptionEn"),
             _ => ("titleDe", "descriptionDe"),
@@ -160,7 +156,7 @@ impl<'a> ItemOpenSearchRepository for ItemOpenSearchRepositoryImpl<'a> {
             }
         }
 
-        let price_field = match currency {
+        let price_field = match search_filter.currency {
             Currency::Eur => "priceEur",
             Currency::Gbp => "priceGbp",
             Currency::Usd => "priceUsd",
