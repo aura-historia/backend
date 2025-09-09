@@ -2,7 +2,7 @@ use crate::language::data::LanguageData;
 use aws_lambda_events::apigw::ApiGatewayV2httpResponse;
 use aws_lambda_events::encodings::Body;
 use http::header::{
-    ACCESS_CONTROL_ALLOW_ORIGIN, CONTENT_LANGUAGE, CONTENT_TYPE, ETAG, LAST_MODIFIED,
+    ACCESS_CONTROL_ALLOW_ORIGIN, CONTENT_LANGUAGE, CONTENT_TYPE, ETAG, LAST_MODIFIED, LOCATION,
 };
 use http::{HeaderMap, HeaderName, HeaderValue};
 use httpdate::fmt_http_date;
@@ -122,6 +122,29 @@ impl ApiGatewayV2HttpResponseBuilder {
             }
         }
         self
+    }
+
+    pub fn location(mut self, location: &str) -> Self {
+        match HeaderValue::from_str(location) {
+            Ok(location_value) => {
+                self.headers.insert(LOCATION, location_value);
+            }
+            Err(err) => {
+                error!(
+                    error = %err,
+                    location = %location,
+                    "Failed to convert location to HeaderValue when setting HTTP Location."
+                )
+            }
+        }
+        self
+    }
+
+    pub fn try_location(self, location_opt: Option<&str>) -> Self {
+        match location_opt {
+            None => self,
+            Some(location) => self.location(location),
+        }
     }
 
     pub fn body<T: Into<Body>>(mut self, body: T) -> Self {

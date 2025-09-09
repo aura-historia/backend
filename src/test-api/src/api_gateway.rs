@@ -120,12 +120,30 @@ pub struct ApiGatewayV2httpRequestProxy {
                     })
                 };
             }
+
+            pub fn domain_name(self, domain_name: impl Into<String>) {
+                self.request_context.domain_name = Some(domain_name.into());
+            }
+
+            pub fn stage(self, stage: impl Into<String>) {
+                self.request_context.stage = Some(stage.into());
+            }
         ),
         via_mutators
     )]
     pub request_context: ApiGatewayV2httpRequestContext,
     #[builder(setter(!strip_option))]
     pub stage_variables: HashMap<String, String>,
+
+    #[builder(
+        setter(!strip_option),
+        mutators(
+            pub fn body_serde<T: serde::Serialize>(self, t: &T) {
+                self.body = Some(serde_json::to_string(t).unwrap())
+            }
+        ),
+        via_mutators
+    )]
     pub body: Option<String>,
     #[builder(setter(!strip_option))]
     pub is_base64_encoded: bool,

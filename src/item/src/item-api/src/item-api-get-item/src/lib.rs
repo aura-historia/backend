@@ -2,7 +2,9 @@ use aws_lambda_events::apigw::{ApiGatewayV2httpRequest, ApiGatewayV2httpResponse
 use aws_lambda_events::query_map::QueryMap;
 use common::api::api_gateway_v2_http_response_builder::ApiGatewayV2HttpResponseBuilder;
 use common::api::error::ApiError;
-use common::api::error_code::{BAD_PARAMETER, BAD_QUERY_PARAMETER_VALUE, INTERNAL_SERVER_ERROR};
+use common::api::error_code::{
+    BAD_PATH_PARAMETER_VALUE, BAD_QUERY_PARAMETER_VALUE, INTERNAL_SERVER_ERROR,
+};
 use common::currency::data::api::extract_currency_query;
 use common::language::data::api::extract_languages_header;
 use common::language::domain::Language;
@@ -46,14 +48,14 @@ pub async fn handle(
         .get("shopId")
         .filter(|str| !str.is_empty())
         .map(ShopId::from)
-        .ok_or(ApiError::bad_request(BAD_PARAMETER).with_path_field("shopId"))?;
+        .ok_or(ApiError::bad_request(BAD_PATH_PARAMETER_VALUE).with_path_field("shopId"))?;
     let shops_item_id = event
         .payload
         .path_parameters
         .get("shopsItemId")
         .filter(|str| !str.is_empty())
         .map(ShopsItemId::from)
-        .ok_or(ApiError::bad_request(BAD_PARAMETER).with_path_field("shopsItemId"))?;
+        .ok_or(ApiError::bad_request(BAD_PATH_PARAMETER_VALUE).with_path_field("shopsItemId"))?;
 
     let item_data: GetItemData = service
         .view_item(

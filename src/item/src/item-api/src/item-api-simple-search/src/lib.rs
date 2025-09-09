@@ -4,7 +4,7 @@ use common::{
         api_gateway_v2_http_response_builder::ApiGatewayV2HttpResponseBuilder,
         collection::{CollectionData, PaginationData},
         error::ApiError,
-        error_code::{BAD_PARAMETER, INTERNAL_SERVER_ERROR, TEXT_QUERY_TOO_SHORT},
+        error_code::{BAD_PATH_PARAMETER_VALUE, INTERNAL_SERVER_ERROR, TEXT_QUERY_TOO_SHORT},
     },
     currency::{data::api::extract_currency_query, domain::Currency},
     language::{data::api::extract_language_query, domain::Language},
@@ -54,7 +54,7 @@ pub async fn handle(
         .query_string_parameters
         .first("q")
         .map(str::trim)
-        .ok_or(ApiError::bad_request(BAD_PARAMETER).with_query_field("q"))?
+        .ok_or(ApiError::bad_request(BAD_PATH_PARAMETER_VALUE).with_query_field("q"))?
         .try_into()
         .map_err(|err: TextQueryTooShortError| {
             ApiError::bad_request(TEXT_QUERY_TOO_SHORT)

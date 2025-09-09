@@ -1,6 +1,9 @@
 use std::collections::HashSet;
 
-use common::{currency::data::CurrencyData, language::data::LanguageData};
+use common::{
+    currency::data::CurrencyData, item_state::domain::ItemState, language::data::LanguageData,
+    price::domain::MonetaryAmount,
+};
 use item_data::item_state_data::ItemStateData;
 use search_filter_core::{
     range_query::RangeQuery, search_filter::SearchFilter, text_query::TextQuery,
@@ -64,6 +67,23 @@ impl From<SearchFilter> for SearchFilterData {
                 .collect(),
             created_query: search_filter.created_query,
             updated_query: search_filter.updated_query,
+        }
+    }
+}
+
+impl From<SearchFilterData> for SearchFilter {
+    fn from(data: SearchFilterData) -> Self {
+        SearchFilter {
+            language: data.language.into(),
+            currency: data.currency.into(),
+            item_query: data.item_query,
+            shop_name_query: data.shop_name_query,
+            price_query: data
+                .price_query
+                .map(|query| query.map(MonetaryAmount::from)),
+            state_query: data.state_query.into_iter().map(ItemState::from).collect(),
+            created_query: data.created_query,
+            updated_query: data.updated_query,
         }
     }
 }

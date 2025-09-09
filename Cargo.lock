@@ -3615,6 +3615,7 @@ version = "0.1.0"
 dependencies = [
  "search-filter-api-get-search-filter",
  "search-filter-api-get-search-filters",
+ "search-filter-api-post-search-filter",
 ]
 
 [[package]]
@@ -3645,6 +3646,32 @@ dependencies = [
 
 [[package]]
 name = "search-filter-api-get-search-filters"
+version = "0.1.0"
+dependencies = [
+ "aws-config",
+ "aws-sdk-dynamodb",
+ "aws_lambda_events",
+ "common",
+ "fake",
+ "http 1.3.1",
+ "lambda_runtime",
+ "rstest",
+ "search-filter-core",
+ "search-filter-data",
+ "search-filter-dynamodb",
+ "search-filter-service",
+ "serde_json",
+ "serial_test",
+ "test-api",
+ "time",
+ "tokio",
+ "tracing",
+ "tracing-subscriber",
+ "url",
+]
+
+[[package]]
+name = "search-filter-api-post-search-filter"
 version = "0.1.0"
 dependencies = [
  "aws-config",

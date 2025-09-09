@@ -17,7 +17,8 @@ pub const GATEWAY_TIMEOUT: ApiErrorCode = ApiErrorCode("GATEWAY_TIMEOUT");
 
 pub const BAD_QUERY_PARAMETER_VALUE: ApiErrorCode = ApiErrorCode("BAD_QUERY_PARAMETER_VALUE");
 pub const BAD_HEADER_VALUE: ApiErrorCode = ApiErrorCode("BAD_HEADER_VALUE");
-pub const BAD_PARAMETER: ApiErrorCode = ApiErrorCode("BAD_PARAMETER_VALUE");
+pub const BAD_PATH_PARAMETER_VALUE: ApiErrorCode = ApiErrorCode("BAD_PATH_PARAMETER_VALUE");
+pub const BAD_BODY_VALUE: ApiErrorCode = ApiErrorCode("BAD_BODY_VALUE");
 
 pub const BAD_PAGE_FROM_VALUE: ApiErrorCode = ApiErrorCode("BAD_PAGE_FROM_VALUE");
 pub const BAD_PAGE_SIZE_VALUE: ApiErrorCode = ApiErrorCode("BAD_PAGE_SIZE_VALUE");

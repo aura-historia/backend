@@ -3,13 +3,15 @@ use common::{
     api::{
         api_gateway_v2_http_response_builder::ApiGatewayV2HttpResponseBuilder,
         error::ApiError,
-        error_code::{BAD_PATH_PARAMETER_VALUE, INTERNAL_SERVER_ERROR, INVALID_UUID},
+        error_code::{BAD_BODY_VALUE, INTERNAL_SERVER_ERROR},
     },
     user_id::api::extract_user_id_cognito_jwt,
 };
 use lambda_runtime::LambdaEvent;
-use search_filter_core::search_filter_id::SearchFilterId;
-use search_filter_data::user_search_filter_data::UserSearchFilterData;
+use search_filter_core::search_filter::SearchFilter;
+use search_filter_data::{
+    search_filter_data::SearchFilterData, user_search_filter_data::UserSearchFilterData,
+};
 use search_filter_service::service::SearchFilterService;
 
 #[tracing::instrument(
@@ -30,30 +32,25 @@ pub async fn handler(
     }
 }
 
-// GET /api/v1/search-filters/{searchFilterId}
+// POST /api/v1/search-filters
 pub async fn handle(
     event: LambdaEvent<ApiGatewayV2httpRequest>,
     service: &impl SearchFilterService,
 ) -> Result<ApiGatewayV2httpResponse, ApiError> {
     let user_id = extract_user_id_cognito_jwt(&event.payload.request_context)?;
-    let search_filter_id = event
+    let body = event
         .payload
-        .path_parameters
-        .get("searchFilterId")
+        .body
         .filter(|str| !str.is_empty())
-        .map(String::as_str)
-        .map(SearchFilterId::try_from)
         .ok_or_else(|| {
-            ApiError::bad_request(BAD_PATH_PARAMETER_VALUE).with_path_field("searchFilterId")
-        })?
-        .map_err(|err| {
-            ApiError::bad_request(INVALID_UUID)
-                .with_path_field("searchFilterId")
-                .with_message(err.to_string())
+            ApiError::bad_request(BAD_BODY_VALUE).with_message("Body cannot be empty")
         })?;
+    let search_filter_data: SearchFilterData = serde_json::from_str(&body)
+        .map_err(|err| ApiError::bad_request(BAD_BODY_VALUE).with_message(err.to_string()))?;
 
+    let search_filter: SearchFilter = search_filter_data.into();
     let user_search_filter_data: UserSearchFilterData = service
-        .find_search_filter(&user_id, &search_filter_id)
+        .save_search_filter(&user_id, search_filter)
         .await?
         .into();
 
@@ -62,10 +59,21 @@ pub async fn handle(
         ApiError::internal_server_error(INTERNAL_SERVER_ERROR)
     })?;
 
+    let location = match event.payload.request_context.domain_name {
+        None => None,
+        Some(domain_name) => match event.payload.request_context.stage {
+            Some(stage_name) => Some(format!(
+                "https://{domain_name}/{stage_name}/api/v1/search-filters/{}",
+                user_search_filter_data.search_filter_id
+            )),
+            None => None,
+        },
+    };
     let content_language = user_search_filter_data.search_filter.language;
 
-    Ok(ApiGatewayV2HttpResponseBuilder::json(200)
+    Ok(ApiGatewayV2HttpResponseBuilder::json(201)
         .body(response)
+        .try_location(location.as_deref())
         .content_language(content_language)
         .last_modified(user_search_filter_data.updated)
         .cors()
@@ -77,108 +85,82 @@ mod tests {
     use crate::handler;
     use common::user_id::UserId;
     use fake::{Fake, Faker};
+    use http::header::LOCATION;
     use lambda_runtime::LambdaEvent;
-    use search_filter_core::search_filter_id::SearchFilterId;
-    use search_filter_service::service::{MockSearchFilterService, SearchFilterError};
+    use search_filter_core::user_search_filter::UserSearchFilter;
+    use search_filter_data::search_filter_data::SearchFilterData;
+    use search_filter_service::service::MockSearchFilterService;
     use test_api::{ApiGatewayV2httpRequestProxy, extract_apigw_response_json_body};
 
     #[tokio::test]
-    async fn should_200_when_success() {
+    async fn should_201_when_success() {
         let lambda_event = LambdaEvent {
             payload: ApiGatewayV2httpRequestProxy::builder()
-                .http_method(http::Method::GET)
-                .path_parameter("searchFilterId", SearchFilterId::new())
+                .http_method(http::Method::POST)
+                .body_serde(&Faker.fake::<SearchFilterData>())
                 .jwt_claim("sub", UserId::new())
+                .domain_name("my.domain.com")
+                .stage("prod")
                 .build(),
             context: Default::default(),
         };
 
+        let expected = Faker.fake::<UserSearchFilter>();
+        let expected_search_filter_id = expected.search_filter_id;
         let mut service = MockSearchFilterService::default();
         service
-            .expect_find_search_filter()
-            .return_once(|_, _| Box::pin(async { Ok(Faker.fake()) }));
+            .expect_save_search_filter()
+            .return_once(move |_, _| Box::pin(async move { Ok(expected) }));
 
         let response = handler(lambda_event, &service).await.unwrap();
 
-        assert_eq!(200, response.status_code);
+        assert_eq!(201, response.status_code);
+        assert_eq!(
+            format!("https://my.domain.com/prod/api/v1/search-filters/{expected_search_filter_id}"),
+            response.headers.get(LOCATION).unwrap().to_str().unwrap()
+        )
     }
 
     #[tokio::test]
-    async fn should_400_when_path_param_search_filter_id_missing() {
+    async fn should_400_when_body_search_filter_missing() {
         let lambda_event = LambdaEvent {
             payload: ApiGatewayV2httpRequestProxy::builder()
-                .http_method(http::Method::GET)
+                .http_method(http::Method::POST)
                 .jwt_claim("sub", UserId::new())
                 .build(),
             context: Default::default(),
         };
 
         let mut service = MockSearchFilterService::default();
-        service.expect_find_search_filter().never();
+        service.expect_save_search_filter().never();
 
         let response = handler(lambda_event, &service).await.unwrap();
         let json = extract_apigw_response_json_body!(response);
 
         assert_eq!(400, response.status_code);
         assert_eq!(400, json["status"]);
-        assert_eq!("BAD_PATH_PARAMETER_VALUE", json["error"]);
+        assert_eq!("BAD_BODY_VALUE", json["error"]);
     }
 
     #[tokio::test]
-    async fn should_400_when_search_filter_id_invalid() {
+    async fn should_400_when_body_search_filter_invalid() {
         let lambda_event = LambdaEvent {
             payload: ApiGatewayV2httpRequestProxy::builder()
-                .http_method(http::Method::GET)
-                .path_parameter("searchFilterId", "not-a-valid-uuid")
+                .http_method(http::Method::POST)
                 .jwt_claim("sub", UserId::new())
+                .body_serde(&"invalid-search-filter-json")
                 .build(),
             context: Default::default(),
         };
 
         let mut service = MockSearchFilterService::default();
-        service.expect_find_search_filter().return_once(|_, _| {
-            Box::pin(async {
-                Err(SearchFilterError::SearchFilterNotFound(
-                    Faker.fake(),
-                    Faker.fake(),
-                ))
-            })
-        });
+        service.expect_save_search_filter().never();
 
         let response = handler(lambda_event, &service).await.unwrap();
         let json = extract_apigw_response_json_body!(response);
 
         assert_eq!(400, response.status_code);
         assert_eq!(400, json["status"]);
-        assert_eq!("INVALID_UUID", json["error"]);
-    }
-
-    #[tokio::test]
-    async fn should_404_when_search_filter_not_exists() {
-        let lambda_event = LambdaEvent {
-            payload: ApiGatewayV2httpRequestProxy::builder()
-                .http_method(http::Method::GET)
-                .path_parameter("searchFilterId", SearchFilterId::new())
-                .jwt_claim("sub", UserId::new())
-                .build(),
-            context: Default::default(),
-        };
-
-        let mut service = MockSearchFilterService::default();
-        service.expect_find_search_filter().return_once(|_, _| {
-            Box::pin(async {
-                Err(SearchFilterError::SearchFilterNotFound(
-                    Faker.fake(),
-                    Faker.fake(),
-                ))
-            })
-        });
-
-        let response = handler(lambda_event, &service).await.unwrap();
-        let json = extract_apigw_response_json_body!(response);
-
-        assert_eq!(404, response.status_code);
-        assert_eq!(404, json["status"]);
-        assert_eq!("SEARCH_FILTER_NOT_FOUND", json["error"]);
+        assert_eq!("BAD_BODY_VALUE", json["error"]);
     }
 }
