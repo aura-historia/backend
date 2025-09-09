@@ -69,7 +69,7 @@ pub trait SearchFilterService {
     async fn find_search_filters(
         &self,
         user_id: &UserId,
-        sort_by_created: &SortOrder,
+        sort_by_created: &Option<SortOrder>,
     ) -> Result<Vec<UserSearchFilter>, SearchFilterError>;
 
     async fn find_search_filter(
@@ -106,11 +106,14 @@ impl<'a> SearchFilterService for SearchFilterServiceImpl<'a> {
     async fn find_search_filters(
         &self,
         user_id: &UserId,
-        sort_by_created: &SortOrder,
+        sort_by_created: &Option<SortOrder>,
     ) -> Result<Vec<UserSearchFilter>, SearchFilterError> {
         let search_filters = self
             .repository
-            .query_search_filter_records(user_id, matches!(sort_by_created, SortOrder::Asc))
+            .query_search_filter_records(
+                user_id,
+                matches!(sort_by_created.unwrap_or(SortOrder::Asc), SortOrder::Asc),
+            )
             .await?
             .into_iter()
             .map(UserSearchFilter::from)
@@ -196,7 +199,7 @@ mod tests {
                 repository: &repository,
             };
             let actual = service
-                .find_search_filters(&UserId::new(), &SortOrder::Asc)
+                .find_search_filters(&UserId::new(), &Some(SortOrder::Asc))
                 .await;
             assert!(actual.is_ok());
         }
@@ -228,7 +231,7 @@ mod tests {
                 repository: &repository,
             };
             let actual = service
-                .find_search_filters(&UserId::new(), &SortOrder::Desc)
+                .find_search_filters(&UserId::new(), &Some(SortOrder::Desc))
                 .await;
 
             assert!(actual.is_err());

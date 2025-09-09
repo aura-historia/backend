@@ -16,6 +16,7 @@ fake = { workspace = true, optional = true }
 [dev-dependencies]
 serde_json = { workspace = true }
 search-filter-data = { workspace = true, features = ["test-data"] }
+rstest = { workspace = true }
 
 [features]
 default = []
