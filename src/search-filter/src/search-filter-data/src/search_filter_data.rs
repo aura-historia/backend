@@ -2,7 +2,9 @@ use std::collections::HashSet;
 
 use common::{currency::data::CurrencyData, language::data::LanguageData};
 use item_data::item_state_data::ItemStateData;
-use search_filter_core::{range_query::RangeQuery, text_query::TextQuery};
+use search_filter_core::{
+    range_query::RangeQuery, search_filter::SearchFilter, text_query::TextQuery,
+};
 use serde::{Deserialize, Serialize};
 use time::OffsetDateTime;
 
@@ -44,6 +46,27 @@ pub struct SearchFilterData {
         skip_serializing_if = "Option::is_none"
     )]
     pub updated_query: Option<RangeQuery<OffsetDateTime>>,
+}
+
+impl From<SearchFilter> for SearchFilterData {
+    fn from(search_filter: SearchFilter) -> Self {
+        SearchFilterData {
+            language: search_filter.language.into(),
+            currency: search_filter.currency.into(),
+            item_query: search_filter.item_query,
+            shop_name_query: search_filter.shop_name_query,
+            price_query: search_filter
+                .price_query
+                .map(|price_query| price_query.map(u64::from)),
+            state_query: search_filter
+                .state_query
+                .into_iter()
+                .map(ItemStateData::from)
+                .collect(),
+            created_query: search_filter.created_query,
+            updated_query: search_filter.updated_query,
+        }
+    }
 }
 
 #[cfg(test)]
