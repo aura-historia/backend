@@ -1,6 +1,6 @@
-use crate::user_search_filter::UserSearchFilter;
 use aws_sdk_dynamodb::{config::http::HttpResponse, error::SdkError};
 use common::{sort::SortOrder, user_id::UserId};
+use search_filter_core::user_search_filter::UserSearchFilter;
 use search_filter_core::{search_filter::SearchFilter, search_filter_id::SearchFilterId};
 use search_filter_dynamodb::repository::SearchFilterDynamoDbRepository;
 use time::OffsetDateTime;

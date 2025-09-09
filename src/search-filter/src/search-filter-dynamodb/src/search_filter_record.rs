@@ -1,7 +1,11 @@
-use common::{currency::record::CurrencyRecord, language::record::LanguageRecord, user_id::UserId};
+use common::{
+    currency::record::CurrencyRecord, item_state::domain::ItemState,
+    language::record::LanguageRecord, price::domain::MonetaryAmount, user_id::UserId,
+};
 use item_dynamodb::item_state_record::ItemStateRecord;
 use search_filter_core::{
-    range_query::RangeQuery, search_filter_id::SearchFilterId, text_query::TextQuery,
+    range_query::RangeQuery, search_filter::SearchFilter, search_filter_id::SearchFilterId,
+    text_query::TextQuery, user_search_filter::UserSearchFilter,
 };
 use serde::{Deserialize, Serialize};
 use std::collections::HashSet;
@@ -59,6 +63,62 @@ pub fn mk_pk(user_id: &UserId) -> String {
 
 pub fn mk_sk(search_filter_id: &SearchFilterId) -> String {
     format!("search_filter#{search_filter_id}")
+}
+
+impl From<SearchFilterRecord> for UserSearchFilter {
+    fn from(record: SearchFilterRecord) -> Self {
+        UserSearchFilter {
+            user_id: record.user_id,
+            search_filter_id: record.search_filter_id,
+            search_filter: SearchFilter {
+                language: record.language.into(),
+                currency: record.currency.into(),
+                item_query: record.item_query,
+                shop_name_query: record.shop_name_query,
+                price_query: record
+                    .price_query
+                    .map(|range_query| range_query.map(MonetaryAmount::from)),
+                state_query: record
+                    .state_query
+                    .into_iter()
+                    .map(ItemState::from)
+                    .collect(),
+                created_query: record.created_query,
+                updated_query: record.updated_query,
+            },
+            created: record.created,
+            updated: record.updated,
+        }
+    }
+}
+
+impl From<UserSearchFilter> for SearchFilterRecord {
+    fn from(user_search_filter: UserSearchFilter) -> Self {
+        SearchFilterRecord {
+            pk: mk_pk(&user_search_filter.user_id),
+            sk: mk_sk(&user_search_filter.search_filter_id),
+            user_id: user_search_filter.user_id,
+            search_filter_id: user_search_filter.search_filter_id,
+            item_query: user_search_filter.search_filter.item_query,
+            shop_name_query: user_search_filter.search_filter.shop_name_query,
+            price_query: user_search_filter
+                .search_filter
+                .price_query
+                .map(|range_query| range_query.map(u64::from)),
+            state_query: user_search_filter
+                .search_filter
+                .state_query
+                .into_iter()
+                .map(ItemStateRecord::from)
+                .collect(),
+            created_query: user_search_filter.search_filter.created_query,
+            language: user_search_filter.search_filter.language.into(),
+            currency: user_search_filter.search_filter.currency.into(),
+            updated_query: user_search_filter.search_filter.updated_query,
+            created: user_search_filter.created,
+            updated: user_search_filter.updated,
+        }
+    }
 }
 
 #[cfg(feature = "test-data")]
