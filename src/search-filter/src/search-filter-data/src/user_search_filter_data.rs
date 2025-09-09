@@ -4,7 +4,6 @@ use search_filter_core::{search_filter_id::SearchFilterId, user_search_filter::U
 use serde::{Deserialize, Serialize};
 use time::OffsetDateTime;
 
-#[cfg_attr(feature = "test-data", derive(fake::Dummy))]
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct UserSearchFilterData {
@@ -29,6 +28,24 @@ impl From<UserSearchFilter> for UserSearchFilterData {
             search_filter: user_search_filter.search_filter.into(),
             created: user_search_filter.created,
             updated: user_search_filter.updated,
+        }
+    }
+}
+
+#[cfg(feature = "test-data")]
+mod faker {
+    use super::*;
+    use fake::{Dummy, Fake, Faker, Rng};
+
+    impl Dummy<Faker> for UserSearchFilterData {
+        fn dummy_with_rng<R: Rng + ?Sized>(config: &Faker, rng: &mut R) -> Self {
+            UserSearchFilterData {
+                user_id: config.fake_with_rng(rng),
+                search_filter_id: config.fake_with_rng(rng),
+                search_filter: config.fake_with_rng(rng),
+                created: OffsetDateTime::now_utc(),
+                updated: OffsetDateTime::now_utc(),
+            }
         }
     }
 }

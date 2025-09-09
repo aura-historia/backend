@@ -63,8 +63,8 @@ pub mod api {
     }
 }
 
-#[mockall::automock]
 #[async_trait::async_trait]
+#[mockall::automock]
 pub trait SearchFilterService {
     async fn find_search_filters(
         &self,

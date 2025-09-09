@@ -125,7 +125,7 @@ impl From<UserSearchFilter> for SearchFilterRecord {
 mod fake {
     use crate::search_filter_record::{SearchFilterRecord, mk_pk, mk_sk};
     use fake::{Dummy, Fake, Faker};
-    use search_filter_core::range_query::RangeQuery;
+    use search_filter_core::search_filter::faker::fake_range_query_datetime;
     use time::OffsetDateTime;
 
     impl Dummy<Faker> for SearchFilterRecord {
@@ -148,27 +148,6 @@ mod fake {
                 created: OffsetDateTime::now_utc(),
                 updated: OffsetDateTime::now_utc(),
             }
-        }
-    }
-
-    fn fake_range_query_datetime<R: fake::Rng + ?Sized>(
-        config: &Faker,
-        rng: &mut R,
-    ) -> Option<RangeQuery<OffsetDateTime>> {
-        if config.fake_with_rng(rng) {
-            None
-        } else {
-            let min = if config.fake_with_rng(rng) {
-                Some(OffsetDateTime::now_utc())
-            } else {
-                None
-            };
-            let max = if config.fake_with_rng(rng) {
-                Some(OffsetDateTime::now_utc())
-            } else {
-                None
-            };
-            Some(RangeQuery { min, max })
         }
     }
 }

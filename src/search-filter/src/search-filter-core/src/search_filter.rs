@@ -5,7 +5,6 @@ use common::language::domain::Language;
 use common::price::domain::MonetaryAmount;
 use time::OffsetDateTime;
 
-#[cfg_attr(feature = "test-data", derive(fake::Dummy))]
 #[derive(Debug, Clone)]
 pub struct SearchFilter {
     pub language: Language,
@@ -16,4 +15,46 @@ pub struct SearchFilter {
     pub state_query: AnyOfQuery<ItemState>,
     pub created_query: Option<RangeQuery<OffsetDateTime>>,
     pub updated_query: Option<RangeQuery<OffsetDateTime>>,
+}
+
+#[cfg(feature = "test-data")]
+pub mod faker {
+    use super::*;
+    use fake::{Dummy, Fake, Faker, Rng};
+
+    impl Dummy<Faker> for SearchFilter {
+        fn dummy_with_rng<R: Rng + ?Sized>(config: &Faker, rng: &mut R) -> Self {
+            SearchFilter {
+                language: config.fake_with_rng(rng),
+                currency: config.fake_with_rng(rng),
+                item_query: config.fake_with_rng(rng),
+                shop_name_query: config.fake_with_rng(rng),
+                price_query: config.fake_with_rng(rng),
+                state_query: config.fake_with_rng(rng),
+                created_query: fake_range_query_datetime(config, rng),
+                updated_query: fake_range_query_datetime(config, rng),
+            }
+        }
+    }
+
+    pub fn fake_range_query_datetime<R: fake::Rng + ?Sized>(
+        config: &Faker,
+        rng: &mut R,
+    ) -> Option<RangeQuery<OffsetDateTime>> {
+        if config.fake_with_rng(rng) {
+            None
+        } else {
+            let min = if config.fake_with_rng(rng) {
+                Some(OffsetDateTime::now_utc())
+            } else {
+                None
+            };
+            let max = if config.fake_with_rng(rng) {
+                Some(OffsetDateTime::now_utc())
+            } else {
+                None
+            };
+            Some(RangeQuery { min, max })
+        }
+    }
 }

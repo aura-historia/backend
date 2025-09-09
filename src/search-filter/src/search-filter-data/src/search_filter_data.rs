@@ -8,7 +8,6 @@ use search_filter_core::{
 use serde::{Deserialize, Serialize};
 use time::OffsetDateTime;
 
-#[cfg_attr(feature = "test-data", derive(fake::Dummy))]
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct SearchFilterData {
     pub language: LanguageData,
@@ -65,6 +64,28 @@ impl From<SearchFilter> for SearchFilterData {
                 .collect(),
             created_query: search_filter.created_query,
             updated_query: search_filter.updated_query,
+        }
+    }
+}
+
+#[cfg(feature = "test-data")]
+mod faker {
+    use super::*;
+    use fake::{Dummy, Fake, Faker, Rng};
+    use search_filter_core::search_filter::faker::fake_range_query_datetime;
+
+    impl Dummy<Faker> for SearchFilterData {
+        fn dummy_with_rng<R: Rng + ?Sized>(config: &Faker, rng: &mut R) -> Self {
+            SearchFilterData {
+                language: config.fake_with_rng(rng),
+                currency: config.fake_with_rng(rng),
+                item_query: config.fake_with_rng(rng),
+                shop_name_query: config.fake_with_rng(rng),
+                price_query: config.fake_with_rng(rng),
+                state_query: config.fake_with_rng(rng),
+                created_query: fake_range_query_datetime(config, rng),
+                updated_query: fake_range_query_datetime(config, rng),
+            }
         }
     }
 }
