@@ -70,7 +70,6 @@ Resources:
         - openid
         - email
         - profile
-        - name
       SupportedIdentityProviders:
         - COGNITO
       CallbackURLs: # Placeholder for staging-tests
