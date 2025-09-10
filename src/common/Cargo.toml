@@ -38,7 +38,7 @@ serde_json = { workspace = true }
 
 [features]
 default = []
-dynamodb = ["serde_dynamo", "aws-sdk-dynamodb"]
+dynamodb = ["serde_dynamo", "aws-sdk-dynamodb", "serde_json"]
 opensearch = ["dep:opensearch", "serde_json"]
 sqs = ["aws-sdk-sqs", "serde_json"]
 api = [

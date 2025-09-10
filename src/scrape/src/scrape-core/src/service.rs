@@ -58,7 +58,7 @@ impl<'a> PublishScrapeItemService for PublishScrapeItemsImpl<'a> {
                     });
                 }
                 Err(err) => {
-                    error!(error = ?err, shopId = %shop_id, "Failed assessing ScrapeItems.");
+                    error!(error = %common::error_json::error_to_json(&err), shopId = %shop_id, "Failed assessing ScrapeItems.");
                     failures.extend(keys);
                 }
             }
@@ -128,7 +128,7 @@ fn handle_message_batch_result(
             }
         }
         Err(err) => {
-            error!(error = ?err, "Failed publishing ScrapeItems.");
+            error!(error = %common::error_json::error_to_json(&err), "Failed publishing ScrapeItems.");
             failures.extend(ids_keys.into_values());
         }
     }

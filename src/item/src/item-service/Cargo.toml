@@ -48,5 +48,5 @@ dynamodb = [
     "item-dynamodb",
     "common/dynamodb",
 ]
-opensearch = ["dep:opensearch", "item-opensearch"]
+opensearch = ["dep:opensearch", "item-opensearch", "common/opensearch"]
 test-data = ["fake", "common/test-data", "item-core/test-data"]

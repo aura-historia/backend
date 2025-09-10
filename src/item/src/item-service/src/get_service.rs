@@ -55,11 +55,11 @@ pub mod api {
                     ApiError::internal_server_error(MONETARY_AMOUNT_OVERFLOW)
                 }
                 GetItemError::SdkGetItemError(err) => {
-                    error!(error = ?err, "Encountered SdkGetItemError while getting item.");
+                    error!(error = %common::error_json::error_to_json(&err), "Encountered SdkGetItemError while getting item.");
                     err.into()
                 }
                 GetItemError::SdkQueryError(err) => {
-                    error!(error = ?err, "Encountered SdkQueryError while querying item and its history.");
+                    error!(error = %common::error_json::error_to_json(&err), "Encountered SdkQueryError while querying item and its history.");
                     err.into()
                 }
             }

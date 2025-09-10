@@ -4,6 +4,7 @@ pub mod currency;
 pub mod api;
 pub mod batch;
 pub mod error;
+pub mod error_json;
 pub mod event;
 pub mod event_id;
 pub mod has_key;

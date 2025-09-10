@@ -41,7 +41,7 @@ pub async fn handler(
                 handle_batch_output::<ItemRecord>(output, &mut failures);
             }
             Err(err) => {
-                error!(error = ?err, "Failed entire batch.");
+                error!(error = %common::error_json::error_to_json(&err), "Failed entire batch.");
                 failures = item_keys;
             }
         }

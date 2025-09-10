@@ -30,7 +30,7 @@ pub mod api {
         fn from(err: SearchItemsError) -> Self {
             match err {
                 SearchItemsError::OpenSearchError(err) => {
-                    error!(error = ?err, "Encountered OpenSearchError while searching items.");
+                    error!(error = %common::error_json::error_to_json(&err), "Encountered OpenSearchError while searching items.");
                     ApiError::internal_server_error(INTERNAL_SERVER_ERROR)
                 }
             }

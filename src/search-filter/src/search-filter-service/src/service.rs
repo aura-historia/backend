@@ -43,19 +43,19 @@ pub mod api {
                     ApiError::not_found(SEARCH_FILTER_NOT_FOUND)
                 }
                 SearchFilterError::SdkGetItemError(err) => {
-                    error!(error = ?err, "Encountered SdkGetItemError while getting search-filter.");
+                    error!(error = %common::error_json::error_to_json(&err), "Encountered SdkGetItemError while getting search-filter.");
                     err.into()
                 }
                 SearchFilterError::SdkQueryError(err) => {
-                    error!(error = ?err, "Encountered SdkQueryError while querying search-filters.");
+                    error!(error = %common::error_json::error_to_json(&err), "Encountered SdkQueryError while querying search-filters.");
                     err.into()
                 }
                 SearchFilterError::SdkPutItemError(err) => {
-                    error!(error = ?err, "Encountered SdkPutItemError while saving search-filter.");
+                    error!(error = %common::error_json::error_to_json(&err), "Encountered SdkPutItemError while saving search-filter.");
                     err.into()
                 }
                 SearchFilterError::SdkDeleteItemError(err) => {
-                    error!(error = ?err, "Encountered SdkDeleteItemError while deleting search-filter.");
+                    error!(error = %common::error_json::error_to_json(&err), "Encountered SdkDeleteItemError while deleting search-filter.");
                     err.into()
                 }
             }

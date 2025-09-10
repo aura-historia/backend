@@ -197,14 +197,14 @@ impl<T: FxRate + Sync> CommandItemServiceImpl<'_, T> {
                     match res {
                         Ok(output) => handle_batch_output::<ItemEventRecord>(output, failures),
                         Err(err) => {
-                            error!(error = ?err, "Failed writing entire ItemEventRecord-Batch due to SdkError.");
+                            error!(error = %common::error_json::error_to_json(&err), "Failed writing entire ItemEventRecord-Batch due to SdkError.");
                             failures.extend(item_keys);
                         }
                     }
                 }
             }
             Err(err) => {
-                error!(error = ?err, "Failed entire BatchGetItem-Operation due to SdkError.");
+                error!(error = %common::error_json::error_to_json(&err), "Failed entire BatchGetItem-Operation due to SdkError.");
                 failures.extend(create_item_keys);
             }
         }
@@ -262,14 +262,14 @@ impl<T: FxRate + Sync> CommandItemServiceImpl<'_, T> {
                     match res {
                         Ok(output) => handle_batch_output::<ItemEventRecord>(output, failures),
                         Err(err) => {
-                            error!(error = ?err, "Failed writing entire ItemEventRecord-Batch due to SdkError.");
+                            error!(error = %common::error_json::error_to_json(&err), "Failed writing entire ItemEventRecord-Batch due to SdkError.");
                             failures.extend(item_keys);
                         }
                     }
                 }
             }
             Err(err) => {
-                error!(error = ?err, "Failed entire BatchGetItem-Operation due to SdkError.");
+                error!(error = %common::error_json::error_to_json(&err), "Failed entire BatchGetItem-Operation due to SdkError.");
                 failures.extend(update_item_keys);
             }
         }

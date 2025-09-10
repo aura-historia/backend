@@ -39,7 +39,7 @@ pub async fn handler(
     match result {
         Ok(response) => handle_bulk_response(response, &mut failed_message_ids, &mut message_ids),
         Err(err) => {
-            error!(error = ?err, "Failed entire batch.");
+            error!(error = %common::error_json::error_to_json(&err), "Failed entire batch.");
             failed_message_ids.extend(message_ids.into_values());
         }
     }
@@ -112,7 +112,7 @@ fn handle_bulk_response(
                 index = failure.index,
                 itemId = failure.id,
                 status = failure.status,
-                error = ?failure.error,
+                error = %failure.error.as_ref().map(|e| common::error_json::error_to_json_fallback(e)).unwrap_or_else(|| serde_json::json!("No error details")),
                 "Failed creating item in OpenSearch."
             );
             match ItemId::try_from(failure.id.as_str()) {
