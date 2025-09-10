@@ -307,7 +307,7 @@ Resources:
       Role: !GetAtt BlitzfilterApiSimpleSearchRole.Arn
       Code:
         S3Bucket: !Ref ArtifactBucket
-        S3Key: !Sub "blitzfilter-api-simple-search-${StageName}-${CommitSHA}.zip"
+        S3Key: !Sub "item-api-simple-search-${StageName}-${CommitSHA}.zip"
       MemorySize: 512
       Timeout: 10
       EphemeralStorage:
