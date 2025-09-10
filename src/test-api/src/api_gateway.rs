@@ -1,3 +1,6 @@
+use aws_lambda_events::apigw::{
+    ApiGatewayRequestAuthorizer, ApiGatewayRequestAuthorizerJwtDescription,
+};
 use aws_lambda_events::http::{HeaderMap, Method};
 use aws_lambda_events::{
     apigw::{ApiGatewayV2httpRequest, ApiGatewayV2httpRequestContext},
@@ -90,10 +93,57 @@ pub struct ApiGatewayV2httpRequestProxy {
         via_mutators
     )]
     pub path_parameters: HashMap<String, String>,
-    #[builder(setter(!strip_option))]
+
+    #[builder(
+        setter(!strip_option),
+        mutators(
+            pub fn jwt_claim(self, key: impl Into<String>, value: impl Into<String>) {
+                match &mut self.request_context.authorizer {
+                    Some(authorizer) => match &mut authorizer.jwt {
+                        Some(jwt) => {
+                            jwt.claims.insert(key.into(), value.into());
+                        },
+                        None => {
+                            authorizer.jwt = Some(ApiGatewayRequestAuthorizerJwtDescription {
+                                claims: HashMap::from_iter([(key.into(), value.into())]),
+                                scopes: None
+                            });
+                        },
+                    },
+                    None => self.request_context.authorizer = Some(ApiGatewayRequestAuthorizer {
+                        jwt: Some(ApiGatewayRequestAuthorizerJwtDescription {
+                            claims: HashMap::from_iter([(key.into(), value.into())]),
+                            scopes: None
+                        }),
+                        fields: Default::default(),
+                        iam: None
+                    })
+                };
+            }
+
+            pub fn domain_name(self, domain_name: impl Into<String>) {
+                self.request_context.domain_name = Some(domain_name.into());
+            }
+
+            pub fn stage(self, stage: impl Into<String>) {
+                self.request_context.stage = Some(stage.into());
+            }
+        ),
+        via_mutators
+    )]
     pub request_context: ApiGatewayV2httpRequestContext,
     #[builder(setter(!strip_option))]
     pub stage_variables: HashMap<String, String>,
+
+    #[builder(
+        setter(!strip_option),
+        mutators(
+            pub fn body_serde<T: serde::Serialize>(self, t: &T) {
+                self.body = Some(serde_json::to_string(t).unwrap())
+            }
+        ),
+        via_mutators
+    )]
     pub body: Option<String>,
     #[builder(setter(!strip_option))]
     pub is_base64_encoded: bool,

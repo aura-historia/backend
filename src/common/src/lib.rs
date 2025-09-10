@@ -20,3 +20,4 @@ pub mod serde;
 pub mod shop_id;
 pub mod shops_item_id;
 pub mod sort;
+pub mod user_id;

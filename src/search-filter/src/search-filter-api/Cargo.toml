@@ -1,0 +1,10 @@
+[package]
+name = "search-filter-api"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+search-filter-api-delete-search-filter = { workspace = true }
+search-filter-api-get-search-filter = { workspace = true }
+search-filter-api-get-search-filters = { workspace = true }
+search-filter-api-post-search-filter = { workspace = true }

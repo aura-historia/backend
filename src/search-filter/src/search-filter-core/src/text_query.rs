@@ -1,3 +1,4 @@
+use serde::{Deserialize, Serialize};
 use std::fmt::Display;
 use std::ops::Deref;
 
@@ -5,8 +6,16 @@ use std::ops::Deref;
 #[error("String is too short for TextQuery, got '{0}', expected at least '3'.")]
 pub struct TextQueryTooShortError(usize);
 
-#[derive(Debug, Clone, PartialEq)]
-pub struct TextQuery(String);
+#[cfg_attr(feature = "test-data", derive(fake::Dummy))]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(into = "String", try_from = "String")]
+pub struct TextQuery(
+    #[cfg_attr(
+        feature = "test-data",
+        dummy(faker = "fake::faker::lorem::en::Sentence(2..5)")
+    )]
+    String,
+);
 
 impl TryFrom<&str> for TextQuery {
     type Error = TextQueryTooShortError;

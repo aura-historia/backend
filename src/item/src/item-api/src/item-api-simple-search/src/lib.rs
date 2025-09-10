@@ -4,7 +4,7 @@ use common::{
         api_gateway_v2_http_response_builder::ApiGatewayV2HttpResponseBuilder,
         collection::{CollectionData, PaginationData},
         error::ApiError,
-        error_code::{BAD_PARAMETER, INTERNAL_SERVER_ERROR, TEXT_QUERY_TOO_SHORT},
+        error_code::{BAD_PATH_PARAMETER_VALUE, INTERNAL_SERVER_ERROR, TEXT_QUERY_TOO_SHORT},
     },
     currency::{data::api::extract_currency_query, domain::Currency},
     language::{data::api::extract_language_query, domain::Language},
@@ -54,7 +54,7 @@ pub async fn handle(
         .query_string_parameters
         .first("q")
         .map(str::trim)
-        .ok_or(ApiError::bad_request(BAD_PARAMETER).with_query_field("q"))?
+        .ok_or(ApiError::bad_request(BAD_PATH_PARAMETER_VALUE).with_query_field("q"))?
         .try_into()
         .map_err(|err: TextQueryTooShortError| {
             ApiError::bad_request(TEXT_QUERY_TOO_SHORT)
@@ -62,6 +62,8 @@ pub async fn handle(
                 .with_message(err.to_string())
         })?;
     let search_filter = SearchFilter {
+        language,
+        currency,
         item_query,
         shop_name_query: None,
         price_query: None,
@@ -71,7 +73,7 @@ pub async fn handle(
     };
 
     let search_result = service
-        .search_items(&search_filter, &language, &currency, &sort, &Some(page))
+        .search_items(&search_filter, &sort, &Some(page))
         .await?;
 
     let items = search_result
@@ -169,16 +171,14 @@ mod tests {
         };
 
         let mut service = MockQueryItemService::default();
-        service
-            .expect_search_items()
-            .return_once(|_, _, _, _, page| {
-                let count = page.map(|page| page.size).unwrap_or(20) as usize;
-                let search_result = SearchResult {
-                    hits: fake::vec![LocalizedItemView; count],
-                    total: 789,
-                };
-                Box::pin(async move { Ok(search_result) })
-            });
+        service.expect_search_items().return_once(|_, _, page| {
+            let count = page.map(|page| page.size).unwrap_or(20) as usize;
+            let search_result = SearchResult {
+                hits: fake::vec![LocalizedItemView; count],
+                total: 789,
+            };
+            Box::pin(async move { Ok(search_result) })
+        });
         let response = handler(lambda_event, &service).await.unwrap();
 
         assert_eq!(200, response.status_code);
@@ -205,16 +205,14 @@ mod tests {
         };
 
         let mut service = MockQueryItemService::default();
-        service
-            .expect_search_items()
-            .return_once(|_, _, _, _, page| {
-                let count = page.map(|page| page.size).unwrap() as usize;
-                let search_result = SearchResult {
-                    hits: fake::vec![LocalizedItemView; count],
-                    total: 789,
-                };
-                Box::pin(async move { Ok(search_result) })
-            });
+        service.expect_search_items().return_once(|_, _, page| {
+            let count = page.map(|page| page.size).unwrap() as usize;
+            let search_result = SearchResult {
+                hits: fake::vec![LocalizedItemView; count],
+                total: 789,
+            };
+            Box::pin(async move { Ok(search_result) })
+        });
         let response = handler(lambda_event, &service).await.unwrap();
 
         assert_eq!(200, response.status_code);

@@ -1,0 +1,31 @@
+[package]
+name = "search-filter-service"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+common = { workspace = true, features = ["dynamodb"] }
+search-filter-core = { workspace = true }
+search-filter-dynamodb = { workspace = true }
+item-dynamodb = { workspace = true }
+mockall = { workspace = true }
+tracing = { workspace = true }
+async-trait = { workspace = true }
+thiserror = { workspace = true }
+aws-sdk-dynamodb = { workspace = true }
+time = { workspace = true }
+
+# Optional
+fake = { workspace = true, optional = true }
+
+[dev-dependencies]
+serde_json = { workspace = true }
+rstest = { workspace = true }
+search-filter-service = { workspace = true, features = ["test-data", "api"] }
+item-dynamodb = { workspace = true, features = ["test-data"] }
+tokio = { workspace = true, features = ["macros"] }
+
+[features]
+default = []
+api = ["common/api"]
+test-data = ["fake", "common/test-data", "search-filter-core/test-data", "search-filter-dynamodb/test-data"]

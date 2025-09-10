@@ -14,7 +14,7 @@ use item_opensearch::item_state_document::ItemStateDocument;
 use item_opensearch::item_update_document::ItemUpdateDocument;
 use item_opensearch::repository::{ItemOpenSearchRepository, ItemOpenSearchRepositoryImpl};
 use opensearch::http::Url;
-use search_filter_core::array_query::AnyOfQuery;
+use search_filter_core::any_of_query::AnyOfQuery;
 use search_filter_core::range_query::RangeQuery;
 use search_filter_core::search_filter::SearchFilter;
 use std::collections::HashMap;
@@ -233,6 +233,8 @@ async fn should_search_item_documents() {
     tokio::time::sleep(Duration::from_millis(3000)).await;
 
     let search_filter = SearchFilter {
+        language: Language::De,
+        currency: Currency::Eur,
         item_query: "Hallo Welt".try_into().unwrap(),
         shop_name_query: None,
         price_query: None,
@@ -241,7 +243,7 @@ async fn should_search_item_documents() {
         updated_query: None,
     };
     let response = repository
-        .search_item_documents(&search_filter, &Language::De, &Currency::Eur, &None, &None)
+        .search_item_documents(&search_filter, &None, &None)
         .await
         .unwrap();
 
@@ -270,13 +272,15 @@ async fn should_search_item_documents_when_all_arguments_are_given() {
     tokio::time::sleep(Duration::from_millis(3000)).await;
 
     let search_filter = SearchFilter {
+        language: Language::De,
+        currency: Currency::Eur,
         item_query: "Lorem".try_into().unwrap(),
         shop_name_query: Some("LLC".try_into().unwrap()),
         price_query: Some(RangeQuery {
             min: Some(100u64.into()),
             max: Some(999999u64.into()),
         }),
-        state_query: AnyOfQuery(HashSet::from_iter([
+        state_query: AnyOfQuery::from(HashSet::from_iter([
             ItemState::Available,
             ItemState::Listed,
         ])),
@@ -295,13 +299,7 @@ async fn should_search_item_documents_when_all_arguments_are_given() {
     };
     let page = Page { from: 0, size: 20 };
     let response = repository
-        .search_item_documents(
-            &search_filter,
-            &Language::De,
-            &Currency::Eur,
-            &Some(sort),
-            &Some(page),
-        )
+        .search_item_documents(&search_filter, &Some(sort), &Some(page))
         .await;
 
     assert!(response.is_ok());
@@ -332,15 +330,17 @@ async fn should_search_item_documents_when_states_are_given(#[case] states: &[It
     tokio::time::sleep(Duration::from_millis(3000)).await;
 
     let search_filter = SearchFilter {
+        language: Language::De,
+        currency: Currency::Eur,
         item_query: "The same title".try_into().unwrap(),
         shop_name_query: None,
         price_query: None,
-        state_query: AnyOfQuery(HashSet::from_iter(states.iter().copied())),
+        state_query: AnyOfQuery::from(HashSet::from_iter(states.iter().copied())),
         created_query: None,
         updated_query: None,
     };
     let response = repository
-        .search_item_documents(&search_filter, &Language::De, &Currency::Eur, &None, &None)
+        .search_item_documents(&search_filter, &None, &None)
         .await
         .unwrap();
 
@@ -374,15 +374,17 @@ async fn should_search_item_documents_when_no_states_are_given() {
     tokio::time::sleep(Duration::from_millis(3000)).await;
 
     let search_filter = SearchFilter {
+        language: Language::De,
+        currency: Currency::Eur,
         item_query: "The same title".try_into().unwrap(),
         shop_name_query: None,
         price_query: None,
-        state_query: AnyOfQuery(HashSet::new()),
+        state_query: AnyOfQuery::from(HashSet::new()),
         created_query: None,
         updated_query: None,
     };
     let response = repository
-        .search_item_documents(&search_filter, &Language::De, &Currency::Eur, &None, &None)
+        .search_item_documents(&search_filter, &None, &None)
         .await
         .unwrap();
 
@@ -431,6 +433,8 @@ async fn should_search_item_documents_respecting_order_when_price_range_is_given
     tokio::time::sleep(Duration::from_millis(3000)).await;
 
     let search_filter = SearchFilter {
+        language: Language::De,
+        currency: Currency::Eur,
         item_query: "The same title".try_into().unwrap(),
         shop_name_query: None,
         price_query: Some(price_query),
@@ -441,8 +445,6 @@ async fn should_search_item_documents_respecting_order_when_price_range_is_given
     let response = repository
         .search_item_documents(
             &search_filter,
-            &Language::De,
-            &Currency::Eur,
             &Some(Sort {
                 sort: SortItemField::Price,
                 order: sort_direction,
@@ -520,6 +522,8 @@ async fn should_search_item_documents_respecting_paging_when_sorted_by_price(#[c
     tokio::time::sleep(Duration::from_millis(3000)).await;
 
     let search_filter = SearchFilter {
+        language: Language::En,
+        currency: Currency::Usd,
         item_query: "The same title".try_into().unwrap(),
         shop_name_query: None,
         price_query: None,
@@ -530,8 +534,6 @@ async fn should_search_item_documents_respecting_paging_when_sorted_by_price(#[c
     let response = repository
         .search_item_documents(
             &search_filter,
-            &Language::En,
-            &Currency::Usd,
             &Some(Sort {
                 sort: SortItemField::Price,
                 order: SortOrder::Asc,

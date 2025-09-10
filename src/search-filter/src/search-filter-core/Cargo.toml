@@ -7,3 +7,16 @@ edition = "2024"
 common = { workspace = true }
 time = { workspace = true }
 thiserror = { workspace = true }
+serde = { workspace = true }
+uuid = { workspace = true, features = ["v7"] }
+
+# Optional
+fake = { workspace = true, optional = true }
+
+[dev-dependencies]
+serde_json = { workspace = true }
+search-filter-core = { workspace = true, features = ["test-data"] }
+
+[features]
+default = []
+test-data = ["fake", "common/test-data"]
