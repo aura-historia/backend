@@ -11,6 +11,42 @@
 ))]
 use serde_json::{Value, json};
 
+/// A wrapper type that makes any error serialize as JSON for tracing
+#[cfg(any(
+    feature = "dynamodb",
+    feature = "sqs",
+    feature = "opensearch",
+    feature = "api"
+))]
+pub struct JsonError<E>(pub E);
+
+#[cfg(any(
+    feature = "dynamodb",
+    feature = "sqs",
+    feature = "opensearch",
+    feature = "api"
+))]
+impl<E> std::fmt::Display for JsonError<E>
+where
+    E: std::fmt::Debug + std::fmt::Display,
+{
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let json = error_to_json(&self.0);
+        write!(f, "{}", json)
+    }
+}
+
+/// Convert any error to a JsonError wrapper for automatic JSON serialization in tracing
+#[cfg(any(
+    feature = "dynamodb",
+    feature = "sqs",
+    feature = "opensearch",
+    feature = "api"
+))]
+pub fn json_error<E>(error: &E) -> JsonError<&E> {
+    JsonError(error)
+}
+
 /// Convert AWS SDK SdkError to JSON representation
 ///
 /// Extracts relevant information from AWS SDK errors and formats them
@@ -177,6 +213,23 @@ macro_rules! error_json {
     };
 }
 
+/// Macro to wrap errors for automatic JSON serialization in tracing
+///
+/// Usage: `error!(error = %json_error!(err))` 
+/// This will automatically serialize the error as JSON
+#[cfg(any(
+    feature = "dynamodb",
+    feature = "sqs",
+    feature = "opensearch",
+    feature = "api"
+))]
+#[macro_export]
+macro_rules! json_error {
+    ($error:expr) => {
+        $crate::error_json::json_error(&($error))
+    };
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -230,5 +283,40 @@ mod tests {
         assert_eq!(json["type"], "std::io::error::Error");
         assert!(json["debug"].is_string());
         assert!(json["debug"].as_str().unwrap().contains("timeout"));
+    }
+
+    #[cfg(any(
+        feature = "dynamodb",
+        feature = "sqs",
+        feature = "opensearch",
+        feature = "api"
+    ))]
+    #[test]
+    fn should_format_json_error_wrapper_when_displayed_for_testing() {
+        let error = std::io::Error::new(std::io::ErrorKind::NotFound, "file not found");
+        let json_err = json_error!(error);
+        let formatted = format!("{}", json_err);
+
+        // The formatted output should be a JSON string
+        assert!(formatted.contains("type"));
+        assert!(formatted.contains("std::io::error::Error"));
+        assert!(formatted.contains("file not found"));
+    }
+
+    #[cfg(any(
+        feature = "dynamodb",
+        feature = "sqs",
+        feature = "opensearch",
+        feature = "api"
+    ))]
+    #[test]
+    fn should_create_json_error_wrapper_when_using_json_error_function_for_testing() {
+        let error = std::io::Error::new(std::io::ErrorKind::PermissionDenied, "access denied");
+        let json_err = json_error(&error);
+        
+        // Test that it can be formatted (which internally uses our JSON conversion)
+        let formatted = format!("{}", json_err);
+        assert!(formatted.contains("type"));
+        assert!(formatted.contains("access denied"));
     }
 }
