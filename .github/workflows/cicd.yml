@@ -63,26 +63,10 @@ jobs:
       matrix:
         crate:
           - src/common
-          - src/search-filter/src/search-filter-core
-          - src/search-filter/src/search-filter-dynamodb
-          - src/aws-tests/src/smoking-tests
-          - src/aws-tests/src/staging-tests
-          - src/item/src/item-api/src/item-api-get-item
-          - src/item/src/item-api/src/item-api-simple-search
-          - src/item/src/item-core
-          - src/item/src/item-data
-          - src/item/src/item-dynamodb
-          - src/item/src/item-opensearch
-          - src/item/src/item-lambda/src/item-lambda-common
-          - src/item/src/item-lambda/src/item-lambda-materialize-dynamodb-new
-          - src/item/src/item-lambda/src/item-lambda-materialize-dynamodb-update
-          - src/item/src/item-lambda/src/item-lambda-materialize-opensearch-new
-          - src/item/src/item-lambda/src/item-lambda-materialize-opensearch-update
-          - src/item/src/item-lambda/src/item-lambda-write-new
-          - src/item/src/item-lambda/src/item-lambda-write-update
-          - src/item/src/item-service
-          - src/scrape/src/scrape-core
-          - src/scrape/src/scrape-static
+          - src/search-filter
+          - src/aws-tests
+          - src/item
+          - src/scrape
           - src/test-api
     steps:
       - uses: actions/checkout@v5
@@ -113,6 +97,10 @@ jobs:
       matrix:
         crate:
           - src/common
+          - src/search-filter/src/search-filter-api/src/search-filter-api-delete-search-filter
+          - src/search-filter/src/search-filter-api/src/search-filter-api-get-search-filter
+          - src/search-filter/src/search-filter-api/src/search-filter-api-get-search-filters
+          - src/search-filter/src/search-filter-api/src/search-filter-api-post-search-filter
           - src/search-filter/src/search-filter-core
           - src/search-filter/src/search-filter-dynamodb
           - src/item/src/item-api/src/item-api-get-item
@@ -161,6 +149,10 @@ jobs:
     strategy:
       matrix:
         crate:
+          - src/search-filter/src/search-filter-api/src/search-filter-api-delete-search-filter
+          - src/search-filter/src/search-filter-api/src/search-filter-api-get-search-filter
+          - src/search-filter/src/search-filter-api/src/search-filter-api-get-search-filters
+          - src/search-filter/src/search-filter-api/src/search-filter-api-post-search-filter
           - src/item/src/item-api/src/item-api-get-item
           - src/item/src/item-dynamodb
           - src/item/src/item-opensearch
@@ -278,6 +270,10 @@ jobs:
     strategy:
       matrix:
         crate:
+          - src/search-filter/src/search-filter-api/src/search-filter-api-delete-search-filter
+          - src/search-filter/src/search-filter-api/src/search-filter-api-get-search-filter
+          - src/search-filter/src/search-filter-api/src/search-filter-api-get-search-filters
+          - src/search-filter/src/search-filter-api/src/search-filter-api-post-search-filter
           - src/item/src/item-api/src/item-api-get-item
           - src/item/src/item-api/src/item-api-simple-search
           - src/item/src/item-lambda/src/item-lambda-materialize-dynamodb-new
