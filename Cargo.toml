@@ -39,6 +39,7 @@ fake = { version = "4.4.0", features = ["derive", "time", "uuid"] }
 field = "0.1.0"
 search-filter = { path = "src/search-filter" }
 search-filter-api = { path = "src/search-filter/src/search-filter-api" }
+search-filter-api-delete-search-filter = { path = "src/search-filter/src/search-filter-api/src/search-filter-api-delete-search-filter" }
 search-filter-api-get-search-filter = { path = "src/search-filter/src/search-filter-api/src/search-filter-api-get-search-filter" }
 search-filter-api-get-search-filters = { path = "src/search-filter/src/search-filter-api/src/search-filter-api-get-search-filters" }
 search-filter-api-post-search-filter = { path = "src/search-filter/src/search-filter-api/src/search-filter-api-post-search-filter" }
