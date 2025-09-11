@@ -89,7 +89,7 @@ pub async fn create_random_test_user() -> TestUser {
 pub async fn create_test_user(email: &str) -> TestUser {
     let cfn = get_cfn_output();
     let cognito = get_cognito_client().await;
-    let password: String = format!("{}*", Password(8..16).fake::<String>());
+    let password: String = format!("{}*1bC", Password(8..12).fake::<String>());
 
     let created = cognito
         .admin_create_user()
