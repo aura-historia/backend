@@ -439,7 +439,7 @@ jobs:
   aws-smoking-test:
     name: AWS Smoking-Test
     if: github.event_name == 'push'
-    needs: aws-cfn-deploy
+    # needs: aws-cfn-deploy
     runs-on: ubuntu-latest
     permissions:
       contents: read
