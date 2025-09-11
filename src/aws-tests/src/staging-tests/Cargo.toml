@@ -17,6 +17,7 @@ uuid = { workspace = true, features = ["v4"] }
 tracing-subscriber = { workspace = true, features = ["json"] }
 tracing = { workspace = true }
 aws-sdk-cognitoidentityprovider = "1.97.0"
+fake = { workspace = true }
 
 [dev-dependencies]
 common = { workspace = true, features = ["test-data"] }
@@ -25,7 +26,6 @@ item-service = { workspace = true, features = ["test-data"] }
 item-dynamodb = { workspace = true, features = ["test-data", "repository"] }
 item-opensearch = { workspace = true, features = ["test-data"] }
 reqwest = { workspace = true, features = ["default"] }
-fake = { workspace = true }
 url = { workspace = true }
 search-filter-core = { workspace = true }
 futures-util = { workspace = true }

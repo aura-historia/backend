@@ -1,6 +1,9 @@
+use aws_sdk_cognitoidentityprovider::types::{AuthFlowType, MessageActionType};
 use aws_sdk_dynamodb::types::WriteRequest;
 use aws_sdk_sqs::types::DeleteMessageBatchRequestEntry;
 use aws_tests_common::get_cfn_output;
+use fake::Fake;
+use fake::faker::internet::de_de::{Password, SafeEmail};
 use opensearch::http::Url;
 use opensearch::http::response::Response;
 use opensearch::http::transport::{SingleNodeConnectionPool, TransportBuilder};
@@ -70,6 +73,67 @@ pub async fn get_cognito_client() -> &'static aws_sdk_cognitoidentityprovider::C
             aws_sdk_cognitoidentityprovider::Client::new(get_aws_config().await)
         })
         .await
+}
+
+pub struct TestUser {
+    pub access_token: String,
+    pub id_token: String,
+    pub sub: String,
+}
+pub async fn create_random_test_user() -> TestUser {
+    let email: String = SafeEmail().fake();
+    create_test_user(&email).await
+}
+
+pub async fn create_test_user(email: &str) -> TestUser {
+    let cfn = get_cfn_output();
+    let cognito = get_cognito_client().await;
+    let password: String = Password(8..16).fake();
+
+    let created = cognito
+        .admin_create_user()
+        .user_pool_id(&cfn.cognito_user_pool_id)
+        .username(email)
+        .message_action(MessageActionType::Suppress)
+        .send()
+        .await
+        .unwrap();
+    cognito
+        .admin_set_user_password()
+        .user_pool_id(&cfn.cognito_user_pool_id)
+        .username(email)
+        .password(&password)
+        .permanent(true)
+        .send()
+        .await
+        .unwrap();
+    let auth = cognito
+        .admin_initiate_auth()
+        .user_pool_id(&cfn.cognito_user_pool_id)
+        .client_id(&cfn.cognito_user_pool_client_admin_id)
+        .auth_flow(AuthFlowType::AdminUserPasswordAuth)
+        .auth_parameters("USERNAME", email)
+        .auth_parameters("PASSWORD", &password)
+        .send()
+        .await
+        .unwrap()
+        .authentication_result
+        .unwrap();
+
+    TestUser {
+        access_token: auth.access_token.unwrap(),
+        id_token: auth.id_token.unwrap(),
+        sub: created
+            .user
+            .unwrap()
+            .attributes
+            .unwrap()
+            .into_iter()
+            .find(|attr| attr.name == "sub")
+            .unwrap()
+            .value
+            .unwrap(),
+    }
 }
 
 // Called inside the macro

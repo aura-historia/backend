@@ -236,7 +236,6 @@ async fn should_materialize_item_in_opensearch_for_update_item_command() {
         .await
         .unwrap();
     assert!(!insert_res.errors);
-    tracing::info!(items = ?insert_res.items, itemId = %materialized_os_old._id() , "Indexed ItemDocument");
     refresh_index("items").await;
     tokio::time::sleep(Duration::from_secs(10)).await;
 
