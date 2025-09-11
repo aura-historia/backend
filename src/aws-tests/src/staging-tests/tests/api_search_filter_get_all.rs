@@ -11,7 +11,7 @@ async fn should_authorize_user() {
     let cfn = get_cfn_output();
     let cognito = get_cognito_client().await;
 
-    let username = "ci-test-user";
+    let username = "foo@bar.com";
     let password = format!("{}*aA1", Faker.fake::<String>());
 
     cognito
