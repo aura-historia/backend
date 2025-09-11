@@ -5,7 +5,7 @@ use common::language::domain::Language;
 use common::price::domain::MonetaryAmount;
 use time::OffsetDateTime;
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct SearchFilter {
     pub language: Language,
     pub currency: Currency,

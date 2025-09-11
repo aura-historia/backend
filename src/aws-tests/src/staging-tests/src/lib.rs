@@ -11,6 +11,7 @@ pub use staging_tests_macros::staging_test;
 use std::{collections::HashMap, error::Error};
 use tokio::sync::OnceCell;
 use tracing::debug;
+use uuid::Uuid;
 
 static CONFIG: OnceCell<aws_config::SdkConfig> = OnceCell::const_new();
 pub async fn get_aws_config() -> &'static aws_config::SdkConfig {
@@ -78,7 +79,7 @@ pub async fn get_cognito_client() -> &'static aws_sdk_cognitoidentityprovider::C
 pub struct TestUser {
     pub access_token: String,
     pub id_token: String,
-    pub sub: String,
+    pub sub: Uuid,
 }
 pub async fn create_random_test_user() -> TestUser {
     let email: String = SafeEmail().fake();
@@ -88,7 +89,7 @@ pub async fn create_random_test_user() -> TestUser {
 pub async fn create_test_user(email: &str) -> TestUser {
     let cfn = get_cfn_output();
     let cognito = get_cognito_client().await;
-    let password: String = Password(8..16).fake();
+    let password: String = format!("{}*", Password(8..16).fake::<String>());
 
     let created = cognito
         .admin_create_user()
@@ -132,6 +133,8 @@ pub async fn create_test_user(email: &str) -> TestUser {
             .find(|attr| attr.name == "sub")
             .unwrap()
             .value
+            .unwrap()
+            .try_into()
             .unwrap(),
     }
 }

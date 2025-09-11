@@ -5,7 +5,7 @@ use std::{
     ops::{Deref, DerefMut},
 };
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 #[cfg_attr(feature = "test-data", derive(fake::Dummy))]
 pub struct AnyOfQuery<T: Eq + Hash>(HashSet<T>);
 
