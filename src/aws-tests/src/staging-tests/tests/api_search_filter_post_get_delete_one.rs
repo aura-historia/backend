@@ -32,7 +32,7 @@ async fn should_401_when_unauthorized_for_get_one() {
         "{}/api/v1/search-filters/foo",
         get_cfn_output().api_gateway_endpoint_url,
     );
-    let response = reqwest::Client::new().delete(url).send().await.unwrap();
+    let response = reqwest::Client::new().get(url).send().await.unwrap();
     assert_eq!(401, response.status());
 }
 
