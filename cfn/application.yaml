@@ -60,7 +60,7 @@ Resources:
     Properties:
       UserPoolId: !Ref BlitzfilterUserPool
       ClientName: !Sub "blitzfilter-client-${StageName}"
-      GenerateSecret: false                  # PKCE replaces client secret
+      GenerateSecret: false # PKCE replaces client secret
       PreventUserExistenceErrors: ENABLED
       AllowedOAuthFlowsUserPoolClient: true
       AllowedOAuthFlows:
@@ -76,9 +76,9 @@ Resources:
       LogoutURLs:
         - !Sub "https://${BlitzfilterApi}.execute-api.${AWS::Region}.amazonaws.com/${StageName}/logout"
       EnableTokenRevocation: true
-      AccessTokenValidity: 1                 # hours
-      IdTokenValidity: 1                     # hours
-      RefreshTokenValidity: 30               # days
+      AccessTokenValidity: 1 # hours
+      IdTokenValidity: 1 # hours
+      RefreshTokenValidity: 30 # days
   BlitzfilterUserPoolClientAdmin:
     Type: AWS::Cognito::UserPoolClient
     Properties:
@@ -89,11 +89,11 @@ Resources:
       AllowedOAuthFlowsUserPoolClient: false
       ExplicitAuthFlows:
         - ADMIN_NO_SRP_AUTH
-        - ADMIN_USER_PASSWORD_AUTH
+        - ALLOW_ADMIN_USER_PASSWORD_AUTH
       EnableTokenRevocation: true
-      AccessTokenValidity: 1                 # hours
-      IdTokenValidity: 1                     # hours
-      RefreshTokenValidity: 30               # days    
+      AccessTokenValidity: 1 # hours
+      IdTokenValidity: 1 # hours
+      RefreshTokenValidity: 30 # days
   BlitzfilterUserPoolDomain:
     Type: AWS::Cognito::UserPoolDomain
     Properties:
@@ -1227,7 +1227,7 @@ Outputs:
   CognitoUserPoolClientPublicId:
     Value: !Ref BlitzfilterUserPoolClientPublic
   CognitoUserPoolClientAdminId:
-    Value: !Ref BlitzfilterUserPoolClientAdmin  
+    Value: !Ref BlitzfilterUserPoolClientAdmin
   ApiGatewayEndpointUrl:
     Value: !Sub "https://${BlitzfilterApi}.execute-api.${AWS::Region}.amazonaws.com/${StageName}"
   OpensearchItemDomainEndpointUrl:

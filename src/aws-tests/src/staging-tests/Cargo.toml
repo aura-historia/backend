@@ -16,6 +16,7 @@ opensearch = { workspace = true }
 uuid = { workspace = true, features = ["v4"] }
 tracing-subscriber = { workspace = true, features = ["json"] }
 tracing = { workspace = true }
+aws-sdk-cognitoidentityprovider = "1.97.0"
 
 [dev-dependencies]
 common = { workspace = true, features = ["test-data"] }
