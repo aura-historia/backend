@@ -1,0 +1,90 @@
+use aws_tests_common::get_cfn_output;
+use fake::{Fake, Faker};
+use search_filter_data::{
+    search_filter_data::SearchFilterData, user_search_filter_data::UserSearchFilterData,
+};
+use staging_tests::create_random_test_user;
+use staging_tests_macros::staging_test;
+
+#[staging_test]
+async fn should_401_when_unauthorized() {
+    let url = format!(
+        "{}/api/v1/search-filters?sort=created&order=asc",
+        get_cfn_output().api_gateway_endpoint_url,
+    );
+    let response = reqwest::Client::new().get(url).send().await.unwrap();
+    assert_eq!(401, response.status());
+}
+
+#[staging_test]
+async fn should_create_and_get_and_delete_and_verify_not_exists() {
+    // civilian
+    let _ = create_random_test_user().await;
+    let user = create_random_test_user().await;
+
+    // Create new
+    let expected = Faker.fake::<SearchFilterData>();
+    let post_url = format!(
+        "{}/api/v1/search-filters",
+        get_cfn_output().api_gateway_endpoint_url,
+    );
+    let post_response = reqwest::Client::new()
+        .post(post_url)
+        .json(&expected)
+        .bearer_auth(&user.access_token)
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(201, post_response.status());
+    let created = post_response.json::<UserSearchFilterData>().await.unwrap();
+    assert_eq!(&expected, &created.search_filter);
+    assert_eq!(user.sub.to_string(), created.user_id.to_string());
+
+    // Get created
+    let get_url = format!(
+        "{}/api/v1/search-filters/{}",
+        get_cfn_output().api_gateway_endpoint_url,
+        created.search_filter_id
+    );
+    let get_response = reqwest::Client::new()
+        .get(get_url)
+        .bearer_auth(&user.access_token)
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(200, get_response.status());
+    let gotten = get_response.json::<UserSearchFilterData>().await.unwrap();
+    assert_eq!(&expected, &gotten.search_filter);
+    assert_eq!(created.search_filter_id, gotten.search_filter_id);
+    assert_eq!(user.sub.to_string(), gotten.user_id.to_string());
+
+    // Delete gotten
+    let get_url = format!(
+        "{}/api/v1/search-filters/{}",
+        get_cfn_output().api_gateway_endpoint_url,
+        gotten.search_filter_id
+    );
+    let get_response = reqwest::Client::new()
+        .delete(get_url)
+        .bearer_auth(&user.access_token)
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(204, get_response.status());
+
+    // Get deleted
+    let get_url = format!(
+        "{}/api/v1/search-filters/{}",
+        get_cfn_output().api_gateway_endpoint_url,
+        created.search_filter_id
+    );
+    let get_response = reqwest::Client::new()
+        .get(get_url)
+        .bearer_auth(&user.access_token)
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(404, get_response.status());
+    let json = get_response.json::<serde_json::Value>().await.unwrap();
+    assert_eq!("SEARCH_FILTER_NOT_FOUND", json["error"]);
+}
