@@ -12,7 +12,7 @@ async fn should_authorize_user() {
     let cognito = get_cognito_client().await;
 
     let username = "ci-test-user";
-    let password = Faker.fake::<String>();
+    let password = format!("{}*aA1", Faker.fake::<String>());
 
     cognito
         .admin_create_user()
