@@ -76,9 +76,9 @@ Resources:
       LogoutURLs:
         - !Sub "https://${BlitzfilterApi}.execute-api.${AWS::Region}.amazonaws.com/${StageName}/logout"
       EnableTokenRevocation: true
-      AccessTokenValidity: 60                 # minutes
-      IdTokenValidity: 60                     # minutes
-      RefreshTokenValidity: 30                # days
+      AccessTokenValidity: 1                 # hour
+      IdTokenValidity: 1                     # hour
+      RefreshTokenValidity: 30               # days
   BlitzfilterUserPoolDomain:
     Type: AWS::Cognito::UserPoolDomain
     Properties:
