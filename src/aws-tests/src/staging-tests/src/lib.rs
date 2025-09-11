@@ -164,6 +164,9 @@ pub async fn reset() {
     ])
     .await
     .expect("shouldn't fail clearing queues");
+    clear_cognito()
+        .await
+        .expect("shouldn't fail clearing cognito");
 }
 
 /// Clears all items from the DynamoDB table to ensure test isolation.
@@ -314,5 +317,38 @@ async fn clear_qs(queue_urls: Vec<String>) -> Result<(), Box<dyn Error>> {
     for queue_url in queue_urls {
         clear_q(queue_url).await?;
     }
+    Ok(())
+}
+
+async fn clear_cognito() -> Result<(), Box<dyn Error>> {
+    let client = get_cognito_client().await;
+    let mut pagination_token = None;
+
+    loop {
+        let resp = client
+            .list_users()
+            .user_pool_id(&get_cfn_output().cognito_user_pool_id)
+            .set_pagination_token(pagination_token.clone())
+            .limit(60) // max page size
+            .send()
+            .await?;
+
+        for u in resp.users() {
+            if let Some(username) = u.username() {
+                client
+                    .admin_delete_user()
+                    .user_pool_id(&get_cfn_output().cognito_user_pool_id)
+                    .username(username)
+                    .send()
+                    .await?;
+            }
+        }
+
+        pagination_token = resp.pagination_token().map(|s| s.to_string());
+        if pagination_token.is_none() {
+            break;
+        }
+    }
+
     Ok(())
 }
