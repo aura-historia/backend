@@ -66,7 +66,9 @@ pub async fn get_sqs_client() -> &'static aws_sdk_sqs::Client {
 static COGNITO_CLIENT: OnceCell<aws_sdk_cognitoidentityprovider::Client> = OnceCell::const_new();
 pub async fn get_cognito_client() -> &'static aws_sdk_cognitoidentityprovider::Client {
     COGNITO_CLIENT
-        .get_or_init(|| async { aws_sdk_cognitoidentityprovider::Client::new(get_aws_config().await) })
+        .get_or_init(|| async {
+            aws_sdk_cognitoidentityprovider::Client::new(get_aws_config().await)
+        })
         .await
 }
 
