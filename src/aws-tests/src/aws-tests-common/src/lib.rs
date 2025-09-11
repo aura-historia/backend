@@ -7,7 +7,8 @@ pub struct CloudFormationOutput {
     #[serde(rename = "CognitoHostedUIDomain")]
     pub cognito_hosted_ui_domain: String,
     pub cognito_user_pool_id: String,
-    pub cognito_user_pool_client_id: String,
+    pub cognito_user_pool_client_public_id: String,
+    pub cognito_user_pool_client_admin_id: String,
     pub api_gateway_endpoint_url: String,
     pub opensearch_item_domain_endpoint_url: String,
     pub dynamodb_table_1_name: String,

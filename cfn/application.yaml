@@ -55,7 +55,7 @@ Resources:
         DefaultEmailOption: CONFIRM_WITH_CODE
       EmailVerificationSubject: "Verify your email"
       EmailVerificationMessage: "Your verification code is {####}"
-  BlitzfilterUserPoolClient:
+  BlitzfilterUserPoolClientPublic:
     Type: AWS::Cognito::UserPoolClient
     Properties:
       UserPoolId: !Ref BlitzfilterUserPool
@@ -76,9 +76,24 @@ Resources:
       LogoutURLs:
         - !Sub "https://${BlitzfilterApi}.execute-api.${AWS::Region}.amazonaws.com/${StageName}/logout"
       EnableTokenRevocation: true
-      AccessTokenValidity: 1                 # hour
-      IdTokenValidity: 1                     # hour
+      AccessTokenValidity: 1                 # hours
+      IdTokenValidity: 1                     # hours
       RefreshTokenValidity: 30               # days
+  BlitzfilterUserPoolClientAdmin:
+    Type: AWS::Cognito::UserPoolClient
+    Properties:
+      UserPoolId: !Ref BlitzfilterUserPool
+      ClientName: !Sub "blitzfilter-admin-${StageName}"
+      GenerateSecret: false
+      PreventUserExistenceErrors: ENABLED
+      AllowedOAuthFlowsUserPoolClient: false
+      ExplicitAuthFlows:
+        - ADMIN_NO_SRP_AUTH
+        - ADMIN_USER_PASSWORD_AUTH
+      EnableTokenRevocation: true
+      AccessTokenValidity: 1                 # hours
+      IdTokenValidity: 1                     # hours
+      RefreshTokenValidity: 30               # days    
   BlitzfilterUserPoolDomain:
     Type: AWS::Cognito::UserPoolDomain
     Properties:
@@ -259,7 +274,8 @@ Resources:
       JwtConfiguration:
         Issuer: !Sub "https://cognito-idp.${AWS::Region}.amazonaws.com/${BlitzfilterUserPool}"
         Audience:
-          - !Ref BlitzfilterUserPoolClient
+          - !Ref BlitzfilterUserPoolClientPublic
+          - !Ref BlitzfilterUserPoolClientAdmin
 
   BlitzfilterApiGetItemRoute:
     Type: AWS::ApiGatewayV2::Route
@@ -1208,8 +1224,10 @@ Outputs:
     Value: !Sub "https://${BlitzfilterUserPoolDomain}.auth.${AWS::Region}.amazoncognito.com"
   CognitoUserPoolId:
     Value: !Ref BlitzfilterUserPool
-  CognitoUserPoolClientId:
-    Value: !Ref BlitzfilterUserPoolClient
+  CognitoUserPoolClientPublicId:
+    Value: !Ref BlitzfilterUserPoolClientPublic
+  CognitoUserPoolClientAdminId:
+    Value: !Ref BlitzfilterUserPoolClientAdmin  
   ApiGatewayEndpointUrl:
     Value: !Sub "https://${BlitzfilterApi}.execute-api.${AWS::Region}.amazonaws.com/${StageName}"
   OpensearchItemDomainEndpointUrl:
