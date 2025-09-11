@@ -41,7 +41,6 @@ Resources:
         - email
       AutoVerifiedAttributes:
         - email
-      MfaConfiguration: OFF
       Policies:
         PasswordPolicy:
           MinimumLength: 8
