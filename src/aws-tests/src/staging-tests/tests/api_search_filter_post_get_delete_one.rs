@@ -7,19 +7,37 @@ use staging_tests::create_random_test_user;
 use staging_tests_macros::staging_test;
 
 #[staging_test]
-async fn should_401_when_unauthorized() {
+async fn should_401_when_unauthorized_for_post() {
     let url = format!(
-        "{}/api/v1/search-filters?sort=created&order=asc",
+        "{}/api/v1/search-filters",
         get_cfn_output().api_gateway_endpoint_url,
     );
-    let response = reqwest::Client::new().get(url).send().await.unwrap();
+    let response = reqwest::Client::new().post(url).send().await.unwrap();
+    assert_eq!(401, response.status());
+}
+
+#[staging_test]
+async fn should_401_when_unauthorized_for_delete() {
+    let url = format!(
+        "{}/api/v1/search-filters/foo",
+        get_cfn_output().api_gateway_endpoint_url,
+    );
+    let response = reqwest::Client::new().delete(url).send().await.unwrap();
+    assert_eq!(401, response.status());
+}
+
+#[staging_test]
+async fn should_401_when_unauthorized_for_get_one() {
+    let url = format!(
+        "{}/api/v1/search-filters/foo",
+        get_cfn_output().api_gateway_endpoint_url,
+    );
+    let response = reqwest::Client::new().delete(url).send().await.unwrap();
     assert_eq!(401, response.status());
 }
 
 #[staging_test]
 async fn should_create_and_get_and_delete_and_verify_not_exists() {
-    // civilian
-    let _ = create_random_test_user().await;
     let user = create_random_test_user().await;
 
     // Create new
