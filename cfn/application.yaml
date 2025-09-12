@@ -33,6 +33,72 @@ Mappings:
       prod: 300
 
 Resources:
+  BlitzfilterUserPool:
+    Type: AWS::Cognito::UserPool
+    Properties:
+      UserPoolName: !Sub "blitzfilter-userpool-${StageName}"
+      UsernameAttributes:
+        - email
+      AutoVerifiedAttributes:
+        - email
+      Policies:
+        PasswordPolicy:
+          MinimumLength: 8
+          RequireUppercase: true
+          RequireLowercase: true
+          RequireNumbers: true
+          RequireSymbols: true
+          TemporaryPasswordValidityDays: 7
+      UserPoolAddOns:
+        AdvancedSecurityMode: ENFORCED
+      VerificationMessageTemplate:
+        DefaultEmailOption: CONFIRM_WITH_CODE
+      EmailVerificationSubject: "Verify your email"
+      EmailVerificationMessage: "Your verification code is {####}"
+  BlitzfilterUserPoolClientPublic:
+    Type: AWS::Cognito::UserPoolClient
+    Properties:
+      UserPoolId: !Ref BlitzfilterUserPool
+      ClientName: !Sub "blitzfilter-client-${StageName}"
+      GenerateSecret: false # PKCE replaces client secret
+      PreventUserExistenceErrors: ENABLED
+      AllowedOAuthFlowsUserPoolClient: true
+      AllowedOAuthFlows:
+        - code
+      AllowedOAuthScopes:
+        - openid
+        - email
+        - profile
+      SupportedIdentityProviders:
+        - COGNITO
+      CallbackURLs: # Placeholder for staging-tests
+        - !Sub "https://${BlitzfilterApi}.execute-api.${AWS::Region}.amazonaws.com/${StageName}/oauth2/callback"
+      LogoutURLs:
+        - !Sub "https://${BlitzfilterApi}.execute-api.${AWS::Region}.amazonaws.com/${StageName}/logout"
+      EnableTokenRevocation: true
+      AccessTokenValidity: 1 # hours
+      IdTokenValidity: 1 # hours
+      RefreshTokenValidity: 30 # days
+  BlitzfilterUserPoolClientAdmin:
+    Type: AWS::Cognito::UserPoolClient
+    Properties:
+      UserPoolId: !Ref BlitzfilterUserPool
+      ClientName: !Sub "blitzfilter-admin-${StageName}"
+      GenerateSecret: false
+      PreventUserExistenceErrors: ENABLED
+      AllowedOAuthFlowsUserPoolClient: false
+      ExplicitAuthFlows:
+        - ALLOW_ADMIN_USER_PASSWORD_AUTH
+      EnableTokenRevocation: true
+      AccessTokenValidity: 1 # hours
+      IdTokenValidity: 1 # hours
+      RefreshTokenValidity: 30 # days
+  BlitzfilterUserPoolDomain:
+    Type: AWS::Cognito::UserPoolDomain
+    Properties:
+      Domain: !Sub "blitzfilter-${StageName}" # hosted UI domain
+      UserPoolId: !Ref BlitzfilterUserPool
+
   TableOne:
     Type: AWS::DynamoDB::Table
     Properties:
@@ -196,6 +262,19 @@ Resources:
       StageName: !Sub "${StageName}"
       ApiId: !Ref BlitzfilterApi
       AutoDeploy: true
+  BlitzfilterApiCognitoAuthorizer:
+    Type: AWS::ApiGatewayV2::Authorizer
+    Properties:
+      ApiId: !Ref BlitzfilterApi
+      Name: CognitoJwtAuthorizer
+      AuthorizerType: JWT
+      IdentitySource:
+        - "$request.header.Authorization"
+      JwtConfiguration:
+        Issuer: !Sub "https://cognito-idp.${AWS::Region}.amazonaws.com/${BlitzfilterUserPool}"
+        Audience:
+          - !Ref BlitzfilterUserPoolClientPublic
+          - !Ref BlitzfilterUserPoolClientAdmin
 
   BlitzfilterApiGetItemRoute:
     Type: AWS::ApiGatewayV2::Route
@@ -328,6 +407,8 @@ Resources:
     Properties:
       ApiId: !Ref BlitzfilterApi
       RouteKey: "DELETE /api/v1/search-filters/{searchFilterId}"
+      AuthorizationType: JWT
+      AuthorizerId: !Ref BlitzfilterApiCognitoAuthorizer
       Target: !Sub "integrations/${BlitzfilterApiDeleteSearchFilterLambdaIntegration}"
   BlitzfilterApiDeleteSearchFilterLambdaIntegration:
     Type: AWS::ApiGatewayV2::Integration
@@ -384,13 +465,15 @@ Resources:
       Action: lambda:InvokeFunction
       FunctionName: !Ref BlitzfilterApiDeleteSearchFilterLambda
       Principal: apigateway.amazonaws.com
-      SourceArn: !Sub "arn:aws:execute-api:${AWS::Region}:${AWS::AccountId}:${BlitzfilterApi}/*/*/api/v1/search-filters"
+      SourceArn: !Sub "arn:aws:execute-api:${AWS::Region}:${AWS::AccountId}:${BlitzfilterApi}/*/*/api/v1/search-filters/*"
 
   ApiGetSearchFilterRoute:
     Type: AWS::ApiGatewayV2::Route
     Properties:
       ApiId: !Ref BlitzfilterApi
       RouteKey: "GET /api/v1/search-filters/{searchFilterId}"
+      AuthorizationType: JWT
+      AuthorizerId: !Ref BlitzfilterApiCognitoAuthorizer
       Target: !Sub "integrations/${BlitzfilterApiGetSearchFilterLambdaIntegration}"
   BlitzfilterApiGetSearchFilterLambdaIntegration:
     Type: AWS::ApiGatewayV2::Integration
@@ -453,6 +536,8 @@ Resources:
     Properties:
       ApiId: !Ref BlitzfilterApi
       RouteKey: "GET /api/v1/search-filters"
+      AuthorizationType: JWT
+      AuthorizerId: !Ref BlitzfilterApiCognitoAuthorizer
       Target: !Sub "integrations/${BlitzfilterApiGetSearchFiltersLambdaIntegration}"
   BlitzfilterApiGetSearchFiltersLambdaIntegration:
     Type: AWS::ApiGatewayV2::Integration
@@ -515,6 +600,8 @@ Resources:
     Properties:
       ApiId: !Ref BlitzfilterApi
       RouteKey: "POST /api/v1/search-filters"
+      AuthorizationType: JWT
+      AuthorizerId: !Ref BlitzfilterApiCognitoAuthorizer
       Target: !Sub "integrations/${BlitzfilterApiPostSearchFilterLambdaIntegration}"
   BlitzfilterApiPostSearchFilterLambdaIntegration:
     Type: AWS::ApiGatewayV2::Integration
@@ -1132,6 +1219,14 @@ Resources:
           Arn: !GetAtt ItemMaterializeOpenSearchUpdateQ.Arn
 
 Outputs:
+  CognitoHostedUIDomain:
+    Value: !Sub "https://${BlitzfilterUserPoolDomain}.auth.${AWS::Region}.amazoncognito.com"
+  CognitoUserPoolId:
+    Value: !Ref BlitzfilterUserPool
+  CognitoUserPoolClientPublicId:
+    Value: !Ref BlitzfilterUserPoolClientPublic
+  CognitoUserPoolClientAdminId:
+    Value: !Ref BlitzfilterUserPoolClientAdmin
   ApiGatewayEndpointUrl:
     Value: !Sub "https://${BlitzfilterApi}.execute-api.${AWS::Region}.amazonaws.com/${StageName}"
   OpensearchItemDomainEndpointUrl:

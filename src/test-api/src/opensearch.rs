@@ -138,7 +138,7 @@ async fn set_up_domain() -> Result<CreateDomainOutput, SdkError<CreateDomainErro
 async fn wait_until_domain_processed(
     domain: &'static str,
 ) -> Result<(), SdkError<DescribeDomainError, HttpResponse>> {
-    let mut retries = 300;
+    let mut retries = 500;
     let mut processing = true;
     while processing {
         let res = aws_sdk_opensearch::Client::new(get_aws_config().await)

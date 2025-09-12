@@ -384,7 +384,7 @@ jobs:
       - name: Setup OpenSearch index 'items'
         run: |
           chmod +x ci/setup-opensearch-index-items.sh
-          ./ci/setup-opensearch-index-items.sh
+          # ./ci/setup-opensearch-index-items.sh
 
   aws-staging-test:
     name: AWS Staging-Test

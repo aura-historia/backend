@@ -245,6 +245,28 @@ dependencies = [
 ]
 
 [[package]]
+name = "aws-sdk-cognitoidentityprovider"
+version = "1.97.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "9a9d86aa8b4b0c5d46e693416cefef271f43f023fc7afffd526b0e2dd27428cd"
+dependencies = [
+ "aws-credential-types",
+ "aws-runtime",
+ "aws-smithy-async",
+ "aws-smithy-http",
+ "aws-smithy-json",
+ "aws-smithy-runtime",
+ "aws-smithy-runtime-api",
+ "aws-smithy-types",
+ "aws-types",
+ "bytes",
+ "fastrand",
+ "http 0.2.12",
+ "regex-lite",
+ "tracing",
+]
+
+[[package]]
 name = "aws-sdk-dynamodb"
 version = "1.92.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -4110,6 +4132,7 @@ name = "staging-tests"
 version = "0.1.0"
 dependencies = [
  "aws-config",
+ "aws-sdk-cognitoidentityprovider",
  "aws-sdk-dynamodb",
  "aws-sdk-sqs",
  "aws-tests-common",
@@ -4123,6 +4146,9 @@ dependencies = [
  "opensearch",
  "reqwest",
  "search-filter-core",
+ "search-filter-data",
+ "search-filter-dynamodb",
+ "search-filter-service",
  "serde",
  "serde_json",
  "serial_test",
