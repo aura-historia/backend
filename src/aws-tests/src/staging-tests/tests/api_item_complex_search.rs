@@ -79,7 +79,7 @@ async fn should_respond_200_when_hits() {
     };
 
     let url = format!(
-        "{}/api/v1/items/search",
+        "{}/api/v1/items/search?sort=created&order=asc&from=0&size=5",
         get_cfn_output().api_gateway_endpoint_url
     );
     let response = reqwest::Client::new()
