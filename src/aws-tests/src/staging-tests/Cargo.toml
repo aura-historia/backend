@@ -23,6 +23,7 @@ fake = { workspace = true }
 common = { workspace = true, features = ["test-data"] }
 serial_test = { workspace = true }
 item-service = { workspace = true, features = ["test-data"] }
+item-data = { workspace = true, features = ["test-data"] }
 item-dynamodb = { workspace = true, features = ["test-data", "repository"] }
 search-filter-dynamodb = { workspace = true, features = ["test-data"] }
 search-filter-service = { workspace = true }
@@ -33,3 +34,4 @@ reqwest = { workspace = true, features = ["default", "json"] }
 url = { workspace = true }
 futures-util = { workspace = true }
 item-core = { workspace = true }
+time = { workspace = true }

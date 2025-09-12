@@ -148,7 +148,7 @@ mod tests {
     ) {
         let lambda_event = LambdaEvent {
             payload: ApiGatewayV2httpRequestProxy::builder()
-                .http_method(http::Method::GET)
+                .http_method(http::Method::POST)
                 .try_query_string_parameter("from", page_from)
                 .try_query_string_parameter("size", page_size)
                 .body_serde(&Faker.fake::<SearchFilterData>())
