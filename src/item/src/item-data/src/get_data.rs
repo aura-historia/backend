@@ -8,11 +8,11 @@ use common::price::data::PriceData;
 use common::shop_id::ShopId;
 use common::shops_item_id::ShopsItemId;
 use item_core::item::LocalizedItemView;
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use time::OffsetDateTime;
 use url::Url;
 
-#[derive(Debug, Clone, PartialEq, Serialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct GetItemData {
     pub item_id: ItemId,
@@ -27,17 +27,17 @@ pub struct GetItemData {
 
     pub title: LocalizedTextData,
 
-    #[serde(skip_serializing_if = "Option::is_none")]
+    #[serde(skip_serializing_if = "Option::is_none", default)]
     pub description: Option<LocalizedTextData>,
 
-    #[serde(skip_serializing_if = "Option::is_none")]
+    #[serde(skip_serializing_if = "Option::is_none", default)]
     pub price: Option<PriceData>,
 
     pub state: ItemStateData,
 
     pub url: Url,
 
-    #[serde(skip_serializing_if = "Vec::is_empty")]
+    #[serde(skip_serializing_if = "Vec::is_empty", default)]
     pub images: Vec<Url>,
 
     #[serde(with = "time::serde::rfc3339")]
@@ -46,7 +46,7 @@ pub struct GetItemData {
     #[serde(with = "time::serde::rfc3339")]
     pub updated: OffsetDateTime,
 
-    #[serde(skip_serializing_if = "Option::is_none")]
+    #[serde(skip_serializing_if = "Option::is_none", default)]
     pub history: Option<Vec<GetItemEventData>>,
 }
 

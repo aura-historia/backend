@@ -4,10 +4,10 @@ use common::{
     shops_item_id::ShopsItemId,
 };
 use item_core::item_event::LocalizedItemEventPayloadView;
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use time::OffsetDateTime;
 
-#[derive(Copy, Clone, Eq, PartialEq, Debug, Serialize)]
+#[derive(Copy, Clone, Eq, PartialEq, Debug, Serialize, Deserialize)]
 #[serde(rename_all = "SCREAMING_SNAKE_CASE")]
 pub enum ItemEventTypeData {
     Created,
@@ -21,7 +21,7 @@ pub enum ItemEventTypeData {
     PriceIncreased,
 }
 
-#[derive(Debug, Clone, PartialEq, Serialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(untagged)]
 pub enum ItemEventPayloadData {
     Created,
@@ -41,7 +41,7 @@ impl ItemEventPayloadData {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Serialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct GetItemEventData {
     pub event_type: ItemEventTypeData,

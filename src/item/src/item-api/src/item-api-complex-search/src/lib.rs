@@ -4,10 +4,8 @@ use common::{
         api_gateway_v2_http_response_builder::ApiGatewayV2HttpResponseBuilder,
         collection::{CollectionData, PaginationData},
         error::ApiError,
-        error_code::{BAD_PATH_PARAMETER_VALUE, INTERNAL_SERVER_ERROR, TEXT_QUERY_TOO_SHORT},
+        error_code::{BAD_BODY_VALUE, INTERNAL_SERVER_ERROR},
     },
-    currency::{data::api::extract_currency_query, domain::Currency},
-    language::{data::api::extract_language_query, domain::Language},
     page::{Page, api::extract_page_query},
     sort::api::extract_sort_query,
 };
@@ -15,10 +13,7 @@ use item_core::sort_item_field::SortItemField;
 use item_data::{get_data::GetItemData, sort_item_field_data::SortItemFieldData};
 use item_service::query_service::QueryItemService;
 use lambda_runtime::LambdaEvent;
-use search_filter_core::{
-    search_filter::SearchFilter,
-    text_query::{TextQuery, TextQueryTooShortError},
-};
+use search_filter_data::search_filter_data::SearchFilterData;
 use tracing::error;
 
 #[tracing::instrument(
@@ -39,40 +34,26 @@ pub async fn handler(
     }
 }
 
-// GET /api/v1/items
+// POST /api/v1/items/search
 pub async fn handle(
     event: LambdaEvent<ApiGatewayV2httpRequest>,
     service: &impl QueryItemService,
 ) -> Result<ApiGatewayV2httpResponse, ApiError> {
-    let language: Language = extract_language_query(&event.payload.query_string_parameters)?.into();
-    let currency: Currency = extract_currency_query(&event.payload.query_string_parameters)?.into();
     let sort = extract_sort_query::<SortItemFieldData>(&event.payload.query_string_parameters)?
         .map(|sort_data| sort_data.map(SortItemField::from));
     let page = extract_page_query(&event.payload.query_string_parameters)?
         .unwrap_or(Page { from: 0, size: 21 });
-    let item_query: TextQuery = event
+    let body = event
         .payload
-        .query_string_parameters
-        .first("q")
-        .map(str::trim)
-        .ok_or(ApiError::bad_request(BAD_PATH_PARAMETER_VALUE).with_query_field("q"))?
-        .try_into()
-        .map_err(|err: TextQueryTooShortError| {
-            ApiError::bad_request(TEXT_QUERY_TOO_SHORT)
-                .with_query_field("q")
-                .with_message(err.to_string())
+        .body
+        .filter(|str| !str.is_empty())
+        .ok_or_else(|| {
+            ApiError::bad_request(BAD_BODY_VALUE).with_message("Body cannot be empty")
         })?;
-    let search_filter = SearchFilter {
-        language,
-        currency,
-        item_query,
-        shop_name_query: None,
-        price_query: None,
-        state_query: Default::default(),
-        created_query: None,
-        updated_query: None,
-    };
+    let search_filter_data: SearchFilterData = serde_json::from_str(&body)
+        .map_err(|err| ApiError::bad_request(BAD_BODY_VALUE).with_message(err.to_string()))?;
 
+    let search_filter = search_filter_data.into();
     let search_result = service
         .search_items(&search_filter, &sort, &Some(page))
         .await?;
@@ -110,48 +91,23 @@ pub async fn handle(
 mod tests {
     use crate::handler;
     use common::opensearch::search_result::SearchResult;
-    use http::header::ACCEPT_LANGUAGE;
+    use fake::Fake;
+    use fake::Faker;
     use item_core::item::LocalizedItemView;
     use item_service::query_service::MockQueryItemService;
     use lambda_runtime::LambdaEvent;
+    use search_filter_data::search_filter_data::SearchFilterData;
     use test_api::ApiGatewayV2httpRequestProxy;
     use test_api::extract_apigw_response_json_body;
 
     #[tokio::test]
     #[rstest::rstest]
-    #[case(
-        Some("de"),
-        "cool item title keywords",
-        Some("EUR"),
-        Some("price"),
-        Some("asc"),
-        Some("5"),
-        Some("20")
-    )]
-    #[case(
-        Some("en"),
-        "boop doop",
-        Some("USD"),
-        Some("created"),
-        Some("desc"),
-        None,
-        None
-    )]
-    #[case(Some("en"), "boop doop", Some("USD"), None, None, Some("7"), None)]
-    #[case(
-        Some("en"),
-        "boop doop",
-        Some("AUD"),
-        Some("updated"),
-        Some("desc"),
-        None,
-        Some("10")
-    )]
-    #[case(None, "boop doop", None, None, None, None, None)]
+    #[case(Some("price"), Some("asc"), Some("5"), Some("20"))]
+    #[case(Some("created"), Some("desc"), None, None)]
+    #[case(None, None, Some("7"), None)]
+    #[case(Some("updated"), Some("desc"), None, Some("10"))]
+    #[case(None, None, None, None)]
     async fn should_handle_request(
-        #[case] content_language: Option<&str>,
-        #[case] q: &str,
-        #[case] currency: Option<&str>,
         #[case] sort: Option<&str>,
         #[case] order: Option<&str>,
         #[case] page_from: Option<&str>,
@@ -159,14 +115,12 @@ mod tests {
     ) {
         let lambda_event = LambdaEvent {
             payload: ApiGatewayV2httpRequestProxy::builder()
-                .http_method(http::Method::GET)
-                .try_header(ACCEPT_LANGUAGE.as_str(), content_language)
-                .query_string_parameter("q", q)
-                .try_query_string_parameter("currency", currency)
+                .http_method(http::Method::POST)
                 .try_query_string_parameter("sort", sort)
                 .try_query_string_parameter("order", order)
                 .try_query_string_parameter("from", page_from)
                 .try_query_string_parameter("size", page_size)
+                .body_serde(&Faker.fake::<SearchFilterData>())
                 .build(),
             context: Default::default(),
         };
@@ -187,20 +141,17 @@ mod tests {
 
     #[tokio::test]
     #[rstest::rstest]
-    #[case(None, "boop doop", None, None)]
+    #[case(None, None)]
     async fn should_default_page_sizing_when_none_given(
-        #[case] content_language: Option<&str>,
-        #[case] q: &str,
         #[case] page_from: Option<&str>,
         #[case] page_size: Option<&str>,
     ) {
         let lambda_event = LambdaEvent {
             payload: ApiGatewayV2httpRequestProxy::builder()
                 .http_method(http::Method::GET)
-                .try_header(ACCEPT_LANGUAGE.as_str(), content_language)
-                .query_string_parameter("q", q)
                 .try_query_string_parameter("from", page_from)
                 .try_query_string_parameter("size", page_size)
+                .body_serde(&Faker.fake::<SearchFilterData>())
                 .build(),
             context: Default::default(),
         };
@@ -221,31 +172,5 @@ mod tests {
         assert_eq!(0, json["pagination"]["from"]);
         assert_eq!(21, json["pagination"]["size"]);
         assert_eq!(789, json["pagination"]["total"]);
-    }
-
-    #[tokio::test]
-    #[rstest::rstest]
-    #[case("a")]
-    #[case("ab")]
-    #[case("ba")]
-    #[case("12")]
-    #[case("0")]
-    async fn should_400_when_text_query_is_too_short(#[case] q: &str) {
-        let lambda_event = LambdaEvent {
-            payload: ApiGatewayV2httpRequestProxy::builder()
-                .http_method(http::Method::GET)
-                .query_string_parameter("q", q)
-                .build(),
-            context: Default::default(),
-        };
-
-        let mut service = MockQueryItemService::default();
-        service.expect_search_items().never();
-        let response = handler(lambda_event, &service).await.unwrap();
-
-        assert_eq!(400, response.status_code);
-        let json = extract_apigw_response_json_body!(response);
-        assert_eq!(400, json["status"]);
-        assert_eq!("q", json["source"]["field"]);
     }
 }
