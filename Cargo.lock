@@ -2033,8 +2033,35 @@ dependencies = [
 name = "item-api"
 version = "0.1.0"
 dependencies = [
+ "item-api-complex-search",
  "item-api-get-item",
  "item-api-simple-search",
+]
+
+[[package]]
+name = "item-api-complex-search"
+version = "0.1.0"
+dependencies = [
+ "aws-config",
+ "aws_lambda_events",
+ "common",
+ "fake",
+ "http 1.3.1",
+ "item-core",
+ "item-data",
+ "item-opensearch",
+ "item-service",
+ "lambda_runtime",
+ "opensearch",
+ "rstest",
+ "search-filter-core",
+ "search-filter-data",
+ "serde_json",
+ "serial_test",
+ "test-api",
+ "tokio",
+ "tracing",
+ "tracing-subscriber",
 ]
 
 [[package]]
@@ -4140,6 +4167,7 @@ dependencies = [
  "fake",
  "futures-util",
  "item-core",
+ "item-data",
  "item-dynamodb",
  "item-opensearch",
  "item-service",
@@ -4153,6 +4181,7 @@ dependencies = [
  "serde_json",
  "serial_test",
  "staging-tests-macros",
+ "time",
  "tokio",
  "tracing",
  "tracing-subscriber",

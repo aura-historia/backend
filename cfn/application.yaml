@@ -402,6 +402,70 @@ Resources:
       Principal: apigateway.amazonaws.com
       SourceArn: !Sub "arn:aws:execute-api:${AWS::Region}:${AWS::AccountId}:${BlitzfilterApi}/*/*/api/v1/items*"
 
+  BlitzfilterApiComplexSearchRoute:
+    Type: AWS::ApiGatewayV2::Route
+    Properties:
+      ApiId: !Ref BlitzfilterApi
+      RouteKey: "POST /api/v1/items/search"
+      Target: !Sub "integrations/${BlitzfilterApiComplexSearchLambdaIntegration}"
+  BlitzfilterApiComplexSearchLambdaIntegration:
+    Type: AWS::ApiGatewayV2::Integration
+    Properties:
+      ApiId: !Ref BlitzfilterApi
+      IntegrationType: AWS_PROXY
+      IntegrationUri: !Sub "arn:aws:lambda:${AWS::Region}:${AWS::AccountId}:function:${BlitzfilterApiComplexSearchLambda}"
+      PayloadFormatVersion: "2.0"
+  BlitzfilterApiComplexSearchRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Sub "blitzfilter-api-complex-search-role-${StageName}"
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: lambda.amazonaws.com
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole
+      Policies:
+        - PolicyName: OpenSearchReadOnly
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: Allow
+                Action:
+                  - es:Describe*
+                  - es:List*
+                  - es:ESHttpGet
+                  - es:ESHttpHead
+                  - es:ESHttpPost
+                Resource: !Sub "${ItemsOpenSearchDomain.Arn}/*"
+  BlitzfilterApiComplexSearchLambda:
+    Type: AWS::Lambda::Function
+    Properties:
+      FunctionName: !Sub "blitzfilter-api-complex-search-${StageName}"
+      Runtime: provided.al2023
+      Handler: lib.handler
+      Role: !GetAtt BlitzfilterApiComplexSearchRole.Arn
+      Code:
+        S3Bucket: !Ref ArtifactBucket
+        S3Key: !Sub "item-api-complex-search-${StageName}-${CommitSHA}.zip"
+      MemorySize: 512
+      Timeout: 10
+      EphemeralStorage:
+        Size: 512
+      Environment:
+        Variables:
+          OPENSEARCH_ITEMS_DOMAIN_ENDPOINT_URL: !Sub "https://${ItemsOpenSearchDomain.DomainEndpoint}"
+  BlitzfilterApiComplexSearchLambdaPermission:
+    Type: AWS::Lambda::Permission
+    Properties:
+      Action: lambda:InvokeFunction
+      FunctionName: !Ref BlitzfilterApiComplexSearchLambda
+      Principal: apigateway.amazonaws.com
+      SourceArn: !Sub "arn:aws:execute-api:${AWS::Region}:${AWS::AccountId}:${BlitzfilterApi}/*/*/api/v1/items/search*"
+
   ApiDeleteSearchFilterRoute:
     Type: AWS::ApiGatewayV2::Route
     Properties:

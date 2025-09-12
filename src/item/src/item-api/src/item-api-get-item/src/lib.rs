@@ -33,6 +33,7 @@ pub async fn handler(
     }
 }
 
+// GET /api/v1/items/{shopId}/{shopsItemId}
 pub async fn handle(
     event: LambdaEvent<ApiGatewayV2httpRequest>,
     service: &impl GetItemService,

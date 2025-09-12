@@ -1,0 +1,31 @@
+[package]
+name = "item-api-complex-search"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+common = { workspace = true, features = ["api"] }
+item-core = { workspace = true }
+item-service = { workspace = true, features = ["opensearch", "api"] }
+item-opensearch = { workspace = true }
+item-data = { workspace = true }
+search-filter-core = { workspace = true }
+search-filter-data = { workspace = true }
+tracing = { workspace = true }
+tracing-subscriber = { workspace = true, features = ["json"] }
+tokio = { workspace = true, features = ["macros"] }
+aws_lambda_events = { workspace = true, features = ["apigw"] }
+lambda_runtime = { workspace = true }
+aws-config = { workspace = true }
+opensearch = { workspace = true }
+serde_json = { workspace = true }
+http = { workspace = true }
+
+[dev-dependencies]
+test-api = { workspace = true, features = ["api-gateway", "opensearch"] }
+rstest = { workspace = true }
+serial_test = { workspace = true }
+http = { workspace = true }
+fake = { workspace = true }
+item-core = { workspace = true, features = ["test-data"] }
+search-filter-data = { workspace = true, features = ["test-data"] }
