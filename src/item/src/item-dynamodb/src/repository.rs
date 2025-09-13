@@ -14,6 +14,7 @@ use aws_sdk_dynamodb::operation::update_item::{UpdateItemError, UpdateItemOutput
 use aws_sdk_dynamodb::types::{AttributeValue, KeysAndAttributes};
 use common::batch::Batch;
 use common::batch::dynamodb::BatchGetItemResult;
+use common::dynamodb_update::mk_update;
 use common::item_id::ItemKey;
 use common::shop_id::ShopId;
 use common::shops_item_id::ShopsItemId;
@@ -123,33 +124,16 @@ impl<'a> ItemDynamoDbRepository for ItemDynamoDbRepositoryImpl<'a> {
     ) -> Result<UpdateItemOutput, SdkError<UpdateItemError, HttpResponse>> {
         let pk = format!("item#shop_id#{shop_id}#shops_item_id#{shops_item_id}");
         let sk = "item#materialized".to_string();
-
-        let updates: HashMap<String, AttributeValue> =
-            serde_dynamo::to_item(item_update_record).map_err(SdkError::construction_failure)?;
-
-        let mut update_expressions = Vec::new();
-        let mut expr_attr_names = HashMap::new();
-        let mut expr_attr_values = HashMap::new();
-
-        for (attr, val) in updates {
-            let attr_placeholder = format!("#{attr}");
-            let val_placeholder = format!(":{attr}_val");
-
-            expr_attr_names.insert(attr_placeholder.clone(), attr.clone());
-            expr_attr_values.insert(val_placeholder.clone(), val);
-            update_expressions.push(format!("{attr_placeholder} = {val_placeholder}"));
-        }
-
-        let update_expr = format!("SET {}", update_expressions.join(", "));
+        let update_expr = mk_update(item_update_record)?;
 
         self.client
             .update_item()
             .table_name(&self.table)
             .key("pk", AttributeValue::S(pk))
             .key("sk", AttributeValue::S(sk))
-            .update_expression(update_expr)
-            .set_expression_attribute_names(Some(expr_attr_names))
-            .set_expression_attribute_values(Some(expr_attr_values))
+            .update_expression(update_expr.update_expr)
+            .set_expression_attribute_names(Some(update_expr.expr_attr_names))
+            .set_expression_attribute_values(Some(update_expr.expr_attr_values))
             .send()
             .await
     }

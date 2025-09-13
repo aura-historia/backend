@@ -3,6 +3,8 @@ pub mod currency;
 #[cfg(feature = "api")]
 pub mod api;
 pub mod batch;
+#[cfg(feature = "dynamodb")]
+pub mod dynamodb_update;
 pub mod error;
 pub mod event;
 pub mod event_id;

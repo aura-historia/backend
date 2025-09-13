@@ -1,5 +1,7 @@
 use aws_tests_common::get_cfn_output;
+use common::language::data::LanguageData;
 use fake::{Fake, Faker};
+use search_filter_api_patch_search_filter::search_filter_data_patch::SearchFilterDataPatch;
 use search_filter_data::{
     search_filter_data::SearchFilterData, user_search_filter_data::UserSearchFilterData,
 };
@@ -54,15 +56,15 @@ async fn should_create_and_get_and_delete_and_verify_not_exists() {
         .await
         .unwrap();
     assert_eq!(201, post_response.status());
-    let created = post_response.json::<UserSearchFilterData>().await.unwrap();
-    assert_eq!(&expected, &created.search_filter);
-    assert_eq!(user.sub.to_string(), created.user_id.to_string());
+    let posted = post_response.json::<UserSearchFilterData>().await.unwrap();
+    assert_eq!(&expected, &posted.search_filter);
+    assert_eq!(user.sub.to_string(), posted.user_id.to_string());
 
-    // Get created
+    // Get posted
     let get_url = format!(
         "{}/api/v1/search-filters/{}",
         get_cfn_output().api_gateway_endpoint_url,
-        created.search_filter_id
+        posted.search_filter_id
     );
     let get_response = reqwest::Client::new()
         .get(get_url)
@@ -73,14 +75,47 @@ async fn should_create_and_get_and_delete_and_verify_not_exists() {
     assert_eq!(200, get_response.status());
     let gotten = get_response.json::<UserSearchFilterData>().await.unwrap();
     assert_eq!(&expected, &gotten.search_filter);
-    assert_eq!(created.search_filter_id, gotten.search_filter_id);
+    assert_eq!(posted.search_filter_id, gotten.search_filter_id);
     assert_eq!(user.sub.to_string(), gotten.user_id.to_string());
 
-    // Delete gotten
+    // Update gotten
     let get_url = format!(
         "{}/api/v1/search-filters/{}",
         get_cfn_output().api_gateway_endpoint_url,
-        gotten.search_filter_id
+        posted.search_filter_id
+    );
+    let patch = SearchFilterDataPatch {
+        language: Some(LanguageData::Fr),
+        currency: None,
+        item_query: Some("weesl bee wuff".try_into().unwrap()),
+        shop_name_query: None,
+        price_query: None,
+        state_query: None,
+        created_query: None,
+        updated_query: None,
+    };
+    let get_response = reqwest::Client::new()
+        .patch(get_url)
+        .bearer_auth(&user.access_token)
+        .json(&patch)
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(200, get_response.status());
+    let patched = get_response.json::<UserSearchFilterData>().await.unwrap();
+    assert_eq!(&patch.language.unwrap(), &patched.search_filter.language);
+    assert_eq!(
+        &patch.item_query.unwrap(),
+        &patched.search_filter.item_query
+    );
+    assert_eq!(posted.search_filter_id, patched.search_filter_id);
+    assert_eq!(user.sub.to_string(), patched.user_id.to_string());
+
+    // Delete patched
+    let get_url = format!(
+        "{}/api/v1/search-filters/{}",
+        get_cfn_output().api_gateway_endpoint_url,
+        patched.search_filter_id
     );
     let get_response = reqwest::Client::new()
         .delete(get_url)
@@ -94,7 +129,7 @@ async fn should_create_and_get_and_delete_and_verify_not_exists() {
     let get_url = format!(
         "{}/api/v1/search-filters/{}",
         get_cfn_output().api_gateway_endpoint_url,
-        created.search_filter_id
+        posted.search_filter_id
     );
     let get_response = reqwest::Client::new()
         .get(get_url)

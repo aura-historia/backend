@@ -1,9 +1,8 @@
 use aws_lambda_events::apigw::{ApiGatewayV2httpRequest, ApiGatewayV2httpResponse};
 use common::{
     api::{
-        api_gateway_v2_http_response_builder::ApiGatewayV2HttpResponseBuilder,
-        error::ApiError,
-        error_code::{BAD_BODY_VALUE, INTERNAL_SERVER_ERROR},
+        api_gateway_v2_http_response_builder::ApiGatewayV2HttpResponseBuilder, error::ApiError,
+        error_code::BAD_BODY_VALUE,
     },
     user_id::api::extract_user_id_cognito_jwt,
 };
@@ -54,11 +53,6 @@ pub async fn handle(
         .await?
         .into();
 
-    let response = serde_json::to_string(&user_search_filter_data).map_err(|err| {
-        tracing::error!(error = %err, payload = ?user_search_filter_data, type = %std::any::type_name::<UserSearchFilterData>(), "Failed serializing.");
-        ApiError::internal_server_error(INTERNAL_SERVER_ERROR)
-    })?;
-
     let location = match event.payload.request_context.domain_name {
         None => None,
         Some(domain_name) => match event.payload.request_context.stage {
@@ -72,10 +66,10 @@ pub async fn handle(
     let content_language = user_search_filter_data.search_filter.language;
 
     Ok(ApiGatewayV2HttpResponseBuilder::json(201)
-        .body(response)
         .try_location(location.as_deref())
         .content_language(content_language)
         .last_modified(user_search_filter_data.updated)
+        .body_serde(user_search_filter_data)?
         .cors()
         .build())
 }

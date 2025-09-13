@@ -4,7 +4,6 @@ use common::{
         api_gateway_v2_http_response_builder::ApiGatewayV2HttpResponseBuilder,
         collection::{CollectionData, PaginationData},
         error::ApiError,
-        error_code::INTERNAL_SERVER_ERROR,
     },
     sort::api::extract_sort_query,
     user_id::api::extract_user_id_cognito_jwt,
@@ -60,13 +59,8 @@ pub async fn handle(
         },
     };
 
-    let response = serde_json::to_string(&collection).map_err(|err| {
-        tracing::error!(error = %err, payload = ?collection, type = %std::any::type_name::<CollectionData<UserSearchFilterData>>(), "Failed serializing.");
-        ApiError::internal_server_error(INTERNAL_SERVER_ERROR)
-    })?;
-
     Ok(ApiGatewayV2HttpResponseBuilder::json(200)
-        .body(response)
+        .body_serde(collection)?
         .cors()
         .build())
 }
