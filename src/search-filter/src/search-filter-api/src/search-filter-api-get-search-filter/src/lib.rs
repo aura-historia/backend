@@ -3,7 +3,7 @@ use common::{
     api::{
         api_gateway_v2_http_response_builder::ApiGatewayV2HttpResponseBuilder,
         error::ApiError,
-        error_code::{BAD_PATH_PARAMETER_VALUE, INTERNAL_SERVER_ERROR, INVALID_UUID},
+        error_code::{BAD_PATH_PARAMETER_VALUE, INVALID_UUID},
     },
     user_id::api::extract_user_id_cognito_jwt,
 };
@@ -56,18 +56,12 @@ pub async fn handle(
         .find_search_filter(&user_id, &search_filter_id)
         .await?
         .into();
-
-    let response = serde_json::to_string(&user_search_filter_data).map_err(|err| {
-        tracing::error!(error = %err, payload = ?user_search_filter_data, type = %std::any::type_name::<UserSearchFilterData>(), "Failed serializing.");
-        ApiError::internal_server_error(INTERNAL_SERVER_ERROR)
-    })?;
-
     let content_language = user_search_filter_data.search_filter.language;
 
     Ok(ApiGatewayV2HttpResponseBuilder::json(200)
-        .body(response)
         .content_language(content_language)
         .last_modified(user_search_filter_data.updated)
+        .body_serde(user_search_filter_data)?
         .cors()
         .build())
 }

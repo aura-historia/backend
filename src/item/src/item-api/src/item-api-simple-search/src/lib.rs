@@ -4,7 +4,7 @@ use common::{
         api_gateway_v2_http_response_builder::ApiGatewayV2HttpResponseBuilder,
         collection::{CollectionData, PaginationData},
         error::ApiError,
-        error_code::{BAD_PATH_PARAMETER_VALUE, INTERNAL_SERVER_ERROR, TEXT_QUERY_TOO_SHORT},
+        error_code::{BAD_PATH_PARAMETER_VALUE, TEXT_QUERY_TOO_SHORT},
     },
     currency::{data::api::extract_currency_query, domain::Currency},
     language::{data::api::extract_language_query, domain::Language},
@@ -19,7 +19,6 @@ use search_filter_core::{
     search_filter::SearchFilter,
     text_query::{TextQuery, TextQueryTooShortError},
 };
-use tracing::error;
 
 #[tracing::instrument(
     skip(event, service),
@@ -89,18 +88,8 @@ pub async fn handle(
     };
     let collection = CollectionData { items, pagination };
 
-    let response = serde_json::to_string(&collection).map_err(|err| {
-        error!(
-            error = %err,
-            payload = ?collection,
-            type = %std::any::type_name::<CollectionData<GetItemData>>(),
-            "Failed serializing collection of items"
-        );
-        ApiError::internal_server_error(INTERNAL_SERVER_ERROR)
-    })?;
-
     Ok(ApiGatewayV2HttpResponseBuilder::json(200)
-        .body(response)
+        .body_serde(collection)?
         .cors()
         .build())
 }

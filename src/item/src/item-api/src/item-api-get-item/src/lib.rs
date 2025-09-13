@@ -2,9 +2,7 @@ use aws_lambda_events::apigw::{ApiGatewayV2httpRequest, ApiGatewayV2httpResponse
 use aws_lambda_events::query_map::QueryMap;
 use common::api::api_gateway_v2_http_response_builder::ApiGatewayV2HttpResponseBuilder;
 use common::api::error::ApiError;
-use common::api::error_code::{
-    BAD_PATH_PARAMETER_VALUE, BAD_QUERY_PARAMETER_VALUE, INTERNAL_SERVER_ERROR,
-};
+use common::api::error_code::{BAD_PATH_PARAMETER_VALUE, BAD_QUERY_PARAMETER_VALUE};
 use common::currency::data::api::extract_currency_query;
 use common::language::data::api::extract_languages_header;
 use common::language::domain::Language;
@@ -13,7 +11,6 @@ use common::shops_item_id::ShopsItemId;
 use item_data::get_data::GetItemData;
 use item_service::get_service::GetItemService;
 use lambda_runtime::LambdaEvent;
-use tracing::error;
 
 #[tracing::instrument(
     skip(event, service),
@@ -68,18 +65,13 @@ pub async fn handle(
         )
         .await?
         .into();
-    let response = serde_json::to_string(&item_data).map_err(|err| {
-        error!(error = %err, payload = ?item_data, type = %std::any::type_name::<GetItemData>(), "Failed serializing GetItemData.");
-        ApiError::internal_server_error(INTERNAL_SERVER_ERROR)
-    })?;
-
     let content_language = item_data.title.language;
 
     Ok(ApiGatewayV2HttpResponseBuilder::json(200)
-        .body(response)
         .content_language(content_language)
         .e_tag(item_data.event_id.to_string().as_str())
         .last_modified(item_data.updated)
+        .body_serde(item_data)?
         .cors()
         .build())
 }

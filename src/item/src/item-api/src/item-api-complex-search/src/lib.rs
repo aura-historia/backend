@@ -4,7 +4,7 @@ use common::{
         api_gateway_v2_http_response_builder::ApiGatewayV2HttpResponseBuilder,
         collection::{CollectionData, PaginationData},
         error::ApiError,
-        error_code::{BAD_BODY_VALUE, INTERNAL_SERVER_ERROR},
+        error_code::BAD_BODY_VALUE,
     },
     page::{Page, api::extract_page_query},
     sort::api::extract_sort_query,
@@ -14,7 +14,6 @@ use item_data::{get_data::GetItemData, sort_item_field_data::SortItemFieldData};
 use item_service::query_service::QueryItemService;
 use lambda_runtime::LambdaEvent;
 use search_filter_data::search_filter_data::SearchFilterData;
-use tracing::error;
 
 #[tracing::instrument(
     skip(event, service),
@@ -70,18 +69,8 @@ pub async fn handle(
     };
     let collection = CollectionData { items, pagination };
 
-    let response = serde_json::to_string(&collection).map_err(|err| {
-        error!(
-            error = %err,
-            payload = ?collection,
-            type = %std::any::type_name::<CollectionData<GetItemData>>(),
-            "Failed serializing collection of items"
-        );
-        ApiError::internal_server_error(INTERNAL_SERVER_ERROR)
-    })?;
-
     Ok(ApiGatewayV2HttpResponseBuilder::json(200)
-        .body(response)
+        .body_serde(collection)?
         .cors()
         .build())
 }
