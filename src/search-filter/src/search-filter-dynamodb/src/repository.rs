@@ -11,9 +11,9 @@ use aws_sdk_dynamodb::{
         get_item::GetItemError,
         put_item::{PutItemError, PutItemOutput},
         query::QueryError,
-        update_item::{UpdateItemError, UpdateItemOutput},
+        update_item::UpdateItemError,
     },
-    types::AttributeValue,
+    types::{AttributeValue, ReturnValue},
 };
 use common::{dynamodb_update::mk_update, user_id::UserId};
 use search_filter_core::search_filter_id::SearchFilterId;
@@ -50,7 +50,7 @@ pub trait SearchFilterDynamoDbRepository {
         user_id: &UserId,
         search_filter_id: &SearchFilterId,
         search_filter_update: SearchFilterRecordUpdate,
-    ) -> Result<UpdateItemOutput, SdkError<UpdateItemError, HttpResponse>>;
+    ) -> Result<Option<SearchFilterRecord>, SdkError<UpdateItemError, HttpResponse>>;
 }
 
 #[derive(Debug, Clone)]
@@ -119,7 +119,7 @@ impl<'a> SearchFilterDynamoDbRepository for SearchFilterDynamoDbRepositoryImpl<'
             .await?
             .item
             .map(serde_dynamo::from_item::<_, SearchFilterRecord>)
-            .and_then(|item_record_res| match item_record_res {
+            .and_then(|record_res| match record_res {
                 Ok(search_filter_record) => Some(search_filter_record),
                 Err(err) => {
                     error!(error = %err, type = %std::any::type_name::<SearchFilterRecord>(), "Failed deserializing SearchFilterRecord.");
@@ -162,7 +162,7 @@ impl<'a> SearchFilterDynamoDbRepository for SearchFilterDynamoDbRepositoryImpl<'
         user_id: &UserId,
         search_filter_id: &SearchFilterId,
         search_filter_update: SearchFilterRecordUpdate,
-    ) -> Result<UpdateItemOutput, SdkError<UpdateItemError, HttpResponse>> {
+    ) -> Result<Option<SearchFilterRecord>, SdkError<UpdateItemError, HttpResponse>> {
         let pk = mk_pk(user_id);
         let sk = mk_sk(search_filter_id);
         let update_expr = mk_update(search_filter_update)?;
@@ -175,7 +175,16 @@ impl<'a> SearchFilterDynamoDbRepository for SearchFilterDynamoDbRepositoryImpl<'
             .update_expression(update_expr.update_expr)
             .set_expression_attribute_names(Some(update_expr.expr_attr_names))
             .set_expression_attribute_values(Some(update_expr.expr_attr_values))
+            .return_values(ReturnValue::AllNew)
             .send()
             .await
+            .map(|output| output.attributes)
+            .map(|attr_opt| attr_opt.map(serde_dynamo::from_item).and_then(|record_res| match record_res {
+                Ok(search_filter_record) => Some(search_filter_record),
+                Err(err) => {
+                    error!(error = %err, type = %std::any::type_name::<SearchFilterRecord>(), "Failed deserializing SearchFilterRecord.");
+                    None
+                }
+            }))
     }
 }
