@@ -43,9 +43,9 @@ impl SearchFilterUpdate {
             && price_query.is_none()
             && state_query.is_none()
             && created_query.is_none()
-            && created_query.is_none()
             && updated_query.is_none()
-            && language.is_none() & currency.is_none()
+            && language.is_none()
+            && currency.is_none()
     }
 }
 
