@@ -1,3 +1,5 @@
+use crate::api::error::ApiError;
+use crate::api::error_code::INTERNAL_SERVER_ERROR;
 use crate::language::data::LanguageData;
 use aws_lambda_events::apigw::ApiGatewayV2httpResponse;
 use aws_lambda_events::encodings::Body;
@@ -6,6 +8,8 @@ use http::header::{
 };
 use http::{HeaderMap, HeaderName, HeaderValue};
 use httpdate::fmt_http_date;
+use serde::Serialize;
+use std::fmt::Debug;
 use std::time::SystemTime;
 use tracing::error;
 
@@ -150,6 +154,16 @@ impl ApiGatewayV2HttpResponseBuilder {
     pub fn body<T: Into<Body>>(mut self, body: T) -> Self {
         self.body = Some(body.into());
         self
+    }
+
+    pub fn body_serde<T: Serialize + Debug>(mut self, t: T) -> Result<Self, ApiError> {
+        let body = serde_json::to_string(&t).map_err(|err| {
+            tracing::error!(error = %err, payload = ?t, type = %std::any::type_name::<T>(), "Failed serializing.");
+            ApiError::internal_server_error(INTERNAL_SERVER_ERROR)
+        })?;
+        self.body = Some(body.into());
+
+        Ok(self)
     }
 
     pub fn cors(mut self) -> Self {

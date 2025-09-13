@@ -7,4 +7,5 @@ edition = "2024"
 search-filter-api-delete-search-filter = { workspace = true }
 search-filter-api-get-search-filter = { workspace = true }
 search-filter-api-get-search-filters = { workspace = true }
+search-filter-api-patch-search-filter = { workspace = true }
 search-filter-api-post-search-filter = { workspace = true }

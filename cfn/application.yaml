@@ -659,6 +659,68 @@ Resources:
       Principal: apigateway.amazonaws.com
       SourceArn: !Sub "arn:aws:execute-api:${AWS::Region}:${AWS::AccountId}:${BlitzfilterApi}/*/*/api/v1/search-filters"
 
+  ApiPatchSearchFilterRoute:
+    Type: AWS::ApiGatewayV2::Route
+    Properties:
+      ApiId: !Ref BlitzfilterApi
+      RouteKey: "PATCH /api/v1/search-filters/{searchFilterId}"
+      AuthorizationType: JWT
+      AuthorizerId: !Ref BlitzfilterApiCognitoAuthorizer
+      Target: !Sub "integrations/${BlitzfilterApiPatchSearchFilterLambdaIntegration}"
+  BlitzfilterApiPatchSearchFilterLambdaIntegration:
+    Type: AWS::ApiGatewayV2::Integration
+    Properties:
+      ApiId: !Ref BlitzfilterApi
+      IntegrationType: AWS_PROXY
+      IntegrationUri: !Sub "arn:aws:lambda:${AWS::Region}:${AWS::AccountId}:function:${BlitzfilterApiPatchSearchFilterLambda}"
+      PayloadFormatVersion: "2.0"
+  BlitzfilterApiPatchSearchFilterRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Sub "blitzfilter-api-patch-search-filter-role-${StageName}"
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: lambda.amazonaws.com
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole
+      Policies:
+        - PolicyName: DynamoDBAccess
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: Allow
+                Action:
+                  - dynamodb:PutItem
+                Resource: !GetAtt TableOne.Arn
+  BlitzfilterApiPatchSearchFilterLambda:
+    Type: AWS::Lambda::Function
+    Properties:
+      FunctionName: !Sub "blitzfilter-api-patch-search-filter-${StageName}"
+      Runtime: provided.al2023
+      Handler: lib.handler
+      Role: !GetAtt BlitzfilterApiPatchSearchFilterRole.Arn
+      Code:
+        S3Bucket: !Ref ArtifactBucket
+        S3Key: !Sub "search-filter-api-patch-search-filter-${StageName}-${CommitSHA}.zip"
+      MemorySize: 512
+      Timeout: 10
+      EphemeralStorage:
+        Size: 512
+      Environment:
+        Variables:
+          DYNAMODB_TABLE_NAME: !Ref TableOne
+  BlitzfilterApiPatchSearchFilterLambdaPermission:
+    Type: AWS::Lambda::Permission
+    Properties:
+      Action: lambda:InvokeFunction
+      FunctionName: !Ref BlitzfilterApiPatchSearchFilterLambda
+      Principal: apigateway.amazonaws.com
+      SourceArn: !Sub "arn:aws:execute-api:${AWS::Region}:${AWS::AccountId}:${BlitzfilterApi}/*/*/api/v1/search-filters/*"
+
   ApiPostSearchFilterRoute:
     Type: AWS::ApiGatewayV2::Route
     Properties:
