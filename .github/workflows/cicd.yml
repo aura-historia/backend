@@ -252,12 +252,11 @@ jobs:
           - src/item/src/item-api/src/item-api-complex-search
           - src/item/src/item-api/src/item-api-get-item
           - src/item/src/item-api/src/item-api-simple-search
+          - src/item/src/item-lambda/src/item-lambda-ingest-events-dynamodb
           - src/item/src/item-lambda/src/item-lambda-materialize-dynamodb-new
           - src/item/src/item-lambda/src/item-lambda-materialize-dynamodb-update
           - src/item/src/item-lambda/src/item-lambda-materialize-opensearch-new
           - src/item/src/item-lambda/src/item-lambda-materialize-opensearch-update
-          - src/item/src/item-lambda/src/item-lambda-write-new
-          - src/item/src/item-lambda/src/item-lambda-write-update
     steps:
       - uses: actions/checkout@v5
 

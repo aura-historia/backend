@@ -1,5 +1,5 @@
 [package]
-name = "item-lambda-write-new"
+name = "item-lambda-ingest-events-dynamodb"
 version = "0.1.0"
 edition = "2024"
 

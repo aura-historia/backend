@@ -19,7 +19,7 @@ Parameters:
     Type: String
 
 Mappings:
-  ItemWriteQueuesMap:
+  ItemIngestEventsDynamoDbQueueMap:
     MaximumBatchingWindowInSeconds:
       dev: 1
       prod: 10
@@ -785,23 +785,23 @@ Resources:
       Principal: apigateway.amazonaws.com
       SourceArn: !Sub "arn:aws:execute-api:${AWS::Region}:${AWS::AccountId}:${BlitzfilterApi}/*/*/api/v1/search-filters"
 
-  ItemWriteNewDlq:
+  ItemIngestEventsDynamoDbDlq:
     Type: AWS::SQS::Queue
     Properties:
-      QueueName: !Sub "item-lambda-write-new-dlq-${StageName}"
+      QueueName: !Sub "item-lambda-ingest-events-dynamodb-dlq-${StageName}"
       MessageRetentionPeriod: 1209600
-  ItemWriteNewQ:
+  ItemIngestEventsDynamoDbQ:
     Type: AWS::SQS::Queue
     Properties:
-      QueueName: !Sub "item-lambda-write-new-queue-${StageName}"
+      QueueName: !Sub "item-lambda-ingest-events-dynamodb-queue-${StageName}"
       RedrivePolicy:
-        deadLetterTargetArn: !GetAtt ItemWriteNewDlq.Arn
+        deadLetterTargetArn: !GetAtt ItemIngestEventsDynamoDbDlq.Arn
         maxReceiveCount: 3
       VisibilityTimeout: 360
-  ItemWriteNewRole:
+  ItemIngestEventsDynamoDbRole:
     Type: AWS::IAM::Role
     Properties:
-      RoleName: !Sub "item-lambda-write-new-role-${StageName}"
+      RoleName: !Sub "item-lambda-ingest-events-dynamodb-role-${StageName}"
       AssumeRolePolicyDocument:
         Version: "2012-10-17"
         Statement:
@@ -830,17 +830,17 @@ Resources:
                   - sqs:DeleteMessage
                   - sqs:GetQueueAttributes
                   - sqs:GetQueueUrl
-                Resource: !GetAtt ItemWriteNewQ.Arn
-  ItemWriteNewLambda:
+                Resource: !GetAtt ItemIngestEventsDynamoDbQ.Arn
+                ItemIngestEventsDynamoDbLambda:
     Type: AWS::Lambda::Function
     Properties:
-      FunctionName: !Sub "item-lambda-write-new-${StageName}"
+      FunctionName: !Sub "item-lambda-ingest-events-dynamodb-${StageName}"
       Runtime: provided.al2023
       Handler: lib.handler
-      Role: !GetAtt ItemWriteNewRole.Arn
+      Role: !GetAtt ItemIngestEventsDynamoDbRole.Arn
       Code:
         S3Bucket: !Ref ArtifactBucket
-        S3Key: !Sub "item-lambda-write-new-${StageName}-${CommitSHA}.zip"
+        S3Key: !Sub "item-lambda-ingest-events-dynamodb-${StageName}-${CommitSHA}.zip"
       MemorySize: 512
       Timeout: 60
       EphemeralStorage:
@@ -848,95 +848,16 @@ Resources:
       Environment:
         Variables:
           DYNAMODB_TABLE_NAME: !Ref TableOne
-  ItemWriteNewMapping:
+  ItemIngestEventsDynamoDbMapping:
     Type: AWS::Lambda::EventSourceMapping
     Properties:
-      FunctionName: !Ref ItemWriteNewLambda
-      EventSourceArn: !GetAtt ItemWriteNewQ.Arn
+      FunctionName: !Ref ItemIngestEventsDynamoDbLambda
+      EventSourceArn: !GetAtt ItemIngestEventsDynamoDbQ.Arn
       Enabled: true
       BatchSize: 200
       MaximumBatchingWindowInSeconds:
         !FindInMap [
-          ItemWriteQueuesMap,
-          MaximumBatchingWindowInSeconds,
-          !Ref Stage,
-        ]
-      FunctionResponseTypes:
-        - ReportBatchItemFailures
-
-  ItemWriteUpdateDlq:
-    Type: AWS::SQS::Queue
-    Properties:
-      QueueName: !Sub "item-lambda-write-update-dlq-${StageName}"
-      MessageRetentionPeriod: 1209600
-  ItemWriteUpdateQ:
-    Type: AWS::SQS::Queue
-    Properties:
-      QueueName: !Sub "item-lambda-write-update-queue-${StageName}"
-      RedrivePolicy:
-        deadLetterTargetArn: !GetAtt ItemWriteUpdateDlq.Arn
-        maxReceiveCount: 3
-      VisibilityTimeout: 360
-  ItemWriteUpdateRole:
-    Type: AWS::IAM::Role
-    Properties:
-      RoleName: !Sub "item-lambda-write-update-role-${StageName}"
-      AssumeRolePolicyDocument:
-        Version: "2012-10-17"
-        Statement:
-          - Effect: Allow
-            Principal:
-              Service: lambda.amazonaws.com
-            Action: sts:AssumeRole
-      ManagedPolicyArns:
-        - arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole
-      Policies:
-        - PolicyName: DynamoDBAccess
-          PolicyDocument:
-            Version: "2012-10-17"
-            Statement:
-              - Effect: Allow
-                Action:
-                  - dynamodb:*
-                Resource: !GetAtt TableOne.Arn
-        - PolicyName: SQSPollerAccess
-          PolicyDocument:
-            Version: "2012-10-17"
-            Statement:
-              - Effect: Allow
-                Action:
-                  - sqs:ReceiveMessage
-                  - sqs:DeleteMessage
-                  - sqs:GetQueueAttributes
-                  - sqs:GetQueueUrl
-                Resource: !GetAtt ItemWriteUpdateQ.Arn
-  ItemWriteUpdateLambda:
-    Type: AWS::Lambda::Function
-    Properties:
-      FunctionName: !Sub "item-lambda-write-update-${StageName}"
-      Runtime: provided.al2023
-      Handler: lib.handler
-      Role: !GetAtt ItemWriteUpdateRole.Arn
-      Code:
-        S3Bucket: !Ref ArtifactBucket
-        S3Key: !Sub "item-lambda-write-update-${StageName}-${CommitSHA}.zip"
-      MemorySize: 512
-      Timeout: 60
-      EphemeralStorage:
-        Size: 512
-      Environment:
-        Variables:
-          DYNAMODB_TABLE_NAME: !Ref TableOne
-  ItemWriteUpdateMapping:
-    Type: AWS::Lambda::EventSourceMapping
-    Properties:
-      FunctionName: !Ref ItemWriteUpdateLambda
-      EventSourceArn: !GetAtt ItemWriteUpdateQ.Arn
-      Enabled: true
-      BatchSize: 200
-      MaximumBatchingWindowInSeconds:
-        !FindInMap [
-          ItemWriteQueuesMap,
+          ItemIngestEventsDynamoDbQueueMap,
           MaximumBatchingWindowInSeconds,
           !Ref Stage,
         ]
@@ -1364,10 +1285,10 @@ Outputs:
   DynamodbTable1Name:
     Value: !Ref TableOne
 
-  ItemWriteNewQueueUrl:
-    Value: !Ref ItemWriteNewQ
-  ItemWriteNewDeadLetterQueueUrl:
-    Value: !Ref ItemWriteNewDlq
+  ItemIngestEventsDynamoDbQueueUrl:
+    Value: !Ref ItemIngestEventsDynamoDbQ
+  ItemIngestEventsDynamoDbDeadLetterQueueUrl:
+    Value: !Ref ItemIngestEventsDynamoDbDlq
 
   ItemWriteUpdateQueueUrl:
     Value: !Ref ItemWriteUpdateQ

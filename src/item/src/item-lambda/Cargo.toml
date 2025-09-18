@@ -5,7 +5,7 @@ edition = "2024"
 
 [dependencies]
 item-lambda-common = { workspace = true }
-item-lambda-write-new = { workspace = true }
+item-lambda-ingest-events-dynamodb = { workspace = true }
 item-lambda-materialize-dynamodb-new = { workspace = true }
 item-lambda-materialize-dynamodb-update = { workspace = true }
 item-lambda-materialize-opensearch-new = { workspace = true }

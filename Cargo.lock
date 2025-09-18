@@ -2170,11 +2170,11 @@ name = "item-lambda"
 version = "0.1.0"
 dependencies = [
  "item-lambda-common",
+ "item-lambda-ingest-events-dynamodb",
  "item-lambda-materialize-dynamodb-new",
  "item-lambda-materialize-dynamodb-update",
  "item-lambda-materialize-opensearch-new",
  "item-lambda-materialize-opensearch-update",
- "item-lambda-write-new",
 ]
 
 [[package]]
@@ -2187,6 +2187,26 @@ dependencies = [
  "serde_dynamo",
  "serde_json",
  "tracing",
+ "uuid",
+]
+
+[[package]]
+name = "item-lambda-ingest-events-dynamodb"
+version = "0.1.0"
+dependencies = [
+ "aws-config",
+ "aws-sdk-dynamodb",
+ "aws_lambda_events",
+ "common",
+ "fake",
+ "item-dynamodb",
+ "lambda_runtime",
+ "rstest",
+ "serde_dynamo",
+ "serde_json",
+ "tokio",
+ "tracing",
+ "tracing-subscriber",
  "uuid",
 ]
 
@@ -2286,26 +2306,6 @@ dependencies = [
  "tracing",
  "tracing-subscriber",
  "url",
- "uuid",
-]
-
-[[package]]
-name = "item-lambda-write-new"
-version = "0.1.0"
-dependencies = [
- "aws-config",
- "aws-sdk-dynamodb",
- "aws_lambda_events",
- "common",
- "fake",
- "item-dynamodb",
- "lambda_runtime",
- "rstest",
- "serde_dynamo",
- "serde_json",
- "tokio",
- "tracing",
- "tracing-subscriber",
  "uuid",
 ]
 
