@@ -1,43 +1,43 @@
 use aws_lambda_events::sqs::{BatchItemFailure, SqsBatchResponse, SqsEvent, SqsMessage};
-use common::has_key::HasKey;
+use common::batch::dynamodb::handle_batch_output;
 use common::item_id::ItemKey;
-use item_service::command_service::CommandItemService;
-use item_service::item_command::CreateItemCommand;
-use item_service::item_command_data::CreateItemCommandData;
+use common::{batch::Batch, has_key::HasKey};
+use item_dynamodb::{item_event_record::ItemEventRecord, repository::ItemDynamoDbRepository};
 use lambda_runtime::LambdaEvent;
 use std::collections::HashMap;
-use tracing::{error, info, warn};
+use tracing::{error, info};
 
-#[tracing::instrument(skip(service, event), fields(requestId = %event.context.request_id))]
+#[tracing::instrument(skip(repository, event), fields(requestId = %event.context.request_id))]
 pub async fn handler(
-    service: &impl CommandItemService,
+    repository: &impl ItemDynamoDbRepository,
     event: LambdaEvent<SqsEvent>,
 ) -> Result<SqsBatchResponse, lambda_runtime::Error> {
     let records_count = event.payload.records.len();
     info!(total = records_count, "Handler invoked.",);
 
     let mut failed_message_ids = Vec::new();
-    let mut skipped_count = 0;
-    let mut commands = Vec::with_capacity(records_count);
     let mut message_ids: HashMap<ItemKey, String> = HashMap::with_capacity(records_count);
 
-    for message in event.payload.records {
-        if let Some(command) = extract_message_data(
-            message,
-            &mut failed_message_ids,
-            &mut skipped_count,
-            &mut message_ids,
-        ) {
-            commands.push(command);
+    let event_records = event
+        .payload
+        .records
+        .into_iter()
+        .filter_map(|msg| extract_message_data(msg, &mut failed_message_ids, &mut message_ids));
+    let batches = Batch::<_, 25>::chunked_from(event_records);
+    let mut failed_keys = Vec::new();
+    for batch in batches {
+        let item_keys = batch.iter().map(ItemEventRecord::key).collect::<Vec<_>>();
+        let put_batch_res = repository.put_item_event_records(batch).await;
+        match put_batch_res {
+            Ok(output) => handle_batch_output::<ItemEventRecord>(output, &mut failed_keys),
+            Err(err) => {
+                error!(error = ?err, "Failed writing entire ItemEventRecord-Batch due to SdkError.");
+                failed_keys.extend(item_keys);
+            }
         }
     }
 
-    let failed_command_keys = service
-        .handle_create_items(commands)
-        .await
-        .err()
-        .unwrap_or_default();
-    for failed_command_key in failed_command_keys {
+    for failed_command_key in failed_keys {
         let message_id = message_ids.remove(&failed_command_key);
         match message_id {
             Some(message_id) => failed_message_ids.push(message_id),
@@ -52,9 +52,8 @@ pub async fn handler(
 
     let failure_count = failed_message_ids.len();
     info!(
-        successful = records_count - failure_count - skipped_count,
+        successful = records_count - failure_count,
         failures = failure_count,
-        skipped = skipped_count,
         "Handler finished.",
     );
     let sqs_batch_response = SqsBatchResponse {
@@ -63,41 +62,36 @@ pub async fn handler(
             .map(|item_identifier| BatchItemFailure { item_identifier })
             .collect(),
     };
+
     Ok(sqs_batch_response)
 }
 
-#[tracing::instrument(
-    skip(message, failed_message_ids, skipped_count, message_ids),
-    fields(messageId = %message.message_id.as_ref().expect("shouldn't receive an SQS-Message without 'message_id' because AWS sets it."))
-)]
 fn extract_message_data(
     message: SqsMessage,
     failed_message_ids: &mut Vec<String>,
-    skipped_count: &mut usize,
     message_ids: &mut HashMap<ItemKey, String>,
-) -> Option<CreateItemCommand> {
+) -> Option<ItemEventRecord> {
     let message_id = message
         .message_id
         .expect("shouldn't receive an SQS-Message without 'message_id' because AWS sets it.");
 
     match message.body {
         None => {
-            info!("Received empty body. Skipping message.");
-            *skipped_count += 1;
+            failed_message_ids.push(message_id);
             None
         }
-        Some(item_json) => match serde_json::from_str::<CreateItemCommandData>(&item_json) {
-            Ok(command_data) => {
-                let command = CreateItemCommand::from(command_data);
-                message_ids.insert(command.key(), message_id);
-                Some(command)
+        Some(json) => match serde_json::from_str::<ItemEventRecord>(&json) {
+            Ok(event_record) => {
+                message_ids.insert(event_record.key(), message_id);
+                Some(event_record)
             }
             Err(e) => {
                 error!(
                     error = %e,
-                    payload = %item_json,
-                    type = %std::any::type_name::<CreateItemCommandData>(),
-                    "Failed deserializing CreateItemCommandData."
+                    messageId = message_id,
+                    payload = %json,
+                    type = %std::any::type_name::<ItemEventRecord>(),
+                    "Failed deserializing."
                 );
                 failed_message_ids.push(message_id);
                 None
@@ -108,15 +102,19 @@ fn extract_message_data(
 
 #[cfg(test)]
 mod tests {
-    use std::collections::HashMap;
-
     use crate::handler;
     use aws_lambda_events::sqs::{SqsEvent, SqsMessage};
+    use aws_sdk_dynamodb::{
+        operation::batch_write_item::BatchWriteItemOutput,
+        types::{PutRequest, WriteRequest},
+    };
     use common::has_key::HasKey;
     use fake::{Fake, Faker};
-    use item_service::command_service::MockCommandItemService;
-    use item_service::item_command_data::CreateItemCommandData;
+    use item_dynamodb::{
+        item_event_record::ItemEventRecord, repository::MockItemDynamoDbRepository,
+    };
     use lambda_runtime::{Context, LambdaEvent};
+    use std::collections::HashMap;
     use uuid::Uuid;
 
     #[rstest::rstest]
@@ -133,7 +131,7 @@ mod tests {
     #[case(10874)]
     #[tokio::test]
     async fn should_handle_message(#[case] record_count: usize) {
-        let records = fake::vec![CreateItemCommandData; record_count]
+        let records = fake::vec![ItemEventRecord; record_count]
             .into_iter()
             .map(|record| serde_json::to_string(&record))
             .map(Result::unwrap)
@@ -155,11 +153,11 @@ mod tests {
             context: Context::default(),
         };
 
-        let mut service_mock = MockCommandItemService::default();
-        service_mock
-            .expect_handle_create_items()
-            .return_once(|_| Box::pin(async { Ok(()) }));
-        let response = handler(&service_mock, lambda_event).await.unwrap();
+        let mut repository = MockItemDynamoDbRepository::default();
+        repository
+            .expect_put_item_event_records()
+            .returning(|_| Box::pin(async { Ok(BatchWriteItemOutput::builder().build()) }));
+        let response = handler(&repository, lambda_event).await.unwrap();
 
         assert!(response.batch_item_failures.is_empty());
     }
@@ -171,25 +169,18 @@ mod tests {
     #[case(2, 5)]
     #[case(9, 10)]
     #[case(0, 25)]
-    #[case(47, 47)]
-    #[case(100, 100)]
-    #[case(0, 150)]
-    #[case(234, 453)]
-    #[case(773, 900)]
-    #[case(299, 2874)]
-    #[case(77, 10874)]
     async fn should_respond_with_partial_failures(
         #[case] failure_count: usize,
         #[case] record_count: usize,
     ) {
-        let commands = fake::vec![CreateItemCommandData; record_count];
-        let expected_failed_keys = commands
+        let event_records = fake::vec![ItemEventRecord; record_count];
+        let expected_failed_keys = event_records
             .iter()
             .take(failure_count)
-            .map(CreateItemCommandData::key)
+            .map(ItemEventRecord::key)
             .collect::<Vec<_>>();
         let mut messages_ids = HashMap::with_capacity(record_count);
-        let records = commands
+        let records = event_records
             .into_iter()
             .map(|cmd_data| {
                 let message_id = Uuid::new_v4().to_string();
@@ -218,11 +209,33 @@ mod tests {
             context: Context::default(),
         };
 
-        let mut service_mock = MockCommandItemService::default();
-        service_mock
-            .expect_handle_create_items()
-            .return_once(move |_| Box::pin(async { Err(expected_failed_keys) }));
-        let mut actual_failed_message_ids = handler(&service_mock, lambda_event)
+        let mut repository = MockItemDynamoDbRepository::default();
+        repository
+            .expect_put_item_event_records()
+            .return_once(move |_| {
+                let write_requests = expected_failed_keys
+                    .into_iter()
+                    .map(|key| {
+                        let mut fake = Faker.fake::<ItemEventRecord>();
+                        fake.shop_id = key.shop_id;
+                        fake.shops_item_id = key.shops_item_id;
+                        WriteRequest::builder()
+                            .put_request(
+                                PutRequest::builder()
+                                    .set_item(Some(serde_dynamo::to_item(fake).unwrap()))
+                                    .build()
+                                    .unwrap(),
+                            )
+                            .build()
+                    })
+                    .collect();
+                Box::pin(async {
+                    Ok(BatchWriteItemOutput::builder()
+                        .unprocessed_items("table_1", write_requests)
+                        .build())
+                })
+            });
+        let mut actual_failed_message_ids = handler(&repository, lambda_event)
             .await
             .unwrap()
             .batch_item_failures

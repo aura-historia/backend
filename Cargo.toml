@@ -69,7 +69,6 @@ item-lambda-materialize-dynamodb-update = { path = "src/item/src/item-lambda/src
 item-lambda-materialize-opensearch-new = { path = "src/item/src/item-lambda/src/item-lambda-materialize-opensearch-new" }
 item-lambda-materialize-opensearch-update = { path = "src/item/src/item-lambda/src/item-lambda-materialize-opensearch-update" }
 item-lambda-write-new = { path = "src/item/src/item-lambda/src/item-lambda-write-new" }
-item-lambda-write-update = { path = "src/item/src/item-lambda/src/item-lambda-write-update" }
 itertools = "0.14.0"
 lambda_runtime = "0.14.4"
 libc = "0.2.175"

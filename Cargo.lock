@@ -2175,7 +2175,6 @@ dependencies = [
  "item-lambda-materialize-opensearch-new",
  "item-lambda-materialize-opensearch-update",
  "item-lambda-write-new",
- "item-lambda-write-update",
 ]
 
 [[package]]
@@ -2300,29 +2299,9 @@ dependencies = [
  "common",
  "fake",
  "item-dynamodb",
- "item-service",
  "lambda_runtime",
  "rstest",
- "serde_json",
- "tokio",
- "tracing",
- "tracing-subscriber",
- "uuid",
-]
-
-[[package]]
-name = "item-lambda-write-update"
-version = "0.1.0"
-dependencies = [
- "aws-config",
- "aws-sdk-dynamodb",
- "aws_lambda_events",
- "common",
- "fake",
- "item-dynamodb",
- "item-service",
- "lambda_runtime",
- "rstest",
+ "serde_dynamo",
  "serde_json",
  "tokio",
  "tracing",
