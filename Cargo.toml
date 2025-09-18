@@ -88,7 +88,7 @@ scrape-core = { path = "src/scrape/src/scrape-core" }
 scrape-static = { path = "src/scrape/src/scrape-static" }
 scraper = { version = "0.23.1", default-features = false }
 serde = "1.0.223"
-serde_dynamo = "4.2.14"
+serde_dynamo = "4.3.0"
 serde_json = "1.0.145"
 serial_test = "3.2.0"
 sha2 = "0.10.9"
