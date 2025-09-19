@@ -22,14 +22,17 @@ Mappings:
   ItemWriteQueuesMap:
     MaximumBatchingWindowInSeconds:
       dev: 1
+      staging: 1
       prod: 10
   ItemMaterializeDynamoDbQueuesMap:
     MaximumBatchingWindowInSeconds:
       dev: 1
+      staging: 1
       prod: 10
   ItemMaterializeOpenSearchQueuesMap:
     MaximumBatchingWindowInSeconds:
       dev: 1
+      staging: 1
       prod: 300
 
 Resources:
