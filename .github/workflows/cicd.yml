@@ -220,13 +220,29 @@ jobs:
       - name: Install grcov
         run: cargo install grcov
 
+      - name: Free up disk space
+        run: |
+          # Clean up to maximize available disk space
+          sudo rm -rf /usr/share/dotnet || true
+          sudo rm -rf /opt/ghc || true
+          sudo rm -rf /usr/local/share/boost || true
+          sudo rm -rf "$AGENT_TOOLSDIRECTORY" || true
+          docker system prune -af || true
+          df -h
+
       - name: Generate coverage
         env:
           RUSTFLAGS: "-C instrument-coverage"
-          LLVM_PROFILE_FILE: "coverage-%p-%m.profraw"
+          LLVM_PROFILE_FILE: "coverage.profraw"
         run: |
-          cargo test --workspace --lib --all-features -- --nocapture
+          # Run tests with coverage
+          cargo test --workspace --all-features -- --nocapture
+          
+          # Generate coverage report
           grcov . --binary-path ./target/debug/deps/ -s . -t lcov --branch --ignore-not-existing --ignore "/*" --ignore "*/target/*" --ignore "*/.cargo/*" -o coverage.lcov
+          
+          # Clean up profraw files
+          rm -f *.profraw
 
       - name: SonarCloud Scan
         uses: SonarSource/sonarqube-scan-action@master
