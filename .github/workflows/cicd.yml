@@ -225,7 +225,7 @@ jobs:
           RUSTFLAGS: "-C instrument-coverage"
           LLVM_PROFILE_FILE: "coverage-%p-%m.profraw"
         run: |
-          cargo test --workspace --all-features -- --nocapture
+          cargo test --workspace --lib --all-features -- --nocapture
           grcov . --binary-path ./target/debug/deps/ -s . -t lcov --branch --ignore-not-existing --ignore "/*" --ignore "*/target/*" --ignore "*/.cargo/*" -o coverage.lcov
 
       - name: SonarCloud Scan
