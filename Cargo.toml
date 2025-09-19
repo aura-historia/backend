@@ -95,6 +95,7 @@ sha2 = "0.10.9"
 aws-tests = { path = "src/aws-tests" }
 aws-tests-common = { path = "src/aws-tests/src/aws-tests-common" }
 smoking-tests = { path = "src/aws-tests/src/smoking-tests" }
+staging-data = { path = "src/aws-tests/src/staging-data" }
 staging-tests = { path = "src/aws-tests/src/staging-tests" }
 strum = "0.27.2"
 strum_macros = "0.27.2"
