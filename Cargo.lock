@@ -2004,6 +2004,7 @@ version = "0.1.0"
 dependencies = [
  "aws-config",
  "aws-sdk-dynamodb",
+ "aws-sdk-sqs",
  "aws_lambda_events",
  "common",
  "fake",
@@ -2014,6 +2015,7 @@ dependencies = [
  "item-service",
  "lambda_runtime",
  "rstest",
+ "serde",
  "serde_json",
  "serial_test",
  "test-api",

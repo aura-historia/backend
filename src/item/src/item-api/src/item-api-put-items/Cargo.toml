@@ -6,16 +6,18 @@ edition = "2024"
 [dependencies]
 common = { workspace = true, features = ["api", "sqs"] }
 item-core = { workspace = true }
-item-service = { workspace = true, features = ["dynamodb", "api"] }
+item-service = { workspace = true, features = ["dynamodb", "api", "sqs"] }
 item-dynamodb = { workspace = true, features = ["repository"] }
 item-data = { workspace = true }
 tracing = { workspace = true }
+serde = { workspace = true }
 tracing-subscriber = { workspace = true, features = ["json"] }
 tokio = { workspace = true, features = ["macros"] }
 aws_lambda_events = { workspace = true, features = ["apigw"] }
 lambda_runtime = { workspace = true }
 aws-config = { workspace = true }
 aws-sdk-dynamodb = { workspace = true }
+aws-sdk-sqs = { workspace = true }
 serde_json = { workspace = true }
 http = { workspace = true }
 
@@ -28,3 +30,5 @@ http = { workspace = true }
 url = { workspace = true }
 item-dynamodb = { workspace = true, features = ["test-data", "repository"] }
 fake = { workspace = true }
+item-service = { workspace = true, features = ["test-data"] }
+item-data = { workspace = true, features = ["test-data"] }

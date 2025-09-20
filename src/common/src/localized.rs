@@ -1,4 +1,4 @@
-use crate::language::{domain::Language, record::TextRecord};
+use crate::language::{data::LocalizedTextData, domain::Language, record::TextRecord};
 
 #[cfg_attr(feature = "test-data", derive(fake::Dummy))]
 #[derive(Debug, Clone, PartialEq)]
@@ -21,6 +21,15 @@ impl<T: From<String>> From<TextRecord> for Localized<Language, T> {
         Localized {
             localization: value.language.into(),
             payload: value.text.into(),
+        }
+    }
+}
+
+impl<T: From<String>> From<LocalizedTextData> for Localized<Language, T> {
+    fn from(data: LocalizedTextData) -> Self {
+        Localized {
+            localization: data.language.into(),
+            payload: data.text.into(),
         }
     }
 }
