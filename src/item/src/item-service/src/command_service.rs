@@ -67,7 +67,7 @@ impl<T: FxRate + Sync> PutItemsService for PutItemsServiceImpl<'_, T> {
             unprocessed.append(&mut failed);
         }
 
-        // TODO: Retry failures instead
+        // TODO#106: Retry failures instead
         PutItemsOutput {
             unprocessed,
             skipped,
@@ -274,7 +274,7 @@ fn determine_update_events(
     for (mut item, update_cmd) in update_chunk {
         let mut any_changes = false;
 
-        // TODO: we currently do not detect the price being removed!
+        // TODO#107: we currently do not detect the price being removed!
         if let Some(price) = update_cmd.price
             && let Some(price_event) = item.change_price(price, fx_rate)
         {
