@@ -66,7 +66,6 @@ jobs:
           - src/search-filter
           - src/aws-tests
           - src/item
-          - src/scrape
           - src/test-api
     steps:
       - uses: actions/checkout@v5
@@ -128,9 +127,10 @@ jobs:
           - src/search-filter/src/search-filter-api/src/search-filter-api-post-search-filter
           - src/item/src/item-api/src/item-api-complex-search
           - src/item/src/item-api/src/item-api-get-item
+          - src/item/src/item-api/src/item-api-put-items
           - src/item/src/item-dynamodb
           - src/item/src/item-opensearch
-          - src/scrape/src/scrape-core
+          - src/item/src/item-service
           - src/test-api
     steps:
       - uses: actions/checkout@v5
@@ -251,6 +251,7 @@ jobs:
           - src/search-filter/src/search-filter-api/src/search-filter-api-post-search-filter
           - src/item/src/item-api/src/item-api-complex-search
           - src/item/src/item-api/src/item-api-get-item
+          - src/item/src/item-api/src/item-api-put-items
           - src/item/src/item-api/src/item-api-simple-search
           - src/item/src/item-lambda/src/item-lambda-ingest-events-dynamodb
           - src/item/src/item-lambda/src/item-lambda-materialize-dynamodb-new
