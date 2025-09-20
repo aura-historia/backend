@@ -1,5 +1,5 @@
 use aws_lambda_events::sqs::{BatchItemFailure, SqsBatchResponse, SqsEvent, SqsMessage};
-use common::batch::dynamodb::handle_batch_output;
+use common::batch::dynamodb::handle_dynamodb_batch_write_put_item_output;
 use common::item_id::ItemKey;
 use common::{batch::Batch, has_key::HasKey};
 use item_dynamodb::{item_event_record::ItemEventRecord, repository::ItemDynamoDbRepository};
@@ -29,7 +29,10 @@ pub async fn handler(
         let item_keys = batch.iter().map(ItemEventRecord::key).collect::<Vec<_>>();
         let put_batch_res = repository.put_item_event_records(batch).await;
         match put_batch_res {
-            Ok(output) => handle_batch_output::<ItemEventRecord>(output, &mut failed_keys),
+            Ok(output) => handle_dynamodb_batch_write_put_item_output::<ItemEventRecord>(
+                output,
+                &mut failed_keys,
+            ),
             Err(err) => {
                 error!(error = ?err, "Failed writing entire ItemEventRecord-Batch due to SdkError.");
                 failed_keys.extend(item_keys);

@@ -1,6 +1,8 @@
 use aws_lambda_events::sqs::{BatchItemFailure, SqsBatchResponse, SqsEvent, SqsMessage};
 use common::item_id::ItemKey;
-use common::{batch::Batch, batch::dynamodb::handle_batch_output, has_key::HasKey};
+use common::{
+    batch::Batch, batch::dynamodb::handle_dynamodb_batch_write_put_item_output, has_key::HasKey,
+};
 use item_dynamodb::item_event_record::ItemEventRecord;
 use item_dynamodb::item_record::ItemRecord;
 use item_dynamodb::repository::ItemDynamoDbRepository;
@@ -38,7 +40,7 @@ pub async fn handler(
         let mut failures = Vec::new();
         match repository.put_item_records(batch).await {
             Ok(output) => {
-                handle_batch_output::<ItemRecord>(output, &mut failures);
+                handle_dynamodb_batch_write_put_item_output::<ItemRecord>(output, &mut failures);
             }
             Err(err) => {
                 error!(error = ?err, "Failed entire batch.");

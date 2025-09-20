@@ -157,8 +157,10 @@ pub mod dynamodb {
         pub unprocessed: Option<Batch<Key, 100>>,
     }
 
-    pub fn handle_batch_output<T>(output: BatchWriteItemOutput, failures: &mut Vec<T::Key>)
-    where
+    pub fn handle_dynamodb_batch_write_put_item_output<T>(
+        output: BatchWriteItemOutput,
+        failures: &mut Vec<T::Key>,
+    ) where
         T: HasKey + for<'de> Deserialize<'de>,
     {
         let unprocessed = output
@@ -216,7 +218,7 @@ pub mod sqs {
                         error!(
                             error = %err,
                             type = %std::any::type_name::<T>(),
-                            "Failed to serialize record."
+                            "Failed to serialize message."
                         );
                         None
                     }

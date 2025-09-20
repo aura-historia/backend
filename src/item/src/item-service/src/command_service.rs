@@ -1,896 +1,437 @@
-use crate::item_command::{CreateItemCommand, UpdateItemCommand};
+use crate::item_command::PutItemCommand;
 use async_trait::async_trait;
 use common::batch::Batch;
-use common::batch::dynamodb::handle_batch_output;
 use common::has_key::HasKey;
-use common::item_id::ItemKey;
 use common::price::domain::FxRate;
 use item_core::item::Item;
 use item_core::item_event::ItemEvent;
 use item_dynamodb::item_event_record::ItemEventRecord;
-use item_dynamodb::item_record::ItemRecord;
 use item_dynamodb::repository::ItemDynamoDbRepository;
 use itertools::Itertools;
-use std::collections::{HashMap, HashSet};
-use tracing::{error, info, warn};
+use std::collections::HashMap;
+use tracing::error;
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct PutItemsOutput {
+    pub unprocessed: Vec<PutItemCommand>,
+    pub skipped: usize,
+}
 
 /// Service handling inbound item-commands (towards persistence)
 #[async_trait]
 #[mockall::automock]
-pub trait CommandItemService {
-    async fn handle_create_items(
-        &self,
-        commands: Vec<CreateItemCommand>,
-    ) -> Result<(), Vec<ItemKey>>;
-
-    async fn handle_update_items(
-        &self,
-        commands: HashMap<ItemKey, UpdateItemCommand>,
-    ) -> Result<(), Vec<ItemKey>>;
+pub trait PutItemsService {
+    async fn put(&self, commands: Vec<PutItemCommand>) -> PutItemsOutput;
 }
 
-pub struct CommandItemServiceImpl<'a, T: FxRate + Sync> {
+pub struct PutItemsServiceImpl<'a, T: FxRate + Sync> {
     dynamodb_repository: &'a (dyn ItemDynamoDbRepository + Sync),
+    sqs_client: &'a aws_sdk_sqs::Client,
+    item_ingest_events_dynamodb_queue_url: &'a str,
     fx_rate: &'a T,
 }
 
-impl<'a, T: FxRate + Sync> CommandItemServiceImpl<'a, T> {
+impl<'a, T: FxRate + Sync> PutItemsServiceImpl<'a, T> {
     pub fn new(
         dynamodb_repository: &'a (dyn ItemDynamoDbRepository + Sync),
+        sqs_client: &'a aws_sdk_sqs::Client,
+        item_ingest_events_dynamodb_queue: &'a str,
         fx_rate: &'a T,
     ) -> Self {
         Self {
             dynamodb_repository,
+            sqs_client,
+            item_ingest_events_dynamodb_queue_url: item_ingest_events_dynamodb_queue,
             fx_rate,
         }
     }
 }
 
 #[async_trait]
-impl<T: FxRate + Sync> CommandItemService for CommandItemServiceImpl<'_, T> {
-    async fn handle_create_items(
-        &self,
-        commands: Vec<CreateItemCommand>,
-    ) -> Result<(), Vec<ItemKey>> {
-        let mut skipped_count = 0;
-        let commands_len = commands.len();
-        let mut failures = Vec::new();
-        let create_chunks = commands
+impl<T: FxRate + Sync> PutItemsService for PutItemsServiceImpl<'_, T> {
+    async fn put(&self, commands: Vec<PutItemCommand>) -> PutItemsOutput {
+        let chunks = commands
             .into_iter()
             .chunks(100)
             .into_iter()
             .map(|chunk| chunk.collect::<Vec<_>>())
             .collect::<Vec<_>>();
 
-        for chunk in create_chunks {
-            self.handle_create_chunk(chunk, &mut failures, &mut skipped_count)
-                .await;
+        let mut skipped = 0;
+        let mut unprocessed = Vec::new();
+        for chunk in chunks {
+            let batch: Batch<PutItemCommand, 100> = chunk
+                .try_into()
+                .expect("shouldn't fail converting chunk of size 100 to Batch of size 100");
+            let mut failed = self.handle_put_chunk(batch, &mut skipped).await;
+            unprocessed.append(&mut failed);
         }
 
-        let failures_len = failures.len();
-        info!(
-            successful = commands_len - failures_len - skipped_count,
-            failures = failures_len,
-            skipped = skipped_count,
-            "Handled multiple CreateItemCommands."
-        );
-        if failures_len == 0 {
-            Ok(())
-        } else {
-            Err(failures)
-        }
-    }
-
-    async fn handle_update_items(
-        &self,
-        commands: HashMap<ItemKey, UpdateItemCommand>,
-    ) -> Result<(), Vec<ItemKey>> {
-        let commands_len = commands.len();
-        let mut skipped_count = 0;
-        let mut failures: Vec<ItemKey> = Vec::new();
-        let update_chunks = commands
-            .into_iter()
-            .chunks(100)
-            .into_iter()
-            .map(|chunk| chunk.collect::<HashMap<_, _>>())
-            .collect::<Vec<_>>();
-        for update_chunk in update_chunks {
-            self.handle_update_chunk(update_chunk, &mut failures, &mut skipped_count)
-                .await;
-        }
-
-        let failures_len = failures.len();
-        info!(
-            successful = commands_len - failures_len - skipped_count,
-            failures = failures_len,
-            skipped = skipped_count,
-            "Handled multiple UpdateItemCommands."
-        );
-        if failures_len == 0 {
-            Ok(())
-        } else {
-            Err(failures)
+        // TODO: Retry failures instead
+        PutItemsOutput {
+            unprocessed,
+            skipped,
         }
     }
 }
 
-impl<T: FxRate + Sync> CommandItemServiceImpl<'_, T> {
-    async fn handle_create_chunk(
+impl<T: FxRate + Sync> PutItemsServiceImpl<'_, T> {
+    async fn handle_put_chunk(
         &self,
-        create_chunk: Vec<CreateItemCommand>,
-        failures: &mut Vec<ItemKey>,
+        chunk: Batch<PutItemCommand, 100>,
         skipped_count: &mut usize,
-    ) {
-        let create_item_keys = Batch::try_from(
-            create_chunk.iter()
-                .map(CreateItemCommand::key)
-                .collect::<Vec<_>>()
-        ).expect("shouldn't fail creating Batch from Vec because by implementation itertools::chunks(100) produces Vec's of size no more than 100.");
+    ) -> Vec<PutItemCommand> {
+        let mut key_cmds = chunk
+            .into_iter()
+            .map(|cmd| (cmd.key(), cmd))
+            .collect::<HashMap<_, _>>();
+        let mut mut_key_cmds = key_cmds.clone();
+        let keys = mut_key_cmds
+            .keys()
+            .cloned()
+            .collect::<Vec<_>>()
+            .try_into()
+            .expect("shoulnd't fail unwrapping created 'Batch' because 'iter()' keeps size");
 
-        match self
-            .dynamodb_repository
-            .exist_item_records(&create_item_keys)
-            .await
-        {
-            Ok(existing_item_keys) => {
-                if let Some(unprocessed) = existing_item_keys.unprocessed {
-                    warn!(
-                        unprocessed = unprocessed.len(),
-                        "Failed creating some items because the previously required BatchGetItem-Request contained unprocessed items."
-                    );
-                    failures.extend(unprocessed);
-                }
-                let existing_item_keys: HashSet<ItemKey> =
-                    HashSet::from_iter(existing_item_keys.items);
-                let events = create_chunk.into_iter().filter_map(|cmd| {
-                    if existing_item_keys.contains(&cmd.key()) {
-                        warn!(
-                            shopId = &cmd.key().shop_id.to_string(),
-                            shopsItemId = &cmd.key().shops_item_id.to_string(),
-                            "Cannot create item because it already exists."
-                        );
-                        *skipped_count += 1;
-                        None
-                    } else {
-                        let other_price = cmd
-                            .price
-                            .as_ref()
-                            .and_then(|price| {
-                                self.fx_rate
-                                    .exchange_all(price.currency, price.monetary_amount)
-                                    .ok()
-                            })
-                            .unwrap_or_default();
-                        Some(Item::create(
-                            cmd.shop_id,
-                            cmd.shops_item_id,
-                            cmd.shop_name,
-                            cmd.native_title,
-                            cmd.other_title,
-                            cmd.native_description,
-                            cmd.other_description,
-                            cmd.price,
-                            other_price,
-                            cmd.state,
-                            cmd.url,
-                            cmd.images,
-                        ))
-                    }
-                });
-                let event_records = events.into_iter().filter_map(|event| {
-                    let item_key = event.payload.key();
-                    let record_res = ItemEventRecord::try_from(event);
-                    match record_res {
-                        Ok(record_event) => Some(record_event),
-                        Err(err) => {
-                            error!(error = %err, "Failed converting ItemEvent to ItemEventRecord.");
-                            failures.push(item_key);
-                            None
-                        }
-                    }
-                });
-                let batches = Batch::<_, 25>::chunked_from(event_records);
-
-                for batch in batches {
-                    let item_keys = batch.iter().map(ItemEventRecord::key).collect::<Vec<_>>();
-                    let res = self.dynamodb_repository.put_item_event_records(batch).await;
-                    match res {
-                        Ok(output) => handle_batch_output::<ItemEventRecord>(output, failures),
-                        Err(err) => {
-                            error!(error = ?err, "Failed writing entire ItemEventRecord-Batch due to SdkError.");
-                            failures.extend(item_keys);
-                        }
-                    }
-                }
-            }
-            Err(err) => {
-                error!(error = ?err, "Failed entire BatchGetItem-Operation due to SdkError.");
-                failures.extend(create_item_keys);
-            }
-        }
-    }
-
-    async fn handle_update_chunk(
-        &self,
-        update_chunk: HashMap<ItemKey, UpdateItemCommand>,
-        failures: &mut Vec<ItemKey>,
-        skipped_count: &mut usize,
-    ) {
-        let update_item_keys = Batch::try_from(
-            update_chunk
-                .keys()
-                .cloned()
-                .collect::<Vec<_>>()
-        ).expect("shouldn't fail creating Batch from Vec because by implementation itertools::chunks(100) produces Vec's of size no more than 100.");
-
-        match self
-            .dynamodb_repository
-            .get_item_records(&update_item_keys)
-            .await
-        {
-            Ok(existing_item_records) => {
-                if let Some(unprocessed) = existing_item_records.unprocessed {
-                    warn!(
-                        unprocessed = unprocessed.len(),
-                        "Failed updating some items because the previously required BatchGetItem-Request contained unprocessed items."
-                    );
-                    failures.extend(unprocessed);
-                }
-                let events = self.determine_update_events(
-                    update_chunk,
-                    existing_item_records.items,
-                    failures,
-                    skipped_count,
+        match self.dynamodb_repository.get_item_records(&keys).await {
+            Ok(records) => {
+                let mut unprocessed_failures = Vec::with_capacity(
+                    records
+                        .unprocessed
+                        .as_ref()
+                        .map(|batch| batch.len())
+                        .unwrap_or(0),
                 );
-                let event_records = events.into_iter().filter_map(|event| {
-                    let item_key = event.payload.key();
-                    let record_res = ItemEventRecord::try_from(event);
-                    match record_res {
-                        Ok(record_event) => Some(record_event),
-                        Err(err) => {
-                            error!(error = %err, "Failed converting ItemEvent to ItemEventRecord.");
-                            failures.push(item_key);
-                            None
+                if let Some(unprocessed) = records.unprocessed {
+                    for unprocessed_key in unprocessed {
+                        match mut_key_cmds.remove(&unprocessed_key) {
+                            Some(update_cmd) => unprocessed_failures.push(update_cmd),
+                            None => {
+                                error!(
+                                    shopId = %unprocessed_key.shop_id,
+                                    shopsItemId = %unprocessed_key.shops_item_id,
+                                    "Couldn't find PutItemCommand for unprocessed Item. This is a bug. Not retrying."
+                                );
+                            }
                         }
                     }
-                });
-                let batches = Batch::<_, 25>::chunked_from(event_records);
+                }
 
+                let mut update_chunk = Vec::with_capacity(records.items.len());
+                for record in records.items {
+                    match mut_key_cmds.remove(&record.key()) {
+                        Some(update_cmd) => update_chunk.push((Item::from(record), update_cmd)),
+                        None => {
+                            error!(
+                                shopId = %record.shop_id,
+                                shopsItemId = %record.shops_item_id,
+                                "Couldn't find PutItemCommand for Item proven to exist. This is a bug. Not retrying."
+                            );
+                        }
+                    }
+                }
+                let update_events = self
+                    .extract_update_events(update_chunk, skipped_count)
+                    .await;
+
+                // all remaining commands must be for items that don't yet exist - so we create them now
+                let mut create_events = self
+                    .extract_create_events(mut_key_cmds.into_values().collect())
+                    .await;
+
+                let mut events = update_events;
+                events.append(&mut create_events);
+
+                let batches = Batch::<_, 10>::chunked_from(events.into_iter());
                 for batch in batches {
-                    let item_keys = batch.iter().map(ItemEventRecord::key).collect::<Vec<_>>();
-                    let res = self.dynamodb_repository.put_item_event_records(batch).await;
+                    let msg_key = batch
+                        .iter()
+                        .enumerate()
+                        .map(|(i, record)| (i.to_string(), record.key()))
+                        .collect::<HashMap<_, _>>();
+                    let res = self
+                        .sqs_client
+                        .send_message_batch()
+                        .queue_url(self.item_ingest_events_dynamodb_queue_url)
+                        .set_entries(Some(batch.into_sqs_message_entries()))
+                        .send()
+                        .await;
                     match res {
-                        Ok(output) => handle_batch_output::<ItemEventRecord>(output, failures),
+                        Ok(output) => {
+                            for failed in output.failed {
+                                match msg_key.get(failed.id()) {
+                                    Some(failed_key) => match key_cmds.remove(failed_key) {
+                                        Some(cmd) => unprocessed_failures.push(cmd),
+                                        None => {
+                                            error!(
+                                                shopId = %failed_key.shop_id,
+                                                shopsItemId = %failed_key.shops_item_id,
+                                                "Couldn't find PutItemCommand for unproccesed message. This is a bug. Not retrying."
+                                            );
+                                        }
+                                    },
+                                    None => error!(
+                                        payload = ?failed,
+                                        "Couldn't find ItemKey for unproccesed message. This is a bug. Not retrying."
+                                    ),
+                                }
+                            }
+                        }
                         Err(err) => {
                             error!(error = ?err, "Failed writing entire ItemEventRecord-Batch due to SdkError.");
-                            failures.extend(item_keys);
+                            for key in msg_key.into_values() {
+                                match key_cmds.remove(&key) {
+                                    Some(cmd) => unprocessed_failures.push(cmd),
+                                    None => {
+                                        error!(
+                                            shopId = %key.shop_id,
+                                            shopsItemId = %key.shops_item_id,
+                                            "Couldn't find PutItemCommand for unproccesed message. This is a bug. Not retrying."
+                                        );
+                                    }
+                                }
+                            }
                         }
                     }
                 }
+
+                unprocessed_failures
             }
             Err(err) => {
-                error!(error = ?err, "Failed entire BatchGetItem-Operation due to SdkError.");
-                failures.extend(update_item_keys);
+                error!(err = ?err, "Failed entire BatchGetItem-Operation.");
+                mut_key_cmds.into_values().collect()
             }
         }
     }
 
-    fn determine_update_events(
+    async fn extract_create_events(
         &self,
-        update_chunk: HashMap<ItemKey, UpdateItemCommand>,
-        existing_records: Vec<ItemRecord>,
-        failures: &mut Vec<ItemKey>,
-        skipped_count: &mut usize,
-    ) -> Vec<ItemEvent> {
-        let mut update_chunk = update_chunk;
-        let mut events = Vec::with_capacity(existing_records.len());
-        // consumes (remove) all existing items, leaving behind non-existent
-        for mut existing_item in existing_records.into_iter().map(Item::from) {
-            if let Some((item_key, update)) = update_chunk.remove_entry(&existing_item.key()) {
-                let mut any_changes = false;
-                if let Some(price_update) = update.price
-                    && let Some(price_event) =
-                        existing_item.change_price(price_update, self.fx_rate)
-                {
-                    events.push(price_event);
-                    any_changes = true;
-                }
-                if let Some(state_update) = update.state
-                    && let Some(state_event) = existing_item.change_state(state_update)
-                {
-                    events.push(state_event);
-                    any_changes = true;
-                }
-                if !any_changes {
-                    info!(
-                        shopId = item_key.shop_id.to_string(),
-                        shopsItemId = item_key.shops_item_id.to_string(),
-                        "Received Update-Command for item that had no actual changes."
-                    );
-                    *skipped_count += 1;
+        create_chunk: Vec<PutItemCommand>,
+    ) -> Vec<ItemEventRecord> {
+        create_chunk.into_iter().map(|cmd| {
+            let other_price = cmd
+                .price
+                .as_ref()
+                .and_then(|price| {
+                    self.fx_rate
+                        .exchange_all(price.currency, price.monetary_amount)
+                        .ok()
+                })
+                .unwrap_or_default();
+            Item::create(
+                cmd.shop_id,
+                cmd.shops_item_id,
+                cmd.shop_name,
+                cmd.title,
+                Default::default(),
+                cmd.description,
+                Default::default(),
+                cmd.price,
+                other_price,
+                cmd.state,
+                cmd.url,
+                cmd.images,
+            )
+        })
+        .filter_map(|event| {
+            match ItemEventRecord::try_from(event) {
+                Ok(record_event) => Some(record_event),
+                Err(err) => {
+                    error!(error = %err, "Failed converting ItemEvent to ItemEventRecord. This is a bug. Not retrying");
+                    None
                 }
             }
-        }
-
-        for non_existent_key in update_chunk.into_keys() {
-            warn!(
-                shopId = non_existent_key.shop_id.to_string(),
-                shopsItemId = non_existent_key.shops_item_id.to_string(),
-                "Cannot update item because it doesn't exist."
-            );
-            failures.push(non_existent_key);
-        }
-
-        events
+        })
+        .collect()
     }
+
+    async fn extract_update_events(
+        &self,
+        update_chunk: Vec<(Item, PutItemCommand)>,
+        skipped_count: &mut usize,
+    ) -> Vec<ItemEventRecord> {
+        determine_update_events(update_chunk, skipped_count, self.fx_rate)
+            .into_iter()
+            .filter_map(|event| {
+                match ItemEventRecord::try_from(event) {
+                    Ok(record_event) => Some(record_event),
+                    Err(err) => {
+                        error!(error = %err, "Failed converting ItemEvent to ItemEventRecord. This is a bug. Not retriying.");
+                        None
+                    }
+                }
+            })
+        .collect()
+    }
+}
+
+fn determine_update_events(
+    update_chunk: Vec<(Item, PutItemCommand)>,
+    skipped_count: &mut usize,
+    fx_rate: &impl FxRate,
+) -> Vec<ItemEvent> {
+    let mut events = Vec::with_capacity(update_chunk.len());
+    for (mut item, update_cmd) in update_chunk {
+        let mut any_changes = false;
+
+        // TODO: we currently do not detect the price being removed!
+        if let Some(price) = update_cmd.price
+            && let Some(price_event) = item.change_price(price, fx_rate)
+        {
+            events.push(price_event);
+            any_changes = true;
+        }
+        if let Some(state_event) = item.change_state(update_cmd.state) {
+            events.push(state_event);
+            any_changes = true;
+        }
+
+        if !any_changes {
+            *skipped_count += 1;
+        }
+    }
+
+    events
 }
 
 #[cfg(test)]
 pub mod tests {
-    use crate::command_service::CommandItemService;
-    use crate::item_command::UpdateItemCommand;
-    use crate::{command_service::CommandItemServiceImpl, item_command::CreateItemCommand};
-    use aws_sdk_dynamodb::operation::batch_write_item::BatchWriteItemOutput;
-    use common::item_id::ItemKey;
-    use common::{batch::dynamodb::BatchGetItemResult, price::domain::FixedFxRate};
-    use fake::Fake;
-    use fake::Faker;
-    use item_dynamodb::item_record::ItemRecord;
+    use crate::command_service::{PutItemsServiceImpl, determine_update_events};
+    use crate::item_command::PutItemCommand;
+    use aws_config::BehaviorVersion;
+    use aws_sdk_dynamodb::error::SdkError;
+    use common::has_key::HasKey;
+    use common::{item_state::domain::ItemState, price::domain::FixedFxRate};
+    use fake::{Fake, Faker};
+    use item_core::item::Item;
     use item_dynamodb::repository::MockItemDynamoDbRepository;
-    use itertools::Itertools;
 
-    #[tokio::test]
-    #[rstest::rstest]
-    #[case(1)]
-    #[case(42)]
-    #[case(85)]
-    #[case(100)]
-    #[case(169)]
-    #[case(266)]
-    #[case(491)]
-    #[case(1048)]
-    #[case(12569)]
-    async fn should_handle_create_items(#[case] count: usize) {
-        let commands = fake::vec![CreateItemCommand; count];
-        let mut repository = MockItemDynamoDbRepository::default();
-        repository
-            .expect_exist_item_records()
-            .returning(move |cmds| {
-                let keys = cmds.clone().into();
-                Box::pin(async move {
-                    let res = BatchGetItemResult {
-                        items: keys,
-                        unprocessed: None,
-                    };
-                    Ok(res)
-                })
-            });
-        repository
-            .expect_put_item_event_records()
-            .returning(|_| Box::pin(async move { Ok(BatchWriteItemOutput::builder().build()) }));
-        let service = CommandItemServiceImpl::new(&repository, &FixedFxRate());
+    #[test]
+    fn should_determine_no_update_events_when_only_skipped() {
+        let item1 = Faker.fake::<Item>();
+        let mut update1 = Faker.fake::<PutItemCommand>();
+        update1.price = item1.native_price;
+        update1.state = item1.state;
 
-        let res = service.handle_create_items(commands).await;
-        assert!(res.is_ok());
+        let item2 = Faker.fake::<Item>();
+        let mut update2 = Faker.fake::<PutItemCommand>();
+        update2.price = item2.native_price;
+        update2.state = item2.state;
+
+        let mut skipped_count = 0;
+        let update_chunk = vec![(item1, update1), (item2, update2)];
+
+        let actual = determine_update_events(update_chunk, &mut skipped_count, &FixedFxRate());
+        assert_eq!(2, skipped_count);
+        assert!(actual.is_empty());
+    }
+
+    #[test]
+    fn should_determine_update_events_when_none_skipped() {
+        let item1 = Faker.fake::<Item>();
+        let update1 = PutItemCommand {
+            shop_id: item1.clone().shop_id,
+            shops_item_id: item1.clone().shops_item_id,
+            shop_name: item1.clone().shop_name,
+            title: item1.clone().native_title,
+            description: item1.clone().native_description,
+            price: Some(Faker.fake()),
+            state: item1.state,
+            url: item1.clone().url,
+            images: item1.clone().images,
+        };
+
+        let item2 = Faker.fake::<Item>();
+        let update2 = PutItemCommand {
+            shop_id: item2.clone().shop_id,
+            shops_item_id: item2.clone().shops_item_id,
+            shop_name: item2.clone().shop_name,
+            title: item2.clone().native_title,
+            description: item2.clone().native_description,
+            price: Some(Faker.fake()),
+            state: if matches!(item2.state, ItemState::Available) {
+                ItemState::Removed
+            } else {
+                ItemState::Available
+            },
+            url: item2.clone().url,
+            images: item2.clone().images,
+        };
+
+        let mut skipped_count = 0;
+        let update_chunk = vec![(item1, update1), (item2, update2)];
+
+        let actual = determine_update_events(update_chunk, &mut skipped_count, &FixedFxRate());
+        assert_eq!(0, skipped_count);
+        assert_eq!(3, actual.len())
+    }
+
+    #[test]
+    fn should_determine_update_events_when_some_skipped() {
+        let item1 = Faker.fake::<Item>();
+        let update1 = PutItemCommand {
+            shop_id: item1.clone().shop_id,
+            shops_item_id: item1.clone().shops_item_id,
+            shop_name: item1.clone().shop_name,
+            title: item1.clone().native_title,
+            description: item1.clone().native_description,
+            price: Some(Faker.fake()),
+            state: item1.state,
+            url: item1.clone().url,
+            images: item1.clone().images,
+        };
+
+        let item2 = Faker.fake::<Item>();
+        let mut update2 = Faker.fake::<PutItemCommand>();
+        update2.price = item2.native_price;
+        update2.state = item2.state;
+
+        let mut skipped_count = 0;
+        let update_chunk = vec![(item1, update1), (item2, update2)];
+
+        let actual = determine_update_events(update_chunk, &mut skipped_count, &FixedFxRate());
+        assert_eq!(1, skipped_count);
+        assert_eq!(1, actual.len())
     }
 
     #[tokio::test]
     #[rstest::rstest]
-    #[case(1)]
-    #[case(42)]
-    #[case(85)]
-    #[case(100)]
-    #[case(169)]
-    #[case(266)]
-    #[case(491)]
-    #[case(1048)]
-    #[case(12569)]
-    async fn should_handle_update_items(#[case] count: usize) {
-        let commands = fake::vec![(ItemKey, UpdateItemCommand); count]
-            .into_iter()
-            .collect();
+    #[case::construction_failure(SdkError::construction_failure("Something went wrong"))]
+    #[case::timeout(SdkError::timeout_error("Something went wrong"))]
+    #[case::dispatch_failure(SdkError::dispatch_failure(aws_sdk_dynamodb::error::ConnectorError::user("Something went wrong".into())))]
+    #[case::response_error(SdkError::response_error(
+        "Something went wrong",
+        aws_sdk_dynamodb::config::http::HttpResponse::new(500u16.try_into().unwrap(), "{}".into())
+    ))]
+    #[case::service_error(SdkError::service_error(
+        aws_sdk_dynamodb::operation::batch_get_item::BatchGetItemError::unhandled("Something went wrong"),
+        aws_sdk_dynamodb::config::http::HttpResponse::new(500u16.try_into().unwrap(), "{}".into())
+    ))]
+    async fn should_fail_entire_chunk_when_batch_get_item_entirely_fails(
+        #[case] expected: SdkError<
+            aws_sdk_dynamodb::operation::batch_get_item::BatchGetItemError,
+            aws_sdk_dynamodb::config::http::HttpResponse,
+        >,
+    ) {
         let mut repository = MockItemDynamoDbRepository::default();
         repository
             .expect_get_item_records()
-            .returning(move |given_keys| {
-                let given_keys = given_keys.clone();
-                Box::pin(async move {
-                    let res = BatchGetItemResult {
-                        items: given_keys
-                            .iter()
-                            .map(|key| {
-                                let mut item_record: ItemRecord = Faker.fake();
-                                item_record.shop_id = key.shop_id.clone();
-                                item_record.shops_item_id = key.shops_item_id.clone();
-                                item_record
-                            })
-                            .collect_vec(),
-                        unprocessed: None,
-                    };
-                    Ok(res)
-                })
-            });
-        repository
-            .expect_put_item_event_records()
-            .returning(|_| Box::pin(async move { Ok(BatchWriteItemOutput::builder().build()) }));
-        let service = CommandItemServiceImpl::new(&repository, &FixedFxRate());
+            .return_once(|_| Box::pin(async { Err(expected) }));
 
-        let res = service.handle_update_items(commands).await;
-        assert!(res.is_ok());
-    }
+        let sqs_client =
+            aws_sdk_sqs::Client::new(&aws_config::defaults(BehaviorVersion::latest()).load().await);
+        let service =
+            PutItemsServiceImpl::new(&repository, &sqs_client, "ingest-q-url", &FixedFxRate());
 
-    mod handle_create_chunk {
-        use crate::command_service::CommandItemServiceImpl;
-        use crate::item_command::CreateItemCommand;
-        use aws_sdk_dynamodb::{
-            config::http::HttpResponse,
-            error::{ConnectorError, SdkError},
-            operation::batch_write_item::BatchWriteItemOutput,
-        };
-        use common::{
-            batch::dynamodb::BatchGetItemResult, has_key::HasKey, price::domain::FixedFxRate,
-        };
-        use item_dynamodb::repository::MockItemDynamoDbRepository;
-        use itertools::Itertools;
+        let mut skipped_count = 0;
+        let mut expected = fake::vec![PutItemCommand; 89];
+        let mut actual = service
+            .handle_put_chunk(expected.clone().try_into().unwrap(), &mut skipped_count)
+            .await;
 
-        #[tokio::test]
-        #[rstest::rstest]
-        #[case::construction_failure(SdkError::construction_failure("Something went wrong"), 100)]
-        #[case::timeout(SdkError::timeout_error("Something went wrong"), 78)]
-        #[case::dispatch_failure(SdkError::dispatch_failure(ConnectorError::user("Something went wrong".into())), 15)]
-        #[case::response_error(SdkError::response_error(
-            "Something went wrong",
-            HttpResponse::new(500u16.try_into().unwrap(), "{}".into())
-        ), 1)]
-        #[case::service_error(SdkError::service_error(
-            aws_sdk_dynamodb::operation::batch_get_item::BatchGetItemError::unhandled("Something went wrong"),
-            HttpResponse::new(500u16.try_into().unwrap(), "{}".into())
-        ), 5)]
-        async fn should_fail_all_for_sdk_error(
-            #[case] expected: SdkError<
-                aws_sdk_dynamodb::operation::batch_get_item::BatchGetItemError,
-                aws_sdk_dynamodb::config::http::HttpResponse,
-            >,
-            #[case] batch_size: usize,
-        ) {
-            let mut repository = MockItemDynamoDbRepository::default();
-            repository
-                .expect_exist_item_records()
-                .return_once(|_| Box::pin(async move { Err(expected) }));
-            let service = CommandItemServiceImpl::new(&repository, &FixedFxRate());
+        expected.sort_by_key(|l| l.key());
+        actual.sort_by_key(|l| l.key());
 
-            let mut failures = vec![];
-            let mut skipped_count = 0;
-            let _ = service
-                .handle_create_chunk(
-                    fake::vec![CreateItemCommand; batch_size],
-                    &mut failures,
-                    &mut skipped_count,
-                )
-                .await;
-
-            assert_eq!(0, skipped_count);
-            assert_eq!(batch_size, failures.len());
-        }
-
-        #[tokio::test]
-        #[rstest::rstest]
-        #[case(70, 100)]
-        #[case(10, 100)]
-        #[case(100, 100)]
-        #[case(15, 15)]
-        #[case(0, 46)]
-        #[case(0, 100)]
-        #[case(0, 1)]
-        #[case(1, 1)]
-        async fn should_skip_commands_when_items_with_key_already_exist(
-            #[case] existing_count: usize,
-            #[case] batch_size: usize,
-        ) {
-            let existing = fake::vec![CreateItemCommand; existing_count];
-            let non_existing = fake::vec![CreateItemCommand; batch_size - existing_count];
-            let all = [existing.clone(), non_existing].concat();
-
-            let mut repository = MockItemDynamoDbRepository::default();
-            repository.expect_exist_item_records().return_once(|_| {
-                Box::pin(async move {
-                    let res = BatchGetItemResult {
-                        items: existing.iter().map(CreateItemCommand::key).collect(),
-                        unprocessed: None,
-                    };
-                    Ok(res)
-                })
-            });
-            repository.expect_put_item_event_records().returning(|_| {
-                Box::pin(async move { Ok(BatchWriteItemOutput::builder().build()) })
-            });
-            let service = CommandItemServiceImpl::new(&repository, &FixedFxRate());
-
-            let mut failures = vec![];
-            let mut skipped_count = 0;
-            let _ = service
-                .handle_create_chunk(all, &mut failures, &mut skipped_count)
-                .await;
-
-            assert_eq!(existing_count, skipped_count);
-            assert!(failures.is_empty());
-        }
-
-        #[tokio::test]
-        #[rstest::rstest]
-        #[case(70, 100)]
-        #[case(10, 100)]
-        #[case(100, 100)]
-        #[case(15, 15)]
-        #[case(0, 46)]
-        #[case(0, 100)]
-        #[case(0, 1)]
-        #[case(1, 1)]
-        async fn should_fail_unprocessed_commands_from_exists_check(
-            #[case] unprocessed_count: usize,
-            #[case] batch_size: usize,
-        ) {
-            let unprocessed = fake::vec![CreateItemCommand; unprocessed_count];
-            let processed = fake::vec![CreateItemCommand; batch_size - unprocessed_count];
-            let all = [unprocessed.clone(), processed.clone()].concat();
-
-            let expected_failures = unprocessed.iter().map(CreateItemCommand::key).collect_vec();
-            let mut repository = MockItemDynamoDbRepository::default();
-            repository.expect_exist_item_records().return_once(|_| {
-                Box::pin(async move {
-                    let res = BatchGetItemResult {
-                        items: vec![],
-                        unprocessed: unprocessed
-                            .iter()
-                            .map(CreateItemCommand::key)
-                            .collect_vec()
-                            .try_into()
-                            .ok(),
-                    };
-                    Ok(res)
-                })
-            });
-            repository.expect_put_item_event_records().returning(|_| {
-                Box::pin(async move { Ok(BatchWriteItemOutput::builder().build()) })
-            });
-            let service = CommandItemServiceImpl::new(&repository, &FixedFxRate());
-
-            let mut failures = vec![];
-            let mut skipped_count = 0;
-            let _ = service
-                .handle_create_chunk(all, &mut failures, &mut skipped_count)
-                .await;
-
-            assert_eq!(unprocessed_count, failures.len());
-            assert!(expected_failures.iter().all(|key| failures.contains(key)));
-            assert_eq!(0, skipped_count);
-        }
-    }
-
-    mod handle_update_chunk {
-        use crate::{command_service::CommandItemServiceImpl, item_command::UpdateItemCommand};
-        use aws_sdk_dynamodb::{
-            config::http::HttpResponse,
-            error::{ConnectorError, SdkError},
-            operation::batch_write_item::BatchWriteItemOutput,
-        };
-        use common::item_id::ItemKey;
-        use common::item_state::domain::ItemState;
-        use common::{batch::dynamodb::BatchGetItemResult, price::domain::FixedFxRate};
-        use fake::{Fake, Faker};
-        use item_dynamodb::item_record::ItemRecord;
-        use item_dynamodb::item_state_record::ItemStateRecord;
-        use item_dynamodb::repository::MockItemDynamoDbRepository;
-        use itertools::Itertools;
-
-        #[tokio::test]
-        #[rstest::rstest]
-        #[case::construction_failure(SdkError::construction_failure("Something went wrong"), 100)]
-        #[case::timeout(SdkError::timeout_error("Something went wrong"), 78)]
-        #[case::dispatch_failure(SdkError::dispatch_failure(ConnectorError::user("Something went wrong".into())), 15)]
-        #[case::response_error(SdkError::response_error(
-            "Something went wrong",
-            HttpResponse::new(500u16.try_into().unwrap(), "{}".into())
-        ), 1)]
-        #[case::service_error(SdkError::service_error(
-            aws_sdk_dynamodb::operation::batch_get_item::BatchGetItemError::unhandled("Something went wrong"),
-            HttpResponse::new(500u16.try_into().unwrap(), "{}".into())
-        ), 5)]
-        async fn should_fail_all_for_sdk_error(
-            #[case] expected: SdkError<
-                aws_sdk_dynamodb::operation::batch_get_item::BatchGetItemError,
-                aws_sdk_dynamodb::config::http::HttpResponse,
-            >,
-            #[case] batch_size: usize,
-        ) {
-            let mut repository = MockItemDynamoDbRepository::default();
-            repository
-                .expect_get_item_records()
-                .return_once(|_| Box::pin(async move { Err(expected) }));
-            let service = CommandItemServiceImpl::new(&repository, &FixedFxRate());
-
-            let mut failures = vec![];
-            let mut skipped_count = 0;
-            let _ = service
-                .handle_update_chunk(
-                    fake::vec![(ItemKey, UpdateItemCommand); batch_size]
-                        .into_iter()
-                        .collect(),
-                    &mut failures,
-                    &mut skipped_count,
-                )
-                .await;
-
-            assert_eq!(0, skipped_count);
-            assert_eq!(batch_size, failures.len());
-        }
-
-        #[tokio::test]
-        #[rstest::rstest]
-        #[case(70, 100)]
-        #[case(10, 100)]
-        #[case(100, 100)]
-        #[case(15, 15)]
-        #[case(0, 46)]
-        #[case(0, 100)]
-        #[case(0, 1)]
-        #[case(1, 1)]
-        async fn should_fail_commands_when_items_with_key_do_not_exist(
-            #[case] existing_count: usize,
-            #[case] batch_size: usize,
-        ) {
-            let mut repository = MockItemDynamoDbRepository::default();
-            repository
-                .expect_get_item_records()
-                .return_once(move |given_keys| {
-                    let given_keys = given_keys.clone();
-                    Box::pin(async move {
-                        let res = BatchGetItemResult {
-                            items: given_keys
-                                .iter()
-                                .map(|key| {
-                                    let mut item_record: ItemRecord = Faker.fake();
-                                    item_record.shop_id = key.shop_id.clone();
-                                    item_record.shops_item_id = key.shops_item_id.clone();
-                                    item_record.state = ItemStateRecord::Reserved;
-                                    item_record
-                                })
-                                .take(existing_count)
-                                .collect_vec(),
-                            unprocessed: None,
-                        };
-                        Ok(res)
-                    })
-                });
-            repository.expect_put_item_event_records().returning(|_| {
-                Box::pin(async move { Ok(BatchWriteItemOutput::builder().build()) })
-            });
-            let service = CommandItemServiceImpl::new(&repository, &FixedFxRate());
-
-            let mut failures = vec![];
-            let mut skipped_count = 0;
-            let _ = service
-                .handle_update_chunk(
-                    fake::vec![(ItemKey, UpdateItemCommand); batch_size]
-                        .into_iter()
-                        .map(|(key, mut cmd)| {
-                            cmd.state = Some(ItemState::Available);
-                            (key, cmd)
-                        })
-                        .collect(),
-                    &mut failures,
-                    &mut skipped_count,
-                )
-                .await;
-
-            assert_eq!(batch_size - existing_count, failures.len());
-        }
-    }
-
-    mod find_update_events {
-        use crate::command_service::CommandItemServiceImpl;
-        use crate::item_command::UpdateItemCommand;
-        use aws_sdk_dynamodb::{Client, Config};
-        use common::currency::domain::Currency;
-        use common::item_id::ItemKey;
-        use common::item_state::domain::ItemState;
-        use common::language::record::{LanguageRecord, TextRecord};
-        use common::price::domain::{FixedFxRate, Price};
-        use common::shops_item_id::ShopsItemId;
-        use item_core::hash::ItemHash;
-        use item_core::item_event::ItemCommonEventPayload;
-        use item_dynamodb::item_record::ItemRecord;
-        use item_dynamodb::item_state_record::ItemStateRecord;
-        use item_dynamodb::repository::ItemDynamoDbRepositoryImpl;
-        use std::collections::HashMap;
-        use time::OffsetDateTime;
-        use url::Url;
-
-        #[test]
-        fn should_determine_update_events() {
-            let update_chunk = HashMap::from([
-                (
-                    ItemKey::new("123".into(), "abc".into()),
-                    UpdateItemCommand {
-                        price: None,
-                        state: Some(ItemState::Sold),
-                    },
-                ),
-                (
-                    ItemKey::new("456".into(), "def".into()),
-                    UpdateItemCommand {
-                        price: Some(Price {
-                            monetary_amount: 42u64.into(),
-                            currency: Currency::Eur,
-                        }),
-                        state: Some(ItemState::Available),
-                    },
-                ),
-            ]);
-            let existing_records = vec![ItemRecord {
-                pk: "".to_string(),
-                sk: "".to_string(),
-                gsi_1_pk: "".to_string(),
-                gsi_1_sk: "".to_string(),
-                item_id: Default::default(),
-                event_id: Default::default(),
-                shop_id: "123".into(),
-                shops_item_id: "abc".into(),
-                shop_name: "".to_string(),
-                title_native: TextRecord::new("boop", LanguageRecord::De),
-                title_de: None,
-                title_en: None,
-                description_native: None,
-                description_de: None,
-                description_en: None,
-                price_native: None,
-                price_eur: None,
-                price_usd: None,
-                price_gbp: None,
-                price_aud: None,
-                price_cad: None,
-                price_nzd: None,
-                state: ItemStateRecord::Listed,
-                url: Url::parse("https://beep.bap").unwrap(),
-                images: vec![],
-                hash: ItemHash::new(&None, &ItemState::Listed),
-                created: OffsetDateTime::now_utc(),
-                updated: OffsetDateTime::now_utc(),
-            }];
-
-            let mut failures: Vec<ItemKey> = vec![];
-            let mut skipped_count = 0;
-            let client = &Client::from_conf(Config::builder().behavior_version_latest().build());
-            let service = CommandItemServiceImpl {
-                dynamodb_repository: &ItemDynamoDbRepositoryImpl::new(client, "table_1"),
-                fx_rate: &FixedFxRate::default(),
-            };
-            let actuals = service.determine_update_events(
-                update_chunk,
-                existing_records,
-                &mut failures,
-                &mut skipped_count,
-            );
-
-            assert_eq!(actuals.len(), 1);
-            assert_eq!(
-                actuals[0].payload.shops_item_id(),
-                &ShopsItemId::from("abc")
-            );
-            assert_eq!(1, failures.len());
-            assert_eq!(0, skipped_count);
-        }
-
-        #[test]
-        fn should_determine_no_update_events_when_no_items_exist() {
-            let update_chunk = HashMap::from([
-                (
-                    ItemKey::new("123".into(), "abc".into()),
-                    UpdateItemCommand {
-                        price: None,
-                        state: Some(ItemState::Sold),
-                    },
-                ),
-                (
-                    ItemKey::new("456".into(), "def".into()),
-                    UpdateItemCommand {
-                        price: Some(Price {
-                            monetary_amount: 42u64.into(),
-                            currency: Currency::Eur,
-                        }),
-                        state: Some(ItemState::Available),
-                    },
-                ),
-            ]);
-
-            let mut failures: Vec<ItemKey> = vec![];
-            let mut skipped_count = 0;
-            let client = &Client::from_conf(Config::builder().behavior_version_latest().build());
-            let service = CommandItemServiceImpl {
-                dynamodb_repository: &ItemDynamoDbRepositoryImpl::new(client, "table_1"),
-                fx_rate: &FixedFxRate::default(),
-            };
-            let actuals = service.determine_update_events(
-                update_chunk,
-                vec![],
-                &mut failures,
-                &mut skipped_count,
-            );
-
-            assert!(actuals.is_empty());
-            assert_eq!(2, failures.len());
-            assert_eq!(0, skipped_count);
-        }
-
-        #[test]
-        fn should_find_no_update_events_when_no_actual_changes() {
-            let update_chunk = HashMap::from([
-                (
-                    ItemKey::new("123".into(), "abc".into()),
-                    UpdateItemCommand {
-                        price: None,
-                        state: Some(ItemState::Listed),
-                    },
-                ),
-                (
-                    ItemKey::new("456".into(), "def".into()),
-                    UpdateItemCommand {
-                        price: Some(Price {
-                            monetary_amount: 42u64.into(),
-                            currency: Currency::Eur,
-                        }),
-                        state: Some(ItemState::Available),
-                    },
-                ),
-            ]);
-            let existing_records = vec![ItemRecord {
-                pk: "".to_string(),
-                sk: "".to_string(),
-                gsi_1_pk: "".to_string(),
-                gsi_1_sk: "".to_string(),
-                item_id: Default::default(),
-                event_id: Default::default(),
-                shop_id: "123".into(),
-                shops_item_id: "abc".into(),
-                shop_name: "".to_string(),
-                title_native: TextRecord::new("boop", LanguageRecord::De),
-                title_de: None,
-                title_en: None,
-                description_native: None,
-                description_de: None,
-                description_en: None,
-                price_native: None,
-                price_eur: None,
-                price_usd: None,
-                price_gbp: None,
-                price_aud: None,
-                price_cad: None,
-                price_nzd: None,
-                state: ItemStateRecord::Listed,
-                url: Url::parse("https://beep.bap").unwrap(),
-                images: vec![],
-                hash: ItemHash::new(&None, &ItemState::Listed),
-                created: OffsetDateTime::now_utc(),
-                updated: OffsetDateTime::now_utc(),
-            }];
-
-            let mut failures: Vec<ItemKey> = vec![];
-            let mut skipped_count = 0;
-            let client = &Client::from_conf(Config::builder().behavior_version_latest().build());
-            let service = CommandItemServiceImpl {
-                dynamodb_repository: &ItemDynamoDbRepositoryImpl::new(client, "table_1"),
-                fx_rate: &FixedFxRate::default(),
-            };
-            let actuals = service.determine_update_events(
-                update_chunk,
-                existing_records,
-                &mut failures,
-                &mut skipped_count,
-            );
-
-            assert!(actuals.is_empty());
-            assert_eq!(1, failures.len());
-            assert_eq!(1, skipped_count);
-        }
+        assert_eq!(expected, actual);
     }
 }

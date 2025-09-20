@@ -8,7 +8,6 @@ aws-tests = { workspace = true }
 common = { workspace = true }
 search-filter = { workspace = true }
 item = { workspace = true }
-scrape = { workspace = true }
 test-api = { workspace = true }
 
 [workspace]
@@ -17,7 +16,6 @@ members = [
     "src/common",
     "src/search-filter",
     "src/item",
-    "src/scrape",
     "src/test-api",
 ]
 
@@ -56,6 +54,7 @@ item = { path = "src/item" }
 item-api = { path = "src/item/src/item-api" }
 item-data = { path = "src/item/src/item-data" }
 item-api-get-item = { path = "src/item/src/item-api/src/item-api-get-item" }
+item-api-put-items = { path = "src/item/src/item-api/src/item-api-put-items" }
 item-api-simple-search = { path = "src/item/src/item-api/src/item-api-simple-search" }
 item-api-complex-search = { path = "src/item/src/item-api/src/item-api-complex-search" }
 item-core = { path = "src/item/src/item-core" }
@@ -82,10 +81,6 @@ reqwest = { version = "0.12.23", default-features = false, features = [
     "rustls-tls",
 ] }
 rstest = "0.26.1"
-scrape = { path = "src/scrape" }
-scrape-core = { path = "src/scrape/src/scrape-core" }
-scrape-static = { path = "src/scrape/src/scrape-static" }
-scraper = { version = "0.23.1", default-features = false }
 serde = "1.0.223"
 serde_dynamo = "4.3.0"
 serde_json = "1.0.145"

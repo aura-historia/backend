@@ -2,7 +2,7 @@ use aws_lambda_events::apigw::{ApiGatewayV2httpRequest, ApiGatewayV2httpResponse
 use common::{
     api::{
         api_gateway_v2_http_response_builder::ApiGatewayV2HttpResponseBuilder,
-        collection::{CollectionData, PaginationData},
+        collection::{GetCollectionData, PaginationData},
         error::ApiError,
     },
     sort::api::extract_sort_query,
@@ -50,7 +50,7 @@ pub async fn handle(
         .map(UserSearchFilterData::from)
         .collect();
     let count = user_search_filters_data.len();
-    let collection = CollectionData {
+    let collection = GetCollectionData {
         items: user_search_filters_data,
         pagination: PaginationData {
             from: 0,
