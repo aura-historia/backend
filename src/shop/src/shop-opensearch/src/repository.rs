@@ -1,5 +1,13 @@
-use common::{opensearch::search_response::SearchResponse, page::Page, sort::Sort};
+use common::{
+    opensearch::search_response::SearchResponse,
+    page::Page,
+    sort::{Sort, SortOrder},
+};
+use opensearch::SearchParts;
+use serde::ser::Error;
+use serde_json::json;
 use shop_core::sort_shop_field::SortShopField;
+use time::format_description::well_known;
 
 use crate::{shop_document::ShopDocument, shop_search::ShopSearch};
 
@@ -39,6 +47,104 @@ impl<'a> ShopOpenSearchRepository for ShopOpenSearchRepositoryImpl<'a> {
         sort: &Option<Sort<SortShopField>>,
         page: &Option<Page>,
     ) -> Result<SearchResponse<ShopDocument>, opensearch::Error> {
-        todo!()
+        let mut must = Vec::with_capacity(2);
+        let mut filter = Vec::with_capacity(6);
+
+        must.push(json!({
+            "match": {
+                "name": {
+                    "query": search.shop_name_query.as_ref(),
+                    "fuzziness": "AUTO",
+                    "minimum_should_match": "70%"
+                }
+            }
+        }));
+
+        if let Some(min) = search.created.and_then(|created| created.min) {
+            let formatted_min = min
+                .format(&well_known::Rfc3339)
+                .map_err(serde_json::Error::custom)?;
+            filter.push(json!({
+                "range": { "created": { "gte": formatted_min } }
+            }));
+        }
+        if let Some(max) = search.created.and_then(|created| created.max) {
+            let formatted_max = max
+                .format(&well_known::Rfc3339)
+                .map_err(serde_json::Error::custom)?;
+            filter.push(json!({
+                "range": { "created": { "lte": formatted_max } }
+            }));
+        }
+
+        if let Some(min) = search.updated.and_then(|updated| updated.min) {
+            let formatted_min = min
+                .format(&well_known::Rfc3339)
+                .map_err(serde_json::Error::custom)?;
+            filter.push(json!({
+                "range": { "updated": { "gte": formatted_min } }
+            }));
+        }
+        if let Some(max) = search.updated.and_then(|updated| updated.max) {
+            let formatted_max = max
+                .format(&well_known::Rfc3339)
+                .map_err(serde_json::Error::custom)?;
+            filter.push(json!({
+                "range": { "updated": { "lte": formatted_max } }
+            }));
+        }
+
+        let mut body = json!({
+            "query": {
+                "bool": {
+                    "must": must,
+                    "filter": filter
+                },
+            }
+        });
+
+        if let Some(p) = page {
+            body.as_object_mut()
+                .unwrap()
+                .insert("from".to_string(), json!(p.from));
+            body.as_object_mut()
+                .unwrap()
+                .insert("size".to_string(), json!(p.size));
+        }
+
+        if let Some(sort) = sort {
+            let sort_field = match sort.sort {
+                SortShopField::Name => "name.keyword",
+                SortShopField::Created => "created",
+                SortShopField::Updated => "updated",
+            };
+            let order = match sort.order {
+                SortOrder::Asc => "asc",
+                SortOrder::Desc => "desc",
+            };
+            body.as_object_mut().unwrap().insert(
+                "sort".to_string(),
+                json!([
+                    { sort_field: { "order": order, "missing": "_last", } },
+                    { "shopId": { "order": "asc"} }
+                ]),
+            );
+        }
+
+        let response = self
+            .client
+            .search(SearchParts::Index(&["shops"]))
+            .body(body)
+            .send()
+            .await?;
+        let payload = response.text().await?;
+        let search_response = serde_json::from_str::<SearchResponse<ShopDocument>>(&payload)
+            .map_err(|err| {
+                serde_json::Error::custom(format!(
+                    "Failed deserializing 'SearchResponse<ShopDocument>' with error '{err}'. Received payload: {payload}"
+                ))
+            })?;
+
+        Ok(search_response)
     }
 }

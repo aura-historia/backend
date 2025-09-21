@@ -99,8 +99,8 @@ impl<'a> ItemOpenSearchRepository for ItemOpenSearchRepositoryImpl<'a> {
         sort: &Option<Sort<SortItemField>>,
         page: &Option<Page>,
     ) -> Result<SearchResponse<ItemDocument>, opensearch::Error> {
-        let mut must = vec![];
-        let mut filter = vec![];
+        let mut must = Vec::with_capacity(3);
+        let mut filter = Vec::with_capacity(10);
 
         let (title_field, description_field) = match search_filter.language {
             Language::De => ("titleDe", "descriptionDe"),

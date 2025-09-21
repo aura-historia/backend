@@ -7,6 +7,7 @@ edition = "2024"
 common = { workspace = true, features = ["opensearch"] }
 shop-core = { workspace = true }
 serde = { workspace = true }
+serde_json = { workspace = true }
 field = { workspace = true }
 time = { workspace = true, features = ["local-offset", "macros", "formatting"] }
 url = { workspace = true, features = ["serde"] }
