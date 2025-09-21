@@ -18,6 +18,7 @@ pub mod localized;
 pub mod opensearch;
 pub mod page;
 pub mod price;
+pub mod query;
 pub mod serde;
 pub mod shop_id;
 pub mod shop_name;

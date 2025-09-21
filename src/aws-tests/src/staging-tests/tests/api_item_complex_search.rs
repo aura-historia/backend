@@ -11,7 +11,7 @@ use item_opensearch::{
     repository::{ItemOpenSearchRepository, ItemOpenSearchRepositoryImpl},
 };
 use opensearch::{IndexParts, params::Refresh};
-use search_filter_core::range_query::RangeQuery;
+use common::query::range_query::RangeQuery;
 use search_filter_data::search_filter_data::SearchFilterData;
 use staging_tests::{get_opensearch_client, staging_test};
 use std::{

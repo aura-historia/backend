@@ -176,11 +176,11 @@ mod tests {
     };
     use item_core::sort_item_field::SortItemField;
     use item_opensearch::{item_document::ItemDocument, repository::MockItemOpenSearchRepository};
-    use search_filter_core::{
-        any_of_query::AnyOfQuery, range_query::RangeQuery, search_filter::SearchFilter,
-    };
+    use search_filter_core::search_filter::SearchFilter;
     use serde::ser::Error;
     use time::macros::datetime;
+    use common::query::any_of_query::AnyOfQuery;
+    use common::query::range_query::RangeQuery;
 
     fn mk_search_response(item_documents: Vec<ItemDocument>) -> SearchResponse<ItemDocument> {
         SearchResponse {

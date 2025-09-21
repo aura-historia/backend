@@ -8,17 +8,15 @@ use common::{
     },
     currency::{data::api::extract_currency_query, domain::Currency},
     language::{data::api::extract_language_query, domain::Language},
-    page::{Page, api::extract_page_query},
+    page::{api::extract_page_query, Page},
     sort::api::extract_sort_query,
 };
 use item_core::sort_item_field::SortItemField;
 use item_data::{get_data::GetItemData, sort_item_field_data::SortItemFieldData};
 use item_service::query_service::QueryItemService;
 use lambda_runtime::LambdaEvent;
-use search_filter_core::{
-    search_filter::SearchFilter,
-    text_query::{TextQuery, TextQueryTooShortError},
-};
+use common::query::text_query::{TextQuery, TextQueryTooShortError};
+use search_filter_core::search_filter::SearchFilter;
 
 #[tracing::instrument(
     skip(event, service),

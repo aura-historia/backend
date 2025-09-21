@@ -1,10 +1,11 @@
 use common::user_id::UserId;
 use fake::{Fake, Faker};
 use lambda_runtime::LambdaEvent;
+use common::query::range_query::RangeQuery;
 use search_filter_api_patch_search_filter::{
     handler, search_filter_data_patch::SearchFilterDataPatch,
 };
-use search_filter_core::{range_query::RangeQuery, search_filter::SearchFilter};
+use search_filter_core::search_filter::SearchFilter;
 use search_filter_data::user_search_filter_data::UserSearchFilterData;
 use search_filter_dynamodb::repository::SearchFilterDynamoDbRepositoryImpl;
 use search_filter_service::service::{SearchFilterService, SearchFilterServiceImpl};
