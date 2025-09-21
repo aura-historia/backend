@@ -1,0 +1,15 @@
+[package]
+name = "staging-data"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+common = { workspace = true, features = ["test-data", "api"] }
+staging-tests = { workspace = true }
+aws-tests-common = { workspace = true }
+tokio = { workspace = true, features = ["macros"] }
+serde_json = { workspace = true }
+serde = { workspace = true }
+fake = { workspace = true }
+reqwest = { workspace = true }
+item-data = { workspace = true, features = ["test-data"] }

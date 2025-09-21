@@ -460,3 +460,30 @@ jobs:
         env:
           CFN_OUTPUT: ${{ steps.export-cfn-output.outputs.outputs_json }}
         run: cargo test --test '*' --all-features -- --ignored --nocapture
+
+  aws-put-staging-test-data:
+    name: Put Staging Test-Data
+    if: github.event_name == 'push'
+    needs: aws-cfn-deploy
+    permissions:
+      contents: read
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Set up Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache cargo registry and target
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            ~/.cargo/bin
+            target
+          key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
+
+      - name: Run src/aws-tests/src/staging-data
+        working-directory: src/aws-tests/src/staging-data
+        run: cargo run --all-features -- --nocapture
