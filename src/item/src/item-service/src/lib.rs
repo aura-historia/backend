@@ -1,4 +1,4 @@
-#[cfg(feature = "dynamodb")]
+#[cfg(all(feature = "dynamodb", feature = "sqs"))]
 pub mod command_service;
 
 #[cfg(feature = "dynamodb")]
