@@ -1,8 +1,5 @@
-use std::collections::HashMap;
-
 use crate::item_event_type_record::ItemEventTypeRecord;
 use crate::item_state_record::ItemStateRecord;
-
 use common::currency::domain::Currency;
 use common::error::missing_field::MissingPersistenceField;
 use common::event::Event;
@@ -16,6 +13,7 @@ use common::localized::Localized;
 use common::price::domain::Price;
 use common::price::record::PriceRecord;
 use common::shop_id::ShopId;
+use common::shop_name::ShopName;
 use common::shops_item_id::ShopsItemId;
 use field::field;
 use item_core::hash::ItemHash;
@@ -23,8 +21,8 @@ use item_core::item_event::{
     ItemCommonEventPayload, ItemCreatedEventPayload, ItemEvent, ItemEventPayload,
     ItemPriceChangeEventPayload, ItemStateChangeEventPayload,
 };
-use item_core::shop_name::ShopName;
 use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
 use time::format_description::well_known::Rfc3339;
 use time::{OffsetDateTime, error};
 use url::Url;

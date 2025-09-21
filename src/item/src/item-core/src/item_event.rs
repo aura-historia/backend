@@ -1,20 +1,19 @@
+use crate::description::Description;
+use crate::hash::ItemHash;
+use crate::title::Title;
 use common::currency::domain::Currency;
 use common::event::Event;
 use common::has_key::HasKey;
 use common::item_id::{ItemId, ItemKey};
+use common::item_state::domain::ItemState;
 use common::language::domain::Language;
 use common::localized::Localized;
 use common::price::domain::{MonetaryAmount, Price};
 use common::shop_id::ShopId;
+use common::shop_name::ShopName;
 use common::shops_item_id::ShopsItemId;
 use std::collections::HashMap;
 use url::Url;
-
-use crate::description::Description;
-use crate::hash::ItemHash;
-use crate::shop_name::ShopName;
-use crate::title::Title;
-use common::item_state::domain::ItemState;
 
 pub type ItemEvent = Event<ItemId, ItemEventPayload>;
 
