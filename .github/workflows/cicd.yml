@@ -507,4 +507,6 @@ jobs:
 
       - name: Run src/aws-tests/src/staging-data
         working-directory: src/aws-tests/src/staging-data
+        env:
+          CFN_OUTPUT: ${{ steps.export-cfn-output.outputs.outputs_json }}
         run: cargo run --all-features -- --nocapture
