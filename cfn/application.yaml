@@ -262,6 +262,9 @@ Resources:
       StageName: !Sub "${StageName}"
       ApiId: !Ref BlitzfilterApi
       AutoDeploy: true
+      DefaultRouteSettings:
+        ThrottlingBurstLimit: 50
+        ThrottlingRateLimit: 20
   BlitzfilterApiCognitoAuthorizer:
     Type: AWS::ApiGatewayV2::Authorizer
     Properties:
