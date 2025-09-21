@@ -22,7 +22,7 @@ async fn main() -> Result<(), Error> {
         .await;
 
     let table_name = std::env::var("DYNAMODB_TABLE_NAME")?;
-    let ingest_item_events_queue_url = std::env::var("INGEST_ITEM_EVENTS_QUEUE_Nurl")?;
+    let ingest_item_events_queue_url = std::env::var("INGEST_ITEM_EVENTS_QUEUE_URL")?;
     let dynamodb_client = aws_sdk_dynamodb::Client::new(&aws_config);
     let repository = ItemDynamoDbRepositoryImpl::new(&dynamodb_client, &table_name);
     let sqs_client = aws_sdk_sqs::Client::new(&aws_config);

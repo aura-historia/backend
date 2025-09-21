@@ -399,13 +399,14 @@ Resources:
       Code:
         S3Bucket: !Ref ArtifactBucket
         S3Key: !Sub "item-api-put-items-${StageName}-${CommitSHA}.zip"
-      MemorySize: 512
-      Timeout: 10
+      MemorySize: 1024
+      Timeout: 60
       EphemeralStorage:
         Size: 512
       Environment:
         Variables:
           DYNAMODB_TABLE_NAME: !Ref TableOne
+          INGEST_ITEM_EVENTS_QUEUE_URL: !Ref ItemIngestEventsDynamoDbQ
   BlitzfilterApiPutItemsLambdaPermission:
     Type: AWS::Lambda::Permission
     Properties:
