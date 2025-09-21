@@ -2,7 +2,7 @@ use aws_lambda_events::apigw::{ApiGatewayV2httpRequest, ApiGatewayV2httpResponse
 use common::{
     api::{
         api_gateway_v2_http_response_builder::ApiGatewayV2HttpResponseBuilder,
-        collection::{CollectionData, PaginationData},
+        collection::{GetCollectionData, PaginationData},
         error::ApiError,
         error_code::{BAD_PATH_PARAMETER_VALUE, TEXT_QUERY_TOO_SHORT},
     },
@@ -86,7 +86,7 @@ pub async fn handle(
         size: page.size as u64,
         total: search_result.total,
     };
-    let collection = CollectionData { items, pagination };
+    let collection = GetCollectionData { items, pagination };
 
     Ok(ApiGatewayV2HttpResponseBuilder::json(200)
         .body_serde(collection)?

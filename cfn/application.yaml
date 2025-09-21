@@ -19,7 +19,7 @@ Parameters:
     Type: String
 
 Mappings:
-  ItemWriteQueuesMap:
+  ItemIngestEventsDynamoDbQueueMap:
     MaximumBatchingWindowInSeconds:
       dev: 1
       staging: 1
@@ -265,6 +265,9 @@ Resources:
       StageName: !Sub "${StageName}"
       ApiId: !Ref BlitzfilterApi
       AutoDeploy: true
+      DefaultRouteSettings:
+        ThrottlingBurstLimit: 50
+        ThrottlingRateLimit: 20
   BlitzfilterApiCognitoAuthorizer:
     Type: AWS::ApiGatewayV2::Authorizer
     Properties:
@@ -340,6 +343,77 @@ Resources:
       FunctionName: !Ref BlitzfilterApiGetItemLambda
       Principal: apigateway.amazonaws.com
       SourceArn: !Sub "arn:aws:execute-api:${AWS::Region}:${AWS::AccountId}:${BlitzfilterApi}/*/*/api/v1/items/*/*"
+
+  BlitzfilterApiPutItemsRoute:
+    Type: AWS::ApiGatewayV2::Route
+    Properties:
+      ApiId: !Ref BlitzfilterApi
+      RouteKey: "PUT /api/v1/items"
+      Target: !Sub "integrations/${BlitzfilterApiPutItemsLambdaIntegration}"
+  BlitzfilterApiPutItemsLambdaIntegration:
+    Type: AWS::ApiGatewayV2::Integration
+    Properties:
+      ApiId: !Ref BlitzfilterApi
+      IntegrationType: AWS_PROXY
+      IntegrationUri: !Sub "arn:aws:lambda:${AWS::Region}:${AWS::AccountId}:function:${BlitzfilterApiPutItemsLambda}"
+      PayloadFormatVersion: "2.0"
+  BlitzfilterApiPutItemsRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Sub "blitzfilter-api-put-items-role-${StageName}"
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: lambda.amazonaws.com
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole
+      Policies:
+        - PolicyName: DynamoDBAccess
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: Allow
+                Action:
+                  - dynamodb:GetItem
+                  - dynamodb:BatchGetItem
+                  - dynamodb:Query
+                Resource: !GetAtt TableOne.Arn
+        - PolicyName: SQSSendMessage
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: Allow
+                Action:
+                  - sqs:SendMessage
+                Resource: !GetAtt ItemIngestEventsDynamoDbQ.Arn
+  BlitzfilterApiPutItemsLambda:
+    Type: AWS::Lambda::Function
+    Properties:
+      FunctionName: !Sub "blitzfilter-api-put-items-${StageName}"
+      Runtime: provided.al2023
+      Handler: lib.handler
+      Role: !GetAtt BlitzfilterApiPutItemsRole.Arn
+      Code:
+        S3Bucket: !Ref ArtifactBucket
+        S3Key: !Sub "item-api-put-items-${StageName}-${CommitSHA}.zip"
+      MemorySize: 1024
+      Timeout: 60
+      EphemeralStorage:
+        Size: 512
+      Environment:
+        Variables:
+          DYNAMODB_TABLE_NAME: !Ref TableOne
+          INGEST_ITEM_EVENTS_QUEUE_URL: !Ref ItemIngestEventsDynamoDbQ
+  BlitzfilterApiPutItemsLambdaPermission:
+    Type: AWS::Lambda::Permission
+    Properties:
+      Action: lambda:InvokeFunction
+      FunctionName: !Ref BlitzfilterApiPutItemsLambda
+      Principal: apigateway.amazonaws.com
+      SourceArn: !Sub "arn:aws:execute-api:${AWS::Region}:${AWS::AccountId}:${BlitzfilterApi}/*/*/api/v1/items"
 
   BlitzfilterApiSimpleSearchRoute:
     Type: AWS::ApiGatewayV2::Route
@@ -788,23 +862,23 @@ Resources:
       Principal: apigateway.amazonaws.com
       SourceArn: !Sub "arn:aws:execute-api:${AWS::Region}:${AWS::AccountId}:${BlitzfilterApi}/*/*/api/v1/search-filters"
 
-  ItemWriteNewDlq:
+  ItemIngestEventsDynamoDbDlq:
     Type: AWS::SQS::Queue
     Properties:
-      QueueName: !Sub "item-lambda-write-new-dlq-${StageName}"
+      QueueName: !Sub "item-lambda-ingest-events-dynamodb-dlq-${StageName}"
       MessageRetentionPeriod: 1209600
-  ItemWriteNewQ:
+  ItemIngestEventsDynamoDbQ:
     Type: AWS::SQS::Queue
     Properties:
-      QueueName: !Sub "item-lambda-write-new-queue-${StageName}"
+      QueueName: !Sub "item-lambda-ingest-events-dynamodb-queue-${StageName}"
       RedrivePolicy:
-        deadLetterTargetArn: !GetAtt ItemWriteNewDlq.Arn
+        deadLetterTargetArn: !GetAtt ItemIngestEventsDynamoDbDlq.Arn
         maxReceiveCount: 3
       VisibilityTimeout: 360
-  ItemWriteNewRole:
+  ItemIngestEventsDynamoDbRole:
     Type: AWS::IAM::Role
     Properties:
-      RoleName: !Sub "item-lambda-write-new-role-${StageName}"
+      RoleName: !Sub "item-lambda-ingest-events-dynamodb-role-${StageName}"
       AssumeRolePolicyDocument:
         Version: "2012-10-17"
         Statement:
@@ -833,17 +907,17 @@ Resources:
                   - sqs:DeleteMessage
                   - sqs:GetQueueAttributes
                   - sqs:GetQueueUrl
-                Resource: !GetAtt ItemWriteNewQ.Arn
-  ItemWriteNewLambda:
+                Resource: !GetAtt ItemIngestEventsDynamoDbQ.Arn
+  ItemIngestEventsDynamoDbLambda:
     Type: AWS::Lambda::Function
     Properties:
-      FunctionName: !Sub "item-lambda-write-new-${StageName}"
+      FunctionName: !Sub "item-lambda-ingest-events-dynamodb-${StageName}"
       Runtime: provided.al2023
       Handler: lib.handler
-      Role: !GetAtt ItemWriteNewRole.Arn
+      Role: !GetAtt ItemIngestEventsDynamoDbRole.Arn
       Code:
         S3Bucket: !Ref ArtifactBucket
-        S3Key: !Sub "item-lambda-write-new-${StageName}-${CommitSHA}.zip"
+        S3Key: !Sub "item-lambda-ingest-events-dynamodb-${StageName}-${CommitSHA}.zip"
       MemorySize: 512
       Timeout: 60
       EphemeralStorage:
@@ -851,95 +925,16 @@ Resources:
       Environment:
         Variables:
           DYNAMODB_TABLE_NAME: !Ref TableOne
-  ItemWriteNewMapping:
+  ItemIngestEventsDynamoDbMapping:
     Type: AWS::Lambda::EventSourceMapping
     Properties:
-      FunctionName: !Ref ItemWriteNewLambda
-      EventSourceArn: !GetAtt ItemWriteNewQ.Arn
+      FunctionName: !Ref ItemIngestEventsDynamoDbLambda
+      EventSourceArn: !GetAtt ItemIngestEventsDynamoDbQ.Arn
       Enabled: true
       BatchSize: 200
       MaximumBatchingWindowInSeconds:
         !FindInMap [
-          ItemWriteQueuesMap,
-          MaximumBatchingWindowInSeconds,
-          !Ref Stage,
-        ]
-      FunctionResponseTypes:
-        - ReportBatchItemFailures
-
-  ItemWriteUpdateDlq:
-    Type: AWS::SQS::Queue
-    Properties:
-      QueueName: !Sub "item-lambda-write-update-dlq-${StageName}"
-      MessageRetentionPeriod: 1209600
-  ItemWriteUpdateQ:
-    Type: AWS::SQS::Queue
-    Properties:
-      QueueName: !Sub "item-lambda-write-update-queue-${StageName}"
-      RedrivePolicy:
-        deadLetterTargetArn: !GetAtt ItemWriteUpdateDlq.Arn
-        maxReceiveCount: 3
-      VisibilityTimeout: 360
-  ItemWriteUpdateRole:
-    Type: AWS::IAM::Role
-    Properties:
-      RoleName: !Sub "item-lambda-write-update-role-${StageName}"
-      AssumeRolePolicyDocument:
-        Version: "2012-10-17"
-        Statement:
-          - Effect: Allow
-            Principal:
-              Service: lambda.amazonaws.com
-            Action: sts:AssumeRole
-      ManagedPolicyArns:
-        - arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole
-      Policies:
-        - PolicyName: DynamoDBAccess
-          PolicyDocument:
-            Version: "2012-10-17"
-            Statement:
-              - Effect: Allow
-                Action:
-                  - dynamodb:*
-                Resource: !GetAtt TableOne.Arn
-        - PolicyName: SQSPollerAccess
-          PolicyDocument:
-            Version: "2012-10-17"
-            Statement:
-              - Effect: Allow
-                Action:
-                  - sqs:ReceiveMessage
-                  - sqs:DeleteMessage
-                  - sqs:GetQueueAttributes
-                  - sqs:GetQueueUrl
-                Resource: !GetAtt ItemWriteUpdateQ.Arn
-  ItemWriteUpdateLambda:
-    Type: AWS::Lambda::Function
-    Properties:
-      FunctionName: !Sub "item-lambda-write-update-${StageName}"
-      Runtime: provided.al2023
-      Handler: lib.handler
-      Role: !GetAtt ItemWriteUpdateRole.Arn
-      Code:
-        S3Bucket: !Ref ArtifactBucket
-        S3Key: !Sub "item-lambda-write-update-${StageName}-${CommitSHA}.zip"
-      MemorySize: 512
-      Timeout: 60
-      EphemeralStorage:
-        Size: 512
-      Environment:
-        Variables:
-          DYNAMODB_TABLE_NAME: !Ref TableOne
-  ItemWriteUpdateMapping:
-    Type: AWS::Lambda::EventSourceMapping
-    Properties:
-      FunctionName: !Ref ItemWriteUpdateLambda
-      EventSourceArn: !GetAtt ItemWriteUpdateQ.Arn
-      Enabled: true
-      BatchSize: 200
-      MaximumBatchingWindowInSeconds:
-        !FindInMap [
-          ItemWriteQueuesMap,
+          ItemIngestEventsDynamoDbQueueMap,
           MaximumBatchingWindowInSeconds,
           !Ref Stage,
         ]
@@ -1367,15 +1362,10 @@ Outputs:
   DynamodbTable1Name:
     Value: !Ref TableOne
 
-  ItemWriteNewQueueUrl:
-    Value: !Ref ItemWriteNewQ
-  ItemWriteNewDeadLetterQueueUrl:
-    Value: !Ref ItemWriteNewDlq
-
-  ItemWriteUpdateQueueUrl:
-    Value: !Ref ItemWriteUpdateQ
-  ItemWriteUpdateDeadLetterQueueUrl:
-    Value: !Ref ItemWriteUpdateDlq
+  ItemIngestEventsDynamodbQueueUrl:
+    Value: !Ref ItemIngestEventsDynamoDbQ
+  ItemIngestEventsDynamodbDeadLetterQueueUrl:
+    Value: !Ref ItemIngestEventsDynamoDbDlq
 
   ItemMaterializeDynamodbNewQueueUrl:
     Value: !Ref ItemMaterializeDynamoDbNewQ

@@ -1,6 +1,10 @@
 use aws_tests_common::get_cfn_output;
-use common::{item_state::domain::ItemState, language::data::LocalizedTextData};
+use common::{
+    api::collection::PutCollectionData, item_state::domain::ItemState,
+    language::data::LocalizedTextData,
+};
 use fake::{Fake, Faker};
+use item_data::{item_state_data::ItemStateData, put_data::PutItemData};
 use item_dynamodb::{
     item_record::ItemRecord,
     item_state_record::ItemStateRecord,
@@ -8,14 +12,12 @@ use item_dynamodb::{
 };
 use item_opensearch::{
     item_document::ItemDocument,
-    item_state_document::ItemStateDocument,
     repository::{ItemOpenSearchRepository, ItemOpenSearchRepositoryImpl},
 };
-use item_service::item_command_data::{CreateItemCommandData, UpdateItemCommandData};
 use opensearch::{GetParts, IndexParts, params::Refresh};
 use search_filter_core::search_filter::SearchFilter;
 use serde::de::DeserializeOwned;
-use staging_tests::{get_dynamodb_client, get_opensearch_client, get_sqs_client, staging_test};
+use staging_tests::{get_dynamodb_client, get_opensearch_client, staging_test};
 use std::time::{Duration, Instant};
 
 pub async fn read_by_id<T: DeserializeOwned>(index: &str, id: impl Into<String>) -> T {
@@ -42,18 +44,20 @@ pub async fn refresh_index(index: &str) {
 }
 
 #[staging_test]
-async fn should_materialize_item_in_dynamodb_for_create_item_command() {
+async fn should_materialize_item_in_dynamodb_when_put_new_item() {
     let stack = get_cfn_output();
-    let sqs_client = get_sqs_client().await;
-    let cmd: CreateItemCommandData = Faker.fake();
+    let put_item_data: PutItemData = Faker.fake();
 
-    let _ = sqs_client
-        .send_message()
-        .queue_url(stack.item_write_new_queue_url.clone())
-        .message_body(serde_json::to_string(&cmd).unwrap())
+    let url = format!("{}/api/v1/items", stack.api_gateway_endpoint_url);
+    let response = reqwest::Client::new()
+        .put(url)
+        .json(&PutCollectionData {
+            items: vec![put_item_data.clone()],
+        })
         .send()
         .await
         .unwrap();
+    assert_eq!(200, response.status());
 
     let dynamodb_client = get_dynamodb_client().await;
     let repository = ItemDynamoDbRepositoryImpl::new(dynamodb_client, &stack.dynamodb_table_1_name);
@@ -61,21 +65,21 @@ async fn should_materialize_item_in_dynamodb_for_create_item_command() {
     let deadline = Instant::now() + Duration::from_secs(60);
     loop {
         let materialized = repository
-            .get_item_record(&cmd.shop_id, &cmd.shops_item_id)
+            .get_item_record(&put_item_data.shop_id, &put_item_data.shops_item_id)
             .await
             .unwrap();
 
         if let Some(materialized) = materialized {
-            assert_eq!(cmd.shop_id, materialized.shop_id);
-            assert_eq!(cmd.shops_item_id, materialized.shops_item_id);
-            assert_eq!(cmd.url, materialized.url);
+            assert_eq!(put_item_data.shop_id, materialized.shop_id);
+            assert_eq!(put_item_data.shops_item_id, materialized.shops_item_id);
+            assert_eq!(put_item_data.url, materialized.url);
             break;
         }
 
         if Instant::now() >= deadline {
             panic!(
                 "Timeout: ItemRecord with shop_id '{}' and shops_item_id '{}' not found in DynamoDB after 60 seconds",
-                cmd.shop_id, cmd.shops_item_id
+                put_item_data.shop_id, put_item_data.shops_item_id
             );
         }
 
@@ -96,40 +100,45 @@ async fn should_materialize_item_in_dynamodb_for_update_item_command() {
     assert!(insert_res.unprocessed_items.unwrap_or_default().is_empty());
     tokio::time::sleep(Duration::from_secs(3)).await;
 
-    let sqs_client = get_sqs_client().await;
     let new_state = match materialized_old.state {
-        ItemStateRecord::Available => {
-            item_service::item_state_command_data::ItemStateCommandData::Sold
-        }
-        _ => item_service::item_state_command_data::ItemStateCommandData::Available,
+        ItemStateRecord::Available => ItemStateData::Sold,
+        _ => ItemStateData::Available,
     };
-    let cmd = UpdateItemCommandData {
+    let put_item_data = PutItemData {
         shop_id: materialized_old.shop_id,
         shops_item_id: materialized_old.shops_item_id,
+        shop_name: materialized_old.shop_name,
+        title: Faker.fake(),
+        description: None,
         price: None,
-        state: Some(new_state),
+        state: new_state,
+        url: materialized_old.url,
+        images: materialized_old.images,
     };
 
-    let _ = sqs_client
-        .send_message()
-        .queue_url(stack.item_write_update_queue_url.clone())
-        .message_body(serde_json::to_string(&cmd).unwrap())
+    let url = format!("{}/api/v1/items", stack.api_gateway_endpoint_url);
+    let response = reqwest::Client::new()
+        .put(url)
+        .json(&PutCollectionData {
+            items: vec![put_item_data.clone()],
+        })
         .send()
         .await
         .unwrap();
+    assert_eq!(200, response.status());
 
     let deadline = Instant::now() + Duration::from_secs(60);
     loop {
         let materialized = repository
-            .get_item_record(&cmd.shop_id, &cmd.shops_item_id)
+            .get_item_record(&put_item_data.shop_id, &put_item_data.shops_item_id)
             .await
             .unwrap();
 
         if let Some(materialized) = materialized
             && ItemState::from(new_state) == ItemState::from(materialized.state)
         {
-            assert_eq!(cmd.shop_id, materialized.shop_id);
-            assert_eq!(cmd.shops_item_id, materialized.shops_item_id);
+            assert_eq!(put_item_data.shop_id, materialized.shop_id);
+            assert_eq!(put_item_data.shops_item_id, materialized.shops_item_id);
             assert_eq!(
                 ItemState::from(new_state),
                 ItemState::from(materialized.state)
@@ -141,7 +150,7 @@ async fn should_materialize_item_in_dynamodb_for_update_item_command() {
             panic!(
                 "Timeout: ItemRecord with shop_id '{}' and shops_item_id '{}' \
                     has not been updated in DynamoDB or been updated with expected state after 60 seconds",
-                cmd.shop_id, cmd.shops_item_id
+                put_item_data.shop_id, put_item_data.shops_item_id
             );
         }
 
@@ -152,20 +161,22 @@ async fn should_materialize_item_in_dynamodb_for_update_item_command() {
 #[staging_test]
 async fn should_materialize_item_in_opensearch_for_create_item_command() {
     let stack = get_cfn_output();
-    let sqs_client = get_sqs_client().await;
-    let mut cmd: CreateItemCommandData = Faker.fake();
-    cmd.native_title = LocalizedTextData {
+    let mut put_item_data: PutItemData = Faker.fake();
+    put_item_data.title = LocalizedTextData {
         text: "Exactly the expected title".to_string(),
         language: common::language::data::LanguageData::En,
     };
 
-    let _ = sqs_client
-        .send_message()
-        .queue_url(stack.item_write_new_queue_url.clone())
-        .message_body(serde_json::to_string(&cmd).unwrap())
+    let url = format!("{}/api/v1/items", stack.api_gateway_endpoint_url);
+    let response = reqwest::Client::new()
+        .put(url)
+        .json(&PutCollectionData {
+            items: vec![put_item_data.clone()],
+        })
         .send()
         .await
         .unwrap();
+    assert_eq!(200, response.status());
 
     let opensearch_client = get_opensearch_client().await;
     let repository = ItemOpenSearchRepositoryImpl::new(opensearch_client);
@@ -196,16 +207,19 @@ async fn should_materialize_item_in_opensearch_for_create_item_command() {
             .cloned();
 
         if let Some(materialized) = materialized {
-            assert_eq!(cmd.shop_id, materialized.source.shop_id);
-            assert_eq!(cmd.shops_item_id, materialized.source.shops_item_id);
-            assert_eq!(cmd.url, materialized.source.url);
+            assert_eq!(put_item_data.shop_id, materialized.source.shop_id);
+            assert_eq!(
+                put_item_data.shops_item_id,
+                materialized.source.shops_item_id
+            );
+            assert_eq!(put_item_data.url, materialized.source.url);
             break;
         }
 
         if Instant::now() >= deadline {
             panic!(
                 "Timeout: ItemDocument with shop_id '{}' and shops_item_id '{}' not found in OpenSearch after 60 seconds",
-                cmd.shop_id, cmd.shops_item_id
+                put_item_data.shop_id, put_item_data.shops_item_id
             );
         }
 
@@ -230,7 +244,7 @@ async fn should_materialize_item_in_opensearch_for_update_item_command() {
 
     let opensearch_client = get_opensearch_client().await;
     let repository = ItemOpenSearchRepositoryImpl::new(opensearch_client);
-    let materialized_os_old: ItemDocument = materialized_ddb_old.into();
+    let materialized_os_old: ItemDocument = materialized_ddb_old.clone().into();
     let insert_res = repository
         .create_item_documents(vec![materialized_os_old.clone()])
         .await
@@ -239,27 +253,32 @@ async fn should_materialize_item_in_opensearch_for_update_item_command() {
     refresh_index("items").await;
     tokio::time::sleep(Duration::from_secs(10)).await;
 
-    let sqs_client = get_sqs_client().await;
-    let new_state = match materialized_os_old.state {
-        ItemStateDocument::Available => {
-            item_service::item_state_command_data::ItemStateCommandData::Sold
-        }
-        _ => item_service::item_state_command_data::ItemStateCommandData::Available,
+    let new_state = match materialized_ddb_old.state {
+        ItemStateRecord::Available => ItemStateData::Sold,
+        _ => ItemStateData::Available,
     };
-    let cmd = UpdateItemCommandData {
-        shop_id: materialized_os_old.shop_id,
-        shops_item_id: materialized_os_old.shops_item_id,
+    let put_item_data = PutItemData {
+        shop_id: materialized_ddb_old.shop_id,
+        shops_item_id: materialized_ddb_old.shops_item_id,
+        shop_name: materialized_ddb_old.shop_name,
+        title: Faker.fake(),
+        description: None,
         price: None,
-        state: Some(new_state),
+        state: new_state,
+        url: materialized_ddb_old.url,
+        images: materialized_ddb_old.images,
     };
 
-    let _ = sqs_client
-        .send_message()
-        .queue_url(stack.item_write_update_queue_url.clone())
-        .message_body(serde_json::to_string(&cmd).unwrap())
+    let url = format!("{}/api/v1/items", stack.api_gateway_endpoint_url);
+    let response = reqwest::Client::new()
+        .put(url)
+        .json(&PutCollectionData {
+            items: vec![put_item_data.clone()],
+        })
         .send()
         .await
         .unwrap();
+    assert_eq!(200, response.status());
 
     let deadline = Instant::now() + Duration::from_secs(60);
     loop {
@@ -289,8 +308,11 @@ async fn should_materialize_item_in_opensearch_for_update_item_command() {
         if let Some(materialized) = materialized
             && ItemState::from(new_state) == ItemState::from(materialized.source.state)
         {
-            assert_eq!(cmd.shop_id, materialized.source.shop_id);
-            assert_eq!(cmd.shops_item_id, materialized.source.shops_item_id);
+            assert_eq!(put_item_data.shop_id, materialized.source.shop_id);
+            assert_eq!(
+                put_item_data.shops_item_id,
+                materialized.source.shops_item_id
+            );
             assert_eq!(
                 ItemState::from(new_state),
                 ItemState::from(materialized.source.state)
@@ -302,7 +324,7 @@ async fn should_materialize_item_in_opensearch_for_update_item_command() {
             panic!(
                 "Timeout: ItemDocument with shop_id '{}' and shops_item_id '{}' \
                     has not been updated in OpenSearch or been updated with expected state after 60 seconds",
-                cmd.shop_id, cmd.shops_item_id
+                put_item_data.shop_id, put_item_data.shops_item_id
             );
         }
 
