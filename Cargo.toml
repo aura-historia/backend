@@ -28,7 +28,7 @@ aws-sdk-account = "1.87.0"
 aws-sdk-dynamodb = "1.93.0"
 aws-sdk-lambda = "1.97.0"
 aws-sdk-opensearch = "1.98.0"
-aws-sdk-sqs = "1.84.0"
+aws-sdk-sqs = "1.84.1"
 aws_lambda_events = { version = "0.17.0", default-features = false }
 blake3 = "1.8.2"
 common = { path = "src/common" }
