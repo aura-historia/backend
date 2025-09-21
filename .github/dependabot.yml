@@ -21,3 +21,4 @@ updates:
         patterns:
           - "aws-*"
           - "aws_*"
+          - "serde*"
