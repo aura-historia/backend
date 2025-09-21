@@ -1,0 +1,29 @@
+{
+  "mappings": {
+    "properties": {
+      "shopId": {
+        "type": "keyword"
+      },
+      "name": {
+        "type": "text",
+        "fields": {
+          "keyword": { "type": "keyword" }
+        }
+      },
+      "url": {
+        "type": "keyword"
+      },
+      "image": {
+        "type": "keyword"
+      },
+      "created": {
+        "type": "date",
+        "format": "strict_date_time"
+      },
+      "updated": {
+        "type": "date",
+        "format": "strict_date_time"
+      }
+    }
+  }
+}
