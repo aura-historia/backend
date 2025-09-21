@@ -149,10 +149,8 @@ pub async fn reset() {
         .await
         .expect("shouldn't fail clearing os-index 'items'");
     clear_qs(vec![
-        cfn_output.item_write_new_queue_url,
-        cfn_output.item_write_new_dead_letter_queue_url,
-        cfn_output.item_write_update_queue_url,
-        cfn_output.item_write_update_dead_letter_queue_url,
+        cfn_output.item_ingest_events_dynamodb_queue_url,
+        cfn_output.item_ingest_events_dynamodb_dead_letter_queue_url,
         cfn_output.item_materialize_dynamodb_new_queue_url,
         cfn_output.item_materialize_dynamodb_new_dead_letter_queue_url,
         cfn_output.item_materialize_dynamodb_update_queue_url,
