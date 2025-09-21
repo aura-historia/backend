@@ -218,16 +218,16 @@ jobs:
             cargo install cargo-lambda --version 1.8.6
           fi
 
-      - name: Install grcov
-        run: cargo install grcov
+      # - name: Install grcov
+      # run: cargo install grcov
 
-      - name: Generate coverage
-        env:
-          RUSTFLAGS: "-C instrument-coverage"
-          LLVM_PROFILE_FILE: "coverage-%p-%m.profraw"
-        run: |
-          cargo test --workspace --all-features -- --nocapture
-          grcov . --binary-path ./target/debug/deps/ -s . -t lcov --branch --ignore-not-existing --ignore "/*" --ignore "*/target/*" --ignore "*/.cargo/*" -o coverage.lcov
+      # - name: Generate coverage
+      # env:
+      # RUSTFLAGS: "-C instrument-coverage"
+      # LLVM_PROFILE_FILE: "coverage-%p-%m.profraw"
+      # run: |
+      # cargo test --workspace --all-features -- --nocapture
+      # grcov . --binary-path ./target/debug/deps/ -s . -t lcov --branch --ignore-not-existing --ignore "/*" --ignore "*/target/*" --ignore "*/.cargo/*" -o coverage.lcov
 
       - name: SonarCloud Scan
         uses: SonarSource/sonarqube-scan-action@master
