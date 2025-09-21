@@ -338,6 +338,76 @@ Resources:
       Principal: apigateway.amazonaws.com
       SourceArn: !Sub "arn:aws:execute-api:${AWS::Region}:${AWS::AccountId}:${BlitzfilterApi}/*/*/api/v1/items/*/*"
 
+  BlitzfilterApiPutItemsRoute:
+    Type: AWS::ApiGatewayV2::Route
+    Properties:
+      ApiId: !Ref BlitzfilterApi
+      RouteKey: "PUT /api/v1/items"
+      Target: !Sub "integrations/${BlitzfilterApiPutItemsLambdaIntegration}"
+  BlitzfilterApiPutItemsLambdaIntegration:
+    Type: AWS::ApiGatewayV2::Integration
+    Properties:
+      ApiId: !Ref BlitzfilterApi
+      IntegrationType: AWS_PROXY
+      IntegrationUri: !Sub "arn:aws:lambda:${AWS::Region}:${AWS::AccountId}:function:${BlitzfilterApiPutItemsLambda}"
+      PayloadFormatVersion: "2.0"
+  BlitzfilterApiPutItemsRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Sub "blitzfilter-api-put-items-role-${StageName}"
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: lambda.amazonaws.com
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole
+      Policies:
+        - PolicyName: DynamoDBAccess
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: Allow
+                Action:
+                  - dynamodb:GetItem
+                  - dynamodb:BatchGetItem
+                  - dynamodb:Query
+                Resource: !GetAtt TableOne.Arn
+        - PolicyName: SQSSendMessage
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: Allow
+                Action:
+                  - sqs:SendMessage
+                Resource: !GetAtt ItemIngestEventsDynamoDbQ.Arn
+  BlitzfilterApiPutItemsLambda:
+    Type: AWS::Lambda::Function
+    Properties:
+      FunctionName: !Sub "blitzfilter-api-put-items-${StageName}"
+      Runtime: provided.al2023
+      Handler: lib.handler
+      Role: !GetAtt BlitzfilterApiPutItemsRole.Arn
+      Code:
+        S3Bucket: !Ref ArtifactBucket
+        S3Key: !Sub "item-api-put-items-${StageName}-${CommitSHA}.zip"
+      MemorySize: 512
+      Timeout: 10
+      EphemeralStorage:
+        Size: 512
+      Environment:
+        Variables:
+          DYNAMODB_TABLE_NAME: !Ref TableOne
+  BlitzfilterApiPutItemsLambdaPermission:
+    Type: AWS::Lambda::Permission
+    Properties:
+      Action: lambda:InvokeFunction
+      FunctionName: !Ref BlitzfilterApiPutItemsLambda
+      Principal: apigateway.amazonaws.com
+      SourceArn: !Sub "arn:aws:execute-api:${AWS::Region}:${AWS::AccountId}:${BlitzfilterApi}/*/*/api/v1/items"
+
   BlitzfilterApiSimpleSearchRoute:
     Type: AWS::ApiGatewayV2::Route
     Properties:
@@ -831,7 +901,7 @@ Resources:
                   - sqs:GetQueueAttributes
                   - sqs:GetQueueUrl
                 Resource: !GetAtt ItemIngestEventsDynamoDbQ.Arn
-                ItemIngestEventsDynamoDbLambda:
+  ItemIngestEventsDynamoDbLambda:
     Type: AWS::Lambda::Function
     Properties:
       FunctionName: !Sub "item-lambda-ingest-events-dynamodb-${StageName}"
@@ -1285,15 +1355,10 @@ Outputs:
   DynamodbTable1Name:
     Value: !Ref TableOne
 
-  ItemIngestEventsDynamoDbQueueUrl:
+  ItemIngestEventsDynamodbQueueUrl:
     Value: !Ref ItemIngestEventsDynamoDbQ
-  ItemIngestEventsDynamoDbDeadLetterQueueUrl:
+  ItemIngestEventsDynamodbDeadLetterQueueUrl:
     Value: !Ref ItemIngestEventsDynamoDbDlq
-
-  ItemWriteUpdateQueueUrl:
-    Value: !Ref ItemWriteUpdateQ
-  ItemWriteUpdateDeadLetterQueueUrl:
-    Value: !Ref ItemWriteUpdateDlq
 
   ItemMaterializeDynamodbNewQueueUrl:
     Value: !Ref ItemMaterializeDynamoDbNewQ
