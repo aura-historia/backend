@@ -3849,6 +3849,7 @@ version = "0.1.0"
 dependencies = [
  "shop-core",
  "shop-dynamodb",
+ "shop-opensearch",
 ]
 
 [[package]]
@@ -3856,6 +3857,8 @@ name = "shop-core"
 version = "0.1.0"
 dependencies = [
  "common",
+ "fake",
+ "shop-core",
  "time",
  "url",
 ]
@@ -3864,8 +3867,44 @@ dependencies = [
 name = "shop-dynamodb"
 version = "0.1.0"
 dependencies = [
+ "async-trait",
+ "aws-sdk-dynamodb",
  "common",
+ "fake",
+ "field",
+ "mockall",
+ "rstest",
+ "serde",
+ "serde_dynamo",
+ "serde_json",
+ "serial_test",
+ "shop-core",
+ "shop-dynamodb",
+ "test-api",
  "time",
+ "tracing",
+ "url",
+]
+
+[[package]]
+name = "shop-opensearch"
+version = "0.1.0"
+dependencies = [
+ "async-trait",
+ "common",
+ "fake",
+ "field",
+ "mockall",
+ "opensearch",
+ "rstest",
+ "serde",
+ "serde_json",
+ "serial_test",
+ "shop-core",
+ "shop-opensearch",
+ "test-api",
+ "time",
+ "tracing",
  "url",
 ]
 

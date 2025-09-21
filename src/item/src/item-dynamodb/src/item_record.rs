@@ -101,7 +101,7 @@ impl HasKey for ItemRecord {
 
     fn key(&self) -> Self::Key {
         ItemKey {
-            shop_id: self.shop_id.clone(),
+            shop_id: self.shop_id,
             shops_item_id: self.shops_item_id.clone(),
         }
     }
@@ -246,7 +246,7 @@ mod faker {
                 gsi_1_sk: format!("updated#{now_str}"),
                 item_id: config.fake_with_rng(rng),
                 event_id: config.fake_with_rng(rng),
-                shop_id: shop_id.clone(),
+                shop_id,
                 shops_item_id: shops_item_id.clone(),
                 shop_name: config.fake_with_rng::<ShopName, _>(rng).into(),
                 title_native: TextRecord::new(

@@ -22,7 +22,7 @@ impl HasKey for ItemSummaryHash {
 
     fn key(&self) -> Self::Key {
         ItemKey {
-            shop_id: self.shop_id.clone(),
+            shop_id: self.shop_id,
             shops_item_id: self.shops_item_id.clone(),
         }
     }

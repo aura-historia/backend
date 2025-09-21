@@ -36,7 +36,7 @@ impl HasKey for ItemEventPayload {
     type Key = ItemKey;
 
     fn key(&self) -> ItemKey {
-        ItemKey::new(self.shop_id().clone(), self.shops_item_id().clone())
+        ItemKey::new(*self.shop_id(), self.shops_item_id().clone())
     }
 }
 

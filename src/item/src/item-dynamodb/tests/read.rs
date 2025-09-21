@@ -44,16 +44,13 @@ mod get_item_record {
         let shop_id = ShopId::new();
         let shops_item_id: ShopsItemId = "123465".into();
         let expected = ItemRecord {
-            pk: format!(
-                "item#shop_id#{}#shops_item_id#{shops_item_id}",
-                shop_id.clone()
-            ),
+            pk: format!("item#shop_id#{}#shops_item_id#{shops_item_id}", shop_id),
             sk: "item#materialized".to_string(),
             gsi_1_pk: format!("shop_id#{shop_id}"),
             gsi_1_sk: format!("updated#{now_str}"),
             item_id: ItemId::new(),
             event_id: EventId::new(),
-            shop_id: shop_id.clone(),
+            shop_id,
             shops_item_id: shops_item_id.clone(),
             shop_name: "Foo".to_string(),
             title_native: TextRecord::new("Bar", LanguageRecord::De),
@@ -112,7 +109,7 @@ mod get_item_record {
             gsi_1_sk: format!("updated#{now_str}"),
             item_id: ItemId::new(),
             event_id: EventId::new(),
-            shop_id: shop_id.clone(),
+            shop_id,
             shops_item_id: shops_item_id.clone(),
             shop_name: "Foo".to_string(),
             title_native: TextRecord::new("Bar", LanguageRecord::De),
@@ -170,7 +167,7 @@ mod get_item_record {
             gsi_1_sk: format!("updated#{now_str}"),
             item_id: ItemId::new(),
             event_id: EventId::new(),
-            shop_id: shop_id.clone(),
+            shop_id,
             shops_item_id: shops_item_id.clone(),
             shop_name: "Foo".to_string(),
             title_native: TextRecord::new("Bar", LanguageRecord::De),
@@ -202,7 +199,7 @@ mod get_item_record {
             item_id: ItemId::new(),
             event_id: EventId::new(),
             event_type: ItemEventTypeRecord::StateListed,
-            shop_id: shop_id.clone(),
+            shop_id,
             shops_item_id: shops_item_id.clone(),
             shop_name: None,
             title_native: Some(TextRecord::new("Bar", LanguageRecord::De)),
@@ -340,7 +337,7 @@ mod query_item_record_and_event_records {
             event_id: Default::default(),
             timestamp: OffsetDateTime::now_utc(),
             payload: ItemEventPayload::Created(ItemCreatedEventPayload {
-                shop_id: expected_materialized.shop_id.clone(),
+                shop_id: expected_materialized.shop_id,
                 shops_item_id: expected_materialized.shops_item_id.clone(),
                 shop_name: expected_materialized.shop_name.clone().into(),
                 native_title: expected_materialized.title_native.clone().into(),
@@ -362,7 +359,7 @@ mod query_item_record_and_event_records {
             event_id: Default::default(),
             timestamp: OffsetDateTime::now_utc(),
             payload: ItemEventPayload::StateAvailable(ItemStateChangeEventPayload {
-                shop_id: expected_materialized.shop_id.clone(),
+                shop_id: expected_materialized.shop_id,
                 shops_item_id: expected_materialized.shops_item_id.clone(),
                 hash: expected_materialized.hash,
             }),
@@ -403,7 +400,7 @@ mod query_item_record_and_event_records {
             event_id: Default::default(),
             timestamp: OffsetDateTime::now_utc(),
             payload: ItemEventPayload::Created(ItemCreatedEventPayload {
-                shop_id: expected_materialized.shop_id.clone(),
+                shop_id: expected_materialized.shop_id,
                 shops_item_id: expected_materialized.shops_item_id.clone(),
                 shop_name: expected_materialized.shop_name.clone().into(),
                 native_title: expected_materialized.title_native.clone().into(),
@@ -425,7 +422,7 @@ mod query_item_record_and_event_records {
             event_id: Default::default(),
             timestamp: OffsetDateTime::now_utc(),
             payload: ItemEventPayload::StateAvailable(ItemStateChangeEventPayload {
-                shop_id: expected_materialized.shop_id.clone(),
+                shop_id: expected_materialized.shop_id,
                 shops_item_id: expected_materialized.shops_item_id.clone(),
                 hash: expected_materialized.hash,
             }),
@@ -507,7 +504,7 @@ mod query_item_hashes {
             gsi_1_sk: format!("updated#{now_str}"),
             item_id: ItemId::new(),
             event_id: EventId::new(),
-            shop_id: shop_id.clone(),
+            shop_id,
             shops_item_id: shops_item_id.clone(),
             shop_name: "Foo".to_string(),
             title_native: TextRecord::new("Bar", LanguageRecord::De),
@@ -571,7 +568,7 @@ mod query_item_hashes {
             gsi_1_sk: format!("updated#{now1_str}"),
             item_id: ItemId::new(),
             event_id: EventId::new(),
-            shop_id: shop_id.clone(),
+            shop_id,
             shops_item_id: shops_item_id_1.clone(),
             shop_name: "Foo".to_string(),
             title_native: TextRecord::new("Bar", LanguageRecord::De),
@@ -607,7 +604,7 @@ mod query_item_hashes {
             gsi_1_sk: format!("updated#{now2_str}"),
             item_id: ItemId::new(),
             event_id: EventId::new(),
-            shop_id: shop_id.clone(),
+            shop_id,
             shops_item_id: shops_item_id_2.clone(),
             shop_name: "Foo".to_string(),
             title_native: TextRecord::new("Bar", LanguageRecord::De),
@@ -683,7 +680,7 @@ mod query_item_hashes {
             gsi_1_sk: format!("updated#{now1_str}"),
             item_id: ItemId::new(),
             event_id: EventId::new(),
-            shop_id: shop_id.clone(),
+            shop_id,
             shops_item_id: shops_item_id_1.clone(),
             shop_name: "Foo".to_string(),
             title_native: TextRecord::new("Bar", LanguageRecord::De),
@@ -719,7 +716,7 @@ mod query_item_hashes {
             gsi_1_sk: format!("updated#{now2_str}"),
             item_id: ItemId::new(),
             event_id: EventId::new(),
-            shop_id: shop_id.clone(),
+            shop_id,
             shops_item_id: shops_item_id_2.clone(),
             shop_name: "Foo".to_string(),
             title_native: TextRecord::new("Bar", LanguageRecord::De),
@@ -792,7 +789,7 @@ mod query_item_hashes {
             gsi_1_sk: format!("updated#{now_str}"),
             item_id: ItemId::new(),
             event_id: EventId::new(),
-            shop_id: shop_id.clone(),
+            shop_id,
             shops_item_id: shops_item_id.clone(),
             shop_name: "Foo".to_string(),
             title_native: TextRecord::new("Bar", LanguageRecord::De),
@@ -855,7 +852,7 @@ mod query_item_hashes {
             gsi_1_sk: format!("updated#{now_str}"),
             item_id: ItemId::new(),
             event_id: EventId::new(),
-            shop_id: shop_id.clone(),
+            shop_id,
             shops_item_id: shops_item_id.clone(),
             shop_name: "Foo".to_string(),
             title_native: TextRecord::new("Bar", LanguageRecord::De),
@@ -887,7 +884,7 @@ mod query_item_hashes {
             item_id: ItemId::new(),
             event_id: EventId::new(),
             event_type: ItemEventTypeRecord::StateListed,
-            shop_id: shop_id.clone(),
+            shop_id,
             shops_item_id: shops_item_id.clone(),
             shop_name: None,
             title_native: Some(TextRecord::new("Bar", LanguageRecord::De)),
@@ -971,16 +968,13 @@ mod batch_get_item_records {
             let now_str = now.format(&well_known::Rfc3339).unwrap();
             let shops_item_id: ShopsItemId = n.to_string().into();
             ItemRecord {
-                pk: format!(
-                    "item#shop_id#{}#shops_item_id#{shops_item_id}",
-                    shop_id.clone()
-                ),
+                pk: format!("item#shop_id#{}#shops_item_id#{shops_item_id}", shop_id),
                 sk: "item#materialized".to_string(),
                 gsi_1_pk: format!("shop_id#{shop_id}"),
                 gsi_1_sk: format!("updated#{now_str}"),
                 item_id: ItemId::new(),
                 event_id: EventId::new(),
-                shop_id: shop_id.clone(),
+                shop_id,
                 shops_item_id: shops_item_id.clone(),
                 shop_name: "Foo".to_string(),
                 title_native: TextRecord::new("Bar", LanguageRecord::De),
@@ -1025,7 +1019,7 @@ mod batch_get_item_records {
             .get_item_records(
                 &Batch::try_from(
                     (1..=100)
-                        .map(|n| ItemKey::new(shop_id.clone(), ShopsItemId::from(n.to_string())))
+                        .map(|n| ItemKey::new(shop_id, ShopsItemId::from(n.to_string())))
                         .collect::<Vec<_>>(),
                 )
                 .unwrap(),
@@ -1052,16 +1046,13 @@ mod batch_get_item_records {
             let now_str = now.format(&well_known::Rfc3339).unwrap();
             let shops_item_id: ShopsItemId = n.to_string().into();
             ItemRecord {
-                pk: format!(
-                    "item#shop_id#{}#shops_item_id#{shops_item_id}",
-                    shop_id.clone()
-                ),
+                pk: format!("item#shop_id#{}#shops_item_id#{shops_item_id}", shop_id),
                 sk: "item#materialized".to_string(),
                 gsi_1_pk: format!("shop_id#{shop_id}"),
                 gsi_1_sk: format!("updated#{now_str}"),
                 item_id: ItemId::new(),
                 event_id: EventId::new(),
-                shop_id: shop_id.clone(),
+                shop_id,
                 shops_item_id: shops_item_id.clone(),
                 shop_name: "Foo".to_string(),
                 title_native: TextRecord::new("Bar", LanguageRecord::De),
@@ -1106,7 +1097,7 @@ mod batch_get_item_records {
             .get_item_records(
                 &Batch::try_from(
                     (1..=14)
-                        .map(|n| ItemKey::new(shop_id.clone(), ShopsItemId::from(n.to_string())))
+                        .map(|n| ItemKey::new(shop_id, ShopsItemId::from(n.to_string())))
                         .collect::<Vec<_>>(),
                 )
                 .unwrap(),
@@ -1133,16 +1124,13 @@ mod batch_get_item_records {
             let now_str = now.format(&well_known::Rfc3339).unwrap();
             let shops_item_id: ShopsItemId = n.to_string().into();
             ItemRecord {
-                pk: format!(
-                    "item#shop_id#{}#shops_item_id#{shops_item_id}",
-                    shop_id.clone()
-                ),
+                pk: format!("item#shop_id#{}#shops_item_id#{shops_item_id}", shop_id),
                 sk: "item#materialized".to_string(),
                 gsi_1_pk: format!("shop_id#{shop_id}"),
                 gsi_1_sk: format!("updated#{now_str}"),
                 item_id: ItemId::new(),
                 event_id: EventId::new(),
-                shop_id: shop_id.clone(),
+                shop_id,
                 shops_item_id: shops_item_id.clone(),
                 shop_name: "Foo".to_string(),
                 title_native: TextRecord::new("Bar", LanguageRecord::De),
@@ -1189,7 +1177,7 @@ mod batch_get_item_records {
             .get_item_records(
                 &Batch::try_from(
                     (1..=100)
-                        .map(|n| ItemKey::new(shop_id.clone(), ShopsItemId::from(n.to_string())))
+                        .map(|n| ItemKey::new(shop_id, ShopsItemId::from(n.to_string())))
                         .collect::<Vec<_>>(),
                 )
                 .unwrap(),
@@ -1239,16 +1227,13 @@ mod batch_exist_item_records {
             let now_str = now.format(&well_known::Rfc3339).unwrap();
             let shops_item_id: ShopsItemId = n.to_string().into();
             ItemRecord {
-                pk: format!(
-                    "item#shop_id#{}#shops_item_id#{shops_item_id}",
-                    shop_id.clone()
-                ),
+                pk: format!("item#shop_id#{}#shops_item_id#{shops_item_id}", shop_id),
                 sk: "item#materialized".to_string(),
                 gsi_1_pk: format!("shop_id#{shop_id}"),
                 gsi_1_sk: format!("updated#{now_str}"),
                 item_id: ItemId::new(),
                 event_id: EventId::new(),
-                shop_id: shop_id.clone(),
+                shop_id,
                 shops_item_id: shops_item_id.clone(),
                 shop_name: "Foo".to_string(),
                 title_native: TextRecord::new("Bar", LanguageRecord::De),
@@ -1293,7 +1278,7 @@ mod batch_exist_item_records {
             .exist_item_records(
                 &Batch::try_from(
                     (1..=100)
-                        .map(|n| ItemKey::new(shop_id.clone(), ShopsItemId::from(n.to_string())))
+                        .map(|n| ItemKey::new(shop_id, ShopsItemId::from(n.to_string())))
                         .collect::<Vec<_>>(),
                 )
                 .unwrap(),
@@ -1318,16 +1303,13 @@ mod batch_exist_item_records {
             let now_str = now.format(&well_known::Rfc3339).unwrap();
             let shops_item_id: ShopsItemId = n.to_string().into();
             ItemRecord {
-                pk: format!(
-                    "item#shop_id#{}#shops_item_id#{shops_item_id}",
-                    shop_id.clone()
-                ),
+                pk: format!("item#shop_id#{}#shops_item_id#{shops_item_id}", shop_id),
                 sk: "item#materialized".to_string(),
                 gsi_1_pk: format!("shop_id#{shop_id}"),
                 gsi_1_sk: format!("updated#{now_str}"),
                 item_id: ItemId::new(),
                 event_id: EventId::new(),
-                shop_id: shop_id.clone(),
+                shop_id,
                 shops_item_id: shops_item_id.clone(),
                 shop_name: "Foo".to_string(),
                 title_native: TextRecord::new("Bar", LanguageRecord::De),
@@ -1372,7 +1354,7 @@ mod batch_exist_item_records {
             .exist_item_records(
                 &Batch::try_from(
                     (1..=14)
-                        .map(|n| ItemKey::new(shop_id.clone(), ShopsItemId::from(n.to_string())))
+                        .map(|n| ItemKey::new(shop_id, ShopsItemId::from(n.to_string())))
                         .collect::<Vec<_>>(),
                 )
                 .unwrap(),
@@ -1397,16 +1379,13 @@ mod batch_exist_item_records {
             let now_str = now.format(&well_known::Rfc3339).unwrap();
             let shops_item_id: ShopsItemId = n.to_string().into();
             ItemRecord {
-                pk: format!(
-                    "item#shop_id#{}#shops_item_id#{shops_item_id}",
-                    shop_id.clone()
-                ),
+                pk: format!("item#shop_id#{}#shops_item_id#{shops_item_id}", shop_id),
                 sk: "item#materialized".to_string(),
                 gsi_1_pk: format!("shop_id#{shop_id}"),
                 gsi_1_sk: format!("updated#{now_str}"),
                 item_id: ItemId::new(),
                 event_id: EventId::new(),
-                shop_id: shop_id.clone(),
+                shop_id,
                 shops_item_id: shops_item_id.clone(),
                 shop_name: "Foo".to_string(),
                 title_native: TextRecord::new("Bar", LanguageRecord::De),
@@ -1453,7 +1432,7 @@ mod batch_exist_item_records {
             .exist_item_records(
                 &Batch::try_from(
                     (1..=100)
-                        .map(|n| ItemKey::new(shop_id.clone(), ShopsItemId::from(n.to_string())))
+                        .map(|n| ItemKey::new(shop_id, ShopsItemId::from(n.to_string())))
                         .collect::<Vec<_>>(),
                 )
                 .unwrap(),

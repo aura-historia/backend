@@ -100,7 +100,7 @@ impl Item {
                 event_id: EventId::new(),
                 timestamp: OffsetDateTime::now_utc(),
                 payload: event_payload_constructor(ItemStateChangeEventPayload {
-                    shop_id: self.shop_id.clone(),
+                    shop_id: self.shop_id,
                     shops_item_id: self.shops_item_id.clone(),
                     hash: self.hash,
                 }),
@@ -120,7 +120,7 @@ impl Item {
         self.hash();
 
         let payload = ItemPriceChangeEventPayload {
-            shop_id: self.shop_id.clone(),
+            shop_id: self.shop_id,
             shops_item_id: self.shops_item_id.clone(),
             native_price: new_price,
             other_price: new_other_price,
@@ -174,7 +174,7 @@ impl HasKey for Item {
 
     fn key(&self) -> Self::Key {
         ItemKey {
-            shop_id: self.shop_id.clone(),
+            shop_id: self.shop_id,
             shops_item_id: self.shops_item_id.clone(),
         }
     }

@@ -159,7 +159,7 @@ mod tests {
     #[rstest::rstest]
     #[case::created(
         LocalizedItemEventPayloadView::Created(LocalizedItemCreatedEventPayloadView {
-            shop_id: "foo".into(),
+            shop_id: "foo".try_into().unwrap(),
             shops_item_id: "bar".into(),
             shop_name: "baz".into(),
             title: Localized::new(common::language::domain::Language::De, "boop".into()),
@@ -174,7 +174,7 @@ mod tests {
             event_type: ItemEventTypeData::Created,
             item_id: Uuid::max().into(),
             event_id: Uuid::max().into(),
-            shop_id: "foo".into(),
+            shop_id: "foo".try_into().unwrap(),
             shops_item_id: "bar".into(),
             payload: ItemEventPayloadData::Created,
             timestamp: utc_datetime!(2025 - 05 - 05 2:22).into(),
@@ -182,7 +182,7 @@ mod tests {
     )]
     #[case::state_listed(
         LocalizedItemEventPayloadView::StateListed(LocalizedItemStateChangeEventPayloadView {
-            shop_id: "foo".into(),
+            shop_id: "foo".try_into().unwrap(),
             shops_item_id: "bar".into(),
             hash: ItemHash::new(&None, &ItemState::Listed),
         }),
@@ -190,7 +190,7 @@ mod tests {
             event_type: ItemEventTypeData::StateListed,
             item_id: Uuid::max().into(),
             event_id: Uuid::max().into(),
-            shop_id: "foo".into(),
+            shop_id: "foo".try_into().unwrap(),
             shops_item_id: "bar".into(),
             payload: ItemEventPayloadData::StateListed(ItemStateData::Listed),
             timestamp: utc_datetime!(2025 - 05 - 05 2:22).into(),
@@ -198,7 +198,7 @@ mod tests {
     )]
     #[case::state_available(
         LocalizedItemEventPayloadView::StateAvailable(LocalizedItemStateChangeEventPayloadView {
-            shop_id: "foo".into(),
+            shop_id: "foo".try_into().unwrap(),
             shops_item_id: "bar".into(),
             hash: ItemHash::new(&None, &ItemState::Available),
         }),
@@ -206,7 +206,7 @@ mod tests {
             event_type: ItemEventTypeData::StateAvailable,
             item_id: Uuid::max().into(),
             event_id: Uuid::max().into(),
-            shop_id: "foo".into(),
+            shop_id: "foo".try_into().unwrap(),
             shops_item_id: "bar".into(),
             payload: ItemEventPayloadData::StateAvailable(ItemStateData::Available),
             timestamp: utc_datetime!(2025 - 05 - 05 2:22).into(),
@@ -214,7 +214,7 @@ mod tests {
     )]
     #[case::state_reserved(
         LocalizedItemEventPayloadView::StateReserved(LocalizedItemStateChangeEventPayloadView {
-            shop_id: "foo".into(),
+            shop_id: "foo".try_into().unwrap(),
             shops_item_id: "bar".into(),
             hash: ItemHash::new(&None, &ItemState::Reserved),
         }),
@@ -222,7 +222,7 @@ mod tests {
             event_type: ItemEventTypeData::StateReserved,
             item_id: Uuid::max().into(),
             event_id: Uuid::max().into(),
-            shop_id: "foo".into(),
+            shop_id: "foo".try_into().unwrap(),
             shops_item_id: "bar".into(),
             payload: ItemEventPayloadData::StateReserved(ItemStateData::Reserved),
             timestamp: utc_datetime!(2025 - 05 - 05 2:22).into(),
@@ -230,7 +230,7 @@ mod tests {
     )]
     #[case::state_sold(
         LocalizedItemEventPayloadView::StateSold(LocalizedItemStateChangeEventPayloadView {
-            shop_id: "foo".into(),
+            shop_id: "foo".try_into().unwrap(),
             shops_item_id: "bar".into(),
             hash: ItemHash::new(&None, &ItemState::Sold),
         }),
@@ -238,7 +238,7 @@ mod tests {
             event_type: ItemEventTypeData::StateSold,
             item_id: Uuid::max().into(),
             event_id: Uuid::max().into(),
-            shop_id: "foo".into(),
+            shop_id: "foo".try_into().unwrap(),
             shops_item_id: "bar".into(),
             payload: ItemEventPayloadData::StateSold(ItemStateData::Sold),
             timestamp: utc_datetime!(2025 - 05 - 05 2:22).into(),
@@ -246,7 +246,7 @@ mod tests {
     )]
     #[case::state_removed(
         LocalizedItemEventPayloadView::StateRemoved(LocalizedItemStateChangeEventPayloadView {
-            shop_id: "foo".into(),
+            shop_id: "foo".try_into().unwrap(),
             shops_item_id: "bar".into(),
             hash: ItemHash::new(&None, &ItemState::Removed),
         }),
@@ -254,7 +254,7 @@ mod tests {
             event_type: ItemEventTypeData::StateRemoved,
             item_id: Uuid::max().into(),
             event_id: Uuid::max().into(),
-            shop_id: "foo".into(),
+            shop_id: "foo".try_into().unwrap(),
             shops_item_id: "bar".into(),
             payload: ItemEventPayloadData::StateRemoved(ItemStateData::Removed),
             timestamp: utc_datetime!(2025 - 05 - 05 2:22).into(),
@@ -262,7 +262,7 @@ mod tests {
     )]
     #[case::price_discovered(
         LocalizedItemEventPayloadView::PriceDiscovered(LocalizedItemPriceChangeEventPayloadView {
-            shop_id: "foo".into(),
+            shop_id: "foo".try_into().unwrap(),
             shops_item_id: "bar".into(),
             price: Price::new(500u64.into(), Currency::Eur),
             hash: ItemHash::new(&Some(Price::new(500u64.into(), Currency::Eur)), &ItemState::Available),
@@ -271,7 +271,7 @@ mod tests {
             event_type: ItemEventTypeData::PriceDiscovered,
             item_id: Uuid::max().into(),
             event_id: Uuid::max().into(),
-            shop_id: "foo".into(),
+            shop_id: "foo".try_into().unwrap(),
             shops_item_id: "bar".into(),
             payload: ItemEventPayloadData::PriceDiscovered(PriceData::new(CurrencyData::Eur, 500u64)),
             timestamp: utc_datetime!(2025 - 05 - 05 2:22).into(),
@@ -279,7 +279,7 @@ mod tests {
     )]
     #[case::price_dropped(
         LocalizedItemEventPayloadView::PriceDropped(LocalizedItemPriceChangeEventPayloadView {
-            shop_id: "foo".into(),
+            shop_id: "foo".try_into().unwrap(),
             shops_item_id: "bar".into(),
             price: Price::new(500u64.into(), Currency::Eur),
             hash: ItemHash::new(&Some(Price::new(500u64.into(), Currency::Eur)), &ItemState::Available),
@@ -288,7 +288,7 @@ mod tests {
             event_type: ItemEventTypeData::PriceDropped,
             item_id: Uuid::max().into(),
             event_id: Uuid::max().into(),
-            shop_id: "foo".into(),
+            shop_id: "foo".try_into().unwrap(),
             shops_item_id: "bar".into(),
             payload: ItemEventPayloadData::PriceDropped(PriceData::new(CurrencyData::Eur, 500u64)),
             timestamp: utc_datetime!(2025 - 05 - 05 2:22).into(),
@@ -296,7 +296,7 @@ mod tests {
     )]
     #[case::price_increased(
         LocalizedItemEventPayloadView::PriceIncreased(LocalizedItemPriceChangeEventPayloadView {
-            shop_id: "foo".into(),
+            shop_id: "foo".try_into().unwrap(),
             shops_item_id: "bar".into(),
             price: Price::new(500u64.into(), Currency::Eur),
             hash: ItemHash::new(&Some(Price::new(500u64.into(), Currency::Eur)), &ItemState::Available),
@@ -305,7 +305,7 @@ mod tests {
             event_type: ItemEventTypeData::PriceIncreased,
             item_id: Uuid::max().into(),
             event_id: Uuid::max().into(),
-            shop_id: "foo".into(),
+            shop_id: "foo".try_into().unwrap(),
             shops_item_id: "bar".into(),
             payload: ItemEventPayloadData::PriceIncreased(PriceData::new(CurrencyData::Eur, 500u64)),
             timestamp: utc_datetime!(2025 - 05 - 05 2:22).into(),

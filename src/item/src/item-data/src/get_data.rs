@@ -55,7 +55,7 @@ impl HasKey for GetItemData {
 
     fn key(&self) -> Self::Key {
         ItemKey {
-            shop_id: self.shop_id.clone(),
+            shop_id: self.shop_id,
             shops_item_id: self.shops_item_id.clone(),
         }
     }
@@ -137,7 +137,7 @@ mod tests {
         let dto = GetItemData {
             item_id,
             event_id,
-            shop_id: shop_id.clone(),
+            shop_id,
             shops_item_id: shops_item_id.clone(),
             shop_name: "My shop".into(),
             title: LocalizedTextData::new("Mein titel", LanguageData::De),
@@ -156,7 +156,7 @@ mod tests {
                     event_type: ItemEventTypeData::StateAvailable,
                     item_id,
                     event_id,
-                    shop_id: shop_id.clone(),
+                    shop_id,
                     shops_item_id: shops_item_id.clone(),
                     payload: ItemEventPayloadData::StateAvailable(ItemStateData::Available),
                     timestamp: utc_datetime!(2025 - 05 - 05 0:00).into(),
@@ -165,7 +165,7 @@ mod tests {
                     event_type: ItemEventTypeData::PriceDropped,
                     item_id,
                     event_id,
-                    shop_id: shop_id.clone(),
+                    shop_id,
                     shops_item_id: shops_item_id.clone(),
                     payload: ItemEventPayloadData::PriceDropped(PriceData::new(
                         CurrencyData::Eur,

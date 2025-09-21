@@ -38,7 +38,7 @@ impl HasKey for PutItemData {
 
     fn key(&self) -> Self::Key {
         ItemKey {
-            shop_id: self.shop_id.clone(),
+            shop_id: self.shop_id,
             shops_item_id: self.shops_item_id.clone(),
         }
     }
@@ -122,7 +122,7 @@ mod tests {
         });
 
         let expected = PutItemData {
-            shop_id: shop_id.clone(),
+            shop_id,
             shops_item_id: shops_item_id.clone(),
             shop_name: "My shop".into(),
             title: LocalizedTextData::new("Mein titel", LanguageData::De),

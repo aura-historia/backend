@@ -66,6 +66,7 @@ jobs:
           - src/search-filter
           - src/aws-tests
           - src/item
+          - src/shop
           - src/test-api
     steps:
       - uses: actions/checkout@v5

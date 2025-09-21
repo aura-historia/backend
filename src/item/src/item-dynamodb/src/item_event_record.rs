@@ -111,7 +111,7 @@ impl HasKey for ItemEventRecord {
 
     fn key(&self) -> ItemKey {
         ItemKey {
-            shop_id: self.shop_id.clone(),
+            shop_id: self.shop_id,
             shops_item_id: self.shops_item_id.clone(),
         }
     }
@@ -120,14 +120,13 @@ impl HasKey for ItemEventRecord {
 impl TryFrom<ItemEvent> for ItemEventRecord {
     type Error = error::Format;
     fn try_from(domain: ItemEvent) -> Result<Self, Self::Error> {
-        let shop_id = domain.payload.shop_id();
+        let shop_id = *domain.payload.shop_id();
         let shops_item_id = domain.payload.shops_item_id();
         let pk = format!("item#shop_id#{shop_id}#shops_item_id#{shops_item_id}");
         let sk = format!("item#event#{}", domain.timestamp.format(&Rfc3339)?);
         let item_id = domain.aggregate_id;
         let event_id = domain.event_id;
         let event_type: ItemEventTypeRecord = (&domain.payload).into();
-        let shop_id = shop_id.clone();
         let shops_item_id = shops_item_id.clone();
 
         match domain.payload {

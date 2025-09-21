@@ -71,7 +71,7 @@ async fn should_respond_200_with_history() {
         event_id: event_1_id,
         timestamp: SystemTime::now().into(),
         payload: ItemEventPayload::PriceDropped(ItemPriceChangeEventPayload {
-            shop_id: record.shop_id.clone(),
+            shop_id: record.shop_id,
             shops_item_id: record.shops_item_id.clone(),
             native_price: event_1_price,
             other_price: FixedFxRate()
@@ -86,7 +86,7 @@ async fn should_respond_200_with_history() {
         event_id: event_2_id,
         timestamp: SystemTime::now().into(),
         payload: ItemEventPayload::StateRemoved(ItemStateChangeEventPayload {
-            shop_id: record.shop_id.clone(),
+            shop_id: record.shop_id,
             shops_item_id: record.shops_item_id.clone(),
             hash: ItemHash::new(&Some(event_1_price), &ItemState::Removed),
         }),

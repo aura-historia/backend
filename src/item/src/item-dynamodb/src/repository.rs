@@ -471,7 +471,7 @@ fn extract_item_key(map: HashMap<String, AttributeValue>) -> Result<ItemKey, Str
                 .split_once("#shops_item_id#")
             {
                 Ok(ItemKey {
-                    shop_id: shop_id.into(),
+                    shop_id: shop_id.try_into().unwrap(),
                     shops_item_id: shops_item_id.into(),
                 })
             } else {
@@ -509,7 +509,7 @@ mod tests {
             )),
         )]);
         let expected = ItemKey {
-            shop_id: shop_id.into(),
+            shop_id: shop_id.try_into().unwrap(),
             shops_item_id: shops_item_id.into(),
         };
 
