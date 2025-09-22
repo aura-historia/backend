@@ -2,8 +2,10 @@
 # script to be called from repository root dir
 set -euo pipefail
 
-INDEX_NAME="items"
-MAPPING_FILE="opensearch/mappings/items.json"
+ITEMS_INDEX_NAME="items"
+ITEMS_MAPPING_FILE="opensearch/mappings/items.json"
+SHOPS_INDEX_NAME="shops"
+SHOPS_MAPPING_FILE="opensearch/mappings/shops.json"
 
 # Resolve OpenSearch domain name + endpoint from CloudFormation Outputs
 DOMAIN_NAME=$(aws cloudformation describe-stacks \
@@ -13,7 +15,7 @@ DOMAIN_NAME=$(aws cloudformation describe-stacks \
 
 RAW_ENDPOINT=$(aws cloudformation describe-stacks \
   --stack-name "$STACK_NAME" \
-  --query "Stacks[0].Outputs[?OutputKey=='OpensearchItemDomainEndpointUrl'].OutputValue" \
+  --query "Stacks[0].Outputs[?OutputKey=='OpensearchDomainEndpointUrl'].OutputValue" \
   --output text)
 
 if [ -z "$DOMAIN_NAME" ]; then
@@ -51,18 +53,23 @@ echo -e "\n es" | opensearch-cli profile create --name "ci" \
   --endpoint "$RAW_ENDPOINT" \
   --auth-type "aws-iam"
 
-# Create index
-echo "📦 Creating index with mapping from $MAPPING_FILE..."
+# Create indices
+echo "📦 Creating index $ITEMS_INDEX_NAME with mapping from $ITEMS_MAPPING_FILE..."
 opensearch-cli curl put \
-  --path "$INDEX_NAME" \
-  --data "@$MAPPING_FILE" \
+  --path "$ITEMS_INDEX_NAME" \
+  --data "@$ITEMS_MAPPING_FILE" \
+  --profile ci
+echo "📦 Creating index SHOPS_INDEX_NAME with mapping from $SHOPS_MAPPING_FILE..."
+opensearch-cli curl put \
+  --path "$SHOPS_INDEX_NAME" \
+  --data "@$SHOPS_MAPPING_FILE" \
   --profile ci
 
 # Configure refresh-interval for index
 if [ "$STAGE" = "prod" ]; then
-    echo "Configuring refresh-interval for index $INDEX_NAME..."
+    echo "Configuring refresh-interval for index $ITEMS_INDEX_NAME..."
     opensearch-cli curl put \
-      --path "$INDEX_NAME/_settings" \
+      --path "$ITEMS_INDEX_NAME/_settings" \
       --data '{
         "index": {
           "refresh_interval": "5m"
