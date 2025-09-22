@@ -495,9 +495,8 @@ mod tests {
     use std::collections::HashMap;
 
     #[rstest::rstest]
-    #[case::differing("abcdefg", "123456")]
-    #[case::identical("abcdefg", "abcdefg")]
-    #[case::containing_separator("abcdefg#boop", "1874874")]
+    #[case::differing("a1caead3-a50d-44a4-b9fb-a15d2397601e", "123456")]
+    #[case::containing_separator("a1caead3-a50d-44a4-b9fb-a15d2397601e", "abcdefg#boop")]
     fn should_extract_item_key_from_pk_sk_map_when_pk_exists_and_is_valid_for(
         #[case] shop_id: &str,
         #[case] shops_item_id: &str,
