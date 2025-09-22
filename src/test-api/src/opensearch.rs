@@ -91,8 +91,12 @@ impl IntegrationTestService for OpenSearch {
         // Clear all documents from the items index to ensure test isolation
         clear_index_data("items")
             .await
-            .expect("shouldn't fail clearing OpenSearch index data");
+            .expect("shouldn't fail clearing OpenSearch index data from 'items'");
         refresh_index("items").await;
+        clear_index_data("shops")
+            .await
+            .expect("shouldn't fail clearing OpenSearch index data from 'shops'");
+        refresh_index("shops").await;
         debug!("Cleared OpenSearch index data for test isolation");
     }
 }
@@ -180,9 +184,15 @@ static ITEMS_INDEX_MAPPING_STR: &str = include_str!(concat!(
     "opensearch/mappings/items.json"
 ));
 
+static SHOPS_INDEX_MAPPING_STR: &str = include_str!(concat!(
+    env!("CARGO_WORKSPACE_DIR"),
+    "opensearch/mappings/shops.json"
+));
+
 async fn set_up_indices() -> Result<Response, Error> {
     let client = get_opensearch_client().await;
 
+    // Index 'items'
     let exists_response = client
         .indices()
         .exists(IndicesExistsParts::Index(&["items"]))
@@ -204,6 +214,32 @@ async fn set_up_indices() -> Result<Response, Error> {
         .body(
             serde_json::from_str::<serde_json::Value>(ITEMS_INDEX_MAPPING_STR)
                 .expect("shouldn't fail parsing ITEMS_INDEX_MAPPING_STR as serde_json::Value"),
+        )
+        .send()
+        .await?;
+
+    // Index 'shops'
+    let exists_response = client
+        .indices()
+        .exists(IndicesExistsParts::Index(&["shops"]))
+        .send()
+        .await?;
+
+    if exists_response.status_code().is_success() {
+        debug!("OpenSearch index 'shops' already exists, skipping creation");
+        // Return a mock response since index exists
+        return Ok(exists_response);
+    }
+
+    debug!("OpenSearch index 'shops' does not exist, creating it");
+
+    get_opensearch_client()
+        .await
+        .indices()
+        .create(opensearch::indices::IndicesCreateParts::Index("shops"))
+        .body(
+            serde_json::from_str::<serde_json::Value>(SHOPS_INDEX_MAPPING_STR)
+                .expect("shouldn't fail parsing SHOPS_INDEX_MAPPING_STR as serde_json::Value"),
         )
         .send()
         .await

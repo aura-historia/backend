@@ -1,20 +1,22 @@
+use crate::{shop_document::ShopDocument, shop_search::ShopSearch};
 use common::{
-    opensearch::search_response::SearchResponse,
+    opensearch::{index_response::IndexResponse, search_response::SearchResponse},
     page::Page,
     sort::{Sort, SortOrder},
 };
-use opensearch::SearchParts;
+use opensearch::{IndexParts, SearchParts};
 use serde::ser::Error;
 use serde_json::json;
 use shop_core::sort_shop_field::SortShopField;
 use time::format_description::well_known;
 
-use crate::{shop_document::ShopDocument, shop_search::ShopSearch};
-
 #[async_trait::async_trait]
 #[mockall::automock]
 pub trait ShopOpenSearchRepository {
-    async fn create_shop_document(&self, document: ShopDocument) -> Result<(), opensearch::Error>;
+    async fn create_shop_document(
+        &self,
+        document: ShopDocument,
+    ) -> Result<IndexResponse, opensearch::Error>;
 
     async fn search_shop_documents(
         &self,
@@ -37,8 +39,26 @@ impl<'a> ShopOpenSearchRepositoryImpl<'a> {
 
 #[async_trait::async_trait]
 impl<'a> ShopOpenSearchRepository for ShopOpenSearchRepositoryImpl<'a> {
-    async fn create_shop_document(&self, document: ShopDocument) -> Result<(), opensearch::Error> {
-        todo!()
+    async fn create_shop_document(
+        &self,
+        document: ShopDocument,
+    ) -> Result<IndexResponse, opensearch::Error> {
+        let response = self
+            .client
+            .index(IndexParts::IndexId("shops", &document._id().to_string()))
+            .body(document)
+            .send()
+            .await?;
+
+        let payload = response.text().await?;
+        let index_response = serde_json::from_str::<IndexResponse>(&payload)
+            .map_err(|err| {
+                serde_json::Error::custom(format!(
+                    "Failed deserializing 'IndexResponse' with error '{err}'. Received payload: {payload}"
+                ))
+            })?;
+
+        Ok(index_response)
     }
 
     async fn search_shop_documents(
