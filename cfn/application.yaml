@@ -653,7 +653,7 @@ Resources:
       Role: !GetAtt BlitzfilterApiShopSearchRole.Arn
       Code:
         S3Bucket: !Ref ArtifactBucket
-        S3Key: !Sub "shop-api-shop-search-${StageName}-${CommitSHA}.zip"
+        S3Key: !Sub "shop-api-search-${StageName}-${CommitSHA}.zip"
       MemorySize: 512
       Timeout: 10
       EphemeralStorage:
