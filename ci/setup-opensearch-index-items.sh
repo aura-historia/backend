@@ -19,28 +19,28 @@ RAW_ENDPOINT=$(aws cloudformation describe-stacks \
   --output text)
 
 if [ -z "$DOMAIN_NAME" ]; then
-  echo "❌ Could not resolve OpenSearch domain-name from stack: $STACK_NAME"
+  echo "❌ Could not resolve OpenSearch domain-name from stack: '$STACK_NAME'"
   exit 1
 fi
 
 if [ -z "$RAW_ENDPOINT" ]; then
-  echo "❌ Could not resolve OpenSearch endpoint from stack: $STACK_NAME"
+  echo "❌ Could not resolve OpenSearch endpoint from stack: '$STACK_NAME'"
   exit 1
 fi
 
 # Strip protocol if included
 ENDPOINT=${RAW_ENDPOINT#https://}
-echo "✅ Using OpenSearch endpoint: $ENDPOINT"
+echo "✅ Using OpenSearch endpoint: '$ENDPOINT'"
 
 # Wait until the domain is ACTIVE
-echo "⏳ Waiting for OpenSearch domain $DOMAIN_NAME to become ACTIVE..."
+echo "⏳ Waiting for OpenSearch domain '$DOMAIN_NAME' to become ACTIVE..."
 
 while true; do
   PROCESSING=$(aws opensearch describe-domain --domain-name "$DOMAIN_NAME" \
     --query "DomainStatus.Processing" --output text)
 
   if [ "$PROCESSING" == "False" ]; then
-    echo "✅ Domain $DOMAIN_NAME is ACTIVE."
+    echo "✅ Domain '$DOMAIN_NAME' is ACTIVE."
     break
   else
     echo "⏳ Domain still processing... waiting 15s"
@@ -54,12 +54,12 @@ echo -e "\n es" | opensearch-cli profile create --name "ci" \
   --auth-type "aws-iam"
 
 # Create indices
-echo "📦 Creating index $ITEMS_INDEX_NAME with mapping from $ITEMS_MAPPING_FILE..."
+echo "📦 Creating index '$ITEMS_INDEX_NAME' with mapping from '$ITEMS_MAPPING_FILE'..."
 opensearch-cli curl put \
   --path "$ITEMS_INDEX_NAME" \
   --data "@$ITEMS_MAPPING_FILE" \
   --profile ci
-echo "📦 Creating index SHOPS_INDEX_NAME with mapping from $SHOPS_MAPPING_FILE..."
+echo "📦 Creating index '$SHOPS_INDEX_NAME' with mapping from '$SHOPS_MAPPING_FILE'..."
 opensearch-cli curl put \
   --path "$SHOPS_INDEX_NAME" \
   --data "@$SHOPS_MAPPING_FILE" \
@@ -67,7 +67,7 @@ opensearch-cli curl put \
 
 # Configure refresh-interval for index
 if [ "$STAGE" = "prod" ]; then
-    echo "Configuring refresh-interval for index $ITEMS_INDEX_NAME..."
+    echo "Configuring refresh-interval for index '$ITEMS_INDEX_NAME'..."
     opensearch-cli curl put \
       --path "$ITEMS_INDEX_NAME/_settings" \
       --data '{
