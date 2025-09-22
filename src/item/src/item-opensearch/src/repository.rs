@@ -61,13 +61,22 @@ impl<'a> ItemOpenSearchRepository for ItemOpenSearchRepositoryImpl<'a> {
             ops.push(BulkOperation::create(doc._id(), &doc))?;
         }
 
-        self.client
+        let response = self
+            .client
             .bulk(BulkParts::Index("items"))
             .body(vec![ops])
             .send()
-            .await?
-            .json::<BulkResponse>()
-            .await
+            .await?;
+
+        let payload = response.text().await?;
+        let bulk_response = serde_json::from_str::<BulkResponse>(&payload)
+            .map_err(|err| {
+                serde_json::Error::custom(format!(
+                    "Failed deserializing 'BulkResponse' with error '{err}'. Received payload: {payload}"
+                ))
+            })?;
+
+        Ok(bulk_response)
     }
 
     async fn update_item_documents(
@@ -84,13 +93,22 @@ impl<'a> ItemOpenSearchRepository for ItemOpenSearchRepositoryImpl<'a> {
             ))?;
         }
 
-        self.client
+        let response = self
+            .client
             .bulk(BulkParts::Index("items"))
             .body(vec![ops])
             .send()
-            .await?
-            .json::<BulkResponse>()
-            .await
+            .await?;
+
+        let payload = response.text().await?;
+        let bulk_response = serde_json::from_str::<BulkResponse>(&payload)
+            .map_err(|err| {
+                serde_json::Error::custom(format!(
+                    "Failed deserializing 'BulkResponse' with error '{err}'. Received payload: {payload}"
+                ))
+            })?;
+
+        Ok(bulk_response)
     }
 
     async fn search_item_documents(
