@@ -586,7 +586,7 @@ Resources:
       FunctionName: !Sub "blitzfilter-api-get-shop-${StageName}"
       Runtime: provided.al2023
       Handler: lib.handler
-      Role: !GetAtt BlitzfilterApiGetsShopRole.Arn
+      Role: !GetAtt BlitzfilterApiGetShopRole.Arn
       Code:
         S3Bucket: !Ref ArtifactBucket
         S3Key: !Sub "item-api-get-shop-${StageName}-${CommitSHA}.zip"
