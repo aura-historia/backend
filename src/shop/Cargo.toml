@@ -7,3 +7,4 @@ edition = "2024"
 shop-core = { workspace = true }
 shop-dynamodb = { workspace = true }
 shop-opensearch = { workspace = true }
+shop-service = { workspace = true }

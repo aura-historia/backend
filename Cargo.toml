@@ -52,6 +52,7 @@ shop = { path = "src/shop" }
 shop-core = { path = "src/shop/src/shop-core" }
 shop-dynamodb = { path = "src/shop/src/shop-dynamodb" }
 shop-opensearch = { path = "src/shop/src/shop-opensearch" }
+shop-service = { path = "src/shop/src/shop-service" }
 futures = { version = "0.3.31", default-features = false }
 hex = "0.4.3"
 http = "1.3.1"
