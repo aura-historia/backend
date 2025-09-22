@@ -348,6 +348,7 @@ jobs:
           aws cloudformation deploy \
             --stack-name ${{ env.STACK_NAME }} \
             --template-file cfn/application.yaml \
+            --s3-bucket \
             --capabilities CAPABILITY_NAMED_IAM \
             --parameter-overrides \
                 Stage=${{ env.STAGE }} \
