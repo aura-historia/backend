@@ -5,6 +5,7 @@ use common::{
     event_id::EventId,
     item_state::domain::ItemState,
     price::domain::{FixedFxRate, FxRate, Price},
+    shop_id::ShopId,
 };
 use fake::{Fake, Faker};
 use item_core::{
@@ -136,8 +137,9 @@ async fn should_respond_200_with_history() {
 #[staging_test]
 async fn should_respond_404_when_item_does_not_exist() {
     let response = reqwest::get(format!(
-        "{}/api/v1/items/foo/bar",
-        get_cfn_output().api_gateway_endpoint_url
+        "{}/api/v1/items/{}/bar",
+        get_cfn_output().api_gateway_endpoint_url,
+        ShopId::new()
     ))
     .await
     .unwrap();
