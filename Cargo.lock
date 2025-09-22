@@ -4091,6 +4091,9 @@ dependencies = [
  "reqwest",
  "serde",
  "serde_json",
+ "shop-core",
+ "shop-dynamodb",
+ "shop-opensearch",
  "staging-tests",
  "tokio",
 ]

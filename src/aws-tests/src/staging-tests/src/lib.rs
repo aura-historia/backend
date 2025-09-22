@@ -148,6 +148,9 @@ pub async fn reset() {
     clear_os_index_data("items")
         .await
         .expect("shouldn't fail clearing os-index 'items'");
+    clear_os_index_data("shops")
+        .await
+        .expect("shouldn't fail clearing os-index 'items'");
     clear_qs(vec![
         cfn_output.item_ingest_events_dynamodb_queue_url,
         cfn_output.item_ingest_events_dynamodb_dead_letter_queue_url,
