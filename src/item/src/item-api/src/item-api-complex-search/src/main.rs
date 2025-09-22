@@ -23,9 +23,9 @@ async fn main() -> Result<(), Error> {
         .load()
         .await;
 
-    let item_domain_endpoint = env::var("OPENSEARCH_ITEMS_DOMAIN_ENDPOINT_URL")?;
-    let item_domain_endpoint_url = Url::parse(&item_domain_endpoint)?;
-    let transport = TransportBuilder::new(SingleNodeConnectionPool::new(item_domain_endpoint_url))
+    let domain_endpoint = env::var("OPENSEARCH_DOMAIN_ENDPOINT_URL")?;
+    let domain_endpoint_url = Url::parse(&domain_endpoint)?;
+    let transport = TransportBuilder::new(SingleNodeConnectionPool::new(domain_endpoint_url))
         .auth(aws_config.try_into()?)
         .service_name("es")
         .build()?;
@@ -34,7 +34,7 @@ async fn main() -> Result<(), Error> {
     let service = QueryItemServiceImpl::new(&repository);
 
     info!(
-        domainEndpointUrl = %item_domain_endpoint,
+        domainEndpointUrl = %domain_endpoint,
         "Lambda cold start completed, client initialized."
     );
 

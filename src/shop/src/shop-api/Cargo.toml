@@ -1,0 +1,8 @@
+[package]
+name = "shop-api"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+shop-api-get-shop = { workspace = true }
+shop-api-search = { workspace = true }

@@ -1,0 +1,23 @@
+[package]
+name = "shop-data"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+common = { workspace = true, features = ["api"] }
+shop-core = { workspace = true }
+serde = { workspace = true }
+url = { workspace = true }
+time = { workspace = true }
+
+# Optional
+fake = { workspace = true, optional = true }
+
+[dev-dependencies]
+shop-data = { workspace = true, features = ["test-data"] }
+serde_json = { workspace = true }
+rstest = { workspace = true }
+
+[features]
+default = []
+test-data = ["fake", "common/test-data", "shop-core/test-data"]

@@ -49,6 +49,10 @@ search-filter-data = { path = "src/search-filter/src/search-filter-data" }
 search-filter-dynamodb = { path = "src/search-filter/src/search-filter-dynamodb" }
 search-filter-service = { path = "src/search-filter/src/search-filter-service" }
 shop = { path = "src/shop" }
+shop-api = { path = "src/shop/src/shop-api" }
+shop-data = { path = "src/shop/src/shop-data" }
+shop-api-get-shop = { path = "src/shop/src/shop-api/src/shop-api-get-shop" }
+shop-api-search = { path = "src/shop/src/shop-api/src/shop-api-search" }
 shop-core = { path = "src/shop/src/shop-core" }
 shop-dynamodb = { path = "src/shop/src/shop-dynamodb" }
 shop-opensearch = { path = "src/shop/src/shop-opensearch" }

@@ -4,7 +4,9 @@ version = "0.1.0"
 edition = "2024"
 
 [dependencies]
+shop-api = { workspace = true }
 shop-core = { workspace = true }
+shop-data = { workspace = true }
 shop-dynamodb = { workspace = true }
 shop-opensearch = { workspace = true }
 shop-service = { workspace = true }

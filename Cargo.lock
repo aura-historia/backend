@@ -3847,10 +3847,70 @@ checksum = "0fda2ff0d084019ba4d7c6f371c95d8fd75ce3524c3cb8fb653a3023f6323e64"
 name = "shop"
 version = "0.1.0"
 dependencies = [
+ "shop-api",
  "shop-core",
+ "shop-data",
  "shop-dynamodb",
  "shop-opensearch",
  "shop-service",
+]
+
+[[package]]
+name = "shop-api"
+version = "0.1.0"
+dependencies = [
+ "shop-api-get-shop",
+ "shop-api-search",
+]
+
+[[package]]
+name = "shop-api-get-shop"
+version = "0.1.0"
+dependencies = [
+ "aws-config",
+ "aws-sdk-dynamodb",
+ "aws_lambda_events",
+ "common",
+ "fake",
+ "http 1.3.1",
+ "lambda_runtime",
+ "rstest",
+ "serde_json",
+ "serial_test",
+ "shop-core",
+ "shop-data",
+ "shop-dynamodb",
+ "shop-service",
+ "test-api",
+ "time",
+ "tokio",
+ "tracing",
+ "tracing-subscriber",
+ "url",
+]
+
+[[package]]
+name = "shop-api-search"
+version = "0.1.0"
+dependencies = [
+ "aws-config",
+ "aws_lambda_events",
+ "common",
+ "fake",
+ "http 1.3.1",
+ "lambda_runtime",
+ "opensearch",
+ "rstest",
+ "serde_json",
+ "serial_test",
+ "shop-core",
+ "shop-data",
+ "shop-opensearch",
+ "shop-service",
+ "test-api",
+ "tokio",
+ "tracing",
+ "tracing-subscriber",
 ]
 
 [[package]]
@@ -3860,6 +3920,21 @@ dependencies = [
  "common",
  "fake",
  "shop-core",
+ "time",
+ "url",
+]
+
+[[package]]
+name = "shop-data"
+version = "0.1.0"
+dependencies = [
+ "common",
+ "fake",
+ "rstest",
+ "serde",
+ "serde_json",
+ "shop-core",
+ "shop-data",
  "time",
  "url",
 ]

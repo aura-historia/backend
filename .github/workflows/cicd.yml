@@ -262,6 +262,8 @@ jobs:
           - src/item/src/item-lambda/src/item-lambda-materialize-dynamodb-update
           - src/item/src/item-lambda/src/item-lambda-materialize-opensearch-new
           - src/item/src/item-lambda/src/item-lambda-materialize-opensearch-update
+          - src/shop/src/shop-api/src/shop-api-search
+          - src/shop/src/shop-api/src/shop-api-get-shop
     steps:
       - uses: actions/checkout@v5
 

@@ -1,12 +1,12 @@
 use aws_config::BehaviorVersion;
 use aws_lambda_events::apigw::ApiGatewayV2httpRequest;
-use item_api_simple_search::handler;
-use item_opensearch::repository::ItemOpenSearchRepositoryImpl;
-use item_service::query_service::QueryItemServiceImpl;
 use lambda_runtime::tracing::info;
 use lambda_runtime::{Error, LambdaEvent, run, service_fn};
 use opensearch::http::Url;
 use opensearch::http::transport::{SingleNodeConnectionPool, TransportBuilder};
+use shop_api_search::handler;
+use shop_opensearch::repository::ShopOpenSearchRepositoryImpl;
+use shop_service::query_service::QueryShopServiceImpl;
 use std::env;
 
 #[tokio::main]
@@ -30,8 +30,8 @@ async fn main() -> Result<(), Error> {
         .service_name("es")
         .build()?;
     let client = opensearch::OpenSearch::new(transport);
-    let repository = ItemOpenSearchRepositoryImpl::new(&client);
-    let service = QueryItemServiceImpl::new(&repository);
+    let repository = ShopOpenSearchRepositoryImpl::new(&client);
+    let service = QueryShopServiceImpl::new(&repository);
 
     info!(
         domainEndpointUrl = %domain_endpoint,
