@@ -1,4 +1,5 @@
 use aws_tests_common::get_cfn_output;
+use common::query::range_query::RangeQuery;
 use common::{
     currency::data::CurrencyData, event_id::EventId, item_id::ItemId, language::data::LanguageData,
     shop_id::ShopId, shops_item_id::ShopsItemId,
@@ -11,7 +12,6 @@ use item_opensearch::{
     repository::{ItemOpenSearchRepository, ItemOpenSearchRepositoryImpl},
 };
 use opensearch::{IndexParts, params::Refresh};
-use common::query::range_query::RangeQuery;
 use search_filter_data::search_filter_data::SearchFilterData;
 use staging_tests::{get_opensearch_client, staging_test};
 use std::{

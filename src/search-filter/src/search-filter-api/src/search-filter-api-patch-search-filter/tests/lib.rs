@@ -1,7 +1,7 @@
+use common::query::range_query::RangeQuery;
 use common::user_id::UserId;
 use fake::{Fake, Faker};
 use lambda_runtime::LambdaEvent;
-use common::query::range_query::RangeQuery;
 use search_filter_api_patch_search_filter::{
     handler, search_filter_data_patch::SearchFilterDataPatch,
 };

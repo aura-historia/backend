@@ -1,3 +1,6 @@
+use common::query::any_of_query::AnyOfQuery;
+use common::query::range_query::RangeQuery;
+use common::query::text_query::TextQuery;
 use common::{
     currency::{domain::Currency, record::CurrencyRecord},
     item_state::domain::ItemState,
@@ -7,9 +10,6 @@ use common::{
 use item_dynamodb::item_state_record::ItemStateRecord;
 use search_filter_dynamodb::search_filter_record_update::SearchFilterRecordUpdate;
 use time::OffsetDateTime;
-use common::query::any_of_query::AnyOfQuery;
-use common::query::range_query::RangeQuery;
-use common::query::text_query::TextQuery;
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct SearchFilterUpdate {

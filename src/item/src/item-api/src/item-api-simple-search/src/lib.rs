@@ -1,4 +1,5 @@
 use aws_lambda_events::apigw::{ApiGatewayV2httpRequest, ApiGatewayV2httpResponse};
+use common::query::text_query::{TextQuery, TextQueryTooShortError};
 use common::{
     api::{
         api_gateway_v2_http_response_builder::ApiGatewayV2HttpResponseBuilder,
@@ -8,14 +9,13 @@ use common::{
     },
     currency::{data::api::extract_currency_query, domain::Currency},
     language::{data::api::extract_language_query, domain::Language},
-    page::{api::extract_page_query, Page},
+    page::{Page, api::extract_page_query},
     sort::api::extract_sort_query,
 };
 use item_core::sort_item_field::SortItemField;
 use item_data::{get_data::GetItemData, sort_item_field_data::SortItemFieldData};
 use item_service::query_service::QueryItemService;
 use lambda_runtime::LambdaEvent;
-use common::query::text_query::{TextQuery, TextQueryTooShortError};
 use search_filter_core::search_filter::SearchFilter;
 
 #[tracing::instrument(

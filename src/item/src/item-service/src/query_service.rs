@@ -164,6 +164,8 @@ mod tests {
     use std::collections::HashSet;
 
     use crate::query_service::{QueryItemService, QueryItemServiceImpl};
+    use common::query::any_of_query::AnyOfQuery;
+    use common::query::range_query::RangeQuery;
     use common::{
         currency::domain::Currency,
         item_state::domain::ItemState,
@@ -179,8 +181,6 @@ mod tests {
     use search_filter_core::search_filter::SearchFilter;
     use serde::ser::Error;
     use time::macros::datetime;
-    use common::query::any_of_query::AnyOfQuery;
-    use common::query::range_query::RangeQuery;
 
     fn mk_search_response(item_documents: Vec<ItemDocument>) -> SearchResponse<ItemDocument> {
         SearchResponse {
