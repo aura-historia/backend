@@ -50,7 +50,7 @@ pub async fn handle(
         .body
         .filter(|str| !str.is_empty())
         .ok_or_else(|| {
-            ApiError::bad_request(BAD_BODY_VALUE).with_message("Body cannot be empty")
+            ApiError::bad_request(BAD_BODY_VALUE).with_message("Body cannot be empty. If you want to search without any restrictions, supply the body '{}'.")
         })?;
     let search_data: ShopSearchData = serde_json::from_str(&body)
         .map_err(|err| ApiError::bad_request(BAD_BODY_VALUE).with_message(err.to_string()))?;
@@ -166,5 +166,29 @@ mod tests {
         assert_eq!(0, json["pagination"]["from"]);
         assert_eq!(21, json["pagination"]["size"]);
         assert_eq!(789, json["pagination"]["total"]);
+    }
+
+    #[tokio::test]
+    async fn should_allow_empty_shop_search() {
+        let lambda_event = LambdaEvent {
+            payload: ApiGatewayV2httpRequestProxy::builder()
+                .http_method(http::Method::POST)
+                .body_serde(&ShopSearchData::default())
+                .build(),
+            context: Default::default(),
+        };
+
+        let mut service = MockQueryShopService::default();
+        service.expect_search_shops().return_once(|_, _, page| {
+            let count = page.map(|page| page.size).unwrap() as usize;
+            let search_result = SearchResult {
+                hits: fake::vec![Shop; count],
+                total: 789,
+            };
+            Box::pin(async move { Ok(search_result) })
+        });
+        let response = handler(lambda_event, &service).await.unwrap();
+
+        assert_eq!(200, response.status_code);
     }
 }

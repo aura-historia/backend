@@ -144,7 +144,7 @@ mod tests {
     #[rstest::rstest]
     #[case(
         ShopSearch {
-            shop_name_query: "Woaaaah Co. Ltd.".try_into().unwrap(),
+            shop_name_query: Some("Woaaaah Co. Ltd.".try_into().unwrap()),
             created: Some(RangeQuery { min: Some(datetime!(2000 - 01 - 01 0:00 UTC)), max: Some(datetime!(3000 - 01 - 01 0:00 UTC)) }),
             updated: Some(RangeQuery { min: Some(datetime!(1000 - 01 - 01 0:00 UTC)), max: Some(datetime!(4000 - 01 - 01 0:00 UTC)) })
         },
@@ -154,7 +154,7 @@ mod tests {
     )]
     #[case(
         ShopSearch {
-            shop_name_query: "Woaaaah Co. Ltd.".try_into().unwrap(),
+            shop_name_query: Some("Woaaaah Co. Ltd.".try_into().unwrap()),
             created: Some(RangeQuery { min: Some(datetime!(2000 - 01 - 01 0:00 UTC)), max: Some(datetime!(3000 - 01 - 01 0:00 UTC)) }),
             updated: None
         },
@@ -164,7 +164,7 @@ mod tests {
     )]
     #[case(
         ShopSearch {
-            shop_name_query: "Woaaaah Co. Ltd.".try_into().unwrap(),
+            shop_name_query: Some("Woaaaah Co. Ltd.".try_into().unwrap()),
             created: None,
             updated: Some(RangeQuery { min: Some(datetime!(1000 - 01 - 01 0:00 UTC)), max: Some(datetime!(4000 - 01 - 01 0:00 UTC)) })
         },
@@ -174,13 +174,20 @@ mod tests {
     )]
     #[case(
         ShopSearch {
-            shop_name_query: "Woaaaah Co. Ltd.".try_into().unwrap(),
+            shop_name_query: Some("Woaaaah Co. Ltd.".try_into().unwrap()),
             created: None,
             updated: None
         },
         None,
         None,
         123
+    )]
+    #[case(Default::default(), None, None, 222)]
+    #[case(
+        Default::default(),
+        Some(Sort { sort: SortShopField::Updated, order: SortOrder::Desc }),
+        Some(Page { from: 3, size: 5 }),
+        222
     )]
     async fn should_search_shops(
         #[case] search: ShopSearch,
@@ -219,7 +226,7 @@ mod tests {
         let actual = service
             .search_shops(
                 &ShopSearch {
-                    shop_name_query: "foobar".try_into().unwrap(),
+                    shop_name_query: Some("foobar".try_into().unwrap()),
                     created: None,
                     updated: None,
                 },

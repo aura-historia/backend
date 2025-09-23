@@ -1,5 +1,3 @@
-use std::time::Duration;
-
 use common::sort::SortOrder;
 use common::{page::Page, query::range_query::RangeQuery, sort::Sort};
 use fake::{Fake, Faker};
@@ -9,6 +7,7 @@ use shop_opensearch::{
     shop_document::ShopDocument,
     shop_search::ShopSearch,
 };
+use std::time::Duration;
 use test_api::*;
 use time::macros::datetime;
 
@@ -34,7 +33,7 @@ async fn should_create_shop_document() {
 }
 
 #[localstack_test(services = [OpenSearch()])]
-async fn should_search_shops_documents_when_only_name_query_supplied() {
+async fn should_search_shop_documents_when_only_name_query_supplied() {
     let repository = get_repository().await;
     let expected = Faker.fake::<ShopDocument>();
 
@@ -54,7 +53,7 @@ async fn should_search_shops_documents_when_only_name_query_supplied() {
     tokio::time::sleep(Duration::from_secs(3)).await;
 
     let search = ShopSearch {
-        shop_name_query: expected.name.to_string().try_into().unwrap(),
+        shop_name_query: Some(expected.name.to_string().try_into().unwrap()),
         created: None,
         updated: None,
     };
@@ -70,7 +69,7 @@ async fn should_search_shops_documents_when_only_name_query_supplied() {
 #[test_attr(apply(test))]
 #[case(
     ShopSearch {
-        shop_name_query: "Expected name".try_into().unwrap(),
+        shop_name_query: Some("Expected name".try_into().unwrap()),
             created: Some(RangeQuery { min: Some(datetime!(2000 - 01 - 01 0:00 UTC)), max: Some(datetime!(3000 - 01 - 01 0:00 UTC)) }),
             updated: Some(RangeQuery { min: Some(datetime!(1000 - 01 - 01 0:00 UTC)), max: Some(datetime!(4000 - 01 - 01 0:00 UTC)) })
         },
@@ -79,7 +78,7 @@ async fn should_search_shops_documents_when_only_name_query_supplied() {
 )]
 #[case(
     ShopSearch {
-        shop_name_query: "Expected name".try_into().unwrap(),
+        shop_name_query: Some("Expected name".try_into().unwrap()),
             created: Some(RangeQuery { min: Some(datetime!(2000 - 01 - 01 0:00 UTC)), max: Some(datetime!(3000 - 01 - 01 0:00 UTC)) }),
             updated: Some(RangeQuery { min: Some(datetime!(1000 - 01 - 01 0:00 UTC)), max: Some(datetime!(4000 - 01 - 01 0:00 UTC)) })
         },
@@ -88,7 +87,7 @@ async fn should_search_shops_documents_when_only_name_query_supplied() {
 )]
 #[case(
     ShopSearch {
-        shop_name_query: "Expected name".try_into().unwrap(),
+        shop_name_query: Some("Expected name".try_into().unwrap()),
             created: Some(RangeQuery { min: Some(datetime!(2000 - 01 - 01 0:00 UTC)), max: Some(datetime!(3000 - 01 - 01 0:00 UTC)) }),
             updated: Some(RangeQuery { min: Some(datetime!(1000 - 01 - 01 0:00 UTC)), max: Some(datetime!(4000 - 01 - 01 0:00 UTC)) })
         },
@@ -97,7 +96,7 @@ async fn should_search_shops_documents_when_only_name_query_supplied() {
 )]
 #[case(
     ShopSearch {
-        shop_name_query: "Expected name".try_into().unwrap(),
+        shop_name_query: Some("Expected name".try_into().unwrap()),
             created: Some(RangeQuery { min: Some(datetime!(2000 - 01 - 01 0:00 UTC)), max: Some(datetime!(3000 - 01 - 01 0:00 UTC)) }),
             updated: Some(RangeQuery { min: Some(datetime!(1000 - 01 - 01 0:00 UTC)), max: Some(datetime!(4000 - 01 - 01 0:00 UTC)) })
         },
@@ -106,7 +105,7 @@ async fn should_search_shops_documents_when_only_name_query_supplied() {
 )]
 #[case(
     ShopSearch {
-        shop_name_query: "Expected name".try_into().unwrap(),
+        shop_name_query: Some("Expected name".try_into().unwrap()),
             created: Some(RangeQuery { min: Some(datetime!(2000 - 01 - 01 0:00 UTC)), max: Some(datetime!(3000 - 01 - 01 0:00 UTC)) }),
             updated: Some(RangeQuery { min: Some(datetime!(1000 - 01 - 01 0:00 UTC)), max: Some(datetime!(4000 - 01 - 01 0:00 UTC)) })
         },
@@ -115,7 +114,7 @@ async fn should_search_shops_documents_when_only_name_query_supplied() {
 )]
 #[case(
     ShopSearch {
-        shop_name_query: "Expected name".try_into().unwrap(),
+        shop_name_query: Some("Expected name".try_into().unwrap()),
             created: Some(RangeQuery { min: Some(datetime!(2000 - 01 - 01 0:00 UTC)), max: Some(datetime!(3000 - 01 - 01 0:00 UTC)) }),
             updated: Some(RangeQuery { min: Some(datetime!(1000 - 01 - 01 0:00 UTC)), max: Some(datetime!(4000 - 01 - 01 0:00 UTC)) })
         },
@@ -124,7 +123,7 @@ async fn should_search_shops_documents_when_only_name_query_supplied() {
 )]
 #[case(
     ShopSearch {
-        shop_name_query: "Expected name".try_into().unwrap(),
+        shop_name_query: Some("Expected name".try_into().unwrap()),
             created: Some(RangeQuery { min: Some(datetime!(2000 - 01 - 01 0:00 UTC)), max: Some(datetime!(3000 - 01 - 01 0:00 UTC)) }),
             updated: Some(RangeQuery { min: Some(datetime!(1000 - 01 - 01 0:00 UTC)), max: Some(datetime!(4000 - 01 - 01 0:00 UTC)) })
         },
@@ -133,7 +132,7 @@ async fn should_search_shops_documents_when_only_name_query_supplied() {
 )]
 #[case(
     ShopSearch {
-        shop_name_query: "Expected name".try_into().unwrap(),
+        shop_name_query: Some("Expected name".try_into().unwrap()),
             created: Some(RangeQuery { min: Some(datetime!(2000 - 01 - 01 0:00 UTC)), max: Some(datetime!(3000 - 01 - 01 0:00 UTC)) }),
             updated: None
         },
@@ -142,7 +141,7 @@ async fn should_search_shops_documents_when_only_name_query_supplied() {
 )]
 #[case(
     ShopSearch {
-        shop_name_query: "Expected name".try_into().unwrap(),
+        shop_name_query: Some("Expected name".try_into().unwrap()),
             created: None,
             updated: Some(RangeQuery { min: Some(datetime!(2000 - 01 - 01 0:00 UTC)), max: Some(datetime!(3000 - 01 - 01 0:00 UTC)) }),
         },
@@ -150,7 +149,7 @@ async fn should_search_shops_documents_when_only_name_query_supplied() {
     Some(Page { from: 0, size: 5 })
 )]
 #[localstack_test(services = [OpenSearch()])]
-async fn should_search_shops_documents_for_arguments(
+async fn should_search_shop_documents_for_arguments(
     #[case] search: ShopSearch,
     #[case] sort: Option<Sort<SortShopField>>,
     #[case] page: Option<Page>,
@@ -180,4 +179,32 @@ async fn should_search_shops_documents_for_arguments(
         .unwrap();
 
     assert!(actual.hits.hits.iter().any(|hit| hit.source == expected));
+}
+
+#[localstack_test(services = [OpenSearch()])]
+async fn should_search_shop_documents_when_no_filters() {
+    let repository = get_repository().await;
+
+    // insert civilians
+    for doc in fake::vec![ShopDocument; 20] {
+        let response = repository.create_shop_document(doc).await.unwrap();
+        assert_eq!("created", response.result);
+    }
+    refresh_index("shops").await;
+    tokio::time::sleep(Duration::from_secs(3)).await;
+
+    let actual = repository
+        .search_shop_documents(
+            &Default::default(),
+            &Some(Sort {
+                sort: SortShopField::Name,
+                order: SortOrder::Asc,
+            }),
+            &Some(Page { from: 0, size: 50 }),
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(20, actual.hits.hits.len());
+    assert_eq!(20, actual.hits.total.value);
 }

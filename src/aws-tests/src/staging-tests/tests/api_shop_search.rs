@@ -31,7 +31,7 @@ async fn should_respond_200_when_hits() {
     tokio::time::sleep(Duration::from_secs(3)).await;
 
     let search = ShopSearchData {
-        shop_name_query: expected.name.to_string().try_into().unwrap(),
+        shop_name_query: Some(expected.name.to_string().try_into().unwrap()),
         created: Some(RangeQuery {
             min: None,
             max: Some(datetime!(2999 - 01 - 02 0:00 UTC)),
@@ -40,7 +40,7 @@ async fn should_respond_200_when_hits() {
     };
 
     let url = format!(
-        "{}/api/v1/shops/search?sort=created&order=asc&from=0&size=5",
+        "{}/api/v1/shops/search?from=0&size=5",
         get_cfn_output().api_gateway_endpoint_url
     );
     let response = reqwest::Client::new()
@@ -69,7 +69,15 @@ async fn should_respond_200_when_no_hits() {
     );
     let response = reqwest::Client::new()
         .post(url)
-        .json(&Faker.fake::<ShopSearchData>())
+        .json(&ShopSearchData {
+            shop_name_query: Some(
+                "woooah an incredible query no one can fulfil!"
+                    .try_into()
+                    .unwrap(),
+            ),
+            created: None,
+            updated: None,
+        })
         .send()
         .await
         .unwrap();
