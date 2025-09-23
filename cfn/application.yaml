@@ -667,7 +667,7 @@ Resources:
       Action: lambda:InvokeFunction
       FunctionName: !Ref BlitzfilterApiShopSearchLambda
       Principal: apigateway.amazonaws.com
-      SourceArn: !Sub "arn:aws:execute-api:${AWS::Region}:${AWS::AccountId}:${BlitzfilterApi}/*/*/api/v1/shop/search*"
+      SourceArn: !Sub "arn:aws:execute-api:${AWS::Region}:${AWS::AccountId}:${BlitzfilterApi}/*/*/api/v1/shops/search*"
 
   ApiDeleteSearchFilterRoute:
     Type: AWS::ApiGatewayV2::Route
