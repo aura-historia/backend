@@ -1,0 +1,32 @@
+[package]
+name = "shop-opensearch"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+common = { workspace = true, features = ["opensearch"] }
+shop-core = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+field = { workspace = true }
+time = { workspace = true, features = ["local-offset", "macros", "formatting"] }
+url = { workspace = true, features = ["serde"] }
+async-trait = { workspace = true }
+mockall = { workspace = true }
+opensearch = { workspace = true }
+tracing = { workspace = true }
+
+# Optional
+fake = { workspace = true, optional = true }
+
+[dev-dependencies]
+test-api = { workspace = true, features = ["opensearch"] }
+serial_test = { workspace = true }
+rstest = { workspace = true }
+serde_json = { workspace = true }
+fake = { workspace = true }
+shop-opensearch = { workspace = true, features = ["test-data"] }
+
+[features]
+default = []
+test-data = ["fake", "common/test-data", "shop-core/test-data"]

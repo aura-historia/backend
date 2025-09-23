@@ -766,6 +766,7 @@ dependencies = [
  "common",
  "item",
  "search-filter",
+ "shop",
  "test-api",
 ]
 
@@ -3843,6 +3844,174 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "0fda2ff0d084019ba4d7c6f371c95d8fd75ce3524c3cb8fb653a3023f6323e64"
 
 [[package]]
+name = "shop"
+version = "0.1.0"
+dependencies = [
+ "shop-api",
+ "shop-core",
+ "shop-data",
+ "shop-dynamodb",
+ "shop-opensearch",
+ "shop-service",
+]
+
+[[package]]
+name = "shop-api"
+version = "0.1.0"
+dependencies = [
+ "shop-api-get-shop",
+ "shop-api-search",
+]
+
+[[package]]
+name = "shop-api-get-shop"
+version = "0.1.0"
+dependencies = [
+ "aws-config",
+ "aws-sdk-dynamodb",
+ "aws_lambda_events",
+ "common",
+ "fake",
+ "http 1.3.1",
+ "lambda_runtime",
+ "rstest",
+ "serde_json",
+ "serial_test",
+ "shop-core",
+ "shop-data",
+ "shop-dynamodb",
+ "shop-service",
+ "test-api",
+ "time",
+ "tokio",
+ "tracing",
+ "tracing-subscriber",
+ "url",
+]
+
+[[package]]
+name = "shop-api-search"
+version = "0.1.0"
+dependencies = [
+ "aws-config",
+ "aws_lambda_events",
+ "common",
+ "fake",
+ "http 1.3.1",
+ "lambda_runtime",
+ "opensearch",
+ "rstest",
+ "serde_json",
+ "serial_test",
+ "shop-core",
+ "shop-data",
+ "shop-opensearch",
+ "shop-service",
+ "test-api",
+ "tokio",
+ "tracing",
+ "tracing-subscriber",
+]
+
+[[package]]
+name = "shop-core"
+version = "0.1.0"
+dependencies = [
+ "common",
+ "fake",
+ "shop-core",
+ "time",
+ "url",
+]
+
+[[package]]
+name = "shop-data"
+version = "0.1.0"
+dependencies = [
+ "common",
+ "fake",
+ "rstest",
+ "serde",
+ "serde_json",
+ "shop-core",
+ "shop-data",
+ "time",
+ "url",
+]
+
+[[package]]
+name = "shop-dynamodb"
+version = "0.1.0"
+dependencies = [
+ "async-trait",
+ "aws-sdk-dynamodb",
+ "common",
+ "fake",
+ "field",
+ "mockall",
+ "rstest",
+ "serde",
+ "serde_dynamo",
+ "serde_json",
+ "serial_test",
+ "shop-core",
+ "shop-dynamodb",
+ "test-api",
+ "time",
+ "tracing",
+ "url",
+]
+
+[[package]]
+name = "shop-opensearch"
+version = "0.1.0"
+dependencies = [
+ "async-trait",
+ "common",
+ "fake",
+ "field",
+ "mockall",
+ "opensearch",
+ "rstest",
+ "serde",
+ "serde_json",
+ "serial_test",
+ "shop-core",
+ "shop-opensearch",
+ "test-api",
+ "time",
+ "tracing",
+ "url",
+]
+
+[[package]]
+name = "shop-service"
+version = "0.1.0"
+dependencies = [
+ "async-trait",
+ "aws-config",
+ "aws-sdk-dynamodb",
+ "common",
+ "fake",
+ "mockall",
+ "opensearch",
+ "rstest",
+ "serde",
+ "serde_dynamo",
+ "serde_json",
+ "serial_test",
+ "shop-core",
+ "shop-dynamodb",
+ "shop-opensearch",
+ "shop-service",
+ "thiserror",
+ "time",
+ "tokio",
+ "tracing",
+ "url",
+]
+
+[[package]]
 name = "signal-hook-registry"
 version = "1.4.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3922,6 +4091,9 @@ dependencies = [
  "reqwest",
  "serde",
  "serde_json",
+ "shop-core",
+ "shop-dynamodb",
+ "shop-opensearch",
  "staging-tests",
  "tokio",
 ]
@@ -3953,6 +4125,9 @@ dependencies = [
  "serde",
  "serde_json",
  "serial_test",
+ "shop-data",
+ "shop-dynamodb",
+ "shop-opensearch",
  "staging-tests-macros",
  "time",
  "tokio",

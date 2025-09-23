@@ -5,9 +5,9 @@ use common::language::domain::Language;
 use common::localized::Localized;
 use common::price::domain::Price;
 use common::shop_id::ShopId;
+use common::shop_name::ShopName;
 use common::shops_item_id::ShopsItemId;
 use item_core::description::Description;
-use item_core::shop_name::ShopName;
 use item_core::title::Title;
 use url::Url;
 
@@ -29,7 +29,7 @@ impl HasKey for PutItemCommand {
 
     fn key(&self) -> Self::Key {
         ItemKey {
-            shop_id: self.shop_id.clone(),
+            shop_id: self.shop_id,
             shops_item_id: self.shops_item_id.clone(),
         }
     }

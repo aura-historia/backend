@@ -3,9 +3,9 @@ use std::fmt::{Display, Formatter};
 use uuid::Uuid;
 
 #[cfg_attr(feature = "test-data", derive(fake::Dummy))]
-#[derive(Debug, Clone, PartialEq, PartialOrd, Eq, Ord, Hash, Serialize, Deserialize)]
-#[serde(transparent)]
-pub struct ShopId(String);
+#[derive(Debug, Clone, Copy, PartialEq, PartialOrd, Eq, Ord, Hash, Serialize, Deserialize)]
+#[serde(into = "String", try_from = "String")]
+pub struct ShopId(Uuid);
 
 impl Default for ShopId {
     fn default() -> Self {
@@ -15,7 +15,7 @@ impl Default for ShopId {
 
 impl ShopId {
     pub fn new() -> Self {
-        Self(Uuid::new_v4().to_string())
+        Self(Uuid::new_v4())
     }
 }
 
@@ -25,26 +25,35 @@ impl Display for ShopId {
     }
 }
 
-impl From<String> for ShopId {
-    fn from(s: String) -> Self {
-        Self(s)
+impl From<Uuid> for ShopId {
+    fn from(uuid: Uuid) -> Self {
+        ShopId(uuid)
     }
 }
 
-impl From<&String> for ShopId {
-    fn from(s: &String) -> Self {
-        Self(s.to_owned())
-    }
-}
-
-impl From<&str> for ShopId {
-    fn from(s: &str) -> Self {
-        Self(s.to_owned())
+impl TryFrom<String> for ShopId {
+    type Error = uuid::Error;
+    fn try_from(s: String) -> Result<Self, Self::Error> {
+        Uuid::parse_str(&s).map(Self)
     }
 }
 
 impl From<ShopId> for String {
     fn from(id: ShopId) -> Self {
-        id.0
+        id.0.to_string()
+    }
+}
+
+impl TryFrom<&str> for ShopId {
+    type Error = uuid::Error;
+    fn try_from(s: &str) -> Result<Self, Self::Error> {
+        Uuid::parse_str(s).map(Self)
+    }
+}
+
+impl TryFrom<&String> for ShopId {
+    type Error = uuid::Error;
+    fn try_from(s: &String) -> Result<Self, Self::Error> {
+        Uuid::parse_str(s).map(Self)
     }
 }

@@ -2,7 +2,7 @@ use aws_lambda_events::apigw::{ApiGatewayV2httpRequest, ApiGatewayV2httpResponse
 use aws_lambda_events::query_map::QueryMap;
 use common::api::api_gateway_v2_http_response_builder::ApiGatewayV2HttpResponseBuilder;
 use common::api::error::ApiError;
-use common::api::error_code::{BAD_PATH_PARAMETER_VALUE, BAD_QUERY_PARAMETER_VALUE};
+use common::api::error_code::{BAD_PATH_PARAMETER_VALUE, BAD_QUERY_PARAMETER_VALUE, INVALID_UUID};
 use common::currency::data::api::extract_currency_query;
 use common::language::data::api::extract_languages_header;
 use common::language::domain::Language;
@@ -44,8 +44,13 @@ pub async fn handle(
         .payload
         .path_parameters
         .get("shopId")
-        .filter(|str| !str.is_empty())
-        .map(ShopId::from)
+        .map(ShopId::try_from)
+        .transpose()
+        .map_err(|err| {
+            ApiError::bad_request(INVALID_UUID)
+                .with_path_field("shopId")
+                .with_message(err.to_string())
+        })?
         .ok_or(ApiError::bad_request(BAD_PATH_PARAMETER_VALUE).with_path_field("shopId"))?;
     let shops_item_id = event
         .payload
@@ -139,7 +144,7 @@ mod tests {
                 let item = LocalizedItemView {
                     item_id: Default::default(),
                     event_id: EventId::new(),
-                    shop_id: shop_id.clone(),
+                    shop_id: *shop_id,
                     shops_item_id: shops_item_id.clone(),
                     shop_name: "".into(),
                     title: Localized::new(language.into(), "Native title".into()),
@@ -179,7 +184,7 @@ mod tests {
                 let item = LocalizedItemView {
                     item_id: Default::default(),
                     event_id,
-                    shop_id: shop_id.clone(),
+                    shop_id: *shop_id,
                     shops_item_id: shops_item_id.clone(),
                     shop_name: "".into(),
                     title: Localized::new(Language::Es, "Native title".into()),
@@ -224,7 +229,7 @@ mod tests {
                 let item = LocalizedItemView {
                     item_id: Default::default(),
                     event_id,
-                    shop_id: shop_id.clone(),
+                    shop_id: *shop_id,
                     shops_item_id: shops_item_id.clone(),
                     shop_name: "".into(),
                     title: Localized::new(Language::Es, "Native title".into()),
@@ -277,7 +282,7 @@ mod tests {
                 let item = LocalizedItemView {
                     item_id: Default::default(),
                     event_id,
-                    shop_id: shop_id.clone(),
+                    shop_id: *shop_id,
                     shops_item_id: shops_item_id.clone(),
                     shop_name: "".into(),
                     title: Localized::new(Language::Es, "Native title".into()),
@@ -388,7 +393,7 @@ mod tests {
         service
             .expect_view_item()
             .return_once(move |shop_id, shops_item_id, _, _, _| {
-                let shop_id = shop_id.clone();
+                let shop_id = *shop_id;
                 let shops_item_id = shops_item_id.clone();
                 Box::pin(async move { Err(GetItemError::ItemNotFound(shop_id, shops_item_id)) })
             });

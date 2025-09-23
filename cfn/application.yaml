@@ -139,7 +139,7 @@ Resources:
       StreamSpecification:
         StreamViewType: NEW_IMAGE
 
-  ItemsOpenSearchDomain:
+  BlitzfilterOpenSearchDomain:
     Type: AWS::OpenSearchService::Domain
     Properties:
       DomainName: !Sub "application-${StageName}"
@@ -453,7 +453,7 @@ Resources:
                   - es:ESHttpGet
                   - es:ESHttpHead
                   - es:ESHttpPost
-                Resource: !Sub "${ItemsOpenSearchDomain.Arn}/*"
+                Resource: !Sub "${BlitzfilterOpenSearchDomain.Arn}/*"
   BlitzfilterApiSimpleSearchLambda:
     Type: AWS::Lambda::Function
     Properties:
@@ -470,7 +470,7 @@ Resources:
         Size: 512
       Environment:
         Variables:
-          OPENSEARCH_ITEMS_DOMAIN_ENDPOINT_URL: !Sub "https://${ItemsOpenSearchDomain.DomainEndpoint}"
+          OPENSEARCH_DOMAIN_ENDPOINT_URL: !Sub "https://${BlitzfilterOpenSearchDomain.DomainEndpoint}"
   BlitzfilterApiSimpleSearchLambdaPermission:
     Type: AWS::Lambda::Permission
     Properties:
@@ -517,7 +517,7 @@ Resources:
                   - es:ESHttpGet
                   - es:ESHttpHead
                   - es:ESHttpPost
-                Resource: !Sub "${ItemsOpenSearchDomain.Arn}/*"
+                Resource: !Sub "${BlitzfilterOpenSearchDomain.Arn}/*"
   BlitzfilterApiComplexSearchLambda:
     Type: AWS::Lambda::Function
     Properties:
@@ -534,7 +534,7 @@ Resources:
         Size: 512
       Environment:
         Variables:
-          OPENSEARCH_ITEMS_DOMAIN_ENDPOINT_URL: !Sub "https://${ItemsOpenSearchDomain.DomainEndpoint}"
+          OPENSEARCH_DOMAIN_ENDPOINT_URL: !Sub "https://${BlitzfilterOpenSearchDomain.DomainEndpoint}"
   BlitzfilterApiComplexSearchLambdaPermission:
     Type: AWS::Lambda::Permission
     Properties:
@@ -542,6 +542,132 @@ Resources:
       FunctionName: !Ref BlitzfilterApiComplexSearchLambda
       Principal: apigateway.amazonaws.com
       SourceArn: !Sub "arn:aws:execute-api:${AWS::Region}:${AWS::AccountId}:${BlitzfilterApi}/*/*/api/v1/items/search*"
+
+  BlitzfilterApiGetShopRoute:
+    Type: AWS::ApiGatewayV2::Route
+    Properties:
+      ApiId: !Ref BlitzfilterApi
+      RouteKey: "GET /api/v1/shops/{shopId}"
+      Target: !Sub "integrations/${BlitzfilterApiGetShopLambdaIntegration}"
+  BlitzfilterApiGetShopLambdaIntegration:
+    Type: AWS::ApiGatewayV2::Integration
+    Properties:
+      ApiId: !Ref BlitzfilterApi
+      IntegrationType: AWS_PROXY
+      IntegrationUri: !Sub "arn:aws:lambda:${AWS::Region}:${AWS::AccountId}:function:${BlitzfilterApiGetShopLambda}"
+      PayloadFormatVersion: "2.0"
+  BlitzfilterApiGetShopRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Sub "blitzfilter-api-get-shop-role-${StageName}"
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: lambda.amazonaws.com
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole
+      Policies:
+        - PolicyName: DynamoDBAccess
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: Allow
+                Action:
+                  - dynamodb:GetItem
+                  - dynamodb:BatchGetItem
+                  - dynamodb:Query
+                Resource: !GetAtt TableOne.Arn
+  BlitzfilterApiGetShopLambda:
+    Type: AWS::Lambda::Function
+    Properties:
+      FunctionName: !Sub "blitzfilter-api-get-shop-${StageName}"
+      Runtime: provided.al2023
+      Handler: lib.handler
+      Role: !GetAtt BlitzfilterApiGetShopRole.Arn
+      Code:
+        S3Bucket: !Ref ArtifactBucket
+        S3Key: !Sub "shop-api-get-shop-${StageName}-${CommitSHA}.zip"
+      MemorySize: 512
+      Timeout: 10
+      EphemeralStorage:
+        Size: 512
+      Environment:
+        Variables:
+          DYNAMODB_TABLE_NAME: !Ref TableOne
+  BlitzfilterApiGetShopLambdaPermission:
+    Type: AWS::Lambda::Permission
+    Properties:
+      Action: lambda:InvokeFunction
+      FunctionName: !Ref BlitzfilterApiGetShopLambda
+      Principal: apigateway.amazonaws.com
+      SourceArn: !Sub "arn:aws:execute-api:${AWS::Region}:${AWS::AccountId}:${BlitzfilterApi}/*/*/api/v1/shops/*"
+
+  BlitzfilterApiShopSearchRoute:
+    Type: AWS::ApiGatewayV2::Route
+    Properties:
+      ApiId: !Ref BlitzfilterApi
+      RouteKey: "POST /api/v1/shops/search"
+      Target: !Sub "integrations/${BlitzfilterApiShopSearchLambdaIntegration}"
+  BlitzfilterApiShopSearchLambdaIntegration:
+    Type: AWS::ApiGatewayV2::Integration
+    Properties:
+      ApiId: !Ref BlitzfilterApi
+      IntegrationType: AWS_PROXY
+      IntegrationUri: !Sub "arn:aws:lambda:${AWS::Region}:${AWS::AccountId}:function:${BlitzfilterApiShopSearchLambda}"
+      PayloadFormatVersion: "2.0"
+  BlitzfilterApiShopSearchRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Sub "blitzfilter-api-shop-search-role-${StageName}"
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: lambda.amazonaws.com
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole
+      Policies:
+        - PolicyName: OpenSearchReadOnly
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: Allow
+                Action:
+                  - es:Describe*
+                  - es:List*
+                  - es:ESHttpGet
+                  - es:ESHttpHead
+                  - es:ESHttpPost
+                Resource: !Sub "${BlitzfilterOpenSearchDomain.Arn}/*"
+  BlitzfilterApiShopSearchLambda:
+    Type: AWS::Lambda::Function
+    Properties:
+      FunctionName: !Sub "blitzfilter-api-shop-search-${StageName}"
+      Runtime: provided.al2023
+      Handler: lib.handler
+      Role: !GetAtt BlitzfilterApiShopSearchRole.Arn
+      Code:
+        S3Bucket: !Ref ArtifactBucket
+        S3Key: !Sub "shop-api-search-${StageName}-${CommitSHA}.zip"
+      MemorySize: 512
+      Timeout: 10
+      EphemeralStorage:
+        Size: 512
+      Environment:
+        Variables:
+          OPENSEARCH_DOMAIN_ENDPOINT_URL: !Sub "https://${BlitzfilterOpenSearchDomain.DomainEndpoint}"
+  BlitzfilterApiShopSearchLambdaPermission:
+    Type: AWS::Lambda::Permission
+    Properties:
+      Action: lambda:InvokeFunction
+      FunctionName: !Ref BlitzfilterApiShopSearchLambda
+      Principal: apigateway.amazonaws.com
+      SourceArn: !Sub "arn:aws:execute-api:${AWS::Region}:${AWS::AccountId}:${BlitzfilterApi}/*/*/api/v1/shops/search*"
 
   ApiDeleteSearchFilterRoute:
     Type: AWS::ApiGatewayV2::Route
@@ -1161,7 +1287,7 @@ Resources:
         Size: 512
       Environment:
         Variables:
-          OPENSEARCH_ITEMS_DOMAIN_ENDPOINT_URL: !Sub "https://${ItemsOpenSearchDomain.DomainEndpoint}"
+          OPENSEARCH_DOMAIN_ENDPOINT_URL: !Sub "https://${BlitzfilterOpenSearchDomain.DomainEndpoint}"
   ItemMaterializeOpenSearchDbNewMapping:
     Type: AWS::Lambda::EventSourceMapping
     Properties:
@@ -1240,7 +1366,7 @@ Resources:
         Size: 512
       Environment:
         Variables:
-          OPENSEARCH_ITEMS_DOMAIN_ENDPOINT_URL: !Sub "https://${ItemsOpenSearchDomain.DomainEndpoint}"
+          OPENSEARCH_DOMAIN_ENDPOINT_URL: !Sub "https://${BlitzfilterOpenSearchDomain.DomainEndpoint}"
   ItemMaterializeOpenSearchDbUpdateMapping:
     Type: AWS::Lambda::EventSourceMapping
     Properties:
@@ -1355,10 +1481,10 @@ Outputs:
     Value: !Ref BlitzfilterUserPoolClientAdmin
   ApiGatewayEndpointUrl:
     Value: !Sub "https://${BlitzfilterApi}.execute-api.${AWS::Region}.amazonaws.com/${StageName}"
-  OpensearchItemDomainEndpointUrl:
-    Value: !Sub "https://${ItemsOpenSearchDomain.DomainEndpoint}"
+  OpensearchDomainEndpointUrl:
+    Value: !Sub "https://${BlitzfilterOpenSearchDomain.DomainEndpoint}"
   OpensearchDomainName:
-    Value: !Ref ItemsOpenSearchDomain
+    Value: !Ref BlitzfilterOpenSearchDomain
   DynamodbTable1Name:
     Value: !Ref TableOne
 

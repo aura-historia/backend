@@ -1,8 +1,5 @@
-use std::collections::HashMap;
-
 use crate::item_event_type_record::ItemEventTypeRecord;
 use crate::item_state_record::ItemStateRecord;
-
 use common::currency::domain::Currency;
 use common::error::missing_field::MissingPersistenceField;
 use common::event::Event;
@@ -16,6 +13,7 @@ use common::localized::Localized;
 use common::price::domain::Price;
 use common::price::record::PriceRecord;
 use common::shop_id::ShopId;
+use common::shop_name::ShopName;
 use common::shops_item_id::ShopsItemId;
 use field::field;
 use item_core::hash::ItemHash;
@@ -23,8 +21,8 @@ use item_core::item_event::{
     ItemCommonEventPayload, ItemCreatedEventPayload, ItemEvent, ItemEventPayload,
     ItemPriceChangeEventPayload, ItemStateChangeEventPayload,
 };
-use item_core::shop_name::ShopName;
 use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
 use time::format_description::well_known::Rfc3339;
 use time::{OffsetDateTime, error};
 use url::Url;
@@ -113,7 +111,7 @@ impl HasKey for ItemEventRecord {
 
     fn key(&self) -> ItemKey {
         ItemKey {
-            shop_id: self.shop_id.clone(),
+            shop_id: self.shop_id,
             shops_item_id: self.shops_item_id.clone(),
         }
     }
@@ -122,14 +120,13 @@ impl HasKey for ItemEventRecord {
 impl TryFrom<ItemEvent> for ItemEventRecord {
     type Error = error::Format;
     fn try_from(domain: ItemEvent) -> Result<Self, Self::Error> {
-        let shop_id = domain.payload.shop_id();
+        let shop_id = *domain.payload.shop_id();
         let shops_item_id = domain.payload.shops_item_id();
         let pk = format!("item#shop_id#{shop_id}#shops_item_id#{shops_item_id}");
         let sk = format!("item#event#{}", domain.timestamp.format(&Rfc3339)?);
         let item_id = domain.aggregate_id;
         let event_id = domain.event_id;
         let event_type: ItemEventTypeRecord = (&domain.payload).into();
-        let shop_id = shop_id.clone();
         let shops_item_id = shops_item_id.clone();
 
         match domain.payload {

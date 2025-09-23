@@ -107,10 +107,7 @@ impl<'a> GetItemService for GetItemServiceImpl<'a> {
             .repository
             .get_item_record(shop_id, shops_item_id)
             .await?
-            .ok_or(GetItemError::ItemNotFound(
-                shop_id.clone(),
-                shops_item_id.clone(),
-            ))?;
+            .ok_or(GetItemError::ItemNotFound(*shop_id, shops_item_id.clone()))?;
 
         Ok(item_record.into())
     }
@@ -128,19 +125,13 @@ impl<'a> GetItemService for GetItemServiceImpl<'a> {
             self.repository
                 .query_item_record_and_event_records(shop_id, shops_item_id)
                 .await?
-                .ok_or(GetItemError::ItemNotFound(
-                    shop_id.clone(),
-                    shops_item_id.clone(),
-                ))?
+                .ok_or(GetItemError::ItemNotFound(*shop_id, shops_item_id.clone()))?
         } else {
             let item_record = self
                 .repository
                 .get_item_record(shop_id, shops_item_id)
                 .await?
-                .ok_or(GetItemError::ItemNotFound(
-                    shop_id.clone(),
-                    shops_item_id.clone(),
-                ))?;
+                .ok_or(GetItemError::ItemNotFound(*shop_id, shops_item_id.clone()))?;
             (item_record, vec![])
         };
 

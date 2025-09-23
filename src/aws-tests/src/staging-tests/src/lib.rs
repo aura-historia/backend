@@ -42,8 +42,8 @@ pub async fn get_opensearch_client() -> &'static opensearch::OpenSearch {
     OPENSEARCH_CLIENT
         .get_or_init(|| async {
             let transport = TransportBuilder::new(SingleNodeConnectionPool::new(
-                Url::parse(&get_cfn_output().opensearch_item_domain_endpoint_url)
-                    .expect("shouldn't fail parsing 'opensearch_item_domain_endpoint_url' as URL"),
+                Url::parse(&get_cfn_output().opensearch_domain_endpoint_url)
+                    .expect("shouldn't fail parsing 'opensearch_domain_endpoint_url' as URL"),
             ))
             .auth(
                 get_aws_config()
@@ -146,6 +146,9 @@ pub async fn reset() {
         .await
         .expect("shouldn't fail clearing table-data");
     clear_os_index_data("items")
+        .await
+        .expect("shouldn't fail clearing os-index 'items'");
+    clear_os_index_data("shops")
         .await
         .expect("shouldn't fail clearing os-index 'items'");
     clear_qs(vec![

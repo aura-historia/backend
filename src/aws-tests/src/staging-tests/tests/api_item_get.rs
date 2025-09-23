@@ -5,6 +5,7 @@ use common::{
     event_id::EventId,
     item_state::domain::ItemState,
     price::domain::{FixedFxRate, FxRate, Price},
+    shop_id::ShopId,
 };
 use fake::{Fake, Faker};
 use item_core::{
@@ -71,7 +72,7 @@ async fn should_respond_200_with_history() {
         event_id: event_1_id,
         timestamp: SystemTime::now().into(),
         payload: ItemEventPayload::PriceDropped(ItemPriceChangeEventPayload {
-            shop_id: record.shop_id.clone(),
+            shop_id: record.shop_id,
             shops_item_id: record.shops_item_id.clone(),
             native_price: event_1_price,
             other_price: FixedFxRate()
@@ -86,7 +87,7 @@ async fn should_respond_200_with_history() {
         event_id: event_2_id,
         timestamp: SystemTime::now().into(),
         payload: ItemEventPayload::StateRemoved(ItemStateChangeEventPayload {
-            shop_id: record.shop_id.clone(),
+            shop_id: record.shop_id,
             shops_item_id: record.shops_item_id.clone(),
             hash: ItemHash::new(&Some(event_1_price), &ItemState::Removed),
         }),
@@ -136,8 +137,9 @@ async fn should_respond_200_with_history() {
 #[staging_test]
 async fn should_respond_404_when_item_does_not_exist() {
     let response = reqwest::get(format!(
-        "{}/api/v1/items/foo/bar",
-        get_cfn_output().api_gateway_endpoint_url
+        "{}/api/v1/items/{}/bar",
+        get_cfn_output().api_gateway_endpoint_url,
+        ShopId::new()
     ))
     .await
     .unwrap();

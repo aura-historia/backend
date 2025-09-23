@@ -66,6 +66,7 @@ jobs:
           - src/search-filter
           - src/aws-tests
           - src/item
+          - src/shop
           - src/test-api
     steps:
       - uses: actions/checkout@v5
@@ -130,6 +131,8 @@ jobs:
           - src/item/src/item-dynamodb
           - src/item/src/item-opensearch
           - src/item/src/item-service
+          - src/shop/src/shop-dynamodb
+          - src/shop/src/shop-opensearch
           - src/test-api
     steps:
       - uses: actions/checkout@v5
@@ -259,6 +262,8 @@ jobs:
           - src/item/src/item-lambda/src/item-lambda-materialize-dynamodb-update
           - src/item/src/item-lambda/src/item-lambda-materialize-opensearch-new
           - src/item/src/item-lambda/src/item-lambda-materialize-opensearch-update
+          - src/shop/src/shop-api/src/shop-api-search
+          - src/shop/src/shop-api/src/shop-api-get-shop
     steps:
       - uses: actions/checkout@v5
 
@@ -343,6 +348,8 @@ jobs:
           aws cloudformation deploy \
             --stack-name ${{ env.STACK_NAME }} \
             --template-file cfn/application.yaml \
+            --s3-bucket ${{ vars.S3_CFN_ARTIFACTS_BUCKET_NAME }} \
+            --s3-prefix ${{ env.STAGE_NAME }} \
             --capabilities CAPABILITY_NAMED_IAM \
             --parameter-overrides \
                 Stage=${{ env.STAGE }} \

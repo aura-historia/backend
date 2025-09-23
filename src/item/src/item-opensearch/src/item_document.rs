@@ -83,7 +83,7 @@ impl HasKey for ItemDocument {
 
     fn key(&self) -> Self::Key {
         ItemKey {
-            shop_id: self.shop_id.clone(),
+            shop_id: self.shop_id,
             shops_item_id: self.shops_item_id.clone(),
         }
     }
@@ -160,9 +160,9 @@ impl From<ItemRecord> for ItemDocument {
 mod faker {
     use super::*;
     use common::price::domain::MonetaryAmount;
+    use common::shop_name::ShopName;
     use fake::{Dummy, Fake, Faker, Rng};
     use item_core::description::Description;
-    use item_core::shop_name::ShopName;
     use item_core::title::Title;
 
     impl Dummy<Faker> for ItemDocument {

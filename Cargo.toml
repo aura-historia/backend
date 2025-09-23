@@ -7,6 +7,7 @@ edition = "2024"
 aws-tests = { workspace = true }
 common = { workspace = true }
 search-filter = { workspace = true }
+shop = { workspace = true }
 item = { workspace = true }
 test-api = { workspace = true }
 
@@ -15,8 +16,9 @@ members = [
     "src/aws-tests",
     "src/common",
     "src/search-filter",
+    "src/shop",
     "src/item",
-    "src/test-api",
+    "src/test-api", "src/shop",
 ]
 
 [workspace.dependencies]
@@ -46,6 +48,15 @@ search-filter-core = { path = "src/search-filter/src/search-filter-core" }
 search-filter-data = { path = "src/search-filter/src/search-filter-data" }
 search-filter-dynamodb = { path = "src/search-filter/src/search-filter-dynamodb" }
 search-filter-service = { path = "src/search-filter/src/search-filter-service" }
+shop = { path = "src/shop" }
+shop-api = { path = "src/shop/src/shop-api" }
+shop-data = { path = "src/shop/src/shop-data" }
+shop-api-get-shop = { path = "src/shop/src/shop-api/src/shop-api-get-shop" }
+shop-api-search = { path = "src/shop/src/shop-api/src/shop-api-search" }
+shop-core = { path = "src/shop/src/shop-core" }
+shop-dynamodb = { path = "src/shop/src/shop-dynamodb" }
+shop-opensearch = { path = "src/shop/src/shop-opensearch" }
+shop-service = { path = "src/shop/src/shop-service" }
 futures = { version = "0.3.31", default-features = false }
 hex = "0.4.3"
 http = "1.3.1"

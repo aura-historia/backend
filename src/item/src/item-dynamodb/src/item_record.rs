@@ -1,5 +1,3 @@
-use std::collections::HashMap;
-
 use crate::item_event_record::ItemEventRecord;
 use crate::item_state_record::ItemStateRecord;
 use common::currency::domain::Currency;
@@ -19,6 +17,7 @@ use field::field;
 use item_core::hash::ItemHash;
 use item_core::item::Item;
 use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
 use time::OffsetDateTime;
 use time::format_description::well_known;
 use url::Url;
@@ -102,7 +101,7 @@ impl HasKey for ItemRecord {
 
     fn key(&self) -> Self::Key {
         ItemKey {
-            shop_id: self.shop_id.clone(),
+            shop_id: self.shop_id,
             shops_item_id: self.shops_item_id.clone(),
         }
     }
@@ -225,9 +224,9 @@ impl TryFrom<ItemEventRecord> for ItemRecord {
 mod faker {
     use super::*;
     use common::price::domain::MonetaryAmount;
+    use common::shop_name::ShopName;
     use fake::{Dummy, Fake, Faker, Rng};
     use item_core::description::Description;
-    use item_core::shop_name::ShopName;
     use item_core::title::Title;
 
     impl Dummy<Faker> for ItemRecord {
@@ -247,7 +246,7 @@ mod faker {
                 gsi_1_sk: format!("updated#{now_str}"),
                 item_id: config.fake_with_rng(rng),
                 event_id: config.fake_with_rng(rng),
-                shop_id: shop_id.clone(),
+                shop_id,
                 shops_item_id: shops_item_id.clone(),
                 shop_name: config.fake_with_rng::<ShopName, _>(rng).into(),
                 title_native: TextRecord::new(

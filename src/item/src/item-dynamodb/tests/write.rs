@@ -32,11 +32,11 @@ async fn should_put_item_records_for_single_record() {
     let expected = ItemRecord {
         pk: format!("item#shop_id#{shop_id}#shops_item_id#{shops_item_id}"),
         sk: "item#materialized".to_string(),
-        gsi_1_pk: format!("shop_id#{}", shop_id.clone()),
+        gsi_1_pk: format!("shop_id#{}", shop_id),
         gsi_1_sk: format!("updated#{now_str}"),
         item_id: ItemId::new(),
         event_id: EventId::new(),
-        shop_id: shop_id.clone(),
+        shop_id,
         shops_item_id: shops_item_id.clone(),
         shop_name: "Foo".to_string(),
         title_native: TextRecord::new("Bar", LanguageRecord::De),
@@ -88,11 +88,11 @@ async fn should_put_item_records_for_multiple_records() {
     let expected1 = ItemRecord {
         pk: format!("item#shop_id#{shop_id}#shops_item_id#{shops_item_id_1}"),
         sk: "item#materialized".to_string(),
-        gsi_1_pk: format!("shop_id#{}", shop_id.clone()),
+        gsi_1_pk: format!("shop_id#{}", shop_id),
         gsi_1_sk: format!("updated#{now1_str}"),
         item_id: ItemId::new(),
         event_id: EventId::new(),
-        shop_id: shop_id.clone(),
+        shop_id,
         shops_item_id: shops_item_id_1.clone(),
         shop_name: "Foo".to_string(),
         title_native: TextRecord::new("Bar", LanguageRecord::De),
@@ -124,11 +124,11 @@ async fn should_put_item_records_for_multiple_records() {
     let expected2 = ItemRecord {
         pk: format!("item#shop_id#{shop_id}#shops_item_id#{shops_item_id_2}"),
         sk: "item#materialized".to_string(),
-        gsi_1_pk: format!("shop_id#{}", shop_id.clone()),
+        gsi_1_pk: format!("shop_id#{}", shop_id),
         gsi_1_sk: format!("updated#{now2_str}"),
         item_id: ItemId::new(),
         event_id: EventId::new(),
-        shop_id: shop_id.clone(),
+        shop_id,
         shops_item_id: shops_item_id_2.clone(),
         shop_name: "Foo".to_string(),
         title_native: TextRecord::new("Bar", LanguageRecord::De),
@@ -251,15 +251,12 @@ async fn should_put_item_event_records_for_multiple_records() {
         currency: CurrencyRecord::Eur,
     });
     let expected1 = ItemEventRecord {
-        pk: format!(
-            "item#shop_id#{}#shops_item_id#{shops_item_id1}",
-            shop_id.clone()
-        ),
+        pk: format!("item#shop_id#{}#shops_item_id#{shops_item_id1}", shop_id),
         sk: format!("item#event#{now_str1}"),
         item_id: ItemId::new(),
         event_id: EventId::new(),
         event_type: ItemEventTypeRecord::Created,
-        shop_id: shop_id.clone(),
+        shop_id,
         shops_item_id: shops_item_id1.clone(),
         shop_name: Some("Foo".to_string()),
         title_native: Some(TextRecord::new("Bar", LanguageRecord::De)),
@@ -286,10 +283,7 @@ async fn should_put_item_event_records_for_multiple_records() {
     let now_str2 = now2.format(&well_known::Rfc3339).unwrap();
     let shops_item_id2: ShopsItemId = "123465".into();
     let expected2 = ItemEventRecord {
-        pk: format!(
-            "item#shop_id#{}#shops_item_id#{shops_item_id2}",
-            shop_id.clone()
-        ),
+        pk: format!("item#shop_id#{}#shops_item_id#{shops_item_id2}", shop_id),
         sk: format!("item#event#{now_str2}"),
         item_id: ItemId::new(),
         event_id: EventId::new(),
@@ -353,11 +347,11 @@ async fn should_update_item_record() {
     let initial = ItemRecord {
         pk: format!("item#shop_id#{shop_id}#shops_item_id#{shops_item_id}"),
         sk: "item#materialized".to_string(),
-        gsi_1_pk: format!("shop_id#{}", shop_id.clone()),
+        gsi_1_pk: format!("shop_id#{}", shop_id),
         gsi_1_sk: format!("updated#{now_str}"),
         item_id: ItemId::new(),
         event_id: EventId::new(),
-        shop_id: shop_id.clone(),
+        shop_id,
         shops_item_id: shops_item_id.clone(),
         shop_name: "Foo".to_string(),
         title_native: TextRecord::new("Bar", LanguageRecord::De),

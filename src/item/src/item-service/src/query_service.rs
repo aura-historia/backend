@@ -164,6 +164,8 @@ mod tests {
     use std::collections::HashSet;
 
     use crate::query_service::{QueryItemService, QueryItemServiceImpl};
+    use common::query::any_of_query::AnyOfQuery;
+    use common::query::range_query::RangeQuery;
     use common::{
         currency::domain::Currency,
         item_state::domain::ItemState,
@@ -176,9 +178,7 @@ mod tests {
     };
     use item_core::sort_item_field::SortItemField;
     use item_opensearch::{item_document::ItemDocument, repository::MockItemOpenSearchRepository};
-    use search_filter_core::{
-        any_of_query::AnyOfQuery, range_query::RangeQuery, search_filter::SearchFilter,
-    };
+    use search_filter_core::search_filter::SearchFilter;
     use serde::ser::Error;
     use time::macros::datetime;
 

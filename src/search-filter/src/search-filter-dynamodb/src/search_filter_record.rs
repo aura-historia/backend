@@ -1,11 +1,13 @@
+use common::query::range_query::RangeQuery;
+use common::query::text_query::TextQuery;
 use common::{
     currency::record::CurrencyRecord, item_state::domain::ItemState,
     language::record::LanguageRecord, price::domain::MonetaryAmount, user_id::UserId,
 };
 use item_dynamodb::item_state_record::ItemStateRecord;
 use search_filter_core::{
-    range_query::RangeQuery, search_filter::SearchFilter, search_filter_id::SearchFilterId,
-    text_query::TextQuery, user_search_filter::UserSearchFilter,
+    search_filter::SearchFilter, search_filter_id::SearchFilterId,
+    user_search_filter::UserSearchFilter,
 };
 use serde::{Deserialize, Serialize};
 use std::collections::HashSet;
@@ -33,14 +35,14 @@ pub struct SearchFilterRecord {
     pub state_query: HashSet<ItemStateRecord>,
 
     #[serde(
-        with = "search_filter_core::range_query::range_rfc3339::option",
+        with = "common::query::range_query::range_rfc3339::option",
         default,
         skip_serializing_if = "Option::is_none"
     )]
     pub created_query: Option<RangeQuery<OffsetDateTime>>,
 
     #[serde(
-        with = "search_filter_core::range_query::range_rfc3339::option",
+        with = "common::query::range_query::range_rfc3339::option",
         default,
         skip_serializing_if = "Option::is_none"
     )]

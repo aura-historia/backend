@@ -1,8 +1,10 @@
-use crate::{any_of_query::AnyOfQuery, range_query::RangeQuery, text_query::TextQuery};
 use common::currency::domain::Currency;
 use common::item_state::domain::ItemState;
 use common::language::domain::Language;
 use common::price::domain::MonetaryAmount;
+use common::query::any_of_query::AnyOfQuery;
+use common::query::range_query::RangeQuery;
+use common::query::text_query::TextQuery;
 use time::OffsetDateTime;
 
 #[derive(Debug, Clone, PartialEq, Eq)]

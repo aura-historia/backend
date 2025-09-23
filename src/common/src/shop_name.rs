@@ -1,7 +1,8 @@
+use serde::{Deserialize, Serialize};
 use std::ops::Deref;
 
 #[cfg_attr(feature = "test-data", derive(fake::Dummy))]
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct ShopName(
     #[cfg_attr(
         feature = "test-data",

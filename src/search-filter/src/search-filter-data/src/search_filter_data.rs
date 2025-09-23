@@ -1,13 +1,13 @@
 use std::collections::HashSet;
 
+use common::query::range_query::RangeQuery;
+use common::query::text_query::TextQuery;
 use common::{
     currency::data::CurrencyData, item_state::domain::ItemState, language::data::LanguageData,
     price::domain::MonetaryAmount,
 };
 use item_data::item_state_data::ItemStateData;
-use search_filter_core::{
-    range_query::RangeQuery, search_filter::SearchFilter, text_query::TextQuery,
-};
+use search_filter_core::search_filter::SearchFilter;
 use serde::{Deserialize, Serialize};
 use time::OffsetDateTime;
 
@@ -35,7 +35,7 @@ pub struct SearchFilterData {
 
     #[serde(
         rename = "created",
-        with = "search_filter_core::range_query::range_rfc3339::option",
+        with = "common::query::range_query::range_rfc3339::option",
         default,
         skip_serializing_if = "Option::is_none"
     )]
@@ -43,7 +43,7 @@ pub struct SearchFilterData {
 
     #[serde(
         rename = "updated",
-        with = "search_filter_core::range_query::range_rfc3339::option",
+        with = "common::query::range_query::range_rfc3339::option",
         default,
         skip_serializing_if = "Option::is_none"
     )]
@@ -113,9 +113,9 @@ mod faker {
 #[cfg(test)]
 mod tests {
     use crate::search_filter_data::SearchFilterData;
+    use common::query::range_query::RangeQuery;
     use common::{currency::data::CurrencyData, language::data::LanguageData};
     use item_data::item_state_data::ItemStateData;
-    use search_filter_core::range_query::RangeQuery;
     use serde_json::json;
     use std::collections::HashSet;
     use time::macros::datetime;

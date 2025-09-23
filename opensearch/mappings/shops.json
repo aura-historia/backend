@@ -1,0 +1,42 @@
+{
+  "settings": {
+    "analysis": {
+      "normalizer": {
+        "lowercase_normalizer": {
+          "type": "custom",
+          "filter": ["lowercase"]
+        }
+      }
+    }
+  },
+  "mappings": {
+    "properties": {
+      "shopId": {
+        "type": "keyword"
+      },
+      "name": {
+        "type": "text",
+        "fields": {
+          "keyword": {
+            "type": "keyword",
+            "normalizer": "lowercase_normalizer"
+          }
+        }
+      },
+      "url": {
+        "type": "keyword"
+      },
+      "image": {
+        "type": "keyword"
+      },
+      "created": {
+        "type": "date",
+        "format": "strict_date_time"
+      },
+      "updated": {
+        "type": "date",
+        "format": "strict_date_time"
+      }
+    }
+  }
+}
