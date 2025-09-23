@@ -2,10 +2,11 @@ use common::query::{range_query::RangeQuery, text_query::TextQuery};
 use serde::{Deserialize, Serialize};
 use time::OffsetDateTime;
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ShopSearchData {
-    pub shop_name_query: TextQuery,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub shop_name_query: Option<TextQuery>,
 
     #[serde(
         with = "common::query::range_query::range_rfc3339::option",
@@ -91,7 +92,7 @@ mod tests {
             }
         });
         let expected = ShopSearchData {
-            shop_name_query: "Baap".try_into().unwrap(),
+            shop_name_query: Some("Baap".try_into().unwrap()),
             created: Some(RangeQuery {
                 min: Some(datetime!(2000 - 05 - 04 0:00 UTC)),
                 max: Some(datetime!(2025 - 05 - 04 0:00 UTC)),
@@ -108,12 +109,26 @@ mod tests {
     }
 
     #[test]
-    fn should_deserialize_minimal() {
+    fn should_deserialize_when_only_shop_name_query() {
         let json = json!({
             "shopNameQuery": "Baap",
         });
         let expected = ShopSearchData {
-            shop_name_query: "Baap".try_into().unwrap(),
+            shop_name_query: Some("Baap".try_into().unwrap()),
+            created: None,
+            updated: None,
+        };
+
+        let actual: ShopSearchData = serde_json::from_value(json).unwrap();
+
+        assert_eq!(expected, actual);
+    }
+
+    #[test]
+    fn should_deserialize_when_empty() {
+        let json = json!({});
+        let expected = ShopSearchData {
+            shop_name_query: None,
             created: None,
             updated: None,
         };

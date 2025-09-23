@@ -70,15 +70,17 @@ impl<'a> ShopOpenSearchRepository for ShopOpenSearchRepositoryImpl<'a> {
         let mut must = Vec::with_capacity(2);
         let mut filter = Vec::with_capacity(6);
 
-        must.push(json!({
-            "match": {
-                "name": {
-                    "query": search.shop_name_query.as_ref(),
-                    "fuzziness": "AUTO",
-                    "minimum_should_match": "70%"
+        if let Some(query) = search.shop_name_query.as_ref() {
+            must.push(json!({
+                "match": {
+                    "name": {
+                        "query": query,
+                        "fuzziness": "AUTO",
+                        "minimum_should_match": "70%"
+                    }
                 }
-            }
-        }));
+            }));
+        }
 
         if let Some(min) = search.created.and_then(|created| created.min) {
             let formatted_min = min
