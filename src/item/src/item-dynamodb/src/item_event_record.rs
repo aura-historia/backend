@@ -269,6 +269,18 @@ impl TryFrom<ItemEvent> for ItemEventRecord {
                 shops_item_id,
                 domain.timestamp,
             )),
+            ItemEventPayload::StateUnknown(payload) => Ok(mk_state_event_record(
+                ItemStateRecord::Unknown,
+                payload,
+                pk,
+                sk,
+                item_id,
+                event_id,
+                event_type,
+                shop_id,
+                shops_item_id,
+                domain.timestamp,
+            )),
             ItemEventPayload::PriceDiscovered(payload) => Ok(mk_price_event_record(
                 payload,
                 pk,
@@ -519,6 +531,13 @@ impl TryFrom<ItemEventRecord> for ItemEvent {
                 }
                 ItemEventTypeRecord::StateRemoved => {
                     ItemEventPayload::StateRemoved(ItemStateChangeEventPayload {
+                        shop_id,
+                        shops_item_id,
+                        hash,
+                    })
+                }
+                ItemEventTypeRecord::StateUnknown => {
+                    ItemEventPayload::StateUnknown(ItemStateChangeEventPayload {
                         shop_id,
                         shops_item_id,
                         hash,

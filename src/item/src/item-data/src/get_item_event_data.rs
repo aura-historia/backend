@@ -16,6 +16,7 @@ pub enum ItemEventTypeData {
     StateReserved,
     StateSold,
     StateRemoved,
+    StateUnknown,
     PriceDiscovered,
     PriceDropped,
     PriceIncreased,
@@ -30,6 +31,7 @@ pub enum ItemEventPayloadData {
     StateReserved(ItemStateData),
     StateSold(ItemStateData),
     StateRemoved(ItemStateData),
+    StateUnknown(ItemStateData),
     PriceDiscovered(PriceData),
     PriceDropped(PriceData),
     PriceIncreased(PriceData),
@@ -99,6 +101,12 @@ impl From<Event<ItemId, LocalizedItemEventPayloadView>> for GetItemEventData {
                 payload.shop_id,
                 payload.shops_item_id,
                 ItemEventPayloadData::StateRemoved(ItemStateData::Removed),
+            ),
+            LocalizedItemEventPayloadView::StateUnknown(payload) => (
+                ItemEventTypeData::StateUnknown,
+                payload.shop_id,
+                payload.shops_item_id,
+                ItemEventPayloadData::StateUnknown(ItemStateData::Unknown),
             ),
             LocalizedItemEventPayloadView::PriceDiscovered(payload) => (
                 ItemEventTypeData::PriceDiscovered,

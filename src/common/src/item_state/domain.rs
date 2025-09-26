@@ -6,4 +6,5 @@ pub enum ItemState {
     Reserved,
     Sold,
     Removed,
+    Unknown,
 }

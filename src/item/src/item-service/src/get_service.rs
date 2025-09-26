@@ -302,6 +302,13 @@ fn localize_item_event(
                 hash: payload.hash,
             })
         }
+        ItemEventPayload::StateUnknown(payload) => {
+            LocalizedItemEventPayloadView::StateUnknown(LocalizedItemStateChangeEventPayloadView {
+                shop_id: payload.shop_id,
+                shops_item_id: payload.shops_item_id,
+                hash: payload.hash,
+            })
+        }
         ItemEventPayload::PriceDiscovered(payload) => {
             let mut prices = payload.other_price;
             prices.insert(
