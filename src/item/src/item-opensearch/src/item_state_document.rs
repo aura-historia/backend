@@ -11,6 +11,7 @@ pub enum ItemStateDocument {
     Reserved,
     Sold,
     Removed,
+    Unknown,
 }
 
 impl From<ItemStateRecord> for ItemStateDocument {
@@ -21,6 +22,7 @@ impl From<ItemStateRecord> for ItemStateDocument {
             ItemStateRecord::Reserved => ItemStateDocument::Reserved,
             ItemStateRecord::Sold => ItemStateDocument::Sold,
             ItemStateRecord::Removed => ItemStateDocument::Removed,
+            ItemStateRecord::Unknown => ItemStateDocument::Unknown,
         }
     }
 }
@@ -33,6 +35,7 @@ impl From<ItemState> for ItemStateDocument {
             ItemState::Reserved => ItemStateDocument::Reserved,
             ItemState::Sold => ItemStateDocument::Sold,
             ItemState::Removed => ItemStateDocument::Removed,
+            ItemState::Unknown => ItemStateDocument::Unknown,
         }
     }
 }
@@ -45,6 +48,7 @@ impl From<ItemStateDocument> for ItemState {
             ItemStateDocument::Reserved => ItemState::Reserved,
             ItemStateDocument::Sold => ItemState::Sold,
             ItemStateDocument::Removed => ItemState::Removed,
+            ItemStateDocument::Unknown => ItemState::Unknown,
         }
     }
 }
@@ -57,6 +61,7 @@ impl ItemStateDocument {
             ItemStateDocument::Reserved => "RESERVED",
             ItemStateDocument::Sold => "SOLD",
             ItemStateDocument::Removed => "REMOVED",
+            ItemStateDocument::Unknown => "UNKNOWN",
         }
     }
 }
@@ -72,6 +77,7 @@ mod tests {
     #[case(ItemStateDocument::Reserved, "\"RESERVED\"")]
     #[case(ItemStateDocument::Sold, "\"SOLD\"")]
     #[case(ItemStateDocument::Removed, "\"REMOVED\"")]
+    #[case(ItemStateDocument::Unknown, "\"UNKNOWN\"")]
     fn should_serialize_item_state_document_in_screaming_snake_case(
         #[case] state: ItemStateDocument,
         #[case] expected: &str,
@@ -86,6 +92,7 @@ mod tests {
     #[case("\"RESERVED\"", ItemStateDocument::Reserved)]
     #[case("\"SOLD\"", ItemStateDocument::Sold)]
     #[case("\"REMOVED\"", ItemStateDocument::Removed)]
+    #[case("\"UNKNOWN\"", ItemStateDocument::Unknown)]
     fn should_deserialize_item_state_document_in_screaming_snake_case(
         #[case] state: &str,
         #[case] expected: ItemStateDocument,
@@ -100,6 +107,7 @@ mod tests {
     #[case(ItemStateDocument::Reserved)]
     #[case(ItemStateDocument::Sold)]
     #[case(ItemStateDocument::Removed)]
+    #[case(ItemStateDocument::Unknown)]
     fn should_as_str_match_serialized(#[case] state: ItemStateDocument) {
         let serialized = serde_json::to_string::<ItemStateDocument>(&state)
             .unwrap()

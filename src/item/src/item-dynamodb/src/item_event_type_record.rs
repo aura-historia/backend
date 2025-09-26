@@ -11,6 +11,7 @@ pub enum ItemEventTypeRecord {
     StateReserved,
     StateSold,
     StateRemoved,
+    StateUnknown,
     PriceDiscovered,
     PriceDropped,
     PriceIncreased,
@@ -25,6 +26,7 @@ impl From<&ItemEventPayload> for ItemEventTypeRecord {
             ItemEventPayload::StateReserved(_) => ItemEventTypeRecord::StateReserved,
             ItemEventPayload::StateSold(_) => ItemEventTypeRecord::StateSold,
             ItemEventPayload::StateRemoved(_) => ItemEventTypeRecord::StateRemoved,
+            ItemEventPayload::StateUnknown(_) => ItemEventTypeRecord::StateUnknown,
             ItemEventPayload::PriceDiscovered(_) => ItemEventTypeRecord::PriceDiscovered,
             ItemEventPayload::PriceDropped(_) => ItemEventTypeRecord::PriceDropped,
             ItemEventPayload::PriceIncreased(_) => ItemEventTypeRecord::PriceIncreased,
@@ -44,6 +46,7 @@ mod tests {
     #[case(ItemEventTypeRecord::StateReserved, "\"STATE_RESERVED\"")]
     #[case(ItemEventTypeRecord::StateSold, "\"STATE_SOLD\"")]
     #[case(ItemEventTypeRecord::StateRemoved, "\"STATE_REMOVED\"")]
+    #[case(ItemEventTypeRecord::StateUnknown, "\"STATE_UNKNOWN\"")]
     #[case(ItemEventTypeRecord::PriceDiscovered, "\"PRICE_DISCOVERED\"")]
     #[case(ItemEventTypeRecord::PriceDropped, "\"PRICE_DROPPED\"")]
     #[case(ItemEventTypeRecord::PriceIncreased, "\"PRICE_INCREASED\"")]
@@ -62,6 +65,7 @@ mod tests {
     #[case("\"STATE_RESERVED\"", ItemEventTypeRecord::StateReserved)]
     #[case("\"STATE_SOLD\"", ItemEventTypeRecord::StateSold)]
     #[case("\"STATE_REMOVED\"", ItemEventTypeRecord::StateRemoved)]
+    #[case("\"STATE_UNKNOWN\"", ItemEventTypeRecord::StateUnknown)]
     #[case("\"PRICE_DISCOVERED\"", ItemEventTypeRecord::PriceDiscovered)]
     #[case("\"PRICE_DROPPED\"", ItemEventTypeRecord::PriceDropped)]
     #[case("\"PRICE_INCREASED\"", ItemEventTypeRecord::PriceIncreased)]
