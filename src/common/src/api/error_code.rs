@@ -28,6 +28,7 @@ pub const BAD_ORDER_VALUE: ApiErrorCode = ApiErrorCode("BAD_ORDER_VALUE");
 pub const INVALID_UUID: ApiErrorCode = ApiErrorCode("INVALID_UUID");
 
 pub const ITEM_NOT_FOUND: ApiErrorCode = ApiErrorCode("ITEM_NOT_FOUND");
+pub const WATCHLIST_ENTRY_NOT_FOUND: ApiErrorCode = ApiErrorCode("WATCHLIST_ENTRY_NOT_FOUND");
 pub const SEARCH_FILTER_NOT_FOUND: ApiErrorCode = ApiErrorCode("SEARCH_FILTER_NOT_FOUND");
 pub const SHOP_NOT_FOUND: ApiErrorCode = ApiErrorCode("SHOP_NOT_FOUND");
 pub const MONETARY_AMOUNT_OVERFLOW: ApiErrorCode = ApiErrorCode("MONETARY_AMOUNT_OVERFLOW");

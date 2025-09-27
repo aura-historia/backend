@@ -21,11 +21,12 @@ fn should_put_watchlist_record() {
         .unwrap();
 
     let actual = repository
-        .query_watchlist_records(&expected.user_id, &Default::default(), true)
+        .get_watchlist_record(&expected.user_id, &expected.created)
         .await
+        .unwrap()
         .unwrap();
 
-    assert_eq!(vec![expected], actual);
+    assert_eq!(expected, actual);
 }
 
 #[localstack_test(services = [DynamoDB()])]

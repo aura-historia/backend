@@ -4,6 +4,7 @@ use aws_sdk_dynamodb::{
     error::SdkError,
     operation::{
         delete_item::{DeleteItemError, DeleteItemOutput},
+        get_item::GetItemError,
         put_item::{PutItemError, PutItemOutput},
         query::QueryError,
     },
@@ -27,6 +28,12 @@ pub trait WatchlistItemDynamoDbRepository {
         &self,
         record: WatchlistItemRecord,
     ) -> Result<PutItemOutput, SdkError<PutItemError>>;
+
+    async fn get_watchlist_record(
+        &self,
+        user_id: &UserId,
+        created: &OffsetDateTime,
+    ) -> Result<Option<WatchlistItemRecord>, SdkError<GetItemError>>;
 
     async fn delete_watchlist_record(
         &self,
@@ -118,6 +125,33 @@ impl<'a> WatchlistItemDynamoDbRepository for WatchlistItemDynamoDbRepositoryImpl
             ))
             .send()
             .await
+    }
+
+    async fn get_watchlist_record(
+        &self,
+        user_id: &UserId,
+        created: &OffsetDateTime,
+    ) -> Result<Option<WatchlistItemRecord>, SdkError<GetItemError>> {
+        let pk = mk_pk(user_id);
+        let sk = mk_sk(created).map_err(SdkError::construction_failure)?;
+        let record = self.client
+            .get_item()
+            .table_name(&self.table)
+            .key("pk", AttributeValue::S(pk))
+            .key("sk", AttributeValue::S(sk))
+            .send()
+            .await?
+            .item
+            .map(serde_dynamo::from_item::<_, WatchlistItemRecord>)
+            .and_then(|res| match res {
+                Ok(record) => Some(record),
+                Err(err) => {
+                    error!(error = %err, type = %std::any::type_name::<WatchlistItemRecord>(), "Failed deserializing.");
+                    None
+                }
+            });
+
+        Ok(record)
     }
 
     async fn delete_watchlist_record(
