@@ -45,7 +45,7 @@ pub trait QueryItemService {
         &self,
         search_filter: &SearchFilter,
         sort: &Option<Sort<SortItemField>>,
-        page: &Option<Page>,
+        page: &Option<Page<u16>>,
     ) -> Result<SearchResult<LocalizedItemView>, SearchItemsError>;
 }
 
@@ -65,7 +65,7 @@ impl<'a> QueryItemService for QueryItemServiceImpl<'a> {
         &self,
         search_filter: &SearchFilter,
         sort: &Option<Sort<SortItemField>>,
-        page: &Option<Page>,
+        page: &Option<Page<u16>>,
     ) -> Result<SearchResult<LocalizedItemView>, SearchItemsError> {
         let search_response = self
             .repository
@@ -291,7 +291,7 @@ mod tests {
     async fn should_search_items(
         #[case] search_filter: SearchFilter,
         #[case] sort: Option<Sort<SortItemField>>,
-        #[case] page: Option<Page>,
+        #[case] page: Option<Page<u16>>,
         #[case] count: usize,
     ) {
         let mut repository = MockItemOpenSearchRepository::default();

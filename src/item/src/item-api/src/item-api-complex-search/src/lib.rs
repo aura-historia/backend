@@ -6,7 +6,7 @@ use common::{
         error::ApiError,
         error_code::BAD_BODY_VALUE,
     },
-    page::{Page, api::extract_page_query},
+    page::{Page, api::extract_page_query_u16},
     sort::api::extract_sort_query,
 };
 use item_core::sort_item_field::SortItemField;
@@ -40,7 +40,7 @@ pub async fn handle(
 ) -> Result<ApiGatewayV2httpResponse, ApiError> {
     let sort = extract_sort_query::<SortItemFieldData>(&event.payload.query_string_parameters)?
         .map(|sort_data| sort_data.map(SortItemField::from));
-    let page = extract_page_query(&event.payload.query_string_parameters)?
+    let page = extract_page_query_u16(&event.payload.query_string_parameters)?
         .unwrap_or(Page { from: 0, size: 21 });
     let body = event
         .payload

@@ -1,6 +1,6 @@
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct Page {
-    pub from: u16,
+pub struct Page<From> {
+    pub from: From,
     pub size: u16,
 }
 
@@ -15,7 +15,7 @@ pub mod api {
     };
     use aws_lambda_events::query_map::QueryMap;
 
-    pub fn extract_page_query(headers: &QueryMap) -> Result<Option<Page>, ApiError> {
+    pub fn extract_page_query_u16(headers: &QueryMap) -> Result<Option<Page<u16>>, ApiError> {
         let from = headers
             .first("from")
             .map(str::trim)
@@ -52,7 +52,7 @@ pub mod api {
         use crate::api::error::{ApiErrorSource, ApiErrorSourceType};
         use crate::api::error_code::{BAD_PAGE_FROM_VALUE, BAD_PAGE_SIZE_VALUE};
         use crate::page::Page;
-        use crate::page::api::extract_page_query;
+        use crate::page::api::extract_page_query_u16;
         use aws_lambda_events::query_map::QueryMap;
         use std::collections::HashMap;
 
@@ -69,10 +69,10 @@ pub mod api {
         #[case(None, Some("42"), None)]
         #[case(Some("31"), None, None)]
         #[case(None, None, None)]
-        fn should_extract_page(
+        fn should_extract_page_u16(
             #[case] from_value: Option<&str>,
             #[case] size_value: Option<&str>,
-            #[case] expected: Option<Page>,
+            #[case] expected: Option<Page<u16>>,
         ) {
             let mut map = HashMap::new();
             if let Some(from_value) = from_value {
@@ -83,7 +83,7 @@ pub mod api {
             }
             let query = QueryMap::from(map);
 
-            let actual = extract_page_query(&query).unwrap();
+            let actual = extract_page_query_u16(&query).unwrap();
 
             assert_eq!(expected, actual);
         }
@@ -95,12 +95,12 @@ pub mod api {
         #[case("1x")]
         #[case("07g")]
         #[case("65536")]
-        fn should_400_when_from_is_invalid(#[case] value: &str) {
+        fn should_400_when_from_is_invalid_for_u16(#[case] value: &str) {
             let mut map = HashMap::new();
             map.insert("from".to_string(), value.to_string());
             let query = QueryMap::from(map);
 
-            let actual = extract_page_query(&query).unwrap_err();
+            let actual = extract_page_query_u16(&query).unwrap_err();
 
             assert_eq!(400, actual.status);
             assert_eq!(BAD_PAGE_FROM_VALUE, actual.error);
@@ -125,7 +125,7 @@ pub mod api {
             map.insert("size".to_string(), value.to_string());
             let query = QueryMap::from(map);
 
-            let actual = extract_page_query(&query).unwrap_err();
+            let actual = extract_page_query_u16(&query).unwrap_err();
 
             assert_eq!(400, actual.status);
             assert_eq!(BAD_PAGE_SIZE_VALUE, actual.error);

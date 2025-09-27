@@ -22,7 +22,7 @@ pub trait ShopOpenSearchRepository {
         &self,
         search: &ShopSearch,
         sort: &Option<Sort<SortShopField>>,
-        page: &Option<Page>,
+        page: &Option<Page<u16>>,
     ) -> Result<SearchResponse<ShopDocument>, opensearch::Error>;
 }
 
@@ -65,7 +65,7 @@ impl<'a> ShopOpenSearchRepository for ShopOpenSearchRepositoryImpl<'a> {
         &self,
         search: &ShopSearch,
         sort: &Option<Sort<SortShopField>>,
-        page: &Option<Page>,
+        page: &Option<Page<u16>>,
     ) -> Result<SearchResponse<ShopDocument>, opensearch::Error> {
         let mut must = Vec::with_capacity(2);
         let mut filter = Vec::with_capacity(6);

@@ -35,7 +35,7 @@ pub trait ItemOpenSearchRepository {
         &self,
         search_filter: &SearchFilter,
         sort: &Option<Sort<SortItemField>>,
-        page: &Option<Page>,
+        page: &Option<Page<u16>>,
     ) -> Result<SearchResponse<ItemDocument>, opensearch::Error>;
 }
 
@@ -115,7 +115,7 @@ impl<'a> ItemOpenSearchRepository for ItemOpenSearchRepositoryImpl<'a> {
         &self,
         search_filter: &SearchFilter,
         sort: &Option<Sort<SortItemField>>,
-        page: &Option<Page>,
+        page: &Option<Page<u16>>,
     ) -> Result<SearchResponse<ItemDocument>, opensearch::Error> {
         let mut must = Vec::with_capacity(3);
         let mut filter = Vec::with_capacity(10);

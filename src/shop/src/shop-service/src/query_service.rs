@@ -40,7 +40,7 @@ pub trait QueryShopService {
         &self,
         search: &ShopSearch,
         sort: &Option<Sort<SortShopField>>,
-        page: &Option<Page>,
+        page: &Option<Page<u16>>,
     ) -> Result<SearchResult<Shop>, SearchShopsError>;
 }
 
@@ -60,7 +60,7 @@ impl<'a> QueryShopService for QueryShopServiceImpl<'a> {
         &self,
         search: &ShopSearch,
         sort: &Option<Sort<SortShopField>>,
-        page: &Option<Page>,
+        page: &Option<Page<u16>>,
     ) -> Result<SearchResult<Shop>, SearchShopsError> {
         let search_response = self
             .repository
@@ -192,7 +192,7 @@ mod tests {
     async fn should_search_shops(
         #[case] search: ShopSearch,
         #[case] sort: Option<Sort<SortShopField>>,
-        #[case] page: Option<Page>,
+        #[case] page: Option<Page<u16>>,
         #[case] count: usize,
     ) {
         let mut repository = MockShopOpenSearchRepository::default();
