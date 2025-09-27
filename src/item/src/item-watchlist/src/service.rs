@@ -5,7 +5,10 @@ use crate::{
 use aws_sdk_dynamodb::{
     config::http::HttpResponse, error::SdkError, operation::put_item::PutItemError,
 };
-use common::{shop_id::ShopId, shops_item_id::ShopsItemId, user_id::UserId};
+use common::{
+    currency::domain::Currency, language::domain::Language, page::Page, shop_id::ShopId,
+    shops_item_id::ShopsItemId, user_id::UserId,
+};
 use item_dynamodb::repository::ItemDynamoDbRepository;
 use time::OffsetDateTime;
 
@@ -89,6 +92,13 @@ pub trait ItemWatchListService {
         user_id: &UserId,
         created: &OffsetDateTime,
     ) -> Result<(), WatchItemError>;
+
+    async fn view_watchlist(
+        &self,
+        languages: &[Language],
+        currency: &Currency,
+        page: &Option<Page<OffsetDateTime>>,
+    ) -> Result<(), WatchItemError>;
 }
 
 pub struct ItemWatchListServiceImpl<'a> {
@@ -162,5 +172,14 @@ impl<'a> ItemWatchListService for ItemWatchListServiceImpl<'a> {
             .await?;
 
         Ok(())
+    }
+
+    async fn view_watchlist(
+        &self,
+        languages: &[Language],
+        currency: &Currency,
+        page: &Option<Page<OffsetDateTime>>,
+    ) -> Result<(), WatchItemError> {
+        todo!()
     }
 }

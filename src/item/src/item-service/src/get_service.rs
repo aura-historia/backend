@@ -1,9 +1,10 @@
 use async_trait::async_trait;
 use aws_sdk_dynamodb::config::http::HttpResponse;
 use aws_sdk_dynamodb::error::SdkError;
+use common::batch::Batch;
 use common::currency::domain::Currency;
 use common::event::Event;
-use common::item_id::ItemId;
+use common::item_id::{ItemId, ItemKey};
 use common::language::domain::Language;
 use common::localized::Localized;
 use common::price::domain::{MonetaryAmountOverflowError, Price};
@@ -18,9 +19,10 @@ use item_core::item_event::{
 };
 use item_core::title::Title;
 use item_dynamodb::item_event_record::ItemEventRecord;
+use item_dynamodb::item_record::ItemRecord;
 use item_dynamodb::repository::ItemDynamoDbRepository;
 use std::collections::HashMap;
-use tracing::error;
+use tracing::{error, warn};
 
 #[derive(thiserror::Error, Debug)]
 pub enum GetItemError {
@@ -33,6 +35,12 @@ pub enum GetItemError {
     #[error("Encountered DynamoDB SdkError for GetItem: {0}")]
     SdkGetItemError(
         #[from] SdkError<aws_sdk_dynamodb::operation::get_item::GetItemError, HttpResponse>,
+    ),
+
+    #[error("Encountered DynamoDB SdkError for BatchGetItem: {0}")]
+    SdkBatchGetItemError(
+        #[from]
+        SdkError<aws_sdk_dynamodb::operation::batch_get_item::BatchGetItemError, HttpResponse>,
     ),
 
     #[error("Encountered DynamoDB SdkError for QueryItem: {0}")]
@@ -56,6 +64,10 @@ pub mod api {
                 }
                 GetItemError::SdkGetItemError(err) => {
                     error!(error = ?err, "Encountered SdkGetItemError while getting item.");
+                    err.into()
+                }
+                GetItemError::SdkBatchGetItemError(err) => {
+                    error!(error = ?err, "Encountered SdkBatchGetItemError while getting item.");
                     err.into()
                 }
                 GetItemError::SdkQueryError(err) => {
@@ -84,6 +96,13 @@ pub trait GetItemService {
         currency: &Currency,
         history: bool,
     ) -> Result<LocalizedItemView, GetItemError>;
+
+    async fn view_items(
+        &self,
+        items: Vec<ItemKey>,
+        languages: &[Language],
+        currency: &Currency,
+    ) -> Result<Vec<LocalizedItemView>, GetItemError>;
 }
 
 pub struct GetItemServiceImpl<'a> {
@@ -135,58 +154,7 @@ impl<'a> GetItemService for GetItemServiceImpl<'a> {
             (item_record, vec![])
         };
 
-        let mut available_titles: HashMap<Language, Title> = HashMap::with_capacity(3);
-        available_titles.insert(
-            item_record.title_native.language.into(),
-            item_record.title_native.text.into(),
-        );
-        if let Some(title_de) = item_record.title_de {
-            available_titles.insert(Language::De, title_de.into());
-        }
-        if let Some(title_en) = item_record.title_en {
-            available_titles.insert(Language::En, title_en.into());
-        }
-
-        let mut available_descriptions: HashMap<Language, Description> = HashMap::with_capacity(3);
-        if let Some(description_native) = item_record.description_native {
-            available_descriptions.insert(
-                description_native.language.into(),
-                description_native.text.into(),
-            );
-        }
-        if let Some(description_de) = item_record.description_de {
-            available_descriptions.insert(Language::De, description_de.into());
-        }
-        if let Some(description_en) = item_record.description_en {
-            available_descriptions.insert(Language::En, description_en.into());
-        }
-
-        let title = Language::resolve(preferred_languages, available_titles).unwrap_or_else(|| {
-            error!("Failed resolving title. This SHOULD be impossible because the native title always exists.");
-            Localized::new(Language::En, "Unknown title".into())
-        });
-        let description = Language::resolve(preferred_languages, available_descriptions);
-
-        let price = match currency {
-            Currency::Eur => item_record
-                .price_eur
-                .map(|amount| Price::new(amount.into(), Currency::Eur)),
-            Currency::Gbp => item_record
-                .price_gbp
-                .map(|amount| Price::new(amount.into(), Currency::Gbp)),
-            Currency::Usd => item_record
-                .price_usd
-                .map(|amount| Price::new(amount.into(), Currency::Usd)),
-            Currency::Aud => item_record
-                .price_aud
-                .map(|amount| Price::new(amount.into(), Currency::Aud)),
-            Currency::Cad => item_record
-                .price_cad
-                .map(|amount| Price::new(amount.into(), Currency::Cad)),
-            Currency::Nzd => item_record
-                .price_nzd
-                .map(|amount| Price::new(amount.into(), Currency::Nzd)),
-        };
+        let mut item_view = localize_item_record(item_record, currency, preferred_languages);
 
         let event_views = event_records
             .into_iter()
@@ -205,26 +173,111 @@ impl<'a> GetItemService for GetItemServiceImpl<'a> {
             })
             .map(|event| localize_item_event(event, preferred_languages, currency))
             .collect();
-
-        let item_view = LocalizedItemView {
-            item_id: item_record.item_id,
-            event_id: item_record.event_id,
-            shop_id: item_record.shop_id,
-            shops_item_id: item_record.shops_item_id,
-            shop_name: item_record.shop_name.into(),
-            title,
-            description,
-            price,
-            state: item_record.state.into(),
-            url: item_record.url,
-            images: item_record.images,
-            hash: item_record.hash,
-            created: item_record.created,
-            updated: item_record.updated,
-            history: if history { Some(event_views) } else { None },
-        };
+        item_view.history = if history { Some(event_views) } else { None };
 
         Ok(item_view)
+    }
+
+    async fn view_items(
+        &self,
+        items: Vec<ItemKey>,
+        languages: &[Language],
+        currency: &Currency,
+    ) -> Result<Vec<LocalizedItemView>, GetItemError> {
+        let mut views = Vec::with_capacity(items.len());
+        for batch in Batch::chunked_from(items.into_iter()) {
+            let result = self.repository.get_item_records(&batch).await?;
+            if let Some(unprocessed) = result.unprocessed {
+                warn!(
+                    unprocessed = unprocessed.len(),
+                    "Getting items in batch contained unprocessed."
+                )
+            }
+            let local_views = result
+                .items
+                .into_iter()
+                .map(|record| localize_item_record(record, currency, languages));
+            views.extend(local_views);
+        }
+
+        Ok(views)
+    }
+}
+
+fn localize_item_record(
+    item_record: ItemRecord,
+    currency: &Currency,
+    preferred_languages: &[Language],
+) -> LocalizedItemView {
+    let mut available_titles: HashMap<Language, Title> = HashMap::with_capacity(3);
+    available_titles.insert(
+        item_record.title_native.language.into(),
+        item_record.title_native.text.into(),
+    );
+    if let Some(title_de) = item_record.title_de {
+        available_titles.insert(Language::De, title_de.into());
+    }
+    if let Some(title_en) = item_record.title_en {
+        available_titles.insert(Language::En, title_en.into());
+    }
+
+    let mut available_descriptions: HashMap<Language, Description> = HashMap::with_capacity(3);
+    if let Some(description_native) = item_record.description_native {
+        available_descriptions.insert(
+            description_native.language.into(),
+            description_native.text.into(),
+        );
+    }
+    if let Some(description_de) = item_record.description_de {
+        available_descriptions.insert(Language::De, description_de.into());
+    }
+    if let Some(description_en) = item_record.description_en {
+        available_descriptions.insert(Language::En, description_en.into());
+    }
+
+    let title = Language::resolve(preferred_languages, available_titles).unwrap_or_else(|| {
+        error!("Failed resolving title. This SHOULD be impossible because the native title always exists.");
+        Localized::new(Language::En, "Unknown title".into())
+    });
+    let description = Language::resolve(preferred_languages, available_descriptions);
+
+    let price = match currency {
+        Currency::Eur => item_record
+            .price_eur
+            .map(|amount| Price::new(amount.into(), Currency::Eur)),
+        Currency::Gbp => item_record
+            .price_gbp
+            .map(|amount| Price::new(amount.into(), Currency::Gbp)),
+        Currency::Usd => item_record
+            .price_usd
+            .map(|amount| Price::new(amount.into(), Currency::Usd)),
+        Currency::Aud => item_record
+            .price_aud
+            .map(|amount| Price::new(amount.into(), Currency::Aud)),
+        Currency::Cad => item_record
+            .price_cad
+            .map(|amount| Price::new(amount.into(), Currency::Cad)),
+        Currency::Nzd => item_record
+            .price_nzd
+            .map(|amount| Price::new(amount.into(), Currency::Nzd)),
+    };
+
+    LocalizedItemView {
+        item_id: item_record.item_id,
+        event_id: item_record.event_id,
+        shop_id: item_record.shop_id,
+        shops_item_id: item_record.shops_item_id,
+        shop_name: item_record.shop_name.into(),
+        title,
+        description,
+        price,
+        state: item_record.state.into(),
+        url: item_record.url,
+        images: item_record.images,
+        hash: item_record.hash,
+        created: item_record.created,
+        updated: item_record.updated,
+        history: None,
     }
 }
 
@@ -861,6 +914,98 @@ mod tests {
             match actual.unwrap_err() {
                 GetItemError::SdkGetItemError(_) => {}
                 _ => panic!("expected GetItemError::ItemNotFound"),
+            }
+        }
+    }
+
+    mod view_items {
+        use crate::get_service::{GetItemError, GetItemService, GetItemServiceImpl};
+        use aws_sdk_dynamodb::{
+            config::http::HttpResponse,
+            error::{ConnectorError, SdkError},
+        };
+        use common::{batch::Batch, currency::domain::Currency};
+        use common::{batch::dynamodb::BatchGetItemResult, item_id::ItemKey};
+        use item_dynamodb::{item_record::ItemRecord, repository::MockItemDynamoDbRepository};
+
+        #[tokio::test]
+        async fn should_return_items_when_all_processed() {
+            let mut repository = MockItemDynamoDbRepository::default();
+            repository.expect_get_item_records().returning(|_| {
+                Box::pin(async {
+                    Ok(BatchGetItemResult {
+                        items: fake::vec![ItemRecord; 42],
+                        unprocessed: None,
+                    })
+                })
+            });
+            let service = GetItemServiceImpl {
+                repository: &repository,
+            };
+            let actual = service
+                .view_items(fake::vec![ItemKey; 42], &[], &Currency::Eur)
+                .await
+                .unwrap();
+            assert_eq!(42, actual.len());
+        }
+
+        #[tokio::test]
+        async fn should_return_items_when_some_processed() {
+            let mut repository = MockItemDynamoDbRepository::default();
+            repository.expect_get_item_records().returning(|_| {
+                Box::pin(async {
+                    Ok(BatchGetItemResult {
+                        items: fake::vec![ItemRecord; 37],
+                        unprocessed: Some(
+                            Batch::try_from_iter(fake::vec![ItemKey; 5].into_iter()).unwrap(),
+                        ),
+                    })
+                })
+            });
+            let service = GetItemServiceImpl {
+                repository: &repository,
+            };
+            let actual = service
+                .view_items(fake::vec![ItemKey; 42], &[], &Currency::Eur)
+                .await
+                .unwrap();
+            assert_eq!(37, actual.len());
+        }
+
+        #[tokio::test]
+        #[rstest::rstest]
+        #[case::construction_failure(SdkError::construction_failure("Something went wrong"))]
+        #[case::timeout(SdkError::timeout_error("Something went wrong"))]
+        #[case::dispatch_failure(SdkError::dispatch_failure(ConnectorError::user("Something went wrong".into())))]
+        #[case::response_error(SdkError::response_error(
+            "Something went wrong",
+            HttpResponse::new(500u16.try_into().unwrap(), "{}".into())
+        ))]
+        #[case::service_error(SdkError::service_error(
+            aws_sdk_dynamodb::operation::batch_get_item::BatchGetItemError::unhandled("Something went wrong"),
+            HttpResponse::new(500u16.try_into().unwrap(), "{}".into())
+        ))]
+        async fn should_fail_entire_operation_and_propagate_sdk_error_when_batch_operation_fails(
+            #[case] expected: SdkError<
+                aws_sdk_dynamodb::operation::batch_get_item::BatchGetItemError,
+                aws_sdk_dynamodb::config::http::HttpResponse,
+            >,
+        ) {
+            let mut repository = MockItemDynamoDbRepository::default();
+            repository
+                .expect_get_item_records()
+                .return_once(|_| Box::pin(async { Err(expected) }));
+            let service = GetItemServiceImpl {
+                repository: &repository,
+            };
+            let actual = service
+                .view_items(fake::vec![ItemKey; 222], &[], &Currency::Eur)
+                .await;
+
+            assert!(actual.is_err());
+            match actual.unwrap_err() {
+                GetItemError::SdkBatchGetItemError(_) => {}
+                _ => panic!("expected GetItemError::SdkBatchGetItemError"),
             }
         }
     }
