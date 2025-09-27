@@ -21,6 +21,7 @@ pub trait WatchlistItemDynamoDbRepository {
         &self,
         user_id: &UserId,
         created_query: &RangeQuery<OffsetDateTime>,
+        limit: u64,
         scan_index_forward: bool,
     ) -> Result<Vec<WatchlistItemRecord>, SdkError<QueryError>>;
 
@@ -63,6 +64,7 @@ impl<'a> WatchlistItemDynamoDbRepository for WatchlistItemDynamoDbRepositoryImpl
         &self,
         user_id: &UserId,
         created_query: &RangeQuery<OffsetDateTime>,
+        limit: u64,
         scan_index_forward: bool,
     ) -> Result<Vec<WatchlistItemRecord>, SdkError<QueryError>> {
         let sk_val_low = mk_sk(
@@ -93,6 +95,7 @@ impl<'a> WatchlistItemDynamoDbRepository for WatchlistItemDynamoDbRepositoryImpl
                 ":sk_val_high",
                 AttributeValue::S(sk_val_high),
             )
+            .limit(limit as i32)
             .scan_index_forward(scan_index_forward)
             .into_paginator()
             .send()

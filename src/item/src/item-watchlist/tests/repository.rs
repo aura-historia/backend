@@ -45,7 +45,7 @@ fn should_delete_watchlist_record() {
         .unwrap();
 
     let actual = repository
-        .query_watchlist_records(&expected.user_id, &Default::default(), true)
+        .query_watchlist_records(&expected.user_id, &Default::default(), 42, true)
         .await
         .unwrap();
     assert!(actual.is_empty());
@@ -73,7 +73,7 @@ fn should_query_watchlist_records_when_lower_bounded_created_for_scan_index_true
     };
 
     let actual = repository
-        .query_watchlist_records(&user_id, &query, true)
+        .query_watchlist_records(&user_id, &query, 100, true)
         .await
         .unwrap();
     assert_eq!(expected, actual);
@@ -101,7 +101,7 @@ fn should_query_watchlist_records_when_higher_bounded_created_for_scan_index_tru
     };
 
     let actual = repository
-        .query_watchlist_records(&user_id, &query, true)
+        .query_watchlist_records(&user_id, &query, 100, true)
         .await
         .unwrap();
     assert_eq!(expected, actual);
@@ -129,7 +129,7 @@ fn should_query_watchlist_records_when_lower_higher_bounded_created_for_scan_ind
     };
 
     let actual = repository
-        .query_watchlist_records(&user_id, &query, true)
+        .query_watchlist_records(&user_id, &query, 100, true)
         .await
         .unwrap();
     assert_eq!(expected, actual);
