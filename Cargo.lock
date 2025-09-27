@@ -1936,6 +1936,7 @@ dependencies = [
  "item-lambda",
  "item-opensearch",
  "item-service",
+ "item-watchlist",
 ]
 
 [[package]]
@@ -2299,6 +2300,26 @@ dependencies = [
  "tokio",
  "tracing",
  "url",
+]
+
+[[package]]
+name = "item-watchlist"
+version = "0.1.0"
+dependencies = [
+ "async-trait",
+ "aws-sdk-dynamodb",
+ "common",
+ "fake",
+ "item-core",
+ "item-dynamodb",
+ "item-watchlist",
+ "mockall",
+ "serde",
+ "serde_dynamo",
+ "serial_test",
+ "test-api",
+ "time",
+ "tracing",
 ]
 
 [[package]]

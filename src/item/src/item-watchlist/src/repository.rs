@@ -1,0 +1,138 @@
+use crate::record::{WatchlistItemRecord, mk_pk, mk_sk};
+use aws_sdk_dynamodb::{
+    Client,
+    error::SdkError,
+    operation::{
+        delete_item::{DeleteItemError, DeleteItemOutput},
+        put_item::{PutItemError, PutItemOutput},
+        query::QueryError,
+    },
+    types::AttributeValue,
+};
+use common::{query::range_query::RangeQuery, user_id::UserId};
+use time::{OffsetDateTime, macros::datetime};
+use tracing::error;
+
+#[async_trait::async_trait]
+#[mockall::automock]
+pub trait WatchlistItemDynamoDbRepository {
+    async fn query_watchlist_records(
+        &self,
+        user_id: &UserId,
+        created_query: &RangeQuery<OffsetDateTime>,
+        scan_index_forward: bool,
+    ) -> Result<Vec<WatchlistItemRecord>, SdkError<QueryError>>;
+
+    async fn put_watchlist_record(
+        &self,
+        record: WatchlistItemRecord,
+    ) -> Result<PutItemOutput, SdkError<PutItemError>>;
+
+    async fn delete_watchlist_record(
+        &self,
+        user_id: &UserId,
+        created: &OffsetDateTime,
+    ) -> Result<DeleteItemOutput, SdkError<DeleteItemError>>;
+}
+
+#[derive(Debug, Clone)]
+pub struct WatchlistItemDynamoDbRepositoryImpl<'a> {
+    client: &'a Client,
+    table: String,
+}
+
+impl<'a> WatchlistItemDynamoDbRepositoryImpl<'a> {
+    pub fn new(client: &'a Client, table: impl Into<String>) -> Self {
+        Self {
+            client,
+            table: table.into(),
+        }
+    }
+}
+
+#[async_trait::async_trait]
+impl<'a> WatchlistItemDynamoDbRepository for WatchlistItemDynamoDbRepositoryImpl<'a> {
+    async fn query_watchlist_records(
+        &self,
+        user_id: &UserId,
+        created_query: &RangeQuery<OffsetDateTime>,
+        scan_index_forward: bool,
+    ) -> Result<Vec<WatchlistItemRecord>, SdkError<QueryError>> {
+        let sk_val_low = mk_sk(
+            &created_query
+                .min
+                .unwrap_or(datetime!(2000 - 01 - 01 0:00 UTC)),
+        )
+        .map_err(SdkError::construction_failure)?;
+        let sk_val_high = mk_sk(&created_query.max.unwrap_or(OffsetDateTime::now_utc()))
+            .map_err(SdkError::construction_failure)?;
+
+        let records = self
+            .client
+            .query()
+            .table_name(&self.table)
+            .key_condition_expression("#pk = :pk_val AND #sk BETWEEN :sk_val_low and :sk_val_high")
+            .expression_attribute_names("#pk", "pk")
+            .expression_attribute_names("#sk", "sk")
+            .expression_attribute_values(
+                ":pk_val",
+                AttributeValue::S(mk_pk(user_id)),
+            )
+            .expression_attribute_values(
+                ":sk_val_low",
+                AttributeValue::S(sk_val_low),
+            )
+            .expression_attribute_values(
+                ":sk_val_high",
+                AttributeValue::S(sk_val_high),
+            )
+            .scan_index_forward(scan_index_forward)
+            .into_paginator()
+            .send()
+            .try_collect()
+            .await?
+            .into_iter()
+            .flat_map(|qo| qo.items.unwrap_or_default())
+            .map(serde_dynamo::from_item::<_, WatchlistItemRecord>)
+            .filter_map(|res| match res {
+                Ok(record) => Some(record),
+                Err(err) => {
+                    error!(error = %err, type = %std::any::type_name::<WatchlistItemRecord>(), "Failed deserializing.");
+                    None
+                }
+            })
+            .collect();
+
+        Ok(records)
+    }
+
+    async fn put_watchlist_record(
+        &self,
+        record: WatchlistItemRecord,
+    ) -> Result<PutItemOutput, SdkError<PutItemError>> {
+        self.client
+            .put_item()
+            .table_name(&self.table)
+            .set_item(Some(
+                serde_dynamo::to_item(record).map_err(SdkError::construction_failure)?,
+            ))
+            .send()
+            .await
+    }
+
+    async fn delete_watchlist_record(
+        &self,
+        user_id: &UserId,
+        created: &OffsetDateTime,
+    ) -> Result<DeleteItemOutput, SdkError<DeleteItemError>> {
+        let pk = mk_pk(user_id);
+        let sk = mk_sk(created).map_err(SdkError::construction_failure)?;
+        self.client
+            .delete_item()
+            .table_name(&self.table)
+            .key("pk", AttributeValue::S(pk))
+            .key("sk", AttributeValue::S(sk))
+            .send()
+            .await
+    }
+}
