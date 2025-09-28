@@ -1,8 +1,7 @@
 use aws_lambda_events::apigw::{ApiGatewayV2httpRequest, ApiGatewayV2httpResponse};
 use common::api::api_gateway_v2_http_response_builder::ApiGatewayV2HttpResponseBuilder;
 use common::api::error::ApiError;
-use common::api::error_code::{BAD_PATH_PARAMETER_VALUE, INVALID_UUID};
-use common::shop_id::ShopId;
+use common::shop_id::api::extract_shop_id_path;
 use lambda_runtime::LambdaEvent;
 use shop_data::get_shop_data::GetShopData;
 use shop_service::get_service::GetShopService;
@@ -30,18 +29,7 @@ pub async fn handle(
     event: LambdaEvent<ApiGatewayV2httpRequest>,
     service: &impl GetShopService,
 ) -> Result<ApiGatewayV2httpResponse, ApiError> {
-    let shop_id = event
-        .payload
-        .path_parameters
-        .get("shopId")
-        .map(ShopId::try_from)
-        .transpose()
-        .map_err(|err| {
-            ApiError::bad_request(INVALID_UUID)
-                .with_path_field("shopId")
-                .with_message(err.to_string())
-        })?
-        .ok_or(ApiError::bad_request(BAD_PATH_PARAMETER_VALUE).with_path_field("shopId"))?;
+    let shop_id = extract_shop_id_path(&event.payload.path_parameters)?;
 
     let shop_data: GetShopData = service.find_shop(&shop_id).await?.into();
 
