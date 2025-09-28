@@ -9,3 +9,4 @@ item-api-put-items = { workspace = true }
 item-api-simple-search = { workspace = true }
 item-api-complex-search = { workspace = true }
 item-api-watchlist-post = { workspace = true }
+item-api-watchlist-delete = { workspace = true }

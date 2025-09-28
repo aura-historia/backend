@@ -81,4 +81,22 @@ mod tests {
 
         assert_eq!(204, response.status_code);
     }
+
+    #[tokio::test]
+    async fn should_401_when_sub_missing() {
+        let mut service = MockItemWatchListService::default();
+        service.expect_watch().never();
+
+        let lambda_event = LambdaEvent {
+            payload: ApiGatewayV2httpRequestProxy::builder()
+                .http_method(http::Method::POST)
+                .body_serde(&Faker.fake::<ItemKeyData>())
+                .build(),
+            context: Default::default(),
+        };
+
+        let response = handler(lambda_event, &service).await.unwrap();
+
+        assert_eq!(401, response.status_code);
+    }
 }
