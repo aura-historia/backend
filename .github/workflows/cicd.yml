@@ -131,6 +131,7 @@ jobs:
           - src/item/src/item-dynamodb
           - src/item/src/item-opensearch
           - src/item/src/item-service
+          - src/item/src/item-watchlist
           - src/shop/src/shop-dynamodb
           - src/shop/src/shop-opensearch
           - src/test-api
