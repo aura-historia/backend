@@ -1,0 +1,84 @@
+use aws_lambda_events::apigw::{ApiGatewayV2httpRequest, ApiGatewayV2httpResponse};
+use common::api::api_gateway_v2_http_response_builder::ApiGatewayV2HttpResponseBuilder;
+use common::api::error::ApiError;
+use common::api::error_code::BAD_BODY_VALUE;
+use common::item_id::api::ItemKeyData;
+use common::user_id::api::extract_user_id_cognito_jwt;
+use item_watchlist::service::ItemWatchListService;
+use lambda_runtime::LambdaEvent;
+
+#[tracing::instrument(
+    skip(event, service),
+    fields(
+        requestId = %event.context.request_id,
+        path = &event.payload.raw_path,
+        query = &event.payload.raw_query_string,
+    )
+)]
+pub async fn handler(
+    event: LambdaEvent<ApiGatewayV2httpRequest>,
+    service: &impl ItemWatchListService,
+) -> Result<ApiGatewayV2httpResponse, lambda_runtime::Error> {
+    match handle(event, service).await {
+        Ok(response) => Ok(response),
+        Err(err) => Ok(ApiGatewayV2httpResponse::from(err)),
+    }
+}
+
+// POST /api/v1/watchlist
+pub async fn handle(
+    event: LambdaEvent<ApiGatewayV2httpRequest>,
+    service: &impl ItemWatchListService,
+) -> Result<ApiGatewayV2httpResponse, ApiError> {
+    let user_id = extract_user_id_cognito_jwt(&event.payload.request_context)?;
+    let body = event
+        .payload
+        .body
+        .filter(|str| !str.is_empty())
+        .ok_or_else(|| {
+            ApiError::bad_request(BAD_BODY_VALUE).with_message("Body cannot be empty")
+        })?;
+    let item_key_data: ItemKeyData = serde_json::from_str(&body)
+        .map_err(|err| ApiError::bad_request(BAD_BODY_VALUE).with_message(err.to_string()))?;
+
+    let () = service
+        .watch(
+            &user_id,
+            &item_key_data.shop_id,
+            &item_key_data.shops_item_id,
+        )
+        .await?;
+
+    Ok(ApiGatewayV2HttpResponseBuilder::json(204).cors().build())
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::handler;
+    use common::{item_id::api::ItemKeyData, user_id::UserId};
+    use fake::{Fake, Faker};
+    use item_watchlist::service::MockItemWatchListService;
+    use lambda_runtime::LambdaEvent;
+    use test_api::ApiGatewayV2httpRequestProxy;
+
+    #[tokio::test]
+    async fn should_204_when_success() {
+        let mut service = MockItemWatchListService::default();
+        service
+            .expect_watch()
+            .return_once(|_, _, _| Box::pin(async { Ok(()) }));
+
+        let lambda_event = LambdaEvent {
+            payload: ApiGatewayV2httpRequestProxy::builder()
+                .http_method(http::Method::POST)
+                .body_serde(&Faker.fake::<ItemKeyData>())
+                .jwt_claim("sub", UserId::new())
+                .build(),
+            context: Default::default(),
+        };
+
+        let response = handler(lambda_event, &service).await.unwrap();
+
+        assert_eq!(204, response.status_code);
+    }
+}

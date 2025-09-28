@@ -64,6 +64,7 @@ pub mod api {
     use crate::{shop_id::ShopId, shops_item_id::ShopsItemId};
     use serde::{Deserialize, Serialize};
 
+    #[cfg_attr(feature = "test-data", derive(fake::Dummy))]
     #[derive(Debug, Clone, Serialize, Deserialize)]
     #[serde(rename_all = "camelCase")]
     pub struct ItemKeyData {
