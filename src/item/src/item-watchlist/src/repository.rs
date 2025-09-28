@@ -10,7 +10,7 @@ use aws_sdk_dynamodb::{
     },
     types::AttributeValue,
 };
-use common::{query::range_query::RangeQuery, user_id::UserId};
+use common::user_id::UserId;
 use time::{OffsetDateTime, macros::datetime};
 use tracing::error;
 
@@ -20,7 +20,7 @@ pub trait WatchlistItemDynamoDbRepository {
     async fn query_watchlist_records(
         &self,
         user_id: &UserId,
-        created_query: &RangeQuery<OffsetDateTime>,
+        created_after: &Option<OffsetDateTime>,
         limit: u64,
         scan_index_forward: bool,
     ) -> Result<Vec<WatchlistItemRecord>, SdkError<QueryError>>;
@@ -63,24 +63,18 @@ impl<'a> WatchlistItemDynamoDbRepository for WatchlistItemDynamoDbRepositoryImpl
     async fn query_watchlist_records(
         &self,
         user_id: &UserId,
-        created_query: &RangeQuery<OffsetDateTime>,
+        created_after: &Option<OffsetDateTime>,
         limit: u64,
         scan_index_forward: bool,
     ) -> Result<Vec<WatchlistItemRecord>, SdkError<QueryError>> {
-        let sk_val_low = mk_sk(
-            &created_query
-                .min
-                .unwrap_or(datetime!(2000 - 01 - 01 0:00 UTC)),
-        )
-        .map_err(SdkError::construction_failure)?;
-        let sk_val_high = mk_sk(&created_query.max.unwrap_or(OffsetDateTime::now_utc()))
+        let sk_val_low = mk_sk(&created_after.unwrap_or(datetime!(2000 - 01 - 01 0:00 UTC)))
             .map_err(SdkError::construction_failure)?;
 
         let records = self
             .client
             .query()
             .table_name(&self.table)
-            .key_condition_expression("#pk = :pk_val AND #sk BETWEEN :sk_val_low and :sk_val_high")
+            .key_condition_expression("#pk = :pk_val AND #sk > :sk_val_low")
             .expression_attribute_names("#pk", "pk")
             .expression_attribute_names("#sk", "sk")
             .expression_attribute_values(
@@ -90,10 +84,6 @@ impl<'a> WatchlistItemDynamoDbRepository for WatchlistItemDynamoDbRepositoryImpl
             .expression_attribute_values(
                 ":sk_val_low",
                 AttributeValue::S(sk_val_low),
-            )
-            .expression_attribute_values(
-                ":sk_val_high",
-                AttributeValue::S(sk_val_high),
             )
             .limit(limit as i32)
             .scan_index_forward(scan_index_forward)

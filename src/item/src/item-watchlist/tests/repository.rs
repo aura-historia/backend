@@ -1,4 +1,4 @@
-use common::{query::range_query::RangeQuery, user_id::UserId};
+use common::user_id::UserId;
 use fake::{Fake, Faker};
 use item_watchlist::{
     record::{WatchlistItemRecord, mk_pk},
@@ -66,21 +66,17 @@ fn should_query_watchlist_records_when_lower_bounded_created_for_scan_index_true
             .unwrap();
     }
 
-    let expected = records.into_iter().skip(37).collect::<Vec<_>>();
-    let query = RangeQuery {
-        min: Some(expected[0].created),
-        max: None,
-    };
+    let expected = records.clone().into_iter().skip(37).collect::<Vec<_>>();
 
     let actual = repository
-        .query_watchlist_records(&user_id, &query, 100, true)
+        .query_watchlist_records(&user_id, &Some(records.get(36).unwrap().created), 100, true)
         .await
         .unwrap();
     assert_eq!(expected, actual);
 }
 
 #[localstack_test(services = [DynamoDB()])]
-fn should_query_watchlist_records_when_higher_bounded_created_for_scan_index_true() {
+fn should_query_watchlist_records_when_not_bound_created_for_scan_index_true() {
     let repository = get_repository().await;
     let user_id = UserId::new();
 
@@ -94,43 +90,9 @@ fn should_query_watchlist_records_when_higher_bounded_created_for_scan_index_tru
             .unwrap();
     }
 
-    let expected = records.into_iter().take(37).collect::<Vec<_>>();
-    let query = RangeQuery {
-        min: None,
-        max: Some(expected[36].created),
-    };
-
     let actual = repository
-        .query_watchlist_records(&user_id, &query, 100, true)
+        .query_watchlist_records(&user_id, &None, 100, true)
         .await
         .unwrap();
-    assert_eq!(expected, actual);
-}
-
-#[localstack_test(services = [DynamoDB()])]
-fn should_query_watchlist_records_when_lower_higher_bounded_created_for_scan_index_true() {
-    let repository = get_repository().await;
-    let user_id = UserId::new();
-
-    let mut records = fake::vec![WatchlistItemRecord; 42];
-    for record in &mut records {
-        record.pk = mk_pk(&user_id);
-        record.user_id = user_id;
-        let _ = repository
-            .put_watchlist_record(record.clone())
-            .await
-            .unwrap();
-    }
-
-    let expected = records.into_iter().skip(2).take(37).collect::<Vec<_>>();
-    let query = RangeQuery {
-        min: Some(expected[0].created),
-        max: Some(expected[36].created),
-    };
-
-    let actual = repository
-        .query_watchlist_records(&user_id, &query, 100, true)
-        .await
-        .unwrap();
-    assert_eq!(expected, actual);
+    assert_eq!(records, actual);
 }

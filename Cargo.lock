@@ -2315,12 +2315,14 @@ dependencies = [
  "item-service",
  "item-watchlist",
  "mockall",
+ "rstest",
  "serde",
  "serde_dynamo",
  "serial_test",
  "test-api",
  "thiserror",
  "time",
+ "tokio",
  "tracing",
 ]
 
