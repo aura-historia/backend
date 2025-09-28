@@ -1,7 +1,7 @@
 use async_trait::async_trait;
 use common::language::domain::Language;
-use common::opensearch::search_result::SearchResult;
 use common::page::Page;
+use common::paginated_result::PaginatedResult;
 use common::price::domain::Price;
 use common::sort::Sort;
 use common::{currency::domain::Currency, localized::Localized};
@@ -45,8 +45,8 @@ pub trait QueryItemService {
         &self,
         search_filter: &SearchFilter,
         sort: &Option<Sort<SortItemField>>,
-        page: &Option<Page<u16>>,
-    ) -> Result<SearchResult<LocalizedItemView>, SearchItemsError>;
+        page: &Option<Page<u64>>,
+    ) -> Result<PaginatedResult<LocalizedItemView, u64>, SearchItemsError>;
 }
 
 pub struct QueryItemServiceImpl<'a> {
@@ -65,8 +65,8 @@ impl<'a> QueryItemService for QueryItemServiceImpl<'a> {
         &self,
         search_filter: &SearchFilter,
         sort: &Option<Sort<SortItemField>>,
-        page: &Option<Page<u16>>,
-    ) -> Result<SearchResult<LocalizedItemView>, SearchItemsError> {
+        page: &Option<Page<u64>>,
+    ) -> Result<PaginatedResult<LocalizedItemView, u64>, SearchItemsError> {
         let search_response = self
             .repository
             .search_item_documents(search_filter, sort, page)
@@ -152,9 +152,13 @@ impl<'a> QueryItemService for QueryItemServiceImpl<'a> {
         })
         .collect::<Vec<_>>();
 
-        Ok(SearchResult {
-            hits: item_views,
-            total: search_response.hits.total.value,
+        let from = page.map(|page| page.from).unwrap_or(0);
+        let size = item_views.len() as u64;
+        Ok(PaginatedResult {
+            items: item_views,
+            page: Page { from, size },
+            total: Some(search_response.hits.total.value),
+            next_after: Some(from + size),
         })
     }
 }
@@ -291,7 +295,7 @@ mod tests {
     async fn should_search_items(
         #[case] search_filter: SearchFilter,
         #[case] sort: Option<Sort<SortItemField>>,
-        #[case] page: Option<Page<u16>>,
+        #[case] page: Option<Page<u64>>,
         #[case] count: usize,
     ) {
         let mut repository = MockItemOpenSearchRepository::default();
@@ -307,8 +311,8 @@ mod tests {
             .await
             .unwrap();
 
-        assert_eq!(count, actual.hits.len());
-        assert_eq!(count, actual.total as usize);
+        assert_eq!(count, actual.items.len());
+        assert_eq!(count, actual.total.unwrap() as usize);
     }
 
     #[tokio::test]
@@ -394,7 +398,7 @@ mod tests {
 
         assert!(
             actual
-                .hits
+                .items
                 .iter()
                 .map(|item| item.price.unwrap())
                 .all(|price| price.currency == currency
@@ -445,7 +449,7 @@ mod tests {
 
         assert!(
             actual
-                .hits
+                .items
                 .iter()
                 .all(|item| item.title.localization == language
                     && item.title.payload.as_ref() == expected

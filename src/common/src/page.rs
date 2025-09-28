@@ -1,7 +1,7 @@
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Page<From> {
     pub from: From,
-    pub size: u16,
+    pub size: u64,
 }
 
 #[cfg(feature = "api")]
@@ -15,11 +15,11 @@ pub mod api {
     };
     use aws_lambda_events::query_map::QueryMap;
 
-    pub fn extract_page_query_u16(headers: &QueryMap) -> Result<Option<Page<u16>>, ApiError> {
+    pub fn extract_page_query_u64(headers: &QueryMap) -> Result<Option<Page<u64>>, ApiError> {
         let from = headers
             .first("from")
             .map(str::trim)
-            .map(|from| from.parse::<u16>())
+            .map(|from| from.parse::<u64>())
             .transpose()
             .map_err(|err| {
                 ApiError::bad_request(BAD_PAGE_FROM_VALUE)
@@ -29,7 +29,7 @@ pub mod api {
         let size = headers
             .first("size")
             .map(str::trim)
-            .map(|size| size.parse::<u16>())
+            .map(|size| size.parse::<u64>())
             .transpose()
             .map_err(|err| {
                 ApiError::bad_request(BAD_PAGE_SIZE_VALUE)
@@ -52,7 +52,7 @@ pub mod api {
         use crate::api::error::{ApiErrorSource, ApiErrorSourceType};
         use crate::api::error_code::{BAD_PAGE_FROM_VALUE, BAD_PAGE_SIZE_VALUE};
         use crate::page::Page;
-        use crate::page::api::extract_page_query_u16;
+        use crate::page::api::extract_page_query_u64;
         use aws_lambda_events::query_map::QueryMap;
         use std::collections::HashMap;
 
@@ -69,10 +69,10 @@ pub mod api {
         #[case(None, Some("42"), None)]
         #[case(Some("31"), None, None)]
         #[case(None, None, None)]
-        fn should_extract_page_u16(
+        fn should_extract_page_u64(
             #[case] from_value: Option<&str>,
             #[case] size_value: Option<&str>,
-            #[case] expected: Option<Page<u16>>,
+            #[case] expected: Option<Page<u64>>,
         ) {
             let mut map = HashMap::new();
             if let Some(from_value) = from_value {
@@ -83,7 +83,7 @@ pub mod api {
             }
             let query = QueryMap::from(map);
 
-            let actual = extract_page_query_u16(&query).unwrap();
+            let actual = extract_page_query_u64(&query).unwrap();
 
             assert_eq!(expected, actual);
         }
@@ -94,13 +94,12 @@ pub mod api {
         #[case("bar")]
         #[case("1x")]
         #[case("07g")]
-        #[case("65536")]
-        fn should_400_when_from_is_invalid_for_u16(#[case] value: &str) {
+        fn should_400_when_from_is_invalid_for_u64(#[case] value: &str) {
             let mut map = HashMap::new();
             map.insert("from".to_string(), value.to_string());
             let query = QueryMap::from(map);
 
-            let actual = extract_page_query_u16(&query).unwrap_err();
+            let actual = extract_page_query_u64(&query).unwrap_err();
 
             assert_eq!(400, actual.status);
             assert_eq!(BAD_PAGE_FROM_VALUE, actual.error);
@@ -125,7 +124,7 @@ pub mod api {
             map.insert("size".to_string(), value.to_string());
             let query = QueryMap::from(map);
 
-            let actual = extract_page_query_u16(&query).unwrap_err();
+            let actual = extract_page_query_u64(&query).unwrap_err();
 
             assert_eq!(400, actual.status);
             assert_eq!(BAD_PAGE_SIZE_VALUE, actual.error);

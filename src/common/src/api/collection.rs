@@ -118,7 +118,7 @@ impl<T> From<PaginatedResult<T, u64>> for OffsetLimitPaginatedData<T> {
             items: paginated.items,
             pagination: PaginationData {
                 from: paginated.page.from,
-                size: paginated.page.size as u64,
+                size: paginated.page.size,
                 total: paginated.total,
                 next: paginated.next_after,
             },
@@ -138,7 +138,7 @@ mod tests {
     use time::macros::datetime;
 
     #[test]
-    fn test_keyset_time_paginated_data_rfc3339() {
+    fn should_serialize_deserialize_keyset_time_pagination_data() {
         let data = KeySetTimePaginatedData {
             items: vec!["a".to_string(), "b".to_string()],
             pagination: PaginationData {

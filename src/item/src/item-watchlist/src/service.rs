@@ -227,7 +227,7 @@ impl<'a> ItemWatchListService for ItemWatchListServiceImpl<'a> {
         let limit = page.map(|page| page.size.max(100)).unwrap_or(21);
         let paged_watchlist_records = self
             .watchlist_repository
-            .query_watchlist_records(user_id, &created_after, limit as u64, true)
+            .query_watchlist_records(user_id, &created_after, limit, true)
             .await?;
 
         match paged_watchlist_records.last().cloned() {
@@ -252,7 +252,7 @@ impl<'a> ItemWatchListService for ItemWatchListServiceImpl<'a> {
                 Ok(PaginatedResult {
                     page: Page {
                         from: created_after.unwrap_or(datetime!(2000 - 01 - 01 0:00 UTC)),
-                        size: items.len() as u16,
+                        size: items.len() as u64,
                     },
                     items,
                     total: None,
