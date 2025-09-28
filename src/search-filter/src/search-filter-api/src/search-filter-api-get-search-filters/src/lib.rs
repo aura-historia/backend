@@ -2,7 +2,7 @@ use aws_lambda_events::apigw::{ApiGatewayV2httpRequest, ApiGatewayV2httpResponse
 use common::{
     api::{
         api_gateway_v2_http_response_builder::ApiGatewayV2HttpResponseBuilder,
-        collection::{GetCollectionData, PaginationData},
+        collection::{OffsetLimitPaginatedData, PaginationData},
         error::ApiError,
     },
     sort::api::extract_sort_query,
@@ -50,12 +50,13 @@ pub async fn handle(
         .map(UserSearchFilterData::from)
         .collect();
     let count = user_search_filters_data.len();
-    let collection = GetCollectionData {
+    let collection = OffsetLimitPaginatedData {
         items: user_search_filters_data,
         pagination: PaginationData {
             from: 0,
             size: count as u64,
-            total: count as u64,
+            total: Some(count as u64),
+            next: None,
         },
     };
 

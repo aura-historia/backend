@@ -2,7 +2,7 @@ use aws_lambda_events::apigw::{ApiGatewayV2httpRequest, ApiGatewayV2httpResponse
 use common::{
     api::{
         api_gateway_v2_http_response_builder::ApiGatewayV2HttpResponseBuilder,
-        collection::{GetCollectionData, PaginationData},
+        collection::{OffsetLimitPaginatedData, PaginationData},
         error::ApiError,
         error_code::BAD_BODY_VALUE,
     },
@@ -65,9 +65,10 @@ pub async fn handle(
     let pagination = PaginationData {
         from: page.from as u64,
         size: page.size as u64,
-        total: search_result.total,
+        total: Some(search_result.total),
+        next: Some(page.from as u64 + page.size as u64),
     };
-    let collection = GetCollectionData { items, pagination };
+    let collection = OffsetLimitPaginatedData { items, pagination };
 
     Ok(ApiGatewayV2HttpResponseBuilder::json(200)
         .body_serde(collection)?
