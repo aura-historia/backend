@@ -12,7 +12,7 @@ use item_watchlist::{
 };
 use lambda_runtime::LambdaEvent;
 use test_api::*;
-use time::OffsetDateTime;
+use time::{OffsetDateTime, format_description::well_known::Rfc3339};
 
 #[localstack_test(services = [DynamoDB()])]
 async fn should_200_when_sort_created_asc() {
@@ -84,6 +84,81 @@ async fn should_200_when_sort_created_asc() {
 }
 
 #[localstack_test(services = [DynamoDB()])]
+async fn should_200_when_sort_created_asc_search_after() {
+    let client = get_dynamodb_client().await;
+    let item_repository = ItemDynamoDbRepositoryImpl::new(client, "table_1");
+    let watchlist_repository = WatchlistItemDynamoDbRepositoryImpl::new(client, "table_1");
+    let get_item_service = GetItemServiceImpl::new(&item_repository);
+    let service =
+        ItemWatchListServiceImpl::new(&watchlist_repository, &item_repository, &get_item_service);
+
+    let item_records = fake::vec![ItemRecord; 23];
+    let put_res = item_repository
+        .put_item_records(item_records.clone().try_into().unwrap())
+        .await
+        .unwrap();
+    assert!(put_res.unprocessed_items.unwrap_or_default().is_empty());
+
+    let user_id = UserId::new();
+    let mut from = None;
+    for (i, item_record) in item_records.iter().cloned().enumerate() {
+        let created = OffsetDateTime::now_utc();
+        if i == 7 {
+            from = Some(created);
+        }
+        let watchlist_record = WatchlistItemRecord {
+            pk: mk_pk(&user_id),
+            sk: mk_sk(&created).unwrap(),
+            user_id,
+            item_id: item_record.item_id,
+            shop_id: item_record.shop_id,
+            shops_item_id: item_record.shops_item_id,
+            created,
+        };
+        watchlist_repository
+            .put_watchlist_record(watchlist_record)
+            .await
+            .unwrap();
+    }
+
+    let expected = item_records
+        .iter()
+        .skip(8)
+        .take(12)
+        .map(|record| record.item_id)
+        .collect::<Vec<_>>();
+    let lambda_event = LambdaEvent {
+        payload: ApiGatewayV2httpRequestProxy::builder()
+            .http_method(http::Method::GET)
+            .jwt_claim("sub", user_id)
+            .header("accept-language", "de")
+            .query_string_parameter("currency", "EUR")
+            .query_string_parameter("sort", "created")
+            .query_string_parameter("order", "asc")
+            .query_string_parameter("from", from.unwrap().format(&Rfc3339).unwrap())
+            .query_string_parameter("size", "12")
+            .build(),
+        context: Default::default(),
+    };
+
+    let response = handler(lambda_event, &service).await.unwrap();
+    assert_eq!(200, response.status_code);
+
+    let actual: SearchAfterOffsetDateTimePaginatedData<WatchlistItemData> =
+        serde_json::from_value(extract_apigw_response_json_body!(response)).unwrap();
+    assert_eq!(12, actual.pagination.size);
+    assert_eq!(12, actual.items.len());
+    assert_eq!(
+        expected,
+        actual
+            .items
+            .into_iter()
+            .map(|item| item.item.item_id)
+            .collect::<Vec<_>>()
+    );
+}
+
+#[localstack_test(services = [DynamoDB()])]
 async fn should_200_when_sort_created_desc() {
     let client = get_dynamodb_client().await;
     let item_repository = ItemDynamoDbRepositoryImpl::new(client, "table_1");
@@ -143,6 +218,81 @@ async fn should_200_when_sort_created_desc() {
     let actual: SearchAfterOffsetDateTimePaginatedData<WatchlistItemData> =
         serde_json::from_value(extract_apigw_response_json_body!(response)).unwrap();
     assert_eq!(7, actual.pagination.size);
+    assert_eq!(
+        expected,
+        actual
+            .items
+            .into_iter()
+            .map(|item| item.item.item_id)
+            .collect::<Vec<_>>()
+    );
+}
+
+#[localstack_test(services = [DynamoDB()])]
+async fn should_200_when_sort_created_desc_search_after() {
+    let client = get_dynamodb_client().await;
+    let item_repository = ItemDynamoDbRepositoryImpl::new(client, "table_1");
+    let watchlist_repository = WatchlistItemDynamoDbRepositoryImpl::new(client, "table_1");
+    let get_item_service = GetItemServiceImpl::new(&item_repository);
+    let service =
+        ItemWatchListServiceImpl::new(&watchlist_repository, &item_repository, &get_item_service);
+
+    let item_records = fake::vec![ItemRecord; 23];
+    let put_res = item_repository
+        .put_item_records(item_records.clone().try_into().unwrap())
+        .await
+        .unwrap();
+    assert!(put_res.unprocessed_items.unwrap_or_default().is_empty());
+
+    let user_id = UserId::new();
+    let mut from = None;
+    for (i, item_record) in item_records.iter().cloned().enumerate() {
+        let created = OffsetDateTime::now_utc();
+        if i == 7 {
+            from = Some(created);
+        }
+        let watchlist_record = WatchlistItemRecord {
+            pk: mk_pk(&user_id),
+            sk: mk_sk(&created).unwrap(),
+            user_id,
+            item_id: item_record.item_id,
+            shop_id: item_record.shop_id,
+            shops_item_id: item_record.shops_item_id,
+            created,
+        };
+        watchlist_repository
+            .put_watchlist_record(watchlist_record)
+            .await
+            .unwrap();
+    }
+
+    let expected = item_records
+        .iter()
+        .take(7)
+        .rev()
+        .map(|record| record.item_id)
+        .collect::<Vec<_>>();
+    let lambda_event = LambdaEvent {
+        payload: ApiGatewayV2httpRequestProxy::builder()
+            .http_method(http::Method::GET)
+            .jwt_claim("sub", user_id)
+            .header("accept-language", "de")
+            .query_string_parameter("currency", "EUR")
+            .query_string_parameter("sort", "created")
+            .query_string_parameter("order", "desc")
+            .query_string_parameter("from", from.unwrap().format(&Rfc3339).unwrap())
+            .query_string_parameter("size", "20")
+            .build(),
+        context: Default::default(),
+    };
+
+    let response = handler(lambda_event, &service).await.unwrap();
+    assert_eq!(200, response.status_code);
+
+    let actual: SearchAfterOffsetDateTimePaginatedData<WatchlistItemData> =
+        serde_json::from_value(extract_apigw_response_json_body!(response)).unwrap();
+    assert_eq!(7, actual.pagination.size);
+    assert_eq!(7, actual.items.len());
     assert_eq!(
         expected,
         actual
