@@ -76,6 +76,35 @@ fn should_query_watchlist_records_when_lower_bounded_created_for_scan_index_true
 }
 
 #[localstack_test(services = [DynamoDB()])]
+fn should_query_watchlist_records_when_higher_bounded_created_for_scan_index_false() {
+    let repository = get_repository().await;
+    let user_id = UserId::new();
+
+    let mut records = fake::vec![WatchlistItemRecord; 42];
+    for record in &mut records {
+        record.pk = mk_pk(&user_id);
+        record.user_id = user_id;
+        let _ = repository
+            .put_watchlist_record(record.clone())
+            .await
+            .unwrap();
+    }
+
+    let expected = records
+        .clone()
+        .into_iter()
+        .take(5)
+        .rev()
+        .collect::<Vec<_>>();
+
+    let actual = repository
+        .query_watchlist_records(&user_id, &Some(records.get(5).unwrap().created), 100, false)
+        .await
+        .unwrap();
+    assert_eq!(expected, actual);
+}
+
+#[localstack_test(services = [DynamoDB()])]
 fn should_query_watchlist_records_when_not_bound_created_for_scan_index_true() {
     let repository = get_repository().await;
     let user_id = UserId::new();
@@ -98,7 +127,7 @@ fn should_query_watchlist_records_when_not_bound_created_for_scan_index_true() {
 }
 
 #[localstack_test(services = [DynamoDB()])]
-fn should_query_watchlist_records_and_respect_limit() {
+fn should_query_watchlist_records_and_respect_limit_for_scan_index_true() {
     let repository = get_repository().await;
     let user_id = UserId::new();
 
@@ -119,4 +148,31 @@ fn should_query_watchlist_records_and_respect_limit() {
 
     assert_eq!(10, actual.len());
     assert_eq!(records.into_iter().take(10).collect::<Vec<_>>(), actual);
+}
+
+#[localstack_test(services = [DynamoDB()])]
+fn should_query_watchlist_records_and_respect_limit_for_scan_index_false() {
+    let repository = get_repository().await;
+    let user_id = UserId::new();
+
+    let mut records = fake::vec![WatchlistItemRecord; 42];
+    for record in &mut records {
+        record.pk = mk_pk(&user_id);
+        record.user_id = user_id;
+        let _ = repository
+            .put_watchlist_record(record.clone())
+            .await
+            .unwrap();
+    }
+
+    let actual = repository
+        .query_watchlist_records(&user_id, &None, 10, false)
+        .await
+        .unwrap();
+
+    assert_eq!(10, actual.len());
+    assert_eq!(
+        records.into_iter().skip(32).rev().collect::<Vec<_>>(),
+        actual
+    );
 }

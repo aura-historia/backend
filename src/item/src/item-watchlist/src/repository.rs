@@ -63,18 +63,26 @@ impl<'a> WatchlistItemDynamoDbRepository for WatchlistItemDynamoDbRepositoryImpl
     async fn query_watchlist_records(
         &self,
         user_id: &UserId,
-        created_after: &Option<OffsetDateTime>,
+        created_guard: &Option<OffsetDateTime>,
         limit: u64,
         scan_index_forward: bool,
     ) -> Result<Vec<WatchlistItemRecord>, SdkError<QueryError>> {
-        let sk_val_low = mk_sk(&created_after.unwrap_or(datetime!(2000 - 01 - 01 0:00 UTC)))
-            .map_err(SdkError::construction_failure)?;
+        let exclusive_guard = if scan_index_forward {
+            created_guard.unwrap_or(datetime!(2000 - 01 - 01 0:00 UTC))
+        } else {
+            created_guard.unwrap_or(OffsetDateTime::now_utc())
+        };
+        let key_condition_expression = if scan_index_forward {
+            "#pk = :pk_val AND #sk > :sk_val_exclusive_guard"
+        } else {
+            "#pk = :pk_val AND #sk < :sk_val_exclusive_guard"
+        };
 
         let records = self
             .client
             .query()
             .table_name(&self.table)
-            .key_condition_expression("#pk = :pk_val AND #sk > :sk_val_low")
+            .key_condition_expression(key_condition_expression)
             .expression_attribute_names("#pk", "pk")
             .expression_attribute_names("#sk", "sk")
             .expression_attribute_values(
@@ -82,8 +90,8 @@ impl<'a> WatchlistItemDynamoDbRepository for WatchlistItemDynamoDbRepositoryImpl
                 AttributeValue::S(mk_pk(user_id)),
             )
             .expression_attribute_values(
-                ":sk_val_low",
-                AttributeValue::S(sk_val_low),
+                ":sk_val_exclusive_guard",
+                AttributeValue::S(mk_sk(&exclusive_guard).map_err(SdkError::construction_failure)?),
             )
             .limit(limit as i32)
             .scan_index_forward(scan_index_forward)
