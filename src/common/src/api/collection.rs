@@ -9,7 +9,7 @@ pub struct OffsetLimitPaginatedData<T> {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct KeySetTimePaginatedData<T> {
+pub struct SearchAfterOffsetDateTimePaginatedData<T> {
     pub items: Vec<T>,
 
     #[serde(with = "crate::api::collection::pagination_rfc3339")]
@@ -126,6 +126,20 @@ impl<T> From<PaginatedResult<T, u64>> for OffsetLimitPaginatedData<T> {
     }
 }
 
+impl<T> From<PaginatedResult<T, OffsetDateTime>> for SearchAfterOffsetDateTimePaginatedData<T> {
+    fn from(paginated: PaginatedResult<T, OffsetDateTime>) -> Self {
+        SearchAfterOffsetDateTimePaginatedData {
+            items: paginated.items,
+            pagination: PaginationData {
+                from: paginated.page.from,
+                size: paginated.page.size,
+                total: paginated.total,
+                next: paginated.next_after,
+            },
+        }
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct PutCollectionData<T> {
     pub items: Vec<T>,
@@ -139,7 +153,7 @@ mod tests {
 
     #[test]
     fn should_serialize_deserialize_keyset_time_pagination_data() {
-        let data = KeySetTimePaginatedData {
+        let data = SearchAfterOffsetDateTimePaginatedData {
             items: vec!["a".to_string(), "b".to_string()],
             pagination: PaginationData {
                 from: datetime!(2023-05-01 12:00:00 UTC),
@@ -161,7 +175,8 @@ mod tests {
         let actual = serde_json::to_value(&data).unwrap();
         assert_eq!(expected, actual);
 
-        let deserialized: KeySetTimePaginatedData<String> = serde_json::from_value(actual).unwrap();
+        let deserialized: SearchAfterOffsetDateTimePaginatedData<String> =
+            serde_json::from_value(actual).unwrap();
         assert_eq!(data, deserialized);
     }
 }

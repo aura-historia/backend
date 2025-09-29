@@ -20,7 +20,7 @@ pub trait WatchlistItemDynamoDbRepository {
     async fn query_watchlist_records(
         &self,
         user_id: &UserId,
-        created_after: &Option<OffsetDateTime>,
+        created_guard: &Option<OffsetDateTime>,
         limit: u64,
         scan_index_forward: bool,
     ) -> Result<Vec<WatchlistItemRecord>, SdkError<QueryError>>;

@@ -9,11 +9,12 @@ pub mod api {
     use crate::{
         api::{
             error::ApiError,
-            error_code::{BAD_PAGE_FROM_VALUE, BAD_PAGE_SIZE_VALUE},
+            error_code::{BAD_PAGE_FROM_VALUE, BAD_PAGE_SIZE_VALUE, INVALID_RFC3339_TIMESTAMP},
         },
         page::Page,
     };
     use aws_lambda_events::query_map::QueryMap;
+    use time::{OffsetDateTime, format_description::well_known::Rfc3339};
 
     pub fn extract_page_query_u64(headers: &QueryMap) -> Result<Option<Page<u64>>, ApiError> {
         let from = headers
@@ -23,6 +24,40 @@ pub mod api {
             .transpose()
             .map_err(|err| {
                 ApiError::bad_request(BAD_PAGE_FROM_VALUE)
+                    .with_query_field("from")
+                    .with_message(err.to_string())
+            })?;
+        let size = headers
+            .first("size")
+            .map(str::trim)
+            .map(|size| size.parse::<u64>())
+            .transpose()
+            .map_err(|err| {
+                ApiError::bad_request(BAD_PAGE_SIZE_VALUE)
+                    .with_query_field("size")
+                    .with_message(err.to_string())
+            })?
+            .map(|size| size.min(100));
+
+        if let Some(from) = from
+            && let Some(size) = size
+        {
+            Ok(Some(Page { from, size }))
+        } else {
+            Ok(None)
+        }
+    }
+
+    pub fn extract_page_query_offsetdatetime(
+        headers: &QueryMap,
+    ) -> Result<Option<Page<OffsetDateTime>>, ApiError> {
+        let from = headers
+            .first("from")
+            .map(str::trim)
+            .map(|val| OffsetDateTime::parse(val, &Rfc3339))
+            .transpose()
+            .map_err(|err| {
+                ApiError::bad_request(INVALID_RFC3339_TIMESTAMP)
                     .with_query_field("from")
                     .with_message(err.to_string())
             })?;

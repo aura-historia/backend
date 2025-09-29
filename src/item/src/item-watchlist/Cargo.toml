@@ -25,6 +25,7 @@ item-watchlist = { workspace = true, features = ["api", "test-data"] }
 test-api = { workspace = true, features = ["dynamodb"] }
 serial_test = { workspace = true }
 fake = { workspace = true }
+serde_json = { workspace = true }
 rstest = { workspace = true }
 tokio = { workspace = true, features = ["macros"] }
 

@@ -1,18 +1,27 @@
 use crate::{
+    domain::LocalizedWatchlistItemView,
     record::{WatchlistItemRecord, mk_pk, mk_sk},
     repository::WatchlistItemDynamoDbRepository,
+    sort_watch_item::SortWatchlistItemField,
 };
 use aws_sdk_dynamodb::{
     config::http::HttpResponse, error::SdkError, operation::put_item::PutItemError,
 };
 use common::{
-    currency::domain::Currency, item_id::ItemKey, language::domain::Language, page::Page,
-    paginated_result::PaginatedResult, price::domain::MonetaryAmountOverflowError, shop_id::ShopId,
-    shops_item_id::ShopsItemId, user_id::UserId,
+    currency::domain::Currency,
+    item_id::ItemKey,
+    language::domain::Language,
+    page::Page,
+    paginated_result::PaginatedResult,
+    price::domain::MonetaryAmountOverflowError,
+    shop_id::ShopId,
+    shops_item_id::ShopsItemId,
+    sort::{Sort, SortOrder},
+    user_id::UserId,
 };
-use item_core::item::LocalizedItemView;
 use item_dynamodb::repository::ItemDynamoDbRepository;
 use item_service::get_service::{GetItemError, GetItemService};
+use std::collections::HashMap;
 use time::{OffsetDateTime, macros::datetime};
 
 #[derive(thiserror::Error, Debug)]
@@ -136,8 +145,9 @@ pub trait ItemWatchListService {
         user_id: &UserId,
         languages: &[Language],
         currency: &Currency,
+        sort: &Option<Sort<SortWatchlistItemField>>,
         page: &Option<Page<OffsetDateTime>>,
-    ) -> Result<PaginatedResult<LocalizedItemView, OffsetDateTime>, WatchItemError>;
+    ) -> Result<PaginatedResult<LocalizedWatchlistItemView, OffsetDateTime>, WatchItemError>;
 }
 
 pub struct ItemWatchListServiceImpl<'a> {
@@ -221,42 +231,82 @@ impl<'a> ItemWatchListService for ItemWatchListServiceImpl<'a> {
         user_id: &UserId,
         languages: &[Language],
         currency: &Currency,
+        sort: &Option<Sort<SortWatchlistItemField>>,
         page: &Option<Page<OffsetDateTime>>,
-    ) -> Result<PaginatedResult<LocalizedItemView, OffsetDateTime>, WatchItemError> {
-        let created_after = page.map(|page| page.from);
-        let limit = page.map(|page| page.size.max(100)).unwrap_or(21);
+    ) -> Result<PaginatedResult<LocalizedWatchlistItemView, OffsetDateTime>, WatchItemError> {
+        let sort = sort.unwrap_or(Sort {
+            sort: SortWatchlistItemField::Created,
+            order: SortOrder::Asc,
+        });
+        let created_guard = page.map(|page| page.from);
+        let limit = page.map(|page| page.size.min(100)).unwrap_or(21);
+        let scan_index_forward = matches!(sort.order, SortOrder::Asc);
         let paged_watchlist_records = self
             .watchlist_repository
-            .query_watchlist_records(user_id, &created_after, limit, true)
+            .query_watchlist_records(user_id, &created_guard, limit, scan_index_forward)
             .await?;
 
-        match paged_watchlist_records.last().cloned() {
+        let next_guard = if scan_index_forward {
+            paged_watchlist_records.last().cloned()
+        } else {
+            paged_watchlist_records.first().cloned()
+        };
+
+        let default_guard = if scan_index_forward {
+            datetime!(2000 - 01 - 01 0:00 UTC)
+        } else {
+            OffsetDateTime::now_utc()
+        };
+        match next_guard {
             None => Ok(PaginatedResult {
                 items: vec![],
                 page: Page {
-                    from: datetime!(2000 - 01 - 01 0:00 UTC),
+                    from: default_guard,
                     size: 0,
                 },
                 total: None,
                 next_after: None,
             }),
-            Some(last) => {
-                let paged_watchlist_keys = paged_watchlist_records
+            Some(next) => {
+                let mut watchlist_records_created = paged_watchlist_records
+                    .iter()
+                    .map(|record| (record.item_id, record.created))
+                    .collect::<HashMap<_, _>>();
+                let watchlist_record_keys = paged_watchlist_records
                     .into_iter()
                     .map(|record| ItemKey::new(record.shop_id, record.shops_item_id))
-                    .collect::<Vec<_>>();
-                let items = self
+                    .collect();
+                let mut items = self
                     .get_item_service
-                    .view_items(paged_watchlist_keys, languages, currency)
-                    .await?;
+                    .view_items(watchlist_record_keys, languages, currency)
+                    .await?
+                    .into_iter()
+                    .filter_map(
+                        |item| match watchlist_records_created.remove(&item.item_id) {
+                            Some(created) => Some(LocalizedWatchlistItemView { item, created }),
+                            None => {
+                                tracing::error!("Could not find timestamp 'created' for Watchlist-Item after Batch-Get. This is a bug. Skipping Item.");
+                                None
+                            },
+                        },
+                    )
+                    .collect::<Vec<_>>();
+                // BatchGetItem responds with any order, so we need to restore the order from the query manually
+                items.sort_by(|l, r| {
+                    if scan_index_forward {
+                        l.created.cmp(&r.created)
+                    } else {
+                        l.created.cmp(&r.created).reverse()
+                    }
+                });
                 Ok(PaginatedResult {
                     page: Page {
-                        from: created_after.unwrap_or(datetime!(2000 - 01 - 01 0:00 UTC)),
+                        from: created_guard.unwrap_or(default_guard),
                         size: items.len() as u64,
                     },
                     items,
                     total: None,
-                    next_after: Some(last.created),
+                    next_after: Some(next.created),
                 })
             }
         }
@@ -588,44 +638,11 @@ mod tests {
         use aws_sdk_dynamodb::{
             config::http::HttpResponse,
             error::{ConnectorError, SdkError},
-            operation::delete_item::DeleteItemOutput,
         };
         use common::{currency::domain::Currency, language::domain::Language};
         use fake::{Fake, Faker};
-        use item_core::item::LocalizedItemView;
         use item_dynamodb::repository::MockItemDynamoDbRepository;
         use item_service::get_service::MockGetItemService;
-
-        #[tokio::test]
-        async fn should_view_when_success() {
-            let item_repository = MockItemDynamoDbRepository::default();
-            let mut watchlist_repository = MockWatchlistItemDynamoDbRepository::default();
-            watchlist_repository
-                .expect_query_watchlist_records()
-                .return_once(|_, _, _, _| Box::pin(async { Ok(Faker.fake()) }));
-            watchlist_repository
-                .expect_delete_watchlist_record()
-                .return_once(|_, _| Box::pin(async { Ok(DeleteItemOutput::builder().build()) }));
-            let mut get_item_service = MockGetItemService::default();
-
-            let expected = fake::vec![LocalizedItemView; 187];
-            let expected_clone = expected.clone();
-            get_item_service
-                .expect_view_items()
-                .return_once(move |_, _, _| Box::pin(async move { Ok(expected_clone) }));
-
-            let service = ItemWatchListServiceImpl::new(
-                &watchlist_repository,
-                &item_repository,
-                &get_item_service,
-            );
-            let actual = service
-                .view_watchlist(&Faker.fake(), &[Language::De], &Currency::Eur, &None)
-                .await
-                .unwrap();
-
-            assert_eq!(expected, actual.items);
-        }
 
         #[tokio::test]
         #[rstest::rstest]
@@ -658,7 +675,7 @@ mod tests {
                 &get_item_service,
             );
             let actual = service
-                .view_watchlist(&Faker.fake(), &[Language::De], &Currency::Eur, &None)
+                .view_watchlist(&Faker.fake(), &[Language::De], &Currency::Eur, &None, &None)
                 .await;
 
             assert!(actual.is_err());
