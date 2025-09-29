@@ -73,6 +73,7 @@ async fn should_200_when_sort_created_asc() {
     let actual: SearchAfterOffsetDateTimePaginatedData<WatchlistItemData> =
         serde_json::from_value(extract_apigw_response_json_body!(response)).unwrap();
     assert_eq!(10, actual.pagination.size);
+    assert_eq!(10, actual.items.len());
     assert_eq!(
         expected,
         actual
@@ -101,10 +102,14 @@ async fn should_200_when_sort_created_asc_search_after() {
 
     let user_id = UserId::new();
     let mut from = None;
+    let mut expected_next_after = None;
     for (i, item_record) in item_records.iter().cloned().enumerate() {
         let created = OffsetDateTime::now_utc();
         if i == 7 {
             from = Some(created);
+        }
+        if i == 19 {
+            expected_next_after = Some(created);
         }
         let watchlist_record = WatchlistItemRecord {
             pk: mk_pk(&user_id),
@@ -155,6 +160,10 @@ async fn should_200_when_sort_created_asc_search_after() {
             .into_iter()
             .map(|item| item.item.item_id)
             .collect::<Vec<_>>()
+    );
+    assert_eq!(
+        expected_next_after.unwrap(),
+        actual.pagination.next.unwrap()
     );
 }
 
@@ -218,6 +227,7 @@ async fn should_200_when_sort_created_desc() {
     let actual: SearchAfterOffsetDateTimePaginatedData<WatchlistItemData> =
         serde_json::from_value(extract_apigw_response_json_body!(response)).unwrap();
     assert_eq!(7, actual.pagination.size);
+    assert_eq!(7, actual.items.len());
     assert_eq!(
         expected,
         actual
@@ -246,10 +256,14 @@ async fn should_200_when_sort_created_desc_search_after() {
 
     let user_id = UserId::new();
     let mut from = None;
+    let mut expected_next_after = None;
     for (i, item_record) in item_records.iter().cloned().enumerate() {
         let created = OffsetDateTime::now_utc();
         if i == 7 {
             from = Some(created);
+        }
+        if i == 0 {
+            expected_next_after = Some(created);
         }
         let watchlist_record = WatchlistItemRecord {
             pk: mk_pk(&user_id),
@@ -300,5 +314,9 @@ async fn should_200_when_sort_created_desc_search_after() {
             .into_iter()
             .map(|item| item.item.item_id)
             .collect::<Vec<_>>()
+    );
+    assert_eq!(
+        expected_next_after.unwrap(),
+        actual.pagination.next.unwrap()
     );
 }

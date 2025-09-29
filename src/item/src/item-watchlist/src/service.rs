@@ -246,18 +246,12 @@ impl<'a> ItemWatchListService for ItemWatchListServiceImpl<'a> {
             .query_watchlist_records(user_id, &created_guard, limit, scan_index_forward)
             .await?;
 
-        let next_guard = if scan_index_forward {
-            paged_watchlist_records.last().cloned()
-        } else {
-            paged_watchlist_records.first().cloned()
-        };
-
         let default_guard = if scan_index_forward {
             datetime!(2000 - 01 - 01 0:00 UTC)
         } else {
             OffsetDateTime::now_utc()
         };
-        match next_guard {
+        match paged_watchlist_records.last().cloned() {
             None => Ok(PaginatedResult {
                 items: vec![],
                 page: Page {
