@@ -96,3 +96,27 @@ fn should_query_watchlist_records_when_not_bound_created_for_scan_index_true() {
         .unwrap();
     assert_eq!(records, actual);
 }
+
+#[localstack_test(services = [DynamoDB()])]
+fn should_query_watchlist_records_and_respect_limit() {
+    let repository = get_repository().await;
+    let user_id = UserId::new();
+
+    let mut records = fake::vec![WatchlistItemRecord; 42];
+    for record in &mut records {
+        record.pk = mk_pk(&user_id);
+        record.user_id = user_id;
+        let _ = repository
+            .put_watchlist_record(record.clone())
+            .await
+            .unwrap();
+    }
+
+    let actual = repository
+        .query_watchlist_records(&user_id, &None, 10, true)
+        .await
+        .unwrap();
+
+    assert_eq!(10, actual.len());
+    assert_eq!(records.into_iter().take(10).collect::<Vec<_>>(), actual);
+}

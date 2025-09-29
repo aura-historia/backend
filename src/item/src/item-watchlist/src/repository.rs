@@ -87,12 +87,11 @@ impl<'a> WatchlistItemDynamoDbRepository for WatchlistItemDynamoDbRepositoryImpl
             )
             .limit(limit as i32)
             .scan_index_forward(scan_index_forward)
-            .into_paginator()
             .send()
-            .try_collect()
             .await?
+            .items
+            .unwrap_or_default()
             .into_iter()
-            .flat_map(|qo| qo.items.unwrap_or_default())
             .map(serde_dynamo::from_item::<_, WatchlistItemRecord>)
             .filter_map(|res| match res {
                 Ok(record) => Some(record),
