@@ -548,6 +548,8 @@ Resources:
     Properties:
       ApiId: !Ref BlitzfilterApi
       RouteKey: "GET /api/v1/watchlist"
+      AuthorizationType: JWT
+      AuthorizerId: !Ref BlitzfilterApiCognitoAuthorizer
       Target: !Sub "integrations/${BlitzfilterApiGetWatchlistItemsLambdaIntegration}"
   BlitzfilterApiGetWatchlistItemsLambdaIntegration:
     Type: AWS::ApiGatewayV2::Integration
@@ -610,6 +612,8 @@ Resources:
     Properties:
       ApiId: !Ref BlitzfilterApi
       RouteKey: "DELETE /api/v1/watchlist/{shopId}/{shopsItemId}"
+      AuthorizationType: JWT
+      AuthorizerId: !Ref BlitzfilterApiCognitoAuthorizer
       Target: !Sub "integrations/${BlitzfilterApiDeleteWatchlistItemLambdaIntegration}"
   BlitzfilterApiDeleteWatchlistItemLambdaIntegration:
     Type: AWS::ApiGatewayV2::Integration
@@ -673,6 +677,8 @@ Resources:
     Properties:
       ApiId: !Ref BlitzfilterApi
       RouteKey: "POST /api/v1/watchlist"
+      AuthorizationType: JWT
+      AuthorizerId: !Ref BlitzfilterApiCognitoAuthorizer
       Target: !Sub "integrations/${BlitzfilterApiPostWatchlistItemLambdaIntegration}"
   BlitzfilterApiPostWatchlistItemLambdaIntegration:
     Type: AWS::ApiGatewayV2::Integration
