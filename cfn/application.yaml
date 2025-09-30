@@ -543,6 +543,194 @@ Resources:
       Principal: apigateway.amazonaws.com
       SourceArn: !Sub "arn:aws:execute-api:${AWS::Region}:${AWS::AccountId}:${BlitzfilterApi}/*/*/api/v1/items/search*"
 
+  BlitzfilterApiGetWatchlistItemsRoute:
+    Type: AWS::ApiGatewayV2::Route
+    Properties:
+      ApiId: !Ref BlitzfilterApi
+      RouteKey: "GET /api/v1/watchlist"
+      Target: !Sub "integrations/${BlitzfilterApiGetWatchlistItemsLambdaIntegration}"
+  BlitzfilterApiGetWatchlistItemsLambdaIntegration:
+    Type: AWS::ApiGatewayV2::Integration
+    Properties:
+      ApiId: !Ref BlitzfilterApi
+      IntegrationType: AWS_PROXY
+      IntegrationUri: !Sub "arn:aws:lambda:${AWS::Region}:${AWS::AccountId}:function:${BlitzfilterApiGetWatchlistItemsLambda}"
+      PayloadFormatVersion: "2.0"
+  BlitzfilterApiGetWatchlistItemsRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Sub "blitzfilter-api-get-watchlist-items-role-${StageName}"
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: lambda.amazonaws.com
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole
+      Policies:
+        - PolicyName: DynamoDBAccess
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: Allow
+                Action:
+                  - dynamodb:GetItem
+                  - dynamodb:BatchGetItem
+                  - dynamodb:Query
+                Resource: !GetAtt TableOne.Arn
+  BlitzfilterApiGetWatchlistItemsLambda:
+    Type: AWS::Lambda::Function
+    Properties:
+      FunctionName: !Sub "blitzfilter-api-get-watchlist-items-${StageName}"
+      Runtime: provided.al2023
+      Handler: lib.handler
+      Role: !GetAtt BlitzfilterApiGetWatchlistItemsRole.Arn
+      Code:
+        S3Bucket: !Ref ArtifactBucket
+        S3Key: !Sub "item-api-watchlist-get-${StageName}-${CommitSHA}.zip"
+      MemorySize: 512
+      Timeout: 10
+      EphemeralStorage:
+        Size: 512
+      Environment:
+        Variables:
+          DYNAMODB_TABLE_NAME: !Ref TableOne
+  BlitzfilterApiGetWatchlistItemsLambdaPermission:
+    Type: AWS::Lambda::Permission
+    Properties:
+      Action: lambda:InvokeFunction
+      FunctionName: !Ref BlitzfilterApiGetWatchlistItemsLambda
+      Principal: apigateway.amazonaws.com
+      SourceArn: !Sub "arn:aws:execute-api:${AWS::Region}:${AWS::AccountId}:${BlitzfilterApi}/*/*/api/v1/watchlist*"
+
+  BlitzfilterApiDeleteWatchlistItemRoute:
+    Type: AWS::ApiGatewayV2::Route
+    Properties:
+      ApiId: !Ref BlitzfilterApi
+      RouteKey: "DELETE /api/v1/watchlist/{shopId}/{shopsItemId}"
+      Target: !Sub "integrations/${BlitzfilterApiDeleteWatchlistItemLambdaIntegration}"
+  BlitzfilterApiDeleteWatchlistItemLambdaIntegration:
+    Type: AWS::ApiGatewayV2::Integration
+    Properties:
+      ApiId: !Ref BlitzfilterApi
+      IntegrationType: AWS_PROXY
+      IntegrationUri: !Sub "arn:aws:lambda:${AWS::Region}:${AWS::AccountId}:function:${BlitzfilterApiDeleteWatchlistItemLambda}"
+      PayloadFormatVersion: "2.0"
+  BlitzfilterApiDeleteWatchlistItemRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Sub "blitzfilter-api-delete-watchlist-item-role-${StageName}"
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: lambda.amazonaws.com
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole
+      Policies:
+        - PolicyName: DynamoDBAccess
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: Allow
+                Action:
+                  - dynamodb:GetItem
+                  - dynamodb:BatchGetItem
+                  - dynamodb:Query
+                  - dynamodb:DeleteItem
+                Resource: !GetAtt TableOne.Arn
+  BlitzfilterApiDeleteWatchlistItemLambda:
+    Type: AWS::Lambda::Function
+    Properties:
+      FunctionName: !Sub "blitzfilter-api-delete-watchlist-item-${StageName}"
+      Runtime: provided.al2023
+      Handler: lib.handler
+      Role: !GetAtt BlitzfilterApiDeleteWatchlistItemRole.Arn
+      Code:
+        S3Bucket: !Ref ArtifactBucket
+        S3Key: !Sub "item-api-watchlist-delete-${StageName}-${CommitSHA}.zip"
+      MemorySize: 512
+      Timeout: 10
+      EphemeralStorage:
+        Size: 512
+      Environment:
+        Variables:
+          DYNAMODB_TABLE_NAME: !Ref TableOne
+  BlitzfilterApiDeleteWatchlistItemLambdaPermission:
+    Type: AWS::Lambda::Permission
+    Properties:
+      Action: lambda:InvokeFunction
+      FunctionName: !Ref BlitzfilterApiDeleteWatchlistItemLambda
+      Principal: apigateway.amazonaws.com
+      SourceArn: !Sub "arn:aws:execute-api:${AWS::Region}:${AWS::AccountId}:${BlitzfilterApi}/*/*/api/v1/watchlist/*/*"
+
+  BlitzfilterApiPostWatchlistItemRoute:
+    Type: AWS::ApiGatewayV2::Route
+    Properties:
+      ApiId: !Ref BlitzfilterApi
+      RouteKey: "POST /api/v1/watchlist"
+      Target: !Sub "integrations/${BlitzfilterApiPostWatchlistItemLambdaIntegration}"
+  BlitzfilterApiPostWatchlistItemLambdaIntegration:
+    Type: AWS::ApiGatewayV2::Integration
+    Properties:
+      ApiId: !Ref BlitzfilterApi
+      IntegrationType: AWS_PROXY
+      IntegrationUri: !Sub "arn:aws:lambda:${AWS::Region}:${AWS::AccountId}:function:${BlitzfilterApiPostWatchlistItemLambda}"
+      PayloadFormatVersion: "2.0"
+  BlitzfilterApiPostWatchlistItemRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Sub "blitzfilter-api-post-watchlist-item-role-${StageName}"
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: lambda.amazonaws.com
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole
+      Policies:
+        - PolicyName: DynamoDBAccess
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: Allow
+                Action:
+                  - dynamodb:GetItem
+                  - dynamodb:BatchGetItem
+                  - dynamodb:Query
+                  - dynamodb:PutItem
+                Resource: !GetAtt TableOne.Arn
+  BlitzfilterApiPostWatchlistItemLambda:
+    Type: AWS::Lambda::Function
+    Properties:
+      FunctionName: !Sub "blitzfilter-api-post-watchlist-item-${StageName}"
+      Runtime: provided.al2023
+      Handler: lib.handler
+      Role: !GetAtt BlitzfilterApiPostWatchlistItemRole.Arn
+      Code:
+        S3Bucket: !Ref ArtifactBucket
+        S3Key: !Sub "item-api-watchlist-post-${StageName}-${CommitSHA}.zip"
+      MemorySize: 512
+      Timeout: 10
+      EphemeralStorage:
+        Size: 512
+      Environment:
+        Variables:
+          DYNAMODB_TABLE_NAME: !Ref TableOne
+  BlitzfilterApiPostWatchlistItemLambdaPermission:
+    Type: AWS::Lambda::Permission
+    Properties:
+      Action: lambda:InvokeFunction
+      FunctionName: !Ref BlitzfilterApiPostWatchlistItemLambda
+      Principal: apigateway.amazonaws.com
+      SourceArn: !Sub "arn:aws:execute-api:${AWS::Region}:${AWS::AccountId}:${BlitzfilterApi}/*/*/api/v1/watchlist"
+
   BlitzfilterApiGetShopRoute:
     Type: AWS::ApiGatewayV2::Route
     Properties:
