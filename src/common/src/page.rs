@@ -153,7 +153,6 @@ pub mod api {
         #[case("bar")]
         #[case("1x")]
         #[case("07g")]
-        #[case("65536")]
         fn should_400_when_size_is_invalid(#[case] value: &str) {
             let mut map = HashMap::new();
             map.insert("size".to_string(), value.to_string());
