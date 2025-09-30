@@ -48,3 +48,22 @@ impl From<&str> for ShopsItemId {
         ShopsItemId(value.to_owned())
     }
 }
+
+#[cfg(feature = "api")]
+pub mod api {
+    use crate::{
+        api::{error::ApiError, error_code::BAD_PATH_PARAMETER_VALUE},
+        shops_item_id::ShopsItemId,
+    };
+    use std::collections::HashMap;
+
+    pub fn extract_shops_item_id_path(
+        path_params: &HashMap<String, String>,
+    ) -> Result<ShopsItemId, ApiError> {
+        path_params
+            .get("shopsItemId")
+            .filter(|str| !str.is_empty())
+            .map(ShopsItemId::from)
+            .ok_or(ApiError::bad_request(BAD_PATH_PARAMETER_VALUE).with_path_field("shopsItemId"))
+    }
+}

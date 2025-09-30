@@ -57,3 +57,28 @@ impl TryFrom<&String> for ShopId {
         Uuid::parse_str(s).map(Self)
     }
 }
+
+#[cfg(feature = "api")]
+pub mod api {
+    use crate::{
+        api::{
+            error::ApiError,
+            error_code::{BAD_PATH_PARAMETER_VALUE, INVALID_UUID},
+        },
+        shop_id::ShopId,
+    };
+    use std::collections::HashMap;
+
+    pub fn extract_shop_id_path(path_params: &HashMap<String, String>) -> Result<ShopId, ApiError> {
+        path_params
+            .get("shopId")
+            .map(ShopId::try_from)
+            .transpose()
+            .map_err(|err| {
+                ApiError::bad_request(INVALID_UUID)
+                    .with_path_field("shopId")
+                    .with_message(err.to_string())
+            })?
+            .ok_or(ApiError::bad_request(BAD_PATH_PARAMETER_VALUE).with_path_field("shopId"))
+    }
+}

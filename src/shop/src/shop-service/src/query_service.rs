@@ -1,7 +1,6 @@
 use async_trait::async_trait;
-use common::opensearch::search_result::SearchResult;
-use common::page::Page;
 use common::sort::Sort;
+use common::{page::Page, paginated_result::PaginatedResult};
 use shop_core::shop::Shop;
 use shop_core::sort_shop_field::SortShopField;
 use shop_opensearch::repository::ShopOpenSearchRepository;
@@ -40,8 +39,8 @@ pub trait QueryShopService {
         &self,
         search: &ShopSearch,
         sort: &Option<Sort<SortShopField>>,
-        page: &Option<Page>,
-    ) -> Result<SearchResult<Shop>, SearchShopsError>;
+        page: &Option<Page<u64>>,
+    ) -> Result<PaginatedResult<Shop, u64>, SearchShopsError>;
 }
 
 pub struct QueryShopServiceImpl<'a> {
@@ -60,8 +59,8 @@ impl<'a> QueryShopService for QueryShopServiceImpl<'a> {
         &self,
         search: &ShopSearch,
         sort: &Option<Sort<SortShopField>>,
-        page: &Option<Page>,
-    ) -> Result<SearchResult<Shop>, SearchShopsError> {
+        page: &Option<Page<u64>>,
+    ) -> Result<PaginatedResult<Shop, u64>, SearchShopsError> {
         let search_response = self
             .repository
             .search_shop_documents(search, sort, page)
@@ -86,9 +85,13 @@ impl<'a> QueryShopService for QueryShopServiceImpl<'a> {
             .map(Shop::from)
             .collect::<Vec<_>>();
 
-        Ok(SearchResult {
-            hits: shops,
-            total: search_response.hits.total.value,
+        let from = page.map(|page| page.from).unwrap_or(0);
+        let size = shops.len() as u64;
+        Ok(PaginatedResult {
+            items: shops,
+            page: Page { from, size },
+            total: Some(search_response.hits.total.value),
+            next_after: Some(from + size),
         })
     }
 }
@@ -192,7 +195,7 @@ mod tests {
     async fn should_search_shops(
         #[case] search: ShopSearch,
         #[case] sort: Option<Sort<SortShopField>>,
-        #[case] page: Option<Page>,
+        #[case] page: Option<Page<u64>>,
         #[case] count: usize,
     ) {
         let mut repository = MockShopOpenSearchRepository::default();
@@ -205,8 +208,8 @@ mod tests {
 
         let actual = service.search_shops(&search, &sort, &page).await.unwrap();
 
-        assert_eq!(count, actual.hits.len());
-        assert_eq!(count, actual.total as usize);
+        assert_eq!(count, actual.items.len());
+        assert_eq!(count, actual.total.unwrap() as usize);
     }
 
     #[tokio::test]

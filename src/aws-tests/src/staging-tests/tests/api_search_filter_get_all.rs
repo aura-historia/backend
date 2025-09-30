@@ -1,5 +1,5 @@
 use aws_tests_common::get_cfn_output;
-use common::api::collection::GetCollectionData;
+use common::api::collection::OffsetLimitPaginatedData;
 use fake::{Fake, Faker};
 use search_filter_core::search_filter::SearchFilter;
 use search_filter_data::user_search_filter_data::UserSearchFilterData;
@@ -51,10 +51,10 @@ async fn should_return_actual_search_filters_when_authorized() {
     assert_eq!(200, response.status());
 
     let actual = response
-        .json::<GetCollectionData<UserSearchFilterData>>()
+        .json::<OffsetLimitPaginatedData<UserSearchFilterData>>()
         .await
         .unwrap();
-    assert_eq!(2, actual.pagination.total);
+    assert_eq!(2, actual.pagination.total.unwrap());
 
     let actual1: SearchFilter = actual.items.first().unwrap().clone().search_filter.into();
     let actual2: SearchFilter = actual.items.get(1).unwrap().clone().search_filter.into();

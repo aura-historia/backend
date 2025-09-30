@@ -3,10 +3,9 @@ use common::api::api_gateway_v2_http_response_builder::ApiGatewayV2HttpResponseB
 use common::api::collection::PutCollectionData;
 use common::api::error::ApiError;
 use common::api::error_code::BAD_BODY_VALUE;
+use common::item_id::api::ItemKeyData;
 use common::localized::Localized;
 use common::price::domain::Price;
-use common::shop_id::ShopId;
-use common::shops_item_id::ShopsItemId;
 use item_data::put_data::PutItemData;
 use item_service::command_service::{PutItemsOutput, PutItemsService};
 use item_service::item_command::PutItemCommand;
@@ -14,16 +13,9 @@ use lambda_runtime::LambdaEvent;
 use serde::Serialize;
 
 #[derive(Debug, Clone, Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct UnprocessedPutItem {
-    pub shop_id: ShopId,
-    pub shops_item_id: ShopsItemId,
-}
-
-#[derive(Debug, Clone, Serialize)]
 pub struct PutItemsResponse {
     #[serde(skip_serializing_if = "Vec::is_empty")]
-    pub unprocessed: Vec<UnprocessedPutItem>,
+    pub unprocessed: Vec<ItemKeyData>,
     pub skipped: u64,
 }
 
@@ -33,7 +25,7 @@ impl From<PutItemsOutput> for PutItemsResponse {
             unprocessed: output
                 .unprocessed
                 .into_iter()
-                .map(|cmd| UnprocessedPutItem {
+                .map(|cmd| ItemKeyData {
                     shop_id: cmd.shop_id,
                     shops_item_id: cmd.shops_item_id,
                 })

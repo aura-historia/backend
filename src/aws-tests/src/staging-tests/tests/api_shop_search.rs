@@ -53,7 +53,6 @@ async fn should_respond_200_when_hits() {
 
     let body = response.json::<serde_json::Value>().await.unwrap();
     assert_eq!(0, body["pagination"]["from"]);
-    assert_eq!(5, body["pagination"]["size"]);
 
     let item = body["items"].as_array().unwrap()[0].clone();
     assert_eq!(expected.shop_id.to_string(), item["shopId"]);

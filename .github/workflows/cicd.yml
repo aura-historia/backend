@@ -128,9 +128,11 @@ jobs:
           - src/search-filter/src/search-filter-api/src/search-filter-api-post-search-filter
           - src/item/src/item-api/src/item-api-complex-search
           - src/item/src/item-api/src/item-api-get-item
+          - src/item/src/item-api/src/item-api-watchlist-get
           - src/item/src/item-dynamodb
           - src/item/src/item-opensearch
           - src/item/src/item-service
+          - src/item/src/item-watchlist
           - src/shop/src/shop-dynamodb
           - src/shop/src/shop-opensearch
           - src/test-api
@@ -257,6 +259,9 @@ jobs:
           - src/item/src/item-api/src/item-api-get-item
           - src/item/src/item-api/src/item-api-put-items
           - src/item/src/item-api/src/item-api-simple-search
+          - src/item/src/item-api/src/item-api-watchlist-delete
+          - src/item/src/item-api/src/item-api-watchlist-get
+          - src/item/src/item-api/src/item-api-watchlist-post
           - src/item/src/item-lambda/src/item-lambda-ingest-events-dynamodb
           - src/item/src/item-lambda/src/item-lambda-materialize-dynamodb-new
           - src/item/src/item-lambda/src/item-lambda-materialize-dynamodb-update

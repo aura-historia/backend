@@ -152,7 +152,7 @@ async fn should_search_shop_documents_when_only_name_query_supplied() {
 async fn should_search_shop_documents_for_arguments(
     #[case] search: ShopSearch,
     #[case] sort: Option<Sort<SortShopField>>,
-    #[case] page: Option<Page>,
+    #[case] page: Option<Page<u64>>,
 ) {
     let repository = get_repository().await;
     let mut expected = Faker.fake::<ShopDocument>();

@@ -502,7 +502,9 @@ async fn should_search_item_documents_respecting_order_when_price_range_is_given
 #[case(Page { from: 0, size: 1 })]
 #[case(Page { from: 0, size: 0 })]
 #[localstack_test(services = [OpenSearch()])]
-async fn should_search_item_documents_respecting_paging_when_sorted_by_price(#[case] page: Page) {
+async fn should_search_item_documents_respecting_paging_when_sorted_by_price(
+    #[case] page: Page<u64>,
+) {
     let items = fake::vec![ItemDocument; 1000]
         .into_iter()
         .map(|mut item| {

@@ -1,7 +1,7 @@
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct Page {
-    pub from: u16,
-    pub size: u16,
+pub struct Page<From> {
+    pub from: From,
+    pub size: u64,
 }
 
 #[cfg(feature = "api")]
@@ -9,17 +9,18 @@ pub mod api {
     use crate::{
         api::{
             error::ApiError,
-            error_code::{BAD_PAGE_FROM_VALUE, BAD_PAGE_SIZE_VALUE},
+            error_code::{BAD_PAGE_FROM_VALUE, BAD_PAGE_SIZE_VALUE, INVALID_RFC3339_TIMESTAMP},
         },
         page::Page,
     };
     use aws_lambda_events::query_map::QueryMap;
+    use time::{OffsetDateTime, format_description::well_known::Rfc3339};
 
-    pub fn extract_page_query(headers: &QueryMap) -> Result<Option<Page>, ApiError> {
+    pub fn extract_page_query_u64(headers: &QueryMap) -> Result<Option<Page<u64>>, ApiError> {
         let from = headers
             .first("from")
             .map(str::trim)
-            .map(|from| from.parse::<u16>())
+            .map(|from| from.parse::<u64>())
             .transpose()
             .map_err(|err| {
                 ApiError::bad_request(BAD_PAGE_FROM_VALUE)
@@ -29,7 +30,41 @@ pub mod api {
         let size = headers
             .first("size")
             .map(str::trim)
-            .map(|size| size.parse::<u16>())
+            .map(|size| size.parse::<u64>())
+            .transpose()
+            .map_err(|err| {
+                ApiError::bad_request(BAD_PAGE_SIZE_VALUE)
+                    .with_query_field("size")
+                    .with_message(err.to_string())
+            })?
+            .map(|size| size.min(100));
+
+        if let Some(from) = from
+            && let Some(size) = size
+        {
+            Ok(Some(Page { from, size }))
+        } else {
+            Ok(None)
+        }
+    }
+
+    pub fn extract_page_query_offsetdatetime(
+        headers: &QueryMap,
+    ) -> Result<Option<Page<OffsetDateTime>>, ApiError> {
+        let from = headers
+            .first("from")
+            .map(str::trim)
+            .map(|val| OffsetDateTime::parse(val, &Rfc3339))
+            .transpose()
+            .map_err(|err| {
+                ApiError::bad_request(INVALID_RFC3339_TIMESTAMP)
+                    .with_query_field("from")
+                    .with_message(err.to_string())
+            })?;
+        let size = headers
+            .first("size")
+            .map(str::trim)
+            .map(|size| size.parse::<u64>())
             .transpose()
             .map_err(|err| {
                 ApiError::bad_request(BAD_PAGE_SIZE_VALUE)
@@ -52,7 +87,7 @@ pub mod api {
         use crate::api::error::{ApiErrorSource, ApiErrorSourceType};
         use crate::api::error_code::{BAD_PAGE_FROM_VALUE, BAD_PAGE_SIZE_VALUE};
         use crate::page::Page;
-        use crate::page::api::extract_page_query;
+        use crate::page::api::extract_page_query_u64;
         use aws_lambda_events::query_map::QueryMap;
         use std::collections::HashMap;
 
@@ -69,10 +104,10 @@ pub mod api {
         #[case(None, Some("42"), None)]
         #[case(Some("31"), None, None)]
         #[case(None, None, None)]
-        fn should_extract_page(
+        fn should_extract_page_u64(
             #[case] from_value: Option<&str>,
             #[case] size_value: Option<&str>,
-            #[case] expected: Option<Page>,
+            #[case] expected: Option<Page<u64>>,
         ) {
             let mut map = HashMap::new();
             if let Some(from_value) = from_value {
@@ -83,7 +118,7 @@ pub mod api {
             }
             let query = QueryMap::from(map);
 
-            let actual = extract_page_query(&query).unwrap();
+            let actual = extract_page_query_u64(&query).unwrap();
 
             assert_eq!(expected, actual);
         }
@@ -94,13 +129,12 @@ pub mod api {
         #[case("bar")]
         #[case("1x")]
         #[case("07g")]
-        #[case("65536")]
-        fn should_400_when_from_is_invalid(#[case] value: &str) {
+        fn should_400_when_from_is_invalid_for_u64(#[case] value: &str) {
             let mut map = HashMap::new();
             map.insert("from".to_string(), value.to_string());
             let query = QueryMap::from(map);
 
-            let actual = extract_page_query(&query).unwrap_err();
+            let actual = extract_page_query_u64(&query).unwrap_err();
 
             assert_eq!(400, actual.status);
             assert_eq!(BAD_PAGE_FROM_VALUE, actual.error);
@@ -119,13 +153,12 @@ pub mod api {
         #[case("bar")]
         #[case("1x")]
         #[case("07g")]
-        #[case("65536")]
         fn should_400_when_size_is_invalid(#[case] value: &str) {
             let mut map = HashMap::new();
             map.insert("size".to_string(), value.to_string());
             let query = QueryMap::from(map);
 
-            let actual = extract_page_query(&query).unwrap_err();
+            let actual = extract_page_query_u64(&query).unwrap_err();
 
             assert_eq!(400, actual.status);
             assert_eq!(BAD_PAGE_SIZE_VALUE, actual.error);

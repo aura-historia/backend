@@ -1,0 +1,35 @@
+[package]
+name = "item-watchlist"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+common = { workspace = true }
+item-core = { workspace = true }
+item-dynamodb = { workspace = true, features = ["repository"] }
+item-service = { workspace = true, features = ["dynamodb"] }
+serde = { workspace = true }
+time = { workspace = true }
+async-trait = { workspace = true }
+aws-sdk-dynamodb = { workspace = true }
+serde_dynamo = { workspace = true, features = ["aws-sdk-dynamodb+1"] }
+tracing = { workspace = true }
+mockall = { workspace = true }
+thiserror = { workspace = true }
+
+# Optional
+fake = { workspace = true, optional = true }
+
+[dev-dependencies]
+item-watchlist = { workspace = true, features = ["api", "test-data"] }
+test-api = { workspace = true, features = ["dynamodb"] }
+serial_test = { workspace = true }
+fake = { workspace = true }
+serde_json = { workspace = true }
+rstest = { workspace = true }
+tokio = { workspace = true, features = ["macros"] }
+
+[features]
+default = []
+api = ["common/api"]
+test-data = ["fake", "common/test-data", "item-core/test-data", "item-dynamodb/test-data"]

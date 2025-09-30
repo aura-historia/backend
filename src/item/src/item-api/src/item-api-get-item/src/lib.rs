@@ -2,12 +2,12 @@ use aws_lambda_events::apigw::{ApiGatewayV2httpRequest, ApiGatewayV2httpResponse
 use aws_lambda_events::query_map::QueryMap;
 use common::api::api_gateway_v2_http_response_builder::ApiGatewayV2HttpResponseBuilder;
 use common::api::error::ApiError;
-use common::api::error_code::{BAD_PATH_PARAMETER_VALUE, BAD_QUERY_PARAMETER_VALUE, INVALID_UUID};
+use common::api::error_code::BAD_QUERY_PARAMETER_VALUE;
 use common::currency::data::api::extract_currency_query;
 use common::language::data::api::extract_languages_header;
 use common::language::domain::Language;
-use common::shop_id::ShopId;
-use common::shops_item_id::ShopsItemId;
+use common::shop_id::api::extract_shop_id_path;
+use common::shops_item_id::api::extract_shops_item_id_path;
 use item_data::get_data::GetItemData;
 use item_service::get_service::GetItemService;
 use lambda_runtime::LambdaEvent;
@@ -40,25 +40,8 @@ pub async fn handle(
         .map(Language::from)
         .collect::<Vec<_>>();
     let currency = extract_currency_query(&event.payload.query_string_parameters)?.into();
-    let shop_id = event
-        .payload
-        .path_parameters
-        .get("shopId")
-        .map(ShopId::try_from)
-        .transpose()
-        .map_err(|err| {
-            ApiError::bad_request(INVALID_UUID)
-                .with_path_field("shopId")
-                .with_message(err.to_string())
-        })?
-        .ok_or(ApiError::bad_request(BAD_PATH_PARAMETER_VALUE).with_path_field("shopId"))?;
-    let shops_item_id = event
-        .payload
-        .path_parameters
-        .get("shopsItemId")
-        .filter(|str| !str.is_empty())
-        .map(ShopsItemId::from)
-        .ok_or(ApiError::bad_request(BAD_PATH_PARAMETER_VALUE).with_path_field("shopsItemId"))?;
+    let shop_id = extract_shop_id_path(&event.payload.path_parameters)?;
+    let shops_item_id = extract_shops_item_id_path(&event.payload.path_parameters)?;
 
     let item_data: GetItemData = service
         .view_item(

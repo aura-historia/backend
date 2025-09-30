@@ -1,12 +1,21 @@
 use serde::{Deserialize, Serialize};
 
 #[cfg_attr(feature = "test-data", derive(fake::Dummy))]
-#[derive(Debug, PartialEq, Eq, PartialOrd, Ord, Clone, Copy, Default, Serialize, Deserialize)]
+#[derive(Debug, PartialEq, Eq, PartialOrd, Ord, Clone, Copy, Serialize, Deserialize)]
 pub struct RangeQuery<T: Ord> {
     #[serde(skip_serializing_if = "Option::is_none", default)]
     pub min: Option<T>,
     #[serde(skip_serializing_if = "Option::is_none", default)]
     pub max: Option<T>,
+}
+
+impl<T: Ord> Default for RangeQuery<T> {
+    fn default() -> Self {
+        Self {
+            min: None,
+            max: None,
+        }
+    }
 }
 
 impl<T: Ord> RangeQuery<T> {
