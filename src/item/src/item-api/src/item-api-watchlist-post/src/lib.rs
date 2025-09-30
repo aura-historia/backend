@@ -49,7 +49,21 @@ pub async fn handle(
         )
         .await?;
 
-    Ok(ApiGatewayV2HttpResponseBuilder::json(204).cors().build())
+    let location = match event.payload.request_context.domain_name {
+        None => None,
+        Some(domain_name) => match event.payload.request_context.stage {
+            Some(stage_name) => Some(format!(
+                "https://{domain_name}/{stage_name}/api/v1/watchlist/{}/{}",
+                item_key_data.shop_id, item_key_data.shops_item_id
+            )),
+            None => None,
+        },
+    };
+
+    Ok(ApiGatewayV2HttpResponseBuilder::json(201)
+        .try_location(location.as_deref())
+        .cors()
+        .build())
 }
 
 #[cfg(test)]
@@ -57,29 +71,40 @@ mod tests {
     use crate::handler;
     use common::{item_id::api::ItemKeyData, user_id::UserId};
     use fake::{Fake, Faker};
+    use http::header::LOCATION;
     use item_watchlist::service::MockItemWatchListService;
     use lambda_runtime::LambdaEvent;
     use test_api::ApiGatewayV2httpRequestProxy;
 
     #[tokio::test]
-    async fn should_204_when_success() {
+    async fn should_201_when_success() {
         let mut service = MockItemWatchListService::default();
         service
             .expect_watch()
             .return_once(|_, _, _| Box::pin(async { Ok(()) }));
 
+        let item_key_data = Faker.fake::<ItemKeyData>();
         let lambda_event = LambdaEvent {
             payload: ApiGatewayV2httpRequestProxy::builder()
                 .http_method(http::Method::POST)
-                .body_serde(&Faker.fake::<ItemKeyData>())
+                .body_serde(&item_key_data)
                 .jwt_claim("sub", UserId::new())
+                .domain_name("my.domain.com")
+                .stage("prod")
                 .build(),
             context: Default::default(),
         };
 
         let response = handler(lambda_event, &service).await.unwrap();
 
-        assert_eq!(204, response.status_code);
+        assert_eq!(201, response.status_code);
+        assert_eq!(
+            format!(
+                "https://my.domain.com/prod/api/v1/watchlist/{}/{}",
+                item_key_data.shop_id, item_key_data.shops_item_id
+            ),
+            response.headers.get(LOCATION).unwrap().to_str().unwrap()
+        )
     }
 
     #[tokio::test]
