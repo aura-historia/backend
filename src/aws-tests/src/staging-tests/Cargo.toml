@@ -18,6 +18,7 @@ tracing-subscriber = { workspace = true, features = ["json"] }
 tracing = { workspace = true }
 aws-sdk-cognitoidentityprovider = "1.97.0"
 fake = { workspace = true }
+time = { workspace = true }
 
 [dev-dependencies]
 common = { workspace = true, features = ["test-data"] }

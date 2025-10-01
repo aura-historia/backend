@@ -1,14 +1,20 @@
-use aws_sdk_cognitoidentityprovider::types::{AuthFlowType, MessageActionType};
+use aws_sdk_cognitoidentityprovider::types::{AttributeType, AuthFlowType, MessageActionType};
 use aws_sdk_dynamodb::types::WriteRequest;
 use aws_sdk_sqs::types::DeleteMessageBatchRequestEntry;
 use aws_tests_common::get_cfn_output;
-use fake::Fake;
+use fake::faker::address::de_de::TimeZone;
 use fake::faker::internet::de_de::{Password, SafeEmail};
+use fake::faker::name::de_de::{FirstName, LastName};
+use fake::faker::time::de_de::DateTimeBetween;
+use fake::{Fake, Faker};
 use opensearch::http::Url;
 use opensearch::http::response::Response;
 use opensearch::http::transport::{SingleNodeConnectionPool, TransportBuilder};
 pub use staging_tests_macros::staging_test;
 use std::{collections::HashMap, error::Error};
+use time::format_description::well_known::Rfc3339;
+use time::macros::datetime;
+use time::{Date, OffsetDateTime};
 use tokio::sync::OnceCell;
 use tracing::debug;
 use uuid::Uuid;
@@ -83,22 +89,115 @@ pub struct TestUser {
 }
 pub async fn create_random_test_user() -> TestUser {
     let email: String = SafeEmail().fake();
-    create_test_user(&email).await
+    let given_name: String = FirstName().fake();
+    let family_name: String = LastName().fake();
+    let birthdate: OffsetDateTime = DateTimeBetween(
+        datetime!(1900 - 01 - 01 0:00 UTC),
+        OffsetDateTime::now_utc(),
+    )
+    .fake();
+    let gender = if Faker.fake() { "male" } else { "female" };
+    let zoneinfo: String = TimeZone().fake();
+    let locale = "de-DE";
+
+    create_test_user(
+        &email,
+        &given_name,
+        &family_name,
+        &birthdate.date(),
+        gender,
+        &Some(zoneinfo),
+        &Some(locale.to_string()),
+        &None,
+    )
+    .await
 }
 
-pub async fn create_test_user(email: &str) -> TestUser {
+#[allow(clippy::too_many_arguments)]
+pub async fn create_test_user(
+    email: &str,
+    given_name: &str,
+    family_name: &str,
+    birthdate: &Date,
+    gender: &str,
+    zoneinfo: &Option<String>,
+    locale: &Option<String>,
+    phone_number: &Option<String>,
+) -> TestUser {
     let cfn = get_cfn_output();
     let cognito = get_cognito_client().await;
     let password: String = format!("{}*1bC", Password(8..12).fake::<String>());
 
-    let created = cognito
+    let mut req_builder = cognito
         .admin_create_user()
         .user_pool_id(&cfn.cognito_user_pool_id)
         .username(email)
-        .message_action(MessageActionType::Suppress)
-        .send()
-        .await
-        .unwrap();
+        .user_attributes(
+            AttributeType::builder()
+                .name("email")
+                .value(email)
+                .build()
+                .unwrap(),
+        )
+        .user_attributes(
+            AttributeType::builder()
+                .name("given_name")
+                .value(given_name)
+                .build()
+                .unwrap(),
+        )
+        .user_attributes(
+            AttributeType::builder()
+                .name("family_name")
+                .value(family_name)
+                .build()
+                .unwrap(),
+        )
+        .user_attributes(
+            AttributeType::builder()
+                .name("birthdate")
+                .value(birthdate.format(&Rfc3339).unwrap())
+                .build()
+                .unwrap(),
+        )
+        .user_attributes(
+            AttributeType::builder()
+                .name("gender")
+                .value(gender)
+                .build()
+                .unwrap(),
+        )
+        .message_action(MessageActionType::Suppress);
+
+    if let Some(zoneinfo) = zoneinfo {
+        req_builder = req_builder.user_attributes(
+            AttributeType::builder()
+                .name("zoneinfo")
+                .value(zoneinfo)
+                .build()
+                .unwrap(),
+        );
+    }
+    if let Some(locale) = locale {
+        req_builder = req_builder.user_attributes(
+            AttributeType::builder()
+                .name("locale")
+                .value(locale)
+                .build()
+                .unwrap(),
+        );
+    }
+    if let Some(phone_number) = phone_number {
+        req_builder = req_builder.user_attributes(
+            AttributeType::builder()
+                .name("phone_number")
+                .value(phone_number)
+                .build()
+                .unwrap(),
+        );
+    }
+
+    let created = req_builder.send().await.unwrap();
     cognito
         .admin_set_user_password()
         .user_pool_id(&cfn.cognito_user_pool_id)
