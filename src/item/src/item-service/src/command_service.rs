@@ -215,7 +215,11 @@ impl<T: FxRate + Sync> PutItemsServiceImpl<'_, T> {
                 .and_then(|price| {
                     self.fx_rate
                         .exchange_all(price.currency, price.monetary_amount)
-                        .ok()
+                        .map(Some)
+                        .unwrap_or_else(|err| {
+                            error!(error = %err, price = ?price, "Failed exchanging price for all other supported currencies.");
+                            None
+                        })
                 })
                 .unwrap_or_default();
             Item::create(
