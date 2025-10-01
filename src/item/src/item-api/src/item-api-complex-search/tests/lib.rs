@@ -1,4 +1,4 @@
-use common::api::collection::OffsetLimitPaginatedData;
+use common::pagination::page::api::PaginatedData;
 use fake::{Fake, Faker};
 use item_api_complex_search::handler;
 use item_data::get_data::GetItemData;
@@ -25,8 +25,7 @@ async fn should_200_when_no_hits() {
     assert_eq!(200, response.status_code);
 
     let json = extract_apigw_response_json_body!(response);
-    let collection_data: OffsetLimitPaginatedData<GetItemData> =
-        serde_json::from_value(json).unwrap();
+    let collection_data: PaginatedData<GetItemData> = serde_json::from_value(json).unwrap();
     assert!(collection_data.items.is_empty());
-    assert_eq!(0, collection_data.pagination.total.unwrap());
+    assert_eq!(0, collection_data.total.unwrap());
 }

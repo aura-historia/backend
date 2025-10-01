@@ -24,6 +24,7 @@ serde_dynamo = { workspace = true, features = [
 ], optional = true }
 item-opensearch = { workspace = true, optional = true }
 opensearch = { workspace = true, optional = true }
+serde_json = { workspace = true, optional = true }
 
 [dev-dependencies]
 aws-config = { workspace = true }
@@ -59,5 +60,5 @@ sqs = [
     "item-dynamodb",
     "common/sqs",
 ]
-opensearch = ["dep:opensearch", "item-opensearch"]
+opensearch = ["dep:opensearch", "item-opensearch", "serde_json"]
 test-data = ["fake", "common/test-data", "item-core/test-data"]

@@ -1,9 +1,8 @@
 use aws_lambda_events::apigw::{ApiGatewayV2httpRequest, ApiGatewayV2httpResponse};
-use common::api::collection::SearchAfterOffsetDateTimePaginatedData;
 use common::api::error::ApiError;
 use common::currency::data::api::extract_currency_query;
 use common::language::data::api::extract_language_header;
-use common::page::api::extract_page_query_offsetdatetime;
+use common::pagination::cursor::api::{TimeCursoredData, extract_time_cursor_query};
 use common::user_id::api::extract_user_id_cognito_jwt;
 use common::{
     api::api_gateway_v2_http_response_builder::ApiGatewayV2HttpResponseBuilder,
@@ -62,15 +61,21 @@ pub async fn handle(
     let sort =
         extract_sort_query::<SortWatchlistItemFieldData>(&event.payload.query_string_parameters)?
             .map(|sort_data| sort_data.map(SortWatchlistItemField::from));
-    let page = extract_page_query_offsetdatetime(&event.payload.query_string_parameters)?;
+    let cursor = extract_time_cursor_query(&event.payload.query_string_parameters)?;
 
     let items = service
-        .view_watchlist(&user_id, &[language.into()], &currency.into(), &sort, &page)
+        .view_watchlist(
+            &user_id,
+            &[language.into()],
+            &currency.into(),
+            &sort,
+            &cursor,
+        )
         .await?
         .map_item(WatchlistItemData::from);
 
     Ok(ApiGatewayV2HttpResponseBuilder::json(200)
-        .body_serde(SearchAfterOffsetDateTimePaginatedData::from(items))?
+        .body_serde(TimeCursoredData::from(items))?
         .cors()
         .build())
 }

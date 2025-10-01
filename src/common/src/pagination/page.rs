@@ -4,6 +4,12 @@ pub struct Page {
     pub size: u64,
 }
 
+impl Default for Page {
+    fn default() -> Self {
+        Self { from: 0, size: 21 }
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct PaginatedResult<T> {
     pub items: Vec<T>,
@@ -20,6 +26,16 @@ impl<T> PaginatedResult<T> {
             items: self.items.into_iter().map(f).collect(),
             page: self.page,
             total: self.total,
+        }
+    }
+}
+
+impl<T> Default for PaginatedResult<T> {
+    fn default() -> Self {
+        Self {
+            items: vec![],
+            page: Default::default(),
+            total: None,
         }
     }
 }
