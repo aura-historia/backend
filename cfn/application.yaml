@@ -107,10 +107,10 @@ Resources:
         - profile
       SupportedIdentityProviders:
         - COGNITO
-      CallbackURLs: # Placeholder for staging-tests
-        - !Sub "https://${BlitzfilterApi}.execute-api.${AWS::Region}.amazonaws.com/${StageName}/oauth2/callback"
+      CallbackURLs:
+        - http://localhost:3000/
       LogoutURLs:
-        - !Sub "https://${BlitzfilterApi}.execute-api.${AWS::Region}.amazonaws.com/${StageName}/logout"
+        - http://localhost:3000/
       EnableTokenRevocation: true
       AccessTokenValidity: 1 # hours
       IdTokenValidity: 1 # hours
