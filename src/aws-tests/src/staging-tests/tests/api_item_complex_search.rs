@@ -79,7 +79,7 @@ async fn should_respond_200_when_hits() {
     };
 
     let url = format!(
-        "{}/api/v1/items/search?sort=created&order=asc&from=0&size=5",
+        "{}/api/v1/items/search?sort=created&order=asc&size=5",
         get_cfn_output().api_gateway_endpoint_url
     );
     let response = reqwest::Client::new()
@@ -91,9 +91,8 @@ async fn should_respond_200_when_hits() {
     assert_eq!(200, response.status());
 
     let body = response.json::<serde_json::Value>().await.unwrap();
-    assert_eq!(0, body["pagination"]["from"]);
-    assert_eq!(1, body["pagination"]["size"]);
-    assert_eq!(1, body["pagination"]["total"]);
+    assert_eq!(1, body["size"]);
+    assert_eq!(1, body["total"]);
 
     let item = body["items"].as_array().unwrap()[0].clone();
     assert_eq!(expected.shop_id.to_string(), item["shopId"]);

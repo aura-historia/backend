@@ -52,7 +52,7 @@ async fn should_respond_200_when_hits() {
     assert_eq!(200, response.status());
 
     let body = response.json::<serde_json::Value>().await.unwrap();
-    assert_eq!(0, body["pagination"]["from"]);
+    assert_eq!(0, body["from"]);
 
     let item = body["items"].as_array().unwrap()[0].clone();
     assert_eq!(expected.shop_id.to_string(), item["shopId"]);
