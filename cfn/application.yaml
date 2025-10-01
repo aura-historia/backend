@@ -58,6 +58,39 @@ Resources:
         DefaultEmailOption: CONFIRM_WITH_CODE
       EmailVerificationSubject: "Verify your email"
       EmailVerificationMessage: "Your verification code is {####}"
+      Schema:
+        - Name: email
+          AttributeDataType: String
+          Mutable: true
+          Required: true
+        - Name: given_name
+          AttributeDataType: String
+          Mutable: true
+          Required: true
+        - Name: family_name
+          AttributeDataType: String
+          Mutable: true
+          Required: true
+        - Name: birthdate
+          AttributeDataType: String
+          Mutable: true
+          Required: true
+        - Name: gender
+          AttributeDataType: String
+          Mutable: true
+          Required: true
+        - Name: phone_number
+          AttributeDataType: String
+          Mutable: true
+          Required: false
+        - Name: locale
+          AttributeDataType: String
+          Mutable: true
+          Required: false
+        - Name: zoneinfo
+          AttributeDataType: String
+          Mutable: true
+          Required: false
   BlitzfilterUserPoolClientPublic:
     Type: AWS::Cognito::UserPoolClient
     Properties:
@@ -82,6 +115,24 @@ Resources:
       AccessTokenValidity: 1 # hours
       IdTokenValidity: 1 # hours
       RefreshTokenValidity: 30 # days
+      ReadAttributes:
+        - email
+        - given_name
+        - family_name
+        - birthdate
+        - gender
+        - phone_number
+        - locale
+        - zoneinfo
+      WriteAttributes:
+        - email
+        - given_name
+        - family_name
+        - birthdate
+        - gender
+        - phone_number
+        - locale
+        - zoneinfo
   BlitzfilterUserPoolClientAdmin:
     Type: AWS::Cognito::UserPoolClient
     Properties:
@@ -96,6 +147,24 @@ Resources:
       AccessTokenValidity: 1 # hours
       IdTokenValidity: 1 # hours
       RefreshTokenValidity: 30 # days
+      ReadAttributes:
+        - email
+        - given_name
+        - family_name
+        - birthdate
+        - gender
+        - phone_number
+        - locale
+        - zoneinfo
+      WriteAttributes:
+        - email
+        - given_name
+        - family_name
+        - birthdate
+        - gender
+        - phone_number
+        - locale
+        - zoneinfo
   BlitzfilterUserPoolDomain:
     Type: AWS::Cognito::UserPoolDomain
     Properties:
