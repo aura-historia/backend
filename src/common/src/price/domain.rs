@@ -1,5 +1,4 @@
 use crate::currency::domain::Currency;
-use crate::price::command_data::PriceCommandData;
 use crate::price::data::PriceData;
 use crate::price::record::PriceRecord;
 use std::collections::HashMap;
@@ -218,15 +217,6 @@ impl From<PriceData> for Price {
         Price {
             monetary_amount: data.amount.into(),
             currency: data.currency.into(),
-        }
-    }
-}
-
-impl From<PriceCommandData> for Price {
-    fn from(command_data: PriceCommandData) -> Self {
-        Price {
-            monetary_amount: command_data.amount.into(),
-            currency: command_data.currency.into(),
         }
     }
 }

@@ -1,9 +1,7 @@
-use std::collections::HashMap;
-
-use crate::language::command_data::LanguageCommandData;
 use crate::language::data::LanguageData;
 use crate::language::record::LanguageRecord;
 use crate::localized::Localized;
+use std::collections::HashMap;
 
 #[cfg_attr(feature = "test-data", derive(fake::Dummy))]
 #[derive(Copy, Clone, Eq, PartialEq, Debug, Hash, Default)]
@@ -40,17 +38,6 @@ impl Language {
                     .next()
                     .map(|(lang, t)| Localized::new(lang, t))
             })
-    }
-}
-
-impl From<LanguageCommandData> for Language {
-    fn from(cmd: LanguageCommandData) -> Self {
-        match cmd {
-            LanguageCommandData::De => Language::De,
-            LanguageCommandData::En => Language::En,
-            LanguageCommandData::Fr => Language::Fr,
-            LanguageCommandData::Es => Language::Es,
-        }
     }
 }
 
