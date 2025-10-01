@@ -11,6 +11,19 @@ pub struct CursoredResult<T, C> {
     pub total: Option<u64>,
 }
 
+impl<T, C> CursoredResult<T, C> {
+    pub fn map_item<U, F>(self, f: F) -> CursoredResult<U, C>
+    where
+        F: FnMut(T) -> U,
+    {
+        CursoredResult {
+            items: self.items.into_iter().map(f).collect(),
+            cursor: self.cursor,
+            total: self.total,
+        }
+    }
+}
+
 #[cfg(feature = "api")]
 pub mod api {
     use crate::{
@@ -18,7 +31,7 @@ pub mod api {
             error::ApiError,
             error_code::{BAD_PAGE_SIZE_VALUE, INVALID_RFC3339_TIMESTAMP},
         },
-        pagination::cursor::Cursor,
+        pagination::cursor::{Cursor, CursoredResult},
     };
     use aws_lambda_events::query_map::QueryMap;
     use serde::{Deserialize, Serialize};
@@ -70,5 +83,16 @@ pub mod api {
 
         #[serde(default, skip_serializing_if = "Option::is_none")]
         pub total: Option<u64>,
+    }
+
+    impl<T> From<CursoredResult<T, OffsetDateTime>> for TimeCursoredData<T> {
+        fn from(result: CursoredResult<T, OffsetDateTime>) -> Self {
+            TimeCursoredData {
+                items: result.items,
+                size: result.cursor.size,
+                search_after: result.cursor.search_after,
+                total: result.total,
+            }
+        }
     }
 }

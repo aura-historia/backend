@@ -31,7 +31,7 @@ pub mod api {
             error::ApiError,
             error_code::{BAD_PAGE_FROM_VALUE, BAD_PAGE_SIZE_VALUE},
         },
-        pagination::page::Page,
+        pagination::page::{Page, PaginatedResult},
     };
     use aws_lambda_events::query_map::QueryMap;
     use serde::{Deserialize, Serialize};
@@ -76,6 +76,17 @@ pub mod api {
 
         #[serde(default, skip_serializing_if = "Option::is_none")]
         pub total: Option<u64>,
+    }
+
+    impl<T> From<PaginatedResult<T>> for PaginatedData<T> {
+        fn from(result: PaginatedResult<T>) -> Self {
+            PaginatedData {
+                items: result.items,
+                from: result.page.from,
+                size: result.page.size,
+                total: result.total,
+            }
+        }
     }
 
     #[cfg(test)]

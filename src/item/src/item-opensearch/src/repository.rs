@@ -7,7 +7,7 @@ use common::item_id::ItemId;
 use common::item_state::domain::ItemState;
 use common::language::domain::Language;
 use common::opensearch::{bulk_response::BulkResponse, search_response::SearchResponse};
-use common::page::Page;
+use common::pagination::cursor::Cursor;
 use common::sort::{Sort, SortOrder};
 use item_core::sort_item_field::SortItemField;
 use opensearch::{BulkOperation, BulkOperations, BulkParts, SearchParts};
@@ -35,7 +35,7 @@ pub trait ItemOpenSearchRepository {
         &self,
         search_filter: &SearchFilter,
         sort: &Option<Sort<SortItemField>>,
-        page: &Option<Page<u64>>,
+        page: &Option<Cursor<serde_json::Value>>,
     ) -> Result<SearchResponse<ItemDocument>, opensearch::Error>;
 }
 
@@ -115,7 +115,7 @@ impl<'a> ItemOpenSearchRepository for ItemOpenSearchRepositoryImpl<'a> {
         &self,
         search_filter: &SearchFilter,
         sort: &Option<Sort<SortItemField>>,
-        page: &Option<Page<u64>>,
+        cursor: &Option<Cursor<serde_json::Value>>,
     ) -> Result<SearchResponse<ItemDocument>, opensearch::Error> {
         let mut must = Vec::with_capacity(3);
         let mut filter = Vec::with_capacity(10);
@@ -254,13 +254,16 @@ impl<'a> ItemOpenSearchRepository for ItemOpenSearchRepositoryImpl<'a> {
             }
         });
 
-        if let Some(p) = page {
+        if let Some(c) = cursor {
             body.as_object_mut()
                 .unwrap()
-                .insert("from".to_string(), json!(p.from));
-            body.as_object_mut()
-                .unwrap()
-                .insert("size".to_string(), json!(p.size));
+                .insert("size".to_string(), json!(c.size));
+
+            if let Some(search_after) = &c.search_after {
+                body.as_object_mut()
+                    .unwrap()
+                    .insert("search_after".to_string(), json!(search_after));
+            }
         }
 
         if let Some(sort) = sort {

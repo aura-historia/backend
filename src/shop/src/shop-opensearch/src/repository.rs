@@ -1,7 +1,7 @@
 use crate::{shop_document::ShopDocument, shop_search::ShopSearch};
 use common::{
     opensearch::{index_response::IndexResponse, search_response::SearchResponse},
-    page::Page,
+    pagination::page::Page,
     sort::{Sort, SortOrder},
 };
 use opensearch::{IndexParts, SearchParts};
@@ -22,7 +22,7 @@ pub trait ShopOpenSearchRepository {
         &self,
         search: &ShopSearch,
         sort: &Option<Sort<SortShopField>>,
-        page: &Option<Page<u64>>,
+        page: &Option<Page>,
     ) -> Result<SearchResponse<ShopDocument>, opensearch::Error>;
 }
 
@@ -65,7 +65,7 @@ impl<'a> ShopOpenSearchRepository for ShopOpenSearchRepositoryImpl<'a> {
         &self,
         search: &ShopSearch,
         sort: &Option<Sort<SortShopField>>,
-        page: &Option<Page<u64>>,
+        page: &Option<Page>,
     ) -> Result<SearchResponse<ShopDocument>, opensearch::Error> {
         let mut must = Vec::with_capacity(2);
         let mut filter = Vec::with_capacity(6);

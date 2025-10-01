@@ -9,7 +9,7 @@ use common::{
     },
     currency::{data::api::extract_currency_query, domain::Currency},
     language::{data::api::extract_language_query, domain::Language},
-    page::{Page, api::extract_page_query_u64},
+    page::{Page, api::extract_page_query},
     sort::api::extract_sort_query,
 };
 use item_core::sort_item_field::SortItemField;
@@ -45,7 +45,7 @@ pub async fn handle(
     let currency: Currency = extract_currency_query(&event.payload.query_string_parameters)?.into();
     let sort = extract_sort_query::<SortItemFieldData>(&event.payload.query_string_parameters)?
         .map(|sort_data| sort_data.map(SortItemField::from));
-    let page = extract_page_query_u64(&event.payload.query_string_parameters)?
+    let page = extract_page_query(&event.payload.query_string_parameters)?
         .unwrap_or(Page { from: 0, size: 21 });
     let item_query: TextQuery = event
         .payload

@@ -1,6 +1,7 @@
 use aws_lambda_events::apigw::{ApiGatewayV2httpRequest, ApiGatewayV2httpResponse};
 use common::{
     api::{api_gateway_v2_http_response_builder::ApiGatewayV2HttpResponseBuilder, error::ApiError},
+    pagination::page::api::PaginatedData,
     sort::api::extract_sort_query,
     user_id::api::extract_user_id_cognito_jwt,
 };
@@ -46,14 +47,11 @@ pub async fn handle(
         .map(UserSearchFilterData::from)
         .collect();
     let count = user_search_filters_data.len();
-    let collection = OffsetLimitPaginatedData {
+    let collection = PaginatedData {
         items: user_search_filters_data,
-        pagination: PageData {
-            from: 0,
-            size: count as u64,
-            total: Some(count as u64),
-            next: None,
-        },
+        from: 0,
+        size: count as u64,
+        total: Some(count as u64),
     };
 
     Ok(ApiGatewayV2HttpResponseBuilder::json(200)

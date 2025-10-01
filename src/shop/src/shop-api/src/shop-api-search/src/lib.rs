@@ -1,10 +1,13 @@
 use aws_lambda_events::apigw::{ApiGatewayV2httpRequest, ApiGatewayV2httpResponse};
 use common::{
     api::{
-        api_gateway_v2_http_response_builder::ApiGatewayV2HttpResponseBuilder,
-        collection::OffsetLimitPaginatedData, error::ApiError, error_code::BAD_BODY_VALUE,
+        api_gateway_v2_http_response_builder::ApiGatewayV2HttpResponseBuilder, error::ApiError,
+        error_code::BAD_BODY_VALUE,
     },
-    page::{Page, api::extract_page_query},
+    pagination::page::{
+        Page,
+        api::{PaginatedData, extract_page_query},
+    },
     sort::api::extract_sort_query,
 };
 use lambda_runtime::LambdaEvent;
@@ -62,7 +65,7 @@ pub async fn handle(
         .search_shops(&search, &sort, &Some(page))
         .await?
         .map_item(GetShopData::from);
-    let search_result_data = OffsetLimitPaginatedData::from(search_result);
+    let search_result_data = PaginatedData::from(search_result);
 
     Ok(ApiGatewayV2HttpResponseBuilder::json(200)
         .body_serde(search_result_data)?
@@ -74,8 +77,7 @@ pub async fn handle(
 #[allow(clippy::too_many_arguments)]
 mod tests {
     use crate::handler;
-    use common::page::Page;
-    use common::paginated_result::PaginatedResult;
+    use common::pagination::page::{Page, PaginatedResult};
     use fake::Fake;
     use fake::Faker;
     use lambda_runtime::LambdaEvent;
@@ -115,8 +117,7 @@ mod tests {
             let search_result = PaginatedResult {
                 items: fake::vec![Shop; count],
                 total: Some(789),
-                next_after: None,
-                page: common::page::Page { from: 5, size: 5 },
+                page: Page { from: 5, size: 5 },
             };
             Box::pin(async move { Ok(search_result) })
         });
@@ -141,7 +142,6 @@ mod tests {
             let search_result = PaginatedResult {
                 items: fake::vec![Shop; count],
                 total: Some(789),
-                next_after: None,
                 page: Page { from: 5, size: 5 },
             };
             Box::pin(async move { Ok(search_result) })

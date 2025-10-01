@@ -42,6 +42,9 @@ pub struct SearchHit<T> {
     #[serde(rename = "_score")]
     pub score: Option<f64>,
 
+    #[serde(default)]
+    pub sort: Option<serde_json::Value>,
+
     #[serde(rename = "_source")]
     pub source: T,
 }
@@ -82,7 +85,8 @@ mod tests {
                         "_index": "test",
                         "_id": "2",
                         "_score": 0.9,
-                        "_source": { "field1": "bar", "field2": 7 }
+                        "_source": { "field1": "bar", "field2": 7 },
+                        "sort" : [ 1, "32635" ]
                     }
                 ]
             }
