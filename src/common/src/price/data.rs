@@ -3,7 +3,6 @@ use crate::currency::domain::HasMinorUnitExponent;
 use crate::price::domain::{NegativeMonetaryAmountError, Price};
 use serde::{Deserialize, Serialize};
 
-#[cfg_attr(feature = "test-data", derive(fake::Dummy))]
 #[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct PriceData {
@@ -36,6 +35,18 @@ impl From<Price> for PriceData {
         PriceData {
             currency: domain.currency.into(),
             amount: domain.monetary_amount.into(),
+        }
+    }
+}
+
+#[cfg(feature = "test-data")]
+mod faker {
+    use crate::price::{data::PriceData, domain::Price};
+    use fake::{Dummy, Fake, Faker, Rng};
+
+    impl Dummy<Faker> for PriceData {
+        fn dummy_with_rng<R: Rng + ?Sized>(config: &Faker, rng: &mut R) -> Self {
+            config.fake_with_rng::<Price, R>(rng).into()
         }
     }
 }

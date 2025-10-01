@@ -2,7 +2,6 @@ use crate::currency::record::CurrencyRecord;
 use crate::price::domain::Price;
 use serde::{Deserialize, Serialize};
 
-#[cfg_attr(feature = "test-data", derive(fake::Dummy))]
 #[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
 pub struct PriceRecord {
     pub currency: CurrencyRecord,
@@ -14,6 +13,18 @@ impl From<Price> for PriceRecord {
         PriceRecord {
             currency: domain.currency.into(),
             amount: domain.monetary_amount.into(),
+        }
+    }
+}
+
+#[cfg(feature = "test-data")]
+mod faker {
+    use crate::price::{domain::Price, record::PriceRecord};
+    use fake::{Dummy, Fake, Faker, Rng};
+
+    impl Dummy<Faker> for PriceRecord {
+        fn dummy_with_rng<R: Rng + ?Sized>(config: &Faker, rng: &mut R) -> Self {
+            config.fake_with_rng::<Price, R>(rng).into()
         }
     }
 }
