@@ -77,7 +77,7 @@ mod faker {
         use fake::{Fake, Faker};
 
         #[test]
-        fn should_fake_get_item_data() {
+        fn should_fake_put_item_data() {
             let _ = Faker.fake::<PutItemData>();
         }
     }

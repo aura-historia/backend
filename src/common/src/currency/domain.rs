@@ -1,9 +1,7 @@
-use std::collections::HashMap;
-
-use crate::currency::command_data::CurrencyCommandData;
 use crate::currency::data::CurrencyData;
 use crate::currency::record::CurrencyRecord;
 use crate::price::domain::{MonetaryAmount, Price};
+use std::collections::HashMap;
 
 #[derive(Copy, Clone, Eq, PartialEq, Debug, Hash)]
 pub struct MinorUnitExponent(pub u8);
@@ -98,19 +96,6 @@ impl HasMinorUnitExponent for Currency {
 impl Default for Currency {
     fn default() -> Self {
         Self::Eur
-    }
-}
-
-impl From<CurrencyCommandData> for Currency {
-    fn from(cmd: CurrencyCommandData) -> Self {
-        match cmd {
-            CurrencyCommandData::Eur => Currency::Eur,
-            CurrencyCommandData::Gbp => Currency::Gbp,
-            CurrencyCommandData::Usd => Currency::Usd,
-            CurrencyCommandData::Aud => Currency::Aud,
-            CurrencyCommandData::Cad => Currency::Cad,
-            CurrencyCommandData::Nzd => Currency::Nzd,
-        }
     }
 }
 

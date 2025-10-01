@@ -1,5 +1,4 @@
 use crate::currency::domain::Currency;
-use crate::price::command_data::PriceCommandData;
 use crate::price::data::PriceData;
 use crate::price::record::PriceRecord;
 use std::collections::HashMap;
@@ -175,7 +174,6 @@ impl From<MonetaryAmount> for u64 {
     }
 }
 
-#[cfg_attr(feature = "test-data", derive(fake::Dummy))]
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct Price {
     pub monetary_amount: MonetaryAmount,
@@ -223,20 +221,32 @@ impl From<PriceData> for Price {
     }
 }
 
-impl From<PriceCommandData> for Price {
-    fn from(command_data: PriceCommandData) -> Self {
-        Price {
-            monetary_amount: command_data.amount.into(),
-            currency: command_data.currency.into(),
-        }
-    }
-}
-
 impl From<PriceRecord> for Price {
     fn from(record: PriceRecord) -> Self {
         Price {
             monetary_amount: record.amount.into(),
             currency: record.currency.into(),
+        }
+    }
+}
+
+#[cfg(feature = "test-data")]
+mod faker {
+    use crate::price::domain::Price;
+    use fake::{Dummy, Fake, Faker, Rng};
+    use std::ops::Range;
+
+    impl Dummy<Faker> for Price {
+        fn dummy_with_rng<R: Rng + ?Sized>(config: &Faker, rng: &mut R) -> Self {
+            Price {
+                monetary_amount: rng
+                    .random_range(Range {
+                        start: 100u64,
+                        end: 9999999u64,
+                    })
+                    .into(),
+                currency: config.fake_with_rng(rng),
+            }
         }
     }
 }
