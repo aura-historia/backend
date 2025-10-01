@@ -12,7 +12,6 @@ use opensearch::http::response::Response;
 use opensearch::http::transport::{SingleNodeConnectionPool, TransportBuilder};
 pub use staging_tests_macros::staging_test;
 use std::{collections::HashMap, error::Error};
-use time::format_description::well_known::Rfc3339;
 use time::macros::datetime;
 use time::{Date, OffsetDateTime};
 use tokio::sync::OnceCell;
@@ -93,7 +92,7 @@ pub async fn create_random_test_user() -> TestUser {
     let family_name: String = LastName().fake();
     let birthdate: OffsetDateTime = DateTimeBetween(
         datetime!(1900 - 01 - 01 0:00 UTC),
-        OffsetDateTime::now_utc(),
+        datetime!(2010 - 12 - 31 0:00 UTC),
     )
     .fake();
     let gender = if Faker.fake() { "male" } else { "female" };
@@ -156,7 +155,11 @@ pub async fn create_test_user(
         .user_attributes(
             AttributeType::builder()
                 .name("birthdate")
-                .value(birthdate.format(&Rfc3339).unwrap())
+                .value(
+                    birthdate
+                        .format(&time::format_description::parse("[year]-[month]-[day]").unwrap())
+                        .unwrap(),
+                )
                 .build()
                 .unwrap(),
         )
