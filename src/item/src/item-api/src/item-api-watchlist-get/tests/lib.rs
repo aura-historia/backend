@@ -61,7 +61,7 @@ async fn should_200_when_sort_created_asc() {
             .query_string_parameter("currency", "EUR")
             .query_string_parameter("sort", "created")
             .query_string_parameter("order", "asc")
-            .query_string_parameter("from", "2021-12-31T23:59:59Z")
+            .query_string_parameter("searchAfter", "2021-12-31T23:59:59Z")
             .query_string_parameter("size", "10")
             .build(),
         context: Default::default(),
@@ -140,7 +140,7 @@ async fn should_200_when_sort_created_asc_search_after() {
             .query_string_parameter("currency", "EUR")
             .query_string_parameter("sort", "created")
             .query_string_parameter("order", "asc")
-            .query_string_parameter("from", from.unwrap().format(&Rfc3339).unwrap())
+            .query_string_parameter("searchAfter", from.unwrap().format(&Rfc3339).unwrap())
             .query_string_parameter("size", "12")
             .build(),
         context: Default::default(),
@@ -212,7 +212,7 @@ async fn should_200_when_sort_created_desc() {
             .query_string_parameter("currency", "EUR")
             .query_string_parameter("sort", "created")
             .query_string_parameter("order", "desc")
-            .query_string_parameter("from", "2999-12-31T23:59:59Z")
+            .query_string_parameter("searchAfter", "2999-12-31T23:59:59Z")
             .query_string_parameter("size", "7")
             .build(),
         context: Default::default(),
@@ -291,7 +291,7 @@ async fn should_200_when_sort_created_desc_search_after() {
             .query_string_parameter("currency", "EUR")
             .query_string_parameter("sort", "created")
             .query_string_parameter("order", "desc")
-            .query_string_parameter("from", from.unwrap().format(&Rfc3339).unwrap())
+            .query_string_parameter("searchAfter", from.unwrap().format(&Rfc3339).unwrap())
             .query_string_parameter("size", "20")
             .build(),
         context: Default::default(),
