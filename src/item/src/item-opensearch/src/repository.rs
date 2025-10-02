@@ -16,6 +16,7 @@ use serde::ser::Error;
 use serde_json::json;
 use std::collections::HashMap;
 use std::ops::Deref;
+use strum::EnumCount;
 use time::format_description::well_known;
 
 #[async_trait]
@@ -161,6 +162,7 @@ impl<'a> ItemOpenSearchRepository for ItemOpenSearchRepositoryImpl<'a> {
                     "term": { "isAvailable": true }
                 }));
             }
+            states if states.len() == ItemState::COUNT => {}
             states => {
                 let state_values: Vec<&str> = states
                     .iter()

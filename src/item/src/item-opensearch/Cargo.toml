@@ -16,6 +16,7 @@ url = { workspace = true }
 time = { workspace = true, features = ["local-offset", "macros", "formatting"] }
 mockall = { workspace = true }
 search-filter-core = { workspace = true }
+strum = { workspace = true }
 
 # Optional deps
 fake = { workspace = true, optional = true }
