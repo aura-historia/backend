@@ -10,7 +10,7 @@ use aws_sdk_dynamodb::{
     },
     types::AttributeValue,
 };
-use common::user_id::UserId;
+use common::{pagination::cursor::Cursor, user_id::UserId};
 use time::{OffsetDateTime, macros::datetime};
 use tracing::error;
 
@@ -20,8 +20,7 @@ pub trait WatchlistItemDynamoDbRepository {
     async fn query_watchlist_records(
         &self,
         user_id: &UserId,
-        created_guard: &Option<OffsetDateTime>,
-        limit: u64,
+        cursor: &Cursor<OffsetDateTime>,
         scan_index_forward: bool,
     ) -> Result<Vec<WatchlistItemRecord>, SdkError<QueryError>>;
 
@@ -63,14 +62,15 @@ impl<'a> WatchlistItemDynamoDbRepository for WatchlistItemDynamoDbRepositoryImpl
     async fn query_watchlist_records(
         &self,
         user_id: &UserId,
-        created_guard: &Option<OffsetDateTime>,
-        limit: u64,
+        cursor: &Cursor<OffsetDateTime>,
         scan_index_forward: bool,
     ) -> Result<Vec<WatchlistItemRecord>, SdkError<QueryError>> {
         let exclusive_guard = if scan_index_forward {
-            created_guard.unwrap_or(datetime!(2000 - 01 - 01 0:00 UTC))
+            cursor
+                .search_after
+                .unwrap_or(datetime!(2000 - 01 - 01 0:00 UTC))
         } else {
-            created_guard.unwrap_or(OffsetDateTime::now_utc())
+            cursor.search_after.unwrap_or(OffsetDateTime::now_utc())
         };
         let key_condition_expression = if scan_index_forward {
             "#pk = :pk_val AND #sk > :sk_val_exclusive_guard"
@@ -93,7 +93,7 @@ impl<'a> WatchlistItemDynamoDbRepository for WatchlistItemDynamoDbRepositoryImpl
                 ":sk_val_exclusive_guard",
                 AttributeValue::S(mk_sk(&exclusive_guard).map_err(SdkError::construction_failure)?),
             )
-            .limit(limit as i32)
+            .limit(cursor.size as i32)
             .scan_index_forward(scan_index_forward)
             .send()
             .await?

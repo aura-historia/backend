@@ -1,9 +1,11 @@
 use serde::{Deserialize, Serialize};
 use shop_core::sort_shop_field::SortShopField;
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum SortShopFieldData {
+    #[default]
+    Score,
     Name,
     Updated,
     Created,
@@ -12,6 +14,7 @@ pub enum SortShopFieldData {
 impl SortShopFieldData {
     pub fn as_str(&self) -> &'static str {
         match self {
+            SortShopFieldData::Score => "score",
             SortShopFieldData::Name => "name",
             SortShopFieldData::Updated => "updated",
             SortShopFieldData::Created => "created",
@@ -30,11 +33,12 @@ impl<'a> TryFrom<&'a str> for SortShopFieldData {
 
     fn try_from(value: &'a str) -> Result<Self, Self::Error> {
         match value {
+            "score" => Ok(SortShopFieldData::Score),
             "name" => Ok(SortShopFieldData::Name),
             "updated" => Ok(SortShopFieldData::Updated),
             "created" => Ok(SortShopFieldData::Created),
             invalid => Err(format!(
-                "Expected any of: 'name', 'updated', 'created'. Got: '{invalid}'"
+                "Expected any of: 'score', 'name', 'updated', 'created'. Got: '{invalid}'"
             )),
         }
     }
@@ -43,6 +47,7 @@ impl<'a> TryFrom<&'a str> for SortShopFieldData {
 impl From<SortShopFieldData> for SortShopField {
     fn from(value: SortShopFieldData) -> Self {
         match value {
+            SortShopFieldData::Score => SortShopField::Score,
             SortShopFieldData::Name => SortShopField::Name,
             SortShopFieldData::Updated => SortShopField::Updated,
             SortShopFieldData::Created => SortShopField::Created,

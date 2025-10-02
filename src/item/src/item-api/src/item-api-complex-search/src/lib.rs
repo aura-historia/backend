@@ -1,10 +1,10 @@
 use aws_lambda_events::apigw::{ApiGatewayV2httpRequest, ApiGatewayV2httpResponse};
 use common::{
     api::{
-        api_gateway_v2_http_response_builder::ApiGatewayV2HttpResponseBuilder,
-        collection::OffsetLimitPaginatedData, error::ApiError, error_code::BAD_BODY_VALUE,
+        api_gateway_v2_http_response_builder::ApiGatewayV2HttpResponseBuilder, error::ApiError,
+        error_code::BAD_BODY_VALUE,
     },
-    page::{Page, api::extract_page_query_u64},
+    pagination::cursor::api::{JsonCursoredData, extract_json_cursor_query},
     sort::api::extract_sort_query,
 };
 use item_core::sort_item_field::SortItemField;
@@ -38,8 +38,8 @@ pub async fn handle(
 ) -> Result<ApiGatewayV2httpResponse, ApiError> {
     let sort = extract_sort_query::<SortItemFieldData>(&event.payload.query_string_parameters)?
         .map(|sort_data| sort_data.map(SortItemField::from));
-    let page = extract_page_query_u64(&event.payload.query_string_parameters)?
-        .unwrap_or(Page { from: 0, size: 21 });
+    let cursor =
+        extract_json_cursor_query(&event.payload.query_string_parameters)?.unwrap_or_default();
     let body = event
         .payload
         .body
@@ -52,10 +52,10 @@ pub async fn handle(
 
     let search_filter = search_filter_data.into();
     let search_result = service
-        .search_items(&search_filter, &sort, &Some(page))
+        .search_items(&search_filter, &sort, &Some(cursor))
         .await?
         .map_item(GetItemData::from);
-    let collection = OffsetLimitPaginatedData::from(search_result);
+    let collection = JsonCursoredData::from(search_result);
 
     Ok(ApiGatewayV2HttpResponseBuilder::json(200)
         .body_serde(collection)?
@@ -67,14 +67,15 @@ pub async fn handle(
 #[allow(clippy::too_many_arguments)]
 mod tests {
     use crate::handler;
-    use common::page::Page;
-    use common::paginated_result::PaginatedResult;
+    use common::pagination::cursor::Cursor;
+    use common::pagination::cursor::CursoredResult;
     use fake::Fake;
     use fake::Faker;
     use item_core::item::LocalizedItemView;
     use item_service::query_service::MockQueryItemService;
     use lambda_runtime::LambdaEvent;
     use search_filter_data::search_filter_data::SearchFilterData;
+    use serde_json::json;
     use test_api::ApiGatewayV2httpRequestProxy;
 
     #[tokio::test]
@@ -103,13 +104,15 @@ mod tests {
         };
 
         let mut service = MockQueryItemService::default();
-        service.expect_search_items().return_once(|_, _, page| {
-            let count = page.map(|page| page.size).unwrap_or(20) as usize;
-            let search_result = PaginatedResult {
-                items: fake::vec![LocalizedItemView; count],
+        service.expect_search_items().return_once(|_, _, cursor| {
+            let count = cursor.as_ref().map(|cursor| cursor.size).unwrap_or(20) as usize;
+            let search_result = CursoredResult {
+                items: fake::vec![LocalizedItemView;count],
+                cursor: Cursor {
+                    size: count as u64,
+                    search_after: Some(json!(["Booooop", 123465])),
+                },
                 total: Some(789),
-                next_after: None,
-                page: Page { from: 5, size: 0 },
             };
             Box::pin(async move { Ok(search_result) })
         });

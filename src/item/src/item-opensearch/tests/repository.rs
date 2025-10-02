@@ -3,7 +3,7 @@ use common::event_id::EventId;
 use common::item_id::ItemId;
 use common::item_state::domain::ItemState;
 use common::language::domain::Language;
-use common::page::Page;
+use common::pagination::cursor::Cursor;
 use common::price::domain::MonetaryAmount;
 use common::query::any_of_query::AnyOfQuery;
 use common::query::range_query::RangeQuery;
@@ -17,6 +17,7 @@ use item_opensearch::item_update_document::ItemUpdateDocument;
 use item_opensearch::repository::{ItemOpenSearchRepository, ItemOpenSearchRepositoryImpl};
 use opensearch::http::Url;
 use search_filter_core::search_filter::SearchFilter;
+use serde_json::json;
 use std::collections::HashMap;
 use std::collections::HashSet;
 use std::time::Duration;
@@ -243,7 +244,14 @@ async fn should_search_item_documents() {
         updated_query: None,
     };
     let response = repository
-        .search_item_documents(&search_filter, &None, &None)
+        .search_item_documents(
+            &search_filter,
+            &Sort {
+                sort: SortItemField::Score,
+                order: SortOrder::Desc,
+            },
+            &None,
+        )
         .await
         .unwrap();
 
@@ -297,9 +305,12 @@ async fn should_search_item_documents_when_all_arguments_are_given() {
         sort: SortItemField::Price,
         order: SortOrder::Asc,
     };
-    let page = Page { from: 0, size: 20 };
+    let page = Cursor {
+        size: 20,
+        search_after: None,
+    };
     let response = repository
-        .search_item_documents(&search_filter, &Some(sort), &Some(page))
+        .search_item_documents(&search_filter, &sort, &Some(page))
         .await;
 
     assert!(response.is_ok());
@@ -340,7 +351,14 @@ async fn should_search_item_documents_when_states_are_given(#[case] states: &[It
         updated_query: None,
     };
     let response = repository
-        .search_item_documents(&search_filter, &None, &None)
+        .search_item_documents(
+            &search_filter,
+            &Sort {
+                sort: SortItemField::Score,
+                order: SortOrder::Desc,
+            },
+            &None,
+        )
         .await
         .unwrap();
 
@@ -384,7 +402,14 @@ async fn should_search_item_documents_when_no_states_are_given() {
         updated_query: None,
     };
     let response = repository
-        .search_item_documents(&search_filter, &None, &None)
+        .search_item_documents(
+            &search_filter,
+            &Sort {
+                sort: SortItemField::Score,
+                order: SortOrder::Desc,
+            },
+            &None,
+        )
         .await
         .unwrap();
 
@@ -393,17 +418,16 @@ async fn should_search_item_documents_when_no_states_are_given() {
 
 #[rstest::rstest]
 #[test_attr(apply(test))]
-#[case(RangeQuery { min: Some(0u64.into()), max: Some(999999u64.into()) }, SortOrder::Asc)]
-#[case(RangeQuery { min: Some(0u64.into()), max: Some(999999u64.into()) }, SortOrder::Desc)]
-#[case(RangeQuery { min: Some(300u64.into()), max: Some(5000u64.into()) }, SortOrder::Asc)]
-#[case(RangeQuery { min: Some(500u64.into()), max: None }, SortOrder::Desc)]
-#[case(RangeQuery { min: None, max: Some(8888u64.into()) }, SortOrder::Asc)]
-#[case(RangeQuery { min: None, max: None }, SortOrder::Asc)]
-#[case(RangeQuery { min: None, max: None }, SortOrder::Desc)]
+#[case(RangeQuery { min: Some(0u64.into()), max: Some(999999u64.into()) })]
+#[case(RangeQuery { min: Some(0u64.into()), max: Some(999999u64.into()) })]
+#[case(RangeQuery { min: Some(300u64.into()), max: Some(5000u64.into()) })]
+#[case(RangeQuery { min: Some(500u64.into()), max: None })]
+#[case(RangeQuery { min: None, max: Some(8888u64.into()) })]
+#[case(RangeQuery { min: None, max: None })]
+#[case(RangeQuery { min: None, max: None })]
 #[localstack_test(services = [OpenSearch()])]
-async fn should_search_item_documents_respecting_order_when_price_range_is_given(
+async fn should_search_item_documents_when_price_range_is_given(
     #[case] price_query: RangeQuery<MonetaryAmount>,
-    #[case] sort_direction: SortOrder,
 ) {
     let cheap_items = fake::vec![ItemDocument; 50]
         .into_iter()
@@ -445,11 +469,14 @@ async fn should_search_item_documents_respecting_order_when_price_range_is_given
     let response = repository
         .search_item_documents(
             &search_filter,
-            &Some(Sort {
-                sort: SortItemField::Price,
-                order: sort_direction,
+            &Sort {
+                sort: SortItemField::Score,
+                order: SortOrder::Desc,
+            },
+            &Some(Cursor {
+                size: 100,
+                search_after: None,
             }),
-            &Some(Page { from: 0, size: 100 }),
         )
         .await
         .unwrap();
@@ -459,19 +486,7 @@ async fn should_search_item_documents_respecting_order_when_price_range_is_given
         .into_iter()
         .map(|hit| hit.source)
         .collect::<Vec<_>>();
-    let sorter = |l: &ItemDocument, r: &ItemDocument| match l
-        .price_eur
-        .unwrap()
-        .cmp(&r.price_eur.unwrap())
-    {
-        std::cmp::Ordering::Equal => l.item_id.to_string().cmp(&r.item_id.to_string()),
-        ord => match sort_direction {
-            SortOrder::Asc => ord,
-            SortOrder::Desc => ord.reverse(),
-        },
-    };
-
-    let mut expected_items = items
+    let expected_items = items
         .into_iter()
         .filter(|item| {
             let mut filter = true;
@@ -484,27 +499,17 @@ async fn should_search_item_documents_respecting_order_when_price_range_is_given
             filter
         })
         .collect::<Vec<_>>();
-    expected_items.sort_by(sorter);
 
-    assert_eq!(expected_items, actual_items);
+    assert_eq!(expected_items.len(), actual_items.len());
+    assert!(
+        expected_items
+            .iter()
+            .all(|item| actual_items.contains(item))
+    );
 }
 
-#[rstest::rstest]
-#[test_attr(apply(test))]
-#[case(Page { from: 0, size: 10 })]
-#[case(Page { from: 500, size: 10 })]
-#[case(Page { from: 990, size: 10 })]
-#[case(Page { from: 1000, size: 10 })]
-#[case(Page { from: 995, size: 10 })]
-#[case(Page { from: 0, size: 1000 })]
-#[case(Page { from: 0, size: 2000 })]
-#[case(Page { from: 5000, size: 10 })]
-#[case(Page { from: 0, size: 1 })]
-#[case(Page { from: 0, size: 0 })]
 #[localstack_test(services = [OpenSearch()])]
-async fn should_search_item_documents_respecting_paging_when_sorted_by_price(
-    #[case] page: Page<u64>,
-) {
+async fn should_search_item_documents_respecting_paging_when_sorted_by_price() {
     let items = fake::vec![ItemDocument; 1000]
         .into_iter()
         .map(|mut item| {
@@ -536,11 +541,14 @@ async fn should_search_item_documents_respecting_paging_when_sorted_by_price(
     let response = repository
         .search_item_documents(
             &search_filter,
-            &Some(Sort {
+            &Sort {
                 sort: SortItemField::Price,
                 order: SortOrder::Asc,
+            },
+            &Some(Cursor {
+                size: 17,
+                search_after: None,
             }),
-            &Some(page),
         )
         .await
         .unwrap();
@@ -562,10 +570,77 @@ async fn should_search_item_documents_respecting_paging_when_sorted_by_price(
 
     let mut expected_items = items;
     expected_items.sort_by(sorter);
+    let expected_items = expected_items.into_iter().take(17).collect::<Vec<_>>();
+
+    assert_eq!(expected_items, actual_items);
+}
+
+#[localstack_test(services = [OpenSearch()])]
+async fn should_search_item_documents_respecting_search_after_when_sorted_by_price() {
+    let mut expected_items = fake::vec![ItemDocument; 200]
+        .into_iter()
+        .map(|mut item| {
+            item.title_en = Some("The same title".into());
+            item.price_usd = Some(rand::random_range(1500..=20000));
+            item
+        })
+        .collect::<Vec<_>>();
+    let client = get_opensearch_client().await;
+    let repository = ItemOpenSearchRepositoryImpl::new(client);
+    let response = repository
+        .create_item_documents(expected_items.clone())
+        .await
+        .unwrap();
+    assert!(!response.errors);
+    refresh_index("items").await;
+    tokio::time::sleep(Duration::from_millis(3000)).await;
+
+    let sorter = |l: &ItemDocument, r: &ItemDocument| match l
+        .price_usd
+        .unwrap()
+        .cmp(&r.price_usd.unwrap())
+    {
+        std::cmp::Ordering::Equal => l.item_id.to_string().cmp(&r.item_id.to_string()),
+        ord => ord,
+    };
+    expected_items.sort_by(sorter);
+    let search_filter = SearchFilter {
+        language: Language::En,
+        currency: Currency::Usd,
+        item_query: "The same title".try_into().unwrap(),
+        shop_name_query: None,
+        price_query: None,
+        state_query: Default::default(),
+        created_query: None,
+        updated_query: None,
+    };
+    let response = repository
+        .search_item_documents(
+            &search_filter,
+            &Sort {
+                sort: SortItemField::Price,
+                order: SortOrder::Asc,
+            },
+            &Some(Cursor {
+                size: 15,
+                search_after: Some(json!([
+                    expected_items[1].price_usd.unwrap(),
+                    expected_items[1].item_id.to_string()
+                ])),
+            }),
+        )
+        .await
+        .unwrap();
+    let actual_items = response
+        .hits
+        .hits
+        .into_iter()
+        .map(|hit| hit.source)
+        .collect::<Vec<_>>();
     let expected_items = expected_items
         .into_iter()
-        .skip(page.from as usize)
-        .take(page.size as usize)
+        .skip(2)
+        .take(15)
         .collect::<Vec<_>>();
 
     assert_eq!(expected_items, actual_items);

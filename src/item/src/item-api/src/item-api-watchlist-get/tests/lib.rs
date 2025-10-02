@@ -1,4 +1,4 @@
-use common::{api::collection::SearchAfterOffsetDateTimePaginatedData, user_id::UserId};
+use common::{pagination::cursor::api::TimeCursoredData, user_id::UserId};
 use item_api_watchlist_get::{WatchlistItemData, handler};
 use item_dynamodb::{
     item_record::ItemRecord,
@@ -61,7 +61,7 @@ async fn should_200_when_sort_created_asc() {
             .query_string_parameter("currency", "EUR")
             .query_string_parameter("sort", "created")
             .query_string_parameter("order", "asc")
-            .query_string_parameter("from", "2021-12-31T23:59:59Z")
+            .query_string_parameter("searchAfter", "2021-12-31T23:59:59Z")
             .query_string_parameter("size", "10")
             .build(),
         context: Default::default(),
@@ -70,9 +70,9 @@ async fn should_200_when_sort_created_asc() {
     let response = handler(lambda_event, &service).await.unwrap();
     assert_eq!(200, response.status_code);
 
-    let actual: SearchAfterOffsetDateTimePaginatedData<WatchlistItemData> =
+    let actual: TimeCursoredData<WatchlistItemData> =
         serde_json::from_value(extract_apigw_response_json_body!(response)).unwrap();
-    assert_eq!(10, actual.pagination.size);
+    assert_eq!(10, actual.size);
     assert_eq!(10, actual.items.len());
     assert_eq!(
         expected,
@@ -140,7 +140,7 @@ async fn should_200_when_sort_created_asc_search_after() {
             .query_string_parameter("currency", "EUR")
             .query_string_parameter("sort", "created")
             .query_string_parameter("order", "asc")
-            .query_string_parameter("from", from.unwrap().format(&Rfc3339).unwrap())
+            .query_string_parameter("searchAfter", from.unwrap().format(&Rfc3339).unwrap())
             .query_string_parameter("size", "12")
             .build(),
         context: Default::default(),
@@ -149,9 +149,9 @@ async fn should_200_when_sort_created_asc_search_after() {
     let response = handler(lambda_event, &service).await.unwrap();
     assert_eq!(200, response.status_code);
 
-    let actual: SearchAfterOffsetDateTimePaginatedData<WatchlistItemData> =
+    let actual: TimeCursoredData<WatchlistItemData> =
         serde_json::from_value(extract_apigw_response_json_body!(response)).unwrap();
-    assert_eq!(12, actual.pagination.size);
+    assert_eq!(12, actual.size);
     assert_eq!(12, actual.items.len());
     assert_eq!(
         expected,
@@ -161,10 +161,7 @@ async fn should_200_when_sort_created_asc_search_after() {
             .map(|item| item.item.item_id)
             .collect::<Vec<_>>()
     );
-    assert_eq!(
-        expected_next_after.unwrap(),
-        actual.pagination.next.unwrap()
-    );
+    assert_eq!(expected_next_after.unwrap(), actual.search_after.unwrap());
 }
 
 #[localstack_test(services = [DynamoDB()])]
@@ -215,7 +212,7 @@ async fn should_200_when_sort_created_desc() {
             .query_string_parameter("currency", "EUR")
             .query_string_parameter("sort", "created")
             .query_string_parameter("order", "desc")
-            .query_string_parameter("from", "2999-12-31T23:59:59Z")
+            .query_string_parameter("searchAfter", "2999-12-31T23:59:59Z")
             .query_string_parameter("size", "7")
             .build(),
         context: Default::default(),
@@ -224,9 +221,9 @@ async fn should_200_when_sort_created_desc() {
     let response = handler(lambda_event, &service).await.unwrap();
     assert_eq!(200, response.status_code);
 
-    let actual: SearchAfterOffsetDateTimePaginatedData<WatchlistItemData> =
+    let actual: TimeCursoredData<WatchlistItemData> =
         serde_json::from_value(extract_apigw_response_json_body!(response)).unwrap();
-    assert_eq!(7, actual.pagination.size);
+    assert_eq!(7, actual.size);
     assert_eq!(7, actual.items.len());
     assert_eq!(
         expected,
@@ -294,7 +291,7 @@ async fn should_200_when_sort_created_desc_search_after() {
             .query_string_parameter("currency", "EUR")
             .query_string_parameter("sort", "created")
             .query_string_parameter("order", "desc")
-            .query_string_parameter("from", from.unwrap().format(&Rfc3339).unwrap())
+            .query_string_parameter("searchAfter", from.unwrap().format(&Rfc3339).unwrap())
             .query_string_parameter("size", "20")
             .build(),
         context: Default::default(),
@@ -303,9 +300,9 @@ async fn should_200_when_sort_created_desc_search_after() {
     let response = handler(lambda_event, &service).await.unwrap();
     assert_eq!(200, response.status_code);
 
-    let actual: SearchAfterOffsetDateTimePaginatedData<WatchlistItemData> =
+    let actual: TimeCursoredData<WatchlistItemData> =
         serde_json::from_value(extract_apigw_response_json_body!(response)).unwrap();
-    assert_eq!(7, actual.pagination.size);
+    assert_eq!(7, actual.size);
     assert_eq!(7, actual.items.len());
     assert_eq!(
         expected,
@@ -315,8 +312,5 @@ async fn should_200_when_sort_created_desc_search_after() {
             .map(|item| item.item.item_id)
             .collect::<Vec<_>>()
     );
-    assert_eq!(
-        expected_next_after.unwrap(),
-        actual.pagination.next.unwrap()
-    );
+    assert_eq!(expected_next_after.unwrap(), actual.search_after.unwrap());
 }

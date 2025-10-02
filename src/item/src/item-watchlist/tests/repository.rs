@@ -1,4 +1,4 @@
-use common::user_id::UserId;
+use common::{pagination::cursor::Cursor, user_id::UserId};
 use fake::{Fake, Faker};
 use item_watchlist::{
     record::{WatchlistItemRecord, mk_pk},
@@ -45,10 +45,10 @@ fn should_delete_watchlist_record() {
         .unwrap();
 
     let actual = repository
-        .query_watchlist_records(&expected.user_id, &Default::default(), 42, true)
+        .get_watchlist_record(&expected.user_id, &expected.created)
         .await
         .unwrap();
-    assert!(actual.is_empty());
+    assert!(actual.is_none());
 }
 
 #[localstack_test(services = [DynamoDB()])]
@@ -69,7 +69,14 @@ fn should_query_watchlist_records_when_lower_bounded_created_for_scan_index_true
     let expected = records.clone().into_iter().skip(37).collect::<Vec<_>>();
 
     let actual = repository
-        .query_watchlist_records(&user_id, &Some(records.get(36).unwrap().created), 100, true)
+        .query_watchlist_records(
+            &user_id,
+            &Cursor {
+                size: 100,
+                search_after: Some(records.get(36).unwrap().created),
+            },
+            true,
+        )
         .await
         .unwrap();
     assert_eq!(expected, actual);
@@ -98,7 +105,14 @@ fn should_query_watchlist_records_when_higher_bounded_created_for_scan_index_fal
         .collect::<Vec<_>>();
 
     let actual = repository
-        .query_watchlist_records(&user_id, &Some(records.get(5).unwrap().created), 100, false)
+        .query_watchlist_records(
+            &user_id,
+            &Cursor {
+                size: 100,
+                search_after: Some(records.get(5).unwrap().created),
+            },
+            false,
+        )
         .await
         .unwrap();
     assert_eq!(expected, actual);
@@ -120,7 +134,14 @@ fn should_query_watchlist_records_when_not_bound_created_for_scan_index_true() {
     }
 
     let actual = repository
-        .query_watchlist_records(&user_id, &None, 100, true)
+        .query_watchlist_records(
+            &user_id,
+            &Cursor {
+                size: 100,
+                search_after: None,
+            },
+            true,
+        )
         .await
         .unwrap();
     assert_eq!(records, actual);
@@ -142,7 +163,14 @@ fn should_query_watchlist_records_and_respect_limit_for_scan_index_true() {
     }
 
     let actual = repository
-        .query_watchlist_records(&user_id, &None, 10, true)
+        .query_watchlist_records(
+            &user_id,
+            &Cursor {
+                size: 10,
+                search_after: None,
+            },
+            true,
+        )
         .await
         .unwrap();
 
@@ -166,7 +194,14 @@ fn should_query_watchlist_records_and_respect_limit_for_scan_index_false() {
     }
 
     let actual = repository
-        .query_watchlist_records(&user_id, &None, 10, false)
+        .query_watchlist_records(
+            &user_id,
+            &Cursor {
+                size: 10,
+                search_after: None,
+            },
+            false,
+        )
         .await
         .unwrap();
 

@@ -1,7 +1,7 @@
 use crate::{shop_document::ShopDocument, shop_search::ShopSearch};
 use common::{
     opensearch::{index_response::IndexResponse, search_response::SearchResponse},
-    page::Page,
+    pagination::page::Page,
     sort::{Sort, SortOrder},
 };
 use opensearch::{IndexParts, SearchParts};
@@ -21,8 +21,8 @@ pub trait ShopOpenSearchRepository {
     async fn search_shop_documents(
         &self,
         search: &ShopSearch,
-        sort: &Option<Sort<SortShopField>>,
-        page: &Option<Page<u64>>,
+        sort: &Sort<SortShopField>,
+        page: &Option<Page>,
     ) -> Result<SearchResponse<ShopDocument>, opensearch::Error>;
 }
 
@@ -64,8 +64,8 @@ impl<'a> ShopOpenSearchRepository for ShopOpenSearchRepositoryImpl<'a> {
     async fn search_shop_documents(
         &self,
         search: &ShopSearch,
-        sort: &Option<Sort<SortShopField>>,
-        page: &Option<Page<u64>>,
+        sort: &Sort<SortShopField>,
+        page: &Option<Page>,
     ) -> Result<SearchResponse<ShopDocument>, opensearch::Error> {
         let mut must = Vec::with_capacity(2);
         let mut filter = Vec::with_capacity(6);
@@ -134,24 +134,28 @@ impl<'a> ShopOpenSearchRepository for ShopOpenSearchRepositoryImpl<'a> {
                 .insert("size".to_string(), json!(p.size));
         }
 
-        if let Some(sort) = sort {
-            let sort_field = match sort.sort {
-                SortShopField::Name => "name.keyword",
-                SortShopField::Created => "created",
-                SortShopField::Updated => "updated",
-            };
-            let order = match sort.order {
-                SortOrder::Asc => "asc",
-                SortOrder::Desc => "desc",
-            };
-            body.as_object_mut().unwrap().insert(
-                "sort".to_string(),
-                json!([
-                    { sort_field: { "order": order, "missing": "_last", } },
-                    { "shopId": { "order": "asc"} }
-                ]),
-            );
-        }
+        let sort_field = match sort.sort {
+            SortShopField::Score => "_score",
+            SortShopField::Name => "name.keyword",
+            SortShopField::Created => "created",
+            SortShopField::Updated => "updated",
+        };
+        let order = match sort.order {
+            SortOrder::Asc => "asc",
+            SortOrder::Desc => "desc",
+        };
+        let primary_sort = if matches!(sort.sort, SortShopField::Score) {
+            json!({ sort_field: { "order": order } })
+        } else {
+            json!({ sort_field: { "order": order, "missing": "_last" } })
+        };
+        body.as_object_mut().unwrap().insert(
+            "sort".to_string(),
+            json!([
+                primary_sort,
+                { "shopId": { "order": "asc"} } // tie-breaker
+            ]),
+        );
 
         let response = self
             .client

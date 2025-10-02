@@ -1,9 +1,8 @@
 use async_trait::async_trait;
 use common::language::domain::Language;
-use common::page::Page;
-use common::paginated_result::PaginatedResult;
+use common::pagination::cursor::{Cursor, CursoredResult};
 use common::price::domain::Price;
-use common::sort::Sort;
+use common::sort::{Sort, SortOrder};
 use common::{currency::domain::Currency, localized::Localized};
 use item_core::hash::ItemHash;
 use item_core::sort_item_field::SortItemField;
@@ -45,8 +44,8 @@ pub trait QueryItemService {
         &self,
         search_filter: &SearchFilter,
         sort: &Option<Sort<SortItemField>>,
-        page: &Option<Page<u64>>,
-    ) -> Result<PaginatedResult<LocalizedItemView, u64>, SearchItemsError>;
+        page: &Option<Cursor<serde_json::Value>>,
+    ) -> Result<CursoredResult<LocalizedItemView, serde_json::Value>, SearchItemsError>;
 }
 
 pub struct QueryItemServiceImpl<'a> {
@@ -65,13 +64,27 @@ impl<'a> QueryItemService for QueryItemServiceImpl<'a> {
         &self,
         search_filter: &SearchFilter,
         sort: &Option<Sort<SortItemField>>,
-        page: &Option<Page<u64>>,
-    ) -> Result<PaginatedResult<LocalizedItemView, u64>, SearchItemsError> {
+        page: &Option<Cursor<serde_json::Value>>,
+    ) -> Result<CursoredResult<LocalizedItemView, serde_json::Value>, SearchItemsError> {
         let search_response = self
             .repository
-            .search_item_documents(search_filter, sort, page)
+            .search_item_documents(
+                search_filter,
+                &sort.unwrap_or(Sort {
+                    sort: SortItemField::Score,
+                    order: SortOrder::Desc,
+                }),
+                page,
+            )
             .await?;
-
+        let cursor = Cursor {
+            size: search_response.hits.hits.len() as u64,
+            search_after: search_response
+                .hits
+                .hits
+                .last()
+                .and_then(|last| last.sort.clone()),
+        };
         if search_response.timed_out {
             warn!(
                 searchFilter = ?search_filter,
@@ -152,13 +165,10 @@ impl<'a> QueryItemService for QueryItemServiceImpl<'a> {
         })
         .collect::<Vec<_>>();
 
-        let from = page.map(|page| page.from).unwrap_or(0);
-        let size = item_views.len() as u64;
-        Ok(PaginatedResult {
+        Ok(CursoredResult {
             items: item_views,
-            page: Page { from, size },
+            cursor,
             total: Some(search_response.hits.total.value),
-            next_after: Some(from + size),
         })
     }
 }
@@ -168,6 +178,7 @@ mod tests {
     use std::collections::HashSet;
 
     use crate::query_service::{QueryItemService, QueryItemServiceImpl};
+    use common::pagination::cursor::Cursor;
     use common::query::any_of_query::AnyOfQuery;
     use common::query::range_query::RangeQuery;
     use common::{
@@ -177,13 +188,13 @@ mod tests {
         opensearch::search_response::{
             HitsMetadata, SearchHit, SearchResponse, ShardStats, TotalHits,
         },
-        page::Page,
         sort::{Sort, SortOrder},
     };
     use item_core::sort_item_field::SortItemField;
     use item_opensearch::{item_document::ItemDocument, repository::MockItemOpenSearchRepository};
     use search_filter_core::search_filter::SearchFilter;
     use serde::ser::Error;
+    use serde_json::json;
     use time::macros::datetime;
 
     fn mk_search_response(item_documents: Vec<ItemDocument>) -> SearchResponse<ItemDocument> {
@@ -209,6 +220,7 @@ mod tests {
                         id: item_document.item_id.to_string(),
                         score: None,
                         source: item_document,
+                        sort: None,
                     })
                     .collect(),
             },
@@ -229,7 +241,7 @@ mod tests {
             updated_query: Some(RangeQuery { min: Some(datetime!(1000-01-01 0:00 UTC)), max: Some(datetime!(3000-01-01 0:00 UTC)) }),
         },
         Some(Sort { sort: SortItemField::Price, order: SortOrder::Asc }),
-        Some(Page { from: 0, size: 20 }),
+        Some(Cursor { search_after: None, size: 20 }),
         100
     )]
     #[case(
@@ -244,7 +256,7 @@ mod tests {
             updated_query: Some(RangeQuery { min: Some(datetime!(1000-01-01 0:00 UTC)), max: Some(datetime!(3000-01-01 0:00 UTC)) }),
         },
         Some(Sort { sort: SortItemField::Price, order: SortOrder::Desc }),
-        Some(Page { from: 10, size: 30 }),
+        Some(Cursor { search_after: Some(json!([12345, "foo"])), size: 20 }),
         500
     )]
     #[case(
@@ -295,7 +307,7 @@ mod tests {
     async fn should_search_items(
         #[case] search_filter: SearchFilter,
         #[case] sort: Option<Sort<SortItemField>>,
-        #[case] page: Option<Page<u64>>,
+        #[case] page: Option<Cursor<serde_json::Value>>,
         #[case] count: usize,
     ) {
         let mut repository = MockItemOpenSearchRepository::default();

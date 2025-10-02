@@ -1,7 +1,7 @@
 use aws_tests_common::get_cfn_output;
 use common::{
-    api::collection::SearchAfterOffsetDateTimePaginatedData, item_id::api::ItemKeyData,
-    shop_id::ShopId, shops_item_id::ShopsItemId,
+    item_id::api::ItemKeyData, pagination::cursor::api::TimeCursoredData, shop_id::ShopId,
+    shops_item_id::ShopsItemId,
 };
 use fake::{Fake, Faker};
 use item_api_watchlist_get::WatchlistItemData;
@@ -90,7 +90,7 @@ async fn should_put_and_get_and_delete_watchlist_item_and_verify_not_exists() {
         .unwrap();
     assert_eq!(200, get_response.status());
     let gotten = get_response
-        .json::<SearchAfterOffsetDateTimePaginatedData<WatchlistItemData>>()
+        .json::<TimeCursoredData<WatchlistItemData>>()
         .await
         .unwrap();
 
@@ -131,7 +131,7 @@ async fn should_put_and_get_and_delete_watchlist_item_and_verify_not_exists() {
         .unwrap();
     assert_eq!(200, get_response.status());
     let gotten = get_response
-        .json::<SearchAfterOffsetDateTimePaginatedData<WatchlistItemData>>()
+        .json::<TimeCursoredData<WatchlistItemData>>()
         .await
         .unwrap();
 

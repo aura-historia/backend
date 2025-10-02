@@ -2353,6 +2353,7 @@ dependencies = [
  "serde",
  "serde_json",
  "serial_test",
+ "strum",
  "test-api",
  "time",
  "url",

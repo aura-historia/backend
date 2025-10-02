@@ -1,7 +1,43 @@
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct Page<From> {
-    pub from: From,
+pub struct Page {
+    pub from: u64,
     pub size: u64,
+}
+
+impl Default for Page {
+    fn default() -> Self {
+        Self { from: 0, size: 21 }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct PaginatedResult<T> {
+    pub items: Vec<T>,
+    pub page: Page,
+    pub total: Option<u64>,
+}
+
+impl<T> PaginatedResult<T> {
+    pub fn map_item<U, F>(self, f: F) -> PaginatedResult<U>
+    where
+        F: FnMut(T) -> U,
+    {
+        PaginatedResult {
+            items: self.items.into_iter().map(f).collect(),
+            page: self.page,
+            total: self.total,
+        }
+    }
+}
+
+impl<T> Default for PaginatedResult<T> {
+    fn default() -> Self {
+        Self {
+            items: vec![],
+            page: Default::default(),
+            total: None,
+        }
+    }
 }
 
 #[cfg(feature = "api")]
@@ -9,14 +45,14 @@ pub mod api {
     use crate::{
         api::{
             error::ApiError,
-            error_code::{BAD_PAGE_FROM_VALUE, BAD_PAGE_SIZE_VALUE, INVALID_RFC3339_TIMESTAMP},
+            error_code::{BAD_PAGE_FROM_VALUE, BAD_PAGE_SIZE_VALUE},
         },
-        page::Page,
+        pagination::page::{Page, PaginatedResult},
     };
     use aws_lambda_events::query_map::QueryMap;
-    use time::{OffsetDateTime, format_description::well_known::Rfc3339};
+    use serde::{Deserialize, Serialize};
 
-    pub fn extract_page_query_u64(headers: &QueryMap) -> Result<Option<Page<u64>>, ApiError> {
+    pub fn extract_page_query(headers: &QueryMap) -> Result<Option<Page>, ApiError> {
         let from = headers
             .first("from")
             .map(str::trim)
@@ -48,37 +84,24 @@ pub mod api {
         }
     }
 
-    pub fn extract_page_query_offsetdatetime(
-        headers: &QueryMap,
-    ) -> Result<Option<Page<OffsetDateTime>>, ApiError> {
-        let from = headers
-            .first("from")
-            .map(str::trim)
-            .map(|val| OffsetDateTime::parse(val, &Rfc3339))
-            .transpose()
-            .map_err(|err| {
-                ApiError::bad_request(INVALID_RFC3339_TIMESTAMP)
-                    .with_query_field("from")
-                    .with_message(err.to_string())
-            })?;
-        let size = headers
-            .first("size")
-            .map(str::trim)
-            .map(|size| size.parse::<u64>())
-            .transpose()
-            .map_err(|err| {
-                ApiError::bad_request(BAD_PAGE_SIZE_VALUE)
-                    .with_query_field("size")
-                    .with_message(err.to_string())
-            })?
-            .map(|size| size.min(100));
+    #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+    pub struct PaginatedData<T> {
+        pub items: Vec<T>,
+        pub from: u64,
+        pub size: u64,
 
-        if let Some(from) = from
-            && let Some(size) = size
-        {
-            Ok(Some(Page { from, size }))
-        } else {
-            Ok(None)
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        pub total: Option<u64>,
+    }
+
+    impl<T> From<PaginatedResult<T>> for PaginatedData<T> {
+        fn from(result: PaginatedResult<T>) -> Self {
+            PaginatedData {
+                items: result.items,
+                from: result.page.from,
+                size: result.page.size,
+                total: result.total,
+            }
         }
     }
 
@@ -86,8 +109,8 @@ pub mod api {
     mod tests {
         use crate::api::error::{ApiErrorSource, ApiErrorSourceType};
         use crate::api::error_code::{BAD_PAGE_FROM_VALUE, BAD_PAGE_SIZE_VALUE};
-        use crate::page::Page;
-        use crate::page::api::extract_page_query_u64;
+        use crate::pagination::page::Page;
+        use crate::pagination::page::api::extract_page_query;
         use aws_lambda_events::query_map::QueryMap;
         use std::collections::HashMap;
 
@@ -104,10 +127,10 @@ pub mod api {
         #[case(None, Some("42"), None)]
         #[case(Some("31"), None, None)]
         #[case(None, None, None)]
-        fn should_extract_page_u64(
+        fn should_extract_page(
             #[case] from_value: Option<&str>,
             #[case] size_value: Option<&str>,
-            #[case] expected: Option<Page<u64>>,
+            #[case] expected: Option<Page>,
         ) {
             let mut map = HashMap::new();
             if let Some(from_value) = from_value {
@@ -118,7 +141,7 @@ pub mod api {
             }
             let query = QueryMap::from(map);
 
-            let actual = extract_page_query_u64(&query).unwrap();
+            let actual = extract_page_query(&query).unwrap();
 
             assert_eq!(expected, actual);
         }
@@ -134,7 +157,7 @@ pub mod api {
             map.insert("from".to_string(), value.to_string());
             let query = QueryMap::from(map);
 
-            let actual = extract_page_query_u64(&query).unwrap_err();
+            let actual = extract_page_query(&query).unwrap_err();
 
             assert_eq!(400, actual.status);
             assert_eq!(BAD_PAGE_FROM_VALUE, actual.error);
@@ -158,7 +181,7 @@ pub mod api {
             map.insert("size".to_string(), value.to_string());
             let query = QueryMap::from(map);
 
-            let actual = extract_page_query_u64(&query).unwrap_err();
+            let actual = extract_page_query(&query).unwrap_err();
 
             assert_eq!(400, actual.status);
             assert_eq!(BAD_PAGE_SIZE_VALUE, actual.error);
@@ -169,6 +192,27 @@ pub mod api {
                 }),
                 actual.source
             )
+        }
+    }
+}
+
+#[cfg(feature = "test-data")]
+mod faker {
+    use crate::pagination::page::{Page, PaginatedResult};
+    use fake::{Dummy, Fake, Faker, Rng};
+
+    impl<T: Dummy<Faker>> Dummy<Faker> for PaginatedResult<T> {
+        fn dummy_with_rng<R: Rng + ?Sized>(config: &Faker, rng: &mut R) -> Self {
+            let items: Vec<T> = config.fake_with_rng(rng);
+            let page = Page {
+                from: config.fake_with_rng(rng),
+                size: config.fake_with_rng(rng),
+            };
+            PaginatedResult {
+                items,
+                page,
+                total: config.fake_with_rng(rng),
+            }
         }
     }
 }

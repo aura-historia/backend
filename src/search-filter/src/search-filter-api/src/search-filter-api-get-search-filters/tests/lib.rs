@@ -51,9 +51,9 @@ async fn should_return_actual_search_filters_sortet_oldest_for_order_asc() {
             .map(Result::unwrap)
             .collect::<Vec<SearchFilterId>>()
     );
-    assert_eq!(0, json["pagination"]["from"]);
-    assert_eq!(81, json["pagination"]["size"]);
-    assert_eq!(81, json["pagination"]["total"]);
+    assert_eq!(0, json["from"]);
+    assert_eq!(81, json["size"]);
+    assert_eq!(81, json["total"]);
 }
 
 #[localstack_test(services = [DynamoDB()])]
@@ -101,7 +101,7 @@ async fn should_return_actual_search_filters_sortet_latest_for_order_desc() {
             .map(Result::unwrap)
             .collect::<Vec<SearchFilterId>>()
     );
-    assert_eq!(0, json["pagination"]["from"]);
-    assert_eq!(81, json["pagination"]["size"]);
-    assert_eq!(81, json["pagination"]["total"]);
+    assert_eq!(0, json["from"]);
+    assert_eq!(81, json["size"]);
+    assert_eq!(81, json["total"]);
 }

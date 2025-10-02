@@ -1,6 +1,8 @@
 use async_trait::async_trait;
-use common::sort::Sort;
-use common::{page::Page, paginated_result::PaginatedResult};
+use common::{
+    pagination::page::{Page, PaginatedResult},
+    sort::{Sort, SortOrder},
+};
 use shop_core::shop::Shop;
 use shop_core::sort_shop_field::SortShopField;
 use shop_opensearch::repository::ShopOpenSearchRepository;
@@ -39,8 +41,8 @@ pub trait QueryShopService {
         &self,
         search: &ShopSearch,
         sort: &Option<Sort<SortShopField>>,
-        page: &Option<Page<u64>>,
-    ) -> Result<PaginatedResult<Shop, u64>, SearchShopsError>;
+        page: &Option<Page>,
+    ) -> Result<PaginatedResult<Shop>, SearchShopsError>;
 }
 
 pub struct QueryShopServiceImpl<'a> {
@@ -59,11 +61,18 @@ impl<'a> QueryShopService for QueryShopServiceImpl<'a> {
         &self,
         search: &ShopSearch,
         sort: &Option<Sort<SortShopField>>,
-        page: &Option<Page<u64>>,
-    ) -> Result<PaginatedResult<Shop, u64>, SearchShopsError> {
+        page: &Option<Page>,
+    ) -> Result<PaginatedResult<Shop>, SearchShopsError> {
         let search_response = self
             .repository
-            .search_shop_documents(search, sort, page)
+            .search_shop_documents(
+                search,
+                &sort.unwrap_or(Sort {
+                    sort: SortShopField::Score,
+                    order: SortOrder::Desc,
+                }),
+                page,
+            )
             .await?;
 
         if search_response.timed_out {
@@ -91,7 +100,6 @@ impl<'a> QueryShopService for QueryShopServiceImpl<'a> {
             items: shops,
             page: Page { from, size },
             total: Some(search_response.hits.total.value),
-            next_after: Some(from + size),
         })
     }
 }
@@ -99,12 +107,12 @@ impl<'a> QueryShopService for QueryShopServiceImpl<'a> {
 #[cfg(test)]
 mod tests {
     use crate::query_service::{QueryShopService, QueryShopServiceImpl};
+    use common::pagination::page::Page;
     use common::query::range_query::RangeQuery;
     use common::{
         opensearch::search_response::{
             HitsMetadata, SearchHit, SearchResponse, ShardStats, TotalHits,
         },
-        page::Page,
         sort::{Sort, SortOrder},
     };
     use serde::ser::Error;
@@ -137,6 +145,7 @@ mod tests {
                         id: shop_document.shop_id.to_string(),
                         score: None,
                         source: shop_document,
+                        sort: None,
                     })
                     .collect(),
             },
@@ -195,7 +204,7 @@ mod tests {
     async fn should_search_shops(
         #[case] search: ShopSearch,
         #[case] sort: Option<Sort<SortShopField>>,
-        #[case] page: Option<Page<u64>>,
+        #[case] page: Option<Page>,
         #[case] count: usize,
     ) {
         let mut repository = MockShopOpenSearchRepository::default();
