@@ -2,7 +2,7 @@ use async_trait::async_trait;
 use common::language::domain::Language;
 use common::pagination::cursor::{Cursor, CursoredResult};
 use common::price::domain::Price;
-use common::sort::Sort;
+use common::sort::{Sort, SortOrder};
 use common::{currency::domain::Currency, localized::Localized};
 use item_core::hash::ItemHash;
 use item_core::sort_item_field::SortItemField;
@@ -68,7 +68,14 @@ impl<'a> QueryItemService for QueryItemServiceImpl<'a> {
     ) -> Result<CursoredResult<LocalizedItemView, serde_json::Value>, SearchItemsError> {
         let search_response = self
             .repository
-            .search_item_documents(search_filter, sort, page)
+            .search_item_documents(
+                search_filter,
+                &sort.unwrap_or(Sort {
+                    sort: SortItemField::Score,
+                    order: SortOrder::Desc,
+                }),
+                page,
+            )
             .await?;
         let cursor = Cursor {
             size: search_response.hits.hits.len() as u64,

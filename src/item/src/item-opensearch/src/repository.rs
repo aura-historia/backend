@@ -34,7 +34,7 @@ pub trait ItemOpenSearchRepository {
     async fn search_item_documents(
         &self,
         search_filter: &SearchFilter,
-        sort: &Option<Sort<SortItemField>>,
+        sort: &Sort<SortItemField>,
         page: &Option<Cursor<serde_json::Value>>,
     ) -> Result<SearchResponse<ItemDocument>, opensearch::Error>;
 }
@@ -114,7 +114,7 @@ impl<'a> ItemOpenSearchRepository for ItemOpenSearchRepositoryImpl<'a> {
     async fn search_item_documents(
         &self,
         search_filter: &SearchFilter,
-        sort: &Option<Sort<SortItemField>>,
+        sort: &Sort<SortItemField>,
         cursor: &Option<Cursor<serde_json::Value>>,
     ) -> Result<SearchResponse<ItemDocument>, opensearch::Error> {
         let mut must = Vec::with_capacity(3);
@@ -266,24 +266,29 @@ impl<'a> ItemOpenSearchRepository for ItemOpenSearchRepositoryImpl<'a> {
             }
         }
 
-        if let Some(sort) = sort {
-            let sort_field = match sort.sort {
-                SortItemField::Price => price_field,
-                SortItemField::Created => "created",
-                SortItemField::Updated => "updated",
-            };
-            let order = match sort.order {
-                SortOrder::Asc => "asc",
-                SortOrder::Desc => "desc",
-            };
-            body.as_object_mut().unwrap().insert(
-                "sort".to_string(),
-                json!([
-                    { sort_field: { "order": order, "missing": "_last", } },
-                    { "itemId": { "order": "asc"} }
-                ]),
-            );
-        }
+        let sort_field = match sort.sort {
+            SortItemField::Score => "_score",
+            SortItemField::Price => price_field,
+            SortItemField::Created => "created",
+            SortItemField::Updated => "updated",
+        };
+        let order = match sort.order {
+            SortOrder::Asc => "asc",
+            SortOrder::Desc => "desc",
+        };
+        let primary_sort = if matches!(sort.sort, SortItemField::Score) {
+            json!({ sort_field: { "order": order } })
+        } else {
+            json!({ sort_field: { "order": order, "missing": "_last" } })
+        };
+
+        body.as_object_mut().unwrap().insert(
+            "sort".to_string(),
+            json!([
+                primary_sort,
+                { "itemId": { "order": order } } // tie-breaker
+            ]),
+        );
 
         let response = self
             .client
@@ -292,6 +297,7 @@ impl<'a> ItemOpenSearchRepository for ItemOpenSearchRepositoryImpl<'a> {
             .send()
             .await?;
         let payload = response.text().await?;
+
         let search_response = serde_json::from_str::<SearchResponse<ItemDocument>>(&payload)
             .map_err(|err| {
                 serde_json::Error::custom(format!(

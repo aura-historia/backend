@@ -1,9 +1,12 @@
 use aws_tests_common::get_cfn_output;
 use common::{
-    api::collection::PutCollectionData, item_state::domain::ItemState,
+    api::collection::PutCollectionData,
+    item_state::domain::ItemState,
     language::data::LocalizedTextData,
+    sort::{Sort, SortOrder},
 };
 use fake::{Fake, Faker};
+use item_core::sort_item_field::SortItemField;
 use item_data::{item_state_data::ItemStateData, put_data::PutItemData};
 use item_dynamodb::{
     item_record::ItemRecord,
@@ -196,7 +199,10 @@ async fn should_materialize_item_in_opensearch_for_create_item_command() {
                     created_query: None,
                     updated_query: None,
                 },
-                &None,
+                &Sort {
+                    sort: SortItemField::Score,
+                    order: SortOrder::Desc,
+                },
                 &None,
             )
             .await
@@ -295,7 +301,10 @@ async fn should_materialize_item_in_opensearch_for_update_item_command() {
                     created_query: None,
                     updated_query: None,
                 },
-                &None,
+                &Sort {
+                    sort: SortItemField::Score,
+                    order: SortOrder::Desc,
+                },
                 &None,
             )
             .await
