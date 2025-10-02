@@ -287,7 +287,7 @@ impl<'a> ItemOpenSearchRepository for ItemOpenSearchRepositoryImpl<'a> {
             "sort".to_string(),
             json!([
                 primary_sort,
-                { "itemId": { "order": order } } // tie-breaker
+                { "itemId": { "order": "asc" } } // tie-breaker
             ]),
         );
 

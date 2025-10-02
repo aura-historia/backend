@@ -153,7 +153,7 @@ impl<'a> ShopOpenSearchRepository for ShopOpenSearchRepositoryImpl<'a> {
             "sort".to_string(),
             json!([
                 primary_sort,
-                { "shopId": { "order": order} } // tie-breaker
+                { "shopId": { "order": "asc"} } // tie-breaker
             ]),
         );
 
