@@ -1,8 +1,13 @@
-use common::pagination::cursor::api::TimeCursoredData;
-use fake::{Fake, Faker};
+use std::time::Duration;
+
+use common::pagination::cursor::api::JsonCursoredData;
+use fake::{Fake, Faker, rand};
 use item_api_complex_search::handler;
 use item_data::get_data::GetItemData;
-use item_opensearch::repository::ItemOpenSearchRepositoryImpl;
+use item_opensearch::{
+    item_document::ItemDocument,
+    repository::{ItemOpenSearchRepository, ItemOpenSearchRepositoryImpl},
+};
 use item_service::query_service::QueryItemServiceImpl;
 use lambda_runtime::LambdaEvent;
 use search_filter_data::search_filter_data::SearchFilterData;
@@ -25,7 +30,116 @@ async fn should_200_when_no_hits() {
     assert_eq!(200, response.status_code);
 
     let json = extract_apigw_response_json_body!(response);
-    let collection_data: TimeCursoredData<GetItemData> = serde_json::from_value(json).unwrap();
+    let collection_data: JsonCursoredData<GetItemData> = serde_json::from_value(json).unwrap();
     assert!(collection_data.items.is_empty());
     assert_eq!(0, collection_data.total.unwrap());
+}
+
+#[localstack_test(services = [OpenSearch()])]
+async fn should_200_when_following_search_after_from_previous_response() {
+    let search = SearchFilterData {
+        language: common::language::data::LanguageData::De,
+        currency: common::currency::data::CurrencyData::Eur,
+        item_query: "Der erwartete Titel".try_into().unwrap(),
+        shop_name_query: None,
+        price_query: None,
+        state_query: Default::default(),
+        created_query: None,
+        updated_query: None,
+    };
+
+    let repository = ItemOpenSearchRepositoryImpl::new(get_opensearch_client().await);
+    let service = QueryItemServiceImpl::new(&repository);
+
+    let mut items = fake::vec![ItemDocument; 1370];
+    for item in &mut items {
+        item.title_de = Some("Der erwartete Titel".to_string());
+        item.price_eur = Some(rand::random_range(1..=10000000));
+    }
+    let create_res = repository
+        .create_item_documents(items.clone())
+        .await
+        .unwrap();
+    assert!(!create_res.errors);
+    refresh_index("items").await;
+    tokio::time::sleep(Duration::from_secs(10)).await;
+
+    let sorter = |l: &ItemDocument, r: &ItemDocument| match l
+        .price_eur
+        .unwrap()
+        .cmp(&r.price_eur.unwrap())
+    {
+        std::cmp::Ordering::Equal => l.item_id.to_string().cmp(&r.item_id.to_string()),
+        ord => ord,
+    };
+    items.sort_by(sorter);
+
+    // first request
+    let lambda_event_1 = LambdaEvent {
+        payload: ApiGatewayV2httpRequestProxy::builder()
+            .http_method(http::Method::POST)
+            .query_string_parameter("sort", "price")
+            .query_string_parameter("order", "asc")
+            .query_string_parameter("size", "50")
+            .body_serde(&search)
+            .build(),
+        context: Default::default(),
+    };
+
+    let response_1 = handler(lambda_event_1, &service).await.unwrap();
+    assert_eq!(200, response_1.status_code);
+    let json = extract_apigw_response_json_body!(response_1);
+    let collection_data: JsonCursoredData<GetItemData> = serde_json::from_value(json).unwrap();
+    assert_eq!(50, collection_data.size);
+    assert_eq!(1370, collection_data.total.unwrap());
+    assert_eq!(
+        items
+            .clone()
+            .into_iter()
+            .take(50)
+            .map(|item| item.item_id)
+            .collect::<Vec<_>>(),
+        collection_data
+            .items
+            .into_iter()
+            .map(|item| item.item_id)
+            .collect::<Vec<_>>()
+    );
+
+    // second request following up on first
+    let lambda_event_2 = LambdaEvent {
+        payload: ApiGatewayV2httpRequestProxy::builder()
+            .http_method(http::Method::POST)
+            .query_string_parameter("sort", "price")
+            .query_string_parameter("order", "asc")
+            .query_string_parameter("size", "50")
+            .query_string_parameter(
+                "searchAfter",
+                serde_json::to_string(&collection_data.search_after.unwrap()).unwrap(),
+            )
+            .body_serde(&search)
+            .build(),
+        context: Default::default(),
+    };
+
+    let response_2 = handler(lambda_event_2, &service).await.unwrap();
+    assert_eq!(200, response_2.status_code);
+    let json_2 = extract_apigw_response_json_body!(response_2);
+    let collection_data_2: JsonCursoredData<GetItemData> = serde_json::from_value(json_2).unwrap();
+    assert_eq!(50, collection_data_2.size);
+    assert_eq!(1370, collection_data_2.total.unwrap());
+    assert_eq!(
+        items
+            .clone()
+            .into_iter()
+            .skip(50)
+            .take(50)
+            .map(|item| item.item_id)
+            .collect::<Vec<_>>(),
+        collection_data_2
+            .items
+            .into_iter()
+            .map(|item| item.item_id)
+            .collect::<Vec<_>>()
+    );
 }
