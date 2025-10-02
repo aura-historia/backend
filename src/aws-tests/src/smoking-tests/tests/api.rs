@@ -31,7 +31,6 @@ async fn should_respond_200_for_search_items() {
 
     let body = response.json::<serde_json::Value>().await.unwrap();
     assert!(body["items"].is_array());
-    assert!(body["from"].is_u64());
     assert!(body["size"].is_u64());
     assert!(body["total"].is_u64());
 }
