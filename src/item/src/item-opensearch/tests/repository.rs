@@ -565,7 +565,7 @@ async fn should_search_item_documents_respecting_paging_when_sorted_by_price() {
 
 #[localstack_test(services = [OpenSearch()])]
 async fn should_search_item_documents_respecting_search_after_when_sorted_by_price() {
-    let items = fake::vec![ItemDocument; 200]
+    let mut expected_items = fake::vec![ItemDocument; 200]
         .into_iter()
         .map(|mut item| {
             item.title_en = Some("The same title".into());
@@ -576,13 +576,22 @@ async fn should_search_item_documents_respecting_search_after_when_sorted_by_pri
     let client = get_opensearch_client().await;
     let repository = ItemOpenSearchRepositoryImpl::new(client);
     let response = repository
-        .create_item_documents(items.clone())
+        .create_item_documents(expected_items.clone())
         .await
         .unwrap();
     assert!(!response.errors);
     refresh_index("items").await;
     tokio::time::sleep(Duration::from_millis(3000)).await;
 
+    let sorter = |l: &ItemDocument, r: &ItemDocument| match l
+        .price_usd
+        .unwrap()
+        .cmp(&r.price_usd.unwrap())
+    {
+        std::cmp::Ordering::Equal => l.item_id.to_string().cmp(&r.item_id.to_string()),
+        ord => ord,
+    };
+    expected_items.sort_by(sorter);
     let search_filter = SearchFilter {
         language: Language::En,
         currency: Currency::Usd,
@@ -602,30 +611,25 @@ async fn should_search_item_documents_respecting_search_after_when_sorted_by_pri
             }),
             &Some(Cursor {
                 size: 15,
-                search_after: Some(json!([])),
+                search_after: Some(json!([
+                    expected_items[1].price_usd.unwrap(),
+                    expected_items[1].item_id.to_string()
+                ])),
             }),
         )
         .await
         .unwrap();
-    let mut actual_items = response
+    let actual_items = response
         .hits
         .hits
         .into_iter()
         .map(|hit| hit.source)
         .collect::<Vec<_>>();
-    let sorter = |l: &ItemDocument, r: &ItemDocument| match l
-        .price_usd
-        .unwrap()
-        .cmp(&r.price_usd.unwrap())
-    {
-        std::cmp::Ordering::Equal => l.item_id.to_string().cmp(&r.item_id.to_string()),
-        ord => ord,
-    };
-    actual_items.sort_by(sorter);
-
-    let mut expected_items = items;
-    expected_items.sort_by(sorter);
-    let expected_items = expected_items.into_iter().take(17).collect::<Vec<_>>();
+    let expected_items = expected_items
+        .into_iter()
+        .skip(2)
+        .take(15)
+        .collect::<Vec<_>>();
 
     assert_eq!(expected_items, actual_items);
 }
