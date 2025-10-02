@@ -1,7 +1,7 @@
 use async_trait::async_trait;
 use common::{
     pagination::page::{Page, PaginatedResult},
-    sort::Sort,
+    sort::{Sort, SortOrder},
 };
 use shop_core::shop::Shop;
 use shop_core::sort_shop_field::SortShopField;
@@ -65,7 +65,14 @@ impl<'a> QueryShopService for QueryShopServiceImpl<'a> {
     ) -> Result<PaginatedResult<Shop>, SearchShopsError> {
         let search_response = self
             .repository
-            .search_shop_documents(search, sort, page)
+            .search_shop_documents(
+                search,
+                &sort.unwrap_or(Sort {
+                    sort: SortShopField::Score,
+                    order: SortOrder::Desc,
+                }),
+                page,
+            )
             .await?;
 
         if search_response.timed_out {

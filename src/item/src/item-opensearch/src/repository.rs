@@ -283,7 +283,6 @@ impl<'a> ItemOpenSearchRepository for ItemOpenSearchRepositoryImpl<'a> {
         } else {
             json!({ sort_field: { "order": order, "missing": "_last" } })
         };
-
         body.as_object_mut().unwrap().insert(
             "sort".to_string(),
             json!([

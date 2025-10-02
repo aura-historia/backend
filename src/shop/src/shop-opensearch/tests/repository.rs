@@ -59,7 +59,14 @@ async fn should_search_shop_documents_when_only_name_query_supplied() {
         updated: None,
     };
     let actual = repository
-        .search_shop_documents(&search, &None, &None)
+        .search_shop_documents(
+            &search,
+            &Sort {
+                sort: SortShopField::Score,
+                order: SortOrder::Desc,
+            },
+            &None,
+        )
         .await
         .unwrap();
 
@@ -74,7 +81,7 @@ async fn should_search_shop_documents_when_only_name_query_supplied() {
             created: Some(RangeQuery { min: Some(datetime!(2000 - 01 - 01 0:00 UTC)), max: Some(datetime!(3000 - 01 - 01 0:00 UTC)) }),
             updated: Some(RangeQuery { min: Some(datetime!(1000 - 01 - 01 0:00 UTC)), max: Some(datetime!(4000 - 01 - 01 0:00 UTC)) })
         },
-    Some(Sort { sort: SortShopField::Created, order: SortOrder::Asc }),
+    Sort { sort: SortShopField::Created, order: SortOrder::Asc },
     Some(Page { from: 0, size: 20 })
 )]
 #[case(
@@ -83,7 +90,7 @@ async fn should_search_shop_documents_when_only_name_query_supplied() {
             created: Some(RangeQuery { min: Some(datetime!(2000 - 01 - 01 0:00 UTC)), max: Some(datetime!(3000 - 01 - 01 0:00 UTC)) }),
             updated: Some(RangeQuery { min: Some(datetime!(1000 - 01 - 01 0:00 UTC)), max: Some(datetime!(4000 - 01 - 01 0:00 UTC)) })
         },
-    Some(Sort { sort: SortShopField::Created, order: SortOrder::Desc }),
+    Sort { sort: SortShopField::Created, order: SortOrder::Desc },
     Some(Page { from: 0, size: 20 })
 )]
 #[case(
@@ -92,7 +99,7 @@ async fn should_search_shop_documents_when_only_name_query_supplied() {
             created: Some(RangeQuery { min: Some(datetime!(2000 - 01 - 01 0:00 UTC)), max: Some(datetime!(3000 - 01 - 01 0:00 UTC)) }),
             updated: Some(RangeQuery { min: Some(datetime!(1000 - 01 - 01 0:00 UTC)), max: Some(datetime!(4000 - 01 - 01 0:00 UTC)) })
         },
-    Some(Sort { sort: SortShopField::Updated, order: SortOrder::Asc }),
+    Sort { sort: SortShopField::Updated, order: SortOrder::Asc },
     Some(Page { from: 0, size: 20 })
 )]
 #[case(
@@ -101,7 +108,7 @@ async fn should_search_shop_documents_when_only_name_query_supplied() {
             created: Some(RangeQuery { min: Some(datetime!(2000 - 01 - 01 0:00 UTC)), max: Some(datetime!(3000 - 01 - 01 0:00 UTC)) }),
             updated: Some(RangeQuery { min: Some(datetime!(1000 - 01 - 01 0:00 UTC)), max: Some(datetime!(4000 - 01 - 01 0:00 UTC)) })
         },
-    Some(Sort { sort: SortShopField::Updated, order: SortOrder::Desc }),
+    Sort { sort: SortShopField::Updated, order: SortOrder::Desc },
     Some(Page { from: 0, size: 20 })
 )]
 #[case(
@@ -110,7 +117,7 @@ async fn should_search_shop_documents_when_only_name_query_supplied() {
             created: Some(RangeQuery { min: Some(datetime!(2000 - 01 - 01 0:00 UTC)), max: Some(datetime!(3000 - 01 - 01 0:00 UTC)) }),
             updated: Some(RangeQuery { min: Some(datetime!(1000 - 01 - 01 0:00 UTC)), max: Some(datetime!(4000 - 01 - 01 0:00 UTC)) })
         },
-    Some(Sort { sort: SortShopField::Name, order: SortOrder::Asc }),
+    Sort { sort: SortShopField::Name, order: SortOrder::Asc },
     Some(Page { from: 0, size: 20 })
 )]
 #[case(
@@ -119,7 +126,7 @@ async fn should_search_shop_documents_when_only_name_query_supplied() {
             created: Some(RangeQuery { min: Some(datetime!(2000 - 01 - 01 0:00 UTC)), max: Some(datetime!(3000 - 01 - 01 0:00 UTC)) }),
             updated: Some(RangeQuery { min: Some(datetime!(1000 - 01 - 01 0:00 UTC)), max: Some(datetime!(4000 - 01 - 01 0:00 UTC)) })
         },
-    Some(Sort { sort: SortShopField::Name, order: SortOrder::Desc }),
+    Sort { sort: SortShopField::Name, order: SortOrder::Desc },
     Some(Page { from: 0, size: 20 })
 )]
 #[case(
@@ -128,7 +135,10 @@ async fn should_search_shop_documents_when_only_name_query_supplied() {
             created: Some(RangeQuery { min: Some(datetime!(2000 - 01 - 01 0:00 UTC)), max: Some(datetime!(3000 - 01 - 01 0:00 UTC)) }),
             updated: Some(RangeQuery { min: Some(datetime!(1000 - 01 - 01 0:00 UTC)), max: Some(datetime!(4000 - 01 - 01 0:00 UTC)) })
         },
-    None,
+    Sort {
+        sort: SortShopField::Score,
+        order: SortOrder::Desc,
+    },
     Some(Page { from: 0, size: 5 })
 )]
 #[case(
@@ -137,7 +147,10 @@ async fn should_search_shop_documents_when_only_name_query_supplied() {
             created: Some(RangeQuery { min: Some(datetime!(2000 - 01 - 01 0:00 UTC)), max: Some(datetime!(3000 - 01 - 01 0:00 UTC)) }),
             updated: None
         },
-    None,
+    Sort {
+        sort: SortShopField::Score,
+        order: SortOrder::Desc,
+    },
     Some(Page { from: 0, size: 20 })
 )]
 #[case(
@@ -146,13 +159,16 @@ async fn should_search_shop_documents_when_only_name_query_supplied() {
             created: None,
             updated: Some(RangeQuery { min: Some(datetime!(2000 - 01 - 01 0:00 UTC)), max: Some(datetime!(3000 - 01 - 01 0:00 UTC)) }),
         },
-    None,
+    Sort {
+        sort: SortShopField::Score,
+        order: SortOrder::Desc,
+    },
     Some(Page { from: 0, size: 5 })
 )]
 #[localstack_test(services = [OpenSearch()])]
 async fn should_search_shop_documents_for_arguments(
     #[case] search: ShopSearch,
-    #[case] sort: Option<Sort<SortShopField>>,
+    #[case] sort: Sort<SortShopField>,
     #[case] page: Option<Page>,
 ) {
     let repository = get_repository().await;
@@ -197,10 +213,10 @@ async fn should_search_shop_documents_when_no_filters() {
     let actual = repository
         .search_shop_documents(
             &Default::default(),
-            &Some(Sort {
+            &Sort {
                 sort: SortShopField::Name,
                 order: SortOrder::Asc,
-            }),
+            },
             &Some(Page { from: 0, size: 50 }),
         )
         .await
