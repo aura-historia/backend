@@ -60,7 +60,7 @@ pub mod api {
         headers: &QueryMap,
     ) -> Result<Option<Cursor<OffsetDateTime>>, ApiError> {
         let search_after = headers
-            .first("from")
+            .first("searchAfter")
             .map(str::trim)
             .map(|val| OffsetDateTime::parse(val, &Rfc3339))
             .transpose()
@@ -92,7 +92,7 @@ pub mod api {
         headers: &QueryMap,
     ) -> Result<Option<Cursor<serde_json::Value>>, ApiError> {
         let search_after = headers
-            .first("from")
+            .first("searchAfter")
             .map(str::trim)
             .map(serde_json::from_str)
             .transpose()
