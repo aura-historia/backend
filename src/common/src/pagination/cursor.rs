@@ -121,6 +121,7 @@ pub mod api {
     }
 
     #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+    #[serde(rename_all = "camelCase")]
     pub struct TimeCursoredData<T> {
         pub items: Vec<T>,
         pub size: u64,
@@ -148,6 +149,7 @@ pub mod api {
     }
 
     #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+    #[serde(rename_all = "camelCase")]
     pub struct JsonCursoredData<T> {
         pub items: Vec<T>,
         pub size: u64,
