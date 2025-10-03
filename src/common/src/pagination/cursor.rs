@@ -54,12 +54,13 @@ pub mod api {
     };
     use aws_lambda_events::query_map::QueryMap;
     use serde::{Deserialize, Serialize};
+    use serde_json::Value;
     use time::{OffsetDateTime, format_description::well_known::Rfc3339};
 
     pub fn extract_time_cursor_query(
-        headers: &QueryMap,
+        query: &QueryMap,
     ) -> Result<Option<Cursor<OffsetDateTime>>, ApiError> {
-        let search_after = headers
+        let search_after = query
             .first("searchAfter")
             .map(str::trim)
             .map(|val| OffsetDateTime::parse(val, &Rfc3339))
@@ -69,7 +70,7 @@ pub mod api {
                     .with_query_field("searchAfter")
                     .with_message(err.to_string())
             })?;
-        let size = headers
+        let size = query
             .first("size")
             .map(str::trim)
             .map(|size| size.parse::<u64>())
@@ -89,19 +90,48 @@ pub mod api {
     }
 
     pub fn extract_json_cursor_query(
-        headers: &QueryMap,
+        query: &QueryMap,
     ) -> Result<Option<Cursor<serde_json::Value>>, ApiError> {
-        let search_after = headers
-            .first("searchAfter")
+        let mut search_after_vals = query
+            .all("searchAfter")
+            .unwrap_or_default()
+            .into_iter()
             .map(str::trim)
-            .map(serde_json::from_str)
-            .transpose()
-            .map_err(|err| {
-                ApiError::bad_request(INVALID_JSON)
-                    .with_query_field("searchAfter")
-                    .with_message(err.to_string())
-            })?;
-        let size = headers
+            .try_fold(
+                Vec::new(),
+                |mut acc: Vec<Value>, el_str| -> Result<Vec<Value>, ApiError> {
+                    let el_str = match el_str {
+                        "null" => el_str,
+                        "true" => el_str,
+                        "false" => el_str,
+                        s if s.starts_with("[") || s.starts_with("{") => el_str,
+                        s if s.parse::<u64>().is_ok() || s.parse::<f64>().is_ok() => el_str,
+                        string => &format!("\"{string}\""),
+                    };
+                    let el = serde_json::from_str(el_str).map_err(|err| {
+                        ApiError::bad_request(INVALID_JSON)
+                            .with_query_field("searchAfter")
+                            .with_message(
+                                format!("Failed parsing '{el_str}' as JSON-Value: {err}",),
+                            )
+                    })?;
+                    acc.push(el);
+                    Ok(acc)
+                },
+            )?;
+        let search_after = match search_after_vals.len() {
+            0 => None,
+            1 => Some(search_after_vals.remove(0)),
+            _ => {
+                let search_after = serde_json::to_value(search_after_vals).map_err(|err| {
+                    ApiError::bad_request(INVALID_JSON)
+                        .with_query_field("searchAfter")
+                        .with_message(format!("Failed parsing 'searchAfter' as JSON-Array: {err}",))
+                })?;
+                Some(search_after)
+            }
+        };
+        let size = query
             .first("size")
             .map(str::trim)
             .map(|size| size.parse::<u64>())
@@ -169,6 +199,30 @@ pub mod api {
                 search_after: result.cursor.search_after,
                 total: result.total,
             }
+        }
+    }
+
+    #[cfg(test)]
+    mod tests {
+        use crate::pagination::cursor::{Cursor, api::extract_json_cursor_query};
+        use aws_lambda_events::query_map::QueryMap;
+        use serde_json::{Value, json};
+        use std::collections::HashMap;
+
+        #[rstest::rstest]
+        #[case([].into(), None)]
+        #[case([("size".to_owned(), vec!["10".to_owned()]), ("searchAfter".to_owned(), vec!["5".to_owned()])].into(), Some(Cursor { size: 10, search_after: Some(json!(5)) }))]
+        #[case([("size".to_owned(), vec!["10".to_owned()]), ("searchAfter".to_owned(), vec!["6ba7b810-9dad-11d1-80b4-00c04fd430c8".to_owned()])].into(), Some(Cursor { size: 10, search_after: Some(json!("6ba7b810-9dad-11d1-80b4-00c04fd430c8")) }))]
+        #[case([("size".to_owned(), vec!["10".to_owned()]), ("searchAfter".to_owned(), vec!["5".to_owned(), "42". to_owned()])].into(), Some(Cursor { size: 10, search_after: Some(json!([5, 42])) }))]
+        #[case([("size".to_owned(), vec!["10".to_owned()]), ("searchAfter".to_owned(), vec!["5".to_owned(), "6ba7b810-9dad-11d1-80b4-00c04fd430c8". to_owned()])].into(), Some(Cursor { size: 10, search_after: Some(json!([5, "6ba7b810-9dad-11d1-80b4-00c04fd430c8"])) }))]
+        fn should_extract_json_cursor_from_query(
+            #[case] query_map: HashMap<String, Vec<String>>,
+            #[case] expected: Option<Cursor<Value>>,
+        ) {
+            let query = QueryMap::from(query_map);
+
+            let actual = extract_json_cursor_query(&query).unwrap();
+            assert_eq!(expected, actual);
         }
     }
 }
