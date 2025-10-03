@@ -25,12 +25,12 @@ members = [
 accept-language = "3.1.0"
 async-stream = "0.3.6"
 async-trait = "0.1.89"
-aws-config = "1.8.6"
-aws-sdk-account = "1.87.0"
-aws-sdk-dynamodb = "1.93.0"
-aws-sdk-lambda = "1.97.0"
-aws-sdk-opensearch = "1.98.0"
-aws-sdk-sqs = "1.84.1"
+aws-config = "1.8.7"
+aws-sdk-account = "1.88.0"
+aws-sdk-dynamodb = "1.94.0"
+aws-sdk-lambda = "1.98.0"
+aws-sdk-opensearch = "1.99.0"
+aws-sdk-sqs = "1.85.0"
 aws_lambda_events = { version = "0.17.0", default-features = false }
 blake3 = "1.8.2"
 common = { path = "src/common" }
