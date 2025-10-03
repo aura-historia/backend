@@ -4,7 +4,6 @@ use common::pagination::cursor::{Cursor, CursoredResult};
 use common::price::domain::Price;
 use common::sort::{Sort, SortOrder};
 use common::{currency::domain::Currency, localized::Localized};
-use item_core::hash::ItemHash;
 use item_core::sort_item_field::SortItemField;
 use item_core::{description::Description, item::LocalizedItemView, title::Title};
 use item_opensearch::repository::ItemOpenSearchRepository;
@@ -157,7 +156,6 @@ impl<'a> QueryItemService for QueryItemServiceImpl<'a> {
                 state,
                 url: item_document.url,
                 images: item_document.images,
-                hash: ItemHash::new(&price, &state),
                 created: item_document.created,
                 updated: item_document.updated,
                 history: None

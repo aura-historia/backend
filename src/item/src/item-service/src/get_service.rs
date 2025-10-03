@@ -274,7 +274,6 @@ fn localize_item_record(
         state: item_record.state.into(),
         url: item_record.url,
         images: item_record.images,
-        hash: item_record.hash,
         created: item_record.created,
         updated: item_record.updated,
         history: None,
@@ -317,49 +316,42 @@ fn localize_item_event(
                 state: payload.state,
                 url: payload.url,
                 images: payload.images,
-                hash: payload.hash,
             })
         }
         ItemEventPayload::StateListed(payload) => {
             LocalizedItemEventPayloadView::StateListed(LocalizedItemStateChangeEventPayloadView {
                 shop_id: payload.shop_id,
                 shops_item_id: payload.shops_item_id,
-                hash: payload.hash,
             })
         }
         ItemEventPayload::StateAvailable(payload) => LocalizedItemEventPayloadView::StateAvailable(
             LocalizedItemStateChangeEventPayloadView {
                 shop_id: payload.shop_id,
                 shops_item_id: payload.shops_item_id,
-                hash: payload.hash,
             },
         ),
         ItemEventPayload::StateReserved(payload) => {
             LocalizedItemEventPayloadView::StateReserved(LocalizedItemStateChangeEventPayloadView {
                 shop_id: payload.shop_id,
                 shops_item_id: payload.shops_item_id,
-                hash: payload.hash,
             })
         }
         ItemEventPayload::StateSold(payload) => {
             LocalizedItemEventPayloadView::StateSold(LocalizedItemStateChangeEventPayloadView {
                 shop_id: payload.shop_id,
                 shops_item_id: payload.shops_item_id,
-                hash: payload.hash,
             })
         }
         ItemEventPayload::StateRemoved(payload) => {
             LocalizedItemEventPayloadView::StateRemoved(LocalizedItemStateChangeEventPayloadView {
                 shop_id: payload.shop_id,
                 shops_item_id: payload.shops_item_id,
-                hash: payload.hash,
             })
         }
         ItemEventPayload::StateUnknown(payload) => {
             LocalizedItemEventPayloadView::StateUnknown(LocalizedItemStateChangeEventPayloadView {
                 shop_id: payload.shop_id,
                 shops_item_id: payload.shops_item_id,
-                hash: payload.hash,
             })
         }
         ItemEventPayload::PriceDiscovered(payload) => {
@@ -376,7 +368,6 @@ fn localize_item_event(
                         error!("Failed resolving price. This SHOULD be impossible because the native price always exists.");
                         Price::new(0u64.into(), *currency)
                     }),
-                    hash: payload.hash,
                 },
             )
         }
@@ -394,7 +385,6 @@ fn localize_item_event(
                         error!("Failed resolving price. This SHOULD be impossible because the native price always exists.");
                         Price::new(0u64.into(), *currency)
                     }),
-                    hash: payload.hash,
                 },
             )
         }
@@ -412,7 +402,6 @@ fn localize_item_event(
                         error!("Failed resolving price. This SHOULD be impossible because the native price always exists.");
                         Price::new(0u64.into(), *currency)
                     }),
-                    hash: payload.hash,
                 },
             )
         }

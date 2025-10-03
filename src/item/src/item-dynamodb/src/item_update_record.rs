@@ -1,6 +1,5 @@
 use common::event_id::EventId;
 use common::price::record::PriceRecord;
-use item_core::hash::ItemHash;
 use serde::Serialize;
 use time::OffsetDateTime;
 
@@ -35,8 +34,6 @@ pub struct ItemRecordUpdate {
     #[serde(skip_serializing_if = "Option::is_none", default)]
     pub state: Option<ItemStateRecord>,
 
-    pub hash: ItemHash,
-
     #[serde(with = "time::serde::rfc3339")]
     pub updated: OffsetDateTime,
 }
@@ -53,7 +50,6 @@ impl From<ItemEventRecord> for ItemRecordUpdate {
             price_cad: event.price_cad,
             price_nzd: event.price_nzd,
             state: event.state,
-            hash: event.hash,
             updated: event.timestamp,
         }
     }
@@ -81,7 +77,6 @@ mod faker {
                 price_cad: Some(config.fake_with_rng::<MonetaryAmount, _>(rng).into()),
                 price_nzd: Some(config.fake_with_rng::<MonetaryAmount, _>(rng).into()),
                 state: Some(state),
-                hash: ItemHash::new(&price_native.map(Price::from), &state.into()),
                 updated: OffsetDateTime::now_utc(),
             }
         }

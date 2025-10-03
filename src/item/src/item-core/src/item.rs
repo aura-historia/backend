@@ -1,5 +1,4 @@
 use crate::description::Description;
-use crate::hash::ItemHash;
 use crate::item_event::{
     ItemCreatedEventPayload, ItemEvent, ItemEventPayload, ItemPriceChangeEventPayload,
     ItemStateChangeEventPayload, LocalizedItemEventPayloadView,
@@ -37,7 +36,6 @@ pub struct Item {
     pub state: ItemState,
     pub url: Url,
     pub images: Vec<Url>,
-    pub hash: ItemHash,
     pub created: OffsetDateTime,
     pub updated: OffsetDateTime,
 }
@@ -58,7 +56,6 @@ impl Item {
         url: Url,
         images: Vec<Url>,
     ) -> ItemEvent {
-        let hash = ItemHash::new(&native_price, &state);
         let payload = ItemCreatedEventPayload {
             shop_id,
             shops_item_id,
@@ -71,7 +68,6 @@ impl Item {
             state,
             url,
             images,
-            hash,
             other_description,
         };
         ItemEvent {
@@ -87,7 +83,6 @@ impl Item {
             None
         } else {
             self.state = new_state;
-            self.hash();
             let event_payload_constructor = match new_state {
                 ItemState::Listed => ItemEventPayload::StateListed,
                 ItemState::Available => ItemEventPayload::StateAvailable,
@@ -103,7 +98,6 @@ impl Item {
                 payload: event_payload_constructor(ItemStateChangeEventPayload {
                     shop_id: self.shop_id,
                     shops_item_id: self.shops_item_id.clone(),
-                    hash: self.hash,
                 }),
             };
             Some(event)
@@ -118,14 +112,12 @@ impl Item {
             .unwrap_or_default();
         self.native_price = Some(new_price);
         self.other_price = new_other_price.clone();
-        self.hash();
 
         let payload = ItemPriceChangeEventPayload {
             shop_id: self.shop_id,
             shops_item_id: self.shops_item_id.clone(),
             native_price: new_price,
             other_price: new_other_price,
-            hash: self.hash,
         };
 
         match old_price_opt {
@@ -165,8 +157,19 @@ impl Item {
         }
     }
 
-    fn hash(&mut self) {
-        self.hash = ItemHash::new(&self.native_price, &self.state);
+    pub fn remove_price(&mut self) -> Option<ItemEvent> {
+        todo!()
+    }
+
+    pub fn new_price(
+        &mut self,
+        new_price_opt: Option<Price>,
+        fx_rate: &impl FxRate,
+    ) -> Option<ItemEvent> {
+        match new_price_opt {
+            Some(new_price) => self.change_price(new_price, fx_rate),
+            None => self.remove_price(),
+        }
     }
 }
 
@@ -194,7 +197,6 @@ pub struct LocalizedItemView {
     pub state: ItemState,
     pub url: Url,
     pub images: Vec<Url>,
-    pub hash: ItemHash,
     pub created: OffsetDateTime,
     pub updated: OffsetDateTime,
     pub history: Option<Vec<Event<ItemId, LocalizedItemEventPayloadView>>>,
@@ -251,7 +253,6 @@ mod faker {
                     ))
                     .unwrap(),
                 ],
-                hash: ItemHash::new(&native_price, &state),
                 created: OffsetDateTime::now_utc(),
                 updated: OffsetDateTime::now_utc(),
             }
@@ -260,8 +261,6 @@ mod faker {
 
     impl Dummy<Faker> for LocalizedItemView {
         fn dummy_with_rng<R: Rng + ?Sized>(config: &Faker, rng: &mut R) -> Self {
-            let native_price: Option<Price> = config.fake_with_rng(rng);
-            let state = config.fake_with_rng(rng);
             LocalizedItemView {
                 item_id: config.fake_with_rng(rng),
                 event_id: config.fake_with_rng(rng),
@@ -271,7 +270,7 @@ mod faker {
                 title: config.fake_with_rng(rng),
                 description: config.fake_with_rng(rng),
                 price: config.fake_with_rng(rng),
-                state,
+                state: config.fake_with_rng(rng),
                 url: Url::parse(&format!(
                     "https://foo.bar/item/{}",
                     config.fake_with_rng::<u16, _>(rng)
@@ -294,7 +293,6 @@ mod faker {
                     ))
                     .unwrap(),
                 ],
-                hash: ItemHash::new(&native_price, &state),
                 created: OffsetDateTime::now_utc(),
                 updated: OffsetDateTime::now_utc(),
                 history: None,
@@ -322,7 +320,6 @@ mod faker {
 #[cfg(test)]
 mod tests {
     mod state {
-        use crate::hash::ItemHash;
         use crate::item::Item;
         use common::item_state::domain::ItemState;
         use common::language::domain::Language;
@@ -336,6 +333,7 @@ mod tests {
         #[case::reserved(ItemState::Reserved, ItemState::Reserved)]
         #[case::sold(ItemState::Sold, ItemState::Sold)]
         #[case::removed(ItemState::Removed, ItemState::Removed)]
+        #[case::unknown(ItemState::Unknown, ItemState::Unknown)]
         fn should_return_none_when_state_did_not_change_for_change_state(
             #[case] from_state: ItemState,
             #[case] to_state: ItemState,
@@ -358,7 +356,6 @@ mod tests {
                 state: from_state,
                 url: Url::parse("https://example.com").unwrap(),
                 images: vec![],
-                hash: ItemHash::new(&None, &from_state),
                 created: OffsetDateTime::now_utc(),
                 updated: OffsetDateTime::now_utc(),
             };
@@ -377,6 +374,8 @@ mod tests {
         #[case::reserved(ItemState::Reserved, ItemState::Available)]
         #[case::reserved(ItemState::Reserved, ItemState::Sold)]
         #[case::sold(ItemState::Sold, ItemState::Removed)]
+        #[case::sold(ItemState::Sold, ItemState::Unknown)]
+        #[case::sold(ItemState::Unknown, ItemState::Available)]
         fn should_return_state_change_when_state_changed_for_change_state(
             #[case] from_state: ItemState,
             #[case] to_state: ItemState,
@@ -399,7 +398,6 @@ mod tests {
                 state: from_state,
                 url: Url::parse("https://example.com").unwrap(),
                 images: vec![],
-                hash: ItemHash::new(&None, &from_state),
                 created: OffsetDateTime::now_utc(),
                 updated: OffsetDateTime::now_utc(),
             };
@@ -417,47 +415,8 @@ mod tests {
         #[case::reserved(ItemState::Reserved, ItemState::Available)]
         #[case::reserved(ItemState::Reserved, ItemState::Sold)]
         #[case::sold(ItemState::Sold, ItemState::Removed)]
-        fn should_change_hash_when_state_changed_for_change_state(
-            #[case] from_state: ItemState,
-            #[case] to_state: ItemState,
-        ) {
-            let mut item = Item {
-                item_id: Default::default(),
-                event_id: Default::default(),
-                shop_id: Default::default(),
-                shops_item_id: Default::default(),
-                shop_name: "Boop".into(),
-                native_title: Localized {
-                    localization: Language::De,
-                    payload: "Boop".into(),
-                },
-                other_title: Default::default(),
-                native_description: None,
-                other_description: Default::default(),
-                native_price: None,
-                other_price: Default::default(),
-                state: from_state,
-                url: Url::parse("https://example.com").unwrap(),
-                images: vec![],
-                hash: ItemHash::new(&None, &from_state),
-                created: OffsetDateTime::now_utc(),
-                updated: OffsetDateTime::now_utc(),
-            };
-            let initial_item = item.clone();
-
-            let _ = item.change_state(to_state).unwrap();
-            assert_ne!(initial_item.hash, item.hash);
-        }
-
-        #[rstest::rstest]
-        #[case::listed(ItemState::Listed, ItemState::Available)]
-        #[case::listed(ItemState::Listed, ItemState::Removed)]
-        #[case::available(ItemState::Available, ItemState::Reserved)]
-        #[case::available(ItemState::Available, ItemState::Sold)]
-        #[case::available(ItemState::Available, ItemState::Removed)]
-        #[case::reserved(ItemState::Reserved, ItemState::Available)]
-        #[case::reserved(ItemState::Reserved, ItemState::Sold)]
-        #[case::sold(ItemState::Sold, ItemState::Removed)]
+        #[case::sold(ItemState::Sold, ItemState::Unknown)]
+        #[case::sold(ItemState::Unknown, ItemState::Available)]
         fn should_change_state_when_state_changed_for_change_state(
             #[case] from_state: ItemState,
             #[case] to_state: ItemState,
@@ -480,7 +439,6 @@ mod tests {
                 state: from_state,
                 url: Url::parse("https://example.com").unwrap(),
                 images: vec![],
-                hash: ItemHash::new(&None, &from_state),
                 created: OffsetDateTime::now_utc(),
                 updated: OffsetDateTime::now_utc(),
             };
@@ -491,7 +449,6 @@ mod tests {
     }
 
     mod price {
-        use crate::hash::ItemHash;
         use crate::item::Item;
         use crate::item_event::ItemEventPayload;
         use common::currency::domain::Currency;
@@ -555,7 +512,6 @@ mod tests {
                 state: ItemState::Listed,
                 url: Url::parse("https://example.com").unwrap(),
                 images: vec![],
-                hash: ItemHash::new(&None, &ItemState::Listed),
                 created: OffsetDateTime::now_utc(),
                 updated: OffsetDateTime::now_utc(),
             };
@@ -599,19 +555,15 @@ mod tests {
                 state: ItemState::Listed,
                 url: Url::parse("https://example.com").unwrap(),
                 images: vec![],
-                hash: ItemHash::new(&None, &ItemState::Listed),
                 created: OffsetDateTime::now_utc(),
                 updated: OffsetDateTime::now_utc(),
             };
-            let initial_item = item.clone();
-
             let actual = item.change_price(to_price, &IdentityFxRate).unwrap();
 
             match actual.payload {
                 ItemEventPayload::PriceDiscovered(payload) => {
                     assert_eq!(to_price, payload.native_price);
                     assert_eq!(item.native_price, Some(to_price));
-                    assert_ne!(initial_item.hash, item.hash);
                 }
                 _ => panic!("Expected ItemEventPayload::PriceDiscovered"),
             }
@@ -643,19 +595,15 @@ mod tests {
                 state: ItemState::Listed,
                 url: Url::parse("https://example.com").unwrap(),
                 images: vec![],
-                hash: ItemHash::new(&None, &ItemState::Listed),
                 created: OffsetDateTime::now_utc(),
                 updated: OffsetDateTime::now_utc(),
             };
-            let initial_item = item.clone();
-
             let actual = item.change_price(to_price, &IdentityFxRate).unwrap();
 
             match actual.payload {
                 ItemEventPayload::PriceDropped(payload) => {
                     assert_eq!(to_price, payload.native_price);
                     assert_eq!(item.native_price, Some(to_price));
-                    assert_ne!(initial_item.hash, item.hash);
                 }
                 _ => panic!("Expected ItemEventPayload::PriceDropped"),
             }
@@ -689,19 +637,15 @@ mod tests {
                 state: ItemState::Listed,
                 url: Url::parse("https://example.com").unwrap(),
                 images: vec![],
-                hash: ItemHash::new(&None, &ItemState::Listed),
                 created: OffsetDateTime::now_utc(),
                 updated: OffsetDateTime::now_utc(),
             };
-            let initial_item = item.clone();
-
             let actual = item.change_price(to_price, &IdentityFxRate).unwrap();
 
             match actual.payload {
                 ItemEventPayload::PriceIncreased(payload) => {
                     assert_eq!(to_price, payload.native_price);
                     assert_eq!(item.native_price, Some(to_price));
-                    assert_ne!(initial_item.hash, item.hash);
                 }
                 _ => panic!("Expected ItemEventPayload::PriceIncreased"),
             }

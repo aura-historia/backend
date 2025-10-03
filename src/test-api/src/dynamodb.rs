@@ -1,15 +1,14 @@
-use std::collections::HashMap;
-
 use crate::IntegrationTestService;
 use crate::localstack::get_aws_config;
 use async_trait::async_trait;
 use aws_sdk_dynamodb::types::ScalarAttributeType::S;
 use aws_sdk_dynamodb::types::{
-    AttributeDefinition, BillingMode, GlobalSecondaryIndex, KeySchemaElement, KeyType, Projection,
-    ProjectionType, PutRequest, TableClass, WriteRequest,
+    AttributeDefinition, BillingMode, KeySchemaElement, KeyType, PutRequest, TableClass,
+    WriteRequest,
 };
 use aws_sdk_dynamodb::{Client, Error};
 use serde::Serialize;
+use std::collections::HashMap;
 use tokio::sync::OnceCell;
 use tracing::debug;
 
@@ -104,18 +103,6 @@ async fn set_up_table_1() -> Result<(), Error> {
                 .attribute_type(S)
                 .build()?,
         )
-        .attribute_definitions(
-            AttributeDefinition::builder()
-                .attribute_name("gsi_1_pk")
-                .attribute_type(S)
-                .build()?,
-        )
-        .attribute_definitions(
-            AttributeDefinition::builder()
-                .attribute_name("gsi_1_sk")
-                .attribute_type(S)
-                .build()?,
-        )
         .key_schema(
             KeySchemaElement::builder()
                 .attribute_name("pk")
@@ -126,32 +113,6 @@ async fn set_up_table_1() -> Result<(), Error> {
             KeySchemaElement::builder()
                 .attribute_name("sk")
                 .key_type(KeyType::Range)
-                .build()?,
-        )
-        .global_secondary_indexes(
-            GlobalSecondaryIndex::builder()
-                .index_name("gsi_1")
-                .key_schema(
-                    KeySchemaElement::builder()
-                        .attribute_name("gsi_1_pk")
-                        .key_type(KeyType::Hash)
-                        .build()?,
-                )
-                .key_schema(
-                    KeySchemaElement::builder()
-                        .attribute_name("gsi_1_sk")
-                        .key_type(KeyType::Range)
-                        .build()?,
-                )
-                .projection(
-                    Projection::builder()
-                        .projection_type(ProjectionType::Include)
-                        .non_key_attributes("item_id")
-                        .non_key_attributes("shop_id")
-                        .non_key_attributes("shops_item_id")
-                        .non_key_attributes("hash")
-                        .build(),
-                )
                 .build()?,
         )
         .billing_mode(BillingMode::PayPerRequest)

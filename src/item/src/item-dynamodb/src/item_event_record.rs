@@ -16,7 +16,6 @@ use common::shop_id::ShopId;
 use common::shop_name::ShopName;
 use common::shops_item_id::ShopsItemId;
 use field::field;
-use item_core::hash::ItemHash;
 use item_core::item_event::{
     ItemCommonEventPayload, ItemCreatedEventPayload, ItemEvent, ItemEventPayload,
     ItemPriceChangeEventPayload, ItemStateChangeEventPayload,
@@ -93,8 +92,6 @@ pub struct ItemEventRecord {
 
     #[serde(skip_serializing_if = "Option::is_none", default)]
     pub images: Option<Vec<Url>>,
-
-    pub hash: ItemHash,
 
     #[serde(with = "time::serde::rfc3339")]
     pub timestamp: OffsetDateTime,
@@ -204,14 +201,12 @@ impl TryFrom<ItemEvent> for ItemEventRecord {
                     state: Some(payload.state.into()),
                     url: Some(payload.url),
                     images: Some(payload.images),
-                    hash: payload.hash,
                     timestamp: domain.timestamp,
                 };
                 Ok(record)
             }
-            ItemEventPayload::StateListed(payload) => Ok(mk_state_event_record(
+            ItemEventPayload::StateListed(_) => Ok(mk_state_event_record(
                 ItemStateRecord::Listed,
-                payload,
                 pk,
                 sk,
                 item_id,
@@ -221,9 +216,8 @@ impl TryFrom<ItemEvent> for ItemEventRecord {
                 shops_item_id,
                 domain.timestamp,
             )),
-            ItemEventPayload::StateReserved(payload) => Ok(mk_state_event_record(
+            ItemEventPayload::StateReserved(_) => Ok(mk_state_event_record(
                 ItemStateRecord::Reserved,
-                payload,
                 pk,
                 sk,
                 item_id,
@@ -233,9 +227,8 @@ impl TryFrom<ItemEvent> for ItemEventRecord {
                 shops_item_id,
                 domain.timestamp,
             )),
-            ItemEventPayload::StateAvailable(payload) => Ok(mk_state_event_record(
+            ItemEventPayload::StateAvailable(_) => Ok(mk_state_event_record(
                 ItemStateRecord::Available,
-                payload,
                 pk,
                 sk,
                 item_id,
@@ -245,9 +238,8 @@ impl TryFrom<ItemEvent> for ItemEventRecord {
                 shops_item_id,
                 domain.timestamp,
             )),
-            ItemEventPayload::StateSold(payload) => Ok(mk_state_event_record(
+            ItemEventPayload::StateSold(_) => Ok(mk_state_event_record(
                 ItemStateRecord::Sold,
-                payload,
                 pk,
                 sk,
                 item_id,
@@ -257,9 +249,8 @@ impl TryFrom<ItemEvent> for ItemEventRecord {
                 shops_item_id,
                 domain.timestamp,
             )),
-            ItemEventPayload::StateRemoved(payload) => Ok(mk_state_event_record(
+            ItemEventPayload::StateRemoved(_) => Ok(mk_state_event_record(
                 ItemStateRecord::Removed,
-                payload,
                 pk,
                 sk,
                 item_id,
@@ -269,9 +260,8 @@ impl TryFrom<ItemEvent> for ItemEventRecord {
                 shops_item_id,
                 domain.timestamp,
             )),
-            ItemEventPayload::StateUnknown(payload) => Ok(mk_state_event_record(
+            ItemEventPayload::StateUnknown(_) => Ok(mk_state_event_record(
                 ItemStateRecord::Unknown,
-                payload,
                 pk,
                 sk,
                 item_id,
@@ -321,7 +311,6 @@ impl TryFrom<ItemEvent> for ItemEventRecord {
 #[allow(clippy::too_many_arguments)]
 fn mk_state_event_record(
     item_state_record: ItemStateRecord,
-    item_state_change_event_payload: ItemStateChangeEventPayload,
     pk: String,
     sk: String,
     item_id: ItemId,
@@ -356,7 +345,6 @@ fn mk_state_event_record(
         state: Some(item_state_record),
         url: None,
         images: None,
-        hash: item_state_change_event_payload.hash,
         timestamp,
     }
 }
@@ -422,7 +410,6 @@ fn mk_price_event_record(
         state: None,
         url: None,
         images: None,
-        hash: item_price_change_event_payload.hash,
         timestamp,
     }
 }
@@ -433,7 +420,6 @@ impl TryFrom<ItemEventRecord> for ItemEvent {
     fn try_from(record: ItemEventRecord) -> Result<Self, Self::Error> {
         let shop_id = record.shop_id;
         let shops_item_id = record.shops_item_id;
-        let hash = record.hash;
         let mut other_price = HashMap::with_capacity(6);
         if let Some(amount_eur) = record.price_eur {
             other_price.insert(Currency::Eur, amount_eur.into());
@@ -498,49 +484,42 @@ impl TryFrom<ItemEventRecord> for ItemEvent {
                             .url
                             .ok_or(MissingPersistenceField::new(field!(url@ItemEventRecord)))?,
                         images: record.images.unwrap_or_default(),
-                        hash,
                     })
                 }
                 ItemEventTypeRecord::StateListed => {
                     ItemEventPayload::StateListed(ItemStateChangeEventPayload {
                         shop_id,
                         shops_item_id,
-                        hash,
                     })
                 }
                 ItemEventTypeRecord::StateAvailable => {
                     ItemEventPayload::StateAvailable(ItemStateChangeEventPayload {
                         shop_id,
                         shops_item_id,
-                        hash,
                     })
                 }
                 ItemEventTypeRecord::StateReserved => {
                     ItemEventPayload::StateReserved(ItemStateChangeEventPayload {
                         shop_id,
                         shops_item_id,
-                        hash,
                     })
                 }
                 ItemEventTypeRecord::StateSold => {
                     ItemEventPayload::StateSold(ItemStateChangeEventPayload {
                         shop_id,
                         shops_item_id,
-                        hash,
                     })
                 }
                 ItemEventTypeRecord::StateRemoved => {
                     ItemEventPayload::StateRemoved(ItemStateChangeEventPayload {
                         shop_id,
                         shops_item_id,
-                        hash,
                     })
                 }
                 ItemEventTypeRecord::StateUnknown => {
                     ItemEventPayload::StateUnknown(ItemStateChangeEventPayload {
                         shop_id,
                         shops_item_id,
-                        hash,
                     })
                 }
                 ItemEventTypeRecord::PriceDiscovered => {
@@ -551,7 +530,6 @@ impl TryFrom<ItemEventRecord> for ItemEvent {
                             MissingPersistenceField::new(field!(price_native@ItemEventRecord)),
                         )?,
                         other_price,
-                        hash,
                     })
                 }
                 ItemEventTypeRecord::PriceDropped => {
@@ -562,7 +540,6 @@ impl TryFrom<ItemEventRecord> for ItemEvent {
                             MissingPersistenceField::new(field!(price_native@ItemEventRecord)),
                         )?,
                         other_price,
-                        hash,
                     })
                 }
                 ItemEventTypeRecord::PriceIncreased => {
@@ -573,7 +550,6 @@ impl TryFrom<ItemEventRecord> for ItemEvent {
                             MissingPersistenceField::new(field!(price_native@ItemEventRecord)),
                         )?,
                         other_price,
-                        hash,
                     })
                 }
             },

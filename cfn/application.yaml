@@ -180,29 +180,11 @@ Resources:
           AttributeType: S
         - AttributeName: sk
           AttributeType: S
-        - AttributeName: gsi_1_pk
-          AttributeType: S
-        - AttributeName: gsi_1_sk
-          AttributeType: S
       KeySchema:
         - AttributeName: pk
           KeyType: HASH
         - AttributeName: sk
           KeyType: RANGE
-      GlobalSecondaryIndexes:
-        - IndexName: gsi_1
-          KeySchema:
-            - AttributeName: gsi_1_pk
-              KeyType: HASH
-            - AttributeName: gsi_1_sk
-              KeyType: RANGE
-          Projection:
-            ProjectionType: INCLUDE
-            NonKeyAttributes:
-              - item_id
-              - shop_id
-              - shops_item_id
-              - hash
       BillingMode: PAY_PER_REQUEST
       TableClass: STANDARD
       StreamSpecification:
