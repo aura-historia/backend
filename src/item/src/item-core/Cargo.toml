@@ -6,7 +6,6 @@ edition = "2024"
 [dependencies]
 common = { workspace = true }
 serde = { workspace = true, features = ["derive"] }
-blake3 = { workspace = true }
 time = { workspace = true, features = ["local-offset", "macros", "formatting"] }
 url = { workspace = true, features = ["serde"] }
 
