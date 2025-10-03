@@ -30,9 +30,6 @@ pub struct ItemUpdateDocument {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub state: Option<ItemStateDocument>,
 
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub is_available: Option<bool>,
-
     #[serde(with = "time::serde::rfc3339")]
     pub updated: OffsetDateTime,
 }
@@ -49,7 +46,6 @@ impl From<ItemEventRecord> for ItemUpdateDocument {
             price_cad: event_record.price_cad,
             price_nzd: event_record.price_nzd,
             state,
-            is_available: state.map(|state| matches!(state, ItemStateDocument::Available)),
             updated: event_record.timestamp,
         }
     }
@@ -73,7 +69,6 @@ mod faker {
                 price_cad: Some(config.fake_with_rng::<MonetaryAmount, _>(rng).into()),
                 price_nzd: Some(config.fake_with_rng::<MonetaryAmount, _>(rng).into()),
                 state,
-                is_available: state.map(|state| matches!(state, ItemStateDocument::Available)),
                 updated: OffsetDateTime::now_utc(),
             }
         }
