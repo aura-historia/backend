@@ -159,7 +159,7 @@ impl<'a> ItemOpenSearchRepository for ItemOpenSearchRepositoryImpl<'a> {
             [] => {}
             [ItemState::Available] => {
                 filter.push(json!({
-                    "term": { "isAvailable": true }
+                    "term": { "state": "available" }
                 }));
             }
             states if states.len() == ItemState::COUNT => {}

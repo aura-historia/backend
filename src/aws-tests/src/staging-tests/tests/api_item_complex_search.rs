@@ -42,7 +42,6 @@ async fn should_respond_200_when_hits() {
         price_cad: Some(1800000),
         price_nzd: Some(1990000),
         state: ItemStateDocument::Available,
-        is_available: true,
         url: Url::parse("https://hans-volker.com/chopin-etudes-op10-1833").unwrap(),
         images: vec![],
         created: SystemTime::now().into(),

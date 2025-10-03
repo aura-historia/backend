@@ -8,7 +8,6 @@ use common::{event_id::EventId, has_key::HasKey};
 use field::field;
 use item_dynamodb::item_event_record::ItemEventRecord;
 use item_dynamodb::item_record::ItemRecord;
-use item_dynamodb::item_state_record::ItemStateRecord;
 use serde::{Deserialize, Serialize};
 use time::OffsetDateTime;
 use url::Url;
@@ -57,8 +56,6 @@ pub struct ItemDocument {
     pub price_nzd: Option<u64>,
 
     pub state: ItemStateDocument,
-
-    pub is_available: bool,
 
     pub url: Url,
 
@@ -122,7 +119,6 @@ impl TryFrom<ItemEventRecord> for ItemDocument {
             images: event_record.images.unwrap_or_default(),
             created: event_record.timestamp,
             updated: event_record.timestamp,
-            is_available: matches!(state, ItemStateDocument::Available),
         };
         Ok(document)
     }
@@ -147,7 +143,6 @@ impl From<ItemRecord> for ItemDocument {
             price_cad: record.price_cad,
             price_nzd: record.price_nzd,
             state: record.state.into(),
-            is_available: matches!(record.state, ItemStateRecord::Available),
             url: record.url,
             images: record.images,
             created: record.created,
@@ -185,7 +180,6 @@ mod faker {
                 price_cad: Some(config.fake_with_rng::<MonetaryAmount, _>(rng).into()),
                 price_nzd: Some(config.fake_with_rng::<MonetaryAmount, _>(rng).into()),
                 state,
-                is_available: matches!(state, ItemStateDocument::Available),
                 url: Url::parse(&format!(
                     "https://foo.bar/item/{}",
                     config.fake_with_rng::<u16, _>(rng)
