@@ -48,14 +48,12 @@ pub mod range_rfc3339 {
         struct Helper {
             #[serde(
                 with = "time::serde::rfc3339::option",
-                skip_serializing_if = "Option::is_none",
-                default
+                skip_serializing_if = "Option::is_none"
             )]
             min: Option<OffsetDateTime>,
             #[serde(
                 with = "time::serde::rfc3339::option",
-                skip_serializing_if = "Option::is_none",
-                default
+                skip_serializing_if = "Option::is_none"
             )]
             max: Option<OffsetDateTime>,
         }
@@ -73,17 +71,9 @@ pub mod range_rfc3339 {
     {
         #[derive(Deserialize)]
         struct Helper {
-            #[serde(
-                with = "time::serde::rfc3339::option",
-                skip_serializing_if = "Option::is_none",
-                default
-            )]
+            #[serde(with = "time::serde::rfc3339::option", default)]
             min: Option<OffsetDateTime>,
-            #[serde(
-                with = "time::serde::rfc3339::option",
-                skip_serializing_if = "Option::is_none",
-                default
-            )]
+            #[serde(with = "time::serde::rfc3339::option", default)]
             max: Option<OffsetDateTime>,
         }
 
