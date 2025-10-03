@@ -1,5 +1,5 @@
 use aws_lambda_events::apigw::{ApiGatewayV2httpRequest, ApiGatewayV2httpResponse};
-use common::pagination::cursor::api::JsonCursoredData;
+use common::pagination::cursor::api::{JsonCursoredData, extract_json_cursor_query};
 use common::query::text_query::{TextQuery, TextQueryTooShortError};
 use common::{
     api::{
@@ -42,6 +42,8 @@ pub async fn handle(
 ) -> Result<ApiGatewayV2httpResponse, ApiError> {
     let language: Language = extract_language_query(&event.payload.query_string_parameters)?.into();
     let currency: Currency = extract_currency_query(&event.payload.query_string_parameters)?.into();
+    let cursor =
+        extract_json_cursor_query(&event.payload.query_string_parameters)?.unwrap_or_default();
     let sort = extract_sort_query::<SortItemFieldData>(&event.payload.query_string_parameters)?
         .map(|sort_data| sort_data.map(SortItemField::from));
     let item_query: TextQuery = event
@@ -68,7 +70,7 @@ pub async fn handle(
     };
 
     let search_result = service
-        .search_items(&search_filter, &sort, &None)
+        .search_items(&search_filter, &sort, &Some(cursor))
         .await?
         .map_item(GetItemData::from);
     let collection = JsonCursoredData::from(search_result);
