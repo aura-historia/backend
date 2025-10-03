@@ -80,15 +80,13 @@ impl<T: FxRate + Sync> PutItemsServiceImpl<'_, T> {
         chunk: Batch<PutItemCommand, 100>,
         skipped_count: &mut usize,
     ) -> Vec<PutItemCommand> {
-        const MAX_RETRIES: u32 = 3;
+        const MAX_RETRIES: u32 = 5;
         const BASE_DELAY_MS: u64 = 100;
 
         let mut current_chunk = chunk;
         let mut retry_count = 0;
-
         loop {
             let failed = self.handle_put_chunk(current_chunk, skipped_count).await;
-
             if failed.is_empty() || retry_count >= MAX_RETRIES {
                 return failed;
             }
@@ -475,10 +473,10 @@ pub mod tests {
 
         let commands = fake::vec![PutItemCommand; 3];
 
-        // All calls fail (initial + 3 retries = 4 total)
+        // All calls fail (initial + 5 retries = 6 total)
         repository
             .expect_get_item_records()
-            .times(4)
+            .times(6)
             .returning(|keys| {
                 let unprocessed_keys: Vec<_> = keys.iter().cloned().collect();
                 Box::pin(async move {
@@ -502,16 +500,16 @@ pub mod tests {
             .await;
         let elapsed = start.elapsed();
 
-        // Expected delays: 100ms + 200ms + 400ms = 700ms minimum
+        // Expected delays: 100ms + 200ms + 400ms + 800ms + 1600ms = 3100ms minimum
         // Allow some tolerance for execution time
         assert!(
-            elapsed.as_millis() >= 700,
-            "Expected at least 700ms for exponential backoff, got {}ms",
+            elapsed.as_millis() >= 3100,
+            "Expected at least 3100ms for exponential backoff, got {}ms",
             elapsed.as_millis()
         );
         assert!(
-            elapsed.as_millis() < 2000,
-            "Expected less than 2000ms total, got {}ms",
+            elapsed.as_millis() < 10000,
+            "Expected less than 10000ms total, got {}ms",
             elapsed.as_millis()
         );
     }
