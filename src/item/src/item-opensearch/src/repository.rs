@@ -157,11 +157,6 @@ impl<'a> ItemOpenSearchRepository for ItemOpenSearchRepositoryImpl<'a> {
             .as_slice()
         {
             [] => {}
-            [ItemState::Available] => {
-                filter.push(json!({
-                    "term": { "state": "available" }
-                }));
-            }
             states if states.len() == ItemState::COUNT => {}
             states => {
                 let state_values: Vec<&str> = states
