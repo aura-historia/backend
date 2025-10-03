@@ -53,9 +53,6 @@
       "state": {
         "type": "keyword"
       },
-      "isAvailable": {
-        "type": "boolean"
-      },
       "url": {
         "type": "keyword"
       },
