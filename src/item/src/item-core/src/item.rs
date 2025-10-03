@@ -94,7 +94,7 @@ impl Item {
                 ItemState::Reserved => ItemEventPayload::StateReserved,
                 ItemState::Sold => ItemEventPayload::StateSold,
                 ItemState::Removed => ItemEventPayload::StateRemoved,
-                ItemState::Unknown => todo!(),
+                ItemState::Unknown => ItemEventPayload::StateUnknown,
             };
             let event = Event {
                 aggregate_id: self.item_id,
