@@ -503,7 +503,7 @@ mod tests {
         #[case::aud_non_zero(Currency::Aud, 42u64.into())]
         #[case::cad_non_zero(Currency::Cad, 42u64.into())]
         #[case::nzd_non_zero(Currency::Nzd, 42u64.into())]
-        fn should_return_none_when_price_and_currency_did_not_change_for_change_price(
+        fn should_return_none_when_price_and_currency_did_not_change_for_new_price(
             #[case] currency: Currency,
             #[case] monetary_amount: MonetaryAmount,
         ) {
@@ -533,7 +533,7 @@ mod tests {
                 updated: OffsetDateTime::now_utc(),
             };
 
-            let actual = item.change_price(price, &IdentityFxRate);
+            let actual = item.new_price(Some(price), &IdentityFxRate);
 
             assert!(actual.is_none());
         }
@@ -551,7 +551,7 @@ mod tests {
         #[case::aud_non_zero(Price::new(42u64.into(), Currency::Aud))]
         #[case::cad_non_zero(Price::new(42u64.into(), Currency::Cad))]
         #[case::nzd_non_zero(Price::new(42u64.into(), Currency::Nzd))]
-        fn should_discover_price_when_price_changed_from_none_for_change_price(
+        fn should_discover_price_when_price_changed_from_none_for_new_price(
             #[case] to_price: Price,
         ) {
             let mut item = Item {
@@ -575,7 +575,7 @@ mod tests {
                 created: OffsetDateTime::now_utc(),
                 updated: OffsetDateTime::now_utc(),
             };
-            let actual = item.change_price(to_price, &IdentityFxRate).unwrap();
+            let actual = item.new_price(Some(to_price), &IdentityFxRate).unwrap();
 
             match actual.payload {
                 ItemEventPayload::PriceDiscovered(payload) => {
@@ -593,7 +593,7 @@ mod tests {
         #[case::aud_non_zero(Price::new(450u64.into(), Currency::Aud))]
         #[case::cad_non_zero(Price::new(460u64.into(), Currency::Cad))]
         #[case::nzd_non_zero(Price::new(477u64.into(), Currency::Nzd))]
-        fn should_find_dropped_price_when_price_dropped_for_change_price(#[case] to_price: Price) {
+        fn should_find_dropped_price_when_price_dropped_for_new_price(#[case] to_price: Price) {
             let mut item = Item {
                 item_id: Default::default(),
                 event_id: Default::default(),
@@ -615,7 +615,7 @@ mod tests {
                 created: OffsetDateTime::now_utc(),
                 updated: OffsetDateTime::now_utc(),
             };
-            let actual = item.change_price(to_price, &IdentityFxRate).unwrap();
+            let actual = item.new_price(Some(to_price), &IdentityFxRate).unwrap();
 
             match actual.payload {
                 ItemEventPayload::PriceDropped(payload) => {
@@ -633,9 +633,7 @@ mod tests {
         #[case::aud_non_zero(Price::new(450u64.into(), Currency::Aud))]
         #[case::cad_non_zero(Price::new(460u64.into(), Currency::Cad))]
         #[case::nzd_non_zero(Price::new(477u64.into(), Currency::Nzd))]
-        fn should_find_increased_price_when_price_increased_for_change_price(
-            #[case] to_price: Price,
-        ) {
+        fn should_find_increased_price_when_price_increased_for_new_price(#[case] to_price: Price) {
             let mut item = Item {
                 item_id: Default::default(),
                 event_id: Default::default(),
@@ -657,7 +655,7 @@ mod tests {
                 created: OffsetDateTime::now_utc(),
                 updated: OffsetDateTime::now_utc(),
             };
-            let actual = item.change_price(to_price, &IdentityFxRate).unwrap();
+            let actual = item.new_price(Some(to_price), &IdentityFxRate).unwrap();
 
             match actual.payload {
                 ItemEventPayload::PriceIncreased(payload) => {
@@ -665,6 +663,51 @@ mod tests {
                     assert_eq!(item.native_price, Some(to_price));
                 }
                 _ => panic!("Expected ItemEventPayload::PriceIncreased"),
+            }
+        }
+
+        #[rstest::rstest]
+        #[case::eur_zero(Price::new(0u64.into(), Currency::Eur))]
+        #[case::gbp_zero(Price::new(0u64.into(), Currency::Gbp))]
+        #[case::usd_zero(Price::new(0u64.into(), Currency::Usd))]
+        #[case::aud_zero(Price::new(0u64.into(), Currency::Aud))]
+        #[case::cad_zero(Price::new(0u64.into(), Currency::Cad))]
+        #[case::nzd_zero(Price::new(0u64.into(), Currency::Nzd))]
+        #[case::eur_non_zero(Price::new(42u64.into(), Currency::Eur))]
+        #[case::gbp_non_zero(Price::new(42u64.into(), Currency::Gbp))]
+        #[case::usd_non_zero(Price::new(42u64.into(), Currency::Usd))]
+        #[case::aud_non_zero(Price::new(42u64.into(), Currency::Aud))]
+        #[case::cad_non_zero(Price::new(42u64.into(), Currency::Cad))]
+        #[case::nzd_non_zero(Price::new(42u64.into(), Currency::Nzd))]
+        fn should_remove_price_when_price_changed_from_some_to_none_for_new_price(
+            #[case] price: Price,
+        ) {
+            let mut item = Item {
+                item_id: Default::default(),
+                event_id: Default::default(),
+                shop_id: Default::default(),
+                shops_item_id: Default::default(),
+                shop_name: "Boop".into(),
+                native_title: Localized {
+                    localization: Language::De,
+                    payload: "Boop".into(),
+                },
+                other_title: Default::default(),
+                native_description: None,
+                other_description: Default::default(),
+                native_price: Some(price),
+                other_price: Default::default(),
+                state: ItemState::Listed,
+                url: Url::parse("https://example.com").unwrap(),
+                images: vec![],
+                created: OffsetDateTime::now_utc(),
+                updated: OffsetDateTime::now_utc(),
+            };
+            let actual = item.new_price(None, &IdentityFxRate).unwrap();
+
+            match actual.payload {
+                ItemEventPayload::PriceRemoved(_) => {}
+                _ => panic!("Expected ItemEventPayload::PriceRemoved"),
             }
         }
     }
