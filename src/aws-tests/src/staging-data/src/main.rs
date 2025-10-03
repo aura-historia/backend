@@ -2,7 +2,7 @@ use std::time::Duration;
 
 use aws_tests_common::get_cfn_output;
 use common::api::collection::PutCollectionData;
-use fake::{Fake, Faker};
+use fake::{Fake, Faker, rand};
 use item_data::put_data::PutItemData;
 use shop_core::shop::Shop;
 use shop_dynamodb::repository::{ShopDynamoDbRepository, ShopDynamoDbRepositoryImpl};
@@ -19,16 +19,17 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 }
 
 async fn populate_items() {
+    println!("Populating items...");
     let stack = get_cfn_output();
     let put_items_url = format!("{}/api/v1/items", stack.api_gateway_endpoint_url);
 
     // create items
-    let put_item_commands = PutCollectionData {
+    let mut items = PutCollectionData {
         items: fake::vec![PutItemData; 142],
     };
     let response = reqwest::Client::new()
         .put(&put_items_url)
-        .json(&put_item_commands)
+        .json(&items)
         .send()
         .await
         .unwrap();
@@ -36,25 +37,33 @@ async fn populate_items() {
     tokio::time::sleep(Duration::from_secs(30)).await;
 
     // put updates
-    for _ in 0..7 {
-        let mut updates = put_item_commands.items.to_vec();
-        for put_item in &mut updates {
-            put_item.state = Faker.fake();
-            put_item.price = Faker.fake();
+    for i in 0..10 {
+        for item in &mut items.items {
+            if rand::random_range(0..3) < 1 {
+                item.state = Faker.fake();
+            }
+            if rand::random_range(0..3) < 2 {
+                item.price = Some(Faker.fake());
+            }
         }
-        let put_commands = PutCollectionData { items: updates };
+        let collection = PutCollectionData {
+            items: items.items.clone(),
+        };
         let response = reqwest::Client::new()
             .put(&put_items_url)
-            .json(&put_commands)
+            .json(&collection)
             .send()
             .await
             .unwrap();
         assert_eq!(200, response.status());
         tokio::time::sleep(Duration::from_secs(30)).await;
+        println!("Finished items' update-iteration {i}.");
     }
+    println!("Populated items.");
 }
 
 async fn populate_shops() {
+    println!("Populating shops...");
     let stack = get_cfn_output();
     let shops = fake::vec![Shop; 42];
 
@@ -74,4 +83,5 @@ async fn populate_shops() {
             .await
             .unwrap();
     }
+    println!("Populated shops.");
 }
