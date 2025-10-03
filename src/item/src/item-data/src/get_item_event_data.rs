@@ -20,6 +20,7 @@ pub enum ItemEventTypeData {
     PriceDiscovered,
     PriceDropped,
     PriceIncreased,
+    PriceRemoved,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -35,6 +36,7 @@ pub enum ItemEventPayloadData {
     PriceDiscovered(PriceData),
     PriceDropped(PriceData),
     PriceIncreased(PriceData),
+    PriceRemoved,
 }
 
 impl ItemEventPayloadData {
@@ -125,6 +127,12 @@ impl From<Event<ItemId, LocalizedItemEventPayloadView>> for GetItemEventData {
                 payload.shop_id,
                 payload.shops_item_id,
                 ItemEventPayloadData::PriceIncreased(payload.price.into()),
+            ),
+            LocalizedItemEventPayloadView::PriceRemoved(payload) => (
+                ItemEventTypeData::PriceRemoved,
+                payload.shop_id,
+                payload.shops_item_id,
+                ItemEventPayloadData::PriceRemoved,
             ),
         };
 

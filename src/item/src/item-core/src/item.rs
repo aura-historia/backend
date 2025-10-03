@@ -1,7 +1,7 @@
 use crate::description::Description;
 use crate::item_event::{
     ItemCreatedEventPayload, ItemEvent, ItemEventPayload, ItemPriceChangeEventPayload,
-    ItemStateChangeEventPayload, LocalizedItemEventPayloadView,
+    ItemPriceRemovedEventPayload, ItemStateChangeEventPayload, LocalizedItemEventPayloadView,
 };
 use crate::title::Title;
 use common::currency::domain::Currency;
@@ -158,7 +158,24 @@ impl Item {
     }
 
     pub fn remove_price(&mut self) -> Option<ItemEvent> {
-        todo!()
+        match self.native_price {
+            Some(_) => {
+                self.native_price = None;
+                self.other_price.clear();
+                let payload = ItemPriceRemovedEventPayload {
+                    shop_id: self.shop_id,
+                    shops_item_id: self.shops_item_id.clone(),
+                };
+                let event = Event {
+                    aggregate_id: self.item_id,
+                    event_id: EventId::new(),
+                    timestamp: OffsetDateTime::now_utc(),
+                    payload: ItemEventPayload::PriceRemoved(payload),
+                };
+                Some(event)
+            }
+            None => None,
+        }
     }
 
     pub fn new_price(

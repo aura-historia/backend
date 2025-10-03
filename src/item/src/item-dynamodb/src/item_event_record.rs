@@ -18,7 +18,7 @@ use common::shops_item_id::ShopsItemId;
 use field::field;
 use item_core::item_event::{
     ItemCommonEventPayload, ItemCreatedEventPayload, ItemEvent, ItemEventPayload,
-    ItemPriceChangeEventPayload, ItemStateChangeEventPayload,
+    ItemPriceChangeEventPayload, ItemPriceRemovedEventPayload, ItemStateChangeEventPayload,
 };
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
@@ -304,6 +304,33 @@ impl TryFrom<ItemEvent> for ItemEventRecord {
                 shops_item_id,
                 domain.timestamp,
             )),
+            ItemEventPayload::PriceRemoved(_) => Ok(ItemEventRecord {
+                pk,
+                sk,
+                item_id,
+                event_id,
+                event_type,
+                shop_id,
+                shops_item_id,
+                shop_name: None,
+                title_native: None,
+                title_de: None,
+                title_en: None,
+                description_native: None,
+                description_de: None,
+                description_en: None,
+                price_native: None,
+                price_eur: None,
+                price_usd: None,
+                price_gbp: None,
+                price_aud: None,
+                price_cad: None,
+                price_nzd: None,
+                state: None,
+                url: None,
+                images: None,
+                timestamp: domain.timestamp,
+            }),
         }
     }
 }
@@ -550,6 +577,12 @@ impl TryFrom<ItemEventRecord> for ItemEvent {
                             MissingPersistenceField::new(field!(price_native@ItemEventRecord)),
                         )?,
                         other_price,
+                    })
+                }
+                ItemEventTypeRecord::PriceRemoved => {
+                    ItemEventPayload::PriceRemoved(ItemPriceRemovedEventPayload {
+                        shop_id,
+                        shops_item_id,
                     })
                 }
             },

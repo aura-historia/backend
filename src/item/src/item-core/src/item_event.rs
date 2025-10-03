@@ -30,6 +30,7 @@ pub enum ItemEventPayload {
     PriceDiscovered(ItemPriceChangeEventPayload),
     PriceDropped(ItemPriceChangeEventPayload),
     PriceIncreased(ItemPriceChangeEventPayload),
+    PriceRemoved(ItemPriceRemovedEventPayload),
 }
 
 impl HasKey for ItemEventPayload {
@@ -58,6 +59,7 @@ impl ItemCommonEventPayload for ItemEventPayload {
             ItemEventPayload::PriceDiscovered(payload) => payload.shop_id(),
             ItemEventPayload::PriceDropped(payload) => payload.shop_id(),
             ItemEventPayload::PriceIncreased(payload) => payload.shop_id(),
+            ItemEventPayload::PriceRemoved(payload) => payload.shop_id(),
         }
     }
 
@@ -73,6 +75,7 @@ impl ItemCommonEventPayload for ItemEventPayload {
             ItemEventPayload::PriceDiscovered(payload) => payload.shops_item_id(),
             ItemEventPayload::PriceDropped(payload) => payload.shops_item_id(),
             ItemEventPayload::PriceIncreased(payload) => payload.shops_item_id(),
+            ItemEventPayload::PriceRemoved(payload) => payload.shops_item_id(),
         }
     }
 }
@@ -138,6 +141,22 @@ impl ItemCommonEventPayload for ItemPriceChangeEventPayload {
 }
 
 #[derive(Debug, Clone, PartialEq)]
+pub struct ItemPriceRemovedEventPayload {
+    pub shop_id: ShopId,
+    pub shops_item_id: ShopsItemId,
+}
+
+impl ItemCommonEventPayload for ItemPriceRemovedEventPayload {
+    fn shop_id(&self) -> &ShopId {
+        &self.shop_id
+    }
+
+    fn shops_item_id(&self) -> &ShopsItemId {
+        &self.shops_item_id
+    }
+}
+
+#[derive(Debug, Clone, PartialEq)]
 #[allow(clippy::large_enum_variant)]
 pub enum LocalizedItemEventPayloadView {
     Created(LocalizedItemCreatedEventPayloadView),
@@ -150,6 +169,7 @@ pub enum LocalizedItemEventPayloadView {
     PriceDiscovered(LocalizedItemPriceChangeEventPayloadView),
     PriceDropped(LocalizedItemPriceChangeEventPayloadView),
     PriceIncreased(LocalizedItemPriceChangeEventPayloadView),
+    PriceRemoved(LocalizedItemPriceRemovedEventPayloadView),
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -176,6 +196,12 @@ pub struct LocalizedItemPriceChangeEventPayloadView {
     pub shop_id: ShopId,
     pub shops_item_id: ShopsItemId,
     pub price: Price,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct LocalizedItemPriceRemovedEventPayloadView {
+    pub shop_id: ShopId,
+    pub shops_item_id: ShopsItemId,
 }
 
 #[cfg(feature = "test-data")]
@@ -255,10 +281,20 @@ mod faker {
         }
     }
 
+    impl Dummy<Faker> for ItemPriceRemovedEventPayload {
+        fn dummy_with_rng<R: Rng + ?Sized>(config: &Faker, rng: &mut R) -> Self {
+            ItemPriceRemovedEventPayload {
+                shop_id: config.fake_with_rng(rng),
+                shops_item_id: config.fake_with_rng(rng),
+            }
+        }
+    }
+
     #[cfg(test)]
     mod tests {
         use crate::item_event::{
-            ItemCreatedEventPayload, ItemEvent, ItemEventPayload, ItemStateChangeEventPayload,
+            ItemCreatedEventPayload, ItemEvent, ItemEventPayload, ItemPriceRemovedEventPayload,
+            ItemStateChangeEventPayload,
         };
         use fake::{Fake, Faker};
 
@@ -275,6 +311,11 @@ mod faker {
         #[test]
         fn should_fake_item_price_change_event_payload() {
             let _ = Faker.fake::<ItemStateChangeEventPayload>();
+        }
+
+        #[test]
+        fn should_fake_item_price_removed_event_payload() {
+            let _ = Faker.fake::<ItemPriceRemovedEventPayload>();
         }
 
         #[test]

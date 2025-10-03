@@ -15,6 +15,7 @@ pub enum ItemEventTypeRecord {
     PriceDiscovered,
     PriceDropped,
     PriceIncreased,
+    PriceRemoved,
 }
 
 impl From<&ItemEventPayload> for ItemEventTypeRecord {
@@ -30,6 +31,7 @@ impl From<&ItemEventPayload> for ItemEventTypeRecord {
             ItemEventPayload::PriceDiscovered(_) => ItemEventTypeRecord::PriceDiscovered,
             ItemEventPayload::PriceDropped(_) => ItemEventTypeRecord::PriceDropped,
             ItemEventPayload::PriceIncreased(_) => ItemEventTypeRecord::PriceIncreased,
+            ItemEventPayload::PriceRemoved(_) => ItemEventTypeRecord::PriceRemoved,
         }
     }
 }
