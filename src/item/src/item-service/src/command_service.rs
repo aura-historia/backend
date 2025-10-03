@@ -63,11 +63,10 @@ impl<T: FxRate + Sync> PutItemsService for PutItemsServiceImpl<'_, T> {
             let batch: Batch<PutItemCommand, 100> = chunk
                 .try_into()
                 .expect("shouldn't fail converting chunk of size 100 to Batch of size 100");
-            let mut failed = self.handle_put_chunk(batch, &mut skipped).await;
+            let mut failed = self.handle_put_chunk_with_retry(batch, &mut skipped).await;
             unprocessed.append(&mut failed);
         }
 
-        // TODO#106: Retry failures instead
         PutItemsOutput {
             unprocessed,
             skipped,
@@ -76,6 +75,34 @@ impl<T: FxRate + Sync> PutItemsService for PutItemsServiceImpl<'_, T> {
 }
 
 impl<T: FxRate + Sync> PutItemsServiceImpl<'_, T> {
+    async fn handle_put_chunk_with_retry(
+        &self,
+        chunk: Batch<PutItemCommand, 100>,
+        skipped_count: &mut usize,
+    ) -> Vec<PutItemCommand> {
+        const MAX_RETRIES: u32 = 3;
+        const BASE_DELAY_MS: u64 = 100;
+
+        let mut current_chunk = chunk;
+        let mut retry_count = 0;
+
+        loop {
+            let failed = self.handle_put_chunk(current_chunk, skipped_count).await;
+
+            if failed.is_empty() || retry_count >= MAX_RETRIES {
+                return failed;
+            }
+
+            retry_count += 1;
+            let delay_ms = BASE_DELAY_MS * 2_u64.pow(retry_count - 1);
+            tokio::time::sleep(tokio::time::Duration::from_millis(delay_ms)).await;
+
+            current_chunk = failed
+                .try_into()
+                .expect("shouldn't fail converting failed items back to Batch because they came from a valid Batch");
+        }
+    }
+
     async fn handle_put_chunk(
         &self,
         chunk: Batch<PutItemCommand, 100>,
@@ -437,5 +464,55 @@ pub mod tests {
         actual.sort_by_key(|l| l.key());
 
         assert_eq!(expected, actual);
+    }
+
+    #[tokio::test]
+    async fn should_apply_exponential_backoff_when_retrying() {
+        use common::batch::dynamodb::BatchGetItemResult;
+        use std::time::Instant;
+
+        let mut repository = MockItemDynamoDbRepository::default();
+
+        let commands = fake::vec![PutItemCommand; 3];
+
+        // All calls fail (initial + 3 retries = 4 total)
+        repository
+            .expect_get_item_records()
+            .times(4)
+            .returning(|keys| {
+                let unprocessed_keys: Vec<_> = keys.iter().cloned().collect();
+                Box::pin(async move {
+                    Ok(BatchGetItemResult {
+                        items: vec![],
+                        unprocessed: Some(unprocessed_keys.try_into().unwrap()),
+                    })
+                })
+            });
+
+        let sqs_client =
+            aws_sdk_sqs::Client::new(&aws_config::defaults(BehaviorVersion::latest()).load().await);
+        let service =
+            PutItemsServiceImpl::new(&repository, &sqs_client, "ingest-q-url", &FixedFxRate());
+
+        let mut skipped_count = 0;
+
+        let start = Instant::now();
+        let _ = service
+            .handle_put_chunk_with_retry(commands.try_into().unwrap(), &mut skipped_count)
+            .await;
+        let elapsed = start.elapsed();
+
+        // Expected delays: 100ms + 200ms + 400ms = 700ms minimum
+        // Allow some tolerance for execution time
+        assert!(
+            elapsed.as_millis() >= 700,
+            "Expected at least 700ms for exponential backoff, got {}ms",
+            elapsed.as_millis()
+        );
+        assert!(
+            elapsed.as_millis() < 2000,
+            "Expected less than 2000ms total, got {}ms",
+            elapsed.as_millis()
+        );
     }
 }
