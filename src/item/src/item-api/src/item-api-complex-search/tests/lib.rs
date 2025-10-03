@@ -1,6 +1,4 @@
-use std::time::Duration;
-
-use common::pagination::cursor::api::JsonCursoredData;
+use common::{pagination::cursor::api::JsonCursoredData, query::range_query::RangeQuery};
 use fake::{Fake, Faker, rand};
 use item_api_complex_search::handler;
 use item_data::get_data::GetItemData;
@@ -12,6 +10,8 @@ use item_service::query_service::QueryItemServiceImpl;
 use lambda_runtime::LambdaEvent;
 use search_filter_data::search_filter_data::SearchFilterData;
 use test_api::*;
+use time::OffsetDateTime;
+use time::macros::datetime;
 
 #[localstack_test(services = [OpenSearch()])]
 async fn should_200_when_no_hits() {
@@ -62,7 +62,7 @@ async fn should_200_when_following_search_after_from_previous_response_for_sort_
         .unwrap();
     assert!(!create_res.errors);
     refresh_index("items").await;
-    tokio::time::sleep(Duration::from_secs(10)).await;
+    tokio::time::sleep(std::time::Duration::from_secs(10)).await;
 
     let sorter = |l: &ItemDocument, r: &ItemDocument| match l
         .price_eur
@@ -171,7 +171,7 @@ async fn should_200_when_following_search_after_from_previous_response_for_sort_
         .unwrap();
     assert!(!create_res.errors);
     refresh_index("items").await;
-    tokio::time::sleep(Duration::from_secs(10)).await;
+    tokio::time::sleep(std::time::Duration::from_secs(10)).await;
 
     let sorter = |l: &ItemDocument, r: &ItemDocument| match l
         .price_eur
@@ -280,7 +280,7 @@ async fn should_200_when_following_search_after_from_previous_response_for_impli
         .unwrap();
     assert!(!create_res.errors);
     refresh_index("items").await;
-    tokio::time::sleep(Duration::from_secs(10)).await;
+    tokio::time::sleep(std::time::Duration::from_secs(10)).await;
 
     // first request
     let lambda_event_1 = LambdaEvent {
@@ -356,7 +356,7 @@ async fn should_200_when_following_search_after_from_previous_response_for_expli
         .unwrap();
     assert!(!create_res.errors);
     refresh_index("items").await;
-    tokio::time::sleep(Duration::from_secs(10)).await;
+    tokio::time::sleep(std::time::Duration::from_secs(10)).await;
 
     // first request
     let lambda_event_1 = LambdaEvent {
@@ -408,4 +408,122 @@ async fn should_200_when_following_search_after_from_previous_response_for_expli
             .collect::<Vec<_>>()
             .contains(&item.item_id)
     }))
+}
+
+#[rstest::rstest]
+#[test_attr(apply(test))]
+#[case(None, None)]
+#[case(None, Some(OffsetDateTime::now_utc().checked_add(time::Duration::seconds(60)).unwrap()))]
+#[case(Some(datetime!(2000 - 01 - 05 0:00 UTC)), None)]
+#[case(Some(datetime!(2025 - 01 - 05 0:00 UTC)), Some(OffsetDateTime::now_utc().checked_add(time::Duration::seconds(30)).unwrap()))]
+#[localstack_test(services = [OpenSearch()])]
+async fn should_200_when_created_query(
+    #[case] min: Option<OffsetDateTime>,
+    #[case] max: Option<OffsetDateTime>,
+) {
+    let created = RangeQuery { min, max };
+    let search = SearchFilterData {
+        language: common::language::data::LanguageData::De,
+        currency: common::currency::data::CurrencyData::Eur,
+        item_query: "Der erwartete Titel".try_into().unwrap(),
+        shop_name_query: None,
+        price_query: None,
+        state_query: Default::default(),
+        created_query: Some(created),
+        updated_query: None,
+    };
+    let lambda_event = LambdaEvent {
+        payload: ApiGatewayV2httpRequestProxy::builder()
+            .http_method(http::Method::POST)
+            .body_serde(&search)
+            .build(),
+        context: Default::default(),
+    };
+
+    let repository = ItemOpenSearchRepositoryImpl::new(get_opensearch_client().await);
+    let service = QueryItemServiceImpl::new(&repository);
+    let mut items = fake::vec![ItemDocument; 1370];
+    for item in &mut items {
+        item.title_de = Some("Der erwartete Titel".to_string());
+    }
+    let create_res = repository
+        .create_item_documents(items.clone())
+        .await
+        .unwrap();
+    assert!(!create_res.errors);
+    refresh_index("items").await;
+    tokio::time::sleep(std::time::Duration::from_secs(10)).await;
+
+    let response = handler(lambda_event, &service).await.unwrap();
+    assert_eq!(200, response.status_code);
+
+    let json = extract_apigw_response_json_body!(response);
+    let collection_data: JsonCursoredData<GetItemData> = serde_json::from_value(json).unwrap();
+    assert!(!collection_data.items.is_empty());
+
+    if let Some(min) = min {
+        assert!(collection_data.items.iter().all(|item| item.created >= min));
+    }
+    if let Some(max) = max {
+        assert!(collection_data.items.iter().all(|item| item.created <= max));
+    }
+}
+
+#[rstest::rstest]
+#[test_attr(apply(test))]
+#[case(None, None)]
+#[case(None, Some(OffsetDateTime::now_utc().checked_add(time::Duration::seconds(60)).unwrap()))]
+#[case(Some(datetime!(2000 - 01 - 05 0:00 UTC)), None)]
+#[case(Some(datetime!(2025 - 01 - 05 0:00 UTC)), Some(OffsetDateTime::now_utc().checked_add(time::Duration::seconds(30)).unwrap()))]
+#[localstack_test(services = [OpenSearch()])]
+async fn should_200_when_updated_query(
+    #[case] min: Option<OffsetDateTime>,
+    #[case] max: Option<OffsetDateTime>,
+) {
+    let updated = RangeQuery { min, max };
+    let search = SearchFilterData {
+        language: common::language::data::LanguageData::De,
+        currency: common::currency::data::CurrencyData::Eur,
+        item_query: "Der erwartete Titel".try_into().unwrap(),
+        shop_name_query: None,
+        price_query: None,
+        state_query: Default::default(),
+        created_query: None,
+        updated_query: Some(updated),
+    };
+    let lambda_event = LambdaEvent {
+        payload: ApiGatewayV2httpRequestProxy::builder()
+            .http_method(http::Method::POST)
+            .body_serde(&search)
+            .build(),
+        context: Default::default(),
+    };
+
+    let repository = ItemOpenSearchRepositoryImpl::new(get_opensearch_client().await);
+    let service = QueryItemServiceImpl::new(&repository);
+    let mut items = fake::vec![ItemDocument; 1370];
+    for item in &mut items {
+        item.title_de = Some("Der erwartete Titel".to_string());
+    }
+    let create_res = repository
+        .create_item_documents(items.clone())
+        .await
+        .unwrap();
+    assert!(!create_res.errors);
+    refresh_index("items").await;
+    tokio::time::sleep(std::time::Duration::from_secs(10)).await;
+
+    let response = handler(lambda_event, &service).await.unwrap();
+    assert_eq!(200, response.status_code);
+
+    let json = extract_apigw_response_json_body!(response);
+    let collection_data: JsonCursoredData<GetItemData> = serde_json::from_value(json).unwrap();
+    assert!(!collection_data.items.is_empty());
+
+    if let Some(min) = min {
+        assert!(collection_data.items.iter().all(|item| item.updated >= min));
+    }
+    if let Some(max) = max {
+        assert!(collection_data.items.iter().all(|item| item.updated <= max));
+    }
 }
