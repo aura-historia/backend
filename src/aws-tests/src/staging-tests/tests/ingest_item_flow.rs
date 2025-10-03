@@ -110,7 +110,7 @@ async fn should_materialize_item_in_dynamodb_for_update_item_command() {
     let put_item_data = PutItemData {
         shop_id: materialized_old.shop_id,
         shops_item_id: materialized_old.shops_item_id,
-        shop_name: materialized_old.shop_name,
+        shop_name: materialized_old.shop_name.into(),
         title: Faker.fake(),
         description: None,
         price: None,
@@ -266,7 +266,7 @@ async fn should_materialize_item_in_opensearch_for_update_item_command() {
     let put_item_data = PutItemData {
         shop_id: materialized_ddb_old.shop_id,
         shops_item_id: materialized_ddb_old.shops_item_id,
-        shop_name: materialized_ddb_old.shop_name,
+        shop_name: materialized_ddb_old.shop_name.into(),
         title: Faker.fake(),
         description: None,
         price: None,

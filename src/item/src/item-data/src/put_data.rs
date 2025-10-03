@@ -1,10 +1,10 @@
 use crate::item_state_data::ItemStateData;
-use common::has_key::HasKey;
 use common::item_id::ItemKey;
 use common::language::data::LocalizedTextData;
 use common::price::data::PriceData;
 use common::shop_id::ShopId;
 use common::shops_item_id::ShopsItemId;
+use common::{has_key::HasKey, shop_name::ShopName};
 use serde::{Deserialize, Serialize};
 use url::Url;
 
@@ -15,7 +15,7 @@ pub struct PutItemData {
 
     pub shops_item_id: ShopsItemId,
 
-    pub shop_name: String,
+    pub shop_name: ShopName,
 
     pub title: LocalizedTextData,
 

@@ -85,7 +85,7 @@ fn put_item_data_to_command(data: PutItemData) -> PutItemCommand {
     PutItemCommand {
         shop_id: data.shop_id,
         shops_item_id: data.shops_item_id,
-        shop_name: data.shop_name.into(),
+        shop_name: data.shop_name,
         title: data.title.into(),
         description: data.description.map(Localized::from),
         price: data.price.map(Price::from),
