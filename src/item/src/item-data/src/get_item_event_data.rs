@@ -41,7 +41,10 @@ pub enum ItemEventPayloadData {
 
 impl ItemEventPayloadData {
     fn is_empty(&self) -> bool {
-        matches!(&self, ItemEventPayloadData::Created)
+        matches!(
+            self,
+            ItemEventPayloadData::Created | ItemEventPayloadData::PriceRemoved
+        )
     }
 }
 
