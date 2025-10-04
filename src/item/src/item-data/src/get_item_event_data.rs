@@ -26,7 +26,7 @@ pub enum ItemEventTypeData {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(untagged)]
 pub enum ItemEventPayloadData {
-    Created,
+    Created(ItemCreatedEventPayloadData),
     StateListed(ItemStateData),
     StateAvailable(ItemStateData),
     StateReserved(ItemStateData),
@@ -41,11 +41,17 @@ pub enum ItemEventPayloadData {
 
 impl ItemEventPayloadData {
     fn is_empty(&self) -> bool {
-        matches!(
-            self,
-            ItemEventPayloadData::Created | ItemEventPayloadData::PriceRemoved
-        )
+        matches!(self, ItemEventPayloadData::PriceRemoved)
     }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ItemCreatedEventPayloadData {
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub price: Option<PriceData>,
+
+    pub state: ItemStateData,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -75,7 +81,10 @@ impl From<Event<ItemId, LocalizedItemEventPayloadView>> for GetItemEventData {
                 ItemEventTypeData::Created,
                 payload.shop_id,
                 payload.shops_item_id,
-                ItemEventPayloadData::Created,
+                ItemEventPayloadData::Created(ItemCreatedEventPayloadData {
+                    price: payload.price.map(PriceData::from),
+                    state: payload.state.into(),
+                }),
             ),
             LocalizedItemEventPayloadView::StateListed(payload) => (
                 ItemEventTypeData::StateListed,
@@ -154,7 +163,9 @@ impl From<Event<ItemId, LocalizedItemEventPayloadView>> for GetItemEventData {
 #[cfg(test)]
 mod tests {
     use crate::{
-        get_item_event_data::{GetItemEventData, ItemEventPayloadData, ItemEventTypeData},
+        get_item_event_data::{
+            GetItemEventData, ItemCreatedEventPayloadData, ItemEventPayloadData, ItemEventTypeData,
+        },
         item_state_data::ItemStateData,
     };
     use common::{
@@ -191,7 +202,7 @@ mod tests {
             event_id: Uuid::max().into(),
             shop_id: "569c809e-b9e0-48c0-8c52-ac37d82a0959".try_into().unwrap(),
             shops_item_id: "bar".into(),
-            payload: ItemEventPayloadData::Created,
+            payload: ItemEventPayloadData::Created(ItemCreatedEventPayloadData { price: Some(PriceData::new(CurrencyData::Eur, 500u64)), state: ItemStateData::Listed }),
             timestamp: utc_datetime!(2025 - 05 - 05 2:22).into(),
         }
     )]
