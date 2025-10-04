@@ -90,7 +90,7 @@ mod tests {
     use common::shop_id::ShopId;
     use common::shops_item_id::ShopsItemId;
     use http::header::{ACCEPT_LANGUAGE, CONTENT_LANGUAGE, ETAG, LAST_MODIFIED};
-    use item_core::{hash::ItemHash, item::LocalizedItemView};
+    use item_core::item::LocalizedItemView;
     use item_service::get_service::{GetItemError, MockGetItemService};
     use lambda_runtime::LambdaEvent;
     use test_api::{ApiGatewayV2httpRequestProxy, extract_apigw_response_json_body};
@@ -136,7 +136,6 @@ mod tests {
                     state: ItemState::Listed,
                     url: Url::parse("https://foo.com/boop").unwrap(),
                     images: vec![],
-                    hash: ItemHash::new(&None, &ItemState::Listed),
                     created: OffsetDateTime::now_utc(),
                     updated: OffsetDateTime::now_utc(),
                     history: None,
@@ -176,7 +175,6 @@ mod tests {
                     state: ItemState::Listed,
                     url: Url::parse("https://foo.com/boop").unwrap(),
                     images: vec![],
-                    hash: ItemHash::new(&None, &ItemState::Listed),
                     created: OffsetDateTime::now_utc(),
                     updated: OffsetDateTime::now_utc(),
                     history: None,
@@ -221,7 +219,6 @@ mod tests {
                     state: ItemState::Listed,
                     url: Url::parse("https://foo.com/boop").unwrap(),
                     images: vec![],
-                    hash: ItemHash::new(&None, &ItemState::Listed),
                     created: timestamp,
                     updated: timestamp,
                     history: None,
@@ -274,7 +271,6 @@ mod tests {
                     state: ItemState::Listed,
                     url: Url::parse("https://foo.com/boop").unwrap(),
                     images: vec![],
-                    hash: ItemHash::new(&None, &ItemState::Listed),
                     created: timestamp,
                     updated: timestamp,
                     history: None,

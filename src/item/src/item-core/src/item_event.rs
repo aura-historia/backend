@@ -1,5 +1,4 @@
 use crate::description::Description;
-use crate::hash::ItemHash;
 use crate::title::Title;
 use common::currency::domain::Currency;
 use common::event::Event;
@@ -31,6 +30,7 @@ pub enum ItemEventPayload {
     PriceDiscovered(ItemPriceChangeEventPayload),
     PriceDropped(ItemPriceChangeEventPayload),
     PriceIncreased(ItemPriceChangeEventPayload),
+    PriceRemoved(ItemPriceRemovedEventPayload),
 }
 
 impl HasKey for ItemEventPayload {
@@ -59,6 +59,7 @@ impl ItemCommonEventPayload for ItemEventPayload {
             ItemEventPayload::PriceDiscovered(payload) => payload.shop_id(),
             ItemEventPayload::PriceDropped(payload) => payload.shop_id(),
             ItemEventPayload::PriceIncreased(payload) => payload.shop_id(),
+            ItemEventPayload::PriceRemoved(payload) => payload.shop_id(),
         }
     }
 
@@ -74,6 +75,7 @@ impl ItemCommonEventPayload for ItemEventPayload {
             ItemEventPayload::PriceDiscovered(payload) => payload.shops_item_id(),
             ItemEventPayload::PriceDropped(payload) => payload.shops_item_id(),
             ItemEventPayload::PriceIncreased(payload) => payload.shops_item_id(),
+            ItemEventPayload::PriceRemoved(payload) => payload.shops_item_id(),
         }
     }
 }
@@ -92,7 +94,6 @@ pub struct ItemCreatedEventPayload {
     pub state: ItemState,
     pub url: Url,
     pub images: Vec<Url>,
-    pub hash: ItemHash,
 }
 
 impl ItemCommonEventPayload for ItemCreatedEventPayload {
@@ -109,7 +110,6 @@ impl ItemCommonEventPayload for ItemCreatedEventPayload {
 pub struct ItemStateChangeEventPayload {
     pub shop_id: ShopId,
     pub shops_item_id: ShopsItemId,
-    pub hash: ItemHash,
 }
 
 impl ItemCommonEventPayload for ItemStateChangeEventPayload {
@@ -128,10 +128,25 @@ pub struct ItemPriceChangeEventPayload {
     pub shops_item_id: ShopsItemId,
     pub native_price: Price,
     pub other_price: HashMap<Currency, MonetaryAmount>,
-    pub hash: ItemHash,
 }
 
 impl ItemCommonEventPayload for ItemPriceChangeEventPayload {
+    fn shop_id(&self) -> &ShopId {
+        &self.shop_id
+    }
+
+    fn shops_item_id(&self) -> &ShopsItemId {
+        &self.shops_item_id
+    }
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct ItemPriceRemovedEventPayload {
+    pub shop_id: ShopId,
+    pub shops_item_id: ShopsItemId,
+}
+
+impl ItemCommonEventPayload for ItemPriceRemovedEventPayload {
     fn shop_id(&self) -> &ShopId {
         &self.shop_id
     }
@@ -154,6 +169,7 @@ pub enum LocalizedItemEventPayloadView {
     PriceDiscovered(LocalizedItemPriceChangeEventPayloadView),
     PriceDropped(LocalizedItemPriceChangeEventPayloadView),
     PriceIncreased(LocalizedItemPriceChangeEventPayloadView),
+    PriceRemoved(LocalizedItemPriceRemovedEventPayloadView),
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -167,14 +183,12 @@ pub struct LocalizedItemCreatedEventPayloadView {
     pub state: ItemState,
     pub url: Url,
     pub images: Vec<Url>,
-    pub hash: ItemHash,
 }
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct LocalizedItemStateChangeEventPayloadView {
     pub shop_id: ShopId,
     pub shops_item_id: ShopsItemId,
-    pub hash: ItemHash,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -182,7 +196,12 @@ pub struct LocalizedItemPriceChangeEventPayloadView {
     pub shop_id: ShopId,
     pub shops_item_id: ShopsItemId,
     pub price: Price,
-    pub hash: ItemHash,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct LocalizedItemPriceRemovedEventPayloadView {
+    pub shop_id: ShopId,
+    pub shops_item_id: ShopsItemId,
 }
 
 #[cfg(feature = "test-data")]
@@ -234,19 +253,15 @@ mod faker {
                     ))
                     .unwrap(),
                 ],
-                hash: ItemHash::new(&native_price, &state),
             }
         }
     }
 
     impl Dummy<Faker> for ItemStateChangeEventPayload {
         fn dummy_with_rng<R: Rng + ?Sized>(config: &Faker, rng: &mut R) -> Self {
-            let native_price: Option<Price> = config.fake_with_rng(rng);
-            let state = config.fake_with_rng(rng);
             ItemStateChangeEventPayload {
                 shop_id: config.fake_with_rng(rng),
                 shops_item_id: config.fake_with_rng(rng),
-                hash: ItemHash::new(&native_price, &state),
             }
         }
     }
@@ -257,13 +272,20 @@ mod faker {
             let other_price = FixedFxRate()
                 .exchange_all(native_price.currency, native_price.monetary_amount)
                 .unwrap();
-            let state = config.fake_with_rng(rng);
             ItemPriceChangeEventPayload {
                 shop_id: config.fake_with_rng(rng),
                 shops_item_id: config.fake_with_rng(rng),
                 native_price,
                 other_price,
-                hash: ItemHash::new(&Some(native_price), &state),
+            }
+        }
+    }
+
+    impl Dummy<Faker> for ItemPriceRemovedEventPayload {
+        fn dummy_with_rng<R: Rng + ?Sized>(config: &Faker, rng: &mut R) -> Self {
+            ItemPriceRemovedEventPayload {
+                shop_id: config.fake_with_rng(rng),
+                shops_item_id: config.fake_with_rng(rng),
             }
         }
     }
@@ -271,7 +293,8 @@ mod faker {
     #[cfg(test)]
     mod tests {
         use crate::item_event::{
-            ItemCreatedEventPayload, ItemEvent, ItemEventPayload, ItemStateChangeEventPayload,
+            ItemCreatedEventPayload, ItemEvent, ItemEventPayload, ItemPriceRemovedEventPayload,
+            ItemStateChangeEventPayload,
         };
         use fake::{Fake, Faker};
 
@@ -288,6 +311,11 @@ mod faker {
         #[test]
         fn should_fake_item_price_change_event_payload() {
             let _ = Faker.fake::<ItemStateChangeEventPayload>();
+        }
+
+        #[test]
+        fn should_fake_item_price_removed_event_payload() {
+            let _ = Faker.fake::<ItemPriceRemovedEventPayload>();
         }
 
         #[test]

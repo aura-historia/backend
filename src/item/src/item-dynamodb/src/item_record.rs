@@ -14,12 +14,10 @@ use common::price::record::PriceRecord;
 use common::shop_id::ShopId;
 use common::shops_item_id::ShopsItemId;
 use field::field;
-use item_core::hash::ItemHash;
 use item_core::item::Item;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use time::OffsetDateTime;
-use time::format_description::well_known;
 use url::Url;
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -27,10 +25,6 @@ pub struct ItemRecord {
     pub pk: String,
 
     pub sk: String,
-
-    pub gsi_1_pk: String,
-
-    pub gsi_1_sk: String,
 
     pub item_id: ItemId,
 
@@ -86,8 +80,6 @@ pub struct ItemRecord {
 
     #[serde(skip_serializing_if = "Vec::is_empty", default)]
     pub images: Vec<Url>,
-
-    pub hash: ItemHash,
 
     #[serde(with = "time::serde::rfc3339")]
     pub created: OffsetDateTime,
@@ -165,7 +157,6 @@ impl From<ItemRecord> for Item {
             state: record.state.into(),
             url: record.url,
             images: record.images,
-            hash: record.hash,
             created: record.created,
             updated: record.updated,
         }
@@ -176,12 +167,9 @@ impl TryFrom<ItemEventRecord> for ItemRecord {
     type Error = PersistenceMappingError;
 
     fn try_from(event_record: ItemEventRecord) -> Result<Self, Self::Error> {
-        let timestamp_str = event_record.timestamp.format(&well_known::Rfc3339)?;
         let record = ItemRecord {
             pk: event_record.pk,
             sk: "item#materialized".to_string(),
-            gsi_1_pk: format!("shop_id#{}", event_record.shop_id),
-            gsi_1_sk: format!("updated#{timestamp_str}"),
             item_id: event_record.item_id,
             event_id: event_record.event_id,
             shop_id: event_record.shop_id,
@@ -211,7 +199,6 @@ impl TryFrom<ItemEventRecord> for ItemRecord {
                 .url
                 .ok_or_else(|| MissingPersistenceField::new(field!(url@ItemEventRecord)))?,
             images: event_record.images.unwrap_or_default(),
-            hash: event_record.hash,
             created: event_record.timestamp,
             updated: event_record.timestamp,
         };
@@ -232,7 +219,6 @@ mod faker {
     impl Dummy<Faker> for ItemRecord {
         fn dummy_with_rng<R: Rng + ?Sized>(config: &Faker, rng: &mut R) -> Self {
             let now = OffsetDateTime::now_utc();
-            let now_str = now.format(&well_known::Rfc3339).unwrap();
             let shop_id: ShopId = config.fake_with_rng(rng);
             let shops_item_id: ShopsItemId = config.fake_with_rng(rng);
             let price_native: Option<PriceRecord> =
@@ -242,8 +228,6 @@ mod faker {
             ItemRecord {
                 pk: format!("item#shop_id#{shop_id}#shops_item_id#{shops_item_id}"),
                 sk: "item#materialized".to_string(),
-                gsi_1_pk: format!("shop_id#{shop_id}"),
-                gsi_1_sk: format!("updated#{now_str}"),
                 item_id: config.fake_with_rng(rng),
                 event_id: config.fake_with_rng(rng),
                 shop_id,
@@ -291,7 +275,6 @@ mod faker {
                     ))
                     .unwrap(),
                 ],
-                hash: ItemHash::new(&price_native.map(Price::from), &state.into()),
                 created: now,
                 updated: now,
             }

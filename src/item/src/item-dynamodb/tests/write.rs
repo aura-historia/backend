@@ -2,12 +2,10 @@ use common::batch::Batch;
 use common::currency::record::CurrencyRecord;
 use common::event_id::EventId;
 use common::item_id::ItemId;
-use common::item_state::domain::ItemState;
 use common::language::record::{LanguageRecord, TextRecord};
 use common::price::record::PriceRecord;
 use common::shop_id::ShopId;
 use common::shops_item_id::ShopsItemId;
-use item_core::hash::ItemHash;
 use item_dynamodb::item_event_record::ItemEventRecord;
 use item_dynamodb::item_event_type_record::ItemEventTypeRecord;
 use item_dynamodb::item_record::ItemRecord;
@@ -26,14 +24,11 @@ async fn get_repository() -> ItemDynamoDbRepositoryImpl<'static> {
 #[localstack_test(services = [DynamoDB()])]
 async fn should_put_item_records_for_single_record() {
     let now = OffsetDateTime::now_utc();
-    let now_str = now.format(&well_known::Rfc3339).unwrap();
     let shop_id = ShopId::new();
     let shops_item_id: ShopsItemId = "123465".into();
     let expected = ItemRecord {
         pk: format!("item#shop_id#{shop_id}#shops_item_id#{shops_item_id}"),
         sk: "item#materialized".to_string(),
-        gsi_1_pk: format!("shop_id#{}", shop_id),
-        gsi_1_sk: format!("updated#{now_str}"),
         item_id: ItemId::new(),
         event_id: EventId::new(),
         shop_id,
@@ -58,7 +53,6 @@ async fn should_put_item_records_for_single_record() {
         state: ItemStateRecord::Available,
         url: Url::parse("https://foo.bar/123456").unwrap(),
         images: vec![Url::parse("https://foo.bar/123456/image").unwrap()],
-        hash: ItemHash::new(&None, &ItemState::Available),
         created: now,
         updated: now,
     };
@@ -82,14 +76,11 @@ async fn should_put_item_records_for_single_record() {
 #[localstack_test(services = [DynamoDB()])]
 async fn should_put_item_records_for_multiple_records() {
     let now1 = OffsetDateTime::now_utc();
-    let now1_str = now1.format(&well_known::Rfc3339).unwrap();
     let shop_id = ShopId::new();
     let shops_item_id_1: ShopsItemId = "123465".into();
     let expected1 = ItemRecord {
         pk: format!("item#shop_id#{shop_id}#shops_item_id#{shops_item_id_1}"),
         sk: "item#materialized".to_string(),
-        gsi_1_pk: format!("shop_id#{}", shop_id),
-        gsi_1_sk: format!("updated#{now1_str}"),
         item_id: ItemId::new(),
         event_id: EventId::new(),
         shop_id,
@@ -114,18 +105,14 @@ async fn should_put_item_records_for_multiple_records() {
         state: ItemStateRecord::Available,
         url: Url::parse("https://foo.bar/123456").unwrap(),
         images: vec![Url::parse("https://foo.bar/123456/image").unwrap()],
-        hash: ItemHash::new(&None, &ItemState::Available),
         created: now1,
         updated: now1,
     };
     let shops_item_id_2: ShopsItemId = "abcdefg".into();
     let now2 = OffsetDateTime::now_utc();
-    let now2_str = now2.format(&well_known::Rfc3339).unwrap();
     let expected2 = ItemRecord {
         pk: format!("item#shop_id#{shop_id}#shops_item_id#{shops_item_id_2}"),
         sk: "item#materialized".to_string(),
-        gsi_1_pk: format!("shop_id#{}", shop_id),
-        gsi_1_sk: format!("updated#{now2_str}"),
         item_id: ItemId::new(),
         event_id: EventId::new(),
         shop_id,
@@ -150,7 +137,6 @@ async fn should_put_item_records_for_multiple_records() {
         state: ItemStateRecord::Available,
         url: Url::parse("https://foo.bar/123456").unwrap(),
         images: vec![Url::parse("https://foo.bar/123456/image").unwrap()],
-        hash: ItemHash::new(&None, &ItemState::Available),
         created: now2,
         updated: now2,
     };
@@ -212,7 +198,6 @@ async fn should_put_item_event_records_for_single_record() {
         state: Some(ItemStateRecord::Available),
         url: Some(Url::parse("https://foo.bar/123456").unwrap()),
         images: Some(vec![Url::parse("https://foo.bar/123456/image").unwrap()]),
-        hash: ItemHash::new(&price.map(Into::into), &ItemState::Available),
         timestamp: now,
         price_nzd: None,
     };
@@ -274,7 +259,6 @@ async fn should_put_item_event_records_for_multiple_records() {
         state: Some(ItemStateRecord::Available),
         url: Some(Url::parse("https://foo.bar/123456").unwrap()),
         images: Some(vec![Url::parse("https://foo.bar/123456/image").unwrap()]),
-        hash: ItemHash::new(&price.map(Into::into), &ItemState::Available),
         timestamp: now1,
         price_nzd: None,
     };
@@ -307,7 +291,6 @@ async fn should_put_item_event_records_for_multiple_records() {
         state: Some(ItemStateRecord::Available),
         url: Some(Url::parse("https://foo.bar/123456").unwrap()),
         images: Some(vec![Url::parse("https://foo.bar/123456/image").unwrap()]),
-        hash: ItemHash::new(&price.map(Into::into), &ItemState::Available),
         timestamp: now2,
     };
 
@@ -337,7 +320,6 @@ async fn should_put_item_event_records_for_multiple_records() {
 #[localstack_test(services = [DynamoDB()])]
 async fn should_update_item_record() {
     let now = OffsetDateTime::now_utc();
-    let now_str = now.format(&well_known::Rfc3339).unwrap();
     let shop_id = ShopId::new();
     let shops_item_id: ShopsItemId = "123465".into();
     let price = PriceRecord {
@@ -347,8 +329,6 @@ async fn should_update_item_record() {
     let initial = ItemRecord {
         pk: format!("item#shop_id#{shop_id}#shops_item_id#{shops_item_id}"),
         sk: "item#materialized".to_string(),
-        gsi_1_pk: format!("shop_id#{}", shop_id),
-        gsi_1_sk: format!("updated#{now_str}"),
         item_id: ItemId::new(),
         event_id: EventId::new(),
         shop_id,
@@ -370,7 +350,6 @@ async fn should_update_item_record() {
         state: ItemStateRecord::Available,
         url: Url::parse("https://foo.bar/123456").unwrap(),
         images: vec![Url::parse("https://foo.bar/123456/image").unwrap()],
-        hash: ItemHash::new(&Some(price.into()), &ItemState::Available),
         created: now,
         updated: now,
     };
@@ -385,14 +364,12 @@ async fn should_update_item_record() {
         price_aud: None,
         price_cad: None,
         state: Some(ItemStateRecord::Sold),
-        hash: ItemHash::new(&Some(price.into()), &ItemState::Sold),
         updated: now2,
         price_nzd: None,
     };
     let mut expected = initial.clone();
     expected.event_id = event_id2;
     expected.state = ItemStateRecord::Sold;
-    expected.hash = ItemHash::new(&Some(price.into()), &ItemState::Sold);
     expected.updated = now2;
 
     get_repository()

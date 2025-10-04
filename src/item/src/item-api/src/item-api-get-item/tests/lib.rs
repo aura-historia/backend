@@ -2,14 +2,12 @@ use common::{
     currency::domain::Currency,
     event::Event,
     event_id::EventId,
-    item_state::domain::ItemState,
     price::domain::{FixedFxRate, FxRate, Price},
 };
 use fake::{Fake, Faker};
 use item_api_get_item::handler;
-use item_core::{
-    hash::ItemHash,
-    item_event::{ItemEventPayload, ItemPriceChangeEventPayload, ItemStateChangeEventPayload},
+use item_core::item_event::{
+    ItemEventPayload, ItemPriceChangeEventPayload, ItemStateChangeEventPayload,
 };
 use item_dynamodb::{
     item_record::ItemRecord,
@@ -45,7 +43,6 @@ async fn should_respond_200_with_history_when_history_flag_true() {
             other_price: FixedFxRate()
                 .exchange_all(event_1_price.currency, event_1_price.monetary_amount)
                 .unwrap(),
-            hash: ItemHash::new(&Some(event_1_price), &record.state.into()),
         }),
     };
     tokio::time::sleep(Duration::from_secs(1)).await;
@@ -57,7 +54,6 @@ async fn should_respond_200_with_history_when_history_flag_true() {
         payload: ItemEventPayload::StateRemoved(ItemStateChangeEventPayload {
             shop_id: record.shop_id,
             shops_item_id: record.shops_item_id.clone(),
-            hash: ItemHash::new(&Some(event_1_price), &ItemState::Removed),
         }),
     };
     let insert_res = repository
@@ -132,7 +128,6 @@ async fn should_respond_200_with_history_when_history_flag_false() {
             other_price: FixedFxRate()
                 .exchange_all(event_1_price.currency, event_1_price.monetary_amount)
                 .unwrap(),
-            hash: ItemHash::new(&Some(event_1_price), &record.state.into()),
         }),
     };
     tokio::time::sleep(Duration::from_secs(1)).await;
@@ -144,7 +139,6 @@ async fn should_respond_200_with_history_when_history_flag_false() {
         payload: ItemEventPayload::StateRemoved(ItemStateChangeEventPayload {
             shop_id: record.shop_id,
             shops_item_id: record.shops_item_id.clone(),
-            hash: ItemHash::new(&Some(event_1_price), &ItemState::Removed),
         }),
     };
     let insert_res = repository

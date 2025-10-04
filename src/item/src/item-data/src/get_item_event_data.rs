@@ -20,6 +20,7 @@ pub enum ItemEventTypeData {
     PriceDiscovered,
     PriceDropped,
     PriceIncreased,
+    PriceRemoved,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -35,6 +36,7 @@ pub enum ItemEventPayloadData {
     PriceDiscovered(PriceData),
     PriceDropped(PriceData),
     PriceIncreased(PriceData),
+    PriceRemoved,
 }
 
 impl ItemEventPayloadData {
@@ -126,6 +128,12 @@ impl From<Event<ItemId, LocalizedItemEventPayloadView>> for GetItemEventData {
                 payload.shops_item_id,
                 ItemEventPayloadData::PriceIncreased(payload.price.into()),
             ),
+            LocalizedItemEventPayloadView::PriceRemoved(payload) => (
+                ItemEventTypeData::PriceRemoved,
+                payload.shop_id,
+                payload.shops_item_id,
+                ItemEventPayloadData::PriceRemoved,
+            ),
         };
 
         GetItemEventData {
@@ -153,12 +161,9 @@ mod tests {
         localized::Localized,
         price::{data::PriceData, domain::Price},
     };
-    use item_core::{
-        hash::ItemHash,
-        item_event::{
-            LocalizedItemCreatedEventPayloadView, LocalizedItemEventPayloadView,
-            LocalizedItemPriceChangeEventPayloadView, LocalizedItemStateChangeEventPayloadView,
-        },
+    use item_core::item_event::{
+        LocalizedItemCreatedEventPayloadView, LocalizedItemEventPayloadView,
+        LocalizedItemPriceChangeEventPayloadView, LocalizedItemStateChangeEventPayloadView,
     };
     use time::macros::utc_datetime;
     use url::Url;
@@ -176,7 +181,6 @@ mod tests {
             state: ItemState::Listed,
             url: Url::parse("https://foo.bar/boop").unwrap(),
             images: vec![],
-            hash: ItemHash::new(&Some(Price::new(500u64.into(), Currency::Eur)), &ItemState::Listed),
         }),
         GetItemEventData {
             event_type: ItemEventTypeData::Created,
@@ -192,7 +196,6 @@ mod tests {
         LocalizedItemEventPayloadView::StateListed(LocalizedItemStateChangeEventPayloadView {
             shop_id: "569c809e-b9e0-48c0-8c52-ac37d82a0959".try_into().unwrap(),
             shops_item_id: "bar".into(),
-            hash: ItemHash::new(&None, &ItemState::Listed),
         }),
         GetItemEventData {
             event_type: ItemEventTypeData::StateListed,
@@ -208,7 +211,6 @@ mod tests {
         LocalizedItemEventPayloadView::StateAvailable(LocalizedItemStateChangeEventPayloadView {
             shop_id: "569c809e-b9e0-48c0-8c52-ac37d82a0959".try_into().unwrap(),
             shops_item_id: "bar".into(),
-            hash: ItemHash::new(&None, &ItemState::Available),
         }),
         GetItemEventData {
             event_type: ItemEventTypeData::StateAvailable,
@@ -224,7 +226,6 @@ mod tests {
         LocalizedItemEventPayloadView::StateReserved(LocalizedItemStateChangeEventPayloadView {
             shop_id: "569c809e-b9e0-48c0-8c52-ac37d82a0959".try_into().unwrap(),
             shops_item_id: "bar".into(),
-            hash: ItemHash::new(&None, &ItemState::Reserved),
         }),
         GetItemEventData {
             event_type: ItemEventTypeData::StateReserved,
@@ -240,7 +241,6 @@ mod tests {
         LocalizedItemEventPayloadView::StateSold(LocalizedItemStateChangeEventPayloadView {
             shop_id: "569c809e-b9e0-48c0-8c52-ac37d82a0959".try_into().unwrap(),
             shops_item_id: "bar".into(),
-            hash: ItemHash::new(&None, &ItemState::Sold),
         }),
         GetItemEventData {
             event_type: ItemEventTypeData::StateSold,
@@ -256,7 +256,6 @@ mod tests {
         LocalizedItemEventPayloadView::StateRemoved(LocalizedItemStateChangeEventPayloadView {
             shop_id: "569c809e-b9e0-48c0-8c52-ac37d82a0959".try_into().unwrap(),
             shops_item_id: "bar".into(),
-            hash: ItemHash::new(&None, &ItemState::Removed),
         }),
         GetItemEventData {
             event_type: ItemEventTypeData::StateRemoved,
@@ -273,7 +272,6 @@ mod tests {
             shop_id: "569c809e-b9e0-48c0-8c52-ac37d82a0959".try_into().unwrap(),
             shops_item_id: "bar".into(),
             price: Price::new(500u64.into(), Currency::Eur),
-            hash: ItemHash::new(&Some(Price::new(500u64.into(), Currency::Eur)), &ItemState::Available),
         }),
         GetItemEventData {
             event_type: ItemEventTypeData::PriceDiscovered,
@@ -290,7 +288,6 @@ mod tests {
             shop_id: "569c809e-b9e0-48c0-8c52-ac37d82a0959".try_into().unwrap(),
             shops_item_id: "bar".into(),
             price: Price::new(500u64.into(), Currency::Eur),
-            hash: ItemHash::new(&Some(Price::new(500u64.into(), Currency::Eur)), &ItemState::Available),
         }),
         GetItemEventData {
             event_type: ItemEventTypeData::PriceDropped,
@@ -307,7 +304,6 @@ mod tests {
             shop_id: "569c809e-b9e0-48c0-8c52-ac37d82a0959".try_into().unwrap(),
             shops_item_id: "bar".into(),
             price: Price::new(500u64.into(), Currency::Eur),
-            hash: ItemHash::new(&Some(Price::new(500u64.into(), Currency::Eur)), &ItemState::Available),
         }),
         GetItemEventData {
             event_type: ItemEventTypeData::PriceIncreased,

@@ -1,6 +1,5 @@
 use crate::item_event_record::ItemEventRecord;
 use crate::item_record::ItemRecord;
-use crate::item_summary_hash::ItemSummaryHash;
 use crate::item_update_record::ItemRecordUpdate;
 use async_trait::async_trait;
 use aws_sdk_dynamodb::Client;
@@ -63,12 +62,6 @@ pub trait ItemDynamoDbRepository {
         &self,
         item_keys: &Batch<ItemKey, 100>,
     ) -> Result<BatchGetItemResult<ItemKey, ItemKey>, SdkError<BatchGetItemError, HttpResponse>>;
-
-    async fn query_item_hashes(
-        &self,
-        shop_id: &ShopId,
-        scan_index_forward: bool,
-    ) -> Result<Vec<ItemSummaryHash>, SdkError<QueryError, HttpResponse>>;
 }
 
 #[derive(Debug, Clone)]
@@ -415,43 +408,6 @@ impl<'a> ItemDynamoDbRepository for ItemDynamoDbRepositoryImpl<'a> {
             },
         };
         Ok(batch_result)
-    }
-
-    #[tracing::instrument(skip(self), fields(shopId = %shop_id))]
-    async fn query_item_hashes(
-        &self,
-        shop_id: &ShopId,
-        scan_index_forward: bool,
-    ) -> Result<Vec<ItemSummaryHash>, SdkError<QueryError, HttpResponse>> {
-        let records = self
-            .client
-            .query()
-            .table_name(&self.table)
-            .index_name("gsi_1")
-            .key_condition_expression("#gsi_1_pk = :gsi_1_pk_val")
-            .expression_attribute_names("#gsi_1_pk", "gsi_1_pk")
-            .expression_attribute_values(
-                ":gsi_1_pk_val",
-                AttributeValue::S(format!("shop_id#{shop_id}")),
-            )
-            .scan_index_forward(scan_index_forward)
-            .into_paginator()
-            .send()
-            .try_collect()
-            .await?
-            .into_iter()
-            .flat_map(|qo| qo.items.unwrap_or_default())
-            .map(serde_dynamo::from_item::<_, ItemSummaryHash>)
-            .filter_map(|result| match result {
-                Ok(event) => Some(event),
-                Err(err) => {
-                    error!(error = %err, type = %std::any::type_name::<ItemSummaryHash>(), "Failed deserializing ItemSummaryHash.");
-                    None
-                }
-            })
-            .collect();
-
-        Ok(records)
     }
 }
 

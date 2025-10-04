@@ -303,10 +303,7 @@ fn determine_update_events(
     for (mut item, update_cmd) in update_chunk {
         let mut any_changes = false;
 
-        // TODO#107: we currently do not detect the price being removed!
-        if let Some(price) = update_cmd.price
-            && let Some(price_event) = item.change_price(price, fx_rate)
-        {
+        if let Some(price_event) = item.new_price(update_cmd.price, fx_rate) {
             events.push(price_event);
             any_changes = true;
         }
