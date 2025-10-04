@@ -525,7 +525,9 @@ mod tests {
                 native_description: None,
                 other_description: Default::default(),
                 native_price: Some(price),
-                other_price: Default::default(),
+                other_price: IdentityFxRate
+                    .exchange_all(price.currency, price.monetary_amount)
+                    .unwrap(),
                 state: ItemState::Listed,
                 url: Url::parse("https://example.com").unwrap(),
                 images: vec![],
@@ -580,7 +582,18 @@ mod tests {
             match actual.payload {
                 ItemEventPayload::PriceDiscovered(payload) => {
                     assert_eq!(to_price, payload.native_price);
+                    assert!(
+                        payload
+                            .other_price
+                            .iter()
+                            .all(|(_, amount)| &to_price.monetary_amount == amount)
+                    );
                     assert_eq!(item.native_price, Some(to_price));
+                    assert!(
+                        item.other_price
+                            .iter()
+                            .all(|(_, amount)| &to_price.monetary_amount == amount)
+                    );
                 }
                 _ => panic!("Expected ItemEventPayload::PriceDiscovered"),
             }
@@ -620,7 +633,18 @@ mod tests {
             match actual.payload {
                 ItemEventPayload::PriceDropped(payload) => {
                     assert_eq!(to_price, payload.native_price);
+                    assert!(
+                        payload
+                            .other_price
+                            .iter()
+                            .all(|(_, amount)| &to_price.monetary_amount == amount)
+                    );
                     assert_eq!(item.native_price, Some(to_price));
+                    assert!(
+                        item.other_price
+                            .iter()
+                            .all(|(_, amount)| &to_price.monetary_amount == amount)
+                    );
                 }
                 _ => panic!("Expected ItemEventPayload::PriceDropped"),
             }
@@ -660,6 +684,12 @@ mod tests {
             match actual.payload {
                 ItemEventPayload::PriceIncreased(payload) => {
                     assert_eq!(to_price, payload.native_price);
+                    assert!(
+                        payload
+                            .other_price
+                            .iter()
+                            .all(|(_, amount)| &to_price.monetary_amount == amount)
+                    );
                     assert_eq!(item.native_price, Some(to_price));
                 }
                 _ => panic!("Expected ItemEventPayload::PriceIncreased"),
@@ -706,7 +736,10 @@ mod tests {
             let actual = item.new_price(None, &IdentityFxRate).unwrap();
 
             match actual.payload {
-                ItemEventPayload::PriceRemoved(_) => {}
+                ItemEventPayload::PriceRemoved(_) => {
+                    assert!(item.native_price.is_none());
+                    assert!(item.other_price.is_empty());
+                }
                 _ => panic!("Expected ItemEventPayload::PriceRemoved"),
             }
         }
