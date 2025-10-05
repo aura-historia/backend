@@ -7,9 +7,6 @@ use shop_core::shop::Shop;
 use time::OffsetDateTime;
 use url::Url;
 
-pub struct AsShopIdPkShopRecord(pub ShopRecord);
-pub struct AsShopUrlPkShopRecord(pub ShopRecord);
-
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct ShopRecord {
     pub pk: String,
