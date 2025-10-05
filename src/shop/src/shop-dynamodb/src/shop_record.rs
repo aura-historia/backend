@@ -1,4 +1,7 @@
-use common::{shop_id::ShopId, shop_name::ShopName};
+use common::{
+    shop_id::{ShopId, ShopIdentifier},
+    shop_name::ShopName,
+};
 use serde::{Deserialize, Serialize};
 use shop_core::shop::Shop;
 use time::OffsetDateTime;
@@ -25,6 +28,13 @@ pub struct ShopRecord {
 
     #[serde(with = "time::serde::rfc3339")]
     pub updated: OffsetDateTime,
+}
+
+pub fn mk_pk(shop_identifier: &ShopIdentifier) -> String {
+    match shop_identifier {
+        ShopIdentifier::ShopId(shop_id) => mk_pk_as_shop_id(shop_id),
+        ShopIdentifier::ShopUrl(url) => mk_pk_as_shop_url(url),
+    }
 }
 
 pub fn mk_pk_as_shop_id(shop_id: &ShopId) -> String {

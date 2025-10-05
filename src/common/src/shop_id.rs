@@ -1,6 +1,34 @@
 use serde::{Deserialize, Serialize};
 use std::fmt::{Display, Formatter};
+use url::Url;
 use uuid::Uuid;
+
+#[derive(Debug, Clone, PartialEq, PartialOrd, Eq, Ord, Hash)]
+pub enum ShopIdentifier {
+    ShopId(ShopId),
+    ShopUrl(Url),
+}
+
+impl From<ShopId> for ShopIdentifier {
+    fn from(shop_id: ShopId) -> Self {
+        Self::ShopId(shop_id)
+    }
+}
+
+impl From<Url> for ShopIdentifier {
+    fn from(url: Url) -> Self {
+        Self::ShopUrl(url)
+    }
+}
+
+impl From<ShopIdentifier> for String {
+    fn from(value: ShopIdentifier) -> Self {
+        match value {
+            ShopIdentifier::ShopId(shop_id) => shop_id.to_string(),
+            ShopIdentifier::ShopUrl(url) => url.to_string(),
+        }
+    }
+}
 
 #[cfg_attr(feature = "test-data", derive(fake::Dummy))]
 #[derive(Debug, Clone, Copy, PartialEq, PartialOrd, Eq, Ord, Hash, Serialize, Deserialize)]

@@ -1,5 +1,5 @@
 use aws_sdk_dynamodb::error::SdkError;
-use common::{batch::Batch, shop_id::ShopId};
+use common::shop_id::{ShopId, ShopIdentifier};
 use fake::{Fake, Faker};
 use shop_core::shop::Shop;
 use shop_dynamodb::{
@@ -172,15 +172,25 @@ async fn should_get_shop_records() {
 
     let shop = Faker.fake::<Shop>();
     let mut expected = ShopRecord::clone_from_shop_as_shop_url_records(&shop);
-    expected.push(ShopRecord::from_shop_as_shop_id_record(shop));
+    let record_with_shop_id_pk = ShopRecord::from_shop_as_shop_id_record(shop);
+    expected.push(record_with_shop_id_pk.clone());
+
+    let mut shop_identifiers = record_with_shop_id_pk
+        .urls
+        .iter()
+        .map(|url| ShopIdentifier::from(url.clone()))
+        .collect::<Vec<_>>();
+    shop_identifiers.push(record_with_shop_id_pk.shop_id.into());
 
     let _ = repository
         .put_shop_records_transact(expected.clone())
         .await
         .unwrap();
 
-    let pks = Batch::try_from_iter(expected.iter().map(|record| record.pk.clone())).unwrap();
-    let actual = repository.get_shop_records(&pks).await.unwrap();
+    let actual = repository
+        .get_shop_records(&shop_identifiers.try_into().unwrap())
+        .await
+        .unwrap();
     assert!(actual.unprocessed.is_none());
     assert_eq!(expected.len(), actual.items.len());
     assert!(actual.items.iter().all(|actual| expected.contains(actual)));

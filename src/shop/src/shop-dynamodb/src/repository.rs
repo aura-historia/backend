@@ -1,6 +1,6 @@
 use std::collections::HashMap;
 
-use crate::shop_record::{ShopRecord, mk_pk_as_shop_id, mk_pk_as_shop_url};
+use crate::shop_record::{ShopRecord, mk_pk, mk_pk_as_shop_id, mk_pk_as_shop_url};
 use aws_sdk_dynamodb::{
     Client,
     config::http::HttpResponse,
@@ -15,7 +15,7 @@ use aws_sdk_dynamodb::{
 };
 use common::{
     batch::{Batch, dynamodb::BatchGetItemResult},
-    shop_id::ShopId,
+    shop_id::{ShopId, ShopIdentifier},
 };
 use tracing::error;
 use url::Url;
@@ -45,7 +45,7 @@ pub trait ShopDynamoDbRepository {
 
     async fn get_shop_records(
         &self,
-        item_keys: &Batch<String, 100>,
+        shop_identifiers: &Batch<ShopIdentifier, 100>,
     ) -> Result<BatchGetItemResult<ShopRecord, String>, SdkError<BatchGetItemError, HttpResponse>>;
 }
 
@@ -168,14 +168,14 @@ impl<'a> ShopDynamoDbRepository for ShopDynamoDbRepositoryImpl<'a> {
 
     async fn get_shop_records(
         &self,
-        pks: &Batch<String, 100>,
+        shop_identifiers: &Batch<ShopIdentifier, 100>,
     ) -> Result<BatchGetItemResult<ShopRecord, String>, SdkError<BatchGetItemError, HttpResponse>>
     {
-        let pks = pks
+        let pks = shop_identifiers
             .iter()
-            .map(|pk| {
+            .map(|shop_identifier| {
                 let mut columns = HashMap::with_capacity(2);
-                columns.insert("pk".to_owned(), AttributeValue::S(pk.to_string()));
+                columns.insert("pk".to_owned(), AttributeValue::S(mk_pk(shop_identifier)));
                 columns.insert(
                     "sk".to_owned(),
                     AttributeValue::S("shop#details".to_owned()),
