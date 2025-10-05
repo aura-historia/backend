@@ -6,7 +6,7 @@ use url::Url;
 pub struct Shop {
     pub shop_id: ShopId,
     pub name: ShopName,
-    pub url: Url,
+    pub urls: Vec<Url>,
     pub image: Option<Url>,
     pub created: OffsetDateTime,
     pub updated: OffsetDateTime,
@@ -22,7 +22,7 @@ mod faker {
             Shop {
                 shop_id: config.fake_with_rng(rng),
                 name: config.fake_with_rng(rng),
-                url: Url::parse("https://www.google.com/").unwrap(),
+                urls: vec![Url::parse(&format!("https://www.{}.com/", config.fake_with_rng::<String, R>(rng))).unwrap()],
                 image: Some(Url::parse("https://upload.wikimedia.org/wikipedia/commons/thumb/c/c1/Google_%22G%22_logo.svg/1200px-Google_%22G%22_logo.svg.png").unwrap()),
                 created: OffsetDateTime::now_utc(),
                 updated: OffsetDateTime::now_utc(),

@@ -9,7 +9,7 @@ use url::Url;
 pub struct GetShopData {
     pub shop_id: ShopId,
     pub name: ShopName,
-    pub url: Url,
+    pub urls: Vec<Url>,
 
     #[serde(skip_serializing_if = "Option::is_none", default)]
     pub image: Option<Url>,
@@ -26,7 +26,7 @@ impl From<Shop> for GetShopData {
         GetShopData {
             shop_id: shop.shop_id,
             name: shop.name,
-            url: shop.url,
+            urls: shop.urls,
             image: shop.image,
             created: shop.created,
             updated: shop.updated,
@@ -47,7 +47,7 @@ mod tests {
         let datum = GetShopData {
             shop_id: ShopId::new(),
             name: "Woaah & Co. Ltd.".into(),
-            url: Url::parse("https://woaah.co.ltd.com").unwrap(),
+            urls: vec![Url::parse("https://woaah.co.ltd.com").unwrap()],
             image: Some(Url::parse("https://woaah.co.ltd.com/logo.svg").unwrap()),
             created: datetime!(1976 - 12 - 01 0:00 UTC),
             updated: datetime!(1976 - 12 - 01 0:00 UTC),

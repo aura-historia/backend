@@ -59,7 +59,7 @@ impl<'a> GetShopService for GetShopServiceImpl<'a> {
     async fn find_shop(&self, shop_id: &ShopId) -> Result<Shop, GetShopError> {
         let shop_record = self
             .repository
-            .get_shop_record(shop_id)
+            .get_shop_record_by_id(shop_id)
             .await?
             .ok_or(GetShopError::ShopNotFound(*shop_id))?;
 
@@ -82,7 +82,7 @@ mod tests {
     async fn should_return_shop_when_exists() {
         let mut repository = MockShopDynamoDbRepository::default();
         repository
-            .expect_get_shop_record()
+            .expect_get_shop_record_by_id()
             .return_once(|_| Box::pin(async { Ok(Some(Faker.fake())) }));
         let service = GetShopServiceImpl {
             repository: &repository,
@@ -96,7 +96,7 @@ mod tests {
         let shop_id = ShopId::new();
         let mut repository = MockShopDynamoDbRepository::default();
         repository
-            .expect_get_shop_record()
+            .expect_get_shop_record_by_id()
             .return_once(|_| Box::pin(async { Ok(None) }));
         let service = GetShopServiceImpl {
             repository: &repository,
@@ -134,7 +134,7 @@ mod tests {
         let shop_id = ShopId::new();
         let mut repository = MockShopDynamoDbRepository::default();
         repository
-            .expect_get_shop_record()
+            .expect_get_shop_record_by_id()
             .return_once(|_| Box::pin(async { Err(expected) }));
         let service = GetShopServiceImpl {
             repository: &repository,

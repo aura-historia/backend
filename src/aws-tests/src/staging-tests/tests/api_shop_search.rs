@@ -57,7 +57,7 @@ async fn should_respond_200_when_hits() {
     let item = body["items"].as_array().unwrap()[0].clone();
     assert_eq!(expected.shop_id.to_string(), item["shopId"]);
     assert_eq!(expected.name.to_string(), item["name"]);
-    assert_eq!(expected.url.to_string(), item["url"]);
+    assert_eq!(expected.urls.to_string(), item["url"]);
 }
 
 #[staging_test]
