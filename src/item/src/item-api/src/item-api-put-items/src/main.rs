@@ -3,7 +3,7 @@ use aws_lambda_events::apigw::ApiGatewayV2httpRequest;
 use common::price::domain::FixedFxRate;
 use item_api_put_items::handler;
 use item_dynamodb::repository::ItemDynamoDbRepositoryImpl;
-use item_service::command_service::PutItemsServiceImpl;
+use item_service::upsert_service::UpsertItemsServiceImpl;
 use lambda_runtime::tracing::info;
 use lambda_runtime::{Error, LambdaEvent, run, service_fn};
 
@@ -27,7 +27,7 @@ async fn main() -> Result<(), Error> {
     let repository = ItemDynamoDbRepositoryImpl::new(&dynamodb_client, &table_name);
     let sqs_client = aws_sdk_sqs::Client::new(&aws_config);
     let fx_rate = FixedFxRate();
-    let service = PutItemsServiceImpl::new(
+    let service = UpsertItemsServiceImpl::new(
         &repository,
         &sqs_client,
         &ingest_item_events_queue_url,

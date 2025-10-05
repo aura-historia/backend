@@ -1,4 +1,4 @@
-use crate::item_command::PutItemCommand;
+use crate::item_command::UpsertItemCommand;
 use async_trait::async_trait;
 use common::batch::Batch;
 use common::has_key::HasKey;
@@ -12,26 +12,25 @@ use std::collections::HashMap;
 use tracing::error;
 
 #[derive(Debug, Clone, PartialEq)]
-pub struct PutItemsOutput {
-    pub unprocessed: Vec<PutItemCommand>,
+pub struct UpsertItemsOutput {
+    pub unprocessed: Vec<UpsertItemCommand>,
     pub skipped: usize,
 }
 
-/// Service handling inbound item-commands (towards persistence)
 #[async_trait]
 #[mockall::automock]
-pub trait PutItemsService {
-    async fn put(&self, commands: Vec<PutItemCommand>) -> PutItemsOutput;
+pub trait UpsertItemsService {
+    async fn upsert(&self, commands: Vec<UpsertItemCommand>) -> UpsertItemsOutput;
 }
 
-pub struct PutItemsServiceImpl<'a, T: FxRate + Sync> {
+pub struct UpsertItemsServiceImpl<'a, T: FxRate + Sync> {
     dynamodb_repository: &'a (dyn ItemDynamoDbRepository + Sync),
     sqs_client: &'a aws_sdk_sqs::Client,
     item_ingest_events_dynamodb_queue_url: &'a str,
     fx_rate: &'a T,
 }
 
-impl<'a, T: FxRate + Sync> PutItemsServiceImpl<'a, T> {
+impl<'a, T: FxRate + Sync> UpsertItemsServiceImpl<'a, T> {
     pub fn new(
         dynamodb_repository: &'a (dyn ItemDynamoDbRepository + Sync),
         sqs_client: &'a aws_sdk_sqs::Client,
@@ -48,8 +47,8 @@ impl<'a, T: FxRate + Sync> PutItemsServiceImpl<'a, T> {
 }
 
 #[async_trait]
-impl<T: FxRate + Sync> PutItemsService for PutItemsServiceImpl<'_, T> {
-    async fn put(&self, commands: Vec<PutItemCommand>) -> PutItemsOutput {
+impl<T: FxRate + Sync> UpsertItemsService for UpsertItemsServiceImpl<'_, T> {
+    async fn upsert(&self, commands: Vec<UpsertItemCommand>) -> UpsertItemsOutput {
         let chunks = commands
             .into_iter()
             .chunks(100)
@@ -60,26 +59,26 @@ impl<T: FxRate + Sync> PutItemsService for PutItemsServiceImpl<'_, T> {
         let mut skipped = 0;
         let mut unprocessed = Vec::new();
         for chunk in chunks {
-            let batch: Batch<PutItemCommand, 100> = chunk
+            let batch: Batch<UpsertItemCommand, 100> = chunk
                 .try_into()
                 .expect("shouldn't fail converting chunk of size 100 to Batch of size 100");
             let mut failed = self.handle_put_chunk_with_retry(batch, &mut skipped).await;
             unprocessed.append(&mut failed);
         }
 
-        PutItemsOutput {
+        UpsertItemsOutput {
             unprocessed,
             skipped,
         }
     }
 }
 
-impl<T: FxRate + Sync> PutItemsServiceImpl<'_, T> {
+impl<T: FxRate + Sync> UpsertItemsServiceImpl<'_, T> {
     async fn handle_put_chunk_with_retry(
         &self,
-        chunk: Batch<PutItemCommand, 100>,
+        chunk: Batch<UpsertItemCommand, 100>,
         skipped_count: &mut usize,
-    ) -> Vec<PutItemCommand> {
+    ) -> Vec<UpsertItemCommand> {
         const MAX_RETRIES: u32 = 5;
         const BASE_DELAY_MS: u64 = 100;
 
@@ -103,9 +102,9 @@ impl<T: FxRate + Sync> PutItemsServiceImpl<'_, T> {
 
     async fn handle_put_chunk(
         &self,
-        chunk: Batch<PutItemCommand, 100>,
+        chunk: Batch<UpsertItemCommand, 100>,
         skipped_count: &mut usize,
-    ) -> Vec<PutItemCommand> {
+    ) -> Vec<UpsertItemCommand> {
         let mut key_cmds = chunk
             .into_iter()
             .map(|cmd| (cmd.key(), cmd))
@@ -231,7 +230,7 @@ impl<T: FxRate + Sync> PutItemsServiceImpl<'_, T> {
 
     async fn extract_create_events(
         &self,
-        create_chunk: Vec<PutItemCommand>,
+        create_chunk: Vec<UpsertItemCommand>,
     ) -> Vec<ItemEventRecord> {
         create_chunk.into_iter().map(|cmd| {
             let other_price = cmd
@@ -276,7 +275,7 @@ impl<T: FxRate + Sync> PutItemsServiceImpl<'_, T> {
 
     async fn extract_update_events(
         &self,
-        update_chunk: Vec<(Item, PutItemCommand)>,
+        update_chunk: Vec<(Item, UpsertItemCommand)>,
         skipped_count: &mut usize,
     ) -> Vec<ItemEventRecord> {
         determine_update_events(update_chunk, skipped_count, self.fx_rate)
@@ -295,7 +294,7 @@ impl<T: FxRate + Sync> PutItemsServiceImpl<'_, T> {
 }
 
 fn determine_update_events(
-    update_chunk: Vec<(Item, PutItemCommand)>,
+    update_chunk: Vec<(Item, UpsertItemCommand)>,
     skipped_count: &mut usize,
     fx_rate: &impl FxRate,
 ) -> Vec<ItemEvent> {
@@ -322,8 +321,8 @@ fn determine_update_events(
 
 #[cfg(test)]
 pub mod tests {
-    use crate::command_service::{PutItemsServiceImpl, determine_update_events};
-    use crate::item_command::PutItemCommand;
+    use crate::item_command::UpsertItemCommand;
+    use crate::upsert_service::{UpsertItemsServiceImpl, determine_update_events};
     use aws_config::BehaviorVersion;
     use aws_sdk_dynamodb::error::SdkError;
     use common::has_key::HasKey;
@@ -335,12 +334,12 @@ pub mod tests {
     #[test]
     fn should_determine_no_update_events_when_only_skipped() {
         let item1 = Faker.fake::<Item>();
-        let mut update1 = Faker.fake::<PutItemCommand>();
+        let mut update1 = Faker.fake::<UpsertItemCommand>();
         update1.price = item1.native_price;
         update1.state = item1.state;
 
         let item2 = Faker.fake::<Item>();
-        let mut update2 = Faker.fake::<PutItemCommand>();
+        let mut update2 = Faker.fake::<UpsertItemCommand>();
         update2.price = item2.native_price;
         update2.state = item2.state;
 
@@ -355,7 +354,7 @@ pub mod tests {
     #[test]
     fn should_determine_update_events_when_none_skipped() {
         let item1 = Faker.fake::<Item>();
-        let update1 = PutItemCommand {
+        let update1 = UpsertItemCommand {
             shop_id: item1.clone().shop_id,
             shops_item_id: item1.clone().shops_item_id,
             shop_name: item1.clone().shop_name,
@@ -368,7 +367,7 @@ pub mod tests {
         };
 
         let item2 = Faker.fake::<Item>();
-        let update2 = PutItemCommand {
+        let update2 = UpsertItemCommand {
             shop_id: item2.clone().shop_id,
             shops_item_id: item2.clone().shops_item_id,
             shop_name: item2.clone().shop_name,
@@ -395,7 +394,7 @@ pub mod tests {
     #[test]
     fn should_determine_update_events_when_some_skipped() {
         let item1 = Faker.fake::<Item>();
-        let update1 = PutItemCommand {
+        let update1 = UpsertItemCommand {
             shop_id: item1.clone().shop_id,
             shops_item_id: item1.clone().shops_item_id,
             shop_name: item1.clone().shop_name,
@@ -408,7 +407,7 @@ pub mod tests {
         };
 
         let item2 = Faker.fake::<Item>();
-        let mut update2 = Faker.fake::<PutItemCommand>();
+        let mut update2 = Faker.fake::<UpsertItemCommand>();
         update2.price = item2.native_price;
         update2.state = item2.state;
 
@@ -447,10 +446,10 @@ pub mod tests {
         let sqs_client =
             aws_sdk_sqs::Client::new(&aws_config::defaults(BehaviorVersion::latest()).load().await);
         let service =
-            PutItemsServiceImpl::new(&repository, &sqs_client, "ingest-q-url", &FixedFxRate());
+            UpsertItemsServiceImpl::new(&repository, &sqs_client, "ingest-q-url", &FixedFxRate());
 
         let mut skipped_count = 0;
-        let mut expected = fake::vec![PutItemCommand; 89];
+        let mut expected = fake::vec![UpsertItemCommand; 89];
         let mut actual = service
             .handle_put_chunk(expected.clone().try_into().unwrap(), &mut skipped_count)
             .await;
@@ -468,7 +467,7 @@ pub mod tests {
 
         let mut repository = MockItemDynamoDbRepository::default();
 
-        let commands = fake::vec![PutItemCommand; 3];
+        let commands = fake::vec![UpsertItemCommand; 3];
 
         // All calls fail (initial + 5 retries = 6 total)
         repository
@@ -487,7 +486,7 @@ pub mod tests {
         let sqs_client =
             aws_sdk_sqs::Client::new(&aws_config::defaults(BehaviorVersion::latest()).load().await);
         let service =
-            PutItemsServiceImpl::new(&repository, &sqs_client, "ingest-q-url", &FixedFxRate());
+            UpsertItemsServiceImpl::new(&repository, &sqs_client, "ingest-q-url", &FixedFxRate());
 
         let mut skipped_count = 0;
 

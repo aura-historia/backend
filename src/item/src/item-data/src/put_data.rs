@@ -1,21 +1,14 @@
 use crate::item_state_data::ItemStateData;
-use common::item_id::ItemKey;
 use common::language::data::LocalizedTextData;
 use common::price::data::PriceData;
-use common::shop_id::ShopId;
 use common::shops_item_id::ShopsItemId;
-use common::{has_key::HasKey, shop_name::ShopName};
 use serde::{Deserialize, Serialize};
 use url::Url;
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct PutItemData {
-    pub shop_id: ShopId,
-
     pub shops_item_id: ShopsItemId,
-
-    pub shop_name: ShopName,
 
     pub title: LocalizedTextData,
 
@@ -33,17 +26,6 @@ pub struct PutItemData {
     pub images: Vec<Url>,
 }
 
-impl HasKey for PutItemData {
-    type Key = ItemKey;
-
-    fn key(&self) -> Self::Key {
-        ItemKey {
-            shop_id: self.shop_id,
-            shops_item_id: self.shops_item_id.clone(),
-        }
-    }
-}
-
 #[cfg(feature = "test-data")]
 mod faker {
     use super::*;
@@ -52,9 +34,7 @@ mod faker {
     impl Dummy<Faker> for PutItemData {
         fn dummy_with_rng<R: Rng + ?Sized>(config: &Faker, rng: &mut R) -> Self {
             PutItemData {
-                shop_id: config.fake_with_rng(rng),
                 shops_item_id: config.fake_with_rng(rng),
-                shop_name: config.fake_with_rng(rng),
                 title: config.fake_with_rng(rng),
                 description: config.fake_with_rng(rng),
                 price: config.fake_with_rng(rng),
@@ -90,7 +70,6 @@ mod tests {
         currency::data::CurrencyData,
         language::data::{LanguageData, LocalizedTextData},
         price::data::PriceData,
-        shop_id::ShopId,
         shops_item_id::ShopsItemId,
     };
     use serde_json::json;
@@ -98,12 +77,9 @@ mod tests {
 
     #[test]
     fn should_deserialize_put_item_data() {
-        let shop_id = ShopId::new();
         let shops_item_id = ShopsItemId::new();
         let json = json!({
-            "shopId": shop_id,
             "shopsItemId": shops_item_id,
-            "shopName": "My shop",
             "title": {
                 "text": "Mein titel",
                 "language": "de"
@@ -122,9 +98,7 @@ mod tests {
         });
 
         let expected = PutItemData {
-            shop_id,
             shops_item_id: shops_item_id.clone(),
-            shop_name: "My shop".into(),
             title: LocalizedTextData::new("Mein titel", LanguageData::De),
             description: Some(LocalizedTextData::new("My description", LanguageData::En)),
             price: Some(PriceData::new(CurrencyData::Eur, 50000)),

@@ -7,8 +7,8 @@ use item_dynamodb::{
     repository::{ItemDynamoDbRepository, ItemDynamoDbRepositoryImpl},
 };
 use item_service::{
-    command_service::{PutItemsService, PutItemsServiceImpl},
-    item_command::PutItemCommand,
+    item_command::UpsertItemCommand,
+    upsert_service::{UpsertItemsService, UpsertItemsServiceImpl},
 };
 use test_api::*;
 
@@ -21,9 +21,9 @@ async fn should_push_all_items_to_queue_as_created_when_none_exist() {
     let repository = ItemDynamoDbRepositoryImpl::new(get_dynamodb_client().await, "table_1");
     let sqs_client = get_sqs_client().await;
     let q_url = INGEST_ITEM_QUEUE.queue_url();
-    let service = PutItemsServiceImpl::new(&repository, sqs_client, &q_url, &FixedFxRate());
+    let service = UpsertItemsServiceImpl::new(&repository, sqs_client, &q_url, &FixedFxRate());
 
-    let output = service.put(fake::vec![PutItemCommand; 543]).await;
+    let output = service.upsert(fake::vec![UpsertItemCommand; 543]).await;
     assert!(output.unprocessed.is_empty());
     assert_eq!(0, output.skipped);
 
@@ -55,9 +55,9 @@ async fn should_push_no_items_to_queue_when_all_exist_and_no_changes() {
     let repository = ItemDynamoDbRepositoryImpl::new(get_dynamodb_client().await, "table_1");
     let sqs_client = get_sqs_client().await;
     let q_url = INGEST_ITEM_QUEUE.queue_url();
-    let service = PutItemsServiceImpl::new(&repository, sqs_client, &q_url, &FixedFxRate());
+    let service = UpsertItemsServiceImpl::new(&repository, sqs_client, &q_url, &FixedFxRate());
 
-    let cmds = fake::vec![PutItemCommand; 400];
+    let cmds = fake::vec![UpsertItemCommand; 400];
     for cmd in cmds.clone() {
         let event_record: ItemEventRecord = Item::create(
             cmd.shop_id,
@@ -85,7 +85,7 @@ async fn should_push_no_items_to_queue_when_all_exist_and_no_changes() {
         assert!(unprocessed.is_empty())
     }
 
-    let output = service.put(cmds).await;
+    let output = service.upsert(cmds).await;
     assert!(output.unprocessed.is_empty());
     assert_eq!(400, output.skipped);
 
@@ -106,9 +106,9 @@ async fn should_push_items_to_queue_when_all_exist_and_actual_changes() {
     let repository = ItemDynamoDbRepositoryImpl::new(get_dynamodb_client().await, "table_1");
     let sqs_client = get_sqs_client().await;
     let q_url = INGEST_ITEM_QUEUE.queue_url();
-    let service = PutItemsServiceImpl::new(&repository, sqs_client, &q_url, &FixedFxRate());
+    let service = UpsertItemsServiceImpl::new(&repository, sqs_client, &q_url, &FixedFxRate());
 
-    let mut cmds = fake::vec![PutItemCommand; 400];
+    let mut cmds = fake::vec![UpsertItemCommand; 400];
     for cmd in cmds.clone() {
         let event_record: ItemEventRecord = Item::create(
             cmd.shop_id,
@@ -147,7 +147,7 @@ async fn should_push_items_to_queue_when_all_exist_and_actual_changes() {
         }
     }
 
-    let output = service.put(cmds).await;
+    let output = service.upsert(cmds).await;
     assert!(output.unprocessed.is_empty());
     assert_eq!(expected_skipped, output.skipped);
 

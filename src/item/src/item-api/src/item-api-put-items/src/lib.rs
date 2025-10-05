@@ -7,8 +7,8 @@ use common::item_id::api::ItemKeyData;
 use common::localized::Localized;
 use common::price::domain::Price;
 use item_data::put_data::PutItemData;
-use item_service::command_service::{PutItemsOutput, PutItemsService};
-use item_service::item_command::PutItemCommand;
+use item_service::item_command::UpsertItemCommand;
+use item_service::upsert_service::{UpsertItemsOutput, UpsertItemsService};
 use lambda_runtime::LambdaEvent;
 use serde::Serialize;
 
@@ -19,8 +19,8 @@ pub struct PutItemsResponse {
     pub skipped: u64,
 }
 
-impl From<PutItemsOutput> for PutItemsResponse {
-    fn from(output: PutItemsOutput) -> Self {
+impl From<UpsertItemsOutput> for PutItemsResponse {
+    fn from(output: UpsertItemsOutput) -> Self {
         PutItemsResponse {
             unprocessed: output
                 .unprocessed
@@ -45,7 +45,7 @@ impl From<PutItemsOutput> for PutItemsResponse {
 )]
 pub async fn handler(
     event: LambdaEvent<ApiGatewayV2httpRequest>,
-    service: &impl PutItemsService,
+    service: &impl UpsertItemsService,
 ) -> Result<ApiGatewayV2httpResponse, lambda_runtime::Error> {
     match handle(event, service).await {
         Ok(response) => Ok(response),
@@ -56,7 +56,7 @@ pub async fn handler(
 // PUT /api/v1/items
 pub async fn handle(
     event: LambdaEvent<ApiGatewayV2httpRequest>,
-    service: &impl PutItemsService,
+    service: &impl UpsertItemsService,
 ) -> Result<ApiGatewayV2httpResponse, ApiError> {
     let body = event
         .payload
@@ -73,7 +73,7 @@ pub async fn handle(
         .into_iter()
         .map(put_item_data_to_command)
         .collect::<Vec<_>>();
-    let unprocessed = service.put(commands).await;
+    let unprocessed = service.upsert(commands).await;
 
     Ok(ApiGatewayV2HttpResponseBuilder::json(200)
         .body_serde(PutItemsResponse::from(unprocessed))?
@@ -81,8 +81,8 @@ pub async fn handle(
         .build())
 }
 
-fn put_item_data_to_command(data: PutItemData) -> PutItemCommand {
-    PutItemCommand {
+fn put_item_data_to_command(data: PutItemData) -> UpsertItemCommand {
+    UpsertItemCommand {
         shop_id: data.shop_id,
         shops_item_id: data.shops_item_id,
         shop_name: data.shop_name,
@@ -100,8 +100,8 @@ mod tests {
     use crate::handler;
     use common::api::collection::PutCollectionData;
     use item_data::put_data::PutItemData;
-    use item_service::command_service::{MockPutItemsService, PutItemsOutput};
-    use item_service::item_command::PutItemCommand;
+    use item_service::item_command::UpsertItemCommand;
+    use item_service::upsert_service::{MockUpsertItemsService, UpsertItemsOutput};
     use lambda_runtime::LambdaEvent;
     use test_api::ApiGatewayV2httpRequestProxy;
     use test_api::extract_apigw_response_json_body;
@@ -125,11 +125,11 @@ mod tests {
         #[case] failures: usize,
         #[case] skipped: usize,
     ) {
-        let mut service = MockPutItemsService::default();
-        service.expect_put().return_once(move |_| {
+        let mut service = MockUpsertItemsService::default();
+        service.expect_upsert().return_once(move |_| {
             Box::pin(async move {
-                PutItemsOutput {
-                    unprocessed: fake::vec![PutItemCommand; failures],
+                UpsertItemsOutput {
+                    unprocessed: fake::vec![UpsertItemCommand; failures],
                     skipped,
                 }
             })

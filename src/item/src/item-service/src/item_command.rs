@@ -12,7 +12,7 @@ use item_core::title::Title;
 use url::Url;
 
 #[derive(Debug, Clone, PartialEq)]
-pub struct PutItemCommand {
+pub struct UpsertItemCommand {
     pub shop_id: ShopId,
     pub shops_item_id: ShopsItemId,
     pub shop_name: ShopName,
@@ -24,7 +24,7 @@ pub struct PutItemCommand {
     pub images: Vec<Url>,
 }
 
-impl HasKey for PutItemCommand {
+impl HasKey for UpsertItemCommand {
     type Key = ItemKey;
 
     fn key(&self) -> Self::Key {
@@ -40,9 +40,9 @@ mod faker {
     use super::*;
     use fake::{Dummy, Fake, Faker, Rng};
 
-    impl Dummy<Faker> for PutItemCommand {
+    impl Dummy<Faker> for UpsertItemCommand {
         fn dummy_with_rng<R: Rng + ?Sized>(config: &Faker, rng: &mut R) -> Self {
-            PutItemCommand {
+            UpsertItemCommand {
                 shop_id: config.fake_with_rng(rng),
                 shops_item_id: config.fake_with_rng(rng),
                 shop_name: config.fake_with_rng(rng),
@@ -64,12 +64,12 @@ mod faker {
 
     #[cfg(test)]
     mod tests {
-        use crate::item_command::PutItemCommand;
+        use crate::item_command::UpsertItemCommand;
         use fake::{Fake, Faker};
 
         #[test]
         fn should_fake_create_item_command() {
-            let _ = Faker.fake::<PutItemCommand>();
+            let _ = Faker.fake::<UpsertItemCommand>();
         }
     }
 }
