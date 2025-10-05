@@ -1,5 +1,5 @@
 use aws_sdk_dynamodb::error::SdkError;
-use common::shop_id::ShopId;
+use common::{batch::Batch, shop_id::ShopId};
 use fake::{Fake, Faker};
 use shop_core::shop::Shop;
 use shop_dynamodb::{
@@ -164,4 +164,24 @@ async fn should_succeed_transact_write_shop_records_when_some_with_differing_sho
             "Expected 'SdkError::ServiceError(TransactWriteItemsError::TransactionCanceledException(_))' but got '{other:?}'"
         ),
     }
+}
+
+#[localstack_test(services = [DynamoDB()])]
+async fn should_get_shop_records() {
+    let repository = get_repository().await;
+
+    let shop = Faker.fake::<Shop>();
+    let mut expected = ShopRecord::clone_from_shop_as_shop_url_records(&shop);
+    expected.push(ShopRecord::from_shop_as_shop_id_record(shop));
+
+    let _ = repository
+        .put_shop_records_transact(expected.clone())
+        .await
+        .unwrap();
+
+    let pks = Batch::try_from_iter(expected.iter().map(|record| record.pk.clone())).unwrap();
+    let actual = repository.get_shop_records(&pks).await.unwrap();
+    assert!(actual.unprocessed.is_none());
+    assert_eq!(expected.len(), actual.items.len());
+    assert!(actual.items.iter().all(|actual| expected.contains(actual)));
 }
