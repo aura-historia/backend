@@ -1,5 +1,5 @@
 use serde::{Deserialize, Serialize};
-use std::fmt::{Display, Formatter};
+use std::fmt::{self, Display, Formatter};
 use url::Url;
 use uuid::Uuid;
 
@@ -7,6 +7,15 @@ use uuid::Uuid;
 pub enum ShopIdentifier {
     ShopId(ShopId),
     ShopUrl(Url),
+}
+
+impl fmt::Display for ShopIdentifier {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            ShopIdentifier::ShopId(id) => write!(f, "{id}"),
+            ShopIdentifier::ShopUrl(url) => write!(f, "{url}"),
+        }
+    }
 }
 
 impl From<ShopId> for ShopIdentifier {

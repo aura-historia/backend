@@ -56,7 +56,8 @@ async fn should_return_some_when_shop_record_exists_for_get_by_id() {
 async fn should_return_some_when_shop_record_exists_for_get_by_url() {
     let repository = get_repository().await;
 
-    let records = ShopRecord::clone_from_shop_as_shop_url_records(&Faker.fake::<Shop>());
+    let records =
+        ShopRecord::try_clone_from_shop_as_shop_url_records(&Faker.fake::<Shop>()).unwrap();
     let _ = repository
         .put_shop_records_transact(records.clone())
         .await
@@ -74,7 +75,8 @@ async fn should_return_some_when_shop_record_exists_for_get_by_url() {
 async fn should_succeed_transact_write_shop_records_when_none_exist() {
     let repository = get_repository().await;
 
-    let records = ShopRecord::clone_from_shop_as_shop_url_records(&Faker.fake::<Shop>());
+    let records =
+        ShopRecord::try_clone_from_shop_as_shop_url_records(&Faker.fake::<Shop>()).unwrap();
     let _ = repository
         .put_shop_records_transact(records.clone())
         .await
@@ -94,7 +96,8 @@ async fn should_succeed_transact_write_shop_records_when_none_exist() {
 async fn should_succeed_transact_write_shop_records_when_none_with_differing_shop_id_exist() {
     let repository = get_repository().await;
 
-    let records = ShopRecord::clone_from_shop_as_shop_url_records(&Faker.fake::<Shop>());
+    let records =
+        ShopRecord::try_clone_from_shop_as_shop_url_records(&Faker.fake::<Shop>()).unwrap();
 
     // first write
     let _ = repository
@@ -130,7 +133,8 @@ async fn should_succeed_transact_write_shop_records_when_none_with_differing_sho
 async fn should_succeed_transact_write_shop_records_when_some_with_differing_shop_id_exist() {
     let repository = get_repository().await;
 
-    let records = ShopRecord::clone_from_shop_as_shop_url_records(&Faker.fake::<Shop>());
+    let records =
+        ShopRecord::try_clone_from_shop_as_shop_url_records(&Faker.fake::<Shop>()).unwrap();
 
     // first write
     let _ = repository
@@ -171,7 +175,7 @@ async fn should_get_shop_records() {
     let repository = get_repository().await;
 
     let shop = Faker.fake::<Shop>();
-    let mut expected = ShopRecord::clone_from_shop_as_shop_url_records(&shop);
+    let mut expected = ShopRecord::try_clone_from_shop_as_shop_url_records(&shop).unwrap();
     let record_with_shop_id_pk = ShopRecord::from_shop_as_shop_id_record(shop);
     expected.push(record_with_shop_id_pk.clone());
 

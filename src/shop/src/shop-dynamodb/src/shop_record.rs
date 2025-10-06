@@ -27,10 +27,10 @@ pub struct ShopRecord {
     pub updated: OffsetDateTime,
 }
 
-pub fn mk_pk(shop_identifier: &ShopIdentifier) -> String {
+pub fn mk_pk(shop_identifier: &ShopIdentifier) -> Option<String> {
     match shop_identifier {
-        ShopIdentifier::ShopId(shop_id) => mk_pk_as_shop_id(shop_id),
-        ShopIdentifier::ShopUrl(url) => mk_pk_as_shop_url(url),
+        ShopIdentifier::ShopId(shop_id) => Some(mk_pk_as_shop_id(shop_id)),
+        ShopIdentifier::ShopUrl(url) => mk_pk_as_shop_host(url),
     }
 }
 
@@ -38,8 +38,8 @@ pub fn mk_pk_as_shop_id(shop_id: &ShopId) -> String {
     format!("shop#shop_id#{shop_id}")
 }
 
-pub fn mk_pk_as_shop_url(url: &Url) -> String {
-    format!("shop#url#{url}")
+pub fn mk_pk_as_shop_host(url: &Url) -> Option<String> {
+    Some(format!("shop#url#{}", url.host_str()?))
 }
 
 impl ShopRecord {
@@ -56,18 +56,21 @@ impl ShopRecord {
         }
     }
 
-    pub fn clone_from_shop_as_shop_url_records(shop: &Shop) -> Vec<ShopRecord> {
+    pub fn try_clone_from_shop_as_shop_url_records(shop: &Shop) -> Option<Vec<ShopRecord>> {
         shop.urls
             .iter()
-            .map(|url| ShopRecord {
-                pk: mk_pk_as_shop_url(url),
-                sk: "shop#details".to_owned(),
-                shop_id: shop.shop_id,
-                name: shop.name.clone(),
-                urls: shop.urls.clone(),
-                image: shop.image.clone(),
-                created: shop.created,
-                updated: shop.updated,
+            .map(|url| {
+                let record = ShopRecord {
+                    pk: mk_pk_as_shop_host(url)?,
+                    sk: "shop#details".to_owned(),
+                    shop_id: shop.shop_id,
+                    name: shop.name.clone(),
+                    urls: shop.urls.clone(),
+                    image: shop.image.clone(),
+                    created: shop.created,
+                    updated: shop.updated,
+                };
+                Some(record)
             })
             .collect()
     }
@@ -97,7 +100,8 @@ mod faker {
             if config.fake_with_rng(rng) {
                 ShopRecord::from_shop_as_shop_id_record(shop)
             } else {
-                ShopRecord::clone_from_shop_as_shop_url_records(&shop)
+                ShopRecord::try_clone_from_shop_as_shop_url_records(&shop)
+                    .unwrap()
                     .first()
                     .unwrap()
                     .clone()
