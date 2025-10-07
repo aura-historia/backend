@@ -2354,6 +2354,7 @@ dependencies = [
  "serial_test",
  "shop-core",
  "shop-dynamodb",
+ "strum",
  "test-api",
  "thiserror",
  "time",

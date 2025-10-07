@@ -169,9 +169,77 @@ fn as_normalized_url(url: &mut Url) {
     url.set_path("");
 }
 
+#[cfg(feature = "test-data")]
+mod faker {
+    use super::*;
+    use common::price::domain::FixedFxRate;
+    use fake::{Dummy, Fake, Faker, Rng};
+
+    impl Dummy<Faker> for PipedItemCommand {
+        fn dummy_with_rng<R: Rng + ?Sized>(config: &Faker, rng: &mut R) -> Self {
+            let native_price: Option<Price> = config.fake_with_rng(rng);
+            let other_price = match native_price {
+                None => HashMap::new(),
+                Some(price) => FixedFxRate()
+                    .exchange_all(price.currency, price.monetary_amount)
+                    .unwrap(),
+            };
+            let state = config.fake_with_rng(rng);
+            PipedItemCommand {
+                shop_id: config.fake_with_rng(rng),
+                shops_item_id: config.fake_with_rng(rng),
+                shop_name: config.fake_with_rng(rng),
+                native_title: config.fake_with_rng(rng),
+                other_title: config.fake_with_rng(rng),
+                native_description: config.fake_with_rng(rng),
+                other_description: config.fake_with_rng(rng),
+                native_price,
+                other_price,
+                state,
+                url: Url::parse(&format!(
+                    "https://foo.bar/item/{}",
+                    config.fake_with_rng::<u16, _>(rng)
+                ))
+                .unwrap(),
+                images: vec![
+                    Url::parse(&format!(
+                        "https://foo.bar/images/{}",
+                        config.fake_with_rng::<u16, _>(rng)
+                    ))
+                    .unwrap(),
+                    Url::parse(&format!(
+                        "https://foo.bar/images/{}",
+                        config.fake_with_rng::<u16, _>(rng)
+                    ))
+                    .unwrap(),
+                    Url::parse(&format!(
+                        "https://foo.bar/images/{}",
+                        config.fake_with_rng::<u16, _>(rng)
+                    ))
+                    .unwrap(),
+                ],
+            }
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
-    use crate::enrichment_service::normalize_url;
+    use std::panic;
+
+    use crate::enrichment_service::{
+        ItemCommandEnrichmentService, ItemCommandEnrichmentServiceImpl, PipedItemCommand,
+        normalize_url,
+    };
+    use aws_sdk_sqs::error::SdkError;
+    use common::{
+        batch::dynamodb::BatchGetItemResult, currency::domain::Currency,
+        price::domain::FixedFxRate, shop_id::ShopIdentifier,
+    };
+    use fake::{Fake, Faker};
+    use shop_core::shop::Shop;
+    use shop_dynamodb::{repository::MockShopDynamoDbRepository, shop_record::ShopRecord};
+    use strum::EnumCount;
     use url::Url;
 
     #[rstest::rstest]
@@ -188,5 +256,139 @@ mod tests {
         let actual = normalize_url(url);
 
         assert_eq!(expected, actual.as_str());
+    }
+
+    #[test]
+    fn should_enrich_price_when_other_none() {
+        let repository = MockShopDynamoDbRepository::new();
+        let fx_rate = FixedFxRate();
+        let service = ItemCommandEnrichmentServiceImpl::new(&repository, &fx_rate);
+
+        let mut cmd = Faker.fake::<PipedItemCommand>();
+        cmd.native_price = Some(Faker.fake());
+        cmd.other_price.clear();
+
+        let actual = service.enrich_price(vec![cmd]);
+
+        assert_eq!(1, actual.enriched.len());
+        assert_eq!(Currency::COUNT, actual.enriched[0].other_price.len());
+    }
+
+    #[tokio::test]
+    async fn should_return_enriched_items() {
+        let mut repository = MockShopDynamoDbRepository::new();
+        let fx_rate = FixedFxRate();
+
+        repository.expect_get_shop_records().returning(|batch| {
+            let batch_clone = batch.clone();
+            Box::pin(async {
+                Ok(BatchGetItemResult {
+                    items: batch_clone
+                        .into_iter()
+                        .flat_map(|shop_identifier| {
+                            let mut shop = Faker.fake::<Shop>();
+                            let url = match shop_identifier {
+                                ShopIdentifier::ShopId(_) => {
+                                    panic!("Expected 'ShopIdentifier::ShopUrl'")
+                                }
+                                ShopIdentifier::ShopUrl(url) => url,
+                            };
+                            shop.urls.push(url);
+                            ShopRecord::try_clone_from_shop_as_shop_url_records(&shop).unwrap()
+                        })
+                        .collect(),
+                    unprocessed: None,
+                })
+            })
+        });
+
+        let service = ItemCommandEnrichmentServiceImpl::new(&repository, &fx_rate);
+        let cmds = fake::vec![PipedItemCommand; 1234];
+        let actual = service.enrich_shop(cmds.clone()).await;
+
+        assert!(actual.failed.is_empty());
+        assert!(actual.unprocessed.is_empty());
+        assert_eq!(
+            cmds.into_iter()
+                .filter(|piped_cmd| {
+                    piped_cmd.shop_id.is_none() || piped_cmd.shop_name.is_none()
+                })
+                .count(),
+            actual.enriched.len()
+        );
+    }
+
+    #[tokio::test]
+    async fn should_return_unprocessed_items_for_unprocessed_shops() {
+        let mut repository = MockShopDynamoDbRepository::new();
+        let fx_rate = FixedFxRate();
+
+        repository.expect_get_shop_records().returning(|batch| {
+            let batch_clone = batch.clone();
+            Box::pin(async {
+                Ok(BatchGetItemResult {
+                    items: Faker.fake(),
+                    unprocessed: Some(batch_clone),
+                })
+            })
+        });
+
+        let service = ItemCommandEnrichmentServiceImpl::new(&repository, &fx_rate);
+        let actual = service
+            .enrich_shop(fake::vec![PipedItemCommand; 1234])
+            .await;
+
+        assert!(actual.failed.is_empty());
+        assert!(actual.enriched.is_empty());
+        assert_eq!(1234, actual.unprocessed.len());
+    }
+
+    #[tokio::test]
+    async fn should_return_unprocessed_items_for_failed_shops() {
+        let mut repository = MockShopDynamoDbRepository::new();
+        let fx_rate = FixedFxRate();
+
+        repository.expect_get_shop_records().returning(|_| {
+            Box::pin(async { Err(SdkError::construction_failure("Something went wrong")) })
+        });
+
+        let service = ItemCommandEnrichmentServiceImpl::new(&repository, &fx_rate);
+        let actual = service
+            .enrich_shop(fake::vec![PipedItemCommand; 1234])
+            .await;
+
+        assert!(actual.failed.is_empty());
+        assert!(actual.enriched.is_empty());
+        assert_eq!(1234, actual.unprocessed.len());
+    }
+
+    #[tokio::test]
+    async fn should_return_failed_items_for_unknown_shops() {
+        let mut repository = MockShopDynamoDbRepository::new();
+        let fx_rate = FixedFxRate();
+
+        repository.expect_get_shop_records().returning(|_| {
+            Box::pin(async {
+                Ok(BatchGetItemResult {
+                    items: vec![],
+                    unprocessed: None,
+                })
+            })
+        });
+
+        let service = ItemCommandEnrichmentServiceImpl::new(&repository, &fx_rate);
+        let cmds = fake::vec![PipedItemCommand; 1234];
+        let actual = service.enrich_shop(cmds.clone()).await;
+
+        assert!(actual.unprocessed.is_empty());
+        assert!(actual.enriched.is_empty());
+        assert_eq!(
+            cmds.into_iter()
+                .filter(|piped_cmd| {
+                    piped_cmd.shop_id.is_none() || piped_cmd.shop_name.is_none()
+                })
+                .count(),
+            actual.failed.len()
+        );
     }
 }
