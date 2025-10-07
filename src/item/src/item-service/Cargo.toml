@@ -17,6 +17,7 @@ search-filter-core = { workspace = true }
 shop-core = { workspace = true }
 shop-dynamodb = { workspace = true }
 tokio = { workspace = true }
+field = { workspace = true }
 
 fake = { workspace = true, optional = true }
 item-dynamodb = { workspace = true, features = ["repository"], optional = true }

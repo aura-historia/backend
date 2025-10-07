@@ -54,6 +54,20 @@ pub trait ItemCommandEnrichmentService {
     async fn enrich_shop(&self, commands: Vec<PipedItemCommand>) -> EnrichItemCommandsOutput;
 
     fn enrich_price(&self, commands: Vec<PipedItemCommand>) -> EnrichItemCommandsOutput;
+
+    async fn enrich(&self, commands: Vec<PipedItemCommand>) -> EnrichItemCommandsOutput {
+        let mut price_enriched_res = self.enrich_price(commands);
+        let mut shop_enriched_res = self.enrich_shop(price_enriched_res.enriched).await;
+
+        shop_enriched_res
+            .unprocessed
+            .append(&mut price_enriched_res.unprocessed);
+        shop_enriched_res
+            .failed
+            .append(&mut price_enriched_res.failed);
+
+        shop_enriched_res
+    }
 }
 
 pub struct ItemCommandEnrichmentServiceImpl<'a, T: FxRate + Sync> {

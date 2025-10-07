@@ -234,7 +234,7 @@ impl<T: FxRate + Sync> UpsertItemsServiceImpl<'_, T> {
     ) -> Vec<ItemEventRecord> {
         create_chunk.into_iter().map(|cmd| {
             let other_price = cmd
-                .price
+                .native_price
                 .as_ref()
                 .and_then(|price| {
                     self.fx_rate
@@ -250,11 +250,11 @@ impl<T: FxRate + Sync> UpsertItemsServiceImpl<'_, T> {
                 cmd.shop_id,
                 cmd.shops_item_id,
                 cmd.shop_name,
-                cmd.title,
+                cmd.native_title,
                 Default::default(),
-                cmd.description,
+                cmd.native_description,
                 Default::default(),
-                cmd.price,
+                cmd.native_price,
                 other_price,
                 cmd.state,
                 cmd.url,
@@ -302,7 +302,7 @@ fn determine_update_events(
     for (mut item, update_cmd) in update_chunk {
         let mut any_changes = false;
 
-        if let Some(price_event) = item.new_price(update_cmd.price, fx_rate) {
+        if let Some(price_event) = item.new_price(update_cmd.native_price, fx_rate) {
             events.push(price_event);
             any_changes = true;
         }
@@ -335,12 +335,12 @@ pub mod tests {
     fn should_determine_no_update_events_when_only_skipped() {
         let item1 = Faker.fake::<Item>();
         let mut update1 = Faker.fake::<UpsertItemCommand>();
-        update1.price = item1.native_price;
+        update1.native_price = item1.native_price;
         update1.state = item1.state;
 
         let item2 = Faker.fake::<Item>();
         let mut update2 = Faker.fake::<UpsertItemCommand>();
-        update2.price = item2.native_price;
+        update2.native_price = item2.native_price;
         update2.state = item2.state;
 
         let mut skipped_count = 0;
@@ -358,9 +358,12 @@ pub mod tests {
             shop_id: item1.clone().shop_id,
             shops_item_id: item1.clone().shops_item_id,
             shop_name: item1.clone().shop_name,
-            title: item1.clone().native_title,
-            description: item1.clone().native_description,
-            price: Some(Faker.fake()),
+            native_title: item1.clone().native_title,
+            other_title: Default::default(),
+            native_description: item1.clone().native_description,
+            other_description: Default::default(),
+            native_price: Some(Faker.fake()),
+            other_price: Default::default(),
             state: item1.state,
             url: item1.clone().url,
             images: item1.clone().images,
@@ -371,9 +374,12 @@ pub mod tests {
             shop_id: item2.clone().shop_id,
             shops_item_id: item2.clone().shops_item_id,
             shop_name: item2.clone().shop_name,
-            title: item2.clone().native_title,
-            description: item2.clone().native_description,
-            price: Some(Faker.fake()),
+            native_title: item2.clone().native_title,
+            other_title: Default::default(),
+            native_description: item2.clone().native_description,
+            other_description: Default::default(),
+            native_price: Some(Faker.fake()),
+            other_price: Default::default(),
             state: if matches!(item2.state, ItemState::Available) {
                 ItemState::Removed
             } else {
@@ -398,9 +404,12 @@ pub mod tests {
             shop_id: item1.clone().shop_id,
             shops_item_id: item1.clone().shops_item_id,
             shop_name: item1.clone().shop_name,
-            title: item1.clone().native_title,
-            description: item1.clone().native_description,
-            price: Some(Faker.fake()),
+            native_title: item1.clone().native_title,
+            other_title: Default::default(),
+            native_description: item1.clone().native_description,
+            other_description: Default::default(),
+            native_price: Some(Faker.fake()),
+            other_price: Default::default(),
             state: item1.state,
             url: item1.clone().url,
             images: item1.clone().images,
@@ -408,7 +417,7 @@ pub mod tests {
 
         let item2 = Faker.fake::<Item>();
         let mut update2 = Faker.fake::<UpsertItemCommand>();
-        update2.price = item2.native_price;
+        update2.native_price = item2.native_price;
         update2.state = item2.state;
 
         let mut skipped_count = 0;

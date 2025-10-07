@@ -3,40 +3,64 @@ use common::api::api_gateway_v2_http_response_builder::ApiGatewayV2HttpResponseB
 use common::api::collection::PutCollectionData;
 use common::api::error::ApiError;
 use common::api::error_code::BAD_BODY_VALUE;
-use common::item_id::api::ItemKeyData;
 use common::localized::Localized;
 use common::price::domain::Price;
 use item_data::put_data::PutItemData;
+use item_service::enrichment_service::{
+    EnrichItemCommandError, ItemCommandEnrichmentService, PipedItemCommand,
+};
 use item_service::item_command::UpsertItemCommand;
-use item_service::upsert_service::{UpsertItemsOutput, UpsertItemsService};
+use item_service::upsert_service::UpsertItemsService;
 use lambda_runtime::LambdaEvent;
 use serde::Serialize;
+use std::collections::HashMap;
+use tracing::warn;
+use url::Url;
 
-#[derive(Debug, Clone, Serialize)]
-pub struct PutItemsResponse {
-    #[serde(skip_serializing_if = "Vec::is_empty")]
-    pub unprocessed: Vec<ItemKeyData>,
-    pub skipped: u64,
+#[derive(thiserror::Error, Debug, Clone, PartialEq, Eq, Serialize)]
+#[serde(untagged, into = "String")]
+pub enum PutItemError {
+    #[error("SHOP_NOT_FOUND")]
+    ShopNotFound,
+
+    #[error("MONETARY_AMOUNT_OVERFLOW")]
+    MonetaryAmountOverflow,
+
+    #[error("ITEM_ENRICHMENT_FAILED")]
+    EnrichmentError,
 }
 
-impl From<UpsertItemsOutput> for PutItemsResponse {
-    fn from(output: UpsertItemsOutput) -> Self {
-        PutItemsResponse {
-            unprocessed: output
-                .unprocessed
-                .into_iter()
-                .map(|cmd| ItemKeyData {
-                    shop_id: cmd.shop_id,
-                    shops_item_id: cmd.shops_item_id,
-                })
-                .collect(),
-            skipped: output.skipped as u64,
+impl From<PutItemError> for String {
+    fn from(err: PutItemError) -> String {
+        err.to_string()
+    }
+}
+
+impl From<EnrichItemCommandError> for PutItemError {
+    fn from(cmd_error: EnrichItemCommandError) -> Self {
+        match cmd_error {
+            EnrichItemCommandError::MonetaryAmountOverflowError(_) => {
+                PutItemError::MonetaryAmountOverflow
+            }
+            EnrichItemCommandError::UnknownShopUrl(_) => PutItemError::ShopNotFound,
         }
     }
 }
 
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PutItemsResponse {
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub unprocessed: Vec<Url>,
+
+    #[serde(skip_serializing_if = "HashMap::is_empty")]
+    pub failed: HashMap<Url, PutItemError>,
+
+    pub skipped: u64,
+}
+
 #[tracing::instrument(
-    skip(event, service),
+    skip(event, upsert_service, enrich_service),
     fields(
         requestId = %event.context.request_id,
         path = &event.payload.raw_path,
@@ -45,9 +69,10 @@ impl From<UpsertItemsOutput> for PutItemsResponse {
 )]
 pub async fn handler(
     event: LambdaEvent<ApiGatewayV2httpRequest>,
-    service: &impl UpsertItemsService,
+    upsert_service: &impl UpsertItemsService,
+    enrich_service: &(impl ItemCommandEnrichmentService + Sync),
 ) -> Result<ApiGatewayV2httpResponse, lambda_runtime::Error> {
-    match handle(event, service).await {
+    match handle(event, upsert_service, enrich_service).await {
         Ok(response) => Ok(response),
         Err(err) => Ok(ApiGatewayV2httpResponse::from(err)),
     }
@@ -56,7 +81,8 @@ pub async fn handler(
 // PUT /api/v1/items
 pub async fn handle(
     event: LambdaEvent<ApiGatewayV2httpRequest>,
-    service: &impl UpsertItemsService,
+    upsert_service: &impl UpsertItemsService,
+    enrich_service: &(impl ItemCommandEnrichmentService + Sync),
 ) -> Result<ApiGatewayV2httpResponse, ApiError> {
     let body = event
         .payload
@@ -73,22 +99,74 @@ pub async fn handle(
         .into_iter()
         .map(put_item_data_to_command)
         .collect::<Vec<_>>();
-    let unprocessed = service.upsert(commands).await;
 
+    let mut unprocessed = Vec::new();
+    let mut failed = HashMap::new();
+
+    let enriched_res = enrich_service.enrich(commands).await;
+    unprocessed.extend(
+        &mut enriched_res
+            .unprocessed
+            .into_iter()
+            .map(|piped_cmd| piped_cmd.url),
+    );
+    failed.extend(
+        &mut enriched_res
+            .failed
+            .into_iter()
+            .map(|(piped_cmd, err)| (piped_cmd.url, PutItemError::from(err))),
+    );
+    let enriched_upsert_cmds = enriched_res
+        .enriched
+        .into_iter()
+        .map(|piped_cmd| (piped_cmd.url.clone(), piped_cmd))
+        .filter_map(
+            |(url, piped_cmd)| match UpsertItemCommand::try_from(piped_cmd) {
+                Ok(cmd) => Some(cmd),
+                Err(err) => {
+                    warn!(
+                        error = %err,
+                        fromType = %std::any::type_name::<PipedItemCommand>(),
+                        toType = %std::any::type_name::<UpsertItemCommand>(),
+                        "Failed mapping types."
+                    );
+                    unprocessed.push(url);
+                    None
+                }
+            },
+        )
+        .collect();
+
+    let upsert_res = upsert_service.upsert(enriched_upsert_cmds).await;
+    unprocessed.extend(
+        &mut upsert_res
+            .unprocessed
+            .into_iter()
+            .map(|upsert_cmd| upsert_cmd.url),
+    );
+
+    let response_payload = PutItemsResponse {
+        unprocessed,
+        failed,
+        skipped: upsert_res.skipped as u64,
+    };
     Ok(ApiGatewayV2HttpResponseBuilder::json(200)
-        .body_serde(PutItemsResponse::from(unprocessed))?
+        .body_serde(response_payload)?
         .cors()
         .build())
 }
 
-fn put_item_data_to_command(data: PutItemData) -> UpsertItemCommand {
-    UpsertItemCommand {
-        shop_id: data.shop_id,
+fn put_item_data_to_command(data: PutItemData) -> PipedItemCommand {
+    PipedItemCommand {
+        shop_id: None,
         shops_item_id: data.shops_item_id,
-        shop_name: data.shop_name,
-        title: data.title.into(),
-        description: data.description.map(Localized::from),
-        price: data.price.map(Price::from),
+        shop_name: None,
+        native_title: data.title.into(),
+        other_title: Default::default(),
+        native_description: data.description.map(Localized::from),
+        other_description: Default::default(),
+        native_price: data.price.map(Price::from),
+        other_price: Default::default(),
         state: data.state.into(),
         url: data.url,
         images: data.images,
@@ -99,7 +177,12 @@ fn put_item_data_to_command(data: PutItemData) -> UpsertItemCommand {
 mod tests {
     use crate::handler;
     use common::api::collection::PutCollectionData;
+    use common::shop_id::ShopId;
+    use fake::{Fake, Faker};
     use item_data::put_data::PutItemData;
+    use item_service::enrichment_service::{
+        EnrichItemCommandsOutput, MockItemCommandEnrichmentService,
+    };
     use item_service::item_command::UpsertItemCommand;
     use item_service::upsert_service::{MockUpsertItemsService, UpsertItemsOutput};
     use lambda_runtime::LambdaEvent;
@@ -125,8 +208,25 @@ mod tests {
         #[case] failures: usize,
         #[case] skipped: usize,
     ) {
-        let mut service = MockUpsertItemsService::default();
-        service.expect_upsert().return_once(move |_| {
+        let mut enrich_service = MockItemCommandEnrichmentService::default();
+        enrich_service.expect_enrich().return_once(|cmds| {
+            Box::pin(async {
+                EnrichItemCommandsOutput {
+                    enriched: cmds
+                        .into_iter()
+                        .map(|mut cmd| {
+                            cmd.shop_id = Some(ShopId::new());
+                            cmd.shop_name = Some(Faker.fake());
+                            cmd
+                        })
+                        .collect(),
+                    failed: vec![],
+                    unprocessed: vec![],
+                }
+            })
+        });
+        let mut upsert_service = MockUpsertItemsService::default();
+        upsert_service.expect_upsert().return_once(move |_| {
             Box::pin(async move {
                 UpsertItemsOutput {
                     unprocessed: fake::vec![UpsertItemCommand; failures],
@@ -144,7 +244,9 @@ mod tests {
                 .build(),
             context: Default::default(),
         };
-        let response = handler(lambda_event, &service).await.unwrap();
+        let response = handler(lambda_event, &upsert_service, &enrich_service)
+            .await
+            .unwrap();
 
         let actual_json = extract_apigw_response_json_body!(response);
         if failures == 0 {
