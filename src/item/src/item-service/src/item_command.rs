@@ -1,5 +1,3 @@
-use std::collections::HashMap;
-
 use common::currency::domain::Currency;
 use common::error::missing_field::MissingRequiredField;
 use common::has_key::HasKey;
@@ -14,9 +12,8 @@ use common::shops_item_id::ShopsItemId;
 use field::field;
 use item_core::description::Description;
 use item_core::title::Title;
+use std::collections::HashMap;
 use url::Url;
-
-use crate::enrichment_service::PipedItemCommand;
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct UpsertItemCommand {
@@ -43,6 +40,22 @@ impl HasKey for UpsertItemCommand {
             shops_item_id: self.shops_item_id.clone(),
         }
     }
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct PipedItemCommand {
+    pub shop_id: Option<ShopId>,
+    pub shops_item_id: ShopsItemId,
+    pub shop_name: Option<ShopName>,
+    pub native_title: Localized<Language, Title>,
+    pub other_title: HashMap<Language, Title>,
+    pub native_description: Option<Localized<Language, Description>>,
+    pub other_description: HashMap<Language, Description>,
+    pub native_price: Option<Price>,
+    pub other_price: HashMap<Currency, MonetaryAmount>,
+    pub state: ItemState,
+    pub url: Url,
+    pub images: Vec<Url>,
 }
 
 impl TryFrom<PipedItemCommand> for UpsertItemCommand {

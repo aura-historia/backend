@@ -6,10 +6,8 @@ use common::api::error_code::BAD_BODY_VALUE;
 use common::localized::Localized;
 use common::price::domain::Price;
 use item_data::put_data::PutItemData;
-use item_service::enrichment_service::{
-    EnrichItemCommandError, ItemCommandEnrichmentService, PipedItemCommand,
-};
-use item_service::item_command::UpsertItemCommand;
+use item_service::enrichment_service::{EnrichItemCommandError, ItemCommandEnrichmentService};
+use item_service::item_command::{PipedItemCommand, UpsertItemCommand};
 use item_service::upsert_service::UpsertItemsService;
 use lambda_runtime::LambdaEvent;
 use serde::{Deserialize, Serialize};

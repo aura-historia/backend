@@ -1,36 +1,14 @@
+use crate::item_command::PipedItemCommand;
 use common::{
     batch::Batch,
-    currency::domain::Currency,
-    item_state::domain::ItemState,
-    language::domain::Language,
-    localized::Localized,
-    price::domain::{FxRate, MonetaryAmount, MonetaryAmountOverflowError, Price},
-    shop_id::{ShopId, ShopIdentifier},
-    shop_name::ShopName,
-    shops_item_id::ShopsItemId,
+    price::domain::{FxRate, MonetaryAmountOverflowError, Price},
+    shop_id::ShopIdentifier,
 };
-use item_core::{description::Description, title::Title};
 use shop_core::shop::Shop;
 use shop_dynamodb::repository::ShopDynamoDbRepository;
 use std::collections::{HashMap, HashSet};
 use tracing::error;
 use url::Url;
-
-#[derive(Debug, Clone, PartialEq)]
-pub struct PipedItemCommand {
-    pub shop_id: Option<ShopId>,
-    pub shops_item_id: ShopsItemId,
-    pub shop_name: Option<ShopName>,
-    pub native_title: Localized<Language, Title>,
-    pub other_title: HashMap<Language, Title>,
-    pub native_description: Option<Localized<Language, Description>>,
-    pub other_description: HashMap<Language, Description>,
-    pub native_price: Option<Price>,
-    pub other_price: HashMap<Currency, MonetaryAmount>,
-    pub state: ItemState,
-    pub url: Url,
-    pub images: Vec<Url>,
-}
 
 #[derive(Debug, Clone, PartialEq, Default)]
 pub struct EnrichItemCommandsOutput {
