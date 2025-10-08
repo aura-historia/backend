@@ -9,7 +9,7 @@ use url::Url;
 pub struct ShopDocument {
     pub shop_id: ShopId,
     pub name: ShopName,
-    pub url: Url,
+    pub urls: Vec<Url>,
 
     #[serde(skip_serializing_if = "Option::is_none", default)]
     pub image: Option<Url>,
@@ -32,7 +32,7 @@ impl From<Shop> for ShopDocument {
         ShopDocument {
             shop_id: shop.shop_id,
             name: shop.name,
-            url: shop.url,
+            urls: shop.urls,
             image: shop.image,
             created: shop.created,
             updated: shop.updated,
@@ -45,7 +45,7 @@ impl From<ShopDocument> for Shop {
         Shop {
             shop_id: document.shop_id,
             name: document.name,
-            url: document.url,
+            urls: document.urls,
             image: document.image,
             created: document.created,
             updated: document.updated,

@@ -922,6 +922,7 @@ dependencies = [
  "thiserror",
  "time",
  "tracing",
+ "url",
  "uuid",
 ]
 
@@ -1177,6 +1178,7 @@ dependencies = [
  "either",
  "rand",
  "time",
+ "url",
  "uuid",
 ]
 
@@ -1994,7 +1996,10 @@ dependencies = [
  "serde",
  "serde_json",
  "serial_test",
+ "shop-core",
+ "shop-dynamodb",
  "test-api",
+ "thiserror",
  "time",
  "tokio",
  "tracing",
@@ -2116,6 +2121,7 @@ version = "0.1.0"
 dependencies = [
  "common",
  "fake",
+ "item-core",
  "rstest",
  "serde",
  "time",
@@ -2338,6 +2344,7 @@ dependencies = [
  "aws-sdk-sqs",
  "common",
  "fake",
+ "field",
  "item-core",
  "item-dynamodb",
  "item-opensearch",
@@ -2351,6 +2358,9 @@ dependencies = [
  "serde_dynamo",
  "serde_json",
  "serial_test",
+ "shop-core",
+ "shop-dynamodb",
+ "strum",
  "test-api",
  "thiserror",
  "time",
@@ -4210,6 +4220,7 @@ dependencies = [
  "serde",
  "serde_json",
  "serial_test",
+ "shop-core",
  "shop-data",
  "shop-dynamodb",
  "shop-opensearch",

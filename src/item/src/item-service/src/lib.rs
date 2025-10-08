@@ -1,5 +1,8 @@
 #[cfg(all(feature = "dynamodb", feature = "sqs"))]
-pub mod command_service;
+pub mod upsert_service;
+
+#[cfg(feature = "dynamodb")]
+pub mod enrichment_service;
 
 #[cfg(feature = "dynamodb")]
 pub mod get_service;

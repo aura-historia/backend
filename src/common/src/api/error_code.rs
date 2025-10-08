@@ -30,6 +30,7 @@ pub const INVALID_RFC3339_TIMESTAMP: ApiErrorCode = ApiErrorCode("INVALID_RFC333
 pub const INVALID_JSON: ApiErrorCode = ApiErrorCode("INVALID_JSON");
 
 pub const ITEM_NOT_FOUND: ApiErrorCode = ApiErrorCode("ITEM_NOT_FOUND");
+pub const ITEM_ENRICHMENT_FAILED: ApiErrorCode = ApiErrorCode("ITEM_ENRICHMENT_FAILED");
 pub const WATCHLIST_ENTRY_NOT_FOUND: ApiErrorCode = ApiErrorCode("WATCHLIST_ENTRY_NOT_FOUND");
 pub const SEARCH_FILTER_NOT_FOUND: ApiErrorCode = ApiErrorCode("SEARCH_FILTER_NOT_FOUND");
 pub const SHOP_NOT_FOUND: ApiErrorCode = ApiErrorCode("SHOP_NOT_FOUND");

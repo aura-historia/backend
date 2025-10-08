@@ -14,7 +14,10 @@ mockall = { workspace = true }
 thiserror = { workspace = true }
 url = { workspace = true, features = ["serde"] }
 search-filter-core = { workspace = true }
+shop-core = { workspace = true }
+shop-dynamodb = { workspace = true }
 tokio = { workspace = true }
+field = { workspace = true }
 
 fake = { workspace = true, optional = true }
 item-dynamodb = { workspace = true, features = ["repository"], optional = true }
@@ -42,9 +45,11 @@ item-service = { workspace = true, features = [
     "test-data",
     "dynamodb",
     "opensearch",
-    "sqs"
+    "sqs",
 ] }
 item-opensearch = { workspace = true, features = ["test-data"] }
+strum = { workspace = true }
+shop-dynamodb = { workspace = true, features = ["test-data"] }
 
 [features]
 default = []

@@ -8,6 +8,7 @@ common = { workspace = true, features = ["api", "sqs"] }
 item-core = { workspace = true }
 item-service = { workspace = true, features = ["dynamodb", "api", "sqs"] }
 item-dynamodb = { workspace = true, features = ["repository"] }
+shop-dynamodb = { workspace = true }
 item-data = { workspace = true }
 tracing = { workspace = true }
 serde = { workspace = true }
@@ -20,9 +21,11 @@ aws-sdk-dynamodb = { workspace = true }
 aws-sdk-sqs = { workspace = true }
 serde_json = { workspace = true }
 http = { workspace = true }
+url = { workspace = true }
+thiserror = { workspace = true }
 
 [dev-dependencies]
-test-api = { workspace = true, features = ["api-gateway", "dynamodb"] }
+test-api = { workspace = true, features = ["api-gateway", "dynamodb", "sqs"] }
 serial_test = { workspace = true }
 rstest = { workspace = true }
 time = { workspace = true }
@@ -32,3 +35,5 @@ item-dynamodb = { workspace = true, features = ["test-data", "repository"] }
 fake = { workspace = true }
 item-service = { workspace = true, features = ["test-data"] }
 item-data = { workspace = true, features = ["test-data"] }
+shop-core = { workspace = true, features = ["test-data"] }
+shop-dynamodb = { workspace = true, features = ["test-data"] }

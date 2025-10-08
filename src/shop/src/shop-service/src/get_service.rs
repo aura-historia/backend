@@ -1,10 +1,13 @@
 use async_trait::async_trait;
 use aws_sdk_dynamodb::config::http::HttpResponse;
 use aws_sdk_dynamodb::error::SdkError;
-use common::shop_id::ShopId;
+use common::{
+    batch::Batch,
+    shop_id::{ShopId, ShopIdentifier},
+};
 use shop_core::shop::Shop;
 use shop_dynamodb::repository::ShopDynamoDbRepository;
-use tracing::error;
+use tracing::{error, warn};
 
 #[derive(thiserror::Error, Debug)]
 #[allow(clippy::large_enum_variant)]
@@ -13,8 +16,14 @@ pub enum GetShopError {
     ShopNotFound(ShopId),
 
     #[error("Encountered DynamoDB SdkError for GetItem: {0}")]
-    SdkGetShopError(
+    SdkGetItemError(
         #[from] SdkError<aws_sdk_dynamodb::operation::get_item::GetItemError, HttpResponse>,
+    ),
+
+    #[error("Encountered DynamoDB SdkError for BatchGetItem: {0}")]
+    SdkBatchGetItemError(
+        #[from]
+        SdkError<aws_sdk_dynamodb::operation::batch_get_item::BatchGetItemError, HttpResponse>,
     ),
 }
 
@@ -29,8 +38,12 @@ pub mod api {
         fn from(err: GetShopError) -> Self {
             match err {
                 GetShopError::ShopNotFound(_) => ApiError::not_found(SHOP_NOT_FOUND),
-                GetShopError::SdkGetShopError(err) => {
+                GetShopError::SdkGetItemError(err) => {
                     error!(error = ?err, "Encountered SdkGetShopError while getting shop.");
+                    err.into()
+                }
+                GetShopError::SdkBatchGetItemError(err) => {
+                    error!(error = ?err, "Encountered SdkBatchGetShopError while getting shop.");
                     err.into()
                 }
             }
@@ -42,6 +55,11 @@ pub mod api {
 #[mockall::automock]
 pub trait GetShopService {
     async fn find_shop(&self, shop_id: &ShopId) -> Result<Shop, GetShopError>;
+
+    async fn find_shops(
+        &self,
+        shop_identifiers: Vec<ShopIdentifier>,
+    ) -> Result<Vec<Shop>, GetShopError>;
 }
 
 pub struct GetShopServiceImpl<'a> {
@@ -59,11 +77,31 @@ impl<'a> GetShopService for GetShopServiceImpl<'a> {
     async fn find_shop(&self, shop_id: &ShopId) -> Result<Shop, GetShopError> {
         let shop_record = self
             .repository
-            .get_shop_record(shop_id)
+            .get_shop_record_by_id(shop_id)
             .await?
             .ok_or(GetShopError::ShopNotFound(*shop_id))?;
 
         Ok(shop_record.into())
+    }
+
+    async fn find_shops(
+        &self,
+        shop_identifiers: Vec<ShopIdentifier>,
+    ) -> Result<Vec<Shop>, GetShopError> {
+        let mut shop_records = Vec::with_capacity(shop_identifiers.len());
+        for batch in Batch::chunked_from(shop_identifiers.into_iter()) {
+            let mut res = self.repository.get_shop_records(&batch).await?;
+            if let Some(unprocessed) = res.unprocessed {
+                warn!(
+                    unprocessed = unprocessed.len(),
+                    "Getting shops in batch contained unprocessed."
+                )
+            }
+            shop_records.append(&mut res.items);
+        }
+
+        let shops = shop_records.into_iter().map(Shop::from).collect();
+        Ok(shops)
     }
 }
 
@@ -82,7 +120,7 @@ mod tests {
     async fn should_return_shop_when_exists() {
         let mut repository = MockShopDynamoDbRepository::default();
         repository
-            .expect_get_shop_record()
+            .expect_get_shop_record_by_id()
             .return_once(|_| Box::pin(async { Ok(Some(Faker.fake())) }));
         let service = GetShopServiceImpl {
             repository: &repository,
@@ -96,7 +134,7 @@ mod tests {
         let shop_id = ShopId::new();
         let mut repository = MockShopDynamoDbRepository::default();
         repository
-            .expect_get_shop_record()
+            .expect_get_shop_record_by_id()
             .return_once(|_| Box::pin(async { Ok(None) }));
         let service = GetShopServiceImpl {
             repository: &repository,
@@ -134,7 +172,7 @@ mod tests {
         let shop_id = ShopId::new();
         let mut repository = MockShopDynamoDbRepository::default();
         repository
-            .expect_get_shop_record()
+            .expect_get_shop_record_by_id()
             .return_once(|_| Box::pin(async { Err(expected) }));
         let service = GetShopServiceImpl {
             repository: &repository,
@@ -143,7 +181,7 @@ mod tests {
 
         assert!(actual.is_err());
         match actual.unwrap_err() {
-            GetShopError::SdkGetShopError(_) => {}
+            GetShopError::SdkGetItemError(_) => {}
             _ => panic!("expected GetShopError::ShopNotFound"),
         }
     }

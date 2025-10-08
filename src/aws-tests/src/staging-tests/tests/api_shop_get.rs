@@ -29,7 +29,6 @@ async fn should_respond_200_when_shop_does_exist() {
     let body = response.json::<serde_json::Value>().await.unwrap();
     assert_eq!(record.shop_id.to_string(), body["shopId"]);
     assert_eq!(record.name.to_string(), body["name"]);
-    assert_eq!(record.url.to_string(), body["url"]);
 }
 
 #[staging_test]

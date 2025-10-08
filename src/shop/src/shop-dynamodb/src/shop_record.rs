@@ -1,4 +1,7 @@
-use common::{shop_id::ShopId, shop_name::ShopName};
+use common::{
+    shop_id::{ShopId, ShopIdentifier},
+    shop_name::ShopName,
+};
 use serde::{Deserialize, Serialize};
 use shop_core::shop::Shop;
 use time::OffsetDateTime;
@@ -10,7 +13,9 @@ pub struct ShopRecord {
     pub sk: String,
     pub shop_id: ShopId,
     pub name: ShopName,
-    pub url: Url,
+
+    #[serde(skip_serializing_if = "Vec::is_empty", default)]
+    pub urls: Vec<Url>,
 
     #[serde(skip_serializing_if = "Option::is_none", default)]
     pub image: Option<Url>,
@@ -22,22 +27,52 @@ pub struct ShopRecord {
     pub updated: OffsetDateTime,
 }
 
-pub fn mk_pk(shop_id: &ShopId) -> String {
-    format!("shop#{shop_id}")
+pub fn mk_pk(shop_identifier: &ShopIdentifier) -> Option<String> {
+    match shop_identifier {
+        ShopIdentifier::ShopId(shop_id) => Some(mk_pk_as_shop_id(shop_id)),
+        ShopIdentifier::ShopUrl(url) => mk_pk_as_shop_host(url),
+    }
 }
 
-impl From<Shop> for ShopRecord {
-    fn from(shop: Shop) -> Self {
+pub fn mk_pk_as_shop_id(shop_id: &ShopId) -> String {
+    format!("shop#shop_id#{shop_id}")
+}
+
+pub fn mk_pk_as_shop_host(url: &Url) -> Option<String> {
+    Some(format!("shop#url#{}", url.host_str()?))
+}
+
+impl ShopRecord {
+    pub fn from_shop_as_shop_id_record(shop: Shop) -> ShopRecord {
         ShopRecord {
-            pk: mk_pk(&shop.shop_id),
+            pk: mk_pk_as_shop_id(&shop.shop_id),
             sk: "shop#details".to_owned(),
             shop_id: shop.shop_id,
             name: shop.name,
-            url: shop.url,
+            urls: shop.urls,
             image: shop.image,
             created: shop.created,
             updated: shop.updated,
         }
+    }
+
+    pub fn try_clone_from_shop_as_shop_url_records(shop: &Shop) -> Option<Vec<ShopRecord>> {
+        shop.urls
+            .iter()
+            .map(|url| {
+                let record = ShopRecord {
+                    pk: mk_pk_as_shop_host(url)?,
+                    sk: "shop#details".to_owned(),
+                    shop_id: shop.shop_id,
+                    name: shop.name.clone(),
+                    urls: shop.urls.clone(),
+                    image: shop.image.clone(),
+                    created: shop.created,
+                    updated: shop.updated,
+                };
+                Some(record)
+            })
+            .collect()
     }
 }
 
@@ -46,7 +81,7 @@ impl From<ShopRecord> for Shop {
         Shop {
             shop_id: document.shop_id,
             name: document.name,
-            url: document.url,
+            urls: document.urls,
             image: document.image,
             created: document.created,
             updated: document.updated,
@@ -61,7 +96,8 @@ mod faker {
 
     impl Dummy<Faker> for ShopRecord {
         fn dummy_with_rng<R: Rng + ?Sized>(config: &Faker, rng: &mut R) -> Self {
-            config.fake_with_rng::<Shop, _>(rng).into()
+            let shop = config.fake_with_rng::<Shop, _>(rng);
+            ShopRecord::from_shop_as_shop_id_record(shop)
         }
     }
 
@@ -72,7 +108,9 @@ mod faker {
 
         #[test]
         fn should_fake_shop_record() {
-            let _ = Faker.fake::<ShopRecord>();
+            for _ in 0..100 {
+                let _ = Faker.fake::<ShopRecord>();
+            }
         }
     }
 }

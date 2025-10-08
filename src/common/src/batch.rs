@@ -28,6 +28,13 @@ impl<T, const N: usize> Batch<T, N> {
             .map(|chunk| Batch(chunk.collect()))
             .collect()
     }
+
+    pub fn map<R, F>(self, f: F) -> Batch<R, N>
+    where
+        F: FnMut(T) -> R,
+    {
+        Batch(self.0.into_iter().map(f).collect())
+    }
 }
 
 impl<T, const N: usize> From<[T; 1]> for Batch<T, N> {
