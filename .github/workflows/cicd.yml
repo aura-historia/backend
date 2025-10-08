@@ -335,7 +335,7 @@ jobs:
     name: Deploy & initialize CFN-Stack
     needs: aws-push-lambda
     environment:
-      name: aws-deploy
+      name: aws
     runs-on: ubuntu-latest
     permissions:
       contents: read
