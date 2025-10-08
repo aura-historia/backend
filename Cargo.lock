@@ -2121,6 +2121,7 @@ version = "0.1.0"
 dependencies = [
  "common",
  "fake",
+ "item-core",
  "rstest",
  "serde",
  "time",

@@ -13,6 +13,7 @@ fake = { workspace = true, optional = true }
 
 [dev-dependencies]
 rstest = { workspace = true }
+item-core = { workspace = true, features = ["test-data"] }
 
 [features]
 default = []
