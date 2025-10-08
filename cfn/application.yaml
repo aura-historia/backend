@@ -109,8 +109,10 @@ Resources:
         - COGNITO
       CallbackURLs:
         - http://localhost:3000/
+        - https://blitzfilter.blitzfilter.workers.dev/
       LogoutURLs:
         - http://localhost:3000/
+        - https://blitzfilter.blitzfilter.workers.dev/
       EnableTokenRevocation: true
       AccessTokenValidity: 1 # hours
       IdTokenValidity: 1 # hours
