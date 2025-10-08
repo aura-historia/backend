@@ -22,8 +22,14 @@ mod faker {
             Shop {
                 shop_id: config.fake_with_rng(rng),
                 name: config.fake_with_rng(rng),
-                urls: vec![Url::parse(&format!("https://www.{}.com/", config.fake_with_rng::<String, R>(rng))).unwrap()],
-                image: Some(Url::parse("https://upload.wikimedia.org/wikipedia/commons/thumb/c/c1/Google_%22G%22_logo.svg/1200px-Google_%22G%22_logo.svg.png").unwrap()),
+                urls: vec![
+                    Url::parse(&format!(
+                        "https://www.{}.com/",
+                        config.fake_with_rng::<String, R>(rng)
+                    ))
+                    .unwrap(),
+                ],
+                image: config.fake_with_rng(rng),
                 created: OffsetDateTime::now_utc(),
                 updated: OffsetDateTime::now_utc(),
             }

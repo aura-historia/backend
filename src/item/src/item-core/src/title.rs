@@ -76,7 +76,5 @@ mod tests {
     #[test]
     fn should_fake_title() {
         let faked = Faker.fake::<Title>();
-
-        println!("{faked}")
     }
 }
