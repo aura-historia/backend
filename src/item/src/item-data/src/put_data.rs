@@ -29,16 +29,35 @@ pub struct PutItemData {
 #[cfg(feature = "test-data")]
 mod faker {
     use super::*;
-    use common::fake::url::ImageUrl;
+    use common::{fake::url::ImageUrl, language::data::LanguageData};
     use fake::{Dummy, Fake, Faker, Rng};
+    use item_core::{description::Description, title::Title};
 
     impl Dummy<Faker> for PutItemData {
         fn dummy_with_rng<R: Rng + ?Sized>(config: &Faker, rng: &mut R) -> Self {
             let image_count = rng.random_range(0..=7);
             PutItemData {
                 shops_item_id: config.fake_with_rng(rng),
-                title: config.fake_with_rng(rng),
-                description: config.fake_with_rng(rng),
+                title: LocalizedTextData {
+                    text: config.fake_with_rng::<Title, R>(rng).into(),
+                    language: if config.fake_with_rng(rng) {
+                        LanguageData::De
+                    } else {
+                        config.fake_with_rng(rng)
+                    },
+                },
+                description: if config.fake_with_rng(rng) {
+                    Some(LocalizedTextData {
+                        text: config.fake_with_rng::<Description, R>(rng).into(),
+                        language: if config.fake_with_rng(rng) {
+                            LanguageData::De
+                        } else {
+                            config.fake_with_rng(rng)
+                        },
+                    })
+                } else {
+                    None
+                },
                 price: config.fake_with_rng(rng),
                 state: config.fake_with_rng(rng),
                 url: config
