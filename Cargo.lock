@@ -4220,6 +4220,7 @@ dependencies = [
  "serde",
  "serde_json",
  "serial_test",
+ "shop-core",
  "shop-data",
  "shop-dynamodb",
  "shop-opensearch",
