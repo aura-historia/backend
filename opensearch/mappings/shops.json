@@ -23,7 +23,7 @@
           }
         }
       },
-      "url": {
+      "urls": {
         "type": "keyword"
       },
       "image": {
