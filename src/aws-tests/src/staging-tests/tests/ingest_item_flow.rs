@@ -11,7 +11,7 @@ use item_data::{item_state_data::ItemStateData, put_data::PutItemData};
 use item_dynamodb::{
     item_record::ItemRecord,
     item_state_record::ItemStateRecord,
-    repository::{ItemDynamoDbRepository, ItemDynamoDbRepositoryImpl},
+    repository::{ItemDynamoDbRepository, ItemDynamoDbRepositoryImpl, mk_pk},
 };
 use item_opensearch::{
     item_document::ItemDocument,
@@ -124,6 +124,8 @@ async fn should_materialize_item_in_dynamodb_for_update_item_command() {
     let shop = prepare_test_shop().await;
 
     let mut materialized_old: ItemRecord = Faker.fake();
+    materialized_old.pk = mk_pk(&shop.shop_id, &materialized_old.shops_item_id);
+    materialized_old.shop_id = shop.shop_id;
     materialized_old
         .url
         .set_host(shop.urls.first().unwrap().host_str())
@@ -278,6 +280,8 @@ async fn should_materialize_item_in_opensearch_for_update_item_command() {
     let dynamodb_client = get_dynamodb_client().await;
     let repository = ItemDynamoDbRepositoryImpl::new(dynamodb_client, &stack.dynamodb_table_1_name);
     let mut materialized_ddb_old: ItemRecord = Faker.fake();
+    materialized_ddb_old.pk = mk_pk(&shop.shop_id, &materialized_ddb_old.shops_item_id);
+    materialized_ddb_old.shop_id = shop.shop_id;
     materialized_ddb_old.title_en = Some("Exactly the expected title".to_string());
     materialized_ddb_old
         .url
