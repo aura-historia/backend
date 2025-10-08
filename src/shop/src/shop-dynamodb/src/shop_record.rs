@@ -97,15 +97,7 @@ mod faker {
     impl Dummy<Faker> for ShopRecord {
         fn dummy_with_rng<R: Rng + ?Sized>(config: &Faker, rng: &mut R) -> Self {
             let shop = config.fake_with_rng::<Shop, _>(rng);
-            if config.fake_with_rng(rng) {
-                ShopRecord::from_shop_as_shop_id_record(shop)
-            } else {
-                ShopRecord::try_clone_from_shop_as_shop_url_records(&shop)
-                    .unwrap()
-                    .first()
-                    .unwrap()
-                    .clone()
-            }
+            ShopRecord::from_shop_as_shop_id_record(shop)
         }
     }
 
