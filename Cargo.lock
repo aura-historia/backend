@@ -1996,6 +1996,7 @@ dependencies = [
  "serde",
  "serde_json",
  "serial_test",
+ "shop-core",
  "shop-dynamodb",
  "test-api",
  "thiserror",

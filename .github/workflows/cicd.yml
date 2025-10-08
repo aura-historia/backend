@@ -128,6 +128,7 @@ jobs:
           - src/search-filter/src/search-filter-api/src/search-filter-api-post-search-filter
           - src/item/src/item-api/src/item-api-complex-search
           - src/item/src/item-api/src/item-api-get-item
+          - src/item/src/item-api/src/item-api-put-items
           - src/item/src/item-api/src/item-api-watchlist-get
           - src/item/src/item-dynamodb
           - src/item/src/item-opensearch

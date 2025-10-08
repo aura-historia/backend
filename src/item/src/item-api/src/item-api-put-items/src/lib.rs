@@ -12,13 +12,13 @@ use item_service::enrichment_service::{
 use item_service::item_command::UpsertItemCommand;
 use item_service::upsert_service::UpsertItemsService;
 use lambda_runtime::LambdaEvent;
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use tracing::warn;
 use url::Url;
 
-#[derive(thiserror::Error, Debug, Clone, PartialEq, Eq, Serialize)]
-#[serde(untagged, into = "String")]
+#[derive(thiserror::Error, Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(untagged, into = "String", try_from = "String")]
 pub enum PutItemError {
     #[error("SHOP_NOT_FOUND")]
     ShopNotFound,
@@ -36,6 +36,21 @@ impl From<PutItemError> for String {
     }
 }
 
+impl TryFrom<String> for PutItemError {
+    type Error = String;
+
+    fn try_from(payload: String) -> Result<Self, Self::Error> {
+        match payload.as_str() {
+            "SHOP_NOT_FOUND" => Ok(PutItemError::ShopNotFound),
+            "MONETARY_AMOUNT_OVERFLOW" => Ok(PutItemError::MonetaryAmountOverflow),
+            "ITEM_ENRICHMENT_FAILED" => Ok(PutItemError::EnrichmentError),
+            other => Err(format!(
+                "Expected any of 'SHOP_NOT_FOUND', 'MONETARY_AMOUNT_OVERFLOW', 'ITEM_ENRICHMENT_FAILED'. Got '{other}'"
+            )),
+        }
+    }
+}
+
 impl From<EnrichItemCommandError> for PutItemError {
     fn from(cmd_error: EnrichItemCommandError) -> Self {
         match cmd_error {
@@ -47,13 +62,13 @@ impl From<EnrichItemCommandError> for PutItemError {
     }
 }
 
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct PutItemsResponse {
-    #[serde(skip_serializing_if = "Vec::is_empty")]
+    #[serde(skip_serializing_if = "Vec::is_empty", default)]
     pub unprocessed: Vec<Url>,
 
-    #[serde(skip_serializing_if = "HashMap::is_empty")]
+    #[serde(skip_serializing_if = "HashMap::is_empty", default)]
     pub failed: HashMap<Url, PutItemError>,
 
     pub skipped: u64,

@@ -29,24 +29,26 @@ pub struct PutItemData {
 #[cfg(feature = "test-data")]
 mod faker {
     use super::*;
+    use common::fake::url::ImageUrl;
     use fake::{Dummy, Fake, Faker, Rng};
 
     impl Dummy<Faker> for PutItemData {
         fn dummy_with_rng<R: Rng + ?Sized>(config: &Faker, rng: &mut R) -> Self {
+            let image_count = rng.random_range(0..=7);
             PutItemData {
                 shops_item_id: config.fake_with_rng(rng),
                 title: config.fake_with_rng(rng),
                 description: config.fake_with_rng(rng),
                 price: config.fake_with_rng(rng),
                 state: config.fake_with_rng(rng),
-                url: Url::parse("https://www.youtube.com/watch?v=dQw4w9WgXcQ").unwrap(),
-                images: vec![
-                    Url::parse("https://fastly.picsum.photos/id/866/200/300.jpg?hmac=rcadCENKh4rD6MAp6V_ma-AyWv641M4iiOpe1RyFHeI").unwrap(),
-                    Url::parse("https://fastly.picsum.photos/id/729/1080/720.jpg?hmac=87UNPD0SCY0yxDtSQzOiPil2OHh96KWCVg1qkqLuEns").unwrap(),
-                    Url::parse("https://fastly.picsum.photos/id/729/1080/720.jpg?hmac=87UNPD0SCY0yxDtSQzOiPil2OHh96KWCVg1qkqLuEns").unwrap(),
-                    Url::parse("https://fastly.picsum.photos/id/1082/1920/1080.jpg?hmac=R-FW85Ql3APTWaXe09q_4kjyylVzjB_EySE3UwZOrLU").unwrap(),
-                    Url::parse("https://fachschaft.matheinfo.uni-halle.de/im/1270987911_1_0.jpg").unwrap(),
-                ],
+                url: config
+                    .fake_with_rng::<Url, R>(rng)
+                    .join(&config.fake_with_rng::<String, R>(rng))
+                    .unwrap(),
+                images: fake::vec![ImageUrl; image_count]
+                    .into_iter()
+                    .map(Url::from)
+                    .collect(),
             }
         }
     }
