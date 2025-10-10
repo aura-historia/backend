@@ -14,7 +14,7 @@ Parameters:
     Description: "Unique name of the stage"
   ArtifactBucket:
     Type: String
-    Description: "S3 bucket containing Lambda deployment zips"
+    Description: "S3 bucket containing Lambda deployment zips (must have versioning enabled)"
 
 Mappings:
   ItemIngestEventsDynamoDbQueueMap:
