@@ -37,7 +37,7 @@ pub struct GetItemData {
 
     pub url: Url,
 
-    #[serde(skip_serializing_if = "Vec::is_empty", default)]
+    #[serde(default)]
     pub images: Vec<Url>,
 
     #[serde(with = "time::serde::rfc3339")]

@@ -22,7 +22,7 @@ pub struct PutItemData {
 
     pub url: Url,
 
-    #[serde(skip_serializing_if = "Vec::is_empty", default)]
+    #[serde(default)]
     pub images: Vec<Url>,
 }
 
