@@ -37,7 +37,8 @@ pub const SHOP_NOT_FOUND: ApiErrorCode = ApiErrorCode("SHOP_NOT_FOUND");
 pub const MONETARY_AMOUNT_OVERFLOW: ApiErrorCode = ApiErrorCode("MONETARY_AMOUNT_OVERFLOW");
 pub const TEXT_QUERY_TOO_SHORT: ApiErrorCode = ApiErrorCode("TEXT_QUERY_TOO_SHORT");
 
-// region impl ApiErrorCode
+pub const UNPROCESSED_AFTER_MAX_RETRIES: ApiErrorCode =
+    ApiErrorCode("UNPROCESSED_AFTER_MAX_RETRIES");
 
 impl Display for ApiErrorCode {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -62,5 +63,3 @@ impl From<ApiErrorCode> for String {
         api_error.0.to_owned()
     }
 }
-
-// endregion
