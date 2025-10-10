@@ -7,7 +7,7 @@ use common::{
 };
 use shop_core::shop::Shop;
 use shop_dynamodb::repository::ShopDynamoDbRepository;
-use tracing::{error, warn};
+use tracing::error;
 
 #[derive(thiserror::Error, Debug)]
 #[allow(clippy::large_enum_variant)]
@@ -25,13 +25,16 @@ pub enum GetShopError {
         #[from]
         SdkError<aws_sdk_dynamodb::operation::batch_get_item::BatchGetItemError, HttpResponse>,
     ),
+
+    #[error("Unable to resolve unprocessed items after '{0}' retries. Failing entire operation.")]
+    UnprocessedAfterMaxRetries(u32),
 }
 
 #[cfg(feature = "api")]
 pub mod api {
     use crate::get_service::GetShopError;
     use common::api::error::ApiError;
-    use common::api::error_code::SHOP_NOT_FOUND;
+    use common::api::error_code::{SHOP_NOT_FOUND, UNPROCESSED_AFTER_MAX_RETRIES};
     use tracing::error;
 
     impl From<GetShopError> for ApiError {
@@ -45,6 +48,10 @@ pub mod api {
                 GetShopError::SdkBatchGetItemError(err) => {
                     error!(error = ?err, "Encountered SdkBatchGetShopError while getting shop.");
                     err.into()
+                }
+                GetShopError::UnprocessedAfterMaxRetries(_) => {
+                    error!(error = %err, "Had unprocessed items for BatchGetItem after retries..");
+                    ApiError::service_unavailable(UNPROCESSED_AFTER_MAX_RETRIES)
                 }
             }
         }
@@ -88,20 +95,51 @@ impl<'a> GetShopService for GetShopServiceImpl<'a> {
         &self,
         shop_identifiers: Vec<ShopIdentifier>,
     ) -> Result<Vec<Shop>, GetShopError> {
+        const MAX_RETRIES: u32 = 3;
+        const BASE_DELAY_MS: u64 = 100;
+
+        let mut views = Vec::with_capacity(shop_identifiers.len());
+        let mut unprocessed = shop_identifiers;
+        let mut retry_count = 0;
+        loop {
+            let (mut local_shops, local_unprocessed) =
+                self.find_shops_with_unprocessed(unprocessed).await?;
+            views.append(&mut local_shops);
+
+            if local_unprocessed.is_empty() {
+                break;
+            } else if retry_count >= MAX_RETRIES {
+                return Err(GetShopError::UnprocessedAfterMaxRetries(MAX_RETRIES));
+            }
+
+            retry_count += 1;
+            let delay_ms = BASE_DELAY_MS * 2_u64.pow(retry_count - 1);
+            tokio::time::sleep(tokio::time::Duration::from_millis(delay_ms)).await;
+
+            unprocessed = local_unprocessed;
+        }
+
+        Ok(views)
+    }
+}
+
+impl<'a> GetShopServiceImpl<'a> {
+    async fn find_shops_with_unprocessed(
+        &self,
+        shop_identifiers: Vec<ShopIdentifier>,
+    ) -> Result<(Vec<Shop>, Vec<ShopIdentifier>), GetShopError> {
+        let mut unprocessed = Vec::new();
         let mut shop_records = Vec::with_capacity(shop_identifiers.len());
         for batch in Batch::chunked_from(shop_identifiers.into_iter()) {
             let mut res = self.repository.get_shop_records(&batch).await?;
-            if let Some(unprocessed) = res.unprocessed {
-                warn!(
-                    unprocessed = unprocessed.len(),
-                    "Getting shops in batch contained unprocessed."
-                )
+            if let Some(local_unprocessed) = res.unprocessed {
+                unprocessed.extend(local_unprocessed);
             }
             shop_records.append(&mut res.items);
         }
 
         let shops = shop_records.into_iter().map(Shop::from).collect();
-        Ok(shops)
+        Ok((shops, unprocessed))
     }
 }
 

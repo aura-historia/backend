@@ -19,13 +19,14 @@ aws-sdk-dynamodb = { workspace = true, optional = true }
 serde_dynamo = { workspace = true, optional = true }
 shop-opensearch = { workspace = true, optional = true }
 opensearch = { workspace = true, optional = true }
+tokio = { workspace = true, optional = true }
 
 [dev-dependencies]
 aws-config = { workspace = true }
 time = { workspace = true, features = ["local-offset", "macros", "formatting"] }
 rstest = { workspace = true }
 serde_json = { workspace = true }
-tokio = { workspace = true, features = ["macros"] }
+tokio = { workspace = true, features = ["macros", "time"] }
 shop-dynamodb = { workspace = true, features = ["test-data"] }
 fake = { workspace = true }
 serial_test = { workspace = true }
@@ -45,6 +46,9 @@ dynamodb = [
     "serde_dynamo",
     "shop-dynamodb",
     "common/dynamodb",
+    "tokio",
+    "tokio/time",
+
 ]
 opensearch = ["dep:opensearch", "shop-opensearch"]
 test-data = ["fake", "common/test-data", "shop-core/test-data"]
