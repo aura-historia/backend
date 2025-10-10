@@ -22,7 +22,7 @@ use item_dynamodb::item_event_record::ItemEventRecord;
 use item_dynamodb::item_record::ItemRecord;
 use item_dynamodb::repository::ItemDynamoDbRepository;
 use std::collections::HashMap;
-use tracing::{error, warn};
+use tracing::error;
 
 #[derive(thiserror::Error, Debug)]
 pub enum GetItemError {
@@ -45,13 +45,18 @@ pub enum GetItemError {
 
     #[error("Encountered DynamoDB SdkError for QueryItem: {0}")]
     SdkQueryError(#[from] SdkError<aws_sdk_dynamodb::operation::query::QueryError, HttpResponse>),
+
+    #[error("Unable to resolve unprocessed items after '{0}' retries. Failing entire operation.")]
+    UnprocessedAfterMaxRetries(u32),
 }
 
 #[cfg(feature = "api")]
 pub mod api {
     use crate::get_service::GetItemError;
     use common::api::error::ApiError;
-    use common::api::error_code::{ITEM_NOT_FOUND, MONETARY_AMOUNT_OVERFLOW};
+    use common::api::error_code::{
+        ITEM_NOT_FOUND, MONETARY_AMOUNT_OVERFLOW, UNPROCESSED_AFTER_MAX_RETRIES,
+    };
     use tracing::error;
 
     impl From<GetItemError> for ApiError {
@@ -73,6 +78,10 @@ pub mod api {
                 GetItemError::SdkQueryError(err) => {
                     error!(error = ?err, "Encountered SdkQueryError while querying item and its history.");
                     err.into()
+                }
+                GetItemError::UnprocessedAfterMaxRetries(_) => {
+                    error!(error = %err, "Had unprocessed items for BatchGetItem after retries..");
+                    ApiError::service_unavailable(UNPROCESSED_AFTER_MAX_RETRIES)
                 }
             }
         }
@@ -184,14 +193,48 @@ impl<'a> GetItemService for GetItemServiceImpl<'a> {
         languages: &[Language],
         currency: &Currency,
     ) -> Result<Vec<LocalizedItemView>, GetItemError> {
+        const MAX_RETRIES: u32 = 3;
+        const BASE_DELAY_MS: u64 = 100;
+
         let mut views = Vec::with_capacity(items.len());
+        let mut unprocessed = items;
+        let mut retry_count = 0;
+        loop {
+            let (mut local_views, local_unprocessed) = self
+                .view_items_with_unprocessed(unprocessed, languages, currency)
+                .await?;
+            views.append(&mut local_views);
+
+            if local_unprocessed.is_empty() {
+                break;
+            } else if retry_count >= MAX_RETRIES {
+                return Err(GetItemError::UnprocessedAfterMaxRetries(MAX_RETRIES));
+            }
+
+            retry_count += 1;
+            let delay_ms = BASE_DELAY_MS * 2_u64.pow(retry_count - 1);
+            tokio::time::sleep(tokio::time::Duration::from_millis(delay_ms)).await;
+
+            unprocessed = local_unprocessed;
+        }
+
+        Ok(views)
+    }
+}
+
+impl<'a> GetItemServiceImpl<'a> {
+    async fn view_items_with_unprocessed(
+        &self,
+        items: Vec<ItemKey>,
+        languages: &[Language],
+        currency: &Currency,
+    ) -> Result<(Vec<LocalizedItemView>, Vec<ItemKey>), GetItemError> {
+        let mut views = Vec::with_capacity(items.len());
+        let mut unprocessed = Vec::new();
         for batch in Batch::chunked_from(items.into_iter()) {
             let result = self.repository.get_item_records(&batch).await?;
-            if let Some(unprocessed) = result.unprocessed {
-                warn!(
-                    unprocessed = unprocessed.len(),
-                    "Getting items in batch contained unprocessed."
-                )
+            if let Some(up) = result.unprocessed {
+                unprocessed.extend(up);
             }
             let local_views = result
                 .items
@@ -200,7 +243,7 @@ impl<'a> GetItemService for GetItemServiceImpl<'a> {
             views.extend(local_views);
         }
 
-        Ok(views)
+        Ok((views, unprocessed))
     }
 }
 
@@ -952,7 +995,7 @@ mod tests {
         }
 
         #[tokio::test]
-        async fn should_return_items_when_some_processed() {
+        async fn should_completely_fail_when_some_processed() {
             let mut repository = MockItemDynamoDbRepository::default();
             repository.expect_get_item_records().returning(|_| {
                 Box::pin(async {
@@ -970,8 +1013,13 @@ mod tests {
             let actual = service
                 .view_items(fake::vec![ItemKey; 42], &[], &Currency::Eur)
                 .await
-                .unwrap();
-            assert_eq!(37, actual.len());
+                .unwrap_err();
+            match actual {
+                GetItemError::UnprocessedAfterMaxRetries(_) => {}
+                other => {
+                    panic!("Expected 'GetItemError::UnprocessedAfterMaxRetries'. Got '{other:?}'.")
+                }
+            }
         }
 
         #[tokio::test]

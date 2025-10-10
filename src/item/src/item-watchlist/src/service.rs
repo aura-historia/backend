@@ -60,6 +60,9 @@ pub enum WatchItemError {
     SdkDeleteItemError(
         #[from] SdkError<aws_sdk_dynamodb::operation::delete_item::DeleteItemError, HttpResponse>,
     ),
+
+    #[error("Unable to resolve unprocessed items after '{0}' retries. Failing entire operation.")]
+    UnprocessedAfterMaxRetries(u32),
 }
 
 impl From<GetItemError> for WatchItemError {
@@ -74,6 +77,9 @@ impl From<GetItemError> for WatchItemError {
             GetItemError::SdkGetItemError(e) => WatchItemError::SdkGetItemError(e),
             GetItemError::SdkBatchGetItemError(e) => WatchItemError::SdkBatchGetItemError(e),
             GetItemError::SdkQueryError(e) => WatchItemError::SdkQueryError(e),
+            GetItemError::UnprocessedAfterMaxRetries(e) => {
+                WatchItemError::UnprocessedAfterMaxRetries(e)
+            }
         }
     }
 }
@@ -83,7 +89,8 @@ pub mod api {
     use crate::service::WatchItemError;
     use common::api::error::ApiError;
     use common::api::error_code::{
-        ITEM_NOT_FOUND, MONETARY_AMOUNT_OVERFLOW, WATCHLIST_ENTRY_NOT_FOUND,
+        ITEM_NOT_FOUND, MONETARY_AMOUNT_OVERFLOW, UNPROCESSED_AFTER_MAX_RETRIES,
+        WATCHLIST_ENTRY_NOT_FOUND,
     };
     use tracing::error;
 
@@ -117,6 +124,10 @@ pub mod api {
                 WatchItemError::SdkDeleteItemError(err) => {
                     error!(error = ?err, "Encountered SdkPutItemError while deleting item from watchlist.");
                     err.into()
+                }
+                WatchItemError::UnprocessedAfterMaxRetries(_) => {
+                    error!(error = %err, "Had unprocessed items for BatchGetItem after retries..");
+                    ApiError::service_unavailable(UNPROCESSED_AFTER_MAX_RETRIES)
                 }
             }
         }
