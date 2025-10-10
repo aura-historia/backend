@@ -63,10 +63,10 @@ impl From<EnrichItemCommandError> for PutItemError {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct PutItemsResponse {
-    #[serde(skip_serializing_if = "Vec::is_empty", default)]
+    #[serde(default)]
     pub unprocessed: Vec<Url>,
 
-    #[serde(skip_serializing_if = "HashMap::is_empty", default)]
+    #[serde(default)]
     pub failed: HashMap<Url, PutItemError>,
 
     pub skipped: u64,
@@ -262,14 +262,14 @@ mod tests {
             .unwrap();
 
         let actual_json = extract_apigw_response_json_body!(response);
-        if failures == 0 {
-            assert!(actual_json.get("unprocessed").is_none())
-        } else {
-            assert_eq!(
-                failures,
-                actual_json["unprocessed"].as_array().unwrap().len()
-            );
-        }
+        assert_eq!(
+            failures,
+            actual_json["unprocessed"]
+                .as_array()
+                .cloned()
+                .unwrap_or_default()
+                .len()
+        );
         assert_eq!(skipped, actual_json["skipped"]);
     }
 }
