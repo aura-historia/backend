@@ -15,8 +15,6 @@ Parameters:
   ArtifactBucket:
     Type: String
     Description: "S3 bucket containing Lambda deployment zips"
-  CommitSHA:
-    Type: String
 
 Mappings:
   ItemIngestEventsDynamoDbQueueMap:
@@ -381,7 +379,7 @@ Resources:
       Role: !GetAtt BlitzfilterApiGetItemRole.Arn
       Code:
         S3Bucket: !Ref ArtifactBucket
-        S3Key: !Sub "item-api-get-item-${StageName}-${CommitSHA}.zip"
+        S3Key: !Sub "item-api-get-item-${StageName}.zip"
       MemorySize: 512
       Timeout: 10
       EphemeralStorage:
@@ -451,7 +449,7 @@ Resources:
       Role: !GetAtt BlitzfilterApiPutItemsRole.Arn
       Code:
         S3Bucket: !Ref ArtifactBucket
-        S3Key: !Sub "item-api-put-items-${StageName}-${CommitSHA}.zip"
+        S3Key: !Sub "item-api-put-items-${StageName}.zip"
       MemorySize: 1024
       Timeout: 60
       EphemeralStorage:
@@ -516,7 +514,7 @@ Resources:
       Role: !GetAtt BlitzfilterApiSimpleSearchRole.Arn
       Code:
         S3Bucket: !Ref ArtifactBucket
-        S3Key: !Sub "item-api-simple-search-${StageName}-${CommitSHA}.zip"
+        S3Key: !Sub "item-api-simple-search-${StageName}.zip"
       MemorySize: 512
       Timeout: 10
       EphemeralStorage:
@@ -580,7 +578,7 @@ Resources:
       Role: !GetAtt BlitzfilterApiComplexSearchRole.Arn
       Code:
         S3Bucket: !Ref ArtifactBucket
-        S3Key: !Sub "item-api-complex-search-${StageName}-${CommitSHA}.zip"
+        S3Key: !Sub "item-api-complex-search-${StageName}.zip"
       MemorySize: 512
       Timeout: 10
       EphemeralStorage:
@@ -644,7 +642,7 @@ Resources:
       Role: !GetAtt BlitzfilterApiGetWatchlistItemsRole.Arn
       Code:
         S3Bucket: !Ref ArtifactBucket
-        S3Key: !Sub "item-api-watchlist-get-${StageName}-${CommitSHA}.zip"
+        S3Key: !Sub "item-api-watchlist-get-${StageName}.zip"
       MemorySize: 512
       Timeout: 10
       EphemeralStorage:
@@ -709,7 +707,7 @@ Resources:
       Role: !GetAtt BlitzfilterApiDeleteWatchlistItemRole.Arn
       Code:
         S3Bucket: !Ref ArtifactBucket
-        S3Key: !Sub "item-api-watchlist-delete-${StageName}-${CommitSHA}.zip"
+        S3Key: !Sub "item-api-watchlist-delete-${StageName}.zip"
       MemorySize: 512
       Timeout: 10
       EphemeralStorage:
@@ -774,7 +772,7 @@ Resources:
       Role: !GetAtt BlitzfilterApiPostWatchlistItemRole.Arn
       Code:
         S3Bucket: !Ref ArtifactBucket
-        S3Key: !Sub "item-api-watchlist-post-${StageName}-${CommitSHA}.zip"
+        S3Key: !Sub "item-api-watchlist-post-${StageName}.zip"
       MemorySize: 512
       Timeout: 10
       EphemeralStorage:
@@ -836,7 +834,7 @@ Resources:
       Role: !GetAtt BlitzfilterApiGetShopRole.Arn
       Code:
         S3Bucket: !Ref ArtifactBucket
-        S3Key: !Sub "shop-api-get-shop-${StageName}-${CommitSHA}.zip"
+        S3Key: !Sub "shop-api-get-shop-${StageName}.zip"
       MemorySize: 512
       Timeout: 10
       EphemeralStorage:
@@ -900,7 +898,7 @@ Resources:
       Role: !GetAtt BlitzfilterApiShopSearchRole.Arn
       Code:
         S3Bucket: !Ref ArtifactBucket
-        S3Key: !Sub "shop-api-search-${StageName}-${CommitSHA}.zip"
+        S3Key: !Sub "shop-api-search-${StageName}.zip"
       MemorySize: 512
       Timeout: 10
       EphemeralStorage:
@@ -965,7 +963,7 @@ Resources:
       Role: !GetAtt BlitzfilterApiDeleteSearchFilterRole.Arn
       Code:
         S3Bucket: !Ref ArtifactBucket
-        S3Key: !Sub "search-filter-api-delete-search-filter-${StageName}-${CommitSHA}.zip"
+        S3Key: !Sub "search-filter-api-delete-search-filter-${StageName}.zip"
       MemorySize: 512
       Timeout: 10
       EphemeralStorage:
@@ -1029,7 +1027,7 @@ Resources:
       Role: !GetAtt BlitzfilterApiGetSearchFilterRole.Arn
       Code:
         S3Bucket: !Ref ArtifactBucket
-        S3Key: !Sub "search-filter-api-get-search-filter-${StageName}-${CommitSHA}.zip"
+        S3Key: !Sub "search-filter-api-get-search-filter-${StageName}.zip"
       MemorySize: 512
       Timeout: 10
       EphemeralStorage:
@@ -1093,7 +1091,7 @@ Resources:
       Role: !GetAtt BlitzfilterApiGetSearchFiltersRole.Arn
       Code:
         S3Bucket: !Ref ArtifactBucket
-        S3Key: !Sub "search-filter-api-get-search-filters-${StageName}-${CommitSHA}.zip"
+        S3Key: !Sub "search-filter-api-get-search-filters-${StageName}.zip"
       MemorySize: 512
       Timeout: 10
       EphemeralStorage:
@@ -1157,7 +1155,7 @@ Resources:
       Role: !GetAtt BlitzfilterApiPatchSearchFilterRole.Arn
       Code:
         S3Bucket: !Ref ArtifactBucket
-        S3Key: !Sub "search-filter-api-patch-search-filter-${StageName}-${CommitSHA}.zip"
+        S3Key: !Sub "search-filter-api-patch-search-filter-${StageName}.zip"
       MemorySize: 512
       Timeout: 10
       EphemeralStorage:
@@ -1219,7 +1217,7 @@ Resources:
       Role: !GetAtt BlitzfilterApiPostSearchFilterRole.Arn
       Code:
         S3Bucket: !Ref ArtifactBucket
-        S3Key: !Sub "search-filter-api-post-search-filter-${StageName}-${CommitSHA}.zip"
+        S3Key: !Sub "search-filter-api-post-search-filter-${StageName}.zip"
       MemorySize: 512
       Timeout: 10
       EphemeralStorage:
@@ -1290,7 +1288,7 @@ Resources:
       Role: !GetAtt ItemIngestEventsDynamoDbRole.Arn
       Code:
         S3Bucket: !Ref ArtifactBucket
-        S3Key: !Sub "item-lambda-ingest-events-dynamodb-${StageName}-${CommitSHA}.zip"
+        S3Key: !Sub "item-lambda-ingest-events-dynamodb-${StageName}.zip"
       MemorySize: 512
       Timeout: 60
       EphemeralStorage:
@@ -1369,7 +1367,7 @@ Resources:
       Role: !GetAtt ItemMaterializeDynamoDbNewRole.Arn
       Code:
         S3Bucket: !Ref ArtifactBucket
-        S3Key: !Sub "item-lambda-materialize-dynamodb-new-${StageName}-${CommitSHA}.zip"
+        S3Key: !Sub "item-lambda-materialize-dynamodb-new-${StageName}.zip"
       MemorySize: 512
       Timeout: 60
       EphemeralStorage:
@@ -1448,7 +1446,7 @@ Resources:
       Role: !GetAtt ItemMaterializeDynamoDbUpdateRole.Arn
       Code:
         S3Bucket: !Ref ArtifactBucket
-        S3Key: !Sub "item-lambda-materialize-dynamodb-update-${StageName}-${CommitSHA}.zip"
+        S3Key: !Sub "item-lambda-materialize-dynamodb-update-${StageName}.zip"
       MemorySize: 512
       Timeout: 60
       EphemeralStorage:
@@ -1527,7 +1525,7 @@ Resources:
       Role: !GetAtt ItemMaterializeOpenSearchNewRole.Arn
       Code:
         S3Bucket: !Ref ArtifactBucket
-        S3Key: !Sub "item-lambda-materialize-opensearch-new-${StageName}-${CommitSHA}.zip"
+        S3Key: !Sub "item-lambda-materialize-opensearch-new-${StageName}.zip"
       MemorySize: 512
       Timeout: 60
       EphemeralStorage:
@@ -1606,7 +1604,7 @@ Resources:
       Role: !GetAtt ItemMaterializeOpenSearchUpdateRole.Arn
       Code:
         S3Bucket: !Ref ArtifactBucket
-        S3Key: !Sub "item-lambda-materialize-opensearch-update-${StageName}-${CommitSHA}.zip"
+        S3Key: !Sub "item-lambda-materialize-opensearch-update-${StageName}.zip"
       MemorySize: 512
       Timeout: 60
       EphemeralStorage:

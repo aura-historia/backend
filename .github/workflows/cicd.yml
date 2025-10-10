@@ -314,7 +314,7 @@ jobs:
           BIN_NAME=$(basename ${{ matrix.crate }})
           OUT_DIR=$GITHUB_WORKSPACE/artifacts
           mkdir -p $OUT_DIR
-          cp target/lambda/$BIN_NAME/bootstrap.zip $OUT_DIR/$BIN_NAME-${{ env.STAGE_NAME }}-${GITHUB_SHA}.zip
+          cp target/lambda/$BIN_NAME/bootstrap.zip $OUT_DIR/$BIN_NAME-${{ env.STAGE_NAME }}.zip
 
       - name: Configure AWS credentials
         uses: aws-actions/configure-aws-credentials@v5.1.0
@@ -327,8 +327,8 @@ jobs:
           BIN_NAME=$(basename ${{ matrix.crate }})
           aws s3api put-object \
             --bucket "${{ vars.S3_BINARY_ARTIFACTS_BUCKET_NAME }}" \
-            --key "$BIN_NAME-${{ env.STAGE_NAME }}-${GITHUB_SHA}.zip" \
-            --body "$GITHUB_WORKSPACE/artifacts/$BIN_NAME-${{ env.STAGE_NAME }}-${GITHUB_SHA}.zip" \
+            --key "$BIN_NAME-${{ env.STAGE_NAME }}.zip" \
+            --body "$GITHUB_WORKSPACE/artifacts/$BIN_NAME-${{ env.STAGE_NAME }}.zip" \
             --tagging "stage=${{ env.STAGE }}"
 
   aws-cfn-deploy:
@@ -360,8 +360,7 @@ jobs:
             --parameter-overrides \
                 Stage=${{ env.STAGE }} \
                 StageName=${{ env.STAGE_NAME }} \
-                ArtifactBucket=${{ vars.S3_BINARY_ARTIFACTS_BUCKET_NAME }} \
-                CommitSHA=${GITHUB_SHA}
+                ArtifactBucket=${{ vars.S3_BINARY_ARTIFACTS_BUCKET_NAME }}
 
       - name: Install OpenSearch CLI
         run: |
