@@ -130,4 +130,8 @@ smoking-tests-macros = { path = "src/aws-tests/src/smoking-tests/src/smoking-tes
 staging-tests-macros = { path = "src/aws-tests/src/staging-tests/src/staging-tests-macros" }
 test_lambda = { path = "src/test-api/src/test_lambda" }
 user = { path = "src/user" }
+user-core = { path = "src/user/src/user-core" }
+user-dynamodb = { path = "src/user/src/user-dynamodb" }
+user-service = { path = "src/user/src/user-service" }
+cognito-post-confirmation = { path = "src/user/src/cognito-post-confirmation" }
 serde-email = "3.2.0"

@@ -1,7 +1,9 @@
-use crate::{command::CreateUserCommand, repository::UserDynamoDbRepository, user::User};
+use crate::command::CreateUserCommand;
 use aws_sdk_dynamodb::{config::http::HttpResponse, error::SdkError};
 use common::user_id::UserId;
 use time::OffsetDateTime;
+use user_core::user::User;
+use user_dynamodb::repository::UserDynamoDbRepository;
 
 #[derive(thiserror::Error, Debug)]
 pub enum UserServiceError {
@@ -74,13 +76,14 @@ impl<'a> UserService for UserServiceImpl<'a> {
 mod tests {
 
     mod find_user {
+        use crate::service::UserServiceError;
         use crate::service::{UserService, UserServiceImpl};
-        use crate::{repository::MockUserDynamoDbRepository, service::UserServiceError};
         use aws_sdk_dynamodb::{
             config::http::HttpResponse,
             error::{ConnectorError, SdkError},
         };
         use common::user_id::UserId;
+        use user_dynamodb::repository::MockUserDynamoDbRepository;
 
         #[tokio::test]
         async fn should_err_user_not_found_when_not_exists() {
@@ -142,13 +145,14 @@ mod tests {
 
     mod create_user {
         use crate::command::CreateUserCommand;
+        use crate::service::UserServiceError;
         use crate::service::{UserService, UserServiceImpl};
-        use crate::{repository::MockUserDynamoDbRepository, service::UserServiceError};
         use aws_sdk_dynamodb::{
             config::http::HttpResponse,
             error::{ConnectorError, SdkError},
         };
         use fake::{Fake, Faker};
+        use user_dynamodb::repository::MockUserDynamoDbRepository;
 
         #[tokio::test]
         async fn should_err_user_exists_already_when_exists() {

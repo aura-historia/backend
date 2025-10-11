@@ -1,0 +1,20 @@
+[package]
+name = "user-core"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+common = { workspace = true }
+serde-email = { workspace = true }
+time = { workspace = true }
+
+# Optional
+fake = { workspace = true, optional = true }
+
+[dev-dependencies]
+user-core = { workspace = true, features = ["test-data"] }
+rstest = { workspace = true }
+
+[features]
+default = []
+test-data = ["fake", "common/test-data"]

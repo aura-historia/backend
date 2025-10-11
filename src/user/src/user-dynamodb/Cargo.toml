@@ -1,0 +1,30 @@
+[package]
+name = "user-dynamodb"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+common = { workspace = true }
+user-core = { workspace = true }
+serde-email = { workspace = true }
+serde = { workspace = true }
+serde_dynamo = { workspace = true }
+time = { workspace = true }
+tracing = { workspace = true }
+async-trait = { workspace = true }
+mockall = { workspace = true }
+aws-sdk-dynamodb = { workspace = true }
+
+# Optional
+fake = { workspace = true, optional = true }
+
+[dev-dependencies]
+test-api = { workspace = true, features = ["dynamodb"] }
+user-dynamodb = { workspace = true, features = ["test-data"] }
+serial_test = { workspace = true }
+rstest = { workspace = true }
+tokio = { workspace = true, features = ["macros"] }
+
+[features]
+default = []
+test-data = ["fake", "common/test-data", "user-core/test-data"]

@@ -1,0 +1,26 @@
+[package]
+name = "cognito-post-confirmation"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+common = { workspace = true, features = ["api"] }
+tracing = { workspace = true }
+user-service = { workspace = true }
+user-dynamodb = { workspace = true }
+tracing-subscriber = { workspace = true, features = ["json"] }
+tokio = { workspace = true, features = ["macros"] }
+aws_lambda_events = { workspace = true, features = ["apigw"] }
+lambda_runtime = { workspace = true }
+aws-config = { workspace = true }
+aws-sdk-dynamodb = { workspace = true }
+serde_json = { workspace = true }
+http = { workspace = true }
+
+[dev-dependencies]
+test-api = { workspace = true, features = ["dynamodb"] }
+serial_test = { workspace = true }
+rstest = { workspace = true }
+http = { workspace = true }
+url = { workspace = true }
+fake = { workspace = true }
