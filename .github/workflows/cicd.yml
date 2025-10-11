@@ -68,6 +68,7 @@ jobs:
           - src/item
           - src/shop
           - src/test-api
+          - src/user
     steps:
       - uses: actions/checkout@v5
 
