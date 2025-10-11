@@ -1,5 +1,4 @@
-use aws_lambda_events::apigw::{ApiGatewayV2httpRequest, ApiGatewayV2httpResponse};
-use common::api::error::ApiError;
+use aws_lambda_events::cognito::CognitoEventUserPoolsPostConfirmation;
 use lambda_runtime::LambdaEvent;
 use user_service::service::UserService;
 
@@ -8,18 +7,8 @@ use user_service::service::UserService;
     fields(requestId = %event.context.request_id,)
 )]
 pub async fn handler(
-    event: LambdaEvent<ApiGatewayV2httpRequest>,
+    event: LambdaEvent<CognitoEventUserPoolsPostConfirmation>,
     service: &impl UserService,
-) -> Result<ApiGatewayV2httpResponse, lambda_runtime::Error> {
-    match handle(event, service).await {
-        Ok(response) => Ok(response),
-        Err(err) => Ok(ApiGatewayV2httpResponse::from(err)),
-    }
-}
-
-pub async fn handle(
-    event: LambdaEvent<ApiGatewayV2httpRequest>,
-    service: &impl UserService,
-) -> Result<ApiGatewayV2httpResponse, ApiError> {
+) -> Result<CognitoEventUserPoolsPostConfirmation, lambda_runtime::Error> {
     unimplemented!()
 }

@@ -1,5 +1,5 @@
 use aws_config::BehaviorVersion;
-use aws_lambda_events::apigw::ApiGatewayV2httpRequest;
+use aws_lambda_events::cognito::CognitoEventUserPoolsPostConfirmation;
 use aws_sdk_dynamodb::Client;
 use cognito_post_confirmation::handler;
 use lambda_runtime::tracing::info;
@@ -32,7 +32,9 @@ async fn main() -> Result<(), Error> {
     );
 
     run(service_fn(
-        |event: LambdaEvent<ApiGatewayV2httpRequest>| async { handler(event, &service).await },
+        |event: LambdaEvent<CognitoEventUserPoolsPostConfirmation>| async {
+            handler(event, &service).await
+        },
     ))
     .await
 }
