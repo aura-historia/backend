@@ -8,7 +8,7 @@ common = { workspace = true }
 user-core = { workspace = true }
 serde-email = { workspace = true }
 serde = { workspace = true }
-serde_dynamo = { workspace = true }
+serde_dynamo = { workspace = true, features = ["aws-sdk-dynamodb+1"] }
 time = { workspace = true }
 tracing = { workspace = true }
 async-trait = { workspace = true }
