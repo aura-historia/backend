@@ -206,6 +206,7 @@ impl<'a> ItemWatchListService for ItemWatchListServiceImpl<'a> {
             item_id: item_record.item_id,
             shop_id: item_record.shop_id,
             shops_item_id: item_record.shops_item_id,
+            notifications: false,
             created,
         };
         self.watchlist_repository
@@ -257,7 +258,7 @@ impl<'a> ItemWatchListService for ItemWatchListServiceImpl<'a> {
 
         let mut watchlist_records_created = paged_watchlist_records
             .iter()
-            .map(|record| (record.item_id, record.created))
+            .map(|record| (record.item_id, record.clone()))
             .collect::<HashMap<_, _>>();
         let watchlist_record_keys = paged_watchlist_records
             .into_iter()
@@ -270,7 +271,7 @@ impl<'a> ItemWatchListService for ItemWatchListServiceImpl<'a> {
                     .into_iter()
                     .filter_map(
                         |item| match watchlist_records_created.remove(&item.item_id) {
-                            Some(created) => Some(LocalizedWatchlistItemView { item, created }),
+                            Some(watchlist_record) => Some(LocalizedWatchlistItemView { item, created: watchlist_record.created, notifications: watchlist_record.notifications }),
                             None => {
                                 tracing::error!("Could not find timestamp 'created' for Watchlist-Item after Batch-Get. This is a bug. Skipping Item.");
                                 None

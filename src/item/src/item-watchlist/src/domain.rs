@@ -5,6 +5,7 @@ use time::OffsetDateTime;
 pub struct LocalizedWatchlistItemView {
     pub item: LocalizedItemView,
     pub created: OffsetDateTime,
+    pub notifications: bool,
 }
 
 #[cfg(feature = "test-data")]
@@ -18,6 +19,7 @@ mod faker {
             LocalizedWatchlistItemView {
                 item: config.fake_with_rng(rng),
                 created: OffsetDateTime::now_utc(),
+                notifications: config.fake_with_rng(rng),
             }
         }
     }

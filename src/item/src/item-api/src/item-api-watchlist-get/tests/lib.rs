@@ -40,6 +40,7 @@ async fn should_200_when_sort_created_asc() {
             item_id: item_record.item_id,
             shop_id: item_record.shop_id,
             shops_item_id: item_record.shops_item_id,
+            notifications: false,
             created,
         };
         watchlist_repository
@@ -118,6 +119,7 @@ async fn should_200_when_sort_created_asc_search_after() {
             item_id: item_record.item_id,
             shop_id: item_record.shop_id,
             shops_item_id: item_record.shops_item_id,
+            notifications: false,
             created,
         };
         watchlist_repository
@@ -190,6 +192,7 @@ async fn should_200_when_sort_created_desc() {
             item_id: item_record.item_id,
             shop_id: item_record.shop_id,
             shops_item_id: item_record.shops_item_id,
+            notifications: false,
             created,
         };
         watchlist_repository
@@ -269,6 +272,7 @@ async fn should_200_when_sort_created_desc_search_after() {
             item_id: item_record.item_id,
             shop_id: item_record.shop_id,
             shops_item_id: item_record.shops_item_id,
+            notifications: false,
             created,
         };
         watchlist_repository

@@ -16,6 +16,8 @@ pub struct WatchlistItemRecord {
 
     pub shops_item_id: ShopsItemId,
 
+    pub notifications: bool,
+
     #[serde(with = "time::serde::rfc3339")]
     pub created: OffsetDateTime,
 }
@@ -47,6 +49,7 @@ mod faker {
                 item_id: config.fake_with_rng(rng),
                 shop_id,
                 shops_item_id: shops_item_id.clone(),
+                notifications: config.fake_with_rng(rng),
                 created,
             }
         }
