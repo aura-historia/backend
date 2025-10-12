@@ -16,8 +16,11 @@ use serde::{Deserialize, Serialize};
 use time::OffsetDateTime;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct WatchlistItemData {
     pub item: GetItemData,
+
+    pub notifications: bool,
 
     #[serde(with = "time::serde::rfc3339")]
     pub created: OffsetDateTime,
@@ -27,6 +30,7 @@ impl From<LocalizedWatchlistItemView> for WatchlistItemData {
     fn from(view: LocalizedWatchlistItemView) -> Self {
         WatchlistItemData {
             item: view.item.into(),
+            notifications: view.notifications,
             created: view.created,
         }
     }
