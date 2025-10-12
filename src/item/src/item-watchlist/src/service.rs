@@ -1,6 +1,7 @@
 use crate::{
     domain::LocalizedWatchlistItemView,
     record::{WatchlistItemRecord, mk_pk, mk_sk},
+    record_update::WatchlistItemRecordUpdate,
     repository::WatchlistItemDynamoDbRepository,
     sort_watch_item::SortWatchlistItemField,
 };
@@ -59,6 +60,11 @@ pub enum WatchItemError {
     #[error("Encountered DynamoDB SdkError for DeleteItem: {0}")]
     SdkDeleteItemError(
         #[from] SdkError<aws_sdk_dynamodb::operation::delete_item::DeleteItemError, HttpResponse>,
+    ),
+
+    #[error("Encountered DynamoDB SdkError for UpdateItem: {0}")]
+    SdkUpdateItemError(
+        #[from] SdkError<aws_sdk_dynamodb::operation::update_item::UpdateItemError, HttpResponse>,
     ),
 
     #[error("Unable to resolve unprocessed items after '{0}' retries. Failing entire operation.")]
@@ -125,6 +131,10 @@ pub mod api {
                     error!(error = ?err, "Encountered SdkPutItemError while deleting item from watchlist.");
                     err.into()
                 }
+                WatchItemError::SdkUpdateItemError(err) => {
+                    error!(error = ?err, "Encountered SdkUpdateItemError while updating item from watchlist.");
+                    err.into()
+                }
                 WatchItemError::UnprocessedAfterMaxRetries(_) => {
                     error!(error = %err, "Had unprocessed items for BatchGetItem after retries..");
                     ApiError::service_unavailable(UNPROCESSED_AFTER_MAX_RETRIES)
@@ -148,6 +158,13 @@ pub trait ItemWatchListService {
         &self,
         user_id: &UserId,
         created: &OffsetDateTime,
+    ) -> Result<(), WatchItemError>;
+
+    async fn toggle_notifications(
+        &self,
+        user_id: &UserId,
+        created: &OffsetDateTime,
+        notifications: &bool,
     ) -> Result<(), WatchItemError>;
 
     async fn view_watchlist(
@@ -235,6 +252,35 @@ impl<'a> ItemWatchListService for ItemWatchListServiceImpl<'a> {
             .await?;
 
         Ok(())
+    }
+
+    async fn toggle_notifications(
+        &self,
+        user_id: &UserId,
+        created: &OffsetDateTime,
+        notifications: &bool,
+    ) -> Result<(), WatchItemError> {
+        let watchlist_record = self
+            .watchlist_repository
+            .get_watchlist_record(user_id, created)
+            .await?
+            .ok_or(WatchItemError::WatchlistTimestampNotFound(
+                *user_id, *created,
+            ))?;
+
+        if &watchlist_record.notifications == notifications {
+            Ok(())
+        } else {
+            let update = WatchlistItemRecordUpdate {
+                notifications: Some(*notifications),
+            };
+            let _ = self
+                .watchlist_repository
+                .update_watchlist_record(user_id, created, update)
+                .await?;
+
+            Ok(())
+        }
     }
 
     async fn view_watchlist(
@@ -611,6 +657,181 @@ mod tests {
             match actual.unwrap_err() {
                 WatchItemError::SdkDeleteItemError(_) => {}
                 err => panic!("Expected 'WatchItemError::SdkDeleteItemError', got '{err}'"),
+            }
+        }
+    }
+
+    mod toggle_notifications {
+        use crate::{
+            record::WatchlistItemRecord,
+            repository::MockWatchlistItemDynamoDbRepository,
+            service::{ItemWatchListService, ItemWatchListServiceImpl, WatchItemError},
+        };
+        use aws_sdk_dynamodb::{
+            config::http::HttpResponse,
+            error::{ConnectorError, SdkError},
+            operation::update_item::UpdateItemOutput,
+        };
+        use common::user_id::UserId;
+        use fake::{Fake, Faker};
+        use item_dynamodb::repository::MockItemDynamoDbRepository;
+        use item_service::get_service::GetItemServiceImpl;
+        use time::OffsetDateTime;
+
+        #[tokio::test]
+        async fn should_toggle_notifications_when_success() {
+            let item_repository = MockItemDynamoDbRepository::default();
+            let mut watchlist_repository = MockWatchlistItemDynamoDbRepository::default();
+            watchlist_repository
+                .expect_get_watchlist_record()
+                .return_once(|_, _| {
+                    Box::pin(async {
+                        let mut faked = Faker.fake::<WatchlistItemRecord>();
+                        faked.notifications = false;
+                        Ok(Some(faked))
+                    })
+                });
+            watchlist_repository
+                .expect_update_watchlist_record()
+                .return_once(|_, _, _| Box::pin(async { Ok(UpdateItemOutput::builder().build()) }));
+            let get_item_service = GetItemServiceImpl::new(&item_repository);
+
+            let service = ItemWatchListServiceImpl::new(
+                &watchlist_repository,
+                &item_repository,
+                &get_item_service,
+            );
+            service
+                .toggle_notifications(&Faker.fake(), &Faker.fake(), &true)
+                .await
+                .unwrap();
+        }
+
+        #[tokio::test]
+        async fn should_err_watchlist_timestamp_not_found_when_no_watched_item_with_timestamp_exists()
+         {
+            let item_repository = MockItemDynamoDbRepository::default();
+            let mut watchlist_repository = MockWatchlistItemDynamoDbRepository::default();
+            watchlist_repository
+                .expect_get_watchlist_record()
+                .return_once(|_, _| Box::pin(async { Ok(None) }));
+            let get_item_service = GetItemServiceImpl::new(&item_repository);
+
+            let service = ItemWatchListServiceImpl::new(
+                &watchlist_repository,
+                &item_repository,
+                &get_item_service,
+            );
+            let user_id = UserId::new();
+            let timestamp = OffsetDateTime::now_utc();
+            let actual = service
+                .toggle_notifications(&user_id, &timestamp, &false)
+                .await
+                .unwrap_err();
+
+            match actual {
+                WatchItemError::WatchlistTimestampNotFound(err_user_id, err_timestamp) => {
+                    assert_eq!(user_id, err_user_id);
+                    assert_eq!(timestamp, err_timestamp);
+                }
+                err => {
+                    panic!("Expected 'WatchItemError::WatchlistTimestampNotFound' but got '{err}'")
+                }
+            }
+        }
+
+        #[tokio::test]
+        #[rstest::rstest]
+        #[case::construction_failure(SdkError::construction_failure("Something went wrong"))]
+        #[case::timeout(SdkError::timeout_error("Something went wrong"))]
+        #[case::dispatch_failure(SdkError::dispatch_failure(ConnectorError::user("Something went wrong".into())))]
+        #[case::response_error(SdkError::response_error(
+            "Something went wrong",
+            HttpResponse::new(500u16.try_into().unwrap(), "{}".into())
+        ))]
+        #[case::service_error(SdkError::service_error(
+            aws_sdk_dynamodb::operation::get_item::GetItemError::unhandled("Something went wrong"),
+            HttpResponse::new(500u16.try_into().unwrap(), "{}".into())
+        ))]
+        async fn should_propagate_sdk_error_get_item(
+            #[case] expected: SdkError<
+                aws_sdk_dynamodb::operation::get_item::GetItemError,
+                aws_sdk_dynamodb::config::http::HttpResponse,
+            >,
+        ) {
+            let item_repository = MockItemDynamoDbRepository::default();
+            let mut watchlist_repository = MockWatchlistItemDynamoDbRepository::default();
+            watchlist_repository
+                .expect_get_watchlist_record()
+                .return_once(|_, _| Box::pin(async { Err(expected) }));
+            let get_item_service = GetItemServiceImpl::new(&item_repository);
+
+            let service = ItemWatchListServiceImpl::new(
+                &watchlist_repository,
+                &item_repository,
+                &get_item_service,
+            );
+
+            let actual = service
+                .toggle_notifications(&Faker.fake(), &Faker.fake(), &true)
+                .await;
+
+            assert!(actual.is_err());
+            match actual.unwrap_err() {
+                WatchItemError::SdkGetItemError(_) => {}
+                err => panic!("Expected 'WatchItemError::SdkGetItemError', got '{err}'"),
+            }
+        }
+
+        #[tokio::test]
+        #[rstest::rstest]
+        #[case::construction_failure(SdkError::construction_failure("Something went wrong"))]
+        #[case::timeout(SdkError::timeout_error("Something went wrong"))]
+        #[case::dispatch_failure(SdkError::dispatch_failure(ConnectorError::user("Something went wrong".into())))]
+        #[case::response_error(SdkError::response_error(
+            "Something went wrong",
+            HttpResponse::new(500u16.try_into().unwrap(), "{}".into())
+        ))]
+        #[case::service_error(SdkError::service_error(
+            aws_sdk_dynamodb::operation::update_item::UpdateItemError::unhandled("Something went wrong"),
+            HttpResponse::new(500u16.try_into().unwrap(), "{}".into())
+        ))]
+        async fn should_propagate_sdk_error_update_item(
+            #[case] expected: SdkError<
+                aws_sdk_dynamodb::operation::update_item::UpdateItemError,
+                aws_sdk_dynamodb::config::http::HttpResponse,
+            >,
+        ) {
+            let item_repository = MockItemDynamoDbRepository::default();
+            let mut watchlist_repository = MockWatchlistItemDynamoDbRepository::default();
+            watchlist_repository
+                .expect_get_watchlist_record()
+                .return_once(|_, _| {
+                    Box::pin(async {
+                        let mut faked = Faker.fake::<WatchlistItemRecord>();
+                        faked.notifications = true;
+                        Ok(Some(faked))
+                    })
+                });
+            watchlist_repository
+                .expect_update_watchlist_record()
+                .return_once(|_, _, _| Box::pin(async { Err(expected) }));
+            let get_item_service = GetItemServiceImpl::new(&item_repository);
+
+            let service = ItemWatchListServiceImpl::new(
+                &watchlist_repository,
+                &item_repository,
+                &get_item_service,
+            );
+
+            let actual = service
+                .toggle_notifications(&Faker.fake(), &Faker.fake(), &false)
+                .await;
+
+            assert!(actual.is_err());
+            match actual.unwrap_err() {
+                WatchItemError::SdkUpdateItemError(_) => {}
+                err => panic!("Expected 'WatchItemError::SdkUpdateItemError', got '{err}'"),
             }
         }
     }

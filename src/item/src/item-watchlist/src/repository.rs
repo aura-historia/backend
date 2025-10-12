@@ -10,9 +10,9 @@ use aws_sdk_dynamodb::{
         get_item::GetItemError,
         put_item::{PutItemError, PutItemOutput},
         query::QueryError,
-        update_item::UpdateItemError,
+        update_item::{UpdateItemError, UpdateItemOutput},
     },
-    types::{AttributeValue, ReturnValue},
+    types::AttributeValue,
 };
 use common::{dynamodb_update::mk_update, pagination::cursor::Cursor, user_id::UserId};
 use time::{OffsetDateTime, macros::datetime};
@@ -50,7 +50,7 @@ pub trait WatchlistItemDynamoDbRepository {
         user_id: &UserId,
         created: &OffsetDateTime,
         update: WatchlistItemRecordUpdate,
-    ) -> Result<Option<WatchlistItemRecord>, SdkError<UpdateItemError>>;
+    ) -> Result<UpdateItemOutput, SdkError<UpdateItemError>>;
 }
 
 #[derive(Debug, Clone)]
@@ -186,7 +186,7 @@ impl<'a> WatchlistItemDynamoDbRepository for WatchlistItemDynamoDbRepositoryImpl
         user_id: &UserId,
         created: &OffsetDateTime,
         update: WatchlistItemRecordUpdate,
-    ) -> Result<Option<WatchlistItemRecord>, SdkError<UpdateItemError>> {
+    ) -> Result<UpdateItemOutput, SdkError<UpdateItemError>> {
         let pk = mk_pk(user_id);
         let sk = mk_sk(created).map_err(SdkError::construction_failure)?;
         let update_expr = mk_update(update)?;
@@ -199,16 +199,7 @@ impl<'a> WatchlistItemDynamoDbRepository for WatchlistItemDynamoDbRepositoryImpl
             .update_expression(update_expr.update_expr)
             .set_expression_attribute_names(Some(update_expr.expr_attr_names))
             .set_expression_attribute_values(Some(update_expr.expr_attr_values))
-            .return_values(ReturnValue::AllNew)
             .send()
             .await
-            .map(|output| output.attributes)
-            .map(|attr_opt| attr_opt.map(serde_dynamo::from_item).and_then(|record_res| match record_res {
-                Ok(watchlist_record) => Some(watchlist_record),
-                Err(err) => {
-                    error!(error = %err, type = %std::any::type_name::<WatchlistItemRecord>(), "Failed deserializing WatchlistItemRecord.");
-                    None
-                }
-            }))
     }
 }

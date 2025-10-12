@@ -223,7 +223,7 @@ fn should_update_watchlist_record() {
         .await
         .unwrap();
 
-    let returned = repository
+    let _ = repository
         .update_watchlist_record(
             &initial.user_id,
             &initial.created,
@@ -232,7 +232,6 @@ fn should_update_watchlist_record() {
             },
         )
         .await
-        .unwrap()
         .unwrap();
 
     let actual = repository
@@ -243,6 +242,5 @@ fn should_update_watchlist_record() {
 
     let mut expected = initial;
     expected.notifications = !expected.notifications;
-    assert_eq!(expected, returned);
     assert_eq!(expected, actual);
 }
