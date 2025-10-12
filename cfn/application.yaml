@@ -64,7 +64,7 @@ Resources:
           Mutable: false
           Required: true
       LambdaConfig:
-        PostConfirmation: "PostConfirmationLambda"
+        PostConfirmation: !GetAtt PostConfirmationLambda.Arn
 
   PostConfirmationLambdaRole:
     Type: AWS::IAM::Role
@@ -110,7 +110,7 @@ Resources:
     Type: AWS::Lambda::Permission
     Properties:
       Action: lambda:InvokeFunction
-      FunctionName: "PostConfirmationLambda"
+      FunctionName: !GetAtt PostConfirmationLambda.Arn
       Principal: cognito-idp.amazonaws.com
       SourceArn: !GetAtt BlitzfilterUserPool.Arn
 
