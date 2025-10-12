@@ -913,6 +913,7 @@ dependencies = [
  "http 1.3.1",
  "lambda_runtime",
  "rstest",
+ "serde-email",
  "serde_json",
  "serial_test",
  "test-api",
