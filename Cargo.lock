@@ -743,6 +743,7 @@ dependencies = [
  "search-filter",
  "shop",
  "test-api",
+ "user",
 ]
 
 [[package]]
@@ -898,6 +899,30 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "e7caa3f9de89ddbe2c607f4101924c5abec803763ae9534e4f4d7d8f84aa81f0"
 dependencies = [
  "cc",
+]
+
+[[package]]
+name = "cognito-post-confirmation"
+version = "0.1.0"
+dependencies = [
+ "aws-config",
+ "aws-sdk-dynamodb",
+ "aws_lambda_events",
+ "common",
+ "fake",
+ "http 1.3.1",
+ "lambda_runtime",
+ "rstest",
+ "serde-email",
+ "serde_json",
+ "serial_test",
+ "test-api",
+ "tokio",
+ "tracing",
+ "tracing-subscriber",
+ "url",
+ "user-dynamodb",
+ "user-service",
 ]
 
 [[package]]
@@ -1130,6 +1155,15 @@ name = "either"
 version = "1.15.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "48c757948c5ede0e46177b7add2e67155f70e33c07fea8284df6576da70b3719"
+
+[[package]]
+name = "email_address"
+version = "0.2.9"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "e079f19b08ca6239f47f8ba8509c11cf3ea30095831f7fed61441475edd8c449"
+dependencies = [
+ "serde",
+]
 
 [[package]]
 name = "encoding_rs"
@@ -3770,6 +3804,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "serde-email"
+version = "3.2.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "5185e64f83980e6bce8058beda9ae593c5589e90c2cdde62a01e3ecd960acd76"
+dependencies = [
+ "email_address",
+ "serde",
+]
+
+[[package]]
 name = "serde_core"
 version = "1.0.228"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -4230,6 +4274,7 @@ dependencies = [
  "tracing",
  "tracing-subscriber",
  "url",
+ "user-dynamodb",
  "uuid",
 ]
 
@@ -4840,6 +4885,73 @@ name = "urlencoding"
 version = "2.1.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "daf8dba3b7eb870caf1ddeed7bc9d2a049f3cfdfae7cb521b087cc33ae4c49da"
+
+[[package]]
+name = "user"
+version = "0.1.0"
+dependencies = [
+ "cognito-post-confirmation",
+ "user-core",
+ "user-dynamodb",
+ "user-service",
+]
+
+[[package]]
+name = "user-core"
+version = "0.1.0"
+dependencies = [
+ "common",
+ "fake",
+ "rstest",
+ "serde-email",
+ "time",
+ "user-core",
+]
+
+[[package]]
+name = "user-dynamodb"
+version = "0.1.0"
+dependencies = [
+ "async-trait",
+ "aws-sdk-dynamodb",
+ "common",
+ "fake",
+ "mockall",
+ "rstest",
+ "serde",
+ "serde-email",
+ "serde_dynamo",
+ "serial_test",
+ "test-api",
+ "time",
+ "tokio",
+ "tracing",
+ "user-core",
+ "user-dynamodb",
+]
+
+[[package]]
+name = "user-service"
+version = "0.1.0"
+dependencies = [
+ "async-trait",
+ "aws-sdk-dynamodb",
+ "common",
+ "fake",
+ "mockall",
+ "rstest",
+ "serde",
+ "serde-email",
+ "serial_test",
+ "test-api",
+ "thiserror",
+ "time",
+ "tokio",
+ "tracing",
+ "user-core",
+ "user-dynamodb",
+ "user-service",
+]
 
 [[package]]
 name = "utf8_iter"

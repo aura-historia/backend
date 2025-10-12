@@ -10,6 +10,7 @@ search-filter = { workspace = true }
 shop = { workspace = true }
 item = { workspace = true }
 test-api = { workspace = true }
+user = { workspace = true }
 
 [workspace]
 members = [
@@ -18,7 +19,9 @@ members = [
     "src/search-filter",
     "src/shop",
     "src/item",
-    "src/test-api", "src/shop",
+    "src/test-api",
+    "src/shop",
+    "src/user",
 ]
 
 [workspace.dependencies]
@@ -126,3 +129,9 @@ proc-macro2 = "1.0.101"
 smoking-tests-macros = { path = "src/aws-tests/src/smoking-tests/src/smoking-tests-macros" }
 staging-tests-macros = { path = "src/aws-tests/src/staging-tests/src/staging-tests-macros" }
 test_lambda = { path = "src/test-api/src/test_lambda" }
+user = { path = "src/user" }
+user-core = { path = "src/user/src/user-core" }
+user-dynamodb = { path = "src/user/src/user-dynamodb" }
+user-service = { path = "src/user/src/user-service" }
+cognito-post-confirmation = { path = "src/user/src/cognito-post-confirmation" }
+serde-email = "3.2.0"

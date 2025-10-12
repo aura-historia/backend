@@ -68,6 +68,7 @@ jobs:
           - src/item
           - src/shop
           - src/test-api
+          - src/user
     steps:
       - uses: actions/checkout@v5
 
@@ -137,6 +138,7 @@ jobs:
           - src/shop/src/shop-dynamodb
           - src/shop/src/shop-opensearch
           - src/test-api
+          - src/user/src/user-dynamodb
     steps:
       - uses: actions/checkout@v5
 
@@ -270,6 +272,7 @@ jobs:
           - src/item/src/item-lambda/src/item-lambda-materialize-opensearch-update
           - src/shop/src/shop-api/src/shop-api-search
           - src/shop/src/shop-api/src/shop-api-get-shop
+          - src/user/src/cognito-post-confirmation
     steps:
       - uses: actions/checkout@v5
 

@@ -61,36 +61,59 @@ Resources:
       Schema:
         - Name: email
           AttributeDataType: String
-          Mutable: true
+          Mutable: false
           Required: true
-        - Name: given_name
-          AttributeDataType: String
-          Mutable: true
-          Required: true
-        - Name: family_name
-          AttributeDataType: String
-          Mutable: true
-          Required: true
-        - Name: birthdate
-          AttributeDataType: String
-          Mutable: true
-          Required: true
-        - Name: gender
-          AttributeDataType: String
-          Mutable: true
-          Required: true
-        - Name: phone_number
-          AttributeDataType: String
-          Mutable: true
-          Required: false
-        - Name: locale
-          AttributeDataType: String
-          Mutable: true
-          Required: false
-        - Name: zoneinfo
-          AttributeDataType: String
-          Mutable: true
-          Required: false
+      LambdaConfig:
+        PostConfirmation: !GetAtt PostConfirmationLambda.Arn
+
+  PostConfirmationLambdaRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Sub "blitzfilter-cognito-post-confirmation-role-${StageName}"
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: lambda.amazonaws.com
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole
+      Policies:
+        - PolicyName: DynamoDBAccess
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: Allow
+                Action:
+                  - dynamodb:PutItem
+                  - dynamodb:GetItem
+                Resource: !GetAtt TableOne.Arn
+  PostConfirmationLambda:
+    Type: AWS::Lambda::Function
+    Properties:
+      FunctionName: !Sub "blitzfilter-cognito-post-confirmation-${StageName}"
+      Runtime: provided.al2023
+      Handler: lib.handler
+      Role: !GetAtt PostConfirmationLambdaRole.Arn
+      Code:
+        S3Bucket: !Ref ArtifactBucket
+        S3Key: !Sub "cognito-post-confirmation-${StageName}-${CommitSHA}.zip"
+      MemorySize: 256
+      Timeout: 5
+      EphemeralStorage:
+        Size: 512
+      Environment:
+        Variables:
+          DYNAMODB_TABLE_NAME: !Ref TableOne
+  AllowCognitoInvokePostConfirmationLambda:
+    Type: AWS::Lambda::Permission
+    Properties:
+      Action: lambda:InvokeFunction
+      FunctionName: !GetAtt PostConfirmationLambda.Arn
+      Principal: cognito-idp.amazonaws.com
+      SourceArn: !GetAtt BlitzfilterUserPool.Arn
+
   BlitzfilterUserPoolClientPublic:
     Type: AWS::Cognito::UserPoolClient
     Properties:
@@ -119,22 +142,6 @@ Resources:
       RefreshTokenValidity: 30 # days
       ReadAttributes:
         - email
-        - given_name
-        - family_name
-        - birthdate
-        - gender
-        - phone_number
-        - locale
-        - zoneinfo
-      WriteAttributes:
-        - email
-        - given_name
-        - family_name
-        - birthdate
-        - gender
-        - phone_number
-        - locale
-        - zoneinfo
   BlitzfilterUserPoolClientAdmin:
     Type: AWS::Cognito::UserPoolClient
     Properties:
@@ -151,22 +158,8 @@ Resources:
       RefreshTokenValidity: 30 # days
       ReadAttributes:
         - email
-        - given_name
-        - family_name
-        - birthdate
-        - gender
-        - phone_number
-        - locale
-        - zoneinfo
       WriteAttributes:
         - email
-        - given_name
-        - family_name
-        - birthdate
-        - gender
-        - phone_number
-        - locale
-        - zoneinfo
   BlitzfilterUserPoolDomain:
     Type: AWS::Cognito::UserPoolDomain
     Properties:
