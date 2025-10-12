@@ -4274,6 +4274,7 @@ dependencies = [
  "tracing",
  "tracing-subscriber",
  "url",
+ "user-dynamodb",
  "uuid",
 ]
 
