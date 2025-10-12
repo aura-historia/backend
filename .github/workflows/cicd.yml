@@ -272,6 +272,7 @@ jobs:
           - src/item/src/item-lambda/src/item-lambda-materialize-opensearch-update
           - src/shop/src/shop-api/src/shop-api-search
           - src/shop/src/shop-api/src/shop-api-get-shop
+          - src/user/src/cognito-post-confirmation
     steps:
       - uses: actions/checkout@v5
 
