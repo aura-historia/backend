@@ -59,11 +59,12 @@ impl<'a> UserService for UserServiceImpl<'a> {
         match exists_guard {
             Some(_) => Err(UserServiceError::UserExistsAlready(cmd.id)),
             None => {
+                let now = OffsetDateTime::now_utc();
                 let user = User {
                     id: cmd.id,
                     email: cmd.email,
-                    created: OffsetDateTime::now_utc(),
-                    updated: OffsetDateTime::now_utc(),
+                    created: now,
+                    updated: now,
                 };
                 let _ = self.repository.put_user_record(user.clone().into()).await?;
                 Ok(user)
