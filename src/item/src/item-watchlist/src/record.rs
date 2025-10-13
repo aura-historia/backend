@@ -2,6 +2,8 @@ use common::{item_id::ItemId, shop_id::ShopId, shops_item_id::ShopsItemId, user_
 use serde::{Deserialize, Serialize};
 use time::{OffsetDateTime, error::Format, format_description::well_known::Rfc3339};
 
+use crate::domain::WatchlistItem;
+
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct WatchlistItemRecord {
     pub pk: String,
@@ -28,6 +30,18 @@ pub fn mk_pk(user_id: &UserId) -> String {
 
 pub fn mk_sk(created: &OffsetDateTime) -> Result<String, Format> {
     Ok(format!("item#watch#created#{}", created.format(&Rfc3339)?))
+}
+
+impl From<WatchlistItemRecord> for WatchlistItem {
+    fn from(record: WatchlistItemRecord) -> Self {
+        WatchlistItem {
+            shop_id: record.shop_id,
+            shops_item_id: record.shops_item_id,
+            item_id: record.item_id,
+            created: record.created,
+            notifications: record.notifications,
+        }
+    }
 }
 
 #[cfg(feature = "test-data")]

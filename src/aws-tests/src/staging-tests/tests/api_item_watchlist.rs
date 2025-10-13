@@ -4,7 +4,7 @@ use common::{
     shops_item_id::ShopsItemId,
 };
 use fake::{Fake, Faker};
-use item_api_watchlist_get::WatchlistItemData;
+use item_api_watchlist_get::WatchlistItemDataView;
 use item_dynamodb::{
     item_record::ItemRecord,
     repository::{ItemDynamoDbRepository, ItemDynamoDbRepositoryImpl},
@@ -90,7 +90,7 @@ async fn should_put_and_get_and_delete_watchlist_item_and_verify_not_exists() {
         .unwrap();
     assert_eq!(200, get_response.status());
     let gotten = get_response
-        .json::<TimeCursoredData<WatchlistItemData>>()
+        .json::<TimeCursoredData<WatchlistItemDataView>>()
         .await
         .unwrap();
 
@@ -131,7 +131,7 @@ async fn should_put_and_get_and_delete_watchlist_item_and_verify_not_exists() {
         .unwrap();
     assert_eq!(200, get_response.status());
     let gotten = get_response
-        .json::<TimeCursoredData<WatchlistItemData>>()
+        .json::<TimeCursoredData<WatchlistItemDataView>>()
         .await
         .unwrap();
 
