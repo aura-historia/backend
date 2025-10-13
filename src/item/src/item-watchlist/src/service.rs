@@ -236,17 +236,17 @@ impl<'a> ItemWatchListService for ItemWatchListServiceImpl<'a> {
                 shops_item_id.clone(),
             ))?;
 
-        let created = OffsetDateTime::now_utc();
+        let now = OffsetDateTime::now_utc();
         let watchlist_record = WatchlistItemRecord {
             pk: mk_pk(user_id),
-            sk: mk_sk(&created)
-                .map_err::<SdkError<PutItemError>, _>(SdkError::construction_failure)?,
+            sk: mk_sk(&now).map_err::<SdkError<PutItemError>, _>(SdkError::construction_failure)?,
             user_id: *user_id,
             item_id: item_record.item_id,
             shop_id: item_record.shop_id,
             shops_item_id: item_record.shops_item_id,
             notifications: false,
-            created,
+            created: now,
+            updated: now,
         };
         self.watchlist_repository
             .put_watchlist_record(watchlist_record)
@@ -295,6 +295,7 @@ impl<'a> ItemWatchListService for ItemWatchListServiceImpl<'a> {
         } else {
             let update = WatchlistItemRecordUpdate {
                 notifications: Some(*notifications),
+                updated: OffsetDateTime::now_utc(),
             };
             let _ = self
                 .watchlist_repository
@@ -339,7 +340,12 @@ impl<'a> ItemWatchListService for ItemWatchListServiceImpl<'a> {
                     .into_iter()
                     .filter_map(
                         |item| match watchlist_records_created.remove(&item.item_id) {
-                            Some(watchlist_record) => Some(LocalizedWatchlistItemView { item, created: watchlist_record.created, notifications: watchlist_record.notifications }),
+                            Some(watchlist_record) => Some(LocalizedWatchlistItemView {
+                                item,
+                                notifications: watchlist_record.notifications,
+                                created: watchlist_record.created,
+                                updated: watchlist_record.updated,
+                            }),
                             None => {
                                 tracing::error!("Could not find timestamp 'created' for Watchlist-Item after Batch-Get. This is a bug. Skipping Item.");
                                 None

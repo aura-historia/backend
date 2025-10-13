@@ -42,6 +42,7 @@ async fn should_200_when_sort_created_asc() {
             shops_item_id: item_record.shops_item_id,
             notifications: false,
             created,
+            updated: created,
         };
         watchlist_repository
             .put_watchlist_record(watchlist_record)
@@ -121,6 +122,7 @@ async fn should_200_when_sort_created_asc_search_after() {
             shops_item_id: item_record.shops_item_id,
             notifications: false,
             created,
+            updated: created,
         };
         watchlist_repository
             .put_watchlist_record(watchlist_record)
@@ -194,6 +196,7 @@ async fn should_200_when_sort_created_desc() {
             shops_item_id: item_record.shops_item_id,
             notifications: false,
             created,
+            updated: created,
         };
         watchlist_repository
             .put_watchlist_record(watchlist_record)
@@ -274,6 +277,7 @@ async fn should_200_when_sort_created_desc_search_after() {
             shops_item_id: item_record.shops_item_id,
             notifications: false,
             created,
+            updated: created,
         };
         watchlist_repository
             .put_watchlist_record(watchlist_record)

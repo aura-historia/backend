@@ -24,6 +24,9 @@ pub struct WatchlistItemDataView {
 
     #[serde(with = "time::serde::rfc3339")]
     pub created: OffsetDateTime,
+
+    #[serde(with = "time::serde::rfc3339")]
+    pub updated: OffsetDateTime,
 }
 
 impl From<LocalizedWatchlistItemView> for WatchlistItemDataView {
@@ -32,6 +35,7 @@ impl From<LocalizedWatchlistItemView> for WatchlistItemDataView {
             item: view.item.into(),
             notifications: view.notifications,
             created: view.created,
+            updated: view.updated,
         }
     }
 }

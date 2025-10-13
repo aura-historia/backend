@@ -5,8 +5,9 @@ use time::OffsetDateTime;
 #[derive(Debug, Clone, PartialEq)]
 pub struct LocalizedWatchlistItemView {
     pub item: LocalizedItemView,
-    pub created: OffsetDateTime,
     pub notifications: bool,
+    pub created: OffsetDateTime,
+    pub updated: OffsetDateTime,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -14,8 +15,9 @@ pub struct WatchlistItem {
     pub shop_id: ShopId,
     pub shops_item_id: ShopsItemId,
     pub item_id: ItemId,
-    pub created: OffsetDateTime,
     pub notifications: bool,
+    pub created: OffsetDateTime,
+    pub updated: OffsetDateTime,
 }
 
 #[cfg(feature = "test-data")]
@@ -28,8 +30,9 @@ mod faker {
         fn dummy_with_rng<R: Rng + ?Sized>(config: &Faker, rng: &mut R) -> Self {
             LocalizedWatchlistItemView {
                 item: config.fake_with_rng(rng),
-                created: OffsetDateTime::now_utc(),
                 notifications: config.fake_with_rng(rng),
+                created: OffsetDateTime::now_utc(),
+                updated: OffsetDateTime::now_utc(),
             }
         }
     }
@@ -40,8 +43,9 @@ mod faker {
                 shop_id: config.fake_with_rng(rng),
                 shops_item_id: config.fake_with_rng(rng),
                 item_id: config.fake_with_rng(rng),
-                created: OffsetDateTime::now_utc(),
                 notifications: config.fake_with_rng(rng),
+                created: OffsetDateTime::now_utc(),
+                updated: OffsetDateTime::now_utc(),
             }
         }
     }

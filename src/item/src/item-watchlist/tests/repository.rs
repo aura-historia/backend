@@ -6,6 +6,7 @@ use item_watchlist::{
     repository::{WatchlistItemDynamoDbRepository, WatchlistItemDynamoDbRepositoryImpl},
 };
 use test_api::*;
+use time::OffsetDateTime;
 
 async fn get_repository() -> WatchlistItemDynamoDbRepositoryImpl<'static> {
     WatchlistItemDynamoDbRepositoryImpl::new(get_dynamodb_client().await, "table_1")
@@ -223,12 +224,14 @@ fn should_update_watchlist_record() {
         .await
         .unwrap();
 
+    let updated = OffsetDateTime::now_utc();
     let _ = repository
         .update_watchlist_record(
             &initial.user_id,
             &initial.created,
             WatchlistItemRecordUpdate {
                 notifications: Some(!initial.notifications),
+                updated,
             },
         )
         .await
@@ -242,5 +245,6 @@ fn should_update_watchlist_record() {
 
     let mut expected = initial;
     expected.notifications = !expected.notifications;
+    expected.updated = updated;
     assert_eq!(expected, actual);
 }

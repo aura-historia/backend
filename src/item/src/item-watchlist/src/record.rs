@@ -22,6 +22,9 @@ pub struct WatchlistItemRecord {
 
     #[serde(with = "time::serde::rfc3339")]
     pub created: OffsetDateTime,
+
+    #[serde(with = "time::serde::rfc3339")]
+    pub updated: OffsetDateTime,
 }
 
 pub fn mk_pk(user_id: &UserId) -> String {
@@ -38,8 +41,9 @@ impl From<WatchlistItemRecord> for WatchlistItem {
             shop_id: record.shop_id,
             shops_item_id: record.shops_item_id,
             item_id: record.item_id,
-            created: record.created,
             notifications: record.notifications,
+            created: record.created,
+            updated: record.updated,
         }
     }
 }
@@ -65,6 +69,7 @@ mod faker {
                 shops_item_id: shops_item_id.clone(),
                 notifications: config.fake_with_rng(rng),
                 created,
+                updated: created,
             }
         }
     }

@@ -34,6 +34,9 @@ pub struct WatchlistItemData {
 
     #[serde(with = "time::serde::rfc3339")]
     pub created: OffsetDateTime,
+
+    #[serde(with = "time::serde::rfc3339")]
+    pub updated: OffsetDateTime,
 }
 
 impl From<WatchlistItem> for WatchlistItemData {
@@ -44,6 +47,7 @@ impl From<WatchlistItem> for WatchlistItemData {
             item_id: domain.item_id,
             notifications: domain.notifications,
             created: domain.created,
+            updated: domain.updated,
         }
     }
 }
