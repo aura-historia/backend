@@ -31,7 +31,7 @@ async-trait = "0.1.89"
 aws-config = "1.8.8"
 aws-sdk-account = "1.89.0"
 aws-sdk-dynamodb = "1.95.0"
-aws-sdk-lambda = "1.99.0"
+aws-sdk-lambda = "1.100.0"
 aws-sdk-opensearch = "1.100.0"
 aws-sdk-sqs = "1.86.0"
 aws_lambda_events = { version = "0.17.0", default-features = false }
