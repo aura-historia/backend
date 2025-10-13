@@ -71,7 +71,7 @@ item-api-put-items = { path = "src/item/src/item-api/src/item-api-put-items" }
 item-api-simple-search = { path = "src/item/src/item-api/src/item-api-simple-search" }
 item-api-complex-search = { path = "src/item/src/item-api/src/item-api-complex-search" }
 item-api-watchlist-get = { path = "src/item/src/item-api/src/item-api-watchlist-get" }
-item-api-watchlist-notifications-patch = { path = "src/item/src/item-api/src/item-api-watchlist-notifications-patch" }
+item-api-watchlist-patch = { path = "src/item/src/item-api/src/item-api-watchlist-patch" }
 item-api-watchlist-post = { path = "src/item/src/item-api/src/item-api-watchlist-post" }
 item-api-watchlist-delete = { path = "src/item/src/item-api/src/item-api-watchlist-delete" }
 item-core = { path = "src/item/src/item-core" }

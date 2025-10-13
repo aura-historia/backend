@@ -1,6 +1,6 @@
 use aws_config::BehaviorVersion;
 use aws_lambda_events::apigw::ApiGatewayV2httpRequest;
-use item_api_watchlist_notifications_patch::handler;
+use item_api_watchlist_patch::handler;
 use item_dynamodb::repository::ItemDynamoDbRepositoryImpl;
 use item_service::get_service::GetItemServiceImpl;
 use item_watchlist::repository::WatchlistItemDynamoDbRepositoryImpl;

@@ -1954,7 +1954,7 @@ dependencies = [
  "item-api-simple-search",
  "item-api-watchlist-delete",
  "item-api-watchlist-get",
- "item-api-watchlist-notifications-patch",
+ "item-api-watchlist-patch",
  "item-api-watchlist-post",
 ]
 
@@ -2123,7 +2123,7 @@ dependencies = [
 ]
 
 [[package]]
-name = "item-api-watchlist-notifications-patch"
+name = "item-api-watchlist-patch"
 version = "0.1.0"
 dependencies = [
  "aws-config",

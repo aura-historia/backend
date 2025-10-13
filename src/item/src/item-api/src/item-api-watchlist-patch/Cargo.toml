@@ -1,5 +1,5 @@
 [package]
-name = "item-api-watchlist-notifications-patch"
+name = "item-api-watchlist-patch"
 version = "0.1.0"
 edition = "2024"
 
