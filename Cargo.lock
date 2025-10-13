@@ -1954,6 +1954,7 @@ dependencies = [
  "item-api-simple-search",
  "item-api-watchlist-delete",
  "item-api-watchlist-get",
+ "item-api-watchlist-notifications-patch",
  "item-api-watchlist-post",
 ]
 
@@ -2095,6 +2096,34 @@ dependencies = [
 
 [[package]]
 name = "item-api-watchlist-get"
+version = "0.1.0"
+dependencies = [
+ "aws-config",
+ "aws-sdk-dynamodb",
+ "aws_lambda_events",
+ "common",
+ "fake",
+ "http 1.3.1",
+ "item-core",
+ "item-data",
+ "item-dynamodb",
+ "item-service",
+ "item-watchlist",
+ "lambda_runtime",
+ "rstest",
+ "serde",
+ "serde_json",
+ "serial_test",
+ "test-api",
+ "time",
+ "tokio",
+ "tracing",
+ "tracing-subscriber",
+ "url",
+]
+
+[[package]]
+name = "item-api-watchlist-notifications-patch"
 version = "0.1.0"
 dependencies = [
  "aws-config",

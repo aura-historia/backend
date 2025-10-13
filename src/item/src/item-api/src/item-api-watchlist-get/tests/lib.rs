@@ -1,5 +1,5 @@
 use common::{pagination::cursor::api::TimeCursoredData, user_id::UserId};
-use item_api_watchlist_get::{WatchlistItemData, handler};
+use item_api_watchlist_get::{WatchlistItemDataView, handler};
 use item_dynamodb::{
     item_record::ItemRecord,
     repository::{ItemDynamoDbRepository, ItemDynamoDbRepositoryImpl},
@@ -71,7 +71,7 @@ async fn should_200_when_sort_created_asc() {
     let response = handler(lambda_event, &service).await.unwrap();
     assert_eq!(200, response.status_code);
 
-    let actual: TimeCursoredData<WatchlistItemData> =
+    let actual: TimeCursoredData<WatchlistItemDataView> =
         serde_json::from_value(extract_apigw_response_json_body!(response)).unwrap();
     assert_eq!(10, actual.size);
     assert_eq!(10, actual.items.len());
@@ -151,7 +151,7 @@ async fn should_200_when_sort_created_asc_search_after() {
     let response = handler(lambda_event, &service).await.unwrap();
     assert_eq!(200, response.status_code);
 
-    let actual: TimeCursoredData<WatchlistItemData> =
+    let actual: TimeCursoredData<WatchlistItemDataView> =
         serde_json::from_value(extract_apigw_response_json_body!(response)).unwrap();
     assert_eq!(12, actual.size);
     assert_eq!(12, actual.items.len());
@@ -224,7 +224,7 @@ async fn should_200_when_sort_created_desc() {
     let response = handler(lambda_event, &service).await.unwrap();
     assert_eq!(200, response.status_code);
 
-    let actual: TimeCursoredData<WatchlistItemData> =
+    let actual: TimeCursoredData<WatchlistItemDataView> =
         serde_json::from_value(extract_apigw_response_json_body!(response)).unwrap();
     assert_eq!(7, actual.size);
     assert_eq!(7, actual.items.len());
@@ -304,7 +304,7 @@ async fn should_200_when_sort_created_desc_search_after() {
     let response = handler(lambda_event, &service).await.unwrap();
     assert_eq!(200, response.status_code);
 
-    let actual: TimeCursoredData<WatchlistItemData> =
+    let actual: TimeCursoredData<WatchlistItemDataView> =
         serde_json::from_value(extract_apigw_response_json_body!(response)).unwrap();
     assert_eq!(7, actual.size);
     assert_eq!(7, actual.items.len());
