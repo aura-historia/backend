@@ -265,6 +265,7 @@ jobs:
           - src/item/src/item-api/src/item-api-watchlist-delete
           - src/item/src/item-api/src/item-api-watchlist-get
           - src/item/src/item-api/src/item-api-watchlist-post
+          - src/item/src/item-api/src/item-api-watchlist-patch
           - src/item/src/item-lambda/src/item-lambda-ingest-events-dynamodb
           - src/item/src/item-lambda/src/item-lambda-materialize-dynamodb-new
           - src/item/src/item-lambda/src/item-lambda-materialize-dynamodb-update
