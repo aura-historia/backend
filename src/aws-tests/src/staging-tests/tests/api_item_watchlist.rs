@@ -5,6 +5,7 @@ use common::{
 };
 use fake::{Fake, Faker};
 use item_api_watchlist_get::WatchlistItemDataView;
+use item_api_watchlist_patch::{WatchlistItemData, WatchlistItemPatch};
 use item_dynamodb::{
     item_record::ItemRecord,
     repository::{ItemDynamoDbRepository, ItemDynamoDbRepositoryImpl},
@@ -45,7 +46,7 @@ async fn should_401_when_unauthorized_for_get() {
 }
 
 #[staging_test]
-async fn should_put_and_get_and_delete_watchlist_item_and_verify_not_exists() {
+async fn should_put_and_get_and_patch_and_delete_watchlist_item_and_verify_not_exists() {
     let user = create_random_test_user().await;
 
     // persist materialized item-record we want to watch
@@ -102,6 +103,30 @@ async fn should_put_and_get_and_delete_watchlist_item_and_verify_not_exists() {
         &gotten.items[0].item.shops_item_id
     );
 
+    // Patch gotten
+    let patch_url = format!(
+        "{}/api/v1/watchlist/{}/{}?created={}",
+        get_cfn_output().api_gateway_endpoint_url,
+        materialized.shop_id,
+        materialized.shops_item_id,
+        gotten.items[0].created.format(&Rfc3339).unwrap()
+    );
+    let patch_response = reqwest::Client::new()
+        .patch(patch_url)
+        .bearer_auth(&user.access_token)
+        .json(&WatchlistItemPatch {
+            notifications: Some(!gotten.items[0].notifications),
+        })
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(200, patch_response.status());
+    let patch_res_payload = patch_response.json::<WatchlistItemData>().await.unwrap();
+    assert_eq!(gotten.items[0].created, patch_res_payload.created);
+    assert_eq!(materialized.shop_id, patch_res_payload.shop_id);
+    assert_eq!(materialized.shops_item_id, patch_res_payload.shops_item_id);
+    assert_eq!(materialized.item_id, patch_res_payload.item_id);
+
     // Delete gotten
     let delete_url = format!(
         "{}/api/v1/watchlist/{}/{}?created={}",
@@ -110,13 +135,13 @@ async fn should_put_and_get_and_delete_watchlist_item_and_verify_not_exists() {
         materialized.shops_item_id,
         gotten.items[0].created.format(&Rfc3339).unwrap()
     );
-    let get_response = reqwest::Client::new()
+    let delete_response = reqwest::Client::new()
         .delete(delete_url)
         .bearer_auth(&user.access_token)
         .send()
         .await
         .unwrap();
-    assert_eq!(204, get_response.status());
+    assert_eq!(204, delete_response.status());
 
     // Get all (none)
     let get_url = format!(

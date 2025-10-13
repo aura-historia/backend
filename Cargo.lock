@@ -4277,6 +4277,7 @@ dependencies = [
  "fake",
  "futures-util",
  "item-api-watchlist-get",
+ "item-api-watchlist-patch",
  "item-core",
  "item-data",
  "item-dynamodb",
