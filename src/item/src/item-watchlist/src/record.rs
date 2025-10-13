@@ -2,6 +2,8 @@ use common::{item_id::ItemId, shop_id::ShopId, shops_item_id::ShopsItemId, user_
 use serde::{Deserialize, Serialize};
 use time::{OffsetDateTime, error::Format, format_description::well_known::Rfc3339};
 
+use crate::domain::WatchlistItem;
+
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct WatchlistItemRecord {
     pub pk: String,
@@ -16,8 +18,13 @@ pub struct WatchlistItemRecord {
 
     pub shops_item_id: ShopsItemId,
 
+    pub notifications: bool,
+
     #[serde(with = "time::serde::rfc3339")]
     pub created: OffsetDateTime,
+
+    #[serde(with = "time::serde::rfc3339")]
+    pub updated: OffsetDateTime,
 }
 
 pub fn mk_pk(user_id: &UserId) -> String {
@@ -26,6 +33,19 @@ pub fn mk_pk(user_id: &UserId) -> String {
 
 pub fn mk_sk(created: &OffsetDateTime) -> Result<String, Format> {
     Ok(format!("item#watch#created#{}", created.format(&Rfc3339)?))
+}
+
+impl From<WatchlistItemRecord> for WatchlistItem {
+    fn from(record: WatchlistItemRecord) -> Self {
+        WatchlistItem {
+            shop_id: record.shop_id,
+            shops_item_id: record.shops_item_id,
+            item_id: record.item_id,
+            notifications: record.notifications,
+            created: record.created,
+            updated: record.updated,
+        }
+    }
 }
 
 #[cfg(feature = "test-data")]
@@ -47,7 +67,9 @@ mod faker {
                 item_id: config.fake_with_rng(rng),
                 shop_id,
                 shops_item_id: shops_item_id.clone(),
+                notifications: config.fake_with_rng(rng),
                 created,
+                updated: created,
             }
         }
     }

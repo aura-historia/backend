@@ -1,4 +1,7 @@
-use crate::record::{WatchlistItemRecord, mk_pk, mk_sk};
+use crate::{
+    record::{WatchlistItemRecord, mk_pk, mk_sk},
+    record_update::WatchlistItemRecordUpdate,
+};
 use aws_sdk_dynamodb::{
     Client,
     error::SdkError,
@@ -7,10 +10,11 @@ use aws_sdk_dynamodb::{
         get_item::GetItemError,
         put_item::{PutItemError, PutItemOutput},
         query::QueryError,
+        update_item::UpdateItemError,
     },
-    types::AttributeValue,
+    types::{AttributeValue, ReturnValue},
 };
-use common::{pagination::cursor::Cursor, user_id::UserId};
+use common::{dynamodb_update::mk_update, pagination::cursor::Cursor, user_id::UserId};
 use time::{OffsetDateTime, macros::datetime};
 use tracing::error;
 
@@ -40,6 +44,13 @@ pub trait WatchlistItemDynamoDbRepository {
         user_id: &UserId,
         created: &OffsetDateTime,
     ) -> Result<DeleteItemOutput, SdkError<DeleteItemError>>;
+
+    async fn update_watchlist_record(
+        &self,
+        user_id: &UserId,
+        created: &OffsetDateTime,
+        update: WatchlistItemRecordUpdate,
+    ) -> Result<Option<WatchlistItemRecord>, SdkError<UpdateItemError>>;
 }
 
 #[derive(Debug, Clone)]
@@ -168,5 +179,36 @@ impl<'a> WatchlistItemDynamoDbRepository for WatchlistItemDynamoDbRepositoryImpl
             .key("sk", AttributeValue::S(sk))
             .send()
             .await
+    }
+
+    async fn update_watchlist_record(
+        &self,
+        user_id: &UserId,
+        created: &OffsetDateTime,
+        update: WatchlistItemRecordUpdate,
+    ) -> Result<Option<WatchlistItemRecord>, SdkError<UpdateItemError>> {
+        let pk = mk_pk(user_id);
+        let sk = mk_sk(created).map_err(SdkError::construction_failure)?;
+        let update_expr = mk_update(update)?;
+
+        self.client
+            .update_item()
+            .table_name(&self.table)
+            .key("pk", AttributeValue::S(pk))
+            .key("sk", AttributeValue::S(sk))
+            .update_expression(update_expr.update_expr)
+            .set_expression_attribute_names(Some(update_expr.expr_attr_names))
+            .set_expression_attribute_values(Some(update_expr.expr_attr_values))
+            .return_values(ReturnValue::AllNew)
+            .send()
+            .await
+            .map(|output| output.attributes)
+            .map(|attr_opt| attr_opt.map(serde_dynamo::from_item).and_then(|record_res| match record_res {
+                Ok(search_filter_record) => Some(search_filter_record),
+                Err(err) => {
+                    error!(error = %err, type = %std::any::type_name::<WatchlistItemRecord>(), "Failed deserializing WatchlistItemRecord.");
+                    None
+                }
+            }))
     }
 }

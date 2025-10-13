@@ -2,9 +2,11 @@ use common::{pagination::cursor::Cursor, user_id::UserId};
 use fake::{Fake, Faker};
 use item_watchlist::{
     record::{WatchlistItemRecord, mk_pk},
+    record_update::WatchlistItemRecordUpdate,
     repository::{WatchlistItemDynamoDbRepository, WatchlistItemDynamoDbRepositoryImpl},
 };
 use test_api::*;
+use time::OffsetDateTime;
 
 async fn get_repository() -> WatchlistItemDynamoDbRepositoryImpl<'static> {
     WatchlistItemDynamoDbRepositoryImpl::new(get_dynamodb_client().await, "table_1")
@@ -210,4 +212,39 @@ fn should_query_watchlist_records_and_respect_limit_for_scan_index_false() {
         records.into_iter().skip(32).rev().collect::<Vec<_>>(),
         actual
     );
+}
+
+#[localstack_test(services = [DynamoDB()])]
+fn should_update_watchlist_record() {
+    let repository = get_repository().await;
+
+    let initial = Faker.fake::<WatchlistItemRecord>();
+    let _ = repository
+        .put_watchlist_record(initial.clone())
+        .await
+        .unwrap();
+
+    let updated = OffsetDateTime::now_utc();
+    let _ = repository
+        .update_watchlist_record(
+            &initial.user_id,
+            &initial.created,
+            WatchlistItemRecordUpdate {
+                notifications: Some(!initial.notifications),
+                updated,
+            },
+        )
+        .await
+        .unwrap();
+
+    let actual = repository
+        .get_watchlist_record(&initial.user_id, &initial.created)
+        .await
+        .unwrap()
+        .unwrap();
+
+    let mut expected = initial;
+    expected.notifications = !expected.notifications;
+    expected.updated = updated;
+    assert_eq!(expected, actual);
 }

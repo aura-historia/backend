@@ -29,6 +29,7 @@ item-dynamodb = { workspace = true, features = ["test-data", "repository"] }
 item-opensearch = { workspace = true, features = ["test-data"] }
 item-watchlist = { workspace = true, features = ["test-data"] }
 item-api-watchlist-get = { workspace = true }
+item-api-watchlist-patch = { workspace = true }
 search-filter-dynamodb = { workspace = true, features = ["test-data"] }
 search-filter-service = { workspace = true }
 search-filter-core = { workspace = true, features = ["test-data"] }

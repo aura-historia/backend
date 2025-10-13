@@ -16,18 +16,26 @@ use serde::{Deserialize, Serialize};
 use time::OffsetDateTime;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct WatchlistItemData {
+#[serde(rename_all = "camelCase")]
+pub struct WatchlistItemDataView {
     pub item: GetItemData,
+
+    pub notifications: bool,
 
     #[serde(with = "time::serde::rfc3339")]
     pub created: OffsetDateTime,
+
+    #[serde(with = "time::serde::rfc3339")]
+    pub updated: OffsetDateTime,
 }
 
-impl From<LocalizedWatchlistItemView> for WatchlistItemData {
+impl From<LocalizedWatchlistItemView> for WatchlistItemDataView {
     fn from(view: LocalizedWatchlistItemView) -> Self {
-        WatchlistItemData {
+        WatchlistItemDataView {
             item: view.item.into(),
+            notifications: view.notifications,
             created: view.created,
+            updated: view.updated,
         }
     }
 }
@@ -72,7 +80,7 @@ pub async fn handle(
             &cursor,
         )
         .await?
-        .map_item(WatchlistItemData::from);
+        .map_item(WatchlistItemDataView::from);
 
     Ok(ApiGatewayV2HttpResponseBuilder::json(200)
         .body_serde(TimeCursoredData::from(items))?

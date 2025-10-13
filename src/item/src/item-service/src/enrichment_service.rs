@@ -1,7 +1,7 @@
 use crate::item_command::PipedItemCommand;
 use common::{
     batch::Batch,
-    price::domain::{FxRate, MonetaryAmountOverflowError, Price},
+    price::domain::{FxRate, MonetaryAmountOverflowError},
     shop_id::ShopIdentifier,
 };
 use shop_core::shop::Shop;
@@ -164,7 +164,7 @@ fn as_normalized_url(url: &mut Url) {
 #[cfg(feature = "test-data")]
 mod faker {
     use super::*;
-    use common::price::domain::FixedFxRate;
+    use common::price::domain::{FixedFxRate, Price};
     use fake::{Dummy, Fake, Faker, Rng};
 
     impl Dummy<Faker> for PipedItemCommand {

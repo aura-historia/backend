@@ -84,6 +84,7 @@ pub async fn handle(
     };
 
     Ok(ApiGatewayV2HttpResponseBuilder::json(200)
+        .last_modified(patched.updated)
         .body_serde(patched)?
         .cors()
         .build())
