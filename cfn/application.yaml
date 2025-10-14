@@ -638,7 +638,9 @@ Resources:
                   - dynamodb:GetItem
                   - dynamodb:BatchGetItem
                   - dynamodb:Query
-                Resource: !GetAtt TableOne.Arn
+                Resource:
+                  - !GetAtt TableOne.Arn
+                  - !Sub "${TableOne.Arn}/index/*"
   BlitzfilterApiGetWatchlistItemsLambda:
     Type: AWS::Lambda::Function
     Properties:
