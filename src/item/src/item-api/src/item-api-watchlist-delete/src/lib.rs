@@ -49,7 +49,7 @@ pub async fn handle(
         .map(|val| OffsetDateTime::parse(val, &Rfc3339))?
         .map_err(|err| ApiError::bad_request(INVALID_RFC3339_TIMESTAMP).with_query_field("created").with_message(err.to_string()))?;
 
-    let () = service.unwatch(&user_id, &created).await?;
+    let () = service.delete_watchlist_item(&user_id, &created).await?;
 
     Ok(ApiGatewayV2HttpResponseBuilder::json(204).cors().build())
 }
@@ -67,7 +67,7 @@ mod tests {
     async fn should_204_when_success() {
         let mut service = MockItemWatchListService::default();
         service
-            .expect_unwatch()
+            .expect_delete_watchlist_item()
             .return_once(|_, _| Box::pin(async { Ok(()) }));
 
         let lambda_event = LambdaEvent {
@@ -92,7 +92,7 @@ mod tests {
     #[tokio::test]
     async fn should_400_when_shop_id_missing() {
         let mut service = MockItemWatchListService::default();
-        service.expect_unwatch().never();
+        service.expect_delete_watchlist_item().never();
 
         let lambda_event = LambdaEvent {
             payload: ApiGatewayV2httpRequestProxy::builder()
@@ -119,7 +119,7 @@ mod tests {
     #[tokio::test]
     async fn should_400_when_shops_item_id_missing() {
         let mut service = MockItemWatchListService::default();
-        service.expect_unwatch().never();
+        service.expect_delete_watchlist_item().never();
 
         let lambda_event = LambdaEvent {
             payload: ApiGatewayV2httpRequestProxy::builder()
@@ -146,7 +146,7 @@ mod tests {
     #[tokio::test]
     async fn should_400_when_created_missing() {
         let mut service = MockItemWatchListService::default();
-        service.expect_unwatch().never();
+        service.expect_delete_watchlist_item().never();
 
         let lambda_event = LambdaEvent {
             payload: ApiGatewayV2httpRequestProxy::builder()
@@ -170,7 +170,7 @@ mod tests {
     #[tokio::test]
     async fn should_400_when_created_invalid() {
         let mut service = MockItemWatchListService::default();
-        service.expect_unwatch().never();
+        service.expect_delete_watchlist_item().never();
 
         let lambda_event = LambdaEvent {
             payload: ApiGatewayV2httpRequestProxy::builder()
@@ -195,7 +195,7 @@ mod tests {
     #[tokio::test]
     async fn should_401_when_sub_missing() {
         let mut service = MockItemWatchListService::default();
-        service.expect_unwatch().never();
+        service.expect_delete_watchlist_item().never();
 
         let lambda_event = LambdaEvent {
             payload: ApiGatewayV2httpRequestProxy::builder()

@@ -6,7 +6,7 @@ use item_dynamodb::{
 };
 use item_service::get_service::GetItemServiceImpl;
 use item_watchlist::{
-    record::{WatchlistItemRecord, mk_pk, mk_sk},
+    record::{WatchlistItemRecord, mk_lsi1_sk, mk_pk},
     repository::{WatchlistItemDynamoDbRepository, WatchlistItemDynamoDbRepositoryImpl},
     service::ItemWatchListServiceImpl,
 };
@@ -35,7 +35,7 @@ async fn should_200_when_sort_created_asc() {
         let created = OffsetDateTime::now_utc();
         let watchlist_record = WatchlistItemRecord {
             pk: mk_pk(&user_id),
-            sk: mk_sk(&created).unwrap(),
+            sk: mk_lsi1_sk(&created).unwrap(),
             user_id,
             item_id: item_record.item_id,
             shop_id: item_record.shop_id,
@@ -115,7 +115,7 @@ async fn should_200_when_sort_created_asc_search_after() {
         }
         let watchlist_record = WatchlistItemRecord {
             pk: mk_pk(&user_id),
-            sk: mk_sk(&created).unwrap(),
+            sk: mk_lsi1_sk(&created).unwrap(),
             user_id,
             item_id: item_record.item_id,
             shop_id: item_record.shop_id,
@@ -189,7 +189,7 @@ async fn should_200_when_sort_created_desc() {
         let created = OffsetDateTime::now_utc();
         let watchlist_record = WatchlistItemRecord {
             pk: mk_pk(&user_id),
-            sk: mk_sk(&created).unwrap(),
+            sk: mk_lsi1_sk(&created).unwrap(),
             user_id,
             item_id: item_record.item_id,
             shop_id: item_record.shop_id,
@@ -270,7 +270,7 @@ async fn should_200_when_sort_created_desc_search_after() {
         }
         let watchlist_record = WatchlistItemRecord {
             pk: mk_pk(&user_id),
-            sk: mk_sk(&created).unwrap(),
+            sk: mk_lsi1_sk(&created).unwrap(),
             user_id,
             item_id: item_record.item_id,
             shop_id: item_record.shop_id,

@@ -1,7 +1,7 @@
 use crate::{
+    command::UpdateWatchlistItemCommand,
     domain::{LocalizedWatchlistItemView, WatchlistItem},
-    record::{WatchlistItemRecord, mk_pk, mk_sk},
-    record_update::WatchlistItemRecordUpdate,
+    record::{WatchlistItemRecord, mk_lsi1_sk, mk_pk, mk_sk},
     repository::WatchlistItemDynamoDbRepository,
     sort_watch_item::SortWatchlistItemField,
 };
@@ -34,9 +34,9 @@ pub enum WatchItemError {
     ItemNotFound(ShopId, ShopsItemId),
 
     #[error(
-        "There exists no Watchlist-Item that was started being watched on '{1}' for user '{0}'."
+        "There exists no Watchlist-Item for user '{0}' with Shop-Id '{1}' and Shops-Item-Id '{2}'."
     )]
-    WatchlistTimestampNotFound(UserId, OffsetDateTime),
+    WatchlistItemNotFound(UserId, ShopId, ShopsItemId),
 
     #[error("Encountered DynamoDB SdkError for GetItem: {0}")]
     SdkGetItemError(
@@ -108,7 +108,7 @@ pub mod api {
                     ApiError::internal_server_error(MONETARY_AMOUNT_OVERFLOW)
                 }
                 WatchItemError::ItemNotFound(_, _) => ApiError::not_found(ITEM_NOT_FOUND),
-                WatchItemError::WatchlistTimestampNotFound(_, _) => {
+                WatchItemError::WatchlistItemNotFound(_, _, _) => {
                     ApiError::not_found(WATCHLIST_ENTRY_NOT_FOUND)
                 }
                 WatchItemError::SdkGetItemError(err) => {
@@ -150,27 +150,30 @@ pub trait ItemWatchListService {
     async fn find_watchlist_item(
         &self,
         user_id: &UserId,
-        created: &OffsetDateTime,
+        shop_id: &ShopId,
+        shops_item_id: &ShopsItemId,
     ) -> Result<WatchlistItem, WatchItemError>;
 
-    async fn watch(
+    async fn create_watchlist_item(
+        &self,
+        user_id: &UserId,
+        shop_id: &ShopId,
+        shops_item_id: &ShopsItemId,
+    ) -> Result<WatchlistItem, WatchItemError>;
+
+    async fn delete_watchlist_item(
         &self,
         user_id: &UserId,
         shop_id: &ShopId,
         shops_item_id: &ShopsItemId,
     ) -> Result<(), WatchItemError>;
 
-    async fn unwatch(
+    async fn update_watchlist_item(
         &self,
         user_id: &UserId,
-        created: &OffsetDateTime,
-    ) -> Result<(), WatchItemError>;
-
-    async fn toggle_notifications(
-        &self,
-        user_id: &UserId,
-        created: &OffsetDateTime,
-        notifications: &bool,
+        shop_id: &ShopId,
+        shops_item_id: &ShopsItemId,
+        update: UpdateWatchlistItemCommand,
     ) -> Result<WatchlistItem, WatchItemError>;
 
     async fn view_watchlist(
@@ -208,25 +211,28 @@ impl<'a> ItemWatchListService for ItemWatchListServiceImpl<'a> {
     async fn find_watchlist_item(
         &self,
         user_id: &UserId,
-        created: &OffsetDateTime,
+        shop_id: &ShopId,
+        shops_item_id: &ShopsItemId,
     ) -> Result<WatchlistItem, WatchItemError> {
         let watchlist_record = self
             .watchlist_repository
-            .get_watchlist_record(user_id, created)
+            .get_watchlist_record(user_id, shop_id, shops_item_id)
             .await?
-            .ok_or(WatchItemError::WatchlistTimestampNotFound(
-                *user_id, *created,
+            .ok_or(WatchItemError::WatchlistItemNotFound(
+                *user_id,
+                *shop_id,
+                shops_item_id.clone(),
             ))?;
 
         Ok(watchlist_record.into())
     }
 
-    async fn watch(
+    async fn create_watchlist_item(
         &self,
         user_id: &UserId,
         shop_id: &ShopId,
         shops_item_id: &ShopsItemId,
-    ) -> Result<(), WatchItemError> {
+    ) -> Result<WatchlistItem, WatchItemError> {
         let item_record = self
             .item_repository
             .get_item_record(shop_id, shops_item_id)
@@ -239,7 +245,9 @@ impl<'a> ItemWatchListService for ItemWatchListServiceImpl<'a> {
         let now = OffsetDateTime::now_utc();
         let watchlist_record = WatchlistItemRecord {
             pk: mk_pk(user_id),
-            sk: mk_sk(&now).map_err::<SdkError<PutItemError>, _>(SdkError::construction_failure)?,
+            sk: mk_sk(shop_id, shops_item_id),
+            lsi1_sk: mk_lsi1_sk(&now)
+                .map_err::<SdkError<PutItemError>, _>(SdkError::construction_failure)?,
             user_id: *user_id,
             item_id: item_record.item_id,
             shop_id: item_record.shop_id,
@@ -249,57 +257,59 @@ impl<'a> ItemWatchListService for ItemWatchListServiceImpl<'a> {
             updated: now,
         };
         self.watchlist_repository
-            .put_watchlist_record(watchlist_record)
+            .put_watchlist_record(watchlist_record.clone())
             .await?;
 
-        Ok(())
+        Ok(watchlist_record.into())
     }
 
-    async fn unwatch(
+    async fn delete_watchlist_item(
         &self,
         user_id: &UserId,
-        created: &OffsetDateTime,
+        shop_id: &ShopId,
+        shops_item_id: &ShopsItemId,
     ) -> Result<(), WatchItemError> {
         // exists guard
         let _ = self
             .watchlist_repository
-            .get_watchlist_record(user_id, created)
+            .get_watchlist_record(user_id, shop_id, shops_item_id)
             .await?
-            .ok_or(WatchItemError::WatchlistTimestampNotFound(
-                *user_id, *created,
+            .ok_or(WatchItemError::WatchlistItemNotFound(
+                *user_id,
+                *shop_id,
+                shops_item_id.clone(),
             ))?;
 
         self.watchlist_repository
-            .delete_watchlist_record(user_id, created)
+            .delete_watchlist_record(user_id, shop_id, shops_item_id)
             .await?;
 
         Ok(())
     }
 
-    async fn toggle_notifications(
+    async fn update_watchlist_item(
         &self,
         user_id: &UserId,
-        created: &OffsetDateTime,
-        notifications: &bool,
+        shop_id: &ShopId,
+        shops_item_id: &ShopsItemId,
+        update: UpdateWatchlistItemCommand,
     ) -> Result<WatchlistItem, WatchItemError> {
         let watchlist_record = self
             .watchlist_repository
-            .get_watchlist_record(user_id, created)
+            .get_watchlist_record(user_id, shop_id, shops_item_id)
             .await?
-            .ok_or(WatchItemError::WatchlistTimestampNotFound(
-                *user_id, *created,
+            .ok_or(WatchItemError::WatchlistItemNotFound(
+                *user_id,
+                *shop_id,
+                shops_item_id.clone(),
             ))?;
 
-        if &watchlist_record.notifications == notifications {
+        if update.is_empty() {
             Ok(watchlist_record.into())
         } else {
-            let update = WatchlistItemRecordUpdate {
-                notifications: Some(*notifications),
-                updated: OffsetDateTime::now_utc(),
-            };
             let _ = self
                 .watchlist_repository
-                .update_watchlist_record(user_id, created, update)
+                .update_watchlist_record(user_id, shop_id, shops_item_id, update.into())
                 .await?;
 
             Ok(watchlist_record.into())
@@ -384,11 +394,10 @@ mod tests {
             config::http::HttpResponse,
             error::{ConnectorError, SdkError},
         };
-        use common::user_id::UserId;
+        use common::{shop_id::ShopId, shops_item_id::ShopsItemId, user_id::UserId};
         use fake::{Fake, Faker};
         use item_dynamodb::repository::MockItemDynamoDbRepository;
         use item_service::get_service::GetItemServiceImpl;
-        use time::OffsetDateTime;
 
         #[tokio::test]
         async fn should_err_watchlist_timestamp_not_found_when_no_watched_item_with_timestamp_exists()
@@ -397,7 +406,7 @@ mod tests {
             let mut watchlist_repository = MockWatchlistItemDynamoDbRepository::default();
             watchlist_repository
                 .expect_get_watchlist_record()
-                .return_once(|_, _| Box::pin(async { Ok(None) }));
+                .return_once(|_, _, _| Box::pin(async { Ok(None) }));
             let get_item_service = GetItemServiceImpl::new(&item_repository);
 
             let service = ItemWatchListServiceImpl::new(
@@ -406,16 +415,22 @@ mod tests {
                 &get_item_service,
             );
             let user_id = UserId::new();
-            let timestamp = OffsetDateTime::now_utc();
+            let shop_id = ShopId::new();
+            let shops_item_id = ShopsItemId::new();
             let actual = service
-                .find_watchlist_item(&user_id, &timestamp)
+                .find_watchlist_item(&user_id, &shop_id, &shops_item_id)
                 .await
                 .unwrap_err();
 
             match actual {
-                WatchItemError::WatchlistTimestampNotFound(err_user_id, err_timestamp) => {
+                WatchItemError::WatchlistItemNotFound(
+                    err_user_id,
+                    err_shop_id,
+                    err_shops_item_id,
+                ) => {
                     assert_eq!(user_id, err_user_id);
-                    assert_eq!(timestamp, err_timestamp);
+                    assert_eq!(shop_id, err_shop_id);
+                    assert_eq!(shops_item_id, err_shops_item_id);
                 }
                 err => {
                     panic!("Expected 'WatchItemError::WatchlistTimestampNotFound' but got '{err}'")
@@ -446,7 +461,7 @@ mod tests {
             let mut watchlist_repository = MockWatchlistItemDynamoDbRepository::default();
             watchlist_repository
                 .expect_get_watchlist_record()
-                .return_once(|_, _| Box::pin(async { Err(expected) }));
+                .return_once(|_, _, _| Box::pin(async { Err(expected) }));
             let get_item_service = GetItemServiceImpl::new(&item_repository);
 
             let service = ItemWatchListServiceImpl::new(
@@ -456,7 +471,7 @@ mod tests {
             );
 
             let actual = service
-                .find_watchlist_item(&Faker.fake(), &Faker.fake())
+                .find_watchlist_item(&Faker.fake(), &Faker.fake(), &Faker.fake())
                 .await;
 
             assert!(actual.is_err());
@@ -501,7 +516,7 @@ mod tests {
                 &get_item_service,
             );
             service
-                .watch(&Faker.fake(), &Faker.fake(), &Faker.fake())
+                .create_watchlist_item(&Faker.fake(), &Faker.fake(), &Faker.fake())
                 .await
                 .unwrap();
         }
@@ -524,7 +539,7 @@ mod tests {
             let shop_id = ShopId::new();
             let shops_item_id = ShopsItemId::new();
             let actual = service
-                .watch(&Faker.fake(), &shop_id, &shops_item_id)
+                .create_watchlist_item(&Faker.fake(), &shop_id, &shops_item_id)
                 .await
                 .unwrap_err();
 
@@ -571,7 +586,7 @@ mod tests {
             );
 
             let actual = service
-                .watch(&Faker.fake(), &Faker.fake(), &Faker.fake())
+                .create_watchlist_item(&Faker.fake(), &Faker.fake(), &Faker.fake())
                 .await;
 
             assert!(actual.is_err());
@@ -618,7 +633,7 @@ mod tests {
             );
 
             let actual = service
-                .watch(&Faker.fake(), &Faker.fake(), &Faker.fake())
+                .create_watchlist_item(&Faker.fake(), &Faker.fake(), &Faker.fake())
                 .await;
 
             assert!(actual.is_err());
@@ -639,11 +654,10 @@ mod tests {
             error::{ConnectorError, SdkError},
             operation::delete_item::DeleteItemOutput,
         };
-        use common::user_id::UserId;
+        use common::{shop_id::ShopId, shops_item_id::ShopsItemId, user_id::UserId};
         use fake::{Fake, Faker};
         use item_dynamodb::repository::MockItemDynamoDbRepository;
         use item_service::get_service::GetItemServiceImpl;
-        use time::OffsetDateTime;
 
         #[tokio::test]
         async fn should_unwatch_when_success() {
@@ -651,10 +665,10 @@ mod tests {
             let mut watchlist_repository = MockWatchlistItemDynamoDbRepository::default();
             watchlist_repository
                 .expect_get_watchlist_record()
-                .return_once(|_, _| Box::pin(async { Ok(Some(Faker.fake())) }));
+                .return_once(|_, _, _| Box::pin(async { Ok(Some(Faker.fake())) }));
             watchlist_repository
                 .expect_delete_watchlist_record()
-                .return_once(|_, _| Box::pin(async { Ok(DeleteItemOutput::builder().build()) }));
+                .return_once(|_, _, _| Box::pin(async { Ok(DeleteItemOutput::builder().build()) }));
             let get_item_service = GetItemServiceImpl::new(&item_repository);
 
             let service = ItemWatchListServiceImpl::new(
@@ -662,7 +676,10 @@ mod tests {
                 &item_repository,
                 &get_item_service,
             );
-            service.unwatch(&Faker.fake(), &Faker.fake()).await.unwrap();
+            service
+                .delete_watchlist_item(&Faker.fake(), &Faker.fake(), &Faker.fake())
+                .await
+                .unwrap();
         }
 
         #[tokio::test]
@@ -672,7 +689,7 @@ mod tests {
             let mut watchlist_repository = MockWatchlistItemDynamoDbRepository::default();
             watchlist_repository
                 .expect_get_watchlist_record()
-                .return_once(|_, _| Box::pin(async { Ok(None) }));
+                .return_once(|_, _, _| Box::pin(async { Ok(None) }));
             let get_item_service = GetItemServiceImpl::new(&item_repository);
 
             let service = ItemWatchListServiceImpl::new(
@@ -681,13 +698,22 @@ mod tests {
                 &get_item_service,
             );
             let user_id = UserId::new();
-            let timestamp = OffsetDateTime::now_utc();
-            let actual = service.unwatch(&user_id, &timestamp).await.unwrap_err();
+            let shop_id = ShopId::new();
+            let shops_item_id = ShopsItemId::new();
+            let actual = service
+                .delete_watchlist_item(&user_id, &shop_id, &shops_item_id)
+                .await
+                .unwrap_err();
 
             match actual {
-                WatchItemError::WatchlistTimestampNotFound(err_user_id, err_timestamp) => {
+                WatchItemError::WatchlistItemNotFound(
+                    err_user_id,
+                    err_shop_id,
+                    err_shops_item_id,
+                ) => {
                     assert_eq!(user_id, err_user_id);
-                    assert_eq!(timestamp, err_timestamp);
+                    assert_eq!(shop_id, err_shop_id);
+                    assert_eq!(shops_item_id, err_shops_item_id);
                 }
                 err => {
                     panic!("Expected 'WatchItemError::WatchlistTimestampNotFound' but got '{err}'")
@@ -718,7 +744,7 @@ mod tests {
             let mut watchlist_repository = MockWatchlistItemDynamoDbRepository::default();
             watchlist_repository
                 .expect_get_watchlist_record()
-                .return_once(|_, _| Box::pin(async { Err(expected) }));
+                .return_once(|_, _, _| Box::pin(async { Err(expected) }));
             let get_item_service = GetItemServiceImpl::new(&item_repository);
 
             let service = ItemWatchListServiceImpl::new(
@@ -727,7 +753,9 @@ mod tests {
                 &get_item_service,
             );
 
-            let actual = service.unwatch(&Faker.fake(), &Faker.fake()).await;
+            let actual = service
+                .delete_watchlist_item(&Faker.fake(), &Faker.fake(), &Faker.fake())
+                .await;
 
             assert!(actual.is_err());
             match actual.unwrap_err() {
@@ -759,10 +787,10 @@ mod tests {
             let mut watchlist_repository = MockWatchlistItemDynamoDbRepository::default();
             watchlist_repository
                 .expect_get_watchlist_record()
-                .return_once(|_, _| Box::pin(async { Ok(Some(Faker.fake())) }));
+                .return_once(|_, _, _| Box::pin(async { Ok(Some(Faker.fake())) }));
             watchlist_repository
                 .expect_delete_watchlist_record()
-                .return_once(|_, _| Box::pin(async { Err(expected) }));
+                .return_once(|_, _, _| Box::pin(async { Err(expected) }));
             let get_item_service = GetItemServiceImpl::new(&item_repository);
 
             let service = ItemWatchListServiceImpl::new(
@@ -771,7 +799,9 @@ mod tests {
                 &get_item_service,
             );
 
-            let actual = service.unwatch(&Faker.fake(), &Faker.fake()).await;
+            let actual = service
+                .delete_watchlist_item(&Faker.fake(), &Faker.fake(), &Faker.fake())
+                .await;
 
             assert!(actual.is_err());
             match actual.unwrap_err() {
@@ -783,6 +813,7 @@ mod tests {
 
     mod toggle_notifications {
         use crate::{
+            command::UpdateWatchlistItemCommand,
             record::WatchlistItemRecord,
             repository::MockWatchlistItemDynamoDbRepository,
             service::{ItemWatchListService, ItemWatchListServiceImpl, WatchItemError},
@@ -791,11 +822,10 @@ mod tests {
             config::http::HttpResponse,
             error::{ConnectorError, SdkError},
         };
-        use common::user_id::UserId;
+        use common::{shop_id::ShopId, shops_item_id::ShopsItemId, user_id::UserId};
         use fake::{Fake, Faker};
         use item_dynamodb::repository::MockItemDynamoDbRepository;
         use item_service::get_service::GetItemServiceImpl;
-        use time::OffsetDateTime;
 
         #[tokio::test]
         async fn should_toggle_notifications_when_success() {
@@ -803,7 +833,7 @@ mod tests {
             let mut watchlist_repository = MockWatchlistItemDynamoDbRepository::default();
             watchlist_repository
                 .expect_get_watchlist_record()
-                .return_once(|_, _| {
+                .return_once(|_, _, _| {
                     Box::pin(async {
                         let mut faked = Faker.fake::<WatchlistItemRecord>();
                         faked.notifications = false;
@@ -812,7 +842,7 @@ mod tests {
                 });
             watchlist_repository
                 .expect_update_watchlist_record()
-                .return_once(|_, _, _| Box::pin(async { Ok(Faker.fake()) }));
+                .return_once(|_, _, _, _| Box::pin(async { Ok(Faker.fake()) }));
             let get_item_service = GetItemServiceImpl::new(&item_repository);
 
             let service = ItemWatchListServiceImpl::new(
@@ -821,7 +851,14 @@ mod tests {
                 &get_item_service,
             );
             service
-                .toggle_notifications(&Faker.fake(), &Faker.fake(), &true)
+                .update_watchlist_item(
+                    &Faker.fake(),
+                    &Faker.fake(),
+                    &Faker.fake(),
+                    UpdateWatchlistItemCommand {
+                        notifications: Some(true),
+                    },
+                )
                 .await
                 .unwrap();
         }
@@ -833,7 +870,7 @@ mod tests {
             let mut watchlist_repository = MockWatchlistItemDynamoDbRepository::default();
             watchlist_repository
                 .expect_get_watchlist_record()
-                .return_once(|_, _| Box::pin(async { Ok(None) }));
+                .return_once(|_, _, _| Box::pin(async { Ok(None) }));
             let get_item_service = GetItemServiceImpl::new(&item_repository);
 
             let service = ItemWatchListServiceImpl::new(
@@ -842,16 +879,29 @@ mod tests {
                 &get_item_service,
             );
             let user_id = UserId::new();
-            let timestamp = OffsetDateTime::now_utc();
+            let shop_id = ShopId::new();
+            let shops_item_id = ShopsItemId::new();
             let actual = service
-                .toggle_notifications(&user_id, &timestamp, &false)
+                .update_watchlist_item(
+                    &user_id,
+                    &shop_id,
+                    &shops_item_id,
+                    UpdateWatchlistItemCommand {
+                        notifications: Some(false),
+                    },
+                )
                 .await
                 .unwrap_err();
 
             match actual {
-                WatchItemError::WatchlistTimestampNotFound(err_user_id, err_timestamp) => {
+                WatchItemError::WatchlistItemNotFound(
+                    err_user_id,
+                    err_shop_id,
+                    err_shops_item_id,
+                ) => {
                     assert_eq!(user_id, err_user_id);
-                    assert_eq!(timestamp, err_timestamp);
+                    assert_eq!(shop_id, err_shop_id);
+                    assert_eq!(shops_item_id, err_shops_item_id);
                 }
                 err => {
                     panic!("Expected 'WatchItemError::WatchlistTimestampNotFound' but got '{err}'")
@@ -882,7 +932,7 @@ mod tests {
             let mut watchlist_repository = MockWatchlistItemDynamoDbRepository::default();
             watchlist_repository
                 .expect_get_watchlist_record()
-                .return_once(|_, _| Box::pin(async { Err(expected) }));
+                .return_once(|_, _, _| Box::pin(async { Err(expected) }));
             let get_item_service = GetItemServiceImpl::new(&item_repository);
 
             let service = ItemWatchListServiceImpl::new(
@@ -892,7 +942,14 @@ mod tests {
             );
 
             let actual = service
-                .toggle_notifications(&Faker.fake(), &Faker.fake(), &true)
+                .update_watchlist_item(
+                    &Faker.fake(),
+                    &Faker.fake(),
+                    &Faker.fake(),
+                    UpdateWatchlistItemCommand {
+                        notifications: Some(true),
+                    },
+                )
                 .await;
 
             assert!(actual.is_err());
@@ -925,7 +982,7 @@ mod tests {
             let mut watchlist_repository = MockWatchlistItemDynamoDbRepository::default();
             watchlist_repository
                 .expect_get_watchlist_record()
-                .return_once(|_, _| {
+                .return_once(|_, _, _| {
                     Box::pin(async {
                         let mut faked = Faker.fake::<WatchlistItemRecord>();
                         faked.notifications = true;
@@ -934,7 +991,7 @@ mod tests {
                 });
             watchlist_repository
                 .expect_update_watchlist_record()
-                .return_once(|_, _, _| Box::pin(async { Err(expected) }));
+                .return_once(|_, _, _, _| Box::pin(async { Err(expected) }));
             let get_item_service = GetItemServiceImpl::new(&item_repository);
 
             let service = ItemWatchListServiceImpl::new(
@@ -944,7 +1001,14 @@ mod tests {
             );
 
             let actual = service
-                .toggle_notifications(&Faker.fake(), &Faker.fake(), &false)
+                .update_watchlist_item(
+                    &Faker.fake(),
+                    &Faker.fake(),
+                    &Faker.fake(),
+                    UpdateWatchlistItemCommand {
+                        notifications: Some(true),
+                    },
+                )
                 .await;
 
             assert!(actual.is_err());

@@ -42,7 +42,7 @@ pub async fn handle(
         .map_err(|err| ApiError::bad_request(BAD_BODY_VALUE).with_message(err.to_string()))?;
 
     let () = service
-        .watch(
+        .create_watchlist_item(
             &user_id,
             &item_key_data.shop_id,
             &item_key_data.shops_item_id,
@@ -80,7 +80,7 @@ mod tests {
     async fn should_201_when_success() {
         let mut service = MockItemWatchListService::default();
         service
-            .expect_watch()
+            .expect_create_watchlist_item()
             .return_once(|_, _, _| Box::pin(async { Ok(()) }));
 
         let item_key_data = Faker.fake::<ItemKeyData>();
@@ -110,7 +110,7 @@ mod tests {
     #[tokio::test]
     async fn should_401_when_sub_missing() {
         let mut service = MockItemWatchListService::default();
-        service.expect_watch().never();
+        service.expect_create_watchlist_item().never();
 
         let lambda_event = LambdaEvent {
             payload: ApiGatewayV2httpRequestProxy::builder()

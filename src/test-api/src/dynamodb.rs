@@ -3,8 +3,8 @@ use crate::localstack::get_aws_config;
 use async_trait::async_trait;
 use aws_sdk_dynamodb::types::ScalarAttributeType::S;
 use aws_sdk_dynamodb::types::{
-    AttributeDefinition, BillingMode, KeySchemaElement, KeyType, PutRequest, TableClass,
-    WriteRequest,
+    AttributeDefinition, BillingMode, KeySchemaElement, KeyType, LocalSecondaryIndex, Projection,
+    ProjectionType, PutRequest, TableClass, WriteRequest,
 };
 use aws_sdk_dynamodb::{Client, Error};
 use serde::Serialize;
@@ -103,6 +103,12 @@ async fn set_up_table_1() -> Result<(), Error> {
                 .attribute_type(S)
                 .build()?,
         )
+        .attribute_definitions(
+            AttributeDefinition::builder()
+                .attribute_name("lsi1_sk")
+                .attribute_type(S)
+                .build()?,
+        )
         .key_schema(
             KeySchemaElement::builder()
                 .attribute_name("pk")
@@ -113,6 +119,28 @@ async fn set_up_table_1() -> Result<(), Error> {
             KeySchemaElement::builder()
                 .attribute_name("sk")
                 .key_type(KeyType::Range)
+                .build()?,
+        )
+        .local_secondary_indexes(
+            LocalSecondaryIndex::builder()
+                .index_name("lsi1")
+                .key_schema(
+                    KeySchemaElement::builder()
+                        .attribute_name("pk")
+                        .key_type(KeyType::Hash)
+                        .build()?,
+                )
+                .key_schema(
+                    KeySchemaElement::builder()
+                        .attribute_name("lsi1_sk")
+                        .key_type(KeyType::Range)
+                        .build()?,
+                )
+                .projection(
+                    Projection::builder()
+                        .projection_type(ProjectionType::All)
+                        .build(),
+                )
                 .build()?,
         )
         .billing_mode(BillingMode::PayPerRequest)

@@ -1,5 +1,5 @@
 use crate::{
-    record::{WatchlistItemRecord, mk_pk, mk_sk},
+    record::{WatchlistItemRecord, mk_lsi1_sk, mk_pk, mk_sk},
     record_update::WatchlistItemRecordUpdate,
 };
 use aws_sdk_dynamodb::{
@@ -14,7 +14,10 @@ use aws_sdk_dynamodb::{
     },
     types::{AttributeValue, ReturnValue},
 };
-use common::{dynamodb_update::mk_update, pagination::cursor::Cursor, user_id::UserId};
+use common::{
+    dynamodb_update::mk_update, pagination::cursor::Cursor, shop_id::ShopId,
+    shops_item_id::ShopsItemId, user_id::UserId,
+};
 use time::{OffsetDateTime, macros::datetime};
 use tracing::error;
 
@@ -36,19 +39,22 @@ pub trait WatchlistItemDynamoDbRepository {
     async fn get_watchlist_record(
         &self,
         user_id: &UserId,
-        created: &OffsetDateTime,
+        shop_id: &ShopId,
+        shops_item_id: &ShopsItemId,
     ) -> Result<Option<WatchlistItemRecord>, SdkError<GetItemError>>;
 
     async fn delete_watchlist_record(
         &self,
         user_id: &UserId,
-        created: &OffsetDateTime,
+        shop_id: &ShopId,
+        shops_item_id: &ShopsItemId,
     ) -> Result<DeleteItemOutput, SdkError<DeleteItemError>>;
 
     async fn update_watchlist_record(
         &self,
         user_id: &UserId,
-        created: &OffsetDateTime,
+        shop_id: &ShopId,
+        shops_item_id: &ShopsItemId,
         update: WatchlistItemRecordUpdate,
     ) -> Result<Option<WatchlistItemRecord>, SdkError<UpdateItemError>>;
 }
@@ -84,25 +90,26 @@ impl<'a> WatchlistItemDynamoDbRepository for WatchlistItemDynamoDbRepositoryImpl
             cursor.search_after.unwrap_or(OffsetDateTime::now_utc())
         };
         let key_condition_expression = if scan_index_forward {
-            "#pk = :pk_val AND #sk > :sk_val_exclusive_guard"
+            "#pk = :pk_val AND #lsi1_sk > :lsi1_sk_val_exclusive_guard"
         } else {
-            "#pk = :pk_val AND #sk < :sk_val_exclusive_guard"
+            "#pk = :pk_val AND #lsi1_sk < :lsi1_sk_val_exclusive_guard"
         };
 
         let records = self
             .client
             .query()
             .table_name(&self.table)
+            .index_name("lsi1")
             .key_condition_expression(key_condition_expression)
             .expression_attribute_names("#pk", "pk")
-            .expression_attribute_names("#sk", "sk")
+            .expression_attribute_names("#lsi1_sk", "lsi1_sk")
             .expression_attribute_values(
                 ":pk_val",
                 AttributeValue::S(mk_pk(user_id)),
             )
             .expression_attribute_values(
-                ":sk_val_exclusive_guard",
-                AttributeValue::S(mk_sk(&exclusive_guard).map_err(SdkError::construction_failure)?),
+                ":lsi1_sk_val_exclusive_guard",
+                AttributeValue::S(mk_lsi1_sk(&exclusive_guard).map_err(SdkError::construction_failure)?),
             )
             .limit(cursor.size as i32)
             .scan_index_forward(scan_index_forward)
@@ -141,15 +148,14 @@ impl<'a> WatchlistItemDynamoDbRepository for WatchlistItemDynamoDbRepositoryImpl
     async fn get_watchlist_record(
         &self,
         user_id: &UserId,
-        created: &OffsetDateTime,
+        shop_id: &ShopId,
+        shops_item_id: &ShopsItemId,
     ) -> Result<Option<WatchlistItemRecord>, SdkError<GetItemError>> {
-        let pk = mk_pk(user_id);
-        let sk = mk_sk(created).map_err(SdkError::construction_failure)?;
         let record = self.client
             .get_item()
             .table_name(&self.table)
-            .key("pk", AttributeValue::S(pk))
-            .key("sk", AttributeValue::S(sk))
+            .key("pk", AttributeValue::S(mk_pk(user_id)))
+            .key("sk", AttributeValue::S(mk_sk(shop_id, shops_item_id)))
             .send()
             .await?
             .item
@@ -168,15 +174,14 @@ impl<'a> WatchlistItemDynamoDbRepository for WatchlistItemDynamoDbRepositoryImpl
     async fn delete_watchlist_record(
         &self,
         user_id: &UserId,
-        created: &OffsetDateTime,
+        shop_id: &ShopId,
+        shops_item_id: &ShopsItemId,
     ) -> Result<DeleteItemOutput, SdkError<DeleteItemError>> {
-        let pk = mk_pk(user_id);
-        let sk = mk_sk(created).map_err(SdkError::construction_failure)?;
         self.client
             .delete_item()
             .table_name(&self.table)
-            .key("pk", AttributeValue::S(pk))
-            .key("sk", AttributeValue::S(sk))
+            .key("pk", AttributeValue::S(mk_pk(user_id)))
+            .key("sk", AttributeValue::S(mk_sk(shop_id, shops_item_id)))
             .send()
             .await
     }
@@ -184,18 +189,17 @@ impl<'a> WatchlistItemDynamoDbRepository for WatchlistItemDynamoDbRepositoryImpl
     async fn update_watchlist_record(
         &self,
         user_id: &UserId,
-        created: &OffsetDateTime,
+        shop_id: &ShopId,
+        shops_item_id: &ShopsItemId,
         update: WatchlistItemRecordUpdate,
     ) -> Result<Option<WatchlistItemRecord>, SdkError<UpdateItemError>> {
-        let pk = mk_pk(user_id);
-        let sk = mk_sk(created).map_err(SdkError::construction_failure)?;
         let update_expr = mk_update(update)?;
 
         self.client
             .update_item()
             .table_name(&self.table)
-            .key("pk", AttributeValue::S(pk))
-            .key("sk", AttributeValue::S(sk))
+            .key("pk", AttributeValue::S(mk_pk(user_id)))
+            .key("sk", AttributeValue::S(mk_sk(shop_id, shops_item_id)))
             .update_expression(update_expr.update_expr)
             .set_expression_attribute_names(Some(update_expr.expr_attr_names))
             .set_expression_attribute_values(Some(update_expr.expr_attr_values))

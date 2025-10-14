@@ -23,7 +23,11 @@ fn should_put_watchlist_record() {
         .unwrap();
 
     let actual = repository
-        .get_watchlist_record(&expected.user_id, &expected.created)
+        .get_watchlist_record(
+            &expected.user_id,
+            &expected.shop_id,
+            &expected.shops_item_id,
+        )
         .await
         .unwrap()
         .unwrap();
@@ -42,12 +46,20 @@ fn should_delete_watchlist_record() {
         .unwrap();
 
     let _ = repository
-        .delete_watchlist_record(&expected.user_id, &expected.created)
+        .delete_watchlist_record(
+            &expected.user_id,
+            &expected.shop_id,
+            &expected.shops_item_id,
+        )
         .await
         .unwrap();
 
     let actual = repository
-        .get_watchlist_record(&expected.user_id, &expected.created)
+        .get_watchlist_record(
+            &expected.user_id,
+            &expected.shop_id,
+            &expected.shops_item_id,
+        )
         .await
         .unwrap();
     assert!(actual.is_none());
@@ -228,7 +240,8 @@ fn should_update_watchlist_record() {
     let _ = repository
         .update_watchlist_record(
             &initial.user_id,
-            &initial.created,
+            &initial.shop_id,
+            &initial.shops_item_id,
             WatchlistItemRecordUpdate {
                 notifications: Some(!initial.notifications),
                 updated,
@@ -238,7 +251,7 @@ fn should_update_watchlist_record() {
         .unwrap();
 
     let actual = repository
-        .get_watchlist_record(&initial.user_id, &initial.created)
+        .get_watchlist_record(&initial.user_id, &initial.shop_id, &initial.shops_item_id)
         .await
         .unwrap()
         .unwrap();
