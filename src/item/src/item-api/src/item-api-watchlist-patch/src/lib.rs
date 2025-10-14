@@ -1,21 +1,14 @@
 use aws_lambda_events::apigw::{ApiGatewayV2httpRequest, ApiGatewayV2httpResponse};
 use common::api::api_gateway_v2_http_response_builder::ApiGatewayV2HttpResponseBuilder;
 use common::api::error::ApiError;
-use common::api::error_code::{
-    BAD_BODY_VALUE, BAD_QUERY_PARAMETER_VALUE, INVALID_RFC3339_TIMESTAMP,
-};
-use common::item_id::ItemId;
-use common::shop_id::ShopId;
+use common::api::error_code::BAD_BODY_VALUE;
 use common::shop_id::api::extract_shop_id_path;
-use common::shops_item_id::ShopsItemId;
 use common::shops_item_id::api::extract_shops_item_id_path;
 use common::user_id::api::extract_user_id_cognito_jwt;
-use item_watchlist::domain::WatchlistItem;
 use item_watchlist::service::ItemWatchListService;
+use item_watchlist::{command::UpdateWatchlistItemCommand, data::WatchlistItemData};
 use lambda_runtime::LambdaEvent;
 use serde::{Deserialize, Serialize};
-use time::OffsetDateTime;
-use time::format_description::well_known::Rfc3339;
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -24,30 +17,10 @@ pub struct WatchlistItemPatch {
     pub notifications: Option<bool>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct WatchlistItemData {
-    pub shop_id: ShopId,
-    pub shops_item_id: ShopsItemId,
-    pub item_id: ItemId,
-    pub notifications: bool,
-
-    #[serde(with = "time::serde::rfc3339")]
-    pub created: OffsetDateTime,
-
-    #[serde(with = "time::serde::rfc3339")]
-    pub updated: OffsetDateTime,
-}
-
-impl From<WatchlistItem> for WatchlistItemData {
-    fn from(domain: WatchlistItem) -> Self {
-        WatchlistItemData {
-            shop_id: domain.shop_id,
-            shops_item_id: domain.shops_item_id,
-            item_id: domain.item_id,
-            notifications: domain.notifications,
-            created: domain.created,
-            updated: domain.updated,
+impl From<WatchlistItemPatch> for UpdateWatchlistItemCommand {
+    fn from(patch: WatchlistItemPatch) -> Self {
+        UpdateWatchlistItemCommand {
+            notifications: patch.notifications,
         }
     }
 }
@@ -70,26 +43,14 @@ pub async fn handler(
     }
 }
 
-// PATCH /api/v1/watchlist/{shopId}/{shopsItemId}?created={timestamp}
+// PATCH /api/v1/watchlist/{shopId}/{shopsItemId}
 pub async fn handle(
     event: LambdaEvent<ApiGatewayV2httpRequest>,
     service: &impl ItemWatchListService,
 ) -> Result<ApiGatewayV2httpResponse, ApiError> {
     let user_id = extract_user_id_cognito_jwt(&event.payload.request_context)?;
-    let _ = extract_shop_id_path(&event.payload.path_parameters)?;
-    let _ = extract_shops_item_id_path(&event.payload.path_parameters)?;
-    let created = event
-        .payload
-        .query_string_parameters
-        .first("created")
-        .filter(|val| !val.is_empty())
-        .ok_or_else(|| {
-            ApiError::bad_request(BAD_QUERY_PARAMETER_VALUE)
-                .with_query_field("created")
-                .with_message("The timestamp of when the watchlist-entry was created is required to delete it.")
-        })
-        .map(|val| OffsetDateTime::parse(val, &Rfc3339))?
-        .map_err(|err| ApiError::bad_request(INVALID_RFC3339_TIMESTAMP).with_query_field("created").with_message(err.to_string()))?;
+    let shop_id = extract_shop_id_path(&event.payload.path_parameters)?;
+    let shops_item_id = extract_shops_item_id_path(&event.payload.path_parameters)?;
     let body = event
         .payload
         .body
@@ -100,14 +61,9 @@ pub async fn handle(
     let patch: WatchlistItemPatch = serde_json::from_str(&body)
         .map_err(|err| ApiError::bad_request(BAD_BODY_VALUE).with_message(err.to_string()))?;
 
-    let watchlist_item = match patch.notifications {
-        Some(notfications) => {
-            service
-                .update_watchlist_item(&user_id, &created, &notfications)
-                .await?
-        }
-        None => service.find_watchlist_item(&user_id, &created).await?,
-    };
+    let watchlist_item = service
+        .update_watchlist_item(&user_id, &shop_id, &shops_item_id, patch.into())
+        .await?;
 
     Ok(ApiGatewayV2HttpResponseBuilder::json(200)
         .cors()
@@ -131,7 +87,7 @@ mod tests {
         let mut service = MockItemWatchListService::default();
         service
             .expect_update_watchlist_item()
-            .return_once(|_, _, _| Box::pin(async { Ok(Faker.fake()) }));
+            .return_once(|_, _, _, _| Box::pin(async { Ok(Faker.fake()) }));
 
         let lambda_event = LambdaEvent {
             payload: ApiGatewayV2httpRequestProxy::builder()
@@ -213,61 +169,6 @@ mod tests {
         assert_eq!("BAD_PATH_PARAMETER_VALUE", json["error"]);
         assert_eq!("shopsItemId", json["source"]["field"]);
         assert_eq!("PATH", json["source"]["type"]);
-    }
-
-    #[tokio::test]
-    async fn should_400_when_created_missing() {
-        let mut service = MockItemWatchListService::default();
-        service.expect_delete_watchlist_item().never();
-
-        let lambda_event = LambdaEvent {
-            payload: ApiGatewayV2httpRequestProxy::builder()
-                .http_method(http::Method::PATCH)
-                .path_parameter("shopId", ShopId::new())
-                .path_parameter("shopsItemId", ShopsItemId::new())
-                .body_serde(&WatchlistItemPatch {
-                    notifications: Faker.fake(),
-                })
-                .jwt_claim("sub", UserId::new())
-                .build(),
-            context: Default::default(),
-        };
-
-        let response = handler(lambda_event, &service).await.unwrap();
-        assert_eq!(400, response.status_code);
-
-        let json = extract_apigw_response_json_body!(response);
-        assert_eq!("BAD_QUERY_PARAMETER_VALUE", json["error"]);
-        assert_eq!("created", json["source"]["field"]);
-        assert_eq!("QUERY", json["source"]["type"]);
-    }
-
-    #[tokio::test]
-    async fn should_400_when_created_invalid() {
-        let mut service = MockItemWatchListService::default();
-        service.expect_delete_watchlist_item().never();
-
-        let lambda_event = LambdaEvent {
-            payload: ApiGatewayV2httpRequestProxy::builder()
-                .http_method(http::Method::PATCH)
-                .path_parameter("shopId", ShopId::new())
-                .path_parameter("shopsItemId", ShopsItemId::new())
-                .query_string_parameter("created", "boooop")
-                .body_serde(&WatchlistItemPatch {
-                    notifications: Faker.fake(),
-                })
-                .jwt_claim("sub", UserId::new())
-                .build(),
-            context: Default::default(),
-        };
-
-        let response = handler(lambda_event, &service).await.unwrap();
-        assert_eq!(400, response.status_code);
-
-        let json = extract_apigw_response_json_body!(response);
-        assert_eq!("INVALID_RFC3339_TIMESTAMP", json["error"]);
-        assert_eq!("created", json["source"]["field"]);
-        assert_eq!("QUERY", json["source"]["type"]);
     }
 
     #[tokio::test]

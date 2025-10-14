@@ -1,4 +1,5 @@
 pub mod command;
+pub mod data;
 pub mod domain;
 pub mod record;
 pub mod record_update;
