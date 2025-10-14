@@ -5,11 +5,12 @@ use common::{
 };
 use fake::{Fake, Faker};
 use item_api_watchlist_get::WatchlistItemDataView;
-use item_api_watchlist_patch::{WatchlistItemData, WatchlistItemPatch};
+use item_api_watchlist_patch::WatchlistItemPatch;
 use item_dynamodb::{
     item_record::ItemRecord,
     repository::{ItemDynamoDbRepository, ItemDynamoDbRepositoryImpl},
 };
+use item_watchlist::data::WatchlistItemData;
 use staging_tests::{create_random_test_user, get_dynamodb_client, staging_test};
 use time::format_description::well_known::Rfc3339;
 

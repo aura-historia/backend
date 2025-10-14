@@ -4,6 +4,7 @@ use common::api::error::ApiError;
 use common::api::error_code::BAD_BODY_VALUE;
 use common::item_id::api::ItemKeyData;
 use common::user_id::api::extract_user_id_cognito_jwt;
+use item_watchlist::data::WatchlistItemData;
 use item_watchlist::service::ItemWatchListService;
 use lambda_runtime::LambdaEvent;
 
@@ -41,8 +42,8 @@ pub async fn handle(
     let item_key_data: ItemKeyData = serde_json::from_str(&body)
         .map_err(|err| ApiError::bad_request(BAD_BODY_VALUE).with_message(err.to_string()))?;
 
-    let () = service
-        .watch(
+    let watchlist_item = service
+        .create_watchlist_item(
             &user_id,
             &item_key_data.shop_id,
             &item_key_data.shops_item_id,
@@ -62,6 +63,7 @@ pub async fn handle(
 
     Ok(ApiGatewayV2HttpResponseBuilder::json(201)
         .try_location(location.as_deref())
+        .body_serde(WatchlistItemData::from(watchlist_item))?
         .cors()
         .build())
 }
@@ -80,8 +82,8 @@ mod tests {
     async fn should_201_when_success() {
         let mut service = MockItemWatchListService::default();
         service
-            .expect_watch()
-            .return_once(|_, _, _| Box::pin(async { Ok(()) }));
+            .expect_create_watchlist_item()
+            .return_once(|_, _, _| Box::pin(async { Ok(Faker.fake()) }));
 
         let item_key_data = Faker.fake::<ItemKeyData>();
         let lambda_event = LambdaEvent {
@@ -110,7 +112,7 @@ mod tests {
     #[tokio::test]
     async fn should_401_when_sub_missing() {
         let mut service = MockItemWatchListService::default();
-        service.expect_watch().never();
+        service.expect_create_watchlist_item().never();
 
         let lambda_event = LambdaEvent {
             payload: ApiGatewayV2httpRequestProxy::builder()

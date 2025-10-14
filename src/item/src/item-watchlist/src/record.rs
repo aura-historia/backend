@@ -10,6 +10,8 @@ pub struct WatchlistItemRecord {
 
     pub sk: String,
 
+    pub lsi1_sk: String,
+
     pub user_id: UserId,
 
     pub item_id: ItemId,
@@ -31,7 +33,11 @@ pub fn mk_pk(user_id: &UserId) -> String {
     format!("user#{user_id}")
 }
 
-pub fn mk_sk(created: &OffsetDateTime) -> Result<String, Format> {
+pub fn mk_sk(shop_id: &ShopId, shops_item_id: &ShopsItemId) -> String {
+    format!("item#watch#shop_id#{shop_id}#shops_item_id#{shops_item_id}")
+}
+
+pub fn mk_lsi1_sk(created: &OffsetDateTime) -> Result<String, Format> {
     Ok(format!("item#watch#created#{}", created.format(&Rfc3339)?))
 }
 
@@ -62,7 +68,8 @@ mod faker {
 
             WatchlistItemRecord {
                 pk: mk_pk(&user_id),
-                sk: mk_sk(&created).unwrap(),
+                sk: mk_sk(&shop_id, &shops_item_id),
+                lsi1_sk: mk_lsi1_sk(&created).unwrap(),
                 user_id,
                 item_id: config.fake_with_rng(rng),
                 shop_id,

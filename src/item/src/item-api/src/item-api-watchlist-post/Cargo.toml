@@ -23,6 +23,7 @@ http = { workspace = true }
 
 [dev-dependencies]
 common = { workspace = true, features = ["test-data"] }
+item-watchlist = { workspace = true, features = ["test-data"] }
 test-api = { workspace = true, features = ["api-gateway", "dynamodb"] }
 serial_test = { workspace = true }
 rstest = { workspace = true }
