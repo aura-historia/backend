@@ -12,9 +12,11 @@ pub struct WatchlistItemRecord {
 
     pub lsi1_sk: String,
 
-    pub gsi1_pk: String,
+    // some if notifications, none else (conditional sparsity - only appears if notifications enabled
+    pub gsi1_pk: Option<String>,
 
-    pub gsi1_sk: String,
+    // some if notifications, none else (conditional sparsity - only appears if notifications enabled
+    pub gsi1_sk: Option<String>,
 
     pub user_id: UserId,
 
@@ -82,18 +84,27 @@ mod faker {
             let shop_id: ShopId = config.fake_with_rng(rng);
             let shops_item_id: ShopsItemId = config.fake_with_rng(rng);
             let user_id = Faker.fake::<UserId>();
+            let notifications = config.fake_with_rng(rng);
 
             WatchlistItemRecord {
                 pk: mk_pk(&user_id),
                 sk: mk_sk(&shop_id, &shops_item_id),
                 lsi1_sk: mk_lsi1_sk(&created).unwrap(),
-                gsi1_pk: mk_gsi1_pk(&item_id),
-                gsi1_sk: mk_gsi1_sk(&user_id),
+                gsi1_pk: if notifications {
+                    Some(mk_gsi1_pk(&item_id))
+                } else {
+                    None
+                },
+                gsi1_sk: if notifications {
+                    Some(mk_gsi1_sk(&user_id))
+                } else {
+                    None
+                },
                 user_id,
                 item_id: config.fake_with_rng(rng),
                 shop_id,
                 shops_item_id: shops_item_id.clone(),
-                notifications: config.fake_with_rng(rng),
+                notifications,
                 user_record: UserRecord {
                     pk: user_record::mk_pk(&user_id),
                     sk: user_record::mk_sk().to_owned(),
