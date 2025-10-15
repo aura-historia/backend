@@ -1,4 +1,6 @@
-use common::{pagination::cursor::Cursor, user_id::UserId};
+use std::time::Duration;
+
+use common::{item_id::ItemId, pagination::cursor::Cursor, user_id::UserId};
 use fake::{Fake, Faker};
 use item_watchlist::{
     record::{WatchlistItemRecord, mk_gsi1_pk, mk_gsi1_sk, mk_pk},
@@ -300,4 +302,34 @@ fn should_set_notifications_false_for_update() {
     assert!(!actual.notifications);
     assert!(actual.gsi1_pk.is_none());
     assert!(actual.gsi1_sk.is_none());
+}
+
+#[localstack_test(services = [DynamoDB()])]
+fn should_query_users_with_notifications_enabled() {
+    let repository = get_repository().await;
+
+    let item_id = ItemId::new();
+    for mut record in fake::vec![WatchlistItemRecord; 42] {
+        record.notifications = true;
+        record.gsi1_pk = Some(mk_gsi1_pk(&item_id));
+        record.gsi1_sk = Some(mk_gsi1_sk(&record.user_id));
+        record.item_id = item_id;
+        let _ = repository.put_watchlist_record(record).await.unwrap();
+    }
+
+    // civilians
+    for mut record in fake::vec![WatchlistItemRecord; 15] {
+        record.notifications = false;
+        let _ = repository.put_watchlist_record(record).await.unwrap();
+    }
+
+    // wait for gsi
+    tokio::time::sleep(Duration::from_secs(5)).await;
+
+    let actual = repository
+        .query_user_records_with_notifications(&item_id)
+        .await
+        .unwrap();
+
+    assert_eq!(42, actual.len());
 }

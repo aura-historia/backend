@@ -232,7 +232,6 @@ impl<'a> WatchlistItemDynamoDbRepository for WatchlistItemDynamoDbRepositoryImpl
             .query()
             .table_name(&self.table)
             .index_name("gsi1")
-            .key_condition_expression("#pk = :pk_val AND ")
             .key_condition_expression("#gsi1_pk = :gsi1_pk_val AND begins_with(#gsi1_sk, :gsi1_sk_val)")
             .expression_attribute_names("#gsi1_pk", "gsi1_pk")
             .expression_attribute_names("#gsi1_sk", "gsi1_sk")
