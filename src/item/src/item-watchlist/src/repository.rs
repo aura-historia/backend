@@ -1,5 +1,5 @@
 use crate::{
-    record::{WatchlistItemRecord, mk_lsi1_sk, mk_pk, mk_sk},
+    record::{WatchlistItemRecord, mk_gsi1_pk, mk_lsi1_sk, mk_pk, mk_sk},
     record_update::WatchlistItemRecordUpdate,
 };
 use aws_sdk_dynamodb::{
@@ -15,11 +15,12 @@ use aws_sdk_dynamodb::{
     types::{AttributeValue, ReturnValue},
 };
 use common::{
-    dynamodb_update::mk_update, pagination::cursor::Cursor, shop_id::ShopId,
+    dynamodb_update::mk_update, item_id::ItemId, pagination::cursor::Cursor, shop_id::ShopId,
     shops_item_id::ShopsItemId, user_id::UserId,
 };
 use time::{OffsetDateTime, macros::datetime};
 use tracing::error;
+use user_dynamodb::user_record::UserRecord;
 
 #[async_trait::async_trait]
 #[mockall::automock]
@@ -57,6 +58,11 @@ pub trait WatchlistItemDynamoDbRepository {
         shops_item_id: &ShopsItemId,
         update: WatchlistItemRecordUpdate,
     ) -> Result<Option<WatchlistItemRecord>, SdkError<UpdateItemError>>;
+
+    async fn query_user_records_with_notifications(
+        &self,
+        item_id: &ItemId,
+    ) -> Result<Vec<UserRecord>, SdkError<QueryError>>;
 }
 
 #[derive(Debug, Clone)]
@@ -214,5 +220,46 @@ impl<'a> WatchlistItemDynamoDbRepository for WatchlistItemDynamoDbRepositoryImpl
                     None
                 }
             }))
+    }
+
+    // this is why we heavily denormalize and store the entire user-record with every watchlist-entry
+    async fn query_user_records_with_notifications(
+        &self,
+        item_id: &ItemId,
+    ) -> Result<Vec<UserRecord>, SdkError<QueryError>> {
+        let user_records = self
+            .client
+            .query()
+            .table_name(&self.table)
+            .index_name("gsi1")
+            .key_condition_expression("#pk = :pk_val AND ")
+            .key_condition_expression("#gsi1_pk = :gsi1_pk_val AND begins_with(#gsi1_sk, :gsi1_sk_val)")
+            .expression_attribute_names("#gsi1_pk", "gsi1_pk")
+            .expression_attribute_names("#gsi1_sk", "gsi1_sk")
+            .expression_attribute_values(
+                ":gsi1_pk_val",
+                AttributeValue::S(mk_gsi1_pk(item_id)),
+            )
+            .expression_attribute_values(
+                ":gsi1_sk_val",
+                AttributeValue::S("user#".to_owned()),
+            )
+            .into_paginator()
+            .send()
+            .try_collect()
+            .await?
+            .into_iter()
+            .flat_map(|qo| qo.items.unwrap_or_default())
+            .map(serde_dynamo::from_item::<_, WatchlistItemRecord>)
+            .filter_map(|res| match res {
+                Ok(record) => Some(record.user_record),
+                Err(err) => {
+                    error!(error = %err, type = %std::any::type_name::<WatchlistItemRecord>(), "Failed deserializing.");
+                    None
+                }
+            })
+            .collect();
+
+        Ok(user_records)
     }
 }

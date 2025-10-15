@@ -1,8 +1,8 @@
+use crate::domain::WatchlistItem;
 use common::{item_id::ItemId, shop_id::ShopId, shops_item_id::ShopsItemId, user_id::UserId};
 use serde::{Deserialize, Serialize};
 use time::{OffsetDateTime, error::Format, format_description::well_known::Rfc3339};
-
-use crate::domain::WatchlistItem;
+use user_dynamodb::user_record::UserRecord;
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct WatchlistItemRecord {
@@ -25,6 +25,9 @@ pub struct WatchlistItemRecord {
     pub shops_item_id: ShopsItemId,
 
     pub notifications: bool,
+
+    // see WatchlistItemDynamoDbRepositoryImpl::query_user_records_with_notifications
+    pub user_record: UserRecord,
 
     #[serde(with = "time::serde::rfc3339")]
     pub created: OffsetDateTime,
@@ -69,7 +72,8 @@ impl From<WatchlistItemRecord> for WatchlistItem {
 #[cfg(feature = "test-data")]
 mod faker {
     use super::*;
-    use fake::{Dummy, Fake, Faker, Rng};
+    use fake::{Dummy, Fake, Faker, Rng, faker::internet::de_de::SafeEmail};
+    use user_dynamodb::user_record;
 
     impl Dummy<Faker> for WatchlistItemRecord {
         fn dummy_with_rng<R: Rng + ?Sized>(config: &Faker, rng: &mut R) -> Self {
@@ -90,6 +94,17 @@ mod faker {
                 shop_id,
                 shops_item_id: shops_item_id.clone(),
                 notifications: config.fake_with_rng(rng),
+                user_record: UserRecord {
+                    pk: user_record::mk_pk(&user_id),
+                    sk: user_record::mk_sk().to_owned(),
+                    id: user_id,
+                    email: SafeEmail()
+                        .fake_with_rng::<String, R>(rng)
+                        .try_into()
+                        .unwrap(),
+                    created: OffsetDateTime::now_utc(),
+                    updated: OffsetDateTime::now_utc(),
+                },
                 created,
                 updated: created,
             }

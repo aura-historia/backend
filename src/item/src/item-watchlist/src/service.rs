@@ -23,6 +23,7 @@ use item_dynamodb::repository::ItemDynamoDbRepository;
 use item_service::get_service::{GetItemError, GetItemService};
 use std::collections::HashMap;
 use time::OffsetDateTime;
+use user_dynamodb::repository::UserDynamoDbRepository;
 
 #[derive(thiserror::Error, Debug)]
 #[allow(clippy::large_enum_variant)]
@@ -32,6 +33,9 @@ pub enum WatchItemError {
 
     #[error("Item with ShopId '{0}' and ShopsItemId '{1}' not found.")]
     ItemNotFound(ShopId, ShopsItemId),
+
+    #[error("There exists no User with id '{0}'.")]
+    UserNotFound(UserId),
 
     #[error(
         "There exists no Watchlist-Item for user '{0}' with Shop-Id '{1}' and Shops-Item-Id '{2}'."
@@ -95,7 +99,7 @@ pub mod api {
     use crate::service::WatchItemError;
     use common::api::error::ApiError;
     use common::api::error_code::{
-        ITEM_NOT_FOUND, MONETARY_AMOUNT_OVERFLOW, UNPROCESSED_AFTER_MAX_RETRIES,
+        ITEM_NOT_FOUND, MONETARY_AMOUNT_OVERFLOW, UNPROCESSED_AFTER_MAX_RETRIES, USER_NOT_FOUND,
         WATCHLIST_ENTRY_NOT_FOUND,
     };
     use tracing::error;
@@ -108,6 +112,7 @@ pub mod api {
                     ApiError::internal_server_error(MONETARY_AMOUNT_OVERFLOW)
                 }
                 WatchItemError::ItemNotFound(_, _) => ApiError::not_found(ITEM_NOT_FOUND),
+                WatchItemError::UserNotFound(_) => ApiError::internal_server_error(USER_NOT_FOUND),
                 WatchItemError::WatchlistItemNotFound(_, _, _) => {
                     ApiError::not_found(WATCHLIST_ENTRY_NOT_FOUND)
                 }
@@ -188,6 +193,7 @@ pub trait ItemWatchListService {
 
 pub struct ItemWatchListServiceImpl<'a> {
     watchlist_repository: &'a (dyn WatchlistItemDynamoDbRepository + Sync),
+    user_repository: &'a (dyn UserDynamoDbRepository + Sync),
     item_repository: &'a (dyn ItemDynamoDbRepository + Sync),
     get_item_service: &'a (dyn GetItemService + Sync),
 }
@@ -195,11 +201,13 @@ pub struct ItemWatchListServiceImpl<'a> {
 impl<'a> ItemWatchListServiceImpl<'a> {
     pub fn new(
         watchlist_repository: &'a (dyn WatchlistItemDynamoDbRepository + Sync),
+        user_repository: &'a (dyn UserDynamoDbRepository + Sync),
         item_repository: &'a (dyn ItemDynamoDbRepository + Sync),
         get_item_service: &'a (dyn GetItemService + Sync),
     ) -> Self {
         Self {
             watchlist_repository,
+            user_repository,
             item_repository,
             get_item_service,
         }
@@ -243,6 +251,11 @@ impl<'a> ItemWatchListService for ItemWatchListServiceImpl<'a> {
             ))?;
 
         let now = OffsetDateTime::now_utc();
+        let user_record = self
+            .user_repository
+            .get_user_record(user_id)
+            .await?
+            .ok_or(WatchItemError::UserNotFound(*user_id))?;
         let watchlist_record = WatchlistItemRecord {
             pk: mk_pk(user_id),
             sk: mk_sk(shop_id, shops_item_id),
@@ -255,6 +268,7 @@ impl<'a> ItemWatchListService for ItemWatchListServiceImpl<'a> {
             shop_id: item_record.shop_id,
             shops_item_id: item_record.shops_item_id,
             notifications: false,
+            user_record,
             created: now,
             updated: now,
         };
@@ -400,10 +414,12 @@ mod tests {
         use fake::{Fake, Faker};
         use item_dynamodb::repository::MockItemDynamoDbRepository;
         use item_service::get_service::GetItemServiceImpl;
+        use user_dynamodb::repository::MockUserDynamoDbRepository;
 
         #[tokio::test]
         async fn should_err_watchlist_timestamp_not_found_when_no_watched_item_with_timestamp_exists()
          {
+            let user_repository = MockUserDynamoDbRepository::default();
             let item_repository = MockItemDynamoDbRepository::default();
             let mut watchlist_repository = MockWatchlistItemDynamoDbRepository::default();
             watchlist_repository
@@ -413,6 +429,7 @@ mod tests {
 
             let service = ItemWatchListServiceImpl::new(
                 &watchlist_repository,
+                &user_repository,
                 &item_repository,
                 &get_item_service,
             );
@@ -459,6 +476,7 @@ mod tests {
                 aws_sdk_dynamodb::config::http::HttpResponse,
             >,
         ) {
+            let user_repository = MockUserDynamoDbRepository::default();
             let item_repository = MockItemDynamoDbRepository::default();
             let mut watchlist_repository = MockWatchlistItemDynamoDbRepository::default();
             watchlist_repository
@@ -468,6 +486,7 @@ mod tests {
 
             let service = ItemWatchListServiceImpl::new(
                 &watchlist_repository,
+                &user_repository,
                 &item_repository,
                 &get_item_service,
             );
@@ -484,7 +503,7 @@ mod tests {
         }
     }
 
-    mod watch {
+    mod create_watchlist_item {
         use crate::{
             repository::MockWatchlistItemDynamoDbRepository,
             service::{ItemWatchListService, ItemWatchListServiceImpl, WatchItemError},
@@ -498,9 +517,14 @@ mod tests {
         use fake::{Fake, Faker};
         use item_dynamodb::repository::MockItemDynamoDbRepository;
         use item_service::get_service::GetItemServiceImpl;
+        use user_dynamodb::repository::MockUserDynamoDbRepository;
 
         #[tokio::test]
         async fn should_watch_when_success() {
+            let mut user_repository = MockUserDynamoDbRepository::default();
+            user_repository
+                .expect_get_user_record()
+                .return_once(|_| Box::pin(async { Ok(Some(Faker.fake())) }));
             let mut item_repository = MockItemDynamoDbRepository::default();
             item_repository
                 .expect_get_item_record()
@@ -514,6 +538,7 @@ mod tests {
 
             let service = ItemWatchListServiceImpl::new(
                 &watchlist_repository,
+                &user_repository,
                 &item_repository,
                 &get_item_service,
             );
@@ -525,6 +550,7 @@ mod tests {
 
         #[tokio::test]
         async fn should_err_item_not_found_when_item_not_exists() {
+            let user_repository = MockUserDynamoDbRepository::default();
             let mut item_repository = MockItemDynamoDbRepository::default();
             item_repository
                 .expect_get_item_record()
@@ -535,6 +561,7 @@ mod tests {
 
             let service = ItemWatchListServiceImpl::new(
                 &watchlist_repository,
+                &user_repository,
                 &item_repository,
                 &get_item_service,
             );
@@ -567,12 +594,13 @@ mod tests {
             aws_sdk_dynamodb::operation::get_item::GetItemError::unhandled("Something went wrong"),
             HttpResponse::new(500u16.try_into().unwrap(), "{}".into())
         ))]
-        async fn should_propagate_sdk_error_get_item(
+        async fn should_propagate_sdk_error_get_item_record(
             #[case] expected: SdkError<
                 aws_sdk_dynamodb::operation::get_item::GetItemError,
                 aws_sdk_dynamodb::config::http::HttpResponse,
             >,
         ) {
+            let user_repository = MockUserDynamoDbRepository::default();
             let mut item_repository = MockItemDynamoDbRepository::default();
             item_repository
                 .expect_get_item_record()
@@ -583,6 +611,56 @@ mod tests {
 
             let service = ItemWatchListServiceImpl::new(
                 &watchlist_repository,
+                &user_repository,
+                &item_repository,
+                &get_item_service,
+            );
+
+            let actual = service
+                .create_watchlist_item(&Faker.fake(), &Faker.fake(), &Faker.fake())
+                .await;
+
+            assert!(actual.is_err());
+            match actual.unwrap_err() {
+                WatchItemError::SdkGetItemError(_) => {}
+                err => panic!("Expected 'WatchItemError::SdkGetItemError', got '{err}'"),
+            }
+        }
+
+        #[tokio::test]
+        #[rstest::rstest]
+        #[case::construction_failure(SdkError::construction_failure("Something went wrong"))]
+        #[case::timeout(SdkError::timeout_error("Something went wrong"))]
+        #[case::dispatch_failure(SdkError::dispatch_failure(ConnectorError::user("Something went wrong".into())))]
+        #[case::response_error(SdkError::response_error(
+            "Something went wrong",
+            HttpResponse::new(500u16.try_into().unwrap(), "{}".into())
+        ))]
+        #[case::service_error(SdkError::service_error(
+            aws_sdk_dynamodb::operation::get_item::GetItemError::unhandled("Something went wrong"),
+            HttpResponse::new(500u16.try_into().unwrap(), "{}".into())
+        ))]
+        async fn should_propagate_sdk_error_get_user_record(
+            #[case] expected: SdkError<
+                aws_sdk_dynamodb::operation::get_item::GetItemError,
+                aws_sdk_dynamodb::config::http::HttpResponse,
+            >,
+        ) {
+            let mut user_repository = MockUserDynamoDbRepository::default();
+            user_repository
+                .expect_get_user_record()
+                .return_once(|_| Box::pin(async { Err(expected) }));
+            let mut item_repository = MockItemDynamoDbRepository::default();
+            item_repository
+                .expect_get_item_record()
+                .return_once(|_, _| Box::pin(async { Ok(Some(Faker.fake())) }));
+
+            let watchlist_repository = MockWatchlistItemDynamoDbRepository::default();
+            let get_item_service = GetItemServiceImpl::new(&item_repository);
+
+            let service = ItemWatchListServiceImpl::new(
+                &watchlist_repository,
+                &user_repository,
                 &item_repository,
                 &get_item_service,
             );
@@ -617,6 +695,10 @@ mod tests {
                 aws_sdk_dynamodb::config::http::HttpResponse,
             >,
         ) {
+            let mut user_repository = MockUserDynamoDbRepository::default();
+            user_repository
+                .expect_get_user_record()
+                .return_once(|_| Box::pin(async { Ok(Some(Faker.fake())) }));
             let mut item_repository = MockItemDynamoDbRepository::default();
             item_repository
                 .expect_get_item_record()
@@ -630,6 +712,7 @@ mod tests {
 
             let service = ItemWatchListServiceImpl::new(
                 &watchlist_repository,
+                &user_repository,
                 &item_repository,
                 &get_item_service,
             );
@@ -660,9 +743,11 @@ mod tests {
         use fake::{Fake, Faker};
         use item_dynamodb::repository::MockItemDynamoDbRepository;
         use item_service::get_service::GetItemServiceImpl;
+        use user_dynamodb::repository::MockUserDynamoDbRepository;
 
         #[tokio::test]
         async fn should_unwatch_when_success() {
+            let user_repository = MockUserDynamoDbRepository::default();
             let item_repository = MockItemDynamoDbRepository::default();
             let mut watchlist_repository = MockWatchlistItemDynamoDbRepository::default();
             watchlist_repository
@@ -675,6 +760,7 @@ mod tests {
 
             let service = ItemWatchListServiceImpl::new(
                 &watchlist_repository,
+                &user_repository,
                 &item_repository,
                 &get_item_service,
             );
@@ -687,6 +773,7 @@ mod tests {
         #[tokio::test]
         async fn should_err_watchlist_timestamp_not_found_when_no_watched_item_with_timestamp_exists()
          {
+            let user_repository = MockUserDynamoDbRepository::default();
             let item_repository = MockItemDynamoDbRepository::default();
             let mut watchlist_repository = MockWatchlistItemDynamoDbRepository::default();
             watchlist_repository
@@ -696,6 +783,7 @@ mod tests {
 
             let service = ItemWatchListServiceImpl::new(
                 &watchlist_repository,
+                &user_repository,
                 &item_repository,
                 &get_item_service,
             );
@@ -742,6 +830,7 @@ mod tests {
                 aws_sdk_dynamodb::config::http::HttpResponse,
             >,
         ) {
+            let user_repository = MockUserDynamoDbRepository::default();
             let item_repository = MockItemDynamoDbRepository::default();
             let mut watchlist_repository = MockWatchlistItemDynamoDbRepository::default();
             watchlist_repository
@@ -751,6 +840,7 @@ mod tests {
 
             let service = ItemWatchListServiceImpl::new(
                 &watchlist_repository,
+                &user_repository,
                 &item_repository,
                 &get_item_service,
             );
@@ -785,6 +875,7 @@ mod tests {
                 aws_sdk_dynamodb::config::http::HttpResponse,
             >,
         ) {
+            let user_repository = MockUserDynamoDbRepository::default();
             let item_repository = MockItemDynamoDbRepository::default();
             let mut watchlist_repository = MockWatchlistItemDynamoDbRepository::default();
             watchlist_repository
@@ -797,6 +888,7 @@ mod tests {
 
             let service = ItemWatchListServiceImpl::new(
                 &watchlist_repository,
+                &user_repository,
                 &item_repository,
                 &get_item_service,
             );
@@ -828,9 +920,11 @@ mod tests {
         use fake::{Fake, Faker};
         use item_dynamodb::repository::MockItemDynamoDbRepository;
         use item_service::get_service::GetItemServiceImpl;
+        use user_dynamodb::repository::MockUserDynamoDbRepository;
 
         #[tokio::test]
         async fn should_toggle_notifications_when_success() {
+            let user_repository = MockUserDynamoDbRepository::default();
             let item_repository = MockItemDynamoDbRepository::default();
             let mut watchlist_repository = MockWatchlistItemDynamoDbRepository::default();
             watchlist_repository
@@ -849,6 +943,7 @@ mod tests {
 
             let service = ItemWatchListServiceImpl::new(
                 &watchlist_repository,
+                &user_repository,
                 &item_repository,
                 &get_item_service,
             );
@@ -868,6 +963,7 @@ mod tests {
         #[tokio::test]
         async fn should_err_watchlist_timestamp_not_found_when_no_watched_item_with_timestamp_exists()
          {
+            let user_repository = MockUserDynamoDbRepository::default();
             let item_repository = MockItemDynamoDbRepository::default();
             let mut watchlist_repository = MockWatchlistItemDynamoDbRepository::default();
             watchlist_repository
@@ -877,6 +973,7 @@ mod tests {
 
             let service = ItemWatchListServiceImpl::new(
                 &watchlist_repository,
+                &user_repository,
                 &item_repository,
                 &get_item_service,
             );
@@ -930,6 +1027,7 @@ mod tests {
                 aws_sdk_dynamodb::config::http::HttpResponse,
             >,
         ) {
+            let user_repository = MockUserDynamoDbRepository::default();
             let item_repository = MockItemDynamoDbRepository::default();
             let mut watchlist_repository = MockWatchlistItemDynamoDbRepository::default();
             watchlist_repository
@@ -939,6 +1037,7 @@ mod tests {
 
             let service = ItemWatchListServiceImpl::new(
                 &watchlist_repository,
+                &user_repository,
                 &item_repository,
                 &get_item_service,
             );
@@ -980,6 +1079,7 @@ mod tests {
                 aws_sdk_dynamodb::config::http::HttpResponse,
             >,
         ) {
+            let user_repository = MockUserDynamoDbRepository::default();
             let item_repository = MockItemDynamoDbRepository::default();
             let mut watchlist_repository = MockWatchlistItemDynamoDbRepository::default();
             watchlist_repository
@@ -998,6 +1098,7 @@ mod tests {
 
             let service = ItemWatchListServiceImpl::new(
                 &watchlist_repository,
+                &user_repository,
                 &item_repository,
                 &get_item_service,
             );
@@ -1034,6 +1135,7 @@ mod tests {
         use fake::{Fake, Faker};
         use item_dynamodb::repository::MockItemDynamoDbRepository;
         use item_service::get_service::MockGetItemService;
+        use user_dynamodb::repository::MockUserDynamoDbRepository;
 
         #[tokio::test]
         #[rstest::rstest]
@@ -1054,6 +1156,7 @@ mod tests {
                 aws_sdk_dynamodb::config::http::HttpResponse,
             >,
         ) {
+            let user_repository = MockUserDynamoDbRepository::default();
             let item_repository = MockItemDynamoDbRepository::default();
             let mut watchlist_repository = MockWatchlistItemDynamoDbRepository::default();
             watchlist_repository
@@ -1062,6 +1165,7 @@ mod tests {
             let get_item_service = MockGetItemService::default();
             let service = ItemWatchListServiceImpl::new(
                 &watchlist_repository,
+                &user_repository,
                 &item_repository,
                 &get_item_service,
             );
