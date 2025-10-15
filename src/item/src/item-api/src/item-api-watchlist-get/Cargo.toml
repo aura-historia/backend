@@ -10,6 +10,7 @@ item-data = { workspace = true }
 item-dynamodb = { workspace = true, features = ["repository"] }
 item-service = { workspace = true, features = ["dynamodb"] }
 item-watchlist = { workspace = true, features = ["api"] }
+user-dynamodb = { workspace = true }
 tracing = { workspace = true }
 serde = { workspace = true }
 tracing-subscriber = { workspace = true, features = ["json"] }
@@ -25,6 +26,7 @@ time = { workspace = true }
 [dev-dependencies]
 common = { workspace = true, features = ["test-data"] }
 item-watchlist = { workspace = true, features = ["test-data"] }
+user-dynamodb = { workspace = true, features = ["test-data"] }
 item-core = { workspace = true, features = ["test-data"] }
 test-api = { workspace = true, features = ["api-gateway", "dynamodb"] }
 serial_test = { workspace = true }

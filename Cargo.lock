@@ -2051,6 +2051,7 @@ dependencies = [
  "tracing",
  "tracing-subscriber",
  "url",
+ "user-dynamodb",
 ]
 
 [[package]]
@@ -2079,6 +2080,7 @@ dependencies = [
  "tracing",
  "tracing-subscriber",
  "url",
+ "user-dynamodb",
 ]
 
 [[package]]
@@ -2107,6 +2109,7 @@ dependencies = [
  "tracing",
  "tracing-subscriber",
  "url",
+ "user-dynamodb",
 ]
 
 [[package]]
@@ -2135,6 +2138,7 @@ dependencies = [
  "tracing",
  "tracing-subscriber",
  "url",
+ "user-dynamodb",
 ]
 
 [[package]]
