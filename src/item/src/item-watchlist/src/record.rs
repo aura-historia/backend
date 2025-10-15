@@ -13,9 +13,11 @@ pub struct WatchlistItemRecord {
     pub lsi1_sk: String,
 
     // some if notifications, none else (conditional sparsity - only appears if notifications enabled
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub gsi1_pk: Option<String>,
 
     // some if notifications, none else (conditional sparsity - only appears if notifications enabled
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub gsi1_sk: Option<String>,
 
     pub user_id: UserId,
@@ -83,7 +85,7 @@ mod faker {
             let item_id = config.fake_with_rng(rng);
             let shop_id: ShopId = config.fake_with_rng(rng);
             let shops_item_id: ShopsItemId = config.fake_with_rng(rng);
-            let user_id = Faker.fake::<UserId>();
+            let user_id = config.fake_with_rng(rng);
             let notifications = config.fake_with_rng(rng);
 
             WatchlistItemRecord {

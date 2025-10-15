@@ -1,3 +1,4 @@
+use common::dynamodb_update::DynamoDbUpdate;
 use common::event_id::EventId;
 use common::price::record::PriceRecord;
 use serde::Serialize;
@@ -37,6 +38,8 @@ pub struct ItemRecordUpdate {
     #[serde(with = "time::serde::rfc3339")]
     pub updated: OffsetDateTime,
 }
+
+impl DynamoDbUpdate for ItemRecordUpdate {}
 
 impl From<ItemEventRecord> for ItemRecordUpdate {
     fn from(event: ItemEventRecord) -> Self {

@@ -15,7 +15,7 @@ use aws_sdk_dynamodb::{
     types::{AttributeValue, ReturnValue},
 };
 use common::{
-    dynamodb_update::mk_update, item_id::ItemId, pagination::cursor::Cursor, shop_id::ShopId,
+    dynamodb_update::DynamoDbUpdate, item_id::ItemId, pagination::cursor::Cursor, shop_id::ShopId,
     shops_item_id::ShopsItemId, user_id::UserId,
 };
 use time::{OffsetDateTime, macros::datetime};
@@ -199,7 +199,7 @@ impl<'a> WatchlistItemDynamoDbRepository for WatchlistItemDynamoDbRepositoryImpl
         shops_item_id: &ShopsItemId,
         update: WatchlistItemRecordUpdate,
     ) -> Result<Option<WatchlistItemRecord>, SdkError<UpdateItemError>> {
-        let update_expr = mk_update(update)?;
+        let update_expr = update.into_update_expr()?;
 
         self.client
             .update_item()

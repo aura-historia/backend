@@ -15,7 +15,7 @@ use aws_sdk_dynamodb::{
     },
     types::{AttributeValue, ReturnValue},
 };
-use common::{dynamodb_update::mk_update, user_id::UserId};
+use common::{dynamodb_update::DynamoDbUpdate, user_id::UserId};
 use search_filter_core::search_filter_id::SearchFilterId;
 use tracing::error;
 
@@ -165,7 +165,7 @@ impl<'a> SearchFilterDynamoDbRepository for SearchFilterDynamoDbRepositoryImpl<'
     ) -> Result<Option<SearchFilterRecord>, SdkError<UpdateItemError, HttpResponse>> {
         let pk = mk_pk(user_id);
         let sk = mk_sk(search_filter_id);
-        let update_expr = mk_update(search_filter_update)?;
+        let update_expr = search_filter_update.into_update_expr()?;
 
         self.client
             .update_item()

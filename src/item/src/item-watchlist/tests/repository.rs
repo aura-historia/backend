@@ -1,7 +1,7 @@
 use common::{pagination::cursor::Cursor, user_id::UserId};
 use fake::{Fake, Faker};
 use item_watchlist::{
-    record::{WatchlistItemRecord, mk_pk},
+    record::{WatchlistItemRecord, mk_gsi1_pk, mk_gsi1_sk, mk_pk},
     record_update::WatchlistItemRecordUpdate,
     repository::{WatchlistItemDynamoDbRepository, WatchlistItemDynamoDbRepositoryImpl},
 };
@@ -227,10 +227,11 @@ fn should_query_watchlist_records_and_respect_limit_for_scan_index_false() {
 }
 
 #[localstack_test(services = [DynamoDB()])]
-fn should_update_watchlist_record() {
+fn should_set_notifications_true_for_update() {
     let repository = get_repository().await;
 
-    let initial = Faker.fake::<WatchlistItemRecord>();
+    let mut initial = Faker.fake::<WatchlistItemRecord>();
+    initial.notifications = false;
     let _ = repository
         .put_watchlist_record(initial.clone())
         .await
@@ -243,7 +244,9 @@ fn should_update_watchlist_record() {
             &initial.shop_id,
             &initial.shops_item_id,
             WatchlistItemRecordUpdate {
-                notifications: Some(!initial.notifications),
+                gsi1_pk: Some(mk_gsi1_pk(&initial.item_id)),
+                gsi1_sk: Some(mk_gsi1_sk(&initial.user_id)),
+                notifications: Some(true),
                 updated,
             },
         )
@@ -256,8 +259,45 @@ fn should_update_watchlist_record() {
         .unwrap()
         .unwrap();
 
-    let mut expected = initial;
-    expected.notifications = !expected.notifications;
-    expected.updated = updated;
-    assert_eq!(expected, actual);
+    assert!(actual.notifications);
+    assert!(actual.gsi1_pk.is_some());
+    assert!(actual.gsi1_sk.is_some());
+}
+
+#[localstack_test(services = [DynamoDB()])]
+fn should_set_notifications_false_for_update() {
+    let repository = get_repository().await;
+
+    let mut initial = Faker.fake::<WatchlistItemRecord>();
+    initial.notifications = true;
+    let _ = repository
+        .put_watchlist_record(initial.clone())
+        .await
+        .unwrap();
+
+    let updated = OffsetDateTime::now_utc();
+    let _ = repository
+        .update_watchlist_record(
+            &initial.user_id,
+            &initial.shop_id,
+            &initial.shops_item_id,
+            WatchlistItemRecordUpdate {
+                gsi1_pk: None,
+                gsi1_sk: None,
+                notifications: Some(false),
+                updated,
+            },
+        )
+        .await
+        .unwrap();
+
+    let actual = repository
+        .get_watchlist_record(&initial.user_id, &initial.shop_id, &initial.shops_item_id)
+        .await
+        .unwrap()
+        .unwrap();
+
+    assert!(!actual.notifications);
+    assert!(actual.gsi1_pk.is_none());
+    assert!(actual.gsi1_sk.is_none());
 }
