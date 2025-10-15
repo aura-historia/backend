@@ -177,6 +177,10 @@ Resources:
           AttributeType: S
         - AttributeName: lsi1_sk
           AttributeType: S
+        - AttributeName: gsi1_pk
+          AttributeType: S
+        - AttributeName: gsi1_sk
+          AttributeType: S
       KeySchema:
         - AttributeName: pk
           KeyType: HASH
@@ -188,6 +192,15 @@ Resources:
             - AttributeName: pk
               KeyType: HASH
             - AttributeName: lsi1_sk
+              KeyType: RANGE
+          Projection:
+            ProjectionType: ALL
+      GlobalSecondaryIndexes:
+        - IndexName: gsi1
+          KeySchema:
+            - AttributeName: gsi1_pk
+              KeyType: HASH
+            - AttributeName: gsi1_sk
               KeyType: RANGE
           Projection:
             ProjectionType: ALL

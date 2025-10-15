@@ -6,7 +6,7 @@ use item_dynamodb::{
 };
 use item_service::get_service::GetItemServiceImpl;
 use item_watchlist::{
-    record::{WatchlistItemRecord, mk_lsi1_sk, mk_pk, mk_sk},
+    record::{WatchlistItemRecord, mk_gsi1_pk, mk_gsi1_sk, mk_lsi1_sk, mk_pk, mk_sk},
     repository::{WatchlistItemDynamoDbRepository, WatchlistItemDynamoDbRepositoryImpl},
     service::ItemWatchListServiceImpl,
 };
@@ -37,6 +37,8 @@ async fn should_200_when_sort_created_asc() {
             pk: mk_pk(&user_id),
             sk: mk_sk(&item_record.shop_id, &item_record.shops_item_id),
             lsi1_sk: mk_lsi1_sk(&created).unwrap(),
+            gsi1_pk: mk_gsi1_pk(&item_record.item_id),
+            gsi1_sk: mk_gsi1_sk(&user_id),
             user_id,
             item_id: item_record.item_id,
             shop_id: item_record.shop_id,
@@ -119,6 +121,8 @@ async fn should_200_when_sort_created_asc_search_after() {
             sk: mk_sk(&item_record.shop_id, &item_record.shops_item_id),
             lsi1_sk: mk_lsi1_sk(&created).unwrap(),
             user_id,
+            gsi1_pk: mk_gsi1_pk(&item_record.item_id),
+            gsi1_sk: mk_gsi1_sk(&user_id),
             item_id: item_record.item_id,
             shop_id: item_record.shop_id,
             shops_item_id: item_record.shops_item_id,
@@ -194,6 +198,8 @@ async fn should_200_when_sort_created_desc() {
             sk: mk_sk(&item_record.shop_id, &item_record.shops_item_id),
             lsi1_sk: mk_lsi1_sk(&created).unwrap(),
             user_id,
+            gsi1_pk: mk_gsi1_pk(&item_record.item_id),
+            gsi1_sk: mk_gsi1_sk(&user_id),
             item_id: item_record.item_id,
             shop_id: item_record.shop_id,
             shops_item_id: item_record.shops_item_id,
@@ -276,6 +282,8 @@ async fn should_200_when_sort_created_desc_search_after() {
             sk: mk_sk(&item_record.shop_id, &item_record.shops_item_id),
             lsi1_sk: mk_lsi1_sk(&created).unwrap(),
             user_id,
+            gsi1_pk: mk_gsi1_pk(&item_record.item_id),
+            gsi1_sk: mk_gsi1_sk(&user_id),
             item_id: item_record.item_id,
             shop_id: item_record.shop_id,
             shops_item_id: item_record.shops_item_id,

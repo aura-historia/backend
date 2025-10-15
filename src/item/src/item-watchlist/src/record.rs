@@ -12,6 +12,10 @@ pub struct WatchlistItemRecord {
 
     pub lsi1_sk: String,
 
+    pub gsi1_pk: String,
+
+    pub gsi1_sk: String,
+
     pub user_id: UserId,
 
     pub item_id: ItemId,
@@ -41,6 +45,14 @@ pub fn mk_lsi1_sk(created: &OffsetDateTime) -> Result<String, Format> {
     Ok(format!("item#watch#created#{}", created.format(&Rfc3339)?))
 }
 
+pub fn mk_gsi1_pk(item_id: &ItemId) -> String {
+    format!("item_id#{item_id}")
+}
+
+pub fn mk_gsi1_sk(user_id: &UserId) -> String {
+    format!("user#{user_id}")
+}
+
 impl From<WatchlistItemRecord> for WatchlistItem {
     fn from(record: WatchlistItemRecord) -> Self {
         WatchlistItem {
@@ -62,6 +74,7 @@ mod faker {
     impl Dummy<Faker> for WatchlistItemRecord {
         fn dummy_with_rng<R: Rng + ?Sized>(config: &Faker, rng: &mut R) -> Self {
             let created = OffsetDateTime::now_utc();
+            let item_id = config.fake_with_rng(rng);
             let shop_id: ShopId = config.fake_with_rng(rng);
             let shops_item_id: ShopsItemId = config.fake_with_rng(rng);
             let user_id = Faker.fake::<UserId>();
@@ -70,6 +83,8 @@ mod faker {
                 pk: mk_pk(&user_id),
                 sk: mk_sk(&shop_id, &shops_item_id),
                 lsi1_sk: mk_lsi1_sk(&created).unwrap(),
+                gsi1_pk: mk_gsi1_pk(&item_id),
+                gsi1_sk: mk_gsi1_sk(&user_id),
                 user_id,
                 item_id: config.fake_with_rng(rng),
                 shop_id,

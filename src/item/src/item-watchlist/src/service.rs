@@ -1,7 +1,7 @@
 use crate::{
     command::UpdateWatchlistItemCommand,
     domain::{LocalizedWatchlistItemView, WatchlistItem},
-    record::{WatchlistItemRecord, mk_lsi1_sk, mk_pk, mk_sk},
+    record::{WatchlistItemRecord, mk_gsi1_pk, mk_gsi1_sk, mk_lsi1_sk, mk_pk, mk_sk},
     repository::WatchlistItemDynamoDbRepository,
     sort_watch_item::SortWatchlistItemField,
 };
@@ -248,6 +248,8 @@ impl<'a> ItemWatchListService for ItemWatchListServiceImpl<'a> {
             sk: mk_sk(shop_id, shops_item_id),
             lsi1_sk: mk_lsi1_sk(&now)
                 .map_err::<SdkError<PutItemError>, _>(SdkError::construction_failure)?,
+            gsi1_pk: mk_gsi1_pk(&item_record.item_id),
+            gsi1_sk: mk_gsi1_sk(user_id),
             user_id: *user_id,
             item_id: item_record.item_id,
             shop_id: item_record.shop_id,

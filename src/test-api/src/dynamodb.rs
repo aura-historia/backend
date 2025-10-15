@@ -3,8 +3,8 @@ use crate::localstack::get_aws_config;
 use async_trait::async_trait;
 use aws_sdk_dynamodb::types::ScalarAttributeType::S;
 use aws_sdk_dynamodb::types::{
-    AttributeDefinition, BillingMode, KeySchemaElement, KeyType, LocalSecondaryIndex, Projection,
-    ProjectionType, PutRequest, TableClass, WriteRequest,
+    AttributeDefinition, BillingMode, GlobalSecondaryIndex, KeySchemaElement, KeyType,
+    LocalSecondaryIndex, Projection, ProjectionType, PutRequest, TableClass, WriteRequest,
 };
 use aws_sdk_dynamodb::{Client, Error};
 use serde::Serialize;
@@ -109,6 +109,18 @@ async fn set_up_table_1() -> Result<(), Error> {
                 .attribute_type(S)
                 .build()?,
         )
+        .attribute_definitions(
+            AttributeDefinition::builder()
+                .attribute_name("gsi1_pk")
+                .attribute_type(S)
+                .build()?,
+        )
+        .attribute_definitions(
+            AttributeDefinition::builder()
+                .attribute_name("gsi1_sk")
+                .attribute_type(S)
+                .build()?,
+        )
         .key_schema(
             KeySchemaElement::builder()
                 .attribute_name("pk")
@@ -133,6 +145,28 @@ async fn set_up_table_1() -> Result<(), Error> {
                 .key_schema(
                     KeySchemaElement::builder()
                         .attribute_name("lsi1_sk")
+                        .key_type(KeyType::Range)
+                        .build()?,
+                )
+                .projection(
+                    Projection::builder()
+                        .projection_type(ProjectionType::All)
+                        .build(),
+                )
+                .build()?,
+        )
+        .global_secondary_indexes(
+            GlobalSecondaryIndex::builder()
+                .index_name("gsi1")
+                .key_schema(
+                    KeySchemaElement::builder()
+                        .attribute_name("gsi1_pk")
+                        .key_type(KeyType::Hash)
+                        .build()?,
+                )
+                .key_schema(
+                    KeySchemaElement::builder()
+                        .attribute_name("gsi1_sk")
                         .key_type(KeyType::Range)
                         .build()?,
                 )
