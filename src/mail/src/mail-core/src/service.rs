@@ -77,7 +77,7 @@ impl<'a> MailServiceImpl<'a> {
             .body
             .collect()
             .await
-            .map_err(SdkError::construction_failure)?
+            .map_err(SdkError::construction_failure)? // misusing 'ConstructionFailure(..)' yields compact code here
             .into_bytes();
         let template_html = String::from_utf8_lossy(&bytes).to_string();
 
@@ -125,5 +125,41 @@ impl<'a> MailService for MailServiceImpl<'a> {
             .await?;
 
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::{
+        service::{MailServiceImpl, TEMPLATE_CACHE},
+        template::MailTemplate,
+    };
+    use aws_config::{BehaviorVersion, SdkConfig};
+    use std::{collections::HashMap, sync::Arc};
+    use tokio::sync::RwLock;
+
+    #[tokio::test]
+    async fn should_reuse_template_when_in_cache() {
+        // Dummy-Config - test would use dummy-clients and therefore err if we didn't use cache
+        let sdk_config = SdkConfig::builder()
+            .behavior_version(BehaviorVersion::latest())
+            .build();
+        let ses_client = aws_sdk_sesv2::Client::new(&sdk_config);
+        let s3_client = aws_sdk_s3::Client::new(&sdk_config);
+        let service = MailServiceImpl::new(&ses_client, &s3_client, "foo");
+
+        TEMPLATE_CACHE.get_or_init(|| {
+            Arc::new(RwLock::new(HashMap::from_iter([
+                (MailTemplate::StateAvailableNotification, "bar".to_owned()),
+                (MailTemplate::PriceIncreasedNotification, "baz".to_owned()),
+            ])))
+        });
+
+        let actual = service
+            .resolve_template(MailTemplate::StateAvailableNotification)
+            .await
+            .unwrap();
+
+        assert_eq!("bar", actual);
     }
 }

@@ -15,3 +15,7 @@ thiserror = { workspace = true }
 handlebars = { workspace = true }
 once_cell = { workspace = true }
 tokio = { workspace = true, features = ["sync"] }
+
+[dev-dependencies]
+aws-config = { workspace = true }
+tokio = { workspace = true, features = ["macros"] }
