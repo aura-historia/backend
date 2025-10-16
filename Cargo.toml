@@ -63,6 +63,8 @@ shop-dynamodb = { path = "src/shop/src/shop-dynamodb" }
 shop-opensearch = { path = "src/shop/src/shop-opensearch" }
 shop-service = { path = "src/shop/src/shop-service" }
 mail = { path = "src/mail" }
+mail-core = { path = "src/mail/src/mail-core" }
+mail-lambda-send = { path = "src/mail/src/mail-lambda-send" }
 futures = { version = "0.3.31", default-features = false }
 hex = "0.4.3"
 http = "1.3.1"
@@ -141,3 +143,4 @@ user-service = { path = "src/user/src/user-service" }
 cognito-post-confirmation = { path = "src/user/src/cognito-post-confirmation" }
 serde-email = "3.2.0"
 handlebars = "6.3.2"
+once_cell = "1.21.3"

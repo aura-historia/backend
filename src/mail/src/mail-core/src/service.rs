@@ -6,7 +6,9 @@ use aws_sdk_sesv2::{
     types::{Body, Content, Destination, EmailContent, Message},
 };
 use handlebars::Handlebars;
-use std::collections::HashMap;
+use once_cell::sync::OnceCell;
+use std::{collections::HashMap, sync::Arc};
+use tokio::sync::RwLock;
 
 #[derive(thiserror::Error, Debug)]
 pub enum MailServiceError {
@@ -23,11 +25,7 @@ pub enum MailServiceError {
 #[async_trait::async_trait]
 #[mockall::automock]
 pub trait MailService {
-    async fn send(
-        &self,
-        payload: MailPayload,
-        template_cache: &mut HashMap<MailTemplate, String>,
-    ) -> Result<(), MailServiceError>;
+    async fn send_mail(&self, payload: MailPayload) -> Result<(), MailServiceError>;
 }
 
 #[derive(Debug, Clone)]
@@ -37,6 +35,8 @@ pub struct MailServiceImpl<'a> {
     s3_bucket: &'a str,
     handlebars: Handlebars<'a>,
 }
+
+static TEMPLATE_CACHE: OnceCell<Arc<RwLock<HashMap<MailTemplate, String>>>> = OnceCell::new();
 
 impl<'a> MailServiceImpl<'a> {
     pub fn new(
@@ -55,42 +55,45 @@ impl<'a> MailServiceImpl<'a> {
     async fn resolve_template(
         &self,
         template: MailTemplate,
-        template_cache: &'a mut HashMap<MailTemplate, String>,
     ) -> Result<String, SdkError<GetObjectError>> {
-        if let Some(resolved) = template_cache.get(&template) {
-            Ok(resolved.clone())
-        } else {
-            let resp = self
-                .s3_client
-                .get_object()
-                .bucket(self.s3_bucket)
-                .key(format!("{}.html", template.as_str()))
-                .send()
-                .await?;
+        let template_cache_rw =
+            TEMPLATE_CACHE.get_or_init(|| Arc::new(RwLock::new(HashMap::new())));
 
-            let bytes = resp
-                .body
-                .collect()
-                .await
-                .map_err(SdkError::construction_failure)?
-                .into_bytes();
-            let html = String::from_utf8_lossy(&bytes).to_string();
-
-            Ok(html)
+        {
+            let template_cache_r = template_cache_rw.read().await;
+            if let Some(resolved) = template_cache_r.get(&template) {
+                return Ok(resolved.clone());
+            }
         }
+
+        let resp = self
+            .s3_client
+            .get_object()
+            .bucket(self.s3_bucket)
+            .key(format!("{}.html", template.as_str()))
+            .send()
+            .await?;
+        let bytes = resp
+            .body
+            .collect()
+            .await
+            .map_err(SdkError::construction_failure)?
+            .into_bytes();
+        let template_html = String::from_utf8_lossy(&bytes).to_string();
+
+        {
+            let mut template_cache_w = template_cache_rw.write().await;
+            template_cache_w.insert(template, template_html.clone());
+        }
+
+        Ok(template_html)
     }
 }
 
 #[async_trait::async_trait]
 impl<'a> MailService for MailServiceImpl<'a> {
-    async fn send(
-        &self,
-        payload: MailPayload,
-        template_cache: &mut HashMap<MailTemplate, String>,
-    ) -> Result<(), MailServiceError> {
-        let template_html = self
-            .resolve_template(payload.template, template_cache)
-            .await?;
+    async fn send_mail(&self, payload: MailPayload) -> Result<(), MailServiceError> {
+        let template_html = self.resolve_template(payload.template).await?;
         let rendered_html = self
             .handlebars
             .render_template(&template_html, &payload.data)?;

@@ -1,3 +1,2 @@
-pub mod payload;
-pub mod service;
-pub mod template;
+pub use mail_core;
+pub use mail_lambda_send;
