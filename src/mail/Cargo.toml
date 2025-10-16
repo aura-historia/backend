@@ -1,0 +1,15 @@
+[package]
+name = "mail"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+aws-sdk-sesv2 = { workspace = true }
+aws-sdk-s3 = { workspace = true }
+serde-email = { workspace = true }
+mockall = { workspace = true }
+async-trait = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+thiserror = { workspace = true }
+handlebars = { workspace = true }
