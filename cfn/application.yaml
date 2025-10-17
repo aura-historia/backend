@@ -65,6 +65,10 @@ Resources:
           Required: true
       LambdaConfig:
         PostConfirmation: !GetAtt PostConfirmationLambda.Arn
+      UserPoolTags:
+        Environment: !Ref Stage
+        Project: Blitzfilter
+        ManagedBy: CloudFormation
 
   PostConfirmationLambdaRole:
     Type: AWS::IAM::Role
@@ -106,6 +110,19 @@ Resources:
       Environment:
         Variables:
           DYNAMODB_TABLE_NAME: !Ref TableOne
+      Tags:
+        - Key: Environment
+          Value: !Ref Stage
+        - Key: Project
+          Value: Blitzfilter
+        - Key: ManagedBy
+          Value: CloudFormation
+
+  PostConfirmationLambdaLogGroup:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: !Sub "/aws/lambda/blitzfilter-cognito-post-confirmation-${StageName}"
+      RetentionInDays: 30
   AllowCognitoInvokePostConfirmationLambda:
     Type: AWS::Lambda::Permission
     Properties:
@@ -195,9 +212,76 @@ Resources:
       TableClass: STANDARD
       StreamSpecification:
         StreamViewType: NEW_IMAGE
+      # Enable Point-in-Time Recovery for data protection
+      PointInTimeRecoverySpecification:
+        PointInTimeRecoveryEnabled: true
+      # Enable encryption at rest using AWS managed keys
+      SSESpecification:
+        SSEEnabled: true
+        SSEType: KMS
+      Tags:
+        - Key: Environment
+          Value: !Ref Stage
+        - Key: Project
+          Value: Blitzfilter
+        - Key: ManagedBy
+          Value: CloudFormation
+
+  # CloudWatch Log Groups for OpenSearch
+  OpenSearchApplicationLogGroup:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: !Sub "/aws/opensearch/application-${StageName}/application-logs"
+      RetentionInDays: 30
+
+  OpenSearchSlowSearchLogGroup:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: !Sub "/aws/opensearch/application-${StageName}/search-slow-logs"
+      RetentionInDays: 30
+
+  OpenSearchSlowIndexLogGroup:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: !Sub "/aws/opensearch/application-${StageName}/index-slow-logs"
+      RetentionInDays: 30
+
+  OpenSearchErrorLogGroup:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: !Sub "/aws/opensearch/application-${StageName}/error-logs"
+      RetentionInDays: 30
+
+  OpenSearchAuditLogGroup:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: !Sub "/aws/opensearch/application-${StageName}/audit-logs"
+      RetentionInDays: 90
+
+  # IAM Role for OpenSearch to write logs to CloudWatch
+  OpenSearchLogsRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Sub "opensearch-logs-role-${StageName}"
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: es.amazonaws.com
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/CloudWatchLogsFullAccess
 
   BlitzfilterOpenSearchDomain:
     Type: AWS::OpenSearchService::Domain
+    DependsOn:
+      - OpenSearchLogsRole
+      - OpenSearchApplicationLogGroup
+      - OpenSearchSlowSearchLogGroup
+      - OpenSearchSlowIndexLogGroup
+      - OpenSearchErrorLogGroup
+      - OpenSearchAuditLogGroup
     Properties:
       DomainName: !Sub "application-${StageName}"
       EngineVersion: "OpenSearch_2.19"
@@ -209,6 +293,42 @@ Resources:
         EBSEnabled: true
         VolumeSize: 10
         VolumeType: gp3
+      # Enable encryption at rest
+      EncryptionAtRestOptions:
+        Enabled: true
+      # Enable node-to-node encryption
+      NodeToNodeEncryptionOptions:
+        Enabled: true
+      # Enable HTTPS enforcement
+      DomainEndpointOptions:
+        EnforceHTTPS: true
+        TLSSecurityPolicy: Policy-Min-TLS-1-2-2019-07
+      # Enable AutoTune for automatic performance optimization
+      AutoTuneOptions:
+        DesiredState: ENABLED
+      # Enable advanced security options with fine-grained access control
+      AdvancedSecurityOptions:
+        Enabled: true
+        InternalUserDatabaseEnabled: false
+        MasterUserOptions:
+          MasterUserARN: !Sub "arn:aws:iam::${AWS::AccountId}:root"
+      # Log publishing options
+      LogPublishingOptions:
+        ES_APPLICATION_LOGS:
+          CloudWatchLogsLogGroupArn: !GetAtt OpenSearchApplicationLogGroup.Arn
+          Enabled: true
+        SEARCH_SLOW_LOGS:
+          CloudWatchLogsLogGroupArn: !GetAtt OpenSearchSlowSearchLogGroup.Arn
+          Enabled: true
+        INDEX_SLOW_LOGS:
+          CloudWatchLogsLogGroupArn: !GetAtt OpenSearchSlowIndexLogGroup.Arn
+          Enabled: true
+        ES_ERROR_LOGS:
+          CloudWatchLogsLogGroupArn: !GetAtt OpenSearchErrorLogGroup.Arn
+          Enabled: true
+        AUDIT_LOGS:
+          CloudWatchLogsLogGroupArn: !GetAtt OpenSearchAuditLogGroup.Arn
+          Enabled: true
       AccessPolicies:
         Version: "2012-10-17"
         Statement:
@@ -217,11 +337,25 @@ Resources:
               AWS: !Sub "arn:aws:iam::${AWS::AccountId}:root"
             Action: "es:*"
             Resource: !Sub "arn:aws:es:${AWS::Region}:${AWS::AccountId}:domain/application-${StageName}/*"
+      Tags:
+        - Key: Environment
+          Value: !Ref Stage
+        - Key: Project
+          Value: Blitzfilter
+        - Key: ManagedBy
+          Value: CloudFormation
 
   DynamoDbEventBus:
     Type: AWS::Events::EventBus
     Properties:
       Name: !Sub "dynamodb-event-bus-${StageName}"
+      Tags:
+        - Key: Environment
+          Value: !Ref Stage
+        - Key: Project
+          Value: Blitzfilter
+        - Key: ManagedBy
+          Value: CloudFormation
   PipeRole:
     Type: AWS::IAM::Role
     Properties:
@@ -300,6 +434,28 @@ Resources:
               - !GetAtt ItemMaterializeOpenSearchNewQ.Arn
               - !GetAtt ItemMaterializeOpenSearchUpdateQ.Arn
 
+  # CloudWatch Log Group for API Gateway Access Logs
+  ApiGatewayAccessLogGroup:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: !Sub "/aws/apigateway/blitzfilter-${StageName}"
+      RetentionInDays: 30
+
+  # IAM Role for API Gateway to write logs to CloudWatch
+  ApiGatewayLogsRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Sub "api-gateway-logs-role-${StageName}"
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: apigateway.amazonaws.com
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/service-role/AmazonAPIGatewayPushToCloudWatchLogs
+
   BlitzfilterApi:
     Type: AWS::ApiGatewayV2::Api
     Properties:
@@ -316,8 +472,15 @@ Resources:
           - OPTIONS
         AllowHeaders:
           - "*"
+      Tags:
+        Environment: !Ref Stage
+        Project: Blitzfilter
+        ManagedBy: CloudFormation
+
   BlitzfilterApiStage:
     Type: AWS::ApiGatewayV2::Stage
+    DependsOn:
+      - ApiGatewayAccessLogGroup
     Properties:
       StageName: !Sub "${StageName}"
       ApiId: !Ref BlitzfilterApi
@@ -325,6 +488,15 @@ Resources:
       DefaultRouteSettings:
         ThrottlingBurstLimit: 50
         ThrottlingRateLimit: 20
+        DetailedMetricsEnabled: true
+      # Enable access logging
+      AccessLogSettings:
+        DestinationArn: !GetAtt ApiGatewayAccessLogGroup.Arn
+        Format: '$context.requestId $context.requestTime $context.httpMethod $context.routeKey $context.status $context.protocol $context.responseLength $context.error.message'
+      Tags:
+        Environment: !Ref Stage
+        Project: Blitzfilter
+        ManagedBy: CloudFormation
   BlitzfilterApiCognitoAuthorizer:
     Type: AWS::ApiGatewayV2::Authorizer
     Properties:
@@ -388,11 +560,25 @@ Resources:
         S3Key: !Sub "item-api-get-item-${StageName}-${CommitSHA}.zip"
       MemorySize: 512
       Timeout: 10
+      ReservedConcurrentExecutions: 100
       EphemeralStorage:
         Size: 512
       Environment:
         Variables:
           DYNAMODB_TABLE_NAME: !Ref TableOne
+      Tags:
+        - Key: Environment
+          Value: !Ref Stage
+        - Key: Project
+          Value: Blitzfilter
+        - Key: ManagedBy
+          Value: CloudFormation
+
+  BlitzfilterApiGetItemLambdaLogGroup:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: !Sub "/aws/lambda/blitzfilter-api-get-item-${StageName}"
+      RetentionInDays: 30
   BlitzfilterApiGetItemLambdaPermission:
     Type: AWS::Lambda::Permission
     Properties:
@@ -458,12 +644,26 @@ Resources:
         S3Key: !Sub "item-api-put-items-${StageName}-${CommitSHA}.zip"
       MemorySize: 1024
       Timeout: 60
+      ReservedConcurrentExecutions: 50
       EphemeralStorage:
         Size: 512
       Environment:
         Variables:
           DYNAMODB_TABLE_NAME: !Ref TableOne
           INGEST_ITEM_EVENTS_QUEUE_URL: !Ref ItemIngestEventsDynamoDbQ
+      Tags:
+        - Key: Environment
+          Value: !Ref Stage
+        - Key: Project
+          Value: Blitzfilter
+        - Key: ManagedBy
+          Value: CloudFormation
+
+  BlitzfilterApiPutItemsLambdaLogGroup:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: !Sub "/aws/lambda/blitzfilter-api-put-items-${StageName}"
+      RetentionInDays: 30
   BlitzfilterApiPutItemsLambdaPermission:
     Type: AWS::Lambda::Permission
     Properties:
@@ -523,11 +723,25 @@ Resources:
         S3Key: !Sub "item-api-simple-search-${StageName}-${CommitSHA}.zip"
       MemorySize: 512
       Timeout: 10
+      ReservedConcurrentExecutions: 100
       EphemeralStorage:
         Size: 512
       Environment:
         Variables:
           OPENSEARCH_DOMAIN_ENDPOINT_URL: !Sub "https://${BlitzfilterOpenSearchDomain.DomainEndpoint}"
+      Tags:
+        - Key: Environment
+          Value: !Ref Stage
+        - Key: Project
+          Value: Blitzfilter
+        - Key: ManagedBy
+          Value: CloudFormation
+
+  BlitzfilterApiSimpleSearchLambdaLogGroup:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: !Sub "/aws/lambda/blitzfilter-api-simple-search-${StageName}"
+      RetentionInDays: 30
   BlitzfilterApiSimpleSearchLambdaPermission:
     Type: AWS::Lambda::Permission
     Properties:
@@ -587,11 +801,25 @@ Resources:
         S3Key: !Sub "item-api-complex-search-${StageName}-${CommitSHA}.zip"
       MemorySize: 512
       Timeout: 10
+      ReservedConcurrentExecutions: 100
       EphemeralStorage:
         Size: 512
       Environment:
         Variables:
           OPENSEARCH_DOMAIN_ENDPOINT_URL: !Sub "https://${BlitzfilterOpenSearchDomain.DomainEndpoint}"
+      Tags:
+        - Key: Environment
+          Value: !Ref Stage
+        - Key: Project
+          Value: Blitzfilter
+        - Key: ManagedBy
+          Value: CloudFormation
+
+  BlitzfilterApiComplexSearchLambdaLogGroup:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: !Sub "/aws/lambda/blitzfilter-api-complex-search-${StageName}"
+      RetentionInDays: 30
   BlitzfilterApiComplexSearchLambdaPermission:
     Type: AWS::Lambda::Permission
     Properties:
@@ -658,6 +886,19 @@ Resources:
       Environment:
         Variables:
           DYNAMODB_TABLE_NAME: !Ref TableOne
+      Tags:
+        - Key: Environment
+          Value: !Ref Stage
+        - Key: Project
+          Value: Blitzfilter
+        - Key: ManagedBy
+          Value: CloudFormation
+
+  BlitzfilterApiGetWatchlistItemsLambdaLogGroup:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: !Sub "/aws/lambda/blitzfilter-api-get-watchlist-items-${StageName}"
+      RetentionInDays: 30
   BlitzfilterApiGetWatchlistItemsLambdaPermission:
     Type: AWS::Lambda::Permission
     Properties:
@@ -723,6 +964,19 @@ Resources:
       Environment:
         Variables:
           DYNAMODB_TABLE_NAME: !Ref TableOne
+      Tags:
+        - Key: Environment
+          Value: !Ref Stage
+        - Key: Project
+          Value: Blitzfilter
+        - Key: ManagedBy
+          Value: CloudFormation
+
+  BlitzfilterApiDeleteWatchlistItemLambdaLogGroup:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: !Sub "/aws/lambda/blitzfilter-api-delete-watchlist-item-${StageName}"
+      RetentionInDays: 30
   BlitzfilterApiDeleteWatchlistItemLambdaPermission:
     Type: AWS::Lambda::Permission
     Properties:
@@ -788,6 +1042,19 @@ Resources:
       Environment:
         Variables:
           DYNAMODB_TABLE_NAME: !Ref TableOne
+      Tags:
+        - Key: Environment
+          Value: !Ref Stage
+        - Key: Project
+          Value: Blitzfilter
+        - Key: ManagedBy
+          Value: CloudFormation
+
+  BlitzfilterApiPostWatchlistItemLambdaLogGroup:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: !Sub "/aws/lambda/blitzfilter-api-post-watchlist-item-${StageName}"
+      RetentionInDays: 30
   BlitzfilterApiPostWatchlistItemLambdaPermission:
     Type: AWS::Lambda::Permission
     Properties:
@@ -851,6 +1118,19 @@ Resources:
       Environment:
         Variables:
           DYNAMODB_TABLE_NAME: !Ref TableOne
+      Tags:
+        - Key: Environment
+          Value: !Ref Stage
+        - Key: Project
+          Value: Blitzfilter
+        - Key: ManagedBy
+          Value: CloudFormation
+
+  BlitzfilterApiPatchWatchlistItemLambdaLogGroup:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: !Sub "/aws/lambda/blitzfilter-api-patch-watchlist-item-${StageName}"
+      RetentionInDays: 30
   BlitzfilterApiPatchWatchlistItemLambdaPermission:
     Type: AWS::Lambda::Permission
     Properties:
@@ -913,6 +1193,19 @@ Resources:
       Environment:
         Variables:
           DYNAMODB_TABLE_NAME: !Ref TableOne
+      Tags:
+        - Key: Environment
+          Value: !Ref Stage
+        - Key: Project
+          Value: Blitzfilter
+        - Key: ManagedBy
+          Value: CloudFormation
+
+  BlitzfilterApiGetShopLambdaLogGroup:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: !Sub "/aws/lambda/blitzfilter-api-get-shop-${StageName}"
+      RetentionInDays: 30
   BlitzfilterApiGetShopLambdaPermission:
     Type: AWS::Lambda::Permission
     Properties:
@@ -977,6 +1270,19 @@ Resources:
       Environment:
         Variables:
           OPENSEARCH_DOMAIN_ENDPOINT_URL: !Sub "https://${BlitzfilterOpenSearchDomain.DomainEndpoint}"
+      Tags:
+        - Key: Environment
+          Value: !Ref Stage
+        - Key: Project
+          Value: Blitzfilter
+        - Key: ManagedBy
+          Value: CloudFormation
+
+  BlitzfilterApiShopSearchLambdaLogGroup:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: !Sub "/aws/lambda/blitzfilter-api-shop-search-${StageName}"
+      RetentionInDays: 30
   BlitzfilterApiShopSearchLambdaPermission:
     Type: AWS::Lambda::Permission
     Properties:
@@ -1042,6 +1348,19 @@ Resources:
       Environment:
         Variables:
           DYNAMODB_TABLE_NAME: !Ref TableOne
+      Tags:
+        - Key: Environment
+          Value: !Ref Stage
+        - Key: Project
+          Value: Blitzfilter
+        - Key: ManagedBy
+          Value: CloudFormation
+
+  BlitzfilterApiDeleteSearchFilterLambdaLogGroup:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: !Sub "/aws/lambda/blitzfilter-api-delete-search-filter-${StageName}"
+      RetentionInDays: 30
   BlitzfilterApiDeleteSearchFilterLambdaPermission:
     Type: AWS::Lambda::Permission
     Properties:
@@ -1106,6 +1425,19 @@ Resources:
       Environment:
         Variables:
           DYNAMODB_TABLE_NAME: !Ref TableOne
+      Tags:
+        - Key: Environment
+          Value: !Ref Stage
+        - Key: Project
+          Value: Blitzfilter
+        - Key: ManagedBy
+          Value: CloudFormation
+
+  BlitzfilterApiGetSearchFilterLambdaLogGroup:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: !Sub "/aws/lambda/blitzfilter-api-get-search-filter-${StageName}"
+      RetentionInDays: 30
   BlitzfilterApiGetSearchFilterLambdaPermission:
     Type: AWS::Lambda::Permission
     Properties:
@@ -1170,6 +1502,19 @@ Resources:
       Environment:
         Variables:
           DYNAMODB_TABLE_NAME: !Ref TableOne
+      Tags:
+        - Key: Environment
+          Value: !Ref Stage
+        - Key: Project
+          Value: Blitzfilter
+        - Key: ManagedBy
+          Value: CloudFormation
+
+  BlitzfilterApiGetSearchFiltersLambdaLogGroup:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: !Sub "/aws/lambda/blitzfilter-api-get-search-filters-${StageName}"
+      RetentionInDays: 30
   BlitzfilterApiGetSearchFiltersLambdaPermission:
     Type: AWS::Lambda::Permission
     Properties:
@@ -1234,6 +1579,19 @@ Resources:
       Environment:
         Variables:
           DYNAMODB_TABLE_NAME: !Ref TableOne
+      Tags:
+        - Key: Environment
+          Value: !Ref Stage
+        - Key: Project
+          Value: Blitzfilter
+        - Key: ManagedBy
+          Value: CloudFormation
+
+  BlitzfilterApiPatchSearchFilterLambdaLogGroup:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: !Sub "/aws/lambda/blitzfilter-api-patch-search-filter-${StageName}"
+      RetentionInDays: 30
   BlitzfilterApiPatchSearchFilterLambdaPermission:
     Type: AWS::Lambda::Permission
     Properties:
@@ -1296,6 +1654,19 @@ Resources:
       Environment:
         Variables:
           DYNAMODB_TABLE_NAME: !Ref TableOne
+      Tags:
+        - Key: Environment
+          Value: !Ref Stage
+        - Key: Project
+          Value: Blitzfilter
+        - Key: ManagedBy
+          Value: CloudFormation
+
+  BlitzfilterApiPostSearchFilterLambdaLogGroup:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: !Sub "/aws/lambda/blitzfilter-api-post-search-filter-${StageName}"
+      RetentionInDays: 30
   BlitzfilterApiPostSearchFilterLambdaPermission:
     Type: AWS::Lambda::Permission
     Properties:
@@ -1309,6 +1680,15 @@ Resources:
     Properties:
       QueueName: !Sub "item-lambda-ingest-events-dynamodb-dlq-${StageName}"
       MessageRetentionPeriod: 1209600
+      SqsManagedSseEnabled: true
+      Tags:
+        - Key: Environment
+          Value: !Ref Stage
+        - Key: Project
+          Value: Blitzfilter
+        - Key: ManagedBy
+          Value: CloudFormation
+
   ItemIngestEventsDynamoDbQ:
     Type: AWS::SQS::Queue
     Properties:
@@ -1317,6 +1697,14 @@ Resources:
         deadLetterTargetArn: !GetAtt ItemIngestEventsDynamoDbDlq.Arn
         maxReceiveCount: 3
       VisibilityTimeout: 360
+      SqsManagedSseEnabled: true
+      Tags:
+        - Key: Environment
+          Value: !Ref Stage
+        - Key: Project
+          Value: Blitzfilter
+        - Key: ManagedBy
+          Value: CloudFormation
   ItemIngestEventsDynamoDbRole:
     Type: AWS::IAM::Role
     Properties:
@@ -1367,6 +1755,19 @@ Resources:
       Environment:
         Variables:
           DYNAMODB_TABLE_NAME: !Ref TableOne
+      Tags:
+        - Key: Environment
+          Value: !Ref Stage
+        - Key: Project
+          Value: Blitzfilter
+        - Key: ManagedBy
+          Value: CloudFormation
+
+  ItemIngestEventsDynamoDbLambdaLogGroup:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: !Sub "/aws/lambda/item-lambda-ingest-events-dynamodb-${StageName}"
+      RetentionInDays: 30
   ItemIngestEventsDynamoDbMapping:
     Type: AWS::Lambda::EventSourceMapping
     Properties:
@@ -1388,6 +1789,15 @@ Resources:
     Properties:
       QueueName: !Sub "item-lambda-materialize-dynamodb-new-dlq-${StageName}"
       MessageRetentionPeriod: 1209600
+      SqsManagedSseEnabled: true
+      Tags:
+        - Key: Environment
+          Value: !Ref Stage
+        - Key: Project
+          Value: Blitzfilter
+        - Key: ManagedBy
+          Value: CloudFormation
+
   ItemMaterializeDynamoDbNewQ:
     Type: AWS::SQS::Queue
     Properties:
@@ -1396,6 +1806,14 @@ Resources:
         deadLetterTargetArn: !GetAtt ItemMaterializeDynamoDbNewDlq.Arn
         maxReceiveCount: 5
       VisibilityTimeout: 360
+      SqsManagedSseEnabled: true
+      Tags:
+        - Key: Environment
+          Value: !Ref Stage
+        - Key: Project
+          Value: Blitzfilter
+        - Key: ManagedBy
+          Value: CloudFormation
   ItemMaterializeDynamoDbNewRole:
     Type: AWS::IAM::Role
     Properties:
@@ -1446,6 +1864,19 @@ Resources:
       Environment:
         Variables:
           DYNAMODB_TABLE_NAME: !Ref TableOne
+      Tags:
+        - Key: Environment
+          Value: !Ref Stage
+        - Key: Project
+          Value: Blitzfilter
+        - Key: ManagedBy
+          Value: CloudFormation
+
+  ItemMaterializeDynamoDbNewLambdaLogGroup:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: !Sub "/aws/lambda/item-lambda-materialize-dynamodb-new-${StageName}"
+      RetentionInDays: 30
   ItemMaterializeDynamoDbNewMapping:
     Type: AWS::Lambda::EventSourceMapping
     Properties:
@@ -1467,6 +1898,15 @@ Resources:
     Properties:
       QueueName: !Sub "item-lambda-materialize-dynamodb-update-dlq-${StageName}"
       MessageRetentionPeriod: 1209600
+      SqsManagedSseEnabled: true
+      Tags:
+        - Key: Environment
+          Value: !Ref Stage
+        - Key: Project
+          Value: Blitzfilter
+        - Key: ManagedBy
+          Value: CloudFormation
+
   ItemMaterializeDynamoDbUpdateQ:
     Type: AWS::SQS::Queue
     Properties:
@@ -1475,6 +1915,14 @@ Resources:
         deadLetterTargetArn: !GetAtt ItemMaterializeDynamoDbUpdateDlq.Arn
         maxReceiveCount: 5
       VisibilityTimeout: 360
+      SqsManagedSseEnabled: true
+      Tags:
+        - Key: Environment
+          Value: !Ref Stage
+        - Key: Project
+          Value: Blitzfilter
+        - Key: ManagedBy
+          Value: CloudFormation
   ItemMaterializeDynamoDbUpdateRole:
     Type: AWS::IAM::Role
     Properties:
@@ -1525,6 +1973,19 @@ Resources:
       Environment:
         Variables:
           DYNAMODB_TABLE_NAME: !Ref TableOne
+      Tags:
+        - Key: Environment
+          Value: !Ref Stage
+        - Key: Project
+          Value: Blitzfilter
+        - Key: ManagedBy
+          Value: CloudFormation
+
+  ItemMaterializeDynamoDbUpdateLambdaLogGroup:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: !Sub "/aws/lambda/item-lambda-materialize-dynamodb-update-${StageName}"
+      RetentionInDays: 30
   ItemMaterializeDynamoDbUpdateMapping:
     Type: AWS::Lambda::EventSourceMapping
     Properties:
@@ -1546,6 +2007,15 @@ Resources:
     Properties:
       QueueName: !Sub "item-lambda-materialize-opensearch-new-dlq-${StageName}"
       MessageRetentionPeriod: 1209600
+      SqsManagedSseEnabled: true
+      Tags:
+        - Key: Environment
+          Value: !Ref Stage
+        - Key: Project
+          Value: Blitzfilter
+        - Key: ManagedBy
+          Value: CloudFormation
+
   ItemMaterializeOpenSearchNewQ:
     Type: AWS::SQS::Queue
     Properties:
@@ -1554,6 +2024,14 @@ Resources:
         deadLetterTargetArn: !GetAtt ItemMaterializeOpenSearchNewDlq.Arn
         maxReceiveCount: 5
       VisibilityTimeout: 360
+      SqsManagedSseEnabled: true
+      Tags:
+        - Key: Environment
+          Value: !Ref Stage
+        - Key: Project
+          Value: Blitzfilter
+        - Key: ManagedBy
+          Value: CloudFormation
   ItemMaterializeOpenSearchNewRole:
     Type: AWS::IAM::Role
     Properties:
@@ -1604,6 +2082,19 @@ Resources:
       Environment:
         Variables:
           OPENSEARCH_DOMAIN_ENDPOINT_URL: !Sub "https://${BlitzfilterOpenSearchDomain.DomainEndpoint}"
+      Tags:
+        - Key: Environment
+          Value: !Ref Stage
+        - Key: Project
+          Value: Blitzfilter
+        - Key: ManagedBy
+          Value: CloudFormation
+
+  ItemMaterializeOpenSearchNewLambdaLogGroup:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: !Sub "/aws/lambda/item-lambda-materialize-opensearch-new-${StageName}"
+      RetentionInDays: 30
   ItemMaterializeOpenSearchDbNewMapping:
     Type: AWS::Lambda::EventSourceMapping
     Properties:
@@ -1625,6 +2116,15 @@ Resources:
     Properties:
       QueueName: !Sub "item-lambda-materialize-opensearch-update-dlq-${StageName}"
       MessageRetentionPeriod: 1209600
+      SqsManagedSseEnabled: true
+      Tags:
+        - Key: Environment
+          Value: !Ref Stage
+        - Key: Project
+          Value: Blitzfilter
+        - Key: ManagedBy
+          Value: CloudFormation
+
   ItemMaterializeOpenSearchUpdateQ:
     Type: AWS::SQS::Queue
     Properties:
@@ -1633,6 +2133,14 @@ Resources:
         deadLetterTargetArn: !GetAtt ItemMaterializeOpenSearchUpdateDlq.Arn
         maxReceiveCount: 5
       VisibilityTimeout: 360
+      SqsManagedSseEnabled: true
+      Tags:
+        - Key: Environment
+          Value: !Ref Stage
+        - Key: Project
+          Value: Blitzfilter
+        - Key: ManagedBy
+          Value: CloudFormation
   ItemMaterializeOpenSearchUpdateRole:
     Type: AWS::IAM::Role
     Properties:
@@ -1683,6 +2191,19 @@ Resources:
       Environment:
         Variables:
           OPENSEARCH_DOMAIN_ENDPOINT_URL: !Sub "https://${BlitzfilterOpenSearchDomain.DomainEndpoint}"
+      Tags:
+        - Key: Environment
+          Value: !Ref Stage
+        - Key: Project
+          Value: Blitzfilter
+        - Key: ManagedBy
+          Value: CloudFormation
+
+  ItemMaterializeOpenSearchUpdateLambdaLogGroup:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: !Sub "/aws/lambda/item-lambda-materialize-opensearch-update-${StageName}"
+      RetentionInDays: 30
   ItemMaterializeOpenSearchDbUpdateMapping:
     Type: AWS::Lambda::EventSourceMapping
     Properties:
@@ -1792,6 +2313,13 @@ Resources:
     Properties:
       TopicName: !Sub "cloudwatch-alarms-${StageName}"
       DisplayName: "CloudWatch Alarms for Blitzfilter Backend"
+      Tags:
+        - Key: Environment
+          Value: !Ref Stage
+        - Key: Project
+          Value: Blitzfilter
+        - Key: ManagedBy
+          Value: CloudFormation
 
   # Lambda Error Alarms
   BlitzfilterApiGetItemLambdaErrorAlarm:
