@@ -20,13 +20,17 @@ thiserror = { workspace = true, optional = true }
 mockall = { workspace = true, optional = true }
 async-trait = { workspace = true, optional = true }
 tracing = { workspace = true, optional = true }
+fake = { workspace = true, optional = true, features = ["serde_json"] }
 
 [dev-dependencies]
 aws-config = { workspace = true }
 tokio = { workspace = true, features = ["macros"] }
-mail-core = { workspace = true, features = ["queue", "send"] }
+mail-core = { workspace = true, features = ["queue", "send", "test-data"] }
+test-api = { workspace = true, features = ["sqs"] }
+serial_test = { workspace = true }
 
 [features]
 default = []
 queue = ["common", "common/sqs", "aws-sdk-sqs", "thiserror", "mockall", "async-trait", "tracing"]
 send = ["tokio", "tokio/sync", "aws-sdk-sesv2", "aws-sdk-s3", "handlebars", "once_cell", "thiserror", "mockall", "async-trait"]
+test-data = ["fake", "fake/serde_json"]

@@ -1,22 +1,12 @@
 use crate::payload::MailPayload;
-use aws_sdk_sqs::{error::SdkError, operation::send_message_batch::SendMessageBatchError};
 use common::batch::Batch;
 use std::collections::HashMap;
 use tracing::error;
 
-#[derive(thiserror::Error, Debug)]
-pub enum MailServiceError {
-    #[error("Encountered SQS SdkError for SendMessageBatch: {0}")]
-    SdkSQSSendMessageBatchError(#[from] SdkError<SendMessageBatchError>),
-}
-
 #[async_trait::async_trait]
 #[mockall::automock]
 pub trait QueueMailService {
-    async fn queue_mails(
-        &self,
-        payloads: Vec<MailPayload>,
-    ) -> Result<Vec<MailPayload>, MailServiceError>;
+    async fn queue_mails(&self, payloads: Vec<MailPayload>) -> Vec<MailPayload>;
 }
 
 #[derive(Debug, Clone)]
@@ -36,10 +26,7 @@ impl<'a> QueueMailServiceImpl<'a> {
 
 #[async_trait::async_trait]
 impl<'a> QueueMailService for QueueMailServiceImpl<'a> {
-    async fn queue_mails(
-        &self,
-        payloads: Vec<MailPayload>,
-    ) -> Result<Vec<MailPayload>, MailServiceError> {
+    async fn queue_mails(&self, payloads: Vec<MailPayload>) -> Vec<MailPayload> {
         let mut failures = Vec::new();
         let batches = Batch::<_, 10>::chunked_from(payloads.into_iter());
 
@@ -75,6 +62,6 @@ impl<'a> QueueMailService for QueueMailServiceImpl<'a> {
             }
         }
 
-        Ok(failures)
+        failures
     }
 }
