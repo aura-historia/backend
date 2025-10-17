@@ -24,12 +24,12 @@ pub enum MailServiceError {
 
 #[async_trait::async_trait]
 #[mockall::automock]
-pub trait MailService {
+pub trait SendMailService {
     async fn send_mail(&self, payload: MailPayload) -> Result<(), MailServiceError>;
 }
 
 #[derive(Debug, Clone)]
-pub struct MailServiceImpl<'a> {
+pub struct SendMailServiceImpl<'a> {
     ses_client: &'a aws_sdk_sesv2::Client,
     s3_client: &'a aws_sdk_s3::Client,
     s3_bucket: &'a str,
@@ -38,7 +38,7 @@ pub struct MailServiceImpl<'a> {
 
 static TEMPLATE_CACHE: OnceCell<Arc<RwLock<HashMap<MailTemplate, String>>>> = OnceCell::new();
 
-impl<'a> MailServiceImpl<'a> {
+impl<'a> SendMailServiceImpl<'a> {
     pub fn new(
         ses_client: &'a aws_sdk_sesv2::Client,
         s3_client: &'a aws_sdk_s3::Client,
@@ -91,7 +91,7 @@ impl<'a> MailServiceImpl<'a> {
 }
 
 #[async_trait::async_trait]
-impl<'a> MailService for MailServiceImpl<'a> {
+impl<'a> SendMailService for SendMailServiceImpl<'a> {
     async fn send_mail(&self, payload: MailPayload) -> Result<(), MailServiceError> {
         let template_html = self.resolve_template(payload.template).await?;
         let rendered_html = self
@@ -131,7 +131,7 @@ impl<'a> MailService for MailServiceImpl<'a> {
 #[cfg(test)]
 mod tests {
     use crate::{
-        service::{MailServiceImpl, TEMPLATE_CACHE},
+        send_service::{SendMailServiceImpl, TEMPLATE_CACHE},
         template::MailTemplate,
     };
     use aws_config::{BehaviorVersion, SdkConfig};
@@ -146,7 +146,7 @@ mod tests {
             .build();
         let ses_client = aws_sdk_sesv2::Client::new(&sdk_config);
         let s3_client = aws_sdk_s3::Client::new(&sdk_config);
-        let service = MailServiceImpl::new(&ses_client, &s3_client, "foo");
+        let service = SendMailServiceImpl::new(&ses_client, &s3_client, "foo");
 
         TEMPLATE_CACHE.get_or_init(|| {
             Arc::new(RwLock::new(HashMap::from_iter([

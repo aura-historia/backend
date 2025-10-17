@@ -1,3 +1,3 @@
 pub mod payload;
-pub mod service;
+pub mod send_service;
 pub mod template;

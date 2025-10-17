@@ -1,11 +1,11 @@
 use aws_lambda_events::sqs::{BatchItemFailure, SqsBatchResponse, SqsEvent};
 use lambda_runtime::LambdaEvent;
-use mail_core::{payload::MailPayload, service::MailService};
+use mail_core::{payload::MailPayload, send_service::SendMailService};
 use tracing::{error, info, warn};
 
 #[tracing::instrument(skip(service, event), fields(requestId = %event.context.request_id))]
 pub async fn handler(
-    service: &impl MailService,
+    service: &impl SendMailService,
     event: LambdaEvent<SqsEvent>,
 ) -> Result<SqsBatchResponse, lambda_runtime::Error> {
     let messages_count = event.payload.records.len();
