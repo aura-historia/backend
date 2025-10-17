@@ -1,5 +1,8 @@
 use crate::payload::MailPayload;
 use aws_sdk_sqs::{error::SdkError, operation::send_message_batch::SendMessageBatchError};
+use common::batch::Batch;
+use std::collections::HashMap;
+use tracing::error;
 
 #[derive(thiserror::Error, Debug)]
 pub enum MailServiceError {
@@ -19,10 +22,59 @@ pub trait QueueMailService {
 #[derive(Debug, Clone)]
 pub struct QueueMailServiceImpl<'a> {
     sqs_client: &'a aws_sdk_sqs::Client,
+    mail_queue_url: &'a str,
 }
 
 impl<'a> QueueMailServiceImpl<'a> {
-    pub fn new(sqs_client: &'a aws_sdk_sqs::Client) -> Self {
-        Self { sqs_client }
+    pub fn new(sqs_client: &'a aws_sdk_sqs::Client, mail_queue_url: &'a str) -> Self {
+        Self {
+            sqs_client,
+            mail_queue_url,
+        }
+    }
+}
+
+#[async_trait::async_trait]
+impl<'a> QueueMailService for QueueMailServiceImpl<'a> {
+    async fn queue_mails(
+        &self,
+        payloads: Vec<MailPayload>,
+    ) -> Result<Vec<MailPayload>, MailServiceError> {
+        let mut failures = Vec::new();
+        let batches = Batch::<_, 10>::chunked_from(payloads.into_iter());
+
+        for batch in batches {
+            let mut msg_payload = batch
+                .iter()
+                .enumerate()
+                .map(|(i, payload)| (i.to_string(), payload.clone()))
+                .collect::<HashMap<_, _>>();
+            let res = self
+                .sqs_client
+                .send_message_batch()
+                .queue_url(self.mail_queue_url)
+                .set_entries(Some(batch.into_sqs_message_entries()))
+                .send()
+                .await;
+            match res {
+                Ok(output) => {
+                    for failed in output.failed {
+                        match msg_payload.remove(failed.id()) {
+                            Some(failed_payload) => failures.push(failed_payload),
+                            None => error!(
+                                payload = ?failed,
+                                "Couldn't find MailPayload for unprocessed message. This is a bug. Not retrying."
+                            ),
+                        }
+                    }
+                }
+                Err(err) => {
+                    error!(error = ?err, "Failed writing entire MailPayload-Batch due to SdkError.");
+                    failures.extend(msg_payload.into_values());
+                }
+            }
+        }
+
+        Ok(failures)
     }
 }

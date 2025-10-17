@@ -2860,6 +2860,7 @@ dependencies = [
  "aws-sdk-s3",
  "aws-sdk-sesv2",
  "aws-sdk-sqs",
+ "common",
  "handlebars",
  "mail-core",
  "mockall",
@@ -2869,6 +2870,7 @@ dependencies = [
  "serde_json",
  "thiserror",
  "tokio",
+ "tracing",
 ]
 
 [[package]]

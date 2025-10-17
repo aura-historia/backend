@@ -9,6 +9,7 @@ serde = { workspace = true }
 serde_json = { workspace = true }
 
 # Optional
+common = { workspace = true, optional = true, features = ["sqs"] }
 tokio = { workspace = true, optional = true, features = ["sync"] }
 aws-sdk-sesv2 = { workspace = true, optional = true }
 aws-sdk-s3 = { workspace = true, optional = true }
@@ -18,6 +19,7 @@ once_cell = { workspace = true, optional = true }
 thiserror = { workspace = true, optional = true }
 mockall = { workspace = true, optional = true }
 async-trait = { workspace = true, optional = true }
+tracing = { workspace = true, optional = true }
 
 [dev-dependencies]
 aws-config = { workspace = true }
@@ -26,5 +28,5 @@ mail-core = { workspace = true, features = ["queue", "send"] }
 
 [features]
 default = []
-queue = ["aws-sdk-sqs", "thiserror", "mockall", "async-trait"]
+queue = ["common", "common/sqs", "aws-sdk-sqs", "thiserror", "mockall", "async-trait", "tracing"]
 send = ["tokio", "tokio/sync", "aws-sdk-sesv2", "aws-sdk-s3", "handlebars", "once_cell", "thiserror", "mockall", "async-trait"]
