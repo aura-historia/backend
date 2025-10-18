@@ -1,18 +1,22 @@
-use aws_sdk_cognitoidentityprovider::types::AuthFlowType;
+use aws_sdk_cognitoidentityprovider::types::{AttributeType, AuthFlowType, MessageActionType};
 use aws_sdk_dynamodb::types::WriteRequest;
 use aws_sdk_sqs::types::DeleteMessageBatchRequestEntry;
 use aws_tests_common::get_cfn_output;
-use common::user_id::UserId;
-use fake::Fake;
+use fake::faker::address::de_de::TimeZone;
 use fake::faker::internet::de_de::{Password, SafeEmail};
+use fake::faker::name::de_de::{FirstName, LastName};
+use fake::faker::time::de_de::DateTimeBetween;
+use fake::{Fake, Faker};
 use opensearch::http::Url;
 use opensearch::http::response::Response;
 use opensearch::http::transport::{SingleNodeConnectionPool, TransportBuilder};
 pub use staging_tests_macros::staging_test;
-use std::time::Duration;
 use std::{collections::HashMap, error::Error};
+use time::macros::datetime;
+use time::{Date, OffsetDateTime};
 use tokio::sync::OnceCell;
 use tracing::debug;
+use uuid::Uuid;
 
 static CONFIG: OnceCell<aws_config::SdkConfig> = OnceCell::const_new();
 pub async fn get_aws_config() -> &'static aws_config::SdkConfig {
@@ -78,53 +82,139 @@ pub async fn get_cognito_client() -> &'static aws_sdk_cognitoidentityprovider::C
 }
 
 pub struct TestUser {
-    pub id_token: String,
     pub access_token: String,
-    pub refresh_token: String,
-    pub sub: UserId,
+    pub id_token: String,
+    pub sub: Uuid,
 }
 pub async fn create_random_test_user() -> TestUser {
     let email: String = SafeEmail().fake();
+    let given_name: String = FirstName().fake();
+    let family_name: String = LastName().fake();
+    let birthdate: OffsetDateTime = DateTimeBetween(
+        datetime!(1900 - 01 - 01 0:00 UTC),
+        datetime!(2010 - 12 - 31 0:00 UTC),
+    )
+    .fake();
+    let gender = if Faker.fake() { "male" } else { "female" };
+    let zoneinfo: String = TimeZone().fake();
+    let locale = "de-DE";
 
-    create_test_user(&email).await
+    create_test_user(
+        &email,
+        &given_name,
+        &family_name,
+        &birthdate.date(),
+        gender,
+        &Some(zoneinfo),
+        &Some(locale.to_string()),
+        &None,
+    )
+    .await
 }
 
 #[allow(clippy::too_many_arguments)]
-pub async fn create_test_user(email: &str) -> TestUser {
+pub async fn create_test_user(
+    email: &str,
+    given_name: &str,
+    family_name: &str,
+    birthdate: &Date,
+    gender: &str,
+    zoneinfo: &Option<String>,
+    locale: &Option<String>,
+    phone_number: &Option<String>,
+) -> TestUser {
     let cfn = get_cfn_output();
     let cognito = get_cognito_client().await;
     let password: String = format!("{}*1bC", Password(8..12).fake::<String>());
 
-    let user_id: UserId = cognito
-        .sign_up()
-        .client_id(&cfn.cognito_user_pool_client_public_id)
+    let mut req_builder = cognito
+        .admin_create_user()
+        .user_pool_id(&cfn.cognito_user_pool_id)
         .username(email)
-        .password(&password)
         .user_attributes(
-            aws_sdk_cognitoidentityprovider::types::AttributeType::builder()
+            AttributeType::builder()
                 .name("email")
                 .value(email)
                 .build()
                 .unwrap(),
         )
-        .send()
-        .await
-        .unwrap()
-        .user_sub
-        .try_into()
-        .unwrap();
-    let _ = cognito
-        .admin_confirm_sign_up()
+        .user_attributes(
+            AttributeType::builder()
+                .name("given_name")
+                .value(given_name)
+                .build()
+                .unwrap(),
+        )
+        .user_attributes(
+            AttributeType::builder()
+                .name("family_name")
+                .value(family_name)
+                .build()
+                .unwrap(),
+        )
+        .user_attributes(
+            AttributeType::builder()
+                .name("birthdate")
+                .value(
+                    birthdate
+                        .format(&time::format_description::parse("[year]-[month]-[day]").unwrap())
+                        .unwrap(),
+                )
+                .build()
+                .unwrap(),
+        )
+        .user_attributes(
+            AttributeType::builder()
+                .name("gender")
+                .value(gender)
+                .build()
+                .unwrap(),
+        )
+        .message_action(MessageActionType::Suppress);
+
+    if let Some(zoneinfo) = zoneinfo {
+        req_builder = req_builder.user_attributes(
+            AttributeType::builder()
+                .name("zoneinfo")
+                .value(zoneinfo)
+                .build()
+                .unwrap(),
+        );
+    }
+    if let Some(locale) = locale {
+        req_builder = req_builder.user_attributes(
+            AttributeType::builder()
+                .name("locale")
+                .value(locale)
+                .build()
+                .unwrap(),
+        );
+    }
+    if let Some(phone_number) = phone_number {
+        req_builder = req_builder.user_attributes(
+            AttributeType::builder()
+                .name("phone_number")
+                .value(phone_number)
+                .build()
+                .unwrap(),
+        );
+    }
+
+    let created = req_builder.send().await.unwrap();
+    cognito
+        .admin_set_user_password()
         .user_pool_id(&cfn.cognito_user_pool_id)
         .username(email)
+        .password(&password)
+        .permanent(true)
         .send()
         .await
         .unwrap();
-
     let auth = cognito
-        .initiate_auth()
-        .auth_flow(AuthFlowType::UserPasswordAuth)
-        .client_id(&cfn.cognito_user_pool_client_public_id)
+        .admin_initiate_auth()
+        .user_pool_id(&cfn.cognito_user_pool_id)
+        .client_id(&cfn.cognito_user_pool_client_admin_id)
+        .auth_flow(AuthFlowType::AdminUserPasswordAuth)
         .auth_parameters("USERNAME", email)
         .auth_parameters("PASSWORD", &password)
         .send()
@@ -133,14 +223,21 @@ pub async fn create_test_user(email: &str) -> TestUser {
         .authentication_result
         .unwrap();
 
-    // wait for cognito-post-confirmation-lambda to do its work
-    tokio::time::sleep(Duration::from_secs(3)).await;
-
     TestUser {
-        id_token: auth.id_token.unwrap(),
         access_token: auth.access_token.unwrap(),
-        refresh_token: auth.refresh_token.unwrap(),
-        sub: user_id,
+        id_token: auth.id_token.unwrap(),
+        sub: created
+            .user
+            .unwrap()
+            .attributes
+            .unwrap()
+            .into_iter()
+            .find(|attr| attr.name == "sub")
+            .unwrap()
+            .value
+            .unwrap()
+            .try_into()
+            .unwrap(),
     }
 }
 

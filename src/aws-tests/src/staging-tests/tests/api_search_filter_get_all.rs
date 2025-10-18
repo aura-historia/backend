@@ -30,11 +30,11 @@ async fn should_return_actual_search_filters_when_authorized() {
     let expected1 = Faker.fake::<SearchFilter>();
     let expected2 = Faker.fake::<SearchFilter>();
     service
-        .save_search_filter(&user.sub, expected1.clone())
+        .save_search_filter(&user.sub.into(), expected1.clone())
         .await
         .unwrap();
     service
-        .save_search_filter(&user.sub, expected2.clone())
+        .save_search_filter(&user.sub.into(), expected2.clone())
         .await
         .unwrap();
 

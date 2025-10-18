@@ -5,7 +5,6 @@ edition = "2024"
 
 [dependencies]
 staging-tests-macros = { workspace = true }
-common = { workspace = true }
 aws-tests-common = { workspace = true }
 tokio = { workspace = true, features = ["full"] }
 serde_json = { workspace = true }
@@ -15,8 +14,6 @@ aws-sdk-dynamodb = { workspace = true }
 aws-sdk-sqs = { workspace = true }
 opensearch = { workspace = true }
 uuid = { workspace = true, features = ["v4"] }
-user-core = { workspace = true }
-user-service = { workspace = true }
 tracing-subscriber = { workspace = true, features = ["json"] }
 tracing = { workspace = true }
 aws-sdk-cognitoidentityprovider = "1.97.0"
