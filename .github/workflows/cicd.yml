@@ -273,9 +273,11 @@ jobs:
           - src/item/src/item-lambda/src/item-lambda-materialize-dynamodb-update
           - src/item/src/item-lambda/src/item-lambda-materialize-opensearch-new
           - src/item/src/item-lambda/src/item-lambda-materialize-opensearch-update
+          - src/item/src/item-lambda/src/item-lambda-update-notify-user
           - src/shop/src/shop-api/src/shop-api-search
           - src/shop/src/shop-api/src/shop-api-get-shop
           - src/user/src/cognito-post-confirmation
+          - src/mail/src/mail-lambda-send
     steps:
       - uses: actions/checkout@v5
 
