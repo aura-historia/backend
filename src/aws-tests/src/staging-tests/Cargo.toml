@@ -13,6 +13,8 @@ aws-config = { workspace = true }
 aws-sdk-dynamodb = { workspace = true }
 aws-sdk-sqs = { workspace = true }
 opensearch = { workspace = true }
+user-dynamodb = { workspace = true }
+user-service = { workspace = true }
 uuid = { workspace = true, features = ["v4"] }
 tracing-subscriber = { workspace = true, features = ["json"] }
 tracing = { workspace = true }

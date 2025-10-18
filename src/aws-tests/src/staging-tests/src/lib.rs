@@ -16,6 +16,9 @@ use time::macros::datetime;
 use time::{Date, OffsetDateTime};
 use tokio::sync::OnceCell;
 use tracing::debug;
+use user_dynamodb::repository::UserDynamoDbRepositoryImpl;
+use user_service::command::CreateUserCommand;
+use user_service::service::{UserService, UserServiceImpl};
 use uuid::Uuid;
 
 static CONFIG: OnceCell<aws_config::SdkConfig> = OnceCell::const_new();
@@ -223,21 +226,32 @@ pub async fn create_test_user(
         .authentication_result
         .unwrap();
 
+    let sub: Uuid = created
+        .user
+        .unwrap()
+        .attributes
+        .unwrap()
+        .into_iter()
+        .find(|attr| attr.name == "sub")
+        .unwrap()
+        .value
+        .unwrap()
+        .try_into()
+        .unwrap();
+
+    let user_repository =
+        UserDynamoDbRepositoryImpl::new(get_dynamodb_client().await, &cfn.dynamodb_table_1_name);
+    let user_service = UserServiceImpl::new(&user_repository);
+    let create_user_command = CreateUserCommand {
+        id: sub.into(),
+        email: email.try_into().unwrap(),
+    };
+    let _ = user_service.create_user(create_user_command).await.unwrap();
+
     TestUser {
         access_token: auth.access_token.unwrap(),
         id_token: auth.id_token.unwrap(),
-        sub: created
-            .user
-            .unwrap()
-            .attributes
-            .unwrap()
-            .into_iter()
-            .find(|attr| attr.name == "sub")
-            .unwrap()
-            .value
-            .unwrap()
-            .try_into()
-            .unwrap(),
+        sub,
     }
 }
 
