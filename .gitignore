@@ -27,3 +27,6 @@ coverage.lcov
 # Added by cargo
 
 /target
+
+# Temporary drawio files
+**/*.bkp
