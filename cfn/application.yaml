@@ -152,10 +152,10 @@ Resources:
         - COGNITO
       CallbackURLs:
         - http://localhost:3000/
-        - https://blitzfilter.blitzfilter.workers.dev/
+        - https://aura-historia.com/
       LogoutURLs:
         - http://localhost:3000/
-        - https://blitzfilter.blitzfilter.workers.dev/
+        - https://aura-historia.com/
       EnableTokenRevocation: true
       AccessTokenValidity: 1 # hours
       IdTokenValidity: 1 # hours
@@ -1598,9 +1598,6 @@ Resources:
       FunctionName: !Ref BlitzfilterApiPostSearchFilterLambda
       Principal: apigateway.amazonaws.com
       SourceArn: !Sub "arn:aws:execute-api:${AWS::Region}:${AWS::AccountId}:${BlitzfilterApi}/*/*/api/v1/search-filters"
-
-
-
 
   SendMailDlq:
     Type: AWS::SQS::Queue
