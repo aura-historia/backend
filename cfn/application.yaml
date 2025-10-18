@@ -2556,6 +2556,11 @@ Outputs:
   DynamodbTable1Name:
     Value: !Ref TableOne
 
+  SendMailQueueUrl:
+    Value: !Ref SendMailQ
+  SendMailDeadLetterQueueUrl:
+    Value: !Ref SendMailDlq
+
   ItemIngestEventsDynamodbQueueUrl:
     Value: !Ref ItemIngestEventsDynamoDbQ
   ItemIngestEventsDynamodbDeadLetterQueueUrl:
@@ -2580,6 +2585,11 @@ Outputs:
     Value: !Ref ItemMaterializeOpenSearchUpdateQ
   ItemMaterializeOpensearchUpdateDeadLetterQueueUrl:
     Value: !Ref ItemMaterializeOpenSearchUpdateDlq
+
+  ItemUpdateNotifyUserQueueUrl:
+    Value: !Ref ItemUpdateNotifyUserQ
+  ItemUpdateNotifyUserDeadLetterQueueUrl:
+    Value: !Ref ItemUpdateNotifyUserDlq
 
   AlarmNotificationTopicArn:
     Value: !Ref AlarmNotificationTopic
