@@ -12,7 +12,6 @@ use item_dynamodb::{
 };
 use item_watchlist::data::WatchlistItemData;
 use staging_tests::{create_random_test_user, get_dynamodb_client, staging_test};
-use time::format_description::well_known::Rfc3339;
 
 #[staging_test]
 async fn should_401_when_unauthorized_for_post() {
@@ -106,11 +105,10 @@ async fn should_put_and_get_and_patch_and_delete_watchlist_item_and_verify_not_e
 
     // Patch gotten
     let patch_url = format!(
-        "{}/api/v1/watchlist/{}/{}?created={}",
+        "{}/api/v1/watchlist/{}/{}",
         get_cfn_output().api_gateway_endpoint_url,
         materialized.shop_id,
         materialized.shops_item_id,
-        gotten.items[0].created.format(&Rfc3339).unwrap()
     );
     let patch_response = reqwest::Client::new()
         .patch(patch_url)
@@ -130,11 +128,10 @@ async fn should_put_and_get_and_patch_and_delete_watchlist_item_and_verify_not_e
 
     // Delete gotten
     let delete_url = format!(
-        "{}/api/v1/watchlist/{}/{}?created={}",
+        "{}/api/v1/watchlist/{}/{}",
         get_cfn_output().api_gateway_endpoint_url,
         materialized.shop_id,
         materialized.shops_item_id,
-        gotten.items[0].created.format(&Rfc3339).unwrap()
     );
     let delete_response = reqwest::Client::new()
         .delete(delete_url)
