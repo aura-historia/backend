@@ -7,9 +7,9 @@ edition = "2024"
 serde-email = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
+common = { workspace = true }
 
 # Optional
-common = { workspace = true, optional = true, features = ["sqs"] }
 tokio = { workspace = true, optional = true, features = ["sync"] }
 aws-sdk-sesv2 = { workspace = true, optional = true }
 aws-sdk-s3 = { workspace = true, optional = true }
@@ -31,6 +31,6 @@ serial_test = { workspace = true }
 
 [features]
 default = []
-queue = ["common", "common/sqs", "aws-sdk-sqs", "thiserror", "mockall", "async-trait", "tracing"]
+queue = ["common/sqs", "aws-sdk-sqs", "thiserror", "mockall", "async-trait", "tracing"]
 send = ["tokio", "tokio/sync", "aws-sdk-sesv2", "aws-sdk-s3", "handlebars", "once_cell", "thiserror", "mockall", "async-trait"]
-test-data = ["fake", "fake/serde_json"]
+test-data = ["fake", "common/test-data", "fake/serde_json"]

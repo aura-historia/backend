@@ -4,3 +4,4 @@ pub use item_lambda_materialize_dynamodb_new;
 pub use item_lambda_materialize_dynamodb_update;
 pub use item_lambda_materialize_opensearch_new;
 pub use item_lambda_materialize_opensearch_update;
+pub use item_lambda_update_notify_user;

@@ -1,22 +1,32 @@
+use common::language::data::LanguageData;
 use serde::{Deserialize, Serialize};
 
 #[cfg_attr(feature = "test-data", derive(fake::Dummy))]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "SCREAMING_SNAKE_CASE")]
-pub enum MailTemplate {
+pub enum MailTemplateType {
+    CreatedNotification,
+    StateListedNotification,
     StateAvailableNotification,
-    PriceDiscoverdNotification,
-    PriceIncreasedNotification,
+    StateReservedNotification,
+    StateSoldNotification,
+    StateRemovedNotification,
+    StateUnknownNotification,
+    PriceDiscoveredNotification,
     PriceDroppedNotification,
+    PriceIncreasedNotification,
+    PriceRemovedNotification,
+}
+
+#[cfg_attr(feature = "test-data", derive(fake::Dummy))]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+pub struct MailTemplate {
+    pub template_type: MailTemplateType,
+    pub language: LanguageData,
 }
 
 impl MailTemplate {
     pub fn as_str(&self) -> &'static str {
-        match self {
-            MailTemplate::StateAvailableNotification => "TODO",
-            MailTemplate::PriceDiscoverdNotification => "TODO",
-            MailTemplate::PriceIncreasedNotification => "TODO",
-            MailTemplate::PriceDroppedNotification => "TODO",
-        }
+        todo!()
     }
 }

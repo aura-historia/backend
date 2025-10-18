@@ -10,3 +10,4 @@ item-lambda-materialize-dynamodb-new = { workspace = true }
 item-lambda-materialize-dynamodb-update = { workspace = true }
 item-lambda-materialize-opensearch-new = { workspace = true }
 item-lambda-materialize-opensearch-update = { workspace = true }
+item-lambda-update-notify-user = { workspace = true }

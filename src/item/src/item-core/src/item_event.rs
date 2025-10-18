@@ -33,6 +33,43 @@ pub enum ItemEventPayload {
     PriceRemoved(ItemPriceRemovedEventPayload),
 }
 
+impl ItemEventPayload {
+    pub fn as_created(&self) -> Option<&ItemCreatedEventPayload> {
+        match self {
+            ItemEventPayload::Created(payload) => Some(payload),
+            _ => None,
+        }
+    }
+
+    pub fn as_state_changed(&self) -> Option<&ItemStateChangeEventPayload> {
+        match self {
+            ItemEventPayload::StateListed(payload) => Some(payload),
+            ItemEventPayload::StateAvailable(payload) => Some(payload),
+            ItemEventPayload::StateReserved(payload) => Some(payload),
+            ItemEventPayload::StateSold(payload) => Some(payload),
+            ItemEventPayload::StateRemoved(payload) => Some(payload),
+            ItemEventPayload::StateUnknown(payload) => Some(payload),
+            _ => None,
+        }
+    }
+
+    pub fn as_price_changed(&self) -> Option<&ItemPriceChangeEventPayload> {
+        match self {
+            ItemEventPayload::PriceDiscovered(payload) => Some(payload),
+            ItemEventPayload::PriceDropped(payload) => Some(payload),
+            ItemEventPayload::PriceIncreased(payload) => Some(payload),
+            _ => None,
+        }
+    }
+
+    pub fn as_price_removed(&self) -> Option<&ItemPriceRemovedEventPayload> {
+        match self {
+            ItemEventPayload::PriceRemoved(payload) => Some(payload),
+            _ => None,
+        }
+    }
+}
+
 impl HasKey for ItemEventPayload {
     type Key = ItemKey;
 

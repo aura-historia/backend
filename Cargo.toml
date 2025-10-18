@@ -92,6 +92,7 @@ item-lambda-materialize-dynamodb-update = { path = "src/item/src/item-lambda/src
 item-lambda-materialize-opensearch-new = { path = "src/item/src/item-lambda/src/item-lambda-materialize-opensearch-new" }
 item-lambda-materialize-opensearch-update = { path = "src/item/src/item-lambda/src/item-lambda-materialize-opensearch-update" }
 item-lambda-ingest-events-dynamodb = { path = "src/item/src/item-lambda/src/item-lambda-ingest-events-dynamodb" }
+item-lambda-update-notify-user = { path = "src/item/src/item-lambda/src/item-lambda-update-notify-user" }
 itertools = "0.14.0"
 lambda_runtime = "0.14.4"
 libc = "0.2.177"

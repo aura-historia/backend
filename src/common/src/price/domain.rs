@@ -1,4 +1,4 @@
-use crate::currency::domain::Currency;
+use crate::currency::domain::{Currency, HasMinorUnitExponent};
 use crate::price::data::PriceData;
 use crate::price::record::PriceRecord;
 use std::collections::HashMap;
@@ -210,6 +210,21 @@ impl Price {
         self.currency = currency;
         Ok(())
     }
+
+    pub fn format_human_readable(&self) -> String {
+        let divisor = 10u64.pow(self.currency.minor_unit_exponent().0 as u32);
+        let majors = self.monetary_amount.0 / divisor;
+        let minors = self.monetary_amount.0 % divisor;
+        let width = self.currency.minor_unit_exponent().0 as usize;
+        let decimal_separator = self.currency.decimal_separator();
+        let currency_symbol = self.currency.currency_symbol();
+
+        if self.currency.is_leading_sign() {
+            format!("{currency_symbol}{majors}{decimal_separator}{minors:0>width$}",)
+        } else {
+            format!("{majors}{decimal_separator}{minors:0>width$} {currency_symbol}",)
+        }
+    }
 }
 
 impl From<PriceData> for Price {
@@ -291,5 +306,30 @@ mod tests {
 
         assert!(res.is_ok());
         assert_eq!(1000, price.monetary_amount.0);
+    }
+
+    #[rstest::rstest]
+    #[case(Price::new(MonetaryAmount(500), Currency::Eur), "5,00 €")]
+    #[case(Price::new(MonetaryAmount(542), Currency::Eur), "5,42 €")]
+    #[case(Price::new(MonetaryAmount(123456), Currency::Eur), "1234,56 €")]
+    #[case(Price::new(MonetaryAmount(500), Currency::Gbp), "£5.00")]
+    #[case(Price::new(MonetaryAmount(542), Currency::Gbp), "£5.42")]
+    #[case(Price::new(MonetaryAmount(123456), Currency::Gbp), "£1234.56")]
+    #[case(Price::new(MonetaryAmount(500), Currency::Usd), "$5.00")]
+    #[case(Price::new(MonetaryAmount(542), Currency::Usd), "$5.42")]
+    #[case(Price::new(MonetaryAmount(123456), Currency::Usd), "$1234.56")]
+    #[case(Price::new(MonetaryAmount(500), Currency::Aud), "A$5.00")]
+    #[case(Price::new(MonetaryAmount(542), Currency::Aud), "A$5.42")]
+    #[case(Price::new(MonetaryAmount(123456), Currency::Aud), "A$1234.56")]
+    #[case(Price::new(MonetaryAmount(500), Currency::Cad), "C$5.00")]
+    #[case(Price::new(MonetaryAmount(542), Currency::Cad), "C$5.42")]
+    #[case(Price::new(MonetaryAmount(123456), Currency::Cad), "C$1234.56")]
+    #[case(Price::new(MonetaryAmount(500), Currency::Nzd), "NZ$5.00")]
+    #[case(Price::new(MonetaryAmount(542), Currency::Nzd), "NZ$5.42")]
+    #[case(Price::new(MonetaryAmount(123456), Currency::Nzd), "NZ$1234.56")]
+    fn should_format_price_human_readable(#[case] price: Price, #[case] expected: &str) {
+        let actual = price.format_human_readable();
+
+        assert_eq!(expected, &actual);
     }
 }

@@ -8,6 +8,7 @@ common = { workspace = true }
 item-core = { workspace = true }
 item-dynamodb = { workspace = true, features = ["repository"] }
 item-service = { workspace = true, features = ["dynamodb"] }
+user-core = { workspace = true }
 user-dynamodb = { workspace = true }
 serde = { workspace = true }
 time = { workspace = true }
@@ -17,6 +18,7 @@ serde_dynamo = { workspace = true, features = ["aws-sdk-dynamodb+1"] }
 tracing = { workspace = true }
 mockall = { workspace = true }
 thiserror = { workspace = true }
+
 
 # Optional
 fake = { workspace = true, optional = true }

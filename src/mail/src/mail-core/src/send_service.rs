@@ -132,9 +132,10 @@ impl<'a> SendMailService for SendMailServiceImpl<'a> {
 mod tests {
     use crate::{
         send_service::{SendMailServiceImpl, TEMPLATE_CACHE},
-        template::MailTemplate,
+        template::{MailTemplate, MailTemplateType},
     };
     use aws_config::{BehaviorVersion, SdkConfig};
+    use common::language::data::LanguageData;
     use std::{collections::HashMap, sync::Arc};
     use tokio::sync::RwLock;
 
@@ -150,13 +151,28 @@ mod tests {
 
         TEMPLATE_CACHE.get_or_init(|| {
             Arc::new(RwLock::new(HashMap::from_iter([
-                (MailTemplate::StateAvailableNotification, "bar".to_owned()),
-                (MailTemplate::PriceIncreasedNotification, "baz".to_owned()),
+                (
+                    MailTemplate {
+                        template_type: MailTemplateType::StateAvailableNotification,
+                        language: LanguageData::De,
+                    },
+                    "bar".to_owned(),
+                ),
+                (
+                    MailTemplate {
+                        template_type: MailTemplateType::PriceIncreasedNotification,
+                        language: LanguageData::De,
+                    },
+                    "baz".to_owned(),
+                ),
             ])))
         });
 
         let actual = service
-            .resolve_template(MailTemplate::StateAvailableNotification)
+            .resolve_template(MailTemplate {
+                template_type: MailTemplateType::StateAvailableNotification,
+                language: LanguageData::De,
+            })
             .await
             .unwrap();
 

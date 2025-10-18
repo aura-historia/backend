@@ -11,7 +11,7 @@ use aws_sdk_dynamodb::{
 };
 use common::{
     currency::domain::Currency,
-    item_id::ItemKey,
+    item_id::{ItemId, ItemKey},
     language::domain::Language,
     pagination::cursor::{Cursor, CursoredResult},
     price::domain::MonetaryAmountOverflowError,
@@ -24,6 +24,7 @@ use item_dynamodb::repository::ItemDynamoDbRepository;
 use item_service::get_service::{GetItemError, GetItemService};
 use std::collections::HashMap;
 use time::OffsetDateTime;
+use user_core::user::User;
 use user_dynamodb::repository::UserDynamoDbRepository;
 
 #[derive(thiserror::Error, Debug)]
@@ -190,6 +191,11 @@ pub trait ItemWatchListService {
         sort: &Option<Sort<SortWatchlistItemField>>,
         cursor: &Option<Cursor<OffsetDateTime>>,
     ) -> Result<CursoredResult<LocalizedWatchlistItemView, OffsetDateTime>, WatchItemError>;
+
+    async fn find_users_with_notifications(
+        &self,
+        item_id: &ItemId,
+    ) -> Result<Vec<User>, WatchItemError>;
 }
 
 pub struct ItemWatchListServiceImpl<'a> {
@@ -401,6 +407,21 @@ impl<'a> ItemWatchListService for ItemWatchListServiceImpl<'a> {
             items,
             total: None,
         })
+    }
+
+    async fn find_users_with_notifications(
+        &self,
+        item_id: &ItemId,
+    ) -> Result<Vec<User>, WatchItemError> {
+        let users = self
+            .watchlist_repository
+            .query_user_records_with_notifications(item_id)
+            .await?
+            .into_iter()
+            .map(User::from)
+            .collect();
+
+        Ok(users)
     }
 }
 
