@@ -114,7 +114,10 @@ pub mod api {
                     ApiError::internal_server_error(MONETARY_AMOUNT_OVERFLOW)
                 }
                 WatchItemError::ItemNotFound(_, _) => ApiError::not_found(ITEM_NOT_FOUND),
-                WatchItemError::UserNotFound(_) => ApiError::internal_server_error(USER_NOT_FOUND),
+                WatchItemError::UserNotFound(user_id) => {
+                    error!("No user with id '{user_id}' exists.");
+                    ApiError::internal_server_error(USER_NOT_FOUND)
+                }
                 WatchItemError::WatchlistItemNotFound(_, _, _) => {
                     ApiError::not_found(WATCHLIST_ENTRY_NOT_FOUND)
                 }
