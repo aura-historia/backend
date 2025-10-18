@@ -4,6 +4,8 @@
 
 ## Primary Table `table_1`
 
+![Primary Table](images/pt.png "Primary Table")
+
 ### Entities
 
 #### Item
@@ -42,6 +44,8 @@
 ## Global Secondary Indexes
 
 ### GSI1: `gsi1`
+
+![Global Secondary Index 1](images/gsi1.png "Global Secondary Index 1")
 
 - Sparse (globally)
 - PK is `gsi1_pk`
