@@ -25,8 +25,26 @@ pub struct MailTemplate {
     pub language: LanguageData,
 }
 
-impl MailTemplate {
+impl MailTemplateType {
     pub fn as_str(&self) -> &'static str {
-        todo!()
+        match self {
+            MailTemplateType::CreatedNotification => "created-notification",
+            MailTemplateType::StateListedNotification => "state-listed-notification",
+            MailTemplateType::StateAvailableNotification => "state-available-notification",
+            MailTemplateType::StateReservedNotification => "state-reserved-notification",
+            MailTemplateType::StateSoldNotification => "state-sold-notification",
+            MailTemplateType::StateRemovedNotification => "state-removed-notification",
+            MailTemplateType::StateUnknownNotification => "state-unknown-notification",
+            MailTemplateType::PriceDiscoveredNotification => "price-discovered-notification",
+            MailTemplateType::PriceDroppedNotification => "price-dropped-notification",
+            MailTemplateType::PriceIncreasedNotification => "price-increased-notification",
+            MailTemplateType::PriceRemovedNotification => "price-removed-notification",
+        }
+    }
+}
+
+impl MailTemplate {
+    pub fn as_str(&self) -> String {
+        format!("{}_{}", self.template_type.as_str(), self.language.as_str())
     }
 }

@@ -47,6 +47,17 @@ pub enum LanguageData {
     Es,
 }
 
+impl LanguageData {
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            LanguageData::De => "de",
+            LanguageData::En => "en",
+            LanguageData::Fr => "fr",
+            LanguageData::Es => "es",
+        }
+    }
+}
+
 impl From<Language> for LanguageData {
     fn from(domain: Language) -> Self {
         match domain {
