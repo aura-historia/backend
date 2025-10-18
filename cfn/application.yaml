@@ -15,10 +15,18 @@ Parameters:
   ArtifactBucket:
     Type: String
     Description: "S3 bucket containing Lambda deployment zips"
+  MailTemplateBucket:
+    Type: String
+    Description: "S3 bucket containing mail-templates"
   CommitSHA:
     Type: String
 
 Mappings:
+  SendMailQueueMap:
+    MaximumBatchingWindowInSeconds:
+      dev: 1
+      staging: 1
+      prod: 5
   ItemIngestEventsDynamoDbQueueMap:
     MaximumBatchingWindowInSeconds:
       dev: 1
@@ -34,6 +42,11 @@ Mappings:
       dev: 1
       staging: 1
       prod: 300
+  IItemUpdateNotifyUserQueueMap:
+    MaximumBatchingWindowInSeconds:
+      dev: 1
+      staging: 1
+      prod: 5
 
 Resources:
   BlitzfilterUserPool:
@@ -1317,6 +1330,100 @@ Resources:
       Principal: apigateway.amazonaws.com
       SourceArn: !Sub "arn:aws:execute-api:${AWS::Region}:${AWS::AccountId}:${BlitzfilterApi}/*/*/api/v1/search-filters"
 
+
+
+
+  SendMailDlq:
+    Type: AWS::SQS::Queue
+    Properties:
+      QueueName: !Sub "mail-lambda-send-${StageName}"
+      MessageRetentionPeriod: 1209600
+  SendMailQ:
+    Type: AWS::SQS::Queue
+    Properties:
+      QueueName: !Sub "mail-lambda-send-queue-${StageName}"
+      RedrivePolicy:
+        deadLetterTargetArn: !GetAtt SendMailDlq.Arn
+        maxReceiveCount: 5
+      VisibilityTimeout: 360
+  SendMailRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Sub "mail-lambda-send-role-${StageName}"
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: lambda.amazonaws.com
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole
+      Policies:
+        - PolicyName: SQSPollerAccess
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: Allow
+                Action:
+                  - sqs:ReceiveMessage
+                  - sqs:DeleteMessage
+                  - sqs:GetQueueAttributes
+                  - sqs:GetQueueUrl
+                Resource: !GetAtt SendMailQ.Arn
+        - PolicyName: SESSendMailAccess
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: Allow
+                Action:
+                  - ses:SendEmail
+                  - ses:SendRawEmail
+                Resource: "*"
+        - PolicyName: S3Access
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: Allow
+                Action:
+                  - s3:GetObject
+                Resource: !Sub "arn:aws:s3:::{MailTemplateBucket}/*"
+  SendMailLambda:
+    Type: AWS::Lambda::Function
+    Properties:
+      FunctionName: !Sub "mail-lambda-send-${StageName}"
+      Runtime: provided.al2023
+      Handler: lib.handler
+      Role: !GetAtt SendMailRole.Arn
+      Code:
+        S3Bucket: !Ref ArtifactBucket
+        S3Key: !Sub "mail-lambda-send-${StageName}-${CommitSHA}.zip"
+      MemorySize: 512
+      Timeout: 60
+      EphemeralStorage:
+        Size: 512
+      Environment:
+        Variables:
+          DYNAMODB_TABLE_NAME: !Ref TableOne
+  SendMailMapping:
+    Type: AWS::Lambda::EventSourceMapping
+    Properties:
+      FunctionName: !Ref SendMailLambda
+      EventSourceArn: !GetAtt SendMailQ.Arn
+      Enabled: true
+      BatchSize: 200
+      MaximumBatchingWindowInSeconds:
+        !FindInMap [
+          SendMailQueueMap,
+          MaximumBatchingWindowInSeconds,
+          !Ref Stage,
+        ]
+      FunctionResponseTypes:
+        - ReportBatchItemFailures
+
+
+
+
   ItemIngestEventsDynamoDbDlq:
     Type: AWS::SQS::Queue
     Properties:
@@ -1712,6 +1819,98 @@ Resources:
       FunctionResponseTypes:
         - ReportBatchItemFailures
 
+  ItemUpdateNotifyUserDlq:
+    Type: AWS::SQS::Queue
+    Properties:
+      QueueName: !Sub "item-lambda-update-notify-user-dlq-${StageName}"
+      MessageRetentionPeriod: 1209600
+  ItemUpdateNotifyUserQ:
+    Type: AWS::SQS::Queue
+    Properties:
+      QueueName: !Sub "item-lambda-update-notify-user-queue-${StageName}"
+      RedrivePolicy:
+        deadLetterTargetArn: !GetAtt ItemUpdateNotifyUserDlq.Arn
+        maxReceiveCount: 5
+      VisibilityTimeout: 360
+  ItemUpdateNotifyUserRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Sub "item-lambda-update-notify-user-role-${StageName}"
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: lambda.amazonaws.com
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole
+      Policies:
+        - PolicyName: DynamoDBAccess
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: Allow
+                Action:
+                  - dynamodb:GetItem
+                  - dynamodb:QueryItem
+                Resource:
+                  - !GetAtt TableOne.Arn
+                  - !Sub "${TableOne.Arn}/index/*"
+        - PolicyName: SQSPollerAccess
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: Allow
+                Action:
+                  - sqs:ReceiveMessage
+                  - sqs:DeleteMessage
+                  - sqs:GetQueueAttributes
+                  - sqs:GetQueueUrl
+                Resource: !GetAtt ItemUpdateNotifyUserQ.Arn
+        - PolicyName: SQSSendMessage
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: Allow
+                Action:
+                  - sqs:SendMessage
+                Resource: !GetAtt SendMailQ.Arn
+  ItemUpdateNotifyUserLambda:
+    Type: AWS::Lambda::Function
+    Properties:
+      FunctionName: !Sub "item-lambda-update-notify-user-${StageName}"
+      Runtime: provided.al2023
+      Handler: lib.handler
+      Role: !GetAtt ItemUpdateNotifyUserRole.Arn
+      Code:
+        S3Bucket: !Ref ArtifactBucket
+        S3Key: !Sub "item-lambda-update-notify-user-${StageName}-${CommitSHA}.zip"
+      MemorySize: 512
+      Timeout: 60
+      EphemeralStorage:
+        Size: 512
+      Environment:
+        Variables:
+          DYNAMODB_TABLE_NAME: !Ref TableOne
+          MAIL_QUEUE_URL: !Ref SendMailQ
+          SENDER_MAIL: "no-reply@aura-historia.com"
+  ItemUpdateNotifyUserMapping:
+    Type: AWS::Lambda::EventSourceMapping
+    Properties:
+      FunctionName: !Ref ItemUpdateNotifyUserLambda
+      EventSourceArn: !GetAtt ItemUpdateNotifyUserQ.Arn
+      Enabled: true
+      BatchSize: 10
+      MaximumBatchingWindowInSeconds:
+        !FindInMap [
+          IItemUpdateNotifyUserQueueMap,
+          MaximumBatchingWindowInSeconds,
+          !Ref Stage,
+        ]
+      FunctionResponseTypes:
+        - ReportBatchItemFailures
+
   DynamoDbItemEventRecordCreatedMaterializeDynamoDbItemRecordEventRule:
     Type: AWS::Events::Rule
     Properties:
@@ -1798,6 +1997,28 @@ Resources:
       Targets:
         - Id: ItemMaterializeOpenSearchUpdateQ
           Arn: !GetAtt ItemMaterializeOpenSearchUpdateQ.Arn
+  DynamoDbItemEventRecordUpdatedNotifyUserEventRule:
+    Type: AWS::Events::Rule
+    Properties:
+      Name: !Sub "ddb-item-update-notify-user-${StageName}"
+      EventBusName: !Ref DynamoDbEventBus
+      EventPattern:
+        source:
+          - !Ref TableOne
+        detail-type:
+          - "DynamoDBStreamRecord"
+        detail:
+          eventName:
+            - "INSERT"
+          dynamodb:
+            NewImage:
+              event_type:
+                S:
+                  - prefix: "PRICE_"
+                  - prefix: "STATE_"
+      Targets:
+        - Id: ItemUpdateNotifyUserQ
+          Arn: !GetAtt ItemUpdateNotifyUserQ.Arn
 
   # SNS Topic for CloudWatch Alarms
   AlarmNotificationTopic:

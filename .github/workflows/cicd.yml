@@ -369,6 +369,7 @@ jobs:
                 Stage=${{ env.STAGE }} \
                 StageName=${{ env.STAGE_NAME }} \
                 ArtifactBucket=${{ vars.S3_BINARY_ARTIFACTS_BUCKET_NAME }} \
+                MailTemplateBucket=${{ vars.S3_MAIL_TEMPLATE_BUCKET_NAME }} \
                 CommitSHA=${GITHUB_SHA}
 
       - name: Install OpenSearch CLI
