@@ -1,10 +1,15 @@
 use std::time::Duration;
 
 use aws_tests_common::get_cfn_output;
-use common::{api::collection::PutCollectionData, item_id::api::ItemKeyData};
+use common::{api::collection::PutCollectionData, item_id::api::ItemKeyData, user_id::UserId};
 use fake::{Fake, Faker};
 use item_api_watchlist_patch::WatchlistItemPatch;
 use item_data::{item_state_data::ItemStateData, put_data::PutItemData};
+use item_dynamodb::repository::{ItemDynamoDbRepository, ItemDynamoDbRepositoryImpl};
+use item_watchlist::{
+    data::WatchlistItemData,
+    repository::{WatchlistItemDynamoDbRepository, WatchlistItemDynamoDbRepositoryImpl},
+};
 use shop_core::shop::Shop;
 use shop_dynamodb::{
     repository::{ShopDynamoDbRepository, ShopDynamoDbRepositoryImpl},
@@ -12,6 +17,7 @@ use shop_dynamodb::{
 };
 use staging_tests::{create_test_user, get_dynamodb_client, staging_test};
 use time::macros::date;
+use user_dynamodb::repository::{UserDynamoDbRepository, UserDynamoDbRepositoryImpl};
 
 async fn prepare_test_shop() -> Shop {
     let stack = get_cfn_output();
@@ -51,6 +57,15 @@ async fn should_send_email_to_user_when_watched_item_has_update() {
         .unwrap();
     assert_eq!(200, response.status());
     tokio::time::sleep(Duration::from_secs(30)).await;
+    let item_repository =
+        ItemDynamoDbRepositoryImpl::new(get_dynamodb_client().await, &stack.dynamodb_table_1_name);
+    assert!(
+        item_repository
+            .get_item_record(&shop.shop_id, &put_item_data.shops_item_id)
+            .await
+            .unwrap()
+            .is_some()
+    );
 
     // create user
     let user = create_test_user(
@@ -64,7 +79,16 @@ async fn should_send_email_to_user_when_watched_item_has_update() {
         &None,
     )
     .await;
-    tokio::time::sleep(Duration::from_secs(2)).await;
+    tokio::time::sleep(Duration::from_secs(10)).await;
+    let user_repository =
+        UserDynamoDbRepositoryImpl::new(get_dynamodb_client().await, &stack.dynamodb_table_1_name);
+    assert!(
+        user_repository
+            .get_user_record(&user.sub.into())
+            .await
+            .unwrap()
+            .is_some()
+    );
 
     // add item to watchlist
     let post_url = format!(
@@ -83,6 +107,10 @@ async fn should_send_email_to_user_when_watched_item_has_update() {
         .unwrap();
     assert_eq!(201, post_response.status());
     tokio::time::sleep(Duration::from_secs(3)).await;
+    let watchlist_repository = WatchlistItemDynamoDbRepositoryImpl::new(
+        get_dynamodb_client().await,
+        &stack.dynamodb_table_1_name,
+    );
 
     // enable notifications
     let patch_url = format!(
@@ -101,7 +129,16 @@ async fn should_send_email_to_user_when_watched_item_has_update() {
         .await
         .unwrap();
     assert_eq!(200, patch_response.status());
+    let patched = patch_response.json::<WatchlistItemData>().await.unwrap();
     tokio::time::sleep(Duration::from_secs(2)).await;
+    let eligible = watchlist_repository
+        .query_user_records_with_notifications(&patched.item_id)
+        .await
+        .unwrap()
+        .into_iter()
+        .map(|user| user.id)
+        .collect::<Vec<_>>();
+    assert_eq!(vec![UserId::from(user.sub)], eligible);
 
     // update item
     put_item_data.state = if matches!(put_item_data.state, ItemStateData::Available) {
