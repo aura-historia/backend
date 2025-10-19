@@ -50,7 +50,7 @@ async fn should_send_email_to_user_when_watched_item_has_update() {
         .await
         .unwrap();
     assert_eq!(200, response.status());
-    tokio::time::sleep(Duration::from_secs(2)).await;
+    tokio::time::sleep(Duration::from_secs(30)).await;
 
     // create user
     let user = create_test_user(
@@ -82,7 +82,7 @@ async fn should_send_email_to_user_when_watched_item_has_update() {
         .await
         .unwrap();
     assert_eq!(201, post_response.status());
-    tokio::time::sleep(Duration::from_secs(2)).await;
+    tokio::time::sleep(Duration::from_secs(3)).await;
 
     // enable notifications
     let patch_url = format!(
