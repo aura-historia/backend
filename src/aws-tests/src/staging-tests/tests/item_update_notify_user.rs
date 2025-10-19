@@ -56,7 +56,7 @@ async fn should_send_email_to_user_when_watched_item_has_update() {
         .await
         .unwrap();
     assert_eq!(200, response.status());
-    tokio::time::sleep(Duration::from_secs(30)).await;
+    tokio::time::sleep(Duration::from_secs(45)).await;
     let item_repository =
         ItemDynamoDbRepositoryImpl::new(get_dynamodb_client().await, &stack.dynamodb_table_1_name);
     assert!(
@@ -106,11 +106,7 @@ async fn should_send_email_to_user_when_watched_item_has_update() {
         .await
         .unwrap();
     assert_eq!(201, post_response.status());
-    tokio::time::sleep(Duration::from_secs(3)).await;
-    let watchlist_repository = WatchlistItemDynamoDbRepositoryImpl::new(
-        get_dynamodb_client().await,
-        &stack.dynamodb_table_1_name,
-    );
+    tokio::time::sleep(Duration::from_secs(10)).await;
 
     // enable notifications
     let patch_url = format!(
@@ -130,7 +126,11 @@ async fn should_send_email_to_user_when_watched_item_has_update() {
         .unwrap();
     assert_eq!(200, patch_response.status());
     let patched = patch_response.json::<WatchlistItemData>().await.unwrap();
-    tokio::time::sleep(Duration::from_secs(2)).await;
+    tokio::time::sleep(Duration::from_secs(10)).await;
+    let watchlist_repository = WatchlistItemDynamoDbRepositoryImpl::new(
+        get_dynamodb_client().await,
+        &stack.dynamodb_table_1_name,
+    );
     let eligible = watchlist_repository
         .query_user_records_with_notifications(&patched.item_id)
         .await
@@ -139,6 +139,7 @@ async fn should_send_email_to_user_when_watched_item_has_update() {
         .map(|user| user.id)
         .collect::<Vec<_>>();
     assert_eq!(vec![UserId::from(user.sub)], eligible);
+    tokio::time::sleep(Duration::from_secs(10)).await;
 
     // update item
     put_item_data.state = if matches!(put_item_data.state, ItemStateData::Available) {
@@ -156,5 +157,5 @@ async fn should_send_email_to_user_when_watched_item_has_update() {
         .await
         .unwrap();
     assert_eq!(200, response.status());
-    tokio::time::sleep(Duration::from_secs(30)).await;
+    tokio::time::sleep(Duration::from_secs(60)).await;
 }
