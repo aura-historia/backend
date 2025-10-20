@@ -12,10 +12,10 @@ use tokio::sync::RwLock;
 
 #[derive(thiserror::Error, Debug)]
 pub enum MailServiceError {
-    #[error("Encountered S3 SdkError for GetObject: {0}")]
+    #[error("Encountered S3 SdkError for GetObject: {0:?}")]
     SdkS3GetObjectError(#[from] SdkError<GetObjectError>),
 
-    #[error("Encountered SES SdkError for SendMail: {0}")]
+    #[error("Encountered SES SdkError for SendMail: {0:?}")]
     SdkSESSendMailError(#[from] SdkError<SendEmailError>),
 
     #[error("Encountered Handlebars-Error for Render: {0}")]
