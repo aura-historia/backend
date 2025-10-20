@@ -8,6 +8,8 @@ common = { workspace = true }
 item-core = { workspace = true }
 item-dynamodb = { workspace = true, features = ["repository"] }
 item-service = { workspace = true, features = ["dynamodb"] }
+user-core = { workspace = true }
+user-dynamodb = { workspace = true }
 serde = { workspace = true }
 time = { workspace = true }
 async-trait = { workspace = true }
@@ -17,11 +19,13 @@ tracing = { workspace = true }
 mockall = { workspace = true }
 thiserror = { workspace = true }
 
+
 # Optional
 fake = { workspace = true, optional = true }
 
 [dev-dependencies]
 item-watchlist = { workspace = true, features = ["api", "test-data"] }
+user-dynamodb = { workspace = true, features = ["test-data"] }
 test-api = { workspace = true, features = ["dynamodb"] }
 serial_test = { workspace = true }
 fake = { workspace = true }

@@ -10,12 +10,18 @@ use fake::{Fake, Faker};
 use opensearch::http::Url;
 use opensearch::http::response::Response;
 use opensearch::http::transport::{SingleNodeConnectionPool, TransportBuilder};
+use serde::Deserialize;
+use serde_json::json;
 pub use staging_tests_macros::staging_test;
+use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use std::{collections::HashMap, error::Error};
 use time::macros::datetime;
 use time::{Date, OffsetDateTime};
 use tokio::sync::OnceCell;
-use tracing::debug;
+use tracing::{debug, info};
+use user_dynamodb::repository::UserDynamoDbRepositoryImpl;
+use user_service::command::CreateUserCommand;
+use user_service::service::{UserService, UserServiceImpl};
 use uuid::Uuid;
 
 static CONFIG: OnceCell<aws_config::SdkConfig> = OnceCell::const_new();
@@ -223,21 +229,32 @@ pub async fn create_test_user(
         .authentication_result
         .unwrap();
 
+    let sub: Uuid = created
+        .user
+        .unwrap()
+        .attributes
+        .unwrap()
+        .into_iter()
+        .find(|attr| attr.name == "sub")
+        .unwrap()
+        .value
+        .unwrap()
+        .try_into()
+        .unwrap();
+
+    let user_repository =
+        UserDynamoDbRepositoryImpl::new(get_dynamodb_client().await, &cfn.dynamodb_table_1_name);
+    let user_service = UserServiceImpl::new(&user_repository);
+    let create_user_command = CreateUserCommand {
+        id: sub.into(),
+        email: email.try_into().unwrap(),
+    };
+    let _ = user_service.create_user(create_user_command).await.unwrap();
+
     TestUser {
         access_token: auth.access_token.unwrap(),
         id_token: auth.id_token.unwrap(),
-        sub: created
-            .user
-            .unwrap()
-            .attributes
-            .unwrap()
-            .into_iter()
-            .find(|attr| attr.name == "sub")
-            .unwrap()
-            .value
-            .unwrap()
-            .try_into()
-            .unwrap(),
+        sub,
     }
 }
 
@@ -254,6 +271,8 @@ pub async fn reset() {
         .await
         .expect("shouldn't fail clearing os-index 'items'");
     clear_qs(vec![
+        cfn_output.send_mail_queue_url,
+        cfn_output.send_mail_dead_letter_queue_url,
         cfn_output.item_ingest_events_dynamodb_queue_url,
         cfn_output.item_ingest_events_dynamodb_dead_letter_queue_url,
         cfn_output.item_materialize_dynamodb_new_queue_url,
@@ -264,6 +283,8 @@ pub async fn reset() {
         cfn_output.item_materialize_opensearch_new_dead_letter_queue_url,
         cfn_output.item_materialize_opensearch_update_queue_url,
         cfn_output.item_materialize_opensearch_update_dead_letter_queue_url,
+        cfn_output.item_update_notify_user_queue_url,
+        cfn_output.item_update_notify_user_dead_letter_queue_url,
     ])
     .await
     .expect("shouldn't fail clearing queues");
@@ -454,4 +475,63 @@ async fn clear_cognito() -> Result<(), Box<dyn Error>> {
     }
 
     Ok(())
+}
+
+#[derive(Debug, Clone, Deserialize)]
+pub struct TestMailAppResponse {
+    pub emails: Vec<TestMailAppMail>,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+pub struct TestMailAppMail {
+    pub subject: String,
+}
+
+pub fn get_test_mail() -> String {
+    let test_mail_app_namespace = std::env::var("TEST_MAIL_APP_NAMESPACE").expect("shouldn't fail because env-var 'TEST_MAIL_APP_NAMESPACE' is set as env-var in CI via action-variables");
+    format!("{test_mail_app_namespace}.test@inbox.testmail.app")
+}
+
+pub async fn wait_for_email(subject_contains: &str) -> bool {
+    let test_mail_app_api_key = std::env::var("TEST_MAIL_APP_API_KEY").expect("shouldn't fail because env-var 'TEST_MAIL_APP_API_KEY' is set as env-var in CI via action-secrets");
+    let test_mail_app_namespace = std::env::var("TEST_MAIL_APP_NAMESPACE").expect("shouldn't fail because env-var 'TEST_MAIL_APP_NAMESPACE' is set as env-var in CI via action-variables");
+    let timestamp_from = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .expect("shouldn't fail because time can't go backwards (pray)")
+        .as_millis();
+    let res = reqwest::Client::new()
+        .get("https://api.testmail.app/api/json")
+        .query(&[
+            ("apikey", test_mail_app_api_key),
+            ("namespace", test_mail_app_namespace),
+            ("livequery", "true".to_owned()),
+            ("timestamp_from", timestamp_from.to_string()),
+        ])
+        .timeout(Duration::from_secs(120))
+        .send()
+        .await;
+
+    match res {
+        Ok(response) => {
+            if response.status().is_success() {
+                response
+                    .json::<TestMailAppResponse>()
+                    .await
+                    .unwrap()
+                    .emails
+                    .iter()
+                    .any(|received_mail| received_mail.subject.contains(subject_contains))
+            } else {
+                info!(
+                    statusCode = response.status().as_u16(),
+                    "TestMailApp didn't respond with success (2xx)."
+                );
+                false
+            }
+        }
+        Err(err) => {
+            info!(error = %err, "Failed waiting for email to arrive.");
+            false
+        }
+    }
 }

@@ -36,6 +36,7 @@ pub const SEARCH_FILTER_NOT_FOUND: ApiErrorCode = ApiErrorCode("SEARCH_FILTER_NO
 pub const SHOP_NOT_FOUND: ApiErrorCode = ApiErrorCode("SHOP_NOT_FOUND");
 pub const MONETARY_AMOUNT_OVERFLOW: ApiErrorCode = ApiErrorCode("MONETARY_AMOUNT_OVERFLOW");
 pub const TEXT_QUERY_TOO_SHORT: ApiErrorCode = ApiErrorCode("TEXT_QUERY_TOO_SHORT");
+pub const USER_NOT_FOUND: ApiErrorCode = ApiErrorCode("USER_NOT_FOUND");
 
 pub const UNPROCESSED_AFTER_MAX_RETRIES: ApiErrorCode =
     ApiErrorCode("UNPROCESSED_AFTER_MAX_RETRIES");

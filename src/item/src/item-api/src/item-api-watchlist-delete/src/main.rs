@@ -7,6 +7,7 @@ use item_watchlist::repository::WatchlistItemDynamoDbRepositoryImpl;
 use item_watchlist::service::ItemWatchListServiceImpl;
 use lambda_runtime::tracing::info;
 use lambda_runtime::{Error, LambdaEvent, run, service_fn};
+use user_dynamodb::repository::UserDynamoDbRepositoryImpl;
 
 #[tokio::main]
 async fn main() -> Result<(), Error> {
@@ -27,11 +28,16 @@ async fn main() -> Result<(), Error> {
 
     let watchlist_repository =
         WatchlistItemDynamoDbRepositoryImpl::new(&dynamodb_client, &table_name);
+    let user_repository = UserDynamoDbRepositoryImpl::new(&dynamodb_client, &table_name);
     let item_repository = ItemDynamoDbRepositoryImpl::new(&dynamodb_client, &table_name);
     let get_item_service = GetItemServiceImpl::new(&item_repository);
 
-    let service =
-        ItemWatchListServiceImpl::new(&watchlist_repository, &item_repository, &get_item_service);
+    let service = ItemWatchListServiceImpl::new(
+        &watchlist_repository,
+        &user_repository,
+        &item_repository,
+        &get_item_service,
+    );
 
     info!(
         dynamoDbTableName = %table_name,

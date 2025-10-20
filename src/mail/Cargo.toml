@@ -1,0 +1,8 @@
+[package]
+name = "mail"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+mail-core = { workspace = true }
+mail-lambda-send = { workspace = true }

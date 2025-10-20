@@ -10,6 +10,7 @@ item-data = { workspace = true }
 item-dynamodb = { workspace = true, features = ["repository"] }
 item-service = { workspace = true, features = ["dynamodb"] }
 item-watchlist = { workspace = true, features = ["api"] }
+user-dynamodb = { workspace = true }
 tracing = { workspace = true }
 serde = { workspace = true }
 tracing-subscriber = { workspace = true, features = ["json"] }

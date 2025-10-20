@@ -12,49 +12,50 @@ pub struct DynamoDbUpdateExpression {
     pub expr_attr_values: HashMap<String, AttributeValue>,
 }
 
-#[allow(clippy::result_large_err)]
-pub fn mk_update<T: Serialize>(
-    t: T,
-) -> Result<DynamoDbUpdateExpression, SdkError<UpdateItemError, HttpResponse>> {
-    let mut update_expressions = Vec::new();
-    let mut expr_attr_names = HashMap::new();
-    let mut expr_attr_values = HashMap::new();
+pub trait DynamoDbUpdate: Serialize + Sized {
+    #[allow(clippy::result_large_err)]
+    fn into_update_expr(
+        self,
+    ) -> Result<DynamoDbUpdateExpression, SdkError<UpdateItemError, HttpResponse>> {
+        let mut update_expressions = Vec::new();
+        let mut expr_attr_names = HashMap::new();
+        let mut expr_attr_values = HashMap::new();
 
-    let updates: HashMap<String, AttributeValue> =
-        serde_dynamo::to_item(t).map_err(SdkError::construction_failure)?;
-    let cleared_updates: HashMap<String, AttributeValue> =
-        updates.into_iter().filter(|(_, v)| !v.is_null()).collect();
-    for (attr, val) in cleared_updates {
-        let attr_placeholder = format!("#{attr}");
-        let val_placeholder = format!(":{attr}_val");
+        let updates: HashMap<String, AttributeValue> =
+            serde_dynamo::to_item(self).map_err(SdkError::construction_failure)?;
+        let cleared_updates: HashMap<String, AttributeValue> =
+            updates.into_iter().filter(|(_, v)| !v.is_null()).collect();
+        for (attr, val) in cleared_updates {
+            let attr_placeholder = format!("#{attr}");
+            let val_placeholder = format!(":{attr}_val");
 
-        update_expressions.push(format!("{attr_placeholder} = {val_placeholder}"));
-        expr_attr_names.insert(attr_placeholder, attr);
-        expr_attr_values.insert(val_placeholder, val);
+            update_expressions.push(format!("{attr_placeholder} = {val_placeholder}"));
+            expr_attr_names.insert(attr_placeholder, attr);
+            expr_attr_values.insert(val_placeholder, val);
+        }
+
+        if update_expressions.is_empty() {
+            return Err(SdkError::construction_failure(
+                "DynamoDb Update-Expression cannot be empty.",
+            ));
+        }
+
+        let update_expr = DynamoDbUpdateExpression {
+            update_expr: format!("SET {}", update_expressions.join(", ")),
+            expr_attr_names,
+            expr_attr_values,
+        };
+
+        Ok(update_expr)
     }
-
-    if update_expressions.is_empty() {
-        return Err(SdkError::construction_failure(
-            "DynamoDb Update-Expression cannot be empty.",
-        ));
-    }
-
-    let update_expr = DynamoDbUpdateExpression {
-        update_expr: format!("SET {}", update_expressions.join(", ")),
-        expr_attr_names,
-        expr_attr_values,
-    };
-
-    Ok(update_expr)
 }
 
 #[cfg(test)]
 mod tests {
-    use std::collections::HashMap;
-
-    use crate::dynamodb_update::{DynamoDbUpdateExpression, mk_update};
+    use crate::dynamodb_update::{DynamoDbUpdate, DynamoDbUpdateExpression};
     use aws_sdk_dynamodb::types::AttributeValue::*;
     use serde::Serialize;
+    use std::collections::HashMap;
 
     #[derive(Debug, Clone, Serialize)]
     struct Dummy {
@@ -62,6 +63,7 @@ mod tests {
         f_oo: Option<String>,
         bar: Option<u64>,
     }
+    impl DynamoDbUpdate for Dummy {}
 
     #[rstest::rstest]
     #[case(
@@ -84,7 +86,7 @@ mod tests {
         #[case] dummy: Dummy,
         #[case] expected: DynamoDbUpdateExpression,
     ) {
-        let actual = mk_update(dummy).unwrap();
+        let actual = dummy.into_update_expr().unwrap();
 
         assert_eq!(expected, actual);
     }
@@ -96,7 +98,7 @@ mod tests {
             bar: Some(42),
         };
 
-        let actual = mk_update(dummy).unwrap();
+        let actual = dummy.into_update_expr().unwrap();
 
         assert!(
             "SET #foo = :foo_val, #bar = :bar_val" == actual.update_expr

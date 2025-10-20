@@ -74,6 +74,39 @@ impl Currency {
                     .map(|(currency, amount)| Price::new(amount, currency))
             })
     }
+
+    pub fn currency_symbol(&self) -> &'static str {
+        match self {
+            Currency::Eur => "€",
+            Currency::Gbp => "£",
+            Currency::Usd => "$",
+            Currency::Aud => "A$",
+            Currency::Cad => "C$",
+            Currency::Nzd => "NZ$",
+        }
+    }
+
+    pub fn decimal_separator(&self) -> &'static str {
+        match self {
+            Currency::Eur => ",",
+            Currency::Gbp => ".",
+            Currency::Usd => ".",
+            Currency::Aud => ".",
+            Currency::Cad => ".",
+            Currency::Nzd => ".",
+        }
+    }
+
+    pub fn is_leading_sign(&self) -> bool {
+        match self {
+            Currency::Eur => false,
+            Currency::Gbp => true,
+            Currency::Usd => true,
+            Currency::Aud => true,
+            Currency::Cad => true,
+            Currency::Nzd => true,
+        }
+    }
 }
 
 pub trait HasMinorUnitExponent {

@@ -12,6 +12,8 @@ pub struct CloudFormationOutput {
     pub api_gateway_endpoint_url: String,
     pub opensearch_domain_endpoint_url: String,
     pub dynamodb_table_1_name: String,
+    pub send_mail_queue_url: String,
+    pub send_mail_dead_letter_queue_url: String,
     pub item_ingest_events_dynamodb_queue_url: String,
     pub item_ingest_events_dynamodb_dead_letter_queue_url: String,
     pub item_materialize_dynamodb_new_queue_url: String,
@@ -22,6 +24,8 @@ pub struct CloudFormationOutput {
     pub item_materialize_opensearch_new_dead_letter_queue_url: String,
     pub item_materialize_opensearch_update_queue_url: String,
     pub item_materialize_opensearch_update_dead_letter_queue_url: String,
+    pub item_update_notify_user_queue_url: String,
+    pub item_update_notify_user_dead_letter_queue_url: String,
 }
 
 static CFN_OUTPUT: OnceLock<CloudFormationOutput> = OnceLock::new();

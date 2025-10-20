@@ -101,7 +101,9 @@ mod faker {
                 currency: config.fake_with_rng(rng),
                 item_query: config.fake_with_rng(rng),
                 shop_name_query: config.fake_with_rng(rng),
-                price_query: config.fake_with_rng(rng),
+                price_query: config
+                    .fake_with_rng::<Option<RangeQuery<u32>>, R>(rng) // otherwise get Out-Of-Range-Err often from OpenSearch
+                    .map(|query| query.map(u64::from)),
                 state_query: config.fake_with_rng(rng),
                 created_query: fake_range_query_datetime(config, rng),
                 updated_query: fake_range_query_datetime(config, rng),

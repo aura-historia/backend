@@ -13,7 +13,7 @@ use aws_sdk_dynamodb::operation::update_item::{UpdateItemError, UpdateItemOutput
 use aws_sdk_dynamodb::types::{AttributeValue, KeysAndAttributes};
 use common::batch::Batch;
 use common::batch::dynamodb::BatchGetItemResult;
-use common::dynamodb_update::mk_update;
+use common::dynamodb_update::DynamoDbUpdate;
 use common::item_id::ItemKey;
 use common::shop_id::ShopId;
 use common::shops_item_id::ShopsItemId;
@@ -117,7 +117,7 @@ impl<'a> ItemDynamoDbRepository for ItemDynamoDbRepositoryImpl<'a> {
     ) -> Result<UpdateItemOutput, SdkError<UpdateItemError, HttpResponse>> {
         let pk = format!("item#shop_id#{shop_id}#shops_item_id#{shops_item_id}");
         let sk = "item#materialized".to_string();
-        let update_expr = mk_update(item_update_record)?;
+        let update_expr = item_update_record.into_update_expr()?;
 
         self.client
             .update_item()

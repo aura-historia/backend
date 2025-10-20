@@ -1,4 +1,5 @@
 use common::{pagination::cursor::api::TimeCursoredData, user_id::UserId};
+use fake::{Fake, Faker};
 use item_api_watchlist_get::{WatchlistItemDataView, handler};
 use item_dynamodb::{
     item_record::ItemRecord,
@@ -6,22 +7,28 @@ use item_dynamodb::{
 };
 use item_service::get_service::GetItemServiceImpl;
 use item_watchlist::{
-    record::{WatchlistItemRecord, mk_lsi1_sk, mk_pk, mk_sk},
+    record::{WatchlistItemRecord, mk_gsi1_pk, mk_gsi1_sk, mk_lsi1_sk, mk_pk, mk_sk},
     repository::{WatchlistItemDynamoDbRepository, WatchlistItemDynamoDbRepositoryImpl},
     service::ItemWatchListServiceImpl,
 };
 use lambda_runtime::LambdaEvent;
 use test_api::*;
 use time::{OffsetDateTime, format_description::well_known::Rfc3339};
+use user_dynamodb::repository::UserDynamoDbRepositoryImpl;
 
 #[localstack_test(services = [DynamoDB()])]
 async fn should_200_when_sort_created_asc() {
     let client = get_dynamodb_client().await;
+    let user_repository = UserDynamoDbRepositoryImpl::new(client, "table_1");
     let item_repository = ItemDynamoDbRepositoryImpl::new(client, "table_1");
     let watchlist_repository = WatchlistItemDynamoDbRepositoryImpl::new(client, "table_1");
     let get_item_service = GetItemServiceImpl::new(&item_repository);
-    let service =
-        ItemWatchListServiceImpl::new(&watchlist_repository, &item_repository, &get_item_service);
+    let service = ItemWatchListServiceImpl::new(
+        &watchlist_repository,
+        &user_repository,
+        &item_repository,
+        &get_item_service,
+    );
 
     let item_records = fake::vec![ItemRecord; 23];
     let put_res = item_repository
@@ -37,11 +44,14 @@ async fn should_200_when_sort_created_asc() {
             pk: mk_pk(&user_id),
             sk: mk_sk(&item_record.shop_id, &item_record.shops_item_id),
             lsi1_sk: mk_lsi1_sk(&created).unwrap(),
+            gsi1_pk: None,
+            gsi1_sk: None,
             user_id,
             item_id: item_record.item_id,
             shop_id: item_record.shop_id,
             shops_item_id: item_record.shops_item_id,
             notifications: false,
+            user_record: Faker.fake(),
             created,
             updated: created,
         };
@@ -90,11 +100,16 @@ async fn should_200_when_sort_created_asc() {
 #[localstack_test(services = [DynamoDB()])]
 async fn should_200_when_sort_created_asc_search_after() {
     let client = get_dynamodb_client().await;
+    let user_repository = UserDynamoDbRepositoryImpl::new(client, "table_1");
     let item_repository = ItemDynamoDbRepositoryImpl::new(client, "table_1");
     let watchlist_repository = WatchlistItemDynamoDbRepositoryImpl::new(client, "table_1");
     let get_item_service = GetItemServiceImpl::new(&item_repository);
-    let service =
-        ItemWatchListServiceImpl::new(&watchlist_repository, &item_repository, &get_item_service);
+    let service = ItemWatchListServiceImpl::new(
+        &watchlist_repository,
+        &user_repository,
+        &item_repository,
+        &get_item_service,
+    );
 
     let item_records = fake::vec![ItemRecord; 23];
     let put_res = item_repository
@@ -119,10 +134,13 @@ async fn should_200_when_sort_created_asc_search_after() {
             sk: mk_sk(&item_record.shop_id, &item_record.shops_item_id),
             lsi1_sk: mk_lsi1_sk(&created).unwrap(),
             user_id,
+            gsi1_pk: None,
+            gsi1_sk: None,
             item_id: item_record.item_id,
             shop_id: item_record.shop_id,
             shops_item_id: item_record.shops_item_id,
             notifications: false,
+            user_record: Faker.fake(),
             created,
             updated: created,
         };
@@ -173,11 +191,16 @@ async fn should_200_when_sort_created_asc_search_after() {
 #[localstack_test(services = [DynamoDB()])]
 async fn should_200_when_sort_created_desc() {
     let client = get_dynamodb_client().await;
+    let user_repository = UserDynamoDbRepositoryImpl::new(client, "table_1");
     let item_repository = ItemDynamoDbRepositoryImpl::new(client, "table_1");
     let watchlist_repository = WatchlistItemDynamoDbRepositoryImpl::new(client, "table_1");
     let get_item_service = GetItemServiceImpl::new(&item_repository);
-    let service =
-        ItemWatchListServiceImpl::new(&watchlist_repository, &item_repository, &get_item_service);
+    let service = ItemWatchListServiceImpl::new(
+        &watchlist_repository,
+        &user_repository,
+        &item_repository,
+        &get_item_service,
+    );
 
     let item_records = fake::vec![ItemRecord; 23];
     let put_res = item_repository
@@ -194,10 +217,13 @@ async fn should_200_when_sort_created_desc() {
             sk: mk_sk(&item_record.shop_id, &item_record.shops_item_id),
             lsi1_sk: mk_lsi1_sk(&created).unwrap(),
             user_id,
+            gsi1_pk: None,
+            gsi1_sk: None,
             item_id: item_record.item_id,
             shop_id: item_record.shop_id,
             shops_item_id: item_record.shops_item_id,
             notifications: false,
+            user_record: Faker.fake(),
             created,
             updated: created,
         };
@@ -247,11 +273,16 @@ async fn should_200_when_sort_created_desc() {
 #[localstack_test(services = [DynamoDB()])]
 async fn should_200_when_sort_created_desc_search_after() {
     let client = get_dynamodb_client().await;
+    let user_repository = UserDynamoDbRepositoryImpl::new(client, "table_1");
     let item_repository = ItemDynamoDbRepositoryImpl::new(client, "table_1");
     let watchlist_repository = WatchlistItemDynamoDbRepositoryImpl::new(client, "table_1");
     let get_item_service = GetItemServiceImpl::new(&item_repository);
-    let service =
-        ItemWatchListServiceImpl::new(&watchlist_repository, &item_repository, &get_item_service);
+    let service = ItemWatchListServiceImpl::new(
+        &watchlist_repository,
+        &user_repository,
+        &item_repository,
+        &get_item_service,
+    );
 
     let item_records = fake::vec![ItemRecord; 23];
     let put_res = item_repository
@@ -276,10 +307,13 @@ async fn should_200_when_sort_created_desc_search_after() {
             sk: mk_sk(&item_record.shop_id, &item_record.shops_item_id),
             lsi1_sk: mk_lsi1_sk(&created).unwrap(),
             user_id,
+            gsi1_pk: Some(mk_gsi1_pk(&item_record.item_id)),
+            gsi1_sk: Some(mk_gsi1_sk(&user_id)),
             item_id: item_record.item_id,
             shop_id: item_record.shop_id,
             shops_item_id: item_record.shops_item_id,
-            notifications: false,
+            notifications: true,
+            user_record: Faker.fake(),
             created,
             updated: created,
         };

@@ -15,10 +15,18 @@ Parameters:
   ArtifactBucket:
     Type: String
     Description: "S3 bucket containing Lambda deployment zips"
+  MailTemplateBucket:
+    Type: String
+    Description: "S3 bucket containing mail-templates"
   CommitSHA:
     Type: String
 
 Mappings:
+  SendMailQueueMap:
+    MaximumBatchingWindowInSeconds:
+      dev: 1
+      staging: 1
+      prod: 5
   ItemIngestEventsDynamoDbQueueMap:
     MaximumBatchingWindowInSeconds:
       dev: 1
@@ -34,8 +42,20 @@ Mappings:
       dev: 1
       staging: 1
       prod: 300
+  IItemUpdateNotifyUserQueueMap:
+    MaximumBatchingWindowInSeconds:
+      dev: 1
+      staging: 1
+      prod: 5
 
 Resources:
+  # SNS Topic for CloudWatch Alarms
+  AlarmNotificationTopic:
+    Type: AWS::SNS::Topic
+    Properties:
+      TopicName: !Sub "cloudwatch-alarms-${StageName}"
+      DisplayName: "CloudWatch Alarms for Blitzfilter Backend"
+
   BlitzfilterUserPool:
     Type: AWS::Cognito::UserPool
     Properties:
@@ -132,10 +152,10 @@ Resources:
         - COGNITO
       CallbackURLs:
         - http://localhost:3000/
-        - https://blitzfilter.blitzfilter.workers.dev/
+        - https://aura-historia.com/
       LogoutURLs:
         - http://localhost:3000/
-        - https://blitzfilter.blitzfilter.workers.dev/
+        - https://aura-historia.com/
       EnableTokenRevocation: true
       AccessTokenValidity: 1 # hours
       IdTokenValidity: 1 # hours
@@ -177,6 +197,10 @@ Resources:
           AttributeType: S
         - AttributeName: lsi1_sk
           AttributeType: S
+        - AttributeName: gsi1_pk
+          AttributeType: S
+        - AttributeName: gsi1_sk
+          AttributeType: S
       KeySchema:
         - AttributeName: pk
           KeyType: HASH
@@ -191,10 +215,37 @@ Resources:
               KeyType: RANGE
           Projection:
             ProjectionType: ALL
+      GlobalSecondaryIndexes:
+        - IndexName: gsi1
+          KeySchema:
+            - AttributeName: gsi1_pk
+              KeyType: HASH
+            - AttributeName: gsi1_sk
+              KeyType: RANGE
+          Projection:
+            ProjectionType: ALL
       BillingMode: PAY_PER_REQUEST
       TableClass: STANDARD
       StreamSpecification:
         StreamViewType: NEW_IMAGE
+  TableOneThrottledRequestsAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      AlarmName: !Sub "${StageName}-dynamodb-throttled-requests"
+      AlarmDescription: "Alarm when DynamoDB table has throttled requests"
+      MetricName: UserErrors
+      Namespace: AWS/DynamoDB
+      Statistic: Sum
+      Period: 300
+      EvaluationPeriods: 1
+      Threshold: 5
+      ComparisonOperator: GreaterThanOrEqualToThreshold
+      Dimensions:
+        - Name: TableName
+          Value: !Ref TableOne
+      TreatMissingData: notBreaching
+      AlarmActions:
+        - !Ref AlarmNotificationTopic
 
   BlitzfilterOpenSearchDomain:
     Type: AWS::OpenSearchService::Domain
@@ -217,6 +268,106 @@ Resources:
               AWS: !Sub "arn:aws:iam::${AWS::AccountId}:root"
             Action: "es:*"
             Resource: !Sub "arn:aws:es:${AWS::Region}:${AWS::AccountId}:domain/application-${StageName}/*"
+  OpenSearchClusterStatusRedAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      AlarmName: !Sub "${StageName}-opensearch-cluster-red"
+      AlarmDescription: "Alarm when OpenSearch cluster status is RED"
+      MetricName: ClusterStatus.red
+      Namespace: AWS/ES
+      Statistic: Maximum
+      Period: 60
+      EvaluationPeriods: 1
+      Threshold: 1
+      ComparisonOperator: GreaterThanOrEqualToThreshold
+      Dimensions:
+        - Name: DomainName
+          Value: !Ref BlitzfilterOpenSearchDomain
+        - Name: ClientId
+          Value: !Ref AWS::AccountId
+      TreatMissingData: notBreaching
+      AlarmActions:
+        - !Ref AlarmNotificationTopic
+  OpenSearchClusterStatusYellowAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      AlarmName: !Sub "${StageName}-opensearch-cluster-yellow"
+      AlarmDescription: "Alarm when OpenSearch cluster status is YELLOW"
+      MetricName: ClusterStatus.yellow
+      Namespace: AWS/ES
+      Statistic: Maximum
+      Period: 300
+      EvaluationPeriods: 2
+      Threshold: 1
+      ComparisonOperator: GreaterThanOrEqualToThreshold
+      Dimensions:
+        - Name: DomainName
+          Value: !Ref BlitzfilterOpenSearchDomain
+        - Name: ClientId
+          Value: !Ref AWS::AccountId
+      TreatMissingData: notBreaching
+      AlarmActions:
+        - !Ref AlarmNotificationTopic
+  OpenSearchFreeStorageSpaceAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      AlarmName: !Sub "${StageName}-opensearch-low-storage"
+      AlarmDescription: "Alarm when OpenSearch has low free storage space"
+      MetricName: FreeStorageSpace
+      Namespace: AWS/ES
+      Statistic: Minimum
+      Period: 300
+      EvaluationPeriods: 1
+      Threshold: 2000
+      ComparisonOperator: LessThanOrEqualToThreshold
+      Dimensions:
+        - Name: DomainName
+          Value: !Ref BlitzfilterOpenSearchDomain
+        - Name: ClientId
+          Value: !Ref AWS::AccountId
+      TreatMissingData: notBreaching
+      AlarmActions:
+        - !Ref AlarmNotificationTopic
+  OpenSearchCPUUtilizationAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      AlarmName: !Sub "${StageName}-opensearch-high-cpu"
+      AlarmDescription: "Alarm when OpenSearch CPU utilization is high"
+      MetricName: CPUUtilization
+      Namespace: AWS/ES
+      Statistic: Average
+      Period: 300
+      EvaluationPeriods: 2
+      Threshold: 80
+      ComparisonOperator: GreaterThanOrEqualToThreshold
+      Dimensions:
+        - Name: DomainName
+          Value: !Ref BlitzfilterOpenSearchDomain
+        - Name: ClientId
+          Value: !Ref AWS::AccountId
+      TreatMissingData: notBreaching
+      AlarmActions:
+        - !Ref AlarmNotificationTopic
+  OpenSearchJVMMemoryPressureAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      AlarmName: !Sub "${StageName}-opensearch-high-jvm-memory"
+      AlarmDescription: "Alarm when OpenSearch JVM memory pressure is high"
+      MetricName: JVMMemoryPressure
+      Namespace: AWS/ES
+      Statistic: Maximum
+      Period: 300
+      EvaluationPeriods: 1
+      Threshold: 85
+      ComparisonOperator: GreaterThanOrEqualToThreshold
+      Dimensions:
+        - Name: DomainName
+          Value: !Ref BlitzfilterOpenSearchDomain
+        - Name: ClientId
+          Value: !Ref AWS::AccountId
+      TreatMissingData: notBreaching
+      AlarmActions:
+        - !Ref AlarmNotificationTopic
 
   DynamoDbEventBus:
     Type: AWS::Events::EventBus
@@ -287,6 +438,7 @@ Resources:
         - !Ref ItemMaterializeDynamoDbUpdateQ
         - !Ref ItemMaterializeOpenSearchNewQ
         - !Ref ItemMaterializeOpenSearchUpdateQ
+        - !Ref ItemUpdateNotifyUserQ
       PolicyDocument:
         Version: "2012-10-17"
         Statement:
@@ -299,6 +451,7 @@ Resources:
               - !GetAtt ItemMaterializeDynamoDbUpdateQ.Arn
               - !GetAtt ItemMaterializeOpenSearchNewQ.Arn
               - !GetAtt ItemMaterializeOpenSearchUpdateQ.Arn
+              - !GetAtt ItemUpdateNotifyUserQ.Arn
 
   BlitzfilterApi:
     Type: AWS::ApiGatewayV2::Api
@@ -338,6 +491,42 @@ Resources:
         Audience:
           - !Ref BlitzfilterUserPoolClientPublic
           - !Ref BlitzfilterUserPoolClientAdmin
+  BlitzfilterApi5XXErrorAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      AlarmName: !Sub "${StageName}-api-5xx-errors"
+      AlarmDescription: "Alarm when API Gateway returns 5XX errors"
+      MetricName: 5XXError
+      Namespace: AWS/ApiGateway
+      Statistic: Sum
+      Period: 300
+      EvaluationPeriods: 1
+      Threshold: 5
+      ComparisonOperator: GreaterThanOrEqualToThreshold
+      Dimensions:
+        - Name: ApiId
+          Value: !Ref BlitzfilterApi
+      TreatMissingData: notBreaching
+      AlarmActions:
+        - !Ref AlarmNotificationTopic
+  BlitzfilterApi4XXErrorAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      AlarmName: !Sub "${StageName}-api-4xx-errors"
+      AlarmDescription: "Alarm when API Gateway returns high 4XX errors"
+      MetricName: 4XXError
+      Namespace: AWS/ApiGateway
+      Statistic: Sum
+      Period: 300
+      EvaluationPeriods: 2
+      Threshold: 50
+      ComparisonOperator: GreaterThanOrEqualToThreshold
+      Dimensions:
+        - Name: ApiId
+          Value: !Ref BlitzfilterApi
+      TreatMissingData: notBreaching
+      AlarmActions:
+        - !Ref AlarmNotificationTopic
 
   BlitzfilterApiGetItemRoute:
     Type: AWS::ApiGatewayV2::Route
@@ -400,6 +589,42 @@ Resources:
       FunctionName: !Ref BlitzfilterApiGetItemLambda
       Principal: apigateway.amazonaws.com
       SourceArn: !Sub "arn:aws:execute-api:${AWS::Region}:${AWS::AccountId}:${BlitzfilterApi}/*/*/api/v1/items/*/*"
+  BlitzfilterApiGetItemLambdaErrorAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      AlarmName: !Sub "${StageName}-get-item-lambda-errors"
+      AlarmDescription: "Alarm when get-item Lambda has errors"
+      MetricName: Errors
+      Namespace: AWS/Lambda
+      Statistic: Sum
+      Period: 300
+      EvaluationPeriods: 1
+      Threshold: 1
+      ComparisonOperator: GreaterThanOrEqualToThreshold
+      Dimensions:
+        - Name: FunctionName
+          Value: !Ref BlitzfilterApiGetItemLambda
+      TreatMissingData: notBreaching
+      AlarmActions:
+        - !Ref AlarmNotificationTopic
+  BlitzfilterApiGetItemLambdaThrottleAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      AlarmName: !Sub "${StageName}-get-item-lambda-throttles"
+      AlarmDescription: "Alarm when get-item Lambda is throttled"
+      MetricName: Throttles
+      Namespace: AWS/Lambda
+      Statistic: Sum
+      Period: 300
+      EvaluationPeriods: 1
+      Threshold: 1
+      ComparisonOperator: GreaterThanOrEqualToThreshold
+      Dimensions:
+        - Name: FunctionName
+          Value: !Ref BlitzfilterApiGetItemLambda
+      TreatMissingData: notBreaching
+      AlarmActions:
+        - !Ref AlarmNotificationTopic
 
   BlitzfilterApiPutItemsRoute:
     Type: AWS::ApiGatewayV2::Route
@@ -471,6 +696,42 @@ Resources:
       FunctionName: !Ref BlitzfilterApiPutItemsLambda
       Principal: apigateway.amazonaws.com
       SourceArn: !Sub "arn:aws:execute-api:${AWS::Region}:${AWS::AccountId}:${BlitzfilterApi}/*/*/api/v1/items"
+  BlitzfilterApiPutItemsLambdaErrorAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      AlarmName: !Sub "${StageName}-put-items-lambda-errors"
+      AlarmDescription: "Alarm when put-items Lambda has errors"
+      MetricName: Errors
+      Namespace: AWS/Lambda
+      Statistic: Sum
+      Period: 300
+      EvaluationPeriods: 1
+      Threshold: 1
+      ComparisonOperator: GreaterThanOrEqualToThreshold
+      Dimensions:
+        - Name: FunctionName
+          Value: !Ref BlitzfilterApiPutItemsLambda
+      TreatMissingData: notBreaching
+      AlarmActions:
+        - !Ref AlarmNotificationTopic
+  BlitzfilterApiPutItemsLambdaThrottleAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      AlarmName: !Sub "${StageName}-put-items-lambda-throttles"
+      AlarmDescription: "Alarm when put-items Lambda is throttled"
+      MetricName: Throttles
+      Namespace: AWS/Lambda
+      Statistic: Sum
+      Period: 300
+      EvaluationPeriods: 1
+      Threshold: 1
+      ComparisonOperator: GreaterThanOrEqualToThreshold
+      Dimensions:
+        - Name: FunctionName
+          Value: !Ref BlitzfilterApiPutItemsLambda
+      TreatMissingData: notBreaching
+      AlarmActions:
+        - !Ref AlarmNotificationTopic
 
   BlitzfilterApiSimpleSearchRoute:
     Type: AWS::ApiGatewayV2::Route
@@ -535,6 +796,24 @@ Resources:
       FunctionName: !Ref BlitzfilterApiSimpleSearchLambda
       Principal: apigateway.amazonaws.com
       SourceArn: !Sub "arn:aws:execute-api:${AWS::Region}:${AWS::AccountId}:${BlitzfilterApi}/*/*/api/v1/items*"
+  BlitzfilterApiSimpleSearchLambdaErrorAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      AlarmName: !Sub "${StageName}-simple-search-lambda-errors"
+      AlarmDescription: "Alarm when simple-search Lambda has errors"
+      MetricName: Errors
+      Namespace: AWS/Lambda
+      Statistic: Sum
+      Period: 300
+      EvaluationPeriods: 1
+      Threshold: 1
+      ComparisonOperator: GreaterThanOrEqualToThreshold
+      Dimensions:
+        - Name: FunctionName
+          Value: !Ref BlitzfilterApiSimpleSearchLambda
+      TreatMissingData: notBreaching
+      AlarmActions:
+        - !Ref AlarmNotificationTopic
 
   BlitzfilterApiComplexSearchRoute:
     Type: AWS::ApiGatewayV2::Route
@@ -599,6 +878,24 @@ Resources:
       FunctionName: !Ref BlitzfilterApiComplexSearchLambda
       Principal: apigateway.amazonaws.com
       SourceArn: !Sub "arn:aws:execute-api:${AWS::Region}:${AWS::AccountId}:${BlitzfilterApi}/*/*/api/v1/items/search*"
+  BlitzfilterApiComplexSearchLambdaErrorAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      AlarmName: !Sub "${StageName}-complex-search-lambda-errors"
+      AlarmDescription: "Alarm when complex-search Lambda has errors"
+      MetricName: Errors
+      Namespace: AWS/Lambda
+      Statistic: Sum
+      Period: 300
+      EvaluationPeriods: 1
+      Threshold: 1
+      ComparisonOperator: GreaterThanOrEqualToThreshold
+      Dimensions:
+        - Name: FunctionName
+          Value: !Ref BlitzfilterApiComplexSearchLambda
+      TreatMissingData: notBreaching
+      AlarmActions:
+        - !Ref AlarmNotificationTopic
 
   BlitzfilterApiGetWatchlistItemsRoute:
     Type: AWS::ApiGatewayV2::Route
@@ -1304,6 +1601,130 @@ Resources:
       Principal: apigateway.amazonaws.com
       SourceArn: !Sub "arn:aws:execute-api:${AWS::Region}:${AWS::AccountId}:${BlitzfilterApi}/*/*/api/v1/search-filters"
 
+  SendMailDlq:
+    Type: AWS::SQS::Queue
+    Properties:
+      QueueName: !Sub "mail-lambda-send-${StageName}"
+      MessageRetentionPeriod: 1209600
+  SendMailQ:
+    Type: AWS::SQS::Queue
+    Properties:
+      QueueName: !Sub "mail-lambda-send-queue-${StageName}"
+      RedrivePolicy:
+        deadLetterTargetArn: !GetAtt SendMailDlq.Arn
+        maxReceiveCount: 5
+      VisibilityTimeout: 360
+  SendMailRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Sub "mail-lambda-send-role-${StageName}"
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: lambda.amazonaws.com
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole
+      Policies:
+        - PolicyName: SQSPollerAccess
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: Allow
+                Action:
+                  - sqs:ReceiveMessage
+                  - sqs:DeleteMessage
+                  - sqs:GetQueueAttributes
+                  - sqs:GetQueueUrl
+                Resource: !GetAtt SendMailQ.Arn
+        - PolicyName: SESSendMailAccess
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: Allow
+                Action:
+                  - ses:SendEmail
+                  - ses:SendRawEmail
+                Resource: "*"
+        - PolicyName: S3Access
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: Allow
+                Action:
+                  - s3:GetObject
+                Resource: !Sub "arn:aws:s3:::${MailTemplateBucket}/*"
+  SendMailLambda:
+    Type: AWS::Lambda::Function
+    Properties:
+      FunctionName: !Sub "mail-lambda-send-${StageName}"
+      Runtime: provided.al2023
+      Handler: lib.handler
+      Role: !GetAtt SendMailRole.Arn
+      Code:
+        S3Bucket: !Ref ArtifactBucket
+        S3Key: !Sub "mail-lambda-send-${StageName}-${CommitSHA}.zip"
+      MemorySize: 512
+      Timeout: 60
+      EphemeralStorage:
+        Size: 512
+      Environment:
+        Variables:
+          S3_BUCKET_NAME_TEMPLATES: !Ref MailTemplateBucket
+  SendMailMapping:
+    Type: AWS::Lambda::EventSourceMapping
+    Properties:
+      FunctionName: !Ref SendMailLambda
+      EventSourceArn: !GetAtt SendMailQ.Arn
+      Enabled: true
+      BatchSize: 200
+      MaximumBatchingWindowInSeconds:
+        !FindInMap [
+          SendMailQueueMap,
+          MaximumBatchingWindowInSeconds,
+          !Ref Stage,
+        ]
+      FunctionResponseTypes:
+        - ReportBatchItemFailures
+  SendMailLambdaErrorAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      AlarmName: !Sub "${StageName}-send-mail-lambda-errors"
+      AlarmDescription: "Alarm when send-mail Lambda has errors"
+      MetricName: Errors
+      Namespace: AWS/Lambda
+      Statistic: Sum
+      Period: 300
+      EvaluationPeriods: 1
+      Threshold: 5
+      ComparisonOperator: GreaterThanOrEqualToThreshold
+      Dimensions:
+        - Name: FunctionName
+          Value: !Ref SendMailLambda
+      TreatMissingData: notBreaching
+      AlarmActions:
+        - !Ref AlarmNotificationTopic
+  SendMailDlqAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      AlarmName: !Sub "${StageName}-send-mail-dlq-messages"
+      AlarmDescription: "Alarm when messages appear in send-mail DLQ"
+      MetricName: ApproximateNumberOfMessagesVisible
+      Namespace: AWS/SQS
+      Statistic: Sum
+      Period: 300
+      EvaluationPeriods: 1
+      Threshold: 1
+      ComparisonOperator: GreaterThanOrEqualToThreshold
+      Dimensions:
+        - Name: QueueName
+          Value: !GetAtt SendMailDlq.QueueName
+      TreatMissingData: notBreaching
+      AlarmActions:
+        - !Ref AlarmNotificationTopic
+
   ItemIngestEventsDynamoDbDlq:
     Type: AWS::SQS::Queue
     Properties:
@@ -1382,6 +1803,42 @@ Resources:
         ]
       FunctionResponseTypes:
         - ReportBatchItemFailures
+  ItemIngestEventsDynamoDbLambdaErrorAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      AlarmName: !Sub "${StageName}-ingest-events-lambda-errors"
+      AlarmDescription: "Alarm when ingest-events Lambda has errors"
+      MetricName: Errors
+      Namespace: AWS/Lambda
+      Statistic: Sum
+      Period: 300
+      EvaluationPeriods: 1
+      Threshold: 5
+      ComparisonOperator: GreaterThanOrEqualToThreshold
+      Dimensions:
+        - Name: FunctionName
+          Value: !Ref ItemIngestEventsDynamoDbLambda
+      TreatMissingData: notBreaching
+      AlarmActions:
+        - !Ref AlarmNotificationTopic
+  ItemIngestEventsDynamoDbDlqAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      AlarmName: !Sub "${StageName}-ingest-events-dlq-messages"
+      AlarmDescription: "Alarm when messages appear in ingest-events DLQ"
+      MetricName: ApproximateNumberOfMessagesVisible
+      Namespace: AWS/SQS
+      Statistic: Sum
+      Period: 300
+      EvaluationPeriods: 1
+      Threshold: 1
+      ComparisonOperator: GreaterThanOrEqualToThreshold
+      Dimensions:
+        - Name: QueueName
+          Value: !GetAtt ItemIngestEventsDynamoDbDlq.QueueName
+      TreatMissingData: notBreaching
+      AlarmActions:
+        - !Ref AlarmNotificationTopic
 
   ItemMaterializeDynamoDbNewDlq:
     Type: AWS::SQS::Queue
@@ -1461,6 +1918,42 @@ Resources:
         ]
       FunctionResponseTypes:
         - ReportBatchItemFailures
+  ItemMaterializeDynamoDbNewLambdaErrorAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      AlarmName: !Sub "${StageName}-materialize-ddb-new-lambda-errors"
+      AlarmDescription: "Alarm when materialize-ddb-new Lambda has errors"
+      MetricName: Errors
+      Namespace: AWS/Lambda
+      Statistic: Sum
+      Period: 300
+      EvaluationPeriods: 1
+      Threshold: 5
+      ComparisonOperator: GreaterThanOrEqualToThreshold
+      Dimensions:
+        - Name: FunctionName
+          Value: !Ref ItemMaterializeDynamoDbNewLambda
+      TreatMissingData: notBreaching
+      AlarmActions:
+        - !Ref AlarmNotificationTopic
+  ItemMaterializeDynamoDbNewDlqAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      AlarmName: !Sub "${StageName}-materialize-ddb-new-dlq-messages"
+      AlarmDescription: "Alarm when messages appear in materialize-ddb-new DLQ"
+      MetricName: ApproximateNumberOfMessagesVisible
+      Namespace: AWS/SQS
+      Statistic: Sum
+      Period: 300
+      EvaluationPeriods: 1
+      Threshold: 1
+      ComparisonOperator: GreaterThanOrEqualToThreshold
+      Dimensions:
+        - Name: QueueName
+          Value: !GetAtt ItemMaterializeDynamoDbNewDlq.QueueName
+      TreatMissingData: notBreaching
+      AlarmActions:
+        - !Ref AlarmNotificationTopic
 
   ItemMaterializeDynamoDbUpdateDlq:
     Type: AWS::SQS::Queue
@@ -1540,6 +2033,42 @@ Resources:
         ]
       FunctionResponseTypes:
         - ReportBatchItemFailures
+  ItemMaterializeDynamoDbUpdateLambdaErrorAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      AlarmName: !Sub "${StageName}-materialize-ddb-update-lambda-errors"
+      AlarmDescription: "Alarm when materialize-ddb-update Lambda has errors"
+      MetricName: Errors
+      Namespace: AWS/Lambda
+      Statistic: Sum
+      Period: 300
+      EvaluationPeriods: 1
+      Threshold: 5
+      ComparisonOperator: GreaterThanOrEqualToThreshold
+      Dimensions:
+        - Name: FunctionName
+          Value: !Ref ItemMaterializeDynamoDbUpdateLambda
+      TreatMissingData: notBreaching
+      AlarmActions:
+        - !Ref AlarmNotificationTopic
+  ItemMaterializeDynamoDbUpdateDlqAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      AlarmName: !Sub "${StageName}-materialize-ddb-update-dlq-messages"
+      AlarmDescription: "Alarm when messages appear in materialize-ddb-update DLQ"
+      MetricName: ApproximateNumberOfMessagesVisible
+      Namespace: AWS/SQS
+      Statistic: Sum
+      Period: 300
+      EvaluationPeriods: 1
+      Threshold: 1
+      ComparisonOperator: GreaterThanOrEqualToThreshold
+      Dimensions:
+        - Name: QueueName
+          Value: !GetAtt ItemMaterializeDynamoDbUpdateDlq.QueueName
+      TreatMissingData: notBreaching
+      AlarmActions:
+        - !Ref AlarmNotificationTopic
 
   ItemMaterializeOpenSearchNewDlq:
     Type: AWS::SQS::Queue
@@ -1619,6 +2148,42 @@ Resources:
         ]
       FunctionResponseTypes:
         - ReportBatchItemFailures
+  ItemMaterializeOpenSearchNewLambdaErrorAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      AlarmName: !Sub "${StageName}-materialize-os-new-lambda-errors"
+      AlarmDescription: "Alarm when materialize-opensearch-new Lambda has errors"
+      MetricName: Errors
+      Namespace: AWS/Lambda
+      Statistic: Sum
+      Period: 300
+      EvaluationPeriods: 1
+      Threshold: 5
+      ComparisonOperator: GreaterThanOrEqualToThreshold
+      Dimensions:
+        - Name: FunctionName
+          Value: !Ref ItemMaterializeOpenSearchNewLambda
+      TreatMissingData: notBreaching
+      AlarmActions:
+        - !Ref AlarmNotificationTopic
+  ItemMaterializeOpenSearchNewDlqAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      AlarmName: !Sub "${StageName}-materialize-os-new-dlq-messages"
+      AlarmDescription: "Alarm when messages appear in materialize-opensearch-new DLQ"
+      MetricName: ApproximateNumberOfMessagesVisible
+      Namespace: AWS/SQS
+      Statistic: Sum
+      Period: 300
+      EvaluationPeriods: 1
+      Threshold: 1
+      ComparisonOperator: GreaterThanOrEqualToThreshold
+      Dimensions:
+        - Name: QueueName
+          Value: !GetAtt ItemMaterializeOpenSearchNewDlq.QueueName
+      TreatMissingData: notBreaching
+      AlarmActions:
+        - !Ref AlarmNotificationTopic
 
   ItemMaterializeOpenSearchUpdateDlq:
     Type: AWS::SQS::Queue
@@ -1698,6 +2263,170 @@ Resources:
         ]
       FunctionResponseTypes:
         - ReportBatchItemFailures
+  ItemMaterializeOpenSearchUpdateLambdaErrorAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      AlarmName: !Sub "${StageName}-materialize-os-update-lambda-errors"
+      AlarmDescription: "Alarm when materialize-opensearch-update Lambda has errors"
+      MetricName: Errors
+      Namespace: AWS/Lambda
+      Statistic: Sum
+      Period: 300
+      EvaluationPeriods: 1
+      Threshold: 5
+      ComparisonOperator: GreaterThanOrEqualToThreshold
+      Dimensions:
+        - Name: FunctionName
+          Value: !Ref ItemMaterializeOpenSearchUpdateLambda
+      TreatMissingData: notBreaching
+      AlarmActions:
+        - !Ref AlarmNotificationTopic
+  ItemMaterializeOpenSearchUpdateDlqAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      AlarmName: !Sub "${StageName}-materialize-os-update-dlq-messages"
+      AlarmDescription: "Alarm when messages appear in materialize-opensearch-update DLQ"
+      MetricName: ApproximateNumberOfMessagesVisible
+      Namespace: AWS/SQS
+      Statistic: Sum
+      Period: 300
+      EvaluationPeriods: 1
+      Threshold: 1
+      ComparisonOperator: GreaterThanOrEqualToThreshold
+      Dimensions:
+        - Name: QueueName
+          Value: !GetAtt ItemMaterializeOpenSearchUpdateDlq.QueueName
+      TreatMissingData: notBreaching
+      AlarmActions:
+        - !Ref AlarmNotificationTopic
+
+  ItemUpdateNotifyUserDlq:
+    Type: AWS::SQS::Queue
+    Properties:
+      QueueName: !Sub "item-lambda-update-notify-user-dlq-${StageName}"
+      MessageRetentionPeriod: 1209600
+  ItemUpdateNotifyUserQ:
+    Type: AWS::SQS::Queue
+    Properties:
+      QueueName: !Sub "item-lambda-update-notify-user-queue-${StageName}"
+      RedrivePolicy:
+        deadLetterTargetArn: !GetAtt ItemUpdateNotifyUserDlq.Arn
+        maxReceiveCount: 5
+      VisibilityTimeout: 360
+  ItemUpdateNotifyUserRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Sub "item-lambda-update-notify-user-role-${StageName}"
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: lambda.amazonaws.com
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole
+      Policies:
+        - PolicyName: DynamoDBAccess
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: Allow
+                Action:
+                  - dynamodb:GetItem
+                  - dynamodb:Query
+                Resource:
+                  - !GetAtt TableOne.Arn
+                  - !Sub "${TableOne.Arn}/index/*"
+        - PolicyName: SQSPollerAccess
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: Allow
+                Action:
+                  - sqs:ReceiveMessage
+                  - sqs:DeleteMessage
+                  - sqs:GetQueueAttributes
+                  - sqs:GetQueueUrl
+                Resource: !GetAtt ItemUpdateNotifyUserQ.Arn
+        - PolicyName: SQSSendMessage
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: Allow
+                Action:
+                  - sqs:SendMessage
+                Resource: !GetAtt SendMailQ.Arn
+  ItemUpdateNotifyUserLambda:
+    Type: AWS::Lambda::Function
+    Properties:
+      FunctionName: !Sub "item-lambda-update-notify-user-${StageName}"
+      Runtime: provided.al2023
+      Handler: lib.handler
+      Role: !GetAtt ItemUpdateNotifyUserRole.Arn
+      Code:
+        S3Bucket: !Ref ArtifactBucket
+        S3Key: !Sub "item-lambda-update-notify-user-${StageName}-${CommitSHA}.zip"
+      MemorySize: 512
+      Timeout: 60
+      EphemeralStorage:
+        Size: 512
+      Environment:
+        Variables:
+          DYNAMODB_TABLE_NAME: !Ref TableOne
+          MAIL_QUEUE_URL: !Ref SendMailQ
+          SENDER_MAIL: "no-reply@aura-historia.com"
+  ItemUpdateNotifyUserMapping:
+    Type: AWS::Lambda::EventSourceMapping
+    Properties:
+      FunctionName: !Ref ItemUpdateNotifyUserLambda
+      EventSourceArn: !GetAtt ItemUpdateNotifyUserQ.Arn
+      Enabled: true
+      BatchSize: 10
+      MaximumBatchingWindowInSeconds:
+        !FindInMap [
+          IItemUpdateNotifyUserQueueMap,
+          MaximumBatchingWindowInSeconds,
+          !Ref Stage,
+        ]
+      FunctionResponseTypes:
+        - ReportBatchItemFailures
+  ItemUpdateNotifyUserLambdaErrorAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      AlarmName: !Sub "${StageName}-item-update-notify-user-lambda-errors"
+      AlarmDescription: "Alarm when item-update-notify-user Lambda has errors"
+      MetricName: Errors
+      Namespace: AWS/Lambda
+      Statistic: Sum
+      Period: 300
+      EvaluationPeriods: 1
+      Threshold: 5
+      ComparisonOperator: GreaterThanOrEqualToThreshold
+      Dimensions:
+        - Name: FunctionName
+          Value: !Ref ItemUpdateNotifyUserLambda
+      TreatMissingData: notBreaching
+      AlarmActions:
+        - !Ref AlarmNotificationTopic
+  ItemUpdateNotifyUserDlqAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      AlarmName: !Sub "${StageName}-item-update-notify-user-dlq-messages"
+      AlarmDescription: "Alarm when messages appear in item-update-notify-user DLQ"
+      MetricName: ApproximateNumberOfMessagesVisible
+      Namespace: AWS/SQS
+      Statistic: Sum
+      Period: 300
+      EvaluationPeriods: 1
+      Threshold: 1
+      ComparisonOperator: GreaterThanOrEqualToThreshold
+      Dimensions:
+        - Name: QueueName
+          Value: !GetAtt ItemUpdateNotifyUserDlq.QueueName
+      TreatMissingData: notBreaching
+      AlarmActions:
+        - !Ref AlarmNotificationTopic
 
   DynamoDbItemEventRecordCreatedMaterializeDynamoDbItemRecordEventRule:
     Type: AWS::Events::Rule
@@ -1785,485 +2514,28 @@ Resources:
       Targets:
         - Id: ItemMaterializeOpenSearchUpdateQ
           Arn: !GetAtt ItemMaterializeOpenSearchUpdateQ.Arn
-
-  # SNS Topic for CloudWatch Alarms
-  AlarmNotificationTopic:
-    Type: AWS::SNS::Topic
+  DynamoDbItemEventRecordUpdatedNotifyUserEventRule:
+    Type: AWS::Events::Rule
     Properties:
-      TopicName: !Sub "cloudwatch-alarms-${StageName}"
-      DisplayName: "CloudWatch Alarms for Blitzfilter Backend"
-
-  # Lambda Error Alarms
-  BlitzfilterApiGetItemLambdaErrorAlarm:
-    Type: AWS::CloudWatch::Alarm
-    Properties:
-      AlarmName: !Sub "${StageName}-get-item-lambda-errors"
-      AlarmDescription: "Alarm when get-item Lambda has errors"
-      MetricName: Errors
-      Namespace: AWS/Lambda
-      Statistic: Sum
-      Period: 300
-      EvaluationPeriods: 1
-      Threshold: 1
-      ComparisonOperator: GreaterThanOrEqualToThreshold
-      Dimensions:
-        - Name: FunctionName
-          Value: !Ref BlitzfilterApiGetItemLambda
-      TreatMissingData: notBreaching
-      AlarmActions:
-        - !Ref AlarmNotificationTopic
-
-  BlitzfilterApiPutItemsLambdaErrorAlarm:
-    Type: AWS::CloudWatch::Alarm
-    Properties:
-      AlarmName: !Sub "${StageName}-put-items-lambda-errors"
-      AlarmDescription: "Alarm when put-items Lambda has errors"
-      MetricName: Errors
-      Namespace: AWS/Lambda
-      Statistic: Sum
-      Period: 300
-      EvaluationPeriods: 1
-      Threshold: 1
-      ComparisonOperator: GreaterThanOrEqualToThreshold
-      Dimensions:
-        - Name: FunctionName
-          Value: !Ref BlitzfilterApiPutItemsLambda
-      TreatMissingData: notBreaching
-      AlarmActions:
-        - !Ref AlarmNotificationTopic
-
-  BlitzfilterApiSimpleSearchLambdaErrorAlarm:
-    Type: AWS::CloudWatch::Alarm
-    Properties:
-      AlarmName: !Sub "${StageName}-simple-search-lambda-errors"
-      AlarmDescription: "Alarm when simple-search Lambda has errors"
-      MetricName: Errors
-      Namespace: AWS/Lambda
-      Statistic: Sum
-      Period: 300
-      EvaluationPeriods: 1
-      Threshold: 1
-      ComparisonOperator: GreaterThanOrEqualToThreshold
-      Dimensions:
-        - Name: FunctionName
-          Value: !Ref BlitzfilterApiSimpleSearchLambda
-      TreatMissingData: notBreaching
-      AlarmActions:
-        - !Ref AlarmNotificationTopic
-
-  BlitzfilterApiComplexSearchLambdaErrorAlarm:
-    Type: AWS::CloudWatch::Alarm
-    Properties:
-      AlarmName: !Sub "${StageName}-complex-search-lambda-errors"
-      AlarmDescription: "Alarm when complex-search Lambda has errors"
-      MetricName: Errors
-      Namespace: AWS/Lambda
-      Statistic: Sum
-      Period: 300
-      EvaluationPeriods: 1
-      Threshold: 1
-      ComparisonOperator: GreaterThanOrEqualToThreshold
-      Dimensions:
-        - Name: FunctionName
-          Value: !Ref BlitzfilterApiComplexSearchLambda
-      TreatMissingData: notBreaching
-      AlarmActions:
-        - !Ref AlarmNotificationTopic
-
-  ItemIngestEventsDynamoDbLambdaErrorAlarm:
-    Type: AWS::CloudWatch::Alarm
-    Properties:
-      AlarmName: !Sub "${StageName}-ingest-events-lambda-errors"
-      AlarmDescription: "Alarm when ingest-events Lambda has errors"
-      MetricName: Errors
-      Namespace: AWS/Lambda
-      Statistic: Sum
-      Period: 300
-      EvaluationPeriods: 1
-      Threshold: 5
-      ComparisonOperator: GreaterThanOrEqualToThreshold
-      Dimensions:
-        - Name: FunctionName
-          Value: !Ref ItemIngestEventsDynamoDbLambda
-      TreatMissingData: notBreaching
-      AlarmActions:
-        - !Ref AlarmNotificationTopic
-
-  ItemMaterializeDynamoDbNewLambdaErrorAlarm:
-    Type: AWS::CloudWatch::Alarm
-    Properties:
-      AlarmName: !Sub "${StageName}-materialize-ddb-new-lambda-errors"
-      AlarmDescription: "Alarm when materialize-ddb-new Lambda has errors"
-      MetricName: Errors
-      Namespace: AWS/Lambda
-      Statistic: Sum
-      Period: 300
-      EvaluationPeriods: 1
-      Threshold: 5
-      ComparisonOperator: GreaterThanOrEqualToThreshold
-      Dimensions:
-        - Name: FunctionName
-          Value: !Ref ItemMaterializeDynamoDbNewLambda
-      TreatMissingData: notBreaching
-      AlarmActions:
-        - !Ref AlarmNotificationTopic
-
-  ItemMaterializeDynamoDbUpdateLambdaErrorAlarm:
-    Type: AWS::CloudWatch::Alarm
-    Properties:
-      AlarmName: !Sub "${StageName}-materialize-ddb-update-lambda-errors"
-      AlarmDescription: "Alarm when materialize-ddb-update Lambda has errors"
-      MetricName: Errors
-      Namespace: AWS/Lambda
-      Statistic: Sum
-      Period: 300
-      EvaluationPeriods: 1
-      Threshold: 5
-      ComparisonOperator: GreaterThanOrEqualToThreshold
-      Dimensions:
-        - Name: FunctionName
-          Value: !Ref ItemMaterializeDynamoDbUpdateLambda
-      TreatMissingData: notBreaching
-      AlarmActions:
-        - !Ref AlarmNotificationTopic
-
-  ItemMaterializeOpenSearchNewLambdaErrorAlarm:
-    Type: AWS::CloudWatch::Alarm
-    Properties:
-      AlarmName: !Sub "${StageName}-materialize-os-new-lambda-errors"
-      AlarmDescription: "Alarm when materialize-opensearch-new Lambda has errors"
-      MetricName: Errors
-      Namespace: AWS/Lambda
-      Statistic: Sum
-      Period: 300
-      EvaluationPeriods: 1
-      Threshold: 5
-      ComparisonOperator: GreaterThanOrEqualToThreshold
-      Dimensions:
-        - Name: FunctionName
-          Value: !Ref ItemMaterializeOpenSearchNewLambda
-      TreatMissingData: notBreaching
-      AlarmActions:
-        - !Ref AlarmNotificationTopic
-
-  ItemMaterializeOpenSearchUpdateLambdaErrorAlarm:
-    Type: AWS::CloudWatch::Alarm
-    Properties:
-      AlarmName: !Sub "${StageName}-materialize-os-update-lambda-errors"
-      AlarmDescription: "Alarm when materialize-opensearch-update Lambda has errors"
-      MetricName: Errors
-      Namespace: AWS/Lambda
-      Statistic: Sum
-      Period: 300
-      EvaluationPeriods: 1
-      Threshold: 5
-      ComparisonOperator: GreaterThanOrEqualToThreshold
-      Dimensions:
-        - Name: FunctionName
-          Value: !Ref ItemMaterializeOpenSearchUpdateLambda
-      TreatMissingData: notBreaching
-      AlarmActions:
-        - !Ref AlarmNotificationTopic
-
-  # Lambda Throttle Alarms
-  BlitzfilterApiGetItemLambdaThrottleAlarm:
-    Type: AWS::CloudWatch::Alarm
-    Properties:
-      AlarmName: !Sub "${StageName}-get-item-lambda-throttles"
-      AlarmDescription: "Alarm when get-item Lambda is throttled"
-      MetricName: Throttles
-      Namespace: AWS/Lambda
-      Statistic: Sum
-      Period: 300
-      EvaluationPeriods: 1
-      Threshold: 1
-      ComparisonOperator: GreaterThanOrEqualToThreshold
-      Dimensions:
-        - Name: FunctionName
-          Value: !Ref BlitzfilterApiGetItemLambda
-      TreatMissingData: notBreaching
-      AlarmActions:
-        - !Ref AlarmNotificationTopic
-
-  BlitzfilterApiPutItemsLambdaThrottleAlarm:
-    Type: AWS::CloudWatch::Alarm
-    Properties:
-      AlarmName: !Sub "${StageName}-put-items-lambda-throttles"
-      AlarmDescription: "Alarm when put-items Lambda is throttled"
-      MetricName: Throttles
-      Namespace: AWS/Lambda
-      Statistic: Sum
-      Period: 300
-      EvaluationPeriods: 1
-      Threshold: 1
-      ComparisonOperator: GreaterThanOrEqualToThreshold
-      Dimensions:
-        - Name: FunctionName
-          Value: !Ref BlitzfilterApiPutItemsLambda
-      TreatMissingData: notBreaching
-      AlarmActions:
-        - !Ref AlarmNotificationTopic
-
-  # SQS Dead Letter Queue Alarms
-  ItemIngestEventsDynamoDbDlqAlarm:
-    Type: AWS::CloudWatch::Alarm
-    Properties:
-      AlarmName: !Sub "${StageName}-ingest-events-dlq-messages"
-      AlarmDescription: "Alarm when messages appear in ingest-events DLQ"
-      MetricName: ApproximateNumberOfMessagesVisible
-      Namespace: AWS/SQS
-      Statistic: Sum
-      Period: 300
-      EvaluationPeriods: 1
-      Threshold: 1
-      ComparisonOperator: GreaterThanOrEqualToThreshold
-      Dimensions:
-        - Name: QueueName
-          Value: !GetAtt ItemIngestEventsDynamoDbDlq.QueueName
-      TreatMissingData: notBreaching
-      AlarmActions:
-        - !Ref AlarmNotificationTopic
-
-  ItemMaterializeDynamoDbNewDlqAlarm:
-    Type: AWS::CloudWatch::Alarm
-    Properties:
-      AlarmName: !Sub "${StageName}-materialize-ddb-new-dlq-messages"
-      AlarmDescription: "Alarm when messages appear in materialize-ddb-new DLQ"
-      MetricName: ApproximateNumberOfMessagesVisible
-      Namespace: AWS/SQS
-      Statistic: Sum
-      Period: 300
-      EvaluationPeriods: 1
-      Threshold: 1
-      ComparisonOperator: GreaterThanOrEqualToThreshold
-      Dimensions:
-        - Name: QueueName
-          Value: !GetAtt ItemMaterializeDynamoDbNewDlq.QueueName
-      TreatMissingData: notBreaching
-      AlarmActions:
-        - !Ref AlarmNotificationTopic
-
-  ItemMaterializeDynamoDbUpdateDlqAlarm:
-    Type: AWS::CloudWatch::Alarm
-    Properties:
-      AlarmName: !Sub "${StageName}-materialize-ddb-update-dlq-messages"
-      AlarmDescription: "Alarm when messages appear in materialize-ddb-update DLQ"
-      MetricName: ApproximateNumberOfMessagesVisible
-      Namespace: AWS/SQS
-      Statistic: Sum
-      Period: 300
-      EvaluationPeriods: 1
-      Threshold: 1
-      ComparisonOperator: GreaterThanOrEqualToThreshold
-      Dimensions:
-        - Name: QueueName
-          Value: !GetAtt ItemMaterializeDynamoDbUpdateDlq.QueueName
-      TreatMissingData: notBreaching
-      AlarmActions:
-        - !Ref AlarmNotificationTopic
-
-  ItemMaterializeOpenSearchNewDlqAlarm:
-    Type: AWS::CloudWatch::Alarm
-    Properties:
-      AlarmName: !Sub "${StageName}-materialize-os-new-dlq-messages"
-      AlarmDescription: "Alarm when messages appear in materialize-opensearch-new DLQ"
-      MetricName: ApproximateNumberOfMessagesVisible
-      Namespace: AWS/SQS
-      Statistic: Sum
-      Period: 300
-      EvaluationPeriods: 1
-      Threshold: 1
-      ComparisonOperator: GreaterThanOrEqualToThreshold
-      Dimensions:
-        - Name: QueueName
-          Value: !GetAtt ItemMaterializeOpenSearchNewDlq.QueueName
-      TreatMissingData: notBreaching
-      AlarmActions:
-        - !Ref AlarmNotificationTopic
-
-  ItemMaterializeOpenSearchUpdateDlqAlarm:
-    Type: AWS::CloudWatch::Alarm
-    Properties:
-      AlarmName: !Sub "${StageName}-materialize-os-update-dlq-messages"
-      AlarmDescription: "Alarm when messages appear in materialize-opensearch-update DLQ"
-      MetricName: ApproximateNumberOfMessagesVisible
-      Namespace: AWS/SQS
-      Statistic: Sum
-      Period: 300
-      EvaluationPeriods: 1
-      Threshold: 1
-      ComparisonOperator: GreaterThanOrEqualToThreshold
-      Dimensions:
-        - Name: QueueName
-          Value: !GetAtt ItemMaterializeOpenSearchUpdateDlq.QueueName
-      TreatMissingData: notBreaching
-      AlarmActions:
-        - !Ref AlarmNotificationTopic
-
-  # API Gateway Alarms
-  BlitzfilterApi5XXErrorAlarm:
-    Type: AWS::CloudWatch::Alarm
-    Properties:
-      AlarmName: !Sub "${StageName}-api-5xx-errors"
-      AlarmDescription: "Alarm when API Gateway returns 5XX errors"
-      MetricName: 5XXError
-      Namespace: AWS/ApiGateway
-      Statistic: Sum
-      Period: 300
-      EvaluationPeriods: 1
-      Threshold: 5
-      ComparisonOperator: GreaterThanOrEqualToThreshold
-      Dimensions:
-        - Name: ApiId
-          Value: !Ref BlitzfilterApi
-      TreatMissingData: notBreaching
-      AlarmActions:
-        - !Ref AlarmNotificationTopic
-
-  BlitzfilterApi4XXErrorAlarm:
-    Type: AWS::CloudWatch::Alarm
-    Properties:
-      AlarmName: !Sub "${StageName}-api-4xx-errors"
-      AlarmDescription: "Alarm when API Gateway returns high 4XX errors"
-      MetricName: 4XXError
-      Namespace: AWS/ApiGateway
-      Statistic: Sum
-      Period: 300
-      EvaluationPeriods: 2
-      Threshold: 50
-      ComparisonOperator: GreaterThanOrEqualToThreshold
-      Dimensions:
-        - Name: ApiId
-          Value: !Ref BlitzfilterApi
-      TreatMissingData: notBreaching
-      AlarmActions:
-        - !Ref AlarmNotificationTopic
-
-  # DynamoDB Alarms
-  TableOneThrottledRequestsAlarm:
-    Type: AWS::CloudWatch::Alarm
-    Properties:
-      AlarmName: !Sub "${StageName}-dynamodb-throttled-requests"
-      AlarmDescription: "Alarm when DynamoDB table has throttled requests"
-      MetricName: UserErrors
-      Namespace: AWS/DynamoDB
-      Statistic: Sum
-      Period: 300
-      EvaluationPeriods: 1
-      Threshold: 5
-      ComparisonOperator: GreaterThanOrEqualToThreshold
-      Dimensions:
-        - Name: TableName
-          Value: !Ref TableOne
-      TreatMissingData: notBreaching
-      AlarmActions:
-        - !Ref AlarmNotificationTopic
-
-  # OpenSearch Alarms
-  OpenSearchClusterStatusRedAlarm:
-    Type: AWS::CloudWatch::Alarm
-    Properties:
-      AlarmName: !Sub "${StageName}-opensearch-cluster-red"
-      AlarmDescription: "Alarm when OpenSearch cluster status is RED"
-      MetricName: ClusterStatus.red
-      Namespace: AWS/ES
-      Statistic: Maximum
-      Period: 60
-      EvaluationPeriods: 1
-      Threshold: 1
-      ComparisonOperator: GreaterThanOrEqualToThreshold
-      Dimensions:
-        - Name: DomainName
-          Value: !Ref BlitzfilterOpenSearchDomain
-        - Name: ClientId
-          Value: !Ref AWS::AccountId
-      TreatMissingData: notBreaching
-      AlarmActions:
-        - !Ref AlarmNotificationTopic
-
-  OpenSearchClusterStatusYellowAlarm:
-    Type: AWS::CloudWatch::Alarm
-    Properties:
-      AlarmName: !Sub "${StageName}-opensearch-cluster-yellow"
-      AlarmDescription: "Alarm when OpenSearch cluster status is YELLOW"
-      MetricName: ClusterStatus.yellow
-      Namespace: AWS/ES
-      Statistic: Maximum
-      Period: 300
-      EvaluationPeriods: 2
-      Threshold: 1
-      ComparisonOperator: GreaterThanOrEqualToThreshold
-      Dimensions:
-        - Name: DomainName
-          Value: !Ref BlitzfilterOpenSearchDomain
-        - Name: ClientId
-          Value: !Ref AWS::AccountId
-      TreatMissingData: notBreaching
-      AlarmActions:
-        - !Ref AlarmNotificationTopic
-
-  OpenSearchFreeStorageSpaceAlarm:
-    Type: AWS::CloudWatch::Alarm
-    Properties:
-      AlarmName: !Sub "${StageName}-opensearch-low-storage"
-      AlarmDescription: "Alarm when OpenSearch has low free storage space"
-      MetricName: FreeStorageSpace
-      Namespace: AWS/ES
-      Statistic: Minimum
-      Period: 300
-      EvaluationPeriods: 1
-      Threshold: 2000
-      ComparisonOperator: LessThanOrEqualToThreshold
-      Dimensions:
-        - Name: DomainName
-          Value: !Ref BlitzfilterOpenSearchDomain
-        - Name: ClientId
-          Value: !Ref AWS::AccountId
-      TreatMissingData: notBreaching
-      AlarmActions:
-        - !Ref AlarmNotificationTopic
-
-  OpenSearchCPUUtilizationAlarm:
-    Type: AWS::CloudWatch::Alarm
-    Properties:
-      AlarmName: !Sub "${StageName}-opensearch-high-cpu"
-      AlarmDescription: "Alarm when OpenSearch CPU utilization is high"
-      MetricName: CPUUtilization
-      Namespace: AWS/ES
-      Statistic: Average
-      Period: 300
-      EvaluationPeriods: 2
-      Threshold: 80
-      ComparisonOperator: GreaterThanOrEqualToThreshold
-      Dimensions:
-        - Name: DomainName
-          Value: !Ref BlitzfilterOpenSearchDomain
-        - Name: ClientId
-          Value: !Ref AWS::AccountId
-      TreatMissingData: notBreaching
-      AlarmActions:
-        - !Ref AlarmNotificationTopic
-
-  OpenSearchJVMMemoryPressureAlarm:
-    Type: AWS::CloudWatch::Alarm
-    Properties:
-      AlarmName: !Sub "${StageName}-opensearch-high-jvm-memory"
-      AlarmDescription: "Alarm when OpenSearch JVM memory pressure is high"
-      MetricName: JVMMemoryPressure
-      Namespace: AWS/ES
-      Statistic: Maximum
-      Period: 300
-      EvaluationPeriods: 1
-      Threshold: 85
-      ComparisonOperator: GreaterThanOrEqualToThreshold
-      Dimensions:
-        - Name: DomainName
-          Value: !Ref BlitzfilterOpenSearchDomain
-        - Name: ClientId
-          Value: !Ref AWS::AccountId
-      TreatMissingData: notBreaching
-      AlarmActions:
-        - !Ref AlarmNotificationTopic
+      Name: !Sub "ddb-item-update-notify-user-${StageName}"
+      EventBusName: !Ref DynamoDbEventBus
+      EventPattern:
+        source:
+          - !Ref TableOne
+        detail-type:
+          - "DynamoDBStreamRecord"
+        detail:
+          eventName:
+            - "INSERT"
+          dynamodb:
+            NewImage:
+              event_type:
+                S:
+                  - prefix: "PRICE_"
+                  - prefix: "STATE_"
+      Targets:
+        - Id: ItemUpdateNotifyUserQ
+          Arn: !GetAtt ItemUpdateNotifyUserQ.Arn
 
 Outputs:
   CognitoHostedUIDomain:
@@ -2282,6 +2554,11 @@ Outputs:
     Value: !Ref BlitzfilterOpenSearchDomain
   DynamodbTable1Name:
     Value: !Ref TableOne
+
+  SendMailQueueUrl:
+    Value: !Ref SendMailQ
+  SendMailDeadLetterQueueUrl:
+    Value: !Ref SendMailDlq
 
   ItemIngestEventsDynamodbQueueUrl:
     Value: !Ref ItemIngestEventsDynamoDbQ
@@ -2307,6 +2584,11 @@ Outputs:
     Value: !Ref ItemMaterializeOpenSearchUpdateQ
   ItemMaterializeOpensearchUpdateDeadLetterQueueUrl:
     Value: !Ref ItemMaterializeOpenSearchUpdateDlq
+
+  ItemUpdateNotifyUserQueueUrl:
+    Value: !Ref ItemUpdateNotifyUserQ
+  ItemUpdateNotifyUserDeadLetterQueueUrl:
+    Value: !Ref ItemUpdateNotifyUserDlq
 
   AlarmNotificationTopicArn:
     Value: !Ref AlarmNotificationTopic

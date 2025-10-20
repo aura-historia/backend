@@ -69,6 +69,7 @@ jobs:
           - src/shop
           - src/test-api
           - src/user
+          - src/mail
     steps:
       - uses: actions/checkout@v5
 
@@ -139,6 +140,7 @@ jobs:
           - src/shop/src/shop-opensearch
           - src/test-api
           - src/user/src/user-dynamodb
+          - src/mail/src/mail-core
     steps:
       - uses: actions/checkout@v5
 
@@ -271,9 +273,11 @@ jobs:
           - src/item/src/item-lambda/src/item-lambda-materialize-dynamodb-update
           - src/item/src/item-lambda/src/item-lambda-materialize-opensearch-new
           - src/item/src/item-lambda/src/item-lambda-materialize-opensearch-update
+          - src/item/src/item-lambda/src/item-lambda-update-notify-user
           - src/shop/src/shop-api/src/shop-api-search
           - src/shop/src/shop-api/src/shop-api-get-shop
           - src/user/src/cognito-post-confirmation
+          - src/mail/src/mail-lambda-send
     steps:
       - uses: actions/checkout@v5
 
@@ -365,6 +369,7 @@ jobs:
                 Stage=${{ env.STAGE }} \
                 StageName=${{ env.STAGE_NAME }} \
                 ArtifactBucket=${{ vars.S3_BINARY_ARTIFACTS_BUCKET_NAME }} \
+                MailTemplateBucket=${{ vars.S3_MAIL_TEMPLATE_BUCKET_NAME }} \
                 CommitSHA=${GITHUB_SHA}
 
       - name: Install OpenSearch CLI
@@ -428,6 +433,8 @@ jobs:
         working-directory: src/aws-tests/src/staging-tests
         env:
           CFN_OUTPUT: ${{ steps.export-cfn-output.outputs.outputs_json }}
+          TEST_MAIL_APP_NAMESPACE: ${{ vars.TEST_MAIL_APP_NAMESPACE }}
+          TEST_MAIL_APP_API_KEY: ${{ secrets.TEST_MAIL_APP_API_KEY }}
         run: cargo test --test '*' --all-features -- --ignored --nocapture
 
   aws-smoking-test:

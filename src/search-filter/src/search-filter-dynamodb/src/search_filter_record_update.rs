@@ -1,3 +1,4 @@
+use common::dynamodb_update::DynamoDbUpdate;
 use common::query::range_query::RangeQuery;
 use common::query::text_query::TextQuery;
 use common::{currency::record::CurrencyRecord, language::record::LanguageRecord};
@@ -43,6 +44,8 @@ pub struct SearchFilterRecordUpdate {
     #[serde(with = "time::serde::rfc3339")]
     pub updated: OffsetDateTime,
 }
+
+impl DynamoDbUpdate for SearchFilterRecordUpdate {}
 
 #[cfg(feature = "test-data")]
 mod fake {
