@@ -1670,7 +1670,7 @@ Resources:
         Size: 512
       Environment:
         Variables:
-          DYNAMODB_TABLE_NAME: !Ref TableOne
+          S3_BUCKET_NAME_TEMPLATES: !Ref MailTemplateBucket
   SendMailMapping:
     Type: AWS::Lambda::EventSourceMapping
     Properties:
@@ -2332,7 +2332,7 @@ Resources:
               - Effect: Allow
                 Action:
                   - dynamodb:GetItem
-                  - dynamodb:QueryItem
+                  - dynamodb:Query
                 Resource:
                   - !GetAtt TableOne.Arn
                   - !Sub "${TableOne.Arn}/index/*"
