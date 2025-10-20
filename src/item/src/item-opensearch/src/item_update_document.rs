@@ -36,15 +36,15 @@ pub struct ItemUpdateDocument {
 
 impl From<ItemEventRecord> for ItemUpdateDocument {
     fn from(event_record: ItemEventRecord) -> Self {
-        let state = event_record.state.map(ItemStateDocument::from);
+        let state = event_record.new_state.map(ItemStateDocument::from);
         ItemUpdateDocument {
             event_id: event_record.event_id,
-            price_eur: event_record.price_eur,
-            price_usd: event_record.price_usd,
-            price_gbp: event_record.price_gbp,
-            price_aud: event_record.price_aud,
-            price_cad: event_record.price_cad,
-            price_nzd: event_record.price_nzd,
+            price_eur: event_record.new_price_eur,
+            price_usd: event_record.new_price_usd,
+            price_gbp: event_record.new_price_gbp,
+            price_aud: event_record.new_price_aud,
+            price_cad: event_record.new_price_cad,
+            price_nzd: event_record.new_price_nzd,
             state,
             updated: event_record.timestamp,
         }

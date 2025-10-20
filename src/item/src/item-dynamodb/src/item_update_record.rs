@@ -45,14 +45,14 @@ impl From<ItemEventRecord> for ItemRecordUpdate {
     fn from(event: ItemEventRecord) -> Self {
         ItemRecordUpdate {
             event_id: event.event_id,
-            price_native: event.price_native,
-            price_eur: event.price_eur,
-            price_usd: event.price_usd,
-            price_gbp: event.price_gbp,
-            price_aud: event.price_aud,
-            price_cad: event.price_cad,
-            price_nzd: event.price_nzd,
-            state: event.state,
+            price_native: event.new_price_native,
+            price_eur: event.new_price_eur,
+            price_usd: event.new_price_usd,
+            price_gbp: event.new_price_gbp,
+            price_aud: event.new_price_aud,
+            price_cad: event.new_price_cad,
+            price_nzd: event.new_price_nzd,
+            state: event.new_state,
             updated: event.timestamp,
         }
     }

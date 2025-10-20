@@ -15,7 +15,8 @@ use item_core::item::{Item, LocalizedItemView};
 use item_core::item_event::{
     ItemEvent, ItemEventPayload, LocalizedItemCreatedEventPayloadView,
     LocalizedItemEventPayloadView, LocalizedItemPriceChangeEventPayloadView,
-    LocalizedItemPriceRemovedEventPayloadView, LocalizedItemStateChangeEventPayloadView,
+    LocalizedItemPriceDiscoveryEventPayloadView, LocalizedItemPriceRemovedEventPayloadView,
+    LocalizedItemStateChangeEventPayloadView,
 };
 use item_core::title::Title;
 use item_dynamodb::item_event_record::ItemEventRecord;
@@ -365,49 +366,55 @@ fn localize_item_event(
             LocalizedItemEventPayloadView::StateListed(LocalizedItemStateChangeEventPayloadView {
                 shop_id: payload.shop_id,
                 shops_item_id: payload.shops_item_id,
+                old_state: payload.old_state,
             })
         }
         ItemEventPayload::StateAvailable(payload) => LocalizedItemEventPayloadView::StateAvailable(
             LocalizedItemStateChangeEventPayloadView {
                 shop_id: payload.shop_id,
                 shops_item_id: payload.shops_item_id,
+                old_state: payload.old_state,
             },
         ),
         ItemEventPayload::StateReserved(payload) => {
             LocalizedItemEventPayloadView::StateReserved(LocalizedItemStateChangeEventPayloadView {
                 shop_id: payload.shop_id,
                 shops_item_id: payload.shops_item_id,
+                old_state: payload.old_state,
             })
         }
         ItemEventPayload::StateSold(payload) => {
             LocalizedItemEventPayloadView::StateSold(LocalizedItemStateChangeEventPayloadView {
                 shop_id: payload.shop_id,
                 shops_item_id: payload.shops_item_id,
+                old_state: payload.old_state,
             })
         }
         ItemEventPayload::StateRemoved(payload) => {
             LocalizedItemEventPayloadView::StateRemoved(LocalizedItemStateChangeEventPayloadView {
                 shop_id: payload.shop_id,
                 shops_item_id: payload.shops_item_id,
+                old_state: payload.old_state,
             })
         }
         ItemEventPayload::StateUnknown(payload) => {
             LocalizedItemEventPayloadView::StateUnknown(LocalizedItemStateChangeEventPayloadView {
                 shop_id: payload.shop_id,
                 shops_item_id: payload.shops_item_id,
+                old_state: payload.old_state,
             })
         }
         ItemEventPayload::PriceDiscovered(payload) => {
-            let mut prices = payload.new_other_price;
+            let mut prices = payload.other_price;
             prices.insert(
-                payload.new_native_price.currency,
-                payload.new_native_price.monetary_amount,
+                payload.native_price.currency,
+                payload.native_price.monetary_amount,
             );
             LocalizedItemEventPayloadView::PriceDiscovered(
-                    LocalizedItemPriceChangeEventPayloadView {
+                    LocalizedItemPriceDiscoveryEventPayloadView {
                         shop_id: payload.shop_id,
                         shops_item_id: payload.shops_item_id,
-                        new_price: Currency::resolve(&[*currency], prices).unwrap_or_else(|| {
+                        price: Currency::resolve(&[*currency], prices).unwrap_or_else(|| {
                             error!("Failed resolving price. This SHOULD be impossible because the native price always exists.");
                             Price::new(0u64.into(), *currency)
                         }),
@@ -415,16 +422,25 @@ fn localize_item_event(
                 )
         }
         ItemEventPayload::PriceDropped(payload) => {
-            let mut prices = payload.new_other_price;
-            prices.insert(
+            let mut new_prices = payload.new_other_price;
+            new_prices.insert(
                 payload.new_native_price.currency,
                 payload.new_native_price.monetary_amount,
+            );
+            let mut old_prices = payload.old_other_price;
+            old_prices.insert(
+                payload.old_native_price.currency,
+                payload.old_native_price.monetary_amount,
             );
             LocalizedItemEventPayloadView::PriceDropped(
                     LocalizedItemPriceChangeEventPayloadView {
                         shop_id: payload.shop_id,
                         shops_item_id: payload.shops_item_id,
-                        new_price: Currency::resolve(&[*currency], prices).unwrap_or_else(|| {
+                        new_price: Currency::resolve(&[*currency], new_prices).unwrap_or_else(|| {
+                            error!("Failed resolving price. This SHOULD be impossible because the native price always exists.");
+                            Price::new(0u64.into(), *currency)
+                        }),
+                        old_price: Currency::resolve(&[*currency], old_prices).unwrap_or_else(|| {
                             error!("Failed resolving price. This SHOULD be impossible because the native price always exists.");
                             Price::new(0u64.into(), *currency)
                         }),
@@ -432,16 +448,25 @@ fn localize_item_event(
                 )
         }
         ItemEventPayload::PriceIncreased(payload) => {
-            let mut prices = payload.new_other_price;
-            prices.insert(
+            let mut new_prices = payload.new_other_price;
+            new_prices.insert(
                 payload.new_native_price.currency,
                 payload.new_native_price.monetary_amount,
+            );
+            let mut old_prices = payload.old_other_price;
+            old_prices.insert(
+                payload.old_native_price.currency,
+                payload.old_native_price.monetary_amount,
             );
             LocalizedItemEventPayloadView::PriceIncreased(
                     LocalizedItemPriceChangeEventPayloadView {
                         shop_id: payload.shop_id,
                         shops_item_id: payload.shops_item_id,
-                        new_price: Currency::resolve(&[*currency], prices).unwrap_or_else(|| {
+                        new_price: Currency::resolve(&[*currency], new_prices).unwrap_or_else(|| {
+                            error!("Failed resolving price. This SHOULD be impossible because the native price always exists.");
+                            Price::new(0u64.into(), *currency)
+                        }),
+                        old_price: Currency::resolve(&[*currency], old_prices).unwrap_or_else(|| {
                             error!("Failed resolving price. This SHOULD be impossible because the native price always exists.");
                             Price::new(0u64.into(), *currency)
                         }),
@@ -449,9 +474,18 @@ fn localize_item_event(
                 )
         }
         ItemEventPayload::PriceRemoved(payload) => {
+            let mut old_prices = payload.old_other_price;
+            old_prices.insert(
+                payload.old_native_price.currency,
+                payload.old_native_price.monetary_amount,
+            );
             LocalizedItemEventPayloadView::PriceRemoved(LocalizedItemPriceRemovedEventPayloadView {
                 shop_id: payload.shop_id,
                 shops_item_id: payload.shops_item_id,
+                old_price: Currency::resolve(&[*currency], old_prices).unwrap_or_else(|| {
+                    error!("Failed resolving price. This SHOULD be impossible because the native price always exists.");
+                    Price::new(0u64.into(), *currency)
+                }),
             })
         }
     };
