@@ -438,6 +438,7 @@ Resources:
         - !Ref ItemMaterializeDynamoDbUpdateQ
         - !Ref ItemMaterializeOpenSearchNewQ
         - !Ref ItemMaterializeOpenSearchUpdateQ
+        - !Ref ItemUpdateNotifyUserQ
       PolicyDocument:
         Version: "2012-10-17"
         Statement:
@@ -450,6 +451,7 @@ Resources:
               - !GetAtt ItemMaterializeDynamoDbUpdateQ.Arn
               - !GetAtt ItemMaterializeOpenSearchNewQ.Arn
               - !GetAtt ItemMaterializeOpenSearchUpdateQ.Arn
+              - !GetAtt ItemUpdateNotifyUserQ.Arn
 
   BlitzfilterApi:
     Type: AWS::ApiGatewayV2::Api
