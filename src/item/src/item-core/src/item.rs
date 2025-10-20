@@ -1,7 +1,8 @@
 use crate::description::Description;
 use crate::item_event::{
     ItemCreatedEventPayload, ItemEvent, ItemEventPayload, ItemPriceChangeEventPayload,
-    ItemPriceRemovedEventPayload, ItemStateChangeEventPayload, LocalizedItemEventPayloadView,
+    ItemPriceDiscoveryEventPayload, ItemPriceRemovedEventPayload, ItemStateChangeEventPayload,
+    LocalizedItemEventPayloadView,
 };
 use crate::title::Title;
 use common::currency::domain::Currency;
@@ -82,6 +83,7 @@ impl Item {
         if self.state == new_state {
             None
         } else {
+            let old_state = self.state;
             self.state = new_state;
             let event_payload_constructor = match new_state {
                 ItemState::Listed => ItemEventPayload::StateListed,
@@ -98,43 +100,55 @@ impl Item {
                 payload: event_payload_constructor(ItemStateChangeEventPayload {
                     shop_id: self.shop_id,
                     shops_item_id: self.shops_item_id.clone(),
+                    old_state,
                 }),
             };
             Some(event)
         }
     }
 
-    pub fn change_price(&mut self, new_price: Price, fx_rate: &impl FxRate) -> Option<ItemEvent> {
-        let old_price_opt = self.native_price;
+    pub fn change_price(
+        &mut self,
+        new_native_price: Price,
+        fx_rate: &impl FxRate,
+    ) -> Option<ItemEvent> {
+        let old_native_price_opt = self.native_price;
+        let old_other_price = self.other_price.clone();
 
         let new_other_price = fx_rate
-            .exchange_all(new_price.currency, new_price.monetary_amount)
+            .exchange_all(new_native_price.currency, new_native_price.monetary_amount)
             .unwrap_or_default();
-        self.native_price = Some(new_price);
+        self.native_price = Some(new_native_price);
         self.other_price = new_other_price.clone();
 
-        let payload = ItemPriceChangeEventPayload {
-            shop_id: self.shop_id,
-            shops_item_id: self.shops_item_id.clone(),
-            native_price: new_price,
-            other_price: new_other_price,
-        };
-
-        match old_price_opt {
+        match old_native_price_opt {
             None => {
                 let event = Event {
                     aggregate_id: self.item_id,
                     event_id: EventId::new(),
                     timestamp: OffsetDateTime::now_utc(),
-                    payload: ItemEventPayload::PriceDiscovered(payload),
+                    payload: ItemEventPayload::PriceDiscovered(ItemPriceDiscoveryEventPayload {
+                        shop_id: self.shop_id,
+                        shops_item_id: self.shops_item_id.clone(),
+                        native_price: new_native_price,
+                        other_price: new_other_price,
+                    }),
                 };
                 Some(event)
             }
-            Some(old_price) => {
-                let old_price_for_new_currency = old_price
-                    .into_exchanged(fx_rate, new_price.currency)
-                    .unwrap_or(old_price);
-                if old_price_for_new_currency.monetary_amount < new_price.monetary_amount {
+            Some(old_native_price) => {
+                let old_price_for_new_currency = old_native_price
+                    .into_exchanged(fx_rate, new_native_price.currency)
+                    .unwrap_or(old_native_price);
+                let payload = ItemPriceChangeEventPayload {
+                    shop_id: self.shop_id,
+                    shops_item_id: self.shops_item_id.clone(),
+                    new_native_price,
+                    new_other_price,
+                    old_native_price,
+                    old_other_price,
+                };
+                if old_price_for_new_currency.monetary_amount < new_native_price.monetary_amount {
                     let event = Event {
                         aggregate_id: self.item_id,
                         event_id: EventId::new(),
@@ -142,7 +156,9 @@ impl Item {
                         payload: ItemEventPayload::PriceIncreased(payload),
                     };
                     Some(event)
-                } else if old_price_for_new_currency.monetary_amount > new_price.monetary_amount {
+                } else if old_price_for_new_currency.monetary_amount
+                    > new_native_price.monetary_amount
+                {
                     let event = Event {
                         aggregate_id: self.item_id,
                         event_id: EventId::new(),
@@ -159,12 +175,14 @@ impl Item {
 
     pub fn remove_price(&mut self) -> Option<ItemEvent> {
         match self.native_price {
-            Some(_) => {
+            Some(old_native_price) => {
                 self.native_price = None;
-                self.other_price.clear();
+                let old_other_price = self.other_price.drain().collect();
                 let payload = ItemPriceRemovedEventPayload {
                     shop_id: self.shop_id,
                     shops_item_id: self.shops_item_id.clone(),
+                    old_native_price,
+                    old_other_price,
                 };
                 let event = Event {
                     aggregate_id: self.item_id,
@@ -419,8 +437,9 @@ mod tests {
                 updated: OffsetDateTime::now_utc(),
             };
 
-            let actual = item.change_state(to_state);
-            assert!(actual.is_some());
+            let actual = item.change_state(to_state).unwrap();
+            let payload = actual.payload.as_state_changed().unwrap();
+            assert_eq!(from_state, payload.old_state);
         }
 
         #[rstest::rstest]
@@ -632,12 +651,16 @@ mod tests {
 
             match actual.payload {
                 ItemEventPayload::PriceDropped(payload) => {
-                    assert_eq!(to_price, payload.native_price);
+                    assert_eq!(to_price, payload.new_native_price);
                     assert!(
                         payload
-                            .other_price
+                            .new_other_price
                             .iter()
                             .all(|(_, amount)| &to_price.monetary_amount == amount)
+                    );
+                    assert_eq!(
+                        Price::new(700u64.into(), Currency::Eur),
+                        payload.old_native_price
                     );
                     assert_eq!(item.native_price, Some(to_price));
                     assert!(
@@ -683,12 +706,16 @@ mod tests {
 
             match actual.payload {
                 ItemEventPayload::PriceIncreased(payload) => {
-                    assert_eq!(to_price, payload.native_price);
+                    assert_eq!(to_price, payload.new_native_price);
                     assert!(
                         payload
-                            .other_price
+                            .new_other_price
                             .iter()
                             .all(|(_, amount)| &to_price.monetary_amount == amount)
+                    );
+                    assert_eq!(
+                        Price::new(169u64.into(), Currency::Eur),
+                        payload.old_native_price
                     );
                     assert_eq!(item.native_price, Some(to_price));
                 }
@@ -736,9 +763,10 @@ mod tests {
             let actual = item.new_price(None, &IdentityFxRate).unwrap();
 
             match actual.payload {
-                ItemEventPayload::PriceRemoved(_) => {
+                ItemEventPayload::PriceRemoved(payload) => {
                     assert!(item.native_price.is_none());
                     assert!(item.other_price.is_empty());
+                    assert_eq!(price, payload.old_native_price);
                 }
                 _ => panic!("Expected ItemEventPayload::PriceRemoved"),
             }

@@ -27,7 +27,7 @@ pub enum ItemEventPayload {
     StateSold(ItemStateChangeEventPayload),
     StateRemoved(ItemStateChangeEventPayload),
     StateUnknown(ItemStateChangeEventPayload),
-    PriceDiscovered(ItemPriceChangeEventPayload),
+    PriceDiscovered(ItemPriceDiscoveryEventPayload),
     PriceDropped(ItemPriceChangeEventPayload),
     PriceIncreased(ItemPriceChangeEventPayload),
     PriceRemoved(ItemPriceRemovedEventPayload),
@@ -53,9 +53,15 @@ impl ItemEventPayload {
         }
     }
 
-    pub fn as_price_changed(&self) -> Option<&ItemPriceChangeEventPayload> {
+    pub fn as_price_discovered(&self) -> Option<&ItemPriceDiscoveryEventPayload> {
         match self {
             ItemEventPayload::PriceDiscovered(payload) => Some(payload),
+            _ => None,
+        }
+    }
+
+    pub fn as_price_changed(&self) -> Option<&ItemPriceChangeEventPayload> {
+        match self {
             ItemEventPayload::PriceDropped(payload) => Some(payload),
             ItemEventPayload::PriceIncreased(payload) => Some(payload),
             _ => None,
@@ -147,6 +153,7 @@ impl ItemCommonEventPayload for ItemCreatedEventPayload {
 pub struct ItemStateChangeEventPayload {
     pub shop_id: ShopId,
     pub shops_item_id: ShopsItemId,
+    pub old_state: ItemState,
 }
 
 impl ItemCommonEventPayload for ItemStateChangeEventPayload {
@@ -160,11 +167,31 @@ impl ItemCommonEventPayload for ItemStateChangeEventPayload {
 }
 
 #[derive(Debug, Clone, PartialEq)]
-pub struct ItemPriceChangeEventPayload {
+pub struct ItemPriceDiscoveryEventPayload {
     pub shop_id: ShopId,
     pub shops_item_id: ShopsItemId,
     pub native_price: Price,
     pub other_price: HashMap<Currency, MonetaryAmount>,
+}
+
+impl ItemCommonEventPayload for ItemPriceDiscoveryEventPayload {
+    fn shop_id(&self) -> &ShopId {
+        &self.shop_id
+    }
+
+    fn shops_item_id(&self) -> &ShopsItemId {
+        &self.shops_item_id
+    }
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct ItemPriceChangeEventPayload {
+    pub shop_id: ShopId,
+    pub shops_item_id: ShopsItemId,
+    pub new_native_price: Price,
+    pub new_other_price: HashMap<Currency, MonetaryAmount>,
+    pub old_native_price: Price,
+    pub old_other_price: HashMap<Currency, MonetaryAmount>,
 }
 
 impl ItemCommonEventPayload for ItemPriceChangeEventPayload {
@@ -181,6 +208,8 @@ impl ItemCommonEventPayload for ItemPriceChangeEventPayload {
 pub struct ItemPriceRemovedEventPayload {
     pub shop_id: ShopId,
     pub shops_item_id: ShopsItemId,
+    pub old_native_price: Price,
+    pub old_other_price: HashMap<Currency, MonetaryAmount>,
 }
 
 impl ItemCommonEventPayload for ItemPriceRemovedEventPayload {
@@ -203,7 +232,7 @@ pub enum LocalizedItemEventPayloadView {
     StateSold(LocalizedItemStateChangeEventPayloadView),
     StateRemoved(LocalizedItemStateChangeEventPayloadView),
     StateUnknown(LocalizedItemStateChangeEventPayloadView),
-    PriceDiscovered(LocalizedItemPriceChangeEventPayloadView),
+    PriceDiscovered(LocalizedItemPriceDiscoveryEventPayloadView),
     PriceDropped(LocalizedItemPriceChangeEventPayloadView),
     PriceIncreased(LocalizedItemPriceChangeEventPayloadView),
     PriceRemoved(LocalizedItemPriceRemovedEventPayloadView),
@@ -226,10 +255,19 @@ pub struct LocalizedItemCreatedEventPayloadView {
 pub struct LocalizedItemStateChangeEventPayloadView {
     pub shop_id: ShopId,
     pub shops_item_id: ShopsItemId,
+    pub old_state: ItemState,
 }
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct LocalizedItemPriceChangeEventPayloadView {
+    pub shop_id: ShopId,
+    pub shops_item_id: ShopsItemId,
+    pub new_price: Price,
+    pub old_price: Price,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct LocalizedItemPriceDiscoveryEventPayloadView {
     pub shop_id: ShopId,
     pub shops_item_id: ShopsItemId,
     pub price: Price,
@@ -239,6 +277,7 @@ pub struct LocalizedItemPriceChangeEventPayloadView {
 pub struct LocalizedItemPriceRemovedEventPayloadView {
     pub shop_id: ShopId,
     pub shops_item_id: ShopsItemId,
+    pub old_price: Price,
 }
 
 #[cfg(feature = "test-data")]
@@ -299,17 +338,18 @@ mod faker {
             ItemStateChangeEventPayload {
                 shop_id: config.fake_with_rng(rng),
                 shops_item_id: config.fake_with_rng(rng),
+                old_state: config.fake_with_rng(rng),
             }
         }
     }
 
-    impl Dummy<Faker> for ItemPriceChangeEventPayload {
+    impl Dummy<Faker> for ItemPriceDiscoveryEventPayload {
         fn dummy_with_rng<R: Rng + ?Sized>(config: &Faker, rng: &mut R) -> Self {
             let native_price: Price = config.fake_with_rng(rng);
             let other_price = FixedFxRate()
                 .exchange_all(native_price.currency, native_price.monetary_amount)
                 .unwrap();
-            ItemPriceChangeEventPayload {
+            ItemPriceDiscoveryEventPayload {
                 shop_id: config.fake_with_rng(rng),
                 shops_item_id: config.fake_with_rng(rng),
                 native_price,
@@ -318,11 +358,38 @@ mod faker {
         }
     }
 
+    impl Dummy<Faker> for ItemPriceChangeEventPayload {
+        fn dummy_with_rng<R: Rng + ?Sized>(config: &Faker, rng: &mut R) -> Self {
+            let new_native_price: Price = config.fake_with_rng(rng);
+            let new_other_price = FixedFxRate()
+                .exchange_all(new_native_price.currency, new_native_price.monetary_amount)
+                .unwrap();
+            let old_native_price: Price = config.fake_with_rng(rng);
+            let old_other_price = FixedFxRate()
+                .exchange_all(old_native_price.currency, old_native_price.monetary_amount)
+                .unwrap();
+            ItemPriceChangeEventPayload {
+                shop_id: config.fake_with_rng(rng),
+                shops_item_id: config.fake_with_rng(rng),
+                new_native_price,
+                new_other_price,
+                old_native_price,
+                old_other_price,
+            }
+        }
+    }
+
     impl Dummy<Faker> for ItemPriceRemovedEventPayload {
         fn dummy_with_rng<R: Rng + ?Sized>(config: &Faker, rng: &mut R) -> Self {
+            let old_native_price: Price = config.fake_with_rng(rng);
+            let old_other_price = FixedFxRate()
+                .exchange_all(old_native_price.currency, old_native_price.monetary_amount)
+                .unwrap();
             ItemPriceRemovedEventPayload {
                 shop_id: config.fake_with_rng(rng),
                 shops_item_id: config.fake_with_rng(rng),
+                old_native_price,
+                old_other_price,
             }
         }
     }

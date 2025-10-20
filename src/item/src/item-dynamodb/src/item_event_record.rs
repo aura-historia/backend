@@ -403,34 +403,34 @@ fn mk_price_event_record(
         description_native: None,
         description_de: None,
         description_en: None,
-        price_native: Some(item_price_change_event_payload.native_price.into()),
+        price_native: Some(item_price_change_event_payload.new_native_price.into()),
         price_eur: item_price_change_event_payload
-            .other_price
+            .new_other_price
             .get(&Currency::Eur)
             .copied()
             .map(u64::from),
         price_usd: item_price_change_event_payload
-            .other_price
+            .new_other_price
             .get(&Currency::Usd)
             .copied()
             .map(u64::from),
         price_gbp: item_price_change_event_payload
-            .other_price
+            .new_other_price
             .get(&Currency::Gbp)
             .copied()
             .map(u64::from),
         price_aud: item_price_change_event_payload
-            .other_price
+            .new_other_price
             .get(&Currency::Aud)
             .copied()
             .map(u64::from),
         price_cad: item_price_change_event_payload
-            .other_price
+            .new_other_price
             .get(&Currency::Cad)
             .copied()
             .map(u64::from),
         price_nzd: item_price_change_event_payload
-            .other_price
+            .new_other_price
             .get(&Currency::Nzd)
             .copied()
             .map(u64::from),
@@ -553,30 +553,30 @@ impl TryFrom<ItemEventRecord> for ItemEvent {
                     ItemEventPayload::PriceDiscovered(ItemPriceChangeEventPayload {
                         shop_id,
                         shops_item_id,
-                        native_price: record.price_native.map(Price::from).ok_or(
+                        new_native_price: record.price_native.map(Price::from).ok_or(
                             MissingPersistenceField::new(field!(price_native@ItemEventRecord)),
                         )?,
-                        other_price,
+                        new_other_price: other_price,
                     })
                 }
                 ItemEventTypeRecord::PriceDropped => {
                     ItemEventPayload::PriceDropped(ItemPriceChangeEventPayload {
                         shop_id,
                         shops_item_id,
-                        native_price: record.price_native.map(Price::from).ok_or(
+                        new_native_price: record.price_native.map(Price::from).ok_or(
                             MissingPersistenceField::new(field!(price_native@ItemEventRecord)),
                         )?,
-                        other_price,
+                        new_other_price: other_price,
                     })
                 }
                 ItemEventTypeRecord::PriceIncreased => {
                     ItemEventPayload::PriceIncreased(ItemPriceChangeEventPayload {
                         shop_id,
                         shops_item_id,
-                        native_price: record.price_native.map(Price::from).ok_or(
+                        new_native_price: record.price_native.map(Price::from).ok_or(
                             MissingPersistenceField::new(field!(price_native@ItemEventRecord)),
                         )?,
-                        other_price,
+                        new_other_price: other_price,
                     })
                 }
                 ItemEventTypeRecord::PriceRemoved => {

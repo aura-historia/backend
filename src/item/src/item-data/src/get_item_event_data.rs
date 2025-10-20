@@ -126,19 +126,19 @@ impl From<Event<ItemId, LocalizedItemEventPayloadView>> for GetItemEventData {
                 ItemEventTypeData::PriceDiscovered,
                 payload.shop_id,
                 payload.shops_item_id,
-                ItemEventPayloadData::PriceDiscovered(payload.price.into()),
+                ItemEventPayloadData::PriceDiscovered(payload.new_price.into()),
             ),
             LocalizedItemEventPayloadView::PriceDropped(payload) => (
                 ItemEventTypeData::PriceDropped,
                 payload.shop_id,
                 payload.shops_item_id,
-                ItemEventPayloadData::PriceDropped(payload.price.into()),
+                ItemEventPayloadData::PriceDropped(payload.new_price.into()),
             ),
             LocalizedItemEventPayloadView::PriceIncreased(payload) => (
                 ItemEventTypeData::PriceIncreased,
                 payload.shop_id,
                 payload.shops_item_id,
-                ItemEventPayloadData::PriceIncreased(payload.price.into()),
+                ItemEventPayloadData::PriceIncreased(payload.new_price.into()),
             ),
             LocalizedItemEventPayloadView::PriceRemoved(payload) => (
                 ItemEventTypeData::PriceRemoved,
@@ -285,7 +285,7 @@ mod tests {
         LocalizedItemEventPayloadView::PriceDiscovered(LocalizedItemPriceChangeEventPayloadView {
             shop_id: "569c809e-b9e0-48c0-8c52-ac37d82a0959".try_into().unwrap(),
             shops_item_id: "bar".into(),
-            price: Price::new(500u64.into(), Currency::Eur),
+            new_price: Price::new(500u64.into(), Currency::Eur),
         }),
         GetItemEventData {
             event_type: ItemEventTypeData::PriceDiscovered,
@@ -301,7 +301,7 @@ mod tests {
         LocalizedItemEventPayloadView::PriceDropped(LocalizedItemPriceChangeEventPayloadView {
             shop_id: "569c809e-b9e0-48c0-8c52-ac37d82a0959".try_into().unwrap(),
             shops_item_id: "bar".into(),
-            price: Price::new(500u64.into(), Currency::Eur),
+            new_price: Price::new(500u64.into(), Currency::Eur),
         }),
         GetItemEventData {
             event_type: ItemEventTypeData::PriceDropped,
@@ -317,7 +317,7 @@ mod tests {
         LocalizedItemEventPayloadView::PriceIncreased(LocalizedItemPriceChangeEventPayloadView {
             shop_id: "569c809e-b9e0-48c0-8c52-ac37d82a0959".try_into().unwrap(),
             shops_item_id: "bar".into(),
-            price: Price::new(500u64.into(), Currency::Eur),
+            new_price: Price::new(500u64.into(), Currency::Eur),
         }),
         GetItemEventData {
             event_type: ItemEventTypeData::PriceIncreased,

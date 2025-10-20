@@ -182,11 +182,11 @@ impl<'a> ItemEventMailPayloadServiceImpl<'a> {
 
         if let Some(price_payload) = event.payload.as_price_changed() {
             let (currency, amount) = price_payload
-                .other_price
+                .new_other_price
                 .get_key_value(&Currency::Eur)
                 .unwrap_or((
-                    &price_payload.native_price.currency,
-                    &price_payload.native_price.monetary_amount,
+                    &price_payload.new_native_price.currency,
+                    &price_payload.new_native_price.monetary_amount,
                 ));
             let price = Price::new(*amount, *currency);
             data_ref.insert("price".to_owned(), json!(price.format_human_readable()));

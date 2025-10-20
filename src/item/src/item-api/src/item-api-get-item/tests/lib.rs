@@ -39,8 +39,8 @@ async fn should_respond_200_with_history_when_history_flag_true() {
         payload: ItemEventPayload::PriceDropped(ItemPriceChangeEventPayload {
             shop_id: record.shop_id,
             shops_item_id: record.shops_item_id.clone(),
-            native_price: event_1_price,
-            other_price: FixedFxRate()
+            new_native_price: event_1_price,
+            new_other_price: FixedFxRate()
                 .exchange_all(event_1_price.currency, event_1_price.monetary_amount)
                 .unwrap(),
         }),
@@ -124,8 +124,8 @@ async fn should_respond_200_with_history_when_history_flag_false() {
         payload: ItemEventPayload::PriceDropped(ItemPriceChangeEventPayload {
             shop_id: record.shop_id,
             shops_item_id: record.shops_item_id.clone(),
-            native_price: event_1_price,
-            other_price: FixedFxRate()
+            new_native_price: event_1_price,
+            new_other_price: FixedFxRate()
                 .exchange_all(event_1_price.currency, event_1_price.monetary_amount)
                 .unwrap(),
         }),
