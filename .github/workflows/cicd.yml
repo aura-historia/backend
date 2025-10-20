@@ -388,7 +388,7 @@ jobs:
   aws-staging-test:
     name: AWS Staging-Test
     if: ${{ github.event_name == 'pull_request' }}
-    # needs: aws-cfn-deploy
+    needs: aws-cfn-deploy
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -435,7 +435,7 @@ jobs:
           CFN_OUTPUT: ${{ steps.export-cfn-output.outputs.outputs_json }}
           TEST_MAIL_APP_NAMESPACE: ${{ vars.TEST_MAIL_APP_NAMESPACE }}
           TEST_MAIL_APP_API_KEY: ${{ secrets.TEST_MAIL_APP_API_KEY }}
-        run: cargo test --test 'item_update_notify_user' --all-features -- --ignored --nocapture
+        run: cargo test --test '*' --all-features -- --ignored --nocapture
 
   aws-smoking-test:
     name: AWS Smoking-Test
