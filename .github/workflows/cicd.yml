@@ -388,7 +388,7 @@ jobs:
   aws-staging-test:
     name: AWS Staging-Test
     if: ${{ github.event_name == 'pull_request' }}
-    needs: aws-cfn-deploy
+    # needs: aws-cfn-deploy
     runs-on: ubuntu-latest
     permissions:
       contents: read
