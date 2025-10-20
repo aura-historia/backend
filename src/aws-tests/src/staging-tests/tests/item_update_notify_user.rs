@@ -1,4 +1,4 @@
-use std::time::Duration;
+use std::{panic, time::Duration};
 
 use aws_tests_common::get_cfn_output;
 use common::{api::collection::PutCollectionData, item_id::api::ItemKeyData, user_id::UserId};
@@ -15,7 +15,9 @@ use shop_dynamodb::{
     repository::{ShopDynamoDbRepository, ShopDynamoDbRepositoryImpl},
     shop_record::ShopRecord,
 };
-use staging_tests::{create_test_user, get_dynamodb_client, staging_test};
+use staging_tests::{
+    create_test_user, get_dynamodb_client, get_test_mail, staging_test, wait_for_email,
+};
 use time::macros::date;
 use user_dynamodb::repository::{UserDynamoDbRepository, UserDynamoDbRepositoryImpl};
 
@@ -69,9 +71,9 @@ async fn should_send_email_to_user_when_watched_item_has_update() {
 
     // create user
     let user = create_test_user(
-        "no-reply@aura-historia.com",
-        "No",
-        "Reply",
+        &get_test_mail(),
+        "Test",
+        "Mail",
         &date!(2002 - 04 - 05),
         "male",
         &None,
@@ -158,4 +160,17 @@ async fn should_send_email_to_user_when_watched_item_has_update() {
         .unwrap();
     assert_eq!(200, response.status());
     tokio::time::sleep(Duration::from_secs(60)).await;
+
+    // verify email with update-notification arrived
+    match put_item_data.state {
+        ItemStateData::Available => {
+            assert!(wait_for_email("Antiquität verfügbar").await)
+        }
+        ItemStateData::Sold => {
+            assert!(wait_for_email("Antiquität verkauft").await)
+        }
+        other => panic!(
+            "shouldn't be this state '{other:?}' because we explicitly set the new state as either 'AVAILABLE' or 'SOLD'",
+        ),
+    }
 }
