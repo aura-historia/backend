@@ -1655,7 +1655,7 @@ Resources:
               - Effect: Allow
                 Action:
                   - s3:GetObject
-                Resource: !Sub "arn:aws:s3:::{MailTemplateBucket}/*"
+                Resource: !Sub "arn:aws:s3:::${MailTemplateBucket}/*"
   SendMailLambda:
     Type: AWS::Lambda::Function
     Properties:
