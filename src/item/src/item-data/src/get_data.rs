@@ -124,7 +124,10 @@ mod tests {
 
     use crate::{
         get_data::GetItemData,
-        get_item_event_data::{GetItemEventData, ItemEventPayloadData, ItemEventTypeData},
+        get_item_event_data::{
+            GetItemEventData, ItemEventPayloadData, ItemEventPriceChangedPayloadData,
+            ItemEventStateChangedPayloadData, ItemEventTypeData,
+        },
         item_state_data::ItemStateData,
     };
 
@@ -158,7 +161,12 @@ mod tests {
                     event_id,
                     shop_id,
                     shops_item_id: shops_item_id.clone(),
-                    payload: ItemEventPayloadData::StateAvailable(ItemStateData::Available),
+                    payload: ItemEventPayloadData::StateAvailable(
+                        ItemEventStateChangedPayloadData {
+                            old_state: ItemStateData::Listed,
+                            new_state: ItemStateData::Available,
+                        },
+                    ),
                     timestamp: utc_datetime!(2025 - 05 - 05 0:00).into(),
                 },
                 GetItemEventData {
@@ -167,10 +175,10 @@ mod tests {
                     event_id,
                     shop_id,
                     shops_item_id: shops_item_id.clone(),
-                    payload: ItemEventPayloadData::PriceDropped(PriceData::new(
-                        CurrencyData::Eur,
-                        42,
-                    )),
+                    payload: ItemEventPayloadData::PriceDropped(ItemEventPriceChangedPayloadData {
+                        old_price: PriceData::new(CurrencyData::Eur, 69),
+                        new_price: PriceData::new(CurrencyData::Eur, 42),
+                    }),
                     timestamp: utc_datetime!(2025 - 05 - 05 0:00).into(),
                 },
             ]),
@@ -206,7 +214,10 @@ mod tests {
                     "eventId": event_id,
                     "shopId": shop_id,
                     "shopsItemId": shops_item_id,
-                    "payload": "AVAILABLE",
+                    "payload": {
+                        "oldState": "LISTED",
+                        "newState": "AVAILABLE"
+                    },
                     "timestamp": "2025-05-05T00:00:00Z",
                 },
                 {
@@ -216,8 +227,14 @@ mod tests {
                     "shopId": shop_id,
                     "shopsItemId": shops_item_id,
                     "payload": {
-                        "amount": 42,
-                        "currency": "EUR"
+                        "oldPrice": {
+                            "amount": 69,
+                            "currency": "EUR"
+                        },
+                        "newPrice": {
+                            "amount": 42,
+                            "currency": "EUR"
+                        }
                     },
                     "timestamp": "2025-05-05T00:00:00Z",
                 }

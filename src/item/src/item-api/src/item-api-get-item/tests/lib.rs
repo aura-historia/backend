@@ -2,6 +2,7 @@ use common::{
     currency::domain::Currency,
     event::Event,
     event_id::EventId,
+    item_state::domain::ItemState,
     price::domain::{FixedFxRate, FxRate, Price},
 };
 use fake::{Fake, Faker};
@@ -43,6 +44,13 @@ async fn should_respond_200_with_history_when_history_flag_true() {
             new_other_price: FixedFxRate()
                 .exchange_all(event_1_price.currency, event_1_price.monetary_amount)
                 .unwrap(),
+            old_native_price: Price {
+                monetary_amount: 100000u64.into(),
+                currency: Currency::Eur,
+            },
+            old_other_price: FixedFxRate()
+                .exchange_all(Currency::Eur, 100000u64.into())
+                .unwrap(),
         }),
     };
     tokio::time::sleep(Duration::from_secs(1)).await;
@@ -54,6 +62,7 @@ async fn should_respond_200_with_history_when_history_flag_true() {
         payload: ItemEventPayload::StateRemoved(ItemStateChangeEventPayload {
             shop_id: record.shop_id,
             shops_item_id: record.shops_item_id.clone(),
+            old_state: ItemState::Sold,
         }),
     };
     let insert_res = repository
@@ -128,6 +137,13 @@ async fn should_respond_200_with_history_when_history_flag_false() {
             new_other_price: FixedFxRate()
                 .exchange_all(event_1_price.currency, event_1_price.monetary_amount)
                 .unwrap(),
+            old_native_price: Price {
+                monetary_amount: 100000u64.into(),
+                currency: Currency::Eur,
+            },
+            old_other_price: FixedFxRate()
+                .exchange_all(Currency::Eur, 100000u64.into())
+                .unwrap(),
         }),
     };
     tokio::time::sleep(Duration::from_secs(1)).await;
@@ -139,6 +155,7 @@ async fn should_respond_200_with_history_when_history_flag_false() {
         payload: ItemEventPayload::StateRemoved(ItemStateChangeEventPayload {
             shop_id: record.shop_id,
             shops_item_id: record.shops_item_id.clone(),
+            old_state: ItemState::Sold,
         }),
     };
     let insert_res = repository

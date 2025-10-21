@@ -27,22 +27,42 @@ pub enum ItemEventTypeData {
 #[serde(untagged)]
 pub enum ItemEventPayloadData {
     Created(ItemCreatedEventPayloadData),
-    StateListed(ItemStateData),
-    StateAvailable(ItemStateData),
-    StateReserved(ItemStateData),
-    StateSold(ItemStateData),
-    StateRemoved(ItemStateData),
-    StateUnknown(ItemStateData),
-    PriceDiscovered(PriceData),
-    PriceDropped(PriceData),
-    PriceIncreased(PriceData),
-    PriceRemoved,
+    StateListed(ItemEventStateChangedPayloadData),
+    StateAvailable(ItemEventStateChangedPayloadData),
+    StateReserved(ItemEventStateChangedPayloadData),
+    StateSold(ItemEventStateChangedPayloadData),
+    StateRemoved(ItemEventStateChangedPayloadData),
+    StateUnknown(ItemEventStateChangedPayloadData),
+    PriceDiscovered(ItemEventPriceDiscoveredPayloadData),
+    PriceDropped(ItemEventPriceChangedPayloadData),
+    PriceIncreased(ItemEventPriceChangedPayloadData),
+    PriceRemoved(ItemEventPriceRemovedPayloadData),
 }
 
-impl ItemEventPayloadData {
-    fn is_empty(&self) -> bool {
-        matches!(self, ItemEventPayloadData::PriceRemoved)
-    }
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ItemEventStateChangedPayloadData {
+    pub old_state: ItemStateData,
+    pub new_state: ItemStateData,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ItemEventPriceDiscoveredPayloadData {
+    pub new_price: PriceData,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ItemEventPriceChangedPayloadData {
+    pub old_price: PriceData,
+    pub new_price: PriceData,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ItemEventPriceRemovedPayloadData {
+    pub old_price: PriceData,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
@@ -58,16 +78,10 @@ pub struct ItemCreatedEventPayloadData {
 #[serde(rename_all = "camelCase")]
 pub struct GetItemEventData {
     pub event_type: ItemEventTypeData,
-
     pub item_id: ItemId,
-
     pub event_id: EventId,
-
     pub shop_id: ShopId,
-
     pub shops_item_id: ShopsItemId,
-
-    #[serde(skip_serializing_if = "ItemEventPayloadData::is_empty")]
     pub payload: ItemEventPayloadData,
 
     #[serde(with = "time::serde::rfc3339")]
@@ -90,61 +104,89 @@ impl From<Event<ItemId, LocalizedItemEventPayloadView>> for GetItemEventData {
                 ItemEventTypeData::StateListed,
                 payload.shop_id,
                 payload.shops_item_id,
-                ItemEventPayloadData::StateListed(ItemStateData::Listed),
+                ItemEventPayloadData::StateListed(ItemEventStateChangedPayloadData {
+                    old_state: payload.old_state.into(),
+                    new_state: ItemStateData::Listed,
+                }),
             ),
             LocalizedItemEventPayloadView::StateAvailable(payload) => (
                 ItemEventTypeData::StateAvailable,
                 payload.shop_id,
                 payload.shops_item_id,
-                ItemEventPayloadData::StateAvailable(ItemStateData::Available),
+                ItemEventPayloadData::StateAvailable(ItemEventStateChangedPayloadData {
+                    old_state: payload.old_state.into(),
+                    new_state: ItemStateData::Available,
+                }),
             ),
             LocalizedItemEventPayloadView::StateReserved(payload) => (
                 ItemEventTypeData::StateReserved,
                 payload.shop_id,
                 payload.shops_item_id,
-                ItemEventPayloadData::StateReserved(ItemStateData::Reserved),
+                ItemEventPayloadData::StateReserved(ItemEventStateChangedPayloadData {
+                    old_state: payload.old_state.into(),
+                    new_state: ItemStateData::Reserved,
+                }),
             ),
             LocalizedItemEventPayloadView::StateSold(payload) => (
                 ItemEventTypeData::StateSold,
                 payload.shop_id,
                 payload.shops_item_id,
-                ItemEventPayloadData::StateSold(ItemStateData::Sold),
+                ItemEventPayloadData::StateSold(ItemEventStateChangedPayloadData {
+                    old_state: payload.old_state.into(),
+                    new_state: ItemStateData::Sold,
+                }),
             ),
             LocalizedItemEventPayloadView::StateRemoved(payload) => (
                 ItemEventTypeData::StateRemoved,
                 payload.shop_id,
                 payload.shops_item_id,
-                ItemEventPayloadData::StateRemoved(ItemStateData::Removed),
+                ItemEventPayloadData::StateRemoved(ItemEventStateChangedPayloadData {
+                    old_state: payload.old_state.into(),
+                    new_state: ItemStateData::Removed,
+                }),
             ),
             LocalizedItemEventPayloadView::StateUnknown(payload) => (
                 ItemEventTypeData::StateUnknown,
                 payload.shop_id,
                 payload.shops_item_id,
-                ItemEventPayloadData::StateUnknown(ItemStateData::Unknown),
+                ItemEventPayloadData::StateUnknown(ItemEventStateChangedPayloadData {
+                    old_state: payload.old_state.into(),
+                    new_state: ItemStateData::Unknown,
+                }),
             ),
             LocalizedItemEventPayloadView::PriceDiscovered(payload) => (
                 ItemEventTypeData::PriceDiscovered,
                 payload.shop_id,
                 payload.shops_item_id,
-                ItemEventPayloadData::PriceDiscovered(payload.new_price.into()),
+                ItemEventPayloadData::PriceDiscovered(ItemEventPriceDiscoveredPayloadData {
+                    new_price: payload.price.into(),
+                }),
             ),
             LocalizedItemEventPayloadView::PriceDropped(payload) => (
                 ItemEventTypeData::PriceDropped,
                 payload.shop_id,
                 payload.shops_item_id,
-                ItemEventPayloadData::PriceDropped(payload.new_price.into()),
+                ItemEventPayloadData::PriceDropped(ItemEventPriceChangedPayloadData {
+                    old_price: payload.old_price.into(),
+                    new_price: payload.new_price.into(),
+                }),
             ),
             LocalizedItemEventPayloadView::PriceIncreased(payload) => (
                 ItemEventTypeData::PriceIncreased,
                 payload.shop_id,
                 payload.shops_item_id,
-                ItemEventPayloadData::PriceIncreased(payload.new_price.into()),
+                ItemEventPayloadData::PriceIncreased(ItemEventPriceChangedPayloadData {
+                    old_price: payload.old_price.into(),
+                    new_price: payload.new_price.into(),
+                }),
             ),
             LocalizedItemEventPayloadView::PriceRemoved(payload) => (
                 ItemEventTypeData::PriceRemoved,
                 payload.shop_id,
                 payload.shops_item_id,
-                ItemEventPayloadData::PriceRemoved,
+                ItemEventPayloadData::PriceRemoved(ItemEventPriceRemovedPayloadData {
+                    old_price: payload.old_price.into(),
+                }),
             ),
         };
 
@@ -164,7 +206,9 @@ impl From<Event<ItemId, LocalizedItemEventPayloadView>> for GetItemEventData {
 mod tests {
     use crate::{
         get_item_event_data::{
-            GetItemEventData, ItemCreatedEventPayloadData, ItemEventPayloadData, ItemEventTypeData,
+            GetItemEventData, ItemCreatedEventPayloadData, ItemEventPayloadData,
+            ItemEventPriceChangedPayloadData, ItemEventPriceDiscoveredPayloadData,
+            ItemEventStateChangedPayloadData, ItemEventTypeData,
         },
         item_state_data::ItemStateData,
     };
@@ -177,7 +221,8 @@ mod tests {
     };
     use item_core::item_event::{
         LocalizedItemCreatedEventPayloadView, LocalizedItemEventPayloadView,
-        LocalizedItemPriceChangeEventPayloadView, LocalizedItemStateChangeEventPayloadView,
+        LocalizedItemPriceChangeEventPayloadView, LocalizedItemPriceDiscoveryEventPayloadView,
+        LocalizedItemStateChangeEventPayloadView,
     };
     use time::macros::utc_datetime;
     use url::Url;
@@ -210,6 +255,7 @@ mod tests {
         LocalizedItemEventPayloadView::StateListed(LocalizedItemStateChangeEventPayloadView {
             shop_id: "569c809e-b9e0-48c0-8c52-ac37d82a0959".try_into().unwrap(),
             shops_item_id: "bar".into(),
+            old_state: ItemState::Available
         }),
         GetItemEventData {
             event_type: ItemEventTypeData::StateListed,
@@ -217,7 +263,7 @@ mod tests {
             event_id: Uuid::max().into(),
             shop_id: "569c809e-b9e0-48c0-8c52-ac37d82a0959".try_into().unwrap(),
             shops_item_id: "bar".into(),
-            payload: ItemEventPayloadData::StateListed(ItemStateData::Listed),
+            payload: ItemEventPayloadData::StateListed(ItemEventStateChangedPayloadData { old_state: ItemStateData::Available, new_state: ItemStateData::Listed }),
             timestamp: utc_datetime!(2025 - 05 - 05 2:22).into(),
         }
     )]
@@ -225,6 +271,7 @@ mod tests {
         LocalizedItemEventPayloadView::StateAvailable(LocalizedItemStateChangeEventPayloadView {
             shop_id: "569c809e-b9e0-48c0-8c52-ac37d82a0959".try_into().unwrap(),
             shops_item_id: "bar".into(),
+            old_state: ItemState::Listed
         }),
         GetItemEventData {
             event_type: ItemEventTypeData::StateAvailable,
@@ -232,7 +279,7 @@ mod tests {
             event_id: Uuid::max().into(),
             shop_id: "569c809e-b9e0-48c0-8c52-ac37d82a0959".try_into().unwrap(),
             shops_item_id: "bar".into(),
-            payload: ItemEventPayloadData::StateAvailable(ItemStateData::Available),
+            payload: ItemEventPayloadData::StateAvailable(ItemEventStateChangedPayloadData { old_state: ItemStateData::Listed, new_state: ItemStateData::Available }),
             timestamp: utc_datetime!(2025 - 05 - 05 2:22).into(),
         }
     )]
@@ -240,6 +287,7 @@ mod tests {
         LocalizedItemEventPayloadView::StateReserved(LocalizedItemStateChangeEventPayloadView {
             shop_id: "569c809e-b9e0-48c0-8c52-ac37d82a0959".try_into().unwrap(),
             shops_item_id: "bar".into(),
+            old_state: ItemState::Available
         }),
         GetItemEventData {
             event_type: ItemEventTypeData::StateReserved,
@@ -247,7 +295,7 @@ mod tests {
             event_id: Uuid::max().into(),
             shop_id: "569c809e-b9e0-48c0-8c52-ac37d82a0959".try_into().unwrap(),
             shops_item_id: "bar".into(),
-            payload: ItemEventPayloadData::StateReserved(ItemStateData::Reserved),
+            payload: ItemEventPayloadData::StateReserved(ItemEventStateChangedPayloadData { old_state: ItemStateData::Available, new_state: ItemStateData::Reserved }),
             timestamp: utc_datetime!(2025 - 05 - 05 2:22).into(),
         }
     )]
@@ -255,6 +303,7 @@ mod tests {
         LocalizedItemEventPayloadView::StateSold(LocalizedItemStateChangeEventPayloadView {
             shop_id: "569c809e-b9e0-48c0-8c52-ac37d82a0959".try_into().unwrap(),
             shops_item_id: "bar".into(),
+            old_state: ItemState::Reserved
         }),
         GetItemEventData {
             event_type: ItemEventTypeData::StateSold,
@@ -262,7 +311,7 @@ mod tests {
             event_id: Uuid::max().into(),
             shop_id: "569c809e-b9e0-48c0-8c52-ac37d82a0959".try_into().unwrap(),
             shops_item_id: "bar".into(),
-            payload: ItemEventPayloadData::StateSold(ItemStateData::Sold),
+            payload: ItemEventPayloadData::StateSold(ItemEventStateChangedPayloadData { old_state: ItemStateData::Reserved, new_state: ItemStateData::Sold }),
             timestamp: utc_datetime!(2025 - 05 - 05 2:22).into(),
         }
     )]
@@ -270,6 +319,7 @@ mod tests {
         LocalizedItemEventPayloadView::StateRemoved(LocalizedItemStateChangeEventPayloadView {
             shop_id: "569c809e-b9e0-48c0-8c52-ac37d82a0959".try_into().unwrap(),
             shops_item_id: "bar".into(),
+            old_state: ItemState::Sold
         }),
         GetItemEventData {
             event_type: ItemEventTypeData::StateRemoved,
@@ -277,15 +327,31 @@ mod tests {
             event_id: Uuid::max().into(),
             shop_id: "569c809e-b9e0-48c0-8c52-ac37d82a0959".try_into().unwrap(),
             shops_item_id: "bar".into(),
-            payload: ItemEventPayloadData::StateRemoved(ItemStateData::Removed),
+            payload: ItemEventPayloadData::StateRemoved(ItemEventStateChangedPayloadData { old_state: ItemStateData::Sold, new_state: ItemStateData::Removed }),
+            timestamp: utc_datetime!(2025 - 05 - 05 2:22).into(),
+        }
+    )]
+    #[case::state_unknown(
+        LocalizedItemEventPayloadView::StateUnknown(LocalizedItemStateChangeEventPayloadView {
+            shop_id: "569c809e-b9e0-48c0-8c52-ac37d82a0959".try_into().unwrap(),
+            shops_item_id: "bar".into(),
+            old_state: ItemState::Removed
+        }),
+        GetItemEventData {
+            event_type: ItemEventTypeData::StateUnknown,
+            item_id: Uuid::max().into(),
+            event_id: Uuid::max().into(),
+            shop_id: "569c809e-b9e0-48c0-8c52-ac37d82a0959".try_into().unwrap(),
+            shops_item_id: "bar".into(),
+            payload: ItemEventPayloadData::StateUnknown(ItemEventStateChangedPayloadData { old_state: ItemStateData::Removed, new_state: ItemStateData::Unknown }),
             timestamp: utc_datetime!(2025 - 05 - 05 2:22).into(),
         }
     )]
     #[case::price_discovered(
-        LocalizedItemEventPayloadView::PriceDiscovered(LocalizedItemPriceChangeEventPayloadView {
+        LocalizedItemEventPayloadView::PriceDiscovered(LocalizedItemPriceDiscoveryEventPayloadView {
             shop_id: "569c809e-b9e0-48c0-8c52-ac37d82a0959".try_into().unwrap(),
             shops_item_id: "bar".into(),
-            new_price: Price::new(500u64.into(), Currency::Eur),
+            price: Price::new(500u64.into(), Currency::Eur),
         }),
         GetItemEventData {
             event_type: ItemEventTypeData::PriceDiscovered,
@@ -293,7 +359,9 @@ mod tests {
             event_id: Uuid::max().into(),
             shop_id: "569c809e-b9e0-48c0-8c52-ac37d82a0959".try_into().unwrap(),
             shops_item_id: "bar".into(),
-            payload: ItemEventPayloadData::PriceDiscovered(PriceData::new(CurrencyData::Eur, 500u64)),
+            payload: ItemEventPayloadData::PriceDiscovered(ItemEventPriceDiscoveredPayloadData {
+                new_price: PriceData::new(CurrencyData::Eur, 500u64)
+            }),
             timestamp: utc_datetime!(2025 - 05 - 05 2:22).into(),
         }
     )]
@@ -302,6 +370,7 @@ mod tests {
             shop_id: "569c809e-b9e0-48c0-8c52-ac37d82a0959".try_into().unwrap(),
             shops_item_id: "bar".into(),
             new_price: Price::new(500u64.into(), Currency::Eur),
+            old_price: Price::new(700u64.into(), Currency::Eur),
         }),
         GetItemEventData {
             event_type: ItemEventTypeData::PriceDropped,
@@ -309,7 +378,7 @@ mod tests {
             event_id: Uuid::max().into(),
             shop_id: "569c809e-b9e0-48c0-8c52-ac37d82a0959".try_into().unwrap(),
             shops_item_id: "bar".into(),
-            payload: ItemEventPayloadData::PriceDropped(PriceData::new(CurrencyData::Eur, 500u64)),
+            payload: ItemEventPayloadData::PriceDropped(ItemEventPriceChangedPayloadData { old_price: PriceData::new(CurrencyData::Eur, 700u64), new_price: PriceData::new(CurrencyData::Eur, 500u64) }),
             timestamp: utc_datetime!(2025 - 05 - 05 2:22).into(),
         }
     )]
@@ -317,7 +386,8 @@ mod tests {
         LocalizedItemEventPayloadView::PriceIncreased(LocalizedItemPriceChangeEventPayloadView {
             shop_id: "569c809e-b9e0-48c0-8c52-ac37d82a0959".try_into().unwrap(),
             shops_item_id: "bar".into(),
-            new_price: Price::new(500u64.into(), Currency::Eur),
+            new_price: Price::new(777u64.into(), Currency::Eur),
+            old_price: Price::new(500u64.into(), Currency::Eur),
         }),
         GetItemEventData {
             event_type: ItemEventTypeData::PriceIncreased,
@@ -325,7 +395,7 @@ mod tests {
             event_id: Uuid::max().into(),
             shop_id: "569c809e-b9e0-48c0-8c52-ac37d82a0959".try_into().unwrap(),
             shops_item_id: "bar".into(),
-            payload: ItemEventPayloadData::PriceIncreased(PriceData::new(CurrencyData::Eur, 500u64)),
+            payload: ItemEventPayloadData::PriceIncreased(ItemEventPriceChangedPayloadData { old_price: PriceData::new(CurrencyData::Eur, 500u64), new_price: PriceData::new(CurrencyData::Eur, 777u64) }),
             timestamp: utc_datetime!(2025 - 05 - 05 2:22).into(),
         }
     )]
