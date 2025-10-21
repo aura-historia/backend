@@ -98,7 +98,7 @@ async fn should_respond_200_with_history_when_history_flag_true() {
     assert_eq!(2, history.len());
     assert_eq!(event_1_id.to_string(), history[0]["eventId"]);
     assert_eq!("PRICE_DROPPED", history[0]["eventType"]);
-    assert_eq!("USD", history[0]["payload"]["currency"]);
+    assert_eq!("USD", history[0]["payload"]["newPrice"]["currency"]);
     assert_eq!(
         u64::from(
             event_1_price
@@ -106,7 +106,7 @@ async fn should_respond_200_with_history_when_history_flag_true() {
                 .unwrap()
                 .monetary_amount
         ),
-        history[0]["payload"]["amount"]
+        history[0]["payload"]["newPrice"]["amount"]
     );
     assert_eq!(event_2_id.to_string(), history[1]["eventId"]);
     assert_eq!("STATE_REMOVED", history[1]["eventType"]);
