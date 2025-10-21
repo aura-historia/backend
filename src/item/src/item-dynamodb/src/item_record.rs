@@ -23,59 +23,42 @@ use url::Url;
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct ItemRecord {
     pub pk: String,
-
     pub sk: String,
-
     pub item_id: ItemId,
-
     pub event_id: EventId,
-
     pub shop_id: ShopId,
-
     pub shops_item_id: ShopsItemId,
-
     pub shop_name: String,
 
     pub title_native: TextRecord,
-
     #[serde(skip_serializing_if = "Option::is_none", default)]
     pub title_de: Option<String>,
-
     #[serde(skip_serializing_if = "Option::is_none", default)]
     pub title_en: Option<String>,
 
     #[serde(skip_serializing_if = "Option::is_none", default)]
     pub description_native: Option<TextRecord>,
-
     #[serde(skip_serializing_if = "Option::is_none", default)]
     pub description_de: Option<String>,
-
     #[serde(skip_serializing_if = "Option::is_none", default)]
     pub description_en: Option<String>,
 
     #[serde(skip_serializing_if = "Option::is_none", default)]
     pub price_native: Option<PriceRecord>,
-
     #[serde(skip_serializing_if = "Option::is_none", default)]
     pub price_eur: Option<u64>,
-
     #[serde(skip_serializing_if = "Option::is_none", default)]
     pub price_usd: Option<u64>,
-
     #[serde(skip_serializing_if = "Option::is_none", default)]
     pub price_gbp: Option<u64>,
-
     #[serde(skip_serializing_if = "Option::is_none", default)]
     pub price_aud: Option<u64>,
-
     #[serde(skip_serializing_if = "Option::is_none", default)]
     pub price_cad: Option<u64>,
-
     #[serde(skip_serializing_if = "Option::is_none", default)]
     pub price_nzd: Option<u64>,
 
     pub state: ItemStateRecord,
-
     pub url: Url,
 
     #[serde(skip_serializing_if = "Vec::is_empty", default)]
@@ -185,16 +168,16 @@ impl TryFrom<ItemEventRecord> for ItemRecord {
             description_native: event_record.description_native,
             description_de: event_record.description_de,
             description_en: event_record.description_en,
-            price_native: event_record.price_native,
-            price_eur: event_record.price_eur,
-            price_usd: event_record.price_usd,
-            price_gbp: event_record.price_gbp,
-            price_aud: event_record.price_aud,
-            price_cad: event_record.price_cad,
-            price_nzd: event_record.price_nzd,
+            price_native: event_record.new_price_native,
+            price_eur: event_record.new_price_eur,
+            price_usd: event_record.new_price_usd,
+            price_gbp: event_record.new_price_gbp,
+            price_aud: event_record.new_price_aud,
+            price_cad: event_record.new_price_cad,
+            price_nzd: event_record.new_price_nzd,
             state: event_record
-                .state
-                .ok_or_else(|| MissingPersistenceField::new(field!(state@ItemEventRecord)))?,
+                .new_state
+                .ok_or_else(|| MissingPersistenceField::new(field!(new_state@ItemEventRecord)))?,
             url: event_record
                 .url
                 .ok_or_else(|| MissingPersistenceField::new(field!(url@ItemEventRecord)))?,

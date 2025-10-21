@@ -195,14 +195,22 @@ mod get_item_record {
             description_native: Some(TextRecord::new("Baz", LanguageRecord::De)),
             description_de: Some("Baz".to_string()),
             description_en: Some("Bazz".to_string()),
-            price_native: None,
-            price_eur: None,
-            price_usd: None,
-            price_gbp: None,
-            price_aud: None,
-            price_cad: None,
-            price_nzd: None,
-            state: Some(ItemStateRecord::Listed),
+            new_price_native: None,
+            new_price_eur: None,
+            new_price_usd: None,
+            new_price_gbp: None,
+            new_price_aud: None,
+            new_price_cad: None,
+            new_price_nzd: None,
+            old_price_native: None,
+            old_price_eur: None,
+            old_price_usd: None,
+            old_price_gbp: None,
+            old_price_aud: None,
+            old_price_cad: None,
+            old_price_nzd: None,
+            new_state: Some(ItemStateRecord::Listed),
+            old_state: Some(ItemStateRecord::Available),
             url: None,
             images: Some(vec![Url::parse("https://foo.bar/123456/image").unwrap()]),
             timestamp: OffsetDateTime::now_utc(),
@@ -237,6 +245,7 @@ mod get_item_record {
 
 mod query_item_record_and_event_records {
     use crate::get_repository;
+    use common::item_state::domain::ItemState;
     use common::price::domain::Price;
     use common::shop_id::ShopId;
     use common::shops_item_id::ShopsItemId;
@@ -346,6 +355,7 @@ mod query_item_record_and_event_records {
             payload: ItemEventPayload::StateAvailable(ItemStateChangeEventPayload {
                 shop_id: expected_materialized.shop_id,
                 shops_item_id: expected_materialized.shops_item_id.clone(),
+                old_state: ItemState::Listed,
             }),
         }
         .try_into()
@@ -407,6 +417,7 @@ mod query_item_record_and_event_records {
             payload: ItemEventPayload::StateAvailable(ItemStateChangeEventPayload {
                 shop_id: expected_materialized.shop_id,
                 shops_item_id: expected_materialized.shops_item_id.clone(),
+                old_state: ItemState::Listed,
             }),
         }
         .try_into()

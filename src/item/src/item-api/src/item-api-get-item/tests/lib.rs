@@ -2,6 +2,7 @@ use common::{
     currency::domain::Currency,
     event::Event,
     event_id::EventId,
+    item_state::domain::ItemState,
     price::domain::{FixedFxRate, FxRate, Price},
 };
 use fake::{Fake, Faker};
@@ -39,9 +40,16 @@ async fn should_respond_200_with_history_when_history_flag_true() {
         payload: ItemEventPayload::PriceDropped(ItemPriceChangeEventPayload {
             shop_id: record.shop_id,
             shops_item_id: record.shops_item_id.clone(),
-            native_price: event_1_price,
-            other_price: FixedFxRate()
+            new_native_price: event_1_price,
+            new_other_price: FixedFxRate()
                 .exchange_all(event_1_price.currency, event_1_price.monetary_amount)
+                .unwrap(),
+            old_native_price: Price {
+                monetary_amount: 100000u64.into(),
+                currency: Currency::Eur,
+            },
+            old_other_price: FixedFxRate()
+                .exchange_all(Currency::Eur, 100000u64.into())
                 .unwrap(),
         }),
     };
@@ -54,6 +62,7 @@ async fn should_respond_200_with_history_when_history_flag_true() {
         payload: ItemEventPayload::StateRemoved(ItemStateChangeEventPayload {
             shop_id: record.shop_id,
             shops_item_id: record.shops_item_id.clone(),
+            old_state: ItemState::Sold,
         }),
     };
     let insert_res = repository
@@ -89,7 +98,7 @@ async fn should_respond_200_with_history_when_history_flag_true() {
     assert_eq!(2, history.len());
     assert_eq!(event_1_id.to_string(), history[0]["eventId"]);
     assert_eq!("PRICE_DROPPED", history[0]["eventType"]);
-    assert_eq!("USD", history[0]["payload"]["currency"]);
+    assert_eq!("USD", history[0]["payload"]["newPrice"]["currency"]);
     assert_eq!(
         u64::from(
             event_1_price
@@ -97,7 +106,7 @@ async fn should_respond_200_with_history_when_history_flag_true() {
                 .unwrap()
                 .monetary_amount
         ),
-        history[0]["payload"]["amount"]
+        history[0]["payload"]["newPrice"]["amount"]
     );
     assert_eq!(event_2_id.to_string(), history[1]["eventId"]);
     assert_eq!("STATE_REMOVED", history[1]["eventType"]);
@@ -124,9 +133,16 @@ async fn should_respond_200_with_history_when_history_flag_false() {
         payload: ItemEventPayload::PriceDropped(ItemPriceChangeEventPayload {
             shop_id: record.shop_id,
             shops_item_id: record.shops_item_id.clone(),
-            native_price: event_1_price,
-            other_price: FixedFxRate()
+            new_native_price: event_1_price,
+            new_other_price: FixedFxRate()
                 .exchange_all(event_1_price.currency, event_1_price.monetary_amount)
+                .unwrap(),
+            old_native_price: Price {
+                monetary_amount: 100000u64.into(),
+                currency: Currency::Eur,
+            },
+            old_other_price: FixedFxRate()
+                .exchange_all(Currency::Eur, 100000u64.into())
                 .unwrap(),
         }),
     };
@@ -139,6 +155,7 @@ async fn should_respond_200_with_history_when_history_flag_false() {
         payload: ItemEventPayload::StateRemoved(ItemStateChangeEventPayload {
             shop_id: record.shop_id,
             shops_item_id: record.shops_item_id.clone(),
+            old_state: ItemState::Sold,
         }),
     };
     let insert_res = repository

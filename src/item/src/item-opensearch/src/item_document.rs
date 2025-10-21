@@ -91,9 +91,9 @@ impl TryFrom<ItemEventRecord> for ItemDocument {
 
     fn try_from(event_record: ItemEventRecord) -> Result<Self, Self::Error> {
         let state = event_record
-            .state
+            .new_state
             .map(ItemStateDocument::from)
-            .ok_or_else(|| MissingPersistenceField::new(field!(state@ItemEventRecord)))?;
+            .ok_or_else(|| MissingPersistenceField::new(field!(new_state@ItemEventRecord)))?;
         let document = ItemDocument {
             item_id: event_record.item_id,
             event_id: event_record.event_id,
@@ -106,12 +106,12 @@ impl TryFrom<ItemEventRecord> for ItemDocument {
             title_en: event_record.title_en,
             description_de: event_record.description_de,
             description_en: event_record.description_en,
-            price_eur: event_record.price_eur,
-            price_usd: event_record.price_usd,
-            price_gbp: event_record.price_gbp,
-            price_aud: event_record.price_aud,
-            price_cad: event_record.price_cad,
-            price_nzd: event_record.price_nzd,
+            price_eur: event_record.new_price_eur,
+            price_usd: event_record.new_price_usd,
+            price_gbp: event_record.new_price_gbp,
+            price_aud: event_record.new_price_aud,
+            price_cad: event_record.new_price_cad,
+            price_nzd: event_record.new_price_nzd,
             state,
             url: event_record
                 .url

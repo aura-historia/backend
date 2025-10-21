@@ -18,7 +18,8 @@ use common::shops_item_id::ShopsItemId;
 use field::field;
 use item_core::item_event::{
     ItemCommonEventPayload, ItemCreatedEventPayload, ItemEvent, ItemEventPayload,
-    ItemPriceChangeEventPayload, ItemPriceRemovedEventPayload, ItemStateChangeEventPayload,
+    ItemPriceChangeEventPayload, ItemPriceDiscoveryEventPayload, ItemPriceRemovedEventPayload,
+    ItemStateChangeEventPayload,
 };
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
@@ -29,63 +30,63 @@ use url::Url;
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct ItemEventRecord {
     pub pk: String,
-
     pub sk: String,
-
     pub item_id: ItemId,
-
     pub event_id: EventId,
-
     pub event_type: ItemEventTypeRecord,
-
     pub shop_id: ShopId,
-
     pub shops_item_id: ShopsItemId,
-
     #[serde(skip_serializing_if = "Option::is_none", default)]
     pub shop_name: Option<String>,
 
     #[serde(skip_serializing_if = "Option::is_none", default)]
     pub title_native: Option<TextRecord>,
-
     #[serde(skip_serializing_if = "Option::is_none", default)]
     pub title_de: Option<String>,
-
     #[serde(skip_serializing_if = "Option::is_none", default)]
     pub title_en: Option<String>,
 
     #[serde(skip_serializing_if = "Option::is_none", default)]
     pub description_native: Option<TextRecord>,
-
     #[serde(skip_serializing_if = "Option::is_none", default)]
     pub description_de: Option<String>,
-
     #[serde(skip_serializing_if = "Option::is_none", default)]
     pub description_en: Option<String>,
 
     #[serde(skip_serializing_if = "Option::is_none", default)]
-    pub price_native: Option<PriceRecord>,
+    pub new_price_native: Option<PriceRecord>,
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub new_price_eur: Option<u64>,
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub new_price_usd: Option<u64>,
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub new_price_gbp: Option<u64>,
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub new_price_aud: Option<u64>,
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub new_price_cad: Option<u64>,
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub new_price_nzd: Option<u64>,
 
     #[serde(skip_serializing_if = "Option::is_none", default)]
-    pub price_eur: Option<u64>,
+    pub old_price_native: Option<PriceRecord>,
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub old_price_eur: Option<u64>,
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub old_price_usd: Option<u64>,
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub old_price_gbp: Option<u64>,
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub old_price_aud: Option<u64>,
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub old_price_cad: Option<u64>,
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub old_price_nzd: Option<u64>,
 
     #[serde(skip_serializing_if = "Option::is_none", default)]
-    pub price_usd: Option<u64>,
-
+    pub new_state: Option<ItemStateRecord>,
     #[serde(skip_serializing_if = "Option::is_none", default)]
-    pub price_gbp: Option<u64>,
-
-    #[serde(skip_serializing_if = "Option::is_none", default)]
-    pub price_aud: Option<u64>,
-
-    #[serde(skip_serializing_if = "Option::is_none", default)]
-    pub price_cad: Option<u64>,
-
-    #[serde(skip_serializing_if = "Option::is_none", default)]
-    pub price_nzd: Option<u64>,
-
-    #[serde(skip_serializing_if = "Option::is_none", default)]
-    pub state: Option<ItemStateRecord>,
+    pub old_state: Option<ItemStateRecord>,
 
     #[serde(skip_serializing_if = "Option::is_none", default)]
     pub url: Option<Url>,
@@ -167,46 +168,55 @@ impl TryFrom<ItemEvent> for ItemEventRecord {
                     description_native: payload.native_description.map(TextRecord::from),
                     description_de,
                     description_en,
-                    price_native: payload.native_price.map(PriceRecord::from),
-                    price_eur: payload
+                    new_price_native: payload.native_price.map(PriceRecord::from),
+                    new_price_eur: payload
                         .other_price
                         .get(&Currency::Eur)
                         .copied()
                         .map(u64::from),
-                    price_usd: payload
+                    new_price_usd: payload
                         .other_price
                         .get(&Currency::Usd)
                         .copied()
                         .map(u64::from),
-                    price_gbp: payload
+                    new_price_gbp: payload
                         .other_price
                         .get(&Currency::Gbp)
                         .copied()
                         .map(u64::from),
-                    price_aud: payload
+                    new_price_aud: payload
                         .other_price
                         .get(&Currency::Aud)
                         .copied()
                         .map(u64::from),
-                    price_cad: payload
+                    new_price_cad: payload
                         .other_price
                         .get(&Currency::Cad)
                         .copied()
                         .map(u64::from),
-                    price_nzd: payload
+                    new_price_nzd: payload
                         .other_price
                         .get(&Currency::Nzd)
                         .copied()
                         .map(u64::from),
-                    state: Some(payload.state.into()),
+                    old_price_native: None,
+                    old_price_eur: None,
+                    old_price_usd: None,
+                    old_price_gbp: None,
+                    old_price_aud: None,
+                    old_price_cad: None,
+                    old_price_nzd: None,
+                    new_state: Some(payload.state.into()),
+                    old_state: None,
                     url: Some(payload.url),
                     images: Some(payload.images),
                     timestamp: domain.timestamp,
                 };
                 Ok(record)
             }
-            ItemEventPayload::StateListed(_) => Ok(mk_state_event_record(
+            ItemEventPayload::StateListed(payload) => Ok(mk_state_event_record(
                 ItemStateRecord::Listed,
+                payload.old_state.into(),
                 pk,
                 sk,
                 item_id,
@@ -216,8 +226,9 @@ impl TryFrom<ItemEvent> for ItemEventRecord {
                 shops_item_id,
                 domain.timestamp,
             )),
-            ItemEventPayload::StateReserved(_) => Ok(mk_state_event_record(
+            ItemEventPayload::StateReserved(payload) => Ok(mk_state_event_record(
                 ItemStateRecord::Reserved,
+                payload.old_state.into(),
                 pk,
                 sk,
                 item_id,
@@ -227,8 +238,9 @@ impl TryFrom<ItemEvent> for ItemEventRecord {
                 shops_item_id,
                 domain.timestamp,
             )),
-            ItemEventPayload::StateAvailable(_) => Ok(mk_state_event_record(
+            ItemEventPayload::StateAvailable(payload) => Ok(mk_state_event_record(
                 ItemStateRecord::Available,
+                payload.old_state.into(),
                 pk,
                 sk,
                 item_id,
@@ -238,8 +250,9 @@ impl TryFrom<ItemEvent> for ItemEventRecord {
                 shops_item_id,
                 domain.timestamp,
             )),
-            ItemEventPayload::StateSold(_) => Ok(mk_state_event_record(
+            ItemEventPayload::StateSold(payload) => Ok(mk_state_event_record(
                 ItemStateRecord::Sold,
+                payload.old_state.into(),
                 pk,
                 sk,
                 item_id,
@@ -249,8 +262,9 @@ impl TryFrom<ItemEvent> for ItemEventRecord {
                 shops_item_id,
                 domain.timestamp,
             )),
-            ItemEventPayload::StateRemoved(_) => Ok(mk_state_event_record(
+            ItemEventPayload::StateRemoved(payload) => Ok(mk_state_event_record(
                 ItemStateRecord::Removed,
+                payload.old_state.into(),
                 pk,
                 sk,
                 item_id,
@@ -260,8 +274,9 @@ impl TryFrom<ItemEvent> for ItemEventRecord {
                 shops_item_id,
                 domain.timestamp,
             )),
-            ItemEventPayload::StateUnknown(_) => Ok(mk_state_event_record(
+            ItemEventPayload::StateUnknown(payload) => Ok(mk_state_event_record(
                 ItemStateRecord::Unknown,
+                payload.old_state.into(),
                 pk,
                 sk,
                 item_id,
@@ -271,40 +286,7 @@ impl TryFrom<ItemEvent> for ItemEventRecord {
                 shops_item_id,
                 domain.timestamp,
             )),
-            ItemEventPayload::PriceDiscovered(payload) => Ok(mk_price_event_record(
-                payload,
-                pk,
-                sk,
-                item_id,
-                event_id,
-                event_type,
-                shop_id,
-                shops_item_id,
-                domain.timestamp,
-            )),
-            ItemEventPayload::PriceIncreased(payload) => Ok(mk_price_event_record(
-                payload,
-                pk,
-                sk,
-                item_id,
-                event_id,
-                event_type,
-                shop_id,
-                shops_item_id,
-                domain.timestamp,
-            )),
-            ItemEventPayload::PriceDropped(payload) => Ok(mk_price_event_record(
-                payload,
-                pk,
-                sk,
-                item_id,
-                event_id,
-                event_type,
-                shop_id,
-                shops_item_id,
-                domain.timestamp,
-            )),
-            ItemEventPayload::PriceRemoved(_) => Ok(ItemEventRecord {
+            ItemEventPayload::PriceDiscovered(payload) => Ok(ItemEventRecord {
                 pk,
                 sk,
                 item_id,
@@ -319,14 +301,127 @@ impl TryFrom<ItemEvent> for ItemEventRecord {
                 description_native: None,
                 description_de: None,
                 description_en: None,
-                price_native: None,
-                price_eur: None,
-                price_usd: None,
-                price_gbp: None,
-                price_aud: None,
-                price_cad: None,
-                price_nzd: None,
-                state: None,
+                new_price_native: Some(payload.native_price.into()),
+                new_price_eur: payload
+                    .other_price
+                    .get(&Currency::Eur)
+                    .copied()
+                    .map(u64::from),
+                new_price_usd: payload
+                    .other_price
+                    .get(&Currency::Usd)
+                    .copied()
+                    .map(u64::from),
+                new_price_gbp: payload
+                    .other_price
+                    .get(&Currency::Gbp)
+                    .copied()
+                    .map(u64::from),
+                new_price_aud: payload
+                    .other_price
+                    .get(&Currency::Aud)
+                    .copied()
+                    .map(u64::from),
+                new_price_cad: payload
+                    .other_price
+                    .get(&Currency::Cad)
+                    .copied()
+                    .map(u64::from),
+                new_price_nzd: payload
+                    .other_price
+                    .get(&Currency::Nzd)
+                    .copied()
+                    .map(u64::from),
+                old_price_native: None,
+                old_price_eur: None,
+                old_price_usd: None,
+                old_price_gbp: None,
+                old_price_aud: None,
+                old_price_cad: None,
+                old_price_nzd: None,
+                new_state: None,
+                old_state: None,
+                url: None,
+                images: None,
+                timestamp: domain.timestamp,
+            }),
+            ItemEventPayload::PriceIncreased(payload) => Ok(mk_price_change_event_record(
+                payload,
+                pk,
+                sk,
+                item_id,
+                event_id,
+                event_type,
+                shop_id,
+                shops_item_id,
+                domain.timestamp,
+            )),
+            ItemEventPayload::PriceDropped(payload) => Ok(mk_price_change_event_record(
+                payload,
+                pk,
+                sk,
+                item_id,
+                event_id,
+                event_type,
+                shop_id,
+                shops_item_id,
+                domain.timestamp,
+            )),
+            ItemEventPayload::PriceRemoved(payload) => Ok(ItemEventRecord {
+                pk,
+                sk,
+                item_id,
+                event_id,
+                event_type,
+                shop_id,
+                shops_item_id,
+                shop_name: None,
+                title_native: None,
+                title_de: None,
+                title_en: None,
+                description_native: None,
+                description_de: None,
+                description_en: None,
+                new_price_native: None,
+                new_price_eur: None,
+                new_price_usd: None,
+                new_price_gbp: None,
+                new_price_aud: None,
+                new_price_cad: None,
+                new_price_nzd: None,
+                old_price_native: Some(payload.old_native_price.into()),
+                old_price_eur: payload
+                    .old_other_price
+                    .get(&Currency::Eur)
+                    .copied()
+                    .map(u64::from),
+                old_price_usd: payload
+                    .old_other_price
+                    .get(&Currency::Usd)
+                    .copied()
+                    .map(u64::from),
+                old_price_gbp: payload
+                    .old_other_price
+                    .get(&Currency::Gbp)
+                    .copied()
+                    .map(u64::from),
+                old_price_aud: payload
+                    .old_other_price
+                    .get(&Currency::Aud)
+                    .copied()
+                    .map(u64::from),
+                old_price_cad: payload
+                    .old_other_price
+                    .get(&Currency::Cad)
+                    .copied()
+                    .map(u64::from),
+                old_price_nzd: payload
+                    .old_other_price
+                    .get(&Currency::Nzd)
+                    .copied()
+                    .map(u64::from),
+                new_state: None,
+                old_state: None,
                 url: None,
                 images: None,
                 timestamp: domain.timestamp,
@@ -337,7 +432,8 @@ impl TryFrom<ItemEvent> for ItemEventRecord {
 
 #[allow(clippy::too_many_arguments)]
 fn mk_state_event_record(
-    item_state_record: ItemStateRecord,
+    new_item_state_record: ItemStateRecord,
+    old_item_state_record: ItemStateRecord,
     pk: String,
     sk: String,
     item_id: ItemId,
@@ -362,14 +458,22 @@ fn mk_state_event_record(
         description_native: None,
         description_de: None,
         description_en: None,
-        price_native: None,
-        price_eur: None,
-        price_usd: None,
-        price_gbp: None,
-        price_aud: None,
-        price_cad: None,
-        price_nzd: None,
-        state: Some(item_state_record),
+        new_price_native: None,
+        new_price_eur: None,
+        new_price_usd: None,
+        new_price_gbp: None,
+        new_price_aud: None,
+        new_price_cad: None,
+        new_price_nzd: None,
+        old_price_native: None,
+        old_price_eur: None,
+        old_price_usd: None,
+        old_price_gbp: None,
+        old_price_aud: None,
+        old_price_cad: None,
+        old_price_nzd: None,
+        new_state: Some(new_item_state_record),
+        old_state: Some(old_item_state_record),
         url: None,
         images: None,
         timestamp,
@@ -377,7 +481,7 @@ fn mk_state_event_record(
 }
 
 #[allow(clippy::too_many_arguments)]
-fn mk_price_event_record(
+fn mk_price_change_event_record(
     item_price_change_event_payload: ItemPriceChangeEventPayload,
     pk: String,
     sk: String,
@@ -403,38 +507,70 @@ fn mk_price_event_record(
         description_native: None,
         description_de: None,
         description_en: None,
-        price_native: Some(item_price_change_event_payload.native_price.into()),
-        price_eur: item_price_change_event_payload
-            .other_price
+        new_price_native: Some(item_price_change_event_payload.new_native_price.into()),
+        new_price_eur: item_price_change_event_payload
+            .new_other_price
             .get(&Currency::Eur)
             .copied()
             .map(u64::from),
-        price_usd: item_price_change_event_payload
-            .other_price
+        new_price_usd: item_price_change_event_payload
+            .new_other_price
             .get(&Currency::Usd)
             .copied()
             .map(u64::from),
-        price_gbp: item_price_change_event_payload
-            .other_price
+        new_price_gbp: item_price_change_event_payload
+            .new_other_price
             .get(&Currency::Gbp)
             .copied()
             .map(u64::from),
-        price_aud: item_price_change_event_payload
-            .other_price
+        new_price_aud: item_price_change_event_payload
+            .new_other_price
             .get(&Currency::Aud)
             .copied()
             .map(u64::from),
-        price_cad: item_price_change_event_payload
-            .other_price
+        new_price_cad: item_price_change_event_payload
+            .new_other_price
             .get(&Currency::Cad)
             .copied()
             .map(u64::from),
-        price_nzd: item_price_change_event_payload
-            .other_price
+        new_price_nzd: item_price_change_event_payload
+            .new_other_price
             .get(&Currency::Nzd)
             .copied()
             .map(u64::from),
-        state: None,
+        old_price_native: Some(item_price_change_event_payload.old_native_price.into()),
+        old_price_eur: item_price_change_event_payload
+            .old_other_price
+            .get(&Currency::Eur)
+            .copied()
+            .map(u64::from),
+        old_price_usd: item_price_change_event_payload
+            .old_other_price
+            .get(&Currency::Usd)
+            .copied()
+            .map(u64::from),
+        old_price_gbp: item_price_change_event_payload
+            .old_other_price
+            .get(&Currency::Gbp)
+            .copied()
+            .map(u64::from),
+        old_price_aud: item_price_change_event_payload
+            .old_other_price
+            .get(&Currency::Aud)
+            .copied()
+            .map(u64::from),
+        old_price_cad: item_price_change_event_payload
+            .old_other_price
+            .get(&Currency::Cad)
+            .copied()
+            .map(u64::from),
+        old_price_nzd: item_price_change_event_payload
+            .old_other_price
+            .get(&Currency::Nzd)
+            .copied()
+            .map(u64::from),
+        new_state: None,
+        old_state: None,
         url: None,
         images: None,
         timestamp,
@@ -447,24 +583,44 @@ impl TryFrom<ItemEventRecord> for ItemEvent {
     fn try_from(record: ItemEventRecord) -> Result<Self, Self::Error> {
         let shop_id = record.shop_id;
         let shops_item_id = record.shops_item_id;
-        let mut other_price = HashMap::with_capacity(6);
-        if let Some(amount_eur) = record.price_eur {
-            other_price.insert(Currency::Eur, amount_eur.into());
+        let mut new_other_price = HashMap::with_capacity(6);
+        if let Some(amount_eur) = record.new_price_eur {
+            new_other_price.insert(Currency::Eur, amount_eur.into());
         }
-        if let Some(amount_gbp) = record.price_gbp {
-            other_price.insert(Currency::Gbp, amount_gbp.into());
+        if let Some(amount_gbp) = record.new_price_gbp {
+            new_other_price.insert(Currency::Gbp, amount_gbp.into());
         }
-        if let Some(amount_usd) = record.price_usd {
-            other_price.insert(Currency::Usd, amount_usd.into());
+        if let Some(amount_usd) = record.new_price_usd {
+            new_other_price.insert(Currency::Usd, amount_usd.into());
         }
-        if let Some(amount_aud) = record.price_aud {
-            other_price.insert(Currency::Aud, amount_aud.into());
+        if let Some(amount_aud) = record.new_price_aud {
+            new_other_price.insert(Currency::Aud, amount_aud.into());
         }
-        if let Some(amount_cad) = record.price_cad {
-            other_price.insert(Currency::Cad, amount_cad.into());
+        if let Some(amount_cad) = record.new_price_cad {
+            new_other_price.insert(Currency::Cad, amount_cad.into());
         }
-        if let Some(amount_nzd) = record.price_nzd {
-            other_price.insert(Currency::Nzd, amount_nzd.into());
+        if let Some(amount_nzd) = record.new_price_nzd {
+            new_other_price.insert(Currency::Nzd, amount_nzd.into());
+        }
+
+        let mut old_other_price = HashMap::with_capacity(6);
+        if let Some(amount_eur) = record.old_price_eur {
+            old_other_price.insert(Currency::Eur, amount_eur.into());
+        }
+        if let Some(amount_gbp) = record.old_price_gbp {
+            old_other_price.insert(Currency::Gbp, amount_gbp.into());
+        }
+        if let Some(amount_usd) = record.old_price_usd {
+            old_other_price.insert(Currency::Usd, amount_usd.into());
+        }
+        if let Some(amount_aud) = record.old_price_aud {
+            old_other_price.insert(Currency::Aud, amount_aud.into());
+        }
+        if let Some(amount_cad) = record.old_price_cad {
+            old_other_price.insert(Currency::Cad, amount_cad.into());
+        }
+        if let Some(amount_nzd) = record.old_price_nzd {
+            old_other_price.insert(Currency::Nzd, amount_nzd.into());
         }
 
         let event = Event {
@@ -501,12 +657,11 @@ impl TryFrom<ItemEventRecord> for ItemEvent {
                         other_title,
                         native_description: record.description_native.map(Localized::from),
                         other_description,
-                        native_price: record.price_native.map(Price::from),
-                        other_price,
-                        state: record
-                            .state
-                            .map(ItemState::from)
-                            .ok_or(MissingPersistenceField::new(field!(state@ItemEventRecord)))?,
+                        native_price: record.new_price_native.map(Price::from),
+                        other_price: new_other_price,
+                        state: record.new_state.map(ItemState::from).ok_or(
+                            MissingPersistenceField::new(field!(new_state@ItemEventRecord)),
+                        )?,
                         url: record
                             .url
                             .ok_or(MissingPersistenceField::new(field!(url@ItemEventRecord)))?,
@@ -517,72 +672,102 @@ impl TryFrom<ItemEventRecord> for ItemEvent {
                     ItemEventPayload::StateListed(ItemStateChangeEventPayload {
                         shop_id,
                         shops_item_id,
+                        old_state: record.old_state.map(ItemState::from).ok_or(
+                            MissingPersistenceField::new(field!(old_state@ItemEventRecord)),
+                        )?,
                     })
                 }
                 ItemEventTypeRecord::StateAvailable => {
                     ItemEventPayload::StateAvailable(ItemStateChangeEventPayload {
                         shop_id,
                         shops_item_id,
+                        old_state: record.old_state.map(ItemState::from).ok_or(
+                            MissingPersistenceField::new(field!(old_state@ItemEventRecord)),
+                        )?,
                     })
                 }
                 ItemEventTypeRecord::StateReserved => {
                     ItemEventPayload::StateReserved(ItemStateChangeEventPayload {
                         shop_id,
                         shops_item_id,
+                        old_state: record.old_state.map(ItemState::from).ok_or(
+                            MissingPersistenceField::new(field!(old_state@ItemEventRecord)),
+                        )?,
                     })
                 }
                 ItemEventTypeRecord::StateSold => {
                     ItemEventPayload::StateSold(ItemStateChangeEventPayload {
                         shop_id,
                         shops_item_id,
+                        old_state: record.old_state.map(ItemState::from).ok_or(
+                            MissingPersistenceField::new(field!(old_state@ItemEventRecord)),
+                        )?,
                     })
                 }
                 ItemEventTypeRecord::StateRemoved => {
                     ItemEventPayload::StateRemoved(ItemStateChangeEventPayload {
                         shop_id,
                         shops_item_id,
+                        old_state: record.old_state.map(ItemState::from).ok_or(
+                            MissingPersistenceField::new(field!(old_state@ItemEventRecord)),
+                        )?,
                     })
                 }
                 ItemEventTypeRecord::StateUnknown => {
                     ItemEventPayload::StateUnknown(ItemStateChangeEventPayload {
                         shop_id,
                         shops_item_id,
+                        old_state: record.old_state.map(ItemState::from).ok_or(
+                            MissingPersistenceField::new(field!(old_state@ItemEventRecord)),
+                        )?,
                     })
                 }
                 ItemEventTypeRecord::PriceDiscovered => {
-                    ItemEventPayload::PriceDiscovered(ItemPriceChangeEventPayload {
+                    ItemEventPayload::PriceDiscovered(ItemPriceDiscoveryEventPayload {
                         shop_id,
                         shops_item_id,
-                        native_price: record.price_native.map(Price::from).ok_or(
-                            MissingPersistenceField::new(field!(price_native@ItemEventRecord)),
+                        native_price: record.new_price_native.map(Price::from).ok_or(
+                            MissingPersistenceField::new(field!(new_price_native@ItemEventRecord)),
                         )?,
-                        other_price,
+                        other_price: new_other_price,
                     })
                 }
                 ItemEventTypeRecord::PriceDropped => {
                     ItemEventPayload::PriceDropped(ItemPriceChangeEventPayload {
                         shop_id,
                         shops_item_id,
-                        native_price: record.price_native.map(Price::from).ok_or(
-                            MissingPersistenceField::new(field!(price_native@ItemEventRecord)),
+                        new_native_price: record.new_price_native.map(Price::from).ok_or(
+                            MissingPersistenceField::new(field!(new_price_native@ItemEventRecord)),
                         )?,
-                        other_price,
+                        new_other_price,
+                        old_native_price: record.old_price_native.map(Price::from).ok_or(
+                            MissingPersistenceField::new(field!(old_price_native@ItemEventRecord)),
+                        )?,
+                        old_other_price,
                     })
                 }
                 ItemEventTypeRecord::PriceIncreased => {
                     ItemEventPayload::PriceIncreased(ItemPriceChangeEventPayload {
                         shop_id,
                         shops_item_id,
-                        native_price: record.price_native.map(Price::from).ok_or(
-                            MissingPersistenceField::new(field!(price_native@ItemEventRecord)),
+                        new_native_price: record.new_price_native.map(Price::from).ok_or(
+                            MissingPersistenceField::new(field!(new_price_native@ItemEventRecord)),
                         )?,
-                        other_price,
+                        new_other_price,
+                        old_native_price: record.old_price_native.map(Price::from).ok_or(
+                            MissingPersistenceField::new(field!(old_price_native@ItemEventRecord)),
+                        )?,
+                        old_other_price,
                     })
                 }
                 ItemEventTypeRecord::PriceRemoved => {
                     ItemEventPayload::PriceRemoved(ItemPriceRemovedEventPayload {
                         shop_id,
                         shops_item_id,
+                        old_native_price: record.old_price_native.map(Price::from).ok_or(
+                            MissingPersistenceField::new(field!(old_price_native@ItemEventRecord)),
+                        )?,
+                        old_other_price,
                     })
                 }
             },
