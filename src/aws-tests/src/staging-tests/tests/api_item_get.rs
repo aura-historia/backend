@@ -125,7 +125,7 @@ async fn should_respond_200_with_history() {
     assert_eq!(2, history.len());
     assert_eq!(event_1_id.to_string(), history[0]["eventId"]);
     assert_eq!("PRICE_DROPPED", history[0]["eventType"]);
-    assert_eq!("USD", history[0]["payload"]["new_price"]["currency"]);
+    assert_eq!("USD", history[0]["payload"]["newPrice"]["currency"]);
     assert_eq!(
         u64::from(
             event_1_price
