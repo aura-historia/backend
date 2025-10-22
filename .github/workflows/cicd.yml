@@ -181,7 +181,7 @@ jobs:
         run: cargo test --test '*' --all-features -- --nocapture
 
   test-python-nightly-enrichment:
-    name: Test Python with 'nightly-enrichment'
+    name: Test nightly-enrichment
     needs: build
     permissions:
       contents: read
