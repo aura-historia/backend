@@ -3050,8 +3050,12 @@ dependencies = [
 name = "nightly-enrichment"
 version = "0.1.0"
 dependencies = [
+ "async-trait",
+ "item-opensearch",
+ "mockall",
  "pyo3",
  "pyo3-ffi",
+ "tracing",
 ]
 
 [[package]]

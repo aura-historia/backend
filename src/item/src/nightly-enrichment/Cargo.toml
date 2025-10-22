@@ -6,3 +6,7 @@ edition = "2024"
 [dependencies]
 pyo3 = { version = "0.27.1", features = ["auto-initialize"] }
 pyo3-ffi = { version = "0.27.0" }
+async-trait = { workspace = true }
+tracing = { workspace = true }
+mockall = { workspace = true }
+item-opensearch = { workspace = true }
