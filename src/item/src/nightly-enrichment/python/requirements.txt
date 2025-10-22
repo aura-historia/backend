@@ -1,4 +1,4 @@
-torch
-transformers
-sentence-transformers
-numpy
+numpy==2.3.4
+sentence-transformers==5.1.2
+torch==2.9.0
+transformers==4.57.1

@@ -180,6 +180,60 @@ jobs:
         working-directory: ${{ matrix.crate }}
         run: cargo test --test '*' --all-features -- --nocapture
 
+  test-python-nightly-enrichment:
+    name: Test Python-Integration for 'nightly-enrichment'
+    needs: build
+    permissions:
+      contents: read
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Set up Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache cargo registry and target
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            ~/.cargo/bin
+            target
+          key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.13.7"
+
+      - name: Cache Python & HuggingFace
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cache/pip
+            ~/.cache/huggingface
+          key: ${{ runner.os }}-pydeps-${{ hashFiles('python/requirements.txt') }}
+          restore-keys: |
+            ${{ runner.os }}-pydeps-
+
+      - name: Install Python deps
+        working-directory: src/item/src/nightly-enrichment/python
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+
+      - name: Preload embedding model
+        run: |
+          python - <<'PYCODE'
+          from sentence_transformers import SentenceTransformer
+          SentenceTransformer('BAAI/bge-m3')
+          PYCODE
+
+      - name: Test 'nightly-enrichment'
+        working-directory: src/item/src/nightly-enrichment
+        run: cargo test --all-features -- --ignored --nocapture
+
   sonar:
     name: SonarQube-Cloud Analysis
     needs: [unit-test, integration-test]
@@ -247,7 +301,7 @@ jobs:
 
   aws-push-lambda:
     name: Push Lambda to S3 ${{ matrix.crate }}
-    needs: [unit-test, integration-test]
+    needs: [unit-test, integration-test, test-python-nightly-enrichment]
     runs-on: ubuntu-latest
     permissions:
       contents: read
