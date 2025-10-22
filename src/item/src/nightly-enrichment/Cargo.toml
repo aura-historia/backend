@@ -14,3 +14,5 @@ item-opensearch = { workspace = true }
 
 [dev-dependencies]
 rstest = { workspace = true }
+fake = { workspace = true }
+item-opensearch = { workspace = true, features = ["test-data"] }

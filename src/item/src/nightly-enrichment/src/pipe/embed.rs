@@ -52,3 +52,37 @@ impl<'a> EnrichmentPipe for EmbeddingEnrichmentPipeImpl<'a> {
         Ok(enriched)
     }
 }
+
+#[cfg(test)]
+pub mod tests {
+    use crate::{
+        embed::MockEmbeddingDelegate,
+        pipe::{embed::EmbeddingEnrichmentPipeImpl, spec::EnrichmentPipe},
+    };
+    use item_opensearch::item_document::ItemDocument;
+
+    #[test]
+    fn should_keep_order_of_delegate_returned_embeddings() {
+        let expected = vec![
+            vec![1.234, 5.6789],
+            vec![1.234, -5.6789],
+            vec![-1.234, 5.6789],
+            vec![-1.234, -5.6789],
+        ];
+        let expected_clone = expected.clone();
+        let mut delegate = MockEmbeddingDelegate::default();
+        delegate
+            .expect_embed()
+            .return_once(move |_| Ok(expected_clone.try_into().unwrap()));
+
+        let embedding_pipe = EmbeddingEnrichmentPipeImpl::new(&delegate);
+        let actual = embedding_pipe
+            .enrich(fake::vec![ItemDocument; 42])
+            .unwrap()
+            .into_iter()
+            .filter_map(|doc| doc.embedding)
+            .collect::<Vec<_>>();
+
+        assert_eq!(expected, actual);
+    }
+}

@@ -3052,6 +3052,7 @@ version = "0.1.0"
 dependencies = [
  "async-trait",
  "common",
+ "fake",
  "item-opensearch",
  "mockall",
  "pyo3",
