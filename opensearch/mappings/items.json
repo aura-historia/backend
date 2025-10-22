@@ -1,4 +1,8 @@
 {
+  "settings": {
+    "index.knn": true,
+    "knn.algo_param.ef_search": 128
+  },
   "mappings": {
     "properties": {
       "itemId": {
@@ -58,6 +62,26 @@
       },
       "images": {
         "type": "keyword"
+      },
+      "embedding": {
+        "type": "knn_vector",
+        "dimension": 1024,
+        "method": {
+          "engine": "faiss",
+          "space_type": "cosinesimil",
+          "name": "hnsw",
+          "parameters": {
+            "m": 32,
+            "ef_construction": 1024,
+            "encoder": {
+              "name": "sq",
+              "parameters": {
+                "type": "fp16",
+                "clip": false
+              }
+            }
+          }
+        }
       },
       "created": {
         "type": "date",
