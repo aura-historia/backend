@@ -4,6 +4,7 @@ version = "0.1.0"
 edition = "2024"
 
 [dependencies]
+common = { workspace = true }
 pyo3 = { version = "0.27.1", features = ["auto-initialize"] }
 pyo3-ffi = { version = "0.27.0" }
 async-trait = { workspace = true }

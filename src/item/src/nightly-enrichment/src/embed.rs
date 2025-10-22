@@ -1,3 +1,4 @@
+use common::batch::Batch;
 use pyo3::types::PyList;
 use pyo3::{intern, prelude::*};
 use pyo3_ffi::c_str;
@@ -5,8 +6,7 @@ use std::sync::Arc;
 
 // #[mockall::automock]
 pub trait EmbeddingDelegate {
-    /// Get embeddings for a batch of texts
-    fn get_embeddings(&self, texts: &[&str]) -> PyResult<Vec<Vec<f32>>>;
+    fn embed(&self, batch: &Batch<String, 64>) -> PyResult<Batch<Vec<f32>, 64>>;
 }
 
 /// Delegates to a persistent Python embedding session.
@@ -33,10 +33,10 @@ impl EmbeddingDelegateImpl {
 }
 
 impl EmbeddingDelegate for EmbeddingDelegateImpl {
-    fn get_embeddings(&self, texts: &[&str]) -> PyResult<Vec<Vec<f32>>> {
+    fn embed(&self, batch: &Batch<String, 64>) -> PyResult<Batch<Vec<f32>, 64>> {
         Python::attach(|py| -> PyResult<_> {
             let embed_module = self.module.as_ref();
-            let py_texts = PyList::new(py, texts)?;
+            let py_texts = PyList::new(py, batch.iter())?;
 
             // Call the Python function and convert to Py<PyAny> for safe ownership
             let result: Py<PyAny> = embed_module
@@ -44,7 +44,9 @@ impl EmbeddingDelegate for EmbeddingDelegateImpl {
                 .call1(py, (py_texts,))?;
 
             let embeddings: Vec<Vec<f32>> = result.as_ref().extract(py)?;
-            Ok(embeddings)
+            let embeddings_batch = Batch::try_from(embeddings)
+                .expect("shouldn't fail re-collecting former batch of same size");
+            Ok(embeddings_batch)
         })
     }
 }

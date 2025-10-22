@@ -48,6 +48,7 @@ async fn should_create_item_document() {
         state: ItemStateDocument::Listed,
         url: Url::parse("https://foo.com/bar").unwrap(),
         images: vec![Url::parse("https://foo.com/bar").unwrap()],
+        embedding: None,
         created: OffsetDateTime::now_utc(),
         updated: OffsetDateTime::now_utc(),
     };
@@ -86,6 +87,7 @@ async fn should_create_item_documents() {
         state: ItemStateDocument::Listed,
         url: Url::parse("https://foo.com/bar").unwrap(),
         images: vec![Url::parse("https://foo.com/bar").unwrap()],
+        embedding: None,
         created: OffsetDateTime::now_utc(),
         updated: OffsetDateTime::now_utc(),
     };
@@ -109,6 +111,7 @@ async fn should_create_item_documents() {
         state: ItemStateDocument::Listed,
         url: Url::parse("https://foo.com/bar").unwrap(),
         images: vec![Url::parse("https://foo.com/bar").unwrap()],
+        embedding: None,
         created: OffsetDateTime::now_utc(),
         updated: OffsetDateTime::now_utc(),
     };
@@ -149,6 +152,7 @@ async fn should_update_item_document() {
         state: ItemStateDocument::Listed,
         url: Url::parse("https://foo.com/bar").unwrap(),
         images: vec![Url::parse("https://foo.com/bar").unwrap()],
+        embedding: None,
         created: OffsetDateTime::now_utc(),
         updated: OffsetDateTime::now_utc(),
     };
@@ -213,6 +217,7 @@ async fn should_search_item_documents() {
         state: ItemStateDocument::Available,
         url: Url::parse("https://foo.com/bar").unwrap(),
         images: vec![Url::parse("https://foo.com/bar").unwrap()],
+        embedding: None,
         created: OffsetDateTime::now_utc(),
         updated: OffsetDateTime::now_utc(),
     };

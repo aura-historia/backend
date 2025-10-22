@@ -3051,6 +3051,7 @@ name = "nightly-enrichment"
 version = "0.1.0"
 dependencies = [
  "async-trait",
+ "common",
  "item-opensearch",
  "mockall",
  "pyo3",
