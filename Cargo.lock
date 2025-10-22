@@ -3056,6 +3056,7 @@ dependencies = [
  "mockall",
  "pyo3",
  "pyo3-ffi",
+ "rstest",
  "tracing",
 ]
 

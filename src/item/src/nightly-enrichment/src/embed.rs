@@ -4,7 +4,7 @@ use pyo3::{intern, prelude::*};
 use pyo3_ffi::c_str;
 use std::sync::Arc;
 
-// #[mockall::automock]
+#[mockall::automock]
 pub trait EmbeddingDelegate {
     fn embed(&self, batch: &Batch<String, 64>) -> PyResult<Batch<Vec<f32>, 64>>;
 }
@@ -40,7 +40,7 @@ impl EmbeddingDelegate for EmbeddingDelegateImpl {
 
             // Call the Python function and convert to Py<PyAny> for safe ownership
             let result: Py<PyAny> = embed_module
-                .getattr(py, intern!(py, "get_embeddings"))?
+                .getattr(py, intern!(py, "embed"))?
                 .call1(py, (py_texts,))?;
 
             let embeddings: Vec<Vec<f32>> = result.as_ref().extract(py)?;
@@ -48,5 +48,29 @@ impl EmbeddingDelegate for EmbeddingDelegateImpl {
                 .expect("shouldn't fail re-collecting former batch of same size");
             Ok(embeddings_batch)
         })
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::embed::{EmbeddingDelegate, EmbeddingDelegateImpl};
+
+    #[test]
+    #[ignore]
+    fn should_embed_dim_1024() {
+        let delegate = EmbeddingDelegateImpl::new().unwrap();
+
+        let batch = vec![
+            "foo".to_owned(),
+            "bar".to_owned(),
+            "baaaaaaaaaaaaaaaz [SEP] bat".to_owned(),
+            "baaaaaaaaaaaaaaaz".to_owned(),
+        ]
+        .try_into()
+        .unwrap();
+        let embeddings = delegate.embed(&batch).unwrap();
+
+        assert_eq!(batch.len(), embeddings.len());
+        assert!(embeddings.iter().all(|embedding| embedding.len() == 1024));
     }
 }

@@ -11,3 +11,6 @@ async-trait = { workspace = true }
 tracing = { workspace = true }
 mockall = { workspace = true }
 item-opensearch = { workspace = true }
+
+[dev-dependencies]
+rstest = { workspace = true }

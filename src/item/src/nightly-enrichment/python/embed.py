@@ -7,6 +7,6 @@ model = SentenceTransformer("BAAI/bge-m3", device=device)
 print(f"Using device '{device}'.")
 
 
-def get_embeddings(texts):
+def embed(texts):
     embeddings = model.encode(texts, normalize_embeddings=True, batch_size=64)
     return embeddings.astype(np.float32).tolist()
