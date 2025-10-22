@@ -1,0 +1,6 @@
+services:
+  embed_server:
+    environment:
+      - DEVICE=cpu
+    # volumes:
+    # - ./python:/app

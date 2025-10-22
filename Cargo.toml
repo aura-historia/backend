@@ -86,6 +86,7 @@ item-opensearch = { path = "src/item/src/item-opensearch" }
 item-lambda = { path = "src/item/src/item-lambda" }
 item-service = { path = "src/item/src/item-service" }
 item-watchlist = { path = "src/item/src/item-watchlist" }
+nightly-enrichment = { path = "src/item/src/nightly-enrichment" }
 item-lambda-common = { path = "src/item/src/item-lambda/src/item-lambda-common" }
 item-lambda-materialize-dynamodb-new = { path = "src/item/src/item-lambda/src/item-lambda-materialize-dynamodb-new" }
 item-lambda-materialize-dynamodb-update = { path = "src/item/src/item-lambda/src/item-lambda-materialize-dynamodb-update" }

@@ -2148,6 +2148,7 @@ dependencies = [
  "item-opensearch",
  "item-service",
  "item-watchlist",
+ "nightly-enrichment",
 ]
 
 [[package]]
@@ -3026,6 +3027,10 @@ dependencies = [
  "security-framework-sys",
  "tempfile",
 ]
+
+[[package]]
+name = "nightly-enrichment"
+version = "0.1.0"
 
 [[package]]
 name = "nom"

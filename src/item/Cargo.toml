@@ -11,3 +11,4 @@ item-lambda = { workspace = true }
 item-service = { workspace = true }
 item-watchlist = { workspace = true }
 item-dynamodb = { workspace = true, features = ["repository"] }
+nightly-enrichment = { workspace = true }

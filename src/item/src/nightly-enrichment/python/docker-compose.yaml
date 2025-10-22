@@ -1,0 +1,10 @@
+version: "3.9"
+
+services:
+  embed_server:
+    build: .
+    ports:
+      - "8000:8000"
+    environment:
+      - DEVICE=${DEVICE:-cpu}
+    image: embed-server
