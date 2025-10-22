@@ -181,7 +181,7 @@ jobs:
         run: cargo test --test '*' --all-features -- --nocapture
 
   test-python-nightly-enrichment:
-    name: Test Python-Integration for 'nightly-enrichment'
+    name: Test Python with 'nightly-enrichment'
     needs: build
     permissions:
       contents: read
@@ -207,12 +207,11 @@ jobs:
         with:
           python-version: "3.13.7"
 
-      - name: Cache Python & HuggingFace
+      - name: Cache Python
         uses: actions/cache@v4
         with:
           path: |
             ~/.cache/pip
-            ~/.cache/huggingface
           key: ${{ runner.os }}-pydeps-${{ hashFiles('python/requirements.txt') }}
           restore-keys: |
             ${{ runner.os }}-pydeps-
@@ -222,13 +221,6 @@ jobs:
         run: |
           python -m pip install --upgrade pip
           pip install -r requirements.txt
-
-      - name: Preload embedding model
-        run: |
-          python - <<'PYCODE'
-          from sentence_transformers import SentenceTransformer
-          SentenceTransformer('BAAI/bge-m3')
-          PYCODE
 
       - name: Test 'nightly-enrichment'
         working-directory: src/item/src/nightly-enrichment
