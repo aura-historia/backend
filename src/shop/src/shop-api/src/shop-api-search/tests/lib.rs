@@ -54,8 +54,8 @@ async fn should_query_with_page_size_only(#[case] size: u64) {
 #[case("name", "desc", 15)]
 #[case("created", "asc", 20)]
 #[case("created", "desc", 20)]
-#[case("updated", "asc", 30)]
-#[case("updated", "desc", 30)]
+#[case("updated", "asc", 20)]
+#[case("updated", "desc", 20)]
 #[localstack_test(services = [OpenSearch()])]
 async fn should_follow_up_search_after_query(
     #[case] sort: &str,
