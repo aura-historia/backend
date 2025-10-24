@@ -92,8 +92,8 @@ impl From<PatchUserSearchFilterData> for SearchFilterUpdate {
                 .and_then(|sf| sf.price_query.map(|query| query.map(MonetaryAmount::from))),
             state_query: patch.search_filter.as_ref().and_then(|sf| {
                 sf.state_query
-                    .as_ref()
-                    .map(|states| states.iter().copied().map(ItemState::from).collect())
+                    .clone()
+                    .map(|states| states.into_iter().map(ItemState::from).collect())
             }),
             created_query: patch.search_filter.as_ref().and_then(|sf| sf.created_query),
             updated_query: patch.search_filter.as_ref().and_then(|sf| sf.updated_query),

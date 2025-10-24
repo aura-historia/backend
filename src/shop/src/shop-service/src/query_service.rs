@@ -74,16 +74,6 @@ impl<'a> QueryShopService for QueryShopServiceImpl<'a> {
                 cursor,
             )
             .await?;
-
-        let cursor = Cursor {
-            size: search_response.hits.hits.len() as u64,
-            search_after: search_response
-                .hits
-                .hits
-                .last()
-                .and_then(|last| last.sort.clone()),
-        };
-
         if search_response.timed_out {
             warn!(
                 searchFilter = ?search,
@@ -94,6 +84,15 @@ impl<'a> QueryShopService for QueryShopServiceImpl<'a> {
                 "Search-Request to OpenSearch timed out when querying shops."
             );
         }
+
+        let cursor = Cursor {
+            size: search_response.hits.hits.len() as u64,
+            search_after: search_response
+                .hits
+                .hits
+                .last()
+                .and_then(|last| last.sort.clone()),
+        };
 
         let shops = search_response
             .hits
