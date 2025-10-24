@@ -1,4 +1,5 @@
 use common::user_id::UserId;
+use fake::{Fake, Faker};
 use lambda_runtime::LambdaEvent;
 use search_filter_api_get_search_filters::handler;
 use search_filter_core::{search_filter::SearchFilter, search_filter_id::SearchFilterId};
@@ -16,7 +17,7 @@ async fn should_return_actual_search_filters_sortet_oldest_for_order_asc() {
     let mut expected = vec![];
     for search_filter in fake::vec![SearchFilter; 81] {
         let saved = service
-            .save_search_filter(&user_id, search_filter)
+            .save_search_filter(&user_id, Faker.fake(), search_filter)
             .await
             .unwrap();
         expected.push(saved);
@@ -66,7 +67,7 @@ async fn should_return_actual_search_filters_sortet_latest_for_order_desc() {
     let mut expected = vec![];
     for search_filter in fake::vec![SearchFilter; 81] {
         let saved = service
-            .save_search_filter(&user_id, search_filter)
+            .save_search_filter(&user_id, Faker.fake(), search_filter)
             .await
             .unwrap();
         expected.push(saved);

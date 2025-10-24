@@ -3,7 +3,8 @@ use common::user_id::UserId;
 use fake::{Fake, Faker};
 use lambda_runtime::LambdaEvent;
 use search_filter_api_patch_search_filter::{
-    handler, search_filter_data_patch::SearchFilterDataPatch,
+    handler,
+    patch::{PatchSearchFilterData, PatchUserSearchFilterData},
 };
 use search_filter_core::search_filter::SearchFilter;
 use search_filter_data::user_search_filter_data::UserSearchFilterData;
@@ -19,22 +20,25 @@ async fn should_update_search_filter() {
 
     let user_id = UserId::new();
     let initial = service
-        .save_search_filter(&user_id, Faker.fake::<SearchFilter>())
+        .save_search_filter(&user_id, Faker.fake(), Faker.fake::<SearchFilter>())
         .await
         .unwrap();
 
-    let patch = SearchFilterDataPatch {
-        language: None,
-        currency: None,
-        item_query: None,
-        shop_name_query: Some("Whoop boop woah".try_into().unwrap()),
-        price_query: Some(RangeQuery {
-            min: Some(37),
-            max: Some(42),
+    let patch = PatchUserSearchFilterData {
+        search_filter_name: Some("thorbens filter".into()),
+        search_filter: Some(PatchSearchFilterData {
+            language: None,
+            currency: None,
+            item_query: None,
+            shop_name_query: Some("Whoop boop woah".try_into().unwrap()),
+            price_query: Some(RangeQuery {
+                min: Some(37),
+                max: Some(42),
+            }),
+            state_query: None,
+            created_query: None,
+            updated_query: None,
         }),
-        state_query: None,
-        created_query: None,
-        updated_query: None,
     };
     let lambda_event = LambdaEvent {
         payload: ApiGatewayV2httpRequestProxy::builder()
@@ -51,12 +55,18 @@ async fn should_update_search_filter() {
 
     let json = extract_apigw_response_json_body!(response);
     let actual: UserSearchFilterData = serde_json::from_value(json).unwrap();
+    assert_eq!(patch.search_filter_name.unwrap(), actual.search_filter_name);
     assert_eq!(
-        patch.shop_name_query.unwrap(),
+        patch
+            .search_filter
+            .clone()
+            .unwrap()
+            .shop_name_query
+            .unwrap(),
         actual.search_filter.shop_name_query.unwrap()
     );
     assert_eq!(
-        patch.price_query.unwrap(),
+        patch.search_filter.clone().unwrap().price_query.unwrap(),
         actual.search_filter.price_query.unwrap()
     );
 }

@@ -1,4 +1,7 @@
-use crate::{search_filter::SearchFilter, search_filter_id::SearchFilterId};
+use crate::{
+    search_filter::SearchFilter, search_filter_id::SearchFilterId,
+    search_filter_name::SearchFilterName,
+};
 use common::user_id::UserId;
 use time::OffsetDateTime;
 
@@ -6,6 +9,7 @@ use time::OffsetDateTime;
 pub struct UserSearchFilter {
     pub user_id: UserId,
     pub search_filter_id: SearchFilterId,
+    pub search_filter_name: SearchFilterName,
     pub search_filter: SearchFilter,
     pub created: OffsetDateTime,
     pub updated: OffsetDateTime,
@@ -21,6 +25,7 @@ mod faker {
             UserSearchFilter {
                 user_id: config.fake_with_rng(rng),
                 search_filter_id: config.fake_with_rng(rng),
+                search_filter_name: config.fake_with_rng(rng),
                 search_filter: config.fake_with_rng(rng),
                 created: OffsetDateTime::now_utc(),
                 updated: OffsetDateTime::now_utc(),

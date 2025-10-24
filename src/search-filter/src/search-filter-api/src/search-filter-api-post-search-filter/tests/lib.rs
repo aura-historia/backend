@@ -1,10 +1,8 @@
 use common::user_id::UserId;
 use fake::{Fake, Faker};
 use lambda_runtime::LambdaEvent;
-use search_filter_api_post_search_filter::handler;
-use search_filter_data::{
-    search_filter_data::SearchFilterData, user_search_filter_data::UserSearchFilterData,
-};
+use search_filter_api_post_search_filter::{handler, post::PostUserSearchFilterData};
+use search_filter_data::user_search_filter_data::UserSearchFilterData;
 use search_filter_dynamodb::repository::{
     SearchFilterDynamoDbRepository, SearchFilterDynamoDbRepositoryImpl,
 };
@@ -17,7 +15,7 @@ async fn should_save_search_filter() {
     let lambda_event = LambdaEvent {
         payload: ApiGatewayV2httpRequestProxy::builder()
             .http_method(http::Method::POST)
-            .body_serde(&Faker.fake::<SearchFilterData>())
+            .body_serde(&Faker.fake::<PostUserSearchFilterData>())
             .jwt_claim("sub", user_id)
             .build(),
         context: Default::default(),

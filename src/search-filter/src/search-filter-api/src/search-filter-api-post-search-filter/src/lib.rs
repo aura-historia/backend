@@ -1,3 +1,6 @@
+pub mod post;
+
+use crate::post::PostUserSearchFilterData;
 use aws_lambda_events::apigw::{ApiGatewayV2httpRequest, ApiGatewayV2httpResponse};
 use common::{
     api::{
@@ -7,10 +10,7 @@ use common::{
     user_id::api::extract_user_id_cognito_jwt,
 };
 use lambda_runtime::LambdaEvent;
-use search_filter_core::search_filter::SearchFilter;
-use search_filter_data::{
-    search_filter_data::SearchFilterData, user_search_filter_data::UserSearchFilterData,
-};
+use search_filter_data::user_search_filter_data::UserSearchFilterData;
 use search_filter_service::service::SearchFilterService;
 
 #[tracing::instrument(
@@ -44,12 +44,15 @@ pub async fn handle(
         .ok_or_else(|| {
             ApiError::bad_request(BAD_BODY_VALUE).with_message("Body cannot be empty")
         })?;
-    let search_filter_data: SearchFilterData = serde_json::from_str(&body)
+    let user_search_filter_data: PostUserSearchFilterData = serde_json::from_str(&body)
         .map_err(|err| ApiError::bad_request(BAD_BODY_VALUE).with_message(err.to_string()))?;
 
-    let search_filter: SearchFilter = search_filter_data.into();
     let user_search_filter_data: UserSearchFilterData = service
-        .save_search_filter(&user_id, search_filter)
+        .save_search_filter(
+            &user_id,
+            user_search_filter_data.search_filter_name,
+            user_search_filter_data.search_filter.into(),
+        )
         .await?
         .into();
 
@@ -76,13 +79,12 @@ pub async fn handle(
 
 #[cfg(test)]
 mod tests {
-    use crate::handler;
+    use crate::{handler, post::PostUserSearchFilterData};
     use common::user_id::UserId;
     use fake::{Fake, Faker};
     use http::header::LOCATION;
     use lambda_runtime::LambdaEvent;
     use search_filter_core::user_search_filter::UserSearchFilter;
-    use search_filter_data::search_filter_data::SearchFilterData;
     use search_filter_service::service::MockSearchFilterService;
     use test_api::{ApiGatewayV2httpRequestProxy, extract_apigw_response_json_body};
 
@@ -91,7 +93,7 @@ mod tests {
         let lambda_event = LambdaEvent {
             payload: ApiGatewayV2httpRequestProxy::builder()
                 .http_method(http::Method::POST)
-                .body_serde(&Faker.fake::<SearchFilterData>())
+                .body_serde(&Faker.fake::<PostUserSearchFilterData>())
                 .jwt_claim("sub", UserId::new())
                 .domain_name("my.domain.com")
                 .stage("prod")
@@ -104,7 +106,7 @@ mod tests {
         let mut service = MockSearchFilterService::default();
         service
             .expect_save_search_filter()
-            .return_once(move |_, _| Box::pin(async move { Ok(expected) }));
+            .return_once(move |_, _, _| Box::pin(async move { Ok(expected) }));
 
         let response = handler(lambda_event, &service).await.unwrap();
 
