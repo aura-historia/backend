@@ -15,7 +15,7 @@ async fn should_return_actual_search_filter() {
 
     let user_id = UserId::new();
     let expected = service
-        .save_search_filter(&user_id, Faker.fake::<SearchFilter>())
+        .save_search_filter(&user_id, Faker.fake(), Faker.fake::<SearchFilter>())
         .await
         .unwrap();
     let lambda_event = LambdaEvent {
