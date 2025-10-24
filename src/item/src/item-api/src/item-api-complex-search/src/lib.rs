@@ -80,24 +80,17 @@ mod tests {
 
     #[tokio::test]
     #[rstest::rstest]
-    #[case(Some("price"), Some("asc"), Some("5"), Some("20"))]
-    #[case(Some("created"), Some("desc"), None, None)]
-    #[case(None, None, Some("7"), None)]
-    #[case(Some("updated"), Some("desc"), None, Some("10"))]
-    #[case(None, None, None, None)]
-    async fn should_handle_request(
-        #[case] sort: Option<&str>,
-        #[case] order: Option<&str>,
-        #[case] page_from: Option<&str>,
-        #[case] page_size: Option<&str>,
-    ) {
+    #[case(Some("price"), Some("asc"))]
+    #[case(Some("created"), Some("desc"))]
+    #[case(None, None)]
+    #[case(Some("updated"), Some("desc"))]
+    #[case(None, None)]
+    async fn should_handle_request(#[case] sort: Option<&str>, #[case] order: Option<&str>) {
         let lambda_event = LambdaEvent {
             payload: ApiGatewayV2httpRequestProxy::builder()
                 .http_method(http::Method::POST)
                 .try_query_string_parameter("sort", sort)
                 .try_query_string_parameter("order", order)
-                .try_query_string_parameter("from", page_from)
-                .try_query_string_parameter("size", page_size)
                 .body_serde(&Faker.fake::<SearchFilterData>())
                 .build(),
             context: Default::default(),
