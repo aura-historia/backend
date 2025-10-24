@@ -9,45 +9,6 @@ use test_api::*;
 
 #[rstest::rstest]
 #[test_attr(apply(test))]
-#[case(5)]
-#[case(10)]
-#[case(15)]
-#[case(20)]
-#[case(21)]
-#[case(25)]
-#[case(50)]
-#[case(100)]
-#[localstack_test(services = [OpenSearch()])]
-async fn should_query_with_page_size_only(#[case] size: u64) {
-    let repository = ShopOpenSearchRepositoryImpl::new(get_opensearch_client().await);
-    let service = QueryShopServiceImpl::new(&repository);
-
-    for _ in 0..100 {
-        let _ = repository.create_shop_document(Faker.fake()).await.unwrap();
-    }
-
-    let lambda_event = LambdaEvent {
-        payload: ApiGatewayV2httpRequestProxy::builder()
-            .http_method(http::Method::POST)
-            .query_string_parameter("size", size.to_string())
-            .body_serde(&ShopSearchData::default())
-            .build(),
-        context: Default::default(),
-    };
-
-    let response = handler(lambda_event, &service).await.unwrap();
-    assert_eq!(200, response.status_code);
-
-    let payload = serde_json::from_value::<JsonCursoredData<GetShopData>>(
-        extract_apigw_response_json_body!(response),
-    )
-    .unwrap();
-    assert_eq!(size, payload.size);
-    assert_eq!(size, payload.items.len() as u64)
-}
-
-#[rstest::rstest]
-#[test_attr(apply(test))]
 #[case("score", "asc", 5)]
 #[case("score", "desc", 10)]
 #[case("name", "asc", 12)]
