@@ -4,9 +4,9 @@ use common::{
         api_gateway_v2_http_response_builder::ApiGatewayV2HttpResponseBuilder, error::ApiError,
         error_code::BAD_BODY_VALUE,
     },
-    pagination::page::{
-        Page,
-        api::{PaginatedData, extract_page_query},
+    pagination::cursor::{
+        Cursor,
+        api::{JsonCursoredData, extract_json_cursor_query},
     },
     sort::api::extract_sort_query,
 };
@@ -44,8 +44,11 @@ pub async fn handle(
 ) -> Result<ApiGatewayV2httpResponse, ApiError> {
     let sort = extract_sort_query::<SortShopFieldData>(&event.payload.query_string_parameters)?
         .map(|sort_data| sort_data.map(SortShopField::from));
-    let page = extract_page_query(&event.payload.query_string_parameters)?
-        .unwrap_or(Page { from: 0, size: 21 });
+    let cursor =
+        extract_json_cursor_query(&event.payload.query_string_parameters)?.unwrap_or(Cursor {
+            size: 21,
+            search_after: None,
+        });
     let body = event
         .payload
         .body
@@ -62,10 +65,10 @@ pub async fn handle(
         updated: search_data.updated,
     };
     let search_result = service
-        .search_shops(&search, &sort, &Some(page))
+        .search_shops(&search, &sort, &Some(cursor))
         .await?
         .map_item(GetShopData::from);
-    let search_result_data = PaginatedData::from(search_result);
+    let search_result_data = JsonCursoredData::from(search_result);
 
     Ok(ApiGatewayV2HttpResponseBuilder::json(200)
         .body_serde(search_result_data)?
@@ -77,7 +80,7 @@ pub async fn handle(
 #[allow(clippy::too_many_arguments)]
 mod tests {
     use crate::handler;
-    use common::pagination::page::{Page, PaginatedResult};
+    use common::pagination::cursor::{Cursor, CursoredResult};
     use fake::Fake;
     use fake::Faker;
     use lambda_runtime::LambdaEvent;
@@ -88,39 +91,36 @@ mod tests {
 
     #[tokio::test]
     #[rstest::rstest]
-    #[case(Some("name"), Some("asc"), Some("5"), Some("20"))]
-    #[case(Some("created"), Some("desc"), None, None)]
-    #[case(None, None, Some("7"), None)]
-    #[case(Some("updated"), Some("desc"), None, Some("10"))]
-    #[case(None, None, None, None)]
-    async fn should_handle_request(
-        #[case] sort: Option<&str>,
-        #[case] order: Option<&str>,
-        #[case] page_from: Option<&str>,
-        #[case] page_size: Option<&str>,
-    ) {
+    #[case(Some("name"), Some("asc"))]
+    #[case(Some("created"), Some("desc"))]
+    #[case(None, None)]
+    #[case(None, None)]
+    async fn should_handle_request(#[case] sort: Option<&str>, #[case] order: Option<&str>) {
         let lambda_event = LambdaEvent {
             payload: ApiGatewayV2httpRequestProxy::builder()
                 .http_method(http::Method::POST)
                 .try_query_string_parameter("sort", sort)
                 .try_query_string_parameter("order", order)
-                .try_query_string_parameter("from", page_from)
-                .try_query_string_parameter("size", page_size)
                 .body_serde(&Faker.fake::<ShopSearchData>())
                 .build(),
             context: Default::default(),
         };
 
         let mut service = MockQueryShopService::default();
-        service.expect_search_shops().return_once(|_, _, page| {
-            let count = page.map(|page| page.size).unwrap_or(20) as usize;
-            let search_result = PaginatedResult {
-                items: fake::vec![Shop; count],
-                total: Some(789),
-                page: Page { from: 5, size: 5 },
-            };
-            Box::pin(async move { Ok(search_result) })
-        });
+        service
+            .expect_search_shops()
+            .return_once(move |_, _, cursor| {
+                let count = cursor.clone().map(|cursor| cursor.size).unwrap_or(20) as usize;
+                let search_result = CursoredResult {
+                    items: fake::vec![Shop; count],
+                    total: Some(789),
+                    cursor: Cursor {
+                        size: count as u64,
+                        search_after: None,
+                    },
+                };
+                Box::pin(async move { Ok(search_result) })
+            });
         let response = handler(lambda_event, &service).await.unwrap();
 
         assert_eq!(200, response.status_code);
@@ -137,12 +137,15 @@ mod tests {
         };
 
         let mut service = MockQueryShopService::default();
-        service.expect_search_shops().return_once(|_, _, page| {
-            let count = page.map(|page| page.size).unwrap() as usize;
-            let search_result = PaginatedResult {
+        service.expect_search_shops().return_once(|_, _, cursor| {
+            let count = cursor.clone().map(|cursor| cursor.size).unwrap_or(20) as usize;
+            let search_result = CursoredResult {
                 items: fake::vec![Shop; count],
                 total: Some(789),
-                page: Page { from: 5, size: 5 },
+                cursor: Cursor {
+                    size: count as u64,
+                    search_after: None,
+                },
             };
             Box::pin(async move { Ok(search_result) })
         });
