@@ -1,6 +1,6 @@
 use async_trait::async_trait;
 use common::{
-    pagination::page::{Page, PaginatedResult},
+    pagination::cursor::{Cursor, CursoredResult},
     sort::{Sort, SortOrder},
 };
 use shop_core::shop::Shop;
@@ -41,8 +41,8 @@ pub trait QueryShopService {
         &self,
         search: &ShopSearch,
         sort: &Option<Sort<SortShopField>>,
-        page: &Option<Page>,
-    ) -> Result<PaginatedResult<Shop>, SearchShopsError>;
+        cursor: &Option<Cursor<serde_json::Value>>,
+    ) -> Result<CursoredResult<Shop, serde_json::Value>, SearchShopsError>;
 }
 
 pub struct QueryShopServiceImpl<'a> {
@@ -61,8 +61,8 @@ impl<'a> QueryShopService for QueryShopServiceImpl<'a> {
         &self,
         search: &ShopSearch,
         sort: &Option<Sort<SortShopField>>,
-        page: &Option<Page>,
-    ) -> Result<PaginatedResult<Shop>, SearchShopsError> {
+        cursor: &Option<Cursor<serde_json::Value>>,
+    ) -> Result<CursoredResult<Shop, serde_json::Value>, SearchShopsError> {
         let search_response = self
             .repository
             .search_shop_documents(
@@ -71,15 +71,24 @@ impl<'a> QueryShopService for QueryShopServiceImpl<'a> {
                     sort: SortShopField::Score,
                     order: SortOrder::Desc,
                 }),
-                page,
+                cursor,
             )
             .await?;
+
+        let cursor = Cursor {
+            size: search_response.hits.hits.len() as u64,
+            search_after: search_response
+                .hits
+                .hits
+                .last()
+                .and_then(|last| last.sort.clone()),
+        };
 
         if search_response.timed_out {
             warn!(
                 searchFilter = ?search,
                 sort = ?sort,
-                page = ?page,
+                cursor = ?cursor,
                 took = search_response.took,
                 shardStats = ?search_response.shards,
                 "Search-Request to OpenSearch timed out when querying shops."
@@ -94,11 +103,9 @@ impl<'a> QueryShopService for QueryShopServiceImpl<'a> {
             .map(Shop::from)
             .collect::<Vec<_>>();
 
-        let from = page.map(|page| page.from).unwrap_or(0);
-        let size = shops.len() as u64;
-        Ok(PaginatedResult {
+        Ok(CursoredResult {
             items: shops,
-            page: Page { from, size },
+            cursor,
             total: Some(search_response.hits.total.value),
         })
     }
@@ -107,8 +114,9 @@ impl<'a> QueryShopService for QueryShopServiceImpl<'a> {
 #[cfg(test)]
 mod tests {
     use crate::query_service::{QueryShopService, QueryShopServiceImpl};
-    use common::pagination::page::Page;
+    use common::pagination::cursor::Cursor;
     use common::query::range_query::RangeQuery;
+    use common::shop_id::ShopId;
     use common::{
         opensearch::search_response::{
             HitsMetadata, SearchHit, SearchResponse, ShardStats, TotalHits,
@@ -116,6 +124,7 @@ mod tests {
         sort::{Sort, SortOrder},
     };
     use serde::ser::Error;
+    use serde_json::json;
     use shop_core::sort_shop_field::SortShopField;
     use shop_opensearch::repository::MockShopOpenSearchRepository;
     use shop_opensearch::shop_document::ShopDocument;
@@ -161,7 +170,7 @@ mod tests {
             updated: Some(RangeQuery { min: Some(datetime!(1000 - 01 - 01 0:00 UTC)), max: Some(datetime!(4000 - 01 - 01 0:00 UTC)) })
         },
         Some(Sort { sort: SortShopField::Created, order: SortOrder::Asc }),
-        Some(Page { from: 0, size: 20 }),
+        Some(Cursor { size: 20, search_after: Some(json!(["2021-01-01T00:00:00Z", ShopId::new()])) }),
         100
     )]
     #[case(
@@ -171,7 +180,7 @@ mod tests {
             updated: None
         },
         Some(Sort { sort: SortShopField::Name, order: SortOrder::Desc }),
-        Some(Page { from: 10, size: 30 }),
+        Some(Cursor { size: 50, search_after: Some(json!(["Woaaaah Co. Ltd. and partners", ShopId::new()])) }),
         500
     )]
     #[case(
@@ -198,13 +207,13 @@ mod tests {
     #[case(
         Default::default(),
         Some(Sort { sort: SortShopField::Updated, order: SortOrder::Desc }),
-        Some(Page { from: 3, size: 5 }),
+        Some(Cursor { size: 10, search_after: None }),
         222
     )]
     async fn should_search_shops(
         #[case] search: ShopSearch,
         #[case] sort: Option<Sort<SortShopField>>,
-        #[case] page: Option<Page>,
+        #[case] cursor: Option<Cursor<serde_json::Value>>,
         #[case] count: usize,
     ) {
         let mut repository = MockShopOpenSearchRepository::default();
@@ -215,7 +224,7 @@ mod tests {
             });
         let service = QueryShopServiceImpl::new(&repository);
 
-        let actual = service.search_shops(&search, &sort, &page).await.unwrap();
+        let actual = service.search_shops(&search, &sort, &cursor).await.unwrap();
 
         assert_eq!(count, actual.items.len());
         assert_eq!(count, actual.total.unwrap() as usize);
