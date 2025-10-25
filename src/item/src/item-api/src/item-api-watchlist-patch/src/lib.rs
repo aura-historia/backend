@@ -66,7 +66,6 @@ pub async fn handle(
         .await?;
 
     Ok(ApiGatewayV2HttpResponseBuilder::json(200)
-        .cors()
         .last_modified(watchlist_item.updated)
         .body_serde(WatchlistItemData::from(watchlist_item))?
         .build())

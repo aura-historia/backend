@@ -77,7 +77,6 @@ pub async fn handle(
 
     Ok(ApiGatewayV2HttpResponseBuilder::json(200)
         .body_serde(collection)?
-        .cors()
         .build())
 }
 
