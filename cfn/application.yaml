@@ -460,7 +460,9 @@ Resources:
       ProtocolType: HTTP
       CorsConfiguration:
         AllowOrigins:
-          - "*"
+          - "http://localhost:3000"
+          - "https://aura-historia.com"
+          - "https://dev.aura-historia.com"
         AllowMethods:
           - GET
           - POST

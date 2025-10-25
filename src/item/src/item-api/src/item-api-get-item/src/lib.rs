@@ -60,7 +60,6 @@ pub async fn handle(
         .e_tag(item_data.event_id.to_string().as_str())
         .last_modified(item_data.updated)
         .body_serde(item_data)?
-        .cors()
         .build())
 }
 

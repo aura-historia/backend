@@ -38,7 +38,7 @@ pub async fn handle(
         .delete_watchlist_item(&user_id, &shop_id, &shops_item_id)
         .await?;
 
-    Ok(ApiGatewayV2HttpResponseBuilder::json(204).cors().build())
+    Ok(ApiGatewayV2HttpResponseBuilder::json(204).build())
 }
 
 #[cfg(test)]

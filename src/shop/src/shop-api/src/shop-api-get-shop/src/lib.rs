@@ -36,7 +36,6 @@ pub async fn handle(
     Ok(ApiGatewayV2HttpResponseBuilder::json(200)
         .last_modified(shop_data.updated)
         .body_serde(shop_data)?
-        .cors()
         .build())
 }
 

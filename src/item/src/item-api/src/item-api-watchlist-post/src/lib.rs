@@ -64,7 +64,6 @@ pub async fn handle(
     Ok(ApiGatewayV2HttpResponseBuilder::json(201)
         .try_location(location.as_deref())
         .body_serde(WatchlistItemData::from(watchlist_item))?
-        .cors()
         .build())
 }
 

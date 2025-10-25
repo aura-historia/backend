@@ -55,7 +55,7 @@ pub async fn handle(
         .delete_search_filter(&user_id, &search_filter_id)
         .await?;
 
-    Ok(ApiGatewayV2HttpResponseBuilder::new(204).cors().build())
+    Ok(ApiGatewayV2HttpResponseBuilder::new(204).build())
 }
 
 #[cfg(test)]

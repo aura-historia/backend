@@ -122,7 +122,6 @@ impl From<ApiError> for ApiGatewayV2httpResponse {
     fn from(api_error: ApiError) -> Self {
         ApiGatewayV2HttpResponseBuilder::json(api_error.status.into())
             .body(serde_json::to_string(&api_error).unwrap())
-            .cors()
             .build()
     }
 }

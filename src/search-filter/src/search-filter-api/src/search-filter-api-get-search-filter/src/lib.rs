@@ -62,7 +62,6 @@ pub async fn handle(
         .content_language(content_language)
         .last_modified(user_search_filter_data.updated)
         .body_serde(user_search_filter_data)?
-        .cors()
         .build())
 }
 
