@@ -5,6 +5,7 @@ use common::{
     language::record::LanguageRecord, price::domain::MonetaryAmount, user_id::UserId,
 };
 use item_dynamodb::item_state_record::ItemStateRecord;
+use search_filter_core::search_filter_name::SearchFilterName;
 use search_filter_core::{
     search_filter::SearchFilter, search_filter_id::SearchFilterId,
     user_search_filter::UserSearchFilter,
@@ -16,13 +17,10 @@ use time::OffsetDateTime;
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct SearchFilterRecord {
     pub pk: String,
-
     pub sk: String,
-
     pub user_id: UserId,
-
     pub search_filter_id: SearchFilterId,
-
+    pub search_filter_name: SearchFilterName,
     pub item_query: TextQuery,
 
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -72,6 +70,7 @@ impl From<SearchFilterRecord> for UserSearchFilter {
         UserSearchFilter {
             user_id: record.user_id,
             search_filter_id: record.search_filter_id,
+            search_filter_name: record.search_filter_name,
             search_filter: SearchFilter {
                 language: record.language.into(),
                 currency: record.currency.into(),
@@ -101,6 +100,7 @@ impl From<UserSearchFilter> for SearchFilterRecord {
             sk: mk_sk(&user_search_filter.search_filter_id),
             user_id: user_search_filter.user_id,
             search_filter_id: user_search_filter.search_filter_id,
+            search_filter_name: user_search_filter.search_filter_name,
             item_query: user_search_filter.search_filter.item_query,
             shop_name_query: user_search_filter.search_filter.shop_name_query,
             price_query: user_search_filter
@@ -139,6 +139,7 @@ mod fake {
                 sk: mk_sk(&search_filter_id),
                 user_id,
                 search_filter_id,
+                search_filter_name: config.fake_with_rng(rng),
                 item_query: config.fake_with_rng(rng),
                 shop_name_query: config.fake_with_rng(rng),
                 price_query: config.fake_with_rng(rng),

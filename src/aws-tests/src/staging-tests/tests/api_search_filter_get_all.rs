@@ -1,7 +1,7 @@
 use aws_tests_common::get_cfn_output;
 use common::pagination::page::api::PaginatedData;
 use fake::{Fake, Faker};
-use search_filter_core::search_filter::SearchFilter;
+use search_filter_core::{search_filter::SearchFilter, search_filter_name::SearchFilterName};
 use search_filter_data::user_search_filter_data::UserSearchFilterData;
 use search_filter_dynamodb::repository::SearchFilterDynamoDbRepositoryImpl;
 use search_filter_service::service::{SearchFilterService, SearchFilterServiceImpl};
@@ -28,13 +28,15 @@ async fn should_return_actual_search_filters_when_authorized() {
 
     let user = create_random_test_user().await;
     let expected1 = Faker.fake::<SearchFilter>();
+    let expected1_name = Faker.fake::<SearchFilterName>();
     let expected2 = Faker.fake::<SearchFilter>();
+    let expected2_name = Faker.fake::<SearchFilterName>();
     service
-        .save_search_filter(&user.sub.into(), expected1.clone())
+        .save_search_filter(&user.sub.into(), expected1_name.clone(), expected1.clone())
         .await
         .unwrap();
     service
-        .save_search_filter(&user.sub.into(), expected2.clone())
+        .save_search_filter(&user.sub.into(), expected2_name.clone(), expected2.clone())
         .await
         .unwrap();
 
@@ -56,8 +58,10 @@ async fn should_return_actual_search_filters_when_authorized() {
         .unwrap();
     assert_eq!(2, actual.total.unwrap());
 
-    let actual1: SearchFilter = actual.items.first().unwrap().clone().search_filter.into();
-    let actual2: SearchFilter = actual.items.get(1).unwrap().clone().search_filter.into();
-    assert_eq!(expected1, actual1);
-    assert_eq!(expected2, actual2);
+    let actual1 = actual.items.first().unwrap().clone();
+    let actual2 = actual.items.get(1).unwrap().clone();
+    assert_eq!(expected1, SearchFilter::from(actual1.search_filter));
+    assert_eq!(expected2, SearchFilter::from(actual2.search_filter));
+    assert_eq!(expected1_name, actual1.search_filter_name);
+    assert_eq!(expected2_name, actual2.search_filter_name);
 }

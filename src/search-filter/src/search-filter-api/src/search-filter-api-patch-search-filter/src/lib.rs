@@ -1,5 +1,6 @@
-pub mod search_filter_data_patch;
+pub mod patch;
 
+use crate::patch::PatchUserSearchFilterData;
 use aws_lambda_events::apigw::{ApiGatewayV2httpRequest, ApiGatewayV2httpResponse};
 use common::{
     api::{
@@ -15,8 +16,6 @@ use search_filter_data::user_search_filter_data::UserSearchFilterData;
 use search_filter_service::{
     search_filter_update::SearchFilterUpdate, service::SearchFilterService,
 };
-
-use crate::search_filter_data_patch::SearchFilterDataPatch;
 
 #[tracing::instrument(
     skip(event, service),
@@ -61,7 +60,7 @@ pub async fn handle(
 
     let patched: UserSearchFilterData = match body {
         Some(body) if !body.is_empty() => {
-            let patch: SearchFilterDataPatch = serde_json::from_str(&body).map_err(|err| {
+            let patch: PatchUserSearchFilterData = serde_json::from_str(&body).map_err(|err| {
                 ApiError::bad_request(BAD_BODY_VALUE).with_message(err.to_string())
             })?;
             let update: SearchFilterUpdate = patch.into();
@@ -92,7 +91,7 @@ pub async fn handle(
 
 #[cfg(test)]
 mod tests {
-    use crate::{handler, search_filter_data_patch::SearchFilterDataPatch};
+    use crate::{handler, patch::PatchUserSearchFilterData};
     use common::user_id::UserId;
     use fake::{Fake, Faker};
     use lambda_runtime::LambdaEvent;
@@ -106,7 +105,7 @@ mod tests {
             payload: ApiGatewayV2httpRequestProxy::builder()
                 .http_method(http::Method::PATCH)
                 .path_parameter("searchFilterId", SearchFilterId::new())
-                .body_serde(&Faker.fake::<SearchFilterDataPatch>())
+                .body_serde(&Faker.fake::<PatchUserSearchFilterData>())
                 .jwt_claim("sub", UserId::new())
                 .build(),
             context: Default::default(),
@@ -150,7 +149,7 @@ mod tests {
             payload: ApiGatewayV2httpRequestProxy::builder()
                 .http_method(http::Method::PATCH)
                 .path_parameter("searchFilterId", SearchFilterId::new())
-                .body_serde(&SearchFilterDataPatch::default())
+                .body_serde(&PatchUserSearchFilterData::default())
                 .jwt_claim("sub", UserId::new())
                 .build(),
             context: Default::default(),
@@ -172,7 +171,7 @@ mod tests {
         let lambda_event = LambdaEvent {
             payload: ApiGatewayV2httpRequestProxy::builder()
                 .http_method(http::Method::PATCH)
-                .body_serde(&Faker.fake::<SearchFilterDataPatch>())
+                .body_serde(&Faker.fake::<PatchUserSearchFilterData>())
                 .jwt_claim("sub", UserId::new())
                 .build(),
             context: Default::default(),
@@ -195,7 +194,7 @@ mod tests {
             payload: ApiGatewayV2httpRequestProxy::builder()
                 .http_method(http::Method::PATCH)
                 .path_parameter("searchFilterId", "not-a-valid-uuid")
-                .body_serde(&Faker.fake::<SearchFilterDataPatch>())
+                .body_serde(&Faker.fake::<PatchUserSearchFilterData>())
                 .jwt_claim("sub", UserId::new())
                 .build(),
             context: Default::default(),
@@ -227,7 +226,7 @@ mod tests {
             payload: ApiGatewayV2httpRequestProxy::builder()
                 .http_method(http::Method::PATCH)
                 .path_parameter("searchFilterId", SearchFilterId::new())
-                .body_serde(&Faker.fake::<SearchFilterDataPatch>())
+                .body_serde(&Faker.fake::<PatchUserSearchFilterData>())
                 .jwt_claim("sub", UserId::new())
                 .build(),
             context: Default::default(),

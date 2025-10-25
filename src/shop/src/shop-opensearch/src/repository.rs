@@ -1,7 +1,7 @@
 use crate::{shop_document::ShopDocument, shop_search::ShopSearch};
 use common::{
     opensearch::{index_response::IndexResponse, search_response::SearchResponse},
-    pagination::page::Page,
+    pagination::cursor::Cursor,
     sort::{Sort, SortOrder},
 };
 use opensearch::{IndexParts, SearchParts};
@@ -22,7 +22,7 @@ pub trait ShopOpenSearchRepository {
         &self,
         search: &ShopSearch,
         sort: &Sort<SortShopField>,
-        page: &Option<Page>,
+        cursor: &Option<Cursor<serde_json::Value>>,
     ) -> Result<SearchResponse<ShopDocument>, opensearch::Error>;
 }
 
@@ -65,7 +65,7 @@ impl<'a> ShopOpenSearchRepository for ShopOpenSearchRepositoryImpl<'a> {
         &self,
         search: &ShopSearch,
         sort: &Sort<SortShopField>,
-        page: &Option<Page>,
+        cursor: &Option<Cursor<serde_json::Value>>,
     ) -> Result<SearchResponse<ShopDocument>, opensearch::Error> {
         let mut must = Vec::with_capacity(2);
         let mut filter = Vec::with_capacity(6);
@@ -125,13 +125,16 @@ impl<'a> ShopOpenSearchRepository for ShopOpenSearchRepositoryImpl<'a> {
             }
         });
 
-        if let Some(p) = page {
+        if let Some(c) = cursor {
             body.as_object_mut()
                 .unwrap()
-                .insert("from".to_string(), json!(p.from));
-            body.as_object_mut()
-                .unwrap()
-                .insert("size".to_string(), json!(p.size));
+                .insert("size".to_string(), json!(c.size));
+
+            if let Some(search_after) = &c.search_after {
+                body.as_object_mut()
+                    .unwrap()
+                    .insert("search_after".to_string(), json!(search_after));
+            }
         }
 
         let sort_field = match sort.sort {
@@ -153,7 +156,7 @@ impl<'a> ShopOpenSearchRepository for ShopOpenSearchRepositoryImpl<'a> {
             "sort".to_string(),
             json!([
                 primary_sort,
-                { "shopId": { "order": "asc"} } // tie-breaker
+                { "shopId": { "order": "asc" } } // tie-breaker
             ]),
         );
 

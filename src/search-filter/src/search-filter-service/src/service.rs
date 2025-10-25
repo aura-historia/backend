@@ -1,5 +1,6 @@
 use aws_sdk_dynamodb::{config::http::HttpResponse, error::SdkError};
 use common::{sort::SortOrder, user_id::UserId};
+use search_filter_core::search_filter_name::SearchFilterName;
 use search_filter_core::user_search_filter::UserSearchFilter;
 use search_filter_core::{search_filter::SearchFilter, search_filter_id::SearchFilterId};
 use search_filter_dynamodb::repository::SearchFilterDynamoDbRepository;
@@ -92,6 +93,7 @@ pub trait SearchFilterService {
     async fn save_search_filter(
         &self,
         user_id: &UserId,
+        name: SearchFilterName,
         search_filter: SearchFilter,
     ) -> Result<UserSearchFilter, SearchFilterError>;
 
@@ -156,11 +158,13 @@ impl<'a> SearchFilterService for SearchFilterServiceImpl<'a> {
     async fn save_search_filter(
         &self,
         user_id: &UserId,
+        search_filter_name: SearchFilterName,
         search_filter: SearchFilter,
     ) -> Result<UserSearchFilter, SearchFilterError> {
         let user_search_filter = UserSearchFilter {
             user_id: *user_id,
             search_filter_id: SearchFilterId::new(),
+            search_filter_name,
             search_filter,
             created: OffsetDateTime::now_utc(),
             updated: OffsetDateTime::now_utc(),
@@ -388,7 +392,7 @@ mod tests {
                 repository: &repository,
             };
             let actual = service
-                .save_search_filter(&UserId::new(), Faker.fake())
+                .save_search_filter(&UserId::new(), Faker.fake(), Faker.fake())
                 .await;
             assert!(actual.is_ok());
         }
@@ -420,7 +424,7 @@ mod tests {
                 repository: &repository,
             };
             let actual = service
-                .save_search_filter(&UserId::new(), Faker.fake())
+                .save_search_filter(&UserId::new(), Faker.fake(), Faker.fake())
                 .await;
 
             assert!(actual.is_err());

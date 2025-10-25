@@ -8,11 +8,13 @@ use common::{
     price::domain::MonetaryAmount,
 };
 use item_dynamodb::item_state_record::ItemStateRecord;
+use search_filter_core::search_filter_name::SearchFilterName;
 use search_filter_dynamodb::search_filter_record_update::SearchFilterRecordUpdate;
 use time::OffsetDateTime;
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct SearchFilterUpdate {
+    pub search_filter_name: Option<SearchFilterName>,
     pub item_query: Option<TextQuery>,
     pub shop_name_query: Option<TextQuery>,
     pub price_query: Option<RangeQuery<MonetaryAmount>>,
@@ -27,6 +29,7 @@ pub struct SearchFilterUpdate {
 impl SearchFilterUpdate {
     pub fn is_empty(&self) -> bool {
         let SearchFilterUpdate {
+            search_filter_name,
             item_query,
             shop_name_query,
             price_query,
@@ -38,7 +41,8 @@ impl SearchFilterUpdate {
             updated: _,
         } = self;
 
-        item_query.is_none()
+        search_filter_name.is_none()
+            && item_query.is_none()
             && shop_name_query.is_none()
             && price_query.is_none()
             && state_query.is_none()
@@ -52,6 +56,7 @@ impl SearchFilterUpdate {
 impl From<SearchFilterUpdate> for SearchFilterRecordUpdate {
     fn from(update: SearchFilterUpdate) -> Self {
         SearchFilterRecordUpdate {
+            search_filter_name: update.search_filter_name,
             item_query: update.item_query,
             shop_name_query: update.shop_name_query,
             price_query: update
@@ -79,6 +84,7 @@ mod fake {
     impl Dummy<Faker> for SearchFilterUpdate {
         fn dummy_with_rng<R: fake::Rng + ?Sized>(config: &Faker, rng: &mut R) -> Self {
             SearchFilterUpdate {
+                search_filter_name: config.fake_with_rng(rng),
                 item_query: config.fake_with_rng(rng),
                 shop_name_query: config.fake_with_rng(rng),
                 price_query: config.fake_with_rng(rng),

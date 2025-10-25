@@ -1,10 +1,11 @@
 use aws_tests_common::get_cfn_output;
 use common::language::data::LanguageData;
 use fake::{Fake, Faker};
-use search_filter_api_patch_search_filter::search_filter_data_patch::SearchFilterDataPatch;
-use search_filter_data::{
-    search_filter_data::SearchFilterData, user_search_filter_data::UserSearchFilterData,
+use search_filter_api_patch_search_filter::patch::{
+    PatchSearchFilterData, PatchUserSearchFilterData,
 };
+use search_filter_api_post_search_filter::post::PostUserSearchFilterData;
+use search_filter_data::user_search_filter_data::UserSearchFilterData;
 use staging_tests::create_random_test_user;
 use staging_tests_macros::staging_test;
 
@@ -43,7 +44,7 @@ async fn should_create_and_get_and_delete_and_verify_not_exists() {
     let user = create_random_test_user().await;
 
     // Create new
-    let expected = Faker.fake::<SearchFilterData>();
+    let expected = Faker.fake::<PostUserSearchFilterData>();
     let post_url = format!(
         "{}/api/v1/search-filters",
         get_cfn_output().api_gateway_endpoint_url,
@@ -57,7 +58,8 @@ async fn should_create_and_get_and_delete_and_verify_not_exists() {
         .unwrap();
     assert_eq!(201, post_response.status());
     let posted = post_response.json::<UserSearchFilterData>().await.unwrap();
-    assert_eq!(&expected, &posted.search_filter);
+    assert_eq!(&expected.search_filter_name, &posted.search_filter_name);
+    assert_eq!(&expected.search_filter, &posted.search_filter);
     assert_eq!(user.sub.to_string(), posted.user_id.to_string());
 
     // Get posted
@@ -74,38 +76,44 @@ async fn should_create_and_get_and_delete_and_verify_not_exists() {
         .unwrap();
     assert_eq!(200, get_response.status());
     let gotten = get_response.json::<UserSearchFilterData>().await.unwrap();
-    assert_eq!(&expected, &gotten.search_filter);
+    assert_eq!(&expected.search_filter, &gotten.search_filter);
     assert_eq!(posted.search_filter_id, gotten.search_filter_id);
     assert_eq!(user.sub.to_string(), gotten.user_id.to_string());
 
     // Update gotten
-    let get_url = format!(
+    let patch_url = format!(
         "{}/api/v1/search-filters/{}",
         get_cfn_output().api_gateway_endpoint_url,
         posted.search_filter_id
     );
-    let patch = SearchFilterDataPatch {
-        language: Some(LanguageData::Fr),
-        currency: None,
-        item_query: Some("weesl bee wuff".try_into().unwrap()),
-        shop_name_query: None,
-        price_query: None,
-        state_query: None,
-        created_query: None,
-        updated_query: None,
+    let patch = PatchUserSearchFilterData {
+        search_filter_name: None,
+        search_filter: Some(PatchSearchFilterData {
+            language: Some(LanguageData::Fr),
+            currency: None,
+            item_query: Some("weesl bee wuff".try_into().unwrap()),
+            shop_name_query: None,
+            price_query: None,
+            state_query: None,
+            created_query: None,
+            updated_query: None,
+        }),
     };
-    let get_response = reqwest::Client::new()
-        .patch(get_url)
+    let patch_response = reqwest::Client::new()
+        .patch(patch_url)
         .bearer_auth(&user.access_token)
         .json(&patch)
         .send()
         .await
         .unwrap();
-    assert_eq!(200, get_response.status());
-    let patched = get_response.json::<UserSearchFilterData>().await.unwrap();
-    assert_eq!(&patch.language.unwrap(), &patched.search_filter.language);
+    assert_eq!(200, patch_response.status());
+    let patched = patch_response.json::<UserSearchFilterData>().await.unwrap();
     assert_eq!(
-        &patch.item_query.unwrap(),
+        &patch.search_filter.clone().unwrap().language.unwrap(),
+        &patched.search_filter.language
+    );
+    assert_eq!(
+        &patch.search_filter.unwrap().item_query.unwrap(),
         &patched.search_filter.item_query
     );
     assert_eq!(posted.search_filter_id, patched.search_filter_id);

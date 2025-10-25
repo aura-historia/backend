@@ -3,12 +3,16 @@ use common::query::range_query::RangeQuery;
 use common::query::text_query::TextQuery;
 use common::{currency::record::CurrencyRecord, language::record::LanguageRecord};
 use item_dynamodb::item_state_record::ItemStateRecord;
+use search_filter_core::search_filter_name::SearchFilterName;
 use serde::{Deserialize, Serialize};
 use std::collections::HashSet;
 use time::OffsetDateTime;
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct SearchFilterRecordUpdate {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub search_filter_name: Option<SearchFilterName>,
+
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub item_query: Option<TextQuery>,
 
@@ -57,6 +61,7 @@ mod fake {
     impl Dummy<Faker> for SearchFilterRecordUpdate {
         fn dummy_with_rng<R: fake::Rng + ?Sized>(config: &Faker, rng: &mut R) -> Self {
             SearchFilterRecordUpdate {
+                search_filter_name: config.fake_with_rng(rng),
                 item_query: config.fake_with_rng(rng),
                 shop_name_query: config.fake_with_rng(rng),
                 price_query: config.fake_with_rng(rng),
