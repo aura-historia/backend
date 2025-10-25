@@ -1,6 +1,8 @@
-use crate::{embed::EmbeddingDelegate, pipe::spec::EnrichmentPipe};
+use crate::{
+    embed::EmbeddingDelegate,
+    pipe::spec::{EnrichmentPipe, PipeItem},
+};
 use common::batch::Batch;
-use item_opensearch::item_document::ItemDocument;
 use pyo3::PyErr;
 
 pub struct EmbeddingEnrichmentPipeImpl<'a> {
@@ -16,21 +18,21 @@ impl<'a> EmbeddingEnrichmentPipeImpl<'a> {
 impl<'a> EnrichmentPipe for EmbeddingEnrichmentPipeImpl<'a> {
     type Error = PyErr;
 
-    fn enrich(&self, items: Vec<ItemDocument>) -> Result<Vec<ItemDocument>, PyErr> {
+    fn enrich(&self, items: Vec<PipeItem>) -> Result<Vec<PipeItem>, PyErr> {
         let mut enriched = Vec::with_capacity(items.len());
-        let batches: Vec<Batch<ItemDocument, 64>> = Batch::chunked_from(items.into_iter());
+        let batches: Vec<Batch<PipeItem, 64>> = Batch::chunked_from(items.into_iter());
 
         for document_batch in batches {
-            let input_batch_iter = document_batch.iter().map(|doc| {
+            let input_batch_iter = document_batch.iter().map(|pipe_item| {
                 format!(
                     "{} [SEP] {}",
-                    doc.title_de
-                        .as_deref()
-                        .or(doc.title_en.as_deref())
-                        .unwrap_or(""),
-                    doc.description_de
-                        .as_deref()
-                        .or(doc.description_en.as_deref())
+                    pipe_item.source.payload.native_title.payload.as_ref(),
+                    pipe_item
+                        .source
+                        .payload
+                        .native_description
+                        .as_ref()
+                        .map(|descr| descr.payload.as_ref())
                         .unwrap_or("")
                 )
             });
@@ -42,9 +44,10 @@ impl<'a> EnrichmentPipe for EmbeddingEnrichmentPipeImpl<'a> {
                 document_batch
                     .into_iter()
                     .zip(embeddings)
-                    .map(|(mut doc, embedding)| {
-                        doc.embedding = Some(embedding);
-                        doc
+                    .map(|(mut pipe_item, embedding)| {
+                        pipe_item.update.document.get_or_insert_default().embedding =
+                            Some(embedding);
+                        pipe_item
                     });
             enriched.extend(&mut local_enriched);
         }
@@ -57,9 +60,11 @@ impl<'a> EnrichmentPipe for EmbeddingEnrichmentPipeImpl<'a> {
 pub mod tests {
     use crate::{
         embed::MockEmbeddingDelegate,
-        pipe::{embed::EmbeddingEnrichmentPipeImpl, spec::EnrichmentPipe},
+        pipe::{
+            embed::EmbeddingEnrichmentPipeImpl,
+            spec::{EnrichmentPipe, PipeItem},
+        },
     };
-    use item_opensearch::item_document::ItemDocument;
 
     #[test]
     fn should_keep_order_of_delegate_returned_embeddings() {
@@ -77,10 +82,10 @@ pub mod tests {
 
         let embedding_pipe = EmbeddingEnrichmentPipeImpl::new(&delegate);
         let actual = embedding_pipe
-            .enrich(fake::vec![ItemDocument; 42])
+            .enrich(fake::vec![PipeItem; 42])
             .unwrap()
             .into_iter()
-            .filter_map(|doc| doc.embedding)
+            .filter_map(|doc| doc.update.document.unwrap_or_default().embedding)
             .collect::<Vec<_>>();
 
         assert_eq!(expected, actual);

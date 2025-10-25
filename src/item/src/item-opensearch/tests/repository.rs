@@ -176,6 +176,7 @@ async fn should_update_item_document() {
         price_cad: None,
         price_nzd: None,
         state: Some(ItemStateDocument::Sold),
+        embedding: None,
         updated: updated_update_ts,
     };
     let repository = ItemOpenSearchRepositoryImpl::new(client);
