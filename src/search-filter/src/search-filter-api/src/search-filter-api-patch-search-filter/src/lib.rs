@@ -233,16 +233,22 @@ mod tests {
         };
 
         let mut service = MockSearchFilterService::default();
-        service
-            .expect_update_search_filter()
-            .return_once(|_, _, _| {
-                Box::pin(async {
-                    Err(SearchFilterError::SearchFilterNotFound(
-                        Faker.fake(),
-                        Faker.fake(),
-                    ))
-                })
-            });
+        service.expect_find_search_filter().returning(|_, _| {
+            Box::pin(async {
+                Err(SearchFilterError::SearchFilterNotFound(
+                    Faker.fake(),
+                    Faker.fake(),
+                ))
+            })
+        });
+        service.expect_update_search_filter().returning(|_, _, _| {
+            Box::pin(async {
+                Err(SearchFilterError::SearchFilterNotFound(
+                    Faker.fake(),
+                    Faker.fake(),
+                ))
+            })
+        });
 
         let response = handler(lambda_event, &service).await.unwrap();
         let json = extract_apigw_response_json_body!(response);
