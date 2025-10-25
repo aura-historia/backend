@@ -10,8 +10,9 @@ pyo3-ffi = { version = "0.27.0" }
 async-trait = { workspace = true }
 tracing = { workspace = true }
 mockall = { workspace = true }
+aws-sdk-dynamodb = { workspace = true }
 item-core = { workspace = true }
-item-dynamodb = { workspace = true }
+item-dynamodb = { workspace = true, features = ["repository"] }
 item-opensearch = { workspace = true }
 opensearch = { workspace = true }
 
@@ -19,6 +20,7 @@ opensearch = { workspace = true }
 fake = { workspace = true, optional = true }
 
 [dev-dependencies]
+tokio = { workspace = true, features = ["macros"] }
 rstest = { workspace = true }
 fake = { workspace = true }
 nightly-enrichment = { workspace = true, features = ["test-data"] }

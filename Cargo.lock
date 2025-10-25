@@ -3051,6 +3051,7 @@ name = "nightly-enrichment"
 version = "0.1.0"
 dependencies = [
  "async-trait",
+ "aws-sdk-dynamodb",
  "common",
  "fake",
  "item-core",
@@ -3062,6 +3063,7 @@ dependencies = [
  "pyo3",
  "pyo3-ffi",
  "rstest",
+ "tokio",
  "tracing",
 ]
 
