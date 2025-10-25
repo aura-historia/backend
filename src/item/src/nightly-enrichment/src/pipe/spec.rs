@@ -209,4 +209,65 @@ mod tests {
             );
         }
     }
+
+    mod drain_records {
+        use crate::pipe::spec::{EnrichmentPipeSink, EnrichmentPipeSinkImpl};
+        use aws_sdk_dynamodb::{error::SdkError, operation::update_item::UpdateItemOutput};
+        use common::item_id::{ItemId, ItemKey};
+        use fake::{Fake, Faker};
+        use item_dynamodb::{
+            item_update_record::ItemRecordUpdate, repository::MockItemDynamoDbRepository,
+        };
+        use item_opensearch::repository::MockItemOpenSearchRepository;
+        use std::collections::HashMap;
+
+        #[tokio::test]
+        async fn should_drain_records_when_successful() {
+            let item_opensearch_repository = MockItemOpenSearchRepository::default();
+            let mut item_dynamodb_repository = MockItemDynamoDbRepository::default();
+            item_dynamodb_repository
+                .expect_update_item_record()
+                .returning(|_, _, _| Box::pin(async { Ok(UpdateItemOutput::builder().build()) }));
+
+            let sink =
+                EnrichmentPipeSinkImpl::new(&item_dynamodb_repository, &item_opensearch_repository);
+            let actual = sink.drain_records(Faker.fake()).await;
+
+            assert!(actual.is_empty());
+        }
+
+        #[rstest::rstest]
+        #[case(1)]
+        #[case(5)]
+        #[case(10)]
+        #[case(17)]
+        #[case(37)]
+        #[case(42)]
+        #[case(69)]
+        #[case(100)]
+        #[case(250)]
+        #[case(555)]
+        #[case(999)]
+        #[case(1000)]
+        #[tokio::test]
+        async fn should_return_partial_failures(#[case] failure_count: usize) {
+            let item_opensearch_repository = MockItemOpenSearchRepository::default();
+            let mut item_dynamodb_repository = MockItemDynamoDbRepository::default();
+
+            item_dynamodb_repository
+                .expect_update_item_record()
+                .returning(|_, _, _| {
+                    Box::pin(async { Err(SdkError::construction_failure("Something went wrong")) })
+                });
+
+            let sink =
+                EnrichmentPipeSinkImpl::new(&item_dynamodb_repository, &item_opensearch_repository);
+            let input = fake::vec![(ItemId, (ItemKey, ItemRecordUpdate)); failure_count]
+                .into_iter()
+                .collect::<HashMap<_, _>>();
+            let actual = sink.drain_records(input.clone()).await;
+
+            assert_eq!(input.into_keys().collect::<Vec<_>>(), actual);
+        }
+    }
 }
