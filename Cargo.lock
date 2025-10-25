@@ -2466,6 +2466,7 @@ dependencies = [
 name = "item-lambda-common"
 version = "0.1.0"
 dependencies = [
+ "aws-sdk-sqs",
  "aws_lambda_events",
  "fake",
  "item-dynamodb",
@@ -3052,10 +3053,12 @@ version = "0.1.0"
 dependencies = [
  "async-trait",
  "aws-sdk-dynamodb",
+ "aws-sdk-sqs",
  "common",
  "fake",
  "item-core",
  "item-dynamodb",
+ "item-lambda-common",
  "item-opensearch",
  "mockall",
  "nightly-enrichment",

@@ -11,6 +11,7 @@ aws_lambda_events = { workspace = true, features = [
     "eventbridge",
 ] }
 tracing = { workspace = true }
+aws-sdk-sqs = { workspace = true }
 serde_json = { workspace = true }
 serde_dynamo = { workspace = true }
 

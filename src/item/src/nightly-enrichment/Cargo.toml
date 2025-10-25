@@ -11,10 +11,13 @@ async-trait = { workspace = true }
 tracing = { workspace = true }
 mockall = { workspace = true }
 aws-sdk-dynamodb = { workspace = true }
+aws-sdk-sqs = { workspace = true }
 item-core = { workspace = true }
 item-dynamodb = { workspace = true, features = ["repository"] }
 item-opensearch = { workspace = true }
+item-lambda-common = { workspace = true }
 opensearch = { workspace = true }
+tokio = { workspace = true, features = ["time"] }
 
 # Optional deps
 fake = { workspace = true, optional = true }

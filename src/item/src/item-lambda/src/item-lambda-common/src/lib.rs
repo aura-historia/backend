@@ -1,20 +1,43 @@
 use aws_lambda_events::eventbridge::EventBridgeEvent;
-use aws_lambda_events::sqs::SqsMessage;
 use item_dynamodb::item_event_record::ItemEventRecord;
 use tracing::{error, info};
 
-#[tracing::instrument(
-    skip(message, failed_message_ids, skipped_count),
-    fields(messageId = %message.message_id.as_ref().expect("shouldn't receive an SQS-Message without 'message_id' because AWS sets it."))
-)]
+#[derive(Debug, Clone)]
+pub struct SqsMessage {
+    pub message_id: String,
+    pub body: Option<String>,
+}
+
+impl From<aws_lambda_events::sqs::SqsMessage> for SqsMessage {
+    fn from(value: aws_lambda_events::sqs::SqsMessage) -> Self {
+        SqsMessage {
+            message_id: value.message_id.expect(
+                "shouldn't receive an SQS-Message without 'message_id' because AWS sets it.",
+            ),
+            body: value.body,
+        }
+    }
+}
+
+impl From<aws_sdk_sqs::types::Message> for SqsMessage {
+    fn from(value: aws_sdk_sqs::types::Message) -> Self {
+        SqsMessage {
+            message_id: value.message_id.expect(
+                "shouldn't receive an SQS-Message without 'message_id' because AWS sets it.",
+            ),
+            body: value.body,
+        }
+    }
+}
+
+#[tracing::instrument(skip(message, failed_message_ids, skipped_count))]
 pub fn extract_item_event_record(
-    message: SqsMessage,
+    message: impl Into<SqsMessage>,
     failed_message_ids: &mut Vec<String>,
     skipped_count: &mut usize,
 ) -> Option<ItemEventRecord> {
-    let message_id = message
-        .message_id
-        .expect("shouldn't receive an SQS-Message without 'message_id' because AWS sets it.");
+    let message: SqsMessage = message.into();
+    let message_id = message.message_id;
 
     match message.body {
         None => {
