@@ -37,6 +37,10 @@ impl EnrichmentPipeSinkImpl {
 #[async_trait::async_trait]
 impl EnrichmentPipeSink for EnrichmentPipeSinkImpl {
     async fn drain_documents(&self, documents: HashMap<ItemId, ItemUpdateDocument>) -> Vec<ItemId> {
+        if documents.is_empty() {
+            return vec![];
+        }
+
         let count = documents.len();
         let item_ids = documents.keys().copied().collect::<Vec<_>>();
         let res = self
