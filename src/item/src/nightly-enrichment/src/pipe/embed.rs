@@ -1,9 +1,9 @@
 use crate::{
     embed::EmbeddingDelegate,
-    pipe::spec::{EnrichmentPipe, PipeItem},
+    pipe::spec::{EnrichmentPipe, PipeItem, PipeResult},
 };
 use common::batch::Batch;
-use pyo3::PyErr;
+use tracing::error;
 
 pub struct EmbeddingEnrichmentPipeImpl<'a> {
     embedding_delegate: &'a dyn EmbeddingDelegate,
@@ -16,10 +16,9 @@ impl<'a> EmbeddingEnrichmentPipeImpl<'a> {
 }
 
 impl<'a> EnrichmentPipe for EmbeddingEnrichmentPipeImpl<'a> {
-    type Error = PyErr;
-
-    fn enrich(&self, items: Vec<PipeItem>) -> Result<Vec<PipeItem>, PyErr> {
+    fn enrich(&self, items: Vec<PipeItem>) -> PipeResult {
         let mut enriched = Vec::with_capacity(items.len());
+        let mut failed = Vec::new();
         let batches: Vec<Batch<PipeItem, 64>> = Batch::chunked_from(items.into_iter());
 
         for document_batch in batches {
@@ -39,20 +38,29 @@ impl<'a> EnrichmentPipe for EmbeddingEnrichmentPipeImpl<'a> {
             let input_batch = Batch::try_from_iter(input_batch_iter)
                 .expect("shouldn't fail re-collecting former batch of same size");
 
-            let embeddings = self.embedding_delegate.embed(&input_batch)?;
-            let mut local_enriched =
-                document_batch
-                    .into_iter()
-                    .zip(embeddings)
-                    .map(|(mut pipe_item, embedding)| {
-                        pipe_item.update.document.get_or_insert_default().embedding =
-                            Some(embedding);
-                        pipe_item
-                    });
-            enriched.extend(&mut local_enriched);
+            match self.embedding_delegate.embed(&input_batch) {
+                Err(err) => {
+                    error!(error = %err, "Failed delegating embeddings.");
+                    let mut local_failed = document_batch.iter().map(|doc| doc.source.item_id);
+                    failed.extend(&mut local_failed);
+                }
+                Ok(embeddings) => {
+                    let mut local_enriched = document_batch.into_iter().zip(embeddings).map(
+                        |(mut pipe_item, embedding)| {
+                            pipe_item.update.document.get_or_insert_default().embedding =
+                                Some(embedding);
+                            pipe_item
+                        },
+                    );
+                    enriched.extend(&mut local_enriched);
+                }
+            }
         }
 
-        Ok(enriched)
+        PipeResult {
+            successes: enriched,
+            failures: failed,
+        }
     }
 }
 
@@ -65,6 +73,7 @@ pub mod tests {
             spec::{EnrichmentPipe, PipeItem},
         },
     };
+    use pyo3::{PyErr, exceptions::PyTypeError};
 
     #[test]
     fn should_keep_order_of_delegate_returned_embeddings() {
@@ -81,13 +90,39 @@ pub mod tests {
             .return_once(move |_| Ok(expected_clone.try_into().unwrap()));
 
         let embedding_pipe = EmbeddingEnrichmentPipeImpl::new(&delegate);
-        let actual = embedding_pipe
-            .enrich(fake::vec![PipeItem; 42])
-            .unwrap()
+        let res = embedding_pipe.enrich(fake::vec![PipeItem; 4]);
+        let actual = res
+            .successes
             .into_iter()
             .filter_map(|doc| doc.update.document.unwrap_or_default().embedding)
             .collect::<Vec<_>>();
 
         assert_eq!(expected, actual);
+        assert!(res.failures.is_empty());
+    }
+
+    #[rstest::rstest]
+    #[case(1)]
+    #[case(5)]
+    #[case(20)]
+    #[case(32)]
+    #[case(64)]
+    #[case(70)]
+    #[case(128)]
+    #[case(129)]
+    #[case(256)]
+    #[case(1000)]
+    #[case(1500)]
+    fn should_partially_fail_entire_batches(#[case] input_count: usize) {
+        let mut delegate = MockEmbeddingDelegate::default();
+        delegate
+            .expect_embed()
+            .returning(move |_| Err(PyErr::new::<PyTypeError, _>("Something went wrong")));
+
+        let embedding_pipe = EmbeddingEnrichmentPipeImpl::new(&delegate);
+        let res = embedding_pipe.enrich(fake::vec![PipeItem; input_count]);
+
+        assert!(res.successes.is_empty());
+        assert_eq!(input_count, res.failures.len());
     }
 }

@@ -24,8 +24,13 @@ pub struct PipeItemUpdate {
     pub record: Option<ItemRecordUpdate>,
 }
 
-pub trait EnrichmentPipe {
-    type Error;
+#[cfg_attr(feature = "test-data", derive(fake::Dummy))]
+#[derive(Debug, Clone, Default)]
+pub struct PipeResult {
+    pub successes: Vec<PipeItem>,
+    pub failures: Vec<ItemId>,
+}
 
-    fn enrich(&self, items: Vec<PipeItem>) -> Result<Vec<PipeItem>, Self::Error>;
+pub trait EnrichmentPipe {
+    fn enrich(&self, items: Vec<PipeItem>) -> PipeResult;
 }
