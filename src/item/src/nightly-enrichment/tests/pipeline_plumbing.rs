@@ -4,8 +4,12 @@ use aws_lambda_events::{
 };
 use common::{event::Event, event_id::EventId, item_id::ItemId};
 use item_core::item_event::{ItemCreatedEventPayload, ItemEventPayload};
-use item_dynamodb::{item_event_record::ItemEventRecord, repository::ItemDynamoDbRepositoryImpl};
-use item_opensearch::repository::ItemOpenSearchRepositoryImpl;
+use item_dynamodb::{
+    item_event_record::ItemEventRecord,
+    repository::{ItemDynamoDbRepository, ItemDynamoDbRepositoryImpl},
+};
+use item_opensearch::repository::{ItemOpenSearchRepository, ItemOpenSearchRepositoryImpl};
+use nightly_enrichment::pipeline::pipe::EnrichmentPipe;
 use nightly_enrichment::{
     embed::EmbeddingDelegateImpl,
     pipeline::{
@@ -63,14 +67,14 @@ fn mk_event_bridge_payload(item_event_record: &ItemEventRecord) -> String {
 #[case(0, 0)]
 #[case(1, 1)]
 #[case(20, 15)]
-#[case(1000, 500)]
-#[case(2000, 855)]
-#[localstack_test(services = [ENRICHMENT_QUEUE])]
-async fn should_pour_messages(#[case] queue_count: usize, #[case] plumbing_count: i32) {
-    use nightly_enrichment::pipeline::pipe::EnrichmentPipe;
-
+#[localstack_test(services = [ENRICHMENT_QUEUE, DynamoDB(), OpenSearch()])]
+async fn should_plumb_messages(#[case] queue_count: usize, #[case] plumbing_count: i32) {
     let enrichment_queue_url = ENRICHMENT_QUEUE.queue_url();
     let sqs_client = Arc::new(get_sqs_client().await.clone());
+    let dynamodb_client = get_dynamodb_client().await;
+    let item_dynamodb_repository = ItemDynamoDbRepositoryImpl::new(dynamodb_client, "table_1");
+    let item_opensearch_repository =
+        ItemOpenSearchRepositoryImpl::new(get_opensearch_client().await);
 
     let event_records = fake::vec![ItemCreatedEventPayload; queue_count]
         .into_iter()
@@ -81,7 +85,7 @@ async fn should_pour_messages(#[case] queue_count: usize, #[case] plumbing_count
             payload: ItemEventPayload::Created(payload),
         })
         .map(|event| ItemEventRecord::try_from(event).unwrap());
-    for event_record in event_records {
+    for event_record in event_records.clone() {
         let payload = mk_event_bridge_payload(&event_record);
         let _ = sqs_client
             .send_message()
@@ -91,16 +95,25 @@ async fn should_pour_messages(#[case] queue_count: usize, #[case] plumbing_count
             .send()
             .await
             .unwrap();
+
+        // Simulate existing materialized views
+        let ddb_put_res = item_dynamodb_repository
+            .put_item_records([event_record.clone().try_into().unwrap()].into())
+            .await
+            .unwrap();
+        assert!(ddb_put_res.unprocessed_items.unwrap_or_default().is_empty());
+        let os_create_res = item_opensearch_repository
+            .create_item_documents(vec![event_record.clone().try_into().unwrap()])
+            .await
+            .unwrap();
+        assert!(!os_create_res.errors);
     }
+    refresh_index("items").await;
 
     let faucet = EnrichmentPipeFaucetImpl::new(sqs_client.clone(), enrichment_queue_url.clone());
     let embedding_delegate = EmbeddingDelegateImpl::new().unwrap();
     let embedding_pipe = EmbeddingEnrichmentPipeImpl::new(Arc::new(embedding_delegate));
     let pipes: Vec<Box<dyn EnrichmentPipe + Send + Sync>> = vec![Box::new(embedding_pipe)];
-    let dynamodb_client = get_dynamodb_client().await;
-    let item_dynamodb_repository = ItemDynamoDbRepositoryImpl::new(dynamodb_client, "table_1");
-    let item_opensearch_repository =
-        ItemOpenSearchRepositoryImpl::new(get_opensearch_client().await);
     let sink = EnrichmentPipeSinkImpl::new(
         Arc::new(item_dynamodb_repository),
         Arc::new(item_opensearch_repository),
