@@ -1,3 +1,5 @@
+use std::sync::Arc;
+
 use crate::pipeline::pipe::{PipeItem, PipeItemSource, PipeItemUpdate};
 use aws_sdk_sqs::{error::SdkError, operation::receive_message::ReceiveMessageError};
 use common::item_id::ItemId;
@@ -15,13 +17,13 @@ pub trait EnrichmentPipeFaucet {
     ) -> Result<Vec<(PipeItem, MessageRef)>, SdkError<ReceiveMessageError>>;
 }
 
-pub struct EnrichmentPipeFaucetImpl<'a> {
-    sqs_client: &'a aws_sdk_sqs::Client,
-    enrichment_queue_url: &'a str,
+pub struct EnrichmentPipeFaucetImpl {
+    sqs_client: Arc<aws_sdk_sqs::Client>,
+    enrichment_queue_url: String,
 }
 
-impl<'a> EnrichmentPipeFaucetImpl<'a> {
-    pub fn new(sqs_client: &'a aws_sdk_sqs::Client, enrichment_queue_url: &'a str) -> Self {
+impl EnrichmentPipeFaucetImpl {
+    pub fn new(sqs_client: Arc<aws_sdk_sqs::Client>, enrichment_queue_url: String) -> Self {
         Self {
             sqs_client,
             enrichment_queue_url,
@@ -37,7 +39,7 @@ pub struct MessageRef {
 }
 
 #[async_trait::async_trait]
-impl<'a> EnrichmentPipeFaucet for EnrichmentPipeFaucetImpl<'a> {
+impl EnrichmentPipeFaucet for EnrichmentPipeFaucetImpl {
     async fn pour(
         &self,
         count: i32,
@@ -48,7 +50,7 @@ impl<'a> EnrichmentPipeFaucet for EnrichmentPipeFaucetImpl<'a> {
             let res = self
                 .sqs_client
                 .receive_message()
-                .queue_url(self.enrichment_queue_url)
+                .queue_url(&self.enrichment_queue_url)
                 .max_number_of_messages(10.min((count - messages.len()) as i32))
                 .visibility_timeout(120)
                 .send()

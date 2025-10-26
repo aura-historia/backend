@@ -3,7 +3,7 @@ use item_dynamodb::{item_update_record::ItemRecordUpdate, repository::ItemDynamo
 use item_opensearch::{
     item_update_document::ItemUpdateDocument, repository::ItemOpenSearchRepository,
 };
-use std::collections::HashMap;
+use std::{collections::HashMap, sync::Arc};
 use tracing::{error, info, warn};
 
 #[async_trait::async_trait]
@@ -17,15 +17,15 @@ pub trait EnrichmentPipeSink {
     ) -> Vec<ItemId>;
 }
 
-pub struct EnrichmentPipeSinkImpl<'a> {
-    item_dynamodb_repository: &'a (dyn ItemDynamoDbRepository + Sync),
-    item_opensearch_repository: &'a (dyn ItemOpenSearchRepository + Sync),
+pub struct EnrichmentPipeSinkImpl {
+    item_dynamodb_repository: Arc<dyn ItemDynamoDbRepository + Send + Sync>,
+    item_opensearch_repository: Arc<dyn ItemOpenSearchRepository + Send + Sync>,
 }
 
-impl<'a> EnrichmentPipeSinkImpl<'a> {
+impl EnrichmentPipeSinkImpl {
     pub fn new(
-        item_dynamodb_repository: &'a (dyn ItemDynamoDbRepository + Sync),
-        item_opensearch_repository: &'a (dyn ItemOpenSearchRepository + Sync),
+        item_dynamodb_repository: Arc<dyn ItemDynamoDbRepository + Send + Sync>,
+        item_opensearch_repository: Arc<dyn ItemOpenSearchRepository + Send + Sync>,
     ) -> Self {
         Self {
             item_dynamodb_repository,
@@ -35,7 +35,7 @@ impl<'a> EnrichmentPipeSinkImpl<'a> {
 }
 
 #[async_trait::async_trait]
-impl<'a> EnrichmentPipeSink for EnrichmentPipeSinkImpl<'a> {
+impl EnrichmentPipeSink for EnrichmentPipeSinkImpl {
     async fn drain_documents(&self, documents: HashMap<ItemId, ItemUpdateDocument>) -> Vec<ItemId> {
         let count = documents.len();
         let item_ids = documents.keys().copied().collect::<Vec<_>>();
@@ -122,7 +122,7 @@ mod tests {
         use item_opensearch::{
             item_update_document::ItemUpdateDocument, repository::MockItemOpenSearchRepository,
         };
-        use std::collections::HashMap;
+        use std::{collections::HashMap, sync::Arc};
 
         #[tokio::test]
         async fn should_drain_documents_when_successful() {
@@ -140,8 +140,10 @@ mod tests {
                     })
                 });
 
-            let sink =
-                EnrichmentPipeSinkImpl::new(&item_dynamodb_repository, &item_opensearch_repository);
+            let sink = EnrichmentPipeSinkImpl::new(
+                Arc::new(item_dynamodb_repository),
+                Arc::new(item_opensearch_repository),
+            );
             let actual = sink.drain_documents(Faker.fake()).await;
 
             assert!(actual.is_empty());
@@ -190,8 +192,10 @@ mod tests {
                     })
                 });
 
-            let sink =
-                EnrichmentPipeSinkImpl::new(&item_dynamodb_repository, &item_opensearch_repository);
+            let sink = EnrichmentPipeSinkImpl::new(
+                Arc::new(item_dynamodb_repository),
+                Arc::new(item_opensearch_repository),
+            );
             let input = fake::vec![(ItemId, ItemUpdateDocument); 1000]
                 .into_iter()
                 .collect::<HashMap<_, _>>();
@@ -213,7 +217,7 @@ mod tests {
             item_update_record::ItemRecordUpdate, repository::MockItemDynamoDbRepository,
         };
         use item_opensearch::repository::MockItemOpenSearchRepository;
-        use std::collections::HashMap;
+        use std::{collections::HashMap, sync::Arc};
 
         use crate::pipeline::sink::{EnrichmentPipeSink, EnrichmentPipeSinkImpl};
 
@@ -225,8 +229,10 @@ mod tests {
                 .expect_update_item_record()
                 .returning(|_, _, _| Box::pin(async { Ok(UpdateItemOutput::builder().build()) }));
 
-            let sink =
-                EnrichmentPipeSinkImpl::new(&item_dynamodb_repository, &item_opensearch_repository);
+            let sink = EnrichmentPipeSinkImpl::new(
+                Arc::new(item_dynamodb_repository),
+                Arc::new(item_opensearch_repository),
+            );
             let actual = sink.drain_records(Faker.fake()).await;
 
             assert!(actual.is_empty());
@@ -256,8 +262,10 @@ mod tests {
                     Box::pin(async { Err(SdkError::construction_failure("Something went wrong")) })
                 });
 
-            let sink =
-                EnrichmentPipeSinkImpl::new(&item_dynamodb_repository, &item_opensearch_repository);
+            let sink = EnrichmentPipeSinkImpl::new(
+                Arc::new(item_dynamodb_repository),
+                Arc::new(item_opensearch_repository),
+            );
             let input = fake::vec![(ItemId, (ItemKey, ItemRecordUpdate)); failure_count]
                 .into_iter()
                 .collect::<HashMap<_, _>>();

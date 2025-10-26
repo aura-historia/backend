@@ -4,8 +4,17 @@ use aws_lambda_events::{
 };
 use common::{event::Event, event_id::EventId, item_id::ItemId};
 use item_core::item_event::{ItemCreatedEventPayload, ItemEventPayload};
-use item_dynamodb::item_event_record::ItemEventRecord;
-use nightly_enrichment::pipeline::faucet::{EnrichmentPipeFaucet, EnrichmentPipeFaucetImpl};
+use item_dynamodb::{item_event_record::ItemEventRecord, repository::ItemDynamoDbRepositoryImpl};
+use item_opensearch::repository::ItemOpenSearchRepositoryImpl;
+use nightly_enrichment::{
+    embed::EmbeddingDelegateImpl,
+    pipeline::{
+        embed::EmbeddingEnrichmentPipeImpl,
+        faucet::EnrichmentPipeFaucetImpl,
+        plumbing::{EnrichmentPlumbing, EnrichmentPlumbingImpl},
+        sink::EnrichmentPipeSinkImpl,
+    },
+};
 use std::{sync::Arc, time::SystemTime};
 use test_api::*;
 use time::OffsetDateTime;
@@ -57,7 +66,9 @@ fn mk_event_bridge_payload(item_event_record: &ItemEventRecord) -> String {
 #[case(1000, 500)]
 #[case(2000, 855)]
 #[localstack_test(services = [ENRICHMENT_QUEUE])]
-async fn should_pour_messages(#[case] queue_count: usize, #[case] pour_count: i32) {
+async fn should_pour_messages(#[case] queue_count: usize, #[case] plumbing_count: i32) {
+    use nightly_enrichment::pipeline::pipe::EnrichmentPipe;
+
     let enrichment_queue_url = ENRICHMENT_QUEUE.queue_url();
     let sqs_client = Arc::new(get_sqs_client().await.clone());
 
@@ -82,23 +93,25 @@ async fn should_pour_messages(#[case] queue_count: usize, #[case] pour_count: i3
             .unwrap();
     }
 
-    let faucet = EnrichmentPipeFaucetImpl::new(sqs_client, enrichment_queue_url);
-    let actual = faucet.pour(pour_count).await.unwrap();
+    let faucet = EnrichmentPipeFaucetImpl::new(sqs_client.clone(), enrichment_queue_url.clone());
+    let embedding_delegate = EmbeddingDelegateImpl::new().unwrap();
+    let embedding_pipe = EmbeddingEnrichmentPipeImpl::new(Arc::new(embedding_delegate));
+    let pipes: Vec<Box<dyn EnrichmentPipe + Send + Sync>> = vec![Box::new(embedding_pipe)];
+    let dynamodb_client = get_dynamodb_client().await;
+    let item_dynamodb_repository = ItemDynamoDbRepositoryImpl::new(dynamodb_client, "table_1");
+    let item_opensearch_repository =
+        ItemOpenSearchRepositoryImpl::new(get_opensearch_client().await);
+    let sink = EnrichmentPipeSinkImpl::new(
+        Arc::new(item_dynamodb_repository),
+        Arc::new(item_opensearch_repository),
+    );
 
-    assert_eq!(pour_count as usize, actual.len());
-    assert!(
-        actual
-            .iter()
-            .all(|(pipe_item, msg_ref)| pipe_item.source.item_id == msg_ref.item_id)
+    let plumbing = EnrichmentPlumbingImpl::new(
+        Arc::new(faucet),
+        pipes,
+        Arc::new(sink),
+        sqs_client,
+        enrichment_queue_url,
     );
-    assert!(
-        actual
-            .iter()
-            .all(|(pipe_item, _)| pipe_item.update.document.is_none())
-    );
-    assert!(
-        actual
-            .iter()
-            .all(|(pipe_item, _)| pipe_item.update.record.is_none())
-    );
+    plumbing.plumb(plumbing_count).await;
 }

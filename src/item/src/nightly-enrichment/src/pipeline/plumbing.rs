@@ -8,7 +8,10 @@ use common::{
     batch::Batch,
     item_id::{ItemId, ItemKey},
 };
-use std::collections::{HashMap, HashSet};
+use std::{
+    collections::{HashMap, HashSet},
+    sync::Arc,
+};
 use tracing::{error, info, warn};
 
 #[async_trait::async_trait]
@@ -17,16 +20,16 @@ pub trait EnrichmentPlumbing {
     async fn plumb(&self, count: i32);
 }
 
-pub struct EnrichmentPlumbingImpl<'a> {
-    faucet: &'a (dyn EnrichmentPipeFaucet + Sync),
-    pipes: &'a [&'a (dyn EnrichmentPipe + Sync)],
-    sink: &'a (dyn EnrichmentPipeSink + Sync),
-    sqs_client: &'a aws_sdk_sqs::Client,
-    enrichment_queue_url: &'a str,
+pub struct EnrichmentPlumbingImpl {
+    faucet: Arc<dyn EnrichmentPipeFaucet + Send + Sync>,
+    pipes: Vec<Box<dyn EnrichmentPipe + Send + Sync>>,
+    sink: Arc<dyn EnrichmentPipeSink + Send + Sync>,
+    sqs_client: Arc<aws_sdk_sqs::Client>,
+    enrichment_queue_url: String,
 }
 
 #[async_trait::async_trait]
-impl<'a> EnrichmentPlumbing for EnrichmentPlumbingImpl<'a> {
+impl EnrichmentPlumbing for EnrichmentPlumbingImpl {
     async fn plumb(&self, count: i32) {
         info!(count = count, "Started plumbing.");
 
@@ -104,13 +107,13 @@ impl<'a> EnrichmentPlumbing for EnrichmentPlumbingImpl<'a> {
     }
 }
 
-impl<'a> EnrichmentPlumbingImpl<'a> {
+impl EnrichmentPlumbingImpl {
     pub fn new(
-        faucet: &'a (dyn EnrichmentPipeFaucet + Sync),
-        pipes: &'a [&'a (dyn EnrichmentPipe + Sync)],
-        sink: &'a (dyn EnrichmentPipeSink + Sync),
-        sqs_client: &'a aws_sdk_sqs::Client,
-        enrichment_queue_url: &'a str,
+        faucet: Arc<dyn EnrichmentPipeFaucet + Send + Sync>,
+        pipes: Vec<Box<dyn EnrichmentPipe + Send + Sync>>,
+        sink: Arc<dyn EnrichmentPipeSink + Send + Sync>,
+        sqs_client: Arc<aws_sdk_sqs::Client>,
+        enrichment_queue_url: String,
     ) -> Self {
         Self {
             faucet,
@@ -185,7 +188,7 @@ impl<'a> EnrichmentPlumbingImpl<'a> {
         let res = self
             .sqs_client
             .delete_message_batch()
-            .queue_url(self.enrichment_queue_url)
+            .queue_url(&self.enrichment_queue_url)
             .set_entries(Some(delete_message_batch_entries))
             .send()
             .await;

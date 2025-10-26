@@ -31,6 +31,7 @@ pub struct PipeResult {
     pub failures: Vec<ItemId>,
 }
 
+#[mockall::automock]
 pub trait EnrichmentPipe {
     fn enrich(&self, items: Vec<PipeItem>) -> PipeResult;
 }

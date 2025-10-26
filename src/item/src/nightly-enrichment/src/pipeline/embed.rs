@@ -1,3 +1,5 @@
+use std::sync::Arc;
+
 use crate::{
     embed::EmbeddingDelegate,
     pipeline::pipe::{EnrichmentPipe, PipeItem, PipeResult},
@@ -5,17 +7,17 @@ use crate::{
 use common::batch::Batch;
 use tracing::{error, info};
 
-pub struct EmbeddingEnrichmentPipeImpl<'a> {
-    embedding_delegate: &'a dyn EmbeddingDelegate,
+pub struct EmbeddingEnrichmentPipeImpl {
+    embedding_delegate: Arc<dyn EmbeddingDelegate + Send + Sync>,
 }
 
-impl<'a> EmbeddingEnrichmentPipeImpl<'a> {
-    pub fn new(embedding_delegate: &'a dyn EmbeddingDelegate) -> Self {
+impl EmbeddingEnrichmentPipeImpl {
+    pub fn new(embedding_delegate: Arc<dyn EmbeddingDelegate + Send + Sync>) -> Self {
         Self { embedding_delegate }
     }
 }
 
-impl<'a> EnrichmentPipe for EmbeddingEnrichmentPipeImpl<'a> {
+impl EnrichmentPipe for EmbeddingEnrichmentPipeImpl {
     fn enrich(&self, items: Vec<PipeItem>) -> PipeResult {
         let count = items.len();
         let mut successes = Vec::with_capacity(items.len());
@@ -74,6 +76,8 @@ impl<'a> EnrichmentPipe for EmbeddingEnrichmentPipeImpl<'a> {
 
 #[cfg(test)]
 pub mod tests {
+    use std::sync::Arc;
+
     use crate::{
         embed::MockEmbeddingDelegate,
         pipeline::{
@@ -97,7 +101,7 @@ pub mod tests {
             .expect_embed()
             .return_once(move |_| Ok(expected_clone.try_into().unwrap()));
 
-        let embedding_pipe = EmbeddingEnrichmentPipeImpl::new(&delegate);
+        let embedding_pipe = EmbeddingEnrichmentPipeImpl::new(Arc::new(delegate));
         let res = embedding_pipe.enrich(fake::vec![PipeItem; 4]);
         let actual = res
             .successes
@@ -127,7 +131,7 @@ pub mod tests {
             .expect_embed()
             .returning(move |_| Err(PyErr::new::<PyTypeError, _>("Something went wrong")));
 
-        let embedding_pipe = EmbeddingEnrichmentPipeImpl::new(&delegate);
+        let embedding_pipe = EmbeddingEnrichmentPipeImpl::new(Arc::new(delegate));
         let res = embedding_pipe.enrich(fake::vec![PipeItem; input_count]);
 
         assert!(res.successes.is_empty());
