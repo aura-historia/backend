@@ -42,16 +42,41 @@ impl<'a> EnrichmentPipeFaucet for EnrichmentPipeFaucetImpl<'a> {
         &self,
         count: i32,
     ) -> Result<Vec<(PipeItem, MessageRef)>, SdkError<ReceiveMessageError>> {
-        let messages = self
-            .sqs_client
-            .receive_message()
-            .queue_url(self.enrichment_queue_url)
-            .max_number_of_messages(count)
-            .visibility_timeout(count)
-            .send()
-            .await?
-            .messages
-            .unwrap_or_default();
+        let count = count as usize;
+        let mut messages = Vec::with_capacity(count);
+        loop {
+            let res = self
+                .sqs_client
+                .receive_message()
+                .queue_url(self.enrichment_queue_url)
+                .max_number_of_messages(10.min((count - messages.len()) as i32))
+                .visibility_timeout(120)
+                .send()
+                .await;
+            match res {
+                Err(err) => {
+                    error!(
+                        error = ?err,
+                        "Failed receiving messages. Aborting receiving - continuing pipe."
+                    );
+                    break;
+                }
+                Ok(output) => {
+                    let mut local_messages = output.messages.unwrap_or_default();
+                    let local_messages_count = local_messages.len();
+                    messages.append(&mut local_messages);
+
+                    if local_messages_count < 10 || messages.len() >= count {
+                        break;
+                    }
+                }
+            }
+        }
+        info!(
+            count = count,
+            received = messages.len(),
+            "Received messages."
+        );
 
         let mut water = Vec::with_capacity(messages.len());
         let mut failed_message_ids = Vec::new(); // ignore here as: no explicit sqs-succeed == failure

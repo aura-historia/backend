@@ -23,10 +23,20 @@ tokio = { workspace = true, features = ["time"] }
 fake = { workspace = true, optional = true }
 
 [dev-dependencies]
+test-api = { workspace = true, features = ["sqs", "dynamodb", "opensearch"] }
+serial_test = { workspace = true }
 tokio = { workspace = true, features = ["macros"] }
 rstest = { workspace = true }
 fake = { workspace = true }
+uuid = { workspace = true }
+time = { workspace = true }
 nightly-enrichment = { workspace = true, features = ["test-data"] }
+serde_json = { workspace = true }
+serde_dynamo = { workspace = true, features = [ "aws-sdk-dynamodb+1" ] }
+aws_lambda_events = { workspace = true, features = [
+    "dynamodb",
+    "eventbridge",
+] }
 
 [features]
 default = []

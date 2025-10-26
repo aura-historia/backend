@@ -3054,6 +3054,7 @@ dependencies = [
  "async-trait",
  "aws-sdk-dynamodb",
  "aws-sdk-sqs",
+ "aws_lambda_events",
  "common",
  "fake",
  "item-core",
@@ -3066,8 +3067,14 @@ dependencies = [
  "pyo3",
  "pyo3-ffi",
  "rstest",
+ "serde_dynamo",
+ "serde_json",
+ "serial_test",
+ "test-api",
+ "time",
  "tokio",
  "tracing",
+ "uuid",
 ]
 
 [[package]]
