@@ -225,7 +225,7 @@ jobs:
 
       - name: Test 'nightly-enrichment'
         working-directory: src/item/src/nightly-enrichment
-        run: cargo test --all-features -- --ignored --nocapture
+        run: cargo test --lib --test '*' --all-features -- --ignored --nocapture
 
   sonar:
     name: SonarQube-Cloud Analysis
