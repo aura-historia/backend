@@ -4,7 +4,7 @@ use item_opensearch::{
     item_update_document::ItemUpdateDocument, repository::ItemOpenSearchRepository,
 };
 use std::collections::HashMap;
-use tracing::{error, warn};
+use tracing::{error, info, warn};
 
 #[async_trait::async_trait]
 #[mockall::automock]
@@ -37,13 +37,15 @@ impl<'a> EnrichmentPipeSinkImpl<'a> {
 #[async_trait::async_trait]
 impl<'a> EnrichmentPipeSink for EnrichmentPipeSinkImpl<'a> {
     async fn drain_documents(&self, documents: HashMap<ItemId, ItemUpdateDocument>) -> Vec<ItemId> {
+        let count = documents.len();
         let item_ids = documents.keys().copied().collect::<Vec<_>>();
         let res = self
             .item_opensearch_repository
             .update_item_documents(documents)
             .await;
 
-        match res {
+        let mut skipped = 0usize;
+        let failures = match res {
             Err(err) => {
                 error!(error = %err, "Failed draining all ItemDocument-Updates for this sink.");
                 item_ids
@@ -56,6 +58,7 @@ impl<'a> EnrichmentPipeSink for EnrichmentPipeSinkImpl<'a> {
                             Err(err) => {
                                 error!(error = %err, itemId = failure.id, "Failed parsing returned '_id' from OpenSearch for 'ItemDocument' as 'ItemId'.
                                     This is highly to be a bug. Cannot retry.");
+                                skipped += 1;
                                 None
                             }
                             Ok(item_id) => Some(item_id)
@@ -65,13 +68,24 @@ impl<'a> EnrichmentPipeSink for EnrichmentPipeSinkImpl<'a> {
                     vec![]
                 }
             }
-        }
+        };
+
+        info!(
+            count = count,
+            successes = count - skipped - failures.len(),
+            skipped = skipped,
+            failures = failures.len(),
+            "Drained documents."
+        );
+
+        failures
     }
 
     async fn drain_records(
         &self,
         records: HashMap<ItemId, (ItemKey, ItemRecordUpdate)>,
     ) -> Vec<ItemId> {
+        let count = records.len();
         let mut failures = Vec::new();
         for (item_id, (item_key, record)) in records {
             let res = self
@@ -83,6 +97,13 @@ impl<'a> EnrichmentPipeSink for EnrichmentPipeSinkImpl<'a> {
                 failures.push(item_id);
             }
         }
+
+        info!(
+            count = count,
+            successes = count - failures.len(),
+            failures = failures.len(),
+            "Drained records."
+        );
 
         failures
     }

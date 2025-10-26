@@ -3,7 +3,7 @@ use crate::{
     pipe::spec::{EnrichmentPipe, PipeItem, PipeResult},
 };
 use common::batch::Batch;
-use tracing::error;
+use tracing::{error, info};
 
 pub struct EmbeddingEnrichmentPipeImpl<'a> {
     embedding_delegate: &'a dyn EmbeddingDelegate,
@@ -17,8 +17,9 @@ impl<'a> EmbeddingEnrichmentPipeImpl<'a> {
 
 impl<'a> EnrichmentPipe for EmbeddingEnrichmentPipeImpl<'a> {
     fn enrich(&self, items: Vec<PipeItem>) -> PipeResult {
-        let mut enriched = Vec::with_capacity(items.len());
-        let mut failed = Vec::new();
+        let count = items.len();
+        let mut successes = Vec::with_capacity(items.len());
+        let mut failures = Vec::new();
         let batches: Vec<Batch<PipeItem, 64>> = Batch::chunked_from(items.into_iter());
 
         for document_batch in batches {
@@ -42,7 +43,7 @@ impl<'a> EnrichmentPipe for EmbeddingEnrichmentPipeImpl<'a> {
                 Err(err) => {
                     error!(error = %err, "Failed delegating embeddings.");
                     let mut local_failed = document_batch.iter().map(|doc| doc.source.item_id);
-                    failed.extend(&mut local_failed);
+                    failures.extend(&mut local_failed);
                 }
                 Ok(embeddings) => {
                     let mut local_enriched = document_batch.into_iter().zip(embeddings).map(
@@ -52,14 +53,21 @@ impl<'a> EnrichmentPipe for EmbeddingEnrichmentPipeImpl<'a> {
                             pipe_item
                         },
                     );
-                    enriched.extend(&mut local_enriched);
+                    successes.extend(&mut local_enriched);
                 }
             }
         }
 
+        info!(
+            count = count,
+            successes = count - failures.len(),
+            failures = failures.len(),
+            "Embedded PipeItems."
+        );
+
         PipeResult {
-            successes: enriched,
-            failures: failed,
+            successes,
+            failures,
         }
     }
 }
