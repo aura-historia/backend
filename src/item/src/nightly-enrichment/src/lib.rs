@@ -1,2 +1,2 @@
 pub mod embed;
-pub mod pipe;
+pub mod pipeline;

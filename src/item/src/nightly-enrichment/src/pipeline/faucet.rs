@@ -1,4 +1,4 @@
-use crate::pipe::spec::{PipeItem, PipeItemSource, PipeItemUpdate};
+use crate::pipeline::pipe::{PipeItem, PipeItemSource, PipeItemUpdate};
 use aws_sdk_sqs::{error::SdkError, operation::receive_message::ReceiveMessageError};
 use common::item_id::ItemId;
 use item_core::item_event::{ItemEvent, ItemEventPayload};

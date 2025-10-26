@@ -112,7 +112,7 @@ impl<'a> EnrichmentPipeSink for EnrichmentPipeSinkImpl<'a> {
 #[cfg(test)]
 mod tests {
     mod drain_documents {
-        use crate::pipe::sink::{EnrichmentPipeSink, EnrichmentPipeSinkImpl};
+        use crate::pipeline::sink::{EnrichmentPipeSink, EnrichmentPipeSinkImpl};
         use common::{
             item_id::ItemId,
             opensearch::bulk_response::{BulkItemResult, BulkOpResult, BulkResponse},
@@ -162,7 +162,7 @@ mod tests {
         #[case(1000)]
         #[tokio::test]
         async fn should_return_partial_failures(#[case] failure_count: usize) {
-            use crate::pipe::sink::{EnrichmentPipeSink, EnrichmentPipeSinkImpl};
+            use crate::pipeline::sink::{EnrichmentPipeSink, EnrichmentPipeSinkImpl};
 
             let item_dynamodb_repository = MockItemDynamoDbRepository::default();
             let mut item_opensearch_repository = MockItemOpenSearchRepository::default();
@@ -215,7 +215,7 @@ mod tests {
         use item_opensearch::repository::MockItemOpenSearchRepository;
         use std::collections::HashMap;
 
-        use crate::pipe::sink::{EnrichmentPipeSink, EnrichmentPipeSinkImpl};
+        use crate::pipeline::sink::{EnrichmentPipeSink, EnrichmentPipeSinkImpl};
 
         #[tokio::test]
         async fn should_drain_records_when_successful() {

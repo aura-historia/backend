@@ -1,5 +1,5 @@
 pub mod embed;
 pub mod faucet;
-pub mod sink;
-pub mod spec;
+pub mod pipe;
 pub mod plumbing;
+pub mod sink;

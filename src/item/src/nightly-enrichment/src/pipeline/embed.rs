@@ -1,6 +1,6 @@
 use crate::{
     embed::EmbeddingDelegate,
-    pipe::spec::{EnrichmentPipe, PipeItem, PipeResult},
+    pipeline::pipe::{EnrichmentPipe, PipeItem, PipeResult},
 };
 use common::batch::Batch;
 use tracing::{error, info};
@@ -76,9 +76,9 @@ impl<'a> EnrichmentPipe for EmbeddingEnrichmentPipeImpl<'a> {
 pub mod tests {
     use crate::{
         embed::MockEmbeddingDelegate,
-        pipe::{
+        pipeline::{
             embed::EmbeddingEnrichmentPipeImpl,
-            spec::{EnrichmentPipe, PipeItem},
+            pipe::{EnrichmentPipe, PipeItem},
         },
     };
     use pyo3::{PyErr, exceptions::PyTypeError};

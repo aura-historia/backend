@@ -1,7 +1,7 @@
-use crate::pipe::{
+use crate::pipeline::{
     faucet::{EnrichmentPipeFaucet, MessageRef},
+    pipe::{EnrichmentPipe, PipeItem},
     sink::EnrichmentPipeSink,
-    spec::{EnrichmentPipe, PipeItem},
 };
 use aws_sdk_sqs::types::DeleteMessageBatchRequestEntry;
 use common::{
