@@ -426,8 +426,7 @@ jobs:
           cargo build --release
           BIN_NAME=$(basename ${{ matrix.crate }})
           mkdir -p $GITHUB_WORKSPACE/artifacts
-          cp target/x86_64-unknown-linux-musl/release/$BIN_NAME \
-             $GITHUB_WORKSPACE/artifacts/$BIN_NAME-${{ env.STAGE_NAME }}-${GITHUB_SHA}
+          cp target/release/$BIN_NAME $GITHUB_WORKSPACE/artifacts/$BIN_NAME-${{ env.STAGE_NAME }}-${GITHUB_SHA}
 
       - name: Configure AWS credentials
         uses: aws-actions/configure-aws-credentials@v5.1.0
