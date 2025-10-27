@@ -2544,6 +2544,19 @@ Resources:
 
 
 
+  NightlyEnrichmentDlq:
+    Type: AWS::SQS::Queue
+    Properties:
+      QueueName: !Sub "nightly-enrichment-dlq-${StageName}"
+      MessageRetentionPeriod: 1209600
+  NightlyEnrichmentQ:
+    Type: AWS::SQS::Queue
+    Properties:
+      QueueName: !Sub "nightly-enrichment-queue-${StageName}"
+      RedrivePolicy:
+        deadLetterTargetArn: !GetAtt NightlyEnrichmentDlq.Arn
+        maxReceiveCount: 3
+      VisibilityTimeout: 360
   NightlyEnrichmentRole:
     Type: AWS::IAM::Role
     Properties:
@@ -2573,6 +2586,43 @@ Resources:
                 Action:
                   - s3:GetObject
                 Resource: !Sub "arn:aws:s3:::${ResourceBucket}/*"
+        - PolicyName: DynamoDBAccess
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: Allow
+                Action:
+                  - dynamodb:GetItem
+                  - dynamodb:Query
+                  - dynamodb:PutItem
+                  - dynamodb:DeleteItem
+                  - dynamodb:BatchGetItem
+                  - dynamodb:BatchWriteItem
+                  - dynamodb:TransactGetItems
+                  - dynamodb:TransactWriteItems
+                Resource:
+                  - !GetAtt TableOne.Arn
+                  - !Sub "${TableOne.Arn}/index/*"
+        - PolicyName: OpenSearchAccess
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: Allow
+                Action:
+                  - es:*
+                Resource: !Sub "arn:aws:es:${AWS::Region}:${AWS::AccountId}:domain/application-${StageName}/*"
+        - PolicyName: SQSPollerAccess
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: Allow
+                Action:
+                  - sqs:ReceiveMessage
+                  - sqs:DeleteMessage
+                  - sqs:DeleteMessageBatch
+                  - sqs:GetQueueAttributes
+                  - sqs:GetQueueUrl
+                Resource: !GetAtt NightlyEnrichmentQ.Arn
   NightlyEnrichmentInstanceProfile:
     Type: AWS::IAM::InstanceProfile
     Properties:
@@ -2582,17 +2632,9 @@ Resources:
   NightlyEnrichmentEC2Instance:
     Type: AWS::EC2::Instance
     Properties:
-      InstanceType: t3.micro
+      InstanceType: g6.2xlarge
       ImageId: ami-032fa3abdbb7e3a12 # Deep Learning OSS Nvidia Driver AMI GPU PyTorch 2.8 (Ubuntu 24.04)
-      IamInstanceProfile:
-        Arn: !GetAtt NightlyEnrichmentInstanceProfile.Arn
-        Tags:
-          - Key: Name
-            Value: !Sub "nightly-enrichment-${StageName}"
-          - Key: Stage
-            Value: !Ref StageName
-          - Key: CommitSHA
-            Value: !Ref CommitSHA
+      IamInstanceProfile: !GetAtt NightlyEnrichmentInstanceProfile.Arn
       UserData:
         Fn::Base64: !Sub |
           #!/bin/bash
@@ -2603,7 +2645,24 @@ Resources:
           yum install -y awscli
           aws s3 cp "s3://${ResourceBucket}/nightly-enrichment-ec2-user-data-${StageName}-${CommitSHA}.sh" /tmp/user_data.sh --region eu-central-1
           bash /tmp/user_data.sh
-
+  NightlyEnrichmentDlqAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      AlarmName: !Sub "${StageName}-nightly-enrichment-dlq-messages"
+      AlarmDescription: "Alarm when messages appear in nightly-enrichment DLQ"
+      MetricName: ApproximateNumberOfMessagesVisible
+      Namespace: AWS/SQS
+      Statistic: Sum
+      Period: 300
+      EvaluationPeriods: 1
+      Threshold: 1
+      ComparisonOperator: GreaterThanOrEqualToThreshold
+      Dimensions:
+        - Name: QueueName
+          Value: !GetAtt NightlyEnrichmentDlq.QueueName
+      TreatMissingData: notBreaching
+      AlarmActions:
+        - !Ref AlarmNotificationTopic
 
 
 
