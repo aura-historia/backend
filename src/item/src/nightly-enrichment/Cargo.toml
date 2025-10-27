@@ -30,6 +30,7 @@ rstest = { workspace = true }
 fake = { workspace = true }
 uuid = { workspace = true }
 time = { workspace = true }
+aws-config = { workspace = true }
 nightly-enrichment = { workspace = true, features = ["test-data"] }
 serde_json = { workspace = true }
 serde_dynamo = { workspace = true, features = [ "aws-sdk-dynamodb+1" ] }

@@ -83,7 +83,7 @@ async fn should_pour_messages(#[case] queue_count: usize, #[case] pour_count: i3
     }
 
     let faucet = EnrichmentPipeFaucetImpl::new(sqs_client, enrichment_queue_url);
-    let actual = faucet.pour(pour_count).await.unwrap();
+    let actual = faucet.pour(pour_count).await;
 
     assert_eq!(pour_count as usize, actual.len());
     assert!(

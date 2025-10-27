@@ -34,79 +34,67 @@ impl EnrichmentPlumbing for EnrichmentPlumbingImpl {
         info!(count = count, "Started plumbing.");
 
         // find water
-        match self.faucet.pour(count).await {
-            Err(err) => {
-                error!(
-                    error = ?err,
-                    count = count,
-                    queueUrl = self.enrichment_queue_url,
-                    "Failed pouring ItemEventRecords from enrichment-queue."
-                );
-            }
-            Ok(water) => {
-                let (pipe_items, message_refs): (Vec<PipeItem>, Vec<MessageRef>) =
-                    water.into_iter().unzip();
-                let mut message_refs = message_refs
-                    .into_iter()
-                    .map(|message_ref| (message_ref.item_id, message_ref))
-                    .collect::<HashMap<_, _>>();
+        let (pipe_items, message_refs): (Vec<PipeItem>, Vec<MessageRef>) =
+            self.faucet.pour(count).await.into_iter().unzip();
+        let mut message_refs = message_refs
+            .into_iter()
+            .map(|message_ref| (message_ref.item_id, message_ref))
+            .collect::<HashMap<_, _>>();
 
-                // run water through pipes
-                let (enriched_items, mut failed_items) =
-                    self.pipes
-                        .iter()
-                        .fold((pipe_items, vec![]), |(pipe_in, leak_in), pipe| {
-                            let mut pipe_res = pipe.enrich(pipe_in);
-                            let pipe_out = pipe_res.successes;
-                            let mut pipe_leak = leak_in;
-                            pipe_leak.append(&mut pipe_res.failures);
+        // run water through pipes
+        let (enriched_items, mut failed_items) =
+            self.pipes
+                .iter()
+                .fold((pipe_items, vec![]), |(pipe_in, leak_in), pipe| {
+                    let mut pipe_res = pipe.enrich(pipe_in);
+                    let pipe_out = pipe_res.successes;
+                    let mut pipe_leak = leak_in;
+                    pipe_leak.append(&mut pipe_res.failures);
 
-                            (pipe_out, pipe_leak)
-                        });
+                    (pipe_out, pipe_leak)
+                });
 
-                // route water to sink
-                let (drain_documents, drain_records) = enriched_items.into_iter().fold(
-                    (HashMap::new(), HashMap::new()),
-                    |(mut drain_documents, mut drain_records), pipe_item| {
-                        if let Some(document_update) = pipe_item.update.document {
-                            drain_documents.insert(pipe_item.source.item_id, document_update);
-                        };
-                        if let Some(record_update) = pipe_item.update.record {
-                            let item_key = ItemKey {
-                                shop_id: pipe_item.source.payload.shop_id,
-                                shops_item_id: pipe_item.source.payload.shops_item_id,
-                            };
-                            drain_records
-                                .insert(pipe_item.source.item_id, (item_key, record_update));
-                        };
-                        (drain_documents, drain_records)
-                    },
-                );
-                failed_items.append(&mut self.sink.drain_documents(drain_documents).await);
-                failed_items.append(&mut self.sink.drain_records(drain_records).await);
-                let failed_piped_water = failed_items.len();
+        // route water to sink
+        let (drain_documents, drain_records) = enriched_items.into_iter().fold(
+            (HashMap::new(), HashMap::new()),
+            |(mut drain_documents, mut drain_records), pipe_item| {
+                if let Some(document_update) = pipe_item.update.document {
+                    drain_documents.insert(pipe_item.source.item_id, document_update);
+                };
+                if let Some(record_update) = pipe_item.update.record {
+                    let item_key = ItemKey {
+                        shop_id: pipe_item.source.payload.shop_id,
+                        shops_item_id: pipe_item.source.payload.shops_item_id,
+                    };
+                    drain_records.insert(pipe_item.source.item_id, (item_key, record_update));
+                };
+                (drain_documents, drain_records)
+            },
+        );
+        failed_items.append(&mut self.sink.drain_documents(drain_documents).await);
+        failed_items.append(&mut self.sink.drain_records(drain_records).await);
+        let failed_piped_water = failed_items.len();
 
-                // remove leaked water - leaving behind arrived water
-                for failed_item in failed_items {
-                    message_refs.remove(&failed_item);
-                }
-                let successes = message_refs.len();
-                let failed_deleted_water = self
-                    .handle_delete_messages_with_retry(message_refs.into_values().collect())
-                    .await;
-                let failures = failed_piped_water + failed_deleted_water.len();
-
-                info!(
-                    count = count,
-                    successes = successes,
-                    failures = failures,
-                    "Finished plumbing."
-                );
-            }
+        // remove leaked water - leaving behind arrived water
+        for failed_item in failed_items {
+            message_refs.remove(&failed_item);
         }
+        let successes = message_refs.len();
+        let failed_deleted_water = self
+            .handle_delete_messages_with_retry(message_refs.into_values().collect())
+            .await;
+        let failures = failed_piped_water + failed_deleted_water.len();
+
+        info!(
+            count = count,
+            successes = successes,
+            failures = failures,
+            "Finished plumbing."
+        );
     }
 }
 
+#[mockall::automock]
 impl EnrichmentPlumbingImpl {
     pub fn new(
         faucet: Arc<dyn EnrichmentPipeFaucet + Send + Sync>,
@@ -211,5 +199,60 @@ impl EnrichmentPlumbingImpl {
                 message_ids_message_refs.into_values().collect()
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::pipeline::{
+        faucet::{MessageRef, MockEnrichmentPipeFaucet},
+        pipe::{EnrichmentPipe, MockEnrichmentPipe, PipeItem, PipeResult},
+        plumbing::{EnrichmentPlumbing, EnrichmentPlumbingImpl},
+        sink::MockEnrichmentPipeSink,
+    };
+    use aws_config::{BehaviorVersion, SdkConfig};
+    use std::sync::Arc;
+
+    #[tokio::test]
+    async fn should_partially_fail_enrichment_in_pipe() {
+        let mut faucet = MockEnrichmentPipeFaucet::default();
+        let mut pipe = MockEnrichmentPipe::default();
+        let mut sink = MockEnrichmentPipeSink::default();
+        let sdk_config = SdkConfig::builder()
+            .behavior_version(BehaviorVersion::latest())
+            .build();
+        let sqs_client = aws_sdk_sqs::Client::new(&sdk_config);
+
+        faucet.expect_pour().return_once(move |_| {
+            Box::pin(async move { fake::vec![(PipeItem, MessageRef); 1000] })
+        });
+        pipe.expect_enrich().return_once(|items| PipeResult {
+            failures: items
+                .iter()
+                .take(958)
+                .map(|item| item.source.item_id)
+                .collect(),
+            successes: items.into_iter().skip(958).collect(),
+        });
+        sink.expect_drain_documents().return_once(|documents| {
+            assert!(documents.len() <= 42); // of those succeeding some might not bring any changes
+            Box::pin(async { documents.into_keys().collect() })
+        });
+        sink.expect_drain_records().return_once(|records| {
+            assert!(records.len() <= 42);
+            Box::pin(async { records.into_keys().collect() })
+        });
+        // Sink fails all (still partially)
+        // Dummy sqs-client shouldn't fail because it should never be invoked because all items partially failed
+
+        let pipes: Vec<Box<dyn EnrichmentPipe + Send + Sync>> = vec![Box::new(pipe)];
+        let plumbing = EnrichmentPlumbingImpl::new(
+            Arc::new(faucet),
+            pipes,
+            Arc::new(sink),
+            Arc::new(sqs_client),
+            "dummy".to_owned(),
+        );
+        plumbing.plumb(1000).await;
     }
 }

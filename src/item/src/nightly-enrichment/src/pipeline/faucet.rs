@@ -1,7 +1,6 @@
 use std::sync::Arc;
 
 use crate::pipeline::pipe::{PipeItem, PipeItemSource, PipeItemUpdate};
-use aws_sdk_sqs::{error::SdkError, operation::receive_message::ReceiveMessageError};
 use common::item_id::ItemId;
 use item_core::item_event::{ItemEvent, ItemEventPayload};
 use item_dynamodb::item_event_record::ItemEventRecord;
@@ -11,10 +10,7 @@ use tracing::{error, info};
 #[async_trait::async_trait]
 #[mockall::automock]
 pub trait EnrichmentPipeFaucet {
-    async fn pour(
-        &self,
-        count: i32,
-    ) -> Result<Vec<(PipeItem, MessageRef)>, SdkError<ReceiveMessageError>>;
+    async fn pour(&self, count: i32) -> Vec<(PipeItem, MessageRef)>;
 }
 
 pub struct EnrichmentPipeFaucetImpl {
@@ -31,6 +27,7 @@ impl EnrichmentPipeFaucetImpl {
     }
 }
 
+#[cfg_attr(feature = "test-data", derive(fake::Dummy))]
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct MessageRef {
     pub message_id: String,
@@ -40,10 +37,7 @@ pub struct MessageRef {
 
 #[async_trait::async_trait]
 impl EnrichmentPipeFaucet for EnrichmentPipeFaucetImpl {
-    async fn pour(
-        &self,
-        count: i32,
-    ) -> Result<Vec<(PipeItem, MessageRef)>, SdkError<ReceiveMessageError>> {
+    async fn pour(&self, count: i32) -> Vec<(PipeItem, MessageRef)> {
         let count = count as usize;
         let mut messages = Vec::with_capacity(count);
         loop {
@@ -147,6 +141,6 @@ impl EnrichmentPipeFaucet for EnrichmentPipeFaucetImpl {
             "Faucet poured."
         );
 
-        Ok(pipe_items)
+        pipe_items
     }
 }
