@@ -423,7 +423,7 @@ jobs:
       - name: Build EC2 binary
         working-directory: ${{ matrix.crate }}
         run: |
-          cargo build --release --target x86_64-unknown-linux-musl
+          cargo build --release
           BIN_NAME=$(basename ${{ matrix.crate }})
           mkdir -p $GITHUB_WORKSPACE/artifacts
           cp target/x86_64-unknown-linux-musl/release/$BIN_NAME \
