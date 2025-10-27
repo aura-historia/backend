@@ -251,7 +251,7 @@ Resources:
     Type: AWS::OpenSearchService::Domain
     Properties:
       DomainName: !Sub "application-${StageName}"
-      EngineVersion: "OpenSearch_3.3"
+      EngineVersion: "OpenSearch_3.1"
       ClusterConfig:
         InstanceType: t3.small.search
         InstanceCount: 1
