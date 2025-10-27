@@ -105,7 +105,10 @@ mod tests {
             payload: ApiGatewayV2httpRequestProxy::builder()
                 .http_method(http::Method::PATCH)
                 .path_parameter("searchFilterId", SearchFilterId::new())
-                .body_serde(&Faker.fake::<PatchUserSearchFilterData>())
+                .body_serde(&PatchUserSearchFilterData {
+                    search_filter_name: Some("foo".to_string()),
+                    search_filter: None,
+                })
                 .jwt_claim("sub", UserId::new())
                 .build(),
             context: Default::default(),
