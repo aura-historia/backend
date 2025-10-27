@@ -422,8 +422,10 @@ jobs:
 
       - name: Build EC2 binary
         working-directory: ${{ matrix.crate }}
+        run: cargo build --release
+
+      - name: Copy EC2 binary to artifacts
         run: |
-          cargo build --release
           BIN_NAME=$(basename ${{ matrix.crate }})
           mkdir -p $GITHUB_WORKSPACE/artifacts
           cp target/release/$BIN_NAME $GITHUB_WORKSPACE/artifacts/$BIN_NAME-${{ env.STAGE_NAME }}-${GITHUB_SHA}
