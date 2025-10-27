@@ -15,6 +15,9 @@ Parameters:
   ArtifactBucket:
     Type: String
     Description: "S3 bucket containing Lambda deployment zips"
+  ResourceBucket:
+    Type: String
+    Description: "S3 bucket containing resources"
   MailTemplateBucket:
     Type: String
     Description: "S3 bucket containing mail-templates"
@@ -2536,6 +2539,79 @@ Resources:
       Targets:
         - Id: ItemUpdateNotifyUserQ
           Arn: !GetAtt ItemUpdateNotifyUserQ.Arn
+
+
+
+
+
+  NightlyEnrichmentRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Sub "nightly-enrichment-role-${StageName}"
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: ec2.amazonaws.com
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/CloudWatchAgentServerPolicy
+      Policies:
+        - PolicyName: AllowSelfTerminate
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: Allow
+                Action: ec2:TerminateInstances
+                Resource: "*"
+        - PolicyName: S3Access
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: Allow
+                Action:
+                  - s3:GetObject
+                Resource: !Sub "arn:aws:s3:::${ResourceBucket}/*"
+  NightlyEnrichmentInstanceProfile:
+    Type: AWS::IAM::InstanceProfile
+    Properties:
+      InstanceProfileName: !Sub "nightly-enrichment-profile-${StageName}"
+      Roles:
+        - !Ref NightlyEnrichmentRole
+  NightlyEnrichmentLaunchTemplate:
+    Type: AWS::EC2::Instance
+    Properties:
+      InstanceType: t3.micro
+      ImageId: ami-0ef871ebdc5bb9354
+      IamInstanceProfile:
+        Arn: !GetAtt NightlyEnrichmentInstanceProfile.Arn
+      Tags:
+        - ResourceType: instance
+          Tags:
+            - Key: Name
+              Value: !Sub "nightly-enrichment-${StageName}"
+            - Key: Stage
+              Value: !Ref StageName
+            - Key: CommitSHA
+              Value: !Ref CommitSHA
+      UserData:
+        Fn::Base64: !Sub |
+          #!/bin/bash
+          set -euxo pipefail
+          export STAGE_NAME="${StageName}"
+          export COMMIT_SHA="${CommitSHA}"
+          export RESOURCE_BUCKET="${ResourceBucket}"
+          yum install -y awscli
+          aws s3 cp "s3://${ResourceBucket}/nightly-enrichment-ec2-user-data-${StageName}-${CommitSHA}.sh" /tmp/user_data.sh --region eu-central-1
+          bash /tmp/user_data.sh
+
+
+
+
+
+
+
 
 Outputs:
   CognitoHostedUIDomain:

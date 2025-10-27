@@ -386,9 +386,88 @@ jobs:
             --body "$GITHUB_WORKSPACE/artifacts/$BIN_NAME-${{ env.STAGE_NAME }}-${GITHUB_SHA}.zip" \
             --tagging "stage=${{ env.STAGE }}"
 
+  aws-push-ec2:
+    name: Push EC2 to S3 ${{ matrix.crate }}
+    needs: [unit-test, integration-test, test-python-nightly-enrichment]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write
+    strategy:
+      matrix:
+        crate:
+          - src/item/src/nightly-enrichment
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Set up Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache cargo registry and target
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
+
+      - name: Build EC2 binary
+        working-directory: ${{ matrix.crate }}
+        run: |
+          cargo build --release --target x86_64-unknown-linux-musl
+          BIN_NAME=$(basename ${{ matrix.crate }})
+          mkdir -p $GITHUB_WORKSPACE/artifacts
+          cp target/x86_64-unknown-linux-musl/release/$BIN_NAME \
+             $GITHUB_WORKSPACE/artifacts/$BIN_NAME-${{ env.STAGE_NAME }}-${GITHUB_SHA}
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v5.1.0
+        with:
+          role-to-assume: ${{ secrets.CI_DEPLOY_ROLE_ARN }}
+          aws-region: ${{ vars.AWS_REGION }}
+
+      - name: Upload EC2 binary to S3
+        run: |
+          BIN_NAME=$(basename ${{ matrix.crate }})
+          aws s3api put-object \
+            --bucket "${{ vars.S3_BINARY_ARTIFACTS_BUCKET_NAME }}" \
+            --key "$BIN_NAME-${{ env.STAGE_NAME }}-${GITHUB_SHA}" \
+            --body "$GITHUB_WORKSPACE/artifacts/$BIN_NAME-${{ env.STAGE_NAME }}-${GITHUB_SHA}" \
+            --tagging "stage=${{ env.STAGE }}"
+
+  aws-push-resource-artifacts:
+    name: Push resource-artifacts to S3 ${{ matrix.resource }}
+    needs: [unit-test, integration-test, test-python-nightly-enrichment]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write
+    strategy:
+      matrix:
+        resource:
+          - src/item/src/nightly-enrichment/nightly-enrichment-ec2-trigger.py
+          - src/item/src/nightly-enrichment/nightly-enrichment-ec2-user-data.sh
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v5.1.0
+        with:
+          role-to-assume: ${{ secrets.CI_DEPLOY_ROLE_ARN }}
+          aws-region: ${{ vars.AWS_REGION }}
+
+      - name: Upload resource-artifacts to S3
+        run: |
+          aws s3api put-object \
+            --bucket "${{ vars.S3_RESOURCE_ARTIFACTS_BUCKET_NAME }}" \
+            --key "${{ matrix.resource }}-${{ env.STAGE_NAME }}-${GITHUB_SHA}" \
+            --body "${{ matrix.resource }}" \
+            --tagging "stage=${{ env.STAGE }}"
+
   aws-cfn-deploy:
     name: Deploy & initialize CFN-Stack
-    needs: aws-push-lambda
+    needs: [aws-push-lambda, aws-push-ec2, aws-push-resource-artifacts]
     environment:
       name: aws
     runs-on: ubuntu-latest
@@ -416,6 +495,7 @@ jobs:
                 Stage=${{ env.STAGE }} \
                 StageName=${{ env.STAGE_NAME }} \
                 ArtifactBucket=${{ vars.S3_BINARY_ARTIFACTS_BUCKET_NAME }} \
+                ResourceBucket=${{ vars.S3_RESOURCE_ARTIFACTS_BUCKET_NAME }} \
                 MailTemplateBucket=${{ vars.S3_MAIL_TEMPLATE_BUCKET_NAME }} \
                 CommitSHA=${GITHUB_SHA}
 
