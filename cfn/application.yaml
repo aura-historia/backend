@@ -442,6 +442,7 @@ Resources:
         - !Ref ItemMaterializeOpenSearchNewQ
         - !Ref ItemMaterializeOpenSearchUpdateQ
         - !Ref ItemUpdateNotifyUserQ
+        - !Ref NightlyEnrichmentQ
       PolicyDocument:
         Version: "2012-10-17"
         Statement:
@@ -455,6 +456,7 @@ Resources:
               - !GetAtt ItemMaterializeOpenSearchNewQ.Arn
               - !GetAtt ItemMaterializeOpenSearchUpdateQ.Arn
               - !GetAtt ItemUpdateNotifyUserQ.Arn
+              - !GetAtt NightlyEnrichmentQ.Arn
 
   BlitzfilterApi:
     Type: AWS::ApiGatewayV2::Api
@@ -2539,7 +2541,27 @@ Resources:
       Targets:
         - Id: ItemUpdateNotifyUserQ
           Arn: !GetAtt ItemUpdateNotifyUserQ.Arn
-
+  DynamoDbItemEventRecordCreatedNightlyEnrichmentEventRule:
+    Type: AWS::Events::Rule
+    Properties:
+      Name: !Sub "ddb-item-nightly-enrichment-${StageName}"
+      EventBusName: !Ref DynamoDbEventBus
+      EventPattern:
+        source:
+          - !Ref TableOne
+        detail-type:
+          - "DynamoDBStreamRecord"
+        detail:
+          eventName:
+            - "INSERT"
+          dynamodb:
+            NewImage:
+              event_type:
+                S:
+                  - "CREATED"
+      Targets:
+        - Id: NightlyEnrichmentQ
+          Arn: !GetAtt NightlyEnrichmentQ.Arn
 
 
 
