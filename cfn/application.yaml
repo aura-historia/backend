@@ -168,6 +168,7 @@ Resources:
       RefreshTokenValidity: 30 # days
       ReadAttributes:
         - email
+        - email_verified
   BlitzfilterUserPoolClientAdmin:
     Type: AWS::Cognito::UserPoolClient
     Properties:
