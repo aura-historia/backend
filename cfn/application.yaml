@@ -2665,7 +2665,8 @@ Resources:
     Properties:
       LaunchTemplateName: !Sub "nightly-enrichment-template-${StageName}"
       LaunchTemplateData:
-        IamInstanceProfile: !Ref NightlyEnrichmentInstanceProfile
+        IamInstanceProfile:
+          Name: !Ref NightlyEnrichmentInstanceProfile
         InstanceType: c6i.2xlarge
         ImageId: ami-032fa3abdbb7e3a12 # Deep Learning OSS Nvidia Driver AMI GPU PyTorch 2.8 (Ubuntu 24.04)
         TagSpecifications:
