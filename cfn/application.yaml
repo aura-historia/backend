@@ -2663,7 +2663,7 @@ Resources:
   NightlyEnrichmentEC2Instance:
     Type: AWS::EC2::Instance
     Properties:
-      InstanceType: g6.2xlarge
+      InstanceType: c6i.2xlarge
       ImageId: ami-032fa3abdbb7e3a12 # Deep Learning OSS Nvidia Driver AMI GPU PyTorch 2.8 (Ubuntu 24.04)
       IamInstanceProfile: !Ref NightlyEnrichmentInstanceProfile
       UserData:
