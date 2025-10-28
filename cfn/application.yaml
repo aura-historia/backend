@@ -2759,11 +2759,7 @@ Resources:
         KeyName: !Ref Ec2KeyPairName
         IamInstanceProfile:
           Name: !Ref NightlyEnrichmentInstanceProfile
-        InstanceType: g6.xlarge
-        InstanceMarketOptions:
-          MarketType: spot
-          SpotOptions:
-            InstanceInterruptionBehavior: terminate
+        InstanceType: g6.xlarge # Placeholder - ASG overrides this
         ImageId: ami-032fa3abdbb7e3a12 # Deep Learning OSS Nvidia Driver AMI GPU PyTorch 2.8 (Ubuntu 24.04)
         SecurityGroupIds: [!Ref NightlyEnrichmentSecurityGroup]
         TagSpecifications:
