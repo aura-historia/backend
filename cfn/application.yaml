@@ -2801,7 +2801,7 @@ Resources:
         LaunchTemplate:
           LaunchTemplateSpecification:
             LaunchTemplateId: !Ref NightlyEnrichmentLaunchTemplate
-            Version: $Latest
+            Version: !GetAtt NightlyEnrichmentLaunchTemplate.LatestVersionNumber
           Overrides:
             - InstanceType: g6.xlarge
             - InstanceType: g6.2xlarge
