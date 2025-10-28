@@ -2673,6 +2673,9 @@ Resources:
           export STAGE_NAME="${StageName}"
           export COMMIT_SHA="${CommitSHA}"
           export RESOURCE_BUCKET="${ResourceBucket}"
+          export ENRICHMENT_QUEUE_URL="${NightlyEnrichmentQ}"
+          export DYNAMODB_TABLE_NAME="${TableOne}"
+          export OPENSEARCH_DOMAIN_ENDPOINT_URL="https://${BlitzfilterOpenSearchDomain.DomainEndpoint}"
           apt-get update -y
           apt-get install -y awscli
           aws s3 cp "s3://${ResourceBucket}/nightly-enrichment-ec2-user-data-${StageName}-${CommitSHA}.sh" /tmp/user_data.sh --region eu-central-1
