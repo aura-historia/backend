@@ -18,7 +18,7 @@ item-core = { workspace = true }
 item-dynamodb = { workspace = true, features = ["repository"] }
 item-opensearch = { workspace = true }
 item-lambda-common = { workspace = true }
-tokio = { workspace = true, features = ["time"] }
+tokio = { workspace = true, features = ["time", "macros"] }
 tracing-subscriber = { workspace = true, features = ["json", "time"] }
 
 # Optional deps
@@ -27,7 +27,6 @@ fake = { workspace = true, optional = true }
 [dev-dependencies]
 test-api = { workspace = true, features = ["sqs", "dynamodb", "opensearch"] }
 serial_test = { workspace = true }
-tokio = { workspace = true, features = ["macros"] }
 rstest = { workspace = true }
 fake = { workspace = true }
 uuid = { workspace = true }
