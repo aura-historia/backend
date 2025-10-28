@@ -3,18 +3,24 @@ use item_dynamodb::{item_update_record::ItemRecordUpdate, repository::ItemDynamo
 use item_opensearch::{
     item_update_document::ItemUpdateDocument, repository::ItemOpenSearchRepository,
 };
-use std::{collections::HashMap, sync::Arc};
+use std::{
+    collections::{HashMap, HashSet},
+    sync::Arc,
+};
 use tracing::{error, info, warn};
 
 #[async_trait::async_trait]
 #[mockall::automock]
 pub trait EnrichmentPipeSink {
-    async fn drain_documents(&self, documents: HashMap<ItemId, ItemUpdateDocument>) -> Vec<ItemId>;
+    async fn drain_documents(
+        &self,
+        documents: HashMap<ItemId, ItemUpdateDocument>,
+    ) -> HashSet<ItemId>;
 
     async fn drain_records(
         &self,
         records: HashMap<ItemId, (ItemKey, ItemRecordUpdate)>,
-    ) -> Vec<ItemId>;
+    ) -> HashSet<ItemId>;
 }
 
 pub struct EnrichmentPipeSinkImpl {
@@ -36,13 +42,16 @@ impl EnrichmentPipeSinkImpl {
 
 #[async_trait::async_trait]
 impl EnrichmentPipeSink for EnrichmentPipeSinkImpl {
-    async fn drain_documents(&self, documents: HashMap<ItemId, ItemUpdateDocument>) -> Vec<ItemId> {
+    async fn drain_documents(
+        &self,
+        documents: HashMap<ItemId, ItemUpdateDocument>,
+    ) -> HashSet<ItemId> {
         if documents.is_empty() {
-            return vec![];
+            return HashSet::new();
         }
 
         let count = documents.len();
-        let item_ids = documents.keys().copied().collect::<Vec<_>>();
+        let item_ids = documents.keys().copied().collect::<HashSet<_>>();
         let res = self
             .item_opensearch_repository
             .update_item_documents(documents)
@@ -69,7 +78,7 @@ impl EnrichmentPipeSink for EnrichmentPipeSinkImpl {
                         }
                     }).collect()
                 } else {
-                    vec![]
+                    HashSet::new()
                 }
             }
         };
@@ -88,9 +97,9 @@ impl EnrichmentPipeSink for EnrichmentPipeSinkImpl {
     async fn drain_records(
         &self,
         records: HashMap<ItemId, (ItemKey, ItemRecordUpdate)>,
-    ) -> Vec<ItemId> {
+    ) -> HashSet<ItemId> {
         let count = records.len();
-        let mut failures = Vec::new();
+        let mut failures = HashSet::new();
         for (item_id, (item_key, record)) in records {
             let res = self
                 .item_dynamodb_repository
@@ -98,7 +107,7 @@ impl EnrichmentPipeSink for EnrichmentPipeSinkImpl {
                 .await;
             if let Err(err) = res {
                 error!(error = ?err, itemId = %item_id, "Failed updating ItemRecord.");
-                failures.push(item_id);
+                failures.insert(item_id);
             }
         }
 
@@ -126,6 +135,7 @@ mod tests {
         use item_opensearch::{
             item_update_document::ItemUpdateDocument, repository::MockItemOpenSearchRepository,
         };
+        use std::collections::HashSet;
         use std::{collections::HashMap, sync::Arc};
 
         #[tokio::test]
@@ -168,8 +178,6 @@ mod tests {
         #[case(1000)]
         #[tokio::test]
         async fn should_return_partial_failures(#[case] failure_count: usize) {
-            use crate::pipeline::sink::{EnrichmentPipeSink, EnrichmentPipeSinkImpl};
-
             let item_dynamodb_repository = MockItemDynamoDbRepository::default();
             let mut item_opensearch_repository = MockItemOpenSearchRepository::default();
             item_opensearch_repository
@@ -207,13 +215,17 @@ mod tests {
 
             assert_eq!(failure_count, actual.len());
             assert_eq!(
-                input.into_keys().take(failure_count).collect::<Vec<_>>(),
+                input
+                    .into_keys()
+                    .take(failure_count)
+                    .collect::<HashSet<_>>(),
                 actual
             );
         }
     }
 
     mod drain_records {
+        use crate::pipeline::sink::{EnrichmentPipeSink, EnrichmentPipeSinkImpl};
         use aws_sdk_dynamodb::{error::SdkError, operation::update_item::UpdateItemOutput};
         use common::item_id::{ItemId, ItemKey};
         use fake::{Fake, Faker};
@@ -221,9 +233,8 @@ mod tests {
             item_update_record::ItemRecordUpdate, repository::MockItemDynamoDbRepository,
         };
         use item_opensearch::repository::MockItemOpenSearchRepository;
+        use std::collections::HashSet;
         use std::{collections::HashMap, sync::Arc};
-
-        use crate::pipeline::sink::{EnrichmentPipeSink, EnrichmentPipeSinkImpl};
 
         #[tokio::test]
         async fn should_drain_records_when_successful() {
@@ -275,7 +286,7 @@ mod tests {
                 .collect::<HashMap<_, _>>();
             let actual = sink.drain_records(input.clone()).await;
 
-            assert_eq!(input.into_keys().collect::<Vec<_>>(), actual);
+            assert_eq!(input.into_keys().collect::<HashSet<_>>(), actual);
         }
     }
 }

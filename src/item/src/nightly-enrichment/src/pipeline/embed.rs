@@ -1,4 +1,4 @@
-use std::sync::Arc;
+use std::{collections::HashSet, sync::Arc};
 
 use crate::{
     embed::EmbeddingDelegate,
@@ -21,7 +21,7 @@ impl EnrichmentPipe for EmbeddingEnrichmentPipeImpl {
     fn enrich(&self, items: Vec<PipeItem>) -> PipeResult {
         let count = items.len();
         let mut successes = Vec::with_capacity(items.len());
-        let mut failures = Vec::new();
+        let mut failures = HashSet::new();
         let batches: Vec<Batch<PipeItem, 64>> = Batch::chunked_from(items.into_iter());
 
         for document_batch in batches {

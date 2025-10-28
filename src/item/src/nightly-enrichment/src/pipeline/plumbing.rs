@@ -14,10 +14,16 @@ use std::{
 };
 use tracing::{error, info, warn};
 
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct PlumbingResult {
+    pub successes: u64,
+    pub failures: u64,
+}
+
 #[async_trait::async_trait]
 #[mockall::automock]
 pub trait EnrichmentPlumbing {
-    async fn plumb(&self, count: i32);
+    async fn plumb(&self, count: i32) -> PlumbingResult;
 }
 
 pub struct EnrichmentPlumbingImpl {
@@ -30,7 +36,7 @@ pub struct EnrichmentPlumbingImpl {
 
 #[async_trait::async_trait]
 impl EnrichmentPlumbing for EnrichmentPlumbingImpl {
-    async fn plumb(&self, count: i32) {
+    async fn plumb(&self, count: i32) -> PlumbingResult {
         info!(count = count, "Started plumbing.");
 
         // find water
@@ -45,11 +51,11 @@ impl EnrichmentPlumbing for EnrichmentPlumbingImpl {
         let (enriched_items, mut failed_items) =
             self.pipes
                 .iter()
-                .fold((pipe_items, vec![]), |(pipe_in, leak_in), pipe| {
-                    let mut pipe_res = pipe.enrich(pipe_in);
+                .fold((pipe_items, HashSet::new()), |(pipe_in, leak_in), pipe| {
+                    let pipe_res = pipe.enrich(pipe_in);
                     let pipe_out = pipe_res.successes;
                     let mut pipe_leak = leak_in;
-                    pipe_leak.append(&mut pipe_res.failures);
+                    pipe_leak.extend(&mut pipe_res.failures.into_iter());
 
                     (pipe_out, pipe_leak)
                 });
@@ -71,26 +77,30 @@ impl EnrichmentPlumbing for EnrichmentPlumbingImpl {
                 (drain_documents, drain_records)
             },
         );
-        failed_items.append(&mut self.sink.drain_documents(drain_documents).await);
-        failed_items.append(&mut self.sink.drain_records(drain_records).await);
+        failed_items.extend(&mut self.sink.drain_documents(drain_documents).await.into_iter());
+        failed_items.extend(&mut self.sink.drain_records(drain_records).await.into_iter());
         let failed_piped_water = failed_items.len();
 
         // remove leaked water - leaving behind arrived water
         for failed_item in failed_items {
             message_refs.remove(&failed_item);
         }
-        let successes = message_refs.len();
+        let successes_pre_deletion = message_refs.len();
         let failed_deleted_water = self
             .handle_delete_messages_with_retry(message_refs.into_values().collect())
             .await;
         let failures = failed_piped_water + failed_deleted_water.len();
+        let successes_post_deletion = successes_pre_deletion - failed_deleted_water.len();
 
         info!(
-            count = count,
-            successes = successes,
+            successes = successes_post_deletion,
             failures = failures,
             "Finished plumbing."
         );
+        PlumbingResult {
+            successes: successes_post_deletion as u64,
+            failures: failures as u64,
+        }
     }
 }
 
@@ -223,9 +233,16 @@ mod tests {
             .build();
         let sqs_client = aws_sdk_sqs::Client::new(&sdk_config);
 
-        faucet.expect_pour().return_once(move |_| {
-            Box::pin(async move { fake::vec![(PipeItem, MessageRef); 1000] })
-        });
+        let faked_poured = fake::vec![(PipeItem, MessageRef); 1000]
+            .into_iter()
+            .map(|(pipe_item, mut msg_ref)| {
+                msg_ref.item_id = pipe_item.source.item_id;
+                (pipe_item, msg_ref)
+            })
+            .collect();
+        faucet
+            .expect_pour()
+            .return_once(move |_| Box::pin(async move { faked_poured }));
         pipe.expect_enrich().return_once(|items| PipeResult {
             failures: items
                 .iter()
@@ -242,8 +259,6 @@ mod tests {
             assert!(records.len() <= 42);
             Box::pin(async { records.into_keys().collect() })
         });
-        // Sink fails all (still partially)
-        // Dummy sqs-client shouldn't fail because it should never be invoked because all items partially failed
 
         let pipes: Vec<Box<dyn EnrichmentPipe + Send + Sync>> = vec![Box::new(pipe)];
         let plumbing = EnrichmentPlumbingImpl::new(
@@ -253,6 +268,8 @@ mod tests {
             Arc::new(sqs_client),
             "dummy".to_owned(),
         );
-        plumbing.plumb(1000).await;
+        let actual = plumbing.plumb(1000).await;
+        assert_eq!(actual.successes, 0);
+        assert_eq!(actual.failures, 1000);
     }
 }

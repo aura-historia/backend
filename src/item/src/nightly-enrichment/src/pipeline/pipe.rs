@@ -1,3 +1,5 @@
+use std::collections::HashSet;
+
 use common::item_id::ItemId;
 use item_core::item_event::ItemCreatedEventPayload;
 use item_dynamodb::item_update_record::ItemRecordUpdate;
@@ -28,7 +30,7 @@ pub struct PipeItemUpdate {
 #[derive(Debug, Clone, Default)]
 pub struct PipeResult {
     pub successes: Vec<PipeItem>,
-    pub failures: Vec<ItemId>,
+    pub failures: HashSet<ItemId>,
 }
 
 #[mockall::automock]
