@@ -506,7 +506,8 @@ jobs:
                 ArtifactBucket=${{ vars.S3_BINARY_ARTIFACTS_BUCKET_NAME }} \
                 ResourceBucket=${{ vars.S3_RESOURCE_ARTIFACTS_BUCKET_NAME }} \
                 MailTemplateBucket=${{ vars.S3_MAIL_TEMPLATE_BUCKET_NAME }} \
-                CommitSHA=${GITHUB_SHA}
+                CommitSHA=${GITHUB_SHA} \
+                Ec2KeyPairName=${{ vars.EC2_KEY_PAIR_NAME }}
 
       - name: Install OpenSearch CLI
         run: |

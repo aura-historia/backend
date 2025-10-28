@@ -23,7 +23,7 @@ Parameters:
     Description: "S3 bucket containing mail-templates"
   CommitSHA:
     Type: String
-  KeyPairName:
+  Ec2KeyPairName:
     Type: AWS::EC2::KeyPair::KeyName
     Description: For EC2 SSH-Access
 
@@ -2749,6 +2749,7 @@ Resources:
     Properties:
       LaunchTemplateName: !Sub "nightly-enrichment-template-${StageName}"
       LaunchTemplateData:
+        KeyName: !Ref Ec2KeyPairName
         IamInstanceProfile:
           Name: !Ref NightlyEnrichmentInstanceProfile
         InstanceType: g6.xlarge
@@ -2757,6 +2758,7 @@ Resources:
           SpotOptions:
             InstanceInterruptionBehavior: terminate
         ImageId: ami-032fa3abdbb7e3a12 # Deep Learning OSS Nvidia Driver AMI GPU PyTorch 2.8 (Ubuntu 24.04)
+        SecurityGroupIds: [!Ref NightlyEnrichmentSecurityGroup]
         TagSpecifications:
           - ResourceType: instance
             Tags:
