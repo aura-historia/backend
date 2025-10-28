@@ -2590,6 +2590,10 @@ Resources:
             Principal:
               Service: ec2.amazonaws.com
             Action: sts:AssumeRole
+          - Effect: Allow
+            Principal:
+              Service: spot.amazonaws.com
+            Action: sts:AssumeRole
       ManagedPolicyArns:
         - arn:aws:iam::aws:policy/CloudWatchAgentServerPolicy
       Policies:
@@ -2653,6 +2657,7 @@ Resources:
                 Action:
                   - logs:CreateLogGroup
                   - logs:CreateLogStream
+                  - logs:PutLogEvents
                 Resource: "*"
   NightlyEnrichmentInstanceProfile:
     Type: AWS::IAM::InstanceProfile
@@ -2667,13 +2672,21 @@ Resources:
       LaunchTemplateData:
         IamInstanceProfile:
           Name: !Ref NightlyEnrichmentInstanceProfile
-        InstanceType: g5.xlarge
+        InstanceType: g6.xlarge
+        InstanceMarketOptions:
+          MarketType: spot
+          SpotOptions:
+            SpotInstanceType: "one-time"
+            InstanceInterruptionBehavior: "terminate"
+            MaxPrice: "3.00"
         ImageId: ami-032fa3abdbb7e3a12 # Deep Learning OSS Nvidia Driver AMI GPU PyTorch 2.8 (Ubuntu 24.04)
         TagSpecifications:
           - ResourceType: instance
             Tags:
               - Key: Name
                 Value: !Sub "nightly-enrichment-${StageName}"
+              - Key: Fleet
+                Value: nightly-enrichment
         UserData:
           Fn::Base64: !Sub |
             #!/bin/bash
@@ -2689,6 +2702,81 @@ Resources:
             apt-get install -y awscli
             aws s3 cp "s3://${ResourceBucket}/nightly-enrichment-ec2-user-data-${StageName}-${CommitSHA}.sh" /tmp/user_data.sh --region eu-central-1
             bash /tmp/user_data.sh
+  NightlyEnrichmentSpotFleetRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Sub "nightly-enrichment-spot-fleet-role-${StageName}"
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: spotfleet.amazonaws.com
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/service-role/AmazonEC2SpotFleetTaggingRole
+  NightlyEnrichmentSpotFleet:
+    Type: AWS::EC2::SpotFleet
+    Properties:
+      SpotFleetRequestConfigData:
+        AllocationStrategy: priceCapacityOptimized
+        TargetCapacity: 1
+        ValidFrom: "2025-10-28T14:35:59Z"
+        ValidUntil: "2026-10-28T14:35:59Z"
+        TerminateInstancesWithExpiration: true
+        Type: request
+        SpotMaxTotalPrice: "2"
+        IamFleetRole: !GetAtt NightlyEnrichmentSpotFleetRole.Arn
+        LaunchTemplateConfigs:
+          - LaunchTemplateSpecification:
+              LaunchTemplateId: !Ref NightlyEnrichmentLaunchTemplate
+              Version: $Default
+            Overrides:
+              # g5.xlarge
+              - InstanceType: g5.xlarge
+                WeightedCapacity: 1
+                SubnetId: subnet-077e1c111cfbe345c
+              - InstanceType: g5.xlarge
+                WeightedCapacity: 1
+                SubnetId: subnet-08c4b74e7f7206fba
+              - InstanceType: g5.xlarge
+                WeightedCapacity: 1
+                SubnetId: subnet-0c0d1aa64a89f3188
+
+              # g5.2xlarge
+              - InstanceType: g5.2xlarge
+                WeightedCapacity: 1
+                SubnetId: subnet-077e1c111cfbe345c
+              - InstanceType: g5.2xlarge
+                WeightedCapacity: 1
+                SubnetId: subnet-08c4b74e7f7206fba
+              - InstanceType: g5.2xlarge
+                WeightedCapacity: 1
+                SubnetId: subnet-0c0d1aa64a89f3188
+
+              # g6.xlarge
+              - InstanceType: g6.xlarge
+                WeightedCapacity: 1
+                SubnetId: subnet-077e1c111cfbe345c
+              - InstanceType: g6.xlarge
+                WeightedCapacity: 1
+                SubnetId: subnet-08c4b74e7f7206fba
+              - InstanceType: g6.xlarge
+                WeightedCapacity: 1
+                SubnetId: subnet-0c0d1aa64a89f3188
+
+              # g6.2xlarge
+              - InstanceType: g6.2xlarge
+                WeightedCapacity: 1
+                SubnetId: subnet-077e1c111cfbe345c
+              - InstanceType: g6.2xlarge
+                WeightedCapacity: 1
+                SubnetId: subnet-08c4b74e7f7206fba
+              - InstanceType: g6.2xlarge
+                WeightedCapacity: 1
+                SubnetId: subnet-0c0d1aa64a89f3188
+
+
   NightlyEnrichmentDlqAlarm:
     Type: AWS::CloudWatch::Alarm
     Properties:
