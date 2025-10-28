@@ -18,7 +18,7 @@ item-core = { workspace = true }
 item-dynamodb = { workspace = true, features = ["repository"] }
 item-opensearch = { workspace = true }
 item-lambda-common = { workspace = true }
-tokio = { workspace = true, features = ["time", "macros"] }
+tokio = { workspace = true, features = ["time", "macros", "rt-multi-thread"] }
 tracing-subscriber = { workspace = true, features = ["json", "time"] }
 
 # Optional deps
