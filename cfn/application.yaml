@@ -2653,7 +2653,7 @@ Resources:
                 Action:
                   - logs:CreateLogGroup
                   - logs:CreateLogStream
-                Resource: "arn:aws:logs:${AWS::Region}:${AWS::AccountId}:log-group:/aws/nightly-enrichment/*"
+                Resource: "*"
   NightlyEnrichmentInstanceProfile:
     Type: AWS::IAM::InstanceProfile
     Properties:
