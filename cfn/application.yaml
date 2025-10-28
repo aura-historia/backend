@@ -2682,6 +2682,7 @@ Resources:
             Action: sts:AssumeRole
       ManagedPolicyArns:
         - arn:aws:iam::aws:policy/CloudWatchAgentServerPolicy
+        - arn:aws:iam::aws:policy/AmazonS3ReadOnlyAccess
       Policies:
         - PolicyName: AllowSelfTerminate
           PolicyDocument:
@@ -2690,14 +2691,6 @@ Resources:
               - Effect: Allow
                 Action: ec2:TerminateInstances
                 Resource: "*"
-        - PolicyName: S3Access
-          PolicyDocument:
-            Version: "2012-10-17"
-            Statement:
-              - Effect: Allow
-                Action:
-                  - s3:GetObject
-                Resource: !Sub "arn:aws:s3:::${ResourceBucket}/*"
         - PolicyName: DynamoDBAccess
           PolicyDocument:
             Version: "2012-10-17"
