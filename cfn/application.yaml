@@ -23,6 +23,9 @@ Parameters:
     Description: "S3 bucket containing mail-templates"
   CommitSHA:
     Type: String
+  KeyPairName:
+    Type: AWS::EC2::KeyPair::KeyName
+    Description: For EC2 SSH-Access
 
 Mappings:
   SendMailQueueMap:
@@ -2565,6 +2568,82 @@ Resources:
 
 
 
+  NightlyEnrichmentVpc:
+    Type: AWS::EC2::VPC
+    Properties:
+      CidrBlock: 10.0.0.0/16
+      EnableDnsSupport: true
+      EnableDnsHostnames: true
+      Tags:
+        - Key: Name
+          Value: !Sub "nightly-enrichment-vpc-${StageName}"
+  NightlyEnrichmentInternetGateway:
+    Type: AWS::EC2::InternetGateway
+    Properties:
+      Tags:
+        - Key: Name
+          Value: !Sub "nightly-enrichment-igw-${StageName}"
+  NightlyEnrichmentVpcGatewayAttachment:
+    Type: AWS::EC2::VPCGatewayAttachment
+    Properties:
+      InternetGatewayId: "NightlyEnrichmentInternetGateway"
+      VpcId: "NightlyEnrichmentVpc"
+  NightlyEnrichmentPublicRouteTable:
+    Type: AWS::EC2::RouteTable
+    Properties:
+      VpcId: "NightlyEnrichmentVpc"
+  NightlyEnrichmentPublicRoute:
+    Type: AWS::EC2::Route
+    DependsOn: "NightlyEnrichmentVpcGatewayAttachment"
+    Properties:
+      RouteTableId: "NightlyEnrichmentPublicRouteTable"
+      DestinationCidrBlock: 0.0.0.0/0
+      GatewayId: "NightlyEnrichmentInternetGateway"
+  NightlyEnrichmentSubnetA:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: "NightlyEnrichmentVpc"
+      CidrBlock: 10.0.1.0/24
+      MapPublicIpOnLaunch: true
+      AvailabilityZone: !Select [0, !GetAZs '']
+      Tags:
+        - Key: Name
+          Value: !Sub "nightly-enrichment-subnet-a-${StageName}"
+  NightlyEnrichmentSubnetB:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: "NightlyEnrichmentVpc"
+      CidrBlock: 10.0.2.0/24
+      MapPublicIpOnLaunch: true
+      AvailabilityZone: !Select [1, !GetAZs '']
+      Tags:
+        - Key: Name
+          Value: !Sub "nightly-enrichment-subnet-b-${StageName}"
+  NightlyEnrichmentSubnetRouteAssocA:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      SubnetId: "NightlyEnrichmentSubnetA"
+      RouteTableId: "NightlyEnrichmentPublicRouteTable"
+  NightlyEnrichmentSubnetRouteAssocB:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      SubnetId: "NightlyEnrichmentSubnetB"
+      RouteTableId: "NightlyEnrichmentPublicRouteTable"
+  NightlyEnrichmentSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: Allow SSH + internal comms
+      VpcId: "NightlyEnrichmentVpc"
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: 22
+          ToPort: 22
+          CidrIp: 0.0.0.0/0   # Restrict if you have static IP
+      SecurityGroupEgress:
+        - IpProtocol: -1
+          CidrIp: 0.0.0.0/0
+
+
 
   NightlyEnrichmentDlq:
     Type: AWS::SQS::Queue
@@ -2676,9 +2755,7 @@ Resources:
         InstanceMarketOptions:
           MarketType: spot
           SpotOptions:
-            SpotInstanceType: "one-time"
-            InstanceInterruptionBehavior: "terminate"
-            MaxPrice: "3.00"
+            InstanceInterruptionBehavior: terminate
         ImageId: ami-032fa3abdbb7e3a12 # Deep Learning OSS Nvidia Driver AMI GPU PyTorch 2.8 (Ubuntu 24.04)
         TagSpecifications:
           - ResourceType: instance
@@ -2702,79 +2779,34 @@ Resources:
             apt-get install -y awscli
             aws s3 cp "s3://${ResourceBucket}/nightly-enrichment-ec2-user-data-${StageName}-${CommitSHA}.sh" /tmp/user_data.sh --region eu-central-1
             bash /tmp/user_data.sh
-  NightlyEnrichmentSpotFleetRole:
-    Type: AWS::IAM::Role
+  NightlyEnrichmentASG:
+    Type: AWS::AutoScaling::AutoScalingGroup
     Properties:
-      RoleName: !Sub "nightly-enrichment-spot-fleet-role-${StageName}"
-      AssumeRolePolicyDocument:
-        Version: "2012-10-17"
-        Statement:
-          - Effect: Allow
-            Principal:
-              Service: spotfleet.amazonaws.com
-            Action: sts:AssumeRole
-      ManagedPolicyArns:
-        - arn:aws:iam::aws:policy/service-role/AmazonEC2SpotFleetTaggingRole
-  NightlyEnrichmentSpotFleet:
-    Type: AWS::EC2::SpotFleet
-    Properties:
-      SpotFleetRequestConfigData:
-        AllocationStrategy: priceCapacityOptimized
-        TargetCapacity: 1
-        ValidFrom: "2025-10-28T14:35:59Z"
-        ValidUntil: "2026-10-28T14:35:59Z"
-        TerminateInstancesWithExpiration: true
-        Type: request
-        SpotMaxTotalPrice: "2"
-        IamFleetRole: !GetAtt NightlyEnrichmentSpotFleetRole.Arn
-        LaunchTemplateConfigs:
-          - LaunchTemplateSpecification:
-              LaunchTemplateId: !Ref NightlyEnrichmentLaunchTemplate
-              Version: $Default
-            Overrides:
-              # g5.xlarge
-              - InstanceType: g5.xlarge
-                WeightedCapacity: 1
-                SubnetId: subnet-077e1c111cfbe345c
-              - InstanceType: g5.xlarge
-                WeightedCapacity: 1
-                SubnetId: subnet-08c4b74e7f7206fba
-              - InstanceType: g5.xlarge
-                WeightedCapacity: 1
-                SubnetId: subnet-0c0d1aa64a89f3188
-
-              # g5.2xlarge
-              - InstanceType: g5.2xlarge
-                WeightedCapacity: 1
-                SubnetId: subnet-077e1c111cfbe345c
-              - InstanceType: g5.2xlarge
-                WeightedCapacity: 1
-                SubnetId: subnet-08c4b74e7f7206fba
-              - InstanceType: g5.2xlarge
-                WeightedCapacity: 1
-                SubnetId: subnet-0c0d1aa64a89f3188
-
-              # g6.xlarge
-              - InstanceType: g6.xlarge
-                WeightedCapacity: 1
-                SubnetId: subnet-077e1c111cfbe345c
-              - InstanceType: g6.xlarge
-                WeightedCapacity: 1
-                SubnetId: subnet-08c4b74e7f7206fba
-              - InstanceType: g6.xlarge
-                WeightedCapacity: 1
-                SubnetId: subnet-0c0d1aa64a89f3188
-
-              # g6.2xlarge
-              - InstanceType: g6.2xlarge
-                WeightedCapacity: 1
-                SubnetId: subnet-077e1c111cfbe345c
-              - InstanceType: g6.2xlarge
-                WeightedCapacity: 1
-                SubnetId: subnet-08c4b74e7f7206fba
-              - InstanceType: g6.2xlarge
-                WeightedCapacity: 1
-                SubnetId: subnet-0c0d1aa64a89f3188
+      VPCZoneIdentifier:
+        - !Ref NightlyEnrichmentSubnetA
+        - !Ref NightlyEnrichmentSubnetB
+      MinSize: 0
+      MaxSize: 3
+      DesiredCapacity: 0  # Default zero, scale via EventBridge
+      MixedInstancesPolicy:
+        LaunchTemplate:
+          LaunchTemplateSpecification:
+            LaunchTemplateId: !Ref NightlyEnrichmentLaunchTemplate
+            Version: $Latest
+          Overrides:
+            - InstanceType: g6.xlarge
+            - InstanceType: g6.2xlarge
+            - InstanceType: g5.xlarge
+            - InstanceType: g5.2xlarge
+        InstancesDistribution:
+          OnDemandPercentageAboveBaseCapacity: 0
+          SpotAllocationStrategy: price-capacity-optimized
+      Tags:
+        - Key: Name
+          Value: !Sub "nightly-enrichment-${StageName}"
+          PropagateAtLaunch: true
+      HealthCheckType: EC2
+      HealthCheckGracePeriod: 120
 
 
   NightlyEnrichmentDlqAlarm:
