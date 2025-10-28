@@ -2645,6 +2645,15 @@ Resources:
                   - sqs:GetQueueAttributes
                   - sqs:GetQueueUrl
                 Resource: !GetAtt NightlyEnrichmentQ.Arn
+        - PolicyName: CloudWatchLogsCreate
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: Allow
+                Action:
+                  - logs:CreateLogGroup
+                  - logs:CreateLogStream
+                Resource: "arn:aws:logs:${AWS::Region}:${AWS::AccountId}:log-group:/aws/nightly-enrichment/*"
   NightlyEnrichmentInstanceProfile:
     Type: AWS::IAM::InstanceProfile
     Properties:
@@ -2664,7 +2673,8 @@ Resources:
           export STAGE_NAME="${StageName}"
           export COMMIT_SHA="${CommitSHA}"
           export RESOURCE_BUCKET="${ResourceBucket}"
-          yum install -y awscli
+          apt-get update -y
+          apt-get install -y awscli
           aws s3 cp "s3://${ResourceBucket}/nightly-enrichment-ec2-user-data-${StageName}-${CommitSHA}.sh" /tmp/user_data.sh --region eu-central-1
           bash /tmp/user_data.sh
   NightlyEnrichmentDlqAlarm:
