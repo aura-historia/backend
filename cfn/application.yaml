@@ -2586,62 +2586,69 @@ Resources:
   NightlyEnrichmentVpcGatewayAttachment:
     Type: AWS::EC2::VPCGatewayAttachment
     Properties:
-      InternetGatewayId: "NightlyEnrichmentInternetGateway"
-      VpcId: "NightlyEnrichmentVpc"
+      InternetGatewayId: !Ref NightlyEnrichmentInternetGateway
+      VpcId: !Ref NightlyEnrichmentVpc
   NightlyEnrichmentPublicRouteTable:
     Type: AWS::EC2::RouteTable
     Properties:
-      VpcId: "NightlyEnrichmentVpc"
+      VpcId: !Ref NightlyEnrichmentVpc
+      Tags:
+        - Key: Name
+          Value: !Sub "nightly-enrichment-public-rt-${StageName}"
   NightlyEnrichmentPublicRoute:
     Type: AWS::EC2::Route
-    DependsOn: "NightlyEnrichmentVpcGatewayAttachment"
+    DependsOn: NightlyEnrichmentVpcGatewayAttachment
     Properties:
-      RouteTableId: "NightlyEnrichmentPublicRouteTable"
+      RouteTableId: !Ref NightlyEnrichmentPublicRouteTable
       DestinationCidrBlock: 0.0.0.0/0
-      GatewayId: "NightlyEnrichmentInternetGateway"
+      GatewayId: !Ref NightlyEnrichmentInternetGateway
   NightlyEnrichmentSubnetA:
     Type: AWS::EC2::Subnet
     Properties:
-      VpcId: "NightlyEnrichmentVpc"
+      VpcId: !Ref NightlyEnrichmentVpc
       CidrBlock: 10.0.1.0/24
       MapPublicIpOnLaunch: true
-      AvailabilityZone: !Select [0, !GetAZs '']
+      AvailabilityZone: !Select [ 0, !GetAZs '' ]
       Tags:
         - Key: Name
           Value: !Sub "nightly-enrichment-subnet-a-${StageName}"
   NightlyEnrichmentSubnetB:
     Type: AWS::EC2::Subnet
     Properties:
-      VpcId: "NightlyEnrichmentVpc"
+      VpcId: !Ref NightlyEnrichmentVpc
       CidrBlock: 10.0.2.0/24
       MapPublicIpOnLaunch: true
-      AvailabilityZone: !Select [1, !GetAZs '']
+      AvailabilityZone: !Select [ 1, !GetAZs '' ]
       Tags:
         - Key: Name
           Value: !Sub "nightly-enrichment-subnet-b-${StageName}"
   NightlyEnrichmentSubnetRouteAssocA:
     Type: AWS::EC2::SubnetRouteTableAssociation
     Properties:
-      SubnetId: "NightlyEnrichmentSubnetA"
-      RouteTableId: "NightlyEnrichmentPublicRouteTable"
+      SubnetId: !Ref NightlyEnrichmentSubnetA
+      RouteTableId: !Ref NightlyEnrichmentPublicRouteTable
   NightlyEnrichmentSubnetRouteAssocB:
     Type: AWS::EC2::SubnetRouteTableAssociation
     Properties:
-      SubnetId: "NightlyEnrichmentSubnetB"
-      RouteTableId: "NightlyEnrichmentPublicRouteTable"
+      SubnetId: !Ref NightlyEnrichmentSubnetB
+      RouteTableId: !Ref NightlyEnrichmentPublicRouteTable
   NightlyEnrichmentSecurityGroup:
     Type: AWS::EC2::SecurityGroup
     Properties:
-      GroupDescription: Allow SSH + internal comms
-      VpcId: "NightlyEnrichmentVpc"
+      GroupDescription: Allow SSH and internal comms
+      VpcId: !Ref NightlyEnrichmentVpc
       SecurityGroupIngress:
         - IpProtocol: tcp
           FromPort: 22
           ToPort: 22
-          CidrIp: 0.0.0.0/0   # Restrict if you have static IP
+          CidrIp: 0.0.0.0/0  # Replace with your IP for better security
       SecurityGroupEgress:
         - IpProtocol: -1
           CidrIp: 0.0.0.0/0
+      Tags:
+        - Key: Name
+          Value: !Sub "nightly-enrichment-sg-${StageName}"
+
 
 
 
