@@ -2660,26 +2660,33 @@ Resources:
       InstanceProfileName: !Sub "nightly-enrichment-profile-${StageName}"
       Roles:
         - !Ref NightlyEnrichmentRole
-  NightlyEnrichmentEC2Instance:
-    Type: AWS::EC2::Instance
+  NightlyEnrichmentLaunchTemplate:
+    Type: AWS::EC2::LaunchTemplate
     Properties:
-      InstanceType: c6i.2xlarge
-      ImageId: ami-032fa3abdbb7e3a12 # Deep Learning OSS Nvidia Driver AMI GPU PyTorch 2.8 (Ubuntu 24.04)
-      IamInstanceProfile: !Ref NightlyEnrichmentInstanceProfile
-      UserData:
-        Fn::Base64: !Sub |
-          #!/bin/bash
-          set -euxo pipefail
-          export STAGE_NAME="${StageName}"
-          export COMMIT_SHA="${CommitSHA}"
-          export RESOURCE_BUCKET="${ResourceBucket}"
-          export ENRICHMENT_QUEUE_URL="${NightlyEnrichmentQ}"
-          export DYNAMODB_TABLE_NAME="${TableOne}"
-          export OPENSEARCH_DOMAIN_ENDPOINT_URL="https://${BlitzfilterOpenSearchDomain.DomainEndpoint}"
-          apt-get update -y
-          apt-get install -y awscli
-          aws s3 cp "s3://${ResourceBucket}/nightly-enrichment-ec2-user-data-${StageName}-${CommitSHA}.sh" /tmp/user_data.sh --region eu-central-1
-          bash /tmp/user_data.sh
+      LaunchTemplateName: !Sub "nightly-enrichment-template-${StageName}"
+      LaunchTemplateData:
+        IamInstanceProfile: !Ref NightlyEnrichmentInstanceProfile
+        InstanceType: c6i.2xlarge
+        ImageId: ami-032fa3abdbb7e3a12 # Deep Learning OSS Nvidia Driver AMI GPU PyTorch 2.8 (Ubuntu 24.04)
+        TagSpecifications:
+          - ResourceType: launch-template
+            Tags:
+              - Key: Name
+                Value: !Sub "nightly-enrichment-${StageName}"
+        UserData:
+          Fn::Base64: !Sub |
+            #!/bin/bash
+            set -euxo pipefail
+            export STAGE_NAME="${StageName}"
+            export COMMIT_SHA="${CommitSHA}"
+            export RESOURCE_BUCKET="${ResourceBucket}"
+            export ENRICHMENT_QUEUE_URL="${NightlyEnrichmentQ}"
+            export DYNAMODB_TABLE_NAME="${TableOne}"
+            export OPENSEARCH_DOMAIN_ENDPOINT_URL="https://${BlitzfilterOpenSearchDomain.DomainEndpoint}"
+            apt-get update -y
+            apt-get install -y awscli
+            aws s3 cp "s3://${ResourceBucket}/nightly-enrichment-ec2-user-data-${StageName}-${CommitSHA}.sh" /tmp/user_data.sh --region eu-central-1
+            bash /tmp/user_data.sh
   NightlyEnrichmentDlqAlarm:
     Type: AWS::CloudWatch::Alarm
     Properties:
