@@ -455,8 +455,7 @@ jobs:
     strategy:
       matrix:
         resource:
-          - src/item/src/nightly-enrichment/nightly-enrichment-ec2-trigger.py
-          - src/item/src/nightly-enrichment/nightly-enrichment-ec2-user-data.sh
+          - src/item/src/nightly-enrichment/user-data.sh
     steps:
       - uses: actions/checkout@v5
 
@@ -470,7 +469,7 @@ jobs:
         run: |
           aws s3api put-object \
             --bucket "${{ vars.S3_RESOURCE_ARTIFACTS_BUCKET_NAME }}" \
-            --key "${{ matrix.resource }}-${{ env.STAGE_NAME }}-${GITHUB_SHA}" \
+            --key "${{ env.STAGE_NAME }}-${GITHUB_SHA}-${{ matrix.resource }}" \
             --body "${{ matrix.resource }}" \
             --tagging "stage=${{ env.STAGE }}"
 

@@ -2774,7 +2774,7 @@ Resources:
             export DYNAMODB_TABLE_NAME="${TableOne}"
             export OPENSEARCH_DOMAIN_ENDPOINT_URL="https://${BlitzfilterOpenSearchDomain.DomainEndpoint}"
             export BAAI_BGE_M3_MODEL_DEVICE="cuda"
-            aws s3 cp "s3://${ResourceBucket}/nightly-enrichment-ec2-user-data-${StageName}-${CommitSHA}.sh" /tmp/user_data.sh --region eu-central-1
+            aws s3 cp "s3://${ResourceBucket}/src/item/src/nightly-enrichment/${StageName}-${CommitSHA}-user-data.sh" /tmp/user_data.sh --region eu-central-1
             bash /tmp/user_data.sh
   NightlyEnrichmentASG:
     Type: AWS::AutoScaling::AutoScalingGroup
