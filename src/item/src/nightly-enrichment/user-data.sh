@@ -13,14 +13,8 @@ trap 'echo "Instance shutting down..."; \
       INSTANCE_ID=$(curl -s http://169.254.169.254/latest/meta-data/instance-id); \
       aws ec2 terminate-instances --instance-ids "$INSTANCE_ID" --region eu-central-1' EXIT
 
-# Install unified CloudWatch-Agent
-apt-get install -y wget
-wget https://amazoncloudwatch-agent.s3.amazonaws.com/ubuntu/amd64/latest/amazon-cloudwatch-agent.deb
-dpkg -i -E ./amazon-cloudwatch-agent.deb || true  # dpkg may complain about dependencies
-apt-get install -f -y
-
 # Create unified CloudWatch-Agent config
-cat >/opt/aws/amazon-cloudwatch-agent.json <<EOF
+cat << 'EOF' | sudo tee /opt/aws/amazon-cloudwatch-agent.json > /dev/null
 {
   "logs": {
     "logs_collected": {
@@ -41,17 +35,18 @@ cat >/opt/aws/amazon-cloudwatch-agent.json <<EOF
 }
 EOF
 
+
 # Start CloudWatch Agent
-/opt/aws/amazon-cloudwatch-agent/bin/amazon-cloudwatch-agent-ctl -a fetch-config -m ec2 -c file:/opt/aws/amazon-cloudwatch-agent.json -s
+sudo amazon-cloudwatch-agent-ctl -a fetch-config -m ec2 -c file:/opt/aws/amazon-cloudwatch-agent.json -s
 
 # Ensure log file exists before running the binary
 LOG_PATH="/var/log/nightly-enrichment.log"
-touch "$LOG_PATH"
-chmod 666 "$LOG_PATH"
+sudo touch "$LOG_PATH"
+sudo chmod 666 "$LOG_PATH"
 
 # Download and install binary
-aws s3 cp "s3://${RESOURCE_BUCKET}/nightly-enrichment-${STAGE_NAME}-${COMMIT_SHA}" /usr/local/bin/nightly-enrichment --region eu-central-1
-chmod +x /usr/local/bin/nightly-enrichment
+sudo aws s3 cp "s3://${ARTIFACT_BUCKET}/nightly-enrichment-${STAGE_NAME}-${COMMIT_SHA}" /usr/local/bin/nightly-enrichment --region eu-central-1
+sudo chmod +x /usr/local/bin/nightly-enrichment
 
 # Run binary
 echo "[$(date)] Running nightly-enrichment..." | tee -a "$LOG_PATH"

@@ -469,7 +469,7 @@ jobs:
         run: |
           aws s3api put-object \
             --bucket "${{ vars.S3_RESOURCE_ARTIFACTS_BUCKET_NAME }}" \
-            --key "${{ env.STAGE_NAME }}-${GITHUB_SHA}-${{ matrix.resource }}" \
+            --key "${{ env.STAGE_NAME }}/${GITHUB_SHA}/${{ matrix.resource }}" \
             --body "${{ matrix.resource }}" \
             --tagging "stage=${{ env.STAGE }}"
 
