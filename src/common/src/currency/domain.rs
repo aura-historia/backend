@@ -25,12 +25,14 @@ impl From<MinorUnitExponent> for u8 {
     Eq,
     PartialEq,
     Debug,
+    Default,
     Hash,
     strum_macros::EnumIter,
     strum_macros::Display,
     strum_macros::EnumCount,
 )]
 pub enum Currency {
+    #[default]
     Eur,
     Gbp,
     Usd,
@@ -123,12 +125,6 @@ impl HasMinorUnitExponent for Currency {
             Currency::Cad => MinorUnitExponent(2),
             Currency::Nzd => MinorUnitExponent(2),
         }
-    }
-}
-
-impl Default for Currency {
-    fn default() -> Self {
-        Self::Eur
     }
 }
 
