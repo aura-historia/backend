@@ -2,12 +2,6 @@
 set -euxo pipefail
 echo "Running user-data for enrichment for stage $STAGE_NAME at commit $COMMIT_SHA..."
 
-# Wait for network to be ready
-until ping -c1 s3.amazonaws.com >/dev/null 2>&1; do
-  echo "Waiting for network..."
-  sleep 3
-done
-
 # Trap ensures termination even on failure
 trap 'echo "Instance shutting down..."; \
       INSTANCE_ID=$(curl -s http://169.254.169.254/latest/meta-data/instance-id); \
