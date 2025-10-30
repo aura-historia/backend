@@ -95,6 +95,7 @@ async fn should_200_when_sort_created_asc() {
             .map(|item| item.item.item_id)
             .collect::<Vec<_>>()
     );
+    assert_eq!(23, actual.total.unwrap());
 }
 
 #[localstack_test(services = [DynamoDB()])]
@@ -186,6 +187,7 @@ async fn should_200_when_sort_created_asc_search_after() {
             .collect::<Vec<_>>()
     );
     assert_eq!(expected_next_after.unwrap(), actual.search_after.unwrap());
+    assert_eq!(15, actual.total.unwrap());
 }
 
 #[localstack_test(services = [DynamoDB()])]
@@ -268,6 +270,7 @@ async fn should_200_when_sort_created_desc() {
             .map(|item| item.item.item_id)
             .collect::<Vec<_>>()
     );
+    assert_eq!(23, actual.total.unwrap());
 }
 
 #[localstack_test(services = [DynamoDB()])]
@@ -359,4 +362,5 @@ async fn should_200_when_sort_created_desc_search_after() {
             .collect::<Vec<_>>()
     );
     assert_eq!(expected_next_after.unwrap(), actual.search_after.unwrap());
+    assert_eq!(7, actual.total.unwrap());
 }

@@ -32,6 +32,13 @@ pub trait WatchlistItemDynamoDbRepository {
         scan_index_forward: bool,
     ) -> Result<Vec<WatchlistItemRecord>, SdkError<QueryError>>;
 
+    async fn count_watchlist_records(
+        &self,
+        user_id: &UserId,
+        cursor: &Cursor<OffsetDateTime>,
+        scan_index_forward: bool,
+    ) -> Result<u64, SdkError<QueryError>>;
+
     async fn put_watchlist_record(
         &self,
         record: WatchlistItemRecord,
@@ -135,6 +142,49 @@ impl<'a> WatchlistItemDynamoDbRepository for WatchlistItemDynamoDbRepositoryImpl
             .collect();
 
         Ok(records)
+    }
+
+    async fn count_watchlist_records(
+        &self,
+        user_id: &UserId,
+        cursor: &Cursor<OffsetDateTime>,
+        scan_index_forward: bool,
+    ) -> Result<u64, SdkError<QueryError>> {
+        let exclusive_guard = if scan_index_forward {
+            cursor
+                .search_after
+                .unwrap_or(datetime!(2000 - 01 - 01 0:00 UTC))
+        } else {
+            cursor.search_after.unwrap_or(OffsetDateTime::now_utc())
+        };
+        let key_condition_expression = if scan_index_forward {
+            "#pk = :pk_val AND #lsi1_sk > :lsi1_sk_val_exclusive_guard"
+        } else {
+            "#pk = :pk_val AND #lsi1_sk < :lsi1_sk_val_exclusive_guard"
+        };
+
+        let count = self
+            .client
+            .query()
+            .table_name(&self.table)
+            .index_name("lsi1")
+            .key_condition_expression(key_condition_expression)
+            .expression_attribute_names("#pk", "pk")
+            .expression_attribute_names("#lsi1_sk", "lsi1_sk")
+            .expression_attribute_values(":pk_val", AttributeValue::S(mk_pk(user_id)))
+            .expression_attribute_values(
+                ":lsi1_sk_val_exclusive_guard",
+                AttributeValue::S(
+                    mk_lsi1_sk(&exclusive_guard).map_err(SdkError::construction_failure)?,
+                ),
+            )
+            .scan_index_forward(scan_index_forward)
+            .select(aws_sdk_dynamodb::types::Select::Count)
+            .send()
+            .await?
+            .count;
+
+        Ok(count as u64)
     }
 
     async fn put_watchlist_record(

@@ -359,10 +359,11 @@ impl<'a> ItemWatchListService for ItemWatchListServiceImpl<'a> {
             sort: SortWatchlistItemField::Created,
             order: SortOrder::Asc,
         });
+        let cursor = (*cursor).unwrap_or_default();
         let scan_index_forward = matches!(sort.order, SortOrder::Asc);
         let paged_watchlist_records = self
             .watchlist_repository
-            .query_watchlist_records(user_id, &(*cursor).unwrap_or_default(), scan_index_forward)
+            .query_watchlist_records(user_id, &cursor, scan_index_forward)
             .await?;
         let last = paged_watchlist_records.last().cloned();
 
@@ -402,13 +403,21 @@ impl<'a> ItemWatchListService for ItemWatchListServiceImpl<'a> {
                 l.created.cmp(&r.created).reverse()
             }
         });
+
+        let total = if items.is_empty() {
+            0
+        } else {
+            self.watchlist_repository
+                .count_watchlist_records(user_id, &cursor, scan_index_forward)
+                .await?
+        };
         Ok(CursoredResult {
             cursor: Cursor {
                 size: items.len() as u64,
                 search_after: last.map(|last| last.created),
             },
             items,
-            total: None,
+            total: Some(total),
         })
     }
 
