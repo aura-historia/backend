@@ -8,7 +8,7 @@ trap 'echo "Instance shutting down..."; \
       aws ec2 terminate-instances --instance-ids "$INSTANCE_ID" --region eu-central-1' EXIT
 
 # Create unified CloudWatch-Agent config
-cat << 'EOF' | sudo tee /opt/aws/amazon-cloudwatch-agent.json > /dev/null
+cat << EOF | sudo tee /opt/aws/amazon-cloudwatch-agent.json > /dev/null
 {
   "logs": {
     "logs_collected": {
