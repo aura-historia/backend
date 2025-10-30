@@ -2892,6 +2892,11 @@ Outputs:
   ItemUpdateNotifyUserDeadLetterQueueUrl:
     Value: !Ref ItemUpdateNotifyUserDlq
 
+  NightlyEnrichmentQueueUrl:
+    Value: !Ref NightlyEnrichmentQ
+  NightlyEnrichmentDeadLetterQueueUrl:
+    Value: !Ref NightlyEnrichmentDlq
+
   AlarmNotificationTopicArn:
     Value: !Ref AlarmNotificationTopic
     Description: "SNS Topic ARN for CloudWatch alarm notifications"
