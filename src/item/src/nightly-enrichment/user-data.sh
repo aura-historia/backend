@@ -16,7 +16,7 @@ cat << EOF | sudo tee /opt/aws/amazon-cloudwatch-agent.json > /dev/null
         "collect_list": [
           {
             "file_path": "/var/log/nightly-enrichment.log",
-            "log_group_name": "/aws/nightly-enrichment/${STAGE_NAME}",
+            "log_group_name": "/aws/ec2/nightly-enrichment-${STAGE_NAME}",
             "log_stream_name": "{instance_id}",
             "timestamp_format": "%Y-%m-%dT%H:%M:%S.%f%z",
             "timezone": "UTC",
