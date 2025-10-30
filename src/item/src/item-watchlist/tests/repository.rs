@@ -333,3 +333,63 @@ fn should_query_users_with_notifications_enabled() {
 
     assert_eq!(42, actual.len());
 }
+
+#[localstack_test(services = [DynamoDB()])]
+fn should_count_watchlist_records_and_respect_limit_for_scan_index_true() {
+    let repository = get_repository().await;
+    let user_id = UserId::new();
+
+    let mut records = fake::vec![WatchlistItemRecord; 42];
+    for record in &mut records {
+        record.pk = mk_pk(&user_id);
+        record.user_id = user_id;
+        let _ = repository
+            .put_watchlist_record(record.clone())
+            .await
+            .unwrap();
+    }
+
+    let actual = repository
+        .count_watchlist_records(
+            &user_id,
+            &Cursor {
+                size: 10,
+                search_after: None,
+            },
+            true,
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(42, actual);
+}
+
+#[localstack_test(services = [DynamoDB()])]
+fn should_count_watchlist_records_and_respect_limit_for_scan_index_false() {
+    let repository = get_repository().await;
+    let user_id = UserId::new();
+
+    let mut records = fake::vec![WatchlistItemRecord; 420];
+    for record in &mut records {
+        record.pk = mk_pk(&user_id);
+        record.user_id = user_id;
+        let _ = repository
+            .put_watchlist_record(record.clone())
+            .await
+            .unwrap();
+    }
+
+    let actual = repository
+        .count_watchlist_records(
+            &user_id,
+            &Cursor {
+                size: 10,
+                search_after: None,
+            },
+            false,
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(420, actual);
+}
