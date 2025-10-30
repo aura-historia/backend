@@ -20,7 +20,7 @@ cat << EOF | sudo tee /opt/aws/amazon-cloudwatch-agent.json > /dev/null
             "log_stream_name": "{instance_id}",
             "timestamp_format": "%Y-%m-%dT%H:%M:%S.%f%z",
             "timezone": "UTC",
-            "multi_line_start_pattern": "^\\{"
+            "multi_line_start_pattern": "^{"
           }
         ]
       }
