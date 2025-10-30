@@ -2756,6 +2756,12 @@ Resources:
         InstanceType: g6.xlarge # Placeholder - ASG overrides this
         ImageId: ami-032fa3abdbb7e3a12 # Deep Learning OSS Nvidia Driver AMI GPU PyTorch 2.8 (Ubuntu 24.04)
         SecurityGroupIds: [!Ref NightlyEnrichmentSecurityGroup]
+        BlockDeviceMappings:
+          - DeviceName: /dev/sda1
+            Ebs:
+              VolumeSize: 100
+              VolumeType: gp3
+              DeleteOnTermination: true
         TagSpecifications:
           - ResourceType: instance
             Tags:
