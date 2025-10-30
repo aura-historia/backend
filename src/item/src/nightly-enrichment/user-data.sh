@@ -29,7 +29,6 @@ cat << 'EOF' | sudo tee /opt/aws/amazon-cloudwatch-agent.json > /dev/null
 }
 EOF
 
-
 # Start CloudWatch Agent
 sudo amazon-cloudwatch-agent-ctl -a fetch-config -m ec2 -c file:/opt/aws/amazon-cloudwatch-agent.json -s
 
@@ -41,6 +40,11 @@ sudo chmod 666 "$LOG_PATH"
 # Download and install binary
 sudo aws s3 cp "s3://${ARTIFACT_BUCKET}/nightly-enrichment-${STAGE_NAME}-${COMMIT_SHA}" /usr/local/bin/nightly-enrichment --region eu-central-1
 sudo chmod +x /usr/local/bin/nightly-enrichment
+
+# Prepare (preconfigured via custom ami) python venv
+cd /home/ubuntu/
+source /opt/enrichment-env/bin/activate
+export PATH="/opt/enrichment-env/bin:$PATH"
 
 # Run binary
 echo "[$(date)] Running nightly-enrichment..." | tee -a "$LOG_PATH"

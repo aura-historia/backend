@@ -2754,7 +2754,7 @@ Resources:
         IamInstanceProfile:
           Name: !Ref NightlyEnrichmentInstanceProfile
         InstanceType: g6.xlarge # Placeholder - ASG overrides this
-        ImageId: ami-032fa3abdbb7e3a12 # Deep Learning OSS Nvidia Driver AMI GPU PyTorch 2.8 (Ubuntu 24.04)
+        ImageId: ami-047a98bf51dec0963 # custom AMI with preinstalled deps based on ami-032fa3abdbb7e3a12 (Deep Learning OSS Nvidia Driver AMI GPU PyTorch 2.8 (Ubuntu 24.04))
         SecurityGroupIds: [!Ref NightlyEnrichmentSecurityGroup]
         BlockDeviceMappings:
           - DeviceName: /dev/sda1
@@ -2773,6 +2773,7 @@ Resources:
           Fn::Base64: !Sub |
             #!/bin/bash
             set -euxo pipefail
+            sudo -i
             export STAGE_NAME="${StageName}"
             export COMMIT_SHA="${CommitSHA}"
             export RESOURCE_BUCKET="${ResourceBucket}"
