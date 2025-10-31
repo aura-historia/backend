@@ -11,6 +11,7 @@ use nightly_enrichment::{
         sink::EnrichmentPipeSinkImpl,
     },
 };
+use nightly_enrichment_asg_scale_down::scale_down;
 use opensearch::http::{
     Url,
     transport::{SingleNodeConnectionPool, TransportBuilder},
@@ -121,4 +122,15 @@ async fn main() {
             break;
         }
     }
+
+    let autoscaling_client = aws_sdk_autoscaling::Client::new(get_aws_config().await);
+    let asg_name = std::env::var("NIGHTLY_ENRICHMENT_ASG_NAME")
+        .expect("shoudln't fail reading env-var 'NIGHTLY_ENRICHMENT_ASG_NAME'");
+    scale_down(
+        &autoscaling_client,
+        get_opensearch_client().await,
+        &asg_name,
+    )
+    .await
+    .unwrap();
 }

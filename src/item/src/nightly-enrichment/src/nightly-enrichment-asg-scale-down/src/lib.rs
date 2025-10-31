@@ -10,6 +10,14 @@ pub async fn handler(
     asg_name: &str,
     event: LambdaEvent<serde_json::Value>,
 ) -> Result<(), lambda_runtime::Error> {
+    scale_down(autoscaling_client, opensearch_client, asg_name).await
+}
+
+pub async fn scale_down(
+    autoscaling_client: &aws_sdk_autoscaling::Client,
+    opensearch_client: &opensearch::OpenSearch,
+    asg_name: &str,
+) -> Result<(), lambda_runtime::Error> {
     let _ = autoscaling_client
         .update_auto_scaling_group()
         .auto_scaling_group_name(asg_name)

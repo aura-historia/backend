@@ -2567,8 +2567,6 @@ Resources:
         - Id: NightlyEnrichmentQ
           Arn: !GetAtt NightlyEnrichmentQ.Arn
 
-
-
   NightlyEnrichmentVpc:
     Type: AWS::EC2::VPC
     Properties:
@@ -2609,7 +2607,7 @@ Resources:
       VpcId: !Ref NightlyEnrichmentVpc
       CidrBlock: 10.0.1.0/24
       MapPublicIpOnLaunch: true
-      AvailabilityZone: !Select [ 0, !GetAZs '' ]
+      AvailabilityZone: !Select [0, !GetAZs ""]
       Tags:
         - Key: Name
           Value: !Sub "nightly-enrichment-subnet-a-${StageName}"
@@ -2619,7 +2617,7 @@ Resources:
       VpcId: !Ref NightlyEnrichmentVpc
       CidrBlock: 10.0.2.0/24
       MapPublicIpOnLaunch: true
-      AvailabilityZone: !Select [ 1, !GetAZs '' ]
+      AvailabilityZone: !Select [1, !GetAZs ""]
       Tags:
         - Key: Name
           Value: !Sub "nightly-enrichment-subnet-b-${StageName}"
@@ -2642,16 +2640,13 @@ Resources:
         - IpProtocol: tcp
           FromPort: 22
           ToPort: 22
-          CidrIp: 0.0.0.0/0  # Replace with your IP for better security
+          CidrIp: 0.0.0.0/0 # Replace with your IP for better security
       SecurityGroupEgress:
         - IpProtocol: -1
           CidrIp: 0.0.0.0/0
       Tags:
         - Key: Name
           Value: !Sub "nightly-enrichment-sg-${StageName}"
-
-
-
 
   NightlyEnrichmentDlq:
     Type: AWS::SQS::Queue
@@ -2781,6 +2776,7 @@ Resources:
             export ENRICHMENT_QUEUE_URL="${NightlyEnrichmentQ}"
             export DYNAMODB_TABLE_NAME="${TableOne}"
             export OPENSEARCH_DOMAIN_ENDPOINT_URL="https://${BlitzfilterOpenSearchDomain.DomainEndpoint}"
+            export NIGHTLY_ENRICHMENT_ASG_NAME="${NightlyEnrichmentASG}"
             export BAAI_BGE_M3_MODEL_DEVICE="cuda"
             aws s3 cp "s3://${ResourceBucket}/${StageName}/${CommitSHA}/src/item/src/nightly-enrichment/user-data.sh" /tmp/user_data.sh --region eu-central-1
             source /tmp/user_data.sh
@@ -2792,7 +2788,7 @@ Resources:
         - !Ref NightlyEnrichmentSubnetB
       MinSize: 0
       MaxSize: 3
-      DesiredCapacity: 0  # Default zero, scale via EventBridge
+      DesiredCapacity: 0 # Default zero, scale via EventBridge
       MixedInstancesPolicy:
         LaunchTemplate:
           LaunchTemplateSpecification:
@@ -2864,6 +2860,7 @@ Resources:
       TreatMissingData: notBreaching
       AlarmActions:
         - !Ref AlarmNotificationTopic
+
   NightlyEnrichmentScaleDownRole:
     Type: AWS::IAM::Role
     Properties:
@@ -2905,51 +2902,25 @@ Resources:
         Variables:
           NIGHTLY_ENRICHMENT_ASG_NAME: !Ref NightlyEnrichmentASG
           OPENSEARCH_DOMAIN_ENDPOINT_URL: !Sub "https://${BlitzfilterOpenSearchDomain.DomainEndpoint}"
-  NightlyEnrichmentQueueEmptyAlarm:
-    Type: AWS::CloudWatch::Alarm
-    Properties:
-      AlarmName: !Sub "nightly-enrichment-queue-empty-${StageName}"
-      Namespace: AWS/SQS
-      MetricName: ApproximateNumberOfMessagesVisible
-      Dimensions:
-        - Name: QueueName
-          Value: !GetAtt NightlyEnrichmentQ.QueueName
-      Statistic: Average
-      Period: 60               # check every minute
-      EvaluationPeriods: 5     # 5 minutes of emptiness
-      Threshold: 1             # < 1 visible message
-      ComparisonOperator: LessThanThreshold
-      TreatMissingData: notBreaching
-      AlarmDescription: "Triggered when enrichment queue is empty for 5 mins"
-  NightlyEnrichmentQueueEmptyToScaleDownRule:
+  NightlyEnrichmentScaleDownStartSchedule:
     Type: AWS::Events::Rule
     Properties:
-      EventPattern:
-        source:
-          - "aws.cloudwatch"
-        detail-type:
-          - "CloudWatch Alarm State Change"
-        detail:
-          state:
-            value:
-              - "ALARM"
-          alarmName:
-            - !Ref NightlyEnrichmentQueueEmptyAlarm
+      ScheduleExpression: "cron(0 3 * * ? *)" # every day at 03:00 UTC
       Targets:
         - Arn: !GetAtt NightlyEnrichmentScaleDownLambda.Arn
-          Id: "ScaleDownWhenQueueEmpty"
+          Id: "NightlyEnrichmentScaleDownStartSchedule"
           RetryPolicy:
             MaximumRetryAttempts: 5
             MaximumEventAgeInSeconds: 3600
           DeadLetterConfig:
             Arn: !GetAtt NightlyEnrichmentDlq.Arn
-  NightlyEnrichmentQueueEmptyRuleInvokePermission:
+  NightlyEnrichmentScaleDownStartSchedulePermission:
     Type: AWS::Lambda::Permission
     Properties:
       FunctionName: !Ref NightlyEnrichmentScaleDownLambda
       Action: "lambda:InvokeFunction"
       Principal: "events.amazonaws.com"
-      SourceArn: !GetAtt NightlyEnrichmentQueueEmptyToScaleDownRule.Arn
+      SourceArn: !GetAtt NightlyEnrichmentScaleDownStartSchedule.Arn
   NightlyEnrichmentScaleDownLambdaErrorAlarm:
     Type: AWS::CloudWatch::Alarm
     Properties:
@@ -2968,6 +2939,7 @@ Resources:
       TreatMissingData: notBreaching
       AlarmActions:
         - !Ref AlarmNotificationTopic
+
   NightlyEnrichmentScaleUpRole:
     Type: AWS::IAM::Role
     Properties:
@@ -3012,7 +2984,7 @@ Resources:
   NightlyEnrichmentScaleUpStartSchedule:
     Type: AWS::Events::Rule
     Properties:
-      ScheduleExpression: "cron(0 1 * * ? *)"  # every day at 01:00 UTC
+      ScheduleExpression: "cron(0 1 * * ? *)" # every day at 01:00 UTC
       Targets:
         - Arn: !GetAtt NightlyEnrichmentScaleUpLambda.Arn
           Id: "NightlyEnrichmentScaleUpStartSchedule"
@@ -3046,12 +3018,6 @@ Resources:
       TreatMissingData: notBreaching
       AlarmActions:
         - !Ref AlarmNotificationTopic
-
-
-
-
-
-
 
 Outputs:
   CognitoHostedUIDomain:
