@@ -2886,8 +2886,35 @@ Resources:
       ComparisonOperator: LessThanThreshold
       TreatMissingData: notBreaching
       AlarmDescription: "Triggered when enrichment queue is empty for 5 mins"
-      AlarmActions:
-        - !GetAtt NightlyEnrichmentScaleDownLambda.Arn
+  NightlyEnrichmentQueueEmptyToScaleDownRule:
+    Type: AWS::Events::Rule
+    Properties:
+      EventPattern:
+        source:
+          - "aws.cloudwatch"
+        detail-type:
+          - "CloudWatch Alarm State Change"
+        detail:
+          state:
+            value:
+              - "ALARM"
+          alarmName:
+            - !Ref NightlyEnrichmentQueueEmptyAlarm
+      Targets:
+        - Arn: !GetAtt NightlyEnrichmentScaleDownLambda.Arn
+          Id: "ScaleDownWhenQueueEmpty"
+          RetryPolicy:
+            MaximumRetryAttempts: 5
+            MaximumEventAgeInSeconds: 3600
+          DeadLetterConfig:
+            Arn: !GetAtt NightlyEnrichmentDlq.Arn
+  NightlyEnrichmentQueueEmptyRuleInvokePermission:
+    Type: AWS::Lambda::Permission
+    Properties:
+      FunctionName: !Ref NightlyEnrichmentScaleDownLambda
+      Action: "lambda:InvokeFunction"
+      Principal: "events.amazonaws.com"
+      SourceArn: !GetAtt NightlyEnrichmentQueueEmptyToScaleDownRule.Arn
   NightlyEnrichmentScaleDownLambdaErrorAlarm:
     Type: AWS::CloudWatch::Alarm
     Properties:
