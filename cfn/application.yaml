@@ -2953,6 +2953,11 @@ Resources:
       Targets:
         - Arn: !GetAtt NightlyEnrichmentScaleUpLambda.Arn
           Id: "NightlyEnrichmentScaleUpStartSchedule"
+          RetryPolicy:
+            MaximumRetryAttempts: 5
+            MaximumEventAgeInSeconds: 3600
+          DeadLetterConfig:
+            Arn: !GetAtt NightlyEnrichmentDlq.Arn
   NightlyEnrichmentScaleUpStartSchedulePermission:
     Type: AWS::Lambda::Permission
     Properties:
