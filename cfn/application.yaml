@@ -2830,6 +2830,40 @@ Resources:
       TreatMissingData: notBreaching
       AlarmActions:
         - !Ref AlarmNotificationTopic
+  NightlyEnrichmentASGEC2InstanceStatusCheckFailed:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      AlarmDescription: "One or more instance status checks are failing."
+      Namespace: AWS/EC2
+      MetricName: StatusCheckFailed_Instance
+      Dimensions:
+        - Name: AutoScalingGroupName
+          Value: !Ref NightlyEnrichmentASG
+      Statistic: Maximum
+      Period: 60
+      EvaluationPeriods: 2
+      Threshold: 1
+      ComparisonOperator: GreaterThanOrEqualToThreshold
+      TreatMissingData: notBreaching
+      AlarmActions:
+        - !Ref AlarmNotificationTopic
+  NightlyEnrichmentASGEC2SystemStatusCheckFailed:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      AlarmDescription: "System status check failed (hardware/hypervisor)."
+      Namespace: AWS/EC2
+      MetricName: StatusCheckFailed_System
+      Dimensions:
+        - Name: AutoScalingGroupName
+          Value: !Ref NightlyEnrichmentASG
+      Statistic: Maximum
+      Period: 60
+      EvaluationPeriods: 2
+      Threshold: 1
+      ComparisonOperator: GreaterThanOrEqualToThreshold
+      TreatMissingData: notBreaching
+      AlarmActions:
+        - !Ref AlarmNotificationTopic
   NightlyEnrichmentScaleDownRole:
     Type: AWS::IAM::Role
     Properties:
