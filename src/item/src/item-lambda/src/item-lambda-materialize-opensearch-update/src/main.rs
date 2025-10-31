@@ -30,7 +30,7 @@ async fn main() -> Result<(), Error> {
     let client = opensearch::OpenSearch::new(transport);
     let repository = ItemOpenSearchRepositoryImpl::new(&client);
 
-    info!("Lambda cold start completed, DynamoDB-Client initialized.");
+    info!("Lambda cold start completed, OpenSearch-Client initialized.");
 
     run(service_fn(|event: LambdaEvent<SqsEvent>| async {
         handler(&repository, event).await

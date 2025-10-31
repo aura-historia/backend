@@ -1,6 +1,10 @@
 use aws_config::BehaviorVersion;
 use lambda_runtime::{Error, LambdaEvent, run, service_fn};
 use nightly_enrichment_asg_scale_down::handler;
+use opensearch::http::{
+    Url,
+    transport::{SingleNodeConnectionPool, TransportBuilder},
+};
 use tracing::info;
 
 #[tokio::main]
@@ -17,15 +21,23 @@ async fn main() -> Result<(), Error> {
         .load()
         .await;
 
-    let client = aws_sdk_autoscaling::Client::new(&aws_config);
+    let autoscaling_client = aws_sdk_autoscaling::Client::new(&aws_config);
     let asg_name = std::env::var("NIGHTLY_ENRICHMENT_ASG_NAME")?;
+
+    let os_endpoint_url = Url::parse(&std::env::var("OPENSEARCH_DOMAIN_ENDPOINT_URL")?)?;
+    let transport = TransportBuilder::new(SingleNodeConnectionPool::new(os_endpoint_url))
+        .auth(aws_config.try_into()?)
+        .service_name("es")
+        .build()?;
+    let opensearch_client = opensearch::OpenSearch::new(transport);
+
     info!(
         asgName = asg_name,
         "Lambda cold start completed, client initialized."
     );
 
     run(service_fn(|event: LambdaEvent<serde_json::Value>| async {
-        handler(&client, &asg_name, event).await
+        handler(&autoscaling_client, &opensearch_client, &asg_name, event).await
     }))
     .await
 }
