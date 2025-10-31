@@ -230,6 +230,29 @@ dependencies = [
 ]
 
 [[package]]
+name = "aws-sdk-autoscaling"
+version = "1.98.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "7202ec2eacbaa186cc1a5205451806b9708bbdcc6b0b4c1975195189172abe5f"
+dependencies = [
+ "aws-credential-types",
+ "aws-runtime",
+ "aws-smithy-async",
+ "aws-smithy-http",
+ "aws-smithy-json",
+ "aws-smithy-query",
+ "aws-smithy-runtime",
+ "aws-smithy-runtime-api",
+ "aws-smithy-types",
+ "aws-smithy-xml",
+ "aws-types",
+ "fastrand",
+ "http 0.2.12",
+ "regex-lite",
+ "tracing",
+]
+
+[[package]]
 name = "aws-sdk-cognitoidentityprovider"
 version = "1.97.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3064,6 +3087,8 @@ dependencies = [
  "item-opensearch",
  "mockall",
  "nightly-enrichment",
+ "nightly-enrichment-asg-scale-down",
+ "nightly-enrichment-asg-scale-up",
  "opensearch",
  "pyo3",
  "pyo3-ffi",
@@ -3077,6 +3102,36 @@ dependencies = [
  "tracing",
  "tracing-subscriber",
  "uuid",
+]
+
+[[package]]
+name = "nightly-enrichment-asg-scale-down"
+version = "0.1.0"
+dependencies = [
+ "aws-config",
+ "aws-sdk-autoscaling",
+ "lambda_runtime",
+ "rstest",
+ "serde",
+ "serde_json",
+ "tokio",
+ "tracing",
+ "tracing-subscriber",
+]
+
+[[package]]
+name = "nightly-enrichment-asg-scale-up"
+version = "0.1.0"
+dependencies = [
+ "aws-config",
+ "aws-sdk-autoscaling",
+ "lambda_runtime",
+ "rstest",
+ "serde",
+ "serde_json",
+ "tokio",
+ "tracing",
+ "tracing-subscriber",
 ]
 
 [[package]]

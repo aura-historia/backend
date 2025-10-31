@@ -23,6 +23,8 @@ tracing-subscriber = { workspace = true, features = ["json", "time"] }
 
 # Optional deps
 fake = { workspace = true, optional = true }
+nightly-enrichment-asg-scale-down = { workspace = true, optional = true }
+nightly-enrichment-asg-scale-up = { workspace = true, optional = true }
 
 [dev-dependencies]
 test-api = { workspace = true, features = ["sqs", "dynamodb", "opensearch"] }
@@ -42,3 +44,5 @@ aws_lambda_events = { workspace = true, features = [
 [features]
 default = []
 test-data = ["fake", "common/test-data", "item-core/test-data", "item-dynamodb/test-data", "item-opensearch/test-data"]
+asg-scale-down = ["dep:nightly-enrichment-asg-scale-down"]
+asg-scale-up = ["dep:nightly-enrichment-asg-scale-up"]

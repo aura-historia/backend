@@ -22,15 +22,19 @@ members = [
     "src/item",
     "src/test-api",
     "src/shop",
-    "src/user", "src/mail",
+    "src/user",
+    "src/mail",
 ]
 
 [workspace.dependencies]
 accept-language = "3.1.0"
+nightly-enrichment-asg-scale-down = { path = "src/item/src/nightly-enrichment/src/nightly-enrichment-asg-scale-down" }
+nightly-enrichment-asg-scale-up = { path = "src/item/src/nightly-enrichment/src/nightly-enrichment-asg-scale-up" }
 async-stream = "0.3.6"
 async-trait = "0.1.89"
 aws-config = "1.8.8"
 aws-sdk-account = "1.89.0"
+aws-sdk-autoscaling = "1.98.0"
 aws-sdk-dynamodb = "1.95.0"
 aws-sdk-lambda = "1.100.0"
 aws-sdk-opensearch = "1.100.0"

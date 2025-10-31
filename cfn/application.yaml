@@ -2812,8 +2812,6 @@ Resources:
           PropagateAtLaunch: true
       HealthCheckType: EC2
       HealthCheckGracePeriod: 120
-
-
   NightlyEnrichmentDlqAlarm:
     Type: AWS::CloudWatch::Alarm
     Properties:
@@ -2829,6 +2827,154 @@ Resources:
       Dimensions:
         - Name: QueueName
           Value: !GetAtt NightlyEnrichmentDlq.QueueName
+      TreatMissingData: notBreaching
+      AlarmActions:
+        - !Ref AlarmNotificationTopic
+  NightlyEnrichmentScaleDownRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Sub "nightly-enrichment-asg-scale-down-role-${StageName}"
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: lambda.amazonaws.com
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole
+      Policies:
+        - PolicyName: ScaleDownASG
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: Allow
+                Action:
+                  - autoscaling:UpdateAutoScalingGroup
+                  - autoscaling:DescribeAutoScalingGroups
+                Resource: !Sub "arn:aws:autoscaling:${AWS::Region}:${AWS::AccountId}:autoScalingGroup:*:autoScalingGroupName/${NightlyEnrichmentASG}"
+  NightlyEnrichmentScaleDownLambda:
+    Type: AWS::Lambda::Function
+    Properties:
+      FunctionName: !Sub "nightly-enrichment-asg-scale-down-${StageName}"
+      Runtime: provided.al2023
+      Handler: lib.handler
+      Role: !GetAtt NightlyEnrichmentScaleDownRole.Arn
+      Code:
+        S3Bucket: !Ref ArtifactBucket
+        S3Key: !Sub "nightly-enrichment-asg-scale-down-${StageName}-${CommitSHA}.zip"
+      MemorySize: 128
+      Timeout: 60
+      EphemeralStorage:
+        Size: 512
+      Environment:
+        Variables:
+          NIGHTLY_ENRICHMENT_ASG_NAME: !Ref NightlyEnrichmentASG
+  NightlyEnrichmentQueueEmptyAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      AlarmName: !Sub "nightly-enrichment-queue-empty-${StageName}"
+      Namespace: AWS/SQS
+      MetricName: ApproximateNumberOfMessagesVisible
+      Dimensions:
+        - Name: QueueName
+          Value: !GetAtt NightlyEnrichmentQ.QueueName
+      Statistic: Average
+      Period: 60               # check every minute
+      EvaluationPeriods: 5     # 5 minutes of emptiness
+      Threshold: 1             # < 1 visible message
+      ComparisonOperator: LessThanThreshold
+      TreatMissingData: notBreaching
+      AlarmDescription: "Triggered when enrichment queue is empty for 5 mins"
+      AlarmActions:
+        - !GetAtt NightlyEnrichmentScaleDownLambda.Arn
+  NightlyEnrichmentScaleDownLambdaErrorAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      AlarmName: !Sub "${StageName}-nightly-enrichment-asg-scale-down-lambda-errors"
+      AlarmDescription: "Alarm when nightly-enrichment-asg-scale-down Lambda has errors"
+      MetricName: Errors
+      Namespace: AWS/Lambda
+      Statistic: Sum
+      Period: 300
+      EvaluationPeriods: 1
+      Threshold: 1
+      ComparisonOperator: GreaterThanOrEqualToThreshold
+      Dimensions:
+        - Name: FunctionName
+          Value: !Ref NightlyEnrichmentScaleDownLambda
+      TreatMissingData: notBreaching
+      AlarmActions:
+        - !Ref AlarmNotificationTopic
+  NightlyEnrichmentScaleUpRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Sub "nightly-enrichment-asg-scale-up-role-${StageName}"
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: lambda.amazonaws.com
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole
+      Policies:
+        - PolicyName: ScaleUpASG
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: Allow
+                Action:
+                  - autoscaling:UpdateAutoScalingGroup
+                  - autoscaling:DescribeAutoScalingGroups
+                Resource: !Sub "arn:aws:autoscaling:${AWS::Region}:${AWS::AccountId}:autoScalingGroup:*:autoScalingGroupName/${NightlyEnrichmentASG}"
+  NightlyEnrichmentScaleUpLambda:
+    Type: AWS::Lambda::Function
+    Properties:
+      FunctionName: !Sub "nightly-enrichment-asg-scale-up-${StageName}"
+      Runtime: provided.al2023
+      Handler: lib.handler
+      Role: !GetAtt NightlyEnrichmentScaleUpRole.Arn
+      Code:
+        S3Bucket: !Ref ArtifactBucket
+        S3Key: !Sub "nightly-enrichment-asg-scale-up-${StageName}-${CommitSHA}.zip"
+      MemorySize: 128
+      Timeout: 60
+      EphemeralStorage:
+        Size: 512
+      Environment:
+        Variables:
+          NIGHTLY_ENRICHMENT_ASG_NAME: !Ref NightlyEnrichmentASG
+  NightlyEnrichmentScaleUpStartSchedule:
+    Type: AWS::Events::Rule
+    Properties:
+      ScheduleExpression: "cron(0 1 * * ? *)"  # every day at 01:00 UTC
+      Targets:
+        - Arn: !GetAtt NightlyEnrichmentScaleUpLambda.Arn
+          Id: "NightlyEnrichmentScaleUpStartSchedule"
+  NightlyEnrichmentScaleUpStartSchedulePermission:
+    Type: AWS::Lambda::Permission
+    Properties:
+      FunctionName: !Ref NightlyEnrichmentScaleUpLambda
+      Action: "lambda:InvokeFunction"
+      Principal: "events.amazonaws.com"
+      SourceArn: !GetAtt NightlyEnrichmentScaleUpStartSchedule.Arn
+  NightlyEnrichmentScaleUpLambdaErrorAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      AlarmName: !Sub "${StageName}-nightly-enrichment-asg-scale-up-lambda-errors"
+      AlarmDescription: "Alarm when nightly-enrichment-asg-scale-up Lambda has errors"
+      MetricName: Errors
+      Namespace: AWS/Lambda
+      Statistic: Sum
+      Period: 300
+      EvaluationPeriods: 1
+      Threshold: 1
+      ComparisonOperator: GreaterThanOrEqualToThreshold
+      Dimensions:
+        - Name: FunctionName
+          Value: !Ref NightlyEnrichmentScaleUpLambda
       TreatMissingData: notBreaching
       AlarmActions:
         - !Ref AlarmNotificationTopic
