@@ -2904,6 +2904,7 @@ Resources:
       Environment:
         Variables:
           NIGHTLY_ENRICHMENT_ASG_NAME: !Ref NightlyEnrichmentASG
+          OPENSEARCH_DOMAIN_ENDPOINT_URL: !Sub "https://${BlitzfilterOpenSearchDomain.DomainEndpoint}"
   NightlyEnrichmentQueueEmptyAlarm:
     Type: AWS::CloudWatch::Alarm
     Properties:
@@ -3007,6 +3008,7 @@ Resources:
       Environment:
         Variables:
           NIGHTLY_ENRICHMENT_ASG_NAME: !Ref NightlyEnrichmentASG
+          OPENSEARCH_DOMAIN_ENDPOINT_URL: !Sub "https://${BlitzfilterOpenSearchDomain.DomainEndpoint}"
   NightlyEnrichmentScaleUpStartSchedule:
     Type: AWS::Events::Rule
     Properties:
