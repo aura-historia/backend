@@ -2,11 +2,6 @@
 set -euxo pipefail
 echo "Running user-data for enrichment for stage $STAGE_NAME at commit $COMMIT_SHA..."
 
-# Trap ensures termination even on failure
-trap 'echo "Instance shutting down..."; \
-      INSTANCE_ID=$(curl -s http://169.254.169.254/latest/meta-data/instance-id); \
-      aws ec2 terminate-instances --instance-ids "$INSTANCE_ID" --region eu-central-1' EXIT
-
 # Create unified CloudWatch-Agent config
 cat << EOF | sudo tee /opt/aws/amazon-cloudwatch-agent.json > /dev/null
 {
