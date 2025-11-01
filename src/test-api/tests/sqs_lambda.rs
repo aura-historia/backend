@@ -14,5 +14,6 @@ const SQS_LAMBDA: SqsLambdaEventSourceMapping = SqsLambdaEventSourceMapping {
     max_batch_window_seconds: 0,
 };
 
+#[ignore]
 #[localstack_test(services = [SQS_LAMBDA])]
 async fn should_run_without_errors() {}

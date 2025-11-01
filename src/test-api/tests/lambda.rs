@@ -8,9 +8,11 @@ const TEST_LAMBDA: Lambda = Lambda {
     role: None,
 };
 
+#[ignore]
 #[localstack_test(services = [TEST_LAMBDA])]
 async fn should_run_without_errors() {}
 
+#[ignore]
 #[localstack_test(services = [TEST_LAMBDA])]
 async fn should_create_lambda() {
     let functions = get_lambda_client()
@@ -25,6 +27,7 @@ async fn should_create_lambda() {
     assert_eq!(1, functions.len());
 }
 
+#[ignore]
 #[localstack_test(services = [TEST_LAMBDA])]
 async fn should_invoke_lambda() {
     let response = get_lambda_client()

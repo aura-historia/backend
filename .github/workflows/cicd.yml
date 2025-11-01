@@ -157,26 +157,6 @@ jobs:
             target
           key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
 
-      - name: Cache cargo-lambda
-        uses: actions/cache@v4
-        with:
-          path: |
-            ~/.cargo/bin/cargo-lambda
-            ~/.cargo/registry
-            ~/.cargo/git
-          key: ${{ runner.os }}-cargo-lambda-1.8.6
-
-      - name: Set up Zig
-        uses: mlugg/setup-zig@v2
-        with:
-          version: 0.14.1
-
-      - name: Install cargo-lambda
-        run: |
-          if ! command -v cargo-lambda &> /dev/null; then
-            cargo install cargo-lambda --version 1.8.6
-          fi
-
       - name: Test ${{ matrix.crate }}
         working-directory: ${{ matrix.crate }}
         run: cargo test --test '*' --all-features -- --nocapture
