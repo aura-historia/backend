@@ -188,35 +188,10 @@ jobs:
       contents: read
     runs-on: ubuntu-latest
     steps:
-      - name: Maximize build space
-        uses: easimon/maximize-build-space@master
-        with:
-          root-reserve-mb: 512
-          swap-size-mb: 1024
-          remove-dotnet: "true"
-          remove-android: "true"
-          remove-haskell: "true"
-
-      - name: Redirect caches to workspace LV
-        run: |
-          export XDG_CACHE_HOME=$GITHUB_WORKSPACE/.cache
-          export TORCH_HOME=$GITHUB_WORKSPACE/.cache/torch
-          export HF_HOME=$GITHUB_WORKSPACE/.cache/hf
-          export TMPDIR=$GITHUB_WORKSPACE/.tmp
-          mkdir -p $XDG_CACHE_HOME $TMPDIR
-
-      - name: Bind /tmp into workspace
-        run: |
-          mkdir -p $GITHUB_WORKSPACE/tmp
-          sudo mount --bind $GITHUB_WORKSPACE/tmp /tmp
-
-      - name: Clean docker data
-        run: |
-          sudo systemctl stop docker
-          sudo rm -rf /var/lib/docker
-          sudo systemctl start docker
-
       - uses: actions/checkout@v5
+
+      - name: Prune docker
+        run: sudo docker system prune --volumes --force --all
 
       - name: Set up Rust
         uses: dtolnay/rust-toolchain@stable
@@ -236,20 +211,11 @@ jobs:
         with:
           python-version: "3.13.7"
 
-      - name: Cache Python
-        uses: actions/cache@v4
-        with:
-          path: |
-            ~/.cache/pip
-          key: ${{ runner.os }}-pydeps-${{ hashFiles('python/requirements.txt') }}
-          restore-keys: |
-            ${{ runner.os }}-pydeps-
-
       - name: Install Python deps
         working-directory: src/item/src/nightly-enrichment/python
         run: |
           python -m pip install --upgrade pip
-          pip install -r requirements.txt
+          pip install --no-cache-dir -r requirements.txt
 
       - name: Test 'nightly-enrichment'
         working-directory: src/item/src/nightly-enrichment
