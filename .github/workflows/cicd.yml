@@ -25,284 +25,276 @@ env:
     || github.ref == 'refs/heads/develop' && 'staging' }}
 
 jobs:
-  #  lint:
-  #    name: Lint Workspace
-  #    permissions:
-  #      contents: read
-  #    runs-on: ubuntu-latest
-  #    steps:
-  #      - uses: actions/checkout@v5
-  #
-  #      - name: Set up Rust
-  #        uses: dtolnay/rust-toolchain@stable
-  #        with:
-  #          components: clippy, rustfmt
-  #
-  #      - name: Cache cargo registry and target
-  #        uses: actions/cache@v4
-  #        with:
-  #          path: |
-  #            ~/.cargo/registry
-  #            ~/.cargo/git
-  #            target
-  #          key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
-  #
-  #      - name: Format check
-  #        run: cargo fmt --all -- --check
-  #
-  #      - name: Clippy lint
-  #        run: cargo clippy --workspace --all-targets --all-features -- -D warnings
+  lint:
+    name: Lint Workspace
+    permissions:
+      contents: read
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
 
-  #  build:
-  #    name: Build ${{ matrix.crate }}
-  #    needs: lint
-  #    permissions:
-  #      contents: read
-  #    runs-on: ubuntu-latest
-  #    strategy:
-  #      matrix:
-  #        crate:
-  #          - src/common
-  #          - src/search-filter
-  #          - src/aws-tests
-  #          - src/item
-  #          - src/shop
-  #          - src/test-api
-  #          - src/user
-  #          - src/mail
-  #    steps:
-  #      - uses: actions/checkout@v5
-  #
-  #      - name: Set up Rust
-  #        uses: dtolnay/rust-toolchain@stable
-  #
-  #      - name: Cache cargo registry and target
-  #        uses: actions/cache@v4
-  #        with:
-  #          path: |
-  #            ~/.cargo/registry
-  #            ~/.cargo/git
-  #            target
-  #          key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
-  #
-  #      - name: Build ${{ matrix.crate }}
-  #        working-directory: ${{ matrix.crate }}
-  #        run: cargo build --all-features
+      - name: Set up Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy, rustfmt
 
-  #  unit-test:
-  #    name: Unit-Test Workspace
-  #    needs: build
-  #    permissions:
-  #      contents: read
-  #    runs-on: ubuntu-latest
-  #    steps:
-  #      - uses: actions/checkout@v5
-  #
-  #      - name: Set up Rust
-  #        uses: dtolnay/rust-toolchain@stable
-  #
-  #      - name: Cache cargo registry and target
-  #        uses: actions/cache@v4
-  #        with:
-  #          path: |
-  #            ~/.cargo/registry
-  #            ~/.cargo/git
-  #            ~/.cargo/bin
-  #            target
-  #          key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
-  #
-  #      - name: Test Workspace
-  #        run: cargo test --workspace --lib --all-features -- --nocapture
+      - name: Cache cargo registry and target
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
 
-  #  integration-test:
-  #    name: Integration-Test ${{ matrix.crate }}
-  #    needs: build
-  #    permissions:
-  #      contents: read
-  #    runs-on: ubuntu-latest
-  #    strategy:
-  #      matrix:
-  #        crate:
-  #          - src/search-filter/src/search-filter-api/src/search-filter-api-delete-search-filter
-  #          - src/search-filter/src/search-filter-api/src/search-filter-api-get-search-filter
-  #          - src/search-filter/src/search-filter-api/src/search-filter-api-get-search-filters
-  #          - src/search-filter/src/search-filter-api/src/search-filter-api-patch-search-filter
-  #          - src/search-filter/src/search-filter-api/src/search-filter-api-post-search-filter
-  #          - src/item/src/item-api/src/item-api-complex-search
-  #          - src/item/src/item-api/src/item-api-get-item
-  #          - src/item/src/item-api/src/item-api-put-items
-  #          - src/item/src/item-api/src/item-api-watchlist-get
-  #          - src/item/src/item-dynamodb
-  #          - src/item/src/item-opensearch
-  #          - src/item/src/item-service
-  #          - src/item/src/item-watchlist
-  #          - src/shop/src/shop-api/src/shop-api-search
-  #          - src/shop/src/shop-dynamodb
-  #          - src/shop/src/shop-opensearch
-  #          - src/test-api
-  #          - src/user/src/user-dynamodb
-  #          - src/mail/src/mail-core
-  #    steps:
-  #      - uses: actions/checkout@v5
-  #
-  #      - name: Set up Rust
-  #        uses: dtolnay/rust-toolchain@stable
-  #
-  #      - name: Cache cargo registry and target
-  #        uses: actions/cache@v4
-  #        with:
-  #          path: |
-  #            ~/.cargo/registry
-  #            ~/.cargo/git
-  #            target
-  #          key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
-  #
-  #      - name: Cache cargo-lambda
-  #        uses: actions/cache@v4
-  #        with:
-  #          path: |
-  #            ~/.cargo/bin/cargo-lambda
-  #            ~/.cargo/registry
-  #            ~/.cargo/git
-  #          key: ${{ runner.os }}-cargo-lambda-1.8.6
-  #
-  #      - name: Set up Zig
-  #        uses: mlugg/setup-zig@v2
-  #        with:
-  #          version: 0.14.1
-  #
-  #      - name: Install cargo-lambda
-  #        run: |
-  #          if ! command -v cargo-lambda &> /dev/null; then
-  #            cargo install cargo-lambda --version 1.8.6
-  #          fi
-  #
-  #      - name: Test ${{ matrix.crate }}
-  #        working-directory: ${{ matrix.crate }}
-  #        run: cargo test --test '*' --all-features -- --nocapture
+      - name: Format check
+        run: cargo fmt --all -- --check
 
-  #  test-python-nightly-enrichment:
-  #    name: Test nightly-enrichment
-  #    needs: build
-  #    permissions:
-  #      contents: read
-  #    runs-on: ubuntu-latest
-  #    steps:
-  #      - name: Maximize build space
-  #        uses: easimon/maximize-build-space@master
-  #        with:
-  #          root-reserve-mb: 512
-  #          swap-size-mb: 2048
-  #          remove-dotnet: 'true'
-  #          remove-android: 'true'
-  #          remove-haskell: 'true'
-  #      - uses: actions/checkout@v5
-  #
-  #      - name: Set up Rust
-  #        uses: dtolnay/rust-toolchain@stable
-  #
-  #      - name: Cache cargo registry and target
-  #        uses: actions/cache@v4
-  #        with:
-  #          path: |
-  #            ~/.cargo/registry
-  #            ~/.cargo/git
-  #            ~/.cargo/bin
-  #            target
-  #          key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
-  #
-  #      - name: Set up Python
-  #        uses: actions/setup-python@v5
-  #        with:
-  #          python-version: "3.13.7"
-  #
-  #      - name: Cache Python
-  #        uses: actions/cache@v4
-  #        with:
-  #          path: |
-  #            ~/.cache/pip
-  #          key: ${{ runner.os }}-pydeps-${{ hashFiles('python/requirements.txt') }}
-  #          restore-keys: |
-  #            ${{ runner.os }}-pydeps-
-  #
-  #      - name: Install Python deps
-  #        working-directory: src/item/src/nightly-enrichment/python
-  #        run: |
-  #          python -m pip install --upgrade pip
-  #          pip install -r requirements.txt
-  #
-  #      - name: Test 'nightly-enrichment'
-  #        working-directory: src/item/src/nightly-enrichment
-  #        run: cargo test --all-features -- --include-ignored --nocapture
+      - name: Clippy lint
+        run: cargo clippy --workspace --all-targets --all-features -- -D warnings
 
-  #  sonar:
-  #    name: SonarQube-Cloud Analysis
-  #    needs: [unit-test, integration-test]
-  #    if: github.actor != 'dependabot[bot]'
-  #    permissions:
-  #      contents: read
-  #    runs-on: ubuntu-latest
-  #    steps:
-  #      - uses: actions/checkout@v5
-  #        with:
-  #          fetch-depth: 0
-  #
-  #      - name: Set up Rust
-  #        uses: dtolnay/rust-toolchain@stable
-  #        with:
-  #          components: clippy, rustfmt, llvm-tools
-  #
-  #      - name: Clean cargo
-  #        run: cargo clean
-  #
-  #      - name: Cache cargo registry and target
-  #        uses: actions/cache@v4
-  #        with:
-  #          path: |
-  #            ~/.cargo/registry
-  #            ~/.cargo/git
-  #          key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
-  #
-  #      - name: Cache cargo-lambda
-  #        uses: actions/cache@v4
-  #        with:
-  #          path: |
-  #            ~/.cargo/bin/cargo-lambda
-  #            ~/.cargo/registry
-  #            ~/.cargo/git
-  #          key: ${{ runner.os }}-cargo-lambda-1.8.6
-  #
-  #      - name: Set up Zig
-  #        uses: mlugg/setup-zig@v2
-  #        with:
-  #          version: 0.14.1
-  #
-  #      - name: Install cargo-lambda
-  #        run: |
-  #          if ! command -v cargo-lambda &> /dev/null; then
-  #            cargo install cargo-lambda --version 1.8.6
-  #          fi
-  #
-  #      # - name: Install grcov
-  #      # run: cargo install grcov
-  #
-  #      # - name: Generate coverage
-  #      # env:
-  #      # RUSTFLAGS: "-C instrument-coverage"
-  #      # LLVM_PROFILE_FILE: "coverage-%p-%m.profraw"
-  #      # run: |
-  #      # cargo test --workspace --all-features -- --nocapture
-  #      # grcov . --binary-path ./target/debug/deps/ -s . -t lcov --branch --ignore-not-existing --ignore "/*" --ignore "*/target/*" --ignore "*/.cargo/*" -o coverage.lcov
-  #
-  #      - name: SonarCloud Scan
-  #        uses: SonarSource/sonarqube-scan-action@master
-  #        env:
-  #          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-  #          SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
+  build:
+    name: Build ${{ matrix.crate }}
+    needs: lint
+    permissions:
+      contents: read
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        crate:
+          - src/common
+          - src/search-filter
+          - src/aws-tests
+          - src/item
+          - src/shop
+          - src/test-api
+          - src/user
+          - src/mail
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Set up Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache cargo registry and target
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
+
+      - name: Build ${{ matrix.crate }}
+        working-directory: ${{ matrix.crate }}
+        run: cargo build --all-features
+
+  unit-test:
+    name: Unit-Test Workspace
+    needs: build
+    permissions:
+      contents: read
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Set up Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache cargo registry and target
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            ~/.cargo/bin
+            target
+          key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
+
+      - name: Test Workspace
+        run: cargo test --workspace --lib --all-features -- --nocapture
+
+  integration-test:
+    name: Integration-Test ${{ matrix.crate }}
+    needs: build
+    permissions:
+      contents: read
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        crate:
+          - src/search-filter/src/search-filter-api/src/search-filter-api-delete-search-filter
+          - src/search-filter/src/search-filter-api/src/search-filter-api-get-search-filter
+          - src/search-filter/src/search-filter-api/src/search-filter-api-get-search-filters
+          - src/search-filter/src/search-filter-api/src/search-filter-api-patch-search-filter
+          - src/search-filter/src/search-filter-api/src/search-filter-api-post-search-filter
+          - src/item/src/item-api/src/item-api-complex-search
+          - src/item/src/item-api/src/item-api-get-item
+          - src/item/src/item-api/src/item-api-put-items
+          - src/item/src/item-api/src/item-api-watchlist-get
+          - src/item/src/item-dynamodb
+          - src/item/src/item-opensearch
+          - src/item/src/item-service
+          - src/item/src/item-watchlist
+          - src/shop/src/shop-api/src/shop-api-search
+          - src/shop/src/shop-dynamodb
+          - src/shop/src/shop-opensearch
+          - src/test-api
+          - src/user/src/user-dynamodb
+          - src/mail/src/mail-core
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Set up Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache cargo registry and target
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
+
+      - name: Cache cargo-lambda
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/bin/cargo-lambda
+            ~/.cargo/registry
+            ~/.cargo/git
+          key: ${{ runner.os }}-cargo-lambda-1.8.6
+
+      - name: Set up Zig
+        uses: mlugg/setup-zig@v2
+        with:
+          version: 0.14.1
+
+      - name: Install cargo-lambda
+        run: |
+          if ! command -v cargo-lambda &> /dev/null; then
+            cargo install cargo-lambda --version 1.8.6
+          fi
+
+      - name: Test ${{ matrix.crate }}
+        working-directory: ${{ matrix.crate }}
+        run: cargo test --test '*' --all-features -- --nocapture
+
+  test-python-nightly-enrichment:
+    name: Test nightly-enrichment
+    needs: build
+    permissions:
+      contents: read
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Set up Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache cargo registry and target
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            ~/.cargo/bin
+            target
+          key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.13.7"
+
+      - name: Cache Python
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cache/pip
+          key: ${{ runner.os }}-pydeps-${{ hashFiles('python/requirements.txt') }}
+          restore-keys: |
+            ${{ runner.os }}-pydeps-
+
+      - name: Install Python deps
+        working-directory: src/item/src/nightly-enrichment/python
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+
+      - name: Test 'nightly-enrichment'
+        working-directory: src/item/src/nightly-enrichment
+        run: cargo test --all-features -- --include-ignored --nocapture
+
+  sonar:
+    name: SonarQube-Cloud Analysis
+    needs: [unit-test, integration-test]
+    if: github.actor != 'dependabot[bot]'
+    permissions:
+      contents: read
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+
+      - name: Set up Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy, rustfmt, llvm-tools
+
+      - name: Clean cargo
+        run: cargo clean
+
+      - name: Cache cargo registry and target
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+          key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
+
+      - name: Cache cargo-lambda
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/bin/cargo-lambda
+            ~/.cargo/registry
+            ~/.cargo/git
+          key: ${{ runner.os }}-cargo-lambda-1.8.6
+
+      - name: Set up Zig
+        uses: mlugg/setup-zig@v2
+        with:
+          version: 0.14.1
+
+      - name: Install cargo-lambda
+        run: |
+          if ! command -v cargo-lambda &> /dev/null; then
+            cargo install cargo-lambda --version 1.8.6
+          fi
+
+        # - name: Install grcov
+        # run: cargo install grcov
+
+        # - name: Generate coverage
+        # env:
+        # RUSTFLAGS: "-C instrument-coverage"
+        # LLVM_PROFILE_FILE: "coverage-%p-%m.profraw"
+        # run: |
+        # cargo test --workspace --all-features -- --nocapture
+        # grcov . --binary-path ./target/debug/deps/ -s . -t lcov --branch --ignore-not-existing --ignore "/*" --ignore "*/target/*" --ignore "*/.cargo/*" -o coverage.lcov
+
+      - name: SonarCloud Scan
+        uses: SonarSource/sonarqube-scan-action@master
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
 
   aws-push-lambda:
     name: Push Lambda to S3 ${{ matrix.crate }}
-    #    needs: [unit-test, integration-test, test-python-nightly-enrichment]
+    needs: [unit-test, integration-test, test-python-nightly-enrichment]
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -398,7 +390,7 @@ jobs:
 
   aws-push-ec2:
     name: Push EC2 to S3 ${{ matrix.crate }}
-    #    needs: [unit-test, integration-test, test-python-nightly-enrichment]
+    needs: [unit-test, integration-test, test-python-nightly-enrichment]
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -449,7 +441,7 @@ jobs:
 
   aws-push-resource-artifacts:
     name: Push resource-artifacts to S3 ${{ matrix.resource }}
-    #    needs: [unit-test, integration-test, test-python-nightly-enrichment]
+    needs: [unit-test, integration-test, test-python-nightly-enrichment]
     runs-on: ubuntu-latest
     permissions:
       contents: read
