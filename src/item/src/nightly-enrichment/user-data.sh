@@ -50,7 +50,7 @@ echo "[$(date)] Job finished with code $EXIT_CODE" | tee -a "$LOG_PATH"
 sleep 5
 
 aws autoscaling terminate-instance-in-auto-scaling-group \
-  --instance-id $(curl -s http://169.254.169.254/latest/meta-data/instance-id) \
+  --instance-id $(ec2metadata --instance-id) \
   --should-decrement-desired-capacity
 
 exit $EXIT_CODE
