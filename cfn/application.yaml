@@ -2776,7 +2776,6 @@ Resources:
             export ENRICHMENT_QUEUE_URL="${NightlyEnrichmentQ}"
             export DYNAMODB_TABLE_NAME="${TableOne}"
             export OPENSEARCH_DOMAIN_ENDPOINT_URL="https://${BlitzfilterOpenSearchDomain.DomainEndpoint}"
-            export NIGHTLY_ENRICHMENT_ASG_NAME="${NightlyEnrichmentASG}"
             export BAAI_BGE_M3_MODEL_DEVICE="cuda"
             aws s3 cp "s3://${ResourceBucket}/${StageName}/${CommitSHA}/src/item/src/nightly-enrichment/user-data.sh" /tmp/user_data.sh --region eu-central-1
             source /tmp/user_data.sh
