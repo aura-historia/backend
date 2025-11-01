@@ -188,6 +188,34 @@ jobs:
       contents: read
     runs-on: ubuntu-latest
     steps:
+      - name: Maximize build space
+        uses: easimon/maximize-build-space@master
+        with:
+          root-reserve-mb: 512
+          swap-size-mb: 1024
+          remove-dotnet: "true"
+          remove-android: "true"
+          remove-haskell: "true"
+
+      - name: Redirect caches to workspace LV
+        run: |
+          export XDG_CACHE_HOME=$GITHUB_WORKSPACE/.cache
+          export TORCH_HOME=$GITHUB_WORKSPACE/.cache/torch
+          export HF_HOME=$GITHUB_WORKSPACE/.cache/hf
+          export TMPDIR=$GITHUB_WORKSPACE/.tmp
+          mkdir -p $XDG_CACHE_HOME $TMPDIR
+
+      - name: Bind /tmp into workspace
+        run: |
+          mkdir -p $GITHUB_WORKSPACE/tmp
+          sudo mount --bind $GITHUB_WORKSPACE/tmp /tmp
+
+      - name: Clean docker data
+        run: |
+          sudo systemctl stop docker
+          sudo rm -rf /var/lib/docker
+          sudo systemctl start docker
+
       - uses: actions/checkout@v5
 
       - name: Set up Rust
