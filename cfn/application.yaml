@@ -2778,7 +2778,7 @@ Resources:
             export OPENSEARCH_DOMAIN_ENDPOINT_URL="https://${BlitzfilterOpenSearchDomain.DomainEndpoint}"
             export BAAI_BGE_M3_MODEL_DEVICE="cuda"
             aws s3 cp "s3://${ResourceBucket}/${StageName}/${CommitSHA}/src/item/src/nightly-enrichment/user-data.sh" /tmp/user_data.sh --region eu-central-1
-            # source /tmp/user_data.sh
+            source /tmp/user_data.sh
   NightlyEnrichmentASG:
     Type: AWS::AutoScaling::AutoScalingGroup
     Properties:
