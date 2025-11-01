@@ -46,4 +46,11 @@ echo "[$(date)] Running nightly-enrichment..." | tee -a "$LOG_PATH"
 /usr/local/bin/nightly-enrichment >> "$LOG_PATH" 2>&1
 EXIT_CODE=$?
 echo "[$(date)] Job finished with code $EXIT_CODE" | tee -a "$LOG_PATH"
+
+sleep 5
+
+aws autoscaling terminate-instance-in-auto-scaling-group \
+  --instance-id $(curl -s http://169.254.169.254/latest/meta-data/instance-id) \
+  --should-decrement-desired-capacity
+
 exit $EXIT_CODE

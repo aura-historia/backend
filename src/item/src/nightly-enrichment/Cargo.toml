@@ -43,7 +43,7 @@ aws_lambda_events = { workspace = true, features = [
 ] }
 
 [features]
-default = ["dep:nightly-enrichment-asg-scale-down"]
+default = []
 test-data = ["fake", "common/test-data", "item-core/test-data", "item-dynamodb/test-data", "item-opensearch/test-data"]
 asg-scale-down = ["dep:nightly-enrichment-asg-scale-down"]
 asg-scale-up = ["dep:nightly-enrichment-asg-scale-up"]

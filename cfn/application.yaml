@@ -2680,12 +2680,12 @@ Resources:
         - arn:aws:iam::aws:policy/CloudWatchAgentServerPolicy
         - arn:aws:iam::aws:policy/AmazonS3ReadOnlyAccess
       Policies:
-        - PolicyName: AllowSelfTerminate
+        - PolicyName: AllowTerminateInASG
           PolicyDocument:
             Version: "2012-10-17"
             Statement:
               - Effect: Allow
-                Action: ec2:TerminateInstances
+                Action: autoscaling:TerminateInstanceInAutoScalingGroup
                 Resource: "*"
         - PolicyName: DynamoDBAccess
           PolicyDocument:
