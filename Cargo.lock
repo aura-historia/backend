@@ -297,29 +297,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "aws-sdk-lambda"
-version = "1.100.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "b90dc0a8776b0986217474f6f171047051506c7ba7ea261f313ec1750df1dcfa"
-dependencies = [
- "aws-credential-types",
- "aws-runtime",
- "aws-smithy-async",
- "aws-smithy-eventstream",
- "aws-smithy-http",
- "aws-smithy-json",
- "aws-smithy-runtime",
- "aws-smithy-runtime-api",
- "aws-smithy-types",
- "aws-types",
- "bytes",
- "fastrand",
- "http 0.2.12",
- "regex-lite",
- "tracing",
-]
-
-[[package]]
 name = "aws-sdk-opensearch"
 version = "1.100.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -5068,7 +5045,6 @@ dependencies = [
  "aws-config",
  "aws-sdk-account",
  "aws-sdk-dynamodb",
- "aws-sdk-lambda",
  "aws-sdk-opensearch",
  "aws-sdk-sqs",
  "aws_lambda_events",
@@ -5084,7 +5060,6 @@ dependencies = [
  "sha2",
  "test-api",
  "test-api-macros",
- "test_lambda",
  "testcontainers",
  "testcontainers-modules",
  "tokio",
@@ -5101,15 +5076,6 @@ dependencies = [
  "proc-macro2",
  "quote",
  "syn",
-]
-
-[[package]]
-name = "test_lambda"
-version = "0.1.0"
-dependencies = [
- "lambda_runtime",
- "serde_json",
- "tokio",
 ]
 
 [[package]]
