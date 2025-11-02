@@ -2636,11 +2636,6 @@ Resources:
     Properties:
       GroupDescription: Allow SSH and internal comms
       VpcId: !Ref NightlyEnrichmentVpc
-      SecurityGroupIngress:
-        - IpProtocol: tcp
-          FromPort: 22
-          ToPort: 22
-          CidrIp: 0.0.0.0/0 # Replace with your IP for better security
       SecurityGroupEgress:
         - IpProtocol: -1
           CidrIp: 0.0.0.0/0
