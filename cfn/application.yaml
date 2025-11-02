@@ -123,15 +123,9 @@ Resources:
                   - dynamodb:PutItem
                   - dynamodb:GetItem
                 Resource: !GetAtt TableOne.Arn
-      Tags:
-        - Key: awsApplication
-          Value: blitzfilter-backend
   PostConfirmationLambda:
     Type: AWS::Lambda::Function
     Properties:
-      Tags:
-        - Key: awsApplication
-          Value: blitzfilter-backend
       FunctionName: !Sub "blitzfilter-cognito-post-confirmation-${StageName}"
       Runtime: provided.al2023
       Handler: lib.handler
@@ -276,10 +270,6 @@ Resources:
       TreatMissingData: notBreaching
       AlarmActions:
         - !Ref AlarmNotificationTopic
-      Tags:
-        - Key: awsApplication
-          Value: blitzfilter-backend
-
   BlitzfilterOpenSearchDomain:
     Type: AWS::OpenSearchService::Domain
     Properties:
@@ -307,10 +297,7 @@ Resources:
   OpenSearchClusterStatusRedAlarm:
     Type: AWS::CloudWatch::Alarm
     Properties:
-      Tags:
-        - Key: awsApplication
-          Value: blitzfilter-backend
-      AlarmName: !Sub "${StageName}-opensearch-cluster-red"
+          AlarmName: !Sub "${StageName}-opensearch-cluster-red"
       AlarmDescription: "Alarm when OpenSearch cluster status is RED"
       MetricName: ClusterStatus.red
       Namespace: AWS/ES
@@ -333,10 +320,7 @@ Resources:
   OpenSearchClusterStatusYellowAlarm:
     Type: AWS::CloudWatch::Alarm
     Properties:
-      Tags:
-        - Key: awsApplication
-          Value: blitzfilter-backend
-      AlarmName: !Sub "${StageName}-opensearch-cluster-yellow"
+          AlarmName: !Sub "${StageName}-opensearch-cluster-yellow"
       AlarmDescription: "Alarm when OpenSearch cluster status is YELLOW"
       MetricName: ClusterStatus.yellow
       Namespace: AWS/ES
@@ -359,10 +343,7 @@ Resources:
   OpenSearchFreeStorageSpaceAlarm:
     Type: AWS::CloudWatch::Alarm
     Properties:
-      Tags:
-        - Key: awsApplication
-          Value: blitzfilter-backend
-      AlarmName: !Sub "${StageName}-opensearch-low-storage"
+          AlarmName: !Sub "${StageName}-opensearch-low-storage"
       AlarmDescription: "Alarm when OpenSearch has low free storage space"
       MetricName: FreeStorageSpace
       Namespace: AWS/ES
@@ -385,9 +366,6 @@ Resources:
   OpenSearchCPUUtilizationAlarm:
     Type: AWS::CloudWatch::Alarm
     Properties:
-      Tags:
-        - Key: awsApplication
-          Value: blitzfilter-backend
       AlarmName: !Sub "${StageName}-opensearch-high-cpu"
       AlarmDescription: "Alarm when OpenSearch CPU utilization is high"
       MetricName: CPUUtilization
@@ -411,9 +389,6 @@ Resources:
   OpenSearchJVMMemoryPressureAlarm:
     Type: AWS::CloudWatch::Alarm
     Properties:
-      Tags:
-        - Key: awsApplication
-          Value: blitzfilter-backend
       AlarmName: !Sub "${StageName}-opensearch-high-jvm-memory"
       AlarmDescription: "Alarm when OpenSearch JVM memory pressure is high"
       MetricName: JVMMemoryPressure
@@ -434,7 +409,6 @@ Resources:
       Tags:
         - Key: awsApplication
           Value: blitzfilter-backend
-
   DynamoDbEventBus:
     Type: AWS::Events::EventBus
     Properties:
@@ -445,10 +419,7 @@ Resources:
   PipeRole:
     Type: AWS::IAM::Role
     Properties:
-      Tags:
-        - Key: awsApplication
-          Value: blitzfilter-backend
-      RoleName: !Sub "dynamodb-to-eventbridge-pipe-role-${StageName}"
+          RoleName: !Sub "dynamodb-to-eventbridge-pipe-role-${StageName}"
       AssumeRolePolicyDocument:
         Version: "2012-10-17"
         Statement:
