@@ -197,7 +197,7 @@ impl EnrichmentPlumbingImpl {
                     match message_ids_message_refs.remove(&message_id) {
                         Some(message_ref) => Some(message_ref),
                         None => {
-                            error!("Failed re-collecting ItemId belonging to a failed messageId. This is a bug.");
+                            error!(messageId = message_id, "Failed re-collecting ItemId belonging to a failed messageId. This is a bug.");
                             None
                         },
                     }

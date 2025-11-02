@@ -70,7 +70,7 @@ impl EnrichmentPipeSink for EnrichmentPipeSinkImpl {
                         match ItemId::try_from(failure.id.as_str()) {
                             Err(err) => {
                                 error!(error = %err, itemId = failure.id, "Failed parsing returned '_id' from OpenSearch for 'ItemDocument' as 'ItemId'.
-                                    This is highly to be a bug. Cannot retry.");
+                                    This is highly likely to be a bug. Cannot retry.");
                                 skipped += 1;
                                 None
                             }

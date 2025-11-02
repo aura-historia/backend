@@ -2679,6 +2679,7 @@ Resources:
       ManagedPolicyArns:
         - arn:aws:iam::aws:policy/CloudWatchAgentServerPolicy
         - arn:aws:iam::aws:policy/AmazonS3ReadOnlyAccess
+        - arn:aws:iam::aws:policy/AmazonSSMManagedInstanceCore
       Policies:
         - PolicyName: AllowTerminateInASG
           PolicyDocument:
@@ -2749,7 +2750,7 @@ Resources:
         IamInstanceProfile:
           Name: !Ref NightlyEnrichmentInstanceProfile
         InstanceType: g6.xlarge # Placeholder - ASG overrides this
-        ImageId: ami-047a98bf51dec0963 # custom AMI with preinstalled deps based on ami-032fa3abdbb7e3a12 (Deep Learning OSS Nvidia Driver AMI GPU PyTorch 2.8 (Ubuntu 24.04))
+        ImageId: ami-047a98bf51dec0963 # custom eu-central-1 AMI with preinstalled deps based on ami-032fa3abdbb7e3a12 (Deep Learning OSS Nvidia Driver AMI GPU PyTorch 2.8 (Ubuntu 24.04))
         SecurityGroupIds: [!Ref NightlyEnrichmentSecurityGroup]
         BlockDeviceMappings:
           - DeviceName: /dev/sda1
