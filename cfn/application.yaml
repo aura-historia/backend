@@ -61,6 +61,9 @@ Resources:
     Properties:
       TopicName: !Sub "cloudwatch-alarms-${StageName}"
       DisplayName: "CloudWatch Alarms for Blitzfilter Backend"
+      Tags:
+        - Key: awsApplication
+          Value: blitzfilter-backend
 
   BlitzfilterUserPool:
     Type: AWS::Cognito::UserPool
@@ -91,10 +94,15 @@ Resources:
           Required: true
       LambdaConfig:
         PostConfirmation: !GetAtt PostConfirmationLambda.Arn
+      UserPoolTags:
+        awsApplication: blitzfilter-backend
 
   PostConfirmationLambdaRole:
     Type: AWS::IAM::Role
     Properties:
+      Tags:
+        - Key: awsApplication
+          Value: blitzfilter-backend
       RoleName: !Sub "blitzfilter-cognito-post-confirmation-role-${StageName}"
       AssumeRolePolicyDocument:
         Version: "2012-10-17"
@@ -115,9 +123,15 @@ Resources:
                   - dynamodb:PutItem
                   - dynamodb:GetItem
                 Resource: !GetAtt TableOne.Arn
+      Tags:
+        - Key: awsApplication
+          Value: blitzfilter-backend
   PostConfirmationLambda:
     Type: AWS::Lambda::Function
     Properties:
+      Tags:
+        - Key: awsApplication
+          Value: blitzfilter-backend
       FunctionName: !Sub "blitzfilter-cognito-post-confirmation-${StageName}"
       Runtime: provided.al2023
       Handler: lib.handler
@@ -132,6 +146,9 @@ Resources:
       Environment:
         Variables:
           DYNAMODB_TABLE_NAME: !Ref TableOne
+      Tags:
+        - Key: awsApplication
+          Value: blitzfilter-backend
   AllowCognitoInvokePostConfirmationLambda:
     Type: AWS::Lambda::Permission
     Properties:
@@ -235,9 +252,15 @@ Resources:
       TableClass: STANDARD
       StreamSpecification:
         StreamViewType: NEW_IMAGE
+      Tags:
+        - Key: awsApplication
+          Value: blitzfilter-backend
   TableOneThrottledRequestsAlarm:
     Type: AWS::CloudWatch::Alarm
     Properties:
+      Tags:
+        - Key: awsApplication
+          Value: blitzfilter-backend
       AlarmName: !Sub "${StageName}-dynamodb-throttled-requests"
       AlarmDescription: "Alarm when DynamoDB table has throttled requests"
       MetricName: UserErrors
@@ -253,6 +276,9 @@ Resources:
       TreatMissingData: notBreaching
       AlarmActions:
         - !Ref AlarmNotificationTopic
+      Tags:
+        - Key: awsApplication
+          Value: blitzfilter-backend
 
   BlitzfilterOpenSearchDomain:
     Type: AWS::OpenSearchService::Domain
@@ -275,9 +301,15 @@ Resources:
               AWS: !Sub "arn:aws:iam::${AWS::AccountId}:root"
             Action: "es:*"
             Resource: !Sub "arn:aws:es:${AWS::Region}:${AWS::AccountId}:domain/application-${StageName}/*"
+      Tags:
+        - Key: awsApplication
+          Value: blitzfilter-backend
   OpenSearchClusterStatusRedAlarm:
     Type: AWS::CloudWatch::Alarm
     Properties:
+      Tags:
+        - Key: awsApplication
+          Value: blitzfilter-backend
       AlarmName: !Sub "${StageName}-opensearch-cluster-red"
       AlarmDescription: "Alarm when OpenSearch cluster status is RED"
       MetricName: ClusterStatus.red
@@ -295,9 +327,15 @@ Resources:
       TreatMissingData: notBreaching
       AlarmActions:
         - !Ref AlarmNotificationTopic
+      Tags:
+        - Key: awsApplication
+          Value: blitzfilter-backend
   OpenSearchClusterStatusYellowAlarm:
     Type: AWS::CloudWatch::Alarm
     Properties:
+      Tags:
+        - Key: awsApplication
+          Value: blitzfilter-backend
       AlarmName: !Sub "${StageName}-opensearch-cluster-yellow"
       AlarmDescription: "Alarm when OpenSearch cluster status is YELLOW"
       MetricName: ClusterStatus.yellow
@@ -315,9 +353,15 @@ Resources:
       TreatMissingData: notBreaching
       AlarmActions:
         - !Ref AlarmNotificationTopic
+      Tags:
+        - Key: awsApplication
+          Value: blitzfilter-backend
   OpenSearchFreeStorageSpaceAlarm:
     Type: AWS::CloudWatch::Alarm
     Properties:
+      Tags:
+        - Key: awsApplication
+          Value: blitzfilter-backend
       AlarmName: !Sub "${StageName}-opensearch-low-storage"
       AlarmDescription: "Alarm when OpenSearch has low free storage space"
       MetricName: FreeStorageSpace
@@ -335,9 +379,15 @@ Resources:
       TreatMissingData: notBreaching
       AlarmActions:
         - !Ref AlarmNotificationTopic
+      Tags:
+        - Key: awsApplication
+          Value: blitzfilter-backend
   OpenSearchCPUUtilizationAlarm:
     Type: AWS::CloudWatch::Alarm
     Properties:
+      Tags:
+        - Key: awsApplication
+          Value: blitzfilter-backend
       AlarmName: !Sub "${StageName}-opensearch-high-cpu"
       AlarmDescription: "Alarm when OpenSearch CPU utilization is high"
       MetricName: CPUUtilization
@@ -355,9 +405,15 @@ Resources:
       TreatMissingData: notBreaching
       AlarmActions:
         - !Ref AlarmNotificationTopic
+      Tags:
+        - Key: awsApplication
+          Value: blitzfilter-backend
   OpenSearchJVMMemoryPressureAlarm:
     Type: AWS::CloudWatch::Alarm
     Properties:
+      Tags:
+        - Key: awsApplication
+          Value: blitzfilter-backend
       AlarmName: !Sub "${StageName}-opensearch-high-jvm-memory"
       AlarmDescription: "Alarm when OpenSearch JVM memory pressure is high"
       MetricName: JVMMemoryPressure
@@ -375,14 +431,23 @@ Resources:
       TreatMissingData: notBreaching
       AlarmActions:
         - !Ref AlarmNotificationTopic
+      Tags:
+        - Key: awsApplication
+          Value: blitzfilter-backend
 
   DynamoDbEventBus:
     Type: AWS::Events::EventBus
     Properties:
       Name: !Sub "dynamodb-event-bus-${StageName}"
+      Tags:
+        - Key: awsApplication
+          Value: blitzfilter-backend
   PipeRole:
     Type: AWS::IAM::Role
     Properties:
+      Tags:
+        - Key: awsApplication
+          Value: blitzfilter-backend
       RoleName: !Sub "dynamodb-to-eventbridge-pipe-role-${StageName}"
       AssumeRolePolicyDocument:
         Version: "2012-10-17"
@@ -407,6 +472,9 @@ Resources:
                 Action:
                   - events:PutEvents
                 Resource: !GetAtt DynamoDbEventBus.Arn
+      Tags:
+        - Key: awsApplication
+          Value: blitzfilter-backend
   TableOneStreamToEventBusPipe:
     Type: AWS::Pipes::Pipe
     Properties:
@@ -436,6 +504,8 @@ Resources:
         EventBridgeEventBusParameters:
           DetailType: "DynamoDBStreamRecord"
           Source: !Ref TableOne
+      Tags:
+        awsApplication: blitzfilter-backend
 
   DynamoDbEventBusQueuePolicy:
     Type: AWS::SQS::QueuePolicy
@@ -480,6 +550,8 @@ Resources:
           - OPTIONS
         AllowHeaders:
           - "*"
+      Tags:
+        awsApplication: blitzfilter-backend
   BlitzfilterApiStage:
     Type: AWS::ApiGatewayV2::Stage
     Properties:
@@ -489,6 +561,8 @@ Resources:
       DefaultRouteSettings:
         ThrottlingBurstLimit: 50
         ThrottlingRateLimit: 20
+      Tags:
+        awsApplication: blitzfilter-backend
   BlitzfilterApiCognitoAuthorizer:
     Type: AWS::ApiGatewayV2::Authorizer
     Properties:
@@ -505,6 +579,9 @@ Resources:
   BlitzfilterApi5XXErrorAlarm:
     Type: AWS::CloudWatch::Alarm
     Properties:
+      Tags:
+        - Key: awsApplication
+          Value: blitzfilter-backend
       AlarmName: !Sub "${StageName}-api-5xx-errors"
       AlarmDescription: "Alarm when API Gateway returns 5XX errors"
       MetricName: 5XXError
@@ -523,6 +600,9 @@ Resources:
   BlitzfilterApi4XXErrorAlarm:
     Type: AWS::CloudWatch::Alarm
     Properties:
+      Tags:
+        - Key: awsApplication
+          Value: blitzfilter-backend
       AlarmName: !Sub "${StageName}-api-4xx-errors"
       AlarmDescription: "Alarm when API Gateway returns high 4XX errors"
       MetricName: 4XXError
@@ -555,6 +635,9 @@ Resources:
   BlitzfilterApiGetItemRole:
     Type: AWS::IAM::Role
     Properties:
+      Tags:
+        - Key: awsApplication
+          Value: blitzfilter-backend
       RoleName: !Sub "blitzfilter-api-get-item-role-${StageName}"
       AssumeRolePolicyDocument:
         Version: "2012-10-17"
@@ -579,6 +662,9 @@ Resources:
   BlitzfilterApiGetItemLambda:
     Type: AWS::Lambda::Function
     Properties:
+      Tags:
+        - Key: awsApplication
+          Value: blitzfilter-backend
       FunctionName: !Sub "blitzfilter-api-get-item-${StageName}"
       Runtime: provided.al2023
       Handler: lib.handler
@@ -603,6 +689,9 @@ Resources:
   BlitzfilterApiGetItemLambdaErrorAlarm:
     Type: AWS::CloudWatch::Alarm
     Properties:
+      Tags:
+        - Key: awsApplication
+          Value: blitzfilter-backend
       AlarmName: !Sub "${StageName}-get-item-lambda-errors"
       AlarmDescription: "Alarm when get-item Lambda has errors"
       MetricName: Errors
@@ -621,6 +710,9 @@ Resources:
   BlitzfilterApiGetItemLambdaThrottleAlarm:
     Type: AWS::CloudWatch::Alarm
     Properties:
+      Tags:
+        - Key: awsApplication
+          Value: blitzfilter-backend
       AlarmName: !Sub "${StageName}-get-item-lambda-throttles"
       AlarmDescription: "Alarm when get-item Lambda is throttled"
       MetricName: Throttles
@@ -653,6 +745,9 @@ Resources:
   BlitzfilterApiPutItemsRole:
     Type: AWS::IAM::Role
     Properties:
+      Tags:
+        - Key: awsApplication
+          Value: blitzfilter-backend
       RoleName: !Sub "blitzfilter-api-put-items-role-${StageName}"
       AssumeRolePolicyDocument:
         Version: "2012-10-17"
@@ -685,6 +780,9 @@ Resources:
   BlitzfilterApiPutItemsLambda:
     Type: AWS::Lambda::Function
     Properties:
+      Tags:
+        - Key: awsApplication
+          Value: blitzfilter-backend
       FunctionName: !Sub "blitzfilter-api-put-items-${StageName}"
       Runtime: provided.al2023
       Handler: lib.handler
@@ -710,6 +808,9 @@ Resources:
   BlitzfilterApiPutItemsLambdaErrorAlarm:
     Type: AWS::CloudWatch::Alarm
     Properties:
+      Tags:
+        - Key: awsApplication
+          Value: blitzfilter-backend
       AlarmName: !Sub "${StageName}-put-items-lambda-errors"
       AlarmDescription: "Alarm when put-items Lambda has errors"
       MetricName: Errors
@@ -728,6 +829,9 @@ Resources:
   BlitzfilterApiPutItemsLambdaThrottleAlarm:
     Type: AWS::CloudWatch::Alarm
     Properties:
+      Tags:
+        - Key: awsApplication
+          Value: blitzfilter-backend
       AlarmName: !Sub "${StageName}-put-items-lambda-throttles"
       AlarmDescription: "Alarm when put-items Lambda is throttled"
       MetricName: Throttles
@@ -760,6 +864,9 @@ Resources:
   BlitzfilterApiSimpleSearchRole:
     Type: AWS::IAM::Role
     Properties:
+      Tags:
+        - Key: awsApplication
+          Value: blitzfilter-backend
       RoleName: !Sub "blitzfilter-api-simple-search-role-${StageName}"
       AssumeRolePolicyDocument:
         Version: "2012-10-17"
@@ -786,6 +893,9 @@ Resources:
   BlitzfilterApiSimpleSearchLambda:
     Type: AWS::Lambda::Function
     Properties:
+      Tags:
+        - Key: awsApplication
+          Value: blitzfilter-backend
       FunctionName: !Sub "blitzfilter-api-simple-search-${StageName}"
       Runtime: provided.al2023
       Handler: lib.handler
@@ -810,6 +920,9 @@ Resources:
   BlitzfilterApiSimpleSearchLambdaErrorAlarm:
     Type: AWS::CloudWatch::Alarm
     Properties:
+      Tags:
+        - Key: awsApplication
+          Value: blitzfilter-backend
       AlarmName: !Sub "${StageName}-simple-search-lambda-errors"
       AlarmDescription: "Alarm when simple-search Lambda has errors"
       MetricName: Errors
@@ -842,6 +955,9 @@ Resources:
   BlitzfilterApiComplexSearchRole:
     Type: AWS::IAM::Role
     Properties:
+      Tags:
+        - Key: awsApplication
+          Value: blitzfilter-backend
       RoleName: !Sub "blitzfilter-api-complex-search-role-${StageName}"
       AssumeRolePolicyDocument:
         Version: "2012-10-17"
@@ -868,6 +984,9 @@ Resources:
   BlitzfilterApiComplexSearchLambda:
     Type: AWS::Lambda::Function
     Properties:
+      Tags:
+        - Key: awsApplication
+          Value: blitzfilter-backend
       FunctionName: !Sub "blitzfilter-api-complex-search-${StageName}"
       Runtime: provided.al2023
       Handler: lib.handler
@@ -892,6 +1011,9 @@ Resources:
   BlitzfilterApiComplexSearchLambdaErrorAlarm:
     Type: AWS::CloudWatch::Alarm
     Properties:
+      Tags:
+        - Key: awsApplication
+          Value: blitzfilter-backend
       AlarmName: !Sub "${StageName}-complex-search-lambda-errors"
       AlarmDescription: "Alarm when complex-search Lambda has errors"
       MetricName: Errors
@@ -926,6 +1048,9 @@ Resources:
   BlitzfilterApiGetWatchlistItemsRole:
     Type: AWS::IAM::Role
     Properties:
+      Tags:
+        - Key: awsApplication
+          Value: blitzfilter-backend
       RoleName: !Sub "blitzfilter-api-get-watchlist-items-role-${StageName}"
       AssumeRolePolicyDocument:
         Version: "2012-10-17"
@@ -952,6 +1077,9 @@ Resources:
   BlitzfilterApiGetWatchlistItemsLambda:
     Type: AWS::Lambda::Function
     Properties:
+      Tags:
+        - Key: awsApplication
+          Value: blitzfilter-backend
       FunctionName: !Sub "blitzfilter-api-get-watchlist-items-${StageName}"
       Runtime: provided.al2023
       Handler: lib.handler
@@ -992,6 +1120,9 @@ Resources:
   BlitzfilterApiDeleteWatchlistItemRole:
     Type: AWS::IAM::Role
     Properties:
+      Tags:
+        - Key: awsApplication
+          Value: blitzfilter-backend
       RoleName: !Sub "blitzfilter-api-delete-watchlist-item-role-${StageName}"
       AssumeRolePolicyDocument:
         Version: "2012-10-17"
@@ -1017,6 +1148,9 @@ Resources:
   BlitzfilterApiDeleteWatchlistItemLambda:
     Type: AWS::Lambda::Function
     Properties:
+      Tags:
+        - Key: awsApplication
+          Value: blitzfilter-backend
       FunctionName: !Sub "blitzfilter-api-delete-watchlist-item-${StageName}"
       Runtime: provided.al2023
       Handler: lib.handler
@@ -1057,6 +1191,9 @@ Resources:
   BlitzfilterApiPostWatchlistItemRole:
     Type: AWS::IAM::Role
     Properties:
+      Tags:
+        - Key: awsApplication
+          Value: blitzfilter-backend
       RoleName: !Sub "blitzfilter-api-post-watchlist-item-role-${StageName}"
       AssumeRolePolicyDocument:
         Version: "2012-10-17"
@@ -1082,6 +1219,9 @@ Resources:
   BlitzfilterApiPostWatchlistItemLambda:
     Type: AWS::Lambda::Function
     Properties:
+      Tags:
+        - Key: awsApplication
+          Value: blitzfilter-backend
       FunctionName: !Sub "blitzfilter-api-post-watchlist-item-${StageName}"
       Runtime: provided.al2023
       Handler: lib.handler
@@ -1122,6 +1262,9 @@ Resources:
   BlitzfilterApiPatchWatchlistItemRole:
     Type: AWS::IAM::Role
     Properties:
+      Tags:
+        - Key: awsApplication
+          Value: blitzfilter-backend
       RoleName: !Sub "blitzfilter-api-patch-watchlist-item-role-${StageName}"
       AssumeRolePolicyDocument:
         Version: "2012-10-17"
@@ -1145,6 +1288,9 @@ Resources:
   BlitzfilterApiPatchWatchlistItemLambda:
     Type: AWS::Lambda::Function
     Properties:
+      Tags:
+        - Key: awsApplication
+          Value: blitzfilter-backend
       FunctionName: !Sub "blitzfilter-api-patch-watchlist-item-${StageName}"
       Runtime: provided.al2023
       Handler: lib.handler
@@ -1183,6 +1329,9 @@ Resources:
   BlitzfilterApiGetShopRole:
     Type: AWS::IAM::Role
     Properties:
+      Tags:
+        - Key: awsApplication
+          Value: blitzfilter-backend
       RoleName: !Sub "blitzfilter-api-get-shop-role-${StageName}"
       AssumeRolePolicyDocument:
         Version: "2012-10-17"
@@ -1207,6 +1356,9 @@ Resources:
   BlitzfilterApiGetShopLambda:
     Type: AWS::Lambda::Function
     Properties:
+      Tags:
+        - Key: awsApplication
+          Value: blitzfilter-backend
       FunctionName: !Sub "blitzfilter-api-get-shop-${StageName}"
       Runtime: provided.al2023
       Handler: lib.handler
@@ -1245,6 +1397,9 @@ Resources:
   BlitzfilterApiShopSearchRole:
     Type: AWS::IAM::Role
     Properties:
+      Tags:
+        - Key: awsApplication
+          Value: blitzfilter-backend
       RoleName: !Sub "blitzfilter-api-shop-search-role-${StageName}"
       AssumeRolePolicyDocument:
         Version: "2012-10-17"
@@ -1271,6 +1426,9 @@ Resources:
   BlitzfilterApiShopSearchLambda:
     Type: AWS::Lambda::Function
     Properties:
+      Tags:
+        - Key: awsApplication
+          Value: blitzfilter-backend
       FunctionName: !Sub "blitzfilter-api-shop-search-${StageName}"
       Runtime: provided.al2023
       Handler: lib.handler
@@ -1311,6 +1469,9 @@ Resources:
   BlitzfilterApiDeleteSearchFilterRole:
     Type: AWS::IAM::Role
     Properties:
+      Tags:
+        - Key: awsApplication
+          Value: blitzfilter-backend
       RoleName: !Sub "blitzfilter-api-delete-search-filter-role-${StageName}"
       AssumeRolePolicyDocument:
         Version: "2012-10-17"
@@ -1336,6 +1497,9 @@ Resources:
   BlitzfilterApiDeleteSearchFilterLambda:
     Type: AWS::Lambda::Function
     Properties:
+      Tags:
+        - Key: awsApplication
+          Value: blitzfilter-backend
       FunctionName: !Sub "blitzfilter-api-delete-search-filter-${StageName}"
       Runtime: provided.al2023
       Handler: lib.handler
@@ -1376,6 +1540,9 @@ Resources:
   BlitzfilterApiGetSearchFilterRole:
     Type: AWS::IAM::Role
     Properties:
+      Tags:
+        - Key: awsApplication
+          Value: blitzfilter-backend
       RoleName: !Sub "blitzfilter-api-get-search-filter-role-${StageName}"
       AssumeRolePolicyDocument:
         Version: "2012-10-17"
@@ -1400,6 +1567,9 @@ Resources:
   BlitzfilterApiGetSearchFilterLambda:
     Type: AWS::Lambda::Function
     Properties:
+      Tags:
+        - Key: awsApplication
+          Value: blitzfilter-backend
       FunctionName: !Sub "blitzfilter-api-get-search-filter-${StageName}"
       Runtime: provided.al2023
       Handler: lib.handler
@@ -1440,6 +1610,9 @@ Resources:
   BlitzfilterApiGetSearchFiltersRole:
     Type: AWS::IAM::Role
     Properties:
+      Tags:
+        - Key: awsApplication
+          Value: blitzfilter-backend
       RoleName: !Sub "blitzfilter-api-get-search-filters-role-${StageName}"
       AssumeRolePolicyDocument:
         Version: "2012-10-17"
@@ -1464,6 +1637,9 @@ Resources:
   BlitzfilterApiGetSearchFiltersLambda:
     Type: AWS::Lambda::Function
     Properties:
+      Tags:
+        - Key: awsApplication
+          Value: blitzfilter-backend
       FunctionName: !Sub "blitzfilter-api-get-search-filters-${StageName}"
       Runtime: provided.al2023
       Handler: lib.handler
@@ -1504,6 +1680,9 @@ Resources:
   BlitzfilterApiPatchSearchFilterRole:
     Type: AWS::IAM::Role
     Properties:
+      Tags:
+        - Key: awsApplication
+          Value: blitzfilter-backend
       RoleName: !Sub "blitzfilter-api-patch-search-filter-role-${StageName}"
       AssumeRolePolicyDocument:
         Version: "2012-10-17"
@@ -1528,6 +1707,9 @@ Resources:
   BlitzfilterApiPatchSearchFilterLambda:
     Type: AWS::Lambda::Function
     Properties:
+      Tags:
+        - Key: awsApplication
+          Value: blitzfilter-backend
       FunctionName: !Sub "blitzfilter-api-patch-search-filter-${StageName}"
       Runtime: provided.al2023
       Handler: lib.handler
@@ -1568,6 +1750,9 @@ Resources:
   BlitzfilterApiPostSearchFilterRole:
     Type: AWS::IAM::Role
     Properties:
+      Tags:
+        - Key: awsApplication
+          Value: blitzfilter-backend
       RoleName: !Sub "blitzfilter-api-post-search-filter-role-${StageName}"
       AssumeRolePolicyDocument:
         Version: "2012-10-17"
@@ -1590,6 +1775,9 @@ Resources:
   BlitzfilterApiPostSearchFilterLambda:
     Type: AWS::Lambda::Function
     Properties:
+      Tags:
+        - Key: awsApplication
+          Value: blitzfilter-backend
       FunctionName: !Sub "blitzfilter-api-post-search-filter-${StageName}"
       Runtime: provided.al2023
       Handler: lib.handler
@@ -1615,11 +1803,17 @@ Resources:
   SendMailDlq:
     Type: AWS::SQS::Queue
     Properties:
+      Tags:
+        - Key: awsApplication
+          Value: blitzfilter-backend
       QueueName: !Sub "mail-lambda-send-${StageName}"
       MessageRetentionPeriod: 1209600
   SendMailQ:
     Type: AWS::SQS::Queue
     Properties:
+      Tags:
+        - Key: awsApplication
+          Value: blitzfilter-backend
       QueueName: !Sub "mail-lambda-send-queue-${StageName}"
       RedrivePolicy:
         deadLetterTargetArn: !GetAtt SendMailDlq.Arn
@@ -1628,6 +1822,9 @@ Resources:
   SendMailRole:
     Type: AWS::IAM::Role
     Properties:
+      Tags:
+        - Key: awsApplication
+          Value: blitzfilter-backend
       RoleName: !Sub "mail-lambda-send-role-${StageName}"
       AssumeRolePolicyDocument:
         Version: "2012-10-17"
@@ -1670,6 +1867,9 @@ Resources:
   SendMailLambda:
     Type: AWS::Lambda::Function
     Properties:
+      Tags:
+        - Key: awsApplication
+          Value: blitzfilter-backend
       FunctionName: !Sub "mail-lambda-send-${StageName}"
       Runtime: provided.al2023
       Handler: lib.handler
@@ -1702,6 +1902,9 @@ Resources:
   SendMailLambdaErrorAlarm:
     Type: AWS::CloudWatch::Alarm
     Properties:
+      Tags:
+        - Key: awsApplication
+          Value: blitzfilter-backend
       AlarmName: !Sub "${StageName}-send-mail-lambda-errors"
       AlarmDescription: "Alarm when send-mail Lambda has errors"
       MetricName: Errors
@@ -1720,6 +1923,9 @@ Resources:
   SendMailDlqAlarm:
     Type: AWS::CloudWatch::Alarm
     Properties:
+      Tags:
+        - Key: awsApplication
+          Value: blitzfilter-backend
       AlarmName: !Sub "${StageName}-send-mail-dlq-messages"
       AlarmDescription: "Alarm when messages appear in send-mail DLQ"
       MetricName: ApproximateNumberOfMessagesVisible
@@ -1739,11 +1945,17 @@ Resources:
   ItemIngestEventsDynamoDbDlq:
     Type: AWS::SQS::Queue
     Properties:
+      Tags:
+        - Key: awsApplication
+          Value: blitzfilter-backend
       QueueName: !Sub "item-lambda-ingest-events-dynamodb-dlq-${StageName}"
       MessageRetentionPeriod: 1209600
   ItemIngestEventsDynamoDbQ:
     Type: AWS::SQS::Queue
     Properties:
+      Tags:
+        - Key: awsApplication
+          Value: blitzfilter-backend
       QueueName: !Sub "item-lambda-ingest-events-dynamodb-queue-${StageName}"
       RedrivePolicy:
         deadLetterTargetArn: !GetAtt ItemIngestEventsDynamoDbDlq.Arn
@@ -1752,6 +1964,9 @@ Resources:
   ItemIngestEventsDynamoDbRole:
     Type: AWS::IAM::Role
     Properties:
+      Tags:
+        - Key: awsApplication
+          Value: blitzfilter-backend
       RoleName: !Sub "item-lambda-ingest-events-dynamodb-role-${StageName}"
       AssumeRolePolicyDocument:
         Version: "2012-10-17"
@@ -1785,6 +2000,9 @@ Resources:
   ItemIngestEventsDynamoDbLambda:
     Type: AWS::Lambda::Function
     Properties:
+      Tags:
+        - Key: awsApplication
+          Value: blitzfilter-backend
       FunctionName: !Sub "item-lambda-ingest-events-dynamodb-${StageName}"
       Runtime: provided.al2023
       Handler: lib.handler
@@ -1817,6 +2035,9 @@ Resources:
   ItemIngestEventsDynamoDbLambdaErrorAlarm:
     Type: AWS::CloudWatch::Alarm
     Properties:
+      Tags:
+        - Key: awsApplication
+          Value: blitzfilter-backend
       AlarmName: !Sub "${StageName}-ingest-events-lambda-errors"
       AlarmDescription: "Alarm when ingest-events Lambda has errors"
       MetricName: Errors
@@ -1835,6 +2056,9 @@ Resources:
   ItemIngestEventsDynamoDbDlqAlarm:
     Type: AWS::CloudWatch::Alarm
     Properties:
+      Tags:
+        - Key: awsApplication
+          Value: blitzfilter-backend
       AlarmName: !Sub "${StageName}-ingest-events-dlq-messages"
       AlarmDescription: "Alarm when messages appear in ingest-events DLQ"
       MetricName: ApproximateNumberOfMessagesVisible
@@ -1854,11 +2078,17 @@ Resources:
   ItemMaterializeDynamoDbNewDlq:
     Type: AWS::SQS::Queue
     Properties:
+      Tags:
+        - Key: awsApplication
+          Value: blitzfilter-backend
       QueueName: !Sub "item-lambda-materialize-dynamodb-new-dlq-${StageName}"
       MessageRetentionPeriod: 1209600
   ItemMaterializeDynamoDbNewQ:
     Type: AWS::SQS::Queue
     Properties:
+      Tags:
+        - Key: awsApplication
+          Value: blitzfilter-backend
       QueueName: !Sub "item-lambda-materialize-dynamodb-new-queue-${StageName}"
       RedrivePolicy:
         deadLetterTargetArn: !GetAtt ItemMaterializeDynamoDbNewDlq.Arn
@@ -1867,6 +2097,9 @@ Resources:
   ItemMaterializeDynamoDbNewRole:
     Type: AWS::IAM::Role
     Properties:
+      Tags:
+        - Key: awsApplication
+          Value: blitzfilter-backend
       RoleName: !Sub "item-lambda-materialize-dynamodb-new-role-${StageName}"
       AssumeRolePolicyDocument:
         Version: "2012-10-17"
@@ -1900,6 +2133,9 @@ Resources:
   ItemMaterializeDynamoDbNewLambda:
     Type: AWS::Lambda::Function
     Properties:
+      Tags:
+        - Key: awsApplication
+          Value: blitzfilter-backend
       FunctionName: !Sub "item-lambda-materialize-dynamodb-new-${StageName}"
       Runtime: provided.al2023
       Handler: lib.handler
@@ -1932,6 +2168,9 @@ Resources:
   ItemMaterializeDynamoDbNewLambdaErrorAlarm:
     Type: AWS::CloudWatch::Alarm
     Properties:
+      Tags:
+        - Key: awsApplication
+          Value: blitzfilter-backend
       AlarmName: !Sub "${StageName}-materialize-ddb-new-lambda-errors"
       AlarmDescription: "Alarm when materialize-ddb-new Lambda has errors"
       MetricName: Errors
@@ -1950,6 +2189,9 @@ Resources:
   ItemMaterializeDynamoDbNewDlqAlarm:
     Type: AWS::CloudWatch::Alarm
     Properties:
+      Tags:
+        - Key: awsApplication
+          Value: blitzfilter-backend
       AlarmName: !Sub "${StageName}-materialize-ddb-new-dlq-messages"
       AlarmDescription: "Alarm when messages appear in materialize-ddb-new DLQ"
       MetricName: ApproximateNumberOfMessagesVisible
@@ -1969,11 +2211,17 @@ Resources:
   ItemMaterializeDynamoDbUpdateDlq:
     Type: AWS::SQS::Queue
     Properties:
+      Tags:
+        - Key: awsApplication
+          Value: blitzfilter-backend
       QueueName: !Sub "item-lambda-materialize-dynamodb-update-dlq-${StageName}"
       MessageRetentionPeriod: 1209600
   ItemMaterializeDynamoDbUpdateQ:
     Type: AWS::SQS::Queue
     Properties:
+      Tags:
+        - Key: awsApplication
+          Value: blitzfilter-backend
       QueueName: !Sub "item-lambda-materialize-dynamodb-update-queue-${StageName}"
       RedrivePolicy:
         deadLetterTargetArn: !GetAtt ItemMaterializeDynamoDbUpdateDlq.Arn
@@ -1982,6 +2230,9 @@ Resources:
   ItemMaterializeDynamoDbUpdateRole:
     Type: AWS::IAM::Role
     Properties:
+      Tags:
+        - Key: awsApplication
+          Value: blitzfilter-backend
       RoleName: !Sub "item-lambda-materialize-dynamodb-update-role-${StageName}"
       AssumeRolePolicyDocument:
         Version: "2012-10-17"
@@ -2015,6 +2266,9 @@ Resources:
   ItemMaterializeDynamoDbUpdateLambda:
     Type: AWS::Lambda::Function
     Properties:
+      Tags:
+        - Key: awsApplication
+          Value: blitzfilter-backend
       FunctionName: !Sub "item-lambda-materialize-dynamodb-update-${StageName}"
       Runtime: provided.al2023
       Handler: lib.handler
@@ -2047,6 +2301,9 @@ Resources:
   ItemMaterializeDynamoDbUpdateLambdaErrorAlarm:
     Type: AWS::CloudWatch::Alarm
     Properties:
+      Tags:
+        - Key: awsApplication
+          Value: blitzfilter-backend
       AlarmName: !Sub "${StageName}-materialize-ddb-update-lambda-errors"
       AlarmDescription: "Alarm when materialize-ddb-update Lambda has errors"
       MetricName: Errors
@@ -2065,6 +2322,9 @@ Resources:
   ItemMaterializeDynamoDbUpdateDlqAlarm:
     Type: AWS::CloudWatch::Alarm
     Properties:
+      Tags:
+        - Key: awsApplication
+          Value: blitzfilter-backend
       AlarmName: !Sub "${StageName}-materialize-ddb-update-dlq-messages"
       AlarmDescription: "Alarm when messages appear in materialize-ddb-update DLQ"
       MetricName: ApproximateNumberOfMessagesVisible
@@ -2084,11 +2344,17 @@ Resources:
   ItemMaterializeOpenSearchNewDlq:
     Type: AWS::SQS::Queue
     Properties:
+      Tags:
+        - Key: awsApplication
+          Value: blitzfilter-backend
       QueueName: !Sub "item-lambda-materialize-opensearch-new-dlq-${StageName}"
       MessageRetentionPeriod: 1209600
   ItemMaterializeOpenSearchNewQ:
     Type: AWS::SQS::Queue
     Properties:
+      Tags:
+        - Key: awsApplication
+          Value: blitzfilter-backend
       QueueName: !Sub "item-lambda-materialize-opensearch-new-queue-${StageName}"
       RedrivePolicy:
         deadLetterTargetArn: !GetAtt ItemMaterializeOpenSearchNewDlq.Arn
@@ -2097,6 +2363,9 @@ Resources:
   ItemMaterializeOpenSearchNewRole:
     Type: AWS::IAM::Role
     Properties:
+      Tags:
+        - Key: awsApplication
+          Value: blitzfilter-backend
       RoleName: !Sub "item-lambda-materialize-opensearch-new-role-${StageName}"
       AssumeRolePolicyDocument:
         Version: "2012-10-17"
@@ -2130,6 +2399,9 @@ Resources:
   ItemMaterializeOpenSearchNewLambda:
     Type: AWS::Lambda::Function
     Properties:
+      Tags:
+        - Key: awsApplication
+          Value: blitzfilter-backend
       FunctionName: !Sub "item-lambda-materialize-opensearch-new-${StageName}"
       Runtime: provided.al2023
       Handler: lib.handler
@@ -2162,6 +2434,9 @@ Resources:
   ItemMaterializeOpenSearchNewLambdaErrorAlarm:
     Type: AWS::CloudWatch::Alarm
     Properties:
+      Tags:
+        - Key: awsApplication
+          Value: blitzfilter-backend
       AlarmName: !Sub "${StageName}-materialize-os-new-lambda-errors"
       AlarmDescription: "Alarm when materialize-opensearch-new Lambda has errors"
       MetricName: Errors
@@ -2180,6 +2455,9 @@ Resources:
   ItemMaterializeOpenSearchNewDlqAlarm:
     Type: AWS::CloudWatch::Alarm
     Properties:
+      Tags:
+        - Key: awsApplication
+          Value: blitzfilter-backend
       AlarmName: !Sub "${StageName}-materialize-os-new-dlq-messages"
       AlarmDescription: "Alarm when messages appear in materialize-opensearch-new DLQ"
       MetricName: ApproximateNumberOfMessagesVisible
@@ -2199,11 +2477,17 @@ Resources:
   ItemMaterializeOpenSearchUpdateDlq:
     Type: AWS::SQS::Queue
     Properties:
+      Tags:
+        - Key: awsApplication
+          Value: blitzfilter-backend
       QueueName: !Sub "item-lambda-materialize-opensearch-update-dlq-${StageName}"
       MessageRetentionPeriod: 1209600
   ItemMaterializeOpenSearchUpdateQ:
     Type: AWS::SQS::Queue
     Properties:
+      Tags:
+        - Key: awsApplication
+          Value: blitzfilter-backend
       QueueName: !Sub "item-lambda-materialize-opensearch-update-queue-${StageName}"
       RedrivePolicy:
         deadLetterTargetArn: !GetAtt ItemMaterializeOpenSearchUpdateDlq.Arn
@@ -2212,6 +2496,9 @@ Resources:
   ItemMaterializeOpenSearchUpdateRole:
     Type: AWS::IAM::Role
     Properties:
+      Tags:
+        - Key: awsApplication
+          Value: blitzfilter-backend
       RoleName: !Sub "item-lambda-materialize-opensearch-update-role-${StageName}"
       AssumeRolePolicyDocument:
         Version: "2012-10-17"
@@ -2245,6 +2532,9 @@ Resources:
   ItemMaterializeOpenSearchUpdateLambda:
     Type: AWS::Lambda::Function
     Properties:
+      Tags:
+        - Key: awsApplication
+          Value: blitzfilter-backend
       FunctionName: !Sub "item-lambda-materialize-opensearch-update-${StageName}"
       Runtime: provided.al2023
       Handler: lib.handler
@@ -2277,6 +2567,9 @@ Resources:
   ItemMaterializeOpenSearchUpdateLambdaErrorAlarm:
     Type: AWS::CloudWatch::Alarm
     Properties:
+      Tags:
+        - Key: awsApplication
+          Value: blitzfilter-backend
       AlarmName: !Sub "${StageName}-materialize-os-update-lambda-errors"
       AlarmDescription: "Alarm when materialize-opensearch-update Lambda has errors"
       MetricName: Errors
@@ -2295,6 +2588,9 @@ Resources:
   ItemMaterializeOpenSearchUpdateDlqAlarm:
     Type: AWS::CloudWatch::Alarm
     Properties:
+      Tags:
+        - Key: awsApplication
+          Value: blitzfilter-backend
       AlarmName: !Sub "${StageName}-materialize-os-update-dlq-messages"
       AlarmDescription: "Alarm when messages appear in materialize-opensearch-update DLQ"
       MetricName: ApproximateNumberOfMessagesVisible
@@ -2314,11 +2610,17 @@ Resources:
   ItemUpdateNotifyUserDlq:
     Type: AWS::SQS::Queue
     Properties:
+      Tags:
+        - Key: awsApplication
+          Value: blitzfilter-backend
       QueueName: !Sub "item-lambda-update-notify-user-dlq-${StageName}"
       MessageRetentionPeriod: 1209600
   ItemUpdateNotifyUserQ:
     Type: AWS::SQS::Queue
     Properties:
+      Tags:
+        - Key: awsApplication
+          Value: blitzfilter-backend
       QueueName: !Sub "item-lambda-update-notify-user-queue-${StageName}"
       RedrivePolicy:
         deadLetterTargetArn: !GetAtt ItemUpdateNotifyUserDlq.Arn
@@ -2327,6 +2629,9 @@ Resources:
   ItemUpdateNotifyUserRole:
     Type: AWS::IAM::Role
     Properties:
+      Tags:
+        - Key: awsApplication
+          Value: blitzfilter-backend
       RoleName: !Sub "item-lambda-update-notify-user-role-${StageName}"
       AssumeRolePolicyDocument:
         Version: "2012-10-17"
@@ -2371,6 +2676,9 @@ Resources:
   ItemUpdateNotifyUserLambda:
     Type: AWS::Lambda::Function
     Properties:
+      Tags:
+        - Key: awsApplication
+          Value: blitzfilter-backend
       FunctionName: !Sub "item-lambda-update-notify-user-${StageName}"
       Runtime: provided.al2023
       Handler: lib.handler
@@ -2405,6 +2713,9 @@ Resources:
   ItemUpdateNotifyUserLambdaErrorAlarm:
     Type: AWS::CloudWatch::Alarm
     Properties:
+      Tags:
+        - Key: awsApplication
+          Value: blitzfilter-backend
       AlarmName: !Sub "${StageName}-item-update-notify-user-lambda-errors"
       AlarmDescription: "Alarm when item-update-notify-user Lambda has errors"
       MetricName: Errors
@@ -2423,6 +2734,9 @@ Resources:
   ItemUpdateNotifyUserDlqAlarm:
     Type: AWS::CloudWatch::Alarm
     Properties:
+      Tags:
+        - Key: awsApplication
+          Value: blitzfilter-backend
       AlarmName: !Sub "${StageName}-item-update-notify-user-dlq-messages"
       AlarmDescription: "Alarm when messages appear in item-update-notify-user DLQ"
       MetricName: ApproximateNumberOfMessagesVisible
@@ -2442,6 +2756,9 @@ Resources:
   DynamoDbItemEventRecordCreatedMaterializeDynamoDbItemRecordEventRule:
     Type: AWS::Events::Rule
     Properties:
+      Tags:
+        - Key: awsApplication
+          Value: blitzfilter-backend
       Name: !Sub "ddb-item-mat-ddb-new-${StageName}"
       EventBusName: !Ref DynamoDbEventBus
       EventPattern:
@@ -2463,6 +2780,9 @@ Resources:
   DynamoDbItemEventRecordUpdatedMaterializeDynamoDbItemRecordEventRule:
     Type: AWS::Events::Rule
     Properties:
+      Tags:
+        - Key: awsApplication
+          Value: blitzfilter-backend
       Name: !Sub "ddb-item-mat-ddb-update-${StageName}"
       EventBusName: !Ref DynamoDbEventBus
       EventPattern:
@@ -2485,6 +2805,9 @@ Resources:
   DynamoDbItemEventRecordCreatedMaterializeOpenSearchItemDocumentEventRule:
     Type: AWS::Events::Rule
     Properties:
+      Tags:
+        - Key: awsApplication
+          Value: blitzfilter-backend
       Name: !Sub "ddb-item-mat-os-new-${StageName}"
       EventBusName: !Ref DynamoDbEventBus
       EventPattern:
@@ -2506,6 +2829,9 @@ Resources:
   DynamoDbItemEventRecordUpdatedMaterializeOpenSearchItemDocumentEventRule:
     Type: AWS::Events::Rule
     Properties:
+      Tags:
+        - Key: awsApplication
+          Value: blitzfilter-backend
       Name: !Sub "ddb-item-mat-os-update-${StageName}"
       EventBusName: !Ref DynamoDbEventBus
       EventPattern:
@@ -2528,6 +2854,9 @@ Resources:
   DynamoDbItemEventRecordUpdatedNotifyUserEventRule:
     Type: AWS::Events::Rule
     Properties:
+      Tags:
+        - Key: awsApplication
+          Value: blitzfilter-backend
       Name: !Sub "ddb-item-update-notify-user-${StageName}"
       EventBusName: !Ref DynamoDbEventBus
       EventPattern:
@@ -2550,6 +2879,9 @@ Resources:
   DynamoDbItemEventRecordCreatedNightlyEnrichmentEventRule:
     Type: AWS::Events::Rule
     Properties:
+      Tags:
+        - Key: awsApplication
+          Value: blitzfilter-backend
       Name: !Sub "ddb-item-nightly-enrichment-${StageName}"
       EventBusName: !Ref DynamoDbEventBus
       EventPattern:
@@ -2578,12 +2910,16 @@ Resources:
       Tags:
         - Key: Name
           Value: !Sub "nightly-enrichment-vpc-${StageName}"
+        - Key: awsApplication
+          Value: blitzfilter-backend
   NightlyEnrichmentInternetGateway:
     Type: AWS::EC2::InternetGateway
     Properties:
       Tags:
         - Key: Name
           Value: !Sub "nightly-enrichment-igw-${StageName}"
+        - Key: awsApplication
+          Value: blitzfilter-backend
   NightlyEnrichmentVpcGatewayAttachment:
     Type: AWS::EC2::VPCGatewayAttachment
     Properties:
@@ -2596,6 +2932,8 @@ Resources:
       Tags:
         - Key: Name
           Value: !Sub "nightly-enrichment-public-rt-${StageName}"
+        - Key: awsApplication
+          Value: blitzfilter-backend
   NightlyEnrichmentPublicRoute:
     Type: AWS::EC2::Route
     DependsOn: NightlyEnrichmentVpcGatewayAttachment
@@ -2613,6 +2951,8 @@ Resources:
       Tags:
         - Key: Name
           Value: !Sub "nightly-enrichment-subnet-a-${StageName}"
+        - Key: awsApplication
+          Value: blitzfilter-backend
   NightlyEnrichmentSubnetB:
     Type: AWS::EC2::Subnet
     Properties:
@@ -2623,6 +2963,8 @@ Resources:
       Tags:
         - Key: Name
           Value: !Sub "nightly-enrichment-subnet-b-${StageName}"
+        - Key: awsApplication
+          Value: blitzfilter-backend
   NightlyEnrichmentSubnetRouteAssocA:
     Type: AWS::EC2::SubnetRouteTableAssociation
     Properties:
@@ -2644,15 +2986,23 @@ Resources:
       Tags:
         - Key: Name
           Value: !Sub "nightly-enrichment-sg-${StageName}"
+        - Key: awsApplication
+          Value: blitzfilter-backend
 
   NightlyEnrichmentDlq:
     Type: AWS::SQS::Queue
     Properties:
+      Tags:
+        - Key: awsApplication
+          Value: blitzfilter-backend
       QueueName: !Sub "nightly-enrichment-dlq-${StageName}"
       MessageRetentionPeriod: 1209600
   NightlyEnrichmentQ:
     Type: AWS::SQS::Queue
     Properties:
+      Tags:
+        - Key: awsApplication
+          Value: blitzfilter-backend
       QueueName: !Sub "nightly-enrichment-queue-${StageName}"
       RedrivePolicy:
         deadLetterTargetArn: !GetAtt NightlyEnrichmentDlq.Arn
@@ -2661,6 +3011,9 @@ Resources:
   NightlyEnrichmentRole:
     Type: AWS::IAM::Role
     Properties:
+      Tags:
+        - Key: awsApplication
+          Value: blitzfilter-backend
       RoleName: !Sub "nightly-enrichment-role-${StageName}"
       AssumeRolePolicyDocument:
         Version: "2012-10-17"
@@ -2762,6 +3115,8 @@ Resources:
                 Value: !Sub "nightly-enrichment-${StageName}"
               - Key: Fleet
                 Value: nightly-enrichment
+              - Key: awsApplication
+                Value: blitzfilter-backend
         UserData:
           Fn::Base64: !Sub |
             #!/bin/bash
@@ -2777,6 +3132,11 @@ Resources:
             export BAAI_BGE_M3_MODEL_DEVICE="cuda"
             aws s3 cp "s3://${ResourceBucket}/${StageName}/${CommitSHA}/src/item/src/nightly-enrichment/user-data.sh" /tmp/user_data.sh --region eu-central-1
             source /tmp/user_data.sh
+      TagSpecifications:
+        - ResourceType: launch-template
+          Tags:
+            - Key: awsApplication
+              Value: blitzfilter-backend
   NightlyEnrichmentASG:
     Type: AWS::AutoScaling::AutoScalingGroup
     Properties:
@@ -2803,11 +3163,17 @@ Resources:
         - Key: Name
           Value: !Sub "nightly-enrichment-${StageName}"
           PropagateAtLaunch: true
+        - Key: awsApplication
+          Value: blitzfilter-backend
+          PropagateAtLaunch: true
       HealthCheckType: EC2
       HealthCheckGracePeriod: 120
   NightlyEnrichmentDlqAlarm:
     Type: AWS::CloudWatch::Alarm
     Properties:
+      Tags:
+        - Key: awsApplication
+          Value: blitzfilter-backend
       AlarmName: !Sub "${StageName}-nightly-enrichment-dlq-messages"
       AlarmDescription: "Alarm when messages appear in nightly-enrichment DLQ"
       MetricName: ApproximateNumberOfMessagesVisible
@@ -2826,6 +3192,9 @@ Resources:
   NightlyEnrichmentASGEC2InstanceStatusCheckFailed:
     Type: AWS::CloudWatch::Alarm
     Properties:
+      Tags:
+        - Key: awsApplication
+          Value: blitzfilter-backend
       AlarmDescription: "One or more instance status checks are failing."
       Namespace: AWS/EC2
       MetricName: StatusCheckFailed_Instance
@@ -2843,6 +3212,9 @@ Resources:
   NightlyEnrichmentASGEC2SystemStatusCheckFailed:
     Type: AWS::CloudWatch::Alarm
     Properties:
+      Tags:
+        - Key: awsApplication
+          Value: blitzfilter-backend
       AlarmDescription: "System status check failed (hardware/hypervisor)."
       Namespace: AWS/EC2
       MetricName: StatusCheckFailed_System
@@ -2861,6 +3233,9 @@ Resources:
   NightlyEnrichmentScaleDownRole:
     Type: AWS::IAM::Role
     Properties:
+      Tags:
+        - Key: awsApplication
+          Value: blitzfilter-backend
       RoleName: !Sub "nightly-enrichment-asg-scale-down-role-${StageName}"
       AssumeRolePolicyDocument:
         Version: "2012-10-17"
@@ -2892,6 +3267,9 @@ Resources:
   NightlyEnrichmentScaleDownLambda:
     Type: AWS::Lambda::Function
     Properties:
+      Tags:
+        - Key: awsApplication
+          Value: blitzfilter-backend
       FunctionName: !Sub "nightly-enrichment-asg-scale-down-${StageName}"
       Runtime: provided.al2023
       Handler: lib.handler
@@ -2910,6 +3288,9 @@ Resources:
   NightlyEnrichmentScaleDownStartSchedule:
     Type: AWS::Events::Rule
     Properties:
+      Tags:
+        - Key: awsApplication
+          Value: blitzfilter-backend
       ScheduleExpression: "cron(0 3 * * ? *)" # every day at 03:00 UTC
       Targets:
         - Arn: !GetAtt NightlyEnrichmentScaleDownLambda.Arn
@@ -2929,6 +3310,9 @@ Resources:
   NightlyEnrichmentScaleDownLambdaErrorAlarm:
     Type: AWS::CloudWatch::Alarm
     Properties:
+      Tags:
+        - Key: awsApplication
+          Value: blitzfilter-backend
       AlarmName: !Sub "${StageName}-nightly-enrichment-asg-scale-down-lambda-errors"
       AlarmDescription: "Alarm when nightly-enrichment-asg-scale-down Lambda has errors"
       MetricName: Errors
@@ -2948,6 +3332,9 @@ Resources:
   NightlyEnrichmentScaleUpRole:
     Type: AWS::IAM::Role
     Properties:
+      Tags:
+        - Key: awsApplication
+          Value: blitzfilter-backend
       RoleName: !Sub "nightly-enrichment-asg-scale-up-role-${StageName}"
       AssumeRolePolicyDocument:
         Version: "2012-10-17"
@@ -2979,6 +3366,9 @@ Resources:
   NightlyEnrichmentScaleUpLambda:
     Type: AWS::Lambda::Function
     Properties:
+      Tags:
+        - Key: awsApplication
+          Value: blitzfilter-backend
       FunctionName: !Sub "nightly-enrichment-asg-scale-up-${StageName}"
       Runtime: provided.al2023
       Handler: lib.handler
@@ -2997,6 +3387,9 @@ Resources:
   NightlyEnrichmentScaleUpStartSchedule:
     Type: AWS::Events::Rule
     Properties:
+      Tags:
+        - Key: awsApplication
+          Value: blitzfilter-backend
       ScheduleExpression: "cron(0 1 * * ? *)" # every day at 01:00 UTC
       Targets:
         - Arn: !GetAtt NightlyEnrichmentScaleUpLambda.Arn
@@ -3016,6 +3409,9 @@ Resources:
   NightlyEnrichmentScaleUpLambdaErrorAlarm:
     Type: AWS::CloudWatch::Alarm
     Properties:
+      Tags:
+        - Key: awsApplication
+          Value: blitzfilter-backend
       AlarmName: !Sub "${StageName}-nightly-enrichment-asg-scale-up-lambda-errors"
       AlarmDescription: "Alarm when nightly-enrichment-asg-scale-up Lambda has errors"
       MetricName: Errors
@@ -3093,3 +3489,4 @@ Outputs:
   AlarmNotificationTopicArn:
     Value: !Ref AlarmNotificationTopic
     Description: "SNS Topic ARN for CloudWatch alarm notifications"
+
