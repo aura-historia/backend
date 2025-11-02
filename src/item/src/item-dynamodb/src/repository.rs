@@ -38,7 +38,7 @@ pub trait ItemDynamoDbRepository {
         &self,
         shop_id: &ShopId,
         shops_item_id: &ShopsItemId,
-        event_records: ItemRecordUpdate,
+        update: ItemRecordUpdate,
     ) -> Result<UpdateItemOutput, SdkError<UpdateItemError, HttpResponse>>;
 
     async fn get_item_record(

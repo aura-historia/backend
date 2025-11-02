@@ -15,11 +15,17 @@ Parameters:
   ArtifactBucket:
     Type: String
     Description: "S3 bucket containing Lambda deployment zips"
+  ResourceBucket:
+    Type: String
+    Description: "S3 bucket containing resources"
   MailTemplateBucket:
     Type: String
     Description: "S3 bucket containing mail-templates"
   CommitSHA:
     Type: String
+  Ec2KeyPairName:
+    Type: AWS::EC2::KeyPair::KeyName
+    Description: For EC2 SSH-Access
 
 Mappings:
   SendMailQueueMap:
@@ -162,6 +168,7 @@ Resources:
       RefreshTokenValidity: 30 # days
       ReadAttributes:
         - email
+        - email_verified
   BlitzfilterUserPoolClientAdmin:
     Type: AWS::Cognito::UserPoolClient
     Properties:
@@ -251,7 +258,7 @@ Resources:
     Type: AWS::OpenSearchService::Domain
     Properties:
       DomainName: !Sub "application-${StageName}"
-      EngineVersion: "OpenSearch_2.19"
+      EngineVersion: "OpenSearch_3.1"
       ClusterConfig:
         InstanceType: t3.small.search
         InstanceCount: 1
@@ -439,6 +446,7 @@ Resources:
         - !Ref ItemMaterializeOpenSearchNewQ
         - !Ref ItemMaterializeOpenSearchUpdateQ
         - !Ref ItemUpdateNotifyUserQ
+        - !Ref NightlyEnrichmentQ
       PolicyDocument:
         Version: "2012-10-17"
         Statement:
@@ -452,6 +460,7 @@ Resources:
               - !GetAtt ItemMaterializeOpenSearchNewQ.Arn
               - !GetAtt ItemMaterializeOpenSearchUpdateQ.Arn
               - !GetAtt ItemUpdateNotifyUserQ.Arn
+              - !GetAtt NightlyEnrichmentQ.Arn
 
   BlitzfilterApi:
     Type: AWS::ApiGatewayV2::Api
@@ -2538,6 +2547,490 @@ Resources:
       Targets:
         - Id: ItemUpdateNotifyUserQ
           Arn: !GetAtt ItemUpdateNotifyUserQ.Arn
+  DynamoDbItemEventRecordCreatedNightlyEnrichmentEventRule:
+    Type: AWS::Events::Rule
+    Properties:
+      Name: !Sub "ddb-item-nightly-enrichment-${StageName}"
+      EventBusName: !Ref DynamoDbEventBus
+      EventPattern:
+        source:
+          - !Ref TableOne
+        detail-type:
+          - "DynamoDBStreamRecord"
+        detail:
+          eventName:
+            - "INSERT"
+          dynamodb:
+            NewImage:
+              event_type:
+                S:
+                  - "CREATED"
+      Targets:
+        - Id: NightlyEnrichmentQ
+          Arn: !GetAtt NightlyEnrichmentQ.Arn
+
+  NightlyEnrichmentVpc:
+    Type: AWS::EC2::VPC
+    Properties:
+      CidrBlock: 10.0.0.0/16
+      EnableDnsSupport: true
+      EnableDnsHostnames: true
+      Tags:
+        - Key: Name
+          Value: !Sub "nightly-enrichment-vpc-${StageName}"
+  NightlyEnrichmentInternetGateway:
+    Type: AWS::EC2::InternetGateway
+    Properties:
+      Tags:
+        - Key: Name
+          Value: !Sub "nightly-enrichment-igw-${StageName}"
+  NightlyEnrichmentVpcGatewayAttachment:
+    Type: AWS::EC2::VPCGatewayAttachment
+    Properties:
+      InternetGatewayId: !Ref NightlyEnrichmentInternetGateway
+      VpcId: !Ref NightlyEnrichmentVpc
+  NightlyEnrichmentPublicRouteTable:
+    Type: AWS::EC2::RouteTable
+    Properties:
+      VpcId: !Ref NightlyEnrichmentVpc
+      Tags:
+        - Key: Name
+          Value: !Sub "nightly-enrichment-public-rt-${StageName}"
+  NightlyEnrichmentPublicRoute:
+    Type: AWS::EC2::Route
+    DependsOn: NightlyEnrichmentVpcGatewayAttachment
+    Properties:
+      RouteTableId: !Ref NightlyEnrichmentPublicRouteTable
+      DestinationCidrBlock: 0.0.0.0/0
+      GatewayId: !Ref NightlyEnrichmentInternetGateway
+  NightlyEnrichmentSubnetA:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref NightlyEnrichmentVpc
+      CidrBlock: 10.0.1.0/24
+      MapPublicIpOnLaunch: true
+      AvailabilityZone: !Select [0, !GetAZs ""]
+      Tags:
+        - Key: Name
+          Value: !Sub "nightly-enrichment-subnet-a-${StageName}"
+  NightlyEnrichmentSubnetB:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref NightlyEnrichmentVpc
+      CidrBlock: 10.0.2.0/24
+      MapPublicIpOnLaunch: true
+      AvailabilityZone: !Select [1, !GetAZs ""]
+      Tags:
+        - Key: Name
+          Value: !Sub "nightly-enrichment-subnet-b-${StageName}"
+  NightlyEnrichmentSubnetRouteAssocA:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      SubnetId: !Ref NightlyEnrichmentSubnetA
+      RouteTableId: !Ref NightlyEnrichmentPublicRouteTable
+  NightlyEnrichmentSubnetRouteAssocB:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      SubnetId: !Ref NightlyEnrichmentSubnetB
+      RouteTableId: !Ref NightlyEnrichmentPublicRouteTable
+  NightlyEnrichmentSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: Allow SSH and internal comms
+      VpcId: !Ref NightlyEnrichmentVpc
+      SecurityGroupEgress:
+        - IpProtocol: -1
+          CidrIp: 0.0.0.0/0
+      Tags:
+        - Key: Name
+          Value: !Sub "nightly-enrichment-sg-${StageName}"
+
+  NightlyEnrichmentDlq:
+    Type: AWS::SQS::Queue
+    Properties:
+      QueueName: !Sub "nightly-enrichment-dlq-${StageName}"
+      MessageRetentionPeriod: 1209600
+  NightlyEnrichmentQ:
+    Type: AWS::SQS::Queue
+    Properties:
+      QueueName: !Sub "nightly-enrichment-queue-${StageName}"
+      RedrivePolicy:
+        deadLetterTargetArn: !GetAtt NightlyEnrichmentDlq.Arn
+        maxReceiveCount: 3
+      VisibilityTimeout: 360
+  NightlyEnrichmentRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Sub "nightly-enrichment-role-${StageName}"
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: ec2.amazonaws.com
+            Action: sts:AssumeRole
+          - Effect: Allow
+            Principal:
+              Service: spot.amazonaws.com
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/CloudWatchAgentServerPolicy
+        - arn:aws:iam::aws:policy/AmazonS3ReadOnlyAccess
+        - arn:aws:iam::aws:policy/AmazonSSMManagedInstanceCore
+      Policies:
+        - PolicyName: AllowTerminateInASG
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: Allow
+                Action: autoscaling:TerminateInstanceInAutoScalingGroup
+                Resource: "*"
+        - PolicyName: DynamoDBAccess
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: Allow
+                Action:
+                  - dynamodb:GetItem
+                  - dynamodb:Query
+                  - dynamodb:PutItem
+                  - dynamodb:DeleteItem
+                  - dynamodb:BatchGetItem
+                  - dynamodb:BatchWriteItem
+                  - dynamodb:TransactGetItems
+                  - dynamodb:TransactWriteItems
+                Resource:
+                  - !GetAtt TableOne.Arn
+                  - !Sub "${TableOne.Arn}/index/*"
+        - PolicyName: OpenSearchAccess
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: Allow
+                Action:
+                  - es:*
+                Resource: !Sub "arn:aws:es:${AWS::Region}:${AWS::AccountId}:domain/application-${StageName}/*"
+        - PolicyName: SQSPollerAccess
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: Allow
+                Action:
+                  - sqs:ReceiveMessage
+                  - sqs:DeleteMessage
+                  - sqs:DeleteMessageBatch
+                  - sqs:GetQueueAttributes
+                  - sqs:GetQueueUrl
+                Resource: !GetAtt NightlyEnrichmentQ.Arn
+        - PolicyName: CloudWatchLogsCreate
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: Allow
+                Action:
+                  - logs:CreateLogGroup
+                  - logs:CreateLogStream
+                  - logs:PutLogEvents
+                Resource: "*"
+  NightlyEnrichmentInstanceProfile:
+    Type: AWS::IAM::InstanceProfile
+    Properties:
+      InstanceProfileName: !Sub "nightly-enrichment-profile-${StageName}"
+      Roles:
+        - !Ref NightlyEnrichmentRole
+  NightlyEnrichmentLaunchTemplate:
+    Type: AWS::EC2::LaunchTemplate
+    Properties:
+      LaunchTemplateName: !Sub "nightly-enrichment-template-${StageName}"
+      LaunchTemplateData:
+        KeyName: !Ref Ec2KeyPairName
+        IamInstanceProfile:
+          Name: !Ref NightlyEnrichmentInstanceProfile
+        InstanceType: g6.xlarge # Placeholder - ASG overrides this
+        ImageId: ami-047a98bf51dec0963 # custom eu-central-1 AMI with preinstalled deps based on ami-032fa3abdbb7e3a12 (Deep Learning OSS Nvidia Driver AMI GPU PyTorch 2.8 (Ubuntu 24.04))
+        SecurityGroupIds: [!Ref NightlyEnrichmentSecurityGroup]
+        BlockDeviceMappings:
+          - DeviceName: /dev/sda1
+            Ebs:
+              VolumeSize: 100
+              VolumeType: gp3
+              DeleteOnTermination: true
+        TagSpecifications:
+          - ResourceType: instance
+            Tags:
+              - Key: Name
+                Value: !Sub "nightly-enrichment-${StageName}"
+              - Key: Fleet
+                Value: nightly-enrichment
+        UserData:
+          Fn::Base64: !Sub |
+            #!/bin/bash
+            set -euxo pipefail
+            sudo -i
+            export STAGE_NAME="${StageName}"
+            export COMMIT_SHA="${CommitSHA}"
+            export RESOURCE_BUCKET="${ResourceBucket}"
+            export ARTIFACT_BUCKET="${ArtifactBucket}"
+            export ENRICHMENT_QUEUE_URL="${NightlyEnrichmentQ}"
+            export DYNAMODB_TABLE_NAME="${TableOne}"
+            export OPENSEARCH_DOMAIN_ENDPOINT_URL="https://${BlitzfilterOpenSearchDomain.DomainEndpoint}"
+            export BAAI_BGE_M3_MODEL_DEVICE="cuda"
+            aws s3 cp "s3://${ResourceBucket}/${StageName}/${CommitSHA}/src/item/src/nightly-enrichment/user-data.sh" /tmp/user_data.sh --region eu-central-1
+            source /tmp/user_data.sh
+  NightlyEnrichmentASG:
+    Type: AWS::AutoScaling::AutoScalingGroup
+    Properties:
+      VPCZoneIdentifier:
+        - !Ref NightlyEnrichmentSubnetA
+        - !Ref NightlyEnrichmentSubnetB
+      MinSize: 0
+      MaxSize: 3
+      DesiredCapacity: 0 # Default zero, scale via EventBridge
+      MixedInstancesPolicy:
+        LaunchTemplate:
+          LaunchTemplateSpecification:
+            LaunchTemplateId: !Ref NightlyEnrichmentLaunchTemplate
+            Version: !GetAtt NightlyEnrichmentLaunchTemplate.LatestVersionNumber
+          Overrides:
+            - InstanceType: g6.xlarge
+            - InstanceType: g6.2xlarge
+            - InstanceType: g5.xlarge
+            - InstanceType: g5.2xlarge
+        InstancesDistribution:
+          OnDemandPercentageAboveBaseCapacity: 0
+          SpotAllocationStrategy: price-capacity-optimized
+      Tags:
+        - Key: Name
+          Value: !Sub "nightly-enrichment-${StageName}"
+          PropagateAtLaunch: true
+      HealthCheckType: EC2
+      HealthCheckGracePeriod: 120
+  NightlyEnrichmentDlqAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      AlarmName: !Sub "${StageName}-nightly-enrichment-dlq-messages"
+      AlarmDescription: "Alarm when messages appear in nightly-enrichment DLQ"
+      MetricName: ApproximateNumberOfMessagesVisible
+      Namespace: AWS/SQS
+      Statistic: Sum
+      Period: 300
+      EvaluationPeriods: 1
+      Threshold: 1
+      ComparisonOperator: GreaterThanOrEqualToThreshold
+      Dimensions:
+        - Name: QueueName
+          Value: !GetAtt NightlyEnrichmentDlq.QueueName
+      TreatMissingData: notBreaching
+      AlarmActions:
+        - !Ref AlarmNotificationTopic
+  NightlyEnrichmentASGEC2InstanceStatusCheckFailed:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      AlarmDescription: "One or more instance status checks are failing."
+      Namespace: AWS/EC2
+      MetricName: StatusCheckFailed_Instance
+      Dimensions:
+        - Name: AutoScalingGroupName
+          Value: !Ref NightlyEnrichmentASG
+      Statistic: Maximum
+      Period: 60
+      EvaluationPeriods: 2
+      Threshold: 1
+      ComparisonOperator: GreaterThanOrEqualToThreshold
+      TreatMissingData: notBreaching
+      AlarmActions:
+        - !Ref AlarmNotificationTopic
+  NightlyEnrichmentASGEC2SystemStatusCheckFailed:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      AlarmDescription: "System status check failed (hardware/hypervisor)."
+      Namespace: AWS/EC2
+      MetricName: StatusCheckFailed_System
+      Dimensions:
+        - Name: AutoScalingGroupName
+          Value: !Ref NightlyEnrichmentASG
+      Statistic: Maximum
+      Period: 60
+      EvaluationPeriods: 2
+      Threshold: 1
+      ComparisonOperator: GreaterThanOrEqualToThreshold
+      TreatMissingData: notBreaching
+      AlarmActions:
+        - !Ref AlarmNotificationTopic
+
+  NightlyEnrichmentScaleDownRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Sub "nightly-enrichment-asg-scale-down-role-${StageName}"
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: lambda.amazonaws.com
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole
+      Policies:
+        - PolicyName: ScaleDownASG
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: Allow
+                Action:
+                  - autoscaling:UpdateAutoScalingGroup
+                  - autoscaling:DescribeAutoScalingGroups
+                Resource: !Sub "arn:aws:autoscaling:${AWS::Region}:${AWS::AccountId}:autoScalingGroup:*:autoScalingGroupName/${NightlyEnrichmentASG}"
+        - PolicyName: OpenSearchAccess
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: Allow
+                Action:
+                  - es:*
+                Resource: !Sub "arn:aws:es:${AWS::Region}:${AWS::AccountId}:domain/application-${StageName}/*"
+  NightlyEnrichmentScaleDownLambda:
+    Type: AWS::Lambda::Function
+    Properties:
+      FunctionName: !Sub "nightly-enrichment-asg-scale-down-${StageName}"
+      Runtime: provided.al2023
+      Handler: lib.handler
+      Role: !GetAtt NightlyEnrichmentScaleDownRole.Arn
+      Code:
+        S3Bucket: !Ref ArtifactBucket
+        S3Key: !Sub "nightly-enrichment-asg-scale-down-${StageName}-${CommitSHA}.zip"
+      MemorySize: 128
+      Timeout: 60
+      EphemeralStorage:
+        Size: 512
+      Environment:
+        Variables:
+          NIGHTLY_ENRICHMENT_ASG_NAME: !Ref NightlyEnrichmentASG
+          OPENSEARCH_DOMAIN_ENDPOINT_URL: !Sub "https://${BlitzfilterOpenSearchDomain.DomainEndpoint}"
+  NightlyEnrichmentScaleDownStartSchedule:
+    Type: AWS::Events::Rule
+    Properties:
+      ScheduleExpression: "cron(0 3 * * ? *)" # every day at 03:00 UTC
+      Targets:
+        - Arn: !GetAtt NightlyEnrichmentScaleDownLambda.Arn
+          Id: "NightlyEnrichmentScaleDownStartSchedule"
+          RetryPolicy:
+            MaximumRetryAttempts: 5
+            MaximumEventAgeInSeconds: 3600
+          DeadLetterConfig:
+            Arn: !GetAtt NightlyEnrichmentDlq.Arn
+  NightlyEnrichmentScaleDownStartSchedulePermission:
+    Type: AWS::Lambda::Permission
+    Properties:
+      FunctionName: !Ref NightlyEnrichmentScaleDownLambda
+      Action: "lambda:InvokeFunction"
+      Principal: "events.amazonaws.com"
+      SourceArn: !GetAtt NightlyEnrichmentScaleDownStartSchedule.Arn
+  NightlyEnrichmentScaleDownLambdaErrorAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      AlarmName: !Sub "${StageName}-nightly-enrichment-asg-scale-down-lambda-errors"
+      AlarmDescription: "Alarm when nightly-enrichment-asg-scale-down Lambda has errors"
+      MetricName: Errors
+      Namespace: AWS/Lambda
+      Statistic: Sum
+      Period: 300
+      EvaluationPeriods: 1
+      Threshold: 1
+      ComparisonOperator: GreaterThanOrEqualToThreshold
+      Dimensions:
+        - Name: FunctionName
+          Value: !Ref NightlyEnrichmentScaleDownLambda
+      TreatMissingData: notBreaching
+      AlarmActions:
+        - !Ref AlarmNotificationTopic
+
+  NightlyEnrichmentScaleUpRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Sub "nightly-enrichment-asg-scale-up-role-${StageName}"
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: lambda.amazonaws.com
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole
+      Policies:
+        - PolicyName: ScaleUpASG
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: Allow
+                Action:
+                  - autoscaling:UpdateAutoScalingGroup
+                  - autoscaling:DescribeAutoScalingGroups
+                Resource: !Sub "arn:aws:autoscaling:${AWS::Region}:${AWS::AccountId}:autoScalingGroup:*:autoScalingGroupName/${NightlyEnrichmentASG}"
+        - PolicyName: OpenSearchAccess
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: Allow
+                Action:
+                  - es:*
+                Resource: !Sub "arn:aws:es:${AWS::Region}:${AWS::AccountId}:domain/application-${StageName}/*"
+  NightlyEnrichmentScaleUpLambda:
+    Type: AWS::Lambda::Function
+    Properties:
+      FunctionName: !Sub "nightly-enrichment-asg-scale-up-${StageName}"
+      Runtime: provided.al2023
+      Handler: lib.handler
+      Role: !GetAtt NightlyEnrichmentScaleUpRole.Arn
+      Code:
+        S3Bucket: !Ref ArtifactBucket
+        S3Key: !Sub "nightly-enrichment-asg-scale-up-${StageName}-${CommitSHA}.zip"
+      MemorySize: 128
+      Timeout: 60
+      EphemeralStorage:
+        Size: 512
+      Environment:
+        Variables:
+          NIGHTLY_ENRICHMENT_ASG_NAME: !Ref NightlyEnrichmentASG
+          OPENSEARCH_DOMAIN_ENDPOINT_URL: !Sub "https://${BlitzfilterOpenSearchDomain.DomainEndpoint}"
+  NightlyEnrichmentScaleUpStartSchedule:
+    Type: AWS::Events::Rule
+    Properties:
+      ScheduleExpression: "cron(0 1 * * ? *)" # every day at 01:00 UTC
+      Targets:
+        - Arn: !GetAtt NightlyEnrichmentScaleUpLambda.Arn
+          Id: "NightlyEnrichmentScaleUpStartSchedule"
+          RetryPolicy:
+            MaximumRetryAttempts: 5
+            MaximumEventAgeInSeconds: 3600
+          DeadLetterConfig:
+            Arn: !GetAtt NightlyEnrichmentDlq.Arn
+  NightlyEnrichmentScaleUpStartSchedulePermission:
+    Type: AWS::Lambda::Permission
+    Properties:
+      FunctionName: !Ref NightlyEnrichmentScaleUpLambda
+      Action: "lambda:InvokeFunction"
+      Principal: "events.amazonaws.com"
+      SourceArn: !GetAtt NightlyEnrichmentScaleUpStartSchedule.Arn
+  NightlyEnrichmentScaleUpLambdaErrorAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      AlarmName: !Sub "${StageName}-nightly-enrichment-asg-scale-up-lambda-errors"
+      AlarmDescription: "Alarm when nightly-enrichment-asg-scale-up Lambda has errors"
+      MetricName: Errors
+      Namespace: AWS/Lambda
+      Statistic: Sum
+      Period: 300
+      EvaluationPeriods: 1
+      Threshold: 1
+      ComparisonOperator: GreaterThanOrEqualToThreshold
+      Dimensions:
+        - Name: FunctionName
+          Value: !Ref NightlyEnrichmentScaleUpLambda
+      TreatMissingData: notBreaching
+      AlarmActions:
+        - !Ref AlarmNotificationTopic
 
 Outputs:
   CognitoHostedUIDomain:
@@ -2591,6 +3084,11 @@ Outputs:
     Value: !Ref ItemUpdateNotifyUserQ
   ItemUpdateNotifyUserDeadLetterQueueUrl:
     Value: !Ref ItemUpdateNotifyUserDlq
+
+  NightlyEnrichmentQueueUrl:
+    Value: !Ref NightlyEnrichmentQ
+  NightlyEnrichmentDeadLetterQueueUrl:
+    Value: !Ref NightlyEnrichmentDlq
 
   AlarmNotificationTopicArn:
     Value: !Ref AlarmNotificationTopic

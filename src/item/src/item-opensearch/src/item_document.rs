@@ -62,6 +62,10 @@ pub struct ItemDocument {
     #[serde(skip_serializing_if = "Vec::is_empty", default)]
     pub images: Vec<Url>,
 
+    // title [SEP] description, dim=1024 via baai/bge-m3
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub embedding: Option<Vec<f32>>,
+
     #[serde(with = "time::serde::rfc3339")]
     pub created: OffsetDateTime,
 
@@ -117,6 +121,7 @@ impl TryFrom<ItemEventRecord> for ItemDocument {
                 .url
                 .ok_or_else(|| MissingPersistenceField::new(field!(url@ItemEventRecord)))?,
             images: event_record.images.unwrap_or_default(),
+            embedding: None,
             created: event_record.timestamp,
             updated: event_record.timestamp,
         };
@@ -145,6 +150,7 @@ impl From<ItemRecord> for ItemDocument {
             state: record.state.into(),
             url: record.url,
             images: record.images,
+            embedding: None,
             created: record.created,
             updated: record.updated,
         }
@@ -202,6 +208,7 @@ mod faker {
                     ))
                     .unwrap(),
                 ],
+                embedding: None,
                 created: OffsetDateTime::now_utc(),
                 updated: OffsetDateTime::now_utc(),
             }

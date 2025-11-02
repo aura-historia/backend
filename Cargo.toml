@@ -22,15 +22,19 @@ members = [
     "src/item",
     "src/test-api",
     "src/shop",
-    "src/user", "src/mail",
+    "src/user",
+    "src/mail",
 ]
 
 [workspace.dependencies]
 accept-language = "3.1.0"
+nightly-enrichment-asg-scale-down = { path = "src/item/src/nightly-enrichment/src/nightly-enrichment-asg-scale-down" }
+nightly-enrichment-asg-scale-up = { path = "src/item/src/nightly-enrichment/src/nightly-enrichment-asg-scale-up" }
 async-stream = "0.3.6"
 async-trait = "0.1.89"
 aws-config = "1.8.8"
 aws-sdk-account = "1.89.0"
+aws-sdk-autoscaling = "1.98.0"
 aws-sdk-dynamodb = "1.95.0"
 aws-sdk-lambda = "1.100.0"
 aws-sdk-opensearch = "1.100.0"
@@ -86,6 +90,7 @@ item-opensearch = { path = "src/item/src/item-opensearch" }
 item-lambda = { path = "src/item/src/item-lambda" }
 item-service = { path = "src/item/src/item-service" }
 item-watchlist = { path = "src/item/src/item-watchlist" }
+nightly-enrichment = { path = "src/item/src/nightly-enrichment" }
 item-lambda-common = { path = "src/item/src/item-lambda/src/item-lambda-common" }
 item-lambda-materialize-dynamodb-new = { path = "src/item/src/item-lambda/src/item-lambda-materialize-dynamodb-new" }
 item-lambda-materialize-dynamodb-update = { path = "src/item/src/item-lambda/src/item-lambda-materialize-dynamodb-update" }
@@ -136,7 +141,6 @@ futures-util = "0.3.31"
 proc-macro2 = "1.0.101"
 smoking-tests-macros = { path = "src/aws-tests/src/smoking-tests/src/smoking-tests-macros" }
 staging-tests-macros = { path = "src/aws-tests/src/staging-tests/src/staging-tests-macros" }
-test_lambda = { path = "src/test-api/src/test_lambda" }
 user = { path = "src/user" }
 user-core = { path = "src/user/src/user-core" }
 user-dynamodb = { path = "src/user/src/user-dynamodb" }

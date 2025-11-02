@@ -104,7 +104,10 @@ mod tests {
             payload: ApiGatewayV2httpRequestProxy::builder()
                 .http_method(http::Method::PATCH)
                 .path_parameter("searchFilterId", SearchFilterId::new())
-                .body_serde(&Faker.fake::<PatchUserSearchFilterData>())
+                .body_serde(&PatchUserSearchFilterData {
+                    search_filter_name: Some("foo".into()),
+                    search_filter: None,
+                })
                 .jwt_claim("sub", UserId::new())
                 .build(),
             context: Default::default(),
@@ -232,16 +235,22 @@ mod tests {
         };
 
         let mut service = MockSearchFilterService::default();
-        service
-            .expect_update_search_filter()
-            .return_once(|_, _, _| {
-                Box::pin(async {
-                    Err(SearchFilterError::SearchFilterNotFound(
-                        Faker.fake(),
-                        Faker.fake(),
-                    ))
-                })
-            });
+        service.expect_find_search_filter().returning(|_, _| {
+            Box::pin(async {
+                Err(SearchFilterError::SearchFilterNotFound(
+                    Faker.fake(),
+                    Faker.fake(),
+                ))
+            })
+        });
+        service.expect_update_search_filter().returning(|_, _, _| {
+            Box::pin(async {
+                Err(SearchFilterError::SearchFilterNotFound(
+                    Faker.fake(),
+                    Faker.fake(),
+                ))
+            })
+        });
 
         let response = handler(lambda_event, &service).await.unwrap();
         let json = extract_apigw_response_json_body!(response);

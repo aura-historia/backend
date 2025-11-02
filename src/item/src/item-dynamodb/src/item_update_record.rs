@@ -41,6 +41,23 @@ pub struct ItemRecordUpdate {
 
 impl DynamoDbUpdate for ItemRecordUpdate {}
 
+impl Default for ItemRecordUpdate {
+    fn default() -> Self {
+        Self {
+            event_id: EventId::new(),
+            price_native: None,
+            price_eur: None,
+            price_usd: None,
+            price_gbp: None,
+            price_aud: None,
+            price_cad: None,
+            price_nzd: None,
+            state: None,
+            updated: OffsetDateTime::now_utc(),
+        }
+    }
+}
+
 impl From<ItemEventRecord> for ItemRecordUpdate {
     fn from(event: ItemEventRecord) -> Self {
         ItemRecordUpdate {

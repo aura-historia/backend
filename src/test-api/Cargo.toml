@@ -33,14 +33,11 @@ serde_dynamo = { workspace = true, optional = true, features = [
     "aws-sdk-dynamodb+1",
 ] }
 aws-sdk-sqs = { workspace = true, optional = true }
-aws-sdk-lambda = { workspace = true, optional = true }
-test_lambda = { workspace = true, optional = true }
 
 [dev-dependencies]
 test-api = { workspace = true, features = [
     "api-gateway",
     "dynamodb",
-    "lambda",
     "opensearch",
     "sqs",
 ] }
@@ -49,6 +46,5 @@ test-api = { workspace = true, features = [
 default = []
 api-gateway = ["aws_lambda_events", "aws_lambda_events/apigw"]
 dynamodb = ["dep:aws-sdk-dynamodb", "serde_dynamo"]
-lambda = ["dep:aws-sdk-lambda", "dep:test_lambda"]
 opensearch = ["dep:opensearch", "dep:aws-sdk-opensearch"]
 sqs = ["dep:aws-sdk-sqs"]

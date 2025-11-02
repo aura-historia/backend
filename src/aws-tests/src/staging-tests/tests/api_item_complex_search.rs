@@ -44,6 +44,7 @@ async fn should_respond_200_when_hits() {
         state: ItemStateDocument::Available,
         url: Url::parse("https://hans-volker.com/chopin-etudes-op10-1833").unwrap(),
         images: vec![],
+        embedding: None,
         created: SystemTime::now().into(),
         updated: SystemTime::now().into(),
     };

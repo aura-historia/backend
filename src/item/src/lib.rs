@@ -5,3 +5,4 @@ pub use item_lambda;
 pub use item_opensearch;
 pub use item_service;
 pub use item_watchlist;
+pub use nightly_enrichment;
