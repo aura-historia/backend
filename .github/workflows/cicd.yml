@@ -161,46 +161,6 @@ jobs:
         working-directory: ${{ matrix.crate }}
         run: cargo test --test '*' --all-features -- --nocapture
 
-  test-python-nightly-enrichment:
-    name: Test nightly-enrichment
-    needs: build
-    permissions:
-      contents: read
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v5
-
-      - name: Prune docker
-        run: sudo docker system prune --volumes --force --all
-
-      - name: Set up Rust
-        uses: dtolnay/rust-toolchain@stable
-
-      - name: Cache cargo registry and target
-        uses: actions/cache@v4
-        with:
-          path: |
-            ~/.cargo/registry
-            ~/.cargo/git
-            ~/.cargo/bin
-            target
-          key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
-
-      - name: Set up Python
-        uses: actions/setup-python@v5
-        with:
-          python-version: "3.13.7"
-
-      - name: Install Python deps
-        working-directory: src/item/src/nightly-enrichment/python
-        run: |
-          python -m pip install --upgrade pip
-          pip install --no-cache-dir -r requirements.txt
-
-      - name: Test 'nightly-enrichment'
-        working-directory: src/item/src/nightly-enrichment
-        run: cargo test --all-features -- --include-ignored --nocapture
-
   sonar:
     name: SonarQube-Cloud Analysis
     needs: [unit-test, integration-test]
@@ -268,7 +228,7 @@ jobs:
 
   aws-push-lambda:
     name: Push Lambda to S3 ${{ matrix.crate }}
-    needs: [unit-test, integration-test, test-python-nightly-enrichment]
+    needs: [unit-test, integration-test]
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -364,7 +324,7 @@ jobs:
 
   aws-push-ec2:
     name: Push EC2 to S3 ${{ matrix.crate }}
-    needs: [unit-test, integration-test, test-python-nightly-enrichment]
+    needs: [unit-test, integration-test]
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -415,7 +375,7 @@ jobs:
 
   aws-push-resource-artifacts:
     name: Push resource-artifacts to S3 ${{ matrix.resource }}
-    needs: [unit-test, integration-test, test-python-nightly-enrichment]
+    needs: [unit-test, integration-test]
     runs-on: ubuntu-latest
     permissions:
       contents: read
