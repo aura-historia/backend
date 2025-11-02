@@ -297,7 +297,7 @@ Resources:
   OpenSearchClusterStatusRedAlarm:
     Type: AWS::CloudWatch::Alarm
     Properties:
-          AlarmName: !Sub "${StageName}-opensearch-cluster-red"
+      AlarmName: !Sub "${StageName}-opensearch-cluster-red"
       AlarmDescription: "Alarm when OpenSearch cluster status is RED"
       MetricName: ClusterStatus.red
       Namespace: AWS/ES
@@ -320,7 +320,7 @@ Resources:
   OpenSearchClusterStatusYellowAlarm:
     Type: AWS::CloudWatch::Alarm
     Properties:
-          AlarmName: !Sub "${StageName}-opensearch-cluster-yellow"
+      AlarmName: !Sub "${StageName}-opensearch-cluster-yellow"
       AlarmDescription: "Alarm when OpenSearch cluster status is YELLOW"
       MetricName: ClusterStatus.yellow
       Namespace: AWS/ES
@@ -343,7 +343,7 @@ Resources:
   OpenSearchFreeStorageSpaceAlarm:
     Type: AWS::CloudWatch::Alarm
     Properties:
-          AlarmName: !Sub "${StageName}-opensearch-low-storage"
+      AlarmName: !Sub "${StageName}-opensearch-low-storage"
       AlarmDescription: "Alarm when OpenSearch has low free storage space"
       MetricName: FreeStorageSpace
       Namespace: AWS/ES
@@ -419,7 +419,7 @@ Resources:
   PipeRole:
     Type: AWS::IAM::Role
     Properties:
-          RoleName: !Sub "dynamodb-to-eventbridge-pipe-role-${StageName}"
+      RoleName: !Sub "dynamodb-to-eventbridge-pipe-role-${StageName}"
       AssumeRolePolicyDocument:
         Version: "2012-10-17"
         Statement:
