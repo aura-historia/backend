@@ -132,6 +132,8 @@ Resources:
       Environment:
         Variables:
           DYNAMODB_TABLE_NAME: !Ref TableOne
+      Tags:
+        StageName: !Ref StageName
   AllowCognitoInvokePostConfirmationLambda:
     Type: AWS::Lambda::Permission
     Properties:
@@ -593,6 +595,8 @@ Resources:
       Environment:
         Variables:
           DYNAMODB_TABLE_NAME: !Ref TableOne
+      Tags:
+        StageName: !Ref StageName
   BlitzfilterApiGetItemLambdaPermission:
     Type: AWS::Lambda::Permission
     Properties:
@@ -700,6 +704,8 @@ Resources:
         Variables:
           DYNAMODB_TABLE_NAME: !Ref TableOne
           INGEST_ITEM_EVENTS_QUEUE_URL: !Ref ItemIngestEventsDynamoDbQ
+      Tags:
+        StageName: !Ref StageName
   BlitzfilterApiPutItemsLambdaPermission:
     Type: AWS::Lambda::Permission
     Properties:
@@ -800,6 +806,8 @@ Resources:
       Environment:
         Variables:
           OPENSEARCH_DOMAIN_ENDPOINT_URL: !Sub "https://${BlitzfilterOpenSearchDomain.DomainEndpoint}"
+      Tags:
+        StageName: !Ref StageName
   BlitzfilterApiSimpleSearchLambdaPermission:
     Type: AWS::Lambda::Permission
     Properties:
@@ -882,6 +890,8 @@ Resources:
       Environment:
         Variables:
           OPENSEARCH_DOMAIN_ENDPOINT_URL: !Sub "https://${BlitzfilterOpenSearchDomain.DomainEndpoint}"
+      Tags:
+        StageName: !Ref StageName
   BlitzfilterApiComplexSearchLambdaPermission:
     Type: AWS::Lambda::Permission
     Properties:
@@ -966,6 +976,8 @@ Resources:
       Environment:
         Variables:
           DYNAMODB_TABLE_NAME: !Ref TableOne
+      Tags:
+        StageName: !Ref StageName
   BlitzfilterApiGetWatchlistItemsLambdaPermission:
     Type: AWS::Lambda::Permission
     Properties:
@@ -1031,6 +1043,8 @@ Resources:
       Environment:
         Variables:
           DYNAMODB_TABLE_NAME: !Ref TableOne
+      Tags:
+        StageName: !Ref StageName
   BlitzfilterApiDeleteWatchlistItemLambdaPermission:
     Type: AWS::Lambda::Permission
     Properties:
@@ -1096,6 +1110,8 @@ Resources:
       Environment:
         Variables:
           DYNAMODB_TABLE_NAME: !Ref TableOne
+      Tags:
+        StageName: !Ref StageName
   BlitzfilterApiPostWatchlistItemLambdaPermission:
     Type: AWS::Lambda::Permission
     Properties:
@@ -1159,6 +1175,8 @@ Resources:
       Environment:
         Variables:
           DYNAMODB_TABLE_NAME: !Ref TableOne
+      Tags:
+        StageName: !Ref StageName
   BlitzfilterApiPatchWatchlistItemLambdaPermission:
     Type: AWS::Lambda::Permission
     Properties:
@@ -1221,6 +1239,8 @@ Resources:
       Environment:
         Variables:
           DYNAMODB_TABLE_NAME: !Ref TableOne
+      Tags:
+        StageName: !Ref StageName
   BlitzfilterApiGetShopLambdaPermission:
     Type: AWS::Lambda::Permission
     Properties:
@@ -1285,6 +1305,8 @@ Resources:
       Environment:
         Variables:
           OPENSEARCH_DOMAIN_ENDPOINT_URL: !Sub "https://${BlitzfilterOpenSearchDomain.DomainEndpoint}"
+      Tags:
+        StageName: !Ref StageName
   BlitzfilterApiShopSearchLambdaPermission:
     Type: AWS::Lambda::Permission
     Properties:
@@ -1350,6 +1372,8 @@ Resources:
       Environment:
         Variables:
           DYNAMODB_TABLE_NAME: !Ref TableOne
+      Tags:
+        StageName: !Ref StageName
   BlitzfilterApiDeleteSearchFilterLambdaPermission:
     Type: AWS::Lambda::Permission
     Properties:
@@ -1414,6 +1438,8 @@ Resources:
       Environment:
         Variables:
           DYNAMODB_TABLE_NAME: !Ref TableOne
+      Tags:
+        StageName: !Ref StageName
   BlitzfilterApiGetSearchFilterLambdaPermission:
     Type: AWS::Lambda::Permission
     Properties:
@@ -1478,6 +1504,8 @@ Resources:
       Environment:
         Variables:
           DYNAMODB_TABLE_NAME: !Ref TableOne
+      Tags:
+        StageName: !Ref StageName
   BlitzfilterApiGetSearchFiltersLambdaPermission:
     Type: AWS::Lambda::Permission
     Properties:
@@ -1542,6 +1570,8 @@ Resources:
       Environment:
         Variables:
           DYNAMODB_TABLE_NAME: !Ref TableOne
+      Tags:
+        StageName: !Ref StageName
   BlitzfilterApiPatchSearchFilterLambdaPermission:
     Type: AWS::Lambda::Permission
     Properties:
@@ -1604,6 +1634,8 @@ Resources:
       Environment:
         Variables:
           DYNAMODB_TABLE_NAME: !Ref TableOne
+      Tags:
+        StageName: !Ref StageName
   BlitzfilterApiPostSearchFilterLambdaPermission:
     Type: AWS::Lambda::Permission
     Properties:
@@ -1684,6 +1716,8 @@ Resources:
       Environment:
         Variables:
           S3_BUCKET_NAME_TEMPLATES: !Ref MailTemplateBucket
+      Tags:
+        StageName: !Ref StageName
   SendMailMapping:
     Type: AWS::Lambda::EventSourceMapping
     Properties:
@@ -1799,6 +1833,8 @@ Resources:
       Environment:
         Variables:
           DYNAMODB_TABLE_NAME: !Ref TableOne
+      Tags:
+        StageName: !Ref StageName
   ItemIngestEventsDynamoDbMapping:
     Type: AWS::Lambda::EventSourceMapping
     Properties:
@@ -1914,6 +1950,8 @@ Resources:
       Environment:
         Variables:
           DYNAMODB_TABLE_NAME: !Ref TableOne
+      Tags:
+        StageName: !Ref StageName
   ItemMaterializeDynamoDbNewMapping:
     Type: AWS::Lambda::EventSourceMapping
     Properties:
@@ -2029,6 +2067,8 @@ Resources:
       Environment:
         Variables:
           DYNAMODB_TABLE_NAME: !Ref TableOne
+      Tags:
+        StageName: !Ref StageName
   ItemMaterializeDynamoDbUpdateMapping:
     Type: AWS::Lambda::EventSourceMapping
     Properties:
@@ -2144,6 +2184,8 @@ Resources:
       Environment:
         Variables:
           OPENSEARCH_DOMAIN_ENDPOINT_URL: !Sub "https://${BlitzfilterOpenSearchDomain.DomainEndpoint}"
+      Tags:
+        StageName: !Ref StageName
   ItemMaterializeOpenSearchDbNewMapping:
     Type: AWS::Lambda::EventSourceMapping
     Properties:
@@ -2259,6 +2301,8 @@ Resources:
       Environment:
         Variables:
           OPENSEARCH_DOMAIN_ENDPOINT_URL: !Sub "https://${BlitzfilterOpenSearchDomain.DomainEndpoint}"
+      Tags:
+        StageName: !Ref StageName
   ItemMaterializeOpenSearchDbUpdateMapping:
     Type: AWS::Lambda::EventSourceMapping
     Properties:
@@ -2387,6 +2431,8 @@ Resources:
           DYNAMODB_TABLE_NAME: !Ref TableOne
           MAIL_QUEUE_URL: !Ref SendMailQ
           SENDER_MAIL: "no-reply@aura-historia.com"
+      Tags:
+        StageName: !Ref StageName
   ItemUpdateNotifyUserMapping:
     Type: AWS::Lambda::EventSourceMapping
     Properties:
@@ -2907,6 +2953,8 @@ Resources:
         Variables:
           NIGHTLY_ENRICHMENT_ASG_NAME: !Ref NightlyEnrichmentASG
           OPENSEARCH_DOMAIN_ENDPOINT_URL: !Sub "https://${BlitzfilterOpenSearchDomain.DomainEndpoint}"
+      Tags:
+        StageName: !Ref StageName
   NightlyEnrichmentScaleDownStartSchedule:
     Type: AWS::Events::Rule
     Properties:
@@ -2994,6 +3042,8 @@ Resources:
         Variables:
           NIGHTLY_ENRICHMENT_ASG_NAME: !Ref NightlyEnrichmentASG
           OPENSEARCH_DOMAIN_ENDPOINT_URL: !Sub "https://${BlitzfilterOpenSearchDomain.DomainEndpoint}"
+      Tags:
+        StageName: !Ref StageName
   NightlyEnrichmentScaleUpStartSchedule:
     Type: AWS::Events::Rule
     Properties:
