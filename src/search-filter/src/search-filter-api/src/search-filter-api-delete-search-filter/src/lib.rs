@@ -29,7 +29,7 @@ pub async fn handler(
     }
 }
 
-// DELETE /api/v1/search-filters/{searchFilterId}
+// DELETE /api/v1/me/search-filters/{searchFilterId}
 pub async fn handle(
     event: LambdaEvent<ApiGatewayV2httpRequest>,
     service: &impl SearchFilterService,

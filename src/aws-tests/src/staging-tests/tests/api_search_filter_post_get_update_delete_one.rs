@@ -12,7 +12,7 @@ use staging_tests_macros::staging_test;
 #[staging_test]
 async fn should_401_when_unauthorized_for_post() {
     let url = format!(
-        "{}/api/v1/search-filters",
+        "{}/api/v1/me/search-filters",
         get_cfn_output().api_gateway_endpoint_url,
     );
     let response = reqwest::Client::new().post(url).send().await.unwrap();
@@ -22,7 +22,7 @@ async fn should_401_when_unauthorized_for_post() {
 #[staging_test]
 async fn should_401_when_unauthorized_for_delete() {
     let url = format!(
-        "{}/api/v1/search-filters/foo",
+        "{}/api/v1/me/search-filters/foo",
         get_cfn_output().api_gateway_endpoint_url,
     );
     let response = reqwest::Client::new().delete(url).send().await.unwrap();
@@ -32,7 +32,7 @@ async fn should_401_when_unauthorized_for_delete() {
 #[staging_test]
 async fn should_401_when_unauthorized_for_get_one() {
     let url = format!(
-        "{}/api/v1/search-filters/foo",
+        "{}/api/v1/me/search-filters/foo",
         get_cfn_output().api_gateway_endpoint_url,
     );
     let response = reqwest::Client::new().get(url).send().await.unwrap();
@@ -46,7 +46,7 @@ async fn should_create_and_get_and_delete_and_verify_not_exists() {
     // Create new
     let expected = Faker.fake::<PostUserSearchFilterData>();
     let post_url = format!(
-        "{}/api/v1/search-filters",
+        "{}/api/v1/me/search-filters",
         get_cfn_output().api_gateway_endpoint_url,
     );
     let post_response = reqwest::Client::new()
@@ -64,7 +64,7 @@ async fn should_create_and_get_and_delete_and_verify_not_exists() {
 
     // Get posted
     let get_url = format!(
-        "{}/api/v1/search-filters/{}",
+        "{}/api/v1/me/search-filters/{}",
         get_cfn_output().api_gateway_endpoint_url,
         posted.search_filter_id
     );
@@ -82,7 +82,7 @@ async fn should_create_and_get_and_delete_and_verify_not_exists() {
 
     // Update gotten
     let patch_url = format!(
-        "{}/api/v1/search-filters/{}",
+        "{}/api/v1/me/search-filters/{}",
         get_cfn_output().api_gateway_endpoint_url,
         posted.search_filter_id
     );
@@ -121,7 +121,7 @@ async fn should_create_and_get_and_delete_and_verify_not_exists() {
 
     // Delete patched
     let get_url = format!(
-        "{}/api/v1/search-filters/{}",
+        "{}/api/v1/me/search-filters/{}",
         get_cfn_output().api_gateway_endpoint_url,
         patched.search_filter_id
     );
@@ -135,7 +135,7 @@ async fn should_create_and_get_and_delete_and_verify_not_exists() {
 
     // Get deleted
     let get_url = format!(
-        "{}/api/v1/search-filters/{}",
+        "{}/api/v1/me/search-filters/{}",
         get_cfn_output().api_gateway_endpoint_url,
         posted.search_filter_id
     );

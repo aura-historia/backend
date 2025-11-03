@@ -31,7 +31,7 @@ pub async fn handler(
     }
 }
 
-// POST /api/v1/search-filters
+// POST /api/v1/me/search-filters
 pub async fn handle(
     event: LambdaEvent<ApiGatewayV2httpRequest>,
     service: &impl SearchFilterService,
@@ -60,7 +60,7 @@ pub async fn handle(
         None => None,
         Some(domain_name) => match event.payload.request_context.stage {
             Some(stage_name) => Some(format!(
-                "https://{domain_name}/{stage_name}/api/v1/search-filters/{}",
+                "https://{domain_name}/{stage_name}/api/v1/me/search-filters/{}",
                 user_search_filter_data.search_filter_id
             )),
             None => None,
@@ -111,7 +111,9 @@ mod tests {
 
         assert_eq!(201, response.status_code);
         assert_eq!(
-            format!("https://my.domain.com/prod/api/v1/search-filters/{expected_search_filter_id}"),
+            format!(
+                "https://my.domain.com/prod/api/v1/me/search-filters/{expected_search_filter_id}"
+            ),
             response.headers.get(LOCATION).unwrap().to_str().unwrap()
         )
     }

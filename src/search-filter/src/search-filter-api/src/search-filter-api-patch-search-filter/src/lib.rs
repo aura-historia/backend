@@ -35,7 +35,7 @@ pub async fn handler(
     }
 }
 
-// PATCH /api/v1/search-filters/{searchFilterId}
+// PATCH /api/v1/me/search-filters/{searchFilterId}
 pub async fn handle(
     event: LambdaEvent<ApiGatewayV2httpRequest>,
     service: &impl SearchFilterService,

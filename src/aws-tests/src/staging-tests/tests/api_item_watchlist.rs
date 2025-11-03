@@ -16,7 +16,7 @@ use staging_tests::{create_random_test_user, get_dynamodb_client, staging_test};
 #[staging_test]
 async fn should_401_when_unauthorized_for_post() {
     let url = format!(
-        "{}/api/v1/watchlist",
+        "{}/api/v1/me/watchlist",
         get_cfn_output().api_gateway_endpoint_url,
     );
     let response = reqwest::Client::new().post(url).send().await.unwrap();
@@ -26,7 +26,7 @@ async fn should_401_when_unauthorized_for_post() {
 #[staging_test]
 async fn should_401_when_unauthorized_for_delete() {
     let url = format!(
-        "{}/api/v1/watchlist/{}/{}",
+        "{}/api/v1/me/watchlist/{}/{}",
         get_cfn_output().api_gateway_endpoint_url,
         ShopId::new(),
         ShopsItemId::new()
@@ -38,7 +38,7 @@ async fn should_401_when_unauthorized_for_delete() {
 #[staging_test]
 async fn should_401_when_unauthorized_for_get() {
     let url = format!(
-        "{}/api/v1/watchlist",
+        "{}/api/v1/me/watchlist",
         get_cfn_output().api_gateway_endpoint_url,
     );
     let response = reqwest::Client::new().get(url).send().await.unwrap();
@@ -63,7 +63,7 @@ async fn should_put_and_get_and_patch_and_delete_watchlist_item_and_verify_not_e
 
     // Add item to watchlist
     let post_url = format!(
-        "{}/api/v1/watchlist",
+        "{}/api/v1/me/watchlist",
         get_cfn_output().api_gateway_endpoint_url,
     );
     let post_response = reqwest::Client::new()
@@ -80,7 +80,7 @@ async fn should_put_and_get_and_patch_and_delete_watchlist_item_and_verify_not_e
 
     // Get posted
     let get_url = format!(
-        "{}/api/v1/watchlist?currency=EUR&sort=created&order=desc",
+        "{}/api/v1/me/watchlist?currency=EUR&sort=created&order=desc",
         get_cfn_output().api_gateway_endpoint_url,
     );
     let get_response = reqwest::Client::new()
@@ -106,7 +106,7 @@ async fn should_put_and_get_and_patch_and_delete_watchlist_item_and_verify_not_e
 
     // Patch gotten
     let patch_url = format!(
-        "{}/api/v1/watchlist/{}/{}",
+        "{}/api/v1/me/watchlist/{}/{}",
         get_cfn_output().api_gateway_endpoint_url,
         materialized.shop_id,
         materialized.shops_item_id,
@@ -129,7 +129,7 @@ async fn should_put_and_get_and_patch_and_delete_watchlist_item_and_verify_not_e
 
     // Delete gotten
     let delete_url = format!(
-        "{}/api/v1/watchlist/{}/{}",
+        "{}/api/v1/me/watchlist/{}/{}",
         get_cfn_output().api_gateway_endpoint_url,
         materialized.shop_id,
         materialized.shops_item_id,
@@ -144,7 +144,7 @@ async fn should_put_and_get_and_patch_and_delete_watchlist_item_and_verify_not_e
 
     // Get all (none)
     let get_url = format!(
-        "{}/api/v1/watchlist?currency=EUR&sort=created&order=desc",
+        "{}/api/v1/me/watchlist?currency=EUR&sort=created&order=desc",
         get_cfn_output().api_gateway_endpoint_url,
     );
     let get_response = reqwest::Client::new()

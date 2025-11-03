@@ -94,7 +94,7 @@ async fn should_send_email_to_user_when_watched_item_has_update() {
 
     // add item to watchlist
     let post_url = format!(
-        "{}/api/v1/watchlist",
+        "{}/api/v1/me/watchlist",
         get_cfn_output().api_gateway_endpoint_url,
     );
     let post_response = reqwest::Client::new()
@@ -112,7 +112,7 @@ async fn should_send_email_to_user_when_watched_item_has_update() {
 
     // enable notifications
     let patch_url = format!(
-        "{}/api/v1/watchlist/{}/{}",
+        "{}/api/v1/me/watchlist/{}/{}",
         get_cfn_output().api_gateway_endpoint_url,
         shop.shop_id,
         put_item_data.shops_item_id,

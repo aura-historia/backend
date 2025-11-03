@@ -25,7 +25,7 @@ pub async fn handler(
     }
 }
 
-// DELETE /api/v1/watchlist/{shopId}/{shopsItemId}
+// DELETE /api/v1/me/watchlist/{shopId}/{shopsItemId}
 pub async fn handle(
     event: LambdaEvent<ApiGatewayV2httpRequest>,
     service: &impl ItemWatchListService,

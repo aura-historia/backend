@@ -43,7 +43,7 @@ pub async fn handler(
     }
 }
 
-// PATCH /api/v1/watchlist/{shopId}/{shopsItemId}
+// PATCH /api/v1/me/watchlist/{shopId}/{shopsItemId}
 pub async fn handle(
     event: LambdaEvent<ApiGatewayV2httpRequest>,
     service: &impl ItemWatchListService,

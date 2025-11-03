@@ -26,7 +26,7 @@ pub async fn handler(
     }
 }
 
-// POST /api/v1/watchlist
+// POST /api/v1/me/watchlist
 pub async fn handle(
     event: LambdaEvent<ApiGatewayV2httpRequest>,
     service: &impl ItemWatchListService,
@@ -54,7 +54,7 @@ pub async fn handle(
         None => None,
         Some(domain_name) => match event.payload.request_context.stage {
             Some(stage_name) => Some(format!(
-                "https://{domain_name}/{stage_name}/api/v1/watchlist/{}/{}",
+                "https://{domain_name}/{stage_name}/api/v1/me/watchlist/{}/{}",
                 item_key_data.shop_id, item_key_data.shops_item_id
             )),
             None => None,
@@ -101,7 +101,7 @@ mod tests {
         assert_eq!(201, response.status_code);
         assert_eq!(
             format!(
-                "https://my.domain.com/prod/api/v1/watchlist/{}/{}",
+                "https://my.domain.com/prod/api/v1/me/watchlist/{}/{}",
                 item_key_data.shop_id, item_key_data.shops_item_id
             ),
             response.headers.get(LOCATION).unwrap().to_str().unwrap()

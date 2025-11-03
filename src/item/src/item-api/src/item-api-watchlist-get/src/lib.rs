@@ -58,7 +58,7 @@ pub async fn handler(
     }
 }
 
-// GET /api/v1/watchlist
+// GET /api/v1/me/watchlist
 pub async fn handle(
     event: LambdaEvent<ApiGatewayV2httpRequest>,
     service: &impl ItemWatchListService,

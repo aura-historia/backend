@@ -11,7 +11,7 @@ use staging_tests_macros::staging_test;
 #[staging_test]
 async fn should_401_when_unauthorized() {
     let url = format!(
-        "{}/api/v1/search-filters?sort=created&order=asc",
+        "{}/api/v1/me/search-filters?sort=created&order=asc",
         get_cfn_output().api_gateway_endpoint_url,
     );
     let response = reqwest::Client::new().get(url).send().await.unwrap();
@@ -41,7 +41,7 @@ async fn should_return_actual_search_filters_when_authorized() {
         .unwrap();
 
     let url = format!(
-        "{}/api/v1/search-filters?sort=created&order=asc",
+        "{}/api/v1/me/search-filters?sort=created&order=asc",
         get_cfn_output().api_gateway_endpoint_url,
     );
     let response = reqwest::Client::new()

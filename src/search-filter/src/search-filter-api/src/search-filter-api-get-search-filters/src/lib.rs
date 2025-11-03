@@ -30,7 +30,7 @@ pub async fn handler(
     }
 }
 
-// GET /api/v1/search-filters
+// GET /api/v1/me/search-filters
 pub async fn handle(
     event: LambdaEvent<ApiGatewayV2httpRequest>,
     service: &impl SearchFilterService,
