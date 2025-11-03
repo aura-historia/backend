@@ -36,3 +36,72 @@ jobs:
           else
             echo "ℹ️ Stack '${{ env.STACK_NAME }}' does not exist. Nothing to delete."
           fi
+
+      - name: Delete CloudWatch Log Groups
+        run: |
+          STAGE_NAME="pr-${{ github.event.pull_request.number }}"
+          echo "Deleting CloudWatch Log Groups for stage: $STAGE_NAME"
+          
+          # List all log groups and filter by stage name
+          LOG_GROUPS=$(aws logs describe-log-groups \
+            --log-group-name-prefix "/aws/lambda/" \
+            --output text \
+            --query "logGroups[].logGroupName" | tr '\t' '\n' | grep -- "-${STAGE_NAME}" || true)
+          
+          if [ -z "$LOG_GROUPS" ]; then
+            echo "ℹ️ No CloudWatch Log Groups found for stage '$STAGE_NAME'."
+          else
+            echo "Found Log Groups:"
+            echo "$LOG_GROUPS"
+            
+            for LOG_GROUP in $LOG_GROUPS; do
+              echo "Deleting log group: $LOG_GROUP"
+              aws logs delete-log-group --log-group-name "$LOG_GROUP" || echo "⚠️ Failed to delete $LOG_GROUP"
+            done
+            
+            echo "✅ CloudWatch Log Groups deleted successfully."
+          fi
+
+      - name: Delete S3 Artifacts
+        run: |
+          STAGE_NAME="pr-${{ github.event.pull_request.number }}"
+          echo "Deleting S3 artifacts for stage: $STAGE_NAME"
+          
+          # Delete from binary artifacts bucket (Lambda zips and EC2 binaries)
+          if [ -n "${{ vars.S3_BINARY_ARTIFACTS_BUCKET_NAME }}" ]; then
+            echo "Checking binary artifacts bucket: ${{ vars.S3_BINARY_ARTIFACTS_BUCKET_NAME }}"
+            
+            # List all objects and filter by stage name in key
+            OBJECTS=$(aws s3api list-objects-v2 \
+              --bucket "${{ vars.S3_BINARY_ARTIFACTS_BUCKET_NAME }}" \
+              --output text \
+              --query "Contents[].Key" | tr '\t' '\n' | grep -- "-${STAGE_NAME}-" || true)
+            
+            if [ -n "$OBJECTS" ]; then
+              echo "Found objects in binary bucket:"
+              echo "$OBJECTS"
+              
+              for OBJECT in $OBJECTS; do
+                echo "Deleting object: s3://${{ vars.S3_BINARY_ARTIFACTS_BUCKET_NAME }}/$OBJECT"
+                aws s3 rm "s3://${{ vars.S3_BINARY_ARTIFACTS_BUCKET_NAME }}/$OBJECT" || echo "⚠️ Failed to delete $OBJECT"
+              done
+            else
+              echo "ℹ️ No objects found in binary artifacts bucket."
+            fi
+          fi
+          
+          # Delete from resource artifacts bucket
+          if [ -n "${{ vars.S3_RESOURCE_ARTIFACTS_BUCKET_NAME }}" ]; then
+            echo "Checking resource artifacts bucket: ${{ vars.S3_RESOURCE_ARTIFACTS_BUCKET_NAME }}"
+            
+            # Delete all objects under the STAGE_NAME prefix using the recursive delete
+            RESOURCE_PREFIX="${STAGE_NAME}/"
+            echo "Attempting to delete objects under prefix: $RESOURCE_PREFIX"
+            
+            # Use s3 rm with --recursive which handles non-existent prefixes gracefully
+            aws s3 rm "s3://${{ vars.S3_RESOURCE_ARTIFACTS_BUCKET_NAME }}/${RESOURCE_PREFIX}" --recursive \
+              && echo "✅ Resource artifacts deleted successfully." \
+              || echo "ℹ️ No objects found or error occurred during deletion."
+          fi
+          
+          echo "✅ S3 artifacts cleanup completed."
