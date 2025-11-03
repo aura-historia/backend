@@ -833,7 +833,7 @@ Resources:
     Type: AWS::ApiGatewayV2::Route
     Properties:
       ApiId: !Ref BlitzfilterApi
-      RouteKey: "GET /api/v1/watchlist"
+      RouteKey: "GET /api/v1/me/watchlist"
       AuthorizationType: JWT
       AuthorizerId: !Ref BlitzfilterApiCognitoAuthorizer
       Target: !Sub "integrations/${BlitzfilterApiGetWatchlistItemsLambdaIntegration}"
@@ -893,13 +893,13 @@ Resources:
       Action: lambda:InvokeFunction
       FunctionName: !Ref BlitzfilterApiGetWatchlistItemsLambda
       Principal: apigateway.amazonaws.com
-      SourceArn: !Sub "arn:aws:execute-api:${AWS::Region}:${AWS::AccountId}:${BlitzfilterApi}/*/*/api/v1/watchlist*"
+      SourceArn: !Sub "arn:aws:execute-api:${AWS::Region}:${AWS::AccountId}:${BlitzfilterApi}/*/*/api/v1/me/watchlist*"
 
   BlitzfilterApiDeleteWatchlistItemRoute:
     Type: AWS::ApiGatewayV2::Route
     Properties:
       ApiId: !Ref BlitzfilterApi
-      RouteKey: "DELETE /api/v1/watchlist/{shopId}/{shopsItemId}"
+      RouteKey: "DELETE /api/v1/me/watchlist/{shopId}/{shopsItemId}"
       AuthorizationType: JWT
       AuthorizerId: !Ref BlitzfilterApiCognitoAuthorizer
       Target: !Sub "integrations/${BlitzfilterApiDeleteWatchlistItemLambdaIntegration}"
@@ -958,13 +958,13 @@ Resources:
       Action: lambda:InvokeFunction
       FunctionName: !Ref BlitzfilterApiDeleteWatchlistItemLambda
       Principal: apigateway.amazonaws.com
-      SourceArn: !Sub "arn:aws:execute-api:${AWS::Region}:${AWS::AccountId}:${BlitzfilterApi}/*/*/api/v1/watchlist/*/*"
+      SourceArn: !Sub "arn:aws:execute-api:${AWS::Region}:${AWS::AccountId}:${BlitzfilterApi}/*/*/api/v1/me/watchlist/*/*"
 
   BlitzfilterApiPostWatchlistItemRoute:
     Type: AWS::ApiGatewayV2::Route
     Properties:
       ApiId: !Ref BlitzfilterApi
-      RouteKey: "POST /api/v1/watchlist"
+      RouteKey: "POST /api/v1/me/watchlist"
       AuthorizationType: JWT
       AuthorizerId: !Ref BlitzfilterApiCognitoAuthorizer
       Target: !Sub "integrations/${BlitzfilterApiPostWatchlistItemLambdaIntegration}"
@@ -1023,13 +1023,13 @@ Resources:
       Action: lambda:InvokeFunction
       FunctionName: !Ref BlitzfilterApiPostWatchlistItemLambda
       Principal: apigateway.amazonaws.com
-      SourceArn: !Sub "arn:aws:execute-api:${AWS::Region}:${AWS::AccountId}:${BlitzfilterApi}/*/*/api/v1/watchlist"
+      SourceArn: !Sub "arn:aws:execute-api:${AWS::Region}:${AWS::AccountId}:${BlitzfilterApi}/*/*/api/v1/me/watchlist"
 
   BlitzfilterApiPatchWatchlistItemRoute:
     Type: AWS::ApiGatewayV2::Route
     Properties:
       ApiId: !Ref BlitzfilterApi
-      RouteKey: "PATCH /api/v1/watchlist/{shopId}/{shopsItemId}"
+      RouteKey: "PATCH /api/v1/me/watchlist/{shopId}/{shopsItemId}"
       AuthorizationType: JWT
       AuthorizerId: !Ref BlitzfilterApiCognitoAuthorizer
       Target: !Sub "integrations/${BlitzfilterApiPatchWatchlistItemLambdaIntegration}"
@@ -1086,7 +1086,7 @@ Resources:
       Action: lambda:InvokeFunction
       FunctionName: !Ref BlitzfilterApiPatchWatchlistItemLambda
       Principal: apigateway.amazonaws.com
-      SourceArn: !Sub "arn:aws:execute-api:${AWS::Region}:${AWS::AccountId}:${BlitzfilterApi}/*/*/api/v1/watchlist/*/*"
+      SourceArn: !Sub "arn:aws:execute-api:${AWS::Region}:${AWS::AccountId}:${BlitzfilterApi}/*/*/api/v1/me/watchlist/*/*"
 
   BlitzfilterApiGetShopRoute:
     Type: AWS::ApiGatewayV2::Route
@@ -1218,7 +1218,7 @@ Resources:
     Type: AWS::ApiGatewayV2::Route
     Properties:
       ApiId: !Ref BlitzfilterApi
-      RouteKey: "DELETE /api/v1/search-filters/{searchFilterId}"
+      RouteKey: "DELETE /api/v1/me/search-filters/{searchFilterId}"
       AuthorizationType: JWT
       AuthorizerId: !Ref BlitzfilterApiCognitoAuthorizer
       Target: !Sub "integrations/${BlitzfilterApiDeleteSearchFilterLambdaIntegration}"
@@ -1277,13 +1277,13 @@ Resources:
       Action: lambda:InvokeFunction
       FunctionName: !Ref BlitzfilterApiDeleteSearchFilterLambda
       Principal: apigateway.amazonaws.com
-      SourceArn: !Sub "arn:aws:execute-api:${AWS::Region}:${AWS::AccountId}:${BlitzfilterApi}/*/*/api/v1/search-filters/*"
+      SourceArn: !Sub "arn:aws:execute-api:${AWS::Region}:${AWS::AccountId}:${BlitzfilterApi}/*/*/api/v1/me/search-filters/*"
 
   ApiGetSearchFilterRoute:
     Type: AWS::ApiGatewayV2::Route
     Properties:
       ApiId: !Ref BlitzfilterApi
-      RouteKey: "GET /api/v1/search-filters/{searchFilterId}"
+      RouteKey: "GET /api/v1/me/search-filters/{searchFilterId}"
       AuthorizationType: JWT
       AuthorizerId: !Ref BlitzfilterApiCognitoAuthorizer
       Target: !Sub "integrations/${BlitzfilterApiGetSearchFilterLambdaIntegration}"
@@ -1341,13 +1341,13 @@ Resources:
       Action: lambda:InvokeFunction
       FunctionName: !Ref BlitzfilterApiGetSearchFilterLambda
       Principal: apigateway.amazonaws.com
-      SourceArn: !Sub "arn:aws:execute-api:${AWS::Region}:${AWS::AccountId}:${BlitzfilterApi}/*/*/api/v1/search-filters/*"
+      SourceArn: !Sub "arn:aws:execute-api:${AWS::Region}:${AWS::AccountId}:${BlitzfilterApi}/*/*/api/v1/me/search-filters/*"
 
   ApiGetSearchFiltersRoute:
     Type: AWS::ApiGatewayV2::Route
     Properties:
       ApiId: !Ref BlitzfilterApi
-      RouteKey: "GET /api/v1/search-filters"
+      RouteKey: "GET /api/v1/me/search-filters"
       AuthorizationType: JWT
       AuthorizerId: !Ref BlitzfilterApiCognitoAuthorizer
       Target: !Sub "integrations/${BlitzfilterApiGetSearchFiltersLambdaIntegration}"
@@ -1405,13 +1405,13 @@ Resources:
       Action: lambda:InvokeFunction
       FunctionName: !Ref BlitzfilterApiGetSearchFiltersLambda
       Principal: apigateway.amazonaws.com
-      SourceArn: !Sub "arn:aws:execute-api:${AWS::Region}:${AWS::AccountId}:${BlitzfilterApi}/*/*/api/v1/search-filters"
+      SourceArn: !Sub "arn:aws:execute-api:${AWS::Region}:${AWS::AccountId}:${BlitzfilterApi}/*/*/api/v1/me/search-filters"
 
   ApiPatchSearchFilterRoute:
     Type: AWS::ApiGatewayV2::Route
     Properties:
       ApiId: !Ref BlitzfilterApi
-      RouteKey: "PATCH /api/v1/search-filters/{searchFilterId}"
+      RouteKey: "PATCH /api/v1/me/search-filters/{searchFilterId}"
       AuthorizationType: JWT
       AuthorizerId: !Ref BlitzfilterApiCognitoAuthorizer
       Target: !Sub "integrations/${BlitzfilterApiPatchSearchFilterLambdaIntegration}"
@@ -1469,13 +1469,13 @@ Resources:
       Action: lambda:InvokeFunction
       FunctionName: !Ref BlitzfilterApiPatchSearchFilterLambda
       Principal: apigateway.amazonaws.com
-      SourceArn: !Sub "arn:aws:execute-api:${AWS::Region}:${AWS::AccountId}:${BlitzfilterApi}/*/*/api/v1/search-filters/*"
+      SourceArn: !Sub "arn:aws:execute-api:${AWS::Region}:${AWS::AccountId}:${BlitzfilterApi}/*/*/api/v1/me/search-filters/*"
 
   ApiPostSearchFilterRoute:
     Type: AWS::ApiGatewayV2::Route
     Properties:
       ApiId: !Ref BlitzfilterApi
-      RouteKey: "POST /api/v1/search-filters"
+      RouteKey: "POST /api/v1/me/search-filters"
       AuthorizationType: JWT
       AuthorizerId: !Ref BlitzfilterApiCognitoAuthorizer
       Target: !Sub "integrations/${BlitzfilterApiPostSearchFilterLambdaIntegration}"
@@ -1531,7 +1531,7 @@ Resources:
       Action: lambda:InvokeFunction
       FunctionName: !Ref BlitzfilterApiPostSearchFilterLambda
       Principal: apigateway.amazonaws.com
-      SourceArn: !Sub "arn:aws:execute-api:${AWS::Region}:${AWS::AccountId}:${BlitzfilterApi}/*/*/api/v1/search-filters"
+      SourceArn: !Sub "arn:aws:execute-api:${AWS::Region}:${AWS::AccountId}:${BlitzfilterApi}/*/*/api/v1/me/search-filters"
 
   SendMailDlq:
     Type: AWS::SQS::Queue
