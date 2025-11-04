@@ -123,13 +123,13 @@ jobs:
     strategy:
       matrix:
         crate:
-          - src/item/src/search-filter
+          - src/search-filter
           - src/search-filter/src/search-filter-api/src/search-filter-api-delete-search-filter
           - src/search-filter/src/search-filter-api/src/search-filter-api-get-search-filter
           - src/search-filter/src/search-filter-api/src/search-filter-api-get-search-filters
           - src/search-filter/src/search-filter-api/src/search-filter-api-patch-search-filter
           - src/search-filter/src/search-filter-api/src/search-filter-api-post-search-filter
-          - src/item/src/item
+          - src/item
           - src/item/src/item-api/src/item-api-complex-search
           - src/item/src/item-api/src/item-api-get-item
           - src/item/src/item-api/src/item-api-put-items
