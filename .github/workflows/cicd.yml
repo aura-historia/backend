@@ -144,7 +144,7 @@ jobs:
           - src/shop
           - src/shop-api/src/shop-api-search
           - src/test-api
-          - src/user/src/user
+          - src/user
           - src/mail/src/mail-core
     steps:
       - uses: actions/checkout@v5
