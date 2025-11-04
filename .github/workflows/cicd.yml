@@ -76,6 +76,7 @@ jobs:
           - src/user
           - src/mail
           - src/mail-lambda-send
+          - src/nightly-enrichment
     steps:
       - uses: actions/checkout@v5
 
@@ -257,8 +258,8 @@ jobs:
           - src/item/src/item-lambda/src/item-lambda-materialize-opensearch-new
           - src/item/src/item-lambda/src/item-lambda-materialize-opensearch-update
           - src/item/src/item-lambda/src/item-lambda-update-notify-user
-          - src/item/src/nightly-enrichment/src/nightly-enrichment-asg-scale-down
-          - src/item/src/nightly-enrichment/src/nightly-enrichment-asg-scale-up
+          - src/nightly-enrichment/src/nightly-enrichment-asg-scale-down
+          - src/nightly-enrichment/src/nightly-enrichment-asg-scale-up
           - src/shop-api/src/shop-api-search
           - src/shop-api/src/shop-api-get-shop
           - src/cognito-post-confirmation
@@ -334,7 +335,7 @@ jobs:
     strategy:
       matrix:
         crate:
-          - src/item/src/nightly-enrichment
+          - src/nightly-enrichment
     steps:
       - uses: actions/checkout@v5
 
@@ -385,7 +386,7 @@ jobs:
     strategy:
       matrix:
         resource:
-          - src/item/src/nightly-enrichment/user-data.sh
+          - src/nightly-enrichment/user-data.sh
     steps:
       - uses: actions/checkout@v5
 
