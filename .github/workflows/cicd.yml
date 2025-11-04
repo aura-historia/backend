@@ -87,7 +87,7 @@ jobs:
 
       - name: Build ${{ matrix.crate }}
         working-directory: ${{ matrix.crate }}
-        run: cargo build --all-features -all-targets
+        run: cargo build --all-features --all-targets
 
   unit-test:
     name: Unit-Test Workspace
