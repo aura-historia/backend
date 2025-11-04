@@ -6,7 +6,7 @@ use common::{
     language::{data::LanguageData, domain::Language},
     price::domain::MonetaryAmount,
 };
-use item_data::item_state_data::ItemStateData;
+use item::data::item_state_data::ItemStateData;
 use search_filter_core::search_filter_name::SearchFilterName;
 use search_filter_service::search_filter_update::SearchFilterUpdate;
 use serde::{Deserialize, Serialize};
@@ -129,7 +129,7 @@ mod tests {
     use crate::patch::{PatchSearchFilterData, PatchUserSearchFilterData};
     use common::query::range_query::RangeQuery;
     use common::{currency::data::CurrencyData, language::data::LanguageData};
-    use item_data::item_state_data::ItemStateData;
+    use item::data::item_state_data::ItemStateData;
     use serde_json::json;
     use std::collections::HashSet;
     use time::macros::datetime;

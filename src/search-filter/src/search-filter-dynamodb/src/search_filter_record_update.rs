@@ -2,7 +2,7 @@ use common::dynamodb_update::DynamoDbUpdate;
 use common::query::range_query::RangeQuery;
 use common::query::text_query::TextQuery;
 use common::{currency::record::CurrencyRecord, language::record::LanguageRecord};
-use item_dynamodb::item_state_record::ItemStateRecord;
+use item::dynamodb::item_state_record::ItemStateRecord;
 use search_filter_core::search_filter_name::SearchFilterName;
 use serde::{Deserialize, Serialize};
 use std::collections::HashSet;

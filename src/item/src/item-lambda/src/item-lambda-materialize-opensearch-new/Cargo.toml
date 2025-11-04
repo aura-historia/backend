@@ -5,9 +5,6 @@ edition = "2024"
 
 [dependencies]
 common = { workspace = true }
-item-core = { workspace = true }
-item-opensearch = { workspace = true }
-item-dynamodb = { workspace = true }
 item-lambda-common = { workspace = true }
 lambda_runtime = { workspace = true }
 aws-config = { workspace = true }
@@ -22,7 +19,6 @@ url = { workspace = true }
 [dev-dependencies]
 rstest = { workspace = true }
 url = { workspace = true }
-item-opensearch = { workspace = true, features = ["test-data"] }
 fake = { workspace = true }
 time = { workspace = true }
 uuid = { workspace = true }

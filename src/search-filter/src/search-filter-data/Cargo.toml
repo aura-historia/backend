@@ -5,8 +5,8 @@ edition = "2024"
 
 [dependencies]
 common = { workspace = true }
+item = { workspace = true, features = ["data"] }
 search-filter-core = { workspace = true }
-item-data = { workspace = true }
 time = { workspace = true }
 serde = { workspace = true }
 
@@ -20,4 +20,4 @@ rstest = { workspace = true }
 
 [features]
 default = []
-test-data = ["fake", "common/test-data", "search-filter-core/test-data", "item-data/test-data"]
+test-data = ["fake", "common/test-data", "search-filter-core/test-data"]

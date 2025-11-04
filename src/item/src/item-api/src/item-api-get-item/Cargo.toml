@@ -5,10 +5,6 @@ edition = "2024"
 
 [dependencies]
 common = { workspace = true, features = ["api"] }
-item-core = { workspace = true }
-item-service = { workspace = true, features = ["dynamodb", "api"] }
-item-dynamodb = { workspace = true, features = ["repository"] }
-item-data = { workspace = true }
 tracing = { workspace = true }
 tracing-subscriber = { workspace = true, features = ["json"] }
 tokio = { workspace = true, features = ["macros"] }
@@ -26,5 +22,4 @@ rstest = { workspace = true }
 time = { workspace = true }
 http = { workspace = true }
 url = { workspace = true }
-item-dynamodb = { workspace = true, features = ["test-data", "repository"] }
 fake = { workspace = true }

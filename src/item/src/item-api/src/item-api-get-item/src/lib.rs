@@ -8,7 +8,7 @@ use common::language::data::api::extract_languages_header;
 use common::language::domain::Language;
 use common::shop_id::api::extract_shop_id_path;
 use common::shops_item_id::api::extract_shops_item_id_path;
-use item_data::get_data::GetItemData;
+use item::data::get_data::GetItemData;
 use item_service::get_service::GetItemService;
 use lambda_runtime::LambdaEvent;
 

@@ -1,7 +1,7 @@
 use aws_config::BehaviorVersion;
 use aws_lambda_events::apigw::ApiGatewayV2httpRequest;
+use item::opensearch::repository::ItemOpenSearchRepositoryImpl;
 use item_api_complex_search::handler;
-use item_opensearch::repository::ItemOpenSearchRepositoryImpl;
 use item_service::query_service::QueryItemServiceImpl;
 use lambda_runtime::tracing::info;
 use lambda_runtime::{Error, LambdaEvent, run, service_fn};

@@ -1,7 +1,7 @@
 use common::{api::collection::PutCollectionData, price::domain::FixedFxRate};
 use fake::{Fake, Faker};
+use item::data::put_data::PutItemData;
 use item_api_put_items::{PutItemsResponse, handler};
-use item_data::put_data::PutItemData;
 use item_dynamodb::repository::ItemDynamoDbRepositoryImpl;
 use item_service::{
     enrichment_service::ItemCommandEnrichmentServiceImpl, upsert_service::UpsertItemsServiceImpl,

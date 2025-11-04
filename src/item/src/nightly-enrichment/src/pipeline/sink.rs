@@ -1,8 +1,8 @@
 use common::item_id::{ItemId, ItemKey};
-use item_dynamodb::{item_update_record::ItemRecordUpdate, repository::ItemDynamoDbRepository};
-use item_opensearch::{
+use item::opensearch::{
     item_update_document::ItemUpdateDocument, repository::ItemOpenSearchRepository,
 };
+use item_dynamodb::{item_update_record::ItemRecordUpdate, repository::ItemDynamoDbRepository};
 use std::{
     collections::{HashMap, HashSet},
     sync::Arc,
@@ -131,10 +131,10 @@ mod tests {
             opensearch::bulk_response::{BulkItemResult, BulkOpResult, BulkResponse},
         };
         use fake::{Fake, Faker};
-        use item_dynamodb::repository::MockItemDynamoDbRepository;
-        use item_opensearch::{
+        use item::opensearch::{
             item_update_document::ItemUpdateDocument, repository::MockItemOpenSearchRepository,
         };
+        use item_dynamodb::repository::MockItemDynamoDbRepository;
         use std::collections::HashSet;
         use std::{collections::HashMap, sync::Arc};
 
@@ -229,10 +229,10 @@ mod tests {
         use aws_sdk_dynamodb::{error::SdkError, operation::update_item::UpdateItemOutput};
         use common::item_id::{ItemId, ItemKey};
         use fake::{Fake, Faker};
+        use item::opensearch::repository::MockItemOpenSearchRepository;
         use item_dynamodb::{
             item_update_record::ItemRecordUpdate, repository::MockItemDynamoDbRepository,
         };
-        use item_opensearch::repository::MockItemOpenSearchRepository;
         use std::collections::HashSet;
         use std::{collections::HashMap, sync::Arc};
 

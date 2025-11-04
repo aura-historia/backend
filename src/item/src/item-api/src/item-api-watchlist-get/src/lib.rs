@@ -8,9 +8,11 @@ use common::{
     api::api_gateway_v2_http_response_builder::ApiGatewayV2HttpResponseBuilder,
     sort::api::extract_sort_query,
 };
-use item_data::get_data::GetItemData;
-use item_watchlist::sort_watch_item::{SortWatchlistItemField, SortWatchlistItemFieldData};
-use item_watchlist::{domain::LocalizedWatchlistItemView, service::ItemWatchListService};
+use item::data::get_data::GetItemData;
+use item::watchlist::core::watchlist_item::LocalizedWatchlistItemView;
+use item::watchlist::data::sort_watchlist_item_field_data::SortWatchlistItemFieldData;
+use item::watchlist::service::item_watchlist_service::ItemWatchListService;
+use item::watchlist::service::sort_watchlist_item_field::SortWatchlistItemField;
 use lambda_runtime::LambdaEvent;
 use serde::{Deserialize, Serialize};
 use time::OffsetDateTime;
@@ -92,7 +94,7 @@ mod tests {
     use crate::handler;
     use common::user_id::UserId;
     use fake::{Fake, Faker};
-    use item_watchlist::service::MockItemWatchListService;
+    use item::watchlist::service::item_watchlist_service::MockItemWatchListService;
     use lambda_runtime::LambdaEvent;
     use test_api::ApiGatewayV2httpRequestProxy;
     use time::{OffsetDateTime, format_description::well_known::Rfc3339};

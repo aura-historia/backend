@@ -75,7 +75,6 @@ http = "1.3.1"
 httpdate = "1.0.3"
 item = { path = "src/item" }
 item-api = { path = "src/item/src/item-api" }
-item-data = { path = "src/item/src/item-data" }
 item-api-get-item = { path = "src/item/src/item-api/src/item-api-get-item" }
 item-api-put-items = { path = "src/item/src/item-api/src/item-api-put-items" }
 item-api-complex-search = { path = "src/item/src/item-api/src/item-api-complex-search" }
@@ -83,12 +82,7 @@ item-api-watchlist-get = { path = "src/item/src/item-api/src/item-api-watchlist-
 item-api-watchlist-patch = { path = "src/item/src/item-api/src/item-api-watchlist-patch" }
 item-api-watchlist-post = { path = "src/item/src/item-api/src/item-api-watchlist-post" }
 item-api-watchlist-delete = { path = "src/item/src/item-api/src/item-api-watchlist-delete" }
-item-core = { path = "src/item/src/item-core" }
-item-dynamodb = { path = "src/item/src/item-dynamodb" }
-item-opensearch = { path = "src/item/src/item-opensearch" }
 item-lambda = { path = "src/item/src/item-lambda" }
-item-service = { path = "src/item/src/item-service" }
-item-watchlist = { path = "src/item/src/item-watchlist" }
 nightly-enrichment = { path = "src/item/src/nightly-enrichment" }
 item-lambda-common = { path = "src/item/src/item-lambda/src/item-lambda-common" }
 item-lambda-materialize-dynamodb-new = { path = "src/item/src/item-lambda/src/item-lambda-materialize-dynamodb-new" }

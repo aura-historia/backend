@@ -5,8 +5,8 @@ use common::{
     shop_id::ShopId, shops_item_id::ShopsItemId,
 };
 use fake::{Fake, Faker};
-use item_data::item_state_data::ItemStateData;
-use item_opensearch::{
+use item::data::item_state_data::ItemStateData;
+use item::opensearch::{
     item_document::ItemDocument,
     item_state_document::ItemStateDocument,
     repository::{ItemOpenSearchRepository, ItemOpenSearchRepositoryImpl},

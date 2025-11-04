@@ -5,7 +5,6 @@ edition = "2024"
 
 [dependencies]
 common = { workspace = true }
-item-dynamodb = { workspace = true, features = ["repository"] }
 lambda_runtime = { workspace = true }
 aws-config = { workspace = true }
 aws-sdk-dynamodb = { workspace = true }
@@ -19,5 +18,4 @@ tracing = { workspace = true }
 rstest = { workspace = true }
 fake = { workspace = true }
 uuid = { workspace = true }
-item-dynamodb = { workspace = true, features = ["repository", "test-data"] }
 serde_dynamo = { workspace = true }

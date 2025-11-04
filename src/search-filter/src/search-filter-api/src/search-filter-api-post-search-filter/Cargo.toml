@@ -5,6 +5,7 @@ edition = "2024"
 
 [dependencies]
 common = { workspace = true, features = ["api"] }
+item = { workspace = true, features = ["data"] }
 search-filter-core = { workspace = true }
 search-filter-service = { workspace = true, features = ["api"] }
 search-filter-dynamodb = { workspace = true }
@@ -32,7 +33,6 @@ http = { workspace = true }
 url = { workspace = true }
 search-filter-dynamodb = { workspace = true, features = ["test-data"] }
 search-filter-data = { workspace = true, features = ["test-data"] }
-item-data = { workspace = true, features = ["test-data"] }
 search-filter-api-post-search-filter = { workspace = true, features = ["test-data"] }
 
 [features]

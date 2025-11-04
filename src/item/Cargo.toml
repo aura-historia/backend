@@ -4,11 +4,54 @@ version = "0.1.0"
 edition = "2024"
 
 [dependencies]
-item-api = { workspace = true }
-item-core = { workspace = true }
-item-opensearch = { workspace = true }
-item-lambda = { workspace = true }
-item-service = { workspace = true }
-item-watchlist = { workspace = true }
-item-dynamodb = { workspace = true, features = ["repository"] }
-nightly-enrichment = { workspace = true }
+common = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+time = { workspace = true, features = ["local-offset", "macros", "formatting"] }
+async-trait = { workspace = true }
+mockall = { workspace = true }
+thiserror = { workspace = true }
+url = { workspace = true, features = ["serde"] }
+uuid = { workspace = true }
+
+# Optional
+field = { workspace = true, optional = true }
+tracing = { workspace = true, optional = true }
+fake = { workspace = true, optional = true }
+aws-sdk-dynamodb = { workspace = true, optional = true }
+aws-sdk-sqs = { workspace = true, optional = true }
+opensearch = { workspace = true, optional = true }
+serde_dynamo = { workspace = true, features = ["aws-sdk-dynamodb+1"], optional = true }
+itertools = { workspace = true, optional = true }
+search-filter-core = { workspace = true, optional = true }
+user-core = { workspace = true, optional = true }
+user-dynamodb = { workspace = true, optional = true }
+shop-core = { workspace = true, optional = true }
+shop-dynamodb = { workspace = true, optional = true }
+strum = { workspace = true, optional = true }
+tokio = { workspace = true, optional = true }
+
+[dev-dependencies]
+aws-config = { workspace = true }
+item = { workspace = true, features = ["full"] }
+test-api = { workspace = true, features = ["dynamodb", "opensearch", "sqs"] }
+serial_test = { workspace = true }
+rstest = { workspace = true }
+tokio = { workspace = true, features = ["macros"] }
+
+[features]
+default = []
+data = ["common/api"]
+dynamodb = [
+    "aws-sdk-dynamodb",
+    "serde_dynamo",
+    "common/dynamodb",
+    "tracing",
+    "field"
+]
+opensearch = ["dep:opensearch", "tracing", "strum", "common/opensearch"]
+sqs = ["aws-sdk-sqs", "common/sqs"]
+service = ["itertools", "search-filter-core", "shop-core", "shop-dynamodb", "tokio", "tokio/time"]
+watchlist = ["dynamodb", "service", "user-core", "user-dynamodb"]
+test-data = ["fake", "common/test-data", "shop-core/test-data", "shop-dynamodb/test-data"]
+full = ["data", "dynamodb", "opensearch", "service", "watchlist", "sqs", "test-data"]

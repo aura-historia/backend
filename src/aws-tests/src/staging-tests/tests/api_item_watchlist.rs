@@ -4,13 +4,13 @@ use common::{
     shops_item_id::ShopsItemId,
 };
 use fake::{Fake, Faker};
-use item_api_watchlist_get::WatchlistItemDataView;
-use item_api_watchlist_patch::WatchlistItemPatch;
-use item_dynamodb::{
+use item::dynamodb::{
     item_record::ItemRecord,
     repository::{ItemDynamoDbRepository, ItemDynamoDbRepositoryImpl},
 };
-use item_watchlist::data::WatchlistItemData;
+use item::watchlist::data::watchlist_item_data::WatchlistItemData;
+use item_api_watchlist_get::WatchlistItemDataView;
+use item_api_watchlist_patch::WatchlistItemPatch;
 use staging_tests::{create_random_test_user, get_dynamodb_client, staging_test};
 
 #[staging_test]

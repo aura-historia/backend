@@ -5,9 +5,9 @@ edition = "2024"
 
 [dependencies]
 common = { workspace = true, features = ["dynamodb"] }
+item = { workspace = true }
 search-filter-core = { workspace = true }
 search-filter-dynamodb = { workspace = true }
-item-dynamodb = { workspace = true }
 mockall = { workspace = true }
 tracing = { workspace = true }
 async-trait = { workspace = true }
@@ -22,7 +22,6 @@ fake = { workspace = true, optional = true }
 serde_json = { workspace = true }
 rstest = { workspace = true }
 search-filter-service = { workspace = true, features = ["test-data", "api"] }
-item-dynamodb = { workspace = true, features = ["test-data"] }
 tokio = { workspace = true, features = ["macros"] }
 
 [features]

@@ -1,9 +1,9 @@
 use aws_lambda_events::sqs::{BatchItemFailure, SqsBatchResponse, SqsEvent, SqsMessage};
 use common::item_id::ItemId;
 use common::opensearch::bulk_response::{BulkItemResult, BulkResponse};
+use item::opensearch::item_update_document::ItemUpdateDocument;
+use item::opensearch::repository::ItemOpenSearchRepository;
 use item_lambda_common::extract_item_event_record;
-use item_opensearch::item_update_document::ItemUpdateDocument;
-use item_opensearch::repository::ItemOpenSearchRepository;
 use lambda_runtime::LambdaEvent;
 use std::collections::HashMap;
 use tracing::{error, info, warn};
@@ -139,10 +139,10 @@ mod tests {
     use common::opensearch::bulk_response::{BulkError, BulkResponse};
     use fake::Fake;
     use fake::Faker;
+    use item::opensearch::repository::MockItemOpenSearchRepository;
     use item_core::item_event::ItemEvent;
     use item_core::item_event::{ItemCreatedEventPayload, ItemEventPayload};
     use item_dynamodb::item_event_record::ItemEventRecord;
-    use item_opensearch::repository::MockItemOpenSearchRepository;
     use lambda_runtime::LambdaEvent;
     use std::collections::HashMap;
     use std::time::SystemTime;

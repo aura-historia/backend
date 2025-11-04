@@ -1,11 +1,11 @@
 use common::{pagination::cursor::api::JsonCursoredData, query::range_query::RangeQuery};
 use fake::{Fake, Faker, rand};
-use item_api_complex_search::handler;
-use item_data::get_data::GetItemData;
-use item_opensearch::{
+use item::data::get_data::GetItemData;
+use item::opensearch::{
     item_document::ItemDocument,
     repository::{ItemOpenSearchRepository, ItemOpenSearchRepositoryImpl},
 };
+use item_api_complex_search::handler;
 use item_service::query_service::QueryItemServiceImpl;
 use lambda_runtime::LambdaEvent;
 use search_filter_data::search_filter_data::SearchFilterData;

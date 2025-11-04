@@ -7,6 +7,7 @@ edition = "2024"
 staging-tests-macros = { workspace = true }
 aws-tests-common = { workspace = true }
 tokio = { workspace = true, features = ["full"] }
+item = { workspace = true, features = ["full"] }
 serde_json = { workspace = true }
 serde = { workspace = true }
 aws-config = { workspace = true }
@@ -26,11 +27,6 @@ reqwest = { workspace = true, features = ["default", "json"] }
 [dev-dependencies]
 common = { workspace = true, features = ["test-data"] }
 serial_test = { workspace = true }
-item-service = { workspace = true, features = ["test-data"] }
-item-data = { workspace = true, features = ["test-data"] }
-item-dynamodb = { workspace = true, features = ["test-data", "repository"] }
-item-opensearch = { workspace = true, features = ["test-data"] }
-item-watchlist = { workspace = true, features = ["test-data"] }
 item-api-watchlist-get = { workspace = true }
 item-api-watchlist-patch = { workspace = true }
 search-filter-dynamodb = { workspace = true, features = ["test-data"] }
@@ -46,5 +42,4 @@ shop-opensearch = { workspace = true, features = ["test-data"] }
 user-dynamodb = { workspace = true, features = ["test-data"] }
 url = { workspace = true }
 futures-util = { workspace = true }
-item-core = { workspace = true }
 time = { workspace = true }

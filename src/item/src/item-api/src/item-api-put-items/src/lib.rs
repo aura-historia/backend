@@ -5,7 +5,7 @@ use common::api::error::ApiError;
 use common::api::error_code::BAD_BODY_VALUE;
 use common::localized::Localized;
 use common::price::domain::Price;
-use item_data::put_data::PutItemData;
+use item::data::put_data::PutItemData;
 use item_service::enrichment_service::{EnrichItemCommandError, ItemCommandEnrichmentService};
 use item_service::item_command::{PipedItemCommand, UpsertItemCommand};
 use item_service::upsert_service::UpsertItemsService;
@@ -191,7 +191,7 @@ mod tests {
     use common::api::collection::PutCollectionData;
     use common::shop_id::ShopId;
     use fake::{Fake, Faker};
-    use item_data::put_data::PutItemData;
+    use item::data::put_data::PutItemData;
     use item_service::enrichment_service::{
         EnrichItemCommandsOutput, MockItemCommandEnrichmentService,
     };

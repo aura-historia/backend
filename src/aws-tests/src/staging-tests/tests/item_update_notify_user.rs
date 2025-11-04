@@ -3,13 +3,13 @@ use std::{panic, time::Duration};
 use aws_tests_common::get_cfn_output;
 use common::{api::collection::PutCollectionData, item_id::api::ItemKeyData, user_id::UserId};
 use fake::{Fake, Faker};
-use item_api_watchlist_patch::WatchlistItemPatch;
-use item_data::{item_state_data::ItemStateData, put_data::PutItemData};
-use item_dynamodb::repository::{ItemDynamoDbRepository, ItemDynamoDbRepositoryImpl};
-use item_watchlist::{
-    data::WatchlistItemData,
-    repository::{WatchlistItemDynamoDbRepository, WatchlistItemDynamoDbRepositoryImpl},
+use item::data::{item_state_data::ItemStateData, put_data::PutItemData};
+use item::dynamodb::repository::{ItemDynamoDbRepository, ItemDynamoDbRepositoryImpl};
+use item::watchlist::{
+    data::watchlist_item_data::WatchlistItemData,
+    dynamodb::repository::{WatchlistItemDynamoDbRepository, WatchlistItemDynamoDbRepositoryImpl},
 };
+use item_api_watchlist_patch::WatchlistItemPatch;
 use shop_core::shop::Shop;
 use shop_dynamodb::{
     repository::{ShopDynamoDbRepository, ShopDynamoDbRepositoryImpl},

@@ -5,8 +5,10 @@ use common::api::error_code::BAD_BODY_VALUE;
 use common::shop_id::api::extract_shop_id_path;
 use common::shops_item_id::api::extract_shops_item_id_path;
 use common::user_id::api::extract_user_id_cognito_jwt;
-use item_watchlist::service::ItemWatchListService;
-use item_watchlist::{command::UpdateWatchlistItemCommand, data::WatchlistItemData};
+use item::watchlist::{
+    data::watchlist_item_data::WatchlistItemData,
+    service::{command::UpdateWatchlistItemCommand, item_watchlist_service::ItemWatchListService},
+};
 use lambda_runtime::LambdaEvent;
 use serde::{Deserialize, Serialize};
 
@@ -76,7 +78,7 @@ mod tests {
     use crate::{WatchlistItemPatch, handler};
     use common::{shop_id::ShopId, shops_item_id::ShopsItemId, user_id::UserId};
     use fake::{Fake, Faker};
-    use item_watchlist::service::MockItemWatchListService;
+    use item::watchlist::service::item_watchlist_service::MockItemWatchListService;
     use lambda_runtime::LambdaEvent;
     use test_api::{ApiGatewayV2httpRequestProxy, extract_apigw_response_json_body};
     use time::{OffsetDateTime, format_description::well_known::Rfc3339};

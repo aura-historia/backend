@@ -4,6 +4,7 @@ version = "0.1.0"
 edition = "2024"
 
 [dependencies]
+item = { workspace = true }
 common = { workspace = true }
 pyo3 = { version = "0.27.1", features = ["auto-initialize"] }
 pyo3-ffi = { version = "0.27.0" }
@@ -15,9 +16,6 @@ aws-sdk-autoscaling = { workspace = true }
 aws-sdk-dynamodb = { workspace = true }
 aws-sdk-sqs = { workspace = true }
 opensearch = { workspace = true }
-item-core = { workspace = true }
-item-dynamodb = { workspace = true, features = ["repository"] }
-item-opensearch = { workspace = true }
 item-lambda-common = { workspace = true }
 tokio = { workspace = true, features = ["time", "macros", "rt-multi-thread"] }
 tracing-subscriber = { workspace = true, features = ["json", "time"] }
@@ -44,6 +42,6 @@ aws_lambda_events = { workspace = true, features = [
 
 [features]
 default = []
-test-data = ["fake", "common/test-data", "item-core/test-data", "item-dynamodb/test-data", "item-opensearch/test-data"]
+test-data = ["fake", "common/test-data", "item/test-data"]
 asg-scale-down = ["dep:nightly-enrichment-asg-scale-down"]
 asg-scale-up = ["dep:nightly-enrichment-asg-scale-up"]

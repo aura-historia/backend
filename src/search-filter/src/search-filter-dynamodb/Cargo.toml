@@ -4,9 +4,9 @@ version = "0.1.0"
 edition = "2024"
 
 [dependencies]
+item = { workspace = true }
 common = { workspace = true, features = ["dynamodb"] }
 search-filter-core = { workspace = true }
-item-dynamodb = { workspace = true }
 serde = { workspace = true }
 field = { workspace = true }
 time = { workspace = true, features = ["local-offset", "macros", "formatting"] }
@@ -21,11 +21,10 @@ fake = { workspace = true, optional = true }
 
 [dev-dependencies]
 search-filter-dynamodb = { workspace = true, features = ["test-data"] }
-item-dynamodb = { workspace = true, features = ["test-data"] }
 test-api = { workspace = true, features = ["dynamodb"] }
 serial_test = { workspace = true }
 rstest = { workspace = true }
 
 [features]
 default = []
-test-data = ["fake", "common/test-data", "search-filter-core/test-data", "item-dynamodb/test-data"]
+test-data = ["fake", "common/test-data", "search-filter-core/test-data", "item/test-data"]

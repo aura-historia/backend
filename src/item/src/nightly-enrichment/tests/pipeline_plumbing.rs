@@ -3,12 +3,12 @@ use aws_lambda_events::{
     eventbridge::EventBridgeEvent,
 };
 use common::{event::Event, event_id::EventId, item_id::ItemId};
+use item::opensearch::repository::{ItemOpenSearchRepository, ItemOpenSearchRepositoryImpl};
 use item_core::item_event::{ItemCreatedEventPayload, ItemEventPayload};
 use item_dynamodb::{
     item_event_record::ItemEventRecord,
     repository::{ItemDynamoDbRepository, ItemDynamoDbRepositoryImpl},
 };
-use item_opensearch::repository::{ItemOpenSearchRepository, ItemOpenSearchRepositoryImpl};
 use nightly_enrichment::pipeline::pipe::EnrichmentPipe;
 use nightly_enrichment::{
     embed::EmbeddingDelegateImpl,

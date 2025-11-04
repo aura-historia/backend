@@ -8,10 +8,10 @@ use common::{
     shop_id::ShopId,
 };
 use fake::{Fake, Faker};
-use item_core::item_event::{
+use item::core::item_event::{
     ItemEventPayload, ItemPriceChangeEventPayload, ItemStateChangeEventPayload,
 };
-use item_dynamodb::{
+use item::dynamodb::{
     item_record::ItemRecord,
     repository::{ItemDynamoDbRepository, ItemDynamoDbRepositoryImpl},
 };

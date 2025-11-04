@@ -5,11 +5,6 @@ edition = "2024"
 
 [dependencies]
 common = { workspace = true, features = ["api", "sqs"] }
-item-core = { workspace = true }
-item-data = { workspace = true }
-item-dynamodb = { workspace = true, features = ["repository"] }
-item-service = { workspace = true, features = ["dynamodb"] }
-item-watchlist = { workspace = true, features = ["api"] }
 user-dynamodb = { workspace = true }
 tracing = { workspace = true }
 serde = { workspace = true }
@@ -24,7 +19,6 @@ http = { workspace = true }
 
 [dev-dependencies]
 common = { workspace = true, features = ["test-data"] }
-item-watchlist = { workspace = true, features = ["test-data"] }
 test-api = { workspace = true, features = ["api-gateway", "dynamodb"] }
 serial_test = { workspace = true }
 rstest = { workspace = true }

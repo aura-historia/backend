@@ -7,7 +7,7 @@ use common::{
     language::{domain::Language, record::LanguageRecord},
     price::domain::MonetaryAmount,
 };
-use item_dynamodb::item_state_record::ItemStateRecord;
+use item::dynamodb::item_state_record::ItemStateRecord;
 use search_filter_core::search_filter_name::SearchFilterName;
 use search_filter_dynamodb::search_filter_record_update::SearchFilterRecordUpdate;
 use time::OffsetDateTime;

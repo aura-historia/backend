@@ -6,14 +6,14 @@ use common::{
     sort::{Sort, SortOrder},
 };
 use fake::{Fake, Faker};
-use item_core::sort_item_field::SortItemField;
-use item_data::{item_state_data::ItemStateData, put_data::PutItemData};
-use item_dynamodb::{
+use item::core::sort_item_field::SortItemField;
+use item::data::{item_state_data::ItemStateData, put_data::PutItemData};
+use item::dynamodb::{
     item_record::ItemRecord,
     item_state_record::ItemStateRecord,
     repository::{ItemDynamoDbRepository, ItemDynamoDbRepositoryImpl, mk_pk},
 };
-use item_opensearch::{
+use item::opensearch::{
     item_document::ItemDocument,
     repository::{ItemOpenSearchRepository, ItemOpenSearchRepositoryImpl},
 };

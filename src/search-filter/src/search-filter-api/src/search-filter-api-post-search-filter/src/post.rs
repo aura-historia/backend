@@ -28,7 +28,7 @@ mod faker {
 mod tests {
     use common::query::range_query::RangeQuery;
     use common::{currency::data::CurrencyData, language::data::LanguageData};
-    use item_data::item_state_data::ItemStateData;
+    use item::data::item_state_data::ItemStateData;
     use search_filter_data::search_filter_data::SearchFilterData;
     use serde_json::json;
     use std::collections::HashSet;

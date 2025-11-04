@@ -62,7 +62,7 @@ mod tests {
     };
     use common::query::range_query::RangeQuery;
     use common::{currency::data::CurrencyData, language::data::LanguageData, user_id::UserId};
-    use item_data::item_state_data::ItemStateData;
+    use item::data::item_state_data::ItemStateData;
     use search_filter_core::search_filter_id::SearchFilterId;
     use serde_json::json;
     use std::collections::HashSet;

@@ -6,10 +6,6 @@ edition = "2024"
 [dependencies]
 common = { workspace = true }
 mail-core = { workspace = true, features = ["queue"] }
-item-core = { workspace = true }
-item-dynamodb = { workspace = true, features = ["repository"] }
-item-watchlist = { workspace = true }
-item-service = { workspace = true }
 item-lambda-common = { workspace = true }
 user-core = { workspace = true }
 user-dynamodb = { workspace = true }
@@ -31,6 +27,5 @@ serde-email = { workspace = true }
 rstest = { workspace = true }
 serde_dynamo = { workspace = true }
 mail-core = { workspace = true, features = ["test-data"] }
-item-core = { workspace = true, features = ["test-data"] }
 fake = { workspace = true }
 uuid = { workspace = true }

@@ -1,10 +1,10 @@
 use aws_config::BehaviorVersion;
 use aws_lambda_events::apigw::ApiGatewayV2httpRequest;
+use item::dynamodb::repository::ItemDynamoDbRepositoryImpl;
+use item::service::get_service::GetItemServiceImpl;
+use item::watchlist::dynamodb::repository::WatchlistItemDynamoDbRepositoryImpl;
+use item::watchlist::service::item_watchlist_service::ItemWatchListServiceImpl;
 use item_api_watchlist_patch::handler;
-use item_dynamodb::repository::ItemDynamoDbRepositoryImpl;
-use item_service::get_service::GetItemServiceImpl;
-use item_watchlist::repository::WatchlistItemDynamoDbRepositoryImpl;
-use item_watchlist::service::ItemWatchListServiceImpl;
 use lambda_runtime::tracing::info;
 use lambda_runtime::{Error, LambdaEvent, run, service_fn};
 use user_dynamodb::repository::UserDynamoDbRepositoryImpl;

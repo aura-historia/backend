@@ -1,16 +1,16 @@
 use common::{pagination::cursor::api::TimeCursoredData, user_id::UserId};
 use fake::{Fake, Faker};
-use item_api_watchlist_get::{WatchlistItemDataView, handler};
-use item_dynamodb::{
+use item::dynamodb::{
     item_record::ItemRecord,
     repository::{ItemDynamoDbRepository, ItemDynamoDbRepositoryImpl},
 };
-use item_service::get_service::GetItemServiceImpl;
-use item_watchlist::{
-    record::{WatchlistItemRecord, mk_gsi1_pk, mk_gsi1_sk, mk_lsi1_sk, mk_pk, mk_sk},
-    repository::{WatchlistItemDynamoDbRepository, WatchlistItemDynamoDbRepositoryImpl},
-    service::ItemWatchListServiceImpl,
+use item::service::get_service::GetItemServiceImpl;
+use item::watchlist::{
+    dynamodb::record::{WatchlistItemRecord, mk_gsi1_pk, mk_gsi1_sk, mk_lsi1_sk, mk_pk, mk_sk},
+    dynamodb::repository::{WatchlistItemDynamoDbRepository, WatchlistItemDynamoDbRepositoryImpl},
+    service::item_watchlist_service::ItemWatchListServiceImpl,
 };
+use item_api_watchlist_get::{WatchlistItemDataView, handler};
 use lambda_runtime::LambdaEvent;
 use test_api::*;
 use time::{OffsetDateTime, format_description::well_known::Rfc3339};
