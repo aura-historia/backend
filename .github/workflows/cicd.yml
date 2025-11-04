@@ -62,6 +62,7 @@ jobs:
     strategy:
       matrix:
         crate:
+          - src/cognito-post-confirmation
           - src/common
           - src/search-filter
           - src/search-filter-api
@@ -259,7 +260,7 @@ jobs:
           - src/item/src/nightly-enrichment/src/nightly-enrichment-asg-scale-up
           - src/shop-api/src/shop-api-search
           - src/shop-api/src/shop-api-get-shop
-          - src/user/src/cognito-post-confirmation
+          - src/cognito-post-confirmation
           - src/mail/src/mail-lambda-send
     steps:
       - uses: actions/checkout@v5

@@ -5,7 +5,7 @@ use cognito_post_confirmation::handler;
 use lambda_runtime::tracing::info;
 use lambda_runtime::{Error, LambdaEvent, run, service_fn};
 use user::dynamodb::repository::UserDynamoDbRepositoryImpl;
-use user_service::service::UserServiceImpl;
+use user::service::user_service::UserServiceImpl;
 
 #[tokio::main]
 async fn main() -> Result<(), Error> {

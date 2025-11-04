@@ -2,7 +2,7 @@ use aws_lambda_events::cognito::CognitoEventUserPoolsPostConfirmation;
 use common::user_id::UserId;
 use lambda_runtime::LambdaEvent;
 use serde_email::Email;
-use user_service::{command::CreateUserCommand, service::UserService};
+use user::service::{command::CreateUserCommand, user_service::UserService};
 
 #[tracing::instrument(
     skip(event, service),

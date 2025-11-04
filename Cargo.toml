@@ -5,6 +5,7 @@ edition = "2024"
 
 [dependencies]
 aws-tests = { workspace = true }
+cognito-post-confirmation = { workspace = true }
 common = { workspace = true }
 search-filter = { workspace = true }
 search-filter-api = { workspace = true }
@@ -20,6 +21,7 @@ mail = { workspace = true }
 [workspace]
 members = [
     "src/aws-tests",
+    "src/cognito-post-confirmation",
     "src/common",
     "src/search-filter",
     "src/search-filter-api",
@@ -134,7 +136,7 @@ proc-macro2 = "1.0.101"
 smoking-tests-macros = { path = "src/aws-tests/src/smoking-tests/src/smoking-tests-macros" }
 staging-tests-macros = { path = "src/aws-tests/src/staging-tests/src/staging-tests-macros" }
 user = { path = "src/user" }
-cognito-post-confirmation = { path = "src/user/src/cognito-post-confirmation" }
+cognito-post-confirmation = { path = "src/cognito-post-confirmation" }
 serde-email = "3.2.0"
 handlebars = "6.3.2"
 once_cell = "1.21.3"
