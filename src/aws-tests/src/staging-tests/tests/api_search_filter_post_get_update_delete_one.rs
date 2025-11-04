@@ -58,7 +58,7 @@ async fn should_create_and_get_and_delete_and_verify_not_exists() {
         .unwrap();
     assert_eq!(201, post_response.status());
     let posted = post_response.json::<UserSearchFilterData>().await.unwrap();
-    assert_eq!(&expected.search_filter_name, &posted.name);
+    assert_eq!(&expected.name, &posted.name);
     assert_eq!(&expected.search_filter, &posted.search);
     assert_eq!(user.sub.to_string(), posted.user_id.to_string());
 

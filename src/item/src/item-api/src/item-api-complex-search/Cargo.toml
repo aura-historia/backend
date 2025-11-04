@@ -22,5 +22,4 @@ rstest = { workspace = true }
 serial_test = { workspace = true }
 http = { workspace = true }
 fake = { workspace = true }
-search-filter-data = { workspace = true, features = ["test-data"] }
 time = { workspace = true }

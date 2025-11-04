@@ -5,7 +5,7 @@ use serde::{Deserialize, Serialize};
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct PostUserSearchFilterData {
-    pub search_filter_name: UserSearchFilterName,
+    pub name: UserSearchFilterName,
     pub search_filter: ItemSearchData,
 }
 
@@ -17,7 +17,7 @@ mod faker {
     impl Dummy<Faker> for PostUserSearchFilterData {
         fn dummy_with_rng<R: Rng + ?Sized>(config: &Faker, rng: &mut R) -> Self {
             PostUserSearchFilterData {
-                search_filter_name: config.fake_with_rng(rng),
+                name: config.fake_with_rng(rng),
                 search_filter: config.fake_with_rng(rng),
             }
         }
@@ -61,7 +61,7 @@ mod tests {
             }
         });
         let expected = PostUserSearchFilterData {
-            search_filter_name: "hugos filter for peppino".into(),
+            name: "hugos filter for peppino".into(),
             search_filter: ItemSearchData {
                 language: LanguageData::De,
                 currency: CurrencyData::Eur,

@@ -50,7 +50,7 @@ pub async fn handle(
     let user_search_filter_data: UserSearchFilterData = service
         .save_user_search_filter(
             &user_id,
-            user_search_filter_data.search_filter_name,
+            user_search_filter_data.name,
             user_search_filter_data.search_filter.into(),
         )
         .await?
