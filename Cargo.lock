@@ -796,6 +796,7 @@ dependencies = [
  "item-api",
  "item-lambda",
  "mail",
+ "mail-lambda-send",
  "search-filter",
  "search-filter-api",
  "shop",

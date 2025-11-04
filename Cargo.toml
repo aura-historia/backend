@@ -17,6 +17,7 @@ item-lambda = { workspace = true }
 test-api = { workspace = true }
 user = { workspace = true }
 mail = { workspace = true }
+mail-lambda-send = { workspace = true }
 
 [workspace]
 members = [
@@ -34,6 +35,7 @@ members = [
     "src/shop-api",
     "src/user",
     "src/mail",
+    "src/mail-lambda-send",
 ]
 
 [workspace.dependencies]
@@ -69,7 +71,7 @@ shop-api-get-shop = { path = "src/shop-api/src/shop-api-get-shop" }
 shop-api-search = { path = "src/shop-api/src/shop-api-search" }
 mail = { path = "src/mail" }
 mail-core = { path = "src/mail/src/mail-core" }
-mail-lambda-send = { path = "src/mail/src/mail-lambda-send" }
+mail-lambda-send = { path = "src/mail-lambda-send" }
 futures = { version = "0.3.31", default-features = false }
 hex = "0.4.3"
 http = "1.3.1"

@@ -75,6 +75,7 @@ jobs:
           - src/test-api
           - src/user
           - src/mail
+          - src/mail-lambda-send
     steps:
       - uses: actions/checkout@v5
 
@@ -261,7 +262,7 @@ jobs:
           - src/shop-api/src/shop-api-search
           - src/shop-api/src/shop-api-get-shop
           - src/cognito-post-confirmation
-          - src/mail/src/mail-lambda-send
+          - src/mail-lambda-send
     steps:
       - uses: actions/checkout@v5
 
