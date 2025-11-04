@@ -3,7 +3,7 @@ use fake::{Fake, Faker};
 use lambda_runtime::LambdaEvent;
 use search_filter::data::user_search_filter_data::UserSearchFilterData;
 use search_filter::dynamodb::repository::{
-    UserSearchFilterDynamoDbRepositoryImpl, UserSearchFilterDynamoDbRepository,
+    UserSearchFilterDynamoDbRepository, UserSearchFilterDynamoDbRepositoryImpl,
 };
 use search_filter::service::user_search_filter_service::UserSearchFilterServiceImpl;
 use search_filter_api_post_search_filter::{handler, post::PostUserSearchFilterData};

@@ -1,7 +1,7 @@
 use common::user_id::UserId;
 use fake::{Fake, Faker};
 use search_filter::dynamodb::repository::{
-    UserSearchFilterDynamoDbRepositoryImpl, UserSearchFilterDynamoDbRepository,
+    UserSearchFilterDynamoDbRepository, UserSearchFilterDynamoDbRepositoryImpl,
 };
 use search_filter::dynamodb::user_search_filter_record::UserSearchFilterRecord;
 use search_filter::dynamodb::user_search_filter_record::mk_pk;
