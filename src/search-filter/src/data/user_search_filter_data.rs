@@ -11,7 +11,7 @@ use time::OffsetDateTime;
 #[serde(rename_all = "camelCase")]
 pub struct UserSearchFilterData {
     pub user_id: UserId,
-    pub search_filter_id: UserSearchFilterId,
+    pub user_search_filter_id: UserSearchFilterId,
     pub name: UserSearchFilterName,
 
     pub search: ItemSearchData,
@@ -27,7 +27,7 @@ impl From<UserSearchFilter> for UserSearchFilterData {
     fn from(user_search_filter: UserSearchFilter) -> Self {
         UserSearchFilterData {
             user_id: user_search_filter.user_id,
-            search_filter_id: user_search_filter.user_search_filter_id,
+            user_search_filter_id: user_search_filter.user_search_filter_id,
             name: user_search_filter.name,
             search: user_search_filter.search.into(),
             created: user_search_filter.created,
@@ -45,7 +45,7 @@ mod faker {
         fn dummy_with_rng<R: Rng + ?Sized>(config: &Faker, rng: &mut R) -> Self {
             UserSearchFilterData {
                 user_id: config.fake_with_rng(rng),
-                search_filter_id: config.fake_with_rng(rng),
+                user_search_filter_id: config.fake_with_rng(rng),
                 name: config.fake_with_rng(rng),
                 search: config.fake_with_rng(rng),
                 created: OffsetDateTime::now_utc(),
@@ -73,7 +73,7 @@ mod tests {
         let search_filter_id = UserSearchFilterId::new();
         let user_search_filter = UserSearchFilterData {
             user_id,
-            search_filter_id,
+            user_search_filter_id: search_filter_id,
             name: "My Boop Filter".into(),
             search: ItemSearchData {
                 language: LanguageData::De,
@@ -99,7 +99,7 @@ mod tests {
         };
         let expected = json!({
             "userId": user_id.to_string(),
-            "searchFilterId": search_filter_id.to_string(),
+            "userSearchFilterId": search_filter_id.to_string(),
             "name": "My Boop Filter",
             "search": {
                 "language": "de",
@@ -135,7 +135,7 @@ mod tests {
         let search_filter_id = UserSearchFilterId::new();
         let json = json!({
             "userId": user_id.to_string(),
-            "searchFilterId": search_filter_id.to_string(),
+            "userSearchFilterId": search_filter_id.to_string(),
             "name": "My Boop Filter",
             "search": {
                 "language": "de",
@@ -161,7 +161,7 @@ mod tests {
         });
         let expected = UserSearchFilterData {
             user_id,
-            search_filter_id,
+            user_search_filter_id: search_filter_id,
             name: "My Boop Filter".into(),
             search: ItemSearchData {
                 language: LanguageData::De,

@@ -2,8 +2,8 @@ use std::sync::Arc;
 
 use crate::pipeline::pipe::{PipeItem, PipeItemSource, PipeItemUpdate};
 use common::item_id::ItemId;
-use item_core::item_event::{ItemEvent, ItemEventPayload};
-use item_dynamodb::item_event_record::ItemEventRecord;
+use item::core::item_event::{ItemEvent, ItemEventPayload};
+use item::dynamodb::item_event_record::ItemEventRecord;
 use item_lambda_common::extract_item_event_record;
 use tracing::{error, info};
 

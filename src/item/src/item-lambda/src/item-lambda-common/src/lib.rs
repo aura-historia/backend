@@ -1,5 +1,5 @@
 use aws_lambda_events::eventbridge::EventBridgeEvent;
-use item_dynamodb::item_event_record::ItemEventRecord;
+use item::dynamodb::item_event_record::ItemEventRecord;
 use tracing::{error, info};
 
 #[derive(Debug, Clone)]
@@ -88,7 +88,7 @@ mod tests {
         sqs::SqsMessage,
     };
     use fake::{Fake, Faker};
-    use item_dynamodb::item_event_record::ItemEventRecord;
+    use item::dynamodb::item_event_record::ItemEventRecord;
     use std::time::SystemTime;
     use uuid::Uuid;
 

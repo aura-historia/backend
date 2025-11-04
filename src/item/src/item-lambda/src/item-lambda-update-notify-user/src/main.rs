@@ -1,16 +1,16 @@
 use aws_config::BehaviorVersion;
 use aws_lambda_events::sqs::SqsEvent;
-use item_dynamodb::repository::ItemDynamoDbRepositoryImpl;
-use item_lambda_update_notify_user::{handler, service::ItemEventMailPayloadServiceImpl};
-use item_service::get_service::GetItemServiceImpl;
-use item_watchlist::{
+use item::dynamodb::repository::ItemDynamoDbRepositoryImpl;
+use item::service::get_service::GetItemServiceImpl;
+use item::watchlist::{
     repository::WatchlistItemDynamoDbRepositoryImpl, service::ItemWatchListServiceImpl,
 };
+use item_lambda_update_notify_user::{handler, service::ItemEventMailPayloadServiceImpl};
 use lambda_runtime::{Error, LambdaEvent, run, service_fn};
 use mail_core::queue_service::QueueMailServiceImpl;
 use serde_email::Email;
 use tracing::info;
-use user_dynamodb::repository::UserDynamoDbRepositoryImpl;
+use user::dynamodb::repository::UserDynamoDbRepositoryImpl;
 
 #[tokio::main]
 async fn main() -> Result<(), Error> {

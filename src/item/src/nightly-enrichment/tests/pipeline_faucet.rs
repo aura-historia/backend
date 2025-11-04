@@ -3,8 +3,8 @@ use aws_lambda_events::{
     eventbridge::EventBridgeEvent,
 };
 use common::{event::Event, event_id::EventId, item_id::ItemId};
-use item_core::item_event::{ItemCreatedEventPayload, ItemEventPayload};
-use item_dynamodb::item_event_record::ItemEventRecord;
+use item::core::item_event::{ItemCreatedEventPayload, ItemEventPayload};
+use item::dynamodb::item_event_record::ItemEventRecord;
 use nightly_enrichment::pipeline::faucet::{EnrichmentPipeFaucet, EnrichmentPipeFaucetImpl};
 use std::{sync::Arc, time::SystemTime};
 use test_api::*;

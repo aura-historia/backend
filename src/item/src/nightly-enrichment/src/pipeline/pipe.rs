@@ -1,9 +1,9 @@
 use std::collections::HashSet;
 
 use common::item_id::ItemId;
+use item::core::item_event::ItemCreatedEventPayload;
+use item::dynamodb::item_update_record::ItemRecordUpdate;
 use item::opensearch::item_update_document::ItemUpdateDocument;
-use item_core::item_event::ItemCreatedEventPayload;
-use item_dynamodb::item_update_record::ItemRecordUpdate;
 
 #[cfg_attr(feature = "test-data", derive(fake::Dummy))]
 #[derive(Debug, Clone)]

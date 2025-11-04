@@ -3,12 +3,12 @@ use common::{
     language::{data::LanguageData, domain::Language},
     price::domain::Price,
 };
-use item_core::{
+use item::core::{
     item::Item,
     item_event::{ItemCommonEventPayload, ItemEvent, ItemEventPayload},
 };
-use item_service::get_service::{GetItemError, GetItemService};
-use item_watchlist::service::{ItemWatchListService, WatchItemError};
+use item::service::get_service::{GetItemError, GetItemService};
+use item::watchlist::service::{ItemWatchListService, WatchItemError};
 use mail_core::{
     payload::MailPayload,
     template::{MailTemplate, MailTemplateType},

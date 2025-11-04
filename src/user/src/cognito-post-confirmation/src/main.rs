@@ -4,7 +4,7 @@ use aws_sdk_dynamodb::Client;
 use cognito_post_confirmation::handler;
 use lambda_runtime::tracing::info;
 use lambda_runtime::{Error, LambdaEvent, run, service_fn};
-use user_dynamodb::repository::UserDynamoDbRepositoryImpl;
+use user::dynamodb::repository::UserDynamoDbRepositoryImpl;
 use user_service::service::UserServiceImpl;
 
 #[tokio::main]

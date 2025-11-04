@@ -2,8 +2,8 @@ pub mod service;
 
 use crate::service::ItemEventMailPayloadService;
 use aws_lambda_events::sqs::{BatchItemFailure, SqsBatchResponse, SqsEvent};
-use item_core::item_event::ItemEvent;
-use item_dynamodb::item_event_record::ItemEventRecord;
+use item::core::item_event::ItemEvent;
+use item::dynamodb::item_event_record::ItemEventRecord;
 use item_lambda_common::extract_item_event_record;
 use lambda_runtime::LambdaEvent;
 use mail_core::{payload::MailPayload, queue_service::QueueMailService};
@@ -116,8 +116,8 @@ mod tests {
     use aws_lambda_events::sqs::{SqsEvent, SqsMessage};
     use aws_sdk_dynamodb::error::SdkError;
     use fake::{Fake, Faker};
-    use item_core::item_event::ItemEvent;
-    use item_dynamodb::item_event_record::ItemEventRecord;
+    use item::core::item_event::ItemEvent;
+    use item::dynamodb::item_event_record::ItemEventRecord;
     use lambda_runtime::{Context, LambdaEvent};
     use mail_core::payload::MailPayload;
     use mail_core::queue_service::MockQueueMailService;

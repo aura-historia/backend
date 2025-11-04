@@ -46,7 +46,7 @@ dynamodb = [
     "tracing",
     "field"
 ]
-opensearch = ["dep:opensearch", "tracing", "strum", "common/opensearch"]
+opensearch = ["dynamodb", "dep:opensearch", "tracing", "strum", "common/opensearch"]
 sqs = ["aws-sdk-sqs", "common/sqs"]
 service = ["itertools", "shop", "shop/dynamodb", "tokio", "tokio/time"]
 watchlist = ["dynamodb", "service", "user", "user/dynamodb"]

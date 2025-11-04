@@ -2,7 +2,7 @@ use aws_lambda_events::sqs::{BatchItemFailure, SqsBatchResponse, SqsEvent, SqsMe
 use common::batch::dynamodb::handle_dynamodb_batch_write_put_item_output;
 use common::item_id::ItemKey;
 use common::{batch::Batch, has_key::HasKey};
-use item_dynamodb::{item_event_record::ItemEventRecord, repository::ItemDynamoDbRepository};
+use item::dynamodb::{item_event_record::ItemEventRecord, repository::ItemDynamoDbRepository};
 use lambda_runtime::LambdaEvent;
 use std::collections::HashMap;
 use tracing::{error, info};
@@ -113,7 +113,7 @@ mod tests {
     };
     use common::has_key::HasKey;
     use fake::{Fake, Faker};
-    use item_dynamodb::{
+    use item::dynamodb::{
         item_event_record::ItemEventRecord, repository::MockItemDynamoDbRepository,
     };
     use lambda_runtime::{Context, LambdaEvent};

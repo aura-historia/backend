@@ -7,8 +7,11 @@ edition = "2024"
 aws-tests = { workspace = true }
 common = { workspace = true }
 search-filter = { workspace = true }
+search-filter-api = { workspace = true }
 shop = { workspace = true }
+shop-api = { workspace = true }
 item = { workspace = true }
+item-api = { workspace = true }
 test-api = { workspace = true }
 user = { workspace = true }
 mail = { workspace = true }
@@ -18,10 +21,13 @@ members = [
     "src/aws-tests",
     "src/common",
     "src/search-filter",
+    "src/search-filter-api",
     "src/shop",
     "src/item",
+    "src/item-api",
     "src/test-api",
     "src/shop",
+    "src/shop-api",
     "src/user",
     "src/mail",
 ]
@@ -47,16 +53,16 @@ derive_builder = "0.20.2"
 fake = { version = "4.4.0", features = ["derive", "time", "uuid", "url"] }
 field = "0.1.0"
 search-filter = { path = "src/search-filter" }
-search-filter-api = { path = "src/search-filter/src/search-filter-api" }
-search-filter-api-delete-search-filter = { path = "src/search-filter/src/search-filter-api/src/search-filter-api-delete-search-filter" }
-search-filter-api-get-search-filter = { path = "src/search-filter/src/search-filter-api/src/search-filter-api-get-search-filter" }
-search-filter-api-get-search-filters = { path = "src/search-filter/src/search-filter-api/src/search-filter-api-get-search-filters" }
-search-filter-api-patch-search-filter = { path = "src/search-filter/src/search-filter-api/src/search-filter-api-patch-search-filter" }
-search-filter-api-post-search-filter = { path = "src/search-filter/src/search-filter-api/src/search-filter-api-post-search-filter" }
+search-filter-api = { path = "src/search-filter-api" }
+search-filter-api-delete-search-filter = { path = "src/search-filter-api/src/search-filter-api-delete-search-filter" }
+search-filter-api-get-search-filter = { path = "src/search-filter-api/src/search-filter-api-get-search-filter" }
+search-filter-api-get-search-filters = { path = "src/search-filter-api/src/search-filter-api-get-search-filters" }
+search-filter-api-patch-search-filter = { path = "src/search-filter-api/src/search-filter-api-patch-search-filter" }
+search-filter-api-post-search-filter = { path = "src/search-filter-api/src/search-filter-api-post-search-filter" }
 shop = { path = "src/shop" }
-shop-api = { path = "src/shop/src/shop-api" }
-shop-api-get-shop = { path = "src/shop/src/shop-api/src/shop-api-get-shop" }
-shop-api-search = { path = "src/shop/src/shop-api/src/shop-api-search" }
+shop-api = { path = "src/shop-api" }
+shop-api-get-shop = { path = "src/shop-api/src/shop-api-get-shop" }
+shop-api-search = { path = "src/shop-api/src/shop-api-search" }
 mail = { path = "src/mail" }
 mail-core = { path = "src/mail/src/mail-core" }
 mail-lambda-send = { path = "src/mail/src/mail-lambda-send" }
@@ -65,14 +71,14 @@ hex = "0.4.3"
 http = "1.3.1"
 httpdate = "1.0.3"
 item = { path = "src/item" }
-item-api = { path = "src/item/src/item-api" }
-item-api-get-item = { path = "src/item/src/item-api/src/item-api-get-item" }
-item-api-put-items = { path = "src/item/src/item-api/src/item-api-put-items" }
-item-api-complex-search = { path = "src/item/src/item-api/src/item-api-complex-search" }
-item-api-watchlist-get = { path = "src/item/src/item-api/src/item-api-watchlist-get" }
-item-api-watchlist-patch = { path = "src/item/src/item-api/src/item-api-watchlist-patch" }
-item-api-watchlist-post = { path = "src/item/src/item-api/src/item-api-watchlist-post" }
-item-api-watchlist-delete = { path = "src/item/src/item-api/src/item-api-watchlist-delete" }
+item-api = { path = "src/item-api" }
+item-api-get-item = { path = "src/item-api/src/item-api-get-item" }
+item-api-put-items = { path = "src/item-api/src/item-api-put-items" }
+item-api-complex-search = { path = "src/item-api/src/item-api-complex-search" }
+item-api-watchlist-get = { path = "src/item-api/src/item-api-watchlist-get" }
+item-api-watchlist-patch = { path = "src/item-api/src/item-api-watchlist-patch" }
+item-api-watchlist-post = { path = "src/item-api/src/item-api-watchlist-post" }
+item-api-watchlist-delete = { path = "src/item-api/src/item-api-watchlist-delete" }
 item-lambda = { path = "src/item/src/item-lambda" }
 nightly-enrichment = { path = "src/item/src/nightly-enrichment" }
 item-lambda-common = { path = "src/item/src/item-lambda/src/item-lambda-common" }

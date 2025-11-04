@@ -1,0 +1,32 @@
+[package]
+name = "item-api-put-items"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+common = { workspace = true, features = ["api", "sqs"] }
+item = { workspace = true, features = ["data", "service", "opensearch", "sqs"] }
+shop = { workspace = true, features = ["dynamodb", "service"] }
+tracing = { workspace = true }
+serde = { workspace = true }
+tracing-subscriber = { workspace = true, features = ["json"] }
+tokio = { workspace = true, features = ["macros"] }
+aws_lambda_events = { workspace = true, features = ["apigw"] }
+lambda_runtime = { workspace = true }
+aws-config = { workspace = true }
+aws-sdk-dynamodb = { workspace = true }
+aws-sdk-sqs = { workspace = true }
+serde_json = { workspace = true }
+http = { workspace = true }
+url = { workspace = true }
+thiserror = { workspace = true }
+
+[dev-dependencies]
+test-api = { workspace = true, features = ["api-gateway", "dynamodb", "sqs"] }
+serial_test = { workspace = true }
+rstest = { workspace = true }
+time = { workspace = true }
+http = { workspace = true }
+url = { workspace = true }
+fake = { workspace = true }
+shop = { workspace = true, features = ["test-data"] }

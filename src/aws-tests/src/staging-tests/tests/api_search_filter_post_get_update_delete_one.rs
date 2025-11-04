@@ -66,7 +66,7 @@ async fn should_create_and_get_and_delete_and_verify_not_exists() {
     let get_url = format!(
         "{}/api/v1/me/search-filters/{}",
         get_cfn_output().api_gateway_endpoint_url,
-        posted.search_filter_id
+        posted.user_search_filter_id
     );
     let get_response = reqwest::Client::new()
         .get(get_url)
@@ -77,14 +77,14 @@ async fn should_create_and_get_and_delete_and_verify_not_exists() {
     assert_eq!(200, get_response.status());
     let gotten = get_response.json::<UserSearchFilterData>().await.unwrap();
     assert_eq!(&expected.search_filter, &gotten.search);
-    assert_eq!(posted.search_filter_id, gotten.search_filter_id);
+    assert_eq!(posted.user_search_filter_id, gotten.user_search_filter_id);
     assert_eq!(user.sub.to_string(), gotten.user_id.to_string());
 
     // Update gotten
     let patch_url = format!(
         "{}/api/v1/me/search-filters/{}",
         get_cfn_output().api_gateway_endpoint_url,
-        posted.search_filter_id
+        posted.user_search_filter_id
     );
     let patch = PatchUserSearchFilterData {
         name: None,
@@ -116,14 +116,14 @@ async fn should_create_and_get_and_delete_and_verify_not_exists() {
         &patch.search.unwrap().item_query.unwrap(),
         &patched.search.item_query
     );
-    assert_eq!(posted.search_filter_id, patched.search_filter_id);
+    assert_eq!(posted.user_search_filter_id, patched.user_search_filter_id);
     assert_eq!(user.sub.to_string(), patched.user_id.to_string());
 
     // Delete patched
     let get_url = format!(
         "{}/api/v1/me/search-filters/{}",
         get_cfn_output().api_gateway_endpoint_url,
-        patched.search_filter_id
+        patched.user_search_filter_id
     );
     let get_response = reqwest::Client::new()
         .delete(get_url)
@@ -137,7 +137,7 @@ async fn should_create_and_get_and_delete_and_verify_not_exists() {
     let get_url = format!(
         "{}/api/v1/me/search-filters/{}",
         get_cfn_output().api_gateway_endpoint_url,
-        posted.search_filter_id
+        posted.user_search_filter_id
     );
     let get_response = reqwest::Client::new()
         .get(get_url)

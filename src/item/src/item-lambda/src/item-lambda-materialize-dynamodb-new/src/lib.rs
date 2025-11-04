@@ -3,9 +3,9 @@ use common::item_id::ItemKey;
 use common::{
     batch::Batch, batch::dynamodb::handle_dynamodb_batch_write_put_item_output, has_key::HasKey,
 };
-use item_dynamodb::item_event_record::ItemEventRecord;
-use item_dynamodb::item_record::ItemRecord;
-use item_dynamodb::repository::ItemDynamoDbRepository;
+use item::dynamodb::item_event_record::ItemEventRecord;
+use item::dynamodb::item_record::ItemRecord;
+use item::dynamodb::repository::ItemDynamoDbRepository;
 use item_lambda_common::extract_item_event_record;
 use lambda_runtime::LambdaEvent;
 use std::collections::HashMap;
@@ -119,9 +119,9 @@ mod tests {
     use common::has_key::HasKey;
     use common::item_id::ItemKey;
     use fake::{Fake, Faker};
-    use item_core::item_event::{ItemCreatedEventPayload, ItemEventPayload};
-    use item_dynamodb::item_event_record::ItemEventRecord;
-    use item_dynamodb::repository::MockItemDynamoDbRepository;
+    use item::core::item_event::{ItemCreatedEventPayload, ItemEventPayload};
+    use item::dynamodb::item_event_record::ItemEventRecord;
+    use item::dynamodb::repository::MockItemDynamoDbRepository;
     use lambda_runtime::{Context, LambdaEvent};
     use std::collections::HashMap;
     use std::sync::{Arc, Mutex};

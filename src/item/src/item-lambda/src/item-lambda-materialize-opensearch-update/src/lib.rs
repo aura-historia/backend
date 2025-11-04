@@ -139,10 +139,10 @@ mod tests {
     use common::opensearch::bulk_response::{BulkError, BulkResponse};
     use fake::Fake;
     use fake::Faker;
+    use item::core::item_event::ItemEvent;
+    use item::core::item_event::{ItemCreatedEventPayload, ItemEventPayload};
+    use item::dynamodb::item_event_record::ItemEventRecord;
     use item::opensearch::repository::MockItemOpenSearchRepository;
-    use item_core::item_event::ItemEvent;
-    use item_core::item_event::{ItemCreatedEventPayload, ItemEventPayload};
-    use item_dynamodb::item_event_record::ItemEventRecord;
     use lambda_runtime::LambdaEvent;
     use std::collections::HashMap;
     use std::time::SystemTime;
