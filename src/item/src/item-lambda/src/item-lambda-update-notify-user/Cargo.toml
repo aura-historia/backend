@@ -7,8 +7,7 @@ edition = "2024"
 common = { workspace = true }
 mail-core = { workspace = true, features = ["queue"] }
 item-lambda-common = { workspace = true }
-user-core = { workspace = true }
-user-dynamodb = { workspace = true }
+user = { workspace = true, features = ["dynamodb"] }
 lambda_runtime = { workspace = true }
 aws-config = { workspace = true }
 aws-sdk-sqs = { workspace = true }

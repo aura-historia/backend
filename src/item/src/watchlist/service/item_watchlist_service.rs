@@ -24,8 +24,8 @@ use common::{
 };
 use std::collections::HashMap;
 use time::OffsetDateTime;
-use user_core::user::User;
-use user_dynamodb::repository::UserDynamoDbRepository;
+use user::core::user::User;
+use user::dynamodb::repository::UserDynamoDbRepository;
 
 #[derive(thiserror::Error, Debug)]
 #[allow(clippy::large_enum_variant)]
@@ -455,7 +455,7 @@ mod tests {
         };
         use common::{shop_id::ShopId, shops_item_id::ShopsItemId, user_id::UserId};
         use fake::{Fake, Faker};
-        use user_dynamodb::repository::MockUserDynamoDbRepository;
+        use user::dynamodb::repository::MockUserDynamoDbRepository;
 
         #[tokio::test]
         async fn should_err_watchlist_timestamp_not_found_when_no_watched_item_with_timestamp_exists()
@@ -560,7 +560,7 @@ mod tests {
         };
         use common::{shop_id::ShopId, shops_item_id::ShopsItemId};
         use fake::{Fake, Faker};
-        use user_dynamodb::repository::MockUserDynamoDbRepository;
+        use user::dynamodb::repository::MockUserDynamoDbRepository;
 
         #[tokio::test]
         async fn should_watch_when_success() {
@@ -788,7 +788,7 @@ mod tests {
         };
         use common::{shop_id::ShopId, shops_item_id::ShopsItemId, user_id::UserId};
         use fake::{Fake, Faker};
-        use user_dynamodb::repository::MockUserDynamoDbRepository;
+        use user::dynamodb::repository::MockUserDynamoDbRepository;
 
         #[tokio::test]
         async fn should_unwatch_when_success() {
@@ -967,7 +967,7 @@ mod tests {
         };
         use common::{shop_id::ShopId, shops_item_id::ShopsItemId, user_id::UserId};
         use fake::{Fake, Faker};
-        use user_dynamodb::repository::MockUserDynamoDbRepository;
+        use user::dynamodb::repository::MockUserDynamoDbRepository;
 
         #[tokio::test]
         async fn should_toggle_notifications_when_success() {
@@ -1184,7 +1184,7 @@ mod tests {
         };
         use common::{currency::domain::Currency, language::domain::Language};
         use fake::{Fake, Faker};
-        use user_dynamodb::repository::MockUserDynamoDbRepository;
+        use user::dynamodb::repository::MockUserDynamoDbRepository;
 
         #[tokio::test]
         #[rstest::rstest]

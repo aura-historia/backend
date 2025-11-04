@@ -6,7 +6,7 @@ edition = "2024"
 [dependencies]
 common = { workspace = true, features = ["api", "sqs"] }
 item = { workspace = true, features = ["watchlist", "data", "service"] }
-user-dynamodb = { workspace = true }
+user = { workspace = true, features = ["dynamodb"] }
 tracing = { workspace = true }
 serde = { workspace = true }
 tracing-subscriber = { workspace = true, features = ["json"] }

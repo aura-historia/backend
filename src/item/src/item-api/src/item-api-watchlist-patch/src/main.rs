@@ -7,7 +7,7 @@ use item::watchlist::service::item_watchlist_service::ItemWatchListServiceImpl;
 use item_api_watchlist_patch::handler;
 use lambda_runtime::tracing::info;
 use lambda_runtime::{Error, LambdaEvent, run, service_fn};
-use user_dynamodb::repository::UserDynamoDbRepositoryImpl;
+use user::dynamodb::repository::UserDynamoDbRepositoryImpl;
 
 #[tokio::main]
 async fn main() -> Result<(), Error> {

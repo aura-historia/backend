@@ -2,7 +2,7 @@ use crate::watchlist::core::watchlist_item::WatchlistItem;
 use common::{item_id::ItemId, shop_id::ShopId, shops_item_id::ShopsItemId, user_id::UserId};
 use serde::{Deserialize, Serialize};
 use time::{OffsetDateTime, error::Format, format_description::well_known::Rfc3339};
-use user_dynamodb::user_record::UserRecord;
+use user::dynamodb::user_record::UserRecord;
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct WatchlistItemRecord {
@@ -77,7 +77,7 @@ impl From<WatchlistItemRecord> for WatchlistItem {
 mod faker {
     use super::*;
     use fake::{Dummy, Fake, Faker, Rng, faker::internet::de_de::SafeEmail};
-    use user_dynamodb::user_record;
+    use user::dynamodb::user_record;
 
     impl Dummy<Faker> for WatchlistItemRecord {
         fn dummy_with_rng<R: Rng + ?Sized>(config: &Faker, rng: &mut R) -> Self {

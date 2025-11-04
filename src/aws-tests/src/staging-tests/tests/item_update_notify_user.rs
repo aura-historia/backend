@@ -19,7 +19,7 @@ use staging_tests::{
     create_test_user, get_dynamodb_client, get_test_mail, staging_test, wait_for_email,
 };
 use time::macros::date;
-use user_dynamodb::repository::{UserDynamoDbRepository, UserDynamoDbRepositoryImpl};
+use user::dynamodb::repository::{UserDynamoDbRepository, UserDynamoDbRepositoryImpl};
 
 async fn prepare_test_shop() -> Shop {
     let stack = get_cfn_output();

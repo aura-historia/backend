@@ -137,7 +137,7 @@ jobs:
           - src/shop/src/shop-dynamodb
           - src/shop/src/shop-opensearch
           - src/test-api
-          - src/user/src/user-dynamodb
+          - src/user/src/user
           - src/mail/src/mail-core
     steps:
       - uses: actions/checkout@v5

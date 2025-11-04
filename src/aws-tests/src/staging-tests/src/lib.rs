@@ -19,9 +19,9 @@ use time::macros::datetime;
 use time::{Date, OffsetDateTime};
 use tokio::sync::OnceCell;
 use tracing::{debug, info};
-use user_dynamodb::repository::UserDynamoDbRepositoryImpl;
-use user_service::command::CreateUserCommand;
-use user_service::service::{UserService, UserServiceImpl};
+use user::dynamodb::repository::UserDynamoDbRepositoryImpl;
+use user::service::command::CreateUserCommand;
+use user::service::user_service::{UserService, UserServiceImpl};
 use uuid::Uuid;
 
 static CONFIG: OnceCell<aws_config::SdkConfig> = OnceCell::const_new();

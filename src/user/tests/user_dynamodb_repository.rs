@@ -1,6 +1,6 @@
 use fake::{Fake, Faker};
 use test_api::*;
-use user_dynamodb::{
+use user::dynamodb::{
     repository::{UserDynamoDbRepository, UserDynamoDbRepositoryImpl},
     user_record::UserRecord,
 };

@@ -1,8 +1,8 @@
+use crate::core::user::User;
 use common::user_id::UserId;
 use serde::{Deserialize, Serialize};
 use serde_email::Email;
 use time::OffsetDateTime;
-use user_core::user::User;
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct UserRecord {
@@ -48,9 +48,9 @@ impl From<UserRecord> for User {
 
 #[cfg(feature = "test-data")]
 mod fake {
-    use crate::user_record::UserRecord;
+    use crate::core::user::User;
+    use crate::dynamodb::user_record::UserRecord;
     use fake::Fake;
-    use user_core::user::User;
 
     impl fake::Dummy<fake::Faker> for UserRecord {
         fn dummy_with_rng<R: fake::rand::Rng + ?Sized>(config: &fake::Faker, rng: &mut R) -> Self {

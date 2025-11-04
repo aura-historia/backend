@@ -1,4 +1,4 @@
-use crate::user_record::{UserRecord, mk_pk, mk_sk};
+use crate::dynamodb::user_record::{UserRecord, mk_pk, mk_sk};
 use aws_sdk_dynamodb::{
     Client,
     config::http::HttpResponse,

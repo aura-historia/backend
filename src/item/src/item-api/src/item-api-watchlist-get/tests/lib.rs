@@ -14,7 +14,7 @@ use item_api_watchlist_get::{WatchlistItemDataView, handler};
 use lambda_runtime::LambdaEvent;
 use test_api::*;
 use time::{OffsetDateTime, format_description::well_known::Rfc3339};
-use user_dynamodb::repository::UserDynamoDbRepositoryImpl;
+use user::dynamodb::repository::UserDynamoDbRepositoryImpl;
 
 #[localstack_test(services = [DynamoDB()])]
 async fn should_200_when_sort_created_asc() {

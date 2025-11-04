@@ -20,7 +20,7 @@ use common::{
 };
 use time::{OffsetDateTime, macros::datetime};
 use tracing::error;
-use user_dynamodb::user_record::UserRecord;
+use user::dynamodb::user_record::UserRecord;
 
 #[async_trait::async_trait]
 #[mockall::automock]
