@@ -1,3 +1,4 @@
+use crate::core::item_search::ItemSearch;
 use crate::core::sort_item_field::SortItemField;
 use crate::opensearch::item_document::ItemDocument;
 use crate::opensearch::item_state_document::ItemStateDocument;
@@ -11,7 +12,6 @@ use common::opensearch::{bulk_response::BulkResponse, search_response::SearchRes
 use common::pagination::cursor::Cursor;
 use common::sort::{Sort, SortOrder};
 use opensearch::{BulkOperation, BulkOperations, BulkParts, SearchParts};
-use search_filter_core::search_filter::SearchFilter;
 use serde::ser::Error;
 use serde_json::json;
 use std::collections::HashMap;
@@ -34,7 +34,7 @@ pub trait ItemOpenSearchRepository {
 
     async fn search_item_documents(
         &self,
-        search_filter: &SearchFilter,
+        search: &ItemSearch,
         sort: &Sort<SortItemField>,
         page: &Option<Cursor<serde_json::Value>>,
     ) -> Result<SearchResponse<ItemDocument>, opensearch::Error>;
@@ -114,21 +114,21 @@ impl<'a> ItemOpenSearchRepository for ItemOpenSearchRepositoryImpl<'a> {
 
     async fn search_item_documents(
         &self,
-        search_filter: &SearchFilter,
+        search: &ItemSearch,
         sort: &Sort<SortItemField>,
         cursor: &Option<Cursor<serde_json::Value>>,
     ) -> Result<SearchResponse<ItemDocument>, opensearch::Error> {
         let mut must = Vec::with_capacity(3);
         let mut filter = Vec::with_capacity(10);
 
-        let (title_field, description_field) = match search_filter.language {
+        let (title_field, description_field) = match search.language {
             Language::De => ("titleDe", "descriptionDe"),
             Language::En => ("titleEn", "descriptionEn"),
             _ => ("titleDe", "descriptionDe"),
         };
         must.push(json!({
             "multi_match": {
-                "query": search_filter.item_query.as_ref(),
+                "query": search.item_query.as_ref(),
                 "fields": [
                     format!("{title_field}^3"),
                     format!("{description_field}^1"),
@@ -138,7 +138,7 @@ impl<'a> ItemOpenSearchRepository for ItemOpenSearchRepositoryImpl<'a> {
             }
         }));
 
-        if let Some(shop_name_query) = &search_filter.shop_name_query {
+        if let Some(shop_name_query) = &search.shop_name_query {
             must.push(json!({
                 "match": {
                     "shopName": {
@@ -150,7 +150,7 @@ impl<'a> ItemOpenSearchRepository for ItemOpenSearchRepositoryImpl<'a> {
             }));
         }
 
-        match search_filter
+        match search
             .state_query
             .iter()
             .collect::<Vec<&ItemState>>()
@@ -171,7 +171,7 @@ impl<'a> ItemOpenSearchRepository for ItemOpenSearchRepositoryImpl<'a> {
             }
         }
 
-        let price_field = match search_filter.currency {
+        let price_field = match search.currency {
             Currency::Eur => "priceEur",
             Currency::Gbp => "priceGbp",
             Currency::Usd => "priceUsd",
@@ -179,24 +179,18 @@ impl<'a> ItemOpenSearchRepository for ItemOpenSearchRepositoryImpl<'a> {
             Currency::Cad => "priceCad",
             Currency::Nzd => "priceNzd",
         };
-        if let Some(min) = search_filter
-            .price_query
-            .and_then(|price_query| price_query.min)
-        {
+        if let Some(min) = search.price_query.and_then(|price_query| price_query.min) {
             filter.push(json!({
                 "range": { price_field: { "gte": min.deref() } }
             }));
         }
-        if let Some(max) = search_filter
-            .price_query
-            .and_then(|price_query| price_query.max)
-        {
+        if let Some(max) = search.price_query.and_then(|price_query| price_query.max) {
             filter.push(json!({
                 "range": { price_field: { "lte": max.deref() } }
             }));
         }
 
-        if let Some(min) = search_filter
+        if let Some(min) = search
             .created_query
             .and_then(|created_query| created_query.min)
         {
@@ -207,7 +201,7 @@ impl<'a> ItemOpenSearchRepository for ItemOpenSearchRepositoryImpl<'a> {
                 "range": { "created": { "gte": formatted_min } }
             }));
         }
-        if let Some(max) = search_filter
+        if let Some(max) = search
             .created_query
             .and_then(|created_query| created_query.max)
         {
@@ -219,7 +213,7 @@ impl<'a> ItemOpenSearchRepository for ItemOpenSearchRepositoryImpl<'a> {
             }));
         }
 
-        if let Some(min) = search_filter
+        if let Some(min) = search
             .updated_query
             .and_then(|updated_query| updated_query.min)
         {
@@ -230,7 +224,7 @@ impl<'a> ItemOpenSearchRepository for ItemOpenSearchRepositoryImpl<'a> {
                 "range": { "updated": { "gte": formatted_min } }
             }));
         }
-        if let Some(max) = search_filter
+        if let Some(max) = search
             .updated_query
             .and_then(|updated_query| updated_query.max)
         {

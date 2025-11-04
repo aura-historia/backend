@@ -1,9 +1,9 @@
-use crate::search_filter_data::SearchFilterData;
-use common::user_id::UserId;
-use search_filter_core::{
-    search_filter_id::SearchFilterId, search_filter_name::SearchFilterName,
-    user_search_filter::UserSearchFilter,
+use crate::core::{
+    user_search_filter::UserSearchFilter, user_search_filter_id::UserSearchFilterId,
+    user_search_filter_name::UserSearchFilterName,
 };
+use common::user_id::UserId;
+use item::data::item_search_data::ItemSearchData;
 use serde::{Deserialize, Serialize};
 use time::OffsetDateTime;
 
@@ -11,10 +11,10 @@ use time::OffsetDateTime;
 #[serde(rename_all = "camelCase")]
 pub struct UserSearchFilterData {
     pub user_id: UserId,
-    pub search_filter_id: SearchFilterId,
-    pub search_filter_name: SearchFilterName,
+    pub search_filter_id: UserSearchFilterId,
+    pub name: UserSearchFilterName,
 
-    pub search_filter: SearchFilterData,
+    pub search: ItemSearchData,
 
     #[serde(with = "time::serde::rfc3339")]
     pub created: OffsetDateTime,
@@ -27,9 +27,9 @@ impl From<UserSearchFilter> for UserSearchFilterData {
     fn from(user_search_filter: UserSearchFilter) -> Self {
         UserSearchFilterData {
             user_id: user_search_filter.user_id,
-            search_filter_id: user_search_filter.search_filter_id,
-            search_filter_name: user_search_filter.search_filter_name,
-            search_filter: user_search_filter.search_filter.into(),
+            search_filter_id: user_search_filter.user_search_filter_id,
+            name: user_search_filter.name,
+            search: user_search_filter.search.into(),
             created: user_search_filter.created,
             updated: user_search_filter.updated,
         }
@@ -46,8 +46,8 @@ mod faker {
             UserSearchFilterData {
                 user_id: config.fake_with_rng(rng),
                 search_filter_id: config.fake_with_rng(rng),
-                search_filter_name: config.fake_with_rng(rng),
-                search_filter: config.fake_with_rng(rng),
+                name: config.fake_with_rng(rng),
+                search: config.fake_with_rng(rng),
                 created: OffsetDateTime::now_utc(),
                 updated: OffsetDateTime::now_utc(),
             }
@@ -57,13 +57,12 @@ mod faker {
 
 #[cfg(test)]
 mod tests {
-    use crate::{
-        search_filter_data::SearchFilterData, user_search_filter_data::UserSearchFilterData,
-    };
+    use crate::core::user_search_filter_id::UserSearchFilterId;
+    use crate::data::user_search_filter_data::UserSearchFilterData;
     use common::query::range_query::RangeQuery;
     use common::{currency::data::CurrencyData, language::data::LanguageData, user_id::UserId};
+    use item::data::item_search_data::ItemSearchData;
     use item::data::item_state_data::ItemStateData;
-    use search_filter_core::search_filter_id::SearchFilterId;
     use serde_json::json;
     use std::collections::HashSet;
     use time::macros::datetime;
@@ -71,12 +70,12 @@ mod tests {
     #[test]
     fn should_serialize() {
         let user_id = UserId::new();
-        let search_filter_id = SearchFilterId::new();
+        let search_filter_id = UserSearchFilterId::new();
         let user_search_filter = UserSearchFilterData {
             user_id,
             search_filter_id,
-            search_filter_name: "My Boop Filter".into(),
-            search_filter: SearchFilterData {
+            name: "My Boop Filter".into(),
+            search: ItemSearchData {
                 language: LanguageData::De,
                 currency: CurrencyData::Eur,
                 item_query: "Boop".try_into().unwrap(),
@@ -133,7 +132,7 @@ mod tests {
     #[test]
     fn should_deserialize() {
         let user_id = UserId::new();
-        let search_filter_id = SearchFilterId::new();
+        let search_filter_id = UserSearchFilterId::new();
         let json = json!({
             "userId": user_id.to_string(),
             "searchFilterId": search_filter_id.to_string(),
@@ -163,8 +162,8 @@ mod tests {
         let expected = UserSearchFilterData {
             user_id,
             search_filter_id,
-            search_filter_name: "My Boop Filter".into(),
-            search_filter: SearchFilterData {
+            name: "My Boop Filter".into(),
+            search: ItemSearchData {
                 language: LanguageData::De,
                 currency: CurrencyData::Eur,
                 item_query: "Boop".try_into().unwrap(),

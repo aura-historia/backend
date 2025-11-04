@@ -1,32 +1,34 @@
 use common::query::range_query::RangeQuery;
 use common::user_id::UserId;
 use fake::{Fake, Faker};
+use item::core::item_search::ItemSearch;
 use lambda_runtime::LambdaEvent;
+use search_filter::data::user_search_filter_data::UserSearchFilterData;
+use search_filter::dynamodb::repository::UserSearchFilterDynamoDbRepositoryImpl;
+use search_filter::service::user_search_filter_service::{
+    UserSearchFilterService, UserSearchFilterServiceImpl,
+};
 use search_filter_api_patch_search_filter::{
     handler,
-    patch::{PatchSearchFilterData, PatchUserSearchFilterData},
+    patch::{PatchItemSearchData, PatchUserSearchFilterData},
 };
-use search_filter_core::search_filter::SearchFilter;
-use search_filter_data::user_search_filter_data::UserSearchFilterData;
-use search_filter_dynamodb::repository::SearchFilterDynamoDbRepositoryImpl;
-use search_filter_service::service::{SearchFilterService, SearchFilterServiceImpl};
 use test_api::*;
 
 #[localstack_test(services = [DynamoDB()])]
 async fn should_update_search_filter() {
     let repository =
-        SearchFilterDynamoDbRepositoryImpl::new(get_dynamodb_client().await, "table_1");
-    let service = SearchFilterServiceImpl::new(&repository);
+        UserSearchFilterDynamoDbRepositoryImpl::new(get_dynamodb_client().await, "table_1");
+    let service = UserSearchFilterServiceImpl::new(&repository);
 
     let user_id = UserId::new();
     let initial = service
-        .save_search_filter(&user_id, Faker.fake(), Faker.fake::<SearchFilter>())
+        .save_user_search_filter(&user_id, Faker.fake(), Faker.fake::<ItemSearch>())
         .await
         .unwrap();
 
     let patch = PatchUserSearchFilterData {
-        search_filter_name: Some("thorbens filter".into()),
-        search_filter: Some(PatchSearchFilterData {
+        name: Some("thorbens filter".into()),
+        search: Some(PatchItemSearchData {
             language: None,
             currency: None,
             item_query: None,
@@ -44,7 +46,7 @@ async fn should_update_search_filter() {
         payload: ApiGatewayV2httpRequestProxy::builder()
             .http_method(http::Method::PATCH)
             .jwt_claim("sub", user_id)
-            .path_parameter("searchFilterId", initial.search_filter_id)
+            .path_parameter("searchFilterId", initial.user_search_filter_id)
             .body_serde(&patch)
             .build(),
         context: Default::default(),
@@ -55,18 +57,13 @@ async fn should_update_search_filter() {
 
     let json = extract_apigw_response_json_body!(response);
     let actual: UserSearchFilterData = serde_json::from_value(json).unwrap();
-    assert_eq!(patch.search_filter_name.unwrap(), actual.search_filter_name);
+    assert_eq!(patch.name.unwrap(), actual.name);
     assert_eq!(
-        patch
-            .search_filter
-            .clone()
-            .unwrap()
-            .shop_name_query
-            .unwrap(),
-        actual.search_filter.shop_name_query.unwrap()
+        patch.search.clone().unwrap().shop_name_query.unwrap(),
+        actual.search.shop_name_query.unwrap()
     );
     assert_eq!(
-        patch.search_filter.clone().unwrap().price_query.unwrap(),
-        actual.search_filter.price_query.unwrap()
+        patch.search.clone().unwrap().price_query.unwrap(),
+        actual.search.price_query.unwrap()
     );
 }

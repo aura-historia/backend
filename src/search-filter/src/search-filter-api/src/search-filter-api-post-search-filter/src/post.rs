@@ -1,12 +1,12 @@
-use search_filter_core::search_filter_name::SearchFilterName;
-use search_filter_data::search_filter_data::SearchFilterData;
+use item::data::item_search_data::ItemSearchData;
+use search_filter::core::user_search_filter_name::UserSearchFilterName;
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct PostUserSearchFilterData {
-    pub search_filter_name: SearchFilterName,
-    pub search_filter: SearchFilterData,
+    pub search_filter_name: UserSearchFilterName,
+    pub search_filter: ItemSearchData,
 }
 
 #[cfg(feature = "test-data")]
@@ -28,8 +28,8 @@ mod faker {
 mod tests {
     use common::query::range_query::RangeQuery;
     use common::{currency::data::CurrencyData, language::data::LanguageData};
+    use item::data::item_search_data::ItemSearchData;
     use item::data::item_state_data::ItemStateData;
-    use search_filter_data::search_filter_data::SearchFilterData;
     use serde_json::json;
     use std::collections::HashSet;
     use time::macros::datetime;
@@ -62,7 +62,7 @@ mod tests {
         });
         let expected = PostUserSearchFilterData {
             search_filter_name: "hugos filter for peppino".into(),
-            search_filter: SearchFilterData {
+            search_filter: ItemSearchData {
                 language: LanguageData::De,
                 currency: CurrencyData::Eur,
                 item_query: "Boop".try_into().unwrap(),

@@ -23,7 +23,6 @@ aws-sdk-sqs = { workspace = true, optional = true }
 opensearch = { workspace = true, optional = true }
 serde_dynamo = { workspace = true, features = ["aws-sdk-dynamodb+1"], optional = true }
 itertools = { workspace = true, optional = true }
-search-filter-core = { workspace = true, optional = true }
 user = { workspace = true, optional = true, features = ["dynamodb"] }
 shop = { workspace = true, optional = true }
 strum = { workspace = true, optional = true }
@@ -49,7 +48,7 @@ dynamodb = [
 ]
 opensearch = ["dep:opensearch", "tracing", "strum", "common/opensearch"]
 sqs = ["aws-sdk-sqs", "common/sqs"]
-service = ["itertools", "search-filter-core", "shop", "shop/dynamodb", "tokio", "tokio/time"]
+service = ["itertools", "shop", "shop/dynamodb", "tokio", "tokio/time"]
 watchlist = ["dynamodb", "service", "user", "user/dynamodb"]
-test-data = ["fake", "common/test-data", "shop/test-data"]
+test-data = ["fake", "common/test-data", "shop/test-data", "user/test-data"]
 full = ["data", "dynamodb", "opensearch", "service", "watchlist", "sqs", "test-data"]

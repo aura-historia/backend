@@ -1,7 +1,6 @@
-use crate::{
-    search_filter_record::{SearchFilterRecord, mk_pk, mk_sk},
-    search_filter_record_update::SearchFilterRecordUpdate,
-};
+use crate::core::user_search_filter_id::UserSearchFilterId;
+use crate::dynamodb::user_search_filter_record::{UserSearchFilterRecord, mk_pk, mk_sk};
+use crate::dynamodb::user_search_filter_record_update::UserSearchFilterRecordUpdate;
 use aws_sdk_dynamodb::{
     Client,
     config::http::HttpResponse,
@@ -16,50 +15,49 @@ use aws_sdk_dynamodb::{
     types::{AttributeValue, ReturnValue},
 };
 use common::{dynamodb_update::DynamoDbUpdate, user_id::UserId};
-use search_filter_core::search_filter_id::SearchFilterId;
 use tracing::error;
 
 #[async_trait::async_trait]
 #[mockall::automock]
-pub trait SearchFilterDynamoDbRepository {
-    async fn query_search_filter_records(
+pub trait UserSearchFilterDynamoDbRepository {
+    async fn query_user_search_filter_records(
         &self,
         user_id: &UserId,
         scan_index_forward: bool,
-    ) -> Result<Vec<SearchFilterRecord>, SdkError<QueryError, HttpResponse>>;
+    ) -> Result<Vec<UserSearchFilterRecord>, SdkError<QueryError, HttpResponse>>;
 
-    async fn get_search_filter_record(
+    async fn get_user_search_filter_record(
         &self,
         user_id: &UserId,
-        search_filter_id: &SearchFilterId,
-    ) -> Result<Option<SearchFilterRecord>, SdkError<GetItemError, HttpResponse>>;
+        search_filter_id: &UserSearchFilterId,
+    ) -> Result<Option<UserSearchFilterRecord>, SdkError<GetItemError, HttpResponse>>;
 
-    async fn put_search_filter_record(
+    async fn put_user_search_filter_record(
         &self,
-        record: SearchFilterRecord,
+        record: UserSearchFilterRecord,
     ) -> Result<PutItemOutput, SdkError<PutItemError, HttpResponse>>;
 
-    async fn delete_search_filter_record(
+    async fn delete_user_search_filter_record(
         &self,
         user_id: &UserId,
-        search_filter_id: &SearchFilterId,
+        search_filter_id: &UserSearchFilterId,
     ) -> Result<DeleteItemOutput, SdkError<DeleteItemError, HttpResponse>>;
 
-    async fn update_search_filter_record(
+    async fn update_user_search_filter_record(
         &self,
         user_id: &UserId,
-        search_filter_id: &SearchFilterId,
-        search_filter_update: SearchFilterRecordUpdate,
-    ) -> Result<Option<SearchFilterRecord>, SdkError<UpdateItemError, HttpResponse>>;
+        search_filter_id: &UserSearchFilterId,
+        search_filter_update: UserSearchFilterRecordUpdate,
+    ) -> Result<Option<UserSearchFilterRecord>, SdkError<UpdateItemError, HttpResponse>>;
 }
 
 #[derive(Debug, Clone)]
-pub struct SearchFilterDynamoDbRepositoryImpl<'a> {
+pub struct UserSearchFilterDynamoDbRepositoryImpl<'a> {
     client: &'a Client,
     table: String,
 }
 
-impl<'a> SearchFilterDynamoDbRepositoryImpl<'a> {
+impl<'a> UserSearchFilterDynamoDbRepositoryImpl<'a> {
     pub fn new(client: &'a Client, table: impl Into<String>) -> Self {
         Self {
             client,
@@ -69,12 +67,12 @@ impl<'a> SearchFilterDynamoDbRepositoryImpl<'a> {
 }
 
 #[async_trait::async_trait]
-impl<'a> SearchFilterDynamoDbRepository for SearchFilterDynamoDbRepositoryImpl<'a> {
-    async fn query_search_filter_records(
+impl<'a> UserSearchFilterDynamoDbRepository for UserSearchFilterDynamoDbRepositoryImpl<'a> {
+    async fn query_user_search_filter_records(
         &self,
         user_id: &UserId,
         scan_index_forward: bool,
-    ) -> Result<Vec<SearchFilterRecord>, SdkError<QueryError, HttpResponse>> {
+    ) -> Result<Vec<UserSearchFilterRecord>, SdkError<QueryError, HttpResponse>> {
         let records = self.client
             .query()
             .table_name(&self.table)
@@ -93,11 +91,11 @@ impl<'a> SearchFilterDynamoDbRepository for SearchFilterDynamoDbRepositoryImpl<'
             .await?
             .into_iter()
             .flat_map(|qo| qo.items.unwrap_or_default())
-            .map(serde_dynamo::from_item::<_, SearchFilterRecord>)
+            .map(serde_dynamo::from_item::<_, UserSearchFilterRecord>)
             .filter_map(|result| match result {
                 Ok(search_filter_record) => Some(search_filter_record),
                 Err(err) => {
-                    error!(error = %err, type = %std::any::type_name::<SearchFilterRecord>(), "Failed deserializing SearchFilterRecord.");
+                    error!(error = %err, type = %std::any::type_name::<UserSearchFilterRecord>(), "Failed deserializing SearchFilterRecord.");
                     None
                 }
             })
@@ -105,11 +103,11 @@ impl<'a> SearchFilterDynamoDbRepository for SearchFilterDynamoDbRepositoryImpl<'
         Ok(records)
     }
 
-    async fn get_search_filter_record(
+    async fn get_user_search_filter_record(
         &self,
         user_id: &UserId,
-        search_filter_id: &SearchFilterId,
-    ) -> Result<Option<SearchFilterRecord>, SdkError<GetItemError, HttpResponse>> {
+        search_filter_id: &UserSearchFilterId,
+    ) -> Result<Option<UserSearchFilterRecord>, SdkError<GetItemError, HttpResponse>> {
         let record = self.client
             .get_item()
             .table_name(&self.table)
@@ -118,20 +116,20 @@ impl<'a> SearchFilterDynamoDbRepository for SearchFilterDynamoDbRepositoryImpl<'
             .send()
             .await?
             .item
-            .map(serde_dynamo::from_item::<_, SearchFilterRecord>)
+            .map(serde_dynamo::from_item::<_, UserSearchFilterRecord>)
             .and_then(|record_res| match record_res {
                 Ok(search_filter_record) => Some(search_filter_record),
                 Err(err) => {
-                    error!(error = %err, type = %std::any::type_name::<SearchFilterRecord>(), "Failed deserializing SearchFilterRecord.");
+                    error!(error = %err, type = %std::any::type_name::<UserSearchFilterRecord>(), "Failed deserializing SearchFilterRecord.");
                     None
                 }
             });
         Ok(record)
     }
 
-    async fn put_search_filter_record(
+    async fn put_user_search_filter_record(
         &self,
-        record: SearchFilterRecord,
+        record: UserSearchFilterRecord,
     ) -> Result<PutItemOutput, SdkError<PutItemError, HttpResponse>> {
         self.client
             .put_item()
@@ -143,10 +141,10 @@ impl<'a> SearchFilterDynamoDbRepository for SearchFilterDynamoDbRepositoryImpl<'
             .await
     }
 
-    async fn delete_search_filter_record(
+    async fn delete_user_search_filter_record(
         &self,
         user_id: &UserId,
-        search_filter_id: &SearchFilterId,
+        search_filter_id: &UserSearchFilterId,
     ) -> Result<DeleteItemOutput, SdkError<DeleteItemError, HttpResponse>> {
         self.client
             .delete_item()
@@ -157,12 +155,12 @@ impl<'a> SearchFilterDynamoDbRepository for SearchFilterDynamoDbRepositoryImpl<'
             .await
     }
 
-    async fn update_search_filter_record(
+    async fn update_user_search_filter_record(
         &self,
         user_id: &UserId,
-        search_filter_id: &SearchFilterId,
-        search_filter_update: SearchFilterRecordUpdate,
-    ) -> Result<Option<SearchFilterRecord>, SdkError<UpdateItemError, HttpResponse>> {
+        search_filter_id: &UserSearchFilterId,
+        search_filter_update: UserSearchFilterRecordUpdate,
+    ) -> Result<Option<UserSearchFilterRecord>, SdkError<UpdateItemError, HttpResponse>> {
         let pk = mk_pk(user_id);
         let sk = mk_sk(search_filter_id);
         let update_expr = search_filter_update.into_update_expr()?;
@@ -182,7 +180,7 @@ impl<'a> SearchFilterDynamoDbRepository for SearchFilterDynamoDbRepositoryImpl<'
             .map(|attr_opt| attr_opt.map(serde_dynamo::from_item).and_then(|record_res| match record_res {
                 Ok(search_filter_record) => Some(search_filter_record),
                 Err(err) => {
-                    error!(error = %err, type = %std::any::type_name::<SearchFilterRecord>(), "Failed deserializing SearchFilterRecord.");
+                    error!(error = %err, type = %std::any::type_name::<UserSearchFilterRecord>(), "Failed deserializing SearchFilterRecord.");
                     None
                 }
             }))

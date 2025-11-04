@@ -4,9 +4,9 @@ use std::ops::Deref;
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(into = "String", from = "String")]
-pub struct SearchFilterName(String);
+pub struct UserSearchFilterName(String);
 
-impl From<&str> for SearchFilterName {
+impl From<&str> for UserSearchFilterName {
     fn from(s: &str) -> Self {
         if s.len() > 255 {
             match s.split_at_checked(255) {
@@ -14,44 +14,44 @@ impl From<&str> for SearchFilterName {
                 None => Self(s.into()),
             }
         } else {
-            SearchFilterName(s.into())
+            UserSearchFilterName(s.into())
         }
     }
 }
 
-impl Display for SearchFilterName {
+impl Display for UserSearchFilterName {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "{}", self.0)
     }
 }
 
-impl From<String> for SearchFilterName {
+impl From<String> for UserSearchFilterName {
     fn from(s: String) -> Self {
         Self::from(s.as_str())
     }
 }
 
-impl From<SearchFilterName> for String {
-    fn from(t: SearchFilterName) -> Self {
+impl From<UserSearchFilterName> for String {
+    fn from(t: UserSearchFilterName) -> Self {
         t.0
     }
 }
 
-impl Deref for SearchFilterName {
+impl Deref for UserSearchFilterName {
     type Target = str;
     fn deref(&self) -> &str {
         &self.0
     }
 }
 
-impl AsRef<str> for SearchFilterName {
+impl AsRef<str> for UserSearchFilterName {
     fn as_ref(&self) -> &str {
         &self.0
     }
 }
 
 #[cfg(feature = "test-data")]
-impl fake::Dummy<fake::Faker> for SearchFilterName {
+impl fake::Dummy<fake::Faker> for UserSearchFilterName {
     fn dummy_with_rng<R: fake::rand::Rng + ?Sized>(_config: &fake::Faker, rng: &mut R) -> Self {
         use fake::Fake;
 
@@ -72,11 +72,11 @@ impl fake::Dummy<fake::Faker> for SearchFilterName {
 
 #[cfg(test)]
 mod tests {
-    use crate::search_filter_name::SearchFilterName;
+    use crate::core::user_search_filter_name::UserSearchFilterName;
     use fake::{Fake, Faker};
 
     #[test]
     fn should_fake_search_filter_name() {
-        let _ = Faker.fake::<SearchFilterName>();
+        let _ = Faker.fake::<UserSearchFilterName>();
     }
 }

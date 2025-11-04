@@ -1,3 +1,4 @@
+use crate::core::item_search::ItemSearch;
 use crate::core::sort_item_field::SortItemField;
 use crate::core::{description::Description, item::LocalizedItemView, title::Title};
 use crate::opensearch::repository::ItemOpenSearchRepository;
@@ -7,7 +8,6 @@ use common::pagination::cursor::{Cursor, CursoredResult};
 use common::price::domain::Price;
 use common::sort::{Sort, SortOrder};
 use common::{currency::domain::Currency, localized::Localized};
-use search_filter_core::search_filter::SearchFilter;
 use std::collections::HashMap;
 use tracing::{error, warn};
 
@@ -41,7 +41,7 @@ pub mod api {
 pub trait QueryItemService {
     async fn search_items(
         &self,
-        search_filter: &SearchFilter,
+        search: &ItemSearch,
         sort: &Option<Sort<SortItemField>>,
         page: &Option<Cursor<serde_json::Value>>,
     ) -> Result<CursoredResult<LocalizedItemView, serde_json::Value>, SearchItemsError>;
@@ -61,14 +61,14 @@ impl<'a> QueryItemServiceImpl<'a> {
 impl<'a> QueryItemService for QueryItemServiceImpl<'a> {
     async fn search_items(
         &self,
-        search_filter: &SearchFilter,
+        search: &ItemSearch,
         sort: &Option<Sort<SortItemField>>,
         page: &Option<Cursor<serde_json::Value>>,
     ) -> Result<CursoredResult<LocalizedItemView, serde_json::Value>, SearchItemsError> {
         let search_response = self
             .repository
             .search_item_documents(
-                search_filter,
+                search,
                 &sort.unwrap_or(Sort {
                     sort: SortItemField::Score,
                     order: SortOrder::Desc,
@@ -86,7 +86,7 @@ impl<'a> QueryItemService for QueryItemServiceImpl<'a> {
         };
         if search_response.timed_out {
             warn!(
-                searchFilter = ?search_filter,
+                searchFilter = ?search,
                 sort = ?sort,
                 page = ?page,
                 took = search_response.took,
@@ -112,7 +112,7 @@ impl<'a> QueryItemService for QueryItemServiceImpl<'a> {
                 available_descriptions.insert(Language::En, description_en.into());
             }
 
-            let title = Language::resolve(&[search_filter.language], available_titles).unwrap_or_else(|| {
+            let title = Language::resolve(&[search.language], available_titles).unwrap_or_else(|| {
                 error!(
                     shopId = %item_document.shop_id,
                     shopsItemId = %item_document.shops_item_id,
@@ -120,9 +120,9 @@ impl<'a> QueryItemService for QueryItemServiceImpl<'a> {
                 );
                 Localized::new(Language::En, "Unknown title".into())
             });
-            let description = Language::resolve(&[search_filter.language], available_descriptions);
+            let description = Language::resolve(&[search.language], available_descriptions);
 
-            let price = match search_filter.currency {
+            let price = match search.currency {
                 Currency::Eur => item_document
                     .price_eur
                     .map(|amount| Price::new(amount.into(), Currency::Eur)),
@@ -173,6 +173,7 @@ impl<'a> QueryItemService for QueryItemServiceImpl<'a> {
 
 #[cfg(test)]
 mod tests {
+    use crate::core::item_search::ItemSearch;
     use crate::core::sort_item_field::SortItemField;
     use crate::opensearch::{
         item_document::ItemDocument, repository::MockItemOpenSearchRepository,
@@ -190,7 +191,6 @@ mod tests {
         },
         sort::{Sort, SortOrder},
     };
-    use search_filter_core::search_filter::SearchFilter;
     use serde::ser::Error;
     use serde_json::json;
     use std::collections::HashSet;
@@ -229,7 +229,7 @@ mod tests {
     #[tokio::test]
     #[rstest::rstest]
     #[case(
-        SearchFilter {
+        ItemSearch {
             language: Language::De,
             currency: Currency::Eur,
             item_query: "Hallo Welt".try_into().unwrap(),
@@ -244,7 +244,7 @@ mod tests {
         100
     )]
     #[case(
-        SearchFilter {
+        ItemSearch {
             language: Language::En,
             currency: Currency::Usd,
             item_query: "Hallo Welt".try_into().unwrap(),
@@ -259,7 +259,7 @@ mod tests {
         500
     )]
     #[case(
-        SearchFilter {
+        ItemSearch {
             language: Language::En,
             currency: Currency::Gbp,
             item_query: "Hallo Welten!".try_into().unwrap(),
@@ -274,7 +274,7 @@ mod tests {
         1111
     )]
     #[case(
-        SearchFilter {
+        ItemSearch {
             language: Language::Fr,
             currency: Currency::Eur,
             item_query: "Hallo Welten!".try_into().unwrap(),
@@ -289,7 +289,7 @@ mod tests {
         123
     )]
     #[case(
-        SearchFilter {
+        ItemSearch {
             language: Language::Es,
             currency: Currency::Eur,
             item_query: "Hallo Welten!".try_into().unwrap(),
@@ -304,7 +304,7 @@ mod tests {
         1234
     )]
     async fn should_search_items(
-        #[case] search_filter: SearchFilter,
+        #[case] search: ItemSearch,
         #[case] sort: Option<Sort<SortItemField>>,
         #[case] page: Option<Cursor<serde_json::Value>>,
         #[case] count: usize,
@@ -317,10 +317,7 @@ mod tests {
             });
         let service = QueryItemServiceImpl::new(&repository);
 
-        let actual = service
-            .search_items(&search_filter, &sort, &page)
-            .await
-            .unwrap();
+        let actual = service.search_items(&search, &sort, &page).await.unwrap();
 
         assert_eq!(count, actual.items.len());
         assert_eq!(count, actual.total.unwrap() as usize);
@@ -342,7 +339,7 @@ mod tests {
 
         let actual = service
             .search_items(
-                &SearchFilter {
+                &ItemSearch {
                     language: Language::De,
                     currency: Currency::Cad,
                     item_query: "Hallo Welten!".try_into().unwrap(),
@@ -391,7 +388,7 @@ mod tests {
 
         let actual = service
             .search_items(
-                &SearchFilter {
+                &ItemSearch {
                     language: Language::De,
                     currency,
                     item_query: "Hallo Welten!".try_into().unwrap(),
@@ -442,7 +439,7 @@ mod tests {
 
         let actual = service
             .search_items(
-                &SearchFilter {
+                &ItemSearch {
                     language,
                     currency: Currency::Aud,
                     item_query: "Hallo Welten!".try_into().unwrap(),

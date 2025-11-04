@@ -1,3 +1,5 @@
+use crate::core::user_search_filter_name::UserSearchFilterName;
+use crate::dynamodb::user_search_filter_record_update::UserSearchFilterRecordUpdate;
 use common::query::any_of_query::AnyOfQuery;
 use common::query::range_query::RangeQuery;
 use common::query::text_query::TextQuery;
@@ -8,13 +10,11 @@ use common::{
     price::domain::MonetaryAmount,
 };
 use item::dynamodb::item_state_record::ItemStateRecord;
-use search_filter_core::search_filter_name::SearchFilterName;
-use search_filter_dynamodb::search_filter_record_update::SearchFilterRecordUpdate;
 use time::OffsetDateTime;
 
 #[derive(Debug, Clone, PartialEq)]
-pub struct SearchFilterUpdate {
-    pub search_filter_name: Option<SearchFilterName>,
+pub struct UserSearchFilterUpdate {
+    pub name: Option<UserSearchFilterName>,
     pub item_query: Option<TextQuery>,
     pub shop_name_query: Option<TextQuery>,
     pub price_query: Option<RangeQuery<MonetaryAmount>>,
@@ -26,10 +26,10 @@ pub struct SearchFilterUpdate {
     pub updated: OffsetDateTime,
 }
 
-impl SearchFilterUpdate {
+impl UserSearchFilterUpdate {
     pub fn is_empty(&self) -> bool {
-        let SearchFilterUpdate {
-            search_filter_name,
+        let UserSearchFilterUpdate {
+            name: search_filter_name,
             item_query,
             shop_name_query,
             price_query,
@@ -53,10 +53,10 @@ impl SearchFilterUpdate {
     }
 }
 
-impl From<SearchFilterUpdate> for SearchFilterRecordUpdate {
-    fn from(update: SearchFilterUpdate) -> Self {
-        SearchFilterRecordUpdate {
-            search_filter_name: update.search_filter_name,
+impl From<UserSearchFilterUpdate> for UserSearchFilterRecordUpdate {
+    fn from(update: UserSearchFilterUpdate) -> Self {
+        UserSearchFilterRecordUpdate {
+            name: update.name,
             item_query: update.item_query,
             shop_name_query: update.shop_name_query,
             price_query: update
@@ -76,15 +76,15 @@ impl From<SearchFilterUpdate> for SearchFilterRecordUpdate {
 
 #[cfg(feature = "test-data")]
 mod fake {
-    use crate::search_filter_update::SearchFilterUpdate;
+    use crate::service::user_search_filter_update::UserSearchFilterUpdate;
     use fake::{Dummy, Fake, Faker};
-    use search_filter_core::search_filter::faker::fake_range_query_datetime;
+    use item::core::item_search::faker::fake_range_query_datetime;
     use time::OffsetDateTime;
 
-    impl Dummy<Faker> for SearchFilterUpdate {
+    impl Dummy<Faker> for UserSearchFilterUpdate {
         fn dummy_with_rng<R: fake::Rng + ?Sized>(config: &Faker, rng: &mut R) -> Self {
-            SearchFilterUpdate {
-                search_filter_name: config.fake_with_rng(rng),
+            UserSearchFilterUpdate {
+                name: config.fake_with_rng(rng),
                 item_query: config.fake_with_rng(rng),
                 shop_name_query: config.fake_with_rng(rng),
                 price_query: config.fake_with_rng(rng),

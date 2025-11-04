@@ -1,5 +1,10 @@
-pub use search_filter_api;
-pub use search_filter_core;
-pub use search_filter_data;
-pub use search_filter_dynamodb;
-pub use search_filter_service;
+pub mod core;
+
+#[cfg(feature = "data")]
+pub mod data;
+
+#[cfg(feature = "dynamodb")]
+pub mod dynamodb;
+
+#[cfg(feature = "service")]
+pub mod service;

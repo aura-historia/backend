@@ -10,8 +10,8 @@ use common::{
     user_id::api::extract_user_id_cognito_jwt,
 };
 use lambda_runtime::LambdaEvent;
-use search_filter_data::user_search_filter_data::UserSearchFilterData;
-use search_filter_service::service::SearchFilterService;
+use search_filter::data::user_search_filter_data::UserSearchFilterData;
+use search_filter::service::user_search_filter_service::UserSearchFilterService;
 
 #[tracing::instrument(
     skip(event, service),
@@ -23,7 +23,7 @@ use search_filter_service::service::SearchFilterService;
 )]
 pub async fn handler(
     event: LambdaEvent<ApiGatewayV2httpRequest>,
-    service: &impl SearchFilterService,
+    service: &impl UserSearchFilterService,
 ) -> Result<ApiGatewayV2httpResponse, lambda_runtime::Error> {
     match handle(event, service).await {
         Ok(response) => Ok(response),
@@ -34,7 +34,7 @@ pub async fn handler(
 // POST /api/v1/me/search-filters
 pub async fn handle(
     event: LambdaEvent<ApiGatewayV2httpRequest>,
-    service: &impl SearchFilterService,
+    service: &impl UserSearchFilterService,
 ) -> Result<ApiGatewayV2httpResponse, ApiError> {
     let user_id = extract_user_id_cognito_jwt(&event.payload.request_context)?;
     let body = event
@@ -48,7 +48,7 @@ pub async fn handle(
         .map_err(|err| ApiError::bad_request(BAD_BODY_VALUE).with_message(err.to_string()))?;
 
     let user_search_filter_data: UserSearchFilterData = service
-        .save_search_filter(
+        .save_user_search_filter(
             &user_id,
             user_search_filter_data.search_filter_name,
             user_search_filter_data.search_filter.into(),
@@ -66,7 +66,7 @@ pub async fn handle(
             None => None,
         },
     };
-    let content_language = user_search_filter_data.search_filter.language;
+    let content_language = user_search_filter_data.search.language;
 
     Ok(ApiGatewayV2HttpResponseBuilder::json(201)
         .try_location(location.as_deref())
@@ -83,8 +83,8 @@ mod tests {
     use fake::{Fake, Faker};
     use http::header::LOCATION;
     use lambda_runtime::LambdaEvent;
-    use search_filter_core::user_search_filter::UserSearchFilter;
-    use search_filter_service::service::MockSearchFilterService;
+    use search_filter::core::user_search_filter::UserSearchFilter;
+    use search_filter::service::user_search_filter_service::MockUserSearchFilterService;
     use test_api::{ApiGatewayV2httpRequestProxy, extract_apigw_response_json_body};
 
     #[tokio::test]
@@ -101,10 +101,10 @@ mod tests {
         };
 
         let expected = Faker.fake::<UserSearchFilter>();
-        let expected_search_filter_id = expected.search_filter_id;
-        let mut service = MockSearchFilterService::default();
+        let expected_search_filter_id = expected.user_search_filter_id;
+        let mut service = MockUserSearchFilterService::default();
         service
-            .expect_save_search_filter()
+            .expect_save_user_search_filter()
             .return_once(move |_, _, _| Box::pin(async move { Ok(expected) }));
 
         let response = handler(lambda_event, &service).await.unwrap();
@@ -128,8 +128,8 @@ mod tests {
             context: Default::default(),
         };
 
-        let mut service = MockSearchFilterService::default();
-        service.expect_save_search_filter().never();
+        let mut service = MockUserSearchFilterService::default();
+        service.expect_save_user_search_filter().never();
 
         let response = handler(lambda_event, &service).await.unwrap();
         let json = extract_apigw_response_json_body!(response);
@@ -150,8 +150,8 @@ mod tests {
             context: Default::default(),
         };
 
-        let mut service = MockSearchFilterService::default();
-        service.expect_save_search_filter().never();
+        let mut service = MockUserSearchFilterService::default();
+        service.expect_save_user_search_filter().never();
 
         let response = handler(lambda_event, &service).await.unwrap();
         let json = extract_apigw_response_json_body!(response);

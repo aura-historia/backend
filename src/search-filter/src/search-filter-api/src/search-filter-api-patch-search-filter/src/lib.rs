@@ -11,10 +11,11 @@ use common::{
     user_id::api::extract_user_id_cognito_jwt,
 };
 use lambda_runtime::LambdaEvent;
-use search_filter_core::search_filter_id::SearchFilterId;
-use search_filter_data::user_search_filter_data::UserSearchFilterData;
-use search_filter_service::{
-    search_filter_update::SearchFilterUpdate, service::SearchFilterService,
+use search_filter::core::user_search_filter_id::UserSearchFilterId;
+use search_filter::data::user_search_filter_data::UserSearchFilterData;
+use search_filter::service::{
+    user_search_filter_service::UserSearchFilterService,
+    user_search_filter_update::UserSearchFilterUpdate,
 };
 
 #[tracing::instrument(
@@ -27,7 +28,7 @@ use search_filter_service::{
 )]
 pub async fn handler(
     event: LambdaEvent<ApiGatewayV2httpRequest>,
-    service: &impl SearchFilterService,
+    service: &impl UserSearchFilterService,
 ) -> Result<ApiGatewayV2httpResponse, lambda_runtime::Error> {
     match handle(event, service).await {
         Ok(response) => Ok(response),
@@ -38,7 +39,7 @@ pub async fn handler(
 // PATCH /api/v1/me/search-filters/{searchFilterId}
 pub async fn handle(
     event: LambdaEvent<ApiGatewayV2httpRequest>,
-    service: &impl SearchFilterService,
+    service: &impl UserSearchFilterService,
 ) -> Result<ApiGatewayV2httpResponse, ApiError> {
     let user_id = extract_user_id_cognito_jwt(&event.payload.request_context)?;
     let search_filter_id = event
@@ -47,7 +48,7 @@ pub async fn handle(
         .get("searchFilterId")
         .filter(|str| !str.is_empty())
         .map(String::as_str)
-        .map(SearchFilterId::try_from)
+        .map(UserSearchFilterId::try_from)
         .ok_or_else(|| {
             ApiError::bad_request(BAD_PATH_PARAMETER_VALUE).with_path_field("searchFilterId")
         })?
@@ -63,21 +64,21 @@ pub async fn handle(
             let patch: PatchUserSearchFilterData = serde_json::from_str(&body).map_err(|err| {
                 ApiError::bad_request(BAD_BODY_VALUE).with_message(err.to_string())
             })?;
-            let update: SearchFilterUpdate = patch.into();
+            let update: UserSearchFilterUpdate = patch.into();
             if update.is_empty() {
                 service
-                    .find_search_filter(&user_id, &search_filter_id)
+                    .find_user_search_filter(&user_id, &search_filter_id)
                     .await?
                     .into()
             } else {
                 service
-                    .update_search_filter(&user_id, &search_filter_id, update)
+                    .update_user_search_filter(&user_id, &search_filter_id, update)
                     .await?
                     .into()
             }
         }
         _ => service
-            .find_search_filter(&user_id, &search_filter_id)
+            .find_user_search_filter(&user_id, &search_filter_id)
             .await?
             .into(),
     };
@@ -94,8 +95,10 @@ mod tests {
     use common::user_id::UserId;
     use fake::{Fake, Faker};
     use lambda_runtime::LambdaEvent;
-    use search_filter_core::search_filter_id::SearchFilterId;
-    use search_filter_service::service::{MockSearchFilterService, SearchFilterError};
+    use search_filter::core::user_search_filter_id::UserSearchFilterId;
+    use search_filter::service::user_search_filter_service::{
+        MockUserSearchFilterService, UserSearchFilterError,
+    };
     use test_api::{ApiGatewayV2httpRequestProxy, extract_apigw_response_json_body};
 
     #[tokio::test]
@@ -103,19 +106,19 @@ mod tests {
         let lambda_event = LambdaEvent {
             payload: ApiGatewayV2httpRequestProxy::builder()
                 .http_method(http::Method::PATCH)
-                .path_parameter("searchFilterId", SearchFilterId::new())
+                .path_parameter("searchFilterId", UserSearchFilterId::new())
                 .body_serde(&PatchUserSearchFilterData {
-                    search_filter_name: Some("foo".into()),
-                    search_filter: None,
+                    name: Some("foo".into()),
+                    search: None,
                 })
                 .jwt_claim("sub", UserId::new())
                 .build(),
             context: Default::default(),
         };
 
-        let mut service = MockSearchFilterService::default();
+        let mut service = MockUserSearchFilterService::default();
         service
-            .expect_update_search_filter()
+            .expect_update_user_search_filter()
             .return_once(|_, _, _| Box::pin(async { Ok(Faker.fake()) }));
 
         let response = handler(lambda_event, &service).await.unwrap();
@@ -128,16 +131,16 @@ mod tests {
         let lambda_event = LambdaEvent {
             payload: ApiGatewayV2httpRequestProxy::builder()
                 .http_method(http::Method::PATCH)
-                .path_parameter("searchFilterId", SearchFilterId::new())
+                .path_parameter("searchFilterId", UserSearchFilterId::new())
                 .jwt_claim("sub", UserId::new())
                 .build(),
             context: Default::default(),
         };
 
-        let mut service = MockSearchFilterService::default();
-        service.expect_update_search_filter().never();
+        let mut service = MockUserSearchFilterService::default();
+        service.expect_update_user_search_filter().never();
         service
-            .expect_find_search_filter()
+            .expect_find_user_search_filter()
             .return_once(|_, _| Box::pin(async { Ok(Faker.fake()) }));
 
         let response = handler(lambda_event, &service).await.unwrap();
@@ -150,17 +153,17 @@ mod tests {
         let lambda_event = LambdaEvent {
             payload: ApiGatewayV2httpRequestProxy::builder()
                 .http_method(http::Method::PATCH)
-                .path_parameter("searchFilterId", SearchFilterId::new())
+                .path_parameter("searchFilterId", UserSearchFilterId::new())
                 .body_serde(&PatchUserSearchFilterData::default())
                 .jwt_claim("sub", UserId::new())
                 .build(),
             context: Default::default(),
         };
 
-        let mut service = MockSearchFilterService::default();
-        service.expect_update_search_filter().never();
+        let mut service = MockUserSearchFilterService::default();
+        service.expect_update_user_search_filter().never();
         service
-            .expect_find_search_filter()
+            .expect_find_user_search_filter()
             .return_once(|_, _| Box::pin(async { Ok(Faker.fake()) }));
 
         let response = handler(lambda_event, &service).await.unwrap();
@@ -179,8 +182,8 @@ mod tests {
             context: Default::default(),
         };
 
-        let mut service = MockSearchFilterService::default();
-        service.expect_update_search_filter().never();
+        let mut service = MockUserSearchFilterService::default();
+        service.expect_update_user_search_filter().never();
 
         let response = handler(lambda_event, &service).await.unwrap();
         let json = extract_apigw_response_json_body!(response);
@@ -202,12 +205,12 @@ mod tests {
             context: Default::default(),
         };
 
-        let mut service = MockSearchFilterService::default();
+        let mut service = MockUserSearchFilterService::default();
         service
-            .expect_update_search_filter()
+            .expect_update_user_search_filter()
             .return_once(|_, _, _| {
                 Box::pin(async {
-                    Err(SearchFilterError::SearchFilterNotFound(
+                    Err(UserSearchFilterError::UserSearchFilterNotFound(
                         Faker.fake(),
                         Faker.fake(),
                     ))
@@ -227,30 +230,32 @@ mod tests {
         let lambda_event = LambdaEvent {
             payload: ApiGatewayV2httpRequestProxy::builder()
                 .http_method(http::Method::PATCH)
-                .path_parameter("searchFilterId", SearchFilterId::new())
+                .path_parameter("searchFilterId", UserSearchFilterId::new())
                 .body_serde(&Faker.fake::<PatchUserSearchFilterData>())
                 .jwt_claim("sub", UserId::new())
                 .build(),
             context: Default::default(),
         };
 
-        let mut service = MockSearchFilterService::default();
-        service.expect_find_search_filter().returning(|_, _| {
+        let mut service = MockUserSearchFilterService::default();
+        service.expect_find_user_search_filter().returning(|_, _| {
             Box::pin(async {
-                Err(SearchFilterError::SearchFilterNotFound(
+                Err(UserSearchFilterError::UserSearchFilterNotFound(
                     Faker.fake(),
                     Faker.fake(),
                 ))
             })
         });
-        service.expect_update_search_filter().returning(|_, _, _| {
-            Box::pin(async {
-                Err(SearchFilterError::SearchFilterNotFound(
-                    Faker.fake(),
-                    Faker.fake(),
-                ))
-            })
-        });
+        service
+            .expect_update_user_search_filter()
+            .returning(|_, _, _| {
+                Box::pin(async {
+                    Err(UserSearchFilterError::UserSearchFilterNotFound(
+                        Faker.fake(),
+                        Faker.fake(),
+                    ))
+                })
+            });
 
         let response = handler(lambda_event, &service).await.unwrap();
         let json = extract_apigw_response_json_body!(response);

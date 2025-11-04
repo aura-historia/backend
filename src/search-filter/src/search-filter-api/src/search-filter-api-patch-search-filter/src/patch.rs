@@ -7,8 +7,8 @@ use common::{
     price::domain::MonetaryAmount,
 };
 use item::data::item_state_data::ItemStateData;
-use search_filter_core::search_filter_name::SearchFilterName;
-use search_filter_service::search_filter_update::SearchFilterUpdate;
+use search_filter::core::user_search_filter_name::UserSearchFilterName;
+use search_filter::service::user_search_filter_update::UserSearchFilterUpdate;
 use serde::{Deserialize, Serialize};
 use std::collections::HashSet;
 use time::OffsetDateTime;
@@ -18,15 +18,15 @@ use time::OffsetDateTime;
 #[serde(rename_all = "camelCase")]
 pub struct PatchUserSearchFilterData {
     #[serde(skip_serializing_if = "Option::is_none", default)]
-    pub search_filter_name: Option<SearchFilterName>,
+    pub name: Option<UserSearchFilterName>,
 
     #[serde(skip_serializing_if = "Option::is_none", default)]
-    pub search_filter: Option<PatchSearchFilterData>,
+    pub search: Option<PatchItemSearchData>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Default)]
 #[serde(rename_all = "camelCase")]
-pub struct PatchSearchFilterData {
+pub struct PatchItemSearchData {
     #[serde(skip_serializing_if = "Option::is_none", default)]
     pub language: Option<LanguageData>,
 
@@ -66,37 +66,34 @@ pub struct PatchSearchFilterData {
     pub updated_query: Option<RangeQuery<OffsetDateTime>>,
 }
 
-impl From<PatchUserSearchFilterData> for SearchFilterUpdate {
+impl From<PatchUserSearchFilterData> for UserSearchFilterUpdate {
     fn from(patch: PatchUserSearchFilterData) -> Self {
-        SearchFilterUpdate {
-            search_filter_name: patch.search_filter_name,
+        UserSearchFilterUpdate {
+            name: patch.name,
             language: patch
-                .search_filter
+                .search
                 .as_ref()
                 .and_then(|sf| sf.language.map(Language::from)),
             currency: patch
-                .search_filter
+                .search
                 .as_ref()
                 .and_then(|sf| sf.currency.map(Currency::from)),
-            item_query: patch
-                .search_filter
-                .as_ref()
-                .and_then(|sf| sf.item_query.clone()),
+            item_query: patch.search.as_ref().and_then(|sf| sf.item_query.clone()),
             shop_name_query: patch
-                .search_filter
+                .search
                 .as_ref()
                 .and_then(|sf| sf.shop_name_query.clone()),
             price_query: patch
-                .search_filter
+                .search
                 .as_ref()
                 .and_then(|sf| sf.price_query.map(|query| query.map(MonetaryAmount::from))),
-            state_query: patch.search_filter.as_ref().and_then(|sf| {
+            state_query: patch.search.as_ref().and_then(|sf| {
                 sf.state_query
                     .clone()
                     .map(|states| states.into_iter().map(ItemState::from).collect())
             }),
-            created_query: patch.search_filter.as_ref().and_then(|sf| sf.created_query),
-            updated_query: patch.search_filter.as_ref().and_then(|sf| sf.updated_query),
+            created_query: patch.search.as_ref().and_then(|sf| sf.created_query),
+            updated_query: patch.search.as_ref().and_then(|sf| sf.updated_query),
             updated: OffsetDateTime::now_utc(),
         }
     }
@@ -106,11 +103,11 @@ impl From<PatchUserSearchFilterData> for SearchFilterUpdate {
 mod faker {
     use super::*;
     use fake::{Dummy, Fake, Faker, Rng};
-    use search_filter_core::search_filter::faker::fake_range_query_datetime;
+    use item::core::item_search::faker::fake_range_query_datetime;
 
-    impl Dummy<Faker> for PatchSearchFilterData {
+    impl Dummy<Faker> for PatchItemSearchData {
         fn dummy_with_rng<R: Rng + ?Sized>(config: &Faker, rng: &mut R) -> Self {
-            PatchSearchFilterData {
+            PatchItemSearchData {
                 language: config.fake_with_rng(rng),
                 currency: config.fake_with_rng(rng),
                 item_query: config.fake_with_rng(rng),
@@ -126,7 +123,7 @@ mod faker {
 
 #[cfg(test)]
 mod tests {
-    use crate::patch::{PatchSearchFilterData, PatchUserSearchFilterData};
+    use crate::patch::{PatchItemSearchData, PatchUserSearchFilterData};
     use common::query::range_query::RangeQuery;
     use common::{currency::data::CurrencyData, language::data::LanguageData};
     use item::data::item_state_data::ItemStateData;
@@ -155,7 +152,7 @@ mod tests {
                 "max": "2025-05-04T00:00:00Z",
             }
         });
-        let expected = PatchSearchFilterData {
+        let expected = PatchItemSearchData {
             language: Some(LanguageData::De),
             currency: Some(CurrencyData::Eur),
             item_query: Some("Boop".try_into().unwrap()),
@@ -175,7 +172,7 @@ mod tests {
             }),
         };
 
-        let actual: PatchSearchFilterData = serde_json::from_value(json).unwrap();
+        let actual: PatchItemSearchData = serde_json::from_value(json).unwrap();
 
         assert_eq!(expected, actual);
     }
@@ -183,8 +180,8 @@ mod tests {
     #[test]
     fn should_deserialize_user_search_filter_patch() {
         let json = json!({
-            "searchFilterName": "hugos filter for peppino",
-            "searchFilter": {
+            "name": "hugos filter for peppino",
+            "search": {
                 "language": "de",
                 "currency": "EUR",
                 "itemQuery": "Boop",
@@ -205,8 +202,8 @@ mod tests {
             }
         });
         let expected = PatchUserSearchFilterData {
-            search_filter_name: Some("hugos filter for peppino".into()),
-            search_filter: Some(PatchSearchFilterData {
+            name: Some("hugos filter for peppino".into()),
+            search: Some(PatchItemSearchData {
                 language: Some(LanguageData::De),
                 currency: Some(CurrencyData::Eur),
                 item_query: Some("Boop".try_into().unwrap()),

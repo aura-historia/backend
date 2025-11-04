@@ -10,13 +10,13 @@ use common::query::range_query::RangeQuery;
 use common::shops_item_id::ShopsItemId;
 use common::sort::{Sort, SortOrder};
 use fake::rand;
+use item::core::item_search::ItemSearch;
 use item::core::sort_item_field::SortItemField;
 use item::opensearch::item_document::ItemDocument;
 use item::opensearch::item_state_document::ItemStateDocument;
 use item::opensearch::item_update_document::ItemUpdateDocument;
 use item::opensearch::repository::{ItemOpenSearchRepository, ItemOpenSearchRepositoryImpl};
 use opensearch::http::Url;
-use search_filter_core::search_filter::SearchFilter;
 use serde_json::json;
 use std::collections::HashMap;
 use std::collections::HashSet;
@@ -233,7 +233,7 @@ async fn should_search_item_documents() {
 
     tokio::time::sleep(Duration::from_millis(3000)).await;
 
-    let search_filter = SearchFilter {
+    let search_filter = ItemSearch {
         language: Language::De,
         currency: Currency::Eur,
         item_query: "Hallo Welt".try_into().unwrap(),
@@ -279,7 +279,7 @@ async fn should_search_item_documents_when_all_arguments_are_given() {
     refresh_index("items").await;
     tokio::time::sleep(Duration::from_millis(3000)).await;
 
-    let search_filter = SearchFilter {
+    let search_filter = ItemSearch {
         language: Language::De,
         currency: Currency::Eur,
         item_query: "Lorem".try_into().unwrap(),
@@ -340,7 +340,7 @@ async fn should_search_item_documents_when_states_are_given(#[case] states: &[It
     refresh_index("items").await;
     tokio::time::sleep(Duration::from_millis(3000)).await;
 
-    let search_filter = SearchFilter {
+    let search_filter = ItemSearch {
         language: Language::De,
         currency: Currency::Eur,
         item_query: "The same title".try_into().unwrap(),
@@ -391,7 +391,7 @@ async fn should_search_item_documents_when_no_states_are_given() {
     refresh_index("items").await;
     tokio::time::sleep(Duration::from_millis(3000)).await;
 
-    let search_filter = SearchFilter {
+    let search_filter = ItemSearch {
         language: Language::De,
         currency: Currency::Eur,
         item_query: "The same title".try_into().unwrap(),
@@ -456,7 +456,7 @@ async fn should_search_item_documents_when_price_range_is_given(
     refresh_index("items").await;
     tokio::time::sleep(Duration::from_millis(3000)).await;
 
-    let search_filter = SearchFilter {
+    let search_filter = ItemSearch {
         language: Language::De,
         currency: Currency::Eur,
         item_query: "The same title".try_into().unwrap(),
@@ -528,7 +528,7 @@ async fn should_search_item_documents_respecting_paging_when_sorted_by_price() {
     refresh_index("items").await;
     tokio::time::sleep(Duration::from_millis(3000)).await;
 
-    let search_filter = SearchFilter {
+    let search_filter = ItemSearch {
         language: Language::En,
         currency: Currency::Usd,
         item_query: "The same title".try_into().unwrap(),
@@ -604,7 +604,7 @@ async fn should_search_item_documents_respecting_search_after_when_sorted_by_pri
         ord => ord,
     };
     expected_items.sort_by(sorter);
-    let search_filter = SearchFilter {
+    let search_filter = ItemSearch {
         language: Language::En,
         currency: Currency::Usd,
         item_query: "The same title".try_into().unwrap(),

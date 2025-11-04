@@ -5,8 +5,7 @@ edition = "2024"
 
 [dependencies]
 common = { workspace = true, features = ["api"] }
-search-filter-core = { workspace = true }
-search-filter-data = { workspace = true }
+search-filter = { workspace = true, features = ["data"] }
 tracing = { workspace = true }
 tracing-subscriber = { workspace = true, features = ["json"] }
 tokio = { workspace = true, features = ["macros"] }

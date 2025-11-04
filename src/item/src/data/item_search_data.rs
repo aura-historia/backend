@@ -1,18 +1,17 @@
-use std::collections::HashSet;
-
+use crate::core::item_search::ItemSearch;
+use crate::data::item_state_data::ItemStateData;
 use common::query::range_query::RangeQuery;
 use common::query::text_query::TextQuery;
 use common::{
     currency::data::CurrencyData, item_state::domain::ItemState, language::data::LanguageData,
     price::domain::MonetaryAmount,
 };
-use item::data::item_state_data::ItemStateData;
-use search_filter_core::search_filter::SearchFilter;
 use serde::{Deserialize, Serialize};
+use std::collections::HashSet;
 use time::OffsetDateTime;
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct SearchFilterData {
+pub struct ItemSearchData {
     pub language: LanguageData,
 
     pub currency: CurrencyData,
@@ -50,9 +49,9 @@ pub struct SearchFilterData {
     pub updated_query: Option<RangeQuery<OffsetDateTime>>,
 }
 
-impl From<SearchFilter> for SearchFilterData {
-    fn from(search_filter: SearchFilter) -> Self {
-        SearchFilterData {
+impl From<ItemSearch> for ItemSearchData {
+    fn from(search_filter: ItemSearch) -> Self {
+        ItemSearchData {
             language: search_filter.language.into(),
             currency: search_filter.currency.into(),
             item_query: search_filter.item_query,
@@ -71,9 +70,9 @@ impl From<SearchFilter> for SearchFilterData {
     }
 }
 
-impl From<SearchFilterData> for SearchFilter {
-    fn from(data: SearchFilterData) -> Self {
-        SearchFilter {
+impl From<ItemSearchData> for ItemSearch {
+    fn from(data: ItemSearchData) -> Self {
+        ItemSearch {
             language: data.language.into(),
             currency: data.currency.into(),
             item_query: data.item_query,
@@ -91,12 +90,12 @@ impl From<SearchFilterData> for SearchFilter {
 #[cfg(feature = "test-data")]
 mod faker {
     use super::*;
+    use crate::core::item_search::faker::fake_range_query_datetime;
     use fake::{Dummy, Fake, Faker, Rng};
-    use search_filter_core::search_filter::faker::fake_range_query_datetime;
 
-    impl Dummy<Faker> for SearchFilterData {
+    impl Dummy<Faker> for ItemSearchData {
         fn dummy_with_rng<R: Rng + ?Sized>(config: &Faker, rng: &mut R) -> Self {
-            SearchFilterData {
+            ItemSearchData {
                 language: config.fake_with_rng(rng),
                 currency: config.fake_with_rng(rng),
                 item_query: config.fake_with_rng(rng),
@@ -114,17 +113,17 @@ mod faker {
 
 #[cfg(test)]
 mod tests {
-    use crate::search_filter_data::SearchFilterData;
+    use crate::data::item_search_data::ItemSearchData;
+    use crate::data::item_state_data::ItemStateData;
     use common::query::range_query::RangeQuery;
     use common::{currency::data::CurrencyData, language::data::LanguageData};
-    use item::data::item_state_data::ItemStateData;
     use serde_json::json;
     use std::collections::HashSet;
     use time::macros::datetime;
 
     #[test]
     fn should_serialize_full() {
-        let search_filter = SearchFilterData {
+        let search_filter = ItemSearchData {
             language: LanguageData::De,
             currency: CurrencyData::Eur,
             item_query: "Boop".try_into().unwrap(),
@@ -189,7 +188,7 @@ mod tests {
                 "max": "2025-05-04T00:00:00Z",
             }
         });
-        let expected = SearchFilterData {
+        let expected = ItemSearchData {
             language: LanguageData::De,
             currency: CurrencyData::Eur,
             item_query: "Boop".try_into().unwrap(),
@@ -209,14 +208,14 @@ mod tests {
             }),
         };
 
-        let actual: SearchFilterData = serde_json::from_value(json).unwrap();
+        let actual: ItemSearchData = serde_json::from_value(json).unwrap();
 
         assert_eq!(expected, actual);
     }
 
     #[test]
     fn should_serialize_minimal() {
-        let search_filter = SearchFilterData {
+        let search_filter = ItemSearchData {
             language: LanguageData::De,
             currency: CurrencyData::Eur,
             item_query: "Boop".try_into().unwrap(),
@@ -244,7 +243,7 @@ mod tests {
             "currency": "EUR",
             "itemQuery": "Boop",
         });
-        let expected = SearchFilterData {
+        let expected = ItemSearchData {
             language: LanguageData::De,
             currency: CurrencyData::Eur,
             item_query: "Boop".try_into().unwrap(),
@@ -255,7 +254,7 @@ mod tests {
             updated_query: None,
         };
 
-        let actual: SearchFilterData = serde_json::from_value(json).unwrap();
+        let actual: ItemSearchData = serde_json::from_value(json).unwrap();
 
         assert_eq!(expected, actual);
     }

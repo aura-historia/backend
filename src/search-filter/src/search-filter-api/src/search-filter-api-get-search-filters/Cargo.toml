@@ -5,10 +5,7 @@ edition = "2024"
 
 [dependencies]
 common = { workspace = true, features = ["api"] }
-search-filter-core = { workspace = true }
-search-filter-service = { workspace = true, features = ["api"] }
-search-filter-dynamodb = { workspace = true }
-search-filter-data = { workspace = true }
+search-filter = { workspace = true, features = ["data", "service", "dynamodb"] }
 tracing = { workspace = true }
 tracing-subscriber = { workspace = true, features = ["json"] }
 tokio = { workspace = true, features = ["macros"] }
@@ -26,6 +23,5 @@ rstest = { workspace = true }
 time = { workspace = true }
 http = { workspace = true }
 url = { workspace = true }
-search-filter-dynamodb = { workspace = true, features = ["test-data"] }
-search-filter-data = { workspace = true, features = ["test-data"] }
+search-filter = { workspace = true, features = ["test-data"] }
 fake = { workspace = true }

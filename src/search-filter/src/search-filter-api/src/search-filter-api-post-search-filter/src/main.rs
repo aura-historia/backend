@@ -3,9 +3,9 @@ use aws_lambda_events::apigw::ApiGatewayV2httpRequest;
 use aws_sdk_dynamodb::Client;
 use lambda_runtime::tracing::info;
 use lambda_runtime::{Error, LambdaEvent, run, service_fn};
+use search_filter::dynamodb::repository::UserSearchFilterDynamoDbRepositoryImpl;
+use search_filter::service::user_search_filter_service::UserSearchFilterServiceImpl;
 use search_filter_api_post_search_filter::handler;
-use search_filter_dynamodb::repository::SearchFilterDynamoDbRepositoryImpl;
-use search_filter_service::service::SearchFilterServiceImpl;
 
 #[tokio::main]
 async fn main() -> Result<(), Error> {
@@ -23,8 +23,8 @@ async fn main() -> Result<(), Error> {
 
     let table_name = std::env::var("DYNAMODB_TABLE_NAME")?;
     let client = Client::new(&aws_config);
-    let repository = SearchFilterDynamoDbRepositoryImpl::new(&client, &table_name);
-    let service = SearchFilterServiceImpl::new(&repository);
+    let repository = UserSearchFilterDynamoDbRepositoryImpl::new(&client, &table_name);
+    let service = UserSearchFilterServiceImpl::new(&repository);
 
     info!(
         dynamoDbTableName = %table_name,

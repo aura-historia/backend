@@ -5,6 +5,7 @@ use common::{
     shop_id::ShopId, shops_item_id::ShopsItemId,
 };
 use fake::{Fake, Faker};
+use item::data::item_search_data::ItemSearchData;
 use item::data::item_state_data::ItemStateData;
 use item::opensearch::{
     item_document::ItemDocument,
@@ -12,7 +13,6 @@ use item::opensearch::{
     repository::{ItemOpenSearchRepository, ItemOpenSearchRepositoryImpl},
 };
 use opensearch::{IndexParts, params::Refresh};
-use search_filter_data::search_filter_data::SearchFilterData;
 use staging_tests::{get_opensearch_client, staging_test};
 use std::{
     time::{Duration, SystemTime},
@@ -61,7 +61,7 @@ async fn should_respond_200_when_hits() {
         .unwrap();
     tokio::time::sleep(Duration::from_secs(3)).await;
 
-    let search_filter = SearchFilterData {
+    let search_filter = ItemSearchData {
         language: LanguageData::De,
         currency: CurrencyData::Eur,
         item_query: "Chopin Etudes Op.10".try_into().unwrap(),
@@ -112,7 +112,7 @@ async fn should_respond_200_when_no_hits() {
     );
     let response = reqwest::Client::new()
         .post(url)
-        .json(&Faker.fake::<SearchFilterData>())
+        .json(&Faker.fake::<ItemSearchData>())
         .send()
         .await
         .unwrap();
