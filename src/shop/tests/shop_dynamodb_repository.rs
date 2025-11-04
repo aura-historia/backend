@@ -1,8 +1,8 @@
 use aws_sdk_dynamodb::error::SdkError;
 use common::shop_id::{ShopId, ShopIdentifier};
 use fake::{Fake, Faker};
-use shop_core::shop::Shop;
-use shop_dynamodb::{
+use shop::core::shop::Shop;
+use shop::dynamodb::{
     repository::{ShopDynamoDbRepository, ShopDynamoDbRepositoryImpl},
     shop_record::ShopRecord,
 };

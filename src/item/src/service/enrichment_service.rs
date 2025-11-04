@@ -4,8 +4,8 @@ use common::{
     price::domain::{FxRate, MonetaryAmountOverflowError},
     shop_id::ShopIdentifier,
 };
-use shop_core::shop::Shop;
-use shop_dynamodb::repository::ShopDynamoDbRepository;
+use shop::core::shop::Shop;
+use shop::dynamodb::repository::ShopDynamoDbRepository;
 use std::collections::{HashMap, HashSet};
 use tracing::error;
 use url::Url;
@@ -227,8 +227,8 @@ mod tests {
         price::domain::FixedFxRate, shop_id::ShopIdentifier,
     };
     use fake::{Fake, Faker};
-    use shop_core::shop::Shop;
-    use shop_dynamodb::{repository::MockShopDynamoDbRepository, shop_record::ShopRecord};
+    use shop::core::shop::Shop;
+    use shop::dynamodb::{repository::MockShopDynamoDbRepository, shop_record::ShopRecord};
     use std::panic;
     use strum::EnumCount;
     use url::Url;

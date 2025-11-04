@@ -8,13 +8,14 @@ staging-tests-macros = { workspace = true }
 aws-tests-common = { workspace = true }
 tokio = { workspace = true, features = ["full"] }
 item = { workspace = true, features = ["full"] }
+shop = { workspace = true, features = ["full"] }
+user = { workspace = true, features = ["full"] }
 serde_json = { workspace = true }
 serde = { workspace = true }
 aws-config = { workspace = true }
 aws-sdk-dynamodb = { workspace = true }
 aws-sdk-sqs = { workspace = true }
 opensearch = { workspace = true }
-user = { workspace = true, features = ["dynamodb", "service"] }
 uuid = { workspace = true, features = ["v4"] }
 tracing-subscriber = { workspace = true, features = ["json"] }
 tracing = { workspace = true }
@@ -34,11 +35,6 @@ search-filter-core = { workspace = true, features = ["test-data"] }
 search-filter-data = { workspace = true, features = ["test-data"] }
 search-filter-api-patch-search-filter = { workspace = true, features = ["test-data"] }
 search-filter-api-post-search-filter = { workspace = true, features = ["test-data"] }
-shop-core = { workspace = true, features = ["test-data"] }
-shop-data = { workspace = true, features = ["test-data"] }
-shop-dynamodb = { workspace = true, features = ["test-data"] }
-shop-opensearch = { workspace = true, features = ["test-data"] }
-user = { workspace = true, features = ["test-data"] }
 url = { workspace = true }
 futures-util = { workspace = true }
 time = { workspace = true }

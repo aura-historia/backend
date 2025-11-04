@@ -1,5 +1,5 @@
+use crate::core::sort_shop_field::SortShopField;
 use serde::{Deserialize, Serialize};
-use shop_core::sort_shop_field::SortShopField;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
@@ -57,7 +57,7 @@ impl From<SortShopFieldData> for SortShopField {
 
 #[cfg(test)]
 mod tests {
-    use crate::sort_shop_field_data::SortShopFieldData;
+    use crate::data::sort_shop_field_data::SortShopFieldData;
 
     #[rstest::rstest]
     #[case(SortShopFieldData::Name)]

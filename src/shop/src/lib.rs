@@ -1,6 +1,13 @@
-pub use shop_api;
-pub use shop_core;
-pub use shop_data;
-pub use shop_dynamodb;
-pub use shop_opensearch;
-pub use shop_service;
+pub mod core;
+
+#[cfg(feature = "data")]
+pub mod data;
+
+#[cfg(feature = "dynamodb")]
+pub mod dynamodb;
+
+#[cfg(feature = "opensearch")]
+pub mod opensearch;
+
+#[cfg(feature = "service")]
+pub mod service;

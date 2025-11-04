@@ -10,8 +10,8 @@ use item::watchlist::{
     dynamodb::repository::{WatchlistItemDynamoDbRepository, WatchlistItemDynamoDbRepositoryImpl},
 };
 use item_api_watchlist_patch::WatchlistItemPatch;
-use shop_core::shop::Shop;
-use shop_dynamodb::{
+use shop::core::shop::Shop;
+use shop::dynamodb::{
     repository::{ShopDynamoDbRepository, ShopDynamoDbRepositoryImpl},
     shop_record::ShopRecord,
 };

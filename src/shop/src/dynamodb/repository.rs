@@ -1,4 +1,4 @@
-use crate::shop_record::{ShopRecord, mk_pk, mk_pk_as_shop_host, mk_pk_as_shop_id};
+use crate::dynamodb::shop_record::{ShopRecord, mk_pk, mk_pk_as_shop_host, mk_pk_as_shop_id};
 use aws_sdk_dynamodb::{
     Client,
     config::http::HttpResponse,
@@ -296,7 +296,7 @@ fn extract_shop_identifier(attr_map: HashMap<String, AttributeValue>) -> Option<
 
 #[cfg(test)]
 mod tests {
-    use crate::repository::extract_shop_identifier;
+    use crate::dynamodb::repository::extract_shop_identifier;
     use aws_sdk_dynamodb::types::AttributeValue;
     use common::shop_id::{ShopId, ShopIdentifier};
     use std::collections::HashMap;

@@ -1,9 +1,9 @@
+use crate::core::shop::Shop;
 use common::{
     shop_id::{ShopId, ShopIdentifier},
     shop_name::ShopName,
 };
 use serde::{Deserialize, Serialize};
-use shop_core::shop::Shop;
 use time::OffsetDateTime;
 use url::Url;
 
@@ -103,7 +103,7 @@ mod faker {
 
     #[cfg(test)]
     mod tests {
-        use crate::shop_record::ShopRecord;
+        use crate::dynamodb::shop_record::ShopRecord;
         use fake::{Fake, Faker};
 
         #[test]

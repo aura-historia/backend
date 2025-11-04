@@ -1,7 +1,7 @@
 use aws_tests_common::get_cfn_output;
 use common::shop_id::ShopId;
 use fake::{Fake, Faker};
-use shop_dynamodb::{
+use shop::dynamodb::{
     repository::{ShopDynamoDbRepository, ShopDynamoDbRepositoryImpl},
     shop_record::ShopRecord,
 };

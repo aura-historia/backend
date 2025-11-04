@@ -1,6 +1,6 @@
+use crate::core::shop::Shop;
 use common::{shop_id::ShopId, shop_name::ShopName};
 use serde::{Deserialize, Serialize};
-use shop_core::shop::Shop;
 use time::OffsetDateTime;
 use url::Url;
 
@@ -36,7 +36,7 @@ impl From<Shop> for GetShopData {
 
 #[cfg(test)]
 mod tests {
-    use crate::get_shop_data::GetShopData;
+    use crate::data::get_shop_data::GetShopData;
     use common::shop_id::ShopId;
     use serde_json::json;
     use time::macros::datetime;

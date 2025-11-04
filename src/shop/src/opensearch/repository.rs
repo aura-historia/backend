@@ -1,4 +1,5 @@
-use crate::{shop_document::ShopDocument, shop_search::ShopSearch};
+use crate::core::sort_shop_field::SortShopField;
+use crate::opensearch::{shop_document::ShopDocument, shop_search::ShopSearch};
 use common::{
     opensearch::{index_response::IndexResponse, search_response::SearchResponse},
     pagination::cursor::Cursor,
@@ -7,7 +8,6 @@ use common::{
 use opensearch::{IndexParts, SearchParts};
 use serde::ser::Error;
 use serde_json::json;
-use shop_core::sort_shop_field::SortShopField;
 use time::format_description::well_known;
 
 #[async_trait::async_trait]

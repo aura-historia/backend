@@ -1,3 +1,5 @@
+use crate::core::shop::Shop;
+use crate::dynamodb::repository::ShopDynamoDbRepository;
 use async_trait::async_trait;
 use aws_sdk_dynamodb::config::http::HttpResponse;
 use aws_sdk_dynamodb::error::SdkError;
@@ -5,8 +7,6 @@ use common::{
     batch::Batch,
     shop_id::{ShopId, ShopIdentifier},
 };
-use shop_core::shop::Shop;
-use shop_dynamodb::repository::ShopDynamoDbRepository;
 use tracing::error;
 
 #[derive(thiserror::Error, Debug)]
@@ -30,9 +30,9 @@ pub enum GetShopError {
     UnprocessedAfterMaxRetries(u32),
 }
 
-#[cfg(feature = "api")]
+#[cfg(feature = "data")]
 pub mod api {
-    use crate::get_service::GetShopError;
+    use crate::service::get_service::GetShopError;
     use common::api::error::ApiError;
     use common::api::error_code::{SHOP_NOT_FOUND, UNPROCESSED_AFTER_MAX_RETRIES};
     use tracing::error;
@@ -145,14 +145,14 @@ impl<'a> GetShopServiceImpl<'a> {
 
 #[cfg(test)]
 mod tests {
-    use crate::get_service::{GetShopError, GetShopService, GetShopServiceImpl};
+    use crate::dynamodb::repository::MockShopDynamoDbRepository;
+    use crate::service::get_service::{GetShopError, GetShopService, GetShopServiceImpl};
     use aws_sdk_dynamodb::{
         config::http::HttpResponse,
         error::{ConnectorError, SdkError},
     };
     use common::shop_id::ShopId;
     use fake::{Fake, Faker};
-    use shop_dynamodb::repository::MockShopDynamoDbRepository;
 
     #[tokio::test]
     async fn should_return_shop_when_exists() {

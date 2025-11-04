@@ -1,12 +1,12 @@
+use crate::core::shop::Shop;
+use crate::core::sort_shop_field::SortShopField;
+use crate::opensearch::repository::ShopOpenSearchRepository;
+use crate::opensearch::shop_search::ShopSearch;
 use async_trait::async_trait;
 use common::{
     pagination::cursor::{Cursor, CursoredResult},
     sort::{Sort, SortOrder},
 };
-use shop_core::shop::Shop;
-use shop_core::sort_shop_field::SortShopField;
-use shop_opensearch::repository::ShopOpenSearchRepository;
-use shop_opensearch::shop_search::ShopSearch;
 use tracing::{error, warn};
 
 #[derive(thiserror::Error, Debug)]
@@ -15,9 +15,9 @@ pub enum SearchShopsError {
     OpenSearchError(#[from] opensearch::Error),
 }
 
-#[cfg(feature = "api")]
+#[cfg(feature = "data")]
 pub mod api {
-    use crate::query_service::SearchShopsError;
+    use crate::service::query_service::SearchShopsError;
     use common::api::error::ApiError;
     use common::api::error_code::INTERNAL_SERVER_ERROR;
     use tracing::error;
@@ -112,7 +112,11 @@ impl<'a> QueryShopService for QueryShopServiceImpl<'a> {
 
 #[cfg(test)]
 mod tests {
-    use crate::query_service::{QueryShopService, QueryShopServiceImpl};
+    use crate::core::sort_shop_field::SortShopField;
+    use crate::opensearch::repository::MockShopOpenSearchRepository;
+    use crate::opensearch::shop_document::ShopDocument;
+    use crate::opensearch::shop_search::ShopSearch;
+    use crate::service::query_service::{QueryShopService, QueryShopServiceImpl};
     use common::pagination::cursor::Cursor;
     use common::query::range_query::RangeQuery;
     use common::shop_id::ShopId;
@@ -124,10 +128,6 @@ mod tests {
     };
     use serde::ser::Error;
     use serde_json::json;
-    use shop_core::sort_shop_field::SortShopField;
-    use shop_opensearch::repository::MockShopOpenSearchRepository;
-    use shop_opensearch::shop_document::ShopDocument;
-    use shop_opensearch::shop_search::ShopSearch;
     use time::macros::datetime;
 
     fn mk_search_response(shop_documents: Vec<ShopDocument>) -> SearchResponse<ShopDocument> {

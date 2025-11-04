@@ -61,7 +61,7 @@ mod faker {
 
     #[cfg(test)]
     mod tests {
-        use crate::shop_search_data::ShopSearchData;
+        use crate::data::shop_search_data::ShopSearchData;
         use fake::{Fake, Faker};
 
         #[test]
@@ -73,7 +73,7 @@ mod faker {
 
 #[cfg(test)]
 mod tests {
-    use crate::shop_search_data::ShopSearchData;
+    use crate::data::shop_search_data::ShopSearchData;
     use common::query::range_query::RangeQuery;
     use serde_json::json;
     use time::macros::datetime;

@@ -2,8 +2,8 @@ use common::pagination::cursor::Cursor;
 use common::sort::SortOrder;
 use common::{query::range_query::RangeQuery, sort::Sort};
 use fake::{Fake, Faker};
-use shop_core::sort_shop_field::SortShopField;
-use shop_opensearch::{
+use shop::core::sort_shop_field::SortShopField;
+use shop::opensearch::{
     repository::{ShopOpenSearchRepository, ShopOpenSearchRepositoryImpl},
     shop_document::ShopDocument,
     shop_search::ShopSearch,

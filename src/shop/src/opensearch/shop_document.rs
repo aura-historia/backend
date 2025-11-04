@@ -1,6 +1,6 @@
+use crate::core::shop::Shop;
 use common::{shop_id::ShopId, shop_name::ShopName};
 use serde::{Deserialize, Serialize};
-use shop_core::shop::Shop;
 use time::OffsetDateTime;
 use url::Url;
 
@@ -66,7 +66,7 @@ mod faker {
 
     #[cfg(test)]
     mod tests {
-        use crate::shop_document::ShopDocument;
+        use crate::opensearch::shop_document::ShopDocument;
         use fake::{Fake, Faker};
 
         #[test]

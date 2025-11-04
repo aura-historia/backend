@@ -20,8 +20,8 @@ use item::opensearch::{
 use opensearch::{GetParts, IndexParts, params::Refresh};
 use search_filter_core::search_filter::SearchFilter;
 use serde::de::DeserializeOwned;
-use shop_core::shop::Shop;
-use shop_dynamodb::{
+use shop::core::shop::Shop;
+use shop::dynamodb::{
     repository::{ShopDynamoDbRepository, ShopDynamoDbRepositoryImpl},
     shop_record::ShopRecord,
 };

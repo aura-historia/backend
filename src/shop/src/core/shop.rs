@@ -38,7 +38,7 @@ mod faker {
 
     #[cfg(test)]
     mod tests {
-        use crate::shop::Shop;
+        use crate::core::shop::Shop;
         use fake::{Fake, Faker};
 
         #[test]
