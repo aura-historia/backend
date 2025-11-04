@@ -8,14 +8,14 @@ use item::core::{
     item_event::{ItemCommonEventPayload, ItemEvent, ItemEventPayload},
 };
 use item::service::get_service::{GetItemError, GetItemService};
-use item::watchlist::service::{ItemWatchListService, WatchItemError};
+use item::watchlist::service::item_watchlist_service::{ItemWatchListService, WatchItemError};
 use mail_core::{
     payload::MailPayload,
     template::{MailTemplate, MailTemplateType},
 };
 use serde_email::Email;
 use serde_json::json;
-use user_core::user::User;
+use user::core::user::User;
 
 #[derive(Debug, thiserror::Error)]
 pub enum ItemEventMailPayloadServiceError {

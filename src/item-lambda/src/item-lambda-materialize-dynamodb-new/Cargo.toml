@@ -1,25 +1,32 @@
 [package]
-name = "item-lambda-materialize-opensearch-update"
+name = "item-lambda-materialize-dynamodb-new"
 version = "0.1.0"
 edition = "2024"
 
 [dependencies]
 common = { workspace = true }
+item = { workspace = true, features = ["dynamodb"] }
 item-lambda-common = { workspace = true }
 lambda_runtime = { workspace = true }
 aws-config = { workspace = true }
-aws_lambda_events = { workspace = true, features = ["sqs"] }
+aws-sdk-dynamodb = { workspace = true }
+aws_lambda_events = { workspace = true, features = [
+    "sqs",
+    "dynamodb",
+    "eventbridge",
+] }
 serde_json = { workspace = true }
+serde_dynamo = { workspace = true }
 tokio = { workspace = true, features = ["macros"] }
 tracing-subscriber = { workspace = true, features = ["json"] }
 tracing = { workspace = true }
-opensearch = { workspace = true }
-url = { workspace = true }
 
 [dev-dependencies]
+item = { workspace = true, features = ["test-data"] }
+test-api = { workspace = true, features = ["dynamodb"] }
+serial_test = { workspace = true }
 rstest = { workspace = true }
 url = { workspace = true }
 fake = { workspace = true }
 time = { workspace = true }
 uuid = { workspace = true }
-serde_dynamo = { workspace = true }

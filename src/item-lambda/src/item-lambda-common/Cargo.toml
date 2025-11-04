@@ -13,6 +13,7 @@ tracing = { workspace = true }
 aws-sdk-sqs = { workspace = true }
 serde_json = { workspace = true }
 serde_dynamo = { workspace = true }
+item = { workspace = true, features = ["dynamodb"] }
 
 [dev-dependencies]
 fake = { workspace = true }

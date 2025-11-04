@@ -68,6 +68,7 @@ jobs:
           - src/aws-tests
           - src/item
           - src/item-api
+          - src/item-lambda
           - src/shop
           - src/shop-api
           - src/test-api

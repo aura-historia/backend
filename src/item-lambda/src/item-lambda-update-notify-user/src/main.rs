@@ -3,7 +3,8 @@ use aws_lambda_events::sqs::SqsEvent;
 use item::dynamodb::repository::ItemDynamoDbRepositoryImpl;
 use item::service::get_service::GetItemServiceImpl;
 use item::watchlist::{
-    repository::WatchlistItemDynamoDbRepositoryImpl, service::ItemWatchListServiceImpl,
+    dynamodb::repository::WatchlistItemDynamoDbRepositoryImpl,
+    service::item_watchlist_service::ItemWatchListServiceImpl,
 };
 use item_lambda_update_notify_user::{handler, service::ItemEventMailPayloadServiceImpl};
 use lambda_runtime::{Error, LambdaEvent, run, service_fn};
