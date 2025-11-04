@@ -39,8 +39,8 @@ mod tests {
     #[test]
     fn should_deserialize_post_user_search_filter() {
         let json = json!({
-            "searchFilterName": "hugos filter for peppino",
-            "searchFilter": {
+            "name": "hugos filter for peppino",
+            "search": {
                 "language": "de",
                 "currency": "EUR",
                 "itemQuery": "Boop",

@@ -192,7 +192,7 @@ impl<'a> GetItemService for GetItemServiceImpl<'a> {
         // user_state: todo!(),
         // };
         // Ok(personalized_item_view)
-        todo!()
+        Ok(item_view)
     }
 
     async fn view_items(

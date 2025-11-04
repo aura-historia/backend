@@ -38,6 +38,6 @@ async fn should_return_actual_search_filter() {
     );
     assert_eq!(
         expected.search_filter.item_query.to_string(),
-        json["searchFilter"]["itemQuery"]
+        json["search"]["itemQuery"]
     );
 }

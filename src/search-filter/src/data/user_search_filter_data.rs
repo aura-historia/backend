@@ -100,8 +100,8 @@ mod tests {
         let expected = json!({
             "userId": user_id.to_string(),
             "searchFilterId": search_filter_id.to_string(),
-            "searchFilterName": "My Boop Filter",
-            "searchFilter": {
+            "name": "My Boop Filter",
+            "search": {
                 "language": "de",
                 "currency": "EUR",
                 "itemQuery": "Boop",
@@ -136,8 +136,8 @@ mod tests {
         let json = json!({
             "userId": user_id.to_string(),
             "searchFilterId": search_filter_id.to_string(),
-            "searchFilterName": "My Boop Filter",
-            "searchFilter": {
+            "name": "My Boop Filter",
+            "search": {
                 "language": "de",
                 "currency": "EUR",
                 "itemQuery": "Boop",
