@@ -62,6 +62,7 @@ jobs:
     strategy:
       matrix:
         crate:
+          - src/cognito
           - src/cognito-post-confirmation
           - src/common
           - src/search-filter
