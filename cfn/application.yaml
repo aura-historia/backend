@@ -593,6 +593,9 @@ Resources:
       Environment:
         Variables:
           DYNAMODB_TABLE_NAME: !Ref TableOne
+          USER_POOL_ID: !Ref BlitzfilterUserPool
+          USER_POOL_PUBLIC_CLIENT_ID: !Ref BlitzfilterUserPoolClientPublic
+          USER_POOL_ADMIN_CLIENT_ID: !Ref BlitzfilterUserPoolClientAdmin
   BlitzfilterApiGetItemLambdaPermission:
     Type: AWS::Lambda::Permission
     Properties:

@@ -1,4 +1,5 @@
 use common::{
+    cognito::MockCognitoService,
     currency::domain::Currency,
     event::Event,
     event_id::EventId,
@@ -6,25 +7,39 @@ use common::{
     price::domain::{FixedFxRate, FxRate, Price},
 };
 use fake::{Fake, Faker};
-use item::core::item_event::{
-    ItemEventPayload, ItemPriceChangeEventPayload, ItemStateChangeEventPayload,
-};
-use item::dynamodb::{
-    item_record::ItemRecord,
-    repository::{ItemDynamoDbRepository, ItemDynamoDbRepositoryImpl},
-};
 use item::service::get_service::GetItemServiceImpl;
+use item::{
+    core::item_event::{
+        ItemEventPayload, ItemPriceChangeEventPayload, ItemStateChangeEventPayload,
+    },
+    service::personalization_service::ItemPersonalizationServiceImpl,
+};
+use item::{
+    dynamodb::{
+        item_record::ItemRecord,
+        repository::{ItemDynamoDbRepository, ItemDynamoDbRepositoryImpl},
+    },
+    watchlist::dynamodb::repository::WatchlistItemDynamoDbRepositoryImpl,
+};
 use item_api_get_item::handler;
 use lambda_runtime::LambdaEvent;
 use std::time::{Duration, SystemTime};
 use test_api::*;
 
 #[localstack_test(services = [DynamoDB()])]
-async fn should_respond_200_with_history_when_history_flag_true() {
+async fn should_respond_200_with_history_when_anon_and_history_flag_true() {
     let ddb_client = get_dynamodb_client().await;
-    let repository = ItemDynamoDbRepositoryImpl::new(ddb_client, "table_1");
+    let item_repository = ItemDynamoDbRepositoryImpl::new(ddb_client, "table_1");
+    let watchlist_repository = WatchlistItemDynamoDbRepositoryImpl::new(ddb_client, "table_1");
+    let get_item_service = GetItemServiceImpl::new(&item_repository);
+    let item_personalization_service = ItemPersonalizationServiceImpl::new(&watchlist_repository);
+    let mut cognito_service = MockCognitoService::default();
+    cognito_service
+        .expect_verify_extract_user_id()
+        .return_once(|_| Box::pin(async { Ok(None) }));
+
     let record = Faker.fake::<ItemRecord>();
-    let insert_res = repository
+    let insert_res = item_repository
         .put_item_records([record.clone()].into())
         .await
         .unwrap();
@@ -65,7 +80,7 @@ async fn should_respond_200_with_history_when_history_flag_true() {
             old_state: ItemState::Sold,
         }),
     };
-    let insert_res = repository
+    let insert_res = item_repository
         .put_item_event_records(
             [
                 event_1.clone().try_into().unwrap(),
@@ -78,7 +93,6 @@ async fn should_respond_200_with_history_when_history_flag_true() {
     assert!(insert_res.unprocessed_items.unwrap().is_empty());
     tokio::time::sleep(Duration::from_secs(1)).await;
 
-    let service = GetItemServiceImpl::new(&repository);
     let lambda_event = LambdaEvent {
         payload: ApiGatewayV2httpRequestProxy::builder()
             .path_parameter("shopId", record.shop_id)
@@ -88,13 +102,21 @@ async fn should_respond_200_with_history_when_history_flag_true() {
             .build(),
         context: Default::default(),
     };
-    let response = handler(lambda_event, &service).await.unwrap();
+    let response = handler(
+        lambda_event,
+        &get_item_service,
+        &cognito_service,
+        &item_personalization_service,
+    )
+    .await
+    .unwrap();
 
     assert_eq!(200, response.status_code);
 
     let body = extract_apigw_response_json_body!(response);
 
-    let history = body["history"].as_array().unwrap();
+    assert!(body.get("userState").is_none());
+    let history = body["item"]["history"].as_array().unwrap();
     assert_eq!(2, history.len());
     assert_eq!(event_1_id.to_string(), history[0]["eventId"]);
     assert_eq!("PRICE_DROPPED", history[0]["eventType"]);
@@ -113,11 +135,19 @@ async fn should_respond_200_with_history_when_history_flag_true() {
 }
 
 #[localstack_test(services = [DynamoDB()])]
-async fn should_respond_200_with_history_when_history_flag_false() {
+async fn should_respond_200_with_history_when_anon_and_history_flag_false() {
     let ddb_client = get_dynamodb_client().await;
-    let repository = ItemDynamoDbRepositoryImpl::new(ddb_client, "table_1");
+    let item_repository = ItemDynamoDbRepositoryImpl::new(ddb_client, "table_1");
+    let watchlist_repository = WatchlistItemDynamoDbRepositoryImpl::new(ddb_client, "table_1");
+    let get_item_service = GetItemServiceImpl::new(&item_repository);
+    let item_personalization_service = ItemPersonalizationServiceImpl::new(&watchlist_repository);
+    let mut cognito_service = MockCognitoService::default();
+    cognito_service
+        .expect_verify_extract_user_id()
+        .return_once(|_| Box::pin(async { Ok(None) }));
+
     let record = Faker.fake::<ItemRecord>();
-    let insert_res = repository
+    let insert_res = item_repository
         .put_item_records([record.clone()].into())
         .await
         .unwrap();
@@ -158,7 +188,7 @@ async fn should_respond_200_with_history_when_history_flag_false() {
             old_state: ItemState::Sold,
         }),
     };
-    let insert_res = repository
+    let insert_res = item_repository
         .put_item_event_records(
             [
                 event_1.clone().try_into().unwrap(),
@@ -171,7 +201,6 @@ async fn should_respond_200_with_history_when_history_flag_false() {
     assert!(insert_res.unprocessed_items.unwrap().is_empty());
     tokio::time::sleep(Duration::from_secs(1)).await;
 
-    let service = GetItemServiceImpl::new(&repository);
     let lambda_event = LambdaEvent {
         payload: ApiGatewayV2httpRequestProxy::builder()
             .path_parameter("shopId", record.shop_id)
@@ -180,10 +209,18 @@ async fn should_respond_200_with_history_when_history_flag_false() {
             .build(),
         context: Default::default(),
     };
-    let response = handler(lambda_event, &service).await.unwrap();
+    let response = handler(
+        lambda_event,
+        &get_item_service,
+        &cognito_service,
+        &item_personalization_service,
+    )
+    .await
+    .unwrap();
 
     assert_eq!(200, response.status_code);
 
     let body = extract_apigw_response_json_body!(response);
-    assert!(body["history"].is_null())
+    assert!(body.get("userState").is_none());
+    assert!(body["item"]["history"].is_null())
 }

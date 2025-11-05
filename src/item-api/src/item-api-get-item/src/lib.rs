@@ -3,17 +3,24 @@ use aws_lambda_events::query_map::QueryMap;
 use common::api::api_gateway_v2_http_response_builder::ApiGatewayV2HttpResponseBuilder;
 use common::api::error::ApiError;
 use common::api::error_code::BAD_QUERY_PARAMETER_VALUE;
+use common::cognito::CognitoService;
 use common::currency::data::api::extract_currency_query;
 use common::language::data::api::extract_languages_header;
 use common::language::domain::Language;
+use common::personalized::Personalized;
+use common::personalized::api::PersonalizedData;
 use common::shop_id::api::extract_shop_id_path;
 use common::shops_item_id::api::extract_shops_item_id_path;
+use item::core::item::LocalizedItemView;
+use item::core::user_state::ItemUserState;
 use item::data::get_data::GetItemData;
+use item::data::user_state_data::ItemUserStateData;
 use item::service::get_service::GetItemService;
+use item::service::personalization_service::ItemPersonalizationService;
 use lambda_runtime::LambdaEvent;
 
 #[tracing::instrument(
-    skip(event, service),
+    skip(event, get_item_service, cognito_service, item_personalization_service),
     fields(
         requestId = %event.context.request_id,
         path = &event.payload.raw_path,
@@ -22,9 +29,18 @@ use lambda_runtime::LambdaEvent;
 )]
 pub async fn handler(
     event: LambdaEvent<ApiGatewayV2httpRequest>,
-    service: &impl GetItemService,
+    get_item_service: &impl GetItemService,
+    cognito_service: &(impl CognitoService + Sync),
+    item_personalization_service: &impl ItemPersonalizationService,
 ) -> Result<ApiGatewayV2httpResponse, lambda_runtime::Error> {
-    match handle(event, service).await {
+    match handle(
+        event,
+        get_item_service,
+        cognito_service,
+        item_personalization_service,
+    )
+    .await
+    {
         Ok(response) => Ok(response),
         Err(err) => Ok(ApiGatewayV2httpResponse::from(err)),
     }
@@ -34,7 +50,12 @@ pub async fn handler(
 pub async fn handle(
     event: LambdaEvent<ApiGatewayV2httpRequest>,
     get_item_service: &impl GetItemService,
+    cognito_service: &(impl CognitoService + Sync),
+    item_personalization_service: &impl ItemPersonalizationService,
 ) -> Result<ApiGatewayV2httpResponse, ApiError> {
+    let user_id_opt = cognito_service
+        .verify_extract_user_id(&event.payload.headers)
+        .await?;
     let languages = extract_languages_header(&event.payload.headers)?
         .into_iter()
         .map(Language::from)
@@ -43,7 +64,7 @@ pub async fn handle(
     let shop_id = extract_shop_id_path(&event.payload.path_parameters)?;
     let shops_item_id = extract_shops_item_id_path(&event.payload.path_parameters)?;
 
-    let item_data: GetItemData = get_item_service
+    let localized_item: LocalizedItemView = get_item_service
         .view_item(
             &shop_id,
             &shops_item_id,
@@ -51,15 +72,31 @@ pub async fn handle(
             &currency,
             extract_history_query(&event.payload.query_string_parameters)?,
         )
-        .await?
-        .into();
-    let content_language = item_data.title.language;
+        .await?;
+    let personalized_item_data: PersonalizedData<GetItemData, ItemUserStateData> = match user_id_opt
+    {
+        None => PersonalizedData {
+            item: GetItemData::from(localized_item),
+            user_state: None,
+        },
+        Some(user_id) => item_personalization_service
+            .personalize_watchlist(&user_id, localized_item)
+            .await
+            .map(|personalized_watchlist| Personalized {
+                item: personalized_watchlist.item,
+                user_state: personalized_watchlist
+                    .user_state
+                    .map(|watchlist| ItemUserState { watchlist }),
+            })?
+            .into(),
+    };
 
+    let content_language = personalized_item_data.item.title.language;
     Ok(ApiGatewayV2HttpResponseBuilder::json(200)
         .content_language(content_language)
-        .e_tag(item_data.event_id.to_string().as_str())
-        .last_modified(item_data.updated)
-        .body_serde(item_data)?
+        .e_tag(personalized_item_data.item.event_id.to_string().as_str())
+        .last_modified(personalized_item_data.item.updated)
+        .body_serde(personalized_item_data)?
         .build())
 }
 
@@ -81,6 +118,7 @@ fn extract_history_query(query: &QueryMap) -> Result<bool, ApiError> {
 #[cfg(test)]
 mod tests {
     use crate::handler;
+    use common::cognito::MockCognitoService;
     use common::event_id::EventId;
     use common::item_state::domain::ItemState;
     use common::language::data::LanguageData;
@@ -91,6 +129,7 @@ mod tests {
     use http::header::{ACCEPT_LANGUAGE, CONTENT_LANGUAGE, ETAG, LAST_MODIFIED};
     use item::core::item::LocalizedItemView;
     use item::service::get_service::{GetItemError, MockGetItemService};
+    use item::service::personalization_service::MockItemPersonalizationService;
     use lambda_runtime::LambdaEvent;
     use test_api::{ApiGatewayV2httpRequestProxy, extract_apigw_response_json_body};
     use time::OffsetDateTime;
@@ -119,8 +158,13 @@ mod tests {
             context: Default::default(),
         };
 
-        let mut service = MockGetItemService::default();
-        service
+        let mut cognito_service = MockCognitoService::default();
+        cognito_service
+            .expect_verify_extract_user_id()
+            .return_once(|_| Box::pin(async { Ok(None) }));
+        let item_personalization_service = MockItemPersonalizationService::default();
+        let mut get_item_service = MockGetItemService::default();
+        get_item_service
             .expect_view_item()
             .return_once(move |shop_id, shops_item_id, _, _, _| {
                 let item = LocalizedItemView {
@@ -142,7 +186,14 @@ mod tests {
                 Box::pin(async move { Ok(item) })
             });
 
-        let response = handler(lambda_event, &service).await.unwrap();
+        let response = handler(
+            lambda_event,
+            &get_item_service,
+            &cognito_service,
+            &item_personalization_service,
+        )
+        .await
+        .unwrap();
         assert_eq!(200, response.status_code);
         assert_eq!(
             expected_content_language,
@@ -158,8 +209,13 @@ mod tests {
     #[tokio::test]
     async fn should_include_event_id_as_header_e_tag() {
         let event_id = EventId::new();
-        let mut service = MockGetItemService::default();
-        service
+        let mut cognito_service = MockCognitoService::default();
+        cognito_service
+            .expect_verify_extract_user_id()
+            .return_once(|_| Box::pin(async { Ok(None) }));
+        let item_personalization_service = MockItemPersonalizationService::default();
+        let mut get_item_service = MockGetItemService::default();
+        get_item_service
             .expect_view_item()
             .return_once(move |shop_id, shops_item_id, _, _, _| {
                 let item = LocalizedItemView {
@@ -190,7 +246,14 @@ mod tests {
                 .build(),
             context: Default::default(),
         };
-        let response = handler(lambda_event, &service).await.unwrap();
+        let response = handler(
+            lambda_event,
+            &get_item_service,
+            &cognito_service,
+            &item_personalization_service,
+        )
+        .await
+        .unwrap();
         assert_eq!(200, response.status_code);
         assert_eq!(
             event_id.to_string().as_str(),
@@ -202,8 +265,13 @@ mod tests {
     async fn should_include_updated_timestamp_as_header_last_modified() {
         let timestamp = datetime!(2020-01-01 0:00 UTC);
         let event_id = EventId::new();
-        let mut service = MockGetItemService::default();
-        service
+        let mut cognito_service = MockCognitoService::default();
+        cognito_service
+            .expect_verify_extract_user_id()
+            .return_once(|_| Box::pin(async { Ok(None) }));
+        let item_personalization_service = MockItemPersonalizationService::default();
+        let mut get_item_service = MockGetItemService::default();
+        get_item_service
             .expect_view_item()
             .return_once(move |shop_id, shops_item_id, _, _, _| {
                 let item = LocalizedItemView {
@@ -234,7 +302,14 @@ mod tests {
                 .build(),
             context: Default::default(),
         };
-        let response = handler(lambda_event, &service).await.unwrap();
+        let response = handler(
+            lambda_event,
+            &get_item_service,
+            &cognito_service,
+            &item_personalization_service,
+        )
+        .await
+        .unwrap();
         assert_eq!(200, response.status_code);
         assert_eq!(
             "Wed, 01 Jan 2020 00:00:00 GMT",
@@ -253,10 +328,14 @@ mod tests {
     ) {
         let timestamp = datetime!(2020-01-01 0:00 UTC);
         let event_id = EventId::new();
-        let mut service = MockGetItemService::default();
-        service
-            .expect_view_item()
-            .return_once(move |shop_id, shops_item_id, _, _, history| {
+        let mut cognito_service = MockCognitoService::default();
+        cognito_service
+            .expect_verify_extract_user_id()
+            .return_once(|_| Box::pin(async { Ok(None) }));
+        let item_personalization_service = MockItemPersonalizationService::default();
+        let mut get_item_service = MockGetItemService::default();
+        get_item_service.expect_view_item().return_once(
+            move |shop_id, shops_item_id, _, _, history| {
                 assert_eq!(expected_history, history);
                 let item = LocalizedItemView {
                     item_id: Default::default(),
@@ -275,7 +354,8 @@ mod tests {
                     history: None,
                 };
                 Box::pin(async move { Ok(item) })
-            });
+            },
+        );
         let shop_id = ShopId::new();
         let shops_item_id = ShopsItemId::new();
         let lambda_event = LambdaEvent {
@@ -287,7 +367,14 @@ mod tests {
                 .build(),
             context: Default::default(),
         };
-        let response = handler(lambda_event, &service).await.unwrap();
+        let response = handler(
+            lambda_event,
+            &get_item_service,
+            &cognito_service,
+            &item_personalization_service,
+        )
+        .await
+        .unwrap();
         assert_eq!(200, response.status_code);
         assert_eq!(
             "Wed, 01 Jan 2020 00:00:00 GMT",
@@ -297,8 +384,13 @@ mod tests {
 
     #[tokio::test]
     async fn should_400_when_path_param_shop_id_is_missing() {
-        let mut service = MockGetItemService::default();
-        service.expect_view_item().never();
+        let mut cognito_service = MockCognitoService::default();
+        cognito_service
+            .expect_verify_extract_user_id()
+            .return_once(|_| Box::pin(async { Ok(None) }));
+        let item_personalization_service = MockItemPersonalizationService::default();
+        let mut get_item_service = MockGetItemService::default();
+        get_item_service.expect_view_item().never();
         let lambda_event = LambdaEvent {
             payload: ApiGatewayV2httpRequestProxy::builder()
                 .http_method(http::Method::GET)
@@ -307,7 +399,14 @@ mod tests {
             context: Default::default(),
         };
 
-        let response = handler(lambda_event, &service).await.unwrap();
+        let response = handler(
+            lambda_event,
+            &get_item_service,
+            &cognito_service,
+            &item_personalization_service,
+        )
+        .await
+        .unwrap();
         assert_eq!(400, response.status_code);
         let json = extract_apigw_response_json_body!(response);
         assert_eq!(400, json["status"]);
@@ -316,8 +415,13 @@ mod tests {
 
     #[tokio::test]
     async fn should_400_when_path_param_shops_item_id_is_missing() {
-        let mut service = MockGetItemService::default();
-        service.expect_view_item().never();
+        let mut cognito_service = MockCognitoService::default();
+        cognito_service
+            .expect_verify_extract_user_id()
+            .return_once(|_| Box::pin(async { Ok(None) }));
+        let item_personalization_service = MockItemPersonalizationService::default();
+        let mut get_item_service = MockGetItemService::default();
+        get_item_service.expect_view_item().never();
         let lambda_event = LambdaEvent {
             payload: ApiGatewayV2httpRequestProxy::builder()
                 .http_method(http::Method::GET)
@@ -326,7 +430,14 @@ mod tests {
             context: Default::default(),
         };
 
-        let response = handler(lambda_event, &service).await.unwrap();
+        let response = handler(
+            lambda_event,
+            &get_item_service,
+            &cognito_service,
+            &item_personalization_service,
+        )
+        .await
+        .unwrap();
         assert_eq!(400, response.status_code);
         let json = extract_apigw_response_json_body!(response);
         assert_eq!(400, json["status"]);
@@ -335,8 +446,13 @@ mod tests {
 
     #[tokio::test]
     async fn should_400_when_history_query_param_value_invalid() {
-        let mut service = MockGetItemService::default();
-        service.expect_view_item().never();
+        let mut cognito_service = MockCognitoService::default();
+        cognito_service
+            .expect_verify_extract_user_id()
+            .return_once(|_| Box::pin(async { Ok(None) }));
+        let item_personalization_service = MockItemPersonalizationService::default();
+        let mut get_item_service = MockGetItemService::default();
+        get_item_service.expect_view_item().never();
         let lambda_event = LambdaEvent {
             payload: ApiGatewayV2httpRequestProxy::builder()
                 .http_method(http::Method::GET)
@@ -347,7 +463,14 @@ mod tests {
             context: Default::default(),
         };
 
-        let response = handler(lambda_event, &service).await.unwrap();
+        let response = handler(
+            lambda_event,
+            &get_item_service,
+            &cognito_service,
+            &item_personalization_service,
+        )
+        .await
+        .unwrap();
         assert_eq!(400, response.status_code);
         let json = extract_apigw_response_json_body!(response);
         assert_eq!(400, json["status"]);
@@ -367,8 +490,13 @@ mod tests {
             context: Default::default(),
         };
 
-        let mut service = MockGetItemService::default();
-        service
+        let mut cognito_service = MockCognitoService::default();
+        cognito_service
+            .expect_verify_extract_user_id()
+            .return_once(|_| Box::pin(async { Ok(None) }));
+        let item_personalization_service = MockItemPersonalizationService::default();
+        let mut get_item_service = MockGetItemService::default();
+        get_item_service
             .expect_view_item()
             .return_once(move |shop_id, shops_item_id, _, _, _| {
                 let shop_id = *shop_id;
@@ -376,7 +504,14 @@ mod tests {
                 Box::pin(async move { Err(GetItemError::ItemNotFound(shop_id, shops_item_id)) })
             });
 
-        let response = handler(lambda_event, &service).await.unwrap();
+        let response = handler(
+            lambda_event,
+            &get_item_service,
+            &cognito_service,
+            &item_personalization_service,
+        )
+        .await
+        .unwrap();
         assert_eq!(404, response.status_code);
         let json = extract_apigw_response_json_body!(response);
         assert_eq!(404, json["status"]);

@@ -1,8 +1,11 @@
 use aws_config::BehaviorVersion;
 use aws_lambda_events::apigw::ApiGatewayV2httpRequest;
 use aws_sdk_dynamodb::Client;
+use common::cognito::CognitoServiceImpl;
 use item::dynamodb::repository::ItemDynamoDbRepositoryImpl;
 use item::service::get_service::GetItemServiceImpl;
+use item::service::personalization_service::ItemPersonalizationServiceImpl;
+use item::watchlist::dynamodb::repository::WatchlistItemDynamoDbRepositoryImpl;
 use item_api_get_item::handler;
 use lambda_runtime::tracing::info;
 use lambda_runtime::{Error, LambdaEvent, run, service_fn};
@@ -23,8 +26,22 @@ async fn main() -> Result<(), Error> {
 
     let table_name = std::env::var("DYNAMODB_TABLE_NAME")?;
     let client = Client::new(&aws_config);
-    let repository = ItemDynamoDbRepositoryImpl::new(&client, &table_name);
-    let service = GetItemServiceImpl::new(&repository);
+    let item_dynamodb_repository = ItemDynamoDbRepositoryImpl::new(&client, &table_name);
+    let get_item_service = GetItemServiceImpl::new(&item_dynamodb_repository);
+
+    let watchlist_repository = WatchlistItemDynamoDbRepositoryImpl::new(&client, &table_name);
+    let item_personalization_service = ItemPersonalizationServiceImpl::new(&watchlist_repository);
+
+    let user_pool_id = std::env::var("USER_POOL_ID")?;
+    let user_pool_public_client_id = std::env::var("USER_POOL_PUBLIC_CLIENT_ID")?;
+    let user_pool_admin_client_id = std::env::var("USER_POOL_ADMIN_CLIENT_ID")?;
+    let client_ids = [
+        user_pool_public_client_id.as_str(),
+        user_pool_admin_client_id.as_str(),
+    ];
+    let cognito_service =
+        CognitoServiceImpl::new("eu-central-1", &user_pool_id, client_ids.as_slice())
+            .expect("shouldn't fail creating 'CognitoServiceImpl'");
 
     info!(
         dynamoDbTableName = %table_name,
@@ -32,7 +49,15 @@ async fn main() -> Result<(), Error> {
     );
 
     run(service_fn(
-        |event: LambdaEvent<ApiGatewayV2httpRequest>| async { handler(event, &service).await },
+        |event: LambdaEvent<ApiGatewayV2httpRequest>| async {
+            handler(
+                event,
+                &get_item_service,
+                &cognito_service,
+                &item_personalization_service,
+            )
+            .await
+        },
     ))
     .await
 }
