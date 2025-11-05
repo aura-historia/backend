@@ -105,7 +105,6 @@ pub trait GetItemService {
         languages: &[Language],
         currency: &Currency,
         history: bool,
-        // user_id: Option<UserId>,
     ) -> Result<LocalizedItemView, GetItemError>;
 
     async fn view_items(
@@ -150,7 +149,6 @@ impl<'a> GetItemService for GetItemServiceImpl<'a> {
         preferred_languages: &[Language],
         currency: &Currency,
         history: bool,
-        // user_id: Option<UserId>,
     ) -> Result<LocalizedItemView, GetItemError> {
         let (item_record, event_records) = if history {
             self.repository
@@ -187,11 +185,6 @@ impl<'a> GetItemService for GetItemServiceImpl<'a> {
             .collect();
         item_view.history = if history { Some(event_views) } else { None };
 
-        // let personalized_item_view = Personalized {
-        // item: item_view,
-        // user_state: todo!(),
-        // };
-        // Ok(personalized_item_view)
         Ok(item_view)
     }
 
