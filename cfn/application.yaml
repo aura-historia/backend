@@ -749,8 +749,6 @@ Resources:
     Properties:
       ApiId: !Ref BlitzfilterApi
       RouteKey: "POST /api/v1/items/search"
-      AuthorizationType: JWT
-      AuthorizerId: !Ref BlitzfilterApiCognitoAuthorizer
       Target: !Sub "integrations/${BlitzfilterApiComplexSearchLambdaIntegration}"
   BlitzfilterApiComplexSearchLambdaIntegration:
     Type: AWS::ApiGatewayV2::Integration
