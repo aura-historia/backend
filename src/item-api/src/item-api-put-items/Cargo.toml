@@ -22,6 +22,7 @@ url = { workspace = true }
 thiserror = { workspace = true }
 
 [dev-dependencies]
+item = { workspace = true, features = ["test-data"] }
 test-api = { workspace = true, features = ["api-gateway", "dynamodb", "sqs"] }
 serial_test = { workspace = true }
 rstest = { workspace = true }

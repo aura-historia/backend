@@ -20,6 +20,7 @@ http = { workspace = true }
 time = { workspace = true }
 
 [dev-dependencies]
+item = { workspace = true, features = ["test-data"] }
 common = { workspace = true, features = ["test-data"] }
 test-api = { workspace = true, features = ["api-gateway", "dynamodb"] }
 serial_test = { workspace = true }

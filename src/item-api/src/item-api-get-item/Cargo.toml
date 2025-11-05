@@ -17,6 +17,7 @@ serde_json = { workspace = true }
 http = { workspace = true }
 
 [dev-dependencies]
+item = { workspace = true, features = ["test-data"] }
 test-api = { workspace = true, features = ["api-gateway", "dynamodb"] }
 serial_test = { workspace = true }
 rstest = { workspace = true }
