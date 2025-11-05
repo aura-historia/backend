@@ -252,12 +252,12 @@ jobs:
           - src/item-api/src/item-api-watchlist-get
           - src/item-api/src/item-api-watchlist-post
           - src/item-api/src/item-api-watchlist-patch
-          - src/item/src/item-lambda/src/item-lambda-ingest-events-dynamodb
-          - src/item/src/item-lambda/src/item-lambda-materialize-dynamodb-new
-          - src/item/src/item-lambda/src/item-lambda-materialize-dynamodb-update
-          - src/item/src/item-lambda/src/item-lambda-materialize-opensearch-new
-          - src/item/src/item-lambda/src/item-lambda-materialize-opensearch-update
-          - src/item/src/item-lambda/src/item-lambda-update-notify-user
+          - src/item-lambda/src/item-lambda-ingest-events-dynamodb
+          - src/item-lambda/src/item-lambda-materialize-dynamodb-new
+          - src/item-lambda/src/item-lambda-materialize-dynamodb-update
+          - src/item-lambda/src/item-lambda-materialize-opensearch-new
+          - src/item-lambda/src/item-lambda-materialize-opensearch-update
+          - src/item-lambda/src/item-lambda-update-notify-user
           - src/nightly-enrichment/src/nightly-enrichment-asg-scale-down
           - src/nightly-enrichment/src/nightly-enrichment-asg-scale-up
           - src/shop-api/src/shop-api-search
