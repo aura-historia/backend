@@ -4,6 +4,9 @@ pub mod currency;
 pub mod api;
 pub mod batch;
 
+#[cfg(feature = "api")]
+pub mod cognito;
+
 #[cfg(feature = "dynamodb")]
 pub mod dynamodb_update;
 pub mod error;
