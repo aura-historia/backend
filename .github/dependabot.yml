@@ -27,7 +27,7 @@ updates:
           - "serde*"
 
   - package-ecosystem: pip
-    directory: "src/nightly-enrichment/python"
+    directory: "src/item-enrichment/python"
     schedule:
       interval: daily
       time: "06:00"

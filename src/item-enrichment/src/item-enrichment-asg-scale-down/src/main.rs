@@ -1,6 +1,6 @@
 use aws_config::BehaviorVersion;
+use item_enrichment_asg_scale_down::handler;
 use lambda_runtime::{Error, LambdaEvent, run, service_fn};
-use nightly_enrichment_asg_scale_up::handler;
 use opensearch::http::{
     Url,
     transport::{SingleNodeConnectionPool, TransportBuilder},
@@ -22,7 +22,7 @@ async fn main() -> Result<(), Error> {
         .await;
 
     let autoscaling_client = aws_sdk_autoscaling::Client::new(&aws_config);
-    let asg_name = std::env::var("NIGHTLY_ENRICHMENT_ASG_NAME")?;
+    let asg_name = std::env::var("ITEM_ENRICHMENT_ASG_NAME")?;
 
     let os_endpoint_url = Url::parse(&std::env::var("OPENSEARCH_DOMAIN_ENDPOINT_URL")?)?;
     let transport = TransportBuilder::new(SingleNodeConnectionPool::new(os_endpoint_url))

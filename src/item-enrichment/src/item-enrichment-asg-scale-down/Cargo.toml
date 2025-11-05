@@ -1,5 +1,5 @@
 [package]
-name = "nightly-enrichment-asg-scale-up"
+name = "item-enrichment-asg-scale-down"
 version = "0.1.0"
 edition = "2024"
 

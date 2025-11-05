@@ -19,7 +19,7 @@ test-api = { workspace = true }
 user = { workspace = true }
 mail = { workspace = true }
 mail-lambda-send = { workspace = true }
-nightly-enrichment = { workspace = true }
+item-enrichment = { workspace = true }
 
 [workspace]
 members = [
@@ -39,7 +39,7 @@ members = [
     "src/user",
     "src/mail",
     "src/mail-lambda-send",
-    "src/nightly-enrichment",
+    "src/item-enrichment",
 ]
 
 [workspace.dependencies]
@@ -88,9 +88,9 @@ item-api-watchlist-patch = { path = "src/item-api/src/item-api-watchlist-patch" 
 item-api-watchlist-post = { path = "src/item-api/src/item-api-watchlist-post" }
 item-api-watchlist-delete = { path = "src/item-api/src/item-api-watchlist-delete" }
 item-lambda = { path = "src/item-lambda" }
-nightly-enrichment = { path = "src/nightly-enrichment" }
-nightly-enrichment-asg-scale-down = { path = "src/nightly-enrichment/src/nightly-enrichment-asg-scale-down" }
-nightly-enrichment-asg-scale-up = { path = "src/nightly-enrichment/src/nightly-enrichment-asg-scale-up" }
+item-enrichment = { path = "src/item-enrichment" }
+item-enrichment-asg-scale-down = { path = "src/item-enrichment/src/item-enrichment-asg-scale-down" }
+item-enrichment-asg-scale-up = { path = "src/item-enrichment/src/item-enrichment-asg-scale-up" }
 item-lambda-common = { path = "src/item-lambda/src/item-lambda-common" }
 item-lambda-materialize-dynamodb-new = { path = "src/item-lambda/src/item-lambda-materialize-dynamodb-new" }
 item-lambda-materialize-dynamodb-update = { path = "src/item-lambda/src/item-lambda-materialize-dynamodb-update" }

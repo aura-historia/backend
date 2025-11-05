@@ -1,7 +1,7 @@
 use aws_config::{BehaviorVersion, SdkConfig};
 use item::dynamodb::repository::ItemDynamoDbRepositoryImpl;
 use item::opensearch::repository::ItemOpenSearchRepositoryImpl;
-use nightly_enrichment::{
+use item_enrichment::{
     embed::EmbeddingDelegateImpl,
     pipeline::{
         embed::EmbeddingEnrichmentPipeImpl,

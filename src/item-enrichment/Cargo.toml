@@ -1,5 +1,5 @@
 [package]
-name = "nightly-enrichment"
+name = "item-enrichment"
 version = "0.1.0"
 edition = "2024"
 
@@ -22,8 +22,8 @@ tracing-subscriber = { workspace = true, features = ["json", "time"] }
 
 # Optional deps
 fake = { workspace = true, optional = true }
-nightly-enrichment-asg-scale-down = { workspace = true, optional = true }
-nightly-enrichment-asg-scale-up = { workspace = true, optional = true }
+item-enrichment-asg-scale-down = { workspace = true, optional = true }
+item-enrichment-asg-scale-up = { workspace = true, optional = true }
 
 [dev-dependencies]
 test-api = { workspace = true, features = ["sqs", "dynamodb", "opensearch"] }
@@ -32,7 +32,7 @@ rstest = { workspace = true }
 fake = { workspace = true }
 uuid = { workspace = true }
 time = { workspace = true }
-nightly-enrichment = { workspace = true, features = ["test-data"] }
+item-enrichment = { workspace = true, features = ["test-data"] }
 serde_json = { workspace = true }
 serde_dynamo = { workspace = true, features = [ "aws-sdk-dynamodb+1" ] }
 aws_lambda_events = { workspace = true, features = [
@@ -43,5 +43,5 @@ aws_lambda_events = { workspace = true, features = [
 [features]
 default = []
 test-data = ["fake", "common/test-data", "item/test-data"]
-asg-scale-down = ["dep:nightly-enrichment-asg-scale-down"]
-asg-scale-up = ["dep:nightly-enrichment-asg-scale-up"]
+asg-scale-down = ["dep:item-enrichment-asg-scale-down"]
+asg-scale-up = ["dep:item-enrichment-asg-scale-up"]

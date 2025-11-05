@@ -831,10 +831,10 @@ dependencies = [
  "common",
  "item",
  "item-api",
+ "item-enrichment",
  "item-lambda",
  "mail",
  "mail-lambda-send",
- "nightly-enrichment",
  "search-filter",
  "search-filter-api",
  "shop",
@@ -2417,6 +2417,71 @@ dependencies = [
 ]
 
 [[package]]
+name = "item-enrichment"
+version = "0.1.0"
+dependencies = [
+ "async-trait",
+ "aws-config",
+ "aws-sdk-autoscaling",
+ "aws-sdk-dynamodb",
+ "aws-sdk-sqs",
+ "aws_lambda_events",
+ "common",
+ "fake",
+ "item",
+ "item-enrichment",
+ "item-enrichment-asg-scale-down",
+ "item-enrichment-asg-scale-up",
+ "item-lambda-common",
+ "mockall",
+ "opensearch",
+ "pyo3",
+ "pyo3-ffi",
+ "rstest",
+ "serde_dynamo",
+ "serde_json",
+ "serial_test",
+ "test-api",
+ "time",
+ "tokio",
+ "tracing",
+ "tracing-subscriber",
+ "uuid",
+]
+
+[[package]]
+name = "item-enrichment-asg-scale-down"
+version = "0.1.0"
+dependencies = [
+ "aws-config",
+ "aws-sdk-autoscaling",
+ "lambda_runtime",
+ "opensearch",
+ "rstest",
+ "serde",
+ "serde_json",
+ "tokio",
+ "tracing",
+ "tracing-subscriber",
+]
+
+[[package]]
+name = "item-enrichment-asg-scale-up"
+version = "0.1.0"
+dependencies = [
+ "aws-config",
+ "aws-sdk-autoscaling",
+ "lambda_runtime",
+ "opensearch",
+ "rstest",
+ "serde",
+ "serde_json",
+ "tokio",
+ "tracing",
+ "tracing-subscriber",
+]
+
+[[package]]
 name = "item-lambda"
 version = "0.1.0"
 dependencies = [
@@ -2943,71 +3008,6 @@ dependencies = [
  "security-framework 2.11.1",
  "security-framework-sys",
  "tempfile",
-]
-
-[[package]]
-name = "nightly-enrichment"
-version = "0.1.0"
-dependencies = [
- "async-trait",
- "aws-config",
- "aws-sdk-autoscaling",
- "aws-sdk-dynamodb",
- "aws-sdk-sqs",
- "aws_lambda_events",
- "common",
- "fake",
- "item",
- "item-lambda-common",
- "mockall",
- "nightly-enrichment",
- "nightly-enrichment-asg-scale-down",
- "nightly-enrichment-asg-scale-up",
- "opensearch",
- "pyo3",
- "pyo3-ffi",
- "rstest",
- "serde_dynamo",
- "serde_json",
- "serial_test",
- "test-api",
- "time",
- "tokio",
- "tracing",
- "tracing-subscriber",
- "uuid",
-]
-
-[[package]]
-name = "nightly-enrichment-asg-scale-down"
-version = "0.1.0"
-dependencies = [
- "aws-config",
- "aws-sdk-autoscaling",
- "lambda_runtime",
- "opensearch",
- "rstest",
- "serde",
- "serde_json",
- "tokio",
- "tracing",
- "tracing-subscriber",
-]
-
-[[package]]
-name = "nightly-enrichment-asg-scale-up"
-version = "0.1.0"
-dependencies = [
- "aws-config",
- "aws-sdk-autoscaling",
- "lambda_runtime",
- "opensearch",
- "rstest",
- "serde",
- "serde_json",
- "tokio",
- "tracing",
- "tracing-subscriber",
 ]
 
 [[package]]
