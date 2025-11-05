@@ -33,7 +33,7 @@ pub async fn handler(
 // GET /api/v1/items/{shopId}/{shopsItemId}
 pub async fn handle(
     event: LambdaEvent<ApiGatewayV2httpRequest>,
-    service: &impl GetItemService,
+    get_item_service: &impl GetItemService,
 ) -> Result<ApiGatewayV2httpResponse, ApiError> {
     let languages = extract_languages_header(&event.payload.headers)?
         .into_iter()
@@ -43,7 +43,7 @@ pub async fn handle(
     let shop_id = extract_shop_id_path(&event.payload.path_parameters)?;
     let shops_item_id = extract_shops_item_id_path(&event.payload.path_parameters)?;
 
-    let item_data: GetItemData = service
+    let item_data: GetItemData = get_item_service
         .view_item(
             &shop_id,
             &shops_item_id,

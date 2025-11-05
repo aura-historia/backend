@@ -4,7 +4,7 @@ use common::api::error::ApiError;
 use common::api::error_code::BAD_BODY_VALUE;
 use common::shop_id::api::extract_shop_id_path;
 use common::shops_item_id::api::extract_shops_item_id_path;
-use common::user_id::api::extract_user_id_cognito_jwt;
+use common::user_id::api::extract_user_id_request_context;
 use item::watchlist::{
     data::watchlist_item_data::WatchlistItemData,
     service::{command::UpdateWatchlistItemCommand, item_watchlist_service::ItemWatchListService},
@@ -50,7 +50,7 @@ pub async fn handle(
     event: LambdaEvent<ApiGatewayV2httpRequest>,
     service: &impl ItemWatchListService,
 ) -> Result<ApiGatewayV2httpResponse, ApiError> {
-    let user_id = extract_user_id_cognito_jwt(&event.payload.request_context)?;
+    let user_id = extract_user_id_request_context(&event.payload.request_context)?;
     let shop_id = extract_shop_id_path(&event.payload.path_parameters)?;
     let shops_item_id = extract_shops_item_id_path(&event.payload.path_parameters)?;
     let body = event

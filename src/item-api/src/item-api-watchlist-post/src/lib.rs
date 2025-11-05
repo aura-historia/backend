@@ -3,7 +3,7 @@ use common::api::api_gateway_v2_http_response_builder::ApiGatewayV2HttpResponseB
 use common::api::error::ApiError;
 use common::api::error_code::BAD_BODY_VALUE;
 use common::item_id::api::ItemKeyData;
-use common::user_id::api::extract_user_id_cognito_jwt;
+use common::user_id::api::extract_user_id_request_context;
 use item::watchlist::data::watchlist_item_data::WatchlistItemData;
 use item::watchlist::service::item_watchlist_service::ItemWatchListService;
 use lambda_runtime::LambdaEvent;
@@ -31,7 +31,7 @@ pub async fn handle(
     event: LambdaEvent<ApiGatewayV2httpRequest>,
     service: &impl ItemWatchListService,
 ) -> Result<ApiGatewayV2httpResponse, ApiError> {
-    let user_id = extract_user_id_cognito_jwt(&event.payload.request_context)?;
+    let user_id = extract_user_id_request_context(&event.payload.request_context)?;
     let body = event
         .payload
         .body

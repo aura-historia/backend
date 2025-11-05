@@ -3,7 +3,7 @@ use common::api::error::ApiError;
 use common::currency::data::api::extract_currency_query;
 use common::language::data::api::extract_language_header;
 use common::pagination::cursor::api::{TimeCursoredData, extract_time_cursor_query};
-use common::user_id::api::extract_user_id_cognito_jwt;
+use common::user_id::api::extract_user_id_request_context;
 use common::{
     api::api_gateway_v2_http_response_builder::ApiGatewayV2HttpResponseBuilder,
     sort::api::extract_sort_query,
@@ -65,7 +65,7 @@ pub async fn handle(
     event: LambdaEvent<ApiGatewayV2httpRequest>,
     service: &impl ItemWatchListService,
 ) -> Result<ApiGatewayV2httpResponse, ApiError> {
-    let user_id = extract_user_id_cognito_jwt(&event.payload.request_context)?;
+    let user_id = extract_user_id_request_context(&event.payload.request_context)?;
     let language = extract_language_header(&event.payload.headers)?;
     let currency = extract_currency_query(&event.payload.query_string_parameters)?;
     let sort =

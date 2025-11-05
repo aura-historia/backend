@@ -8,7 +8,7 @@ use common::{
         error::ApiError,
         error_code::{BAD_BODY_VALUE, BAD_PATH_PARAMETER_VALUE, INVALID_UUID},
     },
-    user_id::api::extract_user_id_cognito_jwt,
+    user_id::api::extract_user_id_request_context,
 };
 use lambda_runtime::LambdaEvent;
 use search_filter::core::user_search_filter_id::UserSearchFilterId;
@@ -41,7 +41,7 @@ pub async fn handle(
     event: LambdaEvent<ApiGatewayV2httpRequest>,
     service: &impl UserSearchFilterService,
 ) -> Result<ApiGatewayV2httpResponse, ApiError> {
-    let user_id = extract_user_id_cognito_jwt(&event.payload.request_context)?;
+    let user_id = extract_user_id_request_context(&event.payload.request_context)?;
     let search_filter_id = event
         .payload
         .path_parameters

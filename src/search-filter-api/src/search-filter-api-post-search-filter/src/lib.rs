@@ -7,7 +7,7 @@ use common::{
         api_gateway_v2_http_response_builder::ApiGatewayV2HttpResponseBuilder, error::ApiError,
         error_code::BAD_BODY_VALUE,
     },
-    user_id::api::extract_user_id_cognito_jwt,
+    user_id::api::extract_user_id_request_context,
 };
 use lambda_runtime::LambdaEvent;
 use search_filter::data::user_search_filter_data::UserSearchFilterData;
@@ -36,7 +36,7 @@ pub async fn handle(
     event: LambdaEvent<ApiGatewayV2httpRequest>,
     service: &impl UserSearchFilterService,
 ) -> Result<ApiGatewayV2httpResponse, ApiError> {
-    let user_id = extract_user_id_cognito_jwt(&event.payload.request_context)?;
+    let user_id = extract_user_id_request_context(&event.payload.request_context)?;
     let body = event
         .payload
         .body

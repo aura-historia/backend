@@ -3,7 +3,7 @@ use common::{
     api::{api_gateway_v2_http_response_builder::ApiGatewayV2HttpResponseBuilder, error::ApiError},
     pagination::page::api::PaginatedData,
     sort::api::extract_sort_query,
-    user_id::api::extract_user_id_cognito_jwt,
+    user_id::api::extract_user_id_request_context,
 };
 use lambda_runtime::LambdaEvent;
 use search_filter::data::{
@@ -35,7 +35,7 @@ pub async fn handle(
     event: LambdaEvent<ApiGatewayV2httpRequest>,
     service: &impl UserSearchFilterService,
 ) -> Result<ApiGatewayV2httpResponse, ApiError> {
-    let user_id = extract_user_id_cognito_jwt(&event.payload.request_context)?;
+    let user_id = extract_user_id_request_context(&event.payload.request_context)?;
     let order = extract_sort_query::<SortUserSearchFilterFieldData>(
         &event.payload.query_string_parameters,
     )?
