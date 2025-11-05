@@ -51,7 +51,7 @@ pub async fn handle(
         .save_user_search_filter(
             &user_id,
             user_search_filter_data.name,
-            user_search_filter_data.search_filter.into(),
+            user_search_filter_data.search.into(),
         )
         .await?
         .into();
