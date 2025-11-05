@@ -826,6 +826,7 @@ name = "blitzfilter-parent"
 version = "0.1.0"
 dependencies = [
  "aws-tests",
+ "cognito",
  "cognito-post-confirmation",
  "common",
  "item",
@@ -998,6 +999,23 @@ dependencies = [
 ]
 
 [[package]]
+name = "cognito"
+version = "0.1.0"
+dependencies = [
+ "async-trait",
+ "common",
+ "http 1.3.1",
+ "jsonwebtokens",
+ "jsonwebtokens-cognito",
+ "mockall",
+ "serde",
+ "serde_json",
+ "thiserror",
+ "tracing",
+ "uuid",
+]
+
+[[package]]
 name = "cognito-post-confirmation"
 version = "0.1.0"
 dependencies = [
@@ -1025,7 +1043,6 @@ name = "common"
 version = "0.1.0"
 dependencies = [
  "accept-language",
- "async-trait",
  "aws-sdk-dynamodb",
  "aws-sdk-sqs",
  "aws_lambda_events",
@@ -1033,9 +1050,6 @@ dependencies = [
  "http 1.3.1",
  "httpdate",
  "itertools 0.14.0",
- "jsonwebtokens",
- "jsonwebtokens-cognito",
- "mockall",
  "opensearch",
  "rstest",
  "serde",
@@ -2256,6 +2270,7 @@ dependencies = [
  "aws-config",
  "aws-sdk-dynamodb",
  "aws_lambda_events",
+ "cognito",
  "common",
  "fake",
  "http 1.3.1",

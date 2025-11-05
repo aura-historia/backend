@@ -27,15 +27,12 @@ serde_dynamo = { workspace = true, features = [
 ], optional = true }
 accept-language = { workspace = true, optional = true }
 aws_lambda_events = { workspace = true, optional = true }
-async-trait = { workspace = true, optional = true }
-mockall = { workspace = true, optional = true }
 http = { workspace = true, optional = true }
 serde_json = { workspace = true, optional = true }
 httpdate = { workspace = true, optional = true }
 fake = { workspace = true, optional = true }
 opensearch = { workspace = true, optional = true }
-jsonwebtokens = { workspace = true, optional = true }
-jsonwebtokens-cognito = { workspace = true, optional = true }
+
 
 [dev-dependencies]
 rstest = { workspace = true }
@@ -52,9 +49,5 @@ api = [
     "serde_json",
     "httpdate",
     "accept-language",
-    "jsonwebtokens",
-    "jsonwebtokens-cognito",
-    "async-trait",
-    "mockall"
 ]
 test-data = ["fake"]

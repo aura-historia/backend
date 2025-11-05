@@ -1,7 +1,7 @@
 use aws_config::BehaviorVersion;
 use aws_lambda_events::apigw::ApiGatewayV2httpRequest;
 use aws_sdk_dynamodb::Client;
-use common::cognito::CognitoServiceImpl;
+use cognito::access_token_verifier_service::AccessTokenVerifierServiceImpl;
 use item::dynamodb::repository::ItemDynamoDbRepositoryImpl;
 use item::service::get_service::GetItemServiceImpl;
 use item::service::personalization_service::ItemPersonalizationServiceImpl;
@@ -39,9 +39,9 @@ async fn main() -> Result<(), Error> {
         user_pool_public_client_id.as_str(),
         user_pool_admin_client_id.as_str(),
     ];
-    let cognito_service =
-        CognitoServiceImpl::new("eu-central-1", &user_pool_id, client_ids.as_slice())
-            .expect("shouldn't fail creating 'CognitoServiceImpl'");
+    let access_token_verifier_service =
+        AccessTokenVerifierServiceImpl::new("eu-central-1", &user_pool_id, client_ids.as_slice())
+            .expect("shouldn't fail creating 'AccessTokenVerifierServiceImpl'");
 
     info!(
         dynamoDbTableName = %table_name,
@@ -53,7 +53,7 @@ async fn main() -> Result<(), Error> {
             handler(
                 event,
                 &get_item_service,
-                &cognito_service,
+                &access_token_verifier_service,
                 &item_personalization_service,
             )
             .await

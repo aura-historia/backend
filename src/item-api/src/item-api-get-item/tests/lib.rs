@@ -1,5 +1,5 @@
+use cognito::access_token_verifier_service::MockAccessTokenVerifierService;
 use common::{
-    cognito::MockCognitoService,
     currency::domain::Currency,
     event::Event,
     event_id::EventId,
@@ -33,8 +33,8 @@ async fn should_respond_200_with_history_when_anon_and_history_flag_true() {
     let watchlist_repository = WatchlistItemDynamoDbRepositoryImpl::new(ddb_client, "table_1");
     let get_item_service = GetItemServiceImpl::new(&item_repository);
     let item_personalization_service = ItemPersonalizationServiceImpl::new(&watchlist_repository);
-    let mut cognito_service = MockCognitoService::default();
-    cognito_service
+    let mut access_token_verifier_service = MockAccessTokenVerifierService::default();
+    access_token_verifier_service
         .expect_verify_extract_user_id()
         .return_once(|_| Box::pin(async { Ok(None) }));
 
@@ -105,7 +105,7 @@ async fn should_respond_200_with_history_when_anon_and_history_flag_true() {
     let response = handler(
         lambda_event,
         &get_item_service,
-        &cognito_service,
+        &access_token_verifier_service,
         &item_personalization_service,
     )
     .await
@@ -141,8 +141,8 @@ async fn should_respond_200_with_history_when_anon_and_history_flag_false() {
     let watchlist_repository = WatchlistItemDynamoDbRepositoryImpl::new(ddb_client, "table_1");
     let get_item_service = GetItemServiceImpl::new(&item_repository);
     let item_personalization_service = ItemPersonalizationServiceImpl::new(&watchlist_repository);
-    let mut cognito_service = MockCognitoService::default();
-    cognito_service
+    let mut access_token_verifier_service = MockAccessTokenVerifierService::default();
+    access_token_verifier_service
         .expect_verify_extract_user_id()
         .return_once(|_| Box::pin(async { Ok(None) }));
 
@@ -212,7 +212,7 @@ async fn should_respond_200_with_history_when_anon_and_history_flag_false() {
     let response = handler(
         lambda_event,
         &get_item_service,
-        &cognito_service,
+        &access_token_verifier_service,
         &item_personalization_service,
     )
     .await

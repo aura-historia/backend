@@ -1,9 +1,9 @@
 use aws_lambda_events::apigw::{ApiGatewayV2httpRequest, ApiGatewayV2httpResponse};
 use aws_lambda_events::query_map::QueryMap;
+use cognito::access_token_verifier_service::AccessTokenVerifierService;
 use common::api::api_gateway_v2_http_response_builder::ApiGatewayV2HttpResponseBuilder;
 use common::api::error::ApiError;
 use common::api::error_code::BAD_QUERY_PARAMETER_VALUE;
-use common::cognito::CognitoService;
 use common::currency::data::api::extract_currency_query;
 use common::language::data::api::extract_languages_header;
 use common::language::domain::Language;
@@ -20,7 +20,7 @@ use item::service::personalization_service::ItemPersonalizationService;
 use lambda_runtime::LambdaEvent;
 
 #[tracing::instrument(
-    skip(event, get_item_service, cognito_service, item_personalization_service),
+    skip(event, get_item_service, access_token_verifier_service, item_personalization_service),
     fields(
         requestId = %event.context.request_id,
         path = &event.payload.raw_path,
@@ -30,13 +30,13 @@ use lambda_runtime::LambdaEvent;
 pub async fn handler(
     event: LambdaEvent<ApiGatewayV2httpRequest>,
     get_item_service: &impl GetItemService,
-    cognito_service: &(impl CognitoService + Sync),
+    access_token_verifier_service: &(impl AccessTokenVerifierService + Sync),
     item_personalization_service: &impl ItemPersonalizationService,
 ) -> Result<ApiGatewayV2httpResponse, lambda_runtime::Error> {
     match handle(
         event,
         get_item_service,
-        cognito_service,
+        access_token_verifier_service,
         item_personalization_service,
     )
     .await
@@ -50,10 +50,10 @@ pub async fn handler(
 pub async fn handle(
     event: LambdaEvent<ApiGatewayV2httpRequest>,
     get_item_service: &impl GetItemService,
-    cognito_service: &(impl CognitoService + Sync),
+    access_token_verifier_service: &(impl AccessTokenVerifierService + Sync),
     item_personalization_service: &impl ItemPersonalizationService,
 ) -> Result<ApiGatewayV2httpResponse, ApiError> {
-    let user_id_opt = cognito_service
+    let user_id_opt = access_token_verifier_service
         .verify_extract_user_id(&event.payload.headers)
         .await?;
     let languages = extract_languages_header(&event.payload.headers)?
@@ -118,7 +118,7 @@ fn extract_history_query(query: &QueryMap) -> Result<bool, ApiError> {
 #[cfg(test)]
 mod tests {
     use crate::handler;
-    use common::cognito::MockCognitoService;
+    use cognito::access_token_verifier_service::MockAccessTokenVerifierService;
     use common::event_id::EventId;
     use common::item_state::domain::ItemState;
     use common::language::data::LanguageData;
@@ -158,7 +158,7 @@ mod tests {
             context: Default::default(),
         };
 
-        let mut cognito_service = MockCognitoService::default();
+        let mut cognito_service = MockAccessTokenVerifierService::default();
         cognito_service
             .expect_verify_extract_user_id()
             .return_once(|_| Box::pin(async { Ok(None) }));
@@ -209,7 +209,7 @@ mod tests {
     #[tokio::test]
     async fn should_include_event_id_as_header_e_tag() {
         let event_id = EventId::new();
-        let mut cognito_service = MockCognitoService::default();
+        let mut cognito_service = MockAccessTokenVerifierService::default();
         cognito_service
             .expect_verify_extract_user_id()
             .return_once(|_| Box::pin(async { Ok(None) }));
@@ -265,7 +265,7 @@ mod tests {
     async fn should_include_updated_timestamp_as_header_last_modified() {
         let timestamp = datetime!(2020-01-01 0:00 UTC);
         let event_id = EventId::new();
-        let mut cognito_service = MockCognitoService::default();
+        let mut cognito_service = MockAccessTokenVerifierService::default();
         cognito_service
             .expect_verify_extract_user_id()
             .return_once(|_| Box::pin(async { Ok(None) }));
@@ -328,7 +328,7 @@ mod tests {
     ) {
         let timestamp = datetime!(2020-01-01 0:00 UTC);
         let event_id = EventId::new();
-        let mut cognito_service = MockCognitoService::default();
+        let mut cognito_service = MockAccessTokenVerifierService::default();
         cognito_service
             .expect_verify_extract_user_id()
             .return_once(|_| Box::pin(async { Ok(None) }));
@@ -384,7 +384,7 @@ mod tests {
 
     #[tokio::test]
     async fn should_400_when_path_param_shop_id_is_missing() {
-        let mut cognito_service = MockCognitoService::default();
+        let mut cognito_service = MockAccessTokenVerifierService::default();
         cognito_service
             .expect_verify_extract_user_id()
             .return_once(|_| Box::pin(async { Ok(None) }));
@@ -415,7 +415,7 @@ mod tests {
 
     #[tokio::test]
     async fn should_400_when_path_param_shops_item_id_is_missing() {
-        let mut cognito_service = MockCognitoService::default();
+        let mut cognito_service = MockAccessTokenVerifierService::default();
         cognito_service
             .expect_verify_extract_user_id()
             .return_once(|_| Box::pin(async { Ok(None) }));
@@ -446,7 +446,7 @@ mod tests {
 
     #[tokio::test]
     async fn should_400_when_history_query_param_value_invalid() {
-        let mut cognito_service = MockCognitoService::default();
+        let mut cognito_service = MockAccessTokenVerifierService::default();
         cognito_service
             .expect_verify_extract_user_id()
             .return_once(|_| Box::pin(async { Ok(None) }));
@@ -490,7 +490,7 @@ mod tests {
             context: Default::default(),
         };
 
-        let mut cognito_service = MockCognitoService::default();
+        let mut cognito_service = MockAccessTokenVerifierService::default();
         cognito_service
             .expect_verify_extract_user_id()
             .return_once(|_| Box::pin(async { Ok(None) }));

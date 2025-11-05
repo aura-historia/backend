@@ -1,4 +1,4 @@
-use crate::{
+use common::{
     api::{
         error::ApiError,
         error_code::{BAD_HEADER_VALUE, INTERNAL_SERVER_ERROR, INVALID_UUID},
@@ -14,11 +14,11 @@ use jsonwebtokens_cognito::KeySet;
 use serde_json::Value;
 
 #[derive(Debug, thiserror::Error)]
-pub enum CognitoError {
+pub enum AccessTokenVerifierError {
     #[error("HttpHeaderValueToStrError: {0}")]
     HttpHeaderValueToStrError(#[from] ToStrError),
 
-    #[error("JwtCognitoError: {0}")]
+    #[error("JwtAccessTokenVerifierError: {0}")]
     JwtCognito(#[from] jsonwebtokens_cognito::Error),
 
     #[error("JwtError: {0}")]
@@ -34,34 +34,34 @@ pub enum CognitoError {
     InvalidUuid(&'static str, uuid::Error),
 }
 
-impl From<CognitoError> for ApiError {
-    fn from(value: CognitoError) -> Self {
+impl From<AccessTokenVerifierError> for ApiError {
+    fn from(value: AccessTokenVerifierError) -> Self {
         match value {
-            CognitoError::HttpHeaderValueToStrError(err) => {
+            AccessTokenVerifierError::HttpHeaderValueToStrError(err) => {
                 tracing::error!(eror = %err, "Failed extracting UserId from Access-Token.");
                 ApiError::bad_request(BAD_HEADER_VALUE)
                     .with_header_field(AUTHORIZATION.as_str())
                     .with_message(err.to_string())
             }
-            CognitoError::JwtCognito(err) => {
+            AccessTokenVerifierError::JwtCognito(err) => {
                 tracing::error!(eror = %err, "Failed extracting UserId from Access-Token.");
                 ApiError::internal_server_error(INTERNAL_SERVER_ERROR)
             }
-            CognitoError::JwtError(err) => {
+            AccessTokenVerifierError::JwtError(err) => {
                 tracing::error!(eror = %err, "Failed extracting UserId from Access-Token.");
                 ApiError::internal_server_error(INTERNAL_SERVER_ERROR)
             }
-            err @ CognitoError::ClaimIsNotString(claim) => {
+            err @ AccessTokenVerifierError::ClaimIsNotString(claim) => {
                 tracing::error!(eror = %err, claim = claim, "Failed extracting UserId from Access-Token.");
                 ApiError::internal_server_error(INTERNAL_SERVER_ERROR)
             }
-            err @ CognitoError::MissingClaim(claim) => {
+            err @ AccessTokenVerifierError::MissingClaim(claim) => {
                 tracing::error!(eror = %err, claim = claim, "Failed extracting UserId from Access-Token.");
                 ApiError::bad_request(BAD_HEADER_VALUE)
                     .with_header_field(AUTHORIZATION.as_str())
                     .with_message(format!("Missing claim '{claim}'."))
             }
-            CognitoError::InvalidUuid(claim, err) => {
+            AccessTokenVerifierError::InvalidUuid(claim, err) => {
                 tracing::error!(eror = %err, claim = claim, "Failed extracting UserId from Access-Token.");
                 ApiError::bad_request(INVALID_UUID).with_message(format!(
                     "String-Value for decoded claim '{claim}' is not a valid UUID."
@@ -73,29 +73,29 @@ impl From<CognitoError> for ApiError {
 
 #[async_trait::async_trait]
 #[mockall::automock]
-pub trait CognitoService {
+pub trait AccessTokenVerifierService {
     async fn verify_extract_user_id(
         &self,
         headers: &HeaderMap,
-    ) -> Result<Option<UserId>, CognitoError> {
+    ) -> Result<Option<UserId>, AccessTokenVerifierError> {
         match extract_access_token(headers) {
             Ok(Some(access_token)) => self
                 .verify_extract_user_id_from_access_token(&access_token)
                 .await
                 .map(Some),
             Ok(None) => Ok(None),
-            Err(err) => Err(CognitoError::HttpHeaderValueToStrError(err)),
+            Err(err) => Err(AccessTokenVerifierError::HttpHeaderValueToStrError(err)),
         }
     }
 
     async fn verify_extract_user_id_from_access_token(
         &self,
         access_token: &str,
-    ) -> Result<UserId, CognitoError>;
+    ) -> Result<UserId, AccessTokenVerifierError>;
 }
 
 #[derive(Clone)]
-pub struct CognitoServiceImpl<'a> {
+pub struct AccessTokenVerifierServiceImpl<'a> {
     pub region: &'a str,
     pub user_pool_id: &'a str,
     pub client_ids: &'a [&'a str],
@@ -103,12 +103,12 @@ pub struct CognitoServiceImpl<'a> {
     pub verifier: Verifier,
 }
 
-impl<'a> CognitoServiceImpl<'a> {
+impl<'a> AccessTokenVerifierServiceImpl<'a> {
     pub fn new(
         region: &'a str,
         user_pool_id: &'a str,
         client_ids: &'a [&'a str],
-    ) -> Result<Self, CognitoError> {
+    ) -> Result<Self, AccessTokenVerifierError> {
         let keyset = KeySet::new(region, user_pool_id)?;
         let verifier = keyset.new_access_token_verifier(client_ids).build()?;
         let val = Self {
@@ -123,22 +123,22 @@ impl<'a> CognitoServiceImpl<'a> {
 }
 
 #[async_trait::async_trait]
-impl<'a> CognitoService for CognitoServiceImpl<'a> {
+impl<'a> AccessTokenVerifierService for AccessTokenVerifierServiceImpl<'a> {
     async fn verify_extract_user_id_from_access_token(
         &self,
         access_token: &str,
-    ) -> Result<UserId, CognitoError> {
+    ) -> Result<UserId, AccessTokenVerifierError> {
         let claims_value: Value = self.keyset.verify(access_token, &self.verifier).await?;
 
         let user_id = claims_value
             .get("sub")
             .map(|sub_val| match sub_val.as_str() {
                 Some(sub) => Ok(sub),
-                None => Err(CognitoError::ClaimIsNotString("sub")),
+                None => Err(AccessTokenVerifierError::ClaimIsNotString("sub")),
             })
-            .ok_or(CognitoError::MissingClaim("sub"))?
+            .ok_or(AccessTokenVerifierError::MissingClaim("sub"))?
             .map(UserId::try_from)?
-            .map_err(|err| CognitoError::InvalidUuid("sub", err))?;
+            .map_err(|err| AccessTokenVerifierError::InvalidUuid("sub", err))?;
 
         Ok(user_id)
     }
