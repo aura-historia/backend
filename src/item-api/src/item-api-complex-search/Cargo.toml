@@ -20,7 +20,7 @@ http = { workspace = true }
 
 [dev-dependencies]
 item = { workspace = true, features = ["test-data"] }
-test-api = { workspace = true, features = ["api-gateway", "opensearch"] }
+test-api = { workspace = true, features = ["api-gateway", "opensearch", "dynamodb"] }
 rstest = { workspace = true }
 serial_test = { workspace = true }
 http = { workspace = true }

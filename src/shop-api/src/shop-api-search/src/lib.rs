@@ -68,7 +68,7 @@ pub async fn handle(
         .search_shops(&search, &sort, &Some(cursor))
         .await?
         .map_item(GetShopData::from);
-    let search_result_data = JsonCursoredData::from(search_result);
+    let search_result_data: JsonCursoredData<GetShopData> = JsonCursoredData::from(search_result);
 
     Ok(ApiGatewayV2HttpResponseBuilder::json(200)
         .body_serde(search_result_data)?
