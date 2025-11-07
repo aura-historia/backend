@@ -62,7 +62,7 @@ pub mod api {
     };
     use aws_lambda_events::apigw::ApiGatewayV2httpRequestContext;
 
-    pub fn extract_user_id_cognito_jwt(
+    pub fn extract_user_id_request_context(
         request_context: &ApiGatewayV2httpRequestContext,
     ) -> Result<UserId, ApiError> {
         let user_id = request_context
@@ -94,7 +94,7 @@ pub mod api {
 
     #[cfg(test)]
     mod tests {
-        use crate::user_id::api::extract_user_id_cognito_jwt;
+        use crate::user_id::api::extract_user_id_request_context;
         use aws_lambda_events::apigw::{
             ApiGatewayRequestAuthorizer, ApiGatewayRequestAuthorizerJwtDescription,
             ApiGatewayV2httpRequestContext,
@@ -127,7 +127,7 @@ pub mod api {
                 authentication: Default::default(),
             };
 
-            let actual = extract_user_id_cognito_jwt(&request_context).unwrap().0;
+            let actual = extract_user_id_request_context(&request_context).unwrap().0;
 
             assert_eq!(expected, actual);
         }
@@ -136,7 +136,7 @@ pub mod api {
         fn should_401_when_authorizer_information_missing() {
             let request_context = ApiGatewayV2httpRequestContext::default();
 
-            let actual = extract_user_id_cognito_jwt(&request_context).unwrap_err();
+            let actual = extract_user_id_request_context(&request_context).unwrap_err();
 
             assert_eq!(401, actual.status);
             assert_eq!("UNAUTHORIZED", actual.error.as_str());
@@ -163,7 +163,7 @@ pub mod api {
                 authentication: Default::default(),
             };
 
-            let actual = extract_user_id_cognito_jwt(&request_context).unwrap_err();
+            let actual = extract_user_id_request_context(&request_context).unwrap_err();
 
             assert_eq!(401, actual.status);
             assert_eq!("UNAUTHORIZED", actual.error.as_str());
@@ -190,7 +190,7 @@ pub mod api {
                 authentication: Default::default(),
             };
 
-            let actual = extract_user_id_cognito_jwt(&request_context).unwrap_err();
+            let actual = extract_user_id_request_context(&request_context).unwrap_err();
 
             assert_eq!(500, actual.status);
             assert_eq!("INTERNAL_SERVER_ERROR", actual.error.as_str());
@@ -224,7 +224,7 @@ pub mod api {
                 authentication: Default::default(),
             };
 
-            let actual = extract_user_id_cognito_jwt(&request_context).unwrap_err();
+            let actual = extract_user_id_request_context(&request_context).unwrap_err();
 
             assert_eq!(500, actual.status);
             assert_eq!("INTERNAL_SERVER_ERROR", actual.error.as_str());

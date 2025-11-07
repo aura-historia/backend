@@ -1,0 +1,253 @@
+use aws_lambda_events::apigw::{ApiGatewayV2httpRequest, ApiGatewayV2httpResponse};
+use common::api::api_gateway_v2_http_response_builder::ApiGatewayV2HttpResponseBuilder;
+use common::api::error::ApiError;
+use common::api::error_code::BAD_BODY_VALUE;
+use common::shop_id::api::extract_shop_id_path;
+use common::shops_item_id::api::extract_shops_item_id_path;
+use common::user_id::api::extract_user_id_request_context;
+use item::watchlist::{
+    data::watchlist_item_data::WatchlistItemData,
+    service::{command::UpdateWatchlistItemCommand, item_watchlist_service::ItemWatchListService},
+};
+use lambda_runtime::LambdaEvent;
+use serde::{Deserialize, Serialize};
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct WatchlistItemPatch {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub notifications: Option<bool>,
+}
+
+impl From<WatchlistItemPatch> for UpdateWatchlistItemCommand {
+    fn from(patch: WatchlistItemPatch) -> Self {
+        UpdateWatchlistItemCommand {
+            notifications: patch.notifications,
+        }
+    }
+}
+
+#[tracing::instrument(
+    skip(event, service),
+    fields(
+        requestId = %event.context.request_id,
+        path = &event.payload.raw_path,
+        query = &event.payload.raw_query_string,
+    )
+)]
+pub async fn handler(
+    event: LambdaEvent<ApiGatewayV2httpRequest>,
+    service: &impl ItemWatchListService,
+) -> Result<ApiGatewayV2httpResponse, lambda_runtime::Error> {
+    match handle(event, service).await {
+        Ok(response) => Ok(response),
+        Err(err) => Ok(ApiGatewayV2httpResponse::from(err)),
+    }
+}
+
+// PATCH /api/v1/me/watchlist/{shopId}/{shopsItemId}
+pub async fn handle(
+    event: LambdaEvent<ApiGatewayV2httpRequest>,
+    service: &impl ItemWatchListService,
+) -> Result<ApiGatewayV2httpResponse, ApiError> {
+    let user_id = extract_user_id_request_context(&event.payload.request_context)?;
+    let shop_id = extract_shop_id_path(&event.payload.path_parameters)?;
+    let shops_item_id = extract_shops_item_id_path(&event.payload.path_parameters)?;
+    let body = event
+        .payload
+        .body
+        .filter(|str| !str.is_empty())
+        .ok_or_else(|| {
+            ApiError::bad_request(BAD_BODY_VALUE).with_message("Body cannot be empty")
+        })?;
+    let patch: WatchlistItemPatch = serde_json::from_str(&body)
+        .map_err(|err| ApiError::bad_request(BAD_BODY_VALUE).with_message(err.to_string()))?;
+
+    let watchlist_item = service
+        .update_watchlist_item(&user_id, &shop_id, &shops_item_id, patch.into())
+        .await?;
+
+    Ok(ApiGatewayV2HttpResponseBuilder::json(200)
+        .last_modified(watchlist_item.updated)
+        .body_serde(WatchlistItemData::from(watchlist_item))?
+        .build())
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::{WatchlistItemPatch, handler};
+    use common::{shop_id::ShopId, shops_item_id::ShopsItemId, user_id::UserId};
+    use fake::{Fake, Faker};
+    use item::watchlist::service::item_watchlist_service::MockItemWatchListService;
+    use lambda_runtime::LambdaEvent;
+    use test_api::{ApiGatewayV2httpRequestProxy, extract_apigw_response_json_body};
+    use time::{OffsetDateTime, format_description::well_known::Rfc3339};
+
+    #[tokio::test]
+    async fn should_200_when_success() {
+        let mut service = MockItemWatchListService::default();
+        service
+            .expect_update_watchlist_item()
+            .return_once(|_, _, _, _| Box::pin(async { Ok(Faker.fake()) }));
+
+        let lambda_event = LambdaEvent {
+            payload: ApiGatewayV2httpRequestProxy::builder()
+                .http_method(http::Method::PATCH)
+                .path_parameter("shopId", ShopId::new())
+                .path_parameter("shopsItemId", ShopsItemId::new())
+                .query_string_parameter(
+                    "created",
+                    OffsetDateTime::now_utc().format(&Rfc3339).unwrap(),
+                )
+                .body_serde(&WatchlistItemPatch {
+                    notifications: Some(true),
+                })
+                .jwt_claim("sub", UserId::new())
+                .build(),
+            context: Default::default(),
+        };
+
+        let response = handler(lambda_event, &service).await.unwrap();
+
+        assert_eq!(200, response.status_code);
+    }
+
+    #[tokio::test]
+    async fn should_400_when_shop_id_missing() {
+        let mut service = MockItemWatchListService::default();
+        service.expect_delete_watchlist_item().never();
+
+        let lambda_event = LambdaEvent {
+            payload: ApiGatewayV2httpRequestProxy::builder()
+                .http_method(http::Method::PATCH)
+                .path_parameter("shopsItemId", ShopsItemId::new())
+                .query_string_parameter(
+                    "created",
+                    OffsetDateTime::now_utc().format(&Rfc3339).unwrap(),
+                )
+                .body_serde(&WatchlistItemPatch {
+                    notifications: Faker.fake(),
+                })
+                .jwt_claim("sub", UserId::new())
+                .build(),
+            context: Default::default(),
+        };
+
+        let response = handler(lambda_event, &service).await.unwrap();
+        assert_eq!(400, response.status_code);
+
+        let json = extract_apigw_response_json_body!(response);
+        assert_eq!("BAD_PATH_PARAMETER_VALUE", json["error"]);
+        assert_eq!("shopId", json["source"]["field"]);
+        assert_eq!("PATH", json["source"]["type"]);
+    }
+
+    #[tokio::test]
+    async fn should_400_when_shops_item_id_missing() {
+        let mut service = MockItemWatchListService::default();
+        service.expect_delete_watchlist_item().never();
+
+        let lambda_event = LambdaEvent {
+            payload: ApiGatewayV2httpRequestProxy::builder()
+                .http_method(http::Method::PATCH)
+                .path_parameter("shopId", ShopId::new())
+                .query_string_parameter(
+                    "created",
+                    OffsetDateTime::now_utc().format(&Rfc3339).unwrap(),
+                )
+                .body_serde(&WatchlistItemPatch {
+                    notifications: Faker.fake(),
+                })
+                .jwt_claim("sub", UserId::new())
+                .build(),
+            context: Default::default(),
+        };
+
+        let response = handler(lambda_event, &service).await.unwrap();
+        assert_eq!(400, response.status_code);
+
+        let json = extract_apigw_response_json_body!(response);
+        assert_eq!("BAD_PATH_PARAMETER_VALUE", json["error"]);
+        assert_eq!("shopsItemId", json["source"]["field"]);
+        assert_eq!("PATH", json["source"]["type"]);
+    }
+
+    #[tokio::test]
+    async fn should_400_when_body_missing() {
+        let mut service = MockItemWatchListService::default();
+        service.expect_delete_watchlist_item().never();
+
+        let lambda_event = LambdaEvent {
+            payload: ApiGatewayV2httpRequestProxy::builder()
+                .http_method(http::Method::PATCH)
+                .path_parameter("shopId", ShopId::new())
+                .path_parameter("shopsItemId", ShopsItemId::new())
+                .query_string_parameter(
+                    "created",
+                    OffsetDateTime::now_utc().format(&Rfc3339).unwrap(),
+                )
+                .jwt_claim("sub", UserId::new())
+                .build(),
+            context: Default::default(),
+        };
+
+        let response = handler(lambda_event, &service).await.unwrap();
+        assert_eq!(400, response.status_code);
+
+        let json = extract_apigw_response_json_body!(response);
+        assert_eq!("BAD_BODY_VALUE", json["error"]);
+    }
+
+    #[tokio::test]
+    async fn should_400_when_body_invalid() {
+        let mut service = MockItemWatchListService::default();
+        service.expect_delete_watchlist_item().never();
+
+        let lambda_event = LambdaEvent {
+            payload: ApiGatewayV2httpRequestProxy::builder()
+                .http_method(http::Method::PATCH)
+                .path_parameter("shopId", ShopId::new())
+                .path_parameter("shopsItemId", ShopsItemId::new())
+                .query_string_parameter(
+                    "created",
+                    OffsetDateTime::now_utc().format(&Rfc3339).unwrap(),
+                )
+                .body_serde(&"foo")
+                .jwt_claim("sub", UserId::new())
+                .build(),
+            context: Default::default(),
+        };
+
+        let response = handler(lambda_event, &service).await.unwrap();
+        assert_eq!(400, response.status_code);
+
+        let json = extract_apigw_response_json_body!(response);
+        assert_eq!("BAD_BODY_VALUE", json["error"]);
+    }
+
+    #[tokio::test]
+    async fn should_401_when_sub_missing() {
+        let mut service = MockItemWatchListService::default();
+        service.expect_delete_watchlist_item().never();
+
+        let lambda_event = LambdaEvent {
+            payload: ApiGatewayV2httpRequestProxy::builder()
+                .http_method(http::Method::PATCH)
+                .path_parameter("shopId", ShopId::new())
+                .path_parameter("shopsItemId", ShopsItemId::new())
+                .query_string_parameter(
+                    "created",
+                    OffsetDateTime::now_utc().format(&Rfc3339).unwrap(),
+                )
+                .body_serde(&WatchlistItemPatch {
+                    notifications: Faker.fake(),
+                })
+                .build(),
+            context: Default::default(),
+        };
+
+        let response = handler(lambda_event, &service).await.unwrap();
+
+        assert_eq!(401, response.status_code);
+    }
+}

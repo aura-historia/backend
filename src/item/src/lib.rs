@@ -1,8 +1,16 @@
-pub use item_api;
-pub use item_core;
-pub use item_dynamodb;
-pub use item_lambda;
-pub use item_opensearch;
-pub use item_service;
-pub use item_watchlist;
-pub use nightly_enrichment;
+pub mod core;
+
+#[cfg(feature = "data")]
+pub mod data;
+
+#[cfg(feature = "dynamodb")]
+pub mod dynamodb;
+
+#[cfg(feature = "opensearch")]
+pub mod opensearch;
+
+#[cfg(feature = "service")]
+pub mod service;
+
+#[cfg(feature = "watchlist")]
+pub mod watchlist;

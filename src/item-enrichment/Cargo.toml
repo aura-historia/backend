@@ -1,0 +1,47 @@
+[package]
+name = "item-enrichment"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+item = { workspace = true, features = ["service", "opensearch", "dynamodb"] }
+common = { workspace = true }
+pyo3 = { version = "0.27.1", features = ["auto-initialize"] }
+pyo3-ffi = { version = "0.27.0" }
+async-trait = { workspace = true }
+tracing = { workspace = true }
+mockall = { workspace = true }
+aws-config = { workspace = true }
+aws-sdk-autoscaling = { workspace = true }
+aws-sdk-dynamodb = { workspace = true }
+aws-sdk-sqs = { workspace = true }
+opensearch = { workspace = true }
+item-lambda-common = { workspace = true }
+tokio = { workspace = true, features = ["time", "macros", "rt-multi-thread"] }
+tracing-subscriber = { workspace = true, features = ["json", "time"] }
+
+# Optional deps
+fake = { workspace = true, optional = true }
+item-enrichment-asg-scale-down = { workspace = true, optional = true }
+item-enrichment-asg-scale-up = { workspace = true, optional = true }
+
+[dev-dependencies]
+test-api = { workspace = true, features = ["sqs", "dynamodb", "opensearch"] }
+serial_test = { workspace = true }
+rstest = { workspace = true }
+fake = { workspace = true }
+uuid = { workspace = true }
+time = { workspace = true }
+item-enrichment = { workspace = true, features = ["test-data"] }
+serde_json = { workspace = true }
+serde_dynamo = { workspace = true, features = [ "aws-sdk-dynamodb+1" ] }
+aws_lambda_events = { workspace = true, features = [
+    "dynamodb",
+    "eventbridge",
+] }
+
+[features]
+default = []
+test-data = ["fake", "common/test-data", "item/test-data"]
+asg-scale-down = ["dep:item-enrichment-asg-scale-down"]
+asg-scale-up = ["dep:item-enrichment-asg-scale-up"]

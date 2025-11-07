@@ -1,10 +1,9 @@
-use std::time::Duration;
-
 use aws_tests_common::get_cfn_output;
 use common::user_id::UserId;
 use fake::Fake;
 use staging_tests::{get_cognito_client, get_dynamodb_client, staging_test};
-use user_dynamodb::repository::{UserDynamoDbRepository, UserDynamoDbRepositoryImpl};
+use std::time::Duration;
+use user::dynamodb::repository::{UserDynamoDbRepository, UserDynamoDbRepositoryImpl};
 
 #[staging_test]
 async fn should_create_dynamodb_user_record_on_signup() {

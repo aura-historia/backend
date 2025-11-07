@@ -21,6 +21,7 @@ pub mod localized;
 #[cfg(feature = "opensearch")]
 pub mod opensearch;
 pub mod pagination;
+pub mod personalized;
 pub mod price;
 pub mod query;
 pub mod serde;

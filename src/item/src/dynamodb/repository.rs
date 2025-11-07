@@ -1,0 +1,476 @@
+use crate::dynamodb::item_event_record::ItemEventRecord;
+use crate::dynamodb::item_record::ItemRecord;
+use crate::dynamodb::item_update_record::ItemRecordUpdate;
+use async_trait::async_trait;
+use aws_sdk_dynamodb::Client;
+use aws_sdk_dynamodb::config::http::HttpResponse;
+use aws_sdk_dynamodb::error::SdkError;
+use aws_sdk_dynamodb::operation::batch_get_item::BatchGetItemError;
+use aws_sdk_dynamodb::operation::batch_write_item::{BatchWriteItemError, BatchWriteItemOutput};
+use aws_sdk_dynamodb::operation::get_item::GetItemError;
+use aws_sdk_dynamodb::operation::query::QueryError;
+use aws_sdk_dynamodb::operation::update_item::{UpdateItemError, UpdateItemOutput};
+use aws_sdk_dynamodb::types::{AttributeValue, KeysAndAttributes};
+use common::batch::Batch;
+use common::batch::dynamodb::BatchGetItemResult;
+use common::dynamodb_update::DynamoDbUpdate;
+use common::item_id::ItemKey;
+use common::shop_id::ShopId;
+use common::shops_item_id::ShopsItemId;
+use std::collections::HashMap;
+use tracing::{error, warn};
+
+#[async_trait]
+#[allow(clippy::result_large_err)]
+#[mockall::automock]
+pub trait ItemDynamoDbRepository {
+    async fn put_item_event_records(
+        &self,
+        item_event_records: Batch<ItemEventRecord, 25>,
+    ) -> Result<BatchWriteItemOutput, SdkError<BatchWriteItemError, HttpResponse>>;
+
+    async fn put_item_records(
+        &self,
+        item_records: Batch<ItemRecord, 25>,
+    ) -> Result<BatchWriteItemOutput, SdkError<BatchWriteItemError, HttpResponse>>;
+
+    async fn update_item_record(
+        &self,
+        shop_id: &ShopId,
+        shops_item_id: &ShopsItemId,
+        update: ItemRecordUpdate,
+    ) -> Result<UpdateItemOutput, SdkError<UpdateItemError, HttpResponse>>;
+
+    async fn get_item_record(
+        &self,
+        shop_id: &ShopId,
+        shops_item_id: &ShopsItemId,
+    ) -> Result<Option<ItemRecord>, SdkError<GetItemError, HttpResponse>>;
+
+    async fn query_item_record_and_event_records(
+        &self,
+        shop_id: &ShopId,
+        shops_item_id: &ShopsItemId,
+    ) -> Result<Option<(ItemRecord, Vec<ItemEventRecord>)>, SdkError<QueryError, HttpResponse>>;
+
+    async fn get_item_records(
+        &self,
+        item_keys: &Batch<ItemKey, 100>,
+    ) -> Result<BatchGetItemResult<ItemRecord, ItemKey>, SdkError<BatchGetItemError, HttpResponse>>;
+
+    async fn exist_item_records(
+        &self,
+        item_keys: &Batch<ItemKey, 100>,
+    ) -> Result<BatchGetItemResult<ItemKey, ItemKey>, SdkError<BatchGetItemError, HttpResponse>>;
+}
+
+#[derive(Debug, Clone)]
+pub struct ItemDynamoDbRepositoryImpl<'a> {
+    client: &'a Client,
+    table: String,
+}
+
+impl<'a> ItemDynamoDbRepositoryImpl<'a> {
+    pub fn new(client: &'a Client, table: impl Into<String>) -> Self {
+        Self {
+            client,
+            table: table.into(),
+        }
+    }
+}
+
+#[async_trait]
+impl<'a> ItemDynamoDbRepository for ItemDynamoDbRepositoryImpl<'a> {
+    async fn put_item_event_records(
+        &self,
+        item_event_records: Batch<ItemEventRecord, 25>,
+    ) -> Result<BatchWriteItemOutput, SdkError<BatchWriteItemError, HttpResponse>> {
+        self.client
+            .batch_write_item()
+            .set_request_items(Some(HashMap::from([(
+                self.table.clone(),
+                item_event_records.into_dynamodb_write_requests(),
+            )])))
+            .send()
+            .await
+    }
+
+    async fn put_item_records(
+        &self,
+        item_records: Batch<ItemRecord, 25>,
+    ) -> Result<BatchWriteItemOutput, SdkError<BatchWriteItemError, HttpResponse>> {
+        self.client
+            .batch_write_item()
+            .set_request_items(Some(HashMap::from([(
+                self.table.clone(),
+                item_records.into_dynamodb_write_requests(),
+            )])))
+            .send()
+            .await
+    }
+
+    async fn update_item_record(
+        &self,
+        shop_id: &ShopId,
+        shops_item_id: &ShopsItemId,
+        item_update_record: ItemRecordUpdate,
+    ) -> Result<UpdateItemOutput, SdkError<UpdateItemError, HttpResponse>> {
+        let pk = format!("item#shop_id#{shop_id}#shops_item_id#{shops_item_id}");
+        let sk = "item#materialized".to_string();
+        let update_expr = item_update_record.into_update_expr()?;
+
+        self.client
+            .update_item()
+            .table_name(&self.table)
+            .key("pk", AttributeValue::S(pk))
+            .key("sk", AttributeValue::S(sk))
+            .update_expression(update_expr.update_expr)
+            .set_expression_attribute_names(Some(update_expr.expr_attr_names))
+            .set_expression_attribute_values(Some(update_expr.expr_attr_values))
+            .send()
+            .await
+    }
+
+    #[tracing::instrument(skip(self), fields(shopId = %shop_id, shopsItemId = %shops_item_id))]
+    async fn get_item_record(
+        &self,
+        shop_id: &ShopId,
+        shops_item_id: &ShopsItemId,
+    ) -> Result<Option<ItemRecord>, SdkError<GetItemError, HttpResponse>> {
+        let rec = self
+            .client
+            .get_item()
+            .table_name(&self.table)
+            .key("pk", AttributeValue::S(mk_pk(shop_id, shops_item_id)))
+            .key("sk", AttributeValue::S("item#materialized".to_owned()))
+            .send()
+            .await?
+            .item
+            .map(serde_dynamo::from_item::<_, ItemRecord>)
+            .and_then(|item_record_res| match item_record_res {
+                Ok(item_record) => Some(item_record),
+                Err(err) => {
+                    error!(error = %err, type = %std::any::type_name::<ItemRecord>(), "Failed deserializing ItemRecord.");
+                    None
+                }
+            });
+
+        Ok(rec)
+    }
+
+    #[tracing::instrument(skip(self), fields(shopId = %shop_id, shopsItemId = %shops_item_id))]
+    async fn query_item_record_and_event_records(
+        &self,
+        shop_id: &ShopId,
+        shops_item_id: &ShopsItemId,
+    ) -> Result<Option<(ItemRecord, Vec<ItemEventRecord>)>, SdkError<QueryError, HttpResponse>>
+    {
+        let composite = self
+            .client
+            .query()
+            .table_name(&self.table)
+            .key_condition_expression("#pk = :pk_val AND begins_with(#sk, :sk_prefix)")
+            .expression_attribute_names("#pk", "pk")
+            .expression_attribute_names("#sk", "sk")
+            .expression_attribute_values(
+                ":pk_val",
+                AttributeValue::S(mk_pk(shop_id, shops_item_id)),
+            )
+            .expression_attribute_values(":sk_prefix", AttributeValue::S("item#".to_string()))
+            .scan_index_forward(true)
+            .into_paginator()
+            .send()
+            .try_collect()
+            .await?
+            .into_iter()
+            .flat_map(|qo| qo.items.unwrap_or_default())
+            .fold((None, None), |(materialized, events), record| match record
+                .get("sk")
+                .map(AttributeValue::as_s)
+                .and_then(Result::ok)
+                .map(String::as_str)
+            {
+                Some("item#materialized") => {
+                    match serde_dynamo::from_item::<_, ItemRecord>(record) {
+                        Ok(materialized) => (Some(materialized), events),
+                        Err(err) => {
+                            error!(
+                                error = %err,
+                                type = %std::any::type_name::<ItemRecord>(),
+                                "Failed deserializing ItemRecord."
+                            );
+                            (materialized, events)
+                        },
+                    }
+                },
+                Some(sk) if sk.starts_with("item#event#") => {
+                    match serde_dynamo::from_item::<_, ItemEventRecord>(record) {
+                        Ok(event) => {
+                            let mut events: Vec<ItemEventRecord> = events.unwrap_or_default();
+                            events.push(event);
+                            (materialized, Some(events))
+                        },
+                        Err(err) => {
+                            error!(
+                                error = %err,
+                                type = %std::any::type_name::<ItemEventRecord>(),
+                                "Failed deserializing ItemEventRecord."
+                            );
+                            (materialized, events)
+                        },
+                    }
+                },
+                Some(unknown_sk) => {
+                    error!(
+                        payload = ?record,
+                        "Attempted to deserialize but record in item-partition contains unknown value '{unknown_sk}' for field 'sk'. Skipping record."
+                    );
+                    (materialized, events)
+                },
+                None => {
+                    error!(
+                        payload = ?record,
+                        "Attempted to deserialize record in item-partition but no String-Field 'sk' exists. Skipping record."
+                    );
+                    (materialized, events)
+                }
+            });
+
+        match composite {
+            (None, None) => Ok(None),
+            (None, Some(_)) => {
+                warn!("Materialized ItemRecord does not exist.");
+                Ok(None)
+            }
+            (Some(materialized), None) => Ok(Some((materialized, vec![]))),
+            (Some(materialized), Some(events)) => Ok(Some((materialized, events))),
+        }
+    }
+
+    async fn get_item_records(
+        &self,
+        item_keys: &Batch<ItemKey, 100>,
+    ) -> Result<BatchGetItemResult<ItemRecord, ItemKey>, SdkError<BatchGetItemError, HttpResponse>>
+    {
+        let keys = item_keys
+            .iter()
+            .map(|item_key| {
+                let mut columns = HashMap::with_capacity(2);
+                columns.insert(
+                    "pk".to_owned(),
+                    AttributeValue::S(mk_pk(&item_key.shop_id, &item_key.shops_item_id)),
+                );
+                columns.insert(
+                    "sk".to_owned(),
+                    AttributeValue::S("item#materialized".to_owned()),
+                );
+                columns
+            })
+            .collect();
+        let keys_and_attributes = KeysAndAttributes::builder()
+            .set_keys(Some(keys))
+            .build()
+            .expect("shouldn't fail because we previously set the only required field 'keys'.");
+        let request_items = Some(HashMap::from([(self.table.clone(), keys_and_attributes)]));
+        let response = self
+            .client
+            .batch_get_item()
+            .set_request_items(request_items)
+            .send()
+            .await?;
+
+        let records = response
+            .responses
+            .unwrap_or_default()
+            .remove(&self.table)
+            .unwrap_or_default()
+            .into_iter()
+            .map(serde_dynamo::from_item::<_, ItemRecord>)
+            .filter_map(|result| match result {
+                Ok(event) => Some(event),
+                Err(err) => {
+                    error!(error = %err, type = %std::any::type_name::<ItemRecord>(), "Failed deserializing ItemRecord.");
+                    None
+                }
+            })
+            .collect::<Vec<_>>();
+
+        let unprocessed = response
+            .unprocessed_keys
+            .unwrap_or_default()
+            .remove(&self.table)
+            .map(|keys_and_attributes| keys_and_attributes.keys)
+            .unwrap_or_default()
+            .into_iter()
+            .filter_map(|attr_map| match extract_item_key(attr_map) {
+                Ok(key) => Some(key),
+                Err(err) => {
+                    error!(
+                        error = err,
+                        "Failed extracting ItemKey from BatchGetItemOutput::unprocessed_keys."
+                    );
+                    None
+                }
+            })
+            .collect::<Vec<_>>();
+
+        let batch_result = BatchGetItemResult {
+            items: records,
+            unprocessed: if unprocessed.is_empty() {
+                None
+            } else {
+                Some(Batch::try_from(unprocessed).expect(
+                    "shouldn't fail creating batch because DynamoDB cannot respond \
+                                with more failed ItemKeys than those requested.",
+                ))
+            },
+        };
+        Ok(batch_result)
+    }
+
+    async fn exist_item_records(
+        &self,
+        item_keys: &Batch<ItemKey, 100>,
+    ) -> Result<BatchGetItemResult<ItemKey, ItemKey>, SdkError<BatchGetItemError, HttpResponse>>
+    {
+        let keys = item_keys
+            .iter()
+            .map(|item_key| {
+                let mut columns = HashMap::with_capacity(2);
+                columns.insert(
+                    "pk".to_owned(),
+                    AttributeValue::S(mk_pk(&item_key.shop_id, &item_key.shops_item_id)),
+                );
+                columns.insert(
+                    "sk".to_owned(),
+                    AttributeValue::S("item#materialized".to_owned()),
+                );
+                columns
+            })
+            .collect();
+        let keys_and_attributes = KeysAndAttributes::builder()
+            .set_keys(Some(keys))
+            .projection_expression("pk")
+            .build()
+            .expect("shouldn't fail because we previously set the only required field 'keys'.");
+        let request_items = Some(HashMap::from([(self.table.clone(), keys_and_attributes)]));
+        let response = self
+            .client
+            .batch_get_item()
+            .set_request_items(request_items)
+            .send()
+            .await?;
+
+        let records = response
+            .responses
+            .unwrap_or_default()
+            .remove(&self.table)
+            .unwrap_or_default()
+            .into_iter()
+            .map(extract_item_key)
+            .filter_map(|result| match result {
+                Ok(event) => Some(event),
+                Err(err) => {
+                    error!(error = %err, "Failed extracting ItemKey.");
+                    None
+                }
+            })
+            .collect::<Vec<_>>();
+
+        let unprocessed = response
+            .unprocessed_keys
+            .unwrap_or_default()
+            .remove(&self.table)
+            .map(|keys_and_attributes| keys_and_attributes.keys)
+            .unwrap_or_default()
+            .into_iter()
+            .filter_map(|attr_map| match extract_item_key(attr_map) {
+                Ok(key) => Some(key),
+                Err(err) => {
+                    error!(
+                        error = err,
+                        "Failed extracting ItemKey from BatchGetItemOutput::unprocessed_keys."
+                    );
+                    None
+                }
+            })
+            .collect::<Vec<_>>();
+
+        let batch_result = BatchGetItemResult {
+            items: records,
+            unprocessed: if unprocessed.is_empty() {
+                None
+            } else {
+                Some(Batch::try_from(unprocessed).expect(
+                    "shouldn't fail creating batch because DynamoDB cannot respond \
+                                with more failed ItemKeys than those requested.",
+                ))
+            },
+        };
+        Ok(batch_result)
+    }
+}
+
+pub fn mk_pk(shop_id: &ShopId, shops_item_id: &ShopsItemId) -> String {
+    format!("item#shop_id#{shop_id}#shops_item_id#{shops_item_id}")
+}
+
+fn extract_item_key(map: HashMap<String, AttributeValue>) -> Result<ItemKey, String> {
+    let mut map = map;
+
+    // ugly af but much more efficient due to slices than using iterators in functional-style here
+    if let Some(pk_attr) = map.remove("pk") {
+        let pk_res = pk_attr.as_s();
+        if let Ok(pk) = pk_res {
+            if let Some((shop_id, shops_item_id)) = pk
+                .trim_start_matches("item#shop_id#")
+                .split_once("#shops_item_id#")
+            {
+                Ok(ItemKey {
+                    shop_id: shop_id.try_into().unwrap(),
+                    shops_item_id: shops_item_id.into(),
+                })
+            } else {
+                Err(format!("Parsing pk '{pk}' failed."))
+            }
+        } else {
+            Err(format!("Extracted value for pk '{pk_attr:?}' failed."))
+        }
+    } else {
+        Err(format!(
+            "AttributeValue-Map does not contain key pk: '{map:?}'."
+        ))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::dynamodb::repository::extract_item_key;
+    use aws_sdk_dynamodb::types::AttributeValue;
+    use common::item_id::ItemKey;
+    use std::collections::HashMap;
+
+    #[rstest::rstest]
+    #[case::differing("a1caead3-a50d-44a4-b9fb-a15d2397601e", "123456")]
+    #[case::containing_separator("a1caead3-a50d-44a4-b9fb-a15d2397601e", "abcdefg#boop")]
+    fn should_extract_item_key_from_pk_sk_map_when_pk_exists_and_is_valid_for(
+        #[case] shop_id: &str,
+        #[case] shops_item_id: &str,
+    ) {
+        let map = HashMap::from([(
+            "pk".to_owned(),
+            AttributeValue::S(format!(
+                "item#shop_id#{shop_id}#shops_item_id#{shops_item_id}"
+            )),
+        )]);
+        let expected = ItemKey {
+            shop_id: shop_id.try_into().unwrap(),
+            shops_item_id: shops_item_id.into(),
+        };
+
+        let actual = extract_item_key(map);
+
+        assert!(actual.is_ok());
+        assert_eq!(expected, actual.unwrap());
+    }
+}

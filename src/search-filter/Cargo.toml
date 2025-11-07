@@ -4,8 +4,35 @@ version = "0.1.0"
 edition = "2024"
 
 [dependencies]
-search-filter-api = { workspace = true }
-search-filter-core = { workspace = true }
-search-filter-data = { workspace = true }
-search-filter-dynamodb = { workspace = true }
-search-filter-service = { workspace = true }
+common = { workspace = true }
+time = { workspace = true, features = ["local-offset", "macros", "formatting"] }
+thiserror = { workspace = true }
+serde = { workspace = true }
+uuid = { workspace = true, features = ["v7"] }
+mockall = { workspace = true }
+async-trait = { workspace = true }
+
+# Optional
+fake = { workspace = true, optional = true }
+item = { workspace = true, optional = true }
+field = { workspace = true, optional = true }
+tracing = { workspace = true, optional = true }
+aws-sdk-dynamodb = { workspace = true, optional = true }
+serde_dynamo = { workspace = true, features = [ "aws-sdk-dynamodb+1" ], optional = true }
+
+[dev-dependencies]
+search-filter = { workspace = true, features = ["full"] }
+item = { workspace = true, features = ["full"] }
+test-api = { workspace = true, features = ["dynamodb"] }
+serial_test = { workspace = true }
+serde_json = { workspace = true }
+rstest = { workspace = true }
+tokio = { workspace = true, features = ["macros"] }
+
+[features]
+default = []
+dynamodb = ["common/dynamodb", "item", "item/dynamodb", "field", "tracing", "aws-sdk-dynamodb", "serde_dynamo", "serde_dynamo/aws-sdk-dynamodb+1"]
+service = ["common/dynamodb", "item"]
+data = ["item", "item/data"]
+test-data = ["fake", "common/test-data", "item/test-data"]
+full = ["dynamodb", "service", "data", "test-data"]

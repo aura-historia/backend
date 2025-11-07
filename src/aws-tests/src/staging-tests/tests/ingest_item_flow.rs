@@ -6,22 +6,22 @@ use common::{
     sort::{Sort, SortOrder},
 };
 use fake::{Fake, Faker};
-use item_core::sort_item_field::SortItemField;
-use item_data::{item_state_data::ItemStateData, put_data::PutItemData};
-use item_dynamodb::{
+use item::core::item_search::ItemSearch;
+use item::core::sort_item_field::SortItemField;
+use item::data::{item_state_data::ItemStateData, put_data::PutItemData};
+use item::dynamodb::{
     item_record::ItemRecord,
     item_state_record::ItemStateRecord,
     repository::{ItemDynamoDbRepository, ItemDynamoDbRepositoryImpl, mk_pk},
 };
-use item_opensearch::{
+use item::opensearch::{
     item_document::ItemDocument,
     repository::{ItemOpenSearchRepository, ItemOpenSearchRepositoryImpl},
 };
 use opensearch::{GetParts, IndexParts, params::Refresh};
-use search_filter_core::search_filter::SearchFilter;
 use serde::de::DeserializeOwned;
-use shop_core::shop::Shop;
-use shop_dynamodb::{
+use shop::core::shop::Shop;
+use shop::dynamodb::{
     repository::{ShopDynamoDbRepository, ShopDynamoDbRepositoryImpl},
     shop_record::ShopRecord,
 };
@@ -227,7 +227,7 @@ async fn should_materialize_item_in_opensearch_for_create_item_command() {
     loop {
         let materialized = repository
             .search_item_documents(
-                &SearchFilter {
+                &ItemSearch {
                     language: common::language::domain::Language::En,
                     currency: common::currency::domain::Currency::Eur,
                     item_query: "Exactly the expected title".try_into().unwrap(),
@@ -334,7 +334,7 @@ async fn should_materialize_item_in_opensearch_for_update_item_command() {
         refresh_index("items").await;
         let materialized = repository
             .search_item_documents(
-                &SearchFilter {
+                &ItemSearch {
                     language: common::language::domain::Language::En,
                     currency: common::currency::domain::Currency::Usd,
                     item_query: "Exactly the expected title".try_into().unwrap(),

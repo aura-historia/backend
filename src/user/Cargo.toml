@@ -4,7 +4,30 @@ version = "0.1.0"
 edition = "2024"
 
 [dependencies]
-cognito-post-confirmation = { workspace = true }
-user-core = { workspace = true }
-user-dynamodb = { workspace = true }
-user-service = { workspace = true }
+common = { workspace = true }
+serde = { workspace = true }
+serde-email = { workspace = true }
+time = { workspace = true }
+async-trait = { workspace = true }
+mockall = { workspace = true }
+thiserror = { workspace = true }
+
+# Optional
+serde_dynamo = { workspace = true, features = ["aws-sdk-dynamodb+1"], optional = true }
+tracing = { workspace = true, optional = true }
+aws-sdk-dynamodb = { workspace = true, optional = true }
+fake = { workspace = true, optional = true }
+
+[dev-dependencies]
+user = { workspace = true, features = ["full"] }
+test-api = { workspace = true, features = ["dynamodb"] }
+serial_test = { workspace = true }
+rstest = { workspace = true }
+tokio = { workspace = true, features = ["macros"] }
+
+[features]
+default = []
+dynamodb = ["aws-sdk-dynamodb", "serde_dynamo", "serde_dynamo/aws-sdk-dynamodb+1", "tracing"]
+service = ["dynamodb"]
+test-data = ["fake", "common/test-data"]
+full = ["test-data", "dynamodb", "service"]

@@ -191,10 +191,13 @@ pub mod api {
         pub total: Option<u64>,
     }
 
-    impl<T> From<CursoredResult<T, serde_json::Value>> for JsonCursoredData<T> {
+    impl<T, TData> From<CursoredResult<T, serde_json::Value>> for JsonCursoredData<TData>
+    where
+        T: Into<TData>,
+    {
         fn from(result: CursoredResult<T, serde_json::Value>) -> Self {
             JsonCursoredData {
-                items: result.items,
+                items: result.items.into_iter().map(Into::into).collect(),
                 size: result.cursor.size,
                 search_after: result.cursor.search_after,
                 total: result.total,

@@ -446,7 +446,7 @@ Resources:
         - !Ref ItemMaterializeOpenSearchNewQ
         - !Ref ItemMaterializeOpenSearchUpdateQ
         - !Ref ItemUpdateNotifyUserQ
-        - !Ref NightlyEnrichmentQ
+        - !Ref ItemEnrichmentQ
       PolicyDocument:
         Version: "2012-10-17"
         Statement:
@@ -460,7 +460,7 @@ Resources:
               - !GetAtt ItemMaterializeOpenSearchNewQ.Arn
               - !GetAtt ItemMaterializeOpenSearchUpdateQ.Arn
               - !GetAtt ItemUpdateNotifyUserQ.Arn
-              - !GetAtt NightlyEnrichmentQ.Arn
+              - !GetAtt ItemEnrichmentQ.Arn
 
   BlitzfilterApi:
     Type: AWS::ApiGatewayV2::Api
@@ -593,6 +593,9 @@ Resources:
       Environment:
         Variables:
           DYNAMODB_TABLE_NAME: !Ref TableOne
+          USER_POOL_ID: !Ref BlitzfilterUserPool
+          USER_POOL_PUBLIC_CLIENT_ID: !Ref BlitzfilterUserPoolClientPublic
+          USER_POOL_ADMIN_CLIENT_ID: !Ref BlitzfilterUserPoolClientAdmin
   BlitzfilterApiGetItemLambdaPermission:
     Type: AWS::Lambda::Permission
     Properties:
@@ -744,88 +747,6 @@ Resources:
       AlarmActions:
         - !Ref AlarmNotificationTopic
 
-  BlitzfilterApiSimpleSearchRoute:
-    Type: AWS::ApiGatewayV2::Route
-    Properties:
-      ApiId: !Ref BlitzfilterApi
-      RouteKey: "GET /api/v1/items"
-      Target: !Sub "integrations/${BlitzfilterApiSimpleSearchLambdaIntegration}"
-  BlitzfilterApiSimpleSearchLambdaIntegration:
-    Type: AWS::ApiGatewayV2::Integration
-    Properties:
-      ApiId: !Ref BlitzfilterApi
-      IntegrationType: AWS_PROXY
-      IntegrationUri: !Sub "arn:aws:lambda:${AWS::Region}:${AWS::AccountId}:function:${BlitzfilterApiSimpleSearchLambda}"
-      PayloadFormatVersion: "2.0"
-  BlitzfilterApiSimpleSearchRole:
-    Type: AWS::IAM::Role
-    Properties:
-      RoleName: !Sub "blitzfilter-api-simple-search-role-${StageName}"
-      AssumeRolePolicyDocument:
-        Version: "2012-10-17"
-        Statement:
-          - Effect: Allow
-            Principal:
-              Service: lambda.amazonaws.com
-            Action: sts:AssumeRole
-      ManagedPolicyArns:
-        - arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole
-      Policies:
-        - PolicyName: OpenSearchReadOnly
-          PolicyDocument:
-            Version: "2012-10-17"
-            Statement:
-              - Effect: Allow
-                Action:
-                  - es:Describe*
-                  - es:List*
-                  - es:ESHttpGet
-                  - es:ESHttpHead
-                  - es:ESHttpPost
-                Resource: !Sub "${BlitzfilterOpenSearchDomain.Arn}/*"
-  BlitzfilterApiSimpleSearchLambda:
-    Type: AWS::Lambda::Function
-    Properties:
-      FunctionName: !Sub "blitzfilter-api-simple-search-${StageName}"
-      Runtime: provided.al2023
-      Handler: lib.handler
-      Role: !GetAtt BlitzfilterApiSimpleSearchRole.Arn
-      Code:
-        S3Bucket: !Ref ArtifactBucket
-        S3Key: !Sub "item-api-simple-search-${StageName}-${CommitSHA}.zip"
-      MemorySize: 512
-      Timeout: 10
-      EphemeralStorage:
-        Size: 512
-      Environment:
-        Variables:
-          OPENSEARCH_DOMAIN_ENDPOINT_URL: !Sub "https://${BlitzfilterOpenSearchDomain.DomainEndpoint}"
-  BlitzfilterApiSimpleSearchLambdaPermission:
-    Type: AWS::Lambda::Permission
-    Properties:
-      Action: lambda:InvokeFunction
-      FunctionName: !Ref BlitzfilterApiSimpleSearchLambda
-      Principal: apigateway.amazonaws.com
-      SourceArn: !Sub "arn:aws:execute-api:${AWS::Region}:${AWS::AccountId}:${BlitzfilterApi}/*/*/api/v1/items*"
-  BlitzfilterApiSimpleSearchLambdaErrorAlarm:
-    Type: AWS::CloudWatch::Alarm
-    Properties:
-      AlarmName: !Sub "${StageName}-simple-search-lambda-errors"
-      AlarmDescription: "Alarm when simple-search Lambda has errors"
-      MetricName: Errors
-      Namespace: AWS/Lambda
-      Statistic: Sum
-      Period: 300
-      EvaluationPeriods: 1
-      Threshold: 1
-      ComparisonOperator: GreaterThanOrEqualToThreshold
-      Dimensions:
-        - Name: FunctionName
-          Value: !Ref BlitzfilterApiSimpleSearchLambda
-      TreatMissingData: notBreaching
-      AlarmActions:
-        - !Ref AlarmNotificationTopic
-
   BlitzfilterApiComplexSearchRoute:
     Type: AWS::ApiGatewayV2::Route
     Properties:
@@ -865,6 +786,16 @@ Resources:
                   - es:ESHttpHead
                   - es:ESHttpPost
                 Resource: !Sub "${BlitzfilterOpenSearchDomain.Arn}/*"
+        - PolicyName: DynamoDBAccess
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: Allow
+                Action:
+                  - dynamodb:GetItem
+                  - dynamodb:BatchGetItem
+                  - dynamodb:Query
+                Resource: !GetAtt TableOne.Arn
   BlitzfilterApiComplexSearchLambda:
     Type: AWS::Lambda::Function
     Properties:
@@ -882,6 +813,10 @@ Resources:
       Environment:
         Variables:
           OPENSEARCH_DOMAIN_ENDPOINT_URL: !Sub "https://${BlitzfilterOpenSearchDomain.DomainEndpoint}"
+          DYNAMODB_TABLE_NAME: !Ref TableOne
+          USER_POOL_ID: !Ref BlitzfilterUserPool
+          USER_POOL_PUBLIC_CLIENT_ID: !Ref BlitzfilterUserPoolClientPublic
+          USER_POOL_ADMIN_CLIENT_ID: !Ref BlitzfilterUserPoolClientAdmin
   BlitzfilterApiComplexSearchLambdaPermission:
     Type: AWS::Lambda::Permission
     Properties:
@@ -912,7 +847,7 @@ Resources:
     Type: AWS::ApiGatewayV2::Route
     Properties:
       ApiId: !Ref BlitzfilterApi
-      RouteKey: "GET /api/v1/watchlist"
+      RouteKey: "GET /api/v1/me/watchlist"
       AuthorizationType: JWT
       AuthorizerId: !Ref BlitzfilterApiCognitoAuthorizer
       Target: !Sub "integrations/${BlitzfilterApiGetWatchlistItemsLambdaIntegration}"
@@ -972,13 +907,13 @@ Resources:
       Action: lambda:InvokeFunction
       FunctionName: !Ref BlitzfilterApiGetWatchlistItemsLambda
       Principal: apigateway.amazonaws.com
-      SourceArn: !Sub "arn:aws:execute-api:${AWS::Region}:${AWS::AccountId}:${BlitzfilterApi}/*/*/api/v1/watchlist*"
+      SourceArn: !Sub "arn:aws:execute-api:${AWS::Region}:${AWS::AccountId}:${BlitzfilterApi}/*/*/api/v1/me/watchlist*"
 
   BlitzfilterApiDeleteWatchlistItemRoute:
     Type: AWS::ApiGatewayV2::Route
     Properties:
       ApiId: !Ref BlitzfilterApi
-      RouteKey: "DELETE /api/v1/watchlist/{shopId}/{shopsItemId}"
+      RouteKey: "DELETE /api/v1/me/watchlist/{shopId}/{shopsItemId}"
       AuthorizationType: JWT
       AuthorizerId: !Ref BlitzfilterApiCognitoAuthorizer
       Target: !Sub "integrations/${BlitzfilterApiDeleteWatchlistItemLambdaIntegration}"
@@ -1037,13 +972,13 @@ Resources:
       Action: lambda:InvokeFunction
       FunctionName: !Ref BlitzfilterApiDeleteWatchlistItemLambda
       Principal: apigateway.amazonaws.com
-      SourceArn: !Sub "arn:aws:execute-api:${AWS::Region}:${AWS::AccountId}:${BlitzfilterApi}/*/*/api/v1/watchlist/*/*"
+      SourceArn: !Sub "arn:aws:execute-api:${AWS::Region}:${AWS::AccountId}:${BlitzfilterApi}/*/*/api/v1/me/watchlist/*/*"
 
   BlitzfilterApiPostWatchlistItemRoute:
     Type: AWS::ApiGatewayV2::Route
     Properties:
       ApiId: !Ref BlitzfilterApi
-      RouteKey: "POST /api/v1/watchlist"
+      RouteKey: "POST /api/v1/me/watchlist"
       AuthorizationType: JWT
       AuthorizerId: !Ref BlitzfilterApiCognitoAuthorizer
       Target: !Sub "integrations/${BlitzfilterApiPostWatchlistItemLambdaIntegration}"
@@ -1102,13 +1037,13 @@ Resources:
       Action: lambda:InvokeFunction
       FunctionName: !Ref BlitzfilterApiPostWatchlistItemLambda
       Principal: apigateway.amazonaws.com
-      SourceArn: !Sub "arn:aws:execute-api:${AWS::Region}:${AWS::AccountId}:${BlitzfilterApi}/*/*/api/v1/watchlist"
+      SourceArn: !Sub "arn:aws:execute-api:${AWS::Region}:${AWS::AccountId}:${BlitzfilterApi}/*/*/api/v1/me/watchlist"
 
   BlitzfilterApiPatchWatchlistItemRoute:
     Type: AWS::ApiGatewayV2::Route
     Properties:
       ApiId: !Ref BlitzfilterApi
-      RouteKey: "PATCH /api/v1/watchlist/{shopId}/{shopsItemId}"
+      RouteKey: "PATCH /api/v1/me/watchlist/{shopId}/{shopsItemId}"
       AuthorizationType: JWT
       AuthorizerId: !Ref BlitzfilterApiCognitoAuthorizer
       Target: !Sub "integrations/${BlitzfilterApiPatchWatchlistItemLambdaIntegration}"
@@ -1165,7 +1100,7 @@ Resources:
       Action: lambda:InvokeFunction
       FunctionName: !Ref BlitzfilterApiPatchWatchlistItemLambda
       Principal: apigateway.amazonaws.com
-      SourceArn: !Sub "arn:aws:execute-api:${AWS::Region}:${AWS::AccountId}:${BlitzfilterApi}/*/*/api/v1/watchlist/*/*"
+      SourceArn: !Sub "arn:aws:execute-api:${AWS::Region}:${AWS::AccountId}:${BlitzfilterApi}/*/*/api/v1/me/watchlist/*/*"
 
   BlitzfilterApiGetShopRoute:
     Type: AWS::ApiGatewayV2::Route
@@ -1297,7 +1232,7 @@ Resources:
     Type: AWS::ApiGatewayV2::Route
     Properties:
       ApiId: !Ref BlitzfilterApi
-      RouteKey: "DELETE /api/v1/search-filters/{searchFilterId}"
+      RouteKey: "DELETE /api/v1/me/search-filters/{userSearchFilterId}"
       AuthorizationType: JWT
       AuthorizerId: !Ref BlitzfilterApiCognitoAuthorizer
       Target: !Sub "integrations/${BlitzfilterApiDeleteSearchFilterLambdaIntegration}"
@@ -1356,13 +1291,13 @@ Resources:
       Action: lambda:InvokeFunction
       FunctionName: !Ref BlitzfilterApiDeleteSearchFilterLambda
       Principal: apigateway.amazonaws.com
-      SourceArn: !Sub "arn:aws:execute-api:${AWS::Region}:${AWS::AccountId}:${BlitzfilterApi}/*/*/api/v1/search-filters/*"
+      SourceArn: !Sub "arn:aws:execute-api:${AWS::Region}:${AWS::AccountId}:${BlitzfilterApi}/*/*/api/v1/me/search-filters/*"
 
   ApiGetSearchFilterRoute:
     Type: AWS::ApiGatewayV2::Route
     Properties:
       ApiId: !Ref BlitzfilterApi
-      RouteKey: "GET /api/v1/search-filters/{searchFilterId}"
+      RouteKey: "GET /api/v1/me/search-filters/{userSearchFilterId}"
       AuthorizationType: JWT
       AuthorizerId: !Ref BlitzfilterApiCognitoAuthorizer
       Target: !Sub "integrations/${BlitzfilterApiGetSearchFilterLambdaIntegration}"
@@ -1420,13 +1355,13 @@ Resources:
       Action: lambda:InvokeFunction
       FunctionName: !Ref BlitzfilterApiGetSearchFilterLambda
       Principal: apigateway.amazonaws.com
-      SourceArn: !Sub "arn:aws:execute-api:${AWS::Region}:${AWS::AccountId}:${BlitzfilterApi}/*/*/api/v1/search-filters/*"
+      SourceArn: !Sub "arn:aws:execute-api:${AWS::Region}:${AWS::AccountId}:${BlitzfilterApi}/*/*/api/v1/me/search-filters/*"
 
   ApiGetSearchFiltersRoute:
     Type: AWS::ApiGatewayV2::Route
     Properties:
       ApiId: !Ref BlitzfilterApi
-      RouteKey: "GET /api/v1/search-filters"
+      RouteKey: "GET /api/v1/me/search-filters"
       AuthorizationType: JWT
       AuthorizerId: !Ref BlitzfilterApiCognitoAuthorizer
       Target: !Sub "integrations/${BlitzfilterApiGetSearchFiltersLambdaIntegration}"
@@ -1484,13 +1419,13 @@ Resources:
       Action: lambda:InvokeFunction
       FunctionName: !Ref BlitzfilterApiGetSearchFiltersLambda
       Principal: apigateway.amazonaws.com
-      SourceArn: !Sub "arn:aws:execute-api:${AWS::Region}:${AWS::AccountId}:${BlitzfilterApi}/*/*/api/v1/search-filters"
+      SourceArn: !Sub "arn:aws:execute-api:${AWS::Region}:${AWS::AccountId}:${BlitzfilterApi}/*/*/api/v1/me/search-filters"
 
   ApiPatchSearchFilterRoute:
     Type: AWS::ApiGatewayV2::Route
     Properties:
       ApiId: !Ref BlitzfilterApi
-      RouteKey: "PATCH /api/v1/search-filters/{searchFilterId}"
+      RouteKey: "PATCH /api/v1/me/search-filters/{userSearchFilterId}"
       AuthorizationType: JWT
       AuthorizerId: !Ref BlitzfilterApiCognitoAuthorizer
       Target: !Sub "integrations/${BlitzfilterApiPatchSearchFilterLambdaIntegration}"
@@ -1548,13 +1483,13 @@ Resources:
       Action: lambda:InvokeFunction
       FunctionName: !Ref BlitzfilterApiPatchSearchFilterLambda
       Principal: apigateway.amazonaws.com
-      SourceArn: !Sub "arn:aws:execute-api:${AWS::Region}:${AWS::AccountId}:${BlitzfilterApi}/*/*/api/v1/search-filters/*"
+      SourceArn: !Sub "arn:aws:execute-api:${AWS::Region}:${AWS::AccountId}:${BlitzfilterApi}/*/*/api/v1/me/search-filters/*"
 
   ApiPostSearchFilterRoute:
     Type: AWS::ApiGatewayV2::Route
     Properties:
       ApiId: !Ref BlitzfilterApi
-      RouteKey: "POST /api/v1/search-filters"
+      RouteKey: "POST /api/v1/me/search-filters"
       AuthorizationType: JWT
       AuthorizerId: !Ref BlitzfilterApiCognitoAuthorizer
       Target: !Sub "integrations/${BlitzfilterApiPostSearchFilterLambdaIntegration}"
@@ -1610,7 +1545,7 @@ Resources:
       Action: lambda:InvokeFunction
       FunctionName: !Ref BlitzfilterApiPostSearchFilterLambda
       Principal: apigateway.amazonaws.com
-      SourceArn: !Sub "arn:aws:execute-api:${AWS::Region}:${AWS::AccountId}:${BlitzfilterApi}/*/*/api/v1/search-filters"
+      SourceArn: !Sub "arn:aws:execute-api:${AWS::Region}:${AWS::AccountId}:${BlitzfilterApi}/*/*/api/v1/me/search-filters"
 
   SendMailDlq:
     Type: AWS::SQS::Queue
@@ -2547,10 +2482,10 @@ Resources:
       Targets:
         - Id: ItemUpdateNotifyUserQ
           Arn: !GetAtt ItemUpdateNotifyUserQ.Arn
-  DynamoDbItemEventRecordCreatedNightlyEnrichmentEventRule:
+  DynamoDbItemEventRecordCreatedItemEnrichmentEventRule:
     Type: AWS::Events::Rule
     Properties:
-      Name: !Sub "ddb-item-nightly-enrichment-${StageName}"
+      Name: !Sub "ddb-item-item-enrichment-${StageName}"
       EventBusName: !Ref DynamoDbEventBus
       EventPattern:
         source:
@@ -2566,10 +2501,10 @@ Resources:
                 S:
                   - "CREATED"
       Targets:
-        - Id: NightlyEnrichmentQ
-          Arn: !GetAtt NightlyEnrichmentQ.Arn
+        - Id: ItemEnrichmentQ
+          Arn: !GetAtt ItemEnrichmentQ.Arn
 
-  NightlyEnrichmentVpc:
+  ItemEnrichmentVpc:
     Type: AWS::EC2::VPC
     Properties:
       CidrBlock: 10.0.0.0/16
@@ -2577,91 +2512,91 @@ Resources:
       EnableDnsHostnames: true
       Tags:
         - Key: Name
-          Value: !Sub "nightly-enrichment-vpc-${StageName}"
-  NightlyEnrichmentInternetGateway:
+          Value: !Sub "item-enrichment-vpc-${StageName}"
+  ItemEnrichmentInternetGateway:
     Type: AWS::EC2::InternetGateway
     Properties:
       Tags:
         - Key: Name
-          Value: !Sub "nightly-enrichment-igw-${StageName}"
-  NightlyEnrichmentVpcGatewayAttachment:
+          Value: !Sub "item-enrichment-igw-${StageName}"
+  ItemEnrichmentVpcGatewayAttachment:
     Type: AWS::EC2::VPCGatewayAttachment
     Properties:
-      InternetGatewayId: !Ref NightlyEnrichmentInternetGateway
-      VpcId: !Ref NightlyEnrichmentVpc
-  NightlyEnrichmentPublicRouteTable:
+      InternetGatewayId: !Ref ItemEnrichmentInternetGateway
+      VpcId: !Ref ItemEnrichmentVpc
+  ItemEnrichmentPublicRouteTable:
     Type: AWS::EC2::RouteTable
     Properties:
-      VpcId: !Ref NightlyEnrichmentVpc
+      VpcId: !Ref ItemEnrichmentVpc
       Tags:
         - Key: Name
-          Value: !Sub "nightly-enrichment-public-rt-${StageName}"
-  NightlyEnrichmentPublicRoute:
+          Value: !Sub "item-enrichment-public-rt-${StageName}"
+  ItemEnrichmentPublicRoute:
     Type: AWS::EC2::Route
-    DependsOn: NightlyEnrichmentVpcGatewayAttachment
+    DependsOn: ItemEnrichmentVpcGatewayAttachment
     Properties:
-      RouteTableId: !Ref NightlyEnrichmentPublicRouteTable
+      RouteTableId: !Ref ItemEnrichmentPublicRouteTable
       DestinationCidrBlock: 0.0.0.0/0
-      GatewayId: !Ref NightlyEnrichmentInternetGateway
-  NightlyEnrichmentSubnetA:
+      GatewayId: !Ref ItemEnrichmentInternetGateway
+  ItemEnrichmentSubnetA:
     Type: AWS::EC2::Subnet
     Properties:
-      VpcId: !Ref NightlyEnrichmentVpc
+      VpcId: !Ref ItemEnrichmentVpc
       CidrBlock: 10.0.1.0/24
       MapPublicIpOnLaunch: true
       AvailabilityZone: !Select [0, !GetAZs ""]
       Tags:
         - Key: Name
-          Value: !Sub "nightly-enrichment-subnet-a-${StageName}"
-  NightlyEnrichmentSubnetB:
+          Value: !Sub "item-enrichment-subnet-a-${StageName}"
+  ItemEnrichmentSubnetB:
     Type: AWS::EC2::Subnet
     Properties:
-      VpcId: !Ref NightlyEnrichmentVpc
+      VpcId: !Ref ItemEnrichmentVpc
       CidrBlock: 10.0.2.0/24
       MapPublicIpOnLaunch: true
       AvailabilityZone: !Select [1, !GetAZs ""]
       Tags:
         - Key: Name
-          Value: !Sub "nightly-enrichment-subnet-b-${StageName}"
-  NightlyEnrichmentSubnetRouteAssocA:
+          Value: !Sub "item-enrichment-subnet-b-${StageName}"
+  ItemEnrichmentSubnetRouteAssocA:
     Type: AWS::EC2::SubnetRouteTableAssociation
     Properties:
-      SubnetId: !Ref NightlyEnrichmentSubnetA
-      RouteTableId: !Ref NightlyEnrichmentPublicRouteTable
-  NightlyEnrichmentSubnetRouteAssocB:
+      SubnetId: !Ref ItemEnrichmentSubnetA
+      RouteTableId: !Ref ItemEnrichmentPublicRouteTable
+  ItemEnrichmentSubnetRouteAssocB:
     Type: AWS::EC2::SubnetRouteTableAssociation
     Properties:
-      SubnetId: !Ref NightlyEnrichmentSubnetB
-      RouteTableId: !Ref NightlyEnrichmentPublicRouteTable
-  NightlyEnrichmentSecurityGroup:
+      SubnetId: !Ref ItemEnrichmentSubnetB
+      RouteTableId: !Ref ItemEnrichmentPublicRouteTable
+  ItemEnrichmentSecurityGroup:
     Type: AWS::EC2::SecurityGroup
     Properties:
       GroupDescription: Allow SSH and internal comms
-      VpcId: !Ref NightlyEnrichmentVpc
+      VpcId: !Ref ItemEnrichmentVpc
       SecurityGroupEgress:
         - IpProtocol: -1
           CidrIp: 0.0.0.0/0
       Tags:
         - Key: Name
-          Value: !Sub "nightly-enrichment-sg-${StageName}"
+          Value: !Sub "item-enrichment-sg-${StageName}"
 
-  NightlyEnrichmentDlq:
+  ItemEnrichmentDlq:
     Type: AWS::SQS::Queue
     Properties:
-      QueueName: !Sub "nightly-enrichment-dlq-${StageName}"
+      QueueName: !Sub "item-enrichment-dlq-${StageName}"
       MessageRetentionPeriod: 1209600
-  NightlyEnrichmentQ:
+  ItemEnrichmentQ:
     Type: AWS::SQS::Queue
     Properties:
-      QueueName: !Sub "nightly-enrichment-queue-${StageName}"
+      QueueName: !Sub "item-enrichment-queue-${StageName}"
       RedrivePolicy:
-        deadLetterTargetArn: !GetAtt NightlyEnrichmentDlq.Arn
+        deadLetterTargetArn: !GetAtt ItemEnrichmentDlq.Arn
         maxReceiveCount: 3
       VisibilityTimeout: 360
-  NightlyEnrichmentRole:
+  ItemEnrichmentRole:
     Type: AWS::IAM::Role
     Properties:
-      RoleName: !Sub "nightly-enrichment-role-${StageName}"
+      RoleName: !Sub "item-enrichment-role-${StageName}"
       AssumeRolePolicyDocument:
         Version: "2012-10-17"
         Statement:
@@ -2721,7 +2656,7 @@ Resources:
                   - sqs:DeleteMessageBatch
                   - sqs:GetQueueAttributes
                   - sqs:GetQueueUrl
-                Resource: !GetAtt NightlyEnrichmentQ.Arn
+                Resource: !GetAtt ItemEnrichmentQ.Arn
         - PolicyName: CloudWatchLogsCreate
           PolicyDocument:
             Version: "2012-10-17"
@@ -2732,23 +2667,23 @@ Resources:
                   - logs:CreateLogStream
                   - logs:PutLogEvents
                 Resource: "*"
-  NightlyEnrichmentInstanceProfile:
+  ItemEnrichmentInstanceProfile:
     Type: AWS::IAM::InstanceProfile
     Properties:
-      InstanceProfileName: !Sub "nightly-enrichment-profile-${StageName}"
+      InstanceProfileName: !Sub "item-enrichment-profile-${StageName}"
       Roles:
-        - !Ref NightlyEnrichmentRole
-  NightlyEnrichmentLaunchTemplate:
+        - !Ref ItemEnrichmentRole
+  ItemEnrichmentLaunchTemplate:
     Type: AWS::EC2::LaunchTemplate
     Properties:
-      LaunchTemplateName: !Sub "nightly-enrichment-template-${StageName}"
+      LaunchTemplateName: !Sub "item-enrichment-template-${StageName}"
       LaunchTemplateData:
         KeyName: !Ref Ec2KeyPairName
         IamInstanceProfile:
-          Name: !Ref NightlyEnrichmentInstanceProfile
+          Name: !Ref ItemEnrichmentInstanceProfile
         InstanceType: g6.xlarge # Placeholder - ASG overrides this
         ImageId: ami-047a98bf51dec0963 # custom eu-central-1 AMI with preinstalled deps based on ami-032fa3abdbb7e3a12 (Deep Learning OSS Nvidia Driver AMI GPU PyTorch 2.8 (Ubuntu 24.04))
-        SecurityGroupIds: [!Ref NightlyEnrichmentSecurityGroup]
+        SecurityGroupIds: [!Ref ItemEnrichmentSecurityGroup]
         BlockDeviceMappings:
           - DeviceName: /dev/sda1
             Ebs:
@@ -2759,9 +2694,9 @@ Resources:
           - ResourceType: instance
             Tags:
               - Key: Name
-                Value: !Sub "nightly-enrichment-${StageName}"
+                Value: !Sub "item-enrichment-${StageName}"
               - Key: Fleet
-                Value: nightly-enrichment
+                Value: item-enrichment
         UserData:
           Fn::Base64: !Sub |
             #!/bin/bash
@@ -2771,26 +2706,26 @@ Resources:
             export COMMIT_SHA="${CommitSHA}"
             export RESOURCE_BUCKET="${ResourceBucket}"
             export ARTIFACT_BUCKET="${ArtifactBucket}"
-            export ENRICHMENT_QUEUE_URL="${NightlyEnrichmentQ}"
+            export ENRICHMENT_QUEUE_URL="${ItemEnrichmentQ}"
             export DYNAMODB_TABLE_NAME="${TableOne}"
             export OPENSEARCH_DOMAIN_ENDPOINT_URL="https://${BlitzfilterOpenSearchDomain.DomainEndpoint}"
             export BAAI_BGE_M3_MODEL_DEVICE="cuda"
-            aws s3 cp "s3://${ResourceBucket}/${StageName}/${CommitSHA}/src/item/src/nightly-enrichment/user-data.sh" /tmp/user_data.sh --region eu-central-1
+            aws s3 cp "s3://${ResourceBucket}/${StageName}/${CommitSHA}/src/item-enrichment/user-data.sh" /tmp/user_data.sh --region eu-central-1
             source /tmp/user_data.sh
-  NightlyEnrichmentASG:
+  ItemEnrichmentASG:
     Type: AWS::AutoScaling::AutoScalingGroup
     Properties:
       VPCZoneIdentifier:
-        - !Ref NightlyEnrichmentSubnetA
-        - !Ref NightlyEnrichmentSubnetB
+        - !Ref ItemEnrichmentSubnetA
+        - !Ref ItemEnrichmentSubnetB
       MinSize: 0
       MaxSize: 3
       DesiredCapacity: 0 # Default zero, scale via EventBridge
       MixedInstancesPolicy:
         LaunchTemplate:
           LaunchTemplateSpecification:
-            LaunchTemplateId: !Ref NightlyEnrichmentLaunchTemplate
-            Version: !GetAtt NightlyEnrichmentLaunchTemplate.LatestVersionNumber
+            LaunchTemplateId: !Ref ItemEnrichmentLaunchTemplate
+            Version: !GetAtt ItemEnrichmentLaunchTemplate.LatestVersionNumber
           Overrides:
             - InstanceType: g6.xlarge
             - InstanceType: g6.2xlarge
@@ -2801,15 +2736,15 @@ Resources:
           SpotAllocationStrategy: price-capacity-optimized
       Tags:
         - Key: Name
-          Value: !Sub "nightly-enrichment-${StageName}"
+          Value: !Sub "item-enrichment-${StageName}"
           PropagateAtLaunch: true
       HealthCheckType: EC2
       HealthCheckGracePeriod: 120
-  NightlyEnrichmentDlqAlarm:
+  ItemEnrichmentDlqAlarm:
     Type: AWS::CloudWatch::Alarm
     Properties:
-      AlarmName: !Sub "${StageName}-nightly-enrichment-dlq-messages"
-      AlarmDescription: "Alarm when messages appear in nightly-enrichment DLQ"
+      AlarmName: !Sub "${StageName}-item-enrichment-dlq-messages"
+      AlarmDescription: "Alarm when messages appear in item-enrichment DLQ"
       MetricName: ApproximateNumberOfMessagesVisible
       Namespace: AWS/SQS
       Statistic: Sum
@@ -2819,11 +2754,11 @@ Resources:
       ComparisonOperator: GreaterThanOrEqualToThreshold
       Dimensions:
         - Name: QueueName
-          Value: !GetAtt NightlyEnrichmentDlq.QueueName
+          Value: !GetAtt ItemEnrichmentDlq.QueueName
       TreatMissingData: notBreaching
       AlarmActions:
         - !Ref AlarmNotificationTopic
-  NightlyEnrichmentASGEC2InstanceStatusCheckFailed:
+  ItemEnrichmentASGEC2InstanceStatusCheckFailed:
     Type: AWS::CloudWatch::Alarm
     Properties:
       AlarmDescription: "One or more instance status checks are failing."
@@ -2831,7 +2766,7 @@ Resources:
       MetricName: StatusCheckFailed_Instance
       Dimensions:
         - Name: AutoScalingGroupName
-          Value: !Ref NightlyEnrichmentASG
+          Value: !Ref ItemEnrichmentASG
       Statistic: Maximum
       Period: 60
       EvaluationPeriods: 2
@@ -2840,7 +2775,7 @@ Resources:
       TreatMissingData: notBreaching
       AlarmActions:
         - !Ref AlarmNotificationTopic
-  NightlyEnrichmentASGEC2SystemStatusCheckFailed:
+  ItemEnrichmentASGEC2SystemStatusCheckFailed:
     Type: AWS::CloudWatch::Alarm
     Properties:
       AlarmDescription: "System status check failed (hardware/hypervisor)."
@@ -2848,7 +2783,7 @@ Resources:
       MetricName: StatusCheckFailed_System
       Dimensions:
         - Name: AutoScalingGroupName
-          Value: !Ref NightlyEnrichmentASG
+          Value: !Ref ItemEnrichmentASG
       Statistic: Maximum
       Period: 60
       EvaluationPeriods: 2
@@ -2858,10 +2793,10 @@ Resources:
       AlarmActions:
         - !Ref AlarmNotificationTopic
 
-  NightlyEnrichmentScaleDownRole:
+  ItemEnrichmentScaleDownRole:
     Type: AWS::IAM::Role
     Properties:
-      RoleName: !Sub "nightly-enrichment-asg-scale-down-role-${StageName}"
+      RoleName: !Sub "item-enrichment-asg-scale-down-role-${StageName}"
       AssumeRolePolicyDocument:
         Version: "2012-10-17"
         Statement:
@@ -2880,7 +2815,7 @@ Resources:
                 Action:
                   - autoscaling:UpdateAutoScalingGroup
                   - autoscaling:DescribeAutoScalingGroups
-                Resource: !Sub "arn:aws:autoscaling:${AWS::Region}:${AWS::AccountId}:autoScalingGroup:*:autoScalingGroupName/${NightlyEnrichmentASG}"
+                Resource: !Sub "arn:aws:autoscaling:${AWS::Region}:${AWS::AccountId}:autoScalingGroup:*:autoScalingGroupName/${ItemEnrichmentASG}"
         - PolicyName: OpenSearchAccess
           PolicyDocument:
             Version: "2012-10-17"
@@ -2889,48 +2824,48 @@ Resources:
                 Action:
                   - es:*
                 Resource: !Sub "arn:aws:es:${AWS::Region}:${AWS::AccountId}:domain/application-${StageName}/*"
-  NightlyEnrichmentScaleDownLambda:
+  ItemEnrichmentScaleDownLambda:
     Type: AWS::Lambda::Function
     Properties:
-      FunctionName: !Sub "nightly-enrichment-asg-scale-down-${StageName}"
+      FunctionName: !Sub "item-enrichment-asg-scale-down-${StageName}"
       Runtime: provided.al2023
       Handler: lib.handler
-      Role: !GetAtt NightlyEnrichmentScaleDownRole.Arn
+      Role: !GetAtt ItemEnrichmentScaleDownRole.Arn
       Code:
         S3Bucket: !Ref ArtifactBucket
-        S3Key: !Sub "nightly-enrichment-asg-scale-down-${StageName}-${CommitSHA}.zip"
+        S3Key: !Sub "item-enrichment-asg-scale-down-${StageName}-${CommitSHA}.zip"
       MemorySize: 128
       Timeout: 60
       EphemeralStorage:
         Size: 512
       Environment:
         Variables:
-          NIGHTLY_ENRICHMENT_ASG_NAME: !Ref NightlyEnrichmentASG
+          ITEM_ENRICHMENT_ASG_NAME: !Ref ItemEnrichmentASG
           OPENSEARCH_DOMAIN_ENDPOINT_URL: !Sub "https://${BlitzfilterOpenSearchDomain.DomainEndpoint}"
-  NightlyEnrichmentScaleDownStartSchedule:
+  ItemEnrichmentScaleDownStartSchedule:
     Type: AWS::Events::Rule
     Properties:
       ScheduleExpression: "cron(0 3 * * ? *)" # every day at 03:00 UTC
       Targets:
-        - Arn: !GetAtt NightlyEnrichmentScaleDownLambda.Arn
-          Id: "NightlyEnrichmentScaleDownStartSchedule"
+        - Arn: !GetAtt ItemEnrichmentScaleDownLambda.Arn
+          Id: "ItemEnrichmentScaleDownStartSchedule"
           RetryPolicy:
             MaximumRetryAttempts: 5
             MaximumEventAgeInSeconds: 3600
           DeadLetterConfig:
-            Arn: !GetAtt NightlyEnrichmentDlq.Arn
-  NightlyEnrichmentScaleDownStartSchedulePermission:
+            Arn: !GetAtt ItemEnrichmentDlq.Arn
+  ItemEnrichmentScaleDownStartSchedulePermission:
     Type: AWS::Lambda::Permission
     Properties:
-      FunctionName: !Ref NightlyEnrichmentScaleDownLambda
+      FunctionName: !Ref ItemEnrichmentScaleDownLambda
       Action: "lambda:InvokeFunction"
       Principal: "events.amazonaws.com"
-      SourceArn: !GetAtt NightlyEnrichmentScaleDownStartSchedule.Arn
-  NightlyEnrichmentScaleDownLambdaErrorAlarm:
+      SourceArn: !GetAtt ItemEnrichmentScaleDownStartSchedule.Arn
+  ItemEnrichmentScaleDownLambdaErrorAlarm:
     Type: AWS::CloudWatch::Alarm
     Properties:
-      AlarmName: !Sub "${StageName}-nightly-enrichment-asg-scale-down-lambda-errors"
-      AlarmDescription: "Alarm when nightly-enrichment-asg-scale-down Lambda has errors"
+      AlarmName: !Sub "${StageName}-item-enrichment-asg-scale-down-lambda-errors"
+      AlarmDescription: "Alarm when item-enrichment-asg-scale-down Lambda has errors"
       MetricName: Errors
       Namespace: AWS/Lambda
       Statistic: Sum
@@ -2940,15 +2875,15 @@ Resources:
       ComparisonOperator: GreaterThanOrEqualToThreshold
       Dimensions:
         - Name: FunctionName
-          Value: !Ref NightlyEnrichmentScaleDownLambda
+          Value: !Ref ItemEnrichmentScaleDownLambda
       TreatMissingData: notBreaching
       AlarmActions:
         - !Ref AlarmNotificationTopic
 
-  NightlyEnrichmentScaleUpRole:
+  ItemEnrichmentScaleUpRole:
     Type: AWS::IAM::Role
     Properties:
-      RoleName: !Sub "nightly-enrichment-asg-scale-up-role-${StageName}"
+      RoleName: !Sub "item-enrichment-asg-scale-up-role-${StageName}"
       AssumeRolePolicyDocument:
         Version: "2012-10-17"
         Statement:
@@ -2967,7 +2902,7 @@ Resources:
                 Action:
                   - autoscaling:UpdateAutoScalingGroup
                   - autoscaling:DescribeAutoScalingGroups
-                Resource: !Sub "arn:aws:autoscaling:${AWS::Region}:${AWS::AccountId}:autoScalingGroup:*:autoScalingGroupName/${NightlyEnrichmentASG}"
+                Resource: !Sub "arn:aws:autoscaling:${AWS::Region}:${AWS::AccountId}:autoScalingGroup:*:autoScalingGroupName/${ItemEnrichmentASG}"
         - PolicyName: OpenSearchAccess
           PolicyDocument:
             Version: "2012-10-17"
@@ -2976,48 +2911,48 @@ Resources:
                 Action:
                   - es:*
                 Resource: !Sub "arn:aws:es:${AWS::Region}:${AWS::AccountId}:domain/application-${StageName}/*"
-  NightlyEnrichmentScaleUpLambda:
+  ItemEnrichmentScaleUpLambda:
     Type: AWS::Lambda::Function
     Properties:
-      FunctionName: !Sub "nightly-enrichment-asg-scale-up-${StageName}"
+      FunctionName: !Sub "item-enrichment-asg-scale-up-${StageName}"
       Runtime: provided.al2023
       Handler: lib.handler
-      Role: !GetAtt NightlyEnrichmentScaleUpRole.Arn
+      Role: !GetAtt ItemEnrichmentScaleUpRole.Arn
       Code:
         S3Bucket: !Ref ArtifactBucket
-        S3Key: !Sub "nightly-enrichment-asg-scale-up-${StageName}-${CommitSHA}.zip"
+        S3Key: !Sub "item-enrichment-asg-scale-up-${StageName}-${CommitSHA}.zip"
       MemorySize: 128
       Timeout: 60
       EphemeralStorage:
         Size: 512
       Environment:
         Variables:
-          NIGHTLY_ENRICHMENT_ASG_NAME: !Ref NightlyEnrichmentASG
+          ITEM_ENRICHMENT_ASG_NAME: !Ref ItemEnrichmentASG
           OPENSEARCH_DOMAIN_ENDPOINT_URL: !Sub "https://${BlitzfilterOpenSearchDomain.DomainEndpoint}"
-  NightlyEnrichmentScaleUpStartSchedule:
+  ItemEnrichmentScaleUpStartSchedule:
     Type: AWS::Events::Rule
     Properties:
       ScheduleExpression: "cron(0 1 * * ? *)" # every day at 01:00 UTC
       Targets:
-        - Arn: !GetAtt NightlyEnrichmentScaleUpLambda.Arn
-          Id: "NightlyEnrichmentScaleUpStartSchedule"
+        - Arn: !GetAtt ItemEnrichmentScaleUpLambda.Arn
+          Id: "ItemEnrichmentScaleUpStartSchedule"
           RetryPolicy:
             MaximumRetryAttempts: 5
             MaximumEventAgeInSeconds: 3600
           DeadLetterConfig:
-            Arn: !GetAtt NightlyEnrichmentDlq.Arn
-  NightlyEnrichmentScaleUpStartSchedulePermission:
+            Arn: !GetAtt ItemEnrichmentDlq.Arn
+  ItemEnrichmentScaleUpStartSchedulePermission:
     Type: AWS::Lambda::Permission
     Properties:
-      FunctionName: !Ref NightlyEnrichmentScaleUpLambda
+      FunctionName: !Ref ItemEnrichmentScaleUpLambda
       Action: "lambda:InvokeFunction"
       Principal: "events.amazonaws.com"
-      SourceArn: !GetAtt NightlyEnrichmentScaleUpStartSchedule.Arn
-  NightlyEnrichmentScaleUpLambdaErrorAlarm:
+      SourceArn: !GetAtt ItemEnrichmentScaleUpStartSchedule.Arn
+  ItemEnrichmentScaleUpLambdaErrorAlarm:
     Type: AWS::CloudWatch::Alarm
     Properties:
-      AlarmName: !Sub "${StageName}-nightly-enrichment-asg-scale-up-lambda-errors"
-      AlarmDescription: "Alarm when nightly-enrichment-asg-scale-up Lambda has errors"
+      AlarmName: !Sub "${StageName}-item-enrichment-asg-scale-up-lambda-errors"
+      AlarmDescription: "Alarm when item-enrichment-asg-scale-up Lambda has errors"
       MetricName: Errors
       Namespace: AWS/Lambda
       Statistic: Sum
@@ -3027,7 +2962,7 @@ Resources:
       ComparisonOperator: GreaterThanOrEqualToThreshold
       Dimensions:
         - Name: FunctionName
-          Value: !Ref NightlyEnrichmentScaleUpLambda
+          Value: !Ref ItemEnrichmentScaleUpLambda
       TreatMissingData: notBreaching
       AlarmActions:
         - !Ref AlarmNotificationTopic
@@ -3085,10 +3020,10 @@ Outputs:
   ItemUpdateNotifyUserDeadLetterQueueUrl:
     Value: !Ref ItemUpdateNotifyUserDlq
 
-  NightlyEnrichmentQueueUrl:
-    Value: !Ref NightlyEnrichmentQ
-  NightlyEnrichmentDeadLetterQueueUrl:
-    Value: !Ref NightlyEnrichmentDlq
+  ItemEnrichmentQueueUrl:
+    Value: !Ref ItemEnrichmentQ
+  ItemEnrichmentDeadLetterQueueUrl:
+    Value: !Ref ItemEnrichmentDlq
 
   AlarmNotificationTopicArn:
     Value: !Ref AlarmNotificationTopic

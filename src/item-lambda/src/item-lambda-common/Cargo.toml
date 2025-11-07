@@ -1,0 +1,20 @@
+[package]
+name = "item-lambda-common"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+aws_lambda_events = { workspace = true, features = [
+    "sqs",
+    "dynamodb",
+    "eventbridge",
+] }
+tracing = { workspace = true }
+aws-sdk-sqs = { workspace = true }
+serde_json = { workspace = true }
+serde_dynamo = { workspace = true }
+item = { workspace = true, features = ["dynamodb"] }
+
+[dev-dependencies]
+fake = { workspace = true }
+uuid = { workspace = true, features = ["v4"] }

@@ -3,15 +3,15 @@ use std::{panic, time::Duration};
 use aws_tests_common::get_cfn_output;
 use common::{api::collection::PutCollectionData, item_id::api::ItemKeyData, user_id::UserId};
 use fake::{Fake, Faker};
-use item_api_watchlist_patch::WatchlistItemPatch;
-use item_data::{item_state_data::ItemStateData, put_data::PutItemData};
-use item_dynamodb::repository::{ItemDynamoDbRepository, ItemDynamoDbRepositoryImpl};
-use item_watchlist::{
-    data::WatchlistItemData,
-    repository::{WatchlistItemDynamoDbRepository, WatchlistItemDynamoDbRepositoryImpl},
+use item::data::{item_state_data::ItemStateData, put_data::PutItemData};
+use item::dynamodb::repository::{ItemDynamoDbRepository, ItemDynamoDbRepositoryImpl};
+use item::watchlist::{
+    data::watchlist_item_data::WatchlistItemData,
+    dynamodb::repository::{WatchlistItemDynamoDbRepository, WatchlistItemDynamoDbRepositoryImpl},
 };
-use shop_core::shop::Shop;
-use shop_dynamodb::{
+use item_api_watchlist_patch::WatchlistItemPatch;
+use shop::core::shop::Shop;
+use shop::dynamodb::{
     repository::{ShopDynamoDbRepository, ShopDynamoDbRepositoryImpl},
     shop_record::ShopRecord,
 };
@@ -19,7 +19,7 @@ use staging_tests::{
     create_test_user, get_dynamodb_client, get_test_mail, staging_test, wait_for_email,
 };
 use time::macros::date;
-use user_dynamodb::repository::{UserDynamoDbRepository, UserDynamoDbRepositoryImpl};
+use user::dynamodb::repository::{UserDynamoDbRepository, UserDynamoDbRepositoryImpl};
 
 async fn prepare_test_shop() -> Shop {
     let stack = get_cfn_output();
@@ -94,7 +94,7 @@ async fn should_send_email_to_user_when_watched_item_has_update() {
 
     // add item to watchlist
     let post_url = format!(
-        "{}/api/v1/watchlist",
+        "{}/api/v1/me/watchlist",
         get_cfn_output().api_gateway_endpoint_url,
     );
     let post_response = reqwest::Client::new()
@@ -112,7 +112,7 @@ async fn should_send_email_to_user_when_watched_item_has_update() {
 
     // enable notifications
     let patch_url = format!(
-        "{}/api/v1/watchlist/{}/{}",
+        "{}/api/v1/me/watchlist/{}/{}",
         get_cfn_output().api_gateway_endpoint_url,
         shop.shop_id,
         put_item_data.shops_item_id,

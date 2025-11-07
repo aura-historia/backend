@@ -5,31 +5,45 @@ edition = "2024"
 
 [dependencies]
 aws-tests = { workspace = true }
+cognito = { workspace = true }
+cognito-post-confirmation = { workspace = true }
 common = { workspace = true }
 search-filter = { workspace = true }
+search-filter-api = { workspace = true }
 shop = { workspace = true }
+shop-api = { workspace = true }
 item = { workspace = true }
+item-api = { workspace = true }
+item-lambda = { workspace = true }
 test-api = { workspace = true }
 user = { workspace = true }
 mail = { workspace = true }
+mail-lambda-send = { workspace = true }
+item-enrichment = { workspace = true }
 
 [workspace]
 members = [
     "src/aws-tests",
+    "src/cognito",
+    "src/cognito-post-confirmation",
     "src/common",
     "src/search-filter",
+    "src/search-filter-api",
     "src/shop",
     "src/item",
+    "src/item-api",
+    "src/item-lambda",
     "src/test-api",
     "src/shop",
+    "src/shop-api",
     "src/user",
     "src/mail",
+    "src/mail-lambda-send",
+    "src/item-enrichment",
 ]
 
 [workspace.dependencies]
 accept-language = "3.1.0"
-nightly-enrichment-asg-scale-down = { path = "src/item/src/nightly-enrichment/src/nightly-enrichment-asg-scale-down" }
-nightly-enrichment-asg-scale-up = { path = "src/item/src/nightly-enrichment/src/nightly-enrichment-asg-scale-up" }
 async-stream = "0.3.6"
 async-trait = "0.1.89"
 aws-config = "1.8.8"
@@ -47,57 +61,43 @@ derive_builder = "0.20.2"
 fake = { version = "4.4.0", features = ["derive", "time", "uuid", "url"] }
 field = "0.1.0"
 search-filter = { path = "src/search-filter" }
-search-filter-api = { path = "src/search-filter/src/search-filter-api" }
-search-filter-api-delete-search-filter = { path = "src/search-filter/src/search-filter-api/src/search-filter-api-delete-search-filter" }
-search-filter-api-get-search-filter = { path = "src/search-filter/src/search-filter-api/src/search-filter-api-get-search-filter" }
-search-filter-api-get-search-filters = { path = "src/search-filter/src/search-filter-api/src/search-filter-api-get-search-filters" }
-search-filter-api-patch-search-filter = { path = "src/search-filter/src/search-filter-api/src/search-filter-api-patch-search-filter" }
-search-filter-api-post-search-filter = { path = "src/search-filter/src/search-filter-api/src/search-filter-api-post-search-filter" }
-search-filter-core = { path = "src/search-filter/src/search-filter-core" }
-search-filter-data = { path = "src/search-filter/src/search-filter-data" }
-search-filter-dynamodb = { path = "src/search-filter/src/search-filter-dynamodb" }
-search-filter-service = { path = "src/search-filter/src/search-filter-service" }
+search-filter-api = { path = "src/search-filter-api" }
+search-filter-api-delete-search-filter = { path = "src/search-filter-api/src/search-filter-api-delete-search-filter" }
+search-filter-api-get-search-filter = { path = "src/search-filter-api/src/search-filter-api-get-search-filter" }
+search-filter-api-get-search-filters = { path = "src/search-filter-api/src/search-filter-api-get-search-filters" }
+search-filter-api-patch-search-filter = { path = "src/search-filter-api/src/search-filter-api-patch-search-filter" }
+search-filter-api-post-search-filter = { path = "src/search-filter-api/src/search-filter-api-post-search-filter" }
 shop = { path = "src/shop" }
-shop-api = { path = "src/shop/src/shop-api" }
-shop-data = { path = "src/shop/src/shop-data" }
-shop-api-get-shop = { path = "src/shop/src/shop-api/src/shop-api-get-shop" }
-shop-api-search = { path = "src/shop/src/shop-api/src/shop-api-search" }
-shop-core = { path = "src/shop/src/shop-core" }
-shop-dynamodb = { path = "src/shop/src/shop-dynamodb" }
-shop-opensearch = { path = "src/shop/src/shop-opensearch" }
-shop-service = { path = "src/shop/src/shop-service" }
+shop-api = { path = "src/shop-api" }
+shop-api-get-shop = { path = "src/shop-api/src/shop-api-get-shop" }
+shop-api-search = { path = "src/shop-api/src/shop-api-search" }
 mail = { path = "src/mail" }
 mail-core = { path = "src/mail/src/mail-core" }
-mail-lambda-send = { path = "src/mail/src/mail-lambda-send" }
+mail-lambda-send = { path = "src/mail-lambda-send" }
 futures = { version = "0.3.31", default-features = false }
 hex = "0.4.3"
 http = "1.3.1"
 httpdate = "1.0.3"
 item = { path = "src/item" }
-item-api = { path = "src/item/src/item-api" }
-item-data = { path = "src/item/src/item-data" }
-item-api-get-item = { path = "src/item/src/item-api/src/item-api-get-item" }
-item-api-put-items = { path = "src/item/src/item-api/src/item-api-put-items" }
-item-api-simple-search = { path = "src/item/src/item-api/src/item-api-simple-search" }
-item-api-complex-search = { path = "src/item/src/item-api/src/item-api-complex-search" }
-item-api-watchlist-get = { path = "src/item/src/item-api/src/item-api-watchlist-get" }
-item-api-watchlist-patch = { path = "src/item/src/item-api/src/item-api-watchlist-patch" }
-item-api-watchlist-post = { path = "src/item/src/item-api/src/item-api-watchlist-post" }
-item-api-watchlist-delete = { path = "src/item/src/item-api/src/item-api-watchlist-delete" }
-item-core = { path = "src/item/src/item-core" }
-item-dynamodb = { path = "src/item/src/item-dynamodb" }
-item-opensearch = { path = "src/item/src/item-opensearch" }
-item-lambda = { path = "src/item/src/item-lambda" }
-item-service = { path = "src/item/src/item-service" }
-item-watchlist = { path = "src/item/src/item-watchlist" }
-nightly-enrichment = { path = "src/item/src/nightly-enrichment" }
-item-lambda-common = { path = "src/item/src/item-lambda/src/item-lambda-common" }
-item-lambda-materialize-dynamodb-new = { path = "src/item/src/item-lambda/src/item-lambda-materialize-dynamodb-new" }
-item-lambda-materialize-dynamodb-update = { path = "src/item/src/item-lambda/src/item-lambda-materialize-dynamodb-update" }
-item-lambda-materialize-opensearch-new = { path = "src/item/src/item-lambda/src/item-lambda-materialize-opensearch-new" }
-item-lambda-materialize-opensearch-update = { path = "src/item/src/item-lambda/src/item-lambda-materialize-opensearch-update" }
-item-lambda-ingest-events-dynamodb = { path = "src/item/src/item-lambda/src/item-lambda-ingest-events-dynamodb" }
-item-lambda-update-notify-user = { path = "src/item/src/item-lambda/src/item-lambda-update-notify-user" }
+item-api = { path = "src/item-api" }
+item-api-get-item = { path = "src/item-api/src/item-api-get-item" }
+item-api-put-items = { path = "src/item-api/src/item-api-put-items" }
+item-api-complex-search = { path = "src/item-api/src/item-api-complex-search" }
+item-api-watchlist-get = { path = "src/item-api/src/item-api-watchlist-get" }
+item-api-watchlist-patch = { path = "src/item-api/src/item-api-watchlist-patch" }
+item-api-watchlist-post = { path = "src/item-api/src/item-api-watchlist-post" }
+item-api-watchlist-delete = { path = "src/item-api/src/item-api-watchlist-delete" }
+item-lambda = { path = "src/item-lambda" }
+item-enrichment = { path = "src/item-enrichment" }
+item-enrichment-asg-scale-down = { path = "src/item-enrichment/src/item-enrichment-asg-scale-down" }
+item-enrichment-asg-scale-up = { path = "src/item-enrichment/src/item-enrichment-asg-scale-up" }
+item-lambda-common = { path = "src/item-lambda/src/item-lambda-common" }
+item-lambda-materialize-dynamodb-new = { path = "src/item-lambda/src/item-lambda-materialize-dynamodb-new" }
+item-lambda-materialize-dynamodb-update = { path = "src/item-lambda/src/item-lambda-materialize-dynamodb-update" }
+item-lambda-materialize-opensearch-new = { path = "src/item-lambda/src/item-lambda-materialize-opensearch-new" }
+item-lambda-materialize-opensearch-update = { path = "src/item-lambda/src/item-lambda-materialize-opensearch-update" }
+item-lambda-ingest-events-dynamodb = { path = "src/item-lambda/src/item-lambda-ingest-events-dynamodb" }
+item-lambda-update-notify-user = { path = "src/item-lambda/src/item-lambda-update-notify-user" }
 itertools = "0.14.0"
 lambda_runtime = "0.14.4"
 libc = "0.2.177"
@@ -142,10 +142,11 @@ proc-macro2 = "1.0.101"
 smoking-tests-macros = { path = "src/aws-tests/src/smoking-tests/src/smoking-tests-macros" }
 staging-tests-macros = { path = "src/aws-tests/src/staging-tests/src/staging-tests-macros" }
 user = { path = "src/user" }
-user-core = { path = "src/user/src/user-core" }
-user-dynamodb = { path = "src/user/src/user-dynamodb" }
-user-service = { path = "src/user/src/user-service" }
-cognito-post-confirmation = { path = "src/user/src/cognito-post-confirmation" }
+cognito = { path = "src/cognito" }
+cognito-post-confirmation = { path = "src/cognito-post-confirmation" }
 serde-email = "3.2.0"
 handlebars = "6.3.2"
 once_cell = "1.21.3"
+openssl = { version = "0.10.74", default-features = false }
+jsonwebtokens = "1.2.0"
+jsonwebtokens-cognito = "0.1.1"

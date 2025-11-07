@@ -19,9 +19,9 @@ use time::macros::datetime;
 use time::{Date, OffsetDateTime};
 use tokio::sync::OnceCell;
 use tracing::{debug, info};
-use user_dynamodb::repository::UserDynamoDbRepositoryImpl;
-use user_service::command::CreateUserCommand;
-use user_service::service::{UserService, UserServiceImpl};
+use user::dynamodb::repository::UserDynamoDbRepositoryImpl;
+use user::service::command::CreateUserCommand;
+use user::service::user_service::{UserService, UserServiceImpl};
 use uuid::Uuid;
 
 static CONFIG: OnceCell<aws_config::SdkConfig> = OnceCell::const_new();
@@ -285,8 +285,8 @@ pub async fn reset() {
         cfn_output.item_materialize_opensearch_update_dead_letter_queue_url,
         cfn_output.item_update_notify_user_queue_url,
         cfn_output.item_update_notify_user_dead_letter_queue_url,
-        cfn_output.nightly_enrichment_queue_url,
-        cfn_output.nightly_enrichment_dead_letter_queue_url,
+        cfn_output.item_enrichment_queue_url,
+        cfn_output.item_enrichment_dead_letter_queue_url,
     ])
     .await
     .expect("shouldn't fail clearing queues");

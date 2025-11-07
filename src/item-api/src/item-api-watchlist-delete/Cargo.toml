@@ -1,0 +1,30 @@
+[package]
+name = "item-api-watchlist-delete"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+common = { workspace = true, features = ["api"] }
+item = { workspace = true, features = ["watchlist", "service", "data", "dynamodb"] }
+user = { workspace = true, features = ["dynamodb"] }
+tracing = { workspace = true }
+serde = { workspace = true }
+tracing-subscriber = { workspace = true, features = ["json"] }
+tokio = { workspace = true, features = ["macros"] }
+aws_lambda_events = { workspace = true, features = ["apigw"] }
+lambda_runtime = { workspace = true }
+aws-config = { workspace = true }
+aws-sdk-dynamodb = { workspace = true }
+serde_json = { workspace = true }
+http = { workspace = true }
+time = { workspace = true }
+
+[dev-dependencies]
+item = { workspace = true, features = ["test-data"] }
+common = { workspace = true, features = ["test-data"] }
+test-api = { workspace = true, features = ["api-gateway", "dynamodb"] }
+serial_test = { workspace = true }
+rstest = { workspace = true }
+http = { workspace = true }
+url = { workspace = true }
+fake = { workspace = true }

@@ -8,11 +8,9 @@ common = { workspace = true, features = ["test-data", "api"] }
 staging-tests = { workspace = true }
 aws-tests-common = { workspace = true }
 tokio = { workspace = true, features = ["macros"] }
+item = { workspace = true, features = ["full"] }
 serde_json = { workspace = true }
 serde = { workspace = true }
 fake = { workspace = true }
 reqwest = { workspace = true }
-item-data = { workspace = true, features = ["test-data"] }
-shop-core = { workspace = true, features = ["test-data"] }
-shop-opensearch = { workspace = true, features = ["test-data"] }
-shop-dynamodb = { workspace = true, features = ["test-data"] }
+shop = { workspace = true, features = ["test-data"] }

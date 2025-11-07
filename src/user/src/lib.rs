@@ -1,4 +1,7 @@
-pub use cognito_post_confirmation;
-pub use user_core;
-pub use user_dynamodb;
-pub use user_service;
+pub mod core;
+
+#[cfg(feature = "dynamodb")]
+pub mod dynamodb;
+
+#[cfg(feature = "service")]
+pub mod service;

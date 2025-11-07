@@ -1,0 +1,36 @@
+[package]
+name = "search-filter-api-post-search-filter"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+common = { workspace = true, features = ["api"] }
+item = { workspace = true, features = ["data"] }
+search-filter = { workspace = true, features = ["data", "service", "dynamodb"] }
+tracing = { workspace = true }
+tracing-subscriber = { workspace = true, features = ["json"] }
+tokio = { workspace = true, features = ["macros"] }
+aws_lambda_events = { workspace = true, features = ["apigw"] }
+lambda_runtime = { workspace = true }
+aws-config = { workspace = true }
+aws-sdk-dynamodb = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+http = { workspace = true }
+
+# Optional
+fake = { workspace = true, optional = true }
+
+[dev-dependencies]
+time = { workspace = true }
+test-api = { workspace = true, features = ["api-gateway", "dynamodb"] }
+serial_test = { workspace = true }
+rstest = { workspace = true }
+http = { workspace = true }
+url = { workspace = true }
+search-filter= { workspace = true, features = ["test-data"] }
+search-filter-api-post-search-filter = { workspace = true, features = ["test-data"] }
+
+[features]
+default = []
+test-data = ["fake", "common/test-data", "search-filter/test-data"]

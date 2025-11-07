@@ -2,8 +2,8 @@ use aws_tests_common::get_cfn_output;
 use common::query::range_query::RangeQuery;
 use fake::{Fake, Faker};
 use opensearch::{IndexParts, params::Refresh};
-use shop_data::shop_search_data::ShopSearchData;
-use shop_opensearch::{
+use shop::data::shop_search_data::ShopSearchData;
+use shop::opensearch::{
     repository::{ShopOpenSearchRepository, ShopOpenSearchRepositoryImpl},
     shop_document::ShopDocument,
 };

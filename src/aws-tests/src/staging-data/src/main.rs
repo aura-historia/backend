@@ -4,13 +4,13 @@ use fake::{
     Fake, Faker,
     rand::{self, seq::IndexedRandom},
 };
-use item_data::put_data::PutItemData;
-use shop_core::shop::Shop;
-use shop_dynamodb::{
+use item::data::put_data::PutItemData;
+use shop::core::shop::Shop;
+use shop::dynamodb::{
     repository::{ShopDynamoDbRepository, ShopDynamoDbRepositoryImpl},
     shop_record::ShopRecord,
 };
-use shop_opensearch::repository::{ShopOpenSearchRepository, ShopOpenSearchRepositoryImpl};
+use shop::opensearch::repository::{ShopOpenSearchRepository, ShopOpenSearchRepositoryImpl};
 use staging_tests::{get_dynamodb_client, get_opensearch_client};
 use std::time::Duration;
 

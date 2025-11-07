@@ -4,6 +4,7 @@ version = "0.1.0"
 edition = "2024"
 
 [dependencies]
+item = { workspace = true, features = ["full"] }
 aws-tests-common = { workspace = true }
 smoking-tests-macros = { workspace = true }
 

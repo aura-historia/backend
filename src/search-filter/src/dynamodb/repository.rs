@@ -1,0 +1,188 @@
+use crate::core::user_search_filter_id::UserSearchFilterId;
+use crate::dynamodb::user_search_filter_record::{UserSearchFilterRecord, mk_pk, mk_sk};
+use crate::dynamodb::user_search_filter_record_update::UserSearchFilterRecordUpdate;
+use aws_sdk_dynamodb::{
+    Client,
+    config::http::HttpResponse,
+    error::SdkError,
+    operation::{
+        delete_item::{DeleteItemError, DeleteItemOutput},
+        get_item::GetItemError,
+        put_item::{PutItemError, PutItemOutput},
+        query::QueryError,
+        update_item::UpdateItemError,
+    },
+    types::{AttributeValue, ReturnValue},
+};
+use common::{dynamodb_update::DynamoDbUpdate, user_id::UserId};
+use tracing::error;
+
+#[async_trait::async_trait]
+#[mockall::automock]
+pub trait UserSearchFilterDynamoDbRepository {
+    async fn query_user_search_filter_records(
+        &self,
+        user_id: &UserId,
+        scan_index_forward: bool,
+    ) -> Result<Vec<UserSearchFilterRecord>, SdkError<QueryError, HttpResponse>>;
+
+    async fn get_user_search_filter_record(
+        &self,
+        user_id: &UserId,
+        search_filter_id: &UserSearchFilterId,
+    ) -> Result<Option<UserSearchFilterRecord>, SdkError<GetItemError, HttpResponse>>;
+
+    async fn put_user_search_filter_record(
+        &self,
+        record: UserSearchFilterRecord,
+    ) -> Result<PutItemOutput, SdkError<PutItemError, HttpResponse>>;
+
+    async fn delete_user_search_filter_record(
+        &self,
+        user_id: &UserId,
+        search_filter_id: &UserSearchFilterId,
+    ) -> Result<DeleteItemOutput, SdkError<DeleteItemError, HttpResponse>>;
+
+    async fn update_user_search_filter_record(
+        &self,
+        user_id: &UserId,
+        search_filter_id: &UserSearchFilterId,
+        search_filter_update: UserSearchFilterRecordUpdate,
+    ) -> Result<Option<UserSearchFilterRecord>, SdkError<UpdateItemError, HttpResponse>>;
+}
+
+#[derive(Debug, Clone)]
+pub struct UserSearchFilterDynamoDbRepositoryImpl<'a> {
+    client: &'a Client,
+    table: String,
+}
+
+impl<'a> UserSearchFilterDynamoDbRepositoryImpl<'a> {
+    pub fn new(client: &'a Client, table: impl Into<String>) -> Self {
+        Self {
+            client,
+            table: table.into(),
+        }
+    }
+}
+
+#[async_trait::async_trait]
+impl<'a> UserSearchFilterDynamoDbRepository for UserSearchFilterDynamoDbRepositoryImpl<'a> {
+    async fn query_user_search_filter_records(
+        &self,
+        user_id: &UserId,
+        scan_index_forward: bool,
+    ) -> Result<Vec<UserSearchFilterRecord>, SdkError<QueryError, HttpResponse>> {
+        let records = self.client
+            .query()
+            .table_name(&self.table)
+            .key_condition_expression("#pk = :pk_val AND begins_with(#sk, :sk_prefix)")
+            .expression_attribute_names("#pk", "pk")
+            .expression_attribute_names("#sk", "sk")
+            .expression_attribute_values(":pk_val", AttributeValue::S(mk_pk(user_id)))
+            .expression_attribute_values(
+                ":sk_prefix",
+                AttributeValue::S("search_filter#".to_string()),
+            )
+            .scan_index_forward(scan_index_forward)
+            .into_paginator()
+            .send()
+            .try_collect()
+            .await?
+            .into_iter()
+            .flat_map(|qo| qo.items.unwrap_or_default())
+            .map(serde_dynamo::from_item::<_, UserSearchFilterRecord>)
+            .filter_map(|result| match result {
+                Ok(search_filter_record) => Some(search_filter_record),
+                Err(err) => {
+                    error!(error = %err, type = %std::any::type_name::<UserSearchFilterRecord>(), "Failed deserializing SearchFilterRecord.");
+                    None
+                }
+            })
+            .collect::<Vec<_>>();
+        Ok(records)
+    }
+
+    async fn get_user_search_filter_record(
+        &self,
+        user_id: &UserId,
+        search_filter_id: &UserSearchFilterId,
+    ) -> Result<Option<UserSearchFilterRecord>, SdkError<GetItemError, HttpResponse>> {
+        let record = self.client
+            .get_item()
+            .table_name(&self.table)
+            .key("pk", AttributeValue::S(mk_pk(user_id)))
+            .key("sk", AttributeValue::S(mk_sk(search_filter_id)))
+            .send()
+            .await?
+            .item
+            .map(serde_dynamo::from_item::<_, UserSearchFilterRecord>)
+            .and_then(|record_res| match record_res {
+                Ok(search_filter_record) => Some(search_filter_record),
+                Err(err) => {
+                    error!(error = %err, type = %std::any::type_name::<UserSearchFilterRecord>(), "Failed deserializing SearchFilterRecord.");
+                    None
+                }
+            });
+        Ok(record)
+    }
+
+    async fn put_user_search_filter_record(
+        &self,
+        record: UserSearchFilterRecord,
+    ) -> Result<PutItemOutput, SdkError<PutItemError, HttpResponse>> {
+        self.client
+            .put_item()
+            .table_name(&self.table)
+            .set_item(Some(
+                serde_dynamo::to_item(record).map_err(SdkError::construction_failure)?,
+            ))
+            .send()
+            .await
+    }
+
+    async fn delete_user_search_filter_record(
+        &self,
+        user_id: &UserId,
+        search_filter_id: &UserSearchFilterId,
+    ) -> Result<DeleteItemOutput, SdkError<DeleteItemError, HttpResponse>> {
+        self.client
+            .delete_item()
+            .table_name(&self.table)
+            .key("pk", AttributeValue::S(mk_pk(user_id)))
+            .key("sk", AttributeValue::S(mk_sk(search_filter_id)))
+            .send()
+            .await
+    }
+
+    async fn update_user_search_filter_record(
+        &self,
+        user_id: &UserId,
+        search_filter_id: &UserSearchFilterId,
+        search_filter_update: UserSearchFilterRecordUpdate,
+    ) -> Result<Option<UserSearchFilterRecord>, SdkError<UpdateItemError, HttpResponse>> {
+        let pk = mk_pk(user_id);
+        let sk = mk_sk(search_filter_id);
+        let update_expr = search_filter_update.into_update_expr()?;
+
+        self.client
+            .update_item()
+            .table_name(&self.table)
+            .key("pk", AttributeValue::S(pk))
+            .key("sk", AttributeValue::S(sk))
+            .update_expression(update_expr.update_expr)
+            .set_expression_attribute_names(Some(update_expr.expr_attr_names))
+            .set_expression_attribute_values(Some(update_expr.expr_attr_values))
+            .return_values(ReturnValue::AllNew)
+            .send()
+            .await
+            .map(|output| output.attributes)
+            .map(|attr_opt| attr_opt.map(serde_dynamo::from_item).and_then(|record_res| match record_res {
+                Ok(search_filter_record) => Some(search_filter_record),
+                Err(err) => {
+                    error!(error = %err, type = %std::any::type_name::<UserSearchFilterRecord>(), "Failed deserializing SearchFilterRecord.");
+                    None
+                }
+            }))
+    }
+}
