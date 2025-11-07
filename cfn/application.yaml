@@ -786,6 +786,16 @@ Resources:
                   - es:ESHttpHead
                   - es:ESHttpPost
                 Resource: !Sub "${BlitzfilterOpenSearchDomain.Arn}/*"
+        - PolicyName: DynamoDBAccess
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: Allow
+                Action:
+                  - dynamodb:GetItem
+                  - dynamodb:BatchGetItem
+                  - dynamodb:Query
+                Resource: !GetAtt TableOne.Arn
   BlitzfilterApiComplexSearchLambda:
     Type: AWS::Lambda::Function
     Properties:
