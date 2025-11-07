@@ -169,6 +169,7 @@ async fn should_respond_200_when_hits_authenticated() {
     let response = reqwest::Client::new()
         .post(url)
         .json(&search_filter)
+        .bearer_auth(user.access_token)
         .send()
         .await
         .unwrap();
