@@ -1222,7 +1222,7 @@ Resources:
     Type: AWS::ApiGatewayV2::Route
     Properties:
       ApiId: !Ref BlitzfilterApi
-      RouteKey: "DELETE /api/v1/me/search-filters/{searchFilterId}"
+      RouteKey: "DELETE /api/v1/me/search-filters/{userSearchFilterId}"
       AuthorizationType: JWT
       AuthorizerId: !Ref BlitzfilterApiCognitoAuthorizer
       Target: !Sub "integrations/${BlitzfilterApiDeleteSearchFilterLambdaIntegration}"
@@ -1287,7 +1287,7 @@ Resources:
     Type: AWS::ApiGatewayV2::Route
     Properties:
       ApiId: !Ref BlitzfilterApi
-      RouteKey: "GET /api/v1/me/search-filters/{searchFilterId}"
+      RouteKey: "GET /api/v1/me/search-filters/{userSearchFilterId}"
       AuthorizationType: JWT
       AuthorizerId: !Ref BlitzfilterApiCognitoAuthorizer
       Target: !Sub "integrations/${BlitzfilterApiGetSearchFilterLambdaIntegration}"
@@ -1415,7 +1415,7 @@ Resources:
     Type: AWS::ApiGatewayV2::Route
     Properties:
       ApiId: !Ref BlitzfilterApi
-      RouteKey: "PATCH /api/v1/me/search-filters/{searchFilterId}"
+      RouteKey: "PATCH /api/v1/me/search-filters/{userSearchFilterId}"
       AuthorizationType: JWT
       AuthorizerId: !Ref BlitzfilterApiCognitoAuthorizer
       Target: !Sub "integrations/${BlitzfilterApiPatchSearchFilterLambdaIntegration}"
