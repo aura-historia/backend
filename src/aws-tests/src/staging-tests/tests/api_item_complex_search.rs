@@ -1,4 +1,7 @@
 use aws_tests_common::get_cfn_output;
+use common::currency::record::CurrencyRecord;
+use common::language::record::{LanguageRecord, TextRecord};
+use common::price::record::PriceRecord;
 use common::query::range_query::RangeQuery;
 use common::{
     currency::data::CurrencyData, event_id::EventId, item_id::ItemId, language::data::LanguageData,
@@ -7,7 +10,9 @@ use common::{
 use fake::{Fake, Faker};
 use item::data::item_search_data::ItemSearchData;
 use item::data::item_state_data::ItemStateData;
-use item::dynamodb::repository::ItemDynamoDbRepositoryImpl;
+use item::dynamodb::item_record::{self, ItemRecord};
+use item::dynamodb::item_state_record::ItemStateRecord;
+use item::dynamodb::repository::{ItemDynamoDbRepository, ItemDynamoDbRepositoryImpl};
 use item::opensearch::{
     item_document::ItemDocument,
     item_state_document::ItemStateDocument,
@@ -48,6 +53,7 @@ async fn should_respond_200_when_hits_authenticated() {
         &get_item_service,
     );
 
+    let now = SystemTime::now();
     let os_client = get_opensearch_client().await;
     let item_opensearch_repository = ItemOpenSearchRepositoryImpl::new(os_client);
     let expected = ItemDocument {
@@ -70,8 +76,8 @@ async fn should_respond_200_when_hits_authenticated() {
         url: Url::parse("https://hans-volker.com/chopin-etudes-op10-1833").unwrap(),
         images: vec![],
         embedding: None,
-        created: SystemTime::now().into(),
-        updated: SystemTime::now().into(),
+        created: now.into(),
+        updated: now.into(),
     };
     let mut all = fake::vec![ItemDocument; 10];
     all.push(expected.clone());
@@ -88,6 +94,50 @@ async fn should_respond_200_when_hits_authenticated() {
         .await
         .unwrap();
     tokio::time::sleep(Duration::from_secs(3)).await;
+
+    let ddb_materialized = ItemRecord {
+        pk: item_record::mk_pk(&expected.shop_id, &expected.shops_item_id),
+        sk: item_record::mk_sk().to_owned(),
+        item_id: expected.item_id,
+        event_id: expected.event_id,
+        shop_id: expected.shop_id,
+        shops_item_id: expected.shops_item_id.clone(),
+        shop_name: expected.shop_name.clone(),
+        title_native: TextRecord {
+            text: "Chopin Etudes Op.10 1833".to_owned(),
+            language: LanguageRecord::De,
+        },
+        title_de: Some("Chopin Etudes Op.10 1833".to_owned()),
+        title_en: None,
+        description_native: None,
+        description_de: None,
+        description_en: None,
+        price_native: Some(PriceRecord {
+            currency: CurrencyRecord::Eur,
+            amount: 1400000,
+        }),
+        price_eur: Some(1400000),
+        price_usd: Some(1500000),
+        price_gbp: Some(1600000),
+        price_aud: Some(1700000),
+        price_cad: Some(1800000),
+        price_nzd: Some(1990000),
+        state: ItemStateRecord::Available,
+        url: Url::parse("https://hans-volker.com/chopin-etudes-op10-1833").unwrap(),
+        images: vec![],
+        created: now.into(),
+        updated: now.into(),
+    };
+    let ddb_batch_write_res = item_repository
+        .put_item_records([ddb_materialized].into())
+        .await
+        .unwrap();
+    assert!(
+        ddb_batch_write_res
+            .unprocessed_items
+            .unwrap_or_default()
+            .is_empty()
+    );
 
     let user = create_random_test_user().await;
     item_watchlist_service

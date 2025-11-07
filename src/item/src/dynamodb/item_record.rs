@@ -71,6 +71,14 @@ pub struct ItemRecord {
     pub updated: OffsetDateTime,
 }
 
+pub fn mk_pk(shop_id: &ShopId, shops_item_id: &ShopsItemId) -> String {
+    format!("item#shop_id#{shop_id}#shops_item_id#{shops_item_id}")
+}
+
+pub fn mk_sk() -> &'static str {
+    "item#materialized"
+}
+
 impl HasKey for ItemRecord {
     type Key = ItemKey;
 
@@ -209,8 +217,8 @@ mod faker {
             let state: ItemStateRecord = config.fake_with_rng(rng);
 
             ItemRecord {
-                pk: format!("item#shop_id#{shop_id}#shops_item_id#{shops_item_id}"),
-                sk: "item#materialized".to_string(),
+                pk: mk_pk(&shop_id, &shops_item_id),
+                sk: mk_sk().to_string(),
                 item_id: config.fake_with_rng(rng),
                 event_id: config.fake_with_rng(rng),
                 shop_id,
