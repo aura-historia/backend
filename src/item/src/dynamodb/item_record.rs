@@ -160,7 +160,7 @@ impl TryFrom<ItemEventRecord> for ItemRecord {
     fn try_from(event_record: ItemEventRecord) -> Result<Self, Self::Error> {
         let record = ItemRecord {
             pk: event_record.pk,
-            sk: "item#materialized".to_string(),
+            sk: mk_sk().to_string(),
             item_id: event_record.item_id,
             event_id: event_record.event_id,
             shop_id: event_record.shop_id,

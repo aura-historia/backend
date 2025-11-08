@@ -99,6 +99,14 @@ pub struct ItemEventRecord {
     pub timestamp: OffsetDateTime,
 }
 
+pub fn mk_pk(shop_id: &ShopId, shops_item_id: &ShopsItemId) -> String {
+    format!("item#shop_id#{shop_id}#shops_item_id#{shops_item_id}")
+}
+
+pub fn mk_sk(timestamp: &OffsetDateTime) -> Result<String, error::Format> {
+    Ok(format!("item#event#{}", timestamp.format(&Rfc3339)?))
+}
+
 impl ItemEventRecord {
     pub fn into_item_key(self) -> ItemKey {
         ItemKey::new(self.shop_id, self.shops_item_id)
@@ -121,8 +129,8 @@ impl TryFrom<ItemEvent> for ItemEventRecord {
     fn try_from(domain: ItemEvent) -> Result<Self, Self::Error> {
         let shop_id = *domain.payload.shop_id();
         let shops_item_id = domain.payload.shops_item_id();
-        let pk = format!("item#shop_id#{shop_id}#shops_item_id#{shops_item_id}");
-        let sk = format!("item#event#{}", domain.timestamp.format(&Rfc3339)?);
+        let pk = mk_pk(&shop_id, shops_item_id);
+        let sk = mk_sk(&domain.timestamp)?;
         let item_id = domain.aggregate_id;
         let event_id = domain.event_id;
         let event_type: ItemEventTypeRecord = (&domain.payload).into();
