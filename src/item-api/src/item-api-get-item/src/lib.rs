@@ -68,8 +68,6 @@ pub async fn handle(
         tracing::Span::current().record("userId", user_id.to_string());
     }
 
-    tracing::info!("Test");
-
     let languages = extract_languages_header(&event.payload.headers)?
         .into_iter()
         .map(Language::from)
