@@ -186,6 +186,7 @@ mod get_item_record {
             item_id: ItemId::new(),
             event_id: EventId::new(),
             event_type: ItemEventTypeRecord::StateListed,
+            event_type_schema_version: 0,
             shop_id,
             shops_item_id: shops_item_id.clone(),
             shop_name: None,
