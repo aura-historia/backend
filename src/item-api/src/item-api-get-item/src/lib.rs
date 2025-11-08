@@ -2,7 +2,7 @@ use aws_lambda_events::apigw::{ApiGatewayV2httpRequest, ApiGatewayV2httpResponse
 use aws_lambda_events::query_map::QueryMap;
 use cognito::access_token_verifier_service::AccessTokenVerifierService;
 use common::api::api_gateway_v2_http_response_builder::ApiGatewayV2HttpResponseBuilder;
-use common::api::error::ApiError;
+use common::api::error::{ApiError, log_api_error};
 use common::api::error_code::BAD_QUERY_PARAMETER_VALUE;
 use common::currency::data::api::extract_currency_query;
 use common::language::data::api::extract_languages_header;
@@ -18,7 +18,6 @@ use item::data::user_state_data::ItemUserStateData;
 use item::service::get_service::GetItemService;
 use item::service::personalization_service::ItemPersonalizationService;
 use lambda_runtime::LambdaEvent;
-use tracing::{error, warn};
 
 #[tracing::instrument(
     skip(event, get_item_service, access_token_verifier_service, item_personalization_service),
@@ -49,11 +48,7 @@ pub async fn handler(
     {
         Ok(response) => Ok(response),
         Err(err) => {
-            if err.is4xx() {
-                warn!(error = %err);
-            } else if err.is5xx() {
-                error!(error = %err);
-            }
+            log_api_error(&err);
             Ok(ApiGatewayV2httpResponse::from(err))
         }
     }

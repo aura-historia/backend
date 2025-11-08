@@ -4,6 +4,7 @@ use aws_lambda_events::apigw::ApiGatewayV2httpResponse;
 use http::StatusCode;
 use serde::Serialize;
 use std::error::Error;
+use tracing::{error, warn};
 
 #[derive(Debug, Serialize)]
 pub struct ApiError {
@@ -26,6 +27,9 @@ impl std::fmt::Display for ApiError {
         write!(f, "HTTP {} - {}", self.status, self.error)?;
         if let Some(msg) = &self.message {
             write!(f, ": {msg}")?;
+        }
+        if let Some(cause) = &self.cause {
+            write!(f, ": {cause}")?;
         }
         Ok(())
     }
@@ -158,6 +162,20 @@ pub enum ApiErrorSourceType {
     Path,
     Query,
     Body,
+}
+
+pub fn log_api_error(err: &ApiError) {
+    if err.is4xx() {
+        match err.cause {
+            None => warn!(status = err.status),
+            Some(ref cause) => warn!(status = err.status, error = %cause),
+        }
+    } else if err.is5xx() {
+        match err.cause {
+            None => error!(status = err.status),
+            Some(ref cause) => error!(status = err.status, error = %cause),
+        }
+    }
 }
 
 #[cfg(feature = "dynamodb")]

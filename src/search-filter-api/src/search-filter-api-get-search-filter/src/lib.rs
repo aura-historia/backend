@@ -2,7 +2,7 @@ use aws_lambda_events::apigw::{ApiGatewayV2httpRequest, ApiGatewayV2httpResponse
 use common::{
     api::{
         api_gateway_v2_http_response_builder::ApiGatewayV2HttpResponseBuilder,
-        error::ApiError,
+        error::{ApiError, log_api_error},
         error_code::{BAD_PATH_PARAMETER_VALUE, INVALID_UUID},
     },
     user_id::api::extract_user_id_request_context,
@@ -18,8 +18,13 @@ use search_filter::{
     skip(event, service),
     fields(
         requestId = %event.context.request_id,
-        path = &event.payload.raw_path,
-        query = &event.payload.raw_query_string,
+        method = event.payload.request_context.http.method.as_str(),
+        path = &event.payload.raw_path.as_deref().unwrap_or("NULL"),
+        query = &event.payload.raw_query_string.as_deref().unwrap_or("NULL"),
+        body = &event.payload.body.as_deref().unwrap_or("NULL"),
+        ip = &event.payload.request_context.http.source_ip.as_deref().unwrap_or("NULL"),
+        userAgent = &event.payload.request_context.http.user_agent.as_deref().unwrap_or("NULL"),
+        userId = tracing::field::Empty,
     )
 )]
 pub async fn handler(
@@ -28,7 +33,10 @@ pub async fn handler(
 ) -> Result<ApiGatewayV2httpResponse, lambda_runtime::Error> {
     match handle(event, service).await {
         Ok(response) => Ok(response),
-        Err(err) => Ok(ApiGatewayV2httpResponse::from(err)),
+        Err(err) => {
+            log_api_error(&err);
+            Ok(ApiGatewayV2httpResponse::from(err))
+        }
     }
 }
 
@@ -38,6 +46,7 @@ pub async fn handle(
     service: &impl UserSearchFilterService,
 ) -> Result<ApiGatewayV2httpResponse, ApiError> {
     let user_id = extract_user_id_request_context(&event.payload.request_context)?;
+    tracing::Span::current().record("userId", user_id.to_string());
     let search_filter_id = event
         .payload
         .path_parameters
