@@ -6,7 +6,7 @@ edition = "2024"
 [dependencies]
 item-api-get-item = { workspace = true }
 item-api-put-items = { workspace = true }
-item-api-complex-search = { workspace = true }
+item-api-search = { workspace = true }
 item-api-watchlist-get = { workspace = true }
 item-api-watchlist-patch = { workspace = true }
 item-api-watchlist-post = { workspace = true }

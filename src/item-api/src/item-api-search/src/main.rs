@@ -5,7 +5,7 @@ use item::opensearch::repository::ItemOpenSearchRepositoryImpl;
 use item::service::personalization_service::ItemPersonalizationServiceImpl;
 use item::service::query_service::QueryItemServiceImpl;
 use item::watchlist::dynamodb::repository::WatchlistItemDynamoDbRepositoryImpl;
-use item_api_complex_search::handler;
+use item_api_search::handler;
 use lambda_runtime::tracing::info;
 use lambda_runtime::{Error, LambdaEvent, run, service_fn};
 use opensearch::http::Url;
