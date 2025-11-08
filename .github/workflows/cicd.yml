@@ -70,6 +70,7 @@ jobs:
           - src/aws-tests
           - src/item
           - src/item-api
+          - src/item-enrichment
           - src/item-lambda
           - src/shop
           - src/shop-api
@@ -77,7 +78,6 @@ jobs:
           - src/user
           - src/mail
           - src/mail-lambda-send
-          - src/item-enrichment
     steps:
       - uses: actions/checkout@v5
 
@@ -253,14 +253,14 @@ jobs:
           - src/item-api/src/item-api-watchlist-get
           - src/item-api/src/item-api-watchlist-post
           - src/item-api/src/item-api-watchlist-patch
+          - src/item-enrichment/src/item-enrichment-asg-scale-down
+          - src/item-enrichment/src/item-enrichment-asg-scale-up
           - src/item-lambda/src/item-lambda-ingest-events-dynamodb
           - src/item-lambda/src/item-lambda-materialize-dynamodb-new
           - src/item-lambda/src/item-lambda-materialize-dynamodb-update
           - src/item-lambda/src/item-lambda-materialize-opensearch-new
           - src/item-lambda/src/item-lambda-materialize-opensearch-update
           - src/item-lambda/src/item-lambda-update-notify-user
-          - src/item-enrichment/src/item-enrichment-asg-scale-down
-          - src/item-enrichment/src/item-enrichment-asg-scale-up
           - src/shop-api/src/shop-api-search
           - src/shop-api/src/shop-api-get-shop
           - src/cognito-post-confirmation
