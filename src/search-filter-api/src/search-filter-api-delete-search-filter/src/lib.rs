@@ -43,12 +43,16 @@ pub async fn handle(
         .map(String::as_str)
         .map(UserSearchFilterId::try_from)
         .ok_or_else(|| {
-            ApiError::bad_request(BAD_PATH_PARAMETER_VALUE).with_path_field("userSearchFilterId")
+            let err_msg = "Parameter 'userSearchFilterId' cannot be empty.";
+            ApiError::bad_request(BAD_PATH_PARAMETER_VALUE, err_msg.into())
+                .with_path_field("userSearchFilterId")
+                .with_message(err_msg)
         })?
         .map_err(|err| {
-            ApiError::bad_request(INVALID_UUID)
+            let err_msg = err.to_string();
+            ApiError::bad_request(INVALID_UUID, Box::new(err))
                 .with_path_field("userSearchFilterId")
-                .with_message(err.to_string())
+                .with_message(err_msg)
         })?;
 
     service

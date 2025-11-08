@@ -42,38 +42,18 @@ pub mod api {
     use crate::service::user_search_filter_service::UserSearchFilterError;
     use common::api::error::ApiError;
     use common::api::error_code::SEARCH_FILTER_NOT_FOUND;
-    use tracing::{error, warn};
 
     impl From<UserSearchFilterError> for ApiError {
         fn from(err: UserSearchFilterError) -> Self {
             match err {
-                err @ UserSearchFilterError::UserSearchFilterNotFound(
-                    user_id,
-                    user_search_filter_id,
-                ) => {
-                    warn!(error= %err, userId = %user_id, userSearchFilterId = %user_search_filter_id);
-                    ApiError::not_found(SEARCH_FILTER_NOT_FOUND)
+                UserSearchFilterError::UserSearchFilterNotFound(_, _) => {
+                    ApiError::not_found(SEARCH_FILTER_NOT_FOUND, Box::new(err))
                 }
-                UserSearchFilterError::SdkGetItemError(err) => {
-                    error!(error = ?err, "Encountered SdkGetItemError while getting search-filter.");
-                    err.into()
-                }
-                UserSearchFilterError::SdkQueryError(err) => {
-                    error!(error = ?err, "Encountered SdkQueryError while querying search-filters.");
-                    err.into()
-                }
-                UserSearchFilterError::SdkPutItemError(err) => {
-                    error!(error = ?err, "Encountered SdkPutItemError while saving search-filter.");
-                    err.into()
-                }
-                UserSearchFilterError::SdkDeleteItemError(err) => {
-                    error!(error = ?err, "Encountered SdkDeleteItemError while deleting search-filter.");
-                    err.into()
-                }
-                UserSearchFilterError::SdkUpdateItemError(err) => {
-                    error!(error = ?err, "Encountered SdkUpdateItemError while updating search-filter.");
-                    err.into()
-                }
+                UserSearchFilterError::SdkGetItemError(err) => err.into(),
+                UserSearchFilterError::SdkQueryError(err) => err.into(),
+                UserSearchFilterError::SdkPutItemError(err) => err.into(),
+                UserSearchFilterError::SdkDeleteItemError(err) => err.into(),
+                UserSearchFilterError::SdkUpdateItemError(err) => err.into(),
             }
         }
     }

@@ -71,19 +71,20 @@ pub mod api {
             .map(T::try_from)
             .transpose()
             .map_err(|err| {
-                ApiError::bad_request(BAD_SORT_VALUE)
+                let err_msg: String = err.into();
+                ApiError::bad_request(BAD_SORT_VALUE, err_msg.as_str().into())
                     .with_query_field("sort")
-                    .with_message(err)
+                    .with_message(err_msg)
             })?;
         let order = headers
             .first("order")
             .map(str::trim)
             .map(SortOrder::try_from)
             .transpose()
-            .map_err(|err| {
-                ApiError::bad_request(BAD_ORDER_VALUE)
+            .map_err(|err_msg| {
+                ApiError::bad_request(BAD_ORDER_VALUE, err_msg.as_str().into())
                     .with_query_field("order")
-                    .with_message(err)
+                    .with_message(err_msg)
             })?;
 
         if let Some(sort) = sort

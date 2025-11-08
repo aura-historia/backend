@@ -131,7 +131,6 @@ impl<'a> ItemDynamoDbRepository for ItemDynamoDbRepositoryImpl<'a> {
             .await
     }
 
-    #[tracing::instrument(skip(self), fields(shopId = %shop_id, shopsItemId = %shops_item_id))]
     async fn get_item_record(
         &self,
         shop_id: &ShopId,
@@ -158,7 +157,6 @@ impl<'a> ItemDynamoDbRepository for ItemDynamoDbRepositoryImpl<'a> {
         Ok(rec)
     }
 
-    #[tracing::instrument(skip(self), fields(shopId = %shop_id, shopsItemId = %shops_item_id))]
     async fn query_item_record_and_event_records(
         &self,
         shop_id: &ShopId,

@@ -35,26 +35,15 @@ pub mod api {
     use crate::service::get_service::GetShopError;
     use common::api::error::ApiError;
     use common::api::error_code::{SHOP_NOT_FOUND, UNPROCESSED_AFTER_MAX_RETRIES};
-    use tracing::{error, warn};
 
     impl From<GetShopError> for ApiError {
         fn from(err: GetShopError) -> Self {
             match err {
-                GetShopError::ShopNotFound(shop_id) => {
-                    warn!(error = %err, shopId = %shop_id);
-                    ApiError::not_found(SHOP_NOT_FOUND)
-                }
-                GetShopError::SdkGetItemError(err) => {
-                    error!(error = ?err, "Encountered SdkGetShopError while getting shop.");
-                    err.into()
-                }
-                GetShopError::SdkBatchGetItemError(err) => {
-                    error!(error = ?err, "Encountered SdkBatchGetShopError while getting shop.");
-                    err.into()
-                }
+                GetShopError::ShopNotFound(_) => ApiError::not_found(SHOP_NOT_FOUND, Box::new(err)),
+                GetShopError::SdkGetItemError(err) => err.into(),
+                GetShopError::SdkBatchGetItemError(err) => err.into(),
                 GetShopError::UnprocessedAfterMaxRetries(_) => {
-                    error!(error = %err, "Had unprocessed items for BatchGetItem after retries..");
-                    ApiError::service_unavailable(UNPROCESSED_AFTER_MAX_RETRIES)
+                    ApiError::service_unavailable(UNPROCESSED_AFTER_MAX_RETRIES, Box::new(err))
                 }
             }
         }

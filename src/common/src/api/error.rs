@@ -5,7 +5,7 @@ use http::StatusCode;
 use serde::Serialize;
 use std::error::Error;
 
-#[derive(Debug, Serialize, PartialEq, Eq)]
+#[derive(Debug, Serialize)]
 pub struct ApiError {
     pub status: u16,
 
@@ -16,6 +16,9 @@ pub struct ApiError {
 
     #[serde(skip_serializing_if = "Option::is_none")]
     pub message: Option<String>,
+
+    #[serde(skip)]
+    pub cause: Option<Box<dyn Error>>,
 }
 
 impl std::fmt::Display for ApiError {
@@ -37,7 +40,13 @@ impl ApiError {
             error,
             source: None,
             message: None,
+            cause: None,
         }
+    }
+
+    pub fn with_cause(mut self, err: Box<dyn Error>) -> Self {
+        self.cause = Some(err);
+        self
     }
 
     pub fn with_source(mut self, field: ApiErrorSource) -> Self {
@@ -81,8 +90,8 @@ impl ApiError {
         self
     }
 
-    pub fn bad_request(error: ApiErrorCode) -> Self {
-        Self::new(StatusCode::BAD_REQUEST, error)
+    pub fn bad_request(error: ApiErrorCode, cause: Box<dyn Error>) -> Self {
+        Self::new(StatusCode::BAD_REQUEST, error).with_cause(cause)
     }
 
     pub fn unauthorized(error: ApiErrorCode) -> Self {
@@ -93,28 +102,36 @@ impl ApiError {
         Self::new(StatusCode::FORBIDDEN, error)
     }
 
-    pub fn not_found(error: ApiErrorCode) -> Self {
-        Self::new(StatusCode::NOT_FOUND, error)
+    pub fn not_found(error: ApiErrorCode, cause: Box<dyn Error>) -> Self {
+        Self::new(StatusCode::NOT_FOUND, error).with_cause(cause)
     }
 
-    pub fn conflict(error: ApiErrorCode) -> Self {
-        Self::new(StatusCode::CONFLICT, error)
+    pub fn conflict(error: ApiErrorCode, cause: Box<dyn Error>) -> Self {
+        Self::new(StatusCode::CONFLICT, error).with_cause(cause)
     }
 
-    pub fn unprocessable_entity(error: ApiErrorCode) -> Self {
-        Self::new(StatusCode::UNPROCESSABLE_ENTITY, error)
+    pub fn unprocessable_entity(error: ApiErrorCode, cause: Box<dyn Error>) -> Self {
+        Self::new(StatusCode::UNPROCESSABLE_ENTITY, error).with_cause(cause)
     }
 
-    pub fn internal_server_error(error: ApiErrorCode) -> Self {
-        Self::new(StatusCode::INTERNAL_SERVER_ERROR, error)
+    pub fn internal_server_error(error: ApiErrorCode, cause: Box<dyn Error>) -> Self {
+        Self::new(StatusCode::INTERNAL_SERVER_ERROR, error).with_cause(cause)
     }
 
-    pub fn service_unavailable(error: ApiErrorCode) -> Self {
-        Self::new(StatusCode::SERVICE_UNAVAILABLE, error)
+    pub fn service_unavailable(error: ApiErrorCode, cause: Box<dyn Error>) -> Self {
+        Self::new(StatusCode::SERVICE_UNAVAILABLE, error).with_cause(cause)
     }
 
-    pub fn gateway_time_out(error: ApiErrorCode) -> Self {
-        Self::new(StatusCode::GATEWAY_TIMEOUT, error)
+    pub fn gateway_time_out(error: ApiErrorCode, cause: Box<dyn Error>) -> Self {
+        Self::new(StatusCode::GATEWAY_TIMEOUT, error).with_cause(cause)
+    }
+
+    pub fn is4xx(&self) -> bool {
+        self.status >= 400 && self.status <= 499
+    }
+
+    pub fn is5xx(&self) -> bool {
+        self.status >= 500 && self.status <= 599
     }
 }
 
@@ -149,21 +166,25 @@ pub mod dynamodb {
     use crate::api::error_code::{GATEWAY_TIMEOUT, INTERNAL_SERVER_ERROR};
     use aws_sdk_dynamodb::error::SdkError;
 
-    impl<S> From<SdkError<S>> for ApiError {
+    impl<S: std::error::Error + 'static> From<SdkError<S>> for ApiError {
         fn from(e: SdkError<S>) -> Self {
             match e {
                 SdkError::ConstructionFailure(_) => {
-                    ApiError::internal_server_error(INTERNAL_SERVER_ERROR)
+                    ApiError::internal_server_error(INTERNAL_SERVER_ERROR, Box::new(e))
                 }
-                SdkError::TimeoutError(_) => ApiError::gateway_time_out(GATEWAY_TIMEOUT),
+                SdkError::TimeoutError(_) => {
+                    ApiError::gateway_time_out(GATEWAY_TIMEOUT, Box::new(e))
+                }
                 SdkError::DispatchFailure(_) => {
-                    ApiError::internal_server_error(INTERNAL_SERVER_ERROR)
+                    ApiError::internal_server_error(INTERNAL_SERVER_ERROR, Box::new(e))
                 }
                 SdkError::ResponseError(_) => {
-                    ApiError::internal_server_error(INTERNAL_SERVER_ERROR)
+                    ApiError::internal_server_error(INTERNAL_SERVER_ERROR, Box::new(e))
                 }
-                SdkError::ServiceError(_) => ApiError::internal_server_error(INTERNAL_SERVER_ERROR),
-                _ => ApiError::internal_server_error(INTERNAL_SERVER_ERROR),
+                SdkError::ServiceError(_) => {
+                    ApiError::internal_server_error(INTERNAL_SERVER_ERROR, Box::new(e))
+                }
+                _ => ApiError::internal_server_error(INTERNAL_SERVER_ERROR, Box::new(e)),
             }
         }
     }
@@ -173,19 +194,20 @@ pub mod dynamodb {
 pub mod tests {
     use crate::api::error::{ApiError, ApiErrorSource, ApiErrorSourceType};
     use crate::api::error_code::*;
+    use serde::ser::Error;
     use serde_json::{Value, json};
 
     #[rstest::rstest]
-    #[case::bad_request(ApiError::bad_request(BAD_REQUEST), json!({ "status": 400, "error": "BAD_REQUEST" }))]
-    #[case::bad_request_msg(ApiError::bad_request(BAD_REQUEST).with_message("foo"), json!({ "status": 400, "error": "BAD_REQUEST", "message": "foo" }))]
+    #[case::bad_request(ApiError::bad_request(BAD_REQUEST, Box::new(serde_json::Error::custom("foo"))), json!({ "status": 400, "error": "BAD_REQUEST" }))]
+    #[case::bad_request_msg(ApiError::bad_request(BAD_REQUEST, Box::new(serde_json::Error::custom("foo"))).with_message("foo"), json!({ "status": 400, "error": "BAD_REQUEST", "message": "foo" }))]
     #[case::unauthorized(ApiError::unauthorized(UNAUTHORIZED), json!({ "status": 401, "error": "UNAUTHORIZED" }))]
     #[case::forbidden(ApiError::forbidden(FORBIDDEN), json!({ "status": 403, "error": "FORBIDDEN" }))]
-    #[case::not_found(ApiError::not_found(NOT_FOUND), json!({ "status": 404, "error": "NOT_FOUND" }))]
-    #[case::conflict(ApiError::conflict(CONFLICT), json!({ "status": 409, "error": "CONFLICT" }))]
-    #[case::unprocessable_entity(ApiError::unprocessable_entity(UNPROCESSABLE_ENTITY), json!({ "status": 422, "error": "UNPROCESSABLE_ENTITY" }))]
-    #[case::internal_server_error(ApiError::internal_server_error(INTERNAL_SERVER_ERROR), json!({ "status": 500, "error": "INTERNAL_SERVER_ERROR" }))]
-    #[case::service_unavailable(ApiError::service_unavailable(SERVICE_UNAVAILABLE), json!({ "status": 503, "error": "SERVICE_UNAVAILABLE" }))]
-    #[case::gateway_timeout(ApiError::gateway_time_out(GATEWAY_TIMEOUT), json!({ "status": 504, "error": "GATEWAY_TIMEOUT" }))]
+    #[case::not_found(ApiError::not_found(NOT_FOUND, Box::new(serde_json::Error::custom("foo"))), json!({ "status": 404, "error": "NOT_FOUND" }))]
+    #[case::conflict(ApiError::conflict(CONFLICT, Box::new(serde_json::Error::custom("foo"))), json!({ "status": 409, "error": "CONFLICT" }))]
+    #[case::unprocessable_entity(ApiError::unprocessable_entity(UNPROCESSABLE_ENTITY, Box::new(serde_json::Error::custom("foo"))), json!({ "status": 422, "error": "UNPROCESSABLE_ENTITY" }))]
+    #[case::internal_server_error(ApiError::internal_server_error(INTERNAL_SERVER_ERROR, Box::new(serde_json::Error::custom("foo"))), json!({ "status": 500, "error": "INTERNAL_SERVER_ERROR" }))]
+    #[case::service_unavailable(ApiError::service_unavailable(SERVICE_UNAVAILABLE, Box::new(serde_json::Error::custom("foo"))), json!({ "status": 503, "error": "SERVICE_UNAVAILABLE" }))]
+    #[case::gateway_timeout(ApiError::gateway_time_out(GATEWAY_TIMEOUT, Box::new(serde_json::Error::custom("foo"))), json!({ "status": 504, "error": "GATEWAY_TIMEOUT" }))]
     fn should_serialize_api_error(#[case] error: ApiError, #[case] expected: Value) {
         let actual = serde_json::to_value(error).unwrap();
         assert_eq!(expected, actual);
@@ -193,7 +215,8 @@ pub mod tests {
 
     #[test]
     fn should_serialize_api_error_with_query_field() {
-        let error = ApiError::bad_request(BAD_REQUEST).with_query_field("limit");
+        let error = ApiError::bad_request(BAD_REQUEST, Box::new(serde_json::Error::custom("foo")))
+            .with_query_field("limit");
         let json = serde_json::to_value(error).unwrap();
         assert_eq!(
             json,
@@ -227,7 +250,8 @@ pub mod tests {
 
     #[test]
     fn should_serialize_api_error_with_path_field() {
-        let error = ApiError::not_found(NOT_FOUND).with_path_field("user_id");
+        let error = ApiError::not_found(NOT_FOUND, Box::new(serde_json::Error::custom("foo")))
+            .with_path_field("user_id");
         let json = serde_json::to_value(error).unwrap();
         assert_eq!(
             json,
@@ -244,7 +268,11 @@ pub mod tests {
 
     #[test]
     fn should_serialize_api_error_with_body_field() {
-        let error = ApiError::unprocessable_entity(UNPROCESSABLE_ENTITY).with_body_field("email");
+        let error = ApiError::unprocessable_entity(
+            UNPROCESSABLE_ENTITY,
+            Box::new(serde_json::Error::custom("foo")),
+        )
+        .with_body_field("email");
         let json = serde_json::to_value(error).unwrap();
         assert_eq!(
             json,
@@ -265,7 +293,8 @@ pub mod tests {
             field: "x-custom-header",
             source_type: ApiErrorSourceType::Header,
         };
-        let error = ApiError::bad_request(BAD_REQUEST).with_source(source);
+        let error = ApiError::bad_request(BAD_REQUEST, Box::new(serde_json::Error::custom("foo")))
+            .with_source(source);
         let json = serde_json::to_value(error).unwrap();
         assert_eq!(
             json,
@@ -282,7 +311,7 @@ pub mod tests {
 
     #[test]
     fn should_serialize_api_error_with_message_and_source() {
-        let error = ApiError::bad_request(BAD_REQUEST)
+        let error = ApiError::bad_request(BAD_REQUEST, Box::new(serde_json::Error::custom("foo")))
             .with_message("Invalid format")
             .with_body_field("username");
         let json = serde_json::to_value(error).unwrap();

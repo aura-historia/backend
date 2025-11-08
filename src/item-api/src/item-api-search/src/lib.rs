@@ -69,10 +69,13 @@ pub async fn handle(
         .body
         .filter(|str| !str.is_empty())
         .ok_or_else(|| {
-            ApiError::bad_request(BAD_BODY_VALUE).with_message("Body cannot be empty")
+            let err_msg = "Body cannot be empty";
+            ApiError::bad_request(BAD_BODY_VALUE, err_msg.into()).with_message(err_msg)
         })?;
-    let item_search_data: ItemSearchData = serde_json::from_str(&body)
-        .map_err(|err| ApiError::bad_request(BAD_BODY_VALUE).with_message(err.to_string()))?;
+    let item_search_data: ItemSearchData = serde_json::from_str(&body).map_err(|err| {
+        let err_msg = err.to_string();
+        ApiError::bad_request(BAD_BODY_VALUE, Box::new(err)).with_message(err_msg)
+    })?;
 
     let item_search = item_search_data.into();
     let search_result = service

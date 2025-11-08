@@ -18,18 +18,19 @@ use item::data::user_state_data::ItemUserStateData;
 use item::service::get_service::GetItemService;
 use item::service::personalization_service::ItemPersonalizationService;
 use lambda_runtime::LambdaEvent;
+use tracing::{error, warn};
 
 #[tracing::instrument(
     skip(event, get_item_service, access_token_verifier_service, item_personalization_service),
     fields(
         requestId = %event.context.request_id,
         method = event.payload.request_context.http.method.as_str(),
-        path = &event.payload.raw_path.as_deref().unwrap_or("UNKNOWN"),
-        query = &event.payload.raw_query_string.as_deref().unwrap_or("UNKNOWN"),
-        body = &event.payload.body.as_deref().unwrap_or("UNKNOWN"),
-        ip = &event.payload.request_context.http.source_ip.as_deref().unwrap_or("UNKNOWN"),
-        userAgent = &event.payload.request_context.http.user_agent.as_deref().unwrap_or("UNKNOWN"),
-        userId = tracing::field::Empty
+        path = &event.payload.raw_path.as_deref().unwrap_or("NULL"),
+        query = &event.payload.raw_query_string.as_deref().unwrap_or("NULL"),
+        body = &event.payload.body.as_deref().unwrap_or("NULL"),
+        ip = &event.payload.request_context.http.source_ip.as_deref().unwrap_or("NULL"),
+        userAgent = &event.payload.request_context.http.user_agent.as_deref().unwrap_or("NULL"),
+        userId = tracing::field::Empty,
     )
 )]
 pub async fn handler(
@@ -47,7 +48,14 @@ pub async fn handler(
     .await
     {
         Ok(response) => Ok(response),
-        Err(err) => Ok(ApiGatewayV2httpResponse::from(err)),
+        Err(err) => {
+            if err.is4xx() {
+                warn!(error = %err);
+            } else if err.is5xx() {
+                error!(error = %err);
+            }
+            Ok(ApiGatewayV2httpResponse::from(err))
+        }
     }
 }
 
@@ -117,11 +125,14 @@ fn extract_history_query(query: &QueryMap) -> Result<bool, ApiError> {
         .map(|val| match val {
             "true" => Ok(true),
             "false" => Ok(false),
-            other => Err(ApiError::bad_request(BAD_QUERY_PARAMETER_VALUE)
-                .with_query_field("history")
-                .with_message(format!(
-                    "Expected any of: 'true' or 'false'. Got: '{other}'"
-                ))),
+            other => {
+                let err_msg = format!("Expected any of: 'true' or 'false'. Got: '{other}'");
+                Err(
+                    ApiError::bad_request(BAD_QUERY_PARAMETER_VALUE, err_msg.as_str().into())
+                        .with_query_field("history")
+                        .with_message(err_msg),
+                )
+            }
         })
         .unwrap_or(Ok(false))
 }

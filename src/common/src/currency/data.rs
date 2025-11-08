@@ -55,9 +55,10 @@ pub mod api {
             .map(|currency| serde_json::from_str::<CurrencyData>(&format!(r#""{currency}""#)))
             .map(|currency_res| {
                 currency_res.map_err(|err| {
-                    ApiError::bad_request(BAD_QUERY_PARAMETER_VALUE)
+                    let msg = err.to_string();
+                    ApiError::bad_request(BAD_QUERY_PARAMETER_VALUE, Box::new(err))
                         .with_query_field("currency")
-                        .with_message(err.to_string())
+                        .with_message(msg)
                 })
             })
             .transpose()?

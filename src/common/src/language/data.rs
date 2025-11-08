@@ -111,9 +111,11 @@ pub mod api {
             .get(ACCEPT_LANGUAGE)
             .map(HeaderValue::to_str)
             .map(|header_value_res| {
-                header_value_res.map_err(|_| {
-                    ApiError::bad_request(BAD_HEADER_VALUE)
+                header_value_res.map_err(|err| {
+                    let msg = err.to_string();
+                    ApiError::bad_request(BAD_HEADER_VALUE, Box::new(err))
                         .with_header_field(ACCEPT_LANGUAGE.as_str())
+                        .with_message(msg)
                 })
             })
             .transpose()?
@@ -145,9 +147,10 @@ pub mod api {
             .map(|language| serde_json::from_str::<LanguageData>(&format!(r#""{language}""#)))
             .map(|language_res| {
                 language_res.map_err(|err| {
-                    ApiError::bad_request(BAD_QUERY_PARAMETER_VALUE)
+                    let msg = err.to_string();
+                    ApiError::bad_request(BAD_QUERY_PARAMETER_VALUE, Box::new(err))
                         .with_query_field("language")
-                        .with_message(err.to_string())
+                        .with_message(msg)
                 })
             })
             .transpose()?

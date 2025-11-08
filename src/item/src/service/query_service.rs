@@ -22,14 +22,11 @@ pub mod api {
     use crate::service::query_service::SearchItemsError;
     use common::api::error::ApiError;
     use common::api::error_code::INTERNAL_SERVER_ERROR;
-    use tracing::error;
-
     impl From<SearchItemsError> for ApiError {
         fn from(err: SearchItemsError) -> Self {
             match err {
-                SearchItemsError::OpenSearchError(err) => {
-                    error!(error = ?err, "Encountered OpenSearchError while searching items.");
-                    ApiError::internal_server_error(INTERNAL_SERVER_ERROR)
+                SearchItemsError::OpenSearchError(_) => {
+                    ApiError::internal_server_error(INTERNAL_SERVER_ERROR, Box::new(err))
                 }
             }
         }
