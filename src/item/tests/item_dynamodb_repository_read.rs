@@ -14,14 +14,13 @@ mod get_item_record {
     use common::price::record::PriceRecord;
     use common::shop_id::ShopId;
     use common::shops_item_id::ShopsItemId;
-    use item::dynamodb::item_event_record::ItemEventRecord;
+    use item::dynamodb::item_event_record::{self, ItemEventRecord};
     use item::dynamodb::item_event_type_record::ItemEventTypeRecord;
-    use item::dynamodb::item_record::ItemRecord;
+    use item::dynamodb::item_record::{self, ItemRecord};
     use item::dynamodb::item_state_record::ItemStateRecord;
     use item::dynamodb::repository::ItemDynamoDbRepository;
     use test_api::*;
     use time::OffsetDateTime;
-    use time::format_description::well_known;
     use url::Url;
 
     #[localstack_test(services = [DynamoDB()])]
@@ -41,8 +40,8 @@ mod get_item_record {
         let shop_id = ShopId::new();
         let shops_item_id: ShopsItemId = "123465".into();
         let expected = ItemRecord {
-            pk: format!("item#shop_id#{}#shops_item_id#{shops_item_id}", shop_id),
-            sk: "item#materialized".to_string(),
+            pk: item_record::mk_pk(&shop_id, &shops_item_id),
+            sk: item_record::mk_sk().to_string(),
             item_id: ItemId::new(),
             event_id: EventId::new(),
             shop_id,
@@ -96,8 +95,8 @@ mod get_item_record {
         let shop_id = ShopId::new();
         let shops_item_id: ShopsItemId = "123465".into();
         let other = ItemRecord {
-            pk: format!("item#shop_id#{shop_id}#shops_item_id#{shops_item_id}"),
-            sk: "item#materialized".to_string(),
+            pk: item_record::mk_pk(&shop_id, &shops_item_id),
+            sk: item_record::mk_sk().to_string(),
             item_id: ItemId::new(),
             event_id: EventId::new(),
             shop_id,
@@ -147,12 +146,11 @@ mod get_item_record {
     #[localstack_test(services = [DynamoDB()])]
     async fn should_return_nothing_for_get_item_record_when_only_others_exist_mix() {
         let now = OffsetDateTime::now_utc();
-        let now_str = now.format(&well_known::Rfc3339).unwrap();
         let shop_id = ShopId::new();
         let shops_item_id: ShopsItemId = "123465".into();
         let other1 = ItemRecord {
-            pk: format!("item#shop_id#{shop_id}#shops_item_id#{shops_item_id}"),
-            sk: "item#materialized".to_string(),
+            pk: item_record::mk_pk(&shop_id, &shops_item_id),
+            sk: item_record::mk_sk().to_string(),
             item_id: ItemId::new(),
             event_id: EventId::new(),
             shop_id,
@@ -181,11 +179,12 @@ mod get_item_record {
             updated: now,
         };
         let other2 = ItemEventRecord {
-            pk: format!("item#shop_id#{shop_id}#shops_item_id#{shops_item_id}"),
-            sk: format!("item#event#{now_str}"),
+            pk: item_event_record::mk_pk(&shop_id, &shops_item_id),
+            sk: item_event_record::mk_sk(&now).unwrap(),
             item_id: ItemId::new(),
             event_id: EventId::new(),
             event_type: ItemEventTypeRecord::StateListed,
+            event_type_schema_version: 0,
             shop_id,
             shops_item_id: shops_item_id.clone(),
             shop_name: None,
@@ -457,7 +456,7 @@ mod batch_get_item_records {
     use common::price::record::PriceRecord;
     use common::shop_id::ShopId;
     use common::shops_item_id::ShopsItemId;
-    use item::dynamodb::item_record::ItemRecord;
+    use item::dynamodb::item_record::{self, ItemRecord};
     use item::dynamodb::item_state_record::ItemStateRecord;
     use item::dynamodb::repository::ItemDynamoDbRepository;
     use test_api::*;
@@ -472,8 +471,8 @@ mod batch_get_item_records {
             let now = OffsetDateTime::now_utc();
             let shops_item_id: ShopsItemId = n.to_string().into();
             ItemRecord {
-                pk: format!("item#shop_id#{}#shops_item_id#{shops_item_id}", shop_id),
-                sk: "item#materialized".to_string(),
+                pk: item_record::mk_pk(&shop_id, &shops_item_id),
+                sk: item_record::mk_sk().to_string(),
                 item_id: ItemId::new(),
                 event_id: EventId::new(),
                 shop_id,
@@ -546,8 +545,8 @@ mod batch_get_item_records {
             let now = OffsetDateTime::now_utc();
             let shops_item_id: ShopsItemId = n.to_string().into();
             ItemRecord {
-                pk: format!("item#shop_id#{}#shops_item_id#{shops_item_id}", shop_id),
-                sk: "item#materialized".to_string(),
+                pk: item_record::mk_pk(&shop_id, &shops_item_id),
+                sk: item_record::mk_sk().to_string(),
                 item_id: ItemId::new(),
                 event_id: EventId::new(),
                 shop_id,
@@ -620,8 +619,8 @@ mod batch_get_item_records {
             let now = OffsetDateTime::now_utc();
             let shops_item_id: ShopsItemId = n.to_string().into();
             ItemRecord {
-                pk: format!("item#shop_id#{}#shops_item_id#{shops_item_id}", shop_id),
-                sk: "item#materialized".to_string(),
+                pk: item_record::mk_pk(&shop_id, &shops_item_id),
+                sk: item_record::mk_sk().to_string(),
                 item_id: ItemId::new(),
                 event_id: EventId::new(),
                 shop_id,
@@ -700,7 +699,7 @@ mod batch_exist_item_records {
     use common::price::record::PriceRecord;
     use common::shop_id::ShopId;
     use common::shops_item_id::ShopsItemId;
-    use item::dynamodb::item_record::ItemRecord;
+    use item::dynamodb::item_record::{self, ItemRecord};
     use item::dynamodb::item_state_record::ItemStateRecord;
     use item::dynamodb::repository::ItemDynamoDbRepository;
     use test_api::*;
@@ -715,8 +714,8 @@ mod batch_exist_item_records {
             let now = OffsetDateTime::now_utc();
             let shops_item_id: ShopsItemId = n.to_string().into();
             ItemRecord {
-                pk: format!("item#shop_id#{}#shops_item_id#{shops_item_id}", shop_id),
-                sk: "item#materialized".to_string(),
+                pk: item_record::mk_pk(&shop_id, &shops_item_id),
+                sk: item_record::mk_sk().to_string(),
                 item_id: ItemId::new(),
                 event_id: EventId::new(),
                 shop_id,
@@ -787,8 +786,8 @@ mod batch_exist_item_records {
             let now = OffsetDateTime::now_utc();
             let shops_item_id: ShopsItemId = n.to_string().into();
             ItemRecord {
-                pk: format!("item#shop_id#{}#shops_item_id#{shops_item_id}", shop_id),
-                sk: "item#materialized".to_string(),
+                pk: item_record::mk_pk(&shop_id, &shops_item_id),
+                sk: item_record::mk_sk().to_string(),
                 item_id: ItemId::new(),
                 event_id: EventId::new(),
                 shop_id,
@@ -859,8 +858,8 @@ mod batch_exist_item_records {
             let now = OffsetDateTime::now_utc();
             let shops_item_id: ShopsItemId = n.to_string().into();
             ItemRecord {
-                pk: format!("item#shop_id#{}#shops_item_id#{shops_item_id}", shop_id),
-                sk: "item#materialized".to_string(),
+                pk: item_record::mk_pk(&shop_id, &shops_item_id),
+                sk: item_record::mk_sk().to_string(),
                 item_id: ItemId::new(),
                 event_id: EventId::new(),
                 shop_id,

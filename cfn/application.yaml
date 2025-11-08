@@ -747,23 +747,23 @@ Resources:
       AlarmActions:
         - !Ref AlarmNotificationTopic
 
-  BlitzfilterApiComplexSearchRoute:
+  BlitzfilterApiItemSearchRoute:
     Type: AWS::ApiGatewayV2::Route
     Properties:
       ApiId: !Ref BlitzfilterApi
       RouteKey: "POST /api/v1/items/search"
-      Target: !Sub "integrations/${BlitzfilterApiComplexSearchLambdaIntegration}"
-  BlitzfilterApiComplexSearchLambdaIntegration:
+      Target: !Sub "integrations/${BlitzfilterApiItemSearchLambdaIntegration}"
+  BlitzfilterApiItemSearchLambdaIntegration:
     Type: AWS::ApiGatewayV2::Integration
     Properties:
       ApiId: !Ref BlitzfilterApi
       IntegrationType: AWS_PROXY
-      IntegrationUri: !Sub "arn:aws:lambda:${AWS::Region}:${AWS::AccountId}:function:${BlitzfilterApiComplexSearchLambda}"
+      IntegrationUri: !Sub "arn:aws:lambda:${AWS::Region}:${AWS::AccountId}:function:${BlitzfilterApiItemSearchLambda}"
       PayloadFormatVersion: "2.0"
-  BlitzfilterApiComplexSearchRole:
+  BlitzfilterApiItemSearchRole:
     Type: AWS::IAM::Role
     Properties:
-      RoleName: !Sub "blitzfilter-api-complex-search-role-${StageName}"
+      RoleName: !Sub "blitzfilter-api-item-search-role-${StageName}"
       AssumeRolePolicyDocument:
         Version: "2012-10-17"
         Statement:
@@ -796,16 +796,16 @@ Resources:
                   - dynamodb:BatchGetItem
                   - dynamodb:Query
                 Resource: !GetAtt TableOne.Arn
-  BlitzfilterApiComplexSearchLambda:
+  BlitzfilterApiItemSearchLambda:
     Type: AWS::Lambda::Function
     Properties:
-      FunctionName: !Sub "blitzfilter-api-complex-search-${StageName}"
+      FunctionName: !Sub "blitzfilter-api-item-search-${StageName}"
       Runtime: provided.al2023
       Handler: lib.handler
-      Role: !GetAtt BlitzfilterApiComplexSearchRole.Arn
+      Role: !GetAtt BlitzfilterApiItemSearchRole.Arn
       Code:
         S3Bucket: !Ref ArtifactBucket
-        S3Key: !Sub "item-api-complex-search-${StageName}-${CommitSHA}.zip"
+        S3Key: !Sub "item-api-search-${StageName}-${CommitSHA}.zip"
       MemorySize: 512
       Timeout: 10
       EphemeralStorage:
@@ -817,18 +817,18 @@ Resources:
           USER_POOL_ID: !Ref BlitzfilterUserPool
           USER_POOL_PUBLIC_CLIENT_ID: !Ref BlitzfilterUserPoolClientPublic
           USER_POOL_ADMIN_CLIENT_ID: !Ref BlitzfilterUserPoolClientAdmin
-  BlitzfilterApiComplexSearchLambdaPermission:
+  BlitzfilterApiItemSearchLambdaPermission:
     Type: AWS::Lambda::Permission
     Properties:
       Action: lambda:InvokeFunction
-      FunctionName: !Ref BlitzfilterApiComplexSearchLambda
+      FunctionName: !Ref BlitzfilterApiItemSearchLambda
       Principal: apigateway.amazonaws.com
       SourceArn: !Sub "arn:aws:execute-api:${AWS::Region}:${AWS::AccountId}:${BlitzfilterApi}/*/*/api/v1/items/search*"
-  BlitzfilterApiComplexSearchLambdaErrorAlarm:
+  BlitzfilterApiItemSearchLambdaErrorAlarm:
     Type: AWS::CloudWatch::Alarm
     Properties:
-      AlarmName: !Sub "${StageName}-complex-search-lambda-errors"
-      AlarmDescription: "Alarm when complex-search Lambda has errors"
+      AlarmName: !Sub "${StageName}-item-search-lambda-errors"
+      AlarmDescription: "Alarm when item-search Lambda has errors"
       MetricName: Errors
       Namespace: AWS/Lambda
       Statistic: Sum
@@ -838,7 +838,7 @@ Resources:
       ComparisonOperator: GreaterThanOrEqualToThreshold
       Dimensions:
         - Name: FunctionName
-          Value: !Ref BlitzfilterApiComplexSearchLambda
+          Value: !Ref BlitzfilterApiItemSearchLambda
       TreatMissingData: notBreaching
       AlarmActions:
         - !Ref AlarmNotificationTopic

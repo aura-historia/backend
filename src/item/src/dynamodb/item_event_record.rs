@@ -34,6 +34,7 @@ pub struct ItemEventRecord {
     pub item_id: ItemId,
     pub event_id: EventId,
     pub event_type: ItemEventTypeRecord,
+    pub event_type_schema_version: u8,
     pub shop_id: ShopId,
     pub shops_item_id: ShopsItemId,
     #[serde(skip_serializing_if = "Option::is_none", default)]
@@ -98,6 +99,14 @@ pub struct ItemEventRecord {
     pub timestamp: OffsetDateTime,
 }
 
+pub fn mk_pk(shop_id: &ShopId, shops_item_id: &ShopsItemId) -> String {
+    format!("item#shop_id#{shop_id}#shops_item_id#{shops_item_id}")
+}
+
+pub fn mk_sk(timestamp: &OffsetDateTime) -> Result<String, error::Format> {
+    Ok(format!("item#event#{}", timestamp.format(&Rfc3339)?))
+}
+
 impl ItemEventRecord {
     pub fn into_item_key(self) -> ItemKey {
         ItemKey::new(self.shop_id, self.shops_item_id)
@@ -120,8 +129,8 @@ impl TryFrom<ItemEvent> for ItemEventRecord {
     fn try_from(domain: ItemEvent) -> Result<Self, Self::Error> {
         let shop_id = *domain.payload.shop_id();
         let shops_item_id = domain.payload.shops_item_id();
-        let pk = format!("item#shop_id#{shop_id}#shops_item_id#{shops_item_id}");
-        let sk = format!("item#event#{}", domain.timestamp.format(&Rfc3339)?);
+        let pk = mk_pk(&shop_id, shops_item_id);
+        let sk = mk_sk(&domain.timestamp)?;
         let item_id = domain.aggregate_id;
         let event_id = domain.event_id;
         let event_type: ItemEventTypeRecord = (&domain.payload).into();
@@ -159,6 +168,7 @@ impl TryFrom<ItemEvent> for ItemEventRecord {
                     item_id,
                     event_id,
                     event_type,
+                    event_type_schema_version: 0,
                     shop_id,
                     shops_item_id,
                     shop_name: Some(payload.shop_name.into()),
@@ -292,6 +302,7 @@ impl TryFrom<ItemEvent> for ItemEventRecord {
                 item_id,
                 event_id,
                 event_type,
+                event_type_schema_version: 0,
                 shop_id,
                 shops_item_id,
                 shop_name: None,
@@ -373,6 +384,7 @@ impl TryFrom<ItemEvent> for ItemEventRecord {
                 item_id,
                 event_id,
                 event_type,
+                event_type_schema_version: 0,
                 shop_id,
                 shops_item_id,
                 shop_name: None,
@@ -449,6 +461,7 @@ fn mk_state_event_record(
         item_id,
         event_id,
         event_type,
+        event_type_schema_version: 0,
         shop_id,
         shops_item_id,
         shop_name: None,
@@ -498,6 +511,7 @@ fn mk_price_change_event_record(
         item_id,
         event_id,
         event_type,
+        event_type_schema_version: 0,
         shop_id,
         shops_item_id,
         shop_name: None,

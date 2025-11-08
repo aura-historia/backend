@@ -6,15 +6,14 @@ use common::language::record::{LanguageRecord, TextRecord};
 use common::price::record::PriceRecord;
 use common::shop_id::ShopId;
 use common::shops_item_id::ShopsItemId;
-use item::dynamodb::item_event_record::ItemEventRecord;
+use item::dynamodb::item_event_record::{self, ItemEventRecord};
 use item::dynamodb::item_event_type_record::ItemEventTypeRecord;
-use item::dynamodb::item_record::ItemRecord;
+use item::dynamodb::item_record::{self, ItemRecord};
 use item::dynamodb::item_state_record::ItemStateRecord;
 use item::dynamodb::item_update_record::ItemRecordUpdate;
 use item::dynamodb::repository::{ItemDynamoDbRepository, ItemDynamoDbRepositoryImpl};
 use test_api::*;
 use time::OffsetDateTime;
-use time::format_description::well_known;
 use url::Url;
 
 async fn get_repository() -> ItemDynamoDbRepositoryImpl<'static> {
@@ -27,8 +26,8 @@ async fn should_put_item_records_for_single_record() {
     let shop_id = ShopId::new();
     let shops_item_id: ShopsItemId = "123465".into();
     let expected = ItemRecord {
-        pk: format!("item#shop_id#{shop_id}#shops_item_id#{shops_item_id}"),
-        sk: "item#materialized".to_string(),
+        pk: item_record::mk_pk(&shop_id, &shops_item_id),
+        sk: item_record::mk_sk().to_string(),
         item_id: ItemId::new(),
         event_id: EventId::new(),
         shop_id,
@@ -167,7 +166,6 @@ async fn should_put_item_records_for_multiple_records() {
 #[localstack_test(services = [DynamoDB()])]
 async fn should_put_item_event_records_for_single_record() {
     let now = OffsetDateTime::now_utc();
-    let now_str = now.format(&well_known::Rfc3339).unwrap();
     let shop_id = ShopId::new();
     let shops_item_id: ShopsItemId = "123465".into();
     let price = Some(PriceRecord {
@@ -175,11 +173,12 @@ async fn should_put_item_event_records_for_single_record() {
         currency: CurrencyRecord::Eur,
     });
     let expected = ItemEventRecord {
-        pk: format!("item#shop_id#{shop_id}#shops_item_id#{shops_item_id}"),
-        sk: format!("item#event#{now_str}"),
+        pk: item_event_record::mk_pk(&shop_id, &shops_item_id),
+        sk: item_event_record::mk_sk(&now).unwrap(),
         item_id: ItemId::new(),
         event_id: EventId::new(),
         event_type: ItemEventTypeRecord::Created,
+        event_type_schema_version: 0,
         shop_id,
         shops_item_id: shops_item_id.clone(),
         shop_name: Some("Foo".to_string()),
@@ -237,18 +236,18 @@ async fn should_put_item_event_records_for_single_record() {
 async fn should_put_item_event_records_for_multiple_records() {
     let shop_id = ShopId::new();
     let now1 = OffsetDateTime::now_utc();
-    let now_str1 = now1.format(&well_known::Rfc3339).unwrap();
     let shops_item_id1: ShopsItemId = "123465".into();
     let price = Some(PriceRecord {
         amount: 110,
         currency: CurrencyRecord::Eur,
     });
     let expected1 = ItemEventRecord {
-        pk: format!("item#shop_id#{}#shops_item_id#{shops_item_id1}", shop_id),
-        sk: format!("item#event#{now_str1}"),
+        pk: item_event_record::mk_pk(&shop_id, &shops_item_id1),
+        sk: item_event_record::mk_sk(&now1).unwrap(),
         item_id: ItemId::new(),
         event_id: EventId::new(),
         event_type: ItemEventTypeRecord::Created,
+        event_type_schema_version: 0,
         shop_id,
         shops_item_id: shops_item_id1.clone(),
         shop_name: Some("Foo".to_string()),
@@ -280,14 +279,14 @@ async fn should_put_item_event_records_for_multiple_records() {
     };
 
     let now2 = OffsetDateTime::now_utc();
-    let now_str2 = now2.format(&well_known::Rfc3339).unwrap();
     let shops_item_id2: ShopsItemId = "123465".into();
     let expected2 = ItemEventRecord {
-        pk: format!("item#shop_id#{}#shops_item_id#{shops_item_id2}", shop_id),
-        sk: format!("item#event#{now_str2}"),
+        pk: item_event_record::mk_pk(&shop_id, &shops_item_id2),
+        sk: item_event_record::mk_sk(&now2).unwrap(),
         item_id: ItemId::new(),
         event_id: EventId::new(),
         event_type: ItemEventTypeRecord::Created,
+        event_type_schema_version: 0,
         shop_id,
         shops_item_id: shops_item_id2.clone(),
         shop_name: Some("Foo".to_string()),
@@ -351,8 +350,8 @@ async fn should_update_item_record() {
         currency: CurrencyRecord::Eur,
     };
     let initial = ItemRecord {
-        pk: format!("item#shop_id#{shop_id}#shops_item_id#{shops_item_id}"),
-        sk: "item#materialized".to_string(),
+        pk: item_record::mk_pk(&shop_id, &shops_item_id),
+        sk: item_record::mk_sk().to_string(),
         item_id: ItemId::new(),
         event_id: EventId::new(),
         shop_id,

@@ -1,5 +1,5 @@
 use crate::dynamodb::item_event_record::ItemEventRecord;
-use crate::dynamodb::item_record::ItemRecord;
+use crate::dynamodb::item_record::{self, ItemRecord};
 use crate::dynamodb::item_update_record::ItemRecordUpdate;
 use async_trait::async_trait;
 use aws_sdk_dynamodb::Client;
@@ -115,8 +115,8 @@ impl<'a> ItemDynamoDbRepository for ItemDynamoDbRepositoryImpl<'a> {
         shops_item_id: &ShopsItemId,
         item_update_record: ItemRecordUpdate,
     ) -> Result<UpdateItemOutput, SdkError<UpdateItemError, HttpResponse>> {
-        let pk = format!("item#shop_id#{shop_id}#shops_item_id#{shops_item_id}");
-        let sk = "item#materialized".to_string();
+        let pk = item_record::mk_pk(shop_id, shops_item_id);
+        let sk = item_record::mk_sk().to_owned();
         let update_expr = item_update_record.into_update_expr()?;
 
         self.client
@@ -141,8 +141,8 @@ impl<'a> ItemDynamoDbRepository for ItemDynamoDbRepositoryImpl<'a> {
             .client
             .get_item()
             .table_name(&self.table)
-            .key("pk", AttributeValue::S(mk_pk(shop_id, shops_item_id)))
-            .key("sk", AttributeValue::S("item#materialized".to_owned()))
+            .key("pk", AttributeValue::S(item_record::mk_pk(shop_id, shops_item_id)))
+            .key("sk", AttributeValue::S(item_record::mk_sk().to_owned()))
             .send()
             .await?
             .item
@@ -174,7 +174,7 @@ impl<'a> ItemDynamoDbRepository for ItemDynamoDbRepositoryImpl<'a> {
             .expression_attribute_names("#sk", "sk")
             .expression_attribute_values(
                 ":pk_val",
-                AttributeValue::S(mk_pk(shop_id, shops_item_id)),
+                AttributeValue::S(item_record::mk_pk(shop_id, shops_item_id)),
             )
             .expression_attribute_values(":sk_prefix", AttributeValue::S("item#".to_string()))
             .scan_index_forward(true)
@@ -258,11 +258,14 @@ impl<'a> ItemDynamoDbRepository for ItemDynamoDbRepositoryImpl<'a> {
                 let mut columns = HashMap::with_capacity(2);
                 columns.insert(
                     "pk".to_owned(),
-                    AttributeValue::S(mk_pk(&item_key.shop_id, &item_key.shops_item_id)),
+                    AttributeValue::S(item_record::mk_pk(
+                        &item_key.shop_id,
+                        &item_key.shops_item_id,
+                    )),
                 );
                 columns.insert(
                     "sk".to_owned(),
-                    AttributeValue::S("item#materialized".to_owned()),
+                    AttributeValue::S(item_record::mk_sk().to_owned()),
                 );
                 columns
             })
@@ -339,11 +342,14 @@ impl<'a> ItemDynamoDbRepository for ItemDynamoDbRepositoryImpl<'a> {
                 let mut columns = HashMap::with_capacity(2);
                 columns.insert(
                     "pk".to_owned(),
-                    AttributeValue::S(mk_pk(&item_key.shop_id, &item_key.shops_item_id)),
+                    AttributeValue::S(item_record::mk_pk(
+                        &item_key.shop_id,
+                        &item_key.shops_item_id,
+                    )),
                 );
                 columns.insert(
                     "sk".to_owned(),
-                    AttributeValue::S("item#materialized".to_owned()),
+                    AttributeValue::S(item_record::mk_sk().to_owned()),
                 );
                 columns
             })
@@ -409,10 +415,6 @@ impl<'a> ItemDynamoDbRepository for ItemDynamoDbRepositoryImpl<'a> {
         };
         Ok(batch_result)
     }
-}
-
-pub fn mk_pk(shop_id: &ShopId, shops_item_id: &ShopsItemId) -> String {
-    format!("item#shop_id#{shop_id}#shops_item_id#{shops_item_id}")
 }
 
 fn extract_item_key(map: HashMap<String, AttributeValue>) -> Result<ItemKey, String> {
