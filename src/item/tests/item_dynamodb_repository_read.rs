@@ -149,7 +149,7 @@ mod get_item_record {
         let shop_id = ShopId::new();
         let shops_item_id: ShopsItemId = "123465".into();
         let other1 = ItemRecord {
-            pk: item_event_record::mk_pk(&shop_id, &shops_item_id),
+            pk: item_record::mk_pk(&shop_id, &shops_item_id),
             sk: item_record::mk_sk().to_string(),
             item_id: ItemId::new(),
             event_id: EventId::new(),
