@@ -35,12 +35,15 @@ pub mod api {
     use crate::service::get_service::GetShopError;
     use common::api::error::ApiError;
     use common::api::error_code::{SHOP_NOT_FOUND, UNPROCESSED_AFTER_MAX_RETRIES};
-    use tracing::error;
+    use tracing::{error, warn};
 
     impl From<GetShopError> for ApiError {
         fn from(err: GetShopError) -> Self {
             match err {
-                GetShopError::ShopNotFound(_) => ApiError::not_found(SHOP_NOT_FOUND),
+                GetShopError::ShopNotFound(shop_id) => {
+                    warn!(error = %err, shopId = %shop_id);
+                    ApiError::not_found(SHOP_NOT_FOUND)
+                }
                 GetShopError::SdkGetItemError(err) => {
                     error!(error = ?err, "Encountered SdkGetShopError while getting shop.");
                     err.into()

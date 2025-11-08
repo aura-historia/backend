@@ -42,12 +42,16 @@ pub mod api {
     use crate::service::user_search_filter_service::UserSearchFilterError;
     use common::api::error::ApiError;
     use common::api::error_code::SEARCH_FILTER_NOT_FOUND;
-    use tracing::error;
+    use tracing::{error, warn};
 
     impl From<UserSearchFilterError> for ApiError {
         fn from(err: UserSearchFilterError) -> Self {
             match err {
-                UserSearchFilterError::UserSearchFilterNotFound(_, _) => {
+                err @ UserSearchFilterError::UserSearchFilterNotFound(
+                    user_id,
+                    user_search_filter_id,
+                ) => {
+                    warn!(error= %err, userId = %user_id, userSearchFilterId = %user_search_filter_id);
                     ApiError::not_found(SEARCH_FILTER_NOT_FOUND)
                 }
                 UserSearchFilterError::SdkGetItemError(err) => {

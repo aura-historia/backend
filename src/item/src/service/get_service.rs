@@ -58,12 +58,15 @@ pub mod api {
     use common::api::error_code::{
         ITEM_NOT_FOUND, MONETARY_AMOUNT_OVERFLOW, UNPROCESSED_AFTER_MAX_RETRIES,
     };
-    use tracing::error;
+    use tracing::{error, warn};
 
     impl From<GetItemError> for ApiError {
         fn from(err: GetItemError) -> Self {
             match err {
-                GetItemError::ItemNotFound(_, _) => ApiError::not_found(ITEM_NOT_FOUND),
+                GetItemError::ItemNotFound(shop_id, ref shops_item_id) => {
+                    warn!(error = %err, shopId = %shop_id, shopsItemId = %shops_item_id);
+                    ApiError::not_found(ITEM_NOT_FOUND)
+                }
                 GetItemError::MonetaryAmountOverflowError(err) => {
                     error!(error = %err, "Encountered MonetaryAmountOverflowError while getting item.");
                     ApiError::internal_server_error(MONETARY_AMOUNT_OVERFLOW)

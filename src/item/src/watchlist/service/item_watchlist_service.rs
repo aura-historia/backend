@@ -104,7 +104,7 @@ pub mod api {
         ITEM_NOT_FOUND, MONETARY_AMOUNT_OVERFLOW, UNPROCESSED_AFTER_MAX_RETRIES, USER_NOT_FOUND,
         WATCHLIST_ENTRY_NOT_FOUND,
     };
-    use tracing::error;
+    use tracing::{error, warn};
 
     impl From<WatchItemError> for ApiError {
         fn from(err: WatchItemError) -> Self {
@@ -113,12 +113,20 @@ pub mod api {
                     error!(error = %err, "Encountered MonetaryAmountOverflowError while getting item.");
                     ApiError::internal_server_error(MONETARY_AMOUNT_OVERFLOW)
                 }
-                WatchItemError::ItemNotFound(_, _) => ApiError::not_found(ITEM_NOT_FOUND),
+                ref err @ WatchItemError::ItemNotFound(shop_id, ref shops_item_id) => {
+                    warn!(error= %err, shopId = %shop_id, shopsItemId = %shops_item_id);
+                    ApiError::not_found(ITEM_NOT_FOUND)
+                }
                 WatchItemError::UserNotFound(user_id) => {
                     error!("No user with id '{user_id}' exists.");
                     ApiError::internal_server_error(USER_NOT_FOUND)
                 }
-                WatchItemError::WatchlistItemNotFound(_, _, _) => {
+                ref err @ WatchItemError::WatchlistItemNotFound(
+                    user_id,
+                    shop_id,
+                    ref shops_item_id,
+                ) => {
+                    warn!(error= %err, userId = %user_id, shopId = %shop_id, shopsItemId = %shops_item_id);
                     ApiError::not_found(WATCHLIST_ENTRY_NOT_FOUND)
                 }
                 WatchItemError::SdkGetItemError(err) => {
