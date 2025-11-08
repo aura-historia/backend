@@ -1,5 +1,6 @@
 use aws_lambda_events::apigw::{ApiGatewayV2httpRequest, ApiGatewayV2httpResponse};
 use common::api::error::ApiError;
+use common::api::error_logging::log_api_error;
 use common::currency::data::api::extract_currency_query;
 use common::language::data::api::extract_language_header;
 use common::pagination::cursor::api::{TimeCursoredData, extract_time_cursor_query};
@@ -48,15 +49,40 @@ impl From<LocalizedWatchlistItemView> for WatchlistItemDataView {
         requestId = %event.context.request_id,
         path = &event.payload.raw_path,
         query = &event.payload.raw_query_string,
+        method = %event.payload.http_method,
+        userId = tracing::field::Empty,
+        clientIp = tracing::field::Empty,
     )
 )]
 pub async fn handler(
     event: LambdaEvent<ApiGatewayV2httpRequest>,
     service: &impl ItemWatchListService,
 ) -> Result<ApiGatewayV2httpResponse, lambda_runtime::Error> {
+    // Extract and record user ID if available
+    if let Some(user_id) = event
+        .payload
+        .request_context
+        .authorizer
+        .as_ref()
+        .and_then(|auth| auth.jwt.as_ref())
+        .and_then(|jwt| jwt.claims.get("sub"))
+    {
+        tracing::Span::current().record("userId", user_id);
+    } else {
+        tracing::Span::current().record("userId", "anonymous");
+    }
+
+    // Extract and record client IP if available
+    if let Some(source_ip) = event.payload.request_context.http.source_ip.as_ref() {
+        tracing::Span::current().record("clientIp", source_ip.as_str());
+    }
+
     match handle(event, service).await {
         Ok(response) => Ok(response),
-        Err(err) => Ok(ApiGatewayV2httpResponse::from(err)),
+        Err(err) => {
+            log_api_error(&err);
+            Ok(ApiGatewayV2httpResponse::from(err))
+        }
     }
 }
 
