@@ -37,33 +37,28 @@ pub enum AccessTokenVerifierError {
 impl From<AccessTokenVerifierError> for ApiError {
     fn from(value: AccessTokenVerifierError) -> Self {
         match value {
-            AccessTokenVerifierError::HttpHeaderValueToStrError(err) => {
-                tracing::error!(eror = %err, "Failed extracting UserId from Access-Token.");
-                ApiError::bad_request(BAD_HEADER_VALUE)
+            AccessTokenVerifierError::HttpHeaderValueToStrError(ref err) => {
+                let msg = err.to_string();
+                ApiError::bad_request(BAD_HEADER_VALUE, Box::new(value))
                     .with_header_field(AUTHORIZATION.as_str())
-                    .with_message(err.to_string())
+                    .with_message(msg)
             }
-            AccessTokenVerifierError::JwtCognito(err) => {
-                tracing::error!(eror = %err, "Failed extracting UserId from Access-Token.");
-                ApiError::internal_server_error(INTERNAL_SERVER_ERROR)
+            AccessTokenVerifierError::JwtCognito(_) => {
+                ApiError::internal_server_error(INTERNAL_SERVER_ERROR, Box::new(value))
             }
-            AccessTokenVerifierError::JwtError(err) => {
-                tracing::error!(eror = %err, "Failed extracting UserId from Access-Token.");
-                ApiError::internal_server_error(INTERNAL_SERVER_ERROR)
+            AccessTokenVerifierError::JwtError(_) => {
+                ApiError::internal_server_error(INTERNAL_SERVER_ERROR, Box::new(value))
             }
-            err @ AccessTokenVerifierError::ClaimIsNotString(claim) => {
-                tracing::error!(eror = %err, claim = claim, "Failed extracting UserId from Access-Token.");
-                ApiError::internal_server_error(INTERNAL_SERVER_ERROR)
+            AccessTokenVerifierError::ClaimIsNotString(_) => {
+                ApiError::internal_server_error(INTERNAL_SERVER_ERROR, Box::new(value))
             }
-            err @ AccessTokenVerifierError::MissingClaim(claim) => {
-                tracing::error!(eror = %err, claim = claim, "Failed extracting UserId from Access-Token.");
-                ApiError::bad_request(BAD_HEADER_VALUE)
+            AccessTokenVerifierError::MissingClaim(claim) => {
+                ApiError::bad_request(BAD_HEADER_VALUE, Box::new(value))
                     .with_header_field(AUTHORIZATION.as_str())
                     .with_message(format!("Missing claim '{claim}'."))
             }
-            AccessTokenVerifierError::InvalidUuid(claim, err) => {
-                tracing::error!(eror = %err, claim = claim, "Failed extracting UserId from Access-Token.");
-                ApiError::bad_request(INVALID_UUID).with_message(format!(
+            AccessTokenVerifierError::InvalidUuid(claim, _) => {
+                ApiError::bad_request(INVALID_UUID, Box::new(value)).with_message(format!(
                     "String-Value for decoded claim '{claim}' is not a valid UUID."
                 ))
             }

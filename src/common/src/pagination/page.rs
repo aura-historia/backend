@@ -59,9 +59,10 @@ pub mod api {
             .map(|from| from.parse::<u64>())
             .transpose()
             .map_err(|err| {
-                ApiError::bad_request(BAD_PAGE_FROM_VALUE)
+                let msg = err.to_string();
+                ApiError::bad_request(BAD_PAGE_FROM_VALUE, Box::new(err))
                     .with_query_field("from")
-                    .with_message(err.to_string())
+                    .with_message(msg)
             })?;
         let size = headers
             .first("size")
@@ -69,9 +70,10 @@ pub mod api {
             .map(|size| size.parse::<u64>())
             .transpose()
             .map_err(|err| {
-                ApiError::bad_request(BAD_PAGE_SIZE_VALUE)
+                let msg = err.to_string();
+                ApiError::bad_request(BAD_PAGE_SIZE_VALUE, Box::new(err))
                     .with_query_field("size")
-                    .with_message(err.to_string())
+                    .with_message(msg)
             })?
             .map(|size| size.min(100));
 

@@ -2,7 +2,7 @@ use aws_lambda_events::apigw::{ApiGatewayV2httpRequest, ApiGatewayV2httpResponse
 use aws_lambda_events::query_map::QueryMap;
 use cognito::access_token_verifier_service::AccessTokenVerifierService;
 use common::api::api_gateway_v2_http_response_builder::ApiGatewayV2HttpResponseBuilder;
-use common::api::error::ApiError;
+use common::api::error::{ApiError, log_api_error};
 use common::api::error_code::BAD_QUERY_PARAMETER_VALUE;
 use common::currency::data::api::extract_currency_query;
 use common::language::data::api::extract_languages_header;
@@ -23,8 +23,13 @@ use lambda_runtime::LambdaEvent;
     skip(event, get_item_service, access_token_verifier_service, item_personalization_service),
     fields(
         requestId = %event.context.request_id,
-        path = &event.payload.raw_path,
-        query = &event.payload.raw_query_string,
+        method = event.payload.request_context.http.method.as_str(),
+        path = &event.payload.raw_path.as_deref().unwrap_or("NULL"),
+        query = &event.payload.raw_query_string.as_deref().unwrap_or("NULL"),
+        body = &event.payload.body.as_deref().unwrap_or("NULL"),
+        ip = &event.payload.request_context.http.source_ip.as_deref().unwrap_or("NULL"),
+        userAgent = &event.payload.request_context.http.user_agent.as_deref().unwrap_or("NULL"),
+        userId = tracing::field::Empty,
     )
 )]
 pub async fn handler(
@@ -42,7 +47,10 @@ pub async fn handler(
     .await
     {
         Ok(response) => Ok(response),
-        Err(err) => Ok(ApiGatewayV2httpResponse::from(err)),
+        Err(err) => {
+            log_api_error(&err);
+            Ok(ApiGatewayV2httpResponse::from(err))
+        }
     }
 }
 
@@ -56,6 +64,10 @@ pub async fn handle(
     let user_id_opt = access_token_verifier_service
         .verify_extract_user_id(&event.payload.headers)
         .await?;
+    if let Some(user_id) = user_id_opt {
+        tracing::Span::current().record("userId", user_id.to_string());
+    }
+
     let languages = extract_languages_header(&event.payload.headers)?
         .into_iter()
         .map(Language::from)
@@ -106,11 +118,14 @@ fn extract_history_query(query: &QueryMap) -> Result<bool, ApiError> {
         .map(|val| match val {
             "true" => Ok(true),
             "false" => Ok(false),
-            other => Err(ApiError::bad_request(BAD_QUERY_PARAMETER_VALUE)
-                .with_query_field("history")
-                .with_message(format!(
-                    "Expected any of: 'true' or 'false'. Got: '{other}'"
-                ))),
+            other => {
+                let err_msg = format!("Expected any of: 'true' or 'false'. Got: '{other}'");
+                Err(
+                    ApiError::bad_request(BAD_QUERY_PARAMETER_VALUE, err_msg.as_str().into())
+                        .with_query_field("history")
+                        .with_message(err_msg),
+                )
+            }
         })
         .unwrap_or(Ok(false))
 }

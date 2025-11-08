@@ -104,50 +104,30 @@ pub mod api {
         ITEM_NOT_FOUND, MONETARY_AMOUNT_OVERFLOW, UNPROCESSED_AFTER_MAX_RETRIES, USER_NOT_FOUND,
         WATCHLIST_ENTRY_NOT_FOUND,
     };
-    use tracing::error;
 
     impl From<WatchItemError> for ApiError {
         fn from(err: WatchItemError) -> Self {
             match err {
-                WatchItemError::MonetaryAmountOverflowError(err) => {
-                    error!(error = %err, "Encountered MonetaryAmountOverflowError while getting item.");
-                    ApiError::internal_server_error(MONETARY_AMOUNT_OVERFLOW)
+                WatchItemError::MonetaryAmountOverflowError(_) => {
+                    ApiError::internal_server_error(MONETARY_AMOUNT_OVERFLOW, Box::new(err))
                 }
-                WatchItemError::ItemNotFound(_, _) => ApiError::not_found(ITEM_NOT_FOUND),
-                WatchItemError::UserNotFound(user_id) => {
-                    error!("No user with id '{user_id}' exists.");
-                    ApiError::internal_server_error(USER_NOT_FOUND)
+                WatchItemError::ItemNotFound(_, _) => {
+                    ApiError::not_found(ITEM_NOT_FOUND, Box::new(err))
+                }
+                WatchItemError::UserNotFound(_) => {
+                    ApiError::internal_server_error(USER_NOT_FOUND, Box::new(err))
                 }
                 WatchItemError::WatchlistItemNotFound(_, _, _) => {
-                    ApiError::not_found(WATCHLIST_ENTRY_NOT_FOUND)
+                    ApiError::not_found(WATCHLIST_ENTRY_NOT_FOUND, Box::new(err))
                 }
-                WatchItemError::SdkGetItemError(err) => {
-                    error!(error = ?err, "Encountered SdkGetItemError while getting item.");
-                    err.into()
-                }
-                WatchItemError::SdkBatchGetItemError(err) => {
-                    error!(error = ?err, "Encountered SdkBatchGetItemError while getting item.");
-                    err.into()
-                }
-                WatchItemError::SdkQueryError(err) => {
-                    error!(error = ?err, "Encountered SdkQueryError while querying watchlist.");
-                    err.into()
-                }
-                WatchItemError::SdkPutItemError(err) => {
-                    error!(error = ?err, "Encountered SdkPutItemError while writing to watchlist.");
-                    err.into()
-                }
-                WatchItemError::SdkDeleteItemError(err) => {
-                    error!(error = ?err, "Encountered SdkPutItemError while deleting item from watchlist.");
-                    err.into()
-                }
-                WatchItemError::SdkUpdateItemError(err) => {
-                    error!(error = ?err, "Encountered SdkUpdateItemError while updating item from watchlist.");
-                    err.into()
-                }
+                WatchItemError::SdkGetItemError(err) => err.into(),
+                WatchItemError::SdkBatchGetItemError(err) => err.into(),
+                WatchItemError::SdkQueryError(err) => err.into(),
+                WatchItemError::SdkPutItemError(err) => err.into(),
+                WatchItemError::SdkDeleteItemError(err) => err.into(),
+                WatchItemError::SdkUpdateItemError(err) => err.into(),
                 WatchItemError::UnprocessedAfterMaxRetries(_) => {
-                    error!(error = %err, "Had unprocessed items for BatchGetItem after retries..");
-                    ApiError::service_unavailable(UNPROCESSED_AFTER_MAX_RETRIES)
+                    ApiError::service_unavailable(UNPROCESSED_AFTER_MAX_RETRIES, Box::new(err))
                 }
             }
         }

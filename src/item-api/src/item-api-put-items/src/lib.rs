@@ -1,7 +1,7 @@
 use aws_lambda_events::apigw::{ApiGatewayV2httpRequest, ApiGatewayV2httpResponse};
 use common::api::api_gateway_v2_http_response_builder::ApiGatewayV2HttpResponseBuilder;
 use common::api::collection::PutCollectionData;
-use common::api::error::ApiError;
+use common::api::error::{ApiError, log_api_error};
 use common::api::error_code::BAD_BODY_VALUE;
 use common::localized::Localized;
 use common::price::domain::Price;
@@ -76,8 +76,12 @@ pub struct PutItemsResponse {
     skip(event, upsert_service, enrich_service),
     fields(
         requestId = %event.context.request_id,
-        path = &event.payload.raw_path,
-        query = &event.payload.raw_query_string,
+        method = event.payload.request_context.http.method.as_str(),
+        path = &event.payload.raw_path.as_deref().unwrap_or("NULL"),
+        query = &event.payload.raw_query_string.as_deref().unwrap_or("NULL"),
+        body = &event.payload.body.as_deref().unwrap_or("NULL"),
+        ip = &event.payload.request_context.http.source_ip.as_deref().unwrap_or("NULL"),
+        userAgent = &event.payload.request_context.http.user_agent.as_deref().unwrap_or("NULL"),
     )
 )]
 pub async fn handler(
@@ -87,7 +91,10 @@ pub async fn handler(
 ) -> Result<ApiGatewayV2httpResponse, lambda_runtime::Error> {
     match handle(event, upsert_service, enrich_service).await {
         Ok(response) => Ok(response),
-        Err(err) => Ok(ApiGatewayV2httpResponse::from(err)),
+        Err(err) => {
+            log_api_error(&err);
+            Ok(ApiGatewayV2httpResponse::from(err))
+        }
     }
 }
 
@@ -102,10 +109,14 @@ pub async fn handle(
         .body
         .filter(|str| !str.is_empty())
         .ok_or_else(|| {
-            ApiError::bad_request(BAD_BODY_VALUE).with_message("Body cannot be empty")
+            let err_msg = "Body cannot be empty";
+            ApiError::bad_request(BAD_BODY_VALUE, err_msg.into()).with_message(err_msg)
         })?;
-    let items_data: PutCollectionData<PutItemData> = serde_json::from_str(&body)
-        .map_err(|err| ApiError::bad_request(BAD_BODY_VALUE).with_message(err.to_string()))?;
+    let items_data: PutCollectionData<PutItemData> =
+        serde_json::from_str(&body).map_err(|err| {
+            let err_msg = err.to_string();
+            ApiError::bad_request(BAD_BODY_VALUE, Box::new(err)).with_message(err_msg)
+        })?;
 
     let commands = items_data
         .items

@@ -159,7 +159,7 @@ impl ApiGatewayV2HttpResponseBuilder {
     pub fn body_serde<T: Serialize + Debug>(mut self, t: T) -> Result<Self, ApiError> {
         let body = serde_json::to_string(&t).map_err(|err| {
             tracing::error!(error = %err, payload = ?t, type = %std::any::type_name::<T>(), "Failed serializing.");
-            ApiError::internal_server_error(INTERNAL_SERVER_ERROR)
+            ApiError::internal_server_error(INTERNAL_SERVER_ERROR, Box::new(err))
         })?;
         self.body = Some(body.into());
 

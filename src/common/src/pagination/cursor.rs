@@ -66,9 +66,10 @@ pub mod api {
             .map(|val| OffsetDateTime::parse(val, &Rfc3339))
             .transpose()
             .map_err(|err| {
-                ApiError::bad_request(INVALID_RFC3339_TIMESTAMP)
+                let msg = err.to_string();
+                ApiError::bad_request(INVALID_RFC3339_TIMESTAMP, Box::new(err))
                     .with_query_field("searchAfter")
-                    .with_message(err.to_string())
+                    .with_message(msg)
             })?;
         let size = query
             .first("size")
@@ -76,9 +77,10 @@ pub mod api {
             .map(|size| size.parse::<u64>())
             .transpose()
             .map_err(|err| {
-                ApiError::bad_request(BAD_PAGE_SIZE_VALUE)
+                let msg = err.to_string();
+                ApiError::bad_request(BAD_PAGE_SIZE_VALUE, Box::new(err))
                     .with_query_field("size")
-                    .with_message(err.to_string())
+                    .with_message(msg)
             })?
             .map(|size| size.min(100));
 
@@ -109,11 +111,10 @@ pub mod api {
                         string => &format!("\"{string}\""),
                     };
                     let el = serde_json::from_str(el_str).map_err(|err| {
-                        ApiError::bad_request(INVALID_JSON)
+                        let msg = format!("Failed parsing '{el_str}' as JSON-Value: {err}",);
+                        ApiError::bad_request(INVALID_JSON, Box::new(err))
                             .with_query_field("searchAfter")
-                            .with_message(
-                                format!("Failed parsing '{el_str}' as JSON-Value: {err}",),
-                            )
+                            .with_message(msg)
                     })?;
                     acc.push(el);
                     Ok(acc)
@@ -124,9 +125,10 @@ pub mod api {
             1 => Some(search_after_vals.remove(0)),
             _ => {
                 let search_after = serde_json::to_value(search_after_vals).map_err(|err| {
-                    ApiError::bad_request(INVALID_JSON)
+                    let msg = format!("Failed parsing 'searchAfter' as JSON-Array: {err}",);
+                    ApiError::bad_request(INVALID_JSON, Box::new(err))
                         .with_query_field("searchAfter")
-                        .with_message(format!("Failed parsing 'searchAfter' as JSON-Array: {err}",))
+                        .with_message(msg)
                 })?;
                 Some(search_after)
             }
@@ -137,9 +139,10 @@ pub mod api {
             .map(|size| size.parse::<u64>())
             .transpose()
             .map_err(|err| {
-                ApiError::bad_request(BAD_PAGE_SIZE_VALUE)
+                let msg = err.to_string();
+                ApiError::bad_request(BAD_PAGE_SIZE_VALUE, Box::new(err))
                     .with_query_field("size")
-                    .with_message(err.to_string())
+                    .with_message(msg)
             })?
             .map(|size| size.min(100));
 

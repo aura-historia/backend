@@ -58,31 +58,21 @@ pub mod api {
     use common::api::error_code::{
         ITEM_NOT_FOUND, MONETARY_AMOUNT_OVERFLOW, UNPROCESSED_AFTER_MAX_RETRIES,
     };
-    use tracing::error;
 
     impl From<GetItemError> for ApiError {
         fn from(err: GetItemError) -> Self {
             match err {
-                GetItemError::ItemNotFound(_, _) => ApiError::not_found(ITEM_NOT_FOUND),
-                GetItemError::MonetaryAmountOverflowError(err) => {
-                    error!(error = %err, "Encountered MonetaryAmountOverflowError while getting item.");
-                    ApiError::internal_server_error(MONETARY_AMOUNT_OVERFLOW)
+                GetItemError::ItemNotFound(_, _) => {
+                    ApiError::not_found(ITEM_NOT_FOUND, Box::new(err))
                 }
-                GetItemError::SdkGetItemError(err) => {
-                    error!(error = ?err, "Encountered SdkGetItemError while getting item.");
-                    err.into()
+                GetItemError::MonetaryAmountOverflowError(_) => {
+                    ApiError::internal_server_error(MONETARY_AMOUNT_OVERFLOW, Box::new(err))
                 }
-                GetItemError::SdkBatchGetItemError(err) => {
-                    error!(error = ?err, "Encountered SdkBatchGetItemError while getting item.");
-                    err.into()
-                }
-                GetItemError::SdkQueryError(err) => {
-                    error!(error = ?err, "Encountered SdkQueryError while querying item and its history.");
-                    err.into()
-                }
+                GetItemError::SdkGetItemError(err) => err.into(),
+                GetItemError::SdkBatchGetItemError(err) => err.into(),
+                GetItemError::SdkQueryError(err) => err.into(),
                 GetItemError::UnprocessedAfterMaxRetries(_) => {
-                    error!(error = %err, "Had unprocessed items for BatchGetItem after retries..");
-                    ApiError::service_unavailable(UNPROCESSED_AFTER_MAX_RETRIES)
+                    ApiError::service_unavailable(UNPROCESSED_AFTER_MAX_RETRIES, Box::new(err))
                 }
             }
         }
@@ -141,7 +131,6 @@ impl<'a> GetItemService for GetItemServiceImpl<'a> {
         Ok(item_record.into())
     }
 
-    #[tracing::instrument(skip(self), fields(shopId = %shop_id, shopsItemId = %shops_item_id))]
     async fn view_item(
         &self,
         shop_id: &ShopId,

@@ -2,7 +2,8 @@ use aws_lambda_events::apigw::{ApiGatewayV2httpRequest, ApiGatewayV2httpResponse
 use cognito::access_token_verifier_service::AccessTokenVerifierService;
 use common::{
     api::{
-        api_gateway_v2_http_response_builder::ApiGatewayV2HttpResponseBuilder, error::ApiError,
+        api_gateway_v2_http_response_builder::ApiGatewayV2HttpResponseBuilder,
+        error::{ApiError, log_api_error},
         error_code::BAD_BODY_VALUE,
     },
     pagination::cursor::{
@@ -27,8 +28,13 @@ use lambda_runtime::LambdaEvent;
     skip(event, query_item_service, access_token_verifier_service, item_personalization_service),
     fields(
         requestId = %event.context.request_id,
-        path = &event.payload.raw_path,
-        query = &event.payload.raw_query_string,
+        method = event.payload.request_context.http.method.as_str(),
+        path = &event.payload.raw_path.as_deref().unwrap_or("NULL"),
+        query = &event.payload.raw_query_string.as_deref().unwrap_or("NULL"),
+        body = &event.payload.body.as_deref().unwrap_or("NULL"),
+        ip = &event.payload.request_context.http.source_ip.as_deref().unwrap_or("NULL"),
+        userAgent = &event.payload.request_context.http.user_agent.as_deref().unwrap_or("NULL"),
+        userId = tracing::field::Empty,
     )
 )]
 pub async fn handler(
@@ -46,7 +52,10 @@ pub async fn handler(
     .await
     {
         Ok(response) => Ok(response),
-        Err(err) => Ok(ApiGatewayV2httpResponse::from(err)),
+        Err(err) => {
+            log_api_error(&err);
+            Ok(ApiGatewayV2httpResponse::from(err))
+        }
     }
 }
 
@@ -60,6 +69,10 @@ pub async fn handle(
     let user_id_opt = access_token_verifier_service
         .verify_extract_user_id(&event.payload.headers)
         .await?;
+    if let Some(user_id) = user_id_opt {
+        tracing::Span::current().record("userId", user_id.to_string());
+    }
+
     let sort = extract_sort_query::<SortItemFieldData>(&event.payload.query_string_parameters)?
         .map(|sort_data| sort_data.map(SortItemField::from));
     let cursor =
@@ -69,10 +82,13 @@ pub async fn handle(
         .body
         .filter(|str| !str.is_empty())
         .ok_or_else(|| {
-            ApiError::bad_request(BAD_BODY_VALUE).with_message("Body cannot be empty")
+            let err_msg = "Body cannot be empty";
+            ApiError::bad_request(BAD_BODY_VALUE, err_msg.into()).with_message(err_msg)
         })?;
-    let item_search_data: ItemSearchData = serde_json::from_str(&body)
-        .map_err(|err| ApiError::bad_request(BAD_BODY_VALUE).with_message(err.to_string()))?;
+    let item_search_data: ItemSearchData = serde_json::from_str(&body).map_err(|err| {
+        let err_msg = err.to_string();
+        ApiError::bad_request(BAD_BODY_VALUE, Box::new(err)).with_message(err_msg)
+    })?;
 
     let item_search = item_search_data.into();
     let search_result = service

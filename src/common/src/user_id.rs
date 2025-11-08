@@ -75,19 +75,22 @@ pub mod api {
             })?
             .jwt
             .as_ref()
-            .ok_or_else(|| ApiError::unauthorized(UNAUTHORIZED).with_header_field("Authorization").with_message("Missing JWT."))?
+            .ok_or_else(|| {
+                ApiError::unauthorized(UNAUTHORIZED)
+                    .with_header_field("Authorization")
+                    .with_message("Missing JWT.")
+            })?
             .claims
             .get("sub")
             .ok_or_else(|| {
-                tracing::error!("Missing claim 'sub' in Cognito-authorized JWT.");
-                ApiError::internal_server_error(INTERNAL_SERVER_ERROR)
+                ApiError::internal_server_error(
+                    INTERNAL_SERVER_ERROR,
+                    "Missing claim 'sub' in Cognito-authorized JWT.".into(),
+                )
             })
             .map(String::as_str)
             .map(UserId::try_from)?
-            .map_err(|err| {
-                tracing::error!(eror = %err, "Claim 'sub' in Cognito-authorized JWT is not a valid UUID.");
-                ApiError::internal_server_error(INTERNAL_SERVER_ERROR)
-            })?;
+            .map_err(|err| ApiError::internal_server_error(INTERNAL_SERVER_ERROR, Box::new(err)))?;
 
         Ok(user_id)
     }

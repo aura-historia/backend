@@ -102,6 +102,7 @@ pub mod api {
             error::ApiError,
             error_code::{BAD_PATH_PARAMETER_VALUE, INVALID_UUID},
         },
+        error::missing_field::MissingRequiredField,
         shop_id::ShopId,
     };
     use std::collections::HashMap;
@@ -112,10 +113,18 @@ pub mod api {
             .map(ShopId::try_from)
             .transpose()
             .map_err(|err| {
-                ApiError::bad_request(INVALID_UUID)
+                let msg = err.to_string();
+                ApiError::bad_request(INVALID_UUID, Box::new(err))
                     .with_path_field("shopId")
-                    .with_message(err.to_string())
+                    .with_message(msg)
             })?
-            .ok_or(ApiError::bad_request(BAD_PATH_PARAMETER_VALUE).with_path_field("shopId"))
+            .ok_or(
+                ApiError::bad_request(
+                    BAD_PATH_PARAMETER_VALUE,
+                    Box::new(MissingRequiredField::new("shopId")),
+                )
+                .with_path_field("shopId")
+                .with_message("Missing field 'shopId'."),
+            )
     }
 }

@@ -53,6 +53,7 @@ impl From<&str> for ShopsItemId {
 pub mod api {
     use crate::{
         api::{error::ApiError, error_code::BAD_PATH_PARAMETER_VALUE},
+        error::missing_field::MissingRequiredField,
         shops_item_id::ShopsItemId,
     };
     use std::collections::HashMap;
@@ -64,6 +65,13 @@ pub mod api {
             .get("shopsItemId")
             .filter(|str| !str.is_empty())
             .map(ShopsItemId::from)
-            .ok_or(ApiError::bad_request(BAD_PATH_PARAMETER_VALUE).with_path_field("shopsItemId"))
+            .ok_or(
+                ApiError::bad_request(
+                    BAD_PATH_PARAMETER_VALUE,
+                    Box::new(MissingRequiredField::new("shopsItemId")),
+                )
+                .with_path_field("shopsItemId")
+                .with_message("Missing field 'shopsItemId'."),
+            )
     }
 }
