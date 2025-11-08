@@ -4616,6 +4616,7 @@ name = "smoking-tests"
 version = "0.1.0"
 dependencies = [
  "aws-tests-common",
+ "fake",
  "futures-util",
  "item",
  "reqwest 0.12.24",

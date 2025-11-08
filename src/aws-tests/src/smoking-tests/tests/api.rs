@@ -1,4 +1,6 @@
 use aws_tests_common::get_cfn_output;
+use fake::{Fake, Faker};
+use item::data::item_search_data::ItemSearchData;
 use smoking_tests::smoking_test;
 use uuid::Uuid;
 
@@ -21,12 +23,15 @@ async fn should_respond_404_for_get_item_when_not_exists() {
 
 #[smoking_test]
 async fn should_respond_200_for_search_items() {
-    let response = reqwest::get(format!(
-        "{}/api/v1/items?q=Chopin%20Etudes&language=en&currency=EUR&sort=price&order=asc&from=0&size=5",
-        get_cfn_output().api_gateway_endpoint_url
-    ))
-    .await
-    .unwrap();
+    let response = reqwest::Client::new()
+        .post(format!(
+            "{}/api/v1/items?sort=price&order=asc&from=0&size=5",
+            get_cfn_output().api_gateway_endpoint_url
+        ))
+        .json(&Faker.fake::<ItemSearchData>())
+        .send()
+        .await
+        .unwrap();
     assert_eq!(200, response.status());
 
     let body = response.json::<serde_json::Value>().await.unwrap();
