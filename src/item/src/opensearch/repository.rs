@@ -11,7 +11,7 @@ use common::language::domain::Language;
 use common::opensearch::{bulk_response::BulkResponse, search_response::SearchResponse};
 use common::pagination::cursor::Cursor;
 use common::sort::{Sort, SortOrder};
-use opensearch::{BulkOperation, BulkOperations, BulkParts, SearchParts};
+use opensearch::{BulkOperation, BulkOperations, BulkParts, GetParts, SearchParts};
 use serde::ser::Error;
 use serde_json::json;
 use std::collections::HashMap;
@@ -38,6 +38,8 @@ pub trait ItemOpenSearchRepository {
         sort: &Sort<SortItemField>,
         page: &Option<Cursor<serde_json::Value>>,
     ) -> Result<SearchResponse<ItemDocument>, opensearch::Error>;
+
+    async fn get_by_id(&self, item_id: &ItemId) -> Result<ItemDocument, opensearch::Error>;
 }
 
 pub struct ItemOpenSearchRepositoryImpl<'a> {
@@ -296,5 +298,19 @@ impl<'a> ItemOpenSearchRepository for ItemOpenSearchRepositoryImpl<'a> {
             })?;
 
         Ok(search_response)
+    }
+
+    async fn get_by_id(&self, item_id: &ItemId) -> Result<ItemDocument, opensearch::Error> {
+        let mut response: serde_json::Value = self
+            .client
+            .get(GetParts::IndexId("items", &item_id.to_string()))
+            .send()
+            .await
+            .unwrap()
+            .error_for_status_code()?
+            .json()
+            .await?;
+
+        serde_json::from_value(response["_source"].take()).map_err(opensearch::Error::from)
     }
 }

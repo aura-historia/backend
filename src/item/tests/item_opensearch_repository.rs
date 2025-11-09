@@ -645,3 +645,42 @@ async fn should_search_item_documents_respecting_search_after_when_sorted_by_pri
 
     assert_eq!(expected_items, actual_items);
 }
+
+#[localstack_test(services = [OpenSearch()])]
+async fn should_get_item_document() {
+    let item_id = ItemId::new();
+    let expected = ItemDocument {
+        item_id,
+        event_id: Default::default(),
+        shop_id: Default::default(),
+        shops_item_id: ShopsItemId::from("abcdefgh"),
+        shop_name: "Foo".to_string(),
+        title_de: Some("Bar".to_string()),
+        title_en: Some("Baz".to_string()),
+        description_de: Some("Lorem ipsum dolor sit amet".to_string()),
+        description_en: Some("Lorem ipsum dolor sit amet".to_string()),
+        price_eur: Some(99),
+        price_usd: None,
+        price_gbp: None,
+        price_aud: None,
+        price_cad: None,
+        price_nzd: None,
+        state: ItemStateDocument::Listed,
+        url: Url::parse("https://foo.com/bar").unwrap(),
+        images: vec![Url::parse("https://foo.com/bar").unwrap()],
+        embedding: None,
+        created: OffsetDateTime::now_utc(),
+        updated: OffsetDateTime::now_utc(),
+    };
+    let client = get_opensearch_client().await;
+    let repository = ItemOpenSearchRepositoryImpl::new(client);
+    let response = repository
+        .create_item_documents(vec![expected.clone()])
+        .await
+        .unwrap();
+    assert!(!response.errors);
+    refresh_index("items").await;
+    let actual = repository.get_by_id(&item_id).await.unwrap();
+
+    assert_eq!(expected, actual);
+}
