@@ -924,3 +924,130 @@ mod batch_exist_item_records {
         assert_eq!(actuals.items, expecteds);
     }
 }
+
+mod get_item_id {
+    use crate::get_repository;
+    use common::currency::record::CurrencyRecord;
+    use common::event_id::EventId;
+    use common::item_id::ItemId;
+    use common::language::record::{LanguageRecord, TextRecord};
+    use common::price::record::PriceRecord;
+    use common::shop_id::ShopId;
+    use common::shops_item_id::ShopsItemId;
+    use item::dynamodb::item_record::{self, ItemRecord};
+    use item::dynamodb::item_state_record::ItemStateRecord;
+    use item::dynamodb::repository::ItemDynamoDbRepository;
+    use test_api::*;
+    use time::OffsetDateTime;
+    use url::Url;
+
+    #[localstack_test(services = [DynamoDB()])]
+    async fn should_return_item_id_for_get_item_id_when_exists() {
+        let now = OffsetDateTime::now_utc();
+        let shop_id = ShopId::new();
+        let shops_item_id: ShopsItemId = "123465".into();
+        let item_id = ItemId::new();
+        let record = ItemRecord {
+            pk: item_record::mk_pk(&shop_id, &shops_item_id),
+            sk: item_record::mk_sk().to_string(),
+            item_id,
+            event_id: EventId::new(),
+            shop_id,
+            shops_item_id: shops_item_id.clone(),
+            shop_name: "Foo".to_string(),
+            title_native: TextRecord::new("Bar", LanguageRecord::De),
+            title_de: Some("Bar".to_string()),
+            title_en: Some("Barr".to_string()),
+            description_native: Some(TextRecord::new("Baz", LanguageRecord::De)),
+            description_de: Some("Baz".to_string()),
+            description_en: Some("Bazz".to_string()),
+            price_native: Some(PriceRecord {
+                amount: 110,
+                currency: CurrencyRecord::Eur,
+            }),
+            price_eur: None,
+            price_usd: None,
+            price_gbp: None,
+            price_aud: None,
+            price_cad: None,
+            price_nzd: None,
+            state: ItemStateRecord::Available,
+            url: Url::parse("https://foo.bar/123456").unwrap(),
+            images: vec![Url::parse("https://foo.bar/123456/image").unwrap()],
+            created: now,
+            updated: now,
+        };
+
+        get_dynamodb_client()
+            .await
+            .put_item()
+            .table_name("table_1")
+            .set_item(serde_dynamo::to_item(&record).ok())
+            .send()
+            .await
+            .unwrap();
+
+        let repository = get_repository().await;
+        let actual = repository
+            .get_item_id(&shop_id, &shops_item_id)
+            .await
+            .unwrap();
+
+        assert!(actual.is_some());
+        assert_eq!(item_id, actual.unwrap());
+    }
+
+    #[localstack_test(services = [DynamoDB()])]
+    async fn should_return_nothing_for_get_item_id_when_only_others_exist() {
+        let now = OffsetDateTime::now_utc();
+        let shop_id = ShopId::new();
+        let shops_item_id: ShopsItemId = "123465".into();
+        let other = ItemRecord {
+            pk: item_record::mk_pk(&shop_id, &shops_item_id),
+            sk: item_record::mk_sk().to_string(),
+            item_id: ItemId::new(),
+            event_id: EventId::new(),
+            shop_id,
+            shops_item_id: shops_item_id.clone(),
+            shop_name: "Foo".to_string(),
+            title_native: TextRecord::new("Bar", LanguageRecord::De),
+            title_de: Some("Bar".to_string()),
+            title_en: Some("Barr".to_string()),
+            description_native: Some(TextRecord::new("Baz", LanguageRecord::De)),
+            description_de: Some("Baz".to_string()),
+            description_en: Some("Bazz".to_string()),
+            price_native: Some(PriceRecord {
+                amount: 110,
+                currency: CurrencyRecord::Eur,
+            }),
+            price_eur: None,
+            price_usd: None,
+            price_gbp: None,
+            price_aud: None,
+            price_cad: None,
+            price_nzd: None,
+            state: ItemStateRecord::Available,
+            url: Url::parse("https://foo.bar/123456").unwrap(),
+            images: vec![Url::parse("https://foo.bar/123456/image").unwrap()],
+            created: now,
+            updated: now,
+        };
+
+        get_dynamodb_client()
+            .await
+            .put_item()
+            .table_name("table_1")
+            .set_item(serde_dynamo::to_item(&other).ok())
+            .send()
+            .await
+            .unwrap();
+
+        let repository = get_repository().await;
+        let actual = repository
+            .get_item_id(&ShopId::new(), &"non-existent".into())
+            .await
+            .unwrap();
+
+        assert!(actual.is_none());
+    }
+}
