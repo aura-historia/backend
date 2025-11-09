@@ -25,7 +25,7 @@ async fn should_respond_404_for_get_item_when_not_exists() {
 async fn should_respond_200_for_search_items() {
     let response = reqwest::Client::new()
         .post(format!(
-            "{}/api/v1/items?sort=price&order=asc&from=0&size=5",
+            "{}/api/v1/items/search?sort=price&order=asc&from=0&size=5",
             get_cfn_output().api_gateway_endpoint_url
         ))
         .json(&Faker.fake::<ItemSearchData>())
