@@ -31,7 +31,7 @@ pub struct ItemUpdateDocument {
     pub state: Option<ItemStateDocument>,
 
     #[serde(skip_serializing_if = "Option::is_none", default)]
-    pub embedding: Option<Vec<f32>>,
+    pub text_embedding: Option<Vec<f32>>,
 
     #[serde(with = "time::serde::rfc3339")]
     pub updated: OffsetDateTime,
@@ -48,7 +48,7 @@ impl Default for ItemUpdateDocument {
             price_cad: None,
             price_nzd: None,
             state: None,
-            embedding: None,
+            text_embedding: None,
             updated: OffsetDateTime::now_utc(),
         }
     }
@@ -66,7 +66,7 @@ impl From<ItemEventRecord> for ItemUpdateDocument {
             price_cad: event_record.new_price_cad,
             price_nzd: event_record.new_price_nzd,
             state,
-            embedding: None,
+            text_embedding: None,
             updated: event_record.timestamp,
         }
     }
@@ -90,7 +90,7 @@ mod faker {
                 price_cad: Some(config.fake_with_rng::<MonetaryAmount, _>(rng).into()),
                 price_nzd: Some(config.fake_with_rng::<MonetaryAmount, _>(rng).into()),
                 state,
-                embedding: None,
+                text_embedding: None,
                 updated: OffsetDateTime::now_utc(),
             }
         }

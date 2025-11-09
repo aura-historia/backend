@@ -63,7 +63,7 @@
       "images": {
         "type": "keyword"
       },
-      "embedding": {
+      "textEmbedding": {
         "type": "knn_vector",
         "dimension": 1024,
         "method": {

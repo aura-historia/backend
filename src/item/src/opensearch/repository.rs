@@ -40,6 +40,12 @@ pub trait ItemOpenSearchRepository {
     ) -> Result<SearchResponse<ItemDocument>, opensearch::Error>;
 
     async fn get_by_id(&self, item_id: &ItemId) -> Result<ItemDocument, opensearch::Error>;
+
+    async fn k_nn_text(
+        &self,
+        text_embedding: &[f32],
+        k: u16,
+    ) -> Result<SearchResponse<ItemDocument>, opensearch::Error>;
 }
 
 pub struct ItemOpenSearchRepositoryImpl<'a> {
@@ -312,5 +318,37 @@ impl<'a> ItemOpenSearchRepository for ItemOpenSearchRepositoryImpl<'a> {
             .await?;
 
         serde_json::from_value(response["_source"].take()).map_err(opensearch::Error::from)
+    }
+
+    async fn k_nn_text(
+        &self,
+        text_embedding: &[f32],
+        k: u16,
+    ) -> Result<SearchResponse<ItemDocument>, opensearch::Error> {
+        let body = json!({
+            "size": k,
+            "query": {
+              "knn": {
+                "textEmbedding": {
+                  "vector": text_embedding,
+                  "k": k,
+                }
+              }
+            }
+        });
+        let response = self
+            .client
+            .search(SearchParts::Index(&["items"]))
+            .body(body)
+            .send()
+            .await?;
+        let payload = response.text().await?;
+        let knn_response = serde_json::from_str::<SearchResponse<ItemDocument>>(&payload)
+            .map_err(|err| {
+                serde_json::Error::custom(format!(
+                    "Failed deserializing 'SearchResponse<ItemDocument>' with error '{err}'. Received payload: {payload}"
+                ))
+            })?;
+        Ok(knn_response)
     }
 }

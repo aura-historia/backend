@@ -50,8 +50,11 @@ impl EnrichmentPipe for EmbeddingEnrichmentPipeImpl {
                 Ok(embeddings) => {
                     let mut local_enriched = document_batch.into_iter().zip(embeddings).map(
                         |(mut pipe_item, embedding)| {
-                            pipe_item.update.document.get_or_insert_default().embedding =
-                                Some(embedding);
+                            pipe_item
+                                .update
+                                .document
+                                .get_or_insert_default()
+                                .text_embedding = Some(embedding);
                             pipe_item
                         },
                     );
@@ -106,7 +109,7 @@ pub mod tests {
         let actual = res
             .successes
             .into_iter()
-            .filter_map(|doc| doc.update.document.unwrap_or_default().embedding)
+            .filter_map(|doc| doc.update.document.unwrap_or_default().text_embedding)
             .collect::<Vec<_>>();
 
         assert_eq!(expected, actual);

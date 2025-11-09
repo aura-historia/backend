@@ -75,7 +75,7 @@ async fn should_respond_200_when_hits_authenticated() {
         state: ItemStateDocument::Available,
         url: Url::parse("https://hans-volker.com/chopin-etudes-op10-1833").unwrap(),
         images: vec![],
-        embedding: None,
+        text_embedding: None,
         created: now.into(),
         updated: now.into(),
     };
@@ -216,7 +216,7 @@ async fn should_respond_200_when_hits_anon() {
         state: ItemStateDocument::Available,
         url: Url::parse("https://hans-volker.com/chopin-etudes-op10-1833").unwrap(),
         images: vec![],
-        embedding: None,
+        text_embedding: None,
         created: SystemTime::now().into(),
         updated: SystemTime::now().into(),
     };
