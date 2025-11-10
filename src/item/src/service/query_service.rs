@@ -99,7 +99,7 @@ impl<'a> QueryItemService for QueryItemServiceImpl<'a> {
             .into_iter()
             .map(|hit| hit.source)
             .map(|item_document| {
-                localize_item_document(item_document, &search.language, &search.currency)
+                localize_item_document(item_document, &[search.language], &search.currency)
             })
             .collect::<Vec<_>>();
 
@@ -113,7 +113,7 @@ impl<'a> QueryItemService for QueryItemServiceImpl<'a> {
 
 pub fn localize_item_document(
     item_document: ItemDocument,
-    language: &Language,
+    languages: &[Language],
     currency: &Currency,
 ) -> LocalizedItemView {
     let mut available_titles: HashMap<Language, Title> = HashMap::with_capacity(3);
@@ -132,7 +132,7 @@ pub fn localize_item_document(
         available_descriptions.insert(Language::En, description_en.into());
     }
 
-    let title = Language::resolve(&[*language], available_titles).unwrap_or_else(|| {
+    let title = Language::resolve(languages, available_titles).unwrap_or_else(|| {
         error!(
             shopId = %item_document.shop_id,
             shopsItemId = %item_document.shops_item_id,
@@ -140,7 +140,7 @@ pub fn localize_item_document(
         );
         Localized::new(Language::En, "Unknown title".into())
     });
-    let description = Language::resolve(&[*language], available_descriptions);
+    let description = Language::resolve(languages, available_descriptions);
 
     let price = match currency {
         Currency::Eur => item_document

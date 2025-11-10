@@ -51,7 +51,7 @@ pub trait SemanticSearchService {
         &self,
         shop_id: &ShopId,
         shops_item_id: &ShopsItemId,
-        language: &Language,
+        languages: &[Language],
         currency: &Currency,
     ) -> Result<Vec<LocalizedItemView>, SemanticSearchItemsError>;
 }
@@ -79,7 +79,7 @@ impl<'a> SemanticSearchService for SemanticSearchServiceImpl<'a> {
         &self,
         shop_id: &ShopId,
         shops_item_id: &ShopsItemId,
-        language: &Language,
+        languages: &[Language],
         currency: &Currency,
     ) -> Result<Vec<LocalizedItemView>, SemanticSearchItemsError> {
         let item_id = self
@@ -115,7 +115,7 @@ impl<'a> SemanticSearchService for SemanticSearchServiceImpl<'a> {
                 .into_iter()
                 .filter(|hit| hit.source.item_id != document.item_id)
                 .map(|hit| hit.source)
-                .map(|doc| localize_item_document(doc, language, currency))
+                .map(|doc| localize_item_document(doc, languages, currency))
                 .collect(),
         };
 
@@ -202,7 +202,7 @@ mod tests {
 
         let service = SemanticSearchServiceImpl::new(&dynamodb_repository, &opensearch_repository);
         let actual = service
-            .similar_items(&Faker.fake(), &Faker.fake(), &Faker.fake(), &Faker.fake())
+            .similar_items(&Faker.fake(), &Faker.fake(), &[Faker.fake()], &Faker.fake())
             .await
             .unwrap();
         assert_eq!(42, actual.len());
@@ -262,7 +262,7 @@ mod tests {
 
         let service = SemanticSearchServiceImpl::new(&dynamodb_repository, &opensearch_repository);
         let actual = service
-            .similar_items(&Faker.fake(), &Faker.fake(), &Faker.fake(), &Faker.fake())
+            .similar_items(&Faker.fake(), &Faker.fake(), &[Faker.fake()], &Faker.fake())
             .await
             .unwrap();
         assert!(actual.is_empty());
@@ -281,7 +281,7 @@ mod tests {
         let shops_item_id = ShopsItemId::new();
         let service = SemanticSearchServiceImpl::new(&dynamodb_repository, &opensearch_repository);
         let actual = service
-            .similar_items(&shop_id, &shops_item_id, &Faker.fake(), &Faker.fake())
+            .similar_items(&shop_id, &shops_item_id, &[Faker.fake()], &Faker.fake())
             .await;
         match actual.unwrap_err() {
             SemanticSearchItemsError::ItemNotFound(err_shop_id, err_shops_item_id) => {
@@ -348,7 +348,7 @@ mod tests {
 
         let service = SemanticSearchServiceImpl::new(&dynamodb_repository, &opensearch_repository);
         let actual = service
-            .similar_items(&Faker.fake(), &Faker.fake(), &Faker.fake(), &Faker.fake())
+            .similar_items(&Faker.fake(), &Faker.fake(), &[Faker.fake()], &Faker.fake())
             .await
             .unwrap();
         assert_eq!(42, actual.len());
@@ -380,7 +380,7 @@ mod tests {
 
         let service = SemanticSearchServiceImpl::new(&dynamodb_repository, &opensearch_repository);
         let actual = service
-            .similar_items(&Faker.fake(), &Faker.fake(), &Faker.fake(), &Faker.fake())
+            .similar_items(&Faker.fake(), &Faker.fake(), &[Faker.fake()], &Faker.fake())
             .await;
         match actual.unwrap_err() {
             SemanticSearchItemsError::SdkGetItemError(_) => {}
@@ -404,7 +404,7 @@ mod tests {
 
         let service = SemanticSearchServiceImpl::new(&dynamodb_repository, &opensearch_repository);
         let actual = service
-            .similar_items(&Faker.fake(), &Faker.fake(), &Faker.fake(), &Faker.fake())
+            .similar_items(&Faker.fake(), &Faker.fake(), &[Faker.fake()], &Faker.fake())
             .await;
         match actual.unwrap_err() {
             SemanticSearchItemsError::OpenSearchError(_) => {}
@@ -439,7 +439,7 @@ mod tests {
 
         let service = SemanticSearchServiceImpl::new(&dynamodb_repository, &opensearch_repository);
         let actual = service
-            .similar_items(&Faker.fake(), &Faker.fake(), &Faker.fake(), &Faker.fake())
+            .similar_items(&Faker.fake(), &Faker.fake(), &[Faker.fake()], &Faker.fake())
             .await;
         match actual.unwrap_err() {
             SemanticSearchItemsError::OpenSearchError(_) => {}

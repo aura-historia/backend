@@ -1,0 +1,28 @@
+[package]
+name = "item-api-get-item-similar"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+common = { workspace = true, features = ["api"] }
+item = { workspace = true, features = ["data", "service", "opensearch", "watchlist", "dynamodb"] }
+cognito = { workspace = true }
+tracing = { workspace = true }
+aws-sdk-dynamodb = { workspace = true }
+tracing-subscriber = { workspace = true, features = ["json"] }
+tokio = { workspace = true, features = ["macros"] }
+aws_lambda_events = { workspace = true, features = ["apigw"] }
+lambda_runtime = { workspace = true }
+aws-config = { workspace = true }
+opensearch = { workspace = true }
+serde_json = { workspace = true }
+http = { workspace = true }
+
+[dev-dependencies]
+item = { workspace = true, features = ["test-data"] }
+test-api = { workspace = true, features = ["api-gateway", "opensearch", "dynamodb"] }
+rstest = { workspace = true }
+serial_test = { workspace = true }
+http = { workspace = true }
+fake = { workspace = true }
+time = { workspace = true }
