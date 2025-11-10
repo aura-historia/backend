@@ -53,7 +53,7 @@ pub trait SemanticSearchService {
         shops_item_id: &ShopsItemId,
         languages: &[Language],
         currency: &Currency,
-    ) -> Result<Vec<LocalizedItemView>, SemanticSearchItemsError>;
+    ) -> Result<Option<Vec<LocalizedItemView>>, SemanticSearchItemsError>;
 }
 
 pub struct SemanticSearchServiceImpl<'a> {
@@ -81,7 +81,7 @@ impl<'a> SemanticSearchService for SemanticSearchServiceImpl<'a> {
         shops_item_id: &ShopsItemId,
         languages: &[Language],
         currency: &Currency,
-    ) -> Result<Vec<LocalizedItemView>, SemanticSearchItemsError> {
+    ) -> Result<Option<Vec<LocalizedItemView>>, SemanticSearchItemsError> {
         let item_id = self
             .dynamodb_repository
             .get_item_id(shop_id, shops_item_id)
@@ -91,7 +91,7 @@ impl<'a> SemanticSearchService for SemanticSearchServiceImpl<'a> {
                 shops_item_id.clone(),
             ))?;
         let document = self.opensearch_repository.get_by_id(&item_id).await?;
-        let similar_documents = match document.text_embedding {
+        match document.text_embedding {
             None => {
                 if OffsetDateTime::now_utc().date() > document.created.date() {
                     warn!(
@@ -104,22 +104,23 @@ impl<'a> SemanticSearchService for SemanticSearchServiceImpl<'a> {
                          hence why the nighly item-enrichment SHOULD have run and embedded the text."
                     );
                 }
-                vec![]
+                Ok(None)
             }
-            Some(text_embedding) => self
-                .opensearch_repository
-                .k_nn_text(&text_embedding, 20)
-                .await?
-                .hits
-                .hits
-                .into_iter()
-                .filter(|hit| hit.source.item_id != document.item_id)
-                .map(|hit| hit.source)
-                .map(|doc| localize_item_document(doc, languages, currency))
-                .collect(),
-        };
-
-        Ok(similar_documents)
+            Some(text_embedding) => {
+                let localized_documents = self
+                    .opensearch_repository
+                    .k_nn_text(&text_embedding, 20)
+                    .await?
+                    .hits
+                    .hits
+                    .into_iter()
+                    .filter(|hit| hit.source.item_id != document.item_id)
+                    .map(|hit| hit.source)
+                    .map(|doc| localize_item_document(doc, languages, currency))
+                    .collect();
+                Ok(Some(localized_documents))
+            }
+        }
     }
 }
 
@@ -205,7 +206,7 @@ mod tests {
             .similar_items(&Faker.fake(), &Faker.fake(), &[Faker.fake()], &Faker.fake())
             .await
             .unwrap();
-        assert_eq!(42, actual.len());
+        assert_eq!(42, actual.unwrap().len());
     }
 
     #[tokio::test]
@@ -265,7 +266,7 @@ mod tests {
             .similar_items(&Faker.fake(), &Faker.fake(), &[Faker.fake()], &Faker.fake())
             .await
             .unwrap();
-        assert!(actual.is_empty());
+        assert!(actual.is_none());
     }
 
     #[tokio::test]
@@ -350,6 +351,7 @@ mod tests {
         let actual = service
             .similar_items(&Faker.fake(), &Faker.fake(), &[Faker.fake()], &Faker.fake())
             .await
+            .unwrap()
             .unwrap();
         assert_eq!(42, actual.len());
         assert!(!actual.iter().any(|item| item.item_id == root.item_id));

@@ -12,7 +12,7 @@ use item::opensearch::{
 use item::service::personalization_service::ItemPersonalizationServiceImpl;
 use item::service::query_service::QueryItemServiceImpl;
 use item::watchlist::dynamodb::repository::WatchlistItemDynamoDbRepositoryImpl;
-use item_api_search::handler;
+use item_api_get_item_similar::handler;
 use lambda_runtime::LambdaEvent;
 use test_api::*;
 use time::OffsetDateTime;

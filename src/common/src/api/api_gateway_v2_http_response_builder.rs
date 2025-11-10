@@ -3,9 +3,7 @@ use crate::api::error_code::INTERNAL_SERVER_ERROR;
 use crate::language::data::LanguageData;
 use aws_lambda_events::apigw::ApiGatewayV2httpResponse;
 use aws_lambda_events::encodings::Body;
-use http::header::{
-    ACCESS_CONTROL_ALLOW_ORIGIN, CONTENT_LANGUAGE, CONTENT_TYPE, ETAG, LAST_MODIFIED, LOCATION,
-};
+use http::header::{CONTENT_LANGUAGE, CONTENT_TYPE, ETAG, LAST_MODIFIED, LOCATION};
 use http::{HeaderMap, HeaderName, HeaderValue};
 use httpdate::fmt_http_date;
 use serde::Serialize;

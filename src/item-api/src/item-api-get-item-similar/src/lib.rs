@@ -77,41 +77,269 @@ pub async fn handle(
     let shop_id = extract_shop_id_path(&event.payload.path_parameters)?;
     let shops_item_id = extract_shops_item_id_path(&event.payload.path_parameters)?;
 
-    let localized_similar_items = semantic_search_service
+    let localized_similar_items_opt = semantic_search_service
         .similar_items(&shop_id, &shops_item_id, &languages, &currency.into())
         .await?;
-    let personalized_similar_items = match user_id_opt {
-        None => localized_similar_items
-            .into_iter()
-            .map(|item| Personalized {
-                item,
-                user_state: None,
-            })
-            .collect(),
-        Some(user_id) => item_personalization_service
-            .personalize_all_watchlist(&user_id, localized_similar_items)
-            .await?
-            .into_iter()
-            .map(|personalized_item| Personalized {
-                item: personalized_item.item,
-                user_state: personalized_item
-                    .user_state
-                    .map(|watchlist| ItemUserState { watchlist }),
-            })
-            .collect::<Vec<_>>(),
-    };
 
-    let similar_items_data: Vec<PersonalizedData<GetItemData, ItemUserStateData>> =
-        personalized_similar_items
-            .into_iter()
-            .map(PersonalizedData::from)
-            .collect();
+    match localized_similar_items_opt {
+        None => {
+            let location = match event.payload.request_context.domain_name {
+                None => None,
+                Some(domain_name) => event.payload.request_context.stage.map(|stage_name| format!(
+                        "https://{domain_name}/{stage_name}/api/v1/items/{shop_id}/{shops_item_id}/similar",
+                    )),
+            };
+            Ok(ApiGatewayV2HttpResponseBuilder::json(202)
+                .try_location(location.as_deref())
+                .build())
+        }
+        Some(localized_similar_items) => {
+            let personalized_similar_items = match user_id_opt {
+                None => localized_similar_items
+                    .into_iter()
+                    .map(|item| Personalized {
+                        item,
+                        user_state: None,
+                    })
+                    .collect(),
+                Some(user_id) => item_personalization_service
+                    .personalize_all_watchlist(&user_id, localized_similar_items)
+                    .await?
+                    .into_iter()
+                    .map(|personalized_item| Personalized {
+                        item: personalized_item.item,
+                        user_state: personalized_item
+                            .user_state
+                            .map(|watchlist| ItemUserState { watchlist }),
+                    })
+                    .collect::<Vec<_>>(),
+            };
 
-    Ok(ApiGatewayV2HttpResponseBuilder::json(200)
-        .body_serde(similar_items_data)?
-        .build())
+            let similar_items_data: Vec<PersonalizedData<GetItemData, ItemUserStateData>> =
+                personalized_similar_items
+                    .into_iter()
+                    .map(PersonalizedData::from)
+                    .collect();
+
+            Ok(ApiGatewayV2HttpResponseBuilder::json(200)
+                .body_serde(similar_items_data)?
+                .build())
+        }
+    }
 }
 
 #[cfg(test)]
-#[allow(clippy::too_many_arguments)]
-mod tests {}
+mod tests {
+    use crate::handler;
+    use cognito::access_token_verifier_service::MockAccessTokenVerifierService;
+    use common::shop_id::ShopId;
+    use common::shops_item_id::ShopsItemId;
+    use fake::Fake;
+    use fake::Faker;
+    use item::service::personalization_service::MockItemPersonalizationService;
+    use item::service::semantic_service::MockSemanticSearchService;
+    use item::service::semantic_service::SemanticSearchItemsError;
+    use lambda_runtime::LambdaEvent;
+    use test_api::{ApiGatewayV2httpRequestProxy, extract_apigw_response_json_body};
+
+    #[tokio::test]
+    async fn should_200_when_similar_items_have_been_computed_and_empty() {
+        let mut cognito_service = MockAccessTokenVerifierService::default();
+        cognito_service
+            .expect_verify_extract_user_id()
+            .return_once(|_| Box::pin(async { Ok(None) }));
+        let item_personalization_service = MockItemPersonalizationService::default();
+        let mut semantic_search_service = MockSemanticSearchService::default();
+        semantic_search_service
+            .expect_similar_items()
+            .return_once(|_, _, _, _| Box::pin(async { Ok(Some(vec![])) }));
+
+        let lambda_event = LambdaEvent {
+            payload: ApiGatewayV2httpRequestProxy::builder()
+                .http_method(http::Method::GET)
+                .path_parameter("shopId", ShopId::new())
+                .path_parameter("shopsItemId", ShopsItemId::new())
+                .build(),
+            context: Default::default(),
+        };
+
+        let response = handler(
+            lambda_event,
+            &semantic_search_service,
+            &cognito_service,
+            &item_personalization_service,
+        )
+        .await
+        .unwrap();
+        assert_eq!(200, response.status_code);
+    }
+
+    #[tokio::test]
+    async fn should_200_when_similar_items_have_been_computed_and_not_empty() {
+        let mut cognito_service = MockAccessTokenVerifierService::default();
+        cognito_service
+            .expect_verify_extract_user_id()
+            .return_once(|_| Box::pin(async { Ok(None) }));
+        let item_personalization_service = MockItemPersonalizationService::default();
+        let mut semantic_search_service = MockSemanticSearchService::default();
+        semantic_search_service
+            .expect_similar_items()
+            .return_once(|_, _, _, _| Box::pin(async { Ok(Some(Faker.fake())) }));
+
+        let lambda_event = LambdaEvent {
+            payload: ApiGatewayV2httpRequestProxy::builder()
+                .http_method(http::Method::GET)
+                .path_parameter("shopId", ShopId::new())
+                .path_parameter("shopsItemId", ShopsItemId::new())
+                .build(),
+            context: Default::default(),
+        };
+
+        let response = handler(
+            lambda_event,
+            &semantic_search_service,
+            &cognito_service,
+            &item_personalization_service,
+        )
+        .await
+        .unwrap();
+        assert_eq!(200, response.status_code);
+    }
+
+    #[tokio::test]
+    async fn should_202_when_similar_items_have_not_been_computed() {
+        let mut cognito_service = MockAccessTokenVerifierService::default();
+        cognito_service
+            .expect_verify_extract_user_id()
+            .return_once(|_| Box::pin(async { Ok(None) }));
+        let item_personalization_service = MockItemPersonalizationService::default();
+        let mut semantic_search_service = MockSemanticSearchService::default();
+        semantic_search_service
+            .expect_similar_items()
+            .return_once(|_, _, _, _| Box::pin(async { Ok(None) }));
+
+        let lambda_event = LambdaEvent {
+            payload: ApiGatewayV2httpRequestProxy::builder()
+                .http_method(http::Method::GET)
+                .path_parameter("shopId", ShopId::new())
+                .path_parameter("shopsItemId", ShopsItemId::new())
+                .build(),
+            context: Default::default(),
+        };
+
+        let response = handler(
+            lambda_event,
+            &semantic_search_service,
+            &cognito_service,
+            &item_personalization_service,
+        )
+        .await
+        .unwrap();
+        assert_eq!(202, response.status_code);
+    }
+
+    #[tokio::test]
+    async fn should_400_when_path_param_shop_id_is_missing() {
+        let mut cognito_service = MockAccessTokenVerifierService::default();
+        cognito_service
+            .expect_verify_extract_user_id()
+            .return_once(|_| Box::pin(async { Ok(None) }));
+        let item_personalization_service = MockItemPersonalizationService::default();
+        let semantic_search_service = MockSemanticSearchService::default();
+        let lambda_event = LambdaEvent {
+            payload: ApiGatewayV2httpRequestProxy::builder()
+                .http_method(http::Method::GET)
+                .path_parameter("shopsItemId", ShopsItemId::new())
+                .build(),
+            context: Default::default(),
+        };
+
+        let response = handler(
+            lambda_event,
+            &semantic_search_service,
+            &cognito_service,
+            &item_personalization_service,
+        )
+        .await
+        .unwrap();
+        assert_eq!(400, response.status_code);
+        let json = extract_apigw_response_json_body!(response);
+        assert_eq!(400, json["status"]);
+        assert_eq!("shopId", json["source"]["field"]);
+    }
+
+    #[tokio::test]
+    async fn should_400_when_path_param_shops_item_id_is_missing() {
+        let mut cognito_service = MockAccessTokenVerifierService::default();
+        cognito_service
+            .expect_verify_extract_user_id()
+            .return_once(|_| Box::pin(async { Ok(None) }));
+        let item_personalization_service = MockItemPersonalizationService::default();
+        let semantic_search_service = MockSemanticSearchService::default();
+        let lambda_event = LambdaEvent {
+            payload: ApiGatewayV2httpRequestProxy::builder()
+                .http_method(http::Method::GET)
+                .path_parameter("shopId", ShopId::new())
+                .build(),
+            context: Default::default(),
+        };
+
+        let response = handler(
+            lambda_event,
+            &semantic_search_service,
+            &cognito_service,
+            &item_personalization_service,
+        )
+        .await
+        .unwrap();
+        assert_eq!(400, response.status_code);
+        let json = extract_apigw_response_json_body!(response);
+        assert_eq!(400, json["status"]);
+        assert_eq!("shopsItemId", json["source"]["field"]);
+    }
+
+    #[tokio::test]
+    async fn should_404_when_item_does_not_exist() {
+        let shop_id = ShopId::new();
+        let shops_item_id = ShopsItemId::new();
+        let lambda_event = LambdaEvent {
+            payload: ApiGatewayV2httpRequestProxy::builder()
+                .http_method(http::Method::GET)
+                .path_parameter("shopId", shop_id)
+                .path_parameter("shopsItemId", shops_item_id)
+                .build(),
+            context: Default::default(),
+        };
+
+        let mut cognito_service = MockAccessTokenVerifierService::default();
+        cognito_service
+            .expect_verify_extract_user_id()
+            .return_once(|_| Box::pin(async { Ok(None) }));
+        let item_personalization_service = MockItemPersonalizationService::default();
+        let mut semantic_search_service = MockSemanticSearchService::default();
+        semantic_search_service.expect_similar_items().return_once(
+            move |shop_id, shops_item_id, _, _| {
+                let shop_id = *shop_id;
+                let shops_item_id = shops_item_id.clone();
+                Box::pin(async move {
+                    Err(SemanticSearchItemsError::ItemNotFound(
+                        shop_id,
+                        shops_item_id,
+                    ))
+                })
+            },
+        );
+
+        let response = handler(
+            lambda_event,
+            &semantic_search_service,
+            &cognito_service,
+            &item_personalization_service,
+        )
+        .await
+        .unwrap();
+        assert_eq!(404, response.status_code);
+        let json = extract_apigw_response_json_body!(response);
+        assert_eq!(404, json["status"]);
+    }
+}
