@@ -136,6 +136,7 @@ mod tests {
     use aws_sdk_dynamodb::error::ConnectorError;
     use aws_sdk_dynamodb::error::SdkError;
     use common::{
+        item_id::ItemId,
         opensearch::search_response::{
             HitsMetadata, SearchHit, SearchResponse, ShardStats, TotalHits,
         },
@@ -289,6 +290,69 @@ mod tests {
             }
             other => panic!("Expected 'SemanticSearchItemsError::ItemNotFound' but got '{other}'"),
         }
+    }
+
+    #[tokio::test]
+    async fn should_filter_out_self() {
+        let mut dynamodb_repository = MockItemDynamoDbRepository::default();
+        let mut opensearch_repository = MockItemOpenSearchRepository::default();
+
+        let item_id = ItemId::new();
+        let mut root = Faker.fake::<ItemDocument>();
+        root.item_id = item_id;
+        root.text_embedding = Some(Faker.fake());
+        let root_clone1 = root.clone();
+        let root_clone2 = root.clone();
+
+        dynamodb_repository
+            .expect_get_item_id()
+            .return_once(move |_, _| Box::pin(async move { Ok(Some(item_id)) }));
+        opensearch_repository
+            .expect_get_by_id()
+            .return_once(|_| Box::pin(async move { Ok(root_clone1) }));
+        opensearch_repository
+            .expect_k_nn_text()
+            .return_once(|_, _| {
+                let mut documents = fake::vec![ItemDocument; 42];
+                documents.push(root_clone2);
+                Box::pin(async move {
+                    Ok(SearchResponse {
+                        took: 187,
+                        timed_out: false,
+                        shards: ShardStats {
+                            total: 1,
+                            successful: 1,
+                            skipped: 0,
+                            failed: 0,
+                        },
+                        hits: HitsMetadata {
+                            total: TotalHits {
+                                value: 42,
+                                relation: "eq".to_string(),
+                            },
+                            max_score: None,
+                            hits: documents
+                                .into_iter()
+                                .map(|doc| SearchHit {
+                                    index: "items".to_string(),
+                                    id: doc.item_id.to_string(),
+                                    score: None,
+                                    sort: None,
+                                    source: doc,
+                                })
+                                .collect(),
+                        },
+                    })
+                })
+            });
+
+        let service = SemanticSearchServiceImpl::new(&dynamodb_repository, &opensearch_repository);
+        let actual = service
+            .similar_items(&Faker.fake(), &Faker.fake(), &Faker.fake(), &Faker.fake())
+            .await
+            .unwrap();
+        assert_eq!(42, actual.len());
+        assert!(!actual.iter().any(|item| item.item_id == root.item_id));
     }
 
     #[tokio::test]
