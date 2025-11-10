@@ -166,12 +166,6 @@ impl ApiGatewayV2HttpResponseBuilder {
         Ok(self)
     }
 
-    pub fn cors(mut self) -> Self {
-        self.headers
-            .insert(ACCESS_CONTROL_ALLOW_ORIGIN, HeaderValue::from_static("*"));
-        self
-    }
-
     pub fn base64_encoded(mut self, flag: bool) -> Self {
         self.is_base64_encoded = flag;
         self
