@@ -311,8 +311,7 @@ impl<'a> ItemOpenSearchRepository for ItemOpenSearchRepositoryImpl<'a> {
             .client
             .get(GetParts::IndexId("items", &item_id.to_string()))
             .send()
-            .await
-            .unwrap()
+            .await?
             .error_for_status_code()?
             .json()
             .await?;

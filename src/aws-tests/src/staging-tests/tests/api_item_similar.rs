@@ -1092,9 +1092,9 @@ async fn should_202_when_similar_items_have_not_been_computed_for_anon() {
 
     let url = format!(
         "{}/api/v1/items/{}/{}/similar",
+        get_cfn_output().api_gateway_endpoint_url,
         item_record.shop_id,
         item_record.shops_item_id,
-        get_cfn_output().api_gateway_endpoint_url
     );
     let response = reqwest::Client::new().get(url).send().await.unwrap();
     assert_eq!(202, response.status().as_u16());
@@ -1144,9 +1144,9 @@ async fn should_200_when_similar_items_have_been_computed_for_anon() {
 
     let url = format!(
         "{}/api/v1/items/{}/{}/similar?currency=USD",
+        get_cfn_output().api_gateway_endpoint_url,
         item_record.shop_id,
         item_record.shops_item_id,
-        get_cfn_output().api_gateway_endpoint_url
     );
     let response = reqwest::Client::new()
         .get(url)
@@ -1251,9 +1251,9 @@ async fn should_200_and_personalize_when_similar_items_have_been_computed_for_au
 
     let url = format!(
         "{}/api/v1/items/{}/{}/similar?currency=EUR",
+        get_cfn_output().api_gateway_endpoint_url,
         item_record.shop_id,
         item_record.shops_item_id,
-        get_cfn_output().api_gateway_endpoint_url
     );
     let response = reqwest::Client::new()
         .get(url)

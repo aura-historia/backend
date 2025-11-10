@@ -101,7 +101,7 @@ impl<'a> SemanticSearchService for SemanticSearchServiceImpl<'a> {
                         "When trying to find similar items for given ItemId,
                          ItemDocument for ItemId did not have a textEmbedding
                          although it was created at least one day prior -
-                         hence why the nighly item-enrichment SHOULD have run and embedded the text."
+                         hence why the nightly item-enrichment SHOULD have run and embedded the text."
                     );
                 }
                 Ok(None)
