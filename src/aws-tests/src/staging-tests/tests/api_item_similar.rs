@@ -1,6 +1,7 @@
-use cognito::access_token_verifier_service::MockAccessTokenVerifierService;
+use aws_tests_common::get_cfn_output;
 use common::currency::data::CurrencyData;
 use common::personalized::api::PersonalizedData;
+use common::user_id::UserId;
 use fake::{Fake, Faker};
 use http::header::ACCEPT_LANGUAGE;
 use item::data::get_data::GetItemData;
@@ -10,18 +11,17 @@ use item::dynamodb::repository::{ItemDynamoDbRepository, ItemDynamoDbRepositoryI
 use item::opensearch::item_document::ItemDocument;
 use item::opensearch::repository::{ItemOpenSearchRepository, ItemOpenSearchRepositoryImpl};
 use item::service::get_service::GetItemServiceImpl;
-use item::service::personalization_service::ItemPersonalizationServiceImpl;
-use item::service::semantic_service::SemanticSearchServiceImpl;
 use item::watchlist::dynamodb::repository::WatchlistItemDynamoDbRepositoryImpl;
 use item::watchlist::service::item_watchlist_service::{
     ItemWatchListService, ItemWatchListServiceImpl,
 };
-use item_api_get_item_similar::handler;
-use lambda_runtime::LambdaEvent;
+use opensearch::IndexParts;
+use opensearch::params::Refresh;
+use staging_tests::{
+    create_random_test_user, get_dynamodb_client, get_opensearch_client, staging_test,
+};
 use std::time::Duration;
-use test_api::*;
-use user::dynamodb::repository::{UserDynamoDbRepository, UserDynamoDbRepositoryImpl};
-use user::dynamodb::user_record::UserRecord;
+use user::dynamodb::repository::UserDynamoDbRepositoryImpl;
 
 const EXAMPLE_EMBEDDING: [f32; 1024] = [
     0.0003272566,
@@ -1050,21 +1050,12 @@ const EXAMPLE_EMBEDDING: [f32; 1024] = [
     0.016079217,
 ];
 
-#[localstack_test(services = [OpenSearch(), DynamoDB()])]
+#[staging_test]
 async fn should_202_when_similar_items_have_not_been_computed_for_anon() {
     let item_dynamodb_repository =
         ItemDynamoDbRepositoryImpl::new(get_dynamodb_client().await, "table_1");
-    let watchlist_repository =
-        WatchlistItemDynamoDbRepositoryImpl::new(get_dynamodb_client().await, "table_1");
     let item_opensearch_repository =
         ItemOpenSearchRepositoryImpl::new(get_opensearch_client().await);
-    let item_personalization_service = ItemPersonalizationServiceImpl::new(&watchlist_repository);
-    let semantic_search_service =
-        SemanticSearchServiceImpl::new(&item_dynamodb_repository, &item_opensearch_repository);
-    let mut cognito_service = MockAccessTokenVerifierService::default();
-    cognito_service
-        .expect_verify_extract_user_id()
-        .return_once(|_| Box::pin(async { Ok(None) }));
 
     let item_record: ItemRecord = Faker.fake();
     let ddb_insert_res = item_dynamodb_repository
@@ -1081,7 +1072,7 @@ async fn should_202_when_similar_items_have_not_been_computed_for_anon() {
     let item_document: ItemDocument = item_record.clone().into();
     let mut item_documents = fake::vec![ItemDocument; 10];
     for doc in &mut item_documents {
-        doc.text_embedding = Some(EXAMPLE_EMBEDDING.into());
+        doc.text_embedding = None;
     }
     item_documents.push(item_document);
     let os_insert_res = item_opensearch_repository
@@ -1090,44 +1081,31 @@ async fn should_202_when_similar_items_have_not_been_computed_for_anon() {
         .unwrap();
     assert!(!os_insert_res.errors);
 
-    refresh_index("items").await;
-    tokio::time::sleep(Duration::from_secs(10)).await;
+    get_opensearch_client()
+        .await
+        .index(IndexParts::Index("items"))
+        .refresh(Refresh::True)
+        .send()
+        .await
+        .unwrap();
+    tokio::time::sleep(Duration::from_secs(20)).await;
 
-    let lambda_event = LambdaEvent {
-        payload: ApiGatewayV2httpRequestProxy::builder()
-            .http_method(http::Method::GET)
-            .path_parameter("shopId", item_record.shop_id)
-            .path_parameter("shopsItemId", item_record.shops_item_id.clone())
-            .build(),
-        context: Default::default(),
-    };
-
-    let response = handler(
-        lambda_event,
-        &semantic_search_service,
-        &cognito_service,
-        &item_personalization_service,
-    )
-    .await
-    .unwrap();
-    assert_eq!(202, response.status_code);
+    let url = format!(
+        "{}/api/v1/items/{}/{}/similar",
+        item_record.shop_id,
+        item_record.shops_item_id,
+        get_cfn_output().api_gateway_endpoint_url
+    );
+    let response = reqwest::Client::new().get(url).send().await.unwrap();
+    assert_eq!(202, response.status().as_u16());
 }
 
-#[localstack_test(services = [OpenSearch(), DynamoDB()])]
+#[staging_test]
 async fn should_200_when_similar_items_have_been_computed_for_anon() {
     let item_dynamodb_repository =
         ItemDynamoDbRepositoryImpl::new(get_dynamodb_client().await, "table_1");
-    let watchlist_repository =
-        WatchlistItemDynamoDbRepositoryImpl::new(get_dynamodb_client().await, "table_1");
     let item_opensearch_repository =
         ItemOpenSearchRepositoryImpl::new(get_opensearch_client().await);
-    let item_personalization_service = ItemPersonalizationServiceImpl::new(&watchlist_repository);
-    let semantic_search_service =
-        SemanticSearchServiceImpl::new(&item_dynamodb_repository, &item_opensearch_repository);
-    let mut cognito_service = MockAccessTokenVerifierService::default();
-    cognito_service
-        .expect_verify_extract_user_id()
-        .return_once(|_| Box::pin(async { Ok(None) }));
 
     let item_record: ItemRecord = Faker.fake();
     let ddb_insert_res = item_dynamodb_repository
@@ -1155,32 +1133,31 @@ async fn should_200_when_similar_items_have_been_computed_for_anon() {
         .unwrap();
     assert!(!os_insert_res.errors);
 
-    refresh_index("items").await;
-    tokio::time::sleep(Duration::from_secs(10)).await;
+    get_opensearch_client()
+        .await
+        .index(IndexParts::Index("items"))
+        .refresh(Refresh::True)
+        .send()
+        .await
+        .unwrap();
+    tokio::time::sleep(Duration::from_secs(20)).await;
 
-    let lambda_event = LambdaEvent {
-        payload: ApiGatewayV2httpRequestProxy::builder()
-            .http_method(http::Method::GET)
-            .header(ACCEPT_LANGUAGE.as_str(), "en-US")
-            .path_parameter("shopId", item_record.shop_id)
-            .path_parameter("shopsItemId", item_record.shops_item_id.clone())
-            .query_string_parameter("currency", "USD")
-            .build(),
-        context: Default::default(),
-    };
+    let url = format!(
+        "{}/api/v1/items/{}/{}/similar?currency=USD",
+        item_record.shop_id,
+        item_record.shops_item_id,
+        get_cfn_output().api_gateway_endpoint_url
+    );
+    let response = reqwest::Client::new()
+        .get(url)
+        .header(ACCEPT_LANGUAGE.as_str(), "en-US")
+        .send()
+        .await
+        .unwrap();
 
-    let response = handler(
-        lambda_event,
-        &semantic_search_service,
-        &cognito_service,
-        &item_personalization_service,
-    )
-    .await
-    .unwrap();
-    assert_eq!(200, response.status_code);
-    let response_payload = extract_apigw_response_json_body!(response);
+    assert_eq!(200, response.status().as_u16());
     let actual: Vec<PersonalizedData<GetItemData, ItemUserStateData>> =
-        serde_json::from_value(response_payload).unwrap();
+        response.json().await.unwrap();
 
     assert_eq!(10, actual.len());
     assert!(actual.iter().all(|actual| {
@@ -1202,23 +1179,16 @@ async fn should_200_when_similar_items_have_been_computed_for_anon() {
     assert!(actual.iter().all(|actual| actual.user_state.is_none()));
 }
 
-#[localstack_test(services = [OpenSearch(), DynamoDB()])]
+#[staging_test]
 async fn should_200_and_personalize_when_similar_items_have_been_computed_for_authenticated() {
-    let user_record = Faker.fake::<UserRecord>();
-    let user_id = user_record.id;
+    let user = create_random_test_user().await;
+    let user_id: UserId = user.sub.into();
     let item_dynamodb_repository =
         ItemDynamoDbRepositoryImpl::new(get_dynamodb_client().await, "table_1");
     let watchlist_repository =
         WatchlistItemDynamoDbRepositoryImpl::new(get_dynamodb_client().await, "table_1");
     let item_opensearch_repository =
         ItemOpenSearchRepositoryImpl::new(get_opensearch_client().await);
-    let item_personalization_service = ItemPersonalizationServiceImpl::new(&watchlist_repository);
-    let semantic_search_service =
-        SemanticSearchServiceImpl::new(&item_dynamodb_repository, &item_opensearch_repository);
-    let mut cognito_service = MockAccessTokenVerifierService::default();
-    cognito_service
-        .expect_verify_extract_user_id()
-        .return_once(move |_| Box::pin(async move { Ok(Some(user_id)) }));
     let get_item_service = GetItemServiceImpl::new(&item_dynamodb_repository);
     let user_repository = UserDynamoDbRepositoryImpl::new(get_dynamodb_client().await, "table_1");
     let watchlist_service = ItemWatchListServiceImpl::new(
@@ -1227,8 +1197,6 @@ async fn should_200_and_personalize_when_similar_items_have_been_computed_for_au
         &item_dynamodb_repository,
         &get_item_service,
     );
-
-    let _ = user_repository.put_user_record(user_record).await.unwrap();
 
     let item_record: ItemRecord = Faker.fake();
     let item_records = fake::vec![ItemRecord; 12];
@@ -1272,32 +1240,31 @@ async fn should_200_and_personalize_when_similar_items_have_been_computed_for_au
         .await
         .unwrap();
     assert!(!os_insert_res.errors);
-    refresh_index("items").await;
-    tokio::time::sleep(Duration::from_secs(10)).await;
+    get_opensearch_client()
+        .await
+        .index(IndexParts::Index("items"))
+        .refresh(Refresh::True)
+        .send()
+        .await
+        .unwrap();
+    tokio::time::sleep(Duration::from_secs(20)).await;
 
-    let lambda_event = LambdaEvent {
-        payload: ApiGatewayV2httpRequestProxy::builder()
-            .http_method(http::Method::GET)
-            .header(ACCEPT_LANGUAGE.as_str(), "de")
-            .path_parameter("shopId", item_record.shop_id)
-            .path_parameter("shopsItemId", item_record.shops_item_id.clone())
-            .query_string_parameter("currency", "EUR")
-            .build(),
-        context: Default::default(),
-    };
+    let url = format!(
+        "{}/api/v1/items/{}/{}/similar?currency=EUR",
+        item_record.shop_id,
+        item_record.shops_item_id,
+        get_cfn_output().api_gateway_endpoint_url
+    );
+    let response = reqwest::Client::new()
+        .get(url)
+        .header(ACCEPT_LANGUAGE.as_str(), "de")
+        .send()
+        .await
+        .unwrap();
 
-    let response = handler(
-        lambda_event,
-        &semantic_search_service,
-        &cognito_service,
-        &item_personalization_service,
-    )
-    .await
-    .unwrap();
-    assert_eq!(200, response.status_code);
-    let response_payload = extract_apigw_response_json_body!(response);
+    assert_eq!(200, response.status().as_u16());
     let actual: Vec<PersonalizedData<GetItemData, ItemUserStateData>> =
-        serde_json::from_value(response_payload).unwrap();
+        response.json().await.unwrap();
 
     assert_eq!(12, actual.len());
     assert!(actual.iter().all(|actual| {

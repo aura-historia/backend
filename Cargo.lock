@@ -4731,6 +4731,7 @@ dependencies = [
  "common",
  "fake",
  "futures-util",
+ "http 1.3.1",
  "item",
  "item-api-watchlist-get",
  "item-api-watchlist-patch",
