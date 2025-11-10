@@ -136,6 +136,7 @@ mod tests {
     use common::shops_item_id::ShopsItemId;
     use fake::Fake;
     use fake::Faker;
+    use http::header::LOCATION;
     use item::service::personalization_service::MockItemPersonalizationService;
     use item::service::semantic_service::MockSemanticSearchService;
     use item::service::semantic_service::SemanticSearchItemsError;
@@ -218,11 +219,15 @@ mod tests {
             .expect_similar_items()
             .return_once(|_, _, _, _| Box::pin(async { Ok(None) }));
 
+        let shop_id = ShopId::new();
+        let shops_item_id = ShopsItemId::new();
         let lambda_event = LambdaEvent {
             payload: ApiGatewayV2httpRequestProxy::builder()
                 .http_method(http::Method::GET)
-                .path_parameter("shopId", ShopId::new())
-                .path_parameter("shopsItemId", ShopsItemId::new())
+                .path_parameter("shopId", shop_id)
+                .path_parameter("shopsItemId", shops_item_id.clone())
+                .domain_name("my.domain.com")
+                .stage("prod")
                 .build(),
             context: Default::default(),
         };
@@ -236,6 +241,10 @@ mod tests {
         .await
         .unwrap();
         assert_eq!(202, response.status_code);
+        assert_eq!(
+            format!("https://my.domain.com/prod/api/v1/items/{shop_id}/{shops_item_id}/similar"),
+            response.headers.get(LOCATION).unwrap().to_str().unwrap()
+        )
     }
 
     #[tokio::test]
