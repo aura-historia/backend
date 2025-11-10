@@ -1052,8 +1052,10 @@ const EXAMPLE_EMBEDDING: [f32; 1024] = [
 
 #[staging_test]
 async fn should_202_when_similar_items_have_not_been_computed_for_anon() {
-    let item_dynamodb_repository =
-        ItemDynamoDbRepositoryImpl::new(get_dynamodb_client().await, "table_1");
+    let item_dynamodb_repository = ItemDynamoDbRepositoryImpl::new(
+        get_dynamodb_client().await,
+        &get_cfn_output().dynamodb_table_1_name,
+    );
     let item_opensearch_repository =
         ItemOpenSearchRepositoryImpl::new(get_opensearch_client().await);
 
@@ -1102,8 +1104,10 @@ async fn should_202_when_similar_items_have_not_been_computed_for_anon() {
 
 #[staging_test]
 async fn should_200_when_similar_items_have_been_computed_for_anon() {
-    let item_dynamodb_repository =
-        ItemDynamoDbRepositoryImpl::new(get_dynamodb_client().await, "table_1");
+    let item_dynamodb_repository = ItemDynamoDbRepositoryImpl::new(
+        get_dynamodb_client().await,
+        &get_cfn_output().dynamodb_table_1_name,
+    );
     let item_opensearch_repository =
         ItemOpenSearchRepositoryImpl::new(get_opensearch_client().await);
 
@@ -1183,14 +1187,21 @@ async fn should_200_when_similar_items_have_been_computed_for_anon() {
 async fn should_200_and_personalize_when_similar_items_have_been_computed_for_authenticated() {
     let user = create_random_test_user().await;
     let user_id: UserId = user.sub.into();
-    let item_dynamodb_repository =
-        ItemDynamoDbRepositoryImpl::new(get_dynamodb_client().await, "table_1");
-    let watchlist_repository =
-        WatchlistItemDynamoDbRepositoryImpl::new(get_dynamodb_client().await, "table_1");
+    let item_dynamodb_repository = ItemDynamoDbRepositoryImpl::new(
+        get_dynamodb_client().await,
+        &get_cfn_output().dynamodb_table_1_name,
+    );
+    let watchlist_repository = WatchlistItemDynamoDbRepositoryImpl::new(
+        get_dynamodb_client().await,
+        &get_cfn_output().dynamodb_table_1_name,
+    );
     let item_opensearch_repository =
         ItemOpenSearchRepositoryImpl::new(get_opensearch_client().await);
     let get_item_service = GetItemServiceImpl::new(&item_dynamodb_repository);
-    let user_repository = UserDynamoDbRepositoryImpl::new(get_dynamodb_client().await, "table_1");
+    let user_repository = UserDynamoDbRepositoryImpl::new(
+        get_dynamodb_client().await,
+        &get_cfn_output().dynamodb_table_1_name,
+    );
     let watchlist_service = ItemWatchListServiceImpl::new(
         &watchlist_repository,
         &user_repository,
