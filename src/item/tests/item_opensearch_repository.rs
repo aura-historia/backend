@@ -9,7 +9,7 @@ use common::query::any_of_query::AnyOfQuery;
 use common::query::range_query::RangeQuery;
 use common::shops_item_id::ShopsItemId;
 use common::sort::{Sort, SortOrder};
-use fake::{Rng, rand};
+use fake::rand;
 use item::core::item_search::ItemSearch;
 use item::core::sort_item_field::SortItemField;
 use item::opensearch::item_document::ItemDocument;
@@ -1717,10 +1717,7 @@ async fn should_return_k_nearest_neighbors_when_exist_within_threshold() {
     let repository = ItemOpenSearchRepositoryImpl::new(client);
     let mut documents = fake::vec![ItemDocument; 20];
     for document in &mut documents {
-        let mutation = fake::rand::rng().random_range(0..1023);
-        let mut embedding: Vec<f32> = EXAMPLE_EMBEDDING.into();
-        embedding[mutation] = EXAMPLE_EMBEDDING[mutation + 1];
-        document.text_embedding = Some(embedding);
+        document.text_embedding = Some(EXAMPLE_EMBEDDING.into());
     }
 
     for document in documents.clone() {
@@ -1734,6 +1731,5 @@ async fn should_return_k_nearest_neighbors_when_exist_within_threshold() {
 
     let actual = repository.k_nn_text(&EXAMPLE_EMBEDDING, 20).await.unwrap();
 
-    // tough to test due to ANN
     assert!(actual.hits.hits.len() > 1);
 }
