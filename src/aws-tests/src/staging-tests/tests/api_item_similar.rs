@@ -1269,6 +1269,7 @@ async fn should_200_and_personalize_when_similar_items_have_been_computed_for_au
     let response = reqwest::Client::new()
         .get(url)
         .header(ACCEPT_LANGUAGE.as_str(), "de")
+        .bearer_auth(user.access_token)
         .send()
         .await
         .unwrap();
