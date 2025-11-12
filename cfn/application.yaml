@@ -543,19 +543,19 @@ Resources:
     Type: AWS::ApiGatewayV2::Route
     Properties:
       ApiId: !Ref BlitzfilterApi
-      RouteKey: "GET /api/v1/products/{shopId}/{shopsItemId}"
-      Target: !Sub "integrations/${BlitzfilterApiGetItemLambdaIntegration}"
+      RouteKey: "GET /api/v1/products/{shopId}/{shopsProductId}"
+      Target: !Sub "integrations/${BlitzfilterApiGetProductLambdaIntegration}"
   BlitzfilterApiGetProductLambdaIntegration:
     Type: AWS::ApiGatewayV2::Integration
     Properties:
       ApiId: !Ref BlitzfilterApi
       IntegrationType: AWS_PROXY
-      IntegrationUri: !Sub "arn:aws:lambda:${AWS::Region}:${AWS::AccountId}:function:${BlitzfilterApiGetItemLambda}"
+      IntegrationUri: !Sub "arn:aws:lambda:${AWS::Region}:${AWS::AccountId}:function:${BlitzfilterApiGetProductLambda}"
       PayloadFormatVersion: "2.0"
   BlitzfilterApiGetProductRole:
     Type: AWS::IAM::Role
     Properties:
-      RoleName: !Sub "blitzfilter-api-get-item-role-${StageName}"
+      RoleName: !Sub "blitzfilter-api-get-product-role-${StageName}"
       AssumeRolePolicyDocument:
         Version: "2012-10-17"
         Statement:
@@ -579,13 +579,13 @@ Resources:
   BlitzfilterApiGetProductLambda:
     Type: AWS::Lambda::Function
     Properties:
-      FunctionName: !Sub "blitzfilter-api-get-item-${StageName}"
+      FunctionName: !Sub "blitzfilter-api-get-product-${StageName}"
       Runtime: provided.al2023
       Handler: lib.handler
-      Role: !GetAtt BlitzfilterApiGetItemRole.Arn
+      Role: !GetAtt BlitzfilterApiGetProductRole.Arn
       Code:
         S3Bucket: !Ref ArtifactBucket
-        S3Key: !Sub "product-api-get-item-${StageName}-${CommitSHA}.zip"
+        S3Key: !Sub "product-api-get-product-${StageName}-${CommitSHA}.zip"
       MemorySize: 512
       Timeout: 10
       EphemeralStorage:
@@ -600,14 +600,14 @@ Resources:
     Type: AWS::Lambda::Permission
     Properties:
       Action: lambda:InvokeFunction
-      FunctionName: !Ref BlitzfilterApiGetItemLambda
+      FunctionName: !Ref BlitzfilterApiGetProductLambda
       Principal: apigateway.amazonaws.com
-      SourceArn: !Sub "arn:aws:execute-api:${AWS::Region}:${AWS::AccountId}:${BlitzfilterApi}/*/*/api/v1/items/*/*"
-  BlitzfilterApiGetItemLambdaErrorAlarm:
+      SourceArn: !Sub "arn:aws:execute-api:${AWS::Region}:${AWS::AccountId}:${BlitzfilterApi}/*/*/api/v1/products/*/*"
+  BlitzfilterApiGetProductLambdaErrorAlarm:
     Type: AWS::CloudWatch::Alarm
     Properties:
       AlarmName: !Sub "${StageName}-get-product-lambda-errors"
-      AlarmDescription: "Alarm when get-item Lambda has errors"
+      AlarmDescription: "Alarm when get-product Lambda has errors"
       MetricName: Errors
       Namespace: AWS/Lambda
       Statistic: Sum
@@ -617,15 +617,15 @@ Resources:
       ComparisonOperator: GreaterThanOrEqualToThreshold
       Dimensions:
         - Name: FunctionName
-          Value: !Ref BlitzfilterApiGetItemLambda
+          Value: !Ref BlitzfilterApiGetProductLambda
       TreatMissingData: notBreaching
       AlarmActions:
         - !Ref AlarmNotificationTopic
-  BlitzfilterApiGetItemLambdaThrottleAlarm:
+  BlitzfilterApiGetProductLambdaThrottleAlarm:
     Type: AWS::CloudWatch::Alarm
     Properties:
       AlarmName: !Sub "${StageName}-get-product-lambda-throttles"
-      AlarmDescription: "Alarm when get-item Lambda is throttled"
+      AlarmDescription: "Alarm when get-product Lambda is throttled"
       MetricName: Throttles
       Namespace: AWS/Lambda
       Statistic: Sum
@@ -635,7 +635,7 @@ Resources:
       ComparisonOperator: GreaterThanOrEqualToThreshold
       Dimensions:
         - Name: FunctionName
-          Value: !Ref BlitzfilterApiGetItemLambda
+          Value: !Ref BlitzfilterApiGetProductLambda
       TreatMissingData: notBreaching
       AlarmActions:
         - !Ref AlarmNotificationTopic
@@ -645,18 +645,18 @@ Resources:
     Properties:
       ApiId: !Ref BlitzfilterApi
       RouteKey: "PUT /api/v1/products"
-      Target: !Sub "integrations/${BlitzfilterApiPutItemsLambdaIntegration}"
+      Target: !Sub "integrations/${BlitzfilterApiPutProductsLambdaIntegration}"
   BlitzfilterApiPutProductsLambdaIntegration:
     Type: AWS::ApiGatewayV2::Integration
     Properties:
       ApiId: !Ref BlitzfilterApi
       IntegrationType: AWS_PROXY
-      IntegrationUri: !Sub "arn:aws:lambda:${AWS::Region}:${AWS::AccountId}:function:${BlitzfilterApiPutItemsLambda}"
+      IntegrationUri: !Sub "arn:aws:lambda:${AWS::Region}:${AWS::AccountId}:function:${BlitzfilterApiPutProductsLambda}"
       PayloadFormatVersion: "2.0"
   BlitzfilterApiPutProductsRole:
     Type: AWS::IAM::Role
     Properties:
-      RoleName: !Sub "blitzfilter-api-put-items-role-${StageName}"
+      RoleName: !Sub "blitzfilter-api-put-products-role-${StageName}"
       AssumeRolePolicyDocument:
         Version: "2012-10-17"
         Statement:
@@ -684,17 +684,17 @@ Resources:
               - Effect: Allow
                 Action:
                   - sqs:SendMessage
-                Resource: !GetAtt ItemIngestEventsDynamoDbQ.Arn
+                Resource: !GetAtt ProductIngestEventsDynamoDbQ.Arn
   BlitzfilterApiPutProductsLambda:
     Type: AWS::Lambda::Function
     Properties:
-      FunctionName: !Sub "blitzfilter-api-put-items-${StageName}"
+      FunctionName: !Sub "blitzfilter-api-put-products-${StageName}"
       Runtime: provided.al2023
       Handler: lib.handler
-      Role: !GetAtt BlitzfilterApiPutItemsRole.Arn
+      Role: !GetAtt BlitzfilterApiPutProductsRole.Arn
       Code:
         S3Bucket: !Ref ArtifactBucket
-        S3Key: !Sub "product-api-put-items-${StageName}-${CommitSHA}.zip"
+        S3Key: !Sub "product-api-put-products-${StageName}-${CommitSHA}.zip"
       MemorySize: 1024
       Timeout: 60
       EphemeralStorage:
@@ -702,19 +702,19 @@ Resources:
       Environment:
         Variables:
           DYNAMODB_TABLE_NAME: !Ref TableOne
-          INGEST_PRODUCT_EVENTS_QUEUE_URL: !Ref ItemIngestEventsDynamoDbQ
+          INGEST_PRODUCT_EVENTS_QUEUE_URL: !Ref ProductIngestEventsDynamoDbQ
   BlitzfilterApiPutProductsLambdaPermission:
     Type: AWS::Lambda::Permission
     Properties:
       Action: lambda:InvokeFunction
-      FunctionName: !Ref BlitzfilterApiPutItemsLambda
+      FunctionName: !Ref BlitzfilterApiPutProductsLambda
       Principal: apigateway.amazonaws.com
-      SourceArn: !Sub "arn:aws:execute-api:${AWS::Region}:${AWS::AccountId}:${BlitzfilterApi}/*/*/api/v1/items"
-  BlitzfilterApiPutItemsLambdaErrorAlarm:
+      SourceArn: !Sub "arn:aws:execute-api:${AWS::Region}:${AWS::AccountId}:${BlitzfilterApi}/*/*/api/v1/products"
+  BlitzfilterApiPutProductsLambdaErrorAlarm:
     Type: AWS::CloudWatch::Alarm
     Properties:
-      AlarmName: !Sub "${StageName}-put-items-lambda-errors"
-      AlarmDescription: "Alarm when put-items Lambda has errors"
+      AlarmName: !Sub "${StageName}-put-products-lambda-errors"
+      AlarmDescription: "Alarm when put-products Lambda has errors"
       MetricName: Errors
       Namespace: AWS/Lambda
       Statistic: Sum
@@ -724,15 +724,15 @@ Resources:
       ComparisonOperator: GreaterThanOrEqualToThreshold
       Dimensions:
         - Name: FunctionName
-          Value: !Ref BlitzfilterApiPutItemsLambda
+          Value: !Ref BlitzfilterApiPutProductsLambda
       TreatMissingData: notBreaching
       AlarmActions:
         - !Ref AlarmNotificationTopic
-  BlitzfilterApiPutItemsLambdaThrottleAlarm:
+  BlitzfilterApiPutProductsLambdaThrottleAlarm:
     Type: AWS::CloudWatch::Alarm
     Properties:
-      AlarmName: !Sub "${StageName}-put-items-lambda-throttles"
-      AlarmDescription: "Alarm when put-items Lambda is throttled"
+      AlarmName: !Sub "${StageName}-put-products-lambda-throttles"
+      AlarmDescription: "Alarm when put-products Lambda is throttled"
       MetricName: Throttles
       Namespace: AWS/Lambda
       Statistic: Sum
@@ -742,28 +742,28 @@ Resources:
       ComparisonOperator: GreaterThanOrEqualToThreshold
       Dimensions:
         - Name: FunctionName
-          Value: !Ref BlitzfilterApiPutItemsLambda
+          Value: !Ref BlitzfilterApiPutProductsLambda
       TreatMissingData: notBreaching
       AlarmActions:
         - !Ref AlarmNotificationTopic
 
-  BlitzfilterApiItemSearchRoute:
+  BlitzfilterApiProductSearchRoute:
     Type: AWS::ApiGatewayV2::Route
     Properties:
       ApiId: !Ref BlitzfilterApi
       RouteKey: "POST /api/v1/products/search"
-      Target: !Sub "integrations/${BlitzfilterApiItemSearchLambdaIntegration}"
-  BlitzfilterApiItemSearchLambdaIntegration:
+      Target: !Sub "integrations/${BlitzfilterApiProductSearchLambdaIntegration}"
+  BlitzfilterApiProductSearchLambdaIntegration:
     Type: AWS::ApiGatewayV2::Integration
     Properties:
       ApiId: !Ref BlitzfilterApi
       IntegrationType: AWS_PROXY
-      IntegrationUri: !Sub "arn:aws:lambda:${AWS::Region}:${AWS::AccountId}:function:${BlitzfilterApiItemSearchLambda}"
+      IntegrationUri: !Sub "arn:aws:lambda:${AWS::Region}:${AWS::AccountId}:function:${BlitzfilterApiProductSearchLambda}"
       PayloadFormatVersion: "2.0"
-  BlitzfilterApiItemSearchRole:
+  BlitzfilterApiProductSearchRole:
     Type: AWS::IAM::Role
     Properties:
-      RoleName: !Sub "blitzfilter-api-item-search-role-${StageName}"
+      RoleName: !Sub "blitzfilter-api-product-search-role-${StageName}"
       AssumeRolePolicyDocument:
         Version: "2012-10-17"
         Statement:
@@ -796,13 +796,13 @@ Resources:
                   - dynamodb:BatchGetItem
                   - dynamodb:Query
                 Resource: !GetAtt TableOne.Arn
-  BlitzfilterApiItemSearchLambda:
+  BlitzfilterApiProductSearchLambda:
     Type: AWS::Lambda::Function
     Properties:
-      FunctionName: !Sub "blitzfilter-api-item-search-${StageName}"
+      FunctionName: !Sub "blitzfilter-api-product-search-${StageName}"
       Runtime: provided.al2023
       Handler: lib.handler
-      Role: !GetAtt BlitzfilterApiItemSearchRole.Arn
+      Role: !GetAtt BlitzfilterApiProductSearchRole.Arn
       Code:
         S3Bucket: !Ref ArtifactBucket
         S3Key: !Sub "product-api-search-${StageName}-${CommitSHA}.zip"
@@ -817,18 +817,18 @@ Resources:
           USER_POOL_ID: !Ref BlitzfilterUserPool
           USER_POOL_PUBLIC_CLIENT_ID: !Ref BlitzfilterUserPoolClientPublic
           USER_POOL_ADMIN_CLIENT_ID: !Ref BlitzfilterUserPoolClientAdmin
-  BlitzfilterApiItemSearchLambdaPermission:
+  BlitzfilterApiProductSearchLambdaPermission:
     Type: AWS::Lambda::Permission
     Properties:
       Action: lambda:InvokeFunction
-      FunctionName: !Ref BlitzfilterApiItemSearchLambda
+      FunctionName: !Ref BlitzfilterApiProductSearchLambda
       Principal: apigateway.amazonaws.com
-      SourceArn: !Sub "arn:aws:execute-api:${AWS::Region}:${AWS::AccountId}:${BlitzfilterApi}/*/*/api/v1/items/search*"
-  BlitzfilterApiItemSearchLambdaErrorAlarm:
+      SourceArn: !Sub "arn:aws:execute-api:${AWS::Region}:${AWS::AccountId}:${BlitzfilterApi}/*/*/api/v1/products/search*"
+  BlitzfilterApiProductSearchLambdaErrorAlarm:
     Type: AWS::CloudWatch::Alarm
     Properties:
-      AlarmName: !Sub "${StageName}-item-search-lambda-errors"
-      AlarmDescription: "Alarm when item-search Lambda has errors"
+      AlarmName: !Sub "${StageName}-product-search-lambda-errors"
+      AlarmDescription: "Alarm when product-search Lambda has errors"
       MetricName: Errors
       Namespace: AWS/Lambda
       Statistic: Sum
@@ -838,28 +838,28 @@ Resources:
       ComparisonOperator: GreaterThanOrEqualToThreshold
       Dimensions:
         - Name: FunctionName
-          Value: !Ref BlitzfilterApiItemSearchLambda
+          Value: !Ref BlitzfilterApiProductSearchLambda
       TreatMissingData: notBreaching
       AlarmActions:
         - !Ref AlarmNotificationTopic
 
-  BlitzfilterApiItemSimilaritySearchRoute:
+  BlitzfilterApiProductSimilaritySearchRoute:
     Type: AWS::ApiGatewayV2::Route
     Properties:
       ApiId: !Ref BlitzfilterApi
-      RouteKey: "GET /api/v1/products/{shopId}/{shopsItemId}/similar"
-      Target: !Sub "integrations/${BlitzfilterApiItemSimilaritySearchLambdaIntegration}"
-  BlitzfilterApiItemSimilaritySearchLambdaIntegration:
+      RouteKey: "GET /api/v1/products/{shopId}/{shopsProductId}/similar"
+      Target: !Sub "integrations/${BlitzfilterApiProductSimilaritySearchLambdaIntegration}"
+  BlitzfilterApiProductSimilaritySearchLambdaIntegration:
     Type: AWS::ApiGatewayV2::Integration
     Properties:
       ApiId: !Ref BlitzfilterApi
       IntegrationType: AWS_PROXY
-      IntegrationUri: !Sub "arn:aws:lambda:${AWS::Region}:${AWS::AccountId}:function:${BlitzfilterApiItemSimilaritySearchLambda}"
+      IntegrationUri: !Sub "arn:aws:lambda:${AWS::Region}:${AWS::AccountId}:function:${BlitzfilterApiProductSimilaritySearchLambda}"
       PayloadFormatVersion: "2.0"
-  BlitzfilterApiItemSimilaritySearchRole:
+  BlitzfilterApiProductSimilaritySearchRole:
     Type: AWS::IAM::Role
     Properties:
-      RoleName: !Sub "blitzfilter-api-item-similarity-search-role-${StageName}"
+      RoleName: !Sub "blitzfilter-api-product-similarity-search-role-${StageName}"
       AssumeRolePolicyDocument:
         Version: "2012-10-17"
         Statement:
@@ -892,16 +892,16 @@ Resources:
                   - dynamodb:BatchGetItem
                   - dynamodb:Query
                 Resource: !GetAtt TableOne.Arn
-  BlitzfilterApiItemSimilaritySearchLambda:
+  BlitzfilterApiProductSimilaritySearchLambda:
     Type: AWS::Lambda::Function
     Properties:
-      FunctionName: !Sub "blitzfilter-api-item-similarity-search-${StageName}"
+      FunctionName: !Sub "blitzfilter-api-product-similarity-search-${StageName}"
       Runtime: provided.al2023
       Handler: lib.handler
-      Role: !GetAtt BlitzfilterApiItemSimilaritySearchRole.Arn
+      Role: !GetAtt BlitzfilterApiProductSimilaritySearchRole.Arn
       Code:
         S3Bucket: !Ref ArtifactBucket
-        S3Key: !Sub "product-api-get-item-similar-${StageName}-${CommitSHA}.zip"
+        S3Key: !Sub "product-api-get-product-similar-${StageName}-${CommitSHA}.zip"
       MemorySize: 512
       Timeout: 10
       EphemeralStorage:
@@ -913,18 +913,18 @@ Resources:
           USER_POOL_ID: !Ref BlitzfilterUserPool
           USER_POOL_PUBLIC_CLIENT_ID: !Ref BlitzfilterUserPoolClientPublic
           USER_POOL_ADMIN_CLIENT_ID: !Ref BlitzfilterUserPoolClientAdmin
-  BlitzfilterApiItemSimilaritySearchLambdaPermission:
+  BlitzfilterApiProductSimilaritySearchLambdaPermission:
     Type: AWS::Lambda::Permission
     Properties:
       Action: lambda:InvokeFunction
-      FunctionName: !Ref BlitzfilterApiItemSimilaritySearchLambda
+      FunctionName: !Ref BlitzfilterApiProductSimilaritySearchLambda
       Principal: apigateway.amazonaws.com
-      SourceArn: !Sub "arn:aws:execute-api:${AWS::Region}:${AWS::AccountId}:${BlitzfilterApi}/*/*/api/v1/items/*/*/*"
-  BlitzfilterApiItemSimilaritySearchLambdaErrorAlarm:
+      SourceArn: !Sub "arn:aws:execute-api:${AWS::Region}:${AWS::AccountId}:${BlitzfilterApi}/*/*/api/v1/products/*/*/*"
+  BlitzfilterApiProductSimilaritySearchLambdaErrorAlarm:
     Type: AWS::CloudWatch::Alarm
     Properties:
-      AlarmName: !Sub "${StageName}-item-similarity-search-lambda-errors"
-      AlarmDescription: "Alarm when item-similarity-search Lambda has errors"
+      AlarmName: !Sub "${StageName}-product-similarity-search-lambda-errors"
+      AlarmDescription: "Alarm when product-similarity-search Lambda has errors"
       MetricName: Errors
       Namespace: AWS/Lambda
       Statistic: Sum
@@ -934,30 +934,30 @@ Resources:
       ComparisonOperator: GreaterThanOrEqualToThreshold
       Dimensions:
         - Name: FunctionName
-          Value: !Ref BlitzfilterApiItemSimilaritySearchLambda
+          Value: !Ref BlitzfilterApiProductSimilaritySearchLambda
       TreatMissingData: notBreaching
       AlarmActions:
         - !Ref AlarmNotificationTopic
 
-  BlitzfilterApiGetWatchlistItemsRoute:
+  BlitzfilterApiGetWatchlistProductsRoute:
     Type: AWS::ApiGatewayV2::Route
     Properties:
       ApiId: !Ref BlitzfilterApi
       RouteKey: "GET /api/v1/me/watchlist"
       AuthorizationType: JWT
       AuthorizerId: !Ref BlitzfilterApiCognitoAuthorizer
-      Target: !Sub "integrations/${BlitzfilterApiGetWatchlistItemsLambdaIntegration}"
-  BlitzfilterApiGetWatchlistItemsLambdaIntegration:
+      Target: !Sub "integrations/${BlitzfilterApiGetWatchlistProductsLambdaIntegration}"
+  BlitzfilterApiGetWatchlistProductsLambdaIntegration:
     Type: AWS::ApiGatewayV2::Integration
     Properties:
       ApiId: !Ref BlitzfilterApi
       IntegrationType: AWS_PROXY
-      IntegrationUri: !Sub "arn:aws:lambda:${AWS::Region}:${AWS::AccountId}:function:${BlitzfilterApiGetWatchlistItemsLambda}"
+      IntegrationUri: !Sub "arn:aws:lambda:${AWS::Region}:${AWS::AccountId}:function:${BlitzfilterApiGetWatchlistProductsLambda}"
       PayloadFormatVersion: "2.0"
-  BlitzfilterApiGetWatchlistItemsRole:
+  BlitzfilterApiGetWatchlistProductsRole:
     Type: AWS::IAM::Role
     Properties:
-      RoleName: !Sub "blitzfilter-api-get-watchlist-items-role-${StageName}"
+      RoleName: !Sub "blitzfilter-api-get-watchlist-products-role-${StageName}"
       AssumeRolePolicyDocument:
         Version: "2012-10-17"
         Statement:
@@ -980,13 +980,13 @@ Resources:
                 Resource:
                   - !GetAtt TableOne.Arn
                   - !Sub "${TableOne.Arn}/index/*"
-  BlitzfilterApiGetWatchlistItemsLambda:
+  BlitzfilterApiGetWatchlistProductsLambda:
     Type: AWS::Lambda::Function
     Properties:
-      FunctionName: !Sub "blitzfilter-api-get-watchlist-items-${StageName}"
+      FunctionName: !Sub "blitzfilter-api-get-watchlist-products-${StageName}"
       Runtime: provided.al2023
       Handler: lib.handler
-      Role: !GetAtt BlitzfilterApiGetWatchlistItemsRole.Arn
+      Role: !GetAtt BlitzfilterApiGetWatchlistProductsRole.Arn
       Code:
         S3Bucket: !Ref ArtifactBucket
         S3Key: !Sub "product-api-watchlist-get-${StageName}-${CommitSHA}.zip"
@@ -997,33 +997,33 @@ Resources:
       Environment:
         Variables:
           DYNAMODB_TABLE_NAME: !Ref TableOne
-  BlitzfilterApiGetWatchlistItemsLambdaPermission:
+  BlitzfilterApiGetWatchlistProductsLambdaPermission:
     Type: AWS::Lambda::Permission
     Properties:
       Action: lambda:InvokeFunction
-      FunctionName: !Ref BlitzfilterApiGetWatchlistItemsLambda
+      FunctionName: !Ref BlitzfilterApiGetWatchlistProductsLambda
       Principal: apigateway.amazonaws.com
       SourceArn: !Sub "arn:aws:execute-api:${AWS::Region}:${AWS::AccountId}:${BlitzfilterApi}/*/*/api/v1/me/watchlist*"
 
-  BlitzfilterApiDeleteWatchlistItemRoute:
+  BlitzfilterApiDeleteWatchlistProductRoute:
     Type: AWS::ApiGatewayV2::Route
     Properties:
       ApiId: !Ref BlitzfilterApi
-      RouteKey: "DELETE /api/v1/me/watchlist/{shopId}/{shopsItemId}"
+      RouteKey: "DELETE /api/v1/me/watchlist/{shopId}/{shopsProductId}"
       AuthorizationType: JWT
       AuthorizerId: !Ref BlitzfilterApiCognitoAuthorizer
-      Target: !Sub "integrations/${BlitzfilterApiDeleteWatchlistItemLambdaIntegration}"
-  BlitzfilterApiDeleteWatchlistItemLambdaIntegration:
+      Target: !Sub "integrations/${BlitzfilterApiDeleteWatchlistLambdaIntegration}"
+  BlitzfilterApiDeleteWatchlistLambdaIntegration:
     Type: AWS::ApiGatewayV2::Integration
     Properties:
       ApiId: !Ref BlitzfilterApi
       IntegrationType: AWS_PROXY
-      IntegrationUri: !Sub "arn:aws:lambda:${AWS::Region}:${AWS::AccountId}:function:${BlitzfilterApiDeleteWatchlistItemLambda}"
+      IntegrationUri: !Sub "arn:aws:lambda:${AWS::Region}:${AWS::AccountId}:function:${BlitzfilterApiDeleteWatchlistLambda}"
       PayloadFormatVersion: "2.0"
-  BlitzfilterApiDeleteWatchlistItemRole:
+  BlitzfilterApiDeleteWatchlistProductRole:
     Type: AWS::IAM::Role
     Properties:
-      RoleName: !Sub "blitzfilter-api-delete-watchlist-item-role-${StageName}"
+      RoleName: !Sub "blitzfilter-api-delete-watchlist-product-role-${StageName}"
       AssumeRolePolicyDocument:
         Version: "2012-10-17"
         Statement:
@@ -1045,13 +1045,13 @@ Resources:
                   - dynamodb:Query
                   - dynamodb:DeleteItem
                 Resource: !GetAtt TableOne.Arn
-  BlitzfilterApiDeleteWatchlistItemLambda:
+  BlitzfilterApiDeleteWatchlistLambda:
     Type: AWS::Lambda::Function
     Properties:
-      FunctionName: !Sub "blitzfilter-api-delete-watchlist-item-${StageName}"
+      FunctionName: !Sub "blitzfilter-api-delete-watchlist-product-${StageName}"
       Runtime: provided.al2023
       Handler: lib.handler
-      Role: !GetAtt BlitzfilterApiDeleteWatchlistItemRole.Arn
+      Role: !GetAtt BlitzfilterApiDeleteWatchlistProductRole.Arn
       Code:
         S3Bucket: !Ref ArtifactBucket
         S3Key: !Sub "product-api-watchlist-delete-${StageName}-${CommitSHA}.zip"
@@ -1062,33 +1062,33 @@ Resources:
       Environment:
         Variables:
           DYNAMODB_TABLE_NAME: !Ref TableOne
-  BlitzfilterApiDeleteWatchlistItemLambdaPermission:
+  BlitzfilterApiDeleteWatchlistLambdaPermission:
     Type: AWS::Lambda::Permission
     Properties:
       Action: lambda:InvokeFunction
-      FunctionName: !Ref BlitzfilterApiDeleteWatchlistItemLambda
+      FunctionName: !Ref BlitzfilterApiDeleteWatchlistLambda
       Principal: apigateway.amazonaws.com
       SourceArn: !Sub "arn:aws:execute-api:${AWS::Region}:${AWS::AccountId}:${BlitzfilterApi}/*/*/api/v1/me/watchlist/*/*"
 
-  BlitzfilterApiPostWatchlistItemRoute:
+  BlitzfilterApiPostWatchlistProductRoute:
     Type: AWS::ApiGatewayV2::Route
     Properties:
       ApiId: !Ref BlitzfilterApi
       RouteKey: "POST /api/v1/me/watchlist"
       AuthorizationType: JWT
       AuthorizerId: !Ref BlitzfilterApiCognitoAuthorizer
-      Target: !Sub "integrations/${BlitzfilterApiPostWatchlistItemLambdaIntegration}"
-  BlitzfilterApiPostWatchlistItemLambdaIntegration:
+      Target: !Sub "integrations/${BlitzfilterApiPostWatchlistLambdaIntegration}"
+  BlitzfilterApiPostWatchlistLambdaIntegration:
     Type: AWS::ApiGatewayV2::Integration
     Properties:
       ApiId: !Ref BlitzfilterApi
       IntegrationType: AWS_PROXY
-      IntegrationUri: !Sub "arn:aws:lambda:${AWS::Region}:${AWS::AccountId}:function:${BlitzfilterApiPostWatchlistItemLambda}"
+      IntegrationUri: !Sub "arn:aws:lambda:${AWS::Region}:${AWS::AccountId}:function:${BlitzfilterApiPostWatchlistLambda}"
       PayloadFormatVersion: "2.0"
-  BlitzfilterApiPostWatchlistItemRole:
+  BlitzfilterApiPostWatchlistProductRole:
     Type: AWS::IAM::Role
     Properties:
-      RoleName: !Sub "blitzfilter-api-post-watchlist-item-role-${StageName}"
+      RoleName: !Sub "blitzfilter-api-post-watchlist-product-role-${StageName}"
       AssumeRolePolicyDocument:
         Version: "2012-10-17"
         Statement:
@@ -1110,13 +1110,13 @@ Resources:
                   - dynamodb:Query
                   - dynamodb:PutItem
                 Resource: !GetAtt TableOne.Arn
-  BlitzfilterApiPostWatchlistItemLambda:
+  BlitzfilterApiPostWatchlistLambda:
     Type: AWS::Lambda::Function
     Properties:
-      FunctionName: !Sub "blitzfilter-api-post-watchlist-item-${StageName}"
+      FunctionName: !Sub "blitzfilter-api-post-watchlist-product-${StageName}"
       Runtime: provided.al2023
       Handler: lib.handler
-      Role: !GetAtt BlitzfilterApiPostWatchlistItemRole.Arn
+      Role: !GetAtt BlitzfilterApiPostWatchlistProductRole.Arn
       Code:
         S3Bucket: !Ref ArtifactBucket
         S3Key: !Sub "product-api-watchlist-post-${StageName}-${CommitSHA}.zip"
@@ -1127,33 +1127,33 @@ Resources:
       Environment:
         Variables:
           DYNAMODB_TABLE_NAME: !Ref TableOne
-  BlitzfilterApiPostWatchlistItemLambdaPermission:
+  BlitzfilterApiPostWatchlistLambdaPermission:
     Type: AWS::Lambda::Permission
     Properties:
       Action: lambda:InvokeFunction
-      FunctionName: !Ref BlitzfilterApiPostWatchlistItemLambda
+      FunctionName: !Ref BlitzfilterApiPostWatchlistLambda
       Principal: apigateway.amazonaws.com
       SourceArn: !Sub "arn:aws:execute-api:${AWS::Region}:${AWS::AccountId}:${BlitzfilterApi}/*/*/api/v1/me/watchlist"
 
-  BlitzfilterApiPatchWatchlistItemRoute:
+  BlitzfilterApiPatchWatchlistProductRoute:
     Type: AWS::ApiGatewayV2::Route
     Properties:
       ApiId: !Ref BlitzfilterApi
-      RouteKey: "PATCH /api/v1/me/watchlist/{shopId}/{shopsItemId}"
+      RouteKey: "PATCH /api/v1/me/watchlist/{shopId}/{shopsProductId}"
       AuthorizationType: JWT
       AuthorizerId: !Ref BlitzfilterApiCognitoAuthorizer
-      Target: !Sub "integrations/${BlitzfilterApiPatchWatchlistItemLambdaIntegration}"
-  BlitzfilterApiPatchWatchlistItemLambdaIntegration:
+      Target: !Sub "integrations/${BlitzfilterApiPatchWatchlistLambdaIntegration}"
+  BlitzfilterApiPatchWatchlistLambdaIntegration:
     Type: AWS::ApiGatewayV2::Integration
     Properties:
       ApiId: !Ref BlitzfilterApi
       IntegrationType: AWS_PROXY
-      IntegrationUri: !Sub "arn:aws:lambda:${AWS::Region}:${AWS::AccountId}:function:${BlitzfilterApiPatchWatchlistItemLambda}"
+      IntegrationUri: !Sub "arn:aws:lambda:${AWS::Region}:${AWS::AccountId}:function:${BlitzfilterApiPatchWatchlistLambda}"
       PayloadFormatVersion: "2.0"
-  BlitzfilterApiPatchWatchlistItemRole:
+  BlitzfilterApiPatchWatchlistProductRole:
     Type: AWS::IAM::Role
     Properties:
-      RoleName: !Sub "blitzfilter-api-patch-watchlist-item-role-${StageName}"
+      RoleName: !Sub "blitzfilter-api-patch-watchlist-product-role-${StageName}"
       AssumeRolePolicyDocument:
         Version: "2012-10-17"
         Statement:
@@ -1173,13 +1173,13 @@ Resources:
                   - dynamodb:GetItem
                   - dynamodb:UpdateItem
                 Resource: !GetAtt TableOne.Arn
-  BlitzfilterApiPatchWatchlistItemLambda:
+  BlitzfilterApiPatchWatchlistLambda:
     Type: AWS::Lambda::Function
     Properties:
-      FunctionName: !Sub "blitzfilter-api-patch-watchlist-item-${StageName}"
+      FunctionName: !Sub "blitzfilter-api-patch-watchlist-product-${StageName}"
       Runtime: provided.al2023
       Handler: lib.handler
-      Role: !GetAtt BlitzfilterApiPatchWatchlistItemRole.Arn
+      Role: !GetAtt BlitzfilterApiPatchWatchlistProductRole.Arn
       Code:
         S3Bucket: !Ref ArtifactBucket
         S3Key: !Sub "product-api-watchlist-patch-${StageName}-${CommitSHA}.zip"
@@ -1190,11 +1190,11 @@ Resources:
       Environment:
         Variables:
           DYNAMODB_TABLE_NAME: !Ref TableOne
-  BlitzfilterApiPatchWatchlistItemLambdaPermission:
+  BlitzfilterApiPatchWatchlistLambdaPermission:
     Type: AWS::Lambda::Permission
     Properties:
       Action: lambda:InvokeFunction
-      FunctionName: !Ref BlitzfilterApiPatchWatchlistItemLambda
+      FunctionName: !Ref BlitzfilterApiPatchWatchlistLambda
       Principal: apigateway.amazonaws.com
       SourceArn: !Sub "arn:aws:execute-api:${AWS::Region}:${AWS::AccountId}:${BlitzfilterApi}/*/*/api/v1/me/watchlist/*/*"
 
@@ -1767,20 +1767,20 @@ Resources:
       AlarmActions:
         - !Ref AlarmNotificationTopic
 
-  ItemIngestEventsDynamoDbDlq:
+  ProductIngestEventsDynamoDbDlq:
     Type: AWS::SQS::Queue
     Properties:
       QueueName: !Sub "product-lambda-ingest-events-dynamodb-dlq-${StageName}"
       MessageRetentionPeriod: 1209600
-  ItemIngestEventsDynamoDbQ:
+  ProductIngestEventsDynamoDbQ:
     Type: AWS::SQS::Queue
     Properties:
       QueueName: !Sub "product-lambda-ingest-events-dynamodb-queue-${StageName}"
       RedrivePolicy:
-        deadLetterTargetArn: !GetAtt ItemIngestEventsDynamoDbDlq.Arn
+        deadLetterTargetArn: !GetAtt ProductIngestEventsDynamoDbDlq.Arn
         maxReceiveCount: 3
       VisibilityTimeout: 360
-  ItemIngestEventsDynamoDbRole:
+  ProductIngestEventsDynamoDbRole:
     Type: AWS::IAM::Role
     Properties:
       RoleName: !Sub "product-lambda-ingest-events-dynamodb-role-${StageName}"
@@ -1812,14 +1812,14 @@ Resources:
                   - sqs:DeleteMessage
                   - sqs:GetQueueAttributes
                   - sqs:GetQueueUrl
-                Resource: !GetAtt ItemIngestEventsDynamoDbQ.Arn
-  ItemIngestEventsDynamoDbLambda:
+                Resource: !GetAtt ProductIngestEventsDynamoDbQ.Arn
+  ProductIngestEventsDynamoDbLambda:
     Type: AWS::Lambda::Function
     Properties:
       FunctionName: !Sub "product-lambda-ingest-events-dynamodb-${StageName}"
       Runtime: provided.al2023
       Handler: lib.handler
-      Role: !GetAtt ItemIngestEventsDynamoDbRole.Arn
+      Role: !GetAtt ProductIngestEventsDynamoDbRole.Arn
       Code:
         S3Bucket: !Ref ArtifactBucket
         S3Key: !Sub "product-lambda-ingest-events-dynamodb-${StageName}-${CommitSHA}.zip"
@@ -1830,22 +1830,22 @@ Resources:
       Environment:
         Variables:
           DYNAMODB_TABLE_NAME: !Ref TableOne
-  ItemIngestEventsDynamoDbMapping:
+  ProductIngestEventsDynamoDbMapping:
     Type: AWS::Lambda::EventSourceMapping
     Properties:
-      FunctionName: !Ref ItemIngestEventsDynamoDbLambda
-      EventSourceArn: !GetAtt ItemIngestEventsDynamoDbQ.Arn
+      FunctionName: !Ref ProductIngestEventsDynamoDbLambda
+      EventSourceArn: !GetAtt ProductIngestEventsDynamoDbQ.Arn
       Enabled: true
       BatchSize: 200
       MaximumBatchingWindowInSeconds:
         !FindInMap [
-          ItemIngestEventsDynamoDbQueueMap,
+          ProductIngestEventsDynamoDbQueueMap,
           MaximumBatchingWindowInSeconds,
           !Ref Stage,
         ]
       FunctionResponseTypes:
         - ReportBatchItemFailures
-  ItemIngestEventsDynamoDbLambdaErrorAlarm:
+  ProductIngestEventsDynamoDbLambdaErrorAlarm:
     Type: AWS::CloudWatch::Alarm
     Properties:
       AlarmName: !Sub "${StageName}-ingest-events-lambda-errors"
@@ -1859,11 +1859,11 @@ Resources:
       ComparisonOperator: GreaterThanOrEqualToThreshold
       Dimensions:
         - Name: FunctionName
-          Value: !Ref ItemIngestEventsDynamoDbLambda
+          Value: !Ref ProductIngestEventsDynamoDbLambda
       TreatMissingData: notBreaching
       AlarmActions:
         - !Ref AlarmNotificationTopic
-  ItemIngestEventsDynamoDbDlqAlarm:
+  ProductIngestEventsDynamoDbDlqAlarm:
     Type: AWS::CloudWatch::Alarm
     Properties:
       AlarmName: !Sub "${StageName}-ingest-events-dlq-messages"
@@ -1877,12 +1877,12 @@ Resources:
       ComparisonOperator: GreaterThanOrEqualToThreshold
       Dimensions:
         - Name: QueueName
-          Value: !GetAtt ItemIngestEventsDynamoDbDlq.QueueName
+          Value: !GetAtt ProductIngestEventsDynamoDbDlq.QueueName
       TreatMissingData: notBreaching
       AlarmActions:
         - !Ref AlarmNotificationTopic
 
-  ItemMaterializeDynamoDbNewDlq:
+  ProductMaterializeDynamoDbNewDlq:
     Type: AWS::SQS::Queue
     Properties:
       QueueName: !Sub "product-lambda-materialize-dynamodb-new-dlq-${StageName}"
@@ -1892,10 +1892,10 @@ Resources:
     Properties:
       QueueName: !Sub "product-lambda-materialize-dynamodb-new-queue-${StageName}"
       RedrivePolicy:
-        deadLetterTargetArn: !GetAtt ItemMaterializeDynamoDbNewDlq.Arn
+        deadLetterTargetArn: !GetAtt ProductMaterializeDynamoDbNewDlq.Arn
         maxReceiveCount: 5
       VisibilityTimeout: 360
-  ItemMaterializeDynamoDbNewRole:
+  ProductMaterializeDynamoDbNewRole:
     Type: AWS::IAM::Role
     Properties:
       RoleName: !Sub "product-lambda-materialize-dynamodb-new-role-${StageName}"
@@ -1928,13 +1928,13 @@ Resources:
                   - sqs:GetQueueAttributes
                   - sqs:GetQueueUrl
                 Resource: !GetAtt ProductMaterializeDynamoDbNewQ.Arn
-  ItemMaterializeDynamoDbNewLambda:
+  ProductMaterializeDynamoDbNewLambda:
     Type: AWS::Lambda::Function
     Properties:
       FunctionName: !Sub "product-lambda-materialize-dynamodb-new-${StageName}"
       Runtime: provided.al2023
       Handler: lib.handler
-      Role: !GetAtt ItemMaterializeDynamoDbNewRole.Arn
+      Role: !GetAtt ProductMaterializeDynamoDbNewRole.Arn
       Code:
         S3Bucket: !Ref ArtifactBucket
         S3Key: !Sub "product-lambda-materialize-dynamodb-new-${StageName}-${CommitSHA}.zip"
@@ -1945,22 +1945,22 @@ Resources:
       Environment:
         Variables:
           DYNAMODB_TABLE_NAME: !Ref TableOne
-  ItemMaterializeDynamoDbNewMapping:
+  ProductMaterializeDynamoDbNewMapping:
     Type: AWS::Lambda::EventSourceMapping
     Properties:
-      FunctionName: !Ref ItemMaterializeDynamoDbNewLambda
+      FunctionName: !Ref ProductMaterializeDynamoDbNewLambda
       EventSourceArn: !GetAtt ProductMaterializeDynamoDbNewQ.Arn
       Enabled: true
       BatchSize: 200
       MaximumBatchingWindowInSeconds:
         !FindInMap [
-          ItemMaterializeDynamoDbQueuesMap,
+          ProductMaterializeDynamoDbQueuesMap,
           MaximumBatchingWindowInSeconds,
           !Ref Stage,
         ]
       FunctionResponseTypes:
         - ReportBatchItemFailures
-  ItemMaterializeDynamoDbNewLambdaErrorAlarm:
+  ProductMaterializeDynamoDbNewLambdaErrorAlarm:
     Type: AWS::CloudWatch::Alarm
     Properties:
       AlarmName: !Sub "${StageName}-materialize-ddb-new-lambda-errors"
@@ -1974,11 +1974,11 @@ Resources:
       ComparisonOperator: GreaterThanOrEqualToThreshold
       Dimensions:
         - Name: FunctionName
-          Value: !Ref ItemMaterializeDynamoDbNewLambda
+          Value: !Ref ProductMaterializeDynamoDbNewLambda
       TreatMissingData: notBreaching
       AlarmActions:
         - !Ref AlarmNotificationTopic
-  ItemMaterializeDynamoDbNewDlqAlarm:
+  ProductMaterializeDynamoDbNewDlqAlarm:
     Type: AWS::CloudWatch::Alarm
     Properties:
       AlarmName: !Sub "${StageName}-materialize-ddb-new-dlq-messages"
@@ -1992,12 +1992,12 @@ Resources:
       ComparisonOperator: GreaterThanOrEqualToThreshold
       Dimensions:
         - Name: QueueName
-          Value: !GetAtt ItemMaterializeDynamoDbNewDlq.QueueName
+          Value: !GetAtt ProductMaterializeDynamoDbNewDlq.QueueName
       TreatMissingData: notBreaching
       AlarmActions:
         - !Ref AlarmNotificationTopic
 
-  ItemMaterializeDynamoDbUpdateDlq:
+  ProductMaterializeDynamoDbUpdateDlq:
     Type: AWS::SQS::Queue
     Properties:
       QueueName: !Sub "product-lambda-materialize-dynamodb-update-dlq-${StageName}"
@@ -2007,10 +2007,10 @@ Resources:
     Properties:
       QueueName: !Sub "product-lambda-materialize-dynamodb-update-queue-${StageName}"
       RedrivePolicy:
-        deadLetterTargetArn: !GetAtt ItemMaterializeDynamoDbUpdateDlq.Arn
+        deadLetterTargetArn: !GetAtt ProductMaterializeDynamoDbUpdateDlq.Arn
         maxReceiveCount: 5
       VisibilityTimeout: 360
-  ItemMaterializeDynamoDbUpdateRole:
+  ProductMaterializeDynamoDbUpdateRole:
     Type: AWS::IAM::Role
     Properties:
       RoleName: !Sub "product-lambda-materialize-dynamodb-update-role-${StageName}"
@@ -2043,13 +2043,13 @@ Resources:
                   - sqs:GetQueueAttributes
                   - sqs:GetQueueUrl
                 Resource: !GetAtt ProductMaterializeDynamoDbUpdateQ.Arn
-  ItemMaterializeDynamoDbUpdateLambda:
+  ProductMaterializeDynamoDbUpdateLambda:
     Type: AWS::Lambda::Function
     Properties:
       FunctionName: !Sub "product-lambda-materialize-dynamodb-update-${StageName}"
       Runtime: provided.al2023
       Handler: lib.handler
-      Role: !GetAtt ItemMaterializeDynamoDbUpdateRole.Arn
+      Role: !GetAtt ProductMaterializeDynamoDbUpdateRole.Arn
       Code:
         S3Bucket: !Ref ArtifactBucket
         S3Key: !Sub "product-lambda-materialize-dynamodb-update-${StageName}-${CommitSHA}.zip"
@@ -2060,22 +2060,22 @@ Resources:
       Environment:
         Variables:
           DYNAMODB_TABLE_NAME: !Ref TableOne
-  ItemMaterializeDynamoDbUpdateMapping:
+  ProductMaterializeDynamoDbUpdateMapping:
     Type: AWS::Lambda::EventSourceMapping
     Properties:
-      FunctionName: !Ref ItemMaterializeDynamoDbUpdateLambda
+      FunctionName: !Ref ProductMaterializeDynamoDbUpdateLambda
       EventSourceArn: !GetAtt ProductMaterializeDynamoDbUpdateQ.Arn
       Enabled: true
       BatchSize: 200
       MaximumBatchingWindowInSeconds:
         !FindInMap [
-          ItemMaterializeDynamoDbQueuesMap,
+          ProductMaterializeDynamoDbQueuesMap,
           MaximumBatchingWindowInSeconds,
           !Ref Stage,
         ]
       FunctionResponseTypes:
         - ReportBatchItemFailures
-  ItemMaterializeDynamoDbUpdateLambdaErrorAlarm:
+  ProductMaterializeDynamoDbUpdateLambdaErrorAlarm:
     Type: AWS::CloudWatch::Alarm
     Properties:
       AlarmName: !Sub "${StageName}-materialize-ddb-update-lambda-errors"
@@ -2089,11 +2089,11 @@ Resources:
       ComparisonOperator: GreaterThanOrEqualToThreshold
       Dimensions:
         - Name: FunctionName
-          Value: !Ref ItemMaterializeDynamoDbUpdateLambda
+          Value: !Ref ProductMaterializeDynamoDbUpdateLambda
       TreatMissingData: notBreaching
       AlarmActions:
         - !Ref AlarmNotificationTopic
-  ItemMaterializeDynamoDbUpdateDlqAlarm:
+  ProductMaterializeDynamoDbUpdateDlqAlarm:
     Type: AWS::CloudWatch::Alarm
     Properties:
       AlarmName: !Sub "${StageName}-materialize-ddb-update-dlq-messages"
@@ -2107,12 +2107,12 @@ Resources:
       ComparisonOperator: GreaterThanOrEqualToThreshold
       Dimensions:
         - Name: QueueName
-          Value: !GetAtt ItemMaterializeDynamoDbUpdateDlq.QueueName
+          Value: !GetAtt ProductMaterializeDynamoDbUpdateDlq.QueueName
       TreatMissingData: notBreaching
       AlarmActions:
         - !Ref AlarmNotificationTopic
 
-  ItemMaterializeOpenSearchNewDlq:
+  ProductMaterializeOpenSearchNewDlq:
     Type: AWS::SQS::Queue
     Properties:
       QueueName: !Sub "product-lambda-materialize-opensearch-new-dlq-${StageName}"
@@ -2122,10 +2122,10 @@ Resources:
     Properties:
       QueueName: !Sub "product-lambda-materialize-opensearch-new-queue-${StageName}"
       RedrivePolicy:
-        deadLetterTargetArn: !GetAtt ItemMaterializeOpenSearchNewDlq.Arn
+        deadLetterTargetArn: !GetAtt ProductMaterializeOpenSearchNewDlq.Arn
         maxReceiveCount: 5
       VisibilityTimeout: 360
-  ItemMaterializeOpenSearchNewRole:
+  ProductMaterializeOpenSearchNewRole:
     Type: AWS::IAM::Role
     Properties:
       RoleName: !Sub "product-lambda-materialize-opensearch-new-role-${StageName}"
@@ -2158,13 +2158,13 @@ Resources:
                   - sqs:GetQueueAttributes
                   - sqs:GetQueueUrl
                 Resource: !GetAtt ProductMaterializeOpenSearchNewQ.Arn
-  ItemMaterializeOpenSearchNewLambda:
+  ProductMaterializeOpenSearchNewLambda:
     Type: AWS::Lambda::Function
     Properties:
       FunctionName: !Sub "product-lambda-materialize-opensearch-new-${StageName}"
       Runtime: provided.al2023
       Handler: lib.handler
-      Role: !GetAtt ItemMaterializeOpenSearchNewRole.Arn
+      Role: !GetAtt ProductMaterializeOpenSearchNewRole.Arn
       Code:
         S3Bucket: !Ref ArtifactBucket
         S3Key: !Sub "product-lambda-materialize-opensearch-new-${StageName}-${CommitSHA}.zip"
@@ -2175,22 +2175,22 @@ Resources:
       Environment:
         Variables:
           OPENSEARCH_DOMAIN_ENDPOINT_URL: !Sub "https://${BlitzfilterOpenSearchDomain.DomainEndpoint}"
-  ItemMaterializeOpenSearchDbNewMapping:
+  ProductMaterializeOpenSearchDbNewMapping:
     Type: AWS::Lambda::EventSourceMapping
     Properties:
-      FunctionName: !Ref ItemMaterializeOpenSearchNewLambda
+      FunctionName: !Ref ProductMaterializeOpenSearchNewLambda
       EventSourceArn: !GetAtt ProductMaterializeOpenSearchNewQ.Arn
       Enabled: true
       BatchSize: 200
       MaximumBatchingWindowInSeconds:
         !FindInMap [
-          ItemMaterializeOpenSearchQueuesMap,
+          ProductMaterializeOpenSearchQueuesMap,
           MaximumBatchingWindowInSeconds,
           !Ref Stage,
         ]
       FunctionResponseTypes:
         - ReportBatchItemFailures
-  ItemMaterializeOpenSearchNewLambdaErrorAlarm:
+  ProductMaterializeOpenSearchNewLambdaErrorAlarm:
     Type: AWS::CloudWatch::Alarm
     Properties:
       AlarmName: !Sub "${StageName}-materialize-os-new-lambda-errors"
@@ -2204,11 +2204,11 @@ Resources:
       ComparisonOperator: GreaterThanOrEqualToThreshold
       Dimensions:
         - Name: FunctionName
-          Value: !Ref ItemMaterializeOpenSearchNewLambda
+          Value: !Ref ProductMaterializeOpenSearchNewLambda
       TreatMissingData: notBreaching
       AlarmActions:
         - !Ref AlarmNotificationTopic
-  ItemMaterializeOpenSearchNewDlqAlarm:
+  ProductMaterializeOpenSearchNewDlqAlarm:
     Type: AWS::CloudWatch::Alarm
     Properties:
       AlarmName: !Sub "${StageName}-materialize-os-new-dlq-messages"
@@ -2222,12 +2222,12 @@ Resources:
       ComparisonOperator: GreaterThanOrEqualToThreshold
       Dimensions:
         - Name: QueueName
-          Value: !GetAtt ItemMaterializeOpenSearchNewDlq.QueueName
+          Value: !GetAtt ProductMaterializeOpenSearchNewDlq.QueueName
       TreatMissingData: notBreaching
       AlarmActions:
         - !Ref AlarmNotificationTopic
 
-  ItemMaterializeOpenSearchUpdateDlq:
+  ProductMaterializeOpenSearchUpdateDlq:
     Type: AWS::SQS::Queue
     Properties:
       QueueName: !Sub "product-lambda-materialize-opensearch-update-dlq-${StageName}"
@@ -2237,10 +2237,10 @@ Resources:
     Properties:
       QueueName: !Sub "product-lambda-materialize-opensearch-update-queue-${StageName}"
       RedrivePolicy:
-        deadLetterTargetArn: !GetAtt ItemMaterializeOpenSearchUpdateDlq.Arn
+        deadLetterTargetArn: !GetAtt ProductMaterializeOpenSearchUpdateDlq.Arn
         maxReceiveCount: 5
       VisibilityTimeout: 360
-  ItemMaterializeOpenSearchUpdateRole:
+  ProductMaterializeOpenSearchUpdateRole:
     Type: AWS::IAM::Role
     Properties:
       RoleName: !Sub "product-lambda-materialize-opensearch-update-role-${StageName}"
@@ -2273,13 +2273,13 @@ Resources:
                   - sqs:GetQueueAttributes
                   - sqs:GetQueueUrl
                 Resource: !GetAtt ProductMaterializeOpenSearchUpdateQ.Arn
-  ItemMaterializeOpenSearchUpdateLambda:
+  ProductMaterializeOpenSearchUpdateLambda:
     Type: AWS::Lambda::Function
     Properties:
       FunctionName: !Sub "product-lambda-materialize-opensearch-update-${StageName}"
       Runtime: provided.al2023
       Handler: lib.handler
-      Role: !GetAtt ItemMaterializeOpenSearchUpdateRole.Arn
+      Role: !GetAtt ProductMaterializeOpenSearchUpdateRole.Arn
       Code:
         S3Bucket: !Ref ArtifactBucket
         S3Key: !Sub "product-lambda-materialize-opensearch-update-${StageName}-${CommitSHA}.zip"
@@ -2290,22 +2290,22 @@ Resources:
       Environment:
         Variables:
           OPENSEARCH_DOMAIN_ENDPOINT_URL: !Sub "https://${BlitzfilterOpenSearchDomain.DomainEndpoint}"
-  ItemMaterializeOpenSearchDbUpdateMapping:
+  ProductMaterializeOpenSearchDbUpdateMapping:
     Type: AWS::Lambda::EventSourceMapping
     Properties:
-      FunctionName: !Ref ItemMaterializeOpenSearchUpdateLambda
+      FunctionName: !Ref ProductMaterializeOpenSearchUpdateLambda
       EventSourceArn: !GetAtt ProductMaterializeOpenSearchUpdateQ.Arn
       Enabled: true
       BatchSize: 2500
       MaximumBatchingWindowInSeconds:
         !FindInMap [
-          ItemMaterializeOpenSearchQueuesMap,
+          ProductMaterializeOpenSearchQueuesMap,
           MaximumBatchingWindowInSeconds,
           !Ref Stage,
         ]
       FunctionResponseTypes:
         - ReportBatchItemFailures
-  ItemMaterializeOpenSearchUpdateLambdaErrorAlarm:
+  ProductMaterializeOpenSearchUpdateLambdaErrorAlarm:
     Type: AWS::CloudWatch::Alarm
     Properties:
       AlarmName: !Sub "${StageName}-materialize-os-update-lambda-errors"
@@ -2319,11 +2319,11 @@ Resources:
       ComparisonOperator: GreaterThanOrEqualToThreshold
       Dimensions:
         - Name: FunctionName
-          Value: !Ref ItemMaterializeOpenSearchUpdateLambda
+          Value: !Ref ProductMaterializeOpenSearchUpdateLambda
       TreatMissingData: notBreaching
       AlarmActions:
         - !Ref AlarmNotificationTopic
-  ItemMaterializeOpenSearchUpdateDlqAlarm:
+  ProductMaterializeOpenSearchUpdateDlqAlarm:
     Type: AWS::CloudWatch::Alarm
     Properties:
       AlarmName: !Sub "${StageName}-materialize-os-update-dlq-messages"
@@ -2337,12 +2337,12 @@ Resources:
       ComparisonOperator: GreaterThanOrEqualToThreshold
       Dimensions:
         - Name: QueueName
-          Value: !GetAtt ItemMaterializeOpenSearchUpdateDlq.QueueName
+          Value: !GetAtt ProductMaterializeOpenSearchUpdateDlq.QueueName
       TreatMissingData: notBreaching
       AlarmActions:
         - !Ref AlarmNotificationTopic
 
-  ItemUpdateNotifyUserDlq:
+  ProductUpdateNotifyUserDlq:
     Type: AWS::SQS::Queue
     Properties:
       QueueName: !Sub "product-lambda-update-notify-user-dlq-${StageName}"
@@ -2352,10 +2352,10 @@ Resources:
     Properties:
       QueueName: !Sub "product-lambda-update-notify-user-queue-${StageName}"
       RedrivePolicy:
-        deadLetterTargetArn: !GetAtt ItemUpdateNotifyUserDlq.Arn
+        deadLetterTargetArn: !GetAtt ProductUpdateNotifyUserDlq.Arn
         maxReceiveCount: 5
       VisibilityTimeout: 360
-  ItemUpdateNotifyUserRole:
+  ProductUpdateNotifyUserRole:
     Type: AWS::IAM::Role
     Properties:
       RoleName: !Sub "product-lambda-update-notify-user-role-${StageName}"
@@ -2399,13 +2399,13 @@ Resources:
                 Action:
                   - sqs:SendMessage
                 Resource: !GetAtt SendMailQ.Arn
-  ItemUpdateNotifyUserLambda:
+  ProductUpdateNotifyUserLambda:
     Type: AWS::Lambda::Function
     Properties:
       FunctionName: !Sub "product-lambda-update-notify-user-${StageName}"
       Runtime: provided.al2023
       Handler: lib.handler
-      Role: !GetAtt ItemUpdateNotifyUserRole.Arn
+      Role: !GetAtt ProductUpdateNotifyUserRole.Arn
       Code:
         S3Bucket: !Ref ArtifactBucket
         S3Key: !Sub "product-lambda-update-notify-user-${StageName}-${CommitSHA}.zip"
@@ -2418,22 +2418,22 @@ Resources:
           DYNAMODB_TABLE_NAME: !Ref TableOne
           MAIL_QUEUE_URL: !Ref SendMailQ
           SENDER_MAIL: "no-reply@aura-historia.com"
-  ItemUpdateNotifyUserMapping:
+  ProductUpdateNotifyUserMapping:
     Type: AWS::Lambda::EventSourceMapping
     Properties:
-      FunctionName: !Ref ItemUpdateNotifyUserLambda
+      FunctionName: !Ref ProductUpdateNotifyUserLambda
       EventSourceArn: !GetAtt ProductUpdateNotifyUserQ.Arn
       Enabled: true
       BatchSize: 10
       MaximumBatchingWindowInSeconds:
         !FindInMap [
-          IItemUpdateNotifyUserQueueMap,
+          ProductUpdateNotifyUserQueueMap,
           MaximumBatchingWindowInSeconds,
           !Ref Stage,
         ]
       FunctionResponseTypes:
         - ReportBatchItemFailures
-  ItemUpdateNotifyUserLambdaErrorAlarm:
+  ProductUpdateNotifyUserLambdaErrorAlarm:
     Type: AWS::CloudWatch::Alarm
     Properties:
       AlarmName: !Sub "${StageName}-product-update-notify-user-lambda-errors"
@@ -2447,11 +2447,11 @@ Resources:
       ComparisonOperator: GreaterThanOrEqualToThreshold
       Dimensions:
         - Name: FunctionName
-          Value: !Ref ItemUpdateNotifyUserLambda
+          Value: !Ref ProductUpdateNotifyUserLambda
       TreatMissingData: notBreaching
       AlarmActions:
         - !Ref AlarmNotificationTopic
-  ItemUpdateNotifyUserDlqAlarm:
+  ProductUpdateNotifyUserDlqAlarm:
     Type: AWS::CloudWatch::Alarm
     Properties:
       AlarmName: !Sub "${StageName}-product-update-notify-user-dlq-messages"
@@ -2465,15 +2465,15 @@ Resources:
       ComparisonOperator: GreaterThanOrEqualToThreshold
       Dimensions:
         - Name: QueueName
-          Value: !GetAtt ItemUpdateNotifyUserDlq.QueueName
+          Value: !GetAtt ProductUpdateNotifyUserDlq.QueueName
       TreatMissingData: notBreaching
       AlarmActions:
         - !Ref AlarmNotificationTopic
 
-  DynamoDbItemEventRecordCreatedMaterializeDynamoDbItemRecordEventRule:
+  DynamoDbProductEventRecordCreatedMaterializeDynamoDbProductRecordEventRule:
     Type: AWS::Events::Rule
     Properties:
-      Name: !Sub "ddb-item-mat-ddb-new-${StageName}"
+      Name: !Sub "ddb-product-mat-ddb-new-${StageName}"
       EventBusName: !Ref DynamoDbEventBus
       EventPattern:
         source:
@@ -2489,12 +2489,12 @@ Resources:
                 S:
                   - "CREATED"
       Targets:
-        - Id: ItemMaterializeDynamoDbNewQ
+        - Id: ProductMaterializeDynamoDbNewQ
           Arn: !GetAtt ProductMaterializeDynamoDbNewQ.Arn
-  DynamoDbItemEventRecordUpdatedMaterializeDynamoDbItemRecordEventRule:
+  DynamoDbProductEventRecordUpdatedMaterializeDynamoDbProductRecordEventRule:
     Type: AWS::Events::Rule
     Properties:
-      Name: !Sub "ddb-item-mat-ddb-update-${StageName}"
+      Name: !Sub "ddb-product-mat-ddb-update-${StageName}"
       EventBusName: !Ref DynamoDbEventBus
       EventPattern:
         source:
@@ -2511,12 +2511,12 @@ Resources:
                   - prefix: "PRICE_"
                   - prefix: "STATE_"
       Targets:
-        - Id: ItemMaterializeDynamoDbUpdateQ
+        - Id: ProductMaterializeDynamoDbUpdateQ
           Arn: !GetAtt ProductMaterializeDynamoDbUpdateQ.Arn
-  DynamoDbItemEventRecordCreatedMaterializeOpenSearchItemDocumentEventRule:
+  DynamoDbProductEventRecordCreatedMaterializeOpenSearchProductDocumentEventRule:
     Type: AWS::Events::Rule
     Properties:
-      Name: !Sub "ddb-item-mat-os-new-${StageName}"
+      Name: !Sub "ddb-product-mat-os-new-${StageName}"
       EventBusName: !Ref DynamoDbEventBus
       EventPattern:
         source:
@@ -2532,12 +2532,12 @@ Resources:
                 S:
                   - "CREATED"
       Targets:
-        - Id: ItemMaterializeOpenSearchNewQ
+        - Id: ProductMaterializeOpenSearchNewQ
           Arn: !GetAtt ProductMaterializeOpenSearchNewQ.Arn
-  DynamoDbItemEventRecordUpdatedMaterializeOpenSearchItemDocumentEventRule:
+  DynamoDbProductEventRecordUpdatedMaterializeOpenSearchProductDocumentEventRule:
     Type: AWS::Events::Rule
     Properties:
-      Name: !Sub "ddb-item-mat-os-update-${StageName}"
+      Name: !Sub "ddb-product-mat-os-update-${StageName}"
       EventBusName: !Ref DynamoDbEventBus
       EventPattern:
         source:
@@ -2554,9 +2554,9 @@ Resources:
                   - prefix: "PRICE_"
                   - prefix: "STATE_"
       Targets:
-        - Id: ItemMaterializeOpenSearchUpdateQ
+        - Id: ProductMaterializeOpenSearchUpdateQ
           Arn: !GetAtt ProductMaterializeOpenSearchUpdateQ.Arn
-  DynamoDbItemEventRecordUpdatedNotifyUserEventRule:
+  DynamoDbProductEventRecordUpdatedNotifyUserEventRule:
     Type: AWS::Events::Rule
     Properties:
       Name: !Sub "ddb-product-update-notify-user-${StageName}"
@@ -2576,12 +2576,12 @@ Resources:
                   - prefix: "PRICE_"
                   - prefix: "STATE_"
       Targets:
-        - Id: ItemUpdateNotifyUserQ
+        - Id: ProductUpdateNotifyUserQ
           Arn: !GetAtt ProductUpdateNotifyUserQ.Arn
-  DynamoDbItemEventRecordCreatedItemEnrichmentEventRule:
+  DynamoDbProductEventRecordCreatedProductEnrichmentEventRule:
     Type: AWS::Events::Rule
     Properties:
-      Name: !Sub "ddb-item-product-enrichment-${StageName}"
+      Name: !Sub "ddb-product-enrichment-${StageName}"
       EventBusName: !Ref DynamoDbEventBus
       EventPattern:
         source:
@@ -2597,10 +2597,10 @@ Resources:
                 S:
                   - "CREATED"
       Targets:
-        - Id: ItemEnrichmentQ
+        - Id: ProductEnrichmentQ
           Arn: !GetAtt ProductEnrichmentQ.Arn
 
-  ItemEnrichmentVpc:
+  ProductEnrichmentVpc:
     Type: AWS::EC2::VPC
     Properties:
       CidrBlock: 10.0.0.0/16
@@ -2609,66 +2609,66 @@ Resources:
       Tags:
         - Key: Name
           Value: !Sub "product-enrichment-vpc-${StageName}"
-  ItemEnrichmentInternetGateway:
+  ProductEnrichmentInternetGateway:
     Type: AWS::EC2::InternetGateway
     Properties:
       Tags:
         - Key: Name
           Value: !Sub "product-enrichment-igw-${StageName}"
-  ItemEnrichmentVpcGatewayAttachment:
+  ProductEnrichmentVpcGatewayAttachment:
     Type: AWS::EC2::VPCGatewayAttachment
     Properties:
-      InternetGatewayId: !Ref ItemEnrichmentInternetGateway
-      VpcId: !Ref ItemEnrichmentVpc
-  ItemEnrichmentPublicRouteTable:
+      InternetGatewayId: !Ref ProductEnrichmentInternetGateway
+      VpcId: !Ref ProductEnrichmentVpc
+  ProductEnrichmentPublicRouteTable:
     Type: AWS::EC2::RouteTable
     Properties:
-      VpcId: !Ref ItemEnrichmentVpc
+      VpcId: !Ref ProductEnrichmentVpc
       Tags:
         - Key: Name
           Value: !Sub "product-enrichment-public-rt-${StageName}"
-  ItemEnrichmentPublicRoute:
+  ProductEnrichmentPublicRoute:
     Type: AWS::EC2::Route
-    DependsOn: ItemEnrichmentVpcGatewayAttachment
+    DependsOn: ProductEnrichmentVpcGatewayAttachment
     Properties:
-      RouteTableId: !Ref ItemEnrichmentPublicRouteTable
+      RouteTableId: !Ref ProductEnrichmentPublicRouteTable
       DestinationCidrBlock: 0.0.0.0/0
-      GatewayId: !Ref ItemEnrichmentInternetGateway
-  ItemEnrichmentSubnetA:
+      GatewayId: !Ref ProductEnrichmentInternetGateway
+  ProductEnrichmentSubnetA:
     Type: AWS::EC2::Subnet
     Properties:
-      VpcId: !Ref ItemEnrichmentVpc
+      VpcId: !Ref ProductEnrichmentVpc
       CidrBlock: 10.0.1.0/24
       MapPublicIpOnLaunch: true
       AvailabilityZone: !Select [0, !GetAZs ""]
       Tags:
         - Key: Name
           Value: !Sub "product-enrichment-subnet-a-${StageName}"
-  ItemEnrichmentSubnetB:
+  ProductEnrichmentSubnetB:
     Type: AWS::EC2::Subnet
     Properties:
-      VpcId: !Ref ItemEnrichmentVpc
+      VpcId: !Ref ProductEnrichmentVpc
       CidrBlock: 10.0.2.0/24
       MapPublicIpOnLaunch: true
       AvailabilityZone: !Select [1, !GetAZs ""]
       Tags:
         - Key: Name
           Value: !Sub "product-enrichment-subnet-b-${StageName}"
-  ItemEnrichmentSubnetRouteAssocA:
+  ProductEnrichmentSubnetRouteAssocA:
     Type: AWS::EC2::SubnetRouteTableAssociation
     Properties:
-      SubnetId: !Ref ItemEnrichmentSubnetA
-      RouteTableId: !Ref ItemEnrichmentPublicRouteTable
-  ItemEnrichmentSubnetRouteAssocB:
+      SubnetId: !Ref ProductEnrichmentSubnetA
+      RouteTableId: !Ref ProductEnrichmentPublicRouteTable
+  ProductEnrichmentSubnetRouteAssocB:
     Type: AWS::EC2::SubnetRouteTableAssociation
     Properties:
-      SubnetId: !Ref ItemEnrichmentSubnetB
-      RouteTableId: !Ref ItemEnrichmentPublicRouteTable
-  ItemEnrichmentSecurityGroup:
+      SubnetId: !Ref ProductEnrichmentSubnetB
+      RouteTableId: !Ref ProductEnrichmentPublicRouteTable
+  ProductEnrichmentSecurityGroup:
     Type: AWS::EC2::SecurityGroup
     Properties:
       GroupDescription: Allow SSH and internal comms
-      VpcId: !Ref ItemEnrichmentVpc
+      VpcId: !Ref ProductEnrichmentVpc
       SecurityGroupEgress:
         - IpProtocol: -1
           CidrIp: 0.0.0.0/0
@@ -2676,7 +2676,7 @@ Resources:
         - Key: Name
           Value: !Sub "product-enrichment-sg-${StageName}"
 
-  ItemEnrichmentDlq:
+  ProductEnrichmentDlq:
     Type: AWS::SQS::Queue
     Properties:
       QueueName: !Sub "product-enrichment-dlq-${StageName}"
@@ -2686,7 +2686,7 @@ Resources:
     Properties:
       QueueName: !Sub "product-enrichment-queue-${StageName}"
       RedrivePolicy:
-        deadLetterTargetArn: !GetAtt ItemEnrichmentDlq.Arn
+        deadLetterTargetArn: !GetAtt ProductEnrichmentDlq.Arn
         maxReceiveCount: 3
       VisibilityTimeout: 360
   ProductEnrichmentRole:
@@ -2763,12 +2763,12 @@ Resources:
                   - logs:CreateLogStream
                   - logs:PutLogEvents
                 Resource: "*"
-  ItemEnrichmentInstanceProfile:
+  ProductEnrichmentInstanceProfile:
     Type: AWS::IAM::InstanceProfile
     Properties:
       InstanceProfileName: !Sub "product-enrichment-profile-${StageName}"
       Roles:
-        - !Ref ItemEnrichmentRole
+        - !Ref ProductEnrichmentRole
   ProductEnrichmentLaunchTemplate:
     Type: AWS::EC2::LaunchTemplate
     Properties:
@@ -2776,10 +2776,10 @@ Resources:
       LaunchTemplateData:
         KeyName: !Ref Ec2KeyPairName
         IamInstanceProfile:
-          Name: !Ref ItemEnrichmentInstanceProfile
+          Name: !Ref ProductEnrichmentInstanceProfile
         InstanceType: g6.xlarge # Placeholder - ASG overrides this
         ImageId: ami-047a98bf51dec0963 # custom eu-central-1 AMI with preinstalled deps based on ami-032fa3abdbb7e3a12 (Deep Learning OSS Nvidia Driver AMI GPU PyTorch 2.8 (Ubuntu 24.04))
-        SecurityGroupIds: [!Ref ItemEnrichmentSecurityGroup]
+        SecurityGroupIds: [!Ref ProductEnrichmentSecurityGroup]
         BlockDeviceMappings:
           - DeviceName: /dev/sda1
             Ebs:
@@ -2802,7 +2802,7 @@ Resources:
             export COMMIT_SHA="${CommitSHA}"
             export RESOURCE_BUCKET="${ResourceBucket}"
             export ARTIFACT_BUCKET="${ArtifactBucket}"
-            export ENRICHMENT_QUEUE_URL="${ItemEnrichmentQ}"
+            export ENRICHMENT_QUEUE_URL="${ProductEnrichmentQ}"
             export DYNAMODB_TABLE_NAME="${TableOne}"
             export OPENSEARCH_DOMAIN_ENDPOINT_URL="https://${BlitzfilterOpenSearchDomain.DomainEndpoint}"
             export BAAI_BGE_M3_MODEL_DEVICE="cuda"
@@ -2812,16 +2812,16 @@ Resources:
     Type: AWS::AutoScaling::AutoScalingGroup
     Properties:
       VPCZoneIdentifier:
-        - !Ref ItemEnrichmentSubnetA
-        - !Ref ItemEnrichmentSubnetB
+        - !Ref ProductEnrichmentSubnetA
+        - !Ref ProductEnrichmentSubnetB
       MinSize: 0
       MaxSize: 3
       DesiredCapacity: 0 # Default zero, scale via EventBridge
       MixedInstancesPolicy:
         LaunchTemplate:
           LaunchTemplateSpecification:
-            LaunchTemplateId: !Ref ItemEnrichmentLaunchTemplate
-            Version: !GetAtt ItemEnrichmentLaunchTemplate.LatestVersionNumber
+            LaunchTemplateId: !Ref ProductEnrichmentLaunchTemplate
+            Version: !GetAtt ProductEnrichmentLaunchTemplate.LatestVersionNumber
           Overrides:
             - InstanceType: g6.xlarge
             - InstanceType: g6.2xlarge
@@ -2836,7 +2836,7 @@ Resources:
           PropagateAtLaunch: true
       HealthCheckType: EC2
       HealthCheckGracePeriod: 120
-  ItemEnrichmentDlqAlarm:
+  ProductEnrichmentDlqAlarm:
     Type: AWS::CloudWatch::Alarm
     Properties:
       AlarmName: !Sub "${StageName}-product-enrichment-dlq-messages"
@@ -2850,11 +2850,11 @@ Resources:
       ComparisonOperator: GreaterThanOrEqualToThreshold
       Dimensions:
         - Name: QueueName
-          Value: !GetAtt ItemEnrichmentDlq.QueueName
+          Value: !GetAtt ProductEnrichmentDlq.QueueName
       TreatMissingData: notBreaching
       AlarmActions:
         - !Ref AlarmNotificationTopic
-  ItemEnrichmentASGEC2InstanceStatusCheckFailed:
+  ProductEnrichmentASGEC2InstanceStatusCheckFailed:
     Type: AWS::CloudWatch::Alarm
     Properties:
       AlarmDescription: "One or more instance status checks are failing."
@@ -2871,7 +2871,7 @@ Resources:
       TreatMissingData: notBreaching
       AlarmActions:
         - !Ref AlarmNotificationTopic
-  ItemEnrichmentASGEC2SystemStatusCheckFailed:
+  ProductEnrichmentASGEC2SystemStatusCheckFailed:
     Type: AWS::CloudWatch::Alarm
     Properties:
       AlarmDescription: "System status check failed (hardware/hypervisor)."
@@ -2889,7 +2889,7 @@ Resources:
       AlarmActions:
         - !Ref AlarmNotificationTopic
 
-  ItemEnrichmentScaleDownRole:
+  ProductEnrichmentScaleDownRole:
     Type: AWS::IAM::Role
     Properties:
       RoleName: !Sub "product-enrichment-asg-scale-down-role-${StageName}"
@@ -2911,7 +2911,7 @@ Resources:
                 Action:
                   - autoscaling:UpdateAutoScalingGroup
                   - autoscaling:DescribeAutoScalingGroups
-                Resource: !Sub "arn:aws:autoscaling:${AWS::Region}:${AWS::AccountId}:autoScalingGroup:*:autoScalingGroupName/${ItemEnrichmentASG}"
+                Resource: !Sub "arn:aws:autoscaling:${AWS::Region}:${AWS::AccountId}:autoScalingGroup:*:autoScalingGroupName/${ProductEnrichmentASG}"
         - PolicyName: OpenSearchAccess
           PolicyDocument:
             Version: "2012-10-17"
@@ -2920,13 +2920,13 @@ Resources:
                 Action:
                   - es:*
                 Resource: !Sub "arn:aws:es:${AWS::Region}:${AWS::AccountId}:domain/application-${StageName}/*"
-  ItemEnrichmentScaleDownLambda:
+  ProductEnrichmentScaleDownLambda:
     Type: AWS::Lambda::Function
     Properties:
       FunctionName: !Sub "product-enrichment-asg-scale-down-${StageName}"
       Runtime: provided.al2023
       Handler: lib.handler
-      Role: !GetAtt ItemEnrichmentScaleDownRole.Arn
+      Role: !GetAtt ProductEnrichmentScaleDownRole.Arn
       Code:
         S3Bucket: !Ref ArtifactBucket
         S3Key: !Sub "product-enrichment-asg-scale-down-${StageName}-${CommitSHA}.zip"
@@ -2938,26 +2938,26 @@ Resources:
         Variables:
           PRODUCT_ENRICHMENT_ASG_NAME: !Ref ProductEnrichmentASG
           OPENSEARCH_DOMAIN_ENDPOINT_URL: !Sub "https://${BlitzfilterOpenSearchDomain.DomainEndpoint}"
-  ItemEnrichmentScaleDownStartSchedule:
+  ProductEnrichmentScaleDownStartSchedule:
     Type: AWS::Events::Rule
     Properties:
       ScheduleExpression: "cron(0 3 * * ? *)" # every day at 03:00 UTC
       Targets:
-        - Arn: !GetAtt ItemEnrichmentScaleDownLambda.Arn
-          Id: "ItemEnrichmentScaleDownStartSchedule"
+        - Arn: !GetAtt ProductEnrichmentScaleDownLambda.Arn
+          Id: "ProductEnrichmentScaleDownStartSchedule"
           RetryPolicy:
             MaximumRetryAttempts: 5
             MaximumEventAgeInSeconds: 3600
           DeadLetterConfig:
-            Arn: !GetAtt ItemEnrichmentDlq.Arn
-  ItemEnrichmentScaleDownStartSchedulePermission:
+            Arn: !GetAtt ProductEnrichmentDlq.Arn
+  ProductEnrichmentScaleDownStartSchedulePermission:
     Type: AWS::Lambda::Permission
     Properties:
-      FunctionName: !Ref ItemEnrichmentScaleDownLambda
+      FunctionName: !Ref ProductEnrichmentScaleDownLambda
       Action: "lambda:InvokeFunction"
       Principal: "events.amazonaws.com"
-      SourceArn: !GetAtt ItemEnrichmentScaleDownStartSchedule.Arn
-  ItemEnrichmentScaleDownLambdaErrorAlarm:
+      SourceArn: !GetAtt ProductEnrichmentScaleDownStartSchedule.Arn
+  ProductEnrichmentScaleDownLambdaErrorAlarm:
     Type: AWS::CloudWatch::Alarm
     Properties:
       AlarmName: !Sub "${StageName}-product-enrichment-asg-scale-down-lambda-errors"
@@ -2971,12 +2971,12 @@ Resources:
       ComparisonOperator: GreaterThanOrEqualToThreshold
       Dimensions:
         - Name: FunctionName
-          Value: !Ref ItemEnrichmentScaleDownLambda
+          Value: !Ref ProductEnrichmentScaleDownLambda
       TreatMissingData: notBreaching
       AlarmActions:
         - !Ref AlarmNotificationTopic
 
-  ItemEnrichmentScaleUpRole:
+  ProductEnrichmentScaleUpRole:
     Type: AWS::IAM::Role
     Properties:
       RoleName: !Sub "product-enrichment-asg-scale-up-role-${StageName}"
@@ -2998,7 +2998,7 @@ Resources:
                 Action:
                   - autoscaling:UpdateAutoScalingGroup
                   - autoscaling:DescribeAutoScalingGroups
-                Resource: !Sub "arn:aws:autoscaling:${AWS::Region}:${AWS::AccountId}:autoScalingGroup:*:autoScalingGroupName/${ItemEnrichmentASG}"
+                Resource: !Sub "arn:aws:autoscaling:${AWS::Region}:${AWS::AccountId}:autoScalingGroup:*:autoScalingGroupName/${ProductEnrichmentASG}"
         - PolicyName: OpenSearchAccess
           PolicyDocument:
             Version: "2012-10-17"
@@ -3007,13 +3007,13 @@ Resources:
                 Action:
                   - es:*
                 Resource: !Sub "arn:aws:es:${AWS::Region}:${AWS::AccountId}:domain/application-${StageName}/*"
-  ItemEnrichmentScaleUpLambda:
+  ProductEnrichmentScaleUpLambda:
     Type: AWS::Lambda::Function
     Properties:
       FunctionName: !Sub "product-enrichment-asg-scale-up-${StageName}"
       Runtime: provided.al2023
       Handler: lib.handler
-      Role: !GetAtt ItemEnrichmentScaleUpRole.Arn
+      Role: !GetAtt ProductEnrichmentScaleUpRole.Arn
       Code:
         S3Bucket: !Ref ArtifactBucket
         S3Key: !Sub "product-enrichment-asg-scale-up-${StageName}-${CommitSHA}.zip"
@@ -3025,26 +3025,26 @@ Resources:
         Variables:
           PRODUCT_ENRICHMENT_ASG_NAME: !Ref ProductEnrichmentASG
           OPENSEARCH_DOMAIN_ENDPOINT_URL: !Sub "https://${BlitzfilterOpenSearchDomain.DomainEndpoint}"
-  ItemEnrichmentScaleUpStartSchedule:
+  ProductEnrichmentScaleUpStartSchedule:
     Type: AWS::Events::Rule
     Properties:
       ScheduleExpression: "cron(0 1 * * ? *)" # every day at 01:00 UTC
       Targets:
-        - Arn: !GetAtt ItemEnrichmentScaleUpLambda.Arn
-          Id: "ItemEnrichmentScaleUpStartSchedule"
+        - Arn: !GetAtt ProductEnrichmentScaleUpLambda.Arn
+          Id: "ProductEnrichmentScaleUpStartSchedule"
           RetryPolicy:
             MaximumRetryAttempts: 5
             MaximumEventAgeInSeconds: 3600
           DeadLetterConfig:
-            Arn: !GetAtt ItemEnrichmentDlq.Arn
-  ItemEnrichmentScaleUpStartSchedulePermission:
+            Arn: !GetAtt ProductEnrichmentDlq.Arn
+  ProductEnrichmentScaleUpStartSchedulePermission:
     Type: AWS::Lambda::Permission
     Properties:
-      FunctionName: !Ref ItemEnrichmentScaleUpLambda
+      FunctionName: !Ref ProductEnrichmentScaleUpLambda
       Action: "lambda:InvokeFunction"
       Principal: "events.amazonaws.com"
-      SourceArn: !GetAtt ItemEnrichmentScaleUpStartSchedule.Arn
-  ItemEnrichmentScaleUpLambdaErrorAlarm:
+      SourceArn: !GetAtt ProductEnrichmentScaleUpStartSchedule.Arn
+  ProductEnrichmentScaleUpLambdaErrorAlarm:
     Type: AWS::CloudWatch::Alarm
     Properties:
       AlarmName: !Sub "${StageName}-product-enrichment-asg-scale-up-lambda-errors"
@@ -3058,7 +3058,7 @@ Resources:
       ComparisonOperator: GreaterThanOrEqualToThreshold
       Dimensions:
         - Name: FunctionName
-          Value: !Ref ItemEnrichmentScaleUpLambda
+          Value: !Ref ProductEnrichmentScaleUpLambda
       TreatMissingData: notBreaching
       AlarmActions:
         - !Ref AlarmNotificationTopic
@@ -3086,40 +3086,40 @@ Outputs:
   SendMailDeadLetterQueueUrl:
     Value: !Ref SendMailDlq
 
-  ItemIngestEventsDynamodbQueueUrl:
-    Value: !Ref ItemIngestEventsDynamoDbQ
-  ItemIngestEventsDynamodbDeadLetterQueueUrl:
-    Value: !Ref ItemIngestEventsDynamoDbDlq
+  ProductIngestEventsDynamodbQueueUrl:
+    Value: !Ref ProductIngestEventsDynamoDbQ
+  ProductIngestEventsDynamodbDeadLetterQueueUrl:
+    Value: !Ref ProductIngestEventsDynamoDbDlq
 
-  ItemMaterializeDynamodbNewQueueUrl:
+  ProductMaterializeDynamodbNewQueueUrl:
     Value: !Ref ProductMaterializeDynamoDbNewQ
-  ItemMaterializeDynamodbNewDeadLetterQueueUrl:
-    Value: !Ref ItemMaterializeDynamoDbNewDlq
+  ProductMaterializeDynamodbNewDeadLetterQueueUrl:
+    Value: !Ref ProductMaterializeDynamoDbNewDlq
 
-  ItemMaterializeDynamodbUpdateQueueUrl:
+  ProductMaterializeDynamodbUpdateQueueUrl:
     Value: !Ref ProductMaterializeDynamoDbUpdateQ
-  ItemMaterializeDynamodbUpdateDeadLetterQueueUrl:
-    Value: !Ref ItemMaterializeDynamoDbUpdateDlq
+  ProductMaterializeDynamodbUpdateDeadLetterQueueUrl:
+    Value: !Ref ProductMaterializeDynamoDbUpdateDlq
 
-  ItemMaterializeOpensearchNewQueueUrl:
+  ProductMaterializeOpensearchNewQueueUrl:
     Value: !Ref ProductMaterializeOpenSearchNewQ
-  ItemMaterializeOpensearchNewDeadLetterQueueUrl:
-    Value: !Ref ItemMaterializeOpenSearchNewDlq
+  ProductMaterializeOpensearchNewDeadLetterQueueUrl:
+    Value: !Ref ProductMaterializeOpenSearchNewDlq
 
-  ItemMaterializeOpensearchUpdateQueueUrl:
+  ProductMaterializeOpensearchUpdateQueueUrl:
     Value: !Ref ProductMaterializeOpenSearchUpdateQ
-  ItemMaterializeOpensearchUpdateDeadLetterQueueUrl:
-    Value: !Ref ItemMaterializeOpenSearchUpdateDlq
+  ProductMaterializeOpensearchUpdateDeadLetterQueueUrl:
+    Value: !Ref ProductMaterializeOpenSearchUpdateDlq
 
-  ItemUpdateNotifyUserQueueUrl:
+  ProductUpdateNotifyUserQueueUrl:
     Value: !Ref ProductUpdateNotifyUserQ
-  ItemUpdateNotifyUserDeadLetterQueueUrl:
-    Value: !Ref ItemUpdateNotifyUserDlq
+  ProductUpdateNotifyUserDeadLetterQueueUrl:
+    Value: !Ref ProductUpdateNotifyUserDlq
 
-  ItemEnrichmentQueueUrl:
+  ProductEnrichmentQueueUrl:
     Value: !Ref ProductEnrichmentQ
-  ItemEnrichmentDeadLetterQueueUrl:
-    Value: !Ref ItemEnrichmentDlq
+  ProductEnrichmentDeadLetterQueueUrl:
+    Value: !Ref ProductEnrichmentDlq
 
   AlarmNotificationTopicArn:
     Value: !Ref AlarmNotificationTopic
