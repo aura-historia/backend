@@ -10,7 +10,7 @@ use product::data::{item_state_data::ProductStateData, put_data::PutItemData};
 use product::dynamodb::repository::{ProductDynamoDbRepository, ProductDynamoDbRepositoryImpl};
 use product::watchlist::{
     data::watchlist_item_data::WatchlistProductData,
-    dynamodb::repository::{WatchlistItemDynamoDbRepository, WatchlistItemDynamoDbRepositoryImpl},
+    dynamodb::repository::{WatchlistProductDynamoDbRepository, WatchlistProductDynamoDbRepositoryImpl},
 };
 use shop::core::shop::Shop;
 use shop::dynamodb::{
@@ -133,7 +133,7 @@ async fn should_send_email_to_user_when_watched_item_has_update() {
     assert_eq!(200, patch_response.status());
     let patched = patch_response.json::<WatchlistProductData>().await.unwrap();
     tokio::time::sleep(Duration::from_secs(10)).await;
-    let watchlist_repository = WatchlistItemDynamoDbRepositoryImpl::new(
+    let watchlist_repository = WatchlistProductDynamoDbRepositoryImpl::new(
         get_dynamodb_client().await,
         &stack.dynamodb_table_1_name,
     );

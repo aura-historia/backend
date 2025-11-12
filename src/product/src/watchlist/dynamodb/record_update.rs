@@ -1,6 +1,6 @@
 use crate::{
     watchlist::dynamodb::record::{mk_gsi1_pk, mk_gsi1_sk},
-    watchlist::service::command::UpdateWatchlistItemCommand,
+    watchlist::service::command::UpdateWatchlistProductCommand,
 };
 use aws_sdk_dynamodb::{
     error::SdkError, operation::update_item::UpdateItemError, types::AttributeValue,
@@ -15,7 +15,7 @@ use std::collections::HashMap;
 use time::OffsetDateTime;
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-pub struct WatchlistItemRecordUpdate {
+pub struct WatchlistProductRecordUpdate {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub gsi1_pk: Option<String>,
 
@@ -29,7 +29,7 @@ pub struct WatchlistItemRecordUpdate {
     pub updated: OffsetDateTime,
 }
 
-impl DynamoDbUpdate for WatchlistItemRecordUpdate {
+impl DynamoDbUpdate for WatchlistProductRecordUpdate {
     #[allow(clippy::result_large_err)]
     fn into_update_expr(self) -> Result<DynamoDbUpdateExpression, SdkError<UpdateItemError>> {
         let mut remove_clause = "";
@@ -70,13 +70,13 @@ impl DynamoDbUpdate for WatchlistItemRecordUpdate {
     }
 }
 
-impl WatchlistItemRecordUpdate {
+impl WatchlistProductRecordUpdate {
     pub fn from_cmd(
-        cmd: UpdateWatchlistItemCommand,
+        cmd: UpdateWatchlistProductCommand,
         user_id: &UserId,
         product_id: &ProductId,
-    ) -> WatchlistItemRecordUpdate {
-        WatchlistItemRecordUpdate {
+    ) -> WatchlistProductRecordUpdate {
+        WatchlistProductRecordUpdate {
             gsi1_pk: if let Some(true) = cmd.notifications {
                 Some(mk_gsi1_pk(product_id))
             } else {

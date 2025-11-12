@@ -1,6 +1,6 @@
 use crate::{
-    watchlist::dynamodb::record::{WatchlistItemRecord, mk_gsi1_pk, mk_lsi1_sk, mk_pk, mk_sk},
-    watchlist::dynamodb::record_update::WatchlistItemRecordUpdate,
+    watchlist::dynamodb::record::{WatchlistProductRecord, mk_gsi1_pk, mk_lsi1_sk, mk_pk, mk_sk},
+    watchlist::dynamodb::record_update::WatchlistProductRecordUpdate,
 };
 use aws_sdk_dynamodb::{
     Client,
@@ -24,19 +24,19 @@ use user::dynamodb::user_record::UserRecord;
 
 #[async_trait::async_trait]
 #[mockall::automock]
-pub trait WatchlistItemDynamoDbRepository {
+pub trait WatchlistProductDynamoDbRepository {
     async fn query_watchlist_records_all(
         &self,
         user_id: &UserId,
         scan_index_forward: bool,
-    ) -> Result<Vec<WatchlistItemRecord>, SdkError<QueryError>>;
+    ) -> Result<Vec<WatchlistProductRecord>, SdkError<QueryError>>;
 
     async fn query_watchlist_records(
         &self,
         user_id: &UserId,
         cursor: &Cursor<OffsetDateTime>,
         scan_index_forward: bool,
-    ) -> Result<Vec<WatchlistItemRecord>, SdkError<QueryError>>;
+    ) -> Result<Vec<WatchlistProductRecord>, SdkError<QueryError>>;
 
     async fn count_watchlist_records(
         &self,
@@ -47,7 +47,7 @@ pub trait WatchlistItemDynamoDbRepository {
 
     async fn put_watchlist_record(
         &self,
-        record: WatchlistItemRecord,
+        record: WatchlistProductRecord,
     ) -> Result<PutItemOutput, SdkError<PutItemError>>;
 
     async fn get_watchlist_record(
@@ -55,7 +55,7 @@ pub trait WatchlistItemDynamoDbRepository {
         user_id: &UserId,
         shop_id: &ShopId,
         shops_product_id: &ShopsProductId,
-    ) -> Result<Option<WatchlistItemRecord>, SdkError<GetItemError>>;
+    ) -> Result<Option<WatchlistProductRecord>, SdkError<GetProductError>>;
 
     async fn delete_watchlist_record(
         &self,
@@ -69,8 +69,8 @@ pub trait WatchlistItemDynamoDbRepository {
         user_id: &UserId,
         shop_id: &ShopId,
         shops_product_id: &ShopsProductId,
-        update: WatchlistItemRecordUpdate,
-    ) -> Result<Option<WatchlistItemRecord>, SdkError<UpdateItemError>>;
+        update: WatchlistProductRecordUpdate,
+    ) -> Result<Option<WatchlistProductRecord>, SdkError<UpdateItemError>>;
 
     async fn query_user_records_with_notifications(
         &self,
@@ -79,12 +79,12 @@ pub trait WatchlistItemDynamoDbRepository {
 }
 
 #[derive(Debug, Clone)]
-pub struct WatchlistItemDynamoDbRepositoryImpl<'a> {
+pub struct WatchlistProductDynamoDbRepositoryImpl<'a> {
     client: &'a Client,
     table: String,
 }
 
-impl<'a> WatchlistItemDynamoDbRepositoryImpl<'a> {
+impl<'a> WatchlistProductDynamoDbRepositoryImpl<'a> {
     pub fn new(client: &'a Client, table: impl Into<String>) -> Self {
         Self {
             client,
@@ -94,12 +94,12 @@ impl<'a> WatchlistItemDynamoDbRepositoryImpl<'a> {
 }
 
 #[async_trait::async_trait]
-impl<'a> WatchlistItemDynamoDbRepository for WatchlistItemDynamoDbRepositoryImpl<'a> {
+impl<'a> WatchlistProductDynamoDbRepository for WatchlistProductDynamoDbRepositoryImpl<'a> {
     async fn query_watchlist_records_all(
         &self,
         user_id: &UserId,
         scan_index_forward: bool,
-    ) -> Result<Vec<WatchlistItemRecord>, SdkError<QueryError>> {
+    ) -> Result<Vec<WatchlistProductRecord>, SdkError<QueryError>> {
         let watchlist_records = self
             .client
             .query()
@@ -122,11 +122,11 @@ impl<'a> WatchlistItemDynamoDbRepository for WatchlistItemDynamoDbRepositoryImpl
             .await?
             .into_iter()
             .flat_map(|qo| qo.items.unwrap_or_default())
-            .map(serde_dynamo::from_item::<_, WatchlistItemRecord>)
+            .map(serde_dynamo::from_item::<_, WatchlistProductRecord>)
             .filter_map(|res| match res {
                 Ok(record) => Some(record),
                 Err(err) => {
-                    error!(userId = %user_id, error = %err, type = %std::any::type_name::<WatchlistItemRecord>(), "Failed deserializing.");
+                    error!(userId = %user_id, error = %err, type = %std::any::type_name::<WatchlistProductRecord>(), "Failed deserializing.");
                     None
                 }
             })
@@ -140,7 +140,7 @@ impl<'a> WatchlistItemDynamoDbRepository for WatchlistItemDynamoDbRepositoryImpl
         user_id: &UserId,
         cursor: &Cursor<OffsetDateTime>,
         scan_index_forward: bool,
-    ) -> Result<Vec<WatchlistItemRecord>, SdkError<QueryError>> {
+    ) -> Result<Vec<WatchlistProductRecord>, SdkError<QueryError>> {
         let exclusive_guard = if scan_index_forward {
             cursor
                 .search_after
@@ -177,11 +177,11 @@ impl<'a> WatchlistItemDynamoDbRepository for WatchlistItemDynamoDbRepositoryImpl
             .items
             .unwrap_or_default()
             .into_iter()
-            .map(serde_dynamo::from_item::<_, WatchlistItemRecord>)
+            .map(serde_dynamo::from_item::<_, WatchlistProductRecord>)
             .filter_map(|res| match res {
                 Ok(record) => Some(record),
                 Err(err) => {
-                    error!(userId = %user_id, error = %err, type = %std::any::type_name::<WatchlistItemRecord>(), "Failed deserializing.");
+                    error!(userId = %user_id, error = %err, type = %std::any::type_name::<WatchlistProductRecord>(), "Failed deserializing.");
                     None
                 }
             })
@@ -235,7 +235,7 @@ impl<'a> WatchlistItemDynamoDbRepository for WatchlistItemDynamoDbRepositoryImpl
 
     async fn put_watchlist_record(
         &self,
-        record: WatchlistItemRecord,
+        record: WatchlistProductRecord,
     ) -> Result<PutItemOutput, SdkError<PutItemError>> {
         self.client
             .put_item()
@@ -252,7 +252,7 @@ impl<'a> WatchlistItemDynamoDbRepository for WatchlistItemDynamoDbRepositoryImpl
         user_id: &UserId,
         shop_id: &ShopId,
         shops_product_id: &ShopsProductId,
-    ) -> Result<Option<WatchlistItemRecord>, SdkError<GetItemError>> {
+    ) -> Result<Option<WatchlistProductRecord>, SdkError<GetProductError>> {
         let record = self
             .client
             .get_item()
@@ -262,7 +262,7 @@ impl<'a> WatchlistItemDynamoDbRepository for WatchlistItemDynamoDbRepositoryImpl
             .send()
             .await?
             .item
-            .map(serde_dynamo::from_item::<_, WatchlistItemRecord>)
+            .map(serde_dynamo::from_item::<_, WatchlistProductRecord>)
             .and_then(|res| match res {
                 Ok(record) => Some(record),
                 Err(err) => {
@@ -271,8 +271,8 @@ impl<'a> WatchlistItemDynamoDbRepository for WatchlistItemDynamoDbRepositoryImpl
                         shopId = %shop_id,
                         shopsItemId = %shops_product_id,
                         error = %err,
-                        type = %std::any::type_name::<WatchlistItemRecord>(),
-                        "Failed deserializing WatchlistItemRecord."
+                        type = %std::any::type_name::<WatchlistProductRecord>(),
+                        "Failed deserializing WatchlistProductRecord."
                     );
                     None
                 }
@@ -301,8 +301,8 @@ impl<'a> WatchlistItemDynamoDbRepository for WatchlistItemDynamoDbRepositoryImpl
         user_id: &UserId,
         shop_id: &ShopId,
         shops_product_id: &ShopsProductId,
-        update: WatchlistItemRecordUpdate,
-    ) -> Result<Option<WatchlistItemRecord>, SdkError<UpdateItemError>> {
+        update: WatchlistProductRecordUpdate,
+    ) -> Result<Option<WatchlistProductRecord>, SdkError<UpdateItemError>> {
         let update_expr = update.into_update_expr()?;
 
         self.client
@@ -328,8 +328,8 @@ impl<'a> WatchlistItemDynamoDbRepository for WatchlistItemDynamoDbRepositoryImpl
                                 shopId = %shop_id,
                                 shopsItemId = %shops_product_id,
                                 error = %err,
-                                type = %std::any::type_name::<WatchlistItemRecord>(),
-                                "Failed deserializing WatchlistItemRecord."
+                                type = %std::any::type_name::<WatchlistProductRecord>(),
+                                "Failed deserializing WatchlistProductRecord."
                             );
                             None
                         }
@@ -364,11 +364,11 @@ impl<'a> WatchlistItemDynamoDbRepository for WatchlistItemDynamoDbRepositoryImpl
             .await?
             .into_iter()
             .flat_map(|qo| qo.items.unwrap_or_default())
-            .map(serde_dynamo::from_item::<_, WatchlistItemRecord>)
+            .map(serde_dynamo::from_item::<_, WatchlistProductRecord>)
             .filter_map(|res| match res {
                 Ok(record) => Some(record.user_record),
                 Err(err) => {
-                    error!(itemId = %product_id, error = %err, type = %std::any::type_name::<WatchlistItemRecord>(), "Failed deserializing.");
+                    error!(itemId = %product_id, error = %err, type = %std::any::type_name::<WatchlistProductRecord>(), "Failed deserializing.");
                     None
                 }
             })

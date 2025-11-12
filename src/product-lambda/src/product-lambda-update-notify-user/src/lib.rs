@@ -267,8 +267,8 @@ mod tests {
                 } else {
                     remaining.sub_assign(1);
                     Box::pin(async move {
-                        Err(ItemEventMailPayloadServiceError::GetItemError(
-                            item::service::get_service::GetItemError::SdkGetItemError(
+                        Err(ItemEventMailPayloadServiceError::GetProductError(
+                            item::service::get_service::GetProductError::SdkGetItemError(
                                 SdkError::construction_failure("something went wrong"),
                             ),
                         ))

@@ -16,7 +16,7 @@ use product::opensearch::repository::{
 use product::service::get_service::GetItemServiceImpl;
 use product::service::personalization_service::ItemPersonalizationServiceImpl;
 use product::service::semantic_service::SemanticSearchServiceImpl;
-use product::watchlist::dynamodb::repository::WatchlistItemDynamoDbRepositoryImpl;
+use product::watchlist::dynamodb::repository::WatchlistProductDynamoDbRepositoryImpl;
 use product::watchlist::service::product_watchlist_service::{
     ProductWatchListService, ProductWatchListServiceImpl,
 };
@@ -1057,7 +1057,7 @@ async fn should_202_when_similar_items_have_not_been_computed_for_anon() {
     let item_dynamodb_repository =
         ProductDynamoDbRepositoryImpl::new(get_dynamodb_client().await, "table_1");
     let watchlist_repository =
-        WatchlistItemDynamoDbRepositoryImpl::new(get_dynamodb_client().await, "table_1");
+        WatchlistProductDynamoDbRepositoryImpl::new(get_dynamodb_client().await, "table_1");
     let item_opensearch_repository =
         ProductOpenSearchRepositoryImpl::new(get_opensearch_client().await);
     let item_personalization_service = ItemPersonalizationServiceImpl::new(&watchlist_repository);
@@ -1120,7 +1120,7 @@ async fn should_200_when_similar_items_have_been_computed_for_anon() {
     let item_dynamodb_repository =
         ProductDynamoDbRepositoryImpl::new(get_dynamodb_client().await, "table_1");
     let watchlist_repository =
-        WatchlistItemDynamoDbRepositoryImpl::new(get_dynamodb_client().await, "table_1");
+        WatchlistProductDynamoDbRepositoryImpl::new(get_dynamodb_client().await, "table_1");
     let item_opensearch_repository =
         ProductOpenSearchRepositoryImpl::new(get_opensearch_client().await);
     let item_personalization_service = ItemPersonalizationServiceImpl::new(&watchlist_repository);
@@ -1212,7 +1212,7 @@ async fn should_200_and_personalize_when_similar_items_have_been_computed_for_au
     let item_dynamodb_repository =
         ProductDynamoDbRepositoryImpl::new(get_dynamodb_client().await, "table_1");
     let watchlist_repository =
-        WatchlistItemDynamoDbRepositoryImpl::new(get_dynamodb_client().await, "table_1");
+        WatchlistProductDynamoDbRepositoryImpl::new(get_dynamodb_client().await, "table_1");
     let item_opensearch_repository =
         ProductOpenSearchRepositoryImpl::new(get_opensearch_client().await);
     let item_personalization_service = ItemPersonalizationServiceImpl::new(&watchlist_repository);

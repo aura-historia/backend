@@ -10,7 +10,7 @@ use product::dynamodb::repository::ProductDynamoDbRepositoryImpl;
 use product::opensearch::repository::ProductOpenSearchRepositoryImpl;
 use product::service::personalization_service::ItemPersonalizationServiceImpl;
 use product::service::semantic_service::SemanticSearchServiceImpl;
-use product::watchlist::dynamodb::repository::WatchlistItemDynamoDbRepositoryImpl;
+use product::watchlist::dynamodb::repository::WatchlistProductDynamoDbRepositoryImpl;
 use std::env;
 
 #[tokio::main]
@@ -44,7 +44,7 @@ async fn main() -> Result<(), Error> {
         SemanticSearchServiceImpl::new(&item_dynamodb_repository, &item_opensearch_repository);
 
     let watchlist_repository =
-        WatchlistItemDynamoDbRepositoryImpl::new(&dynamodb_client, &table_name);
+        WatchlistProductDynamoDbRepositoryImpl::new(&dynamodb_client, &table_name);
     let item_personalization_service = ItemPersonalizationServiceImpl::new(&watchlist_repository);
 
     let user_pool_id = std::env::var("USER_POOL_ID")?;

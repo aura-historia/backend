@@ -7,7 +7,7 @@ use serde::Serialize;
 use time::OffsetDateTime;
 
 #[derive(Debug, Clone, PartialEq, Serialize)]
-pub struct ItemRecordUpdate {
+pub struct ProductRecordUpdate {
     pub event_id: EventId,
 
     #[serde(skip_serializing_if = "Option::is_none", default)]

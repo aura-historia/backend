@@ -15,7 +15,7 @@ use product::opensearch::repository::{
     ProductOpenSearchRepository, ProductOpenSearchRepositoryImpl,
 };
 use product::service::get_service::GetItemServiceImpl;
-use product::watchlist::dynamodb::repository::WatchlistItemDynamoDbRepositoryImpl;
+use product::watchlist::dynamodb::repository::WatchlistProductDynamoDbRepositoryImpl;
 use product::watchlist::service::product_watchlist_service::{
     ProductWatchListService, ProductWatchListServiceImpl,
 };
@@ -1194,7 +1194,7 @@ async fn should_200_and_personalize_when_similar_items_have_been_computed_for_au
         get_dynamodb_client().await,
         &get_cfn_output().dynamodb_table_1_name,
     );
-    let watchlist_repository = WatchlistItemDynamoDbRepositoryImpl::new(
+    let watchlist_repository = WatchlistProductDynamoDbRepositoryImpl::new(
         get_dynamodb_client().await,
         &get_cfn_output().dynamodb_table_1_name,
     );

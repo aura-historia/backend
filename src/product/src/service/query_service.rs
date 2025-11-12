@@ -1,6 +1,6 @@
 use crate::core::product_search::ProductSearch;
 use crate::core::sort_product_field::SortProductField;
-use crate::core::{description::Description, item::LocalizedItemView, title::Title};
+use crate::core::{description::Description, product::LocalizedProductView, title::Title};
 use crate::opensearch::product_document::ProductDocument;
 use crate::opensearch::repository::ProductOpenSearchRepository;
 use async_trait::async_trait;
@@ -42,7 +42,7 @@ pub trait QueryItemService {
         search: &ProductSearch,
         sort: &Option<Sort<SortProductField>>,
         page: &Option<Cursor<serde_json::Value>>,
-    ) -> Result<CursoredResult<LocalizedItemView, serde_json::Value>, SearchItemsError>;
+    ) -> Result<CursoredResult<LocalizedProductView, serde_json::Value>, SearchItemsError>;
 }
 
 pub struct QueryItemServiceImpl<'a> {
@@ -62,7 +62,7 @@ impl<'a> QueryItemService for QueryItemServiceImpl<'a> {
         search: &ProductSearch,
         sort: &Option<Sort<SortProductField>>,
         page: &Option<Cursor<serde_json::Value>>,
-    ) -> Result<CursoredResult<LocalizedItemView, serde_json::Value>, SearchItemsError> {
+    ) -> Result<CursoredResult<LocalizedProductView, serde_json::Value>, SearchItemsError> {
         let search_response = self
             .repository
             .search_item_documents(
@@ -99,7 +99,7 @@ impl<'a> QueryItemService for QueryItemServiceImpl<'a> {
             .into_iter()
             .map(|hit| hit.source)
             .map(|item_document| {
-                localize_item_document(item_document, &[search.language], &search.currency)
+                localize_product_document(item_document, &[search.language], &search.currency)
             })
             .collect::<Vec<_>>();
 
@@ -111,11 +111,11 @@ impl<'a> QueryItemService for QueryItemServiceImpl<'a> {
     }
 }
 
-pub fn localize_item_document(
+pub fn localize_product_document(
     item_document: ProductDocument,
     languages: &[Language],
     currency: &Currency,
-) -> LocalizedItemView {
+) -> LocalizedProductView {
     let mut available_titles: HashMap<Language, Title> = HashMap::with_capacity(3);
     if let Some(title_de) = item_document.title_de {
         available_titles.insert(Language::De, title_de.into());
@@ -164,7 +164,7 @@ pub fn localize_item_document(
     };
     let state = item_document.state.into();
 
-    LocalizedItemView {
+    LocalizedProductView {
         product_id: item_document.product_id,
         event_id: item_document.event_id,
         shop_id: item_document.shop_id,

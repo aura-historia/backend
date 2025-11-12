@@ -1,4 +1,4 @@
-use crate::core::product::LocalizedItemView;
+use crate::core::product::LocalizedProductView;
 use crate::data::get_product_event_data::GetProductEventData;
 use crate::data::product_state_data::ProductStateData;
 use common::event_id::EventId;
@@ -61,8 +61,8 @@ impl HasKey for GetItemData {
     }
 }
 
-impl From<LocalizedItemView> for GetItemData {
-    fn from(item_view: LocalizedItemView) -> Self {
+impl From<LocalizedProductView> for GetItemData {
+    fn from(item_view: LocalizedProductView) -> Self {
         GetItemData {
             product_id: item_view.product_id,
             event_id: item_view.event_id,
@@ -91,7 +91,7 @@ mod faker {
 
     impl Dummy<Faker> for GetItemData {
         fn dummy_with_rng<R: Rng + ?Sized>(config: &Faker, rng: &mut R) -> Self {
-            config.fake_with_rng::<LocalizedItemView, _>(rng).into()
+            config.fake_with_rng::<LocalizedProductView, _>(rng).into()
         }
     }
 

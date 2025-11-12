@@ -8,8 +8,8 @@ use product::dynamodb::{
 };
 use product::service::get_service::GetItemServiceImpl;
 use product::watchlist::{
-    dynamodb::record::{WatchlistItemRecord, mk_gsi1_pk, mk_gsi1_sk, mk_lsi1_sk, mk_pk, mk_sk},
-    dynamodb::repository::{WatchlistItemDynamoDbRepository, WatchlistItemDynamoDbRepositoryImpl},
+    dynamodb::record::{WatchlistProductRecord, mk_gsi1_pk, mk_gsi1_sk, mk_lsi1_sk, mk_pk, mk_sk},
+    dynamodb::repository::{WatchlistProductDynamoDbRepository, WatchlistProductDynamoDbRepositoryImpl},
     service::item_watchlist_service::ProductWatchListServiceImpl,
 };
 use test_api::*;
@@ -21,7 +21,7 @@ async fn should_200_when_sort_created_asc() {
     let client = get_dynamodb_client().await;
     let user_repository = UserDynamoDbRepositoryImpl::new(client, "table_1");
     let item_repository = ProductDynamoDbRepositoryImpl::new(client, "table_1");
-    let watchlist_repository = WatchlistItemDynamoDbRepositoryImpl::new(client, "table_1");
+    let watchlist_repository = WatchlistProductDynamoDbRepositoryImpl::new(client, "table_1");
     let get_item_service = GetItemServiceImpl::new(&item_repository);
     let service = ProductWatchListServiceImpl::new(
         &watchlist_repository,
@@ -40,7 +40,7 @@ async fn should_200_when_sort_created_asc() {
     let user_id = UserId::new();
     for product_record in item_records.clone() {
         let created = OffsetDateTime::now_utc();
-        let watchlist_record = WatchlistItemRecord {
+        let watchlist_record = WatchlistProductRecord {
             pk: mk_pk(&user_id),
             sk: mk_sk(&product_record.shop_id, &product_record.shops_product_id),
             lsi1_sk: mk_lsi1_sk(&created).unwrap(),
@@ -103,7 +103,7 @@ async fn should_200_when_sort_created_asc_search_after() {
     let client = get_dynamodb_client().await;
     let user_repository = UserDynamoDbRepositoryImpl::new(client, "table_1");
     let item_repository = ProductDynamoDbRepositoryImpl::new(client, "table_1");
-    let watchlist_repository = WatchlistItemDynamoDbRepositoryImpl::new(client, "table_1");
+    let watchlist_repository = WatchlistProductDynamoDbRepositoryImpl::new(client, "table_1");
     let get_item_service = GetItemServiceImpl::new(&item_repository);
     let service = ProductWatchListServiceImpl::new(
         &watchlist_repository,
@@ -130,7 +130,7 @@ async fn should_200_when_sort_created_asc_search_after() {
         if i == 19 {
             expected_next_after = Some(created);
         }
-        let watchlist_record = WatchlistItemRecord {
+        let watchlist_record = WatchlistProductRecord {
             pk: mk_pk(&user_id),
             sk: mk_sk(&product_record.shop_id, &product_record.shops_product_id),
             lsi1_sk: mk_lsi1_sk(&created).unwrap(),
@@ -195,7 +195,7 @@ async fn should_200_when_sort_created_desc() {
     let client = get_dynamodb_client().await;
     let user_repository = UserDynamoDbRepositoryImpl::new(client, "table_1");
     let item_repository = ProductDynamoDbRepositoryImpl::new(client, "table_1");
-    let watchlist_repository = WatchlistItemDynamoDbRepositoryImpl::new(client, "table_1");
+    let watchlist_repository = WatchlistProductDynamoDbRepositoryImpl::new(client, "table_1");
     let get_item_service = GetItemServiceImpl::new(&item_repository);
     let service = ProductWatchListServiceImpl::new(
         &watchlist_repository,
@@ -214,7 +214,7 @@ async fn should_200_when_sort_created_desc() {
     let user_id = UserId::new();
     for product_record in item_records.clone() {
         let created = OffsetDateTime::now_utc();
-        let watchlist_record = WatchlistItemRecord {
+        let watchlist_record = WatchlistProductRecord {
             pk: mk_pk(&user_id),
             sk: mk_sk(&product_record.shop_id, &product_record.shops_product_id),
             lsi1_sk: mk_lsi1_sk(&created).unwrap(),
@@ -278,7 +278,7 @@ async fn should_200_when_sort_created_desc_search_after() {
     let client = get_dynamodb_client().await;
     let user_repository = UserDynamoDbRepositoryImpl::new(client, "table_1");
     let item_repository = ProductDynamoDbRepositoryImpl::new(client, "table_1");
-    let watchlist_repository = WatchlistItemDynamoDbRepositoryImpl::new(client, "table_1");
+    let watchlist_repository = WatchlistProductDynamoDbRepositoryImpl::new(client, "table_1");
     let get_item_service = GetItemServiceImpl::new(&item_repository);
     let service = ProductWatchListServiceImpl::new(
         &watchlist_repository,
@@ -305,7 +305,7 @@ async fn should_200_when_sort_created_desc_search_after() {
         if i == 0 {
             expected_next_after = Some(created);
         }
-        let watchlist_record = WatchlistItemRecord {
+        let watchlist_record = WatchlistProductRecord {
             pk: mk_pk(&user_id),
             sk: mk_sk(&product_record.shop_id, &product_record.shops_product_id),
             lsi1_sk: mk_lsi1_sk(&created).unwrap(),

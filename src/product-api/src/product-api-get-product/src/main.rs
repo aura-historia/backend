@@ -8,7 +8,7 @@ use lambda_runtime::{Error, LambdaEvent, run, service_fn};
 use product::dynamodb::repository::ProductDynamoDbRepositoryImpl;
 use product::service::get_service::GetItemServiceImpl;
 use product::service::personalization_service::ItemPersonalizationServiceImpl;
-use product::watchlist::dynamodb::repository::WatchlistItemDynamoDbRepositoryImpl;
+use product::watchlist::dynamodb::repository::WatchlistProductDynamoDbRepositoryImpl;
 
 #[tokio::main]
 async fn main() -> Result<(), Error> {
@@ -29,7 +29,7 @@ async fn main() -> Result<(), Error> {
     let item_dynamodb_repository = ProductDynamoDbRepositoryImpl::new(&client, &table_name);
     let get_item_service = GetItemServiceImpl::new(&item_dynamodb_repository);
 
-    let watchlist_repository = WatchlistItemDynamoDbRepositoryImpl::new(&client, &table_name);
+    let watchlist_repository = WatchlistProductDynamoDbRepositoryImpl::new(&client, &table_name);
     let item_personalization_service = ItemPersonalizationServiceImpl::new(&watchlist_repository);
 
     let user_pool_id = std::env::var("USER_POOL_ID")?;

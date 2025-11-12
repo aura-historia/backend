@@ -15,14 +15,14 @@ pub enum BatchConstructionError<const N: usize> {
 pub struct Batch<T, const N: usize>(Vec<T>);
 
 impl<T, const N: usize> Batch<T, N> {
-    pub fn try_from_iter<I: IntoIterator<Product = T>>(
+    pub fn try_from_iter<I: IntoIterator<Item = T>>(
         iter: I,
     ) -> Result<Self, BatchConstructionError<N>> {
         let vec: Vec<T> = iter.into_iter().collect();
         Self::try_from(vec)
     }
 
-    pub fn chunked_from<I: Itertools<Product = T>>(iter: I) -> Vec<Batch<T, N>> {
+    pub fn chunked_from<I: Itertools<Item = T>>(iter: I) -> Vec<Batch<T, N>> {
         iter.chunks(N)
             .into_iter()
             .map(|chunk| Batch(chunk.collect()))
@@ -96,7 +96,7 @@ impl<T, const N: usize> AsRef<[T]> for Batch<T, N> {
 }
 
 impl<T, const N: usize> IntoIterator for Batch<T, N> {
-    type Product = T;
+    type Item = T;
     type IntoIter = std::vec::IntoIter<T>;
 
     fn into_iter(self) -> Self::IntoIter {

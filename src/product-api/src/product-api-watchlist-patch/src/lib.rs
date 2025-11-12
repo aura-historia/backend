@@ -11,7 +11,7 @@ use lambda_runtime::LambdaEvent;
 use product::watchlist::{
     data::watchlist_item_data::WatchlistProductData,
     service::{
-        command::UpdateWatchlistItemCommand, item_watchlist_service::ProductWatchListService,
+        command::UpdateWatchlistProductCommand, item_watchlist_service::ProductWatchListService,
     },
 };
 use serde::{Deserialize, Serialize};
@@ -23,9 +23,9 @@ pub struct WatchlistItemPatch {
     pub notifications: Option<bool>,
 }
 
-impl From<WatchlistItemPatch> for UpdateWatchlistItemCommand {
+impl From<WatchlistItemPatch> for UpdateWatchlistProductCommand {
     fn from(patch: WatchlistItemPatch) -> Self {
-        UpdateWatchlistItemCommand {
+        UpdateWatchlistProductCommand {
             notifications: patch.notifications,
         }
     }

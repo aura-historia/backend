@@ -9,7 +9,7 @@ use opensearch::http::transport::{SingleNodeConnectionPool, TransportBuilder};
 use product::opensearch::repository::ProductOpenSearchRepositoryImpl;
 use product::service::personalization_service::ItemPersonalizationServiceImpl;
 use product::service::query_service::QueryItemServiceImpl;
-use product::watchlist::dynamodb::repository::WatchlistItemDynamoDbRepositoryImpl;
+use product::watchlist::dynamodb::repository::WatchlistProductDynamoDbRepositoryImpl;
 use std::env;
 
 #[tokio::main]
@@ -39,7 +39,7 @@ async fn main() -> Result<(), Error> {
     let dynamodb_client = aws_sdk_dynamodb::Client::new(&aws_config);
     let table_name = std::env::var("DYNAMODB_TABLE_NAME")?;
     let watchlist_repository =
-        WatchlistItemDynamoDbRepositoryImpl::new(&dynamodb_client, &table_name);
+        WatchlistProductDynamoDbRepositoryImpl::new(&dynamodb_client, &table_name);
     let item_personalization_service = ItemPersonalizationServiceImpl::new(&watchlist_repository);
 
     let user_pool_id = std::env::var("USER_POOL_ID")?;

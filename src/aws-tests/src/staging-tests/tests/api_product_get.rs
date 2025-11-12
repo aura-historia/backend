@@ -14,7 +14,7 @@ use product::{
     },
     service::get_service::GetItemServiceImpl,
     watchlist::{
-        dynamodb::repository::WatchlistItemDynamoDbRepositoryImpl,
+        dynamodb::repository::WatchlistProductDynamoDbRepositoryImpl,
         service::item_watchlist_service::ProductWatchListServiceImpl,
     },
 };
@@ -71,7 +71,7 @@ async fn should_respond_200_personalized_when_authenticated_and_item_does_exist_
     let ddb_client = get_dynamodb_client().await;
     let item_repository =
         ProductDynamoDbRepositoryImpl::new(ddb_client, &get_cfn_output().dynamodb_table_1_name);
-    let watchlist_repository = WatchlistItemDynamoDbRepositoryImpl::new(
+    let watchlist_repository = WatchlistProductDynamoDbRepositoryImpl::new(
         ddb_client,
         &get_cfn_output().dynamodb_table_1_name,
     );

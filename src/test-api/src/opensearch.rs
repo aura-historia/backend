@@ -89,10 +89,10 @@ impl IntegrationTestService for OpenSearch {
 
     async fn tear_down(&self) {
         // Clear all documents from the items index to ensure test isolation
-        clear_index_data("items")
+        clear_index_data("products")
             .await
             .expect("shouldn't fail clearing OpenSearch index data from 'items'");
-        refresh_index("items").await;
+        refresh_index("products").await;
         clear_index_data("shops")
             .await
             .expect("shouldn't fail clearing OpenSearch index data from 'shops'");
@@ -179,9 +179,9 @@ async fn wait_until_domain_processed(
     Ok(())
 }
 
-static ITEMS_INDEX_MAPPING_STR: &str = include_str!(concat!(
+static PRODUCTS_INDEX_MAPPING_STR: &str = include_str!(concat!(
     env!("CARGO_WORKSPACE_DIR"),
-    "opensearch/mappings/items.json"
+    "opensearch/mappings/products.json"
 ));
 
 static SHOPS_INDEX_MAPPING_STR: &str = include_str!(concat!(
@@ -195,7 +195,7 @@ async fn set_up_indices() -> Result<Response, Error> {
     // Index 'items'
     let exists_response = client
         .indices()
-        .exists(IndicesExistsParts::Index(&["items"]))
+        .exists(IndicesExistsParts::Index(&["products"]))
         .send()
         .await?;
 
@@ -210,10 +210,10 @@ async fn set_up_indices() -> Result<Response, Error> {
     get_opensearch_client()
         .await
         .indices()
-        .create(opensearch::indices::IndicesCreateParts::Index("items"))
+        .create(opensearch::indices::IndicesCreateParts::Index("products"))
         .body(
-            serde_json::from_str::<serde_json::Value>(ITEMS_INDEX_MAPPING_STR)
-                .expect("shouldn't fail parsing ITEMS_INDEX_MAPPING_STR as serde_json::Value"),
+            serde_json::from_str::<serde_json::Value>(PRODUCTS_INDEX_MAPPING_STR)
+                .expect("shouldn't fail parsing PRODUCTS_INDEX_MAPPING_STR as serde_json::Value"),
         )
         .send()
         .await?;

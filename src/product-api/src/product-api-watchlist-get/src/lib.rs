@@ -10,7 +10,7 @@ use common::{
 };
 use lambda_runtime::LambdaEvent;
 use product::data::get_data::GetItemData;
-use product::watchlist::core::watchlist_product::LocalizedWatchlistItemView;
+use product::watchlist::core::watchlist_product::LocalizedWatchlistProductView;
 use product::watchlist::data::sort_watchlist_product_field_data::SortWatchlistProductFieldData;
 use product::watchlist::service::product_watchlist_service::ProductWatchListService;
 use product::watchlist::service::sort_watchlist_product_field::SortWatchlistProductField;
@@ -31,8 +31,8 @@ pub struct WatchlistItemDataView {
     pub updated: OffsetDateTime,
 }
 
-impl From<LocalizedWatchlistItemView> for WatchlistItemDataView {
-    fn from(view: LocalizedWatchlistItemView) -> Self {
+impl From<LocalizedWatchlistProductView> for WatchlistItemDataView {
+    fn from(view: LocalizedWatchlistProductView) -> Self {
         WatchlistItemDataView {
             item: view.item.into(),
             notifications: view.notifications,

@@ -6,7 +6,7 @@ use mail_core::queue_service::QueueMailServiceImpl;
 use product::dynamodb::repository::ProductDynamoDbRepositoryImpl;
 use product::service::get_service::GetItemServiceImpl;
 use product::watchlist::{
-    dynamodb::repository::WatchlistItemDynamoDbRepositoryImpl,
+    dynamodb::repository::WatchlistProductDynamoDbRepositoryImpl,
     service::item_watchlist_service::ProductWatchListServiceImpl,
 };
 use serde_email::Email;
@@ -35,7 +35,7 @@ async fn main() -> Result<(), Error> {
 
     let table_name = std::env::var("DYNAMODB_TABLE_NAME")?;
     let watchlist_repository =
-        WatchlistItemDynamoDbRepositoryImpl::new(&dynamodb_client, &table_name);
+        WatchlistProductDynamoDbRepositoryImpl::new(&dynamodb_client, &table_name);
     let user_repository = UserDynamoDbRepositoryImpl::new(&dynamodb_client, &table_name);
     let item_repository = ProductDynamoDbRepositoryImpl::new(&dynamodb_client, &table_name);
 

@@ -1,6 +1,6 @@
 use crate::dynamodb::repository::ProductDynamoDbRepository;
 use crate::opensearch::repository::ProductOpenSearchRepository;
-use crate::{core::item::LocalizedItemView, service::query_service::localize_item_document};
+use crate::{core::product::LocalizedProductView, service::query_service::localize_product_document};
 use async_trait::async_trait;
 use aws_sdk_dynamodb::error::SdkError;
 use common::currency::domain::Currency;
@@ -53,7 +53,7 @@ pub trait SemanticSearchService {
         shops_product_id: &ShopsProductId,
         languages: &[Language],
         currency: &Currency,
-    ) -> Result<Option<Vec<LocalizedItemView>>, SemanticSearchItemsError>;
+    ) -> Result<Option<Vec<LocalizedProductView>>, SemanticSearchItemsError>;
 }
 
 pub struct SemanticSearchServiceImpl<'a> {
@@ -81,7 +81,7 @@ impl<'a> SemanticSearchService for SemanticSearchServiceImpl<'a> {
         shops_product_id: &ShopsProductId,
         languages: &[Language],
         currency: &Currency,
-    ) -> Result<Option<Vec<LocalizedItemView>>, SemanticSearchItemsError> {
+    ) -> Result<Option<Vec<LocalizedProductView>>, SemanticSearchItemsError> {
         let product_id = self
             .dynamodb_repository
             .get_item_id(shop_id, shops_product_id)
@@ -116,7 +116,7 @@ impl<'a> SemanticSearchService for SemanticSearchServiceImpl<'a> {
                     .into_iter()
                     .filter(|hit| hit.source.product_id != document.product_id)
                     .map(|hit| hit.source)
-                    .map(|doc| localize_item_document(doc, languages, currency))
+                    .map(|doc| localize_product_document(doc, languages, currency))
                     .collect();
                 Ok(Some(localized_documents))
             }

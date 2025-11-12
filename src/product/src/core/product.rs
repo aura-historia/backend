@@ -220,7 +220,7 @@ impl HasKey for Product {
 }
 
 #[derive(Debug, Clone, PartialEq)]
-pub struct LocalizedItemView {
+pub struct LocalizedProductView {
     pub product_id: ProductId,
     pub event_id: EventId,
     pub shop_id: ShopId,
@@ -294,9 +294,9 @@ mod faker {
         }
     }
 
-    impl Dummy<Faker> for LocalizedItemView {
+    impl Dummy<Faker> for LocalizedProductView {
         fn dummy_with_rng<R: Rng + ?Sized>(config: &Faker, rng: &mut R) -> Self {
-            LocalizedItemView {
+            LocalizedProductView {
                 product_id: config.fake_with_rng(rng),
                 event_id: config.fake_with_rng(rng),
                 shop_id: config.fake_with_rng(rng),
@@ -337,7 +337,7 @@ mod faker {
 
     #[cfg(test)]
     mod tests {
-        use crate::core::product::{LocalizedItemView, Product};
+        use crate::core::product::{LocalizedProductView, Product};
         use fake::{Fake, Faker};
 
         #[test]
@@ -347,7 +347,7 @@ mod faker {
 
         #[test]
         fn should_fake_localized_item_view() {
-            let _ = Faker.fake::<LocalizedItemView>();
+            let _ = Faker.fake::<LocalizedProductView>();
         }
     }
 }

@@ -12,11 +12,11 @@ use common::personalized::api::PersonalizedData;
 use common::shop_id::api::extract_shop_id_path;
 use common::shops_product_id::api::extract_shops_item_id_path;
 use lambda_runtime::LambdaEvent;
-use product::core::product::LocalizedItemView;
+use product::core::product::LocalizedProductView;
 use product::core::user_state::ItemUserState;
 use product::data::get_data::GetItemData;
 use product::data::user_state_data::ItemUserStateData;
-use product::service::get_service::GetItemService;
+use product::service::get_service::GetProductService;
 use product::service::personalization_service::ItemPersonalizationService;
 
 #[tracing::instrument(
@@ -34,7 +34,7 @@ use product::service::personalization_service::ItemPersonalizationService;
 )]
 pub async fn handler(
     event: LambdaEvent<ApiGatewayV2httpRequest>,
-    get_item_service: &impl GetItemService,
+    get_item_service: &impl GetProductService,
     access_token_verifier_service: &(impl AccessTokenVerifierService + Sync),
     item_personalization_service: &impl ItemPersonalizationService,
 ) -> Result<ApiGatewayV2httpResponse, lambda_runtime::Error> {
@@ -57,7 +57,7 @@ pub async fn handler(
 // GET /api/v1/items/{shopId}/{shopsItemId}
 pub async fn handle(
     event: LambdaEvent<ApiGatewayV2httpRequest>,
-    get_item_service: &impl GetItemService,
+    get_item_service: &impl GetProductService,
     access_token_verifier_service: &(impl AccessTokenVerifierService + Sync),
     item_personalization_service: &impl ItemPersonalizationService,
 ) -> Result<ApiGatewayV2httpResponse, ApiError> {
@@ -76,7 +76,7 @@ pub async fn handle(
     let shop_id = extract_shop_id_path(&event.payload.path_parameters)?;
     let shops_product_id = extract_shops_item_id_path(&event.payload.path_parameters)?;
 
-    let localized_item: LocalizedItemView = get_item_service
+    let localized_item: LocalizedProductView = get_item_service
         .view_item(
             &shop_id,
             &shops_product_id,
@@ -143,8 +143,8 @@ mod tests {
     use common::shops_product_id::ShopsProductId;
     use http::header::{ACCEPT_LANGUAGE, CONTENT_LANGUAGE, ETAG, LAST_MODIFIED};
     use lambda_runtime::LambdaEvent;
-    use product::core::product::LocalizedItemView;
-    use product::service::get_service::{GetItemError, MockGetItemService};
+    use product::core::product::LocalizedProductView;
+    use product::service::get_service::{GetProductError, MockGetItemService};
     use product::service::personalization_service::MockItemPersonalizationService;
     use test_api::{ApiGatewayV2httpRequestProxy, extract_apigw_response_json_body};
     use time::OffsetDateTime;
@@ -181,7 +181,7 @@ mod tests {
         let mut get_item_service = MockGetItemService::default();
         get_item_service.expect_view_item().return_once(
             move |shop_id, shops_product_id, _, _, _| {
-                let item = LocalizedItemView {
+                let item = LocalizedProductView {
                     product_id: Default::default(),
                     event_id: EventId::new(),
                     shop_id: *shop_id,
@@ -232,7 +232,7 @@ mod tests {
         let mut get_item_service = MockGetItemService::default();
         get_item_service.expect_view_item().return_once(
             move |shop_id, shops_product_id, _, _, _| {
-                let item = LocalizedItemView {
+                let item = LocalizedProductView {
                     product_id: Default::default(),
                     event_id,
                     shop_id: *shop_id,
@@ -288,7 +288,7 @@ mod tests {
         let mut get_item_service = MockGetItemService::default();
         get_item_service.expect_view_item().return_once(
             move |shop_id, shops_product_id, _, _, _| {
-                let item = LocalizedItemView {
+                let item = LocalizedProductView {
                     product_id: Default::default(),
                     event_id,
                     shop_id: *shop_id,
@@ -352,7 +352,7 @@ mod tests {
         get_item_service.expect_view_item().return_once(
             move |shop_id, shops_product_id, _, _, history| {
                 assert_eq!(expected_history, history);
-                let item = LocalizedItemView {
+                let item = LocalizedProductView {
                     product_id: Default::default(),
                     event_id,
                     shop_id: *shop_id,
@@ -515,7 +515,7 @@ mod tests {
             move |shop_id, shops_product_id, _, _, _| {
                 let shop_id = *shop_id;
                 let shops_product_id = shops_product_id.clone();
-                Box::pin(async move { Err(GetItemError::ItemNotFound(shop_id, shops_product_id)) })
+                Box::pin(async move { Err(GetProductError::ItemNotFound(shop_id, shops_product_id)) })
             },
         );
 

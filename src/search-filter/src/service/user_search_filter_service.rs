@@ -15,7 +15,7 @@ pub enum UserSearchFilterError {
 
     #[error("Encountered DynamoDB SdkError for GetItem: {0}")]
     SdkGetItemError(
-        #[from] SdkError<aws_sdk_dynamodb::operation::get_item::GetItemError, HttpResponse>,
+        #[from] SdkError<aws_sdk_dynamodb::operation::get_item::GetProductError, HttpResponse>,
     ),
 
     #[error("Encountered DynamoDB SdkError for QueryItem: {0}")]
@@ -343,12 +343,12 @@ mod tests {
             HttpResponse::new(500u16.try_into().unwrap(), "{}".into())
         ))]
         #[case::service_error(SdkError::service_error(
-            aws_sdk_dynamodb::operation::get_item::GetItemError::unhandled("Something went wrong"),
+            aws_sdk_dynamodb::operation::get_item::GetProductError::unhandled("Something went wrong"),
             HttpResponse::new(500u16.try_into().unwrap(), "{}".into())
         ))]
         async fn should_propagate_sdk_error(
             #[case] expected: SdkError<
-                aws_sdk_dynamodb::operation::get_item::GetItemError,
+                aws_sdk_dynamodb::operation::get_item::GetProductError,
                 aws_sdk_dynamodb::config::http::HttpResponse,
             >,
         ) {
@@ -508,12 +508,12 @@ mod tests {
             HttpResponse::new(500u16.try_into().unwrap(), "{}".into())
         ))]
         #[case::service_error(SdkError::service_error(
-            aws_sdk_dynamodb::operation::get_item::GetItemError::unhandled("Something went wrong"),
+            aws_sdk_dynamodb::operation::get_item::GetProductError::unhandled("Something went wrong"),
             HttpResponse::new(500u16.try_into().unwrap(), "{}".into())
         ))]
         async fn should_propagate_sdk_error_for_find(
             #[case] expected: SdkError<
-                aws_sdk_dynamodb::operation::get_item::GetItemError,
+                aws_sdk_dynamodb::operation::get_item::GetProductError,
                 aws_sdk_dynamodb::config::http::HttpResponse,
             >,
         ) {
@@ -646,12 +646,12 @@ mod tests {
             HttpResponse::new(500u16.try_into().unwrap(), "{}".into())
         ))]
         #[case::service_error(SdkError::service_error(
-            aws_sdk_dynamodb::operation::get_item::GetItemError::unhandled("Something went wrong"),
+            aws_sdk_dynamodb::operation::get_item::GetProductError::unhandled("Something went wrong"),
             HttpResponse::new(500u16.try_into().unwrap(), "{}".into())
         ))]
         async fn should_propagate_sdk_error_for_find(
             #[case] expected: SdkError<
-                aws_sdk_dynamodb::operation::get_item::GetItemError,
+                aws_sdk_dynamodb::operation::get_item::GetProductError,
                 aws_sdk_dynamodb::config::http::HttpResponse,
             >,
         ) {

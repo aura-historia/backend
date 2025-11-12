@@ -1,12 +1,12 @@
 use crate::dynamodb::repository::ProductDynamoDbRepository;
-use crate::service::get_service::{GetItemError, GetItemService};
+use crate::service::get_service::{GetProductError, GetProductService};
 use crate::{
-    watchlist::core::watchlist_item::{LocalizedWatchlistItemView, WatchlistProduct},
-    watchlist::dynamodb::record::{WatchlistItemRecord, mk_lsi1_sk, mk_pk, mk_sk},
-    watchlist::dynamodb::record_update::WatchlistItemRecordUpdate,
-    watchlist::dynamodb::repository::WatchlistItemDynamoDbRepository,
-    watchlist::service::command::UpdateWatchlistItemCommand,
-    watchlist::service::sort_watchlist_item_field::SortWatchlistProductField,
+    watchlist::core::watchlist_product::{LocalizedWatchlistProductView, WatchlistProduct},
+    watchlist::dynamodb::record::{WatchlistProductRecord, mk_lsi1_sk, mk_pk, mk_sk},
+    watchlist::dynamodb::record_update::WatchlistProductRecordUpdate,
+    watchlist::dynamodb::repository::WatchlistProductDynamoDbRepository,
+    watchlist::service::command::UpdateWatchlistProductCommand,
+    watchlist::service::sort_watchlist_product_field::SortWatchlistProductField,
 };
 use aws_sdk_dynamodb::{
     config::http::HttpResponse, error::SdkError, operation::put_item::PutItemError,
@@ -77,19 +77,19 @@ pub enum WatchItemError {
     UnprocessedAfterMaxRetries(u32),
 }
 
-impl From<GetItemError> for WatchItemError {
-    fn from(err: GetItemError) -> Self {
+impl From<GetProductError> for WatchItemError {
+    fn from(err: GetProductError) -> Self {
         match err {
-            GetItemError::ItemNotFound(shop_id, shops_product_id) => {
+            GetProductError::ItemNotFound(shop_id, shops_product_id) => {
                 WatchItemError::ItemNotFound(shop_id, shops_product_id)
             }
-            GetItemError::MonetaryAmountOverflowError(e) => {
+            GetProductError::MonetaryAmountOverflowError(e) => {
                 WatchItemError::MonetaryAmountOverflowError(e)
             }
-            GetItemError::SdkGetItemError(e) => WatchItemError::SdkGetItemError(e),
-            GetItemError::SdkBatchGetItemError(e) => WatchItemError::SdkBatchGetItemError(e),
-            GetItemError::SdkQueryError(e) => WatchItemError::SdkQueryError(e),
-            GetItemError::UnprocessedAfterMaxRetries(e) => {
+            GetProductError::SdkGetItemError(e) => WatchItemError::SdkGetItemError(e),
+            GetProductError::SdkBatchGetItemError(e) => WatchItemError::SdkBatchGetItemError(e),
+            GetProductError::SdkQueryError(e) => WatchItemError::SdkQueryError(e),
+            GetProductError::UnprocessedAfterMaxRetries(e) => {
                 WatchItemError::UnprocessedAfterMaxRetries(e)
             }
         }
@@ -163,7 +163,7 @@ pub trait ProductWatchListService {
         user_id: &UserId,
         shop_id: &ShopId,
         shops_product_id: &ShopsProductId,
-        update: UpdateWatchlistItemCommand,
+        update: UpdateWatchlistProductCommand,
     ) -> Result<WatchlistProduct, WatchItemError>;
 
     async fn view_watchlist(
@@ -173,7 +173,7 @@ pub trait ProductWatchListService {
         currency: &Currency,
         sort: &Option<Sort<SortWatchlistProductField>>,
         cursor: &Option<Cursor<OffsetDateTime>>,
-    ) -> Result<CursoredResult<LocalizedWatchlistItemView, OffsetDateTime>, WatchItemError>;
+    ) -> Result<CursoredResult<LocalizedWatchlistProductView, OffsetDateTime>, WatchItemError>;
 
     async fn find_users_with_notifications(
         &self,
@@ -182,18 +182,18 @@ pub trait ProductWatchListService {
 }
 
 pub struct ProductWatchListServiceImpl<'a> {
-    watchlist_repository: &'a (dyn WatchlistItemDynamoDbRepository + Sync),
+    watchlist_repository: &'a (dyn WatchlistProductDynamoDbRepository + Sync),
     user_repository: &'a (dyn UserDynamoDbRepository + Sync),
     item_repository: &'a (dyn ProductDynamoDbRepository + Sync),
-    get_item_service: &'a (dyn GetItemService + Sync),
+    get_item_service: &'a (dyn GetProductService + Sync),
 }
 
 impl<'a> ProductWatchListServiceImpl<'a> {
     pub fn new(
-        watchlist_repository: &'a (dyn WatchlistItemDynamoDbRepository + Sync),
+        watchlist_repository: &'a (dyn WatchlistProductDynamoDbRepository + Sync),
         user_repository: &'a (dyn UserDynamoDbRepository + Sync),
         item_repository: &'a (dyn ProductDynamoDbRepository + Sync),
-        get_item_service: &'a (dyn GetItemService + Sync),
+        get_item_service: &'a (dyn GetProductService + Sync),
     ) -> Self {
         Self {
             watchlist_repository,
@@ -246,7 +246,7 @@ impl<'a> ProductWatchListService for ProductWatchListServiceImpl<'a> {
             .get_user_record(user_id)
             .await?
             .ok_or(WatchItemError::UserNotFound(*user_id))?;
-        let watchlist_record = WatchlistItemRecord {
+        let watchlist_record = WatchlistProductRecord {
             pk: mk_pk(user_id),
             sk: mk_sk(shop_id, shops_product_id),
             lsi1_sk: mk_lsi1_sk(&now)
@@ -298,7 +298,7 @@ impl<'a> ProductWatchListService for ProductWatchListServiceImpl<'a> {
         user_id: &UserId,
         shop_id: &ShopId,
         shops_product_id: &ShopsProductId,
-        update: UpdateWatchlistItemCommand,
+        update: UpdateWatchlistProductCommand,
     ) -> Result<WatchlistProduct, WatchItemError> {
         let watchlist_record = self
             .watchlist_repository
@@ -319,7 +319,7 @@ impl<'a> ProductWatchListService for ProductWatchListServiceImpl<'a> {
                     user_id,
                     shop_id,
                     shops_product_id,
-                    WatchlistItemRecordUpdate::from_cmd(
+                    WatchlistProductRecordUpdate::from_cmd(
                         update,
                         user_id,
                         &watchlist_record.product_id,
@@ -338,7 +338,7 @@ impl<'a> ProductWatchListService for ProductWatchListServiceImpl<'a> {
         currency: &Currency,
         sort: &Option<Sort<SortWatchlistProductField>>,
         cursor: &Option<Cursor<OffsetDateTime>>,
-    ) -> Result<CursoredResult<LocalizedWatchlistItemView, OffsetDateTime>, WatchItemError> {
+    ) -> Result<CursoredResult<LocalizedWatchlistProductView, OffsetDateTime>, WatchItemError> {
         let sort = sort.unwrap_or(Sort {
             sort: SortWatchlistProductField::Created,
             order: SortOrder::Asc,
@@ -366,7 +366,7 @@ impl<'a> ProductWatchListService for ProductWatchListServiceImpl<'a> {
                     .into_iter()
                     .filter_map(
                         |item| match watchlist_records_created.remove(&item.product_id) {
-                            Some(watchlist_record) => Some(LocalizedWatchlistItemView {
+                            Some(watchlist_record) => Some(LocalizedWatchlistProductView {
                                 item,
                                 notifications: watchlist_record.notifications,
                                 created: watchlist_record.created,
@@ -938,9 +938,9 @@ mod tests {
         use crate::dynamodb::repository::MockItemDynamoDbRepository;
         use crate::service::get_service::GetItemServiceImpl;
         use crate::{
-            watchlist::dynamodb::record::WatchlistItemRecord,
+            watchlist::dynamodb::record::WatchlistProductRecord,
             watchlist::dynamodb::repository::MockWatchlistItemDynamoDbRepository,
-            watchlist::service::command::UpdateWatchlistItemCommand,
+            watchlist::service::command::UpdateWatchlistProductCommand,
             watchlist::service::item_watchlist_service::{
                 ProductWatchListService, ProductWatchListServiceImpl, WatchItemError,
             },
@@ -962,7 +962,7 @@ mod tests {
                 .expect_get_watchlist_record()
                 .return_once(|_, _, _| {
                     Box::pin(async {
-                        let mut faked = Faker.fake::<WatchlistItemRecord>();
+                        let mut faked = Faker.fake::<WatchlistProductRecord>();
                         faked.notifications = false;
                         Ok(Some(faked))
                     })
@@ -983,7 +983,7 @@ mod tests {
                     &Faker.fake(),
                     &Faker.fake(),
                     &Faker.fake(),
-                    UpdateWatchlistItemCommand {
+                    UpdateWatchlistProductCommand {
                         notifications: Some(true),
                     },
                 )
@@ -1016,7 +1016,7 @@ mod tests {
                     &user_id,
                     &shop_id,
                     &shops_product_id,
-                    UpdateWatchlistItemCommand {
+                    UpdateWatchlistProductCommand {
                         notifications: Some(false),
                     },
                 )
@@ -1078,7 +1078,7 @@ mod tests {
                     &Faker.fake(),
                     &Faker.fake(),
                     &Faker.fake(),
-                    UpdateWatchlistItemCommand {
+                    UpdateWatchlistProductCommand {
                         notifications: Some(true),
                     },
                 )
@@ -1117,7 +1117,7 @@ mod tests {
                 .expect_get_watchlist_record()
                 .return_once(|_, _, _| {
                     Box::pin(async {
-                        let mut faked = Faker.fake::<WatchlistItemRecord>();
+                        let mut faked = Faker.fake::<WatchlistProductRecord>();
                         faked.notifications = true;
                         Ok(Some(faked))
                     })
@@ -1139,7 +1139,7 @@ mod tests {
                     &Faker.fake(),
                     &Faker.fake(),
                     &Faker.fake(),
-                    UpdateWatchlistItemCommand {
+                    UpdateWatchlistProductCommand {
                         notifications: Some(true),
                     },
                 )

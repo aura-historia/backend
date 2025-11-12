@@ -15,7 +15,7 @@ use product::{
     },
     service::personalization_service::ItemPersonalizationServiceImpl,
     watchlist::service::{
-        command::UpdateWatchlistItemCommand, item_watchlist_service::ProductWatchListService,
+        command::UpdateWatchlistProductCommand, item_watchlist_service::ProductWatchListService,
     },
 };
 use product::{
@@ -23,7 +23,7 @@ use product::{
         product_record::ProductRecord,
         repository::{ProductDynamoDbRepository, ProductDynamoDbRepositoryImpl},
     },
-    watchlist::dynamodb::repository::WatchlistItemDynamoDbRepositoryImpl,
+    watchlist::dynamodb::repository::WatchlistProductDynamoDbRepositoryImpl,
 };
 use product::{
     service::get_service::GetItemServiceImpl,
@@ -40,7 +40,7 @@ use user::dynamodb::{
 async fn should_respond_200_with_history_when_anon_and_history_flag_true() {
     let ddb_client = get_dynamodb_client().await;
     let item_repository = ProductDynamoDbRepositoryImpl::new(ddb_client, "table_1");
-    let watchlist_repository = WatchlistItemDynamoDbRepositoryImpl::new(ddb_client, "table_1");
+    let watchlist_repository = WatchlistProductDynamoDbRepositoryImpl::new(ddb_client, "table_1");
     let get_item_service = GetItemServiceImpl::new(&item_repository);
     let item_personalization_service = ItemPersonalizationServiceImpl::new(&watchlist_repository);
     let mut access_token_verifier_service = MockAccessTokenVerifierService::default();
@@ -148,7 +148,7 @@ async fn should_respond_200_with_history_when_anon_and_history_flag_true() {
 async fn should_respond_200_without_history_when_anon_and_history_flag_false() {
     let ddb_client = get_dynamodb_client().await;
     let item_repository = ProductDynamoDbRepositoryImpl::new(ddb_client, "table_1");
-    let watchlist_repository = WatchlistItemDynamoDbRepositoryImpl::new(ddb_client, "table_1");
+    let watchlist_repository = WatchlistProductDynamoDbRepositoryImpl::new(ddb_client, "table_1");
     let get_item_service = GetItemServiceImpl::new(&item_repository);
     let item_personalization_service = ItemPersonalizationServiceImpl::new(&watchlist_repository);
     let mut access_token_verifier_service = MockAccessTokenVerifierService::default();
@@ -240,7 +240,7 @@ async fn should_respond_200_personalized_when_authenticated_and_not_watched() {
     let ddb_client = get_dynamodb_client().await;
     let user_repository = UserDynamoDbRepositoryImpl::new(ddb_client, "table_1");
     let item_repository = ProductDynamoDbRepositoryImpl::new(ddb_client, "table_1");
-    let watchlist_repository = WatchlistItemDynamoDbRepositoryImpl::new(ddb_client, "table_1");
+    let watchlist_repository = WatchlistProductDynamoDbRepositoryImpl::new(ddb_client, "table_1");
     let get_item_service = GetItemServiceImpl::new(&item_repository);
     let item_personalization_service = ItemPersonalizationServiceImpl::new(&watchlist_repository);
 
@@ -348,7 +348,7 @@ async fn should_respond_200_personalized_when_authenticated_and_watched() {
     let user_repository = UserDynamoDbRepositoryImpl::new(ddb_client, "table_1");
     let item_repository = ProductDynamoDbRepositoryImpl::new(ddb_client, "table_1");
     let get_item_service = GetItemServiceImpl::new(&item_repository);
-    let watchlist_repository = WatchlistItemDynamoDbRepositoryImpl::new(ddb_client, "table_1");
+    let watchlist_repository = WatchlistProductDynamoDbRepositoryImpl::new(ddb_client, "table_1");
     let watchlist_service = ProductWatchListServiceImpl::new(
         &watchlist_repository,
         &user_repository,
@@ -384,7 +384,7 @@ async fn should_respond_200_personalized_when_authenticated_and_watched() {
             &user_record.id,
             &record.shop_id,
             &record.shops_product_id,
-            UpdateWatchlistItemCommand {
+            UpdateWatchlistProductCommand {
                 notifications: Some(true),
             },
         )

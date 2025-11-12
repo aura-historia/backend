@@ -1,5 +1,5 @@
 use crate::core::description::Description;
-use crate::core::product::{LocalizedItemView, Product};
+use crate::core::product::{LocalizedProductView, Product};
 use crate::core::product_event::{
     ItemEventPayload, LocalizedItemCreatedEventPayloadView, LocalizedItemEventPayloadView,
     LocalizedItemPriceChangeEventPayloadView, LocalizedItemPriceDiscoveryEventPayloadView,
@@ -26,7 +26,7 @@ use std::collections::HashMap;
 use tracing::error;
 
 #[derive(thiserror::Error, Debug)]
-pub enum GetItemError {
+pub enum GetProductError {
     #[error("Product with ShopId '{0}' and ShopsProductId '{1}' not found.")]
     ItemNotFound(ShopId, ShopsProductId),
 
@@ -53,25 +53,25 @@ pub enum GetItemError {
 
 #[cfg(feature = "data")]
 pub mod api {
-    use crate::service::get_service::GetItemError;
+    use crate::service::get_service::GetProductError;
     use common::api::error::ApiError;
     use common::api::error_code::{
         ITEM_NOT_FOUND, MONETARY_AMOUNT_OVERFLOW, UNPROCESSED_AFTER_MAX_RETRIES,
     };
 
-    impl From<GetItemError> for ApiError {
-        fn from(err: GetItemError) -> Self {
+    impl From<GetProductError> for ApiError {
+        fn from(err: GetProductError) -> Self {
             match err {
-                GetItemError::ItemNotFound(_, _) => {
+                GetProductError::ItemNotFound(_, _) => {
                     ApiError::not_found(ITEM_NOT_FOUND, Box::new(err))
                 }
-                GetItemError::MonetaryAmountOverflowError(_) => {
+                GetProductError::MonetaryAmountOverflowError(_) => {
                     ApiError::internal_server_error(MONETARY_AMOUNT_OVERFLOW, Box::new(err))
                 }
-                GetItemError::SdkGetItemError(err) => err.into(),
-                GetItemError::SdkBatchGetItemError(err) => err.into(),
-                GetItemError::SdkQueryError(err) => err.into(),
-                GetItemError::UnprocessedAfterMaxRetries(_) => {
+                GetProductError::SdkGetItemError(err) => err.into(),
+                GetProductError::SdkBatchGetItemError(err) => err.into(),
+                GetProductError::SdkQueryError(err) => err.into(),
+                GetProductError::UnprocessedAfterMaxRetries(_) => {
                     ApiError::service_unavailable(UNPROCESSED_AFTER_MAX_RETRIES, Box::new(err))
                 }
             }
@@ -81,12 +81,12 @@ pub mod api {
 
 #[async_trait]
 #[mockall::automock]
-pub trait GetItemService {
+pub trait GetProductService {
     async fn find_item(
         &self,
         shop_id: &ShopId,
         shops_product_id: &ShopsProductId,
-    ) -> Result<Product, GetItemError>;
+    ) -> Result<Product, GetProductError>;
 
     async fn view_item(
         &self,
@@ -95,14 +95,14 @@ pub trait GetItemService {
         languages: &[Language],
         currency: &Currency,
         history: bool,
-    ) -> Result<LocalizedItemView, GetItemError>;
+    ) -> Result<LocalizedProductView, GetProductError>;
 
     async fn view_items(
         &self,
         items: Vec<ProductKey>,
         languages: &[Language],
         currency: &Currency,
-    ) -> Result<Vec<LocalizedItemView>, GetItemError>;
+    ) -> Result<Vec<LocalizedProductView>, GetProductError>;
 }
 
 pub struct GetItemServiceImpl<'a> {
@@ -116,17 +116,17 @@ impl<'a> GetItemServiceImpl<'a> {
 }
 
 #[async_trait]
-impl<'a> GetItemService for GetItemServiceImpl<'a> {
+impl<'a> GetProductService for GetItemServiceImpl<'a> {
     async fn find_item(
         &self,
         shop_id: &ShopId,
         shops_product_id: &ShopsProductId,
-    ) -> Result<Product, GetItemError> {
+    ) -> Result<Product, GetProductError> {
         let product_record = self
             .repository
             .get_item_record(shop_id, shops_product_id)
             .await?
-            .ok_or(GetItemError::ItemNotFound(
+            .ok_or(GetProductError::ItemNotFound(
                 *shop_id,
                 shops_product_id.clone(),
             ))?;
@@ -141,12 +141,12 @@ impl<'a> GetItemService for GetItemServiceImpl<'a> {
         preferred_languages: &[Language],
         currency: &Currency,
         history: bool,
-    ) -> Result<LocalizedItemView, GetItemError> {
+    ) -> Result<LocalizedProductView, GetProductError> {
         let (product_record, event_records) = if history {
             self.repository
                 .query_item_record_and_event_records(shop_id, shops_product_id)
                 .await?
-                .ok_or(GetItemError::ItemNotFound(
+                .ok_or(GetProductError::ItemNotFound(
                     *shop_id,
                     shops_product_id.clone(),
                 ))?
@@ -155,7 +155,7 @@ impl<'a> GetItemService for GetItemServiceImpl<'a> {
                 .repository
                 .get_item_record(shop_id, shops_product_id)
                 .await?
-                .ok_or(GetItemError::ItemNotFound(
+                .ok_or(GetProductError::ItemNotFound(
                     *shop_id,
                     shops_product_id.clone(),
                 ))?;
@@ -191,7 +191,7 @@ impl<'a> GetItemService for GetItemServiceImpl<'a> {
         items: Vec<ProductKey>,
         languages: &[Language],
         currency: &Currency,
-    ) -> Result<Vec<LocalizedItemView>, GetItemError> {
+    ) -> Result<Vec<LocalizedProductView>, GetProductError> {
         const MAX_RETRIES: u32 = 3;
         const BASE_DELAY_MS: u64 = 100;
 
@@ -207,7 +207,7 @@ impl<'a> GetItemService for GetItemServiceImpl<'a> {
             if local_unprocessed.is_empty() {
                 break;
             } else if retry_count >= MAX_RETRIES {
-                return Err(GetItemError::UnprocessedAfterMaxRetries(MAX_RETRIES));
+                return Err(GetProductError::UnprocessedAfterMaxRetries(MAX_RETRIES));
             }
 
             retry_count += 1;
@@ -227,7 +227,7 @@ impl<'a> GetItemServiceImpl<'a> {
         items: Vec<ProductKey>,
         languages: &[Language],
         currency: &Currency,
-    ) -> Result<(Vec<LocalizedItemView>, Vec<ProductKey>), GetItemError> {
+    ) -> Result<(Vec<LocalizedProductView>, Vec<ProductKey>), GetProductError> {
         let mut views = Vec::with_capacity(items.len());
         let mut unprocessed = Vec::new();
         for batch in Batch::chunked_from(items.into_iter()) {
@@ -250,7 +250,7 @@ fn localize_item_record(
     product_record: ProductRecord,
     currency: &Currency,
     preferred_languages: &[Language],
-) -> LocalizedItemView {
+) -> LocalizedProductView {
     let mut available_titles: HashMap<Language, Title> = HashMap::with_capacity(3);
     available_titles.insert(
         product_record.title_native.language.into(),
@@ -304,7 +304,7 @@ fn localize_item_record(
             .map(|amount| Price::new(amount.into(), Currency::Nzd)),
     };
 
-    LocalizedItemView {
+    LocalizedProductView {
         product_id: product_record.product_id,
         event_id: product_record.event_id,
         shop_id: product_record.shop_id,
@@ -499,7 +499,7 @@ fn localize_item_event(
 mod tests {
     mod find_item {
         use crate::dynamodb::repository::MockItemDynamoDbRepository;
-        use crate::service::get_service::{GetItemError, GetItemService, GetItemServiceImpl};
+        use crate::service::get_service::{GetProductError, GetProductService, GetItemServiceImpl};
         use aws_sdk_dynamodb::{
             config::http::HttpResponse,
             error::{ConnectorError, SdkError},
@@ -537,11 +537,11 @@ mod tests {
 
             assert!(actual.is_err());
             match actual.unwrap_err() {
-                GetItemError::ItemNotFound(err_shop_id, err_shops_item_id) => {
+                GetProductError::ItemNotFound(err_shop_id, err_shops_item_id) => {
                     assert_eq!(err_shop_id, shop_id);
                     assert_eq!(err_shops_item_id, shops_product_id);
                 }
-                _ => panic!("expected GetItemError::ItemNotFound"),
+                _ => panic!("expected GetProductError::ItemNotFound"),
             }
         }
 
@@ -577,8 +577,8 @@ mod tests {
 
             assert!(actual.is_err());
             match actual.unwrap_err() {
-                GetItemError::SdkGetItemError(_) => {}
-                _ => panic!("expected GetItemError::ItemNotFound"),
+                GetProductError::SdkGetItemError(_) => {}
+                _ => panic!("expected GetProductError::ItemNotFound"),
             }
         }
     }
@@ -588,7 +588,7 @@ mod tests {
             item_event_record::ProductEventRecord, product_record::ProductRecord,
             repository::MockItemDynamoDbRepository,
         };
-        use crate::service::get_service::{GetItemError, GetItemService, GetItemServiceImpl};
+        use crate::service::get_service::{GetProductError, GetProductService, GetItemServiceImpl};
         use aws_sdk_dynamodb::{
             config::http::HttpResponse,
             error::{ConnectorError, SdkError},
@@ -955,11 +955,11 @@ mod tests {
 
             assert!(actual.is_err());
             match actual.unwrap_err() {
-                GetItemError::ItemNotFound(err_shop_id, err_shops_item_id) => {
+                GetProductError::ItemNotFound(err_shop_id, err_shops_item_id) => {
                     assert_eq!(err_shop_id, shop_id);
                     assert_eq!(err_shops_item_id, shops_product_id);
                 }
-                _ => panic!("expected GetItemError::ItemNotFound"),
+                _ => panic!("expected GetProductError::ItemNotFound"),
             }
         }
 
@@ -997,8 +997,8 @@ mod tests {
 
             assert!(actual.is_err());
             match actual.unwrap_err() {
-                GetItemError::SdkGetItemError(_) => {}
-                _ => panic!("expected GetItemError::ItemNotFound"),
+                GetProductError::SdkGetItemError(_) => {}
+                _ => panic!("expected GetProductError::ItemNotFound"),
             }
         }
     }
@@ -1007,7 +1007,7 @@ mod tests {
         use crate::dynamodb::{
             product_record::ProductRecord, repository::MockItemDynamoDbRepository,
         };
-        use crate::service::get_service::{GetItemError, GetItemService, GetItemServiceImpl};
+        use crate::service::get_service::{GetProductError, GetProductService, GetItemServiceImpl};
         use aws_sdk_dynamodb::{
             config::http::HttpResponse,
             error::{ConnectorError, SdkError},
@@ -1057,9 +1057,9 @@ mod tests {
                 .await
                 .unwrap_err();
             match actual {
-                GetItemError::UnprocessedAfterMaxRetries(_) => {}
+                GetProductError::UnprocessedAfterMaxRetries(_) => {}
                 other => {
-                    panic!("Expected 'GetItemError::UnprocessedAfterMaxRetries'. Got '{other:?}'.")
+                    panic!("Expected 'GetProductError::UnprocessedAfterMaxRetries'. Got '{other:?}'.")
                 }
             }
         }
@@ -1096,8 +1096,8 @@ mod tests {
 
             assert!(actual.is_err());
             match actual.unwrap_err() {
-                GetItemError::SdkBatchGetItemError(_) => {}
-                _ => panic!("expected GetItemError::SdkBatchGetItemError"),
+                GetProductError::SdkBatchGetItemError(_) => {}
+                _ => panic!("expected GetProductError::SdkBatchGetItemError"),
             }
         }
     }

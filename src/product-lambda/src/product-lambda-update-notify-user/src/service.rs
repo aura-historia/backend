@@ -11,7 +11,7 @@ use product::core::{
     item::Product,
     product_event::{ItemCommonEventPayload, ItemEventPayload, ProductEvent},
 };
-use product::service::get_service::{GetItemError, GetItemService};
+use product::service::get_service::{GetProductError, GetProductService};
 use product::watchlist::service::product_watchlist_service::{
     ProductWatchListService, WatchItemError,
 };
@@ -24,8 +24,8 @@ pub enum ItemEventMailPayloadServiceError {
     #[error("WatchItemError: {0}")]
     WatchItemError(#[from] WatchItemError),
 
-    #[error("GetItemError: {0}")]
-    GetItemError(#[from] GetItemError),
+    #[error("GetProductError: {0}")]
+    GetProductError(#[from] GetProductError),
 }
 
 #[async_trait::async_trait]
@@ -39,14 +39,14 @@ pub trait ItemEventMailPayloadService {
 
 pub struct ItemEventMailPayloadServiceImpl<'a> {
     watchlist_service: &'a (dyn ProductWatchListService + Sync),
-    get_item_service: &'a (dyn GetItemService + Sync),
+    get_item_service: &'a (dyn GetProductService + Sync),
     sender_email: Email,
 }
 
 impl<'a> ItemEventMailPayloadServiceImpl<'a> {
     pub fn new(
         watchlist_service: &'a (dyn ProductWatchListService + Sync),
-        get_item_service: &'a (dyn GetItemService + Sync),
+        get_item_service: &'a (dyn GetProductService + Sync),
         sender_email: Email,
     ) -> Self {
         ItemEventMailPayloadServiceImpl {

@@ -5,7 +5,7 @@ use lambda_runtime::tracing::info;
 use lambda_runtime::{Error, LambdaEvent, run, service_fn};
 use product::dynamodb::repository::ProductDynamoDbRepositoryImpl;
 use product::service::get_service::GetItemServiceImpl;
-use product::watchlist::dynamodb::repository::WatchlistItemDynamoDbRepositoryImpl;
+use product::watchlist::dynamodb::repository::WatchlistProductDynamoDbRepositoryImpl;
 use product::watchlist::service::product_watchlist_service::ProductWatchListServiceImpl;
 use user::dynamodb::repository::UserDynamoDbRepositoryImpl;
 
@@ -27,7 +27,7 @@ async fn main() -> Result<(), Error> {
     let dynamodb_client = aws_sdk_dynamodb::Client::new(&aws_config);
 
     let watchlist_repository =
-        WatchlistItemDynamoDbRepositoryImpl::new(&dynamodb_client, &table_name);
+        WatchlistProductDynamoDbRepositoryImpl::new(&dynamodb_client, &table_name);
     let user_repository = UserDynamoDbRepositoryImpl::new(&dynamodb_client, &table_name);
     let item_repository = ProductDynamoDbRepositoryImpl::new(&dynamodb_client, &table_name);
     let get_item_service = GetItemServiceImpl::new(&item_repository);

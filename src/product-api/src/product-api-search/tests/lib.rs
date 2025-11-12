@@ -13,7 +13,7 @@ use product::opensearch::{
 };
 use product::service::personalization_service::ItemPersonalizationServiceImpl;
 use product::service::query_service::QueryItemServiceImpl;
-use product::watchlist::dynamodb::repository::WatchlistItemDynamoDbRepositoryImpl;
+use product::watchlist::dynamodb::repository::WatchlistProductDynamoDbRepositoryImpl;
 use test_api::*;
 use time::OffsetDateTime;
 use time::macros::datetime;
@@ -21,7 +21,7 @@ use time::macros::datetime;
 #[localstack_test(services = [OpenSearch(), DynamoDB()])]
 async fn should_200_when_no_hits() {
     let ddb_client = get_dynamodb_client().await;
-    let watchlist_repository = WatchlistItemDynamoDbRepositoryImpl::new(ddb_client, "table_1");
+    let watchlist_repository = WatchlistProductDynamoDbRepositoryImpl::new(ddb_client, "table_1");
     let item_personalization_service = ItemPersonalizationServiceImpl::new(&watchlist_repository);
     let opensearch_repository = ProductOpenSearchRepositoryImpl::new(get_opensearch_client().await);
     let query_service = QueryItemServiceImpl::new(&opensearch_repository);
@@ -58,7 +58,7 @@ async fn should_200_when_no_hits() {
 #[localstack_test(services = [OpenSearch(), DynamoDB()])]
 async fn should_200_when_following_search_after_from_previous_response_for_sort_price_asc() {
     let ddb_client = get_dynamodb_client().await;
-    let watchlist_repository = WatchlistItemDynamoDbRepositoryImpl::new(ddb_client, "table_1");
+    let watchlist_repository = WatchlistProductDynamoDbRepositoryImpl::new(ddb_client, "table_1");
     let item_personalization_service = ItemPersonalizationServiceImpl::new(&watchlist_repository);
     let opensearch_repository = ProductOpenSearchRepositoryImpl::new(get_opensearch_client().await);
     let query_service = QueryItemServiceImpl::new(&opensearch_repository);
@@ -190,7 +190,7 @@ async fn should_200_when_following_search_after_from_previous_response_for_sort_
 #[localstack_test(services = [OpenSearch(), DynamoDB()])]
 async fn should_200_when_following_search_after_from_previous_response_for_sort_price_desc() {
     let ddb_client = get_dynamodb_client().await;
-    let watchlist_repository = WatchlistItemDynamoDbRepositoryImpl::new(ddb_client, "table_1");
+    let watchlist_repository = WatchlistProductDynamoDbRepositoryImpl::new(ddb_client, "table_1");
     let item_personalization_service = ItemPersonalizationServiceImpl::new(&watchlist_repository);
     let opensearch_repository = ProductOpenSearchRepositoryImpl::new(get_opensearch_client().await);
     let query_service = QueryItemServiceImpl::new(&opensearch_repository);
@@ -327,7 +327,7 @@ async fn should_200_when_following_search_after_from_previous_response_for_sort_
 #[localstack_test(services = [OpenSearch(), DynamoDB()])]
 async fn should_200_when_following_search_after_from_previous_response_for_implicit_sort_score() {
     let ddb_client = get_dynamodb_client().await;
-    let watchlist_repository = WatchlistItemDynamoDbRepositoryImpl::new(ddb_client, "table_1");
+    let watchlist_repository = WatchlistProductDynamoDbRepositoryImpl::new(ddb_client, "table_1");
     let item_personalization_service = ItemPersonalizationServiceImpl::new(&watchlist_repository);
     let opensearch_repository = ProductOpenSearchRepositoryImpl::new(get_opensearch_client().await);
     let query_service = QueryItemServiceImpl::new(&opensearch_repository);
@@ -426,7 +426,7 @@ async fn should_200_when_following_search_after_from_previous_response_for_impli
 #[localstack_test(services = [OpenSearch(), DynamoDB()])]
 async fn should_200_when_following_search_after_from_previous_response_for_explicit_sort_score() {
     let ddb_client = get_dynamodb_client().await;
-    let watchlist_repository = WatchlistItemDynamoDbRepositoryImpl::new(ddb_client, "table_1");
+    let watchlist_repository = WatchlistProductDynamoDbRepositoryImpl::new(ddb_client, "table_1");
     let item_personalization_service = ItemPersonalizationServiceImpl::new(&watchlist_repository);
     let opensearch_repository = ProductOpenSearchRepositoryImpl::new(get_opensearch_client().await);
     let query_service = QueryItemServiceImpl::new(&opensearch_repository);
@@ -538,7 +538,7 @@ async fn should_200_when_created_query(
     #[case] max: Option<OffsetDateTime>,
 ) {
     let ddb_client = get_dynamodb_client().await;
-    let watchlist_repository = WatchlistItemDynamoDbRepositoryImpl::new(ddb_client, "table_1");
+    let watchlist_repository = WatchlistProductDynamoDbRepositoryImpl::new(ddb_client, "table_1");
     let item_personalization_service = ItemPersonalizationServiceImpl::new(&watchlist_repository);
     let opensearch_repository = ProductOpenSearchRepositoryImpl::new(get_opensearch_client().await);
     let query_service = QueryItemServiceImpl::new(&opensearch_repository);
@@ -623,7 +623,7 @@ async fn should_200_when_updated_query(
     #[case] max: Option<OffsetDateTime>,
 ) {
     let ddb_client = get_dynamodb_client().await;
-    let watchlist_repository = WatchlistItemDynamoDbRepositoryImpl::new(ddb_client, "table_1");
+    let watchlist_repository = WatchlistProductDynamoDbRepositoryImpl::new(ddb_client, "table_1");
     let item_personalization_service = ItemPersonalizationServiceImpl::new(&watchlist_repository);
     let opensearch_repository = ProductOpenSearchRepositoryImpl::new(get_opensearch_client().await);
     let query_service = QueryItemServiceImpl::new(&opensearch_repository);
@@ -699,7 +699,7 @@ async fn should_200_when_updated_query(
 #[localstack_test(services = [OpenSearch(), DynamoDB()])]
 async fn should_200_personalized_when_authenticated_and_not_watching() {
     let ddb_client = get_dynamodb_client().await;
-    let watchlist_repository = WatchlistItemDynamoDbRepositoryImpl::new(ddb_client, "table_1");
+    let watchlist_repository = WatchlistProductDynamoDbRepositoryImpl::new(ddb_client, "table_1");
     let item_personalization_service = ItemPersonalizationServiceImpl::new(&watchlist_repository);
     let opensearch_repository = ProductOpenSearchRepositoryImpl::new(get_opensearch_client().await);
     let query_service = QueryItemServiceImpl::new(&opensearch_repository);

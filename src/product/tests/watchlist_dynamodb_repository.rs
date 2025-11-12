@@ -3,22 +3,22 @@ use std::time::Duration;
 use common::{pagination::cursor::Cursor, product_id::ProductId, user_id::UserId};
 use fake::{Fake, Faker};
 use product::watchlist::dynamodb::{
-    record::{WatchlistItemRecord, mk_gsi1_pk, mk_gsi1_sk, mk_pk},
-    record_update::WatchlistItemRecordUpdate,
-    repository::{WatchlistItemDynamoDbRepository, WatchlistItemDynamoDbRepositoryImpl},
+    record::{WatchlistProductRecord, mk_gsi1_pk, mk_gsi1_sk, mk_pk},
+    record_update::WatchlistProductRecordUpdate,
+    repository::{WatchlistProductDynamoDbRepository, WatchlistProductDynamoDbRepositoryImpl},
 };
 use test_api::*;
 use time::OffsetDateTime;
 
-async fn get_repository() -> WatchlistItemDynamoDbRepositoryImpl<'static> {
-    WatchlistItemDynamoDbRepositoryImpl::new(get_dynamodb_client().await, "table_1")
+async fn get_repository() -> WatchlistProductDynamoDbRepositoryImpl<'static> {
+    WatchlistProductDynamoDbRepositoryImpl::new(get_dynamodb_client().await, "table_1")
 }
 
 #[localstack_test(services = [DynamoDB()])]
 fn should_put_watchlist_record() {
     let repository = get_repository().await;
 
-    let expected = Faker.fake::<WatchlistItemRecord>();
+    let expected = Faker.fake::<WatchlistProductRecord>();
     let _ = repository
         .put_watchlist_record(expected.clone())
         .await
@@ -41,7 +41,7 @@ fn should_put_watchlist_record() {
 fn should_delete_watchlist_record() {
     let repository = get_repository().await;
 
-    let expected = Faker.fake::<WatchlistItemRecord>();
+    let expected = Faker.fake::<WatchlistProductRecord>();
     let _ = repository
         .put_watchlist_record(expected.clone())
         .await
@@ -72,7 +72,7 @@ fn should_query_watchlist_records_when_lower_bounded_created_for_scan_index_true
     let repository = get_repository().await;
     let user_id = UserId::new();
 
-    let mut records = fake::vec![WatchlistItemRecord; 42];
+    let mut records = fake::vec![WatchlistProductRecord; 42];
     for record in &mut records {
         record.pk = mk_pk(&user_id);
         record.user_id = user_id;
@@ -103,7 +103,7 @@ fn should_query_watchlist_records_when_higher_bounded_created_for_scan_index_fal
     let repository = get_repository().await;
     let user_id = UserId::new();
 
-    let mut records = fake::vec![WatchlistItemRecord; 42];
+    let mut records = fake::vec![WatchlistProductRecord; 42];
     for record in &mut records {
         record.pk = mk_pk(&user_id);
         record.user_id = user_id;
@@ -139,7 +139,7 @@ fn should_query_watchlist_records_when_not_bound_created_for_scan_index_true() {
     let repository = get_repository().await;
     let user_id = UserId::new();
 
-    let mut records = fake::vec![WatchlistItemRecord; 42];
+    let mut records = fake::vec![WatchlistProductRecord; 42];
     for record in &mut records {
         record.pk = mk_pk(&user_id);
         record.user_id = user_id;
@@ -168,7 +168,7 @@ fn should_query_watchlist_records_and_respect_limit_for_scan_index_true() {
     let repository = get_repository().await;
     let user_id = UserId::new();
 
-    let mut records = fake::vec![WatchlistItemRecord; 42];
+    let mut records = fake::vec![WatchlistProductRecord; 42];
     for record in &mut records {
         record.pk = mk_pk(&user_id);
         record.user_id = user_id;
@@ -199,7 +199,7 @@ fn should_query_watchlist_records_and_respect_limit_for_scan_index_false() {
     let repository = get_repository().await;
     let user_id = UserId::new();
 
-    let mut records = fake::vec![WatchlistItemRecord; 42];
+    let mut records = fake::vec![WatchlistProductRecord; 42];
     for record in &mut records {
         record.pk = mk_pk(&user_id);
         record.user_id = user_id;
@@ -232,7 +232,7 @@ fn should_query_watchlist_records_and_respect_limit_for_scan_index_false() {
 fn should_set_notifications_true_for_update() {
     let repository = get_repository().await;
 
-    let mut initial = Faker.fake::<WatchlistItemRecord>();
+    let mut initial = Faker.fake::<WatchlistProductRecord>();
     initial.notifications = false;
     let _ = repository
         .put_watchlist_record(initial.clone())
@@ -245,7 +245,7 @@ fn should_set_notifications_true_for_update() {
             &initial.user_id,
             &initial.shop_id,
             &initial.shops_product_id,
-            WatchlistItemRecordUpdate {
+            WatchlistProductRecordUpdate {
                 gsi1_pk: Some(mk_gsi1_pk(&initial.product_id)),
                 gsi1_sk: Some(mk_gsi1_sk(&initial.user_id)),
                 notifications: Some(true),
@@ -274,7 +274,7 @@ fn should_set_notifications_true_for_update() {
 fn should_set_notifications_false_for_update() {
     let repository = get_repository().await;
 
-    let mut initial = Faker.fake::<WatchlistItemRecord>();
+    let mut initial = Faker.fake::<WatchlistProductRecord>();
     initial.notifications = true;
     let _ = repository
         .put_watchlist_record(initial.clone())
@@ -287,7 +287,7 @@ fn should_set_notifications_false_for_update() {
             &initial.user_id,
             &initial.shop_id,
             &initial.shops_product_id,
-            WatchlistItemRecordUpdate {
+            WatchlistProductRecordUpdate {
                 gsi1_pk: None,
                 gsi1_sk: None,
                 notifications: Some(false),
@@ -317,7 +317,7 @@ fn should_query_users_with_notifications_enabled() {
     let repository = get_repository().await;
 
     let product_id = ProductId::new();
-    for mut record in fake::vec![WatchlistItemRecord; 42] {
+    for mut record in fake::vec![WatchlistProductRecord; 42] {
         record.notifications = true;
         record.gsi1_pk = Some(mk_gsi1_pk(&product_id));
         record.gsi1_sk = Some(mk_gsi1_sk(&record.user_id));
@@ -326,7 +326,7 @@ fn should_query_users_with_notifications_enabled() {
     }
 
     // civilians
-    for mut record in fake::vec![WatchlistItemRecord; 15] {
+    for mut record in fake::vec![WatchlistProductRecord; 15] {
         record.notifications = false;
         let _ = repository.put_watchlist_record(record).await.unwrap();
     }
@@ -347,7 +347,7 @@ fn should_count_watchlist_records_and_respect_limit_for_scan_index_true() {
     let repository = get_repository().await;
     let user_id = UserId::new();
 
-    let mut records = fake::vec![WatchlistItemRecord; 42];
+    let mut records = fake::vec![WatchlistProductRecord; 42];
     for record in &mut records {
         record.pk = mk_pk(&user_id);
         record.user_id = user_id;
@@ -377,7 +377,7 @@ fn should_count_watchlist_records_and_respect_limit_for_scan_index_false() {
     let repository = get_repository().await;
     let user_id = UserId::new();
 
-    let mut records = fake::vec![WatchlistItemRecord; 420];
+    let mut records = fake::vec![WatchlistProductRecord; 420];
     for record in &mut records {
         record.pk = mk_pk(&user_id);
         record.user_id = user_id;
@@ -407,7 +407,7 @@ fn should_query_watchlist_records_all_for_scan_index_true() {
     let repository = get_repository().await;
     let user_id = UserId::new();
 
-    let mut expected = fake::vec![WatchlistItemRecord; 42];
+    let mut expected = fake::vec![WatchlistProductRecord; 42];
     for record in &mut expected {
         record.pk = mk_pk(&user_id);
         record.user_id = user_id;
@@ -429,7 +429,7 @@ fn should_query_watchlist_records_all_for_scan_index_false() {
     let repository = get_repository().await;
     let user_id = UserId::new();
 
-    let mut expected = fake::vec![WatchlistItemRecord; 42];
+    let mut expected = fake::vec![WatchlistProductRecord; 42];
     for record in &mut expected {
         record.pk = mk_pk(&user_id);
         record.user_id = user_id;

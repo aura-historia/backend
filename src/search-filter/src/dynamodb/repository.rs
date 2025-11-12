@@ -7,7 +7,7 @@ use aws_sdk_dynamodb::{
     error::SdkError,
     operation::{
         delete_item::{DeleteItemError, DeleteItemOutput},
-        get_item::GetItemError,
+        get_item::GetProductError,
         put_item::{PutItemError, PutItemOutput},
         query::QueryError,
         update_item::UpdateItemError,
@@ -30,7 +30,7 @@ pub trait UserSearchFilterDynamoDbRepository {
         &self,
         user_id: &UserId,
         search_filter_id: &UserSearchFilterId,
-    ) -> Result<Option<UserSearchFilterRecord>, SdkError<GetItemError, HttpResponse>>;
+    ) -> Result<Option<UserSearchFilterRecord>, SdkError<GetProductError, HttpResponse>>;
 
     async fn put_user_search_filter_record(
         &self,
@@ -107,7 +107,7 @@ impl<'a> UserSearchFilterDynamoDbRepository for UserSearchFilterDynamoDbReposito
         &self,
         user_id: &UserId,
         search_filter_id: &UserSearchFilterId,
-    ) -> Result<Option<UserSearchFilterRecord>, SdkError<GetItemError, HttpResponse>> {
+    ) -> Result<Option<UserSearchFilterRecord>, SdkError<GetProductError, HttpResponse>> {
         let record = self.client
             .get_item()
             .table_name(&self.table)

@@ -1,6 +1,6 @@
 use crate::dynamodb::product_event_record::ProductEventRecord;
 use crate::dynamodb::product_record::{self, ProductRecord};
-use crate::dynamodb::product_update_record::ItemRecordUpdate;
+use crate::dynamodb::product_update_record::ProductRecordUpdate;
 use async_trait::async_trait;
 use aws_sdk_dynamodb::Client;
 use aws_sdk_dynamodb::config::http::HttpResponse;
@@ -38,7 +38,7 @@ pub trait ProductDynamoDbRepository {
         &self,
         shop_id: &ShopId,
         shops_product_id: &ShopsProductId,
-        update: ItemRecordUpdate,
+        update: ProductRecordUpdate,
     ) -> Result<UpdateItemOutput, SdkError<UpdateItemError, HttpResponse>>;
 
     async fn get_item_record(
@@ -122,7 +122,7 @@ impl<'a> ProductDynamoDbRepository for ProductDynamoDbRepositoryImpl<'a> {
         &self,
         shop_id: &ShopId,
         shops_product_id: &ShopsProductId,
-        item_update_record: ItemRecordUpdate,
+        item_update_record: ProductRecordUpdate,
     ) -> Result<UpdateItemOutput, SdkError<UpdateItemError, HttpResponse>> {
         let pk = product_record::mk_pk(shop_id, shops_product_id);
         let sk = product_record::mk_sk().to_owned();

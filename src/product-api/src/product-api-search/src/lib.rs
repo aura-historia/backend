@@ -137,7 +137,7 @@ mod tests {
     use fake::Fake;
     use fake::Faker;
     use lambda_runtime::LambdaEvent;
-    use product::core::product::LocalizedItemView;
+    use product::core::product::LocalizedProductView;
     use product::data::product_search_data::ProductSearchData;
     use product::service::personalization_service::MockItemPersonalizationService;
     use product::service::query_service::MockQueryItemService;
@@ -176,7 +176,7 @@ mod tests {
             .return_once(|_, _, cursor| {
                 let count = cursor.as_ref().map(|cursor| cursor.size).unwrap_or(20) as usize;
                 let search_result = CursoredResult {
-                    items: fake::vec![LocalizedItemView;count],
+                    items: fake::vec![LocalizedProductView;count],
                     cursor: Cursor {
                         size: count as u64,
                         search_after: Some(json!(["Booooop", 123465])),

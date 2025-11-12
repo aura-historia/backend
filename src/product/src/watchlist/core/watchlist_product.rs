@@ -1,10 +1,10 @@
-use crate::core::product::LocalizedItemView;
+use crate::core::product::LocalizedProductView;
 use common::{product_id::ProductId, shop_id::ShopId, shops_product_id::ShopsProductId};
 use time::OffsetDateTime;
 
 #[derive(Debug, Clone, PartialEq)]
-pub struct LocalizedWatchlistItemView {
-    pub item: LocalizedItemView,
+pub struct LocalizedWatchlistProductView {
+    pub item: LocalizedProductView,
     pub notifications: bool,
     pub created: OffsetDateTime,
     pub updated: OffsetDateTime,
@@ -22,13 +22,13 @@ pub struct WatchlistProduct {
 
 #[cfg(feature = "test-data")]
 mod faker {
-    use crate::watchlist::core::watchlist_product::{LocalizedWatchlistItemView, WatchlistProduct};
+    use crate::watchlist::core::watchlist_product::{LocalizedWatchlistProductView, WatchlistProduct};
     use fake::{Dummy, Fake, Faker, Rng};
     use time::OffsetDateTime;
 
-    impl Dummy<Faker> for LocalizedWatchlistItemView {
+    impl Dummy<Faker> for LocalizedWatchlistProductView {
         fn dummy_with_rng<R: Rng + ?Sized>(config: &Faker, rng: &mut R) -> Self {
-            LocalizedWatchlistItemView {
+            LocalizedWatchlistProductView {
                 item: config.fake_with_rng(rng),
                 notifications: config.fake_with_rng(rng),
                 created: OffsetDateTime::now_utc(),
