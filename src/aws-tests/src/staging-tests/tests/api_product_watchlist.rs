@@ -96,11 +96,14 @@ async fn should_put_and_get_and_patch_and_delete_watchlist_item_and_verify_not_e
         .unwrap();
 
     assert_eq!(1, gotten.items.len());
-    assert_eq!(&materialized.product_id, &gotten.items[0].item.product_id);
-    assert_eq!(&materialized.shop_id, &gotten.items[0].item.shop_id);
+    assert_eq!(
+        &materialized.product_id,
+        &gotten.items[0].product.product_id
+    );
+    assert_eq!(&materialized.shop_id, &gotten.items[0].product.shop_id);
     assert_eq!(
         &materialized.shops_product_id,
-        &gotten.items[0].item.shops_product_id
+        &gotten.items[0].product.shops_product_id
     );
     assert_eq!(1, gotten.total.unwrap());
 

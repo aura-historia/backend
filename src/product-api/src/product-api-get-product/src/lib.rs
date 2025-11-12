@@ -179,7 +179,7 @@ mod tests {
             .return_once(|_| Box::pin(async { Ok(None) }));
         let product_personalization_service = MockProductPersonalizationService::default();
         let mut get_product_service = MockGetProductService::default();
-        get_product_service.expect_view_item().return_once(
+        get_product_service.expect_view_product().return_once(
             move |shop_id, shops_product_id, _, _, _| {
                 let item = LocalizedProductView {
                     product_id: Default::default(),
@@ -230,7 +230,7 @@ mod tests {
             .return_once(|_| Box::pin(async { Ok(None) }));
         let product_personalization_service = MockProductPersonalizationService::default();
         let mut get_product_service = MockGetProductService::default();
-        get_product_service.expect_view_item().return_once(
+        get_product_service.expect_view_product().return_once(
             move |shop_id, shops_product_id, _, _, _| {
                 let item = LocalizedProductView {
                     product_id: Default::default(),
@@ -286,7 +286,7 @@ mod tests {
             .return_once(|_| Box::pin(async { Ok(None) }));
         let product_personalization_service = MockProductPersonalizationService::default();
         let mut get_product_service = MockGetProductService::default();
-        get_product_service.expect_view_item().return_once(
+        get_product_service.expect_view_product().return_once(
             move |shop_id, shops_product_id, _, _, _| {
                 let item = LocalizedProductView {
                     product_id: Default::default(),
@@ -349,7 +349,7 @@ mod tests {
             .return_once(|_| Box::pin(async { Ok(None) }));
         let product_personalization_service = MockProductPersonalizationService::default();
         let mut get_product_service = MockGetProductService::default();
-        get_product_service.expect_view_item().return_once(
+        get_product_service.expect_view_product().return_once(
             move |shop_id, shops_product_id, _, _, history| {
                 assert_eq!(expected_history, history);
                 let item = LocalizedProductView {
@@ -405,7 +405,7 @@ mod tests {
             .return_once(|_| Box::pin(async { Ok(None) }));
         let product_personalization_service = MockProductPersonalizationService::default();
         let mut get_product_service = MockGetProductService::default();
-        get_product_service.expect_view_item().never();
+        get_product_service.expect_view_product().never();
         let lambda_event = LambdaEvent {
             payload: ApiGatewayV2httpRequestProxy::builder()
                 .http_method(http::Method::GET)
@@ -436,7 +436,7 @@ mod tests {
             .return_once(|_| Box::pin(async { Ok(None) }));
         let product_personalization_service = MockProductPersonalizationService::default();
         let mut get_product_service = MockGetProductService::default();
-        get_product_service.expect_view_item().never();
+        get_product_service.expect_view_product().never();
         let lambda_event = LambdaEvent {
             payload: ApiGatewayV2httpRequestProxy::builder()
                 .http_method(http::Method::GET)
@@ -467,7 +467,7 @@ mod tests {
             .return_once(|_| Box::pin(async { Ok(None) }));
         let product_personalization_service = MockProductPersonalizationService::default();
         let mut get_product_service = MockGetProductService::default();
-        get_product_service.expect_view_item().never();
+        get_product_service.expect_view_product().never();
         let lambda_event = LambdaEvent {
             payload: ApiGatewayV2httpRequestProxy::builder()
                 .http_method(http::Method::GET)
@@ -511,7 +511,7 @@ mod tests {
             .return_once(|_| Box::pin(async { Ok(None) }));
         let product_personalization_service = MockProductPersonalizationService::default();
         let mut get_product_service = MockGetProductService::default();
-        get_product_service.expect_view_item().return_once(
+        get_product_service.expect_view_product().return_once(
             move |shop_id, shops_product_id, _, _, _| {
                 let shop_id = *shop_id;
                 let shops_product_id = shops_product_id.clone();
