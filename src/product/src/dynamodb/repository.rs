@@ -24,36 +24,36 @@ use tracing::{error, warn};
 #[allow(clippy::result_large_err)]
 #[mockall::automock]
 pub trait ProductDynamoDbRepository {
-    async fn put_item_event_records(
+    async fn put_product_event_records(
         &self,
-        item_event_records: Batch<ProductEventRecord, 25>,
+        product_event_records: Batch<ProductEventRecord, 25>,
     ) -> Result<BatchWriteItemOutput, SdkError<BatchWriteItemError, HttpResponse>>;
 
-    async fn put_item_records(
+    async fn put_product_records(
         &self,
-        item_records: Batch<ProductRecord, 25>,
+        product_records: Batch<ProductRecord, 25>,
     ) -> Result<BatchWriteItemOutput, SdkError<BatchWriteItemError, HttpResponse>>;
 
-    async fn update_item_record(
+    async fn update_product_record(
         &self,
         shop_id: &ShopId,
         shops_product_id: &ShopsProductId,
         update: ProductRecordUpdate,
     ) -> Result<UpdateItemOutput, SdkError<UpdateItemError, HttpResponse>>;
 
-    async fn get_item_record(
+    async fn get_product_record(
         &self,
         shop_id: &ShopId,
         shops_product_id: &ShopsProductId,
     ) -> Result<Option<ProductRecord>, SdkError<GetItemError, HttpResponse>>;
 
-    async fn query_item_record_and_event_records(
+    async fn query_product_record_and_event_records(
         &self,
         shop_id: &ShopId,
         shops_product_id: &ShopsProductId,
     ) -> Result<Option<(ProductRecord, Vec<ProductEventRecord>)>, SdkError<QueryError, HttpResponse>>;
 
-    async fn get_item_records(
+    async fn get_product_records(
         &self,
         item_keys: &Batch<ProductKey, 100>,
     ) -> Result<
@@ -61,12 +61,12 @@ pub trait ProductDynamoDbRepository {
         SdkError<BatchGetItemError, HttpResponse>,
     >;
 
-    async fn exist_item_records(
+    async fn exist_product_records(
         &self,
         item_keys: &Batch<ProductKey, 100>,
     ) -> Result<BatchGetItemResult<ProductKey, ProductKey>, SdkError<BatchGetItemError, HttpResponse>>;
 
-    async fn get_item_id(
+    async fn get_product_id(
         &self,
         shop_id: &ShopId,
         shops_product_id: &ShopsProductId,
@@ -90,35 +90,35 @@ impl<'a> ProductDynamoDbRepositoryImpl<'a> {
 
 #[async_trait]
 impl<'a> ProductDynamoDbRepository for ProductDynamoDbRepositoryImpl<'a> {
-    async fn put_item_event_records(
+    async fn put_product_event_records(
         &self,
-        item_event_records: Batch<ProductEventRecord, 25>,
+        product_event_records: Batch<ProductEventRecord, 25>,
     ) -> Result<BatchWriteItemOutput, SdkError<BatchWriteItemError, HttpResponse>> {
         self.client
             .batch_write_item()
             .set_request_items(Some(HashMap::from([(
                 self.table.clone(),
-                item_event_records.into_dynamodb_write_requests(),
+                product_event_records.into_dynamodb_write_requests(),
             )])))
             .send()
             .await
     }
 
-    async fn put_item_records(
+    async fn put_product_records(
         &self,
-        item_records: Batch<ProductRecord, 25>,
+        product_records: Batch<ProductRecord, 25>,
     ) -> Result<BatchWriteItemOutput, SdkError<BatchWriteItemError, HttpResponse>> {
         self.client
             .batch_write_item()
             .set_request_items(Some(HashMap::from([(
                 self.table.clone(),
-                item_records.into_dynamodb_write_requests(),
+                product_records.into_dynamodb_write_requests(),
             )])))
             .send()
             .await
     }
 
-    async fn update_item_record(
+    async fn update_product_record(
         &self,
         shop_id: &ShopId,
         shops_product_id: &ShopsProductId,
@@ -140,7 +140,7 @@ impl<'a> ProductDynamoDbRepository for ProductDynamoDbRepositoryImpl<'a> {
             .await
     }
 
-    async fn get_item_record(
+    async fn get_product_record(
         &self,
         shop_id: &ShopId,
         shops_product_id: &ShopsProductId,
@@ -155,7 +155,7 @@ impl<'a> ProductDynamoDbRepository for ProductDynamoDbRepositoryImpl<'a> {
             .await?
             .item
             .map(serde_dynamo::from_item::<_, ProductRecord>)
-            .and_then(|item_record_res| match item_record_res {
+            .and_then(|product_record_res| match product_record_res {
                 Ok(product_record) => Some(product_record),
                 Err(err) => {
                     error!(error = %err, type = %std::any::type_name::<ProductRecord>(), "Failed deserializing ProductRecord.");
@@ -166,7 +166,7 @@ impl<'a> ProductDynamoDbRepository for ProductDynamoDbRepositoryImpl<'a> {
         Ok(rec)
     }
 
-    async fn query_item_record_and_event_records(
+    async fn query_product_record_and_event_records(
         &self,
         shop_id: &ShopId,
         shops_product_id: &ShopsProductId,
@@ -183,7 +183,7 @@ impl<'a> ProductDynamoDbRepository for ProductDynamoDbRepositoryImpl<'a> {
                 ":pk_val",
                 AttributeValue::S(product_record::mk_pk(shop_id, shops_product_id)),
             )
-            .expression_attribute_values(":sk_prefix", AttributeValue::S("item#".to_string()))
+            .expression_attribute_values(":sk_prefix", AttributeValue::S("product#".to_string()))
             .scan_index_forward(true)
             .into_paginator()
             .send()
@@ -197,7 +197,7 @@ impl<'a> ProductDynamoDbRepository for ProductDynamoDbRepositoryImpl<'a> {
                 .and_then(Result::ok)
                 .map(String::as_str)
             {
-                Some("item#materialized") => {
+                Some("product#materialized") => {
                     match serde_dynamo::from_item::<_, ProductRecord>(record) {
                         Ok(materialized) => (Some(materialized), events),
                         Err(err) => {
@@ -210,7 +210,7 @@ impl<'a> ProductDynamoDbRepository for ProductDynamoDbRepositoryImpl<'a> {
                         },
                     }
                 },
-                Some(sk) if sk.starts_with("item#event#") => {
+                Some(sk) if sk.starts_with("product#event#") => {
                     match serde_dynamo::from_item::<_, ProductEventRecord>(record) {
                         Ok(event) => {
                             let mut events: Vec<ProductEventRecord> = events.unwrap_or_default();
@@ -254,7 +254,7 @@ impl<'a> ProductDynamoDbRepository for ProductDynamoDbRepositoryImpl<'a> {
         }
     }
 
-    async fn get_item_records(
+    async fn get_product_records(
         &self,
         item_keys: &Batch<ProductKey, 100>,
     ) -> Result<
@@ -314,7 +314,7 @@ impl<'a> ProductDynamoDbRepository for ProductDynamoDbRepositoryImpl<'a> {
             .map(|keys_and_attributes| keys_and_attributes.keys)
             .unwrap_or_default()
             .into_iter()
-            .filter_map(|attr_map| match extract_item_key(attr_map) {
+            .filter_map(|attr_map| match extract_product_key(attr_map) {
                 Ok(key) => Some(key),
                 Err(err) => {
                     error!(
@@ -340,7 +340,7 @@ impl<'a> ProductDynamoDbRepository for ProductDynamoDbRepositoryImpl<'a> {
         Ok(batch_result)
     }
 
-    async fn exist_item_records(
+    async fn exist_product_records(
         &self,
         item_keys: &Batch<ProductKey, 100>,
     ) -> Result<BatchGetItemResult<ProductKey, ProductKey>, SdkError<BatchGetItemError, HttpResponse>>
@@ -382,7 +382,7 @@ impl<'a> ProductDynamoDbRepository for ProductDynamoDbRepositoryImpl<'a> {
             .remove(&self.table)
             .unwrap_or_default()
             .into_iter()
-            .map(extract_item_key)
+            .map(extract_product_key)
             .filter_map(|result| match result {
                 Ok(event) => Some(event),
                 Err(err) => {
@@ -399,7 +399,7 @@ impl<'a> ProductDynamoDbRepository for ProductDynamoDbRepositoryImpl<'a> {
             .map(|keys_and_attributes| keys_and_attributes.keys)
             .unwrap_or_default()
             .into_iter()
-            .filter_map(|attr_map| match extract_item_key(attr_map) {
+            .filter_map(|attr_map| match extract_product_key(attr_map) {
                 Ok(key) => Some(key),
                 Err(err) => {
                     error!(
@@ -425,7 +425,7 @@ impl<'a> ProductDynamoDbRepository for ProductDynamoDbRepositoryImpl<'a> {
         Ok(batch_result)
     }
 
-    async fn get_item_id(
+    async fn get_product_id(
         &self,
         shop_id: &ShopId,
         shops_product_id: &ShopsProductId,
@@ -443,7 +443,7 @@ impl<'a> ProductDynamoDbRepository for ProductDynamoDbRepositoryImpl<'a> {
             .send()
             .await?
             .item
-            .map(extract_item_id)
+            .map(extract_product_id)
             .transpose()
             .map_err(SdkError::construction_failure)?; // not ideal semantically - but eases types
 
@@ -451,7 +451,7 @@ impl<'a> ProductDynamoDbRepository for ProductDynamoDbRepositoryImpl<'a> {
     }
 }
 
-fn extract_item_key(map: HashMap<String, AttributeValue>) -> Result<ProductKey, String> {
+fn extract_product_key(map: HashMap<String, AttributeValue>) -> Result<ProductKey, String> {
     let mut map = map;
 
     // ugly af but much more efficient due to slices than using iterators in functional-style here
@@ -459,7 +459,7 @@ fn extract_item_key(map: HashMap<String, AttributeValue>) -> Result<ProductKey, 
         let pk_res = pk_attr.as_s();
         if let Ok(pk) = pk_res {
             if let Some((shop_id, shops_product_id)) = pk
-                .trim_start_matches("item#shop_id#")
+                .trim_start_matches("product#shop_id#")
                 .split_once("#shops_product_id#")
             {
                 Ok(ProductKey {
@@ -479,18 +479,18 @@ fn extract_item_key(map: HashMap<String, AttributeValue>) -> Result<ProductKey, 
     }
 }
 
-fn extract_item_id(
+fn extract_product_id(
     map: HashMap<String, AttributeValue>,
 ) -> Result<ProductId, Box<dyn std::error::Error + Send + Sync>> {
     let mut map = map;
 
     // ugly af but much more efficient due to slices than using iterators in functional-style here
-    if let Some(item_id_attr) = map.remove("product_id") {
-        let item_id_res = item_id_attr.as_s();
-        if let Ok(item_id_str) = item_id_res {
-            Ok(ProductId::try_from(item_id_str.as_str())?)
+    if let Some(product_id_attr) = map.remove("product_id") {
+        let product_id_res = product_id_attr.as_s();
+        if let Ok(product_id_str) = product_id_res {
+            Ok(ProductId::try_from(product_id_str.as_str())?)
         } else {
-            Err(format!("Extracted value for product_id '{item_id_attr:?}' failed.").into())
+            Err(format!("Extracted value for product_id '{product_id_attr:?}' failed.").into())
         }
     } else {
         Err(format!("AttributeValue-Map does not contain key product_id: '{map:?}'.").into())
@@ -499,7 +499,7 @@ fn extract_item_id(
 
 #[cfg(test)]
 mod tests {
-    use crate::dynamodb::repository::{extract_item_id, extract_item_key};
+    use crate::dynamodb::repository::{extract_product_id, extract_product_key};
     use aws_sdk_dynamodb::types::AttributeValue;
     use common::product_id::{ProductId, ProductKey};
     use std::collections::HashMap;
@@ -514,7 +514,7 @@ mod tests {
         let map = HashMap::from([(
             "pk".to_owned(),
             AttributeValue::S(format!(
-                "item#shop_id#{shop_id}#shops_product_id#{shops_product_id}"
+                "product#shop_id#{shop_id}#shops_product_id#{shops_product_id}"
             )),
         )]);
         let expected = ProductKey {
@@ -522,7 +522,7 @@ mod tests {
             shops_product_id: shops_product_id.into(),
         };
 
-        let actual = extract_item_key(map);
+        let actual = extract_product_key(map);
 
         assert!(actual.is_ok());
         assert_eq!(expected, actual.unwrap());
@@ -532,16 +532,16 @@ mod tests {
     #[case("a1caead3-a50d-44a4-b9fb-a15d2397601e")]
     #[case("6e3f0c71-8af4-4897-ba75-4a64792c07a6")]
     #[case("f5e5aa19-7d97-4972-af6f-426f1ab8bb8f")]
-    fn should_extract_item_id_from_map_when_item_id_exists_and_is_valid_for(
-        #[case] item_id_str: &str,
+    fn should_extract_product_id_from_map_when_product_id_exists_and_is_valid_for(
+        #[case] product_id_str: &str,
     ) {
         let map = HashMap::from([(
             "product_id".to_owned(),
-            AttributeValue::S(item_id_str.to_owned()),
+            AttributeValue::S(product_id_str.to_owned()),
         )]);
-        let expected = ProductId::try_from(item_id_str).unwrap();
+        let expected = ProductId::try_from(product_id_str).unwrap();
 
-        let actual = extract_item_id(map);
+        let actual = extract_product_id(map);
 
         assert!(actual.is_ok());
         assert_eq!(expected, actual.unwrap());

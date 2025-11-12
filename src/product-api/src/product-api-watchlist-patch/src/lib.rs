@@ -95,13 +95,13 @@ mod tests {
     use common::{shop_id::ShopId, shops_product_id::ShopsProductId, user_id::UserId};
     use fake::{Fake, Faker};
     use lambda_runtime::LambdaEvent;
-    use product::watchlist::service::product_watchlist_service::MockItemWatchListService;
+    use product::watchlist::service::product_watchlist_service::MockProductWatchListService;
     use test_api::{ApiGatewayV2httpRequestProxy, extract_apigw_response_json_body};
     use time::{OffsetDateTime, format_description::well_known::Rfc3339};
 
     #[tokio::test]
     async fn should_200_when_success() {
-        let mut service = MockItemWatchListService::default();
+        let mut service = MockProductWatchListService::default();
         service
             .expect_update_watchlist_item()
             .return_once(|_, _, _, _| Box::pin(async { Ok(Faker.fake()) }));
@@ -130,7 +130,7 @@ mod tests {
 
     #[tokio::test]
     async fn should_400_when_shop_id_missing() {
-        let mut service = MockItemWatchListService::default();
+        let mut service = MockProductWatchListService::default();
         service.expect_delete_watchlist_item().never();
 
         let lambda_event = LambdaEvent {
@@ -160,7 +160,7 @@ mod tests {
 
     #[tokio::test]
     async fn should_400_when_shops_item_id_missing() {
-        let mut service = MockItemWatchListService::default();
+        let mut service = MockProductWatchListService::default();
         service.expect_delete_watchlist_item().never();
 
         let lambda_event = LambdaEvent {
@@ -190,7 +190,7 @@ mod tests {
 
     #[tokio::test]
     async fn should_400_when_body_missing() {
-        let mut service = MockItemWatchListService::default();
+        let mut service = MockProductWatchListService::default();
         service.expect_delete_watchlist_item().never();
 
         let lambda_event = LambdaEvent {
@@ -216,7 +216,7 @@ mod tests {
 
     #[tokio::test]
     async fn should_400_when_body_invalid() {
-        let mut service = MockItemWatchListService::default();
+        let mut service = MockProductWatchListService::default();
         service.expect_delete_watchlist_item().never();
 
         let lambda_event = LambdaEvent {
@@ -243,7 +243,7 @@ mod tests {
 
     #[tokio::test]
     async fn should_401_when_sub_missing() {
-        let mut service = MockItemWatchListService::default();
+        let mut service = MockProductWatchListService::default();
         service.expect_delete_watchlist_item().never();
 
         let lambda_event = LambdaEvent {

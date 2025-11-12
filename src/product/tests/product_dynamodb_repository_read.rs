@@ -27,7 +27,7 @@ mod get_item_record {
     async fn should_return_nothing_for_get_item_record_when_table_is_empty() {
         let repository = get_repository().await;
         let actual = repository
-            .get_item_record(&ShopId::new(), &"non-existent".into())
+            .get_product_record(&ShopId::new(), &"non-existent".into())
             .await
             .unwrap();
 
@@ -81,7 +81,7 @@ mod get_item_record {
 
         let repository = get_repository().await;
         let actual = repository
-            .get_item_record(&shop_id, &shops_product_id)
+            .get_product_record(&shop_id, &shops_product_id)
             .await
             .unwrap();
 
@@ -136,7 +136,7 @@ mod get_item_record {
 
         let repository = get_repository().await;
         let actual = repository
-            .get_item_record(&ShopId::new(), &"non-existent".into())
+            .get_product_record(&ShopId::new(), &"non-existent".into())
             .await
             .unwrap();
 
@@ -234,7 +234,7 @@ mod get_item_record {
             .unwrap();
 
         let actual = repository
-            .get_item_record(&ShopId::new(), &"non-existent".into())
+            .get_product_record(&ShopId::new(), &"non-existent".into())
             .await
             .unwrap();
 
@@ -264,7 +264,7 @@ mod query_item_record_and_event_records {
         let repository = get_repository().await;
 
         let actual = repository
-            .query_item_record_and_event_records(&ShopId::new(), &ShopsProductId::new())
+            .query_product_record_and_event_records(&ShopId::new(), &ShopsProductId::new())
             .await
             .unwrap();
 
@@ -283,13 +283,13 @@ mod query_item_record_and_event_records {
         .unwrap();
         let repository = get_repository().await;
         let insert_res = repository
-            .put_item_event_records([event.clone()].into())
+            .put_product_event_records([event.clone()].into())
             .await
             .unwrap();
         assert!(insert_res.unprocessed_items.unwrap_or_default().is_empty());
 
         let actual = repository
-            .query_item_record_and_event_records(&event.shop_id, &event.shops_product_id)
+            .query_product_record_and_event_records(&event.shop_id, &event.shops_product_id)
             .await
             .unwrap();
 
@@ -301,13 +301,13 @@ mod query_item_record_and_event_records {
         let expected = Faker.fake::<ProductRecord>();
         let repository = get_repository().await;
         let insert_res = repository
-            .put_item_records([expected.clone()].into())
+            .put_product_records([expected.clone()].into())
             .await
             .unwrap();
         assert!(insert_res.unprocessed_items.unwrap_or_default().is_empty());
 
         let (actual, events) = repository
-            .query_item_record_and_event_records(&expected.shop_id, &expected.shops_product_id)
+            .query_product_record_and_event_records(&expected.shop_id, &expected.shops_product_id)
             .await
             .unwrap()
             .unwrap();
@@ -321,7 +321,7 @@ mod query_item_record_and_event_records {
         let expected_materialized = Faker.fake::<ProductRecord>();
         let repository = get_repository().await;
         let insert_res = repository
-            .put_item_records([expected_materialized.clone()].into())
+            .put_product_records([expected_materialized.clone()].into())
             .await
             .unwrap();
         assert!(insert_res.unprocessed_items.unwrap_or_default().is_empty());
@@ -360,13 +360,13 @@ mod query_item_record_and_event_records {
         .try_into()
         .unwrap();
         let insert_res = repository
-            .put_item_event_records([created_event.clone(), updated_event.clone()].into())
+            .put_product_event_records([created_event.clone(), updated_event.clone()].into())
             .await
             .unwrap();
         assert!(insert_res.unprocessed_items.unwrap_or_default().is_empty());
 
         let (actual_materialized, actual_events) = repository
-            .query_item_record_and_event_records(
+            .query_product_record_and_event_records(
                 &expected_materialized.shop_id,
                 &expected_materialized.shops_product_id,
             )
@@ -383,7 +383,7 @@ mod query_item_record_and_event_records {
         let expected_materialized = Faker.fake::<ProductRecord>();
         let repository = get_repository().await;
         let insert_res = repository
-            .put_item_records([expected_materialized.clone()].into())
+            .put_product_records([expected_materialized.clone()].into())
             .await
             .unwrap();
         assert!(insert_res.unprocessed_items.unwrap_or_default().is_empty());
@@ -422,13 +422,13 @@ mod query_item_record_and_event_records {
         .try_into()
         .unwrap();
         let insert_res = repository
-            .put_item_event_records([created_event.clone(), updated_event.clone()].into())
+            .put_product_event_records([created_event.clone(), updated_event.clone()].into())
             .await
             .unwrap();
         assert!(insert_res.unprocessed_items.unwrap_or_default().is_empty());
 
         let (actual_materialized, actual_events) = repository
-            .query_item_record_and_event_records(
+            .query_product_record_and_event_records(
                 &expected_materialized.shop_id,
                 &expected_materialized.shops_product_id,
             )
@@ -516,7 +516,7 @@ mod batch_get_item_records {
         }
 
         let mut actuals = repository
-            .get_item_records(
+            .get_product_records(
                 &Batch::try_from(
                     (1..=100)
                         .map(|n| ProductKey::new(shop_id, ShopsProductId::from(n.to_string())))
@@ -590,7 +590,7 @@ mod batch_get_item_records {
 
         let mut actuals = get_repository()
             .await
-            .get_item_records(
+            .get_product_records(
                 &Batch::try_from(
                     (1..=14)
                         .map(|n| ProductKey::new(shop_id, ShopsProductId::from(n.to_string())))
@@ -666,7 +666,7 @@ mod batch_get_item_records {
 
         let mut actuals = get_repository()
             .await
-            .get_item_records(
+            .get_product_records(
                 &Batch::try_from(
                     (1..=100)
                         .map(|n| ProductKey::new(shop_id, ShopsProductId::from(n.to_string())))
@@ -759,7 +759,7 @@ mod batch_exist_item_records {
 
         let mut actuals = get_repository()
             .await
-            .exist_item_records(
+            .exist_product_records(
                 &Batch::try_from(
                     (1..=100)
                         .map(|n| ProductKey::new(shop_id, ShopsProductId::from(n.to_string())))
@@ -831,7 +831,7 @@ mod batch_exist_item_records {
 
         let mut actuals = get_repository()
             .await
-            .exist_item_records(
+            .exist_product_records(
                 &Batch::try_from(
                     (1..=14)
                         .map(|n| ProductKey::new(shop_id, ShopsProductId::from(n.to_string())))
@@ -905,7 +905,7 @@ mod batch_exist_item_records {
 
         let mut actuals = get_repository()
             .await
-            .exist_item_records(
+            .exist_product_records(
                 &Batch::try_from(
                     (1..=100)
                         .map(|n| ProductKey::new(shop_id, ShopsProductId::from(n.to_string())))
@@ -989,7 +989,7 @@ mod get_item_id {
 
         let repository = get_repository().await;
         let actual = repository
-            .get_item_id(&shop_id, &shops_product_id)
+            .get_product_id(&shop_id, &shops_product_id)
             .await
             .unwrap();
 
@@ -1044,7 +1044,7 @@ mod get_item_id {
 
         let repository = get_repository().await;
         let actual = repository
-            .get_item_id(&ShopId::new(), &"non-existent".into())
+            .get_product_id(&ShopId::new(), &"non-existent".into())
             .await
             .unwrap();
 

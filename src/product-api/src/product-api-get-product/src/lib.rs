@@ -144,7 +144,7 @@ mod tests {
     use http::header::{ACCEPT_LANGUAGE, CONTENT_LANGUAGE, ETAG, LAST_MODIFIED};
     use lambda_runtime::LambdaEvent;
     use product::core::product::LocalizedProductView;
-    use product::service::get_service::{GetProductError, MockGetItemService};
+    use product::service::get_service::{GetProductError, MockGetProductService};
     use product::service::personalization_service::MockItemPersonalizationService;
     use test_api::{ApiGatewayV2httpRequestProxy, extract_apigw_response_json_body};
     use time::OffsetDateTime;
@@ -178,7 +178,7 @@ mod tests {
             .expect_verify_extract_user_id()
             .return_once(|_| Box::pin(async { Ok(None) }));
         let item_personalization_service = MockItemPersonalizationService::default();
-        let mut get_item_service = MockGetItemService::default();
+        let mut get_item_service = MockGetProductService::default();
         get_item_service.expect_view_item().return_once(
             move |shop_id, shops_product_id, _, _, _| {
                 let item = LocalizedProductView {
@@ -229,7 +229,7 @@ mod tests {
             .expect_verify_extract_user_id()
             .return_once(|_| Box::pin(async { Ok(None) }));
         let item_personalization_service = MockItemPersonalizationService::default();
-        let mut get_item_service = MockGetItemService::default();
+        let mut get_item_service = MockGetProductService::default();
         get_item_service.expect_view_item().return_once(
             move |shop_id, shops_product_id, _, _, _| {
                 let item = LocalizedProductView {
@@ -285,7 +285,7 @@ mod tests {
             .expect_verify_extract_user_id()
             .return_once(|_| Box::pin(async { Ok(None) }));
         let item_personalization_service = MockItemPersonalizationService::default();
-        let mut get_item_service = MockGetItemService::default();
+        let mut get_item_service = MockGetProductService::default();
         get_item_service.expect_view_item().return_once(
             move |shop_id, shops_product_id, _, _, _| {
                 let item = LocalizedProductView {
@@ -348,7 +348,7 @@ mod tests {
             .expect_verify_extract_user_id()
             .return_once(|_| Box::pin(async { Ok(None) }));
         let item_personalization_service = MockItemPersonalizationService::default();
-        let mut get_item_service = MockGetItemService::default();
+        let mut get_item_service = MockGetProductService::default();
         get_item_service.expect_view_item().return_once(
             move |shop_id, shops_product_id, _, _, history| {
                 assert_eq!(expected_history, history);
@@ -404,7 +404,7 @@ mod tests {
             .expect_verify_extract_user_id()
             .return_once(|_| Box::pin(async { Ok(None) }));
         let item_personalization_service = MockItemPersonalizationService::default();
-        let mut get_item_service = MockGetItemService::default();
+        let mut get_item_service = MockGetProductService::default();
         get_item_service.expect_view_item().never();
         let lambda_event = LambdaEvent {
             payload: ApiGatewayV2httpRequestProxy::builder()
@@ -435,7 +435,7 @@ mod tests {
             .expect_verify_extract_user_id()
             .return_once(|_| Box::pin(async { Ok(None) }));
         let item_personalization_service = MockItemPersonalizationService::default();
-        let mut get_item_service = MockGetItemService::default();
+        let mut get_item_service = MockGetProductService::default();
         get_item_service.expect_view_item().never();
         let lambda_event = LambdaEvent {
             payload: ApiGatewayV2httpRequestProxy::builder()
@@ -466,7 +466,7 @@ mod tests {
             .expect_verify_extract_user_id()
             .return_once(|_| Box::pin(async { Ok(None) }));
         let item_personalization_service = MockItemPersonalizationService::default();
-        let mut get_item_service = MockGetItemService::default();
+        let mut get_item_service = MockGetProductService::default();
         get_item_service.expect_view_item().never();
         let lambda_event = LambdaEvent {
             payload: ApiGatewayV2httpRequestProxy::builder()
@@ -510,7 +510,7 @@ mod tests {
             .expect_verify_extract_user_id()
             .return_once(|_| Box::pin(async { Ok(None) }));
         let item_personalization_service = MockItemPersonalizationService::default();
-        let mut get_item_service = MockGetItemService::default();
+        let mut get_item_service = MockGetProductService::default();
         get_item_service.expect_view_item().return_once(
             move |shop_id, shops_product_id, _, _, _| {
                 let shop_id = *shop_id;

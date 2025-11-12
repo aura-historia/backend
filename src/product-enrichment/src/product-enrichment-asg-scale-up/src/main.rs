@@ -22,7 +22,7 @@ async fn main() -> Result<(), Error> {
         .await;
 
     let autoscaling_client = aws_sdk_autoscaling::Client::new(&aws_config);
-    let asg_name = std::env::var("ITEM_ENRICHMENT_ASG_NAME")?;
+    let asg_name = std::env::var("PRODUCT_ENRICHMENT_ASG_NAME")?;
 
     let os_endpoint_url = Url::parse(&std::env::var("OPENSEARCH_DOMAIN_ENDPOINT_URL")?)?;
     let transport = TransportBuilder::new(SingleNodeConnectionPool::new(os_endpoint_url))

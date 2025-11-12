@@ -32,7 +32,7 @@ pub async fn handler(
             .iter()
             .map(ProductEventRecord::key)
             .collect::<Vec<_>>();
-        let put_batch_res = repository.put_item_event_records(batch).await;
+        let put_batch_res = repository.put_product_event_records(batch).await;
         match put_batch_res {
             Ok(output) => handle_dynamodb_batch_write_put_item_output::<ProductEventRecord>(
                 output,
@@ -163,7 +163,7 @@ mod tests {
 
         let mut repository = MockProductDynamoDbRepository::default();
         repository
-            .expect_put_item_event_records()
+            .expect_put_product_event_records()
             .returning(|_| Box::pin(async { Ok(BatchWriteItemOutput::builder().build()) }));
         let response = handler(&repository, lambda_event).await.unwrap();
 
@@ -219,7 +219,7 @@ mod tests {
 
         let mut repository = MockProductDynamoDbRepository::default();
         repository
-            .expect_put_item_event_records()
+            .expect_put_product_event_records()
             .return_once(move |_| {
                 let write_requests = expected_failed_keys
                     .into_iter()

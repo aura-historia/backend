@@ -16,7 +16,7 @@ use std::collections::HashMap;
 use url::Url;
 
 #[derive(Debug, Clone, PartialEq)]
-pub struct UpsertItemCommand {
+pub struct UpsertProductCommand {
     pub shop_id: ShopId,
     pub shops_product_id: ShopsProductId,
     pub shop_name: ShopName,
@@ -31,7 +31,7 @@ pub struct UpsertItemCommand {
     pub images: Vec<Url>,
 }
 
-impl HasKey for UpsertItemCommand {
+impl HasKey for UpsertProductCommand {
     type Key = ProductKey;
 
     fn key(&self) -> Self::Key {
@@ -58,17 +58,17 @@ pub struct PipedItemCommand {
     pub images: Vec<Url>,
 }
 
-impl TryFrom<PipedItemCommand> for UpsertItemCommand {
+impl TryFrom<PipedItemCommand> for UpsertProductCommand {
     type Error = MissingRequiredField;
 
     fn try_from(piped_cmd: PipedItemCommand) -> Result<Self, Self::Error> {
-        let cmd = UpsertItemCommand {
+        let cmd = UpsertProductCommand {
             shop_id: piped_cmd.shop_id.ok_or(MissingRequiredField::from(
-                field!(shop_id@UpsertItemCommand),
+                field!(shop_id@UpsertProductCommand),
             ))?,
             shops_product_id: piped_cmd.shops_product_id,
             shop_name: piped_cmd.shop_name.ok_or(MissingRequiredField::from(
-                field!(shop_name@UpsertItemCommand),
+                field!(shop_name@UpsertProductCommand),
             ))?,
             native_title: piped_cmd.native_title,
             other_title: piped_cmd.other_title,
@@ -90,7 +90,7 @@ mod faker {
     use common::price::domain::{FixedFxRate, FxRate};
     use fake::{Dummy, Fake, Faker, Rng};
 
-    impl Dummy<Faker> for UpsertItemCommand {
+    impl Dummy<Faker> for UpsertProductCommand {
         fn dummy_with_rng<R: Rng + ?Sized>(config: &Faker, rng: &mut R) -> Self {
             let native_price = config.fake_with_rng::<Option<Price>, R>(rng);
             let other_price = native_price.map(|price| {
@@ -99,7 +99,7 @@ mod faker {
                     .unwrap()
             });
 
-            UpsertItemCommand {
+            UpsertProductCommand {
                 shop_id: config.fake_with_rng(rng),
                 shops_product_id: config.fake_with_rng(rng),
                 shop_name: config.fake_with_rng(rng),
@@ -124,12 +124,12 @@ mod faker {
 
     #[cfg(test)]
     mod tests {
-        use crate::service::product_command::UpsertItemCommand;
+        use crate::service::product_command::UpsertProductCommand;
         use fake::{Fake, Faker};
 
         #[test]
         fn should_fake_create_item_command() {
-            let _ = Faker.fake::<UpsertItemCommand>();
+            let _ = Faker.fake::<UpsertProductCommand>();
         }
     }
 }

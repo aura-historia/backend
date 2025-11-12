@@ -114,7 +114,7 @@ async fn should_create_and_get_and_delete_and_verify_not_exists() {
     );
     assert_eq!(
         &patch.search.unwrap().item_query.unwrap(),
-        &patched.search.item_query
+        &patched.search.product_query
     );
     assert_eq!(posted.user_search_filter_id, patched.user_search_filter_id);
     assert_eq!(user.sub.to_string(), patched.user_id.to_string());

@@ -78,7 +78,7 @@ pub async fn handle(
     let shops_product_id = extract_shops_item_id_path(&event.payload.path_parameters)?;
 
     let localized_similar_items_opt = semantic_search_service
-        .similar_items(&shop_id, &shops_product_id, &languages, &currency.into())
+        .similar_products(&shop_id, &shops_product_id, &languages, &currency.into())
         .await?;
 
     match localized_similar_items_opt {
@@ -152,7 +152,7 @@ mod tests {
         let item_personalization_service = MockItemPersonalizationService::default();
         let mut semantic_search_service = MockSemanticSearchService::default();
         semantic_search_service
-            .expect_similar_items()
+            .expect_similar_products()
             .return_once(|_, _, _, _| Box::pin(async { Ok(Some(vec![])) }));
 
         let lambda_event = LambdaEvent {
@@ -184,7 +184,7 @@ mod tests {
         let item_personalization_service = MockItemPersonalizationService::default();
         let mut semantic_search_service = MockSemanticSearchService::default();
         semantic_search_service
-            .expect_similar_items()
+            .expect_similar_products()
             .return_once(|_, _, _, _| Box::pin(async { Ok(Some(Faker.fake())) }));
 
         let lambda_event = LambdaEvent {
@@ -216,7 +216,7 @@ mod tests {
         let item_personalization_service = MockItemPersonalizationService::default();
         let mut semantic_search_service = MockSemanticSearchService::default();
         semantic_search_service
-            .expect_similar_items()
+            .expect_similar_products()
             .return_once(|_, _, _, _| Box::pin(async { Ok(None) }));
 
         let shop_id = ShopId::new();
@@ -326,8 +326,9 @@ mod tests {
             .return_once(|_| Box::pin(async { Ok(None) }));
         let item_personalization_service = MockItemPersonalizationService::default();
         let mut semantic_search_service = MockSemanticSearchService::default();
-        semantic_search_service.expect_similar_items().return_once(
-            move |shop_id, shops_product_id, _, _| {
+        semantic_search_service
+            .expect_similar_products()
+            .return_once(move |shop_id, shops_product_id, _, _| {
                 let shop_id = *shop_id;
                 let shops_product_id = shops_product_id.clone();
                 Box::pin(async move {
@@ -336,8 +337,7 @@ mod tests {
                         shops_product_id,
                     ))
                 })
-            },
-        );
+            });
 
         let response = handler(
             lambda_event,

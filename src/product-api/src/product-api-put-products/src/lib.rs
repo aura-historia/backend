@@ -8,8 +8,8 @@ use common::price::domain::Price;
 use lambda_runtime::LambdaEvent;
 use product::data::put_data::PutItemData;
 use product::service::enrichment_service::{EnrichItemCommandError, ItemCommandEnrichmentService};
-use product::service::product_command::{PipedItemCommand, UpsertItemCommand};
-use product::service::upsert_service::UpsertItemsService;
+use product::service::product_command::{PipedItemCommand, UpsertProductCommand};
+use product::service::upsert_service::UpsertProductsService;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use tracing::warn;
@@ -86,7 +86,7 @@ pub struct PutItemsResponse {
 )]
 pub async fn handler(
     event: LambdaEvent<ApiGatewayV2httpRequest>,
-    upsert_service: &impl UpsertItemsService,
+    upsert_service: &impl UpsertProductsService,
     enrich_service: &(impl ItemCommandEnrichmentService + Sync),
 ) -> Result<ApiGatewayV2httpResponse, lambda_runtime::Error> {
     match handle(event, upsert_service, enrich_service).await {
@@ -101,7 +101,7 @@ pub async fn handler(
 // PUT /api/v1/items
 pub async fn handle(
     event: LambdaEvent<ApiGatewayV2httpRequest>,
-    upsert_service: &impl UpsertItemsService,
+    upsert_service: &impl UpsertProductsService,
     enrich_service: &(impl ItemCommandEnrichmentService + Sync),
 ) -> Result<ApiGatewayV2httpResponse, ApiError> {
     let body = event
@@ -145,13 +145,13 @@ pub async fn handle(
         .into_iter()
         .map(|piped_cmd| (piped_cmd.url.clone(), piped_cmd))
         .filter_map(
-            |(url, piped_cmd)| match UpsertItemCommand::try_from(piped_cmd) {
+            |(url, piped_cmd)| match UpsertProductCommand::try_from(piped_cmd) {
                 Ok(cmd) => Some(cmd),
                 Err(err) => {
                     warn!(
                         error = %err,
                         fromType = %std::any::type_name::<PipedItemCommand>(),
-                        toType = %std::any::type_name::<UpsertItemCommand>(),
+                        toType = %std::any::type_name::<UpsertProductCommand>(),
                         "Failed mapping types."
                     );
                     unprocessed.push(url);
@@ -207,8 +207,8 @@ mod tests {
     use product::service::enrichment_service::{
         EnrichItemCommandsOutput, MockItemCommandEnrichmentService,
     };
-    use product::service::product_command::UpsertItemCommand;
-    use product::service::upsert_service::{MockUpsertItemsService, UpsertItemsOutput};
+    use product::service::product_command::UpsertProductCommand;
+    use product::service::upsert_service::{MockUpsertProductsService, UpsertItemsOutput};
     use test_api::ApiGatewayV2httpRequestProxy;
     use test_api::extract_apigw_response_json_body;
 
@@ -248,11 +248,11 @@ mod tests {
                 }
             })
         });
-        let mut upsert_service = MockUpsertItemsService::default();
+        let mut upsert_service = MockUpsertProductsService::default();
         upsert_service.expect_upsert().return_once(move |_| {
             Box::pin(async move {
                 UpsertItemsOutput {
-                    unprocessed: fake::vec![UpsertItemCommand; failures],
+                    unprocessed: fake::vec![UpsertProductCommand; failures],
                     skipped,
                 }
             })

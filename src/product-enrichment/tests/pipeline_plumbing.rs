@@ -3,16 +3,6 @@ use aws_lambda_events::{
     eventbridge::EventBridgeEvent,
 };
 use common::{event::Event, event_id::EventId, product_id::ProductId};
-use item_enrichment::pipeline::pipe::EnrichmentPipe;
-use item_enrichment::{
-    embed::EmbeddingDelegateImpl,
-    pipeline::{
-        embed::EmbeddingEnrichmentPipeImpl,
-        faucet::EnrichmentPipeFaucetImpl,
-        plumbing::{EnrichmentPlumbing, EnrichmentPlumbingImpl},
-        sink::EnrichmentPipeSinkImpl,
-    },
-};
 use product::core::product_event::{ItemCreatedEventPayload, ProductEventPayload};
 use product::dynamodb::{
     product_event_record::ProductEventRecord,
@@ -20,6 +10,16 @@ use product::dynamodb::{
 };
 use product::opensearch::repository::{
     ProductOpenSearchRepository, ProductOpenSearchRepositoryImpl,
+};
+use product_enrichment::pipeline::pipe::EnrichmentPipe;
+use product_enrichment::{
+    embed::EmbeddingDelegateImpl,
+    pipeline::{
+        embed::EmbeddingEnrichmentPipeImpl,
+        faucet::EnrichmentPipeFaucetImpl,
+        plumbing::{EnrichmentPlumbing, EnrichmentPlumbingImpl},
+        sink::EnrichmentPipeSinkImpl,
+    },
 };
 use std::{sync::Arc, time::SystemTime};
 use test_api::*;
@@ -100,12 +100,12 @@ async fn should_plumb_messages(#[case] queue_count: usize, #[case] plumbing_coun
 
         // Simulate existing materialized views
         let ddb_put_res = item_dynamodb_repository
-            .put_item_records([event_record.clone().try_into().unwrap()].into())
+            .put_product_records([event_record.clone().try_into().unwrap()].into())
             .await
             .unwrap();
         assert!(ddb_put_res.unprocessed_items.unwrap_or_default().is_empty());
         let os_create_res = item_opensearch_repository
-            .create_item_documents(vec![event_record.clone().try_into().unwrap()])
+            .create_product_documents(vec![event_record.clone().try_into().unwrap()])
             .await
             .unwrap();
         assert!(!os_create_res.errors);

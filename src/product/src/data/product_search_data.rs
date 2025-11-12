@@ -17,7 +17,7 @@ pub struct ProductSearchData {
     pub currency: CurrencyData,
 
     #[serde(rename = "itemQuery")]
-    pub item_query: TextQuery,
+    pub product_query: TextQuery,
 
     #[serde(
         rename = "shopNameQuery",
@@ -54,7 +54,7 @@ impl From<ProductSearch> for ProductSearchData {
         ProductSearchData {
             language: search_filter.language.into(),
             currency: search_filter.currency.into(),
-            item_query: search_filter.item_query,
+            product_query: search_filter.product_query,
             shop_name_query: search_filter.shop_name_query,
             price_query: search_filter
                 .price_query
@@ -75,7 +75,7 @@ impl From<ProductSearchData> for ProductSearch {
         ProductSearch {
             language: data.language.into(),
             currency: data.currency.into(),
-            item_query: data.item_query,
+            product_query: data.product_query,
             shop_name_query: data.shop_name_query,
             price_query: data
                 .price_query
@@ -102,7 +102,7 @@ mod faker {
             ProductSearchData {
                 language: config.fake_with_rng(rng),
                 currency: config.fake_with_rng(rng),
-                item_query: config.fake_with_rng(rng),
+                product_query: config.fake_with_rng(rng),
                 shop_name_query: config.fake_with_rng(rng),
                 price_query: config
                     .fake_with_rng::<Option<RangeQuery<u32>>, R>(rng) // otherwise get Out-Of-Range-Err often from OpenSearch
@@ -130,7 +130,7 @@ mod tests {
         let search_filter = ProductSearchData {
             language: LanguageData::De,
             currency: CurrencyData::Eur,
-            item_query: "Boop".try_into().unwrap(),
+            product_query: "Boop".try_into().unwrap(),
             shop_name_query: Some("Baap".try_into().unwrap()),
             price_query: Some(RangeQuery {
                 min: Some(37),
@@ -195,7 +195,7 @@ mod tests {
         let expected = ProductSearchData {
             language: LanguageData::De,
             currency: CurrencyData::Eur,
-            item_query: "Boop".try_into().unwrap(),
+            product_query: "Boop".try_into().unwrap(),
             shop_name_query: Some("Baap".try_into().unwrap()),
             price_query: Some(RangeQuery {
                 min: Some(37),
@@ -222,7 +222,7 @@ mod tests {
         let search_filter = ProductSearchData {
             language: LanguageData::De,
             currency: CurrencyData::Eur,
-            item_query: "Boop".try_into().unwrap(),
+            product_query: "Boop".try_into().unwrap(),
             shop_name_query: None,
             price_query: None,
             state_query: Default::default(),
@@ -250,7 +250,7 @@ mod tests {
         let expected = ProductSearchData {
             language: LanguageData::De,
             currency: CurrencyData::Eur,
-            item_query: "Boop".try_into().unwrap(),
+            product_query: "Boop".try_into().unwrap(),
             shop_name_query: None,
             price_query: None,
             state_query: Default::default(),

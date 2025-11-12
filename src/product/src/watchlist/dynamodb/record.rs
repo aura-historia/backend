@@ -47,11 +47,14 @@ pub fn mk_pk(user_id: &UserId) -> String {
 }
 
 pub fn mk_sk(shop_id: &ShopId, shops_product_id: &ShopsProductId) -> String {
-    format!("item#watch#shop_id#{shop_id}#shops_product_id#{shops_product_id}")
+    format!("product#watch#shop_id#{shop_id}#shops_product_id#{shops_product_id}")
 }
 
 pub fn mk_lsi1_sk(created: &OffsetDateTime) -> Result<String, Format> {
-    Ok(format!("item#watch#created#{}", created.format(&Rfc3339)?))
+    Ok(format!(
+        "product#watch#created#{}",
+        created.format(&Rfc3339)?
+    ))
 }
 
 pub fn mk_gsi1_pk(product_id: &ProductId) -> String {

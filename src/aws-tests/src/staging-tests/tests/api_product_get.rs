@@ -15,7 +15,7 @@ use product::{
     service::get_service::GetProductServiceImpl,
     watchlist::{
         dynamodb::repository::WatchlistProductDynamoDbRepositoryImpl,
-        service::item_watchlist_service::ProductWatchListServiceImpl,
+        service::product_watchlist_service::ProductWatchListServiceImpl,
     },
 };
 use product::{
@@ -23,7 +23,7 @@ use product::{
         product_record::ProductRecord,
         repository::{ProductDynamoDbRepository, ProductDynamoDbRepositoryImpl},
     },
-    watchlist::service::item_watchlist_service::ProductWatchListService,
+    watchlist::service::product_watchlist_service::ProductWatchListService,
 };
 use staging_tests::{create_random_test_user, get_dynamodb_client, staging_test};
 use std::time::{Duration, SystemTime};
@@ -36,7 +36,7 @@ async fn should_respond_200_when_anon_and_item_does_exist() {
         ProductDynamoDbRepositoryImpl::new(ddb_client, &get_cfn_output().dynamodb_table_1_name);
     let record = Faker.fake::<ProductRecord>();
     let insert_res = repository
-        .put_item_records([record.clone()].into())
+        .put_product_records([record.clone()].into())
         .await
         .unwrap();
     assert!(insert_res.unprocessed_items.unwrap().is_empty());
@@ -86,7 +86,7 @@ async fn should_respond_200_personalized_when_authenticated_and_item_does_exist_
     );
     let record = Faker.fake::<ProductRecord>();
     let insert_res = item_repository
-        .put_item_records([record.clone()].into())
+        .put_product_records([record.clone()].into())
         .await
         .unwrap();
     assert!(insert_res.unprocessed_items.unwrap().is_empty());
@@ -142,7 +142,7 @@ async fn should_respond_200_with_history() {
         ProductDynamoDbRepositoryImpl::new(ddb_client, &get_cfn_output().dynamodb_table_1_name);
     let record = Faker.fake::<ProductRecord>();
     let insert_res = repository
-        .put_item_records([record.clone()].into())
+        .put_product_records([record.clone()].into())
         .await
         .unwrap();
     assert!(insert_res.unprocessed_items.unwrap().is_empty());
@@ -182,7 +182,7 @@ async fn should_respond_200_with_history() {
         }),
     };
     let insert_res = repository
-        .put_item_event_records(
+        .put_product_event_records(
             [
                 event_1.clone().try_into().unwrap(),
                 event_2.clone().try_into().unwrap(),

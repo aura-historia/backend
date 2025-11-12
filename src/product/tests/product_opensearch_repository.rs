@@ -57,7 +57,7 @@ async fn should_create_item_document() {
     let client = get_opensearch_client().await;
     let repository = ProductOpenSearchRepositoryImpl::new(client);
     let response = repository
-        .create_item_documents(vec![expected.clone()])
+        .create_product_documents(vec![expected.clone()])
         .await
         .unwrap();
     assert!(!response.errors);
@@ -120,7 +120,7 @@ async fn should_create_item_documents() {
     let client = get_opensearch_client().await;
     let repository = ProductOpenSearchRepositoryImpl::new(client);
     let response = repository
-        .create_item_documents(vec![expected1.clone(), expected2.clone()])
+        .create_product_documents(vec![expected1.clone(), expected2.clone()])
         .await
         .unwrap();
     assert!(!response.errors);
@@ -161,7 +161,7 @@ async fn should_update_item_document() {
     let client = get_opensearch_client().await;
     let repository = ProductOpenSearchRepositoryImpl::new(client);
     let write_response = repository
-        .create_item_documents(vec![initial.clone()])
+        .create_product_documents(vec![initial.clone()])
         .await
         .unwrap();
     assert!(!write_response.errors);
@@ -183,7 +183,7 @@ async fn should_update_item_document() {
     };
     let repository = ProductOpenSearchRepositoryImpl::new(client);
     let update_response = repository
-        .update_item_documents(HashMap::from([(product_id, update)]))
+        .update_product_documents(HashMap::from([(product_id, update)]))
         .await
         .unwrap();
     assert!(!update_response.errors);
@@ -227,7 +227,7 @@ async fn should_search_item_documents() {
     let client = get_opensearch_client().await;
     let repository = ProductOpenSearchRepositoryImpl::new(client);
     let response = repository
-        .create_item_documents(vec![expected.clone()])
+        .create_product_documents(vec![expected.clone()])
         .await
         .unwrap();
     assert!(!response.errors);
@@ -238,7 +238,7 @@ async fn should_search_item_documents() {
     let search_filter = ProductSearch {
         language: Language::De,
         currency: Currency::Eur,
-        item_query: "Hallo Welt".try_into().unwrap(),
+        product_query: "Hallo Welt".try_into().unwrap(),
         shop_name_query: None,
         price_query: None,
         state_query: Default::default(),
@@ -246,7 +246,7 @@ async fn should_search_item_documents() {
         updated_query: None,
     };
     let response = repository
-        .search_item_documents(
+        .search_product_documents(
             &search_filter,
             &Sort {
                 sort: SortProductField::Score,
@@ -274,7 +274,7 @@ async fn should_search_item_documents_when_all_arguments_are_given() {
     let client = get_opensearch_client().await;
     let repository = ProductOpenSearchRepositoryImpl::new(client);
     let response = repository
-        .create_item_documents(items.clone())
+        .create_product_documents(items.clone())
         .await
         .unwrap();
     assert!(!response.errors);
@@ -284,7 +284,7 @@ async fn should_search_item_documents_when_all_arguments_are_given() {
     let search_filter = ProductSearch {
         language: Language::De,
         currency: Currency::Eur,
-        item_query: "Lorem".try_into().unwrap(),
+        product_query: "Lorem".try_into().unwrap(),
         shop_name_query: Some("LLC".try_into().unwrap()),
         price_query: Some(RangeQuery {
             min: Some(100u64.into()),
@@ -312,7 +312,7 @@ async fn should_search_item_documents_when_all_arguments_are_given() {
         search_after: None,
     };
     let response = repository
-        .search_item_documents(&search_filter, &sort, &Some(page))
+        .search_product_documents(&search_filter, &sort, &Some(page))
         .await;
 
     assert!(response.is_ok());
@@ -335,7 +335,7 @@ async fn should_search_item_documents_when_states_are_given(#[case] states: &[Pr
     let client = get_opensearch_client().await;
     let repository = ProductOpenSearchRepositoryImpl::new(client);
     let response = repository
-        .create_item_documents(items.clone())
+        .create_product_documents(items.clone())
         .await
         .unwrap();
     assert!(!response.errors);
@@ -345,7 +345,7 @@ async fn should_search_item_documents_when_states_are_given(#[case] states: &[Pr
     let search_filter = ProductSearch {
         language: Language::De,
         currency: Currency::Eur,
-        item_query: "The same title".try_into().unwrap(),
+        product_query: "The same title".try_into().unwrap(),
         shop_name_query: None,
         price_query: None,
         state_query: AnyOfQuery::from(HashSet::from_iter(states.iter().copied())),
@@ -353,7 +353,7 @@ async fn should_search_item_documents_when_states_are_given(#[case] states: &[Pr
         updated_query: None,
     };
     let response = repository
-        .search_item_documents(
+        .search_product_documents(
             &search_filter,
             &Sort {
                 sort: SortProductField::Score,
@@ -386,7 +386,7 @@ async fn should_search_item_documents_when_no_states_are_given() {
     let client = get_opensearch_client().await;
     let repository = ProductOpenSearchRepositoryImpl::new(client);
     let response = repository
-        .create_item_documents(items.clone())
+        .create_product_documents(items.clone())
         .await
         .unwrap();
     assert!(!response.errors);
@@ -396,7 +396,7 @@ async fn should_search_item_documents_when_no_states_are_given() {
     let search_filter = ProductSearch {
         language: Language::De,
         currency: Currency::Eur,
-        item_query: "The same title".try_into().unwrap(),
+        product_query: "The same title".try_into().unwrap(),
         shop_name_query: None,
         price_query: None,
         state_query: AnyOfQuery::from(HashSet::new()),
@@ -404,7 +404,7 @@ async fn should_search_item_documents_when_no_states_are_given() {
         updated_query: None,
     };
     let response = repository
-        .search_item_documents(
+        .search_product_documents(
             &search_filter,
             &Sort {
                 sort: SortProductField::Score,
@@ -451,7 +451,7 @@ async fn should_search_item_documents_when_price_range_is_given(
     let client = get_opensearch_client().await;
     let repository = ProductOpenSearchRepositoryImpl::new(client);
     let response = repository
-        .create_item_documents(items.clone())
+        .create_product_documents(items.clone())
         .await
         .unwrap();
     assert!(!response.errors);
@@ -461,7 +461,7 @@ async fn should_search_item_documents_when_price_range_is_given(
     let search_filter = ProductSearch {
         language: Language::De,
         currency: Currency::Eur,
-        item_query: "The same title".try_into().unwrap(),
+        product_query: "The same title".try_into().unwrap(),
         shop_name_query: None,
         price_query: Some(price_query),
         state_query: Default::default(),
@@ -469,7 +469,7 @@ async fn should_search_item_documents_when_price_range_is_given(
         updated_query: None,
     };
     let response = repository
-        .search_item_documents(
+        .search_product_documents(
             &search_filter,
             &Sort {
                 sort: SortProductField::Score,
@@ -523,7 +523,7 @@ async fn should_search_item_documents_respecting_paging_when_sorted_by_price() {
     let client = get_opensearch_client().await;
     let repository = ProductOpenSearchRepositoryImpl::new(client);
     let response = repository
-        .create_item_documents(items.clone())
+        .create_product_documents(items.clone())
         .await
         .unwrap();
     assert!(!response.errors);
@@ -533,7 +533,7 @@ async fn should_search_item_documents_respecting_paging_when_sorted_by_price() {
     let search_filter = ProductSearch {
         language: Language::En,
         currency: Currency::Usd,
-        item_query: "The same title".try_into().unwrap(),
+        product_query: "The same title".try_into().unwrap(),
         shop_name_query: None,
         price_query: None,
         state_query: Default::default(),
@@ -541,7 +541,7 @@ async fn should_search_item_documents_respecting_paging_when_sorted_by_price() {
         updated_query: None,
     };
     let response = repository
-        .search_item_documents(
+        .search_product_documents(
             &search_filter,
             &Sort {
                 sort: SortProductField::Price,
@@ -590,7 +590,7 @@ async fn should_search_item_documents_respecting_search_after_when_sorted_by_pri
     let client = get_opensearch_client().await;
     let repository = ProductOpenSearchRepositoryImpl::new(client);
     let response = repository
-        .create_item_documents(expected_items.clone())
+        .create_product_documents(expected_items.clone())
         .await
         .unwrap();
     assert!(!response.errors);
@@ -609,7 +609,7 @@ async fn should_search_item_documents_respecting_search_after_when_sorted_by_pri
     let search_filter = ProductSearch {
         language: Language::En,
         currency: Currency::Usd,
-        item_query: "The same title".try_into().unwrap(),
+        product_query: "The same title".try_into().unwrap(),
         shop_name_query: None,
         price_query: None,
         state_query: Default::default(),
@@ -617,7 +617,7 @@ async fn should_search_item_documents_respecting_search_after_when_sorted_by_pri
         updated_query: None,
     };
     let response = repository
-        .search_item_documents(
+        .search_product_documents(
             &search_filter,
             &Sort {
                 sort: SortProductField::Price,
@@ -677,12 +677,15 @@ async fn should_get_item_document() {
     let client = get_opensearch_client().await;
     let repository = ProductOpenSearchRepositoryImpl::new(client);
     let response = repository
-        .create_item_documents(vec![expected.clone()])
+        .create_product_documents(vec![expected.clone()])
         .await
         .unwrap();
     assert!(!response.errors);
     refresh_index("items").await;
-    let actual = repository.get_by_id(&product_id).await.unwrap();
+    let actual = repository
+        .get_product_document_by_id(&product_id)
+        .await
+        .unwrap();
 
     assert_eq!(expected, actual);
 }
@@ -1724,7 +1727,7 @@ async fn should_return_k_nearest_neighbors() {
 
     for document in documents.clone() {
         let response = repository
-            .create_item_documents(vec![document])
+            .create_product_documents(vec![document])
             .await
             .unwrap();
         assert!(!response.errors);

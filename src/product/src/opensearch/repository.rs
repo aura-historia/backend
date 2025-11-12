@@ -22,25 +22,27 @@ use time::format_description::well_known;
 #[async_trait]
 #[mockall::automock]
 pub trait ProductOpenSearchRepository {
-    async fn create_item_documents(
+    async fn create_product_documents(
         &self,
         documents: Vec<ProductDocument>,
     ) -> Result<BulkResponse, opensearch::Error>;
 
-    async fn update_item_documents(
+    async fn update_product_documents(
         &self,
         updates: HashMap<ProductId, ProductUpdateDocument>,
     ) -> Result<BulkResponse, opensearch::Error>;
 
-    async fn search_item_documents(
+    async fn search_product_documents(
         &self,
         search: &ProductSearch,
         sort: &Sort<SortProductField>,
         page: &Option<Cursor<serde_json::Value>>,
     ) -> Result<SearchResponse<ProductDocument>, opensearch::Error>;
 
-    async fn get_by_id(&self, product_id: &ProductId)
-    -> Result<ProductDocument, opensearch::Error>;
+    async fn get_product_document_by_id(
+        &self,
+        product_id: &ProductId,
+    ) -> Result<ProductDocument, opensearch::Error>;
 
     async fn k_nn_text(
         &self,
@@ -61,7 +63,7 @@ impl<'a> ProductOpenSearchRepositoryImpl<'a> {
 
 #[async_trait]
 impl<'a> ProductOpenSearchRepository for ProductOpenSearchRepositoryImpl<'a> {
-    async fn create_item_documents(
+    async fn create_product_documents(
         &self,
         documents: Vec<ProductDocument>,
     ) -> Result<BulkResponse, opensearch::Error> {
@@ -89,7 +91,7 @@ impl<'a> ProductOpenSearchRepository for ProductOpenSearchRepositoryImpl<'a> {
         Ok(bulk_response)
     }
 
-    async fn update_item_documents(
+    async fn update_product_documents(
         &self,
         updates: HashMap<ProductId, ProductUpdateDocument>,
     ) -> Result<BulkResponse, opensearch::Error> {
@@ -121,7 +123,7 @@ impl<'a> ProductOpenSearchRepository for ProductOpenSearchRepositoryImpl<'a> {
         Ok(bulk_response)
     }
 
-    async fn search_item_documents(
+    async fn search_product_documents(
         &self,
         search: &ProductSearch,
         sort: &Sort<SortProductField>,
@@ -137,7 +139,7 @@ impl<'a> ProductOpenSearchRepository for ProductOpenSearchRepositoryImpl<'a> {
         };
         must.push(json!({
             "multi_match": {
-                "query": search.item_query.as_ref(),
+                "query": search.product_query.as_ref(),
                 "fields": [
                     format!("{title_field}^3"),
                     format!("{description_field}^1"),
@@ -307,7 +309,7 @@ impl<'a> ProductOpenSearchRepository for ProductOpenSearchRepositoryImpl<'a> {
         Ok(search_response)
     }
 
-    async fn get_by_id(
+    async fn get_product_document_by_id(
         &self,
         product_id: &ProductId,
     ) -> Result<ProductDocument, opensearch::Error> {

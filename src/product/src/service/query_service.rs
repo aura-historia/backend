@@ -65,7 +65,7 @@ impl<'a> QueryItemService for QueryItemServiceImpl<'a> {
     ) -> Result<CursoredResult<LocalizedProductView, serde_json::Value>, SearchItemsError> {
         let search_response = self
             .repository
-            .search_item_documents(
+            .search_product_documents(
                 search,
                 &sort.unwrap_or(Sort {
                     sort: SortProductField::Score,
@@ -98,8 +98,8 @@ impl<'a> QueryItemService for QueryItemServiceImpl<'a> {
             .hits
             .into_iter()
             .map(|hit| hit.source)
-            .map(|item_document| {
-                localize_product_document(item_document, &[search.language], &search.currency)
+            .map(|product_document| {
+                localize_product_document(product_document, &[search.language], &search.currency)
             })
             .collect::<Vec<_>>();
 
@@ -112,30 +112,30 @@ impl<'a> QueryItemService for QueryItemServiceImpl<'a> {
 }
 
 pub fn localize_product_document(
-    item_document: ProductDocument,
+    product_document: ProductDocument,
     languages: &[Language],
     currency: &Currency,
 ) -> LocalizedProductView {
     let mut available_titles: HashMap<Language, Title> = HashMap::with_capacity(3);
-    if let Some(title_de) = item_document.title_de {
+    if let Some(title_de) = product_document.title_de {
         available_titles.insert(Language::De, title_de.into());
     }
-    if let Some(title_en) = item_document.title_en {
+    if let Some(title_en) = product_document.title_en {
         available_titles.insert(Language::En, title_en.into());
     }
 
     let mut available_descriptions: HashMap<Language, Description> = HashMap::with_capacity(3);
-    if let Some(description_de) = item_document.description_de {
+    if let Some(description_de) = product_document.description_de {
         available_descriptions.insert(Language::De, description_de.into());
     }
-    if let Some(description_en) = item_document.description_en {
+    if let Some(description_en) = product_document.description_en {
         available_descriptions.insert(Language::En, description_en.into());
     }
 
     let title = Language::resolve(languages, available_titles).unwrap_or_else(|| {
         error!(
-            shopId = %item_document.shop_id,
-            shopsItemId = %item_document.shops_product_id,
+            shopId = %product_document.shop_id,
+            shopsItemId = %product_document.shops_product_id,
             "Failed resolving title. This SHOULD be impossible because the native title always exists."
         );
         Localized::new(Language::En, "Unknown title".into())
@@ -143,41 +143,41 @@ pub fn localize_product_document(
     let description = Language::resolve(languages, available_descriptions);
 
     let price = match currency {
-        Currency::Eur => item_document
+        Currency::Eur => product_document
             .price_eur
             .map(|amount| Price::new(amount.into(), Currency::Eur)),
-        Currency::Gbp => item_document
+        Currency::Gbp => product_document
             .price_gbp
             .map(|amount| Price::new(amount.into(), Currency::Gbp)),
-        Currency::Usd => item_document
+        Currency::Usd => product_document
             .price_usd
             .map(|amount| Price::new(amount.into(), Currency::Usd)),
-        Currency::Aud => item_document
+        Currency::Aud => product_document
             .price_aud
             .map(|amount| Price::new(amount.into(), Currency::Aud)),
-        Currency::Cad => item_document
+        Currency::Cad => product_document
             .price_cad
             .map(|amount| Price::new(amount.into(), Currency::Cad)),
-        Currency::Nzd => item_document
+        Currency::Nzd => product_document
             .price_nzd
             .map(|amount| Price::new(amount.into(), Currency::Nzd)),
     };
-    let state = item_document.state.into();
+    let state = product_document.state.into();
 
     LocalizedProductView {
-        product_id: item_document.product_id,
-        event_id: item_document.event_id,
-        shop_id: item_document.shop_id,
-        shops_product_id: item_document.shops_product_id,
-        shop_name: item_document.shop_name.into(),
+        product_id: product_document.product_id,
+        event_id: product_document.event_id,
+        shop_id: product_document.shop_id,
+        shops_product_id: product_document.shops_product_id,
+        shop_name: product_document.shop_name.into(),
         title,
         description,
         price,
         state,
-        url: item_document.url,
-        images: item_document.images,
-        created: item_document.created,
-        updated: item_document.updated,
+        url: product_document.url,
+        images: product_document.images,
+        created: product_document.created,
+        updated: product_document.updated,
         history: None,
     }
 }
@@ -187,7 +187,7 @@ mod tests {
     use crate::core::product_search::ProductSearch;
     use crate::core::sort_product_field::SortProductField;
     use crate::opensearch::{
-        item_document::ProductDocument, repository::MockItemOpenSearchRepository,
+        product_document::ProductDocument, repository::MockProductOpenSearchRepository,
     };
     use crate::service::query_service::{QueryItemService, QueryItemServiceImpl};
     use common::pagination::cursor::Cursor;
@@ -207,7 +207,9 @@ mod tests {
     use std::collections::HashSet;
     use time::macros::datetime;
 
-    fn mk_search_response(item_documents: Vec<ProductDocument>) -> SearchResponse<ProductDocument> {
+    fn mk_search_response(
+        product_documents: Vec<ProductDocument>,
+    ) -> SearchResponse<ProductDocument> {
         SearchResponse {
             took: 42,
             timed_out: false,
@@ -219,17 +221,17 @@ mod tests {
             },
             hits: HitsMetadata {
                 total: TotalHits {
-                    value: item_documents.len() as u64,
+                    value: product_documents.len() as u64,
                     relation: "eq".to_string(),
                 },
                 max_score: None,
-                hits: item_documents
+                hits: product_documents
                     .into_iter()
-                    .map(|item_document| SearchHit {
+                    .map(|product_document| SearchHit {
                         index: "items".to_string(),
-                        id: item_document.product_id.to_string(),
+                        id: product_document.product_id.to_string(),
                         score: None,
-                        source: item_document,
+                        source: product_document,
                         sort: None,
                     })
                     .collect(),
@@ -243,7 +245,7 @@ mod tests {
         ProductSearch {
             language: Language::De,
             currency: Currency::Eur,
-            item_query: "Hallo Welt".try_into().unwrap(),
+            product_query: "Hallo Welt".try_into().unwrap(),
             shop_name_query: Some("Hallo Shop".try_into().unwrap()),
             price_query: Some(RangeQuery { min: Some(100u64.into()), max: Some(999999u64.into()) }),
             state_query: AnyOfQuery::from(HashSet::from_iter([ProductState::Available, ProductState::Listed])),
@@ -258,7 +260,7 @@ mod tests {
         ProductSearch {
             language: Language::En,
             currency: Currency::Usd,
-            item_query: "Hallo Welt".try_into().unwrap(),
+            product_query: "Hallo Welt".try_into().unwrap(),
             shop_name_query: Some("Hallo Shop".try_into().unwrap()),
             price_query: Some(RangeQuery { min: Some(100u64.into()), max: Some(999999u64.into()) }),
             state_query: AnyOfQuery::from(HashSet::from_iter([ProductState::Available, ProductState::Listed])),
@@ -273,7 +275,7 @@ mod tests {
         ProductSearch {
             language: Language::En,
             currency: Currency::Gbp,
-            item_query: "Hallo Welten!".try_into().unwrap(),
+            product_query: "Hallo Welten!".try_into().unwrap(),
             shop_name_query: None,
             price_query: Some(RangeQuery { min: Some(100000u64.into()), max: Some(999999004u64.into()) }),
             state_query: AnyOfQuery::from(HashSet::from_iter([ProductState::Available, ProductState::Listed])),
@@ -288,7 +290,7 @@ mod tests {
         ProductSearch {
             language: Language::Fr,
             currency: Currency::Eur,
-            item_query: "Hallo Welten!".try_into().unwrap(),
+            product_query: "Hallo Welten!".try_into().unwrap(),
             shop_name_query: None,
             price_query: None,
             state_query: Default::default(),
@@ -303,7 +305,7 @@ mod tests {
         ProductSearch {
             language: Language::Es,
             currency: Currency::Eur,
-            item_query: "Hallo Welten!".try_into().unwrap(),
+            product_query: "Hallo Welten!".try_into().unwrap(),
             shop_name_query: None,
             price_query: None,
             state_query: Default::default(),
@@ -320,9 +322,9 @@ mod tests {
         #[case] page: Option<Cursor<serde_json::Value>>,
         #[case] count: usize,
     ) {
-        let mut repository = MockItemOpenSearchRepository::default();
+        let mut repository = MockProductOpenSearchRepository::default();
         repository
-            .expect_search_item_documents()
+            .expect_search_product_documents()
             .return_once(move |_, _, _| {
                 Box::pin(async move { Ok(mk_search_response(fake::vec![ProductDocument; count])) })
             });
@@ -336,9 +338,9 @@ mod tests {
 
     #[tokio::test]
     async fn should_propagate_opensearch_error() {
-        let mut repository = MockItemOpenSearchRepository::default();
+        let mut repository = MockProductOpenSearchRepository::default();
         repository
-            .expect_search_item_documents()
+            .expect_search_product_documents()
             .return_once(|_, _, _| {
                 Box::pin(async {
                     Err(opensearch::Error::from(serde_json::Error::custom(
@@ -353,7 +355,7 @@ mod tests {
                 &ProductSearch {
                     language: Language::De,
                     currency: Currency::Cad,
-                    item_query: "Hallo Welten!".try_into().unwrap(),
+                    product_query: "Hallo Welten!".try_into().unwrap(),
                     shop_name_query: None,
                     price_query: None,
                     state_query: Default::default(),
@@ -377,9 +379,9 @@ mod tests {
     #[case::cad(Currency::Cad, 4000)]
     #[case::nzd(Currency::Nzd, 42)]
     async fn should_respect_currency(#[case] currency: Currency, #[case] expected_amount: u64) {
-        let mut repository = MockItemOpenSearchRepository::default();
+        let mut repository = MockProductOpenSearchRepository::default();
         repository
-            .expect_search_item_documents()
+            .expect_search_product_documents()
             .return_once(move |_, _, _| {
                 let items = fake::vec![ProductDocument; 369]
                     .into_iter()
@@ -402,7 +404,7 @@ mod tests {
                 &ProductSearch {
                     language: Language::De,
                     currency,
-                    item_query: "Hallo Welten!".try_into().unwrap(),
+                    product_query: "Hallo Welten!".try_into().unwrap(),
                     shop_name_query: None,
                     price_query: None,
                     state_query: Default::default(),
@@ -430,9 +432,9 @@ mod tests {
     #[case(Language::De, "German")]
     #[case(Language::En, "English")]
     async fn should_respect_language(#[case] language: Language, #[case] expected: &str) {
-        let mut repository = MockItemOpenSearchRepository::default();
+        let mut repository = MockProductOpenSearchRepository::default();
         repository
-            .expect_search_item_documents()
+            .expect_search_product_documents()
             .return_once(move |_, _, _| {
                 let items = fake::vec![ProductDocument; 369]
                     .into_iter()
@@ -453,7 +455,7 @@ mod tests {
                 &ProductSearch {
                     language,
                     currency: Currency::Aud,
-                    item_query: "Hallo Welten!".try_into().unwrap(),
+                    product_query: "Hallo Welten!".try_into().unwrap(),
                     shop_name_query: None,
                     price_query: None,
                     state_query: Default::default(),

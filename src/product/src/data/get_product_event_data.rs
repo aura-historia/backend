@@ -210,12 +210,12 @@ mod tests {
         LocalizedItemStateChangeEventPayloadView,
     };
     use crate::data::{
-        get_item_event_data::{
+        get_product_event_data::{
             GetProductEventData, ItemCreatedEventPayloadData, ItemEventPayloadData,
             ItemEventPriceChangedPayloadData, ItemEventPriceDiscoveredPayloadData,
             ItemEventStateChangedPayloadData, ItemEventTypeData,
         },
-        item_state_data::ProductStateData,
+        product_state_data::ProductStateData,
     };
     use common::{
         currency::{data::CurrencyData, domain::Currency},
@@ -399,7 +399,7 @@ mod tests {
             timestamp: utc_datetime!(2025 - 05 - 05 2:22).into(),
         }
     )]
-    fn should_from_event_localized_item_event_payload_for_get_item_event_data(
+    fn should_from_event_localized_item_event_payload_for_get_product_event_data(
         #[case] payload_view: LocalizedItemEventPayloadView,
         #[case] expected: GetProductEventData,
     ) {

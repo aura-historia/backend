@@ -105,13 +105,13 @@ mod tests {
     use common::user_id::UserId;
     use fake::{Fake, Faker};
     use lambda_runtime::LambdaEvent;
-    use product::watchlist::service::product_watchlist_service::MockItemWatchListService;
+    use product::watchlist::service::product_watchlist_service::MockProductWatchListService;
     use test_api::ApiGatewayV2httpRequestProxy;
     use time::{OffsetDateTime, format_description::well_known::Rfc3339};
 
     #[tokio::test]
     async fn should_200_when_success() {
-        let mut service = MockItemWatchListService::default();
+        let mut service = MockProductWatchListService::default();
         service
             .expect_view_watchlist()
             .return_once(|_, _, _, _, _| Box::pin(async { Ok(Faker.fake()) }));
@@ -137,7 +137,7 @@ mod tests {
 
     #[tokio::test]
     async fn should_401_when_sub_missing() {
-        let mut service = MockItemWatchListService::default();
+        let mut service = MockProductWatchListService::default();
         service.expect_view_watchlist().never();
 
         let lambda_event = LambdaEvent {

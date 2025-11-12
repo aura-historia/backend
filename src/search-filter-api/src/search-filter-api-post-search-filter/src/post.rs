@@ -65,7 +65,7 @@ mod tests {
             search: ProductSearchData {
                 language: LanguageData::De,
                 currency: CurrencyData::Eur,
-                item_query: "Boop".try_into().unwrap(),
+                product_query: "Boop".try_into().unwrap(),
                 shop_name_query: Some("Baap".try_into().unwrap()),
                 price_query: Some(RangeQuery {
                     min: Some(37),

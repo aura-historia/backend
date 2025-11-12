@@ -426,7 +426,7 @@ Resources:
                   "dynamodb": {
                     "NewImage": {
                       "sk": {
-                        "S": [{ "prefix": "item#event#" }]
+                        "S": [{ "prefix": "product#event#" }]
                       }
                     }
                   }
@@ -702,7 +702,7 @@ Resources:
       Environment:
         Variables:
           DYNAMODB_TABLE_NAME: !Ref TableOne
-          INGEST_ITEM_EVENTS_QUEUE_URL: !Ref ItemIngestEventsDynamoDbQ
+          INGEST_PRODUCT_EVENTS_QUEUE_URL: !Ref ItemIngestEventsDynamoDbQ
   BlitzfilterApiPutProductsLambdaPermission:
     Type: AWS::Lambda::Permission
     Properties:
@@ -2936,7 +2936,7 @@ Resources:
         Size: 512
       Environment:
         Variables:
-          ITEM_ENRICHMENT_ASG_NAME: !Ref ProductEnrichmentASG
+          PRODUCT_ENRICHMENT_ASG_NAME: !Ref ProductEnrichmentASG
           OPENSEARCH_DOMAIN_ENDPOINT_URL: !Sub "https://${BlitzfilterOpenSearchDomain.DomainEndpoint}"
   ItemEnrichmentScaleDownStartSchedule:
     Type: AWS::Events::Rule
@@ -3023,7 +3023,7 @@ Resources:
         Size: 512
       Environment:
         Variables:
-          ITEM_ENRICHMENT_ASG_NAME: !Ref ProductEnrichmentASG
+          PRODUCT_ENRICHMENT_ASG_NAME: !Ref ProductEnrichmentASG
           OPENSEARCH_DOMAIN_ENDPOINT_URL: !Sub "https://${BlitzfilterOpenSearchDomain.DomainEndpoint}"
   ItemEnrichmentScaleUpStartSchedule:
     Type: AWS::Events::Rule

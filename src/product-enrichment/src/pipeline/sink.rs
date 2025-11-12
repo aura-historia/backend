@@ -56,7 +56,7 @@ impl EnrichmentPipeSink for EnrichmentPipeSinkImpl {
         let item_ids = documents.keys().copied().collect::<HashSet<_>>();
         let res = self
             .item_opensearch_repository
-            .update_item_documents(documents)
+            .update_product_documents(documents)
             .await;
 
         let mut skipped = 0usize;
@@ -105,7 +105,7 @@ impl EnrichmentPipeSink for EnrichmentPipeSinkImpl {
         for (product_id, (product_key, record)) in records {
             let res = self
                 .item_dynamodb_repository
-                .update_item_record(&product_key.shop_id, &product_key.shops_product_id, record)
+                .update_product_record(&product_key.shop_id, &product_key.shops_product_id, record)
                 .await;
             if let Err(err) = res {
                 error!(error = ?err, itemId = %product_id, "Failed updating ProductRecord.");
@@ -136,7 +136,7 @@ mod tests {
         use product::dynamodb::repository::MockProductDynamoDbRepository;
         use product::opensearch::{
             product_update_document::ProductUpdateDocument,
-            repository::MockItemOpenSearchRepository,
+            repository::MockProductOpenSearchRepository,
         };
         use std::collections::HashSet;
         use std::{collections::HashMap, sync::Arc};
@@ -144,9 +144,9 @@ mod tests {
         #[tokio::test]
         async fn should_drain_documents_when_successful() {
             let item_dynamodb_repository = MockProductDynamoDbRepository::default();
-            let mut item_opensearch_repository = MockItemOpenSearchRepository::default();
+            let mut item_opensearch_repository = MockProductOpenSearchRepository::default();
             item_opensearch_repository
-                .expect_update_item_documents()
+                .expect_update_product_documents()
                 .return_once(|_| {
                     Box::pin(async {
                         Ok(BulkResponse {
@@ -182,9 +182,9 @@ mod tests {
         #[tokio::test]
         async fn should_return_partial_failures(#[case] failure_count: usize) {
             let item_dynamodb_repository = MockProductDynamoDbRepository::default();
-            let mut item_opensearch_repository = MockItemOpenSearchRepository::default();
+            let mut item_opensearch_repository = MockProductOpenSearchRepository::default();
             item_opensearch_repository
-                .expect_update_item_documents()
+                .expect_update_product_documents()
                 .return_once(move |documents| {
                     Box::pin(async move {
                         Ok(BulkResponse {
@@ -235,16 +235,16 @@ mod tests {
         use product::dynamodb::{
             product_update_record::ProductRecordUpdate, repository::MockProductDynamoDbRepository,
         };
-        use product::opensearch::repository::MockItemOpenSearchRepository;
+        use product::opensearch::repository::MockProductOpenSearchRepository;
         use std::collections::HashSet;
         use std::{collections::HashMap, sync::Arc};
 
         #[tokio::test]
         async fn should_drain_records_when_successful() {
-            let item_opensearch_repository = MockItemOpenSearchRepository::default();
+            let item_opensearch_repository = MockProductOpenSearchRepository::default();
             let mut item_dynamodb_repository = MockProductDynamoDbRepository::default();
             item_dynamodb_repository
-                .expect_update_item_record()
+                .expect_update_product_record()
                 .returning(|_, _, _| Box::pin(async { Ok(UpdateItemOutput::builder().build()) }));
 
             let sink = EnrichmentPipeSinkImpl::new(
@@ -271,11 +271,11 @@ mod tests {
         #[case(1000)]
         #[tokio::test]
         async fn should_return_partial_failures(#[case] failure_count: usize) {
-            let item_opensearch_repository = MockItemOpenSearchRepository::default();
+            let item_opensearch_repository = MockProductOpenSearchRepository::default();
             let mut item_dynamodb_repository = MockProductDynamoDbRepository::default();
 
             item_dynamodb_repository
-                .expect_update_item_record()
+                .expect_update_product_record()
                 .returning(|_, _, _| {
                     Box::pin(async { Err(SdkError::construction_failure("Something went wrong")) })
                 });

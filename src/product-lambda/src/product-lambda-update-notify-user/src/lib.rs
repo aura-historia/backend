@@ -9,10 +9,10 @@ use product::dynamodb::product_event_record::ProductEventRecord;
 use product_lambda_common::extract_product_event_record;
 use tracing::{error, info};
 
-#[tracing::instrument(skip(queue_mail_service, item_event_mail_payload_service, event), fields(requestId = %event.context.request_id))]
+#[tracing::instrument(skip(queue_mail_service, product_event_mail_payload_service, event), fields(requestId = %event.context.request_id))]
 pub async fn handler(
     queue_mail_service: &impl QueueMailService,
-    item_event_mail_payload_service: &impl ProductEventMailPayloadService,
+    product_event_mail_payload_service: &impl ProductEventMailPayloadService,
     event: LambdaEvent<SqsEvent>,
 ) -> Result<SqsBatchResponse, lambda_runtime::Error> {
     let records_count = event.payload.records.len();
@@ -31,7 +31,7 @@ pub async fn handler(
         {
             match ProductEvent::try_from(product_event_record) {
                 Ok(product_event) => {
-                    let mail_payloads_res = item_event_mail_payload_service
+                    let mail_payloads_res = product_event_mail_payload_service
                         .create_mail_payloads(product_event)
                         .await;
                     match mail_payloads_res {
@@ -195,8 +195,8 @@ mod tests {
             payload: SqsEvent { records },
             context: Context::default(),
         };
-        let mut item_event_mail_payload_service = MockProductEventMailPayloadService::default();
-        item_event_mail_payload_service
+        let mut product_event_mail_payload_service = MockProductEventMailPayloadService::default();
+        product_event_mail_payload_service
             .expect_create_mail_payloads()
             .returning(|_| Box::pin(async move { Ok(fake::vec![MailPayload; 42]) }));
         let mut queue_mail_service = MockQueueMailService::default();
@@ -206,7 +206,7 @@ mod tests {
 
         let actual = handler(
             &queue_mail_service,
-            &item_event_mail_payload_service,
+            &product_event_mail_payload_service,
             lambda_event,
         )
         .await
@@ -256,9 +256,9 @@ mod tests {
             context: Context::default(),
         };
 
-        let mut item_event_mail_payload_service = MockProductEventMailPayloadService::default();
+        let mut product_event_mail_payload_service = MockProductEventMailPayloadService::default();
         let remaining_failures: Arc<Mutex<usize>> = Arc::new(Mutex::new(failure_count));
-        item_event_mail_payload_service
+        product_event_mail_payload_service
             .expect_create_mail_payloads()
             .returning(move |_| {
                 let mut remaining = remaining_failures.lock().unwrap();
@@ -268,7 +268,7 @@ mod tests {
                     remaining.sub_assign(1);
                     Box::pin(async move {
                         Err(ProductEventMailPayloadServiceError::GetProductError(
-                            item::service::get_service::GetProductError::SdkGetProductError(
+                            product::service::get_service::GetProductError::SdkGetProductError(
                                 SdkError::construction_failure("something went wrong"),
                             ),
                         ))
@@ -282,7 +282,7 @@ mod tests {
 
         let actual = handler(
             &queue_mail_service,
-            &item_event_mail_payload_service,
+            &product_event_mail_payload_service,
             lambda_event,
         )
         .await

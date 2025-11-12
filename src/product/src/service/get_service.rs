@@ -124,7 +124,7 @@ impl<'a> GetProductService for GetProductServiceImpl<'a> {
     ) -> Result<Product, GetProductError> {
         let product_record = self
             .repository
-            .get_item_record(shop_id, shops_product_id)
+            .get_product_record(shop_id, shops_product_id)
             .await?
             .ok_or(GetProductError::ProductNotFound(
                 *shop_id,
@@ -144,7 +144,7 @@ impl<'a> GetProductService for GetProductServiceImpl<'a> {
     ) -> Result<LocalizedProductView, GetProductError> {
         let (product_record, event_records) = if history {
             self.repository
-                .query_item_record_and_event_records(shop_id, shops_product_id)
+                .query_product_record_and_event_records(shop_id, shops_product_id)
                 .await?
                 .ok_or(GetProductError::ProductNotFound(
                     *shop_id,
@@ -153,7 +153,7 @@ impl<'a> GetProductService for GetProductServiceImpl<'a> {
         } else {
             let product_record = self
                 .repository
-                .get_item_record(shop_id, shops_product_id)
+                .get_product_record(shop_id, shops_product_id)
                 .await?
                 .ok_or(GetProductError::ProductNotFound(
                     *shop_id,
@@ -231,7 +231,7 @@ impl<'a> GetProductServiceImpl<'a> {
         let mut views = Vec::with_capacity(items.len());
         let mut unprocessed = Vec::new();
         for batch in Batch::chunked_from(items.into_iter()) {
-            let result = self.repository.get_item_records(&batch).await?;
+            let result = self.repository.get_product_records(&batch).await?;
             if let Some(up) = result.unprocessed {
                 unprocessed.extend(up);
             }
@@ -515,7 +515,7 @@ mod tests {
         async fn should_return_item_when_exists() {
             let mut repository = MockProductDynamoDbRepository::default();
             repository
-                .expect_get_item_record()
+                .expect_get_product_record()
                 .return_once(|_, _| Box::pin(async { Ok(Some(Faker.fake())) }));
             let service = GetProductServiceImpl {
                 repository: &repository,
@@ -532,7 +532,7 @@ mod tests {
             let shops_product_id = "non-existent".into();
             let mut repository = MockProductDynamoDbRepository::default();
             repository
-                .expect_get_item_record()
+                .expect_get_product_record()
                 .return_once(|_, _| Box::pin(async { Ok(None) }));
             let service = GetProductServiceImpl {
                 repository: &repository,
@@ -572,7 +572,7 @@ mod tests {
             let shops_product_id = "non-existent".into();
             let mut repository = MockProductDynamoDbRepository::default();
             repository
-                .expect_get_item_record()
+                .expect_get_product_record()
                 .return_once(|_, _| Box::pin(async { Err(expected) }));
             let service = GetProductServiceImpl {
                 repository: &repository,
@@ -616,7 +616,7 @@ mod tests {
         async fn should_return_item_when_exists_without_history() {
             let mut repository = MockProductDynamoDbRepository::default();
             repository
-                .expect_get_item_record()
+                .expect_get_product_record()
                 .return_once(|_, _| Box::pin(async { Ok(Some(Faker.fake())) }));
             let service = GetProductServiceImpl {
                 repository: &repository,
@@ -637,7 +637,7 @@ mod tests {
         async fn should_return_item_when_exists_with_history() {
             let mut repository = MockProductDynamoDbRepository::default();
             repository
-                .expect_query_item_record_and_event_records()
+                .expect_query_product_record_and_event_records()
                 .return_once(|_, _| Box::pin(async { Ok(Some(Faker.fake())) }));
             let service = GetProductServiceImpl {
                 repository: &repository,
@@ -665,7 +665,7 @@ mod tests {
                 .map(|record| record.product_id)
                 .collect_vec();
             repository
-                .expect_query_item_record_and_event_records()
+                .expect_query_product_record_and_event_records()
                 .return_once(|_, _| Box::pin(async { Ok(Some((Faker.fake(), events))) }));
             let service = GetProductServiceImpl {
                 repository: &repository,
@@ -707,7 +707,7 @@ mod tests {
             expected_record.price_cad = Some(4000);
             expected_record.price_nzd = Some(42);
             repository
-                .expect_get_item_record()
+                .expect_get_product_record()
                 .return_once(|_, _| Box::pin(async { Ok(Some(expected_record)) }));
             let service = GetProductServiceImpl {
                 repository: &repository,
@@ -751,7 +751,7 @@ mod tests {
             expected_record.title_de = Some("German".to_string());
             expected_record.title_en = Some("English".to_string());
             repository
-                .expect_get_item_record()
+                .expect_get_product_record()
                 .return_once(|_, _| Box::pin(async { Ok(Some(expected_record)) }));
             let service = GetProductServiceImpl {
                 repository: &repository,
@@ -794,7 +794,7 @@ mod tests {
             expected_record.title_de = None;
             expected_record.title_en = None;
             repository
-                .expect_get_item_record()
+                .expect_get_product_record()
                 .return_once(|_, _| Box::pin(async { Ok(Some(expected_record)) }));
             let service = GetProductServiceImpl {
                 repository: &repository,
@@ -838,7 +838,7 @@ mod tests {
             expected_record.description_de = Some("German".to_string());
             expected_record.description_en = Some("English".to_string());
             repository
-                .expect_get_item_record()
+                .expect_get_product_record()
                 .return_once(|_, _| Box::pin(async { Ok(Some(expected_record)) }));
             let service = GetProductServiceImpl {
                 repository: &repository,
@@ -883,7 +883,7 @@ mod tests {
             expected_record.description_de = None;
             expected_record.description_en = None;
             repository
-                .expect_get_item_record()
+                .expect_get_product_record()
                 .return_once(|_, _| Box::pin(async { Ok(Some(expected_record)) }));
             let service = GetProductServiceImpl {
                 repository: &repository,
@@ -925,7 +925,7 @@ mod tests {
             expected_record.description_de = None;
             expected_record.description_en = None;
             repository
-                .expect_get_item_record()
+                .expect_get_product_record()
                 .return_once(|_, _| Box::pin(async { Ok(Some(expected_record)) }));
             let service = GetProductServiceImpl {
                 repository: &repository,
@@ -950,7 +950,7 @@ mod tests {
             let shops_product_id = "non-existent".into();
             let mut repository = MockProductDynamoDbRepository::default();
             repository
-                .expect_get_item_record()
+                .expect_get_product_record()
                 .return_once(|_, _| Box::pin(async { Ok(None) }));
             let service = GetProductServiceImpl {
                 repository: &repository,
@@ -992,7 +992,7 @@ mod tests {
             let shops_product_id = "non-existent".into();
             let mut repository = MockProductDynamoDbRepository::default();
             repository
-                .expect_get_item_record()
+                .expect_get_product_record()
                 .return_once(|_, _| Box::pin(async { Err(expected) }));
             let service = GetProductServiceImpl {
                 repository: &repository,
@@ -1026,7 +1026,7 @@ mod tests {
         #[tokio::test]
         async fn should_return_items_when_all_processed() {
             let mut repository = MockProductDynamoDbRepository::default();
-            repository.expect_get_item_records().returning(|_| {
+            repository.expect_get_product_records().returning(|_| {
                 Box::pin(async {
                     Ok(BatchGetItemResult {
                         items: fake::vec![ProductRecord; 42],
@@ -1047,7 +1047,7 @@ mod tests {
         #[tokio::test]
         async fn should_completely_fail_when_some_processed() {
             let mut repository = MockProductDynamoDbRepository::default();
-            repository.expect_get_item_records().returning(|_| {
+            repository.expect_get_product_records().returning(|_| {
                 Box::pin(async {
                     Ok(BatchGetItemResult {
                         items: fake::vec![ProductRecord; 37],
@@ -1095,7 +1095,7 @@ mod tests {
         ) {
             let mut repository = MockProductDynamoDbRepository::default();
             repository
-                .expect_get_item_records()
+                .expect_get_product_records()
                 .return_once(|_| Box::pin(async { Err(expected) }));
             let service = GetProductServiceImpl {
                 repository: &repository,

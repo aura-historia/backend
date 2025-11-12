@@ -5,15 +5,15 @@ use common::{
     api::collection::PutCollectionData, product_id::api::ProductKeyData, user_id::UserId,
 };
 use fake::{Fake, Faker};
-use item_api_watchlist_patch::WatchlistItemPatch;
-use product::data::{item_state_data::ProductStateData, put_data::PutItemData};
+use product::data::{product_state_data::ProductStateData, put_data::PutItemData};
 use product::dynamodb::repository::{ProductDynamoDbRepository, ProductDynamoDbRepositoryImpl};
 use product::watchlist::{
-    data::watchlist_item_data::WatchlistProductData,
+    data::watchlist_product_data::WatchlistProductData,
     dynamodb::repository::{
         WatchlistProductDynamoDbRepository, WatchlistProductDynamoDbRepositoryImpl,
     },
 };
+use product_api_watchlist_patch::WatchlistItemPatch;
 use shop::core::shop::Shop;
 use shop::dynamodb::{
     repository::{ShopDynamoDbRepository, ShopDynamoDbRepositoryImpl},
@@ -42,13 +42,13 @@ async fn prepare_test_shop() -> Shop {
 }
 
 #[staging_test]
-async fn should_send_email_to_user_when_watched_item_has_update() {
+async fn should_send_email_to_user_when_watched_product_has_update() {
     let stack = get_cfn_output();
     let shop = prepare_test_shop().await;
 
     // create item
-    let mut put_item_data: PutItemData = Faker.fake();
-    put_item_data
+    let mut put_product_data: PutItemData = Faker.fake();
+    put_product_data
         .url
         .set_host(shop.urls.first().unwrap().host_str())
         .unwrap();
@@ -56,20 +56,20 @@ async fn should_send_email_to_user_when_watched_item_has_update() {
     let response = reqwest::Client::new()
         .put(url)
         .json(&PutCollectionData {
-            items: vec![put_item_data.clone()],
+            items: vec![put_product_data.clone()],
         })
         .send()
         .await
         .unwrap();
     assert_eq!(200, response.status());
     tokio::time::sleep(Duration::from_secs(45)).await;
-    let item_repository = ProductDynamoDbRepositoryImpl::new(
+    let product_repository = ProductDynamoDbRepositoryImpl::new(
         get_dynamodb_client().await,
         &stack.dynamodb_table_1_name,
     );
     assert!(
-        item_repository
-            .get_item_record(&shop.shop_id, &put_item_data.shops_product_id)
+        product_repository
+            .get_product_record(&shop.shop_id, &put_product_data.shops_product_id)
             .await
             .unwrap()
             .is_some()
@@ -107,7 +107,7 @@ async fn should_send_email_to_user_when_watched_item_has_update() {
         .post(post_url)
         .json(&ProductKeyData {
             shop_id: shop.shop_id,
-            shops_product_id: put_item_data.shops_product_id.clone(),
+            shops_product_id: put_product_data.shops_product_id.clone(),
         })
         .bearer_auth(&user.access_token)
         .send()
@@ -121,7 +121,7 @@ async fn should_send_email_to_user_when_watched_item_has_update() {
         "{}/api/v1/me/watchlist/{}/{}",
         get_cfn_output().api_gateway_endpoint_url,
         shop.shop_id,
-        put_item_data.shops_product_id,
+        put_product_data.shops_product_id,
     );
     let patch_response = reqwest::Client::new()
         .patch(patch_url)
@@ -150,7 +150,7 @@ async fn should_send_email_to_user_when_watched_item_has_update() {
     tokio::time::sleep(Duration::from_secs(10)).await;
 
     // update item
-    put_item_data.state = if matches!(put_item_data.state, ProductStateData::Available) {
+    put_product_data.state = if matches!(put_product_data.state, ProductStateData::Available) {
         ProductStateData::Sold
     } else {
         ProductStateData::Available
@@ -159,7 +159,7 @@ async fn should_send_email_to_user_when_watched_item_has_update() {
     let response = reqwest::Client::new()
         .put(url)
         .json(&PutCollectionData {
-            items: vec![put_item_data.clone()],
+            items: vec![put_product_data.clone()],
         })
         .send()
         .await
@@ -167,7 +167,7 @@ async fn should_send_email_to_user_when_watched_item_has_update() {
     assert_eq!(200, response.status());
 
     // verify email with update-notification arrived
-    match put_item_data.state {
+    match put_product_data.state {
         ProductStateData::Available => {
             assert!(wait_for_email("Antiquität verfügbar").await)
         }

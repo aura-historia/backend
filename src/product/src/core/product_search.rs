@@ -11,7 +11,7 @@ use time::OffsetDateTime;
 pub struct ProductSearch {
     pub language: Language,
     pub currency: Currency,
-    pub item_query: TextQuery,
+    pub product_query: TextQuery,
     pub shop_name_query: Option<TextQuery>,
     pub price_query: Option<RangeQuery<MonetaryAmount>>,
     pub state_query: AnyOfQuery<ProductState>,
@@ -29,7 +29,7 @@ pub mod faker {
             ProductSearch {
                 language: config.fake_with_rng(rng),
                 currency: config.fake_with_rng(rng),
-                item_query: config.fake_with_rng(rng),
+                product_query: config.fake_with_rng(rng),
                 shop_name_query: config.fake_with_rng(rng),
                 price_query: config.fake_with_rng(rng),
                 state_query: config.fake_with_rng(rng),

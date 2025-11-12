@@ -1063,7 +1063,7 @@ async fn should_202_when_similar_items_have_not_been_computed_for_anon() {
 
     let product_record: ProductRecord = Faker.fake();
     let ddb_insert_res = item_dynamodb_repository
-        .put_item_records([product_record.clone()].into())
+        .put_product_records([product_record.clone()].into())
         .await
         .unwrap();
     assert!(
@@ -1080,7 +1080,7 @@ async fn should_202_when_similar_items_have_not_been_computed_for_anon() {
     }
     item_documents.push(item_document);
     let os_insert_res = item_opensearch_repository
-        .create_item_documents(item_documents.clone())
+        .create_product_documents(item_documents.clone())
         .await
         .unwrap();
     assert!(!os_insert_res.errors);
@@ -1115,7 +1115,7 @@ async fn should_200_when_similar_items_have_been_computed_for_anon() {
 
     let product_record: ProductRecord = Faker.fake();
     let ddb_insert_res = item_dynamodb_repository
-        .put_item_records([product_record.clone()].into())
+        .put_product_records([product_record.clone()].into())
         .await
         .unwrap();
     assert!(
@@ -1134,7 +1134,7 @@ async fn should_200_when_similar_items_have_been_computed_for_anon() {
     }
     item_documents.push(item_document);
     let os_insert_res = item_opensearch_repository
-        .create_item_documents(item_documents.clone())
+        .create_product_documents(item_documents.clone())
         .await
         .unwrap();
     assert!(!os_insert_res.errors);
@@ -1215,7 +1215,7 @@ async fn should_200_and_personalize_when_similar_items_have_been_computed_for_au
     let product_record: ProductRecord = Faker.fake();
     let item_records = fake::vec![ProductRecord; 12];
     let ddb_insert_res = item_dynamodb_repository
-        .put_item_records(
+        .put_product_records(
             [vec![product_record.clone()], item_records.clone()]
                 .concat()
                 .try_into()
@@ -1254,7 +1254,7 @@ async fn should_200_and_personalize_when_similar_items_have_been_computed_for_au
     }
     item_documents.push(item_document);
     let os_insert_res = item_opensearch_repository
-        .create_item_documents(item_documents.clone())
+        .create_product_documents(item_documents.clone())
         .await
         .unwrap();
     assert!(!os_insert_res.errors);

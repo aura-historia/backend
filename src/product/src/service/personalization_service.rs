@@ -119,7 +119,7 @@ mod tests {
             ItemPersonalizationService, ItemPersonalizationServiceImpl,
         },
         watchlist::dynamodb::{
-            record::WatchlistProductRecord, repository::MockWatchlistItemDynamoDbRepository,
+            record::WatchlistProductRecord, repository::MockWatchlistProductDynamoDbRepository,
         },
     };
     use common::product_id::ProductId;
@@ -129,7 +129,7 @@ mod tests {
     #[tokio::test]
     async fn should_personalize_watchlist_when_watching_notifications_false() {
         let product_id = ProductId::new();
-        let mut watchlist_repository = MockWatchlistItemDynamoDbRepository::default();
+        let mut watchlist_repository = MockWatchlistProductDynamoDbRepository::default();
         watchlist_repository
             .expect_get_watchlist_record()
             .return_once(move |user_id, _, _| {
@@ -171,7 +171,7 @@ mod tests {
     #[tokio::test]
     async fn should_personalize_watchlist_when_watching_notifications_true() {
         let product_id = ProductId::new();
-        let mut watchlist_repository = MockWatchlistItemDynamoDbRepository::default();
+        let mut watchlist_repository = MockWatchlistProductDynamoDbRepository::default();
         watchlist_repository
             .expect_get_watchlist_record()
             .return_once(move |user_id, _, _| {
@@ -213,7 +213,7 @@ mod tests {
     #[tokio::test]
     async fn should_personalize_watchlist_when_not_watching() {
         let product_id = ProductId::new();
-        let mut watchlist_repository = MockWatchlistItemDynamoDbRepository::default();
+        let mut watchlist_repository = MockWatchlistProductDynamoDbRepository::default();
         watchlist_repository
             .expect_get_watchlist_record()
             .return_once(move |_, _, _| Box::pin(async move { Ok(None) }));
@@ -237,7 +237,7 @@ mod tests {
         let item1_id = ProductId::new();
         let item2_id = ProductId::new();
         let item3_id = ProductId::new();
-        let mut watchlist_repository = MockWatchlistItemDynamoDbRepository::default();
+        let mut watchlist_repository = MockWatchlistProductDynamoDbRepository::default();
         watchlist_repository
             .expect_query_watchlist_records_all()
             .return_once(move |user_id, _| {

@@ -35,7 +35,7 @@ pub async fn handler(
 
     for (key, update) in updates {
         let update_res = repository
-            .update_item_record(&key.shop_id, &key.shops_product_id, update)
+            .update_product_record(&key.shop_id, &key.shops_product_id, update)
             .await;
         if let Err(err) = update_res {
             error!(error = ?err, itemKey = %key, "Failed update.");
@@ -172,7 +172,7 @@ mod tests {
         };
         let mut repository = MockProductDynamoDbRepository::default();
         repository
-            .expect_update_item_record()
+            .expect_update_product_record()
             .returning(move |_, _, _| {
                 Box::pin(async move { Ok(UpdateItemOutput::builder().build()) })
             });
@@ -238,7 +238,7 @@ mod tests {
         };
         let mut repository = MockProductDynamoDbRepository::default();
         repository
-            .expect_update_item_record()
+            .expect_update_product_record()
             .returning(move |shop_id, shops_product_id, _| {
                 if expected_failed_events.iter().any(|event| {
                     event.payload.shop_id() == shop_id

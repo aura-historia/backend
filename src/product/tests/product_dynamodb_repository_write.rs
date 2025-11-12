@@ -58,13 +58,13 @@ async fn should_put_item_records_for_single_record() {
 
     get_repository()
         .await
-        .put_item_records(Batch::from([expected.clone()]))
+        .put_product_records(Batch::from([expected.clone()]))
         .await
         .unwrap();
 
     let actual = get_repository()
         .await
-        .get_item_record(&shop_id, &shops_product_id)
+        .get_product_record(&shop_id, &shops_product_id)
         .await
         .unwrap()
         .unwrap();
@@ -78,8 +78,8 @@ async fn should_put_item_records_for_multiple_records() {
     let shop_id = ShopId::new();
     let shops_item_id_1: ShopsProductId = "123465".into();
     let expected1 = ProductRecord {
-        pk: format!("item#shop_id#{shop_id}#shops_product_id#{shops_item_id_1}"),
-        sk: "item#materialized".to_string(),
+        pk: format!("product#shop_id#{shop_id}#shops_product_id#{shops_item_id_1}"),
+        sk: "product#materialized".to_string(),
         product_id: ProductId::new(),
         event_id: EventId::new(),
         shop_id,
@@ -110,8 +110,8 @@ async fn should_put_item_records_for_multiple_records() {
     let shops_item_id_2: ShopsProductId = "abcdefg".into();
     let now2 = OffsetDateTime::now_utc();
     let expected2 = ProductRecord {
-        pk: format!("item#shop_id#{shop_id}#shops_product_id#{shops_item_id_2}"),
-        sk: "item#materialized".to_string(),
+        pk: format!("product#shop_id#{shop_id}#shops_product_id#{shops_item_id_2}"),
+        sk: "product#materialized".to_string(),
         product_id: ProductId::new(),
         event_id: EventId::new(),
         shop_id,
@@ -142,19 +142,19 @@ async fn should_put_item_records_for_multiple_records() {
 
     get_repository()
         .await
-        .put_item_records([expected1.clone(), expected2.clone()].into())
+        .put_product_records([expected1.clone(), expected2.clone()].into())
         .await
         .unwrap();
 
     let actual1 = get_repository()
         .await
-        .get_item_record(&shop_id, &shops_item_id_1)
+        .get_product_record(&shop_id, &shops_item_id_1)
         .await
         .unwrap()
         .unwrap();
     let actual2 = get_repository()
         .await
-        .get_item_record(&shop_id, &shops_item_id_2)
+        .get_product_record(&shop_id, &shops_item_id_2)
         .await
         .unwrap()
         .unwrap();
@@ -211,7 +211,7 @@ async fn should_put_item_event_records_for_single_record() {
 
     get_repository()
         .await
-        .put_item_event_records(Batch::from([expected.clone()]))
+        .put_product_event_records(Batch::from([expected.clone()]))
         .await
         .unwrap();
 
@@ -319,7 +319,7 @@ async fn should_put_item_event_records_for_multiple_records() {
 
     get_repository()
         .await
-        .put_item_event_records(Batch::from([expected1.clone(), expected2.clone()]))
+        .put_product_event_records(Batch::from([expected1.clone(), expected2.clone()]))
         .await
         .unwrap();
 
@@ -397,18 +397,18 @@ async fn should_update_item_record() {
 
     get_repository()
         .await
-        .put_item_records(Batch::from([initial.clone()]))
+        .put_product_records(Batch::from([initial.clone()]))
         .await
         .unwrap();
     get_repository()
         .await
-        .update_item_record(&shop_id, &shops_product_id, update)
+        .update_product_record(&shop_id, &shops_product_id, update)
         .await
         .unwrap();
 
     let actual = get_repository()
         .await
-        .get_item_record(&shop_id, &shops_product_id)
+        .get_product_record(&shop_id, &shops_product_id)
         .await
         .unwrap()
         .unwrap();

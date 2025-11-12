@@ -113,7 +113,7 @@ impl<'a> WatchlistProductDynamoDbRepository for WatchlistProductDynamoDbReposito
             )
             .expression_attribute_values(
                 ":sk_prefix",
-                AttributeValue::S("item#watch#".to_string()),
+                AttributeValue::S("product#watch#".to_string()),
             )
             .scan_index_forward(scan_index_forward)
             .into_paginator()

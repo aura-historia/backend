@@ -1,29 +1,29 @@
 use common::{price::domain::FixedFxRate, product_state::domain::ProductState};
 use product::core::product::Product;
 use product::dynamodb::{
-    item_event_type_record::ProductEventTypeRecord,
     product_event_record::ProductEventRecord,
+    product_event_type_record::ProductEventTypeRecord,
     product_record::ProductRecord,
     repository::{ProductDynamoDbRepository, ProductDynamoDbRepositoryImpl},
 };
 use product::service::{
-    item_command::UpsertItemCommand,
-    upsert_service::{UpsertItemsService, UpsertItemsServiceImpl},
+    product_command::UpsertProductCommand,
+    upsert_service::{UpsertItemsServiceImpl, UpsertProductsService},
 };
 use test_api::*;
 
-const INGEST_ITEM_QUEUE: Sqs = Sqs {
+const INGEST_PRODUCT_QUEUE: Sqs = Sqs {
     name: "ingest-item-queue",
 };
 
-#[localstack_test(services = [DynamoDB(), INGEST_ITEM_QUEUE])]
+#[localstack_test(services = [DynamoDB(), INGEST_PRODUCT_QUEUE])]
 async fn should_push_all_items_to_queue_as_created_when_none_exist() {
     let repository = ProductDynamoDbRepositoryImpl::new(get_dynamodb_client().await, "table_1");
     let sqs_client = get_sqs_client().await;
-    let q_url = INGEST_ITEM_QUEUE.queue_url();
+    let q_url = INGEST_PRODUCT_QUEUE.queue_url();
     let service = UpsertItemsServiceImpl::new(&repository, sqs_client, &q_url, &FixedFxRate());
 
-    let output = service.upsert(fake::vec![UpsertItemCommand; 543]).await;
+    let output = service.upsert(fake::vec![UpsertProductCommand; 543]).await;
     assert!(output.unprocessed.is_empty());
     assert_eq!(0, output.skipped);
 
@@ -50,14 +50,14 @@ async fn should_push_all_items_to_queue_as_created_when_none_exist() {
     }
 }
 
-#[localstack_test(services = [DynamoDB(), INGEST_ITEM_QUEUE])]
+#[localstack_test(services = [DynamoDB(), INGEST_PRODUCT_QUEUE])]
 async fn should_push_no_items_to_queue_when_all_exist_and_no_changes() {
     let repository = ProductDynamoDbRepositoryImpl::new(get_dynamodb_client().await, "table_1");
     let sqs_client = get_sqs_client().await;
-    let q_url = INGEST_ITEM_QUEUE.queue_url();
+    let q_url = INGEST_PRODUCT_QUEUE.queue_url();
     let service = UpsertItemsServiceImpl::new(&repository, sqs_client, &q_url, &FixedFxRate());
 
-    let cmds = fake::vec![UpsertItemCommand; 400];
+    let cmds = fake::vec![UpsertProductCommand; 400];
     for cmd in cmds.clone() {
         let event_record: ProductEventRecord = Product::create(
             cmd.shop_id,
@@ -77,7 +77,7 @@ async fn should_push_no_items_to_queue_when_all_exist_and_no_changes() {
         .unwrap();
         let product_record: ProductRecord = event_record.try_into().unwrap();
         let unprocessed = repository
-            .put_item_records([product_record].into())
+            .put_product_records([product_record].into())
             .await
             .unwrap()
             .unprocessed_items
@@ -101,14 +101,14 @@ async fn should_push_no_items_to_queue_when_all_exist_and_no_changes() {
     assert!(received.messages().is_empty());
 }
 
-#[localstack_test(services = [DynamoDB(), INGEST_ITEM_QUEUE])]
+#[localstack_test(services = [DynamoDB(), INGEST_PRODUCT_QUEUE])]
 async fn should_push_items_to_queue_when_all_exist_and_actual_changes() {
     let repository = ProductDynamoDbRepositoryImpl::new(get_dynamodb_client().await, "table_1");
     let sqs_client = get_sqs_client().await;
-    let q_url = INGEST_ITEM_QUEUE.queue_url();
+    let q_url = INGEST_PRODUCT_QUEUE.queue_url();
     let service = UpsertItemsServiceImpl::new(&repository, sqs_client, &q_url, &FixedFxRate());
 
-    let mut cmds = fake::vec![UpsertItemCommand; 400];
+    let mut cmds = fake::vec![UpsertProductCommand; 400];
     for cmd in cmds.clone() {
         let event_record: ProductEventRecord = Product::create(
             cmd.shop_id,
@@ -128,7 +128,7 @@ async fn should_push_items_to_queue_when_all_exist_and_actual_changes() {
         .unwrap();
         let product_record: ProductRecord = event_record.try_into().unwrap();
         let unprocessed = repository
-            .put_item_records([product_record].into())
+            .put_product_records([product_record].into())
             .await
             .unwrap()
             .unprocessed_items

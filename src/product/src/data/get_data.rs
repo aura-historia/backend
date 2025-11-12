@@ -111,11 +111,11 @@ mod faker {
 mod tests {
     use crate::{
         data::get_data::GetProductData,
-        data::get_item_event_data::{
+        data::get_product_event_data::{
             GetProductEventData, ItemEventPayloadData, ItemEventPriceChangedPayloadData,
             ItemEventStateChangedPayloadData, ItemEventTypeData,
         },
-        data::item_state_data::ProductStateData,
+        data::product_state_data::ProductStateData,
     };
     use common::{
         currency::data::CurrencyData,

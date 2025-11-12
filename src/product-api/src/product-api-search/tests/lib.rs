@@ -2,18 +2,18 @@ use cognito::access_token_verifier_service::MockAccessTokenVerifierService;
 use common::personalized::api::PersonalizedData;
 use common::{pagination::cursor::api::JsonCursoredData, query::range_query::RangeQuery};
 use fake::{Fake, Faker, rand};
-use item_api_search::handler;
 use lambda_runtime::LambdaEvent;
 use product::data::get_data::GetProductData;
 use product::data::product_search_data::ProductSearchData;
 use product::data::user_state_data::ProductUserStateData;
 use product::opensearch::{
-    item_document::ProductDocument,
+    product_document::ProductDocument,
     repository::{ProductOpenSearchRepository, ProductOpenSearchRepositoryImpl},
 };
 use product::service::personalization_service::ItemPersonalizationServiceImpl;
 use product::service::query_service::QueryItemServiceImpl;
 use product::watchlist::dynamodb::repository::WatchlistProductDynamoDbRepositoryImpl;
+use product_api_search::handler;
 use test_api::*;
 use time::OffsetDateTime;
 use time::macros::datetime;
@@ -22,7 +22,8 @@ use time::macros::datetime;
 async fn should_200_when_no_hits() {
     let ddb_client = get_dynamodb_client().await;
     let watchlist_repository = WatchlistProductDynamoDbRepositoryImpl::new(ddb_client, "table_1");
-    let item_personalization_service = ItemPersonalizationServiceImpl::new(&watchlist_repository);
+    let product_personalization_service =
+        ItemPersonalizationServiceImpl::new(&watchlist_repository);
     let opensearch_repository = ProductOpenSearchRepositoryImpl::new(get_opensearch_client().await);
     let query_service = QueryItemServiceImpl::new(&opensearch_repository);
     let mut access_token_verifier_service = MockAccessTokenVerifierService::default();
@@ -42,7 +43,7 @@ async fn should_200_when_no_hits() {
         lambda_event,
         &query_service,
         &access_token_verifier_service,
-        &item_personalization_service,
+        &product_personalization_service,
     )
     .await
     .unwrap();
@@ -59,7 +60,8 @@ async fn should_200_when_no_hits() {
 async fn should_200_when_following_search_after_from_previous_response_for_sort_price_asc() {
     let ddb_client = get_dynamodb_client().await;
     let watchlist_repository = WatchlistProductDynamoDbRepositoryImpl::new(ddb_client, "table_1");
-    let item_personalization_service = ItemPersonalizationServiceImpl::new(&watchlist_repository);
+    let product_personalization_service =
+        ItemPersonalizationServiceImpl::new(&watchlist_repository);
     let opensearch_repository = ProductOpenSearchRepositoryImpl::new(get_opensearch_client().await);
     let query_service = QueryItemServiceImpl::new(&opensearch_repository);
     let mut access_token_verifier_service = MockAccessTokenVerifierService::default();
@@ -70,7 +72,7 @@ async fn should_200_when_following_search_after_from_previous_response_for_sort_
     let search = ProductSearchData {
         language: common::language::data::LanguageData::De,
         currency: common::currency::data::CurrencyData::Eur,
-        item_query: "Der erwartete Titel".try_into().unwrap(),
+        product_query: "Der erwartete Titel".try_into().unwrap(),
         shop_name_query: None,
         price_query: None,
         state_query: Default::default(),
@@ -84,7 +86,7 @@ async fn should_200_when_following_search_after_from_previous_response_for_sort_
         item.price_eur = Some(rand::random_range(1..=10000000));
     }
     let create_res = opensearch_repository
-        .create_item_documents(items.clone())
+        .create_product_documents(items.clone())
         .await
         .unwrap();
     assert!(!create_res.errors);
@@ -117,7 +119,7 @@ async fn should_200_when_following_search_after_from_previous_response_for_sort_
         lambda_event_1,
         &query_service,
         &access_token_verifier_service,
-        &item_personalization_service,
+        &product_personalization_service,
     )
     .await
     .unwrap();
@@ -161,7 +163,7 @@ async fn should_200_when_following_search_after_from_previous_response_for_sort_
         lambda_event_2,
         &query_service,
         &access_token_verifier_service,
-        &item_personalization_service,
+        &product_personalization_service,
     )
     .await
     .unwrap();
@@ -191,7 +193,8 @@ async fn should_200_when_following_search_after_from_previous_response_for_sort_
 async fn should_200_when_following_search_after_from_previous_response_for_sort_price_desc() {
     let ddb_client = get_dynamodb_client().await;
     let watchlist_repository = WatchlistProductDynamoDbRepositoryImpl::new(ddb_client, "table_1");
-    let item_personalization_service = ItemPersonalizationServiceImpl::new(&watchlist_repository);
+    let product_personalization_service =
+        ItemPersonalizationServiceImpl::new(&watchlist_repository);
     let opensearch_repository = ProductOpenSearchRepositoryImpl::new(get_opensearch_client().await);
     let query_service = QueryItemServiceImpl::new(&opensearch_repository);
     let mut access_token_verifier_service = MockAccessTokenVerifierService::default();
@@ -202,7 +205,7 @@ async fn should_200_when_following_search_after_from_previous_response_for_sort_
     let search = ProductSearchData {
         language: common::language::data::LanguageData::De,
         currency: common::currency::data::CurrencyData::Eur,
-        item_query: "Der erwartete Titel".try_into().unwrap(),
+        product_query: "Der erwartete Titel".try_into().unwrap(),
         shop_name_query: None,
         price_query: None,
         state_query: Default::default(),
@@ -216,7 +219,7 @@ async fn should_200_when_following_search_after_from_previous_response_for_sort_
         item.price_eur = Some(rand::random_range(1..=10000000));
     }
     let create_res = opensearch_repository
-        .create_item_documents(items.clone())
+        .create_product_documents(items.clone())
         .await
         .unwrap();
     assert!(!create_res.errors);
@@ -254,7 +257,7 @@ async fn should_200_when_following_search_after_from_previous_response_for_sort_
         lambda_event_1,
         &query_service,
         &access_token_verifier_service,
-        &item_personalization_service,
+        &product_personalization_service,
     )
     .await
     .unwrap();
@@ -298,7 +301,7 @@ async fn should_200_when_following_search_after_from_previous_response_for_sort_
         lambda_event_2,
         &query_service,
         &access_token_verifier_service,
-        &item_personalization_service,
+        &product_personalization_service,
     )
     .await
     .unwrap();
@@ -328,7 +331,8 @@ async fn should_200_when_following_search_after_from_previous_response_for_sort_
 async fn should_200_when_following_search_after_from_previous_response_for_implicit_sort_score() {
     let ddb_client = get_dynamodb_client().await;
     let watchlist_repository = WatchlistProductDynamoDbRepositoryImpl::new(ddb_client, "table_1");
-    let item_personalization_service = ItemPersonalizationServiceImpl::new(&watchlist_repository);
+    let product_personalization_service =
+        ItemPersonalizationServiceImpl::new(&watchlist_repository);
     let opensearch_repository = ProductOpenSearchRepositoryImpl::new(get_opensearch_client().await);
     let query_service = QueryItemServiceImpl::new(&opensearch_repository);
     let mut access_token_verifier_service = MockAccessTokenVerifierService::default();
@@ -339,7 +343,7 @@ async fn should_200_when_following_search_after_from_previous_response_for_impli
     let search = ProductSearchData {
         language: common::language::data::LanguageData::De,
         currency: common::currency::data::CurrencyData::Usd,
-        item_query: "Der erwartete Titel".try_into().unwrap(),
+        product_query: "Der erwartete Titel".try_into().unwrap(),
         shop_name_query: None,
         price_query: None,
         state_query: Default::default(),
@@ -352,7 +356,7 @@ async fn should_200_when_following_search_after_from_previous_response_for_impli
         item.title_de = Some("Der erwartete Titel".to_string());
     }
     let create_res = opensearch_repository
-        .create_item_documents(items.clone())
+        .create_product_documents(items.clone())
         .await
         .unwrap();
     assert!(!create_res.errors);
@@ -373,7 +377,7 @@ async fn should_200_when_following_search_after_from_previous_response_for_impli
         lambda_event_1,
         &query_service,
         &access_token_verifier_service,
-        &item_personalization_service,
+        &product_personalization_service,
     )
     .await
     .unwrap();
@@ -402,7 +406,7 @@ async fn should_200_when_following_search_after_from_previous_response_for_impli
         lambda_event_2,
         &query_service,
         &access_token_verifier_service,
-        &item_personalization_service,
+        &product_personalization_service,
     )
     .await
     .unwrap();
@@ -427,7 +431,8 @@ async fn should_200_when_following_search_after_from_previous_response_for_impli
 async fn should_200_when_following_search_after_from_previous_response_for_explicit_sort_score() {
     let ddb_client = get_dynamodb_client().await;
     let watchlist_repository = WatchlistProductDynamoDbRepositoryImpl::new(ddb_client, "table_1");
-    let item_personalization_service = ItemPersonalizationServiceImpl::new(&watchlist_repository);
+    let product_personalization_service =
+        ItemPersonalizationServiceImpl::new(&watchlist_repository);
     let opensearch_repository = ProductOpenSearchRepositoryImpl::new(get_opensearch_client().await);
     let query_service = QueryItemServiceImpl::new(&opensearch_repository);
     let mut access_token_verifier_service = MockAccessTokenVerifierService::default();
@@ -438,7 +443,7 @@ async fn should_200_when_following_search_after_from_previous_response_for_expli
     let search = ProductSearchData {
         language: common::language::data::LanguageData::De,
         currency: common::currency::data::CurrencyData::Usd,
-        item_query: "Der erwartete Titel".try_into().unwrap(),
+        product_query: "Der erwartete Titel".try_into().unwrap(),
         shop_name_query: None,
         price_query: None,
         state_query: Default::default(),
@@ -451,7 +456,7 @@ async fn should_200_when_following_search_after_from_previous_response_for_expli
         item.title_de = Some("Der erwartete Titel".to_string());
     }
     let create_res = opensearch_repository
-        .create_item_documents(items.clone())
+        .create_product_documents(items.clone())
         .await
         .unwrap();
     assert!(!create_res.errors);
@@ -474,7 +479,7 @@ async fn should_200_when_following_search_after_from_previous_response_for_expli
         lambda_event_1,
         &query_service,
         &access_token_verifier_service,
-        &item_personalization_service,
+        &product_personalization_service,
     )
     .await
     .unwrap();
@@ -505,7 +510,7 @@ async fn should_200_when_following_search_after_from_previous_response_for_expli
         lambda_event_2,
         &query_service,
         &access_token_verifier_service,
-        &item_personalization_service,
+        &product_personalization_service,
     )
     .await
     .unwrap();
@@ -539,7 +544,8 @@ async fn should_200_when_created_query(
 ) {
     let ddb_client = get_dynamodb_client().await;
     let watchlist_repository = WatchlistProductDynamoDbRepositoryImpl::new(ddb_client, "table_1");
-    let item_personalization_service = ItemPersonalizationServiceImpl::new(&watchlist_repository);
+    let product_personalization_service =
+        ItemPersonalizationServiceImpl::new(&watchlist_repository);
     let opensearch_repository = ProductOpenSearchRepositoryImpl::new(get_opensearch_client().await);
     let query_service = QueryItemServiceImpl::new(&opensearch_repository);
     let mut access_token_verifier_service = MockAccessTokenVerifierService::default();
@@ -551,7 +557,7 @@ async fn should_200_when_created_query(
     let search = ProductSearchData {
         language: common::language::data::LanguageData::De,
         currency: common::currency::data::CurrencyData::Eur,
-        item_query: "Der erwartete Titel".try_into().unwrap(),
+        product_query: "Der erwartete Titel".try_into().unwrap(),
         shop_name_query: None,
         price_query: None,
         state_query: Default::default(),
@@ -571,7 +577,7 @@ async fn should_200_when_created_query(
         item.title_de = Some("Der erwartete Titel".to_string());
     }
     let create_res = opensearch_repository
-        .create_item_documents(items.clone())
+        .create_product_documents(items.clone())
         .await
         .unwrap();
     assert!(!create_res.errors);
@@ -582,7 +588,7 @@ async fn should_200_when_created_query(
         lambda_event,
         &query_service,
         &access_token_verifier_service,
-        &item_personalization_service,
+        &product_personalization_service,
     )
     .await
     .unwrap();
@@ -624,7 +630,8 @@ async fn should_200_when_updated_query(
 ) {
     let ddb_client = get_dynamodb_client().await;
     let watchlist_repository = WatchlistProductDynamoDbRepositoryImpl::new(ddb_client, "table_1");
-    let item_personalization_service = ItemPersonalizationServiceImpl::new(&watchlist_repository);
+    let product_personalization_service =
+        ItemPersonalizationServiceImpl::new(&watchlist_repository);
     let opensearch_repository = ProductOpenSearchRepositoryImpl::new(get_opensearch_client().await);
     let query_service = QueryItemServiceImpl::new(&opensearch_repository);
     let mut access_token_verifier_service = MockAccessTokenVerifierService::default();
@@ -636,7 +643,7 @@ async fn should_200_when_updated_query(
     let search = ProductSearchData {
         language: common::language::data::LanguageData::De,
         currency: common::currency::data::CurrencyData::Eur,
-        item_query: "Der erwartete Titel".try_into().unwrap(),
+        product_query: "Der erwartete Titel".try_into().unwrap(),
         shop_name_query: None,
         price_query: None,
         state_query: Default::default(),
@@ -656,7 +663,7 @@ async fn should_200_when_updated_query(
         item.title_de = Some("Der erwartete Titel".to_string());
     }
     let create_res = opensearch_repository
-        .create_item_documents(items.clone())
+        .create_product_documents(items.clone())
         .await
         .unwrap();
     assert!(!create_res.errors);
@@ -667,7 +674,7 @@ async fn should_200_when_updated_query(
         lambda_event,
         &query_service,
         &access_token_verifier_service,
-        &item_personalization_service,
+        &product_personalization_service,
     )
     .await
     .unwrap();
@@ -700,7 +707,8 @@ async fn should_200_when_updated_query(
 async fn should_200_personalized_when_authenticated_and_not_watching() {
     let ddb_client = get_dynamodb_client().await;
     let watchlist_repository = WatchlistProductDynamoDbRepositoryImpl::new(ddb_client, "table_1");
-    let item_personalization_service = ItemPersonalizationServiceImpl::new(&watchlist_repository);
+    let product_personalization_service =
+        ItemPersonalizationServiceImpl::new(&watchlist_repository);
     let opensearch_repository = ProductOpenSearchRepositoryImpl::new(get_opensearch_client().await);
     let query_service = QueryItemServiceImpl::new(&opensearch_repository);
     let mut access_token_verifier_service = MockAccessTokenVerifierService::default();
@@ -711,7 +719,7 @@ async fn should_200_personalized_when_authenticated_and_not_watching() {
     let search = ProductSearchData {
         language: common::language::data::LanguageData::De,
         currency: common::currency::data::CurrencyData::Eur,
-        item_query: "Der erwartete Titel".try_into().unwrap(),
+        product_query: "Der erwartete Titel".try_into().unwrap(),
         shop_name_query: None,
         price_query: None,
         state_query: Default::default(),
@@ -731,7 +739,7 @@ async fn should_200_personalized_when_authenticated_and_not_watching() {
         item.title_de = Some("Der erwartete Titel".to_string());
     }
     let create_res = opensearch_repository
-        .create_item_documents(items.clone())
+        .create_product_documents(items.clone())
         .await
         .unwrap();
     assert!(!create_res.errors);
@@ -742,7 +750,7 @@ async fn should_200_personalized_when_authenticated_and_not_watching() {
         lambda_event,
         &query_service,
         &access_token_verifier_service,
-        &item_personalization_service,
+        &product_personalization_service,
     )
     .await
     .unwrap();

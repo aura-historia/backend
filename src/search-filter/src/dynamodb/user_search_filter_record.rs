@@ -74,7 +74,7 @@ impl From<UserSearchFilterRecord> for UserSearchFilter {
             search: ProductSearch {
                 language: record.language.into(),
                 currency: record.currency.into(),
-                item_query: record.item_query,
+                product_query: record.item_query,
                 shop_name_query: record.shop_name_query,
                 price_query: record
                     .price_query
@@ -101,7 +101,7 @@ impl From<UserSearchFilter> for UserSearchFilterRecord {
             user_id: user_search_filter.user_id,
             user_search_filter_id: user_search_filter.user_search_filter_id,
             name: user_search_filter.name,
-            item_query: user_search_filter.search.item_query,
+            item_query: user_search_filter.search.product_query,
             shop_name_query: user_search_filter.search.shop_name_query,
             price_query: user_search_filter
                 .search

@@ -1,6 +1,5 @@
 use common::{pagination::cursor::api::TimeCursoredData, user_id::UserId};
 use fake::{Fake, Faker};
-use item_api_watchlist_get::{WatchlistItemDataView, handler};
 use lambda_runtime::LambdaEvent;
 use product::dynamodb::{
     product_record::ProductRecord,
@@ -14,6 +13,7 @@ use product::watchlist::{
     },
     service::product_watchlist_service::ProductWatchListServiceImpl,
 };
+use product_api_watchlist_get::{WatchlistItemDataView, handler};
 use test_api::*;
 use time::{OffsetDateTime, format_description::well_known::Rfc3339};
 use user::dynamodb::repository::UserDynamoDbRepositoryImpl;
@@ -34,7 +34,7 @@ async fn should_200_when_sort_created_asc() {
 
     let item_records = fake::vec![ProductRecord; 23];
     let put_res = item_repository
-        .put_item_records(item_records.clone().try_into().unwrap())
+        .put_product_records(item_records.clone().try_into().unwrap())
         .await
         .unwrap();
     assert!(put_res.unprocessed_items.unwrap_or_default().is_empty());
@@ -116,7 +116,7 @@ async fn should_200_when_sort_created_asc_search_after() {
 
     let item_records = fake::vec![ProductRecord; 23];
     let put_res = item_repository
-        .put_item_records(item_records.clone().try_into().unwrap())
+        .put_product_records(item_records.clone().try_into().unwrap())
         .await
         .unwrap();
     assert!(put_res.unprocessed_items.unwrap_or_default().is_empty());
@@ -208,7 +208,7 @@ async fn should_200_when_sort_created_desc() {
 
     let item_records = fake::vec![ProductRecord; 23];
     let put_res = item_repository
-        .put_item_records(item_records.clone().try_into().unwrap())
+        .put_product_records(item_records.clone().try_into().unwrap())
         .await
         .unwrap();
     assert!(put_res.unprocessed_items.unwrap_or_default().is_empty());
@@ -291,7 +291,7 @@ async fn should_200_when_sort_created_desc_search_after() {
 
     let item_records = fake::vec![ProductRecord; 23];
     let put_res = item_repository
-        .put_item_records(item_records.clone().try_into().unwrap())
+        .put_product_records(item_records.clone().try_into().unwrap())
         .await
         .unwrap();
     assert!(put_res.unprocessed_items.unwrap_or_default().is_empty());

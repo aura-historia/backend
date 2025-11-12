@@ -4,13 +4,13 @@ use common::{
     shops_product_id::ShopsProductId,
 };
 use fake::{Fake, Faker};
-use item_api_watchlist_get::WatchlistItemDataView;
-use item_api_watchlist_patch::WatchlistItemPatch;
 use product::dynamodb::{
     product_record::ProductRecord,
     repository::{ProductDynamoDbRepository, ProductDynamoDbRepositoryImpl},
 };
 use product::watchlist::data::watchlist_product_data::WatchlistProductData;
+use product_api_watchlist_get::WatchlistItemDataView;
+use product_api_watchlist_patch::WatchlistItemPatch;
 use staging_tests::{create_random_test_user, get_dynamodb_client, staging_test};
 
 #[staging_test]
@@ -56,7 +56,7 @@ async fn should_put_and_get_and_patch_and_delete_watchlist_item_and_verify_not_e
     );
     let materialized = Faker.fake::<ProductRecord>();
     let put_res = repository
-        .put_item_records([materialized.clone()].into())
+        .put_product_records([materialized.clone()].into())
         .await
         .unwrap();
     assert!(put_res.unprocessed_items.unwrap_or_default().is_empty());

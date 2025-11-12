@@ -7,7 +7,6 @@ use common::{
     product_state::domain::ProductState,
 };
 use fake::{Fake, Faker};
-use item_api_get_item::handler;
 use lambda_runtime::LambdaEvent;
 use product::{
     core::product_event::{
@@ -29,6 +28,7 @@ use product::{
     service::get_service::GetProductServiceImpl,
     watchlist::service::product_watchlist_service::ProductWatchListServiceImpl,
 };
+use product_api_get_product::handler;
 use std::time::{Duration, SystemTime};
 use test_api::*;
 use user::dynamodb::{
@@ -50,7 +50,7 @@ async fn should_respond_200_with_history_when_anon_and_history_flag_true() {
 
     let record = Faker.fake::<ProductRecord>();
     let insert_res = item_repository
-        .put_item_records([record.clone()].into())
+        .put_product_records([record.clone()].into())
         .await
         .unwrap();
     assert!(insert_res.unprocessed_items.unwrap().is_empty());
@@ -91,7 +91,7 @@ async fn should_respond_200_with_history_when_anon_and_history_flag_true() {
         }),
     };
     let insert_res = item_repository
-        .put_item_event_records(
+        .put_product_event_records(
             [
                 event_1.clone().try_into().unwrap(),
                 event_2.clone().try_into().unwrap(),
@@ -158,7 +158,7 @@ async fn should_respond_200_without_history_when_anon_and_history_flag_false() {
 
     let record = Faker.fake::<ProductRecord>();
     let insert_res = item_repository
-        .put_item_records([record.clone()].into())
+        .put_product_records([record.clone()].into())
         .await
         .unwrap();
     assert!(insert_res.unprocessed_items.unwrap().is_empty());
@@ -199,7 +199,7 @@ async fn should_respond_200_without_history_when_anon_and_history_flag_false() {
         }),
     };
     let insert_res = item_repository
-        .put_item_event_records(
+        .put_product_event_records(
             [
                 event_1.clone().try_into().unwrap(),
                 event_2.clone().try_into().unwrap(),
@@ -256,7 +256,7 @@ async fn should_respond_200_personalized_when_authenticated_and_not_watched() {
 
     let record = Faker.fake::<ProductRecord>();
     let insert_res = item_repository
-        .put_item_records([record.clone()].into())
+        .put_product_records([record.clone()].into())
         .await
         .unwrap();
     assert!(insert_res.unprocessed_items.unwrap().is_empty());
@@ -297,7 +297,7 @@ async fn should_respond_200_personalized_when_authenticated_and_not_watched() {
         }),
     };
     let insert_res = item_repository
-        .put_item_event_records(
+        .put_product_event_records(
             [
                 event_1.clone().try_into().unwrap(),
                 event_2.clone().try_into().unwrap(),
@@ -369,7 +369,7 @@ async fn should_respond_200_personalized_when_authenticated_and_watched() {
 
     let record = Faker.fake::<ProductRecord>();
     let insert_res = item_repository
-        .put_item_records([record.clone()].into())
+        .put_product_records([record.clone()].into())
         .await
         .unwrap();
     assert!(insert_res.unprocessed_items.unwrap().is_empty());
@@ -426,7 +426,7 @@ async fn should_respond_200_personalized_when_authenticated_and_watched() {
         }),
     };
     let insert_res = item_repository
-        .put_item_event_records(
+        .put_product_event_records(
             [
                 event_1.clone().try_into().unwrap(),
                 event_2.clone().try_into().unwrap(),

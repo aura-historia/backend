@@ -86,7 +86,7 @@ mod faker {
 
 #[cfg(test)]
 mod tests {
-    use crate::data::{item_state_data::ProductStateData, put_data::PutItemData};
+    use crate::data::{product_state_data::ProductStateData, put_data::PutItemData};
     use common::{
         currency::data::CurrencyData,
         language::data::{LanguageData, LocalizedTextData},

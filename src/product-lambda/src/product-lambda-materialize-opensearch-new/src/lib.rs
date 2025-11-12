@@ -34,7 +34,7 @@ pub async fn handler(
     }
 
     let result = repository
-        .create_item_documents(materialized_documents)
+        .create_product_documents(materialized_documents)
         .await;
     match result {
         Ok(response) => handle_bulk_response(response, &mut failed_message_ids, &mut message_ids),
@@ -158,7 +158,7 @@ mod tests {
     use lambda_runtime::LambdaEvent;
     use product::core::product_event::{ItemCreatedEventPayload, ProductEventPayload};
     use product::dynamodb::product_event_record::ProductEventRecord;
-    use product::opensearch::repository::MockItemOpenSearchRepository;
+    use product::opensearch::repository::MockProductOpenSearchRepository;
     use std::collections::HashMap;
     use std::time::SystemTime;
     use time::OffsetDateTime;
@@ -212,16 +212,18 @@ mod tests {
     #[case(2874)]
     #[case(10874)]
     async fn should_handle_message(#[case] record_count: usize) {
-        let mut repository = MockItemOpenSearchRepository::default();
-        repository.expect_create_item_documents().return_once(|_| {
-            Box::pin(async move {
-                Ok(BulkResponse {
-                    took: 500,
-                    errors: false,
-                    items: vec![],
+        let mut repository = MockProductOpenSearchRepository::default();
+        repository
+            .expect_create_product_documents()
+            .return_once(|_| {
+                Box::pin(async move {
+                    Ok(BulkResponse {
+                        took: 500,
+                        errors: false,
+                        items: vec![],
+                    })
                 })
-            })
-        });
+            });
 
         let records = fake::vec![ItemCreatedEventPayload; record_count]
             .into_iter()
@@ -313,9 +315,9 @@ mod tests {
             payload: SqsEvent { records },
             context: Default::default(),
         };
-        let mut repository = MockItemOpenSearchRepository::default();
+        let mut repository = MockProductOpenSearchRepository::default();
         repository
-            .expect_create_item_documents()
+            .expect_create_product_documents()
             .return_once(move |batch| {
                 let failures: Vec<_> = batch
                     .iter()

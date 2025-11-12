@@ -38,7 +38,7 @@ pub async fn handler(
     for batch in Batch::<ProductRecord, 25>::chunked_from(materialized_records.into_iter()) {
         let item_keys = batch.iter().map(ProductRecord::key).collect::<Vec<_>>();
         let mut failures = Vec::new();
-        match repository.put_item_records(batch).await {
+        match repository.put_product_records(batch).await {
             Ok(output) => {
                 handle_dynamodb_batch_write_put_item_output::<ProductRecord>(output, &mut failures);
             }
@@ -208,7 +208,7 @@ mod tests {
             context: Context::default(),
         };
         let mut repository = MockProductDynamoDbRepository::default();
-        repository.expect_put_item_records().returning(move |_| {
+        repository.expect_put_product_records().returning(move |_| {
             Box::pin(async move { Ok(BatchWriteItemOutput::builder().build()) })
         });
 
@@ -269,7 +269,7 @@ mod tests {
         let failed_keys_clone = failed_keys.clone();
         let mut repository = MockProductDynamoDbRepository::default();
         repository
-            .expect_put_item_records()
+            .expect_put_product_records()
             .returning(move |batch| {
                 if Faker.fake() {
                     batch
@@ -362,7 +362,7 @@ mod tests {
         };
         let mut repository = MockProductDynamoDbRepository::default();
         repository
-            .expect_put_item_records()
+            .expect_put_product_records()
             .returning(move |batch| {
                 let unprocessed = batch
                     .into_iter()

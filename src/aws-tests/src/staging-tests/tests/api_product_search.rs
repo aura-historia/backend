@@ -15,8 +15,8 @@ use product::dynamodb::product_record::{self, ProductRecord};
 use product::dynamodb::product_state_record::ProductStateRecord;
 use product::dynamodb::repository::{ProductDynamoDbRepository, ProductDynamoDbRepositoryImpl};
 use product::opensearch::{
-    item_document::ProductDocument,
-    item_state_document::ProductStateDocument,
+    product_document::ProductDocument,
+    product_state_document::ProductStateDocument,
     repository::{ProductOpenSearchRepository, ProductOpenSearchRepositoryImpl},
 };
 use product::service::get_service::GetProductServiceImpl;
@@ -83,7 +83,7 @@ async fn should_respond_200_when_hits_authenticated() {
     all.push(expected.clone());
 
     let insert_res = item_opensearch_repository
-        .create_item_documents(all)
+        .create_product_documents(all)
         .await
         .unwrap();
     assert!(!insert_res.errors);
@@ -129,7 +129,7 @@ async fn should_respond_200_when_hits_authenticated() {
         updated: now.into(),
     };
     let ddb_batch_write_res = item_repository
-        .put_item_records([ddb_materialized].into())
+        .put_product_records([ddb_materialized].into())
         .await
         .unwrap();
     assert!(
@@ -152,7 +152,7 @@ async fn should_respond_200_when_hits_authenticated() {
     let search_filter = ProductSearchData {
         language: LanguageData::De,
         currency: CurrencyData::Eur,
-        item_query: "Chopin Etudes Op.10".try_into().unwrap(),
+        product_query: "Chopin Etudes Op.10".try_into().unwrap(),
         shop_name_query: Some("Hans Volkers".try_into().unwrap()),
         price_query: Some(RangeQuery {
             min: None,
@@ -230,7 +230,7 @@ async fn should_respond_200_when_hits_anon() {
     let mut all = fake::vec![ProductDocument; 10];
     all.push(expected.clone());
 
-    let insert_res = repository.create_item_documents(all).await.unwrap();
+    let insert_res = repository.create_product_documents(all).await.unwrap();
     assert!(!insert_res.errors);
     os_client
         .index(IndexParts::Index("items"))
@@ -243,7 +243,7 @@ async fn should_respond_200_when_hits_anon() {
     let search_filter = ProductSearchData {
         language: LanguageData::De,
         currency: CurrencyData::Eur,
-        item_query: "Chopin Etudes Op.10".try_into().unwrap(),
+        product_query: "Chopin Etudes Op.10".try_into().unwrap(),
         shop_name_query: Some("Hans Volkers".try_into().unwrap()),
         price_query: Some(RangeQuery {
             min: None,
