@@ -104,11 +104,16 @@ impl<'a> WatchlistItemDynamoDbRepository for WatchlistItemDynamoDbRepositoryImpl
             .client
             .query()
             .table_name(&self.table)
-            .key_condition_expression("#pk = :pk_val")
+            .key_condition_expression("#pk = :pk_val AND begins_with(#sk, :sk_prefix)")
             .expression_attribute_names("#pk", "pk")
+            .expression_attribute_names("#sk", "sk")
             .expression_attribute_values(
                 ":pk_val",
                 AttributeValue::S(mk_pk(user_id)),
+            )
+            .expression_attribute_values(
+                ":sk_prefix",
+                AttributeValue::S("item#watch#".to_string()),
             )
             .scan_index_forward(scan_index_forward)
             .into_paginator()

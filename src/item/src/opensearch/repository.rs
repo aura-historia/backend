@@ -11,7 +11,7 @@ use common::language::domain::Language;
 use common::opensearch::{bulk_response::BulkResponse, search_response::SearchResponse};
 use common::pagination::cursor::Cursor;
 use common::sort::{Sort, SortOrder};
-use opensearch::{BulkOperation, BulkOperations, BulkParts, SearchParts};
+use opensearch::{BulkOperation, BulkOperations, BulkParts, GetParts, SearchParts};
 use serde::ser::Error;
 use serde_json::json;
 use std::collections::HashMap;
@@ -37,6 +37,14 @@ pub trait ItemOpenSearchRepository {
         search: &ItemSearch,
         sort: &Sort<SortItemField>,
         page: &Option<Cursor<serde_json::Value>>,
+    ) -> Result<SearchResponse<ItemDocument>, opensearch::Error>;
+
+    async fn get_by_id(&self, item_id: &ItemId) -> Result<ItemDocument, opensearch::Error>;
+
+    async fn k_nn_text(
+        &self,
+        text_embedding: &[f32],
+        k: u16,
     ) -> Result<SearchResponse<ItemDocument>, opensearch::Error>;
 }
 
@@ -296,5 +304,50 @@ impl<'a> ItemOpenSearchRepository for ItemOpenSearchRepositoryImpl<'a> {
             })?;
 
         Ok(search_response)
+    }
+
+    async fn get_by_id(&self, item_id: &ItemId) -> Result<ItemDocument, opensearch::Error> {
+        let mut response: serde_json::Value = self
+            .client
+            .get(GetParts::IndexId("items", &item_id.to_string()))
+            .send()
+            .await?
+            .error_for_status_code()?
+            .json()
+            .await?;
+
+        serde_json::from_value(response["_source"].take()).map_err(opensearch::Error::from)
+    }
+
+    async fn k_nn_text(
+        &self,
+        text_embedding: &[f32],
+        k: u16,
+    ) -> Result<SearchResponse<ItemDocument>, opensearch::Error> {
+        let body = json!({
+            "size": k,
+            "query": {
+              "knn": {
+                "textEmbedding": {
+                  "vector": text_embedding,
+                  "k": k,
+                }
+              }
+            }
+        });
+        let response = self
+            .client
+            .search(SearchParts::Index(&["items"]))
+            .body(body)
+            .send()
+            .await?;
+        let payload = response.text().await?;
+        let knn_response = serde_json::from_str::<SearchResponse<ItemDocument>>(&payload)
+            .map_err(|err| {
+                serde_json::Error::custom(format!(
+                    "Failed deserializing 'SearchResponse<ItemDocument>' with error '{err}'. Received payload: {payload}"
+                ))
+            })?;
+        Ok(knn_response)
     }
 }

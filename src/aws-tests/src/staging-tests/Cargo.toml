@@ -28,6 +28,7 @@ reqwest = { workspace = true, features = ["default", "json"] }
 [dev-dependencies]
 common = { workspace = true, features = ["test-data"] }
 serial_test = { workspace = true }
+http = { workspace = true }
 item-api-watchlist-get = { workspace = true }
 item-api-watchlist-patch = { workspace = true }
 search-filter-api-patch-search-filter = { workspace = true, features = ["test-data"] }

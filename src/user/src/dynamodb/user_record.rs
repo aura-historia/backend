@@ -10,7 +10,11 @@ pub struct UserRecord {
     pub sk: String,
     pub id: UserId,
     pub email: Email,
+
+    #[serde(with = "time::serde::rfc3339")]
     pub created: OffsetDateTime,
+
+    #[serde(with = "time::serde::rfc3339")]
     pub updated: OffsetDateTime,
 }
 

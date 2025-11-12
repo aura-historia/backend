@@ -1,6 +1,7 @@
 use crate::core::item_search::ItemSearch;
 use crate::core::sort_item_field::SortItemField;
 use crate::core::{description::Description, item::LocalizedItemView, title::Title};
+use crate::opensearch::item_document::ItemDocument;
 use crate::opensearch::repository::ItemOpenSearchRepository;
 use async_trait::async_trait;
 use common::language::domain::Language;
@@ -92,79 +93,92 @@ impl<'a> QueryItemService for QueryItemServiceImpl<'a> {
             );
         }
 
-        let item_views = search_response.hits.hits.into_iter().map(|hit| hit.source).map(|item_document| {
-            let mut available_titles: HashMap<Language, Title> = HashMap::with_capacity(3);
-            if let Some(title_de) = item_document.title_de {
-                available_titles.insert(Language::De, title_de.into());
-            }
-            if let Some(title_en) = item_document.title_en {
-                available_titles.insert(Language::En, title_en.into());
-            }
-
-            let mut available_descriptions: HashMap<Language, Description> = HashMap::with_capacity(3);
-            if let Some(description_de) = item_document.description_de {
-                available_descriptions.insert(Language::De, description_de.into());
-            }
-            if let Some(description_en) = item_document.description_en {
-                available_descriptions.insert(Language::En, description_en.into());
-            }
-
-            let title = Language::resolve(&[search.language], available_titles).unwrap_or_else(|| {
-                error!(
-                    shopId = %item_document.shop_id,
-                    shopsItemId = %item_document.shops_item_id,
-                    "Failed resolving title. This SHOULD be impossible because the native title always exists."
-                );
-                Localized::new(Language::En, "Unknown title".into())
-            });
-            let description = Language::resolve(&[search.language], available_descriptions);
-
-            let price = match search.currency {
-                Currency::Eur => item_document
-                    .price_eur
-                    .map(|amount| Price::new(amount.into(), Currency::Eur)),
-                Currency::Gbp => item_document
-                    .price_gbp
-                    .map(|amount| Price::new(amount.into(), Currency::Gbp)),
-                Currency::Usd => item_document
-                    .price_usd
-                    .map(|amount| Price::new(amount.into(), Currency::Usd)),
-                Currency::Aud => item_document
-                    .price_aud
-                    .map(|amount| Price::new(amount.into(), Currency::Aud)),
-                Currency::Cad => item_document
-                    .price_cad
-                    .map(|amount| Price::new(amount.into(), Currency::Cad)),
-                Currency::Nzd => item_document
-                    .price_nzd
-                    .map(|amount| Price::new(amount.into(), Currency::Nzd)),
-            };
-            let state = item_document.state.into();
-
-            LocalizedItemView {
-                item_id: item_document.item_id,
-                event_id: item_document.event_id,
-                shop_id: item_document.shop_id,
-                shops_item_id: item_document.shops_item_id,
-                shop_name: item_document.shop_name.into(),
-                title,
-                description,
-                price,
-                state,
-                url: item_document.url,
-                images: item_document.images,
-                created: item_document.created,
-                updated: item_document.updated,
-                history: None
-            }
-        })
-        .collect::<Vec<_>>();
+        let item_views = search_response
+            .hits
+            .hits
+            .into_iter()
+            .map(|hit| hit.source)
+            .map(|item_document| {
+                localize_item_document(item_document, &[search.language], &search.currency)
+            })
+            .collect::<Vec<_>>();
 
         Ok(CursoredResult {
             items: item_views,
             cursor,
             total: Some(search_response.hits.total.value),
         })
+    }
+}
+
+pub fn localize_item_document(
+    item_document: ItemDocument,
+    languages: &[Language],
+    currency: &Currency,
+) -> LocalizedItemView {
+    let mut available_titles: HashMap<Language, Title> = HashMap::with_capacity(3);
+    if let Some(title_de) = item_document.title_de {
+        available_titles.insert(Language::De, title_de.into());
+    }
+    if let Some(title_en) = item_document.title_en {
+        available_titles.insert(Language::En, title_en.into());
+    }
+
+    let mut available_descriptions: HashMap<Language, Description> = HashMap::with_capacity(3);
+    if let Some(description_de) = item_document.description_de {
+        available_descriptions.insert(Language::De, description_de.into());
+    }
+    if let Some(description_en) = item_document.description_en {
+        available_descriptions.insert(Language::En, description_en.into());
+    }
+
+    let title = Language::resolve(languages, available_titles).unwrap_or_else(|| {
+        error!(
+            shopId = %item_document.shop_id,
+            shopsItemId = %item_document.shops_item_id,
+            "Failed resolving title. This SHOULD be impossible because the native title always exists."
+        );
+        Localized::new(Language::En, "Unknown title".into())
+    });
+    let description = Language::resolve(languages, available_descriptions);
+
+    let price = match currency {
+        Currency::Eur => item_document
+            .price_eur
+            .map(|amount| Price::new(amount.into(), Currency::Eur)),
+        Currency::Gbp => item_document
+            .price_gbp
+            .map(|amount| Price::new(amount.into(), Currency::Gbp)),
+        Currency::Usd => item_document
+            .price_usd
+            .map(|amount| Price::new(amount.into(), Currency::Usd)),
+        Currency::Aud => item_document
+            .price_aud
+            .map(|amount| Price::new(amount.into(), Currency::Aud)),
+        Currency::Cad => item_document
+            .price_cad
+            .map(|amount| Price::new(amount.into(), Currency::Cad)),
+        Currency::Nzd => item_document
+            .price_nzd
+            .map(|amount| Price::new(amount.into(), Currency::Nzd)),
+    };
+    let state = item_document.state.into();
+
+    LocalizedItemView {
+        item_id: item_document.item_id,
+        event_id: item_document.event_id,
+        shop_id: item_document.shop_id,
+        shops_item_id: item_document.shops_item_id,
+        shop_name: item_document.shop_name.into(),
+        title,
+        description,
+        price,
+        state,
+        url: item_document.url,
+        images: item_document.images,
+        created: item_document.created,
+        updated: item_document.updated,
+        history: None,
     }
 }
 

@@ -14,7 +14,7 @@ use aws_sdk_dynamodb::types::{AttributeValue, KeysAndAttributes};
 use common::batch::Batch;
 use common::batch::dynamodb::BatchGetItemResult;
 use common::dynamodb_update::DynamoDbUpdate;
-use common::item_id::ItemKey;
+use common::item_id::{ItemId, ItemKey};
 use common::shop_id::ShopId;
 use common::shops_item_id::ShopsItemId;
 use std::collections::HashMap;
@@ -62,6 +62,12 @@ pub trait ItemDynamoDbRepository {
         &self,
         item_keys: &Batch<ItemKey, 100>,
     ) -> Result<BatchGetItemResult<ItemKey, ItemKey>, SdkError<BatchGetItemError, HttpResponse>>;
+
+    async fn get_item_id(
+        &self,
+        shop_id: &ShopId,
+        shops_item_id: &ShopsItemId,
+    ) -> Result<Option<ItemId>, SdkError<GetItemError, HttpResponse>>;
 }
 
 #[derive(Debug, Clone)]
@@ -413,6 +419,31 @@ impl<'a> ItemDynamoDbRepository for ItemDynamoDbRepositoryImpl<'a> {
         };
         Ok(batch_result)
     }
+
+    async fn get_item_id(
+        &self,
+        shop_id: &ShopId,
+        shops_item_id: &ShopsItemId,
+    ) -> Result<Option<ItemId>, SdkError<GetItemError, HttpResponse>> {
+        let item_id = self
+            .client
+            .get_item()
+            .table_name(&self.table)
+            .key(
+                "pk",
+                AttributeValue::S(item_record::mk_pk(shop_id, shops_item_id)),
+            )
+            .key("sk", AttributeValue::S(item_record::mk_sk().to_owned()))
+            .projection_expression("item_id")
+            .send()
+            .await?
+            .item
+            .map(extract_item_id)
+            .transpose()
+            .map_err(SdkError::construction_failure)?; // not ideal semantically - but eases types
+
+        Ok(item_id)
+    }
 }
 
 fn extract_item_key(map: HashMap<String, AttributeValue>) -> Result<ItemKey, String> {
@@ -443,11 +474,29 @@ fn extract_item_key(map: HashMap<String, AttributeValue>) -> Result<ItemKey, Str
     }
 }
 
+fn extract_item_id(
+    map: HashMap<String, AttributeValue>,
+) -> Result<ItemId, Box<dyn std::error::Error + Send + Sync>> {
+    let mut map = map;
+
+    // ugly af but much more efficient due to slices than using iterators in functional-style here
+    if let Some(item_id_attr) = map.remove("item_id") {
+        let item_id_res = item_id_attr.as_s();
+        if let Ok(item_id_str) = item_id_res {
+            Ok(ItemId::try_from(item_id_str.as_str())?)
+        } else {
+            Err(format!("Extracted value for item_id '{item_id_attr:?}' failed.").into())
+        }
+    } else {
+        Err(format!("AttributeValue-Map does not contain key item_id: '{map:?}'.").into())
+    }
+}
+
 #[cfg(test)]
 mod tests {
-    use crate::dynamodb::repository::extract_item_key;
+    use crate::dynamodb::repository::{extract_item_id, extract_item_key};
     use aws_sdk_dynamodb::types::AttributeValue;
-    use common::item_id::ItemKey;
+    use common::item_id::{ItemId, ItemKey};
     use std::collections::HashMap;
 
     #[rstest::rstest]
@@ -469,6 +518,25 @@ mod tests {
         };
 
         let actual = extract_item_key(map);
+
+        assert!(actual.is_ok());
+        assert_eq!(expected, actual.unwrap());
+    }
+
+    #[rstest::rstest]
+    #[case("a1caead3-a50d-44a4-b9fb-a15d2397601e")]
+    #[case("6e3f0c71-8af4-4897-ba75-4a64792c07a6")]
+    #[case("f5e5aa19-7d97-4972-af6f-426f1ab8bb8f")]
+    fn should_extract_item_id_from_map_when_item_id_exists_and_is_valid_for(
+        #[case] item_id_str: &str,
+    ) {
+        let map = HashMap::from([(
+            "item_id".to_owned(),
+            AttributeValue::S(item_id_str.to_owned()),
+        )]);
+        let expected = ItemId::try_from(item_id_str).unwrap();
+
+        let actual = extract_item_id(map);
 
         assert!(actual.is_ok());
         assert_eq!(expected, actual.unwrap());

@@ -81,6 +81,7 @@ httpdate = "1.0.3"
 item = { path = "src/item" }
 item-api = { path = "src/item-api" }
 item-api-get-item = { path = "src/item-api/src/item-api-get-item" }
+item-api-get-item-similar = { path = "src/item-api/src/item-api-get-item-similar" }
 item-api-put-items = { path = "src/item-api/src/item-api-put-items" }
 item-api-search = { path = "src/item-api/src/item-api-search" }
 item-api-watchlist-get = { path = "src/item-api/src/item-api-watchlist-get" }
