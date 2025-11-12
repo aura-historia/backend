@@ -38,9 +38,9 @@ pub struct ProductRecordUpdate {
     pub updated: OffsetDateTime,
 }
 
-impl DynamoDbUpdate for ItemRecordUpdate {}
+impl DynamoDbUpdate for ProductRecordUpdate {}
 
-impl Default for ItemRecordUpdate {
+impl Default for ProductRecordUpdate {
     fn default() -> Self {
         Self {
             event_id: EventId::new(),
@@ -57,9 +57,9 @@ impl Default for ItemRecordUpdate {
     }
 }
 
-impl From<ProductEventRecord> for ItemRecordUpdate {
+impl From<ProductEventRecord> for ProductRecordUpdate {
     fn from(event: ProductEventRecord) -> Self {
-        ItemRecordUpdate {
+        ProductRecordUpdate {
             event_id: event.event_id,
             price_native: event.new_price_native,
             price_eur: event.new_price_eur,
@@ -80,13 +80,13 @@ mod faker {
     use common::price::domain::{MonetaryAmount, Price};
     use fake::{Dummy, Fake, Faker, Rng};
 
-    impl Dummy<Faker> for ItemRecordUpdate {
+    impl Dummy<Faker> for ProductRecordUpdate {
         fn dummy_with_rng<R: Rng + ?Sized>(config: &Faker, rng: &mut R) -> Self {
             let price_native: Option<PriceRecord> =
                 Some(config.fake_with_rng::<Price, _>(rng).into());
             let state: ProductStateRecord = config.fake_with_rng(rng);
 
-            ItemRecordUpdate {
+            ProductRecordUpdate {
                 event_id: config.fake_with_rng(rng),
                 price_native,
                 price_eur: Some(config.fake_with_rng::<MonetaryAmount, _>(rng).into()),
@@ -103,12 +103,12 @@ mod faker {
 
     #[cfg(test)]
     mod tests {
-        use crate::dynamodb::product_update_record::ItemRecordUpdate;
+        use crate::dynamodb::product_update_record::ProductRecordUpdate;
         use fake::{Fake, Faker};
 
         #[test]
         fn should_fake_item_record_update() {
-            let _ = Faker.fake::<ItemRecordUpdate>();
+            let _ = Faker.fake::<ProductRecordUpdate>();
         }
     }
 }

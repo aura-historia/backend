@@ -15,7 +15,7 @@ use product::{
     },
     service::personalization_service::ItemPersonalizationServiceImpl,
     watchlist::service::{
-        command::UpdateWatchlistProductCommand, item_watchlist_service::ProductWatchListService,
+        command::UpdateWatchlistProductCommand, product_watchlist_service::ProductWatchListService,
     },
 };
 use product::{
@@ -27,7 +27,7 @@ use product::{
 };
 use product::{
     service::get_service::GetItemServiceImpl,
-    watchlist::service::item_watchlist_service::ProductWatchListServiceImpl,
+    watchlist::service::product_watchlist_service::ProductWatchListServiceImpl,
 };
 use std::time::{Duration, SystemTime};
 use test_api::*;

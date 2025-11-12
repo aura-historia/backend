@@ -3,7 +3,7 @@ use common::product_id::ProductKey;
 use common::{
     batch::Batch, batch::dynamodb::handle_dynamodb_batch_write_put_item_output, has_key::HasKey,
 };
-use item_lambda_common::extract_item_event_record;
+use product_lambda_common::extract_item_event_record;
 use lambda_runtime::LambdaEvent;
 use product::dynamodb::product_event_record::ProductEventRecord;
 use product::dynamodb::product_record::ProductRecord;

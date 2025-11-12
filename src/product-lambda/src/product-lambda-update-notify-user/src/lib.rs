@@ -2,7 +2,7 @@ pub mod service;
 
 use crate::service::ItemEventMailPayloadService;
 use aws_lambda_events::sqs::{BatchItemFailure, SqsBatchResponse, SqsEvent};
-use item_lambda_common::extract_item_event_record;
+use product_lambda_common::extract_item_event_record;
 use lambda_runtime::LambdaEvent;
 use mail_core::{payload::MailPayload, queue_service::QueueMailService};
 use product::core::product_event::ProductEvent;

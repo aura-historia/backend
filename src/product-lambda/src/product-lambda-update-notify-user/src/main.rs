@@ -7,7 +7,7 @@ use product::dynamodb::repository::ProductDynamoDbRepositoryImpl;
 use product::service::get_service::GetItemServiceImpl;
 use product::watchlist::{
     dynamodb::repository::WatchlistProductDynamoDbRepositoryImpl,
-    service::item_watchlist_service::ProductWatchListServiceImpl,
+    service::product_watchlist_service::ProductWatchListServiceImpl,
 };
 use serde_email::Email;
 use tracing::info;

@@ -55,7 +55,7 @@ pub trait WatchlistProductDynamoDbRepository {
         user_id: &UserId,
         shop_id: &ShopId,
         shops_product_id: &ShopsProductId,
-    ) -> Result<Option<WatchlistProductRecord>, SdkError<GetProductError>>;
+    ) -> Result<Option<WatchlistProductRecord>, SdkError<GetItemError>>;
 
     async fn delete_watchlist_record(
         &self,
@@ -252,7 +252,7 @@ impl<'a> WatchlistProductDynamoDbRepository for WatchlistProductDynamoDbReposito
         user_id: &UserId,
         shop_id: &ShopId,
         shops_product_id: &ShopsProductId,
-    ) -> Result<Option<WatchlistProductRecord>, SdkError<GetProductError>> {
+    ) -> Result<Option<WatchlistProductRecord>, SdkError<GetItemError>> {
         let record = self
             .client
             .get_item()

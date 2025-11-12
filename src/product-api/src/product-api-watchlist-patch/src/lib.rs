@@ -9,9 +9,9 @@ use common::shops_product_id::api::extract_shops_item_id_path;
 use common::user_id::api::extract_user_id_request_context;
 use lambda_runtime::LambdaEvent;
 use product::watchlist::{
-    data::watchlist_item_data::WatchlistProductData,
+    data::watchlist_product_data::WatchlistProductData,
     service::{
-        command::UpdateWatchlistProductCommand, item_watchlist_service::ProductWatchListService,
+        command::UpdateWatchlistProductCommand, product_watchlist_service::ProductWatchListService,
     },
 };
 use serde::{Deserialize, Serialize};

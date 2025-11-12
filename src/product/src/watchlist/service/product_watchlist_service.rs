@@ -29,7 +29,7 @@ use user::dynamodb::repository::UserDynamoDbRepository;
 
 #[derive(thiserror::Error, Debug)]
 #[allow(clippy::large_enum_variant)]
-pub enum WatchItemError {
+pub enum WatchProductError {
     #[error("{0}")]
     MonetaryAmountOverflowError(#[from] MonetaryAmountOverflowError),
 
@@ -77,20 +77,20 @@ pub enum WatchItemError {
     UnprocessedAfterMaxRetries(u32),
 }
 
-impl From<GetProductError> for WatchItemError {
+impl From<GetProductError> for WatchProductError {
     fn from(err: GetProductError) -> Self {
         match err {
             GetProductError::ItemNotFound(shop_id, shops_product_id) => {
-                WatchItemError::ItemNotFound(shop_id, shops_product_id)
+                WatchProductError::ItemNotFound(shop_id, shops_product_id)
             }
             GetProductError::MonetaryAmountOverflowError(e) => {
-                WatchItemError::MonetaryAmountOverflowError(e)
+                WatchProductError::MonetaryAmountOverflowError(e)
             }
-            GetProductError::SdkGetItemError(e) => WatchItemError::SdkGetItemError(e),
-            GetProductError::SdkBatchGetItemError(e) => WatchItemError::SdkBatchGetItemError(e),
-            GetProductError::SdkQueryError(e) => WatchItemError::SdkQueryError(e),
+            GetProductError::SdkGetItemError(e) => WatchProductError::SdkGetItemError(e),
+            GetProductError::SdkBatchGetItemError(e) => WatchProductError::SdkBatchGetItemError(e),
+            GetProductError::SdkQueryError(e) => WatchProductError::SdkQueryError(e),
             GetProductError::UnprocessedAfterMaxRetries(e) => {
-                WatchItemError::UnprocessedAfterMaxRetries(e)
+                WatchProductError::UnprocessedAfterMaxRetries(e)
             }
         }
     }
@@ -98,35 +98,35 @@ impl From<GetProductError> for WatchItemError {
 
 #[cfg(feature = "data")]
 pub mod api {
-    use crate::watchlist::service::product_watchlist_service::WatchItemError;
+    use crate::watchlist::service::product_watchlist_service::WatchProductError;
     use common::api::error::ApiError;
     use common::api::error_code::{
         ITEM_NOT_FOUND, MONETARY_AMOUNT_OVERFLOW, UNPROCESSED_AFTER_MAX_RETRIES, USER_NOT_FOUND,
         WATCHLIST_ENTRY_NOT_FOUND,
     };
 
-    impl From<WatchItemError> for ApiError {
-        fn from(err: WatchItemError) -> Self {
+    impl From<WatchProductError> for ApiError {
+        fn from(err: WatchProductError) -> Self {
             match err {
-                WatchItemError::MonetaryAmountOverflowError(_) => {
+                WatchProductError::MonetaryAmountOverflowError(_) => {
                     ApiError::internal_server_error(MONETARY_AMOUNT_OVERFLOW, Box::new(err))
                 }
-                WatchItemError::ItemNotFound(_, _) => {
+                WatchProductError::ItemNotFound(_, _) => {
                     ApiError::not_found(ITEM_NOT_FOUND, Box::new(err))
                 }
-                WatchItemError::UserNotFound(_) => {
+                WatchProductError::UserNotFound(_) => {
                     ApiError::internal_server_error(USER_NOT_FOUND, Box::new(err))
                 }
-                WatchItemError::WatchlistItemNotFound(_, _, _) => {
+                WatchProductError::WatchlistItemNotFound(_, _, _) => {
                     ApiError::not_found(WATCHLIST_ENTRY_NOT_FOUND, Box::new(err))
                 }
-                WatchItemError::SdkGetItemError(err) => err.into(),
-                WatchItemError::SdkBatchGetItemError(err) => err.into(),
-                WatchItemError::SdkQueryError(err) => err.into(),
-                WatchItemError::SdkPutItemError(err) => err.into(),
-                WatchItemError::SdkDeleteItemError(err) => err.into(),
-                WatchItemError::SdkUpdateItemError(err) => err.into(),
-                WatchItemError::UnprocessedAfterMaxRetries(_) => {
+                WatchProductError::SdkGetItemError(err) => err.into(),
+                WatchProductError::SdkBatchGetItemError(err) => err.into(),
+                WatchProductError::SdkQueryError(err) => err.into(),
+                WatchProductError::SdkPutItemError(err) => err.into(),
+                WatchProductError::SdkDeleteItemError(err) => err.into(),
+                WatchProductError::SdkUpdateItemError(err) => err.into(),
+                WatchProductError::UnprocessedAfterMaxRetries(_) => {
                     ApiError::service_unavailable(UNPROCESSED_AFTER_MAX_RETRIES, Box::new(err))
                 }
             }
@@ -142,21 +142,21 @@ pub trait ProductWatchListService {
         user_id: &UserId,
         shop_id: &ShopId,
         shops_product_id: &ShopsProductId,
-    ) -> Result<WatchlistProduct, WatchItemError>;
+    ) -> Result<WatchlistProduct, WatchProductError>;
 
     async fn create_watchlist_item(
         &self,
         user_id: &UserId,
         shop_id: &ShopId,
         shops_product_id: &ShopsProductId,
-    ) -> Result<WatchlistProduct, WatchItemError>;
+    ) -> Result<WatchlistProduct, WatchProductError>;
 
     async fn delete_watchlist_item(
         &self,
         user_id: &UserId,
         shop_id: &ShopId,
         shops_product_id: &ShopsProductId,
-    ) -> Result<(), WatchItemError>;
+    ) -> Result<(), WatchProductError>;
 
     async fn update_watchlist_item(
         &self,
@@ -164,7 +164,7 @@ pub trait ProductWatchListService {
         shop_id: &ShopId,
         shops_product_id: &ShopsProductId,
         update: UpdateWatchlistProductCommand,
-    ) -> Result<WatchlistProduct, WatchItemError>;
+    ) -> Result<WatchlistProduct, WatchProductError>;
 
     async fn view_watchlist(
         &self,
@@ -173,12 +173,12 @@ pub trait ProductWatchListService {
         currency: &Currency,
         sort: &Option<Sort<SortWatchlistProductField>>,
         cursor: &Option<Cursor<OffsetDateTime>>,
-    ) -> Result<CursoredResult<LocalizedWatchlistProductView, OffsetDateTime>, WatchItemError>;
+    ) -> Result<CursoredResult<LocalizedWatchlistProductView, OffsetDateTime>, WatchProductError>;
 
     async fn find_users_with_notifications(
         &self,
         product_id: &ProductId,
-    ) -> Result<Vec<User>, WatchItemError>;
+    ) -> Result<Vec<User>, WatchProductError>;
 }
 
 pub struct ProductWatchListServiceImpl<'a> {
@@ -211,12 +211,12 @@ impl<'a> ProductWatchListService for ProductWatchListServiceImpl<'a> {
         user_id: &UserId,
         shop_id: &ShopId,
         shops_product_id: &ShopsProductId,
-    ) -> Result<WatchlistProduct, WatchItemError> {
+    ) -> Result<WatchlistProduct, WatchProductError> {
         let watchlist_record = self
             .watchlist_repository
             .get_watchlist_record(user_id, shop_id, shops_product_id)
             .await?
-            .ok_or(WatchItemError::WatchlistItemNotFound(
+            .ok_or(WatchProductError::WatchlistItemNotFound(
                 *user_id,
                 *shop_id,
                 shops_product_id.clone(),
@@ -230,12 +230,12 @@ impl<'a> ProductWatchListService for ProductWatchListServiceImpl<'a> {
         user_id: &UserId,
         shop_id: &ShopId,
         shops_product_id: &ShopsProductId,
-    ) -> Result<WatchlistProduct, WatchItemError> {
+    ) -> Result<WatchlistProduct, WatchProductError> {
         let product_record = self
             .item_repository
             .get_item_record(shop_id, shops_product_id)
             .await?
-            .ok_or(WatchItemError::ItemNotFound(
+            .ok_or(WatchProductError::ItemNotFound(
                 *shop_id,
                 shops_product_id.clone(),
             ))?;
@@ -245,7 +245,7 @@ impl<'a> ProductWatchListService for ProductWatchListServiceImpl<'a> {
             .user_repository
             .get_user_record(user_id)
             .await?
-            .ok_or(WatchItemError::UserNotFound(*user_id))?;
+            .ok_or(WatchProductError::UserNotFound(*user_id))?;
         let watchlist_record = WatchlistProductRecord {
             pk: mk_pk(user_id),
             sk: mk_sk(shop_id, shops_product_id),
@@ -274,13 +274,13 @@ impl<'a> ProductWatchListService for ProductWatchListServiceImpl<'a> {
         user_id: &UserId,
         shop_id: &ShopId,
         shops_product_id: &ShopsProductId,
-    ) -> Result<(), WatchItemError> {
+    ) -> Result<(), WatchProductError> {
         // exists guard
         let _ = self
             .watchlist_repository
             .get_watchlist_record(user_id, shop_id, shops_product_id)
             .await?
-            .ok_or(WatchItemError::WatchlistItemNotFound(
+            .ok_or(WatchProductError::WatchlistItemNotFound(
                 *user_id,
                 *shop_id,
                 shops_product_id.clone(),
@@ -299,12 +299,12 @@ impl<'a> ProductWatchListService for ProductWatchListServiceImpl<'a> {
         shop_id: &ShopId,
         shops_product_id: &ShopsProductId,
         update: UpdateWatchlistProductCommand,
-    ) -> Result<WatchlistProduct, WatchItemError> {
+    ) -> Result<WatchlistProduct, WatchProductError> {
         let watchlist_record = self
             .watchlist_repository
             .get_watchlist_record(user_id, shop_id, shops_product_id)
             .await?
-            .ok_or(WatchItemError::WatchlistItemNotFound(
+            .ok_or(WatchProductError::WatchlistItemNotFound(
                 *user_id,
                 *shop_id,
                 shops_product_id.clone(),
@@ -338,7 +338,7 @@ impl<'a> ProductWatchListService for ProductWatchListServiceImpl<'a> {
         currency: &Currency,
         sort: &Option<Sort<SortWatchlistProductField>>,
         cursor: &Option<Cursor<OffsetDateTime>>,
-    ) -> Result<CursoredResult<LocalizedWatchlistProductView, OffsetDateTime>, WatchItemError> {
+    ) -> Result<CursoredResult<LocalizedWatchlistProductView, OffsetDateTime>, WatchProductError> {
         let sort = sort.unwrap_or(Sort {
             sort: SortWatchlistProductField::Created,
             order: SortOrder::Asc,
@@ -408,7 +408,7 @@ impl<'a> ProductWatchListService for ProductWatchListServiceImpl<'a> {
     async fn find_users_with_notifications(
         &self,
         product_id: &ProductId,
-    ) -> Result<Vec<User>, WatchItemError> {
+    ) -> Result<Vec<User>, WatchProductError> {
         let users = self
             .watchlist_repository
             .query_user_records_with_notifications(product_id)
@@ -430,7 +430,7 @@ mod tests {
         use crate::{
             watchlist::dynamodb::repository::MockWatchlistItemDynamoDbRepository,
             watchlist::service::item_watchlist_service::{
-                ProductWatchListService, ProductWatchListServiceImpl, WatchItemError,
+                ProductWatchListService, ProductWatchListServiceImpl, WatchProductError,
             },
         };
         use aws_sdk_dynamodb::{
@@ -467,7 +467,7 @@ mod tests {
                 .unwrap_err();
 
             match actual {
-                WatchItemError::WatchlistItemNotFound(
+                WatchProductError::WatchlistItemNotFound(
                     err_user_id,
                     err_shop_id,
                     err_shops_item_id,
@@ -477,7 +477,7 @@ mod tests {
                     assert_eq!(shops_product_id, err_shops_item_id);
                 }
                 err => {
-                    panic!("Expected 'WatchItemError::WatchlistTimestampNotFound' but got '{err}'")
+                    panic!("Expected 'WatchProductError::WatchlistTimestampNotFound' but got '{err}'")
                 }
             }
         }
@@ -522,8 +522,8 @@ mod tests {
 
             assert!(actual.is_err());
             match actual.unwrap_err() {
-                WatchItemError::SdkGetItemError(_) => {}
-                err => panic!("Expected 'WatchItemError::SdkGetItemError', got '{err}'"),
+                WatchProductError::SdkGetItemError(_) => {}
+                err => panic!("Expected 'WatchProductError::SdkGetItemError', got '{err}'"),
             }
         }
     }
@@ -534,7 +534,7 @@ mod tests {
         use crate::{
             watchlist::dynamodb::repository::MockWatchlistItemDynamoDbRepository,
             watchlist::service::item_watchlist_service::{
-                ProductWatchListService, ProductWatchListServiceImpl, WatchItemError,
+                ProductWatchListService, ProductWatchListServiceImpl, WatchProductError,
             },
         };
         use aws_sdk_dynamodb::{
@@ -600,11 +600,11 @@ mod tests {
                 .unwrap_err();
 
             match actual {
-                WatchItemError::ItemNotFound(err_shop_id, err_shops_item_id) => {
+                WatchProductError::ItemNotFound(err_shop_id, err_shops_item_id) => {
                     assert_eq!(shop_id, err_shop_id);
                     assert_eq!(shops_product_id, err_shops_item_id);
                 }
-                err => panic!("Expected 'WatchItemError::ItemNotFound' but got '{err}'"),
+                err => panic!("Expected 'WatchProductError::ItemNotFound' but got '{err}'"),
             }
         }
 
@@ -649,8 +649,8 @@ mod tests {
 
             assert!(actual.is_err());
             match actual.unwrap_err() {
-                WatchItemError::SdkGetItemError(_) => {}
-                err => panic!("Expected 'WatchItemError::SdkGetItemError', got '{err}'"),
+                WatchProductError::SdkGetItemError(_) => {}
+                err => panic!("Expected 'WatchProductError::SdkGetItemError', got '{err}'"),
             }
         }
 
@@ -698,8 +698,8 @@ mod tests {
 
             assert!(actual.is_err());
             match actual.unwrap_err() {
-                WatchItemError::SdkGetItemError(_) => {}
-                err => panic!("Expected 'WatchItemError::SdkGetItemError', got '{err}'"),
+                WatchProductError::SdkGetItemError(_) => {}
+                err => panic!("Expected 'WatchProductError::SdkGetItemError', got '{err}'"),
             }
         }
 
@@ -750,8 +750,8 @@ mod tests {
 
             assert!(actual.is_err());
             match actual.unwrap_err() {
-                WatchItemError::SdkPutItemError(_) => {}
-                err => panic!("Expected 'WatchItemError::SdkPutItemError', got '{err}'"),
+                WatchProductError::SdkPutItemError(_) => {}
+                err => panic!("Expected 'WatchProductError::SdkPutItemError', got '{err}'"),
             }
         }
     }
@@ -762,7 +762,7 @@ mod tests {
         use crate::{
             watchlist::dynamodb::repository::MockWatchlistItemDynamoDbRepository,
             watchlist::service::item_watchlist_service::{
-                ProductWatchListService, ProductWatchListServiceImpl, WatchItemError,
+                ProductWatchListService, ProductWatchListServiceImpl, WatchProductError,
             },
         };
         use aws_sdk_dynamodb::{
@@ -825,7 +825,7 @@ mod tests {
                 .unwrap_err();
 
             match actual {
-                WatchItemError::WatchlistItemNotFound(
+                WatchProductError::WatchlistItemNotFound(
                     err_user_id,
                     err_shop_id,
                     err_shops_item_id,
@@ -835,7 +835,7 @@ mod tests {
                     assert_eq!(shops_product_id, err_shops_item_id);
                 }
                 err => {
-                    panic!("Expected 'WatchItemError::WatchlistTimestampNotFound' but got '{err}'")
+                    panic!("Expected 'WatchProductError::WatchlistTimestampNotFound' but got '{err}'")
                 }
             }
         }
@@ -880,8 +880,8 @@ mod tests {
 
             assert!(actual.is_err());
             match actual.unwrap_err() {
-                WatchItemError::SdkGetItemError(_) => {}
-                err => panic!("Expected 'WatchItemError::SdkGetItemError', got '{err}'"),
+                WatchProductError::SdkGetItemError(_) => {}
+                err => panic!("Expected 'WatchProductError::SdkGetItemError', got '{err}'"),
             }
         }
 
@@ -928,8 +928,8 @@ mod tests {
 
             assert!(actual.is_err());
             match actual.unwrap_err() {
-                WatchItemError::SdkDeleteItemError(_) => {}
-                err => panic!("Expected 'WatchItemError::SdkDeleteItemError', got '{err}'"),
+                WatchProductError::SdkDeleteItemError(_) => {}
+                err => panic!("Expected 'WatchProductError::SdkDeleteItemError', got '{err}'"),
             }
         }
     }
@@ -942,7 +942,7 @@ mod tests {
             watchlist::dynamodb::repository::MockWatchlistItemDynamoDbRepository,
             watchlist::service::command::UpdateWatchlistProductCommand,
             watchlist::service::item_watchlist_service::{
-                ProductWatchListService, ProductWatchListServiceImpl, WatchItemError,
+                ProductWatchListService, ProductWatchListServiceImpl, WatchProductError,
             },
         };
         use aws_sdk_dynamodb::{
@@ -1024,7 +1024,7 @@ mod tests {
                 .unwrap_err();
 
             match actual {
-                WatchItemError::WatchlistItemNotFound(
+                WatchProductError::WatchlistItemNotFound(
                     err_user_id,
                     err_shop_id,
                     err_shops_item_id,
@@ -1034,7 +1034,7 @@ mod tests {
                     assert_eq!(shops_product_id, err_shops_item_id);
                 }
                 err => {
-                    panic!("Expected 'WatchItemError::WatchlistTimestampNotFound' but got '{err}'")
+                    panic!("Expected 'WatchProductError::WatchlistTimestampNotFound' but got '{err}'")
                 }
             }
         }
@@ -1086,8 +1086,8 @@ mod tests {
 
             assert!(actual.is_err());
             match actual.unwrap_err() {
-                WatchItemError::SdkGetItemError(_) => {}
-                err => panic!("Expected 'WatchItemError::SdkGetItemError', got '{err}'"),
+                WatchProductError::SdkGetItemError(_) => {}
+                err => panic!("Expected 'WatchProductError::SdkGetItemError', got '{err}'"),
             }
         }
 
@@ -1147,8 +1147,8 @@ mod tests {
 
             assert!(actual.is_err());
             match actual.unwrap_err() {
-                WatchItemError::SdkUpdateItemError(_) => {}
-                err => panic!("Expected 'WatchItemError::SdkUpdateItemError', got '{err}'"),
+                WatchProductError::SdkUpdateItemError(_) => {}
+                err => panic!("Expected 'WatchProductError::SdkUpdateItemError', got '{err}'"),
             }
         }
     }
@@ -1159,7 +1159,7 @@ mod tests {
         use crate::{
             watchlist::dynamodb::repository::MockWatchlistItemDynamoDbRepository,
             watchlist::service::item_watchlist_service::{
-                ProductWatchListService, ProductWatchListServiceImpl, WatchItemError,
+                ProductWatchListService, ProductWatchListServiceImpl, WatchProductError,
             },
         };
         use aws_sdk_dynamodb::{
@@ -1208,8 +1208,8 @@ mod tests {
 
             assert!(actual.is_err());
             match actual.unwrap_err() {
-                WatchItemError::SdkQueryError(_) => {}
-                err => panic!("Expected 'WatchItemError::SdkQueryError', got '{err}'"),
+                WatchProductError::SdkQueryError(_) => {}
+                err => panic!("Expected 'WatchProductError::SdkQueryError', got '{err}'"),
             }
         }
     }
