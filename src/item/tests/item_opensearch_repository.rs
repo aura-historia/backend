@@ -1712,7 +1712,7 @@ const EXAMPLE_EMBEDDING: [f32; 1024] = [
     0.016079217,
 ];
 #[localstack_test(services = [OpenSearch()])]
-async fn should_return_k_nearest_neighbors_when_exist_within_threshold() {
+async fn should_return_k_nearest_neighbors() {
     let client = get_opensearch_client().await;
     let repository = ItemOpenSearchRepositoryImpl::new(client);
     let mut documents = fake::vec![ItemDocument; 20];
@@ -1728,6 +1728,7 @@ async fn should_return_k_nearest_neighbors_when_exist_within_threshold() {
         assert!(!response.errors);
     }
     refresh_index("items").await;
+    tokio::time::sleep(Duration::from_secs(10)).await;
 
     let actual = repository.k_nn_text(&EXAMPLE_EMBEDDING, 20).await.unwrap();
 
