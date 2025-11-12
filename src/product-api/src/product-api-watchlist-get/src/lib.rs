@@ -19,8 +19,8 @@ use time::OffsetDateTime;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
-pub struct WatchlistItemDataView {
-    pub item: GetProductData,
+pub struct WatchlistProductDataView {
+    pub product: GetProductData,
 
     pub notifications: bool,
 
@@ -31,10 +31,10 @@ pub struct WatchlistItemDataView {
     pub updated: OffsetDateTime,
 }
 
-impl From<LocalizedWatchlistProductView> for WatchlistItemDataView {
+impl From<LocalizedWatchlistProductView> for WatchlistProductDataView {
     fn from(view: LocalizedWatchlistProductView) -> Self {
-        WatchlistItemDataView {
-            item: view.item.into(),
+        WatchlistProductDataView {
+            product: view.product.into(),
             notifications: view.notifications,
             created: view.created,
             updated: view.updated,
@@ -92,7 +92,7 @@ pub async fn handle(
             &cursor,
         )
         .await?
-        .map_item(WatchlistItemDataView::from);
+        .map_item(WatchlistProductDataView::from);
 
     Ok(ApiGatewayV2HttpResponseBuilder::json(200)
         .body_serde(TimeCursoredData::from(items))?

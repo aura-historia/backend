@@ -1,4 +1,4 @@
-use crate::core::user_state::{ItemUserState, WatchlistUserState};
+use crate::core::user_state::{ProductUserState, WatchlistUserState};
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, Copy, PartialEq, Default, Serialize, Deserialize)]
@@ -13,8 +13,8 @@ pub struct WatchlistUserStateData {
     pub notifications: bool,
 }
 
-impl From<ItemUserState> for ProductUserStateData {
-    fn from(value: ItemUserState) -> Self {
+impl From<ProductUserState> for ProductUserStateData {
+    fn from(value: ProductUserState) -> Self {
         ProductUserStateData {
             watchlist: value.watchlist.into(),
         }

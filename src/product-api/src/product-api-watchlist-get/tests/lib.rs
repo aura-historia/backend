@@ -13,7 +13,7 @@ use product::watchlist::{
     },
     service::product_watchlist_service::ProductWatchListServiceImpl,
 };
-use product_api_watchlist_get::{WatchlistItemDataView, handler};
+use product_api_watchlist_get::{WatchlistProductDataView, handler};
 use test_api::*;
 use time::{OffsetDateTime, format_description::well_known::Rfc3339};
 use user::dynamodb::repository::UserDynamoDbRepositoryImpl;
@@ -24,12 +24,12 @@ async fn should_200_when_sort_created_asc() {
     let user_repository = UserDynamoDbRepositoryImpl::new(client, "table_1");
     let item_repository = ProductDynamoDbRepositoryImpl::new(client, "table_1");
     let watchlist_repository = WatchlistProductDynamoDbRepositoryImpl::new(client, "table_1");
-    let get_item_service = GetProductServiceImpl::new(&item_repository);
+    let get_product_service = GetProductServiceImpl::new(&item_repository);
     let service = ProductWatchListServiceImpl::new(
         &watchlist_repository,
         &user_repository,
         &item_repository,
-        &get_item_service,
+        &get_product_service,
     );
 
     let item_records = fake::vec![ProductRecord; 23];
@@ -85,7 +85,7 @@ async fn should_200_when_sort_created_asc() {
     let response = handler(lambda_event, &service).await.unwrap();
     assert_eq!(200, response.status_code);
 
-    let actual: TimeCursoredData<WatchlistItemDataView> =
+    let actual: TimeCursoredData<WatchlistProductDataView> =
         serde_json::from_value(extract_apigw_response_json_body!(response)).unwrap();
     assert_eq!(10, actual.size);
     assert_eq!(10, actual.items.len());
@@ -94,7 +94,7 @@ async fn should_200_when_sort_created_asc() {
         actual
             .items
             .into_iter()
-            .map(|item| item.item.product_id)
+            .map(|item| item.product.product_id)
             .collect::<Vec<_>>()
     );
     assert_eq!(23, actual.total.unwrap());
@@ -106,12 +106,12 @@ async fn should_200_when_sort_created_asc_search_after() {
     let user_repository = UserDynamoDbRepositoryImpl::new(client, "table_1");
     let item_repository = ProductDynamoDbRepositoryImpl::new(client, "table_1");
     let watchlist_repository = WatchlistProductDynamoDbRepositoryImpl::new(client, "table_1");
-    let get_item_service = GetProductServiceImpl::new(&item_repository);
+    let get_product_service = GetProductServiceImpl::new(&item_repository);
     let service = ProductWatchListServiceImpl::new(
         &watchlist_repository,
         &user_repository,
         &item_repository,
-        &get_item_service,
+        &get_product_service,
     );
 
     let item_records = fake::vec![ProductRecord; 23];
@@ -176,7 +176,7 @@ async fn should_200_when_sort_created_asc_search_after() {
     let response = handler(lambda_event, &service).await.unwrap();
     assert_eq!(200, response.status_code);
 
-    let actual: TimeCursoredData<WatchlistItemDataView> =
+    let actual: TimeCursoredData<WatchlistProductDataView> =
         serde_json::from_value(extract_apigw_response_json_body!(response)).unwrap();
     assert_eq!(12, actual.size);
     assert_eq!(12, actual.items.len());
@@ -185,7 +185,7 @@ async fn should_200_when_sort_created_asc_search_after() {
         actual
             .items
             .into_iter()
-            .map(|item| item.item.product_id)
+            .map(|item| item.product.product_id)
             .collect::<Vec<_>>()
     );
     assert_eq!(expected_next_after.unwrap(), actual.search_after.unwrap());
@@ -198,12 +198,12 @@ async fn should_200_when_sort_created_desc() {
     let user_repository = UserDynamoDbRepositoryImpl::new(client, "table_1");
     let item_repository = ProductDynamoDbRepositoryImpl::new(client, "table_1");
     let watchlist_repository = WatchlistProductDynamoDbRepositoryImpl::new(client, "table_1");
-    let get_item_service = GetProductServiceImpl::new(&item_repository);
+    let get_product_service = GetProductServiceImpl::new(&item_repository);
     let service = ProductWatchListServiceImpl::new(
         &watchlist_repository,
         &user_repository,
         &item_repository,
-        &get_item_service,
+        &get_product_service,
     );
 
     let item_records = fake::vec![ProductRecord; 23];
@@ -260,7 +260,7 @@ async fn should_200_when_sort_created_desc() {
     let response = handler(lambda_event, &service).await.unwrap();
     assert_eq!(200, response.status_code);
 
-    let actual: TimeCursoredData<WatchlistItemDataView> =
+    let actual: TimeCursoredData<WatchlistProductDataView> =
         serde_json::from_value(extract_apigw_response_json_body!(response)).unwrap();
     assert_eq!(7, actual.size);
     assert_eq!(7, actual.items.len());
@@ -269,7 +269,7 @@ async fn should_200_when_sort_created_desc() {
         actual
             .items
             .into_iter()
-            .map(|item| item.item.product_id)
+            .map(|item| item.product.product_id)
             .collect::<Vec<_>>()
     );
     assert_eq!(23, actual.total.unwrap());
@@ -281,12 +281,12 @@ async fn should_200_when_sort_created_desc_search_after() {
     let user_repository = UserDynamoDbRepositoryImpl::new(client, "table_1");
     let item_repository = ProductDynamoDbRepositoryImpl::new(client, "table_1");
     let watchlist_repository = WatchlistProductDynamoDbRepositoryImpl::new(client, "table_1");
-    let get_item_service = GetProductServiceImpl::new(&item_repository);
+    let get_product_service = GetProductServiceImpl::new(&item_repository);
     let service = ProductWatchListServiceImpl::new(
         &watchlist_repository,
         &user_repository,
         &item_repository,
-        &get_item_service,
+        &get_product_service,
     );
 
     let item_records = fake::vec![ProductRecord; 23];
@@ -351,7 +351,7 @@ async fn should_200_when_sort_created_desc_search_after() {
     let response = handler(lambda_event, &service).await.unwrap();
     assert_eq!(200, response.status_code);
 
-    let actual: TimeCursoredData<WatchlistItemDataView> =
+    let actual: TimeCursoredData<WatchlistProductDataView> =
         serde_json::from_value(extract_apigw_response_json_body!(response)).unwrap();
     assert_eq!(7, actual.size);
     assert_eq!(7, actual.items.len());
@@ -360,7 +360,7 @@ async fn should_200_when_sort_created_desc_search_after() {
         actual
             .items
             .into_iter()
-            .map(|item| item.item.product_id)
+            .map(|item| item.product.product_id)
             .collect::<Vec<_>>()
     );
     assert_eq!(expected_next_after.unwrap(), actual.search_after.unwrap());

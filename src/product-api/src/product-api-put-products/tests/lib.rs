@@ -4,7 +4,7 @@ use lambda_runtime::LambdaEvent;
 use product::data::put_data::PutItemData;
 use product::dynamodb::repository::ProductDynamoDbRepositoryImpl;
 use product::service::{
-    enrichment_service::ItemCommandEnrichmentServiceImpl, upsert_service::UpsertItemsServiceImpl,
+    enrichment_service::ItemCommandEnrichmentServiceImpl, upsert_service::UpsertProductsServiceImpl,
 };
 use product_api_put_products::{PutItemsResponse, handler};
 use shop::core::shop::Shop;
@@ -28,7 +28,7 @@ async fn should_fail_items_with_unknown_url() {
     let queue_url = INGEST_QUEUE.queue_url();
     let enrichment_service = ItemCommandEnrichmentServiceImpl::new(&shop_repository, &fx_rate);
     let upsert_service =
-        UpsertItemsServiceImpl::new(&item_repository, sqs_client, &queue_url, &fx_rate);
+        UpsertProductsServiceImpl::new(&item_repository, sqs_client, &queue_url, &fx_rate);
 
     let lambda_event = LambdaEvent {
         payload: ApiGatewayV2httpRequestProxy::builder()
@@ -61,7 +61,7 @@ async fn should_put_items_with_known_url() {
     let queue_url = INGEST_QUEUE.queue_url();
     let enrichment_service = ItemCommandEnrichmentServiceImpl::new(&shop_repository, &fx_rate);
     let upsert_service =
-        UpsertItemsServiceImpl::new(&item_repository, sqs_client, &queue_url, &fx_rate);
+        UpsertProductsServiceImpl::new(&item_repository, sqs_client, &queue_url, &fx_rate);
 
     let shop = Faker.fake::<Shop>();
     let mut shop_records = ShopRecord::try_clone_from_shop_as_shop_url_records(&shop).unwrap();

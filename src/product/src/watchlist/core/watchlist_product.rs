@@ -4,7 +4,7 @@ use time::OffsetDateTime;
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct LocalizedWatchlistProductView {
-    pub item: LocalizedProductView,
+    pub product: LocalizedProductView,
     pub notifications: bool,
     pub created: OffsetDateTime,
     pub updated: OffsetDateTime,
@@ -31,7 +31,7 @@ mod faker {
     impl Dummy<Faker> for LocalizedWatchlistProductView {
         fn dummy_with_rng<R: Rng + ?Sized>(config: &Faker, rng: &mut R) -> Self {
             LocalizedWatchlistProductView {
-                item: config.fake_with_rng(rng),
+                product: config.fake_with_rng(rng),
                 notifications: config.fake_with_rng(rng),
                 created: OffsetDateTime::now_utc(),
                 updated: OffsetDateTime::now_utc(),

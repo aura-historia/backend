@@ -8,20 +8,20 @@ use product::dynamodb::{
 };
 use product::service::{
     product_command::UpsertProductCommand,
-    upsert_service::{UpsertItemsServiceImpl, UpsertProductsService},
+    upsert_service::{UpsertProductsService, UpsertProductsServiceImpl},
 };
 use test_api::*;
 
 const INGEST_PRODUCT_QUEUE: Sqs = Sqs {
-    name: "ingest-item-queue",
+    name: "ingest-product-queue",
 };
 
 #[localstack_test(services = [DynamoDB(), INGEST_PRODUCT_QUEUE])]
-async fn should_push_all_items_to_queue_as_created_when_none_exist() {
+async fn should_push_all_products_to_queue_as_created_when_none_exist() {
     let repository = ProductDynamoDbRepositoryImpl::new(get_dynamodb_client().await, "table_1");
     let sqs_client = get_sqs_client().await;
     let q_url = INGEST_PRODUCT_QUEUE.queue_url();
-    let service = UpsertItemsServiceImpl::new(&repository, sqs_client, &q_url, &FixedFxRate());
+    let service = UpsertProductsServiceImpl::new(&repository, sqs_client, &q_url, &FixedFxRate());
 
     let output = service.upsert(fake::vec![UpsertProductCommand; 543]).await;
     assert!(output.unprocessed.is_empty());
@@ -55,7 +55,7 @@ async fn should_push_no_items_to_queue_when_all_exist_and_no_changes() {
     let repository = ProductDynamoDbRepositoryImpl::new(get_dynamodb_client().await, "table_1");
     let sqs_client = get_sqs_client().await;
     let q_url = INGEST_PRODUCT_QUEUE.queue_url();
-    let service = UpsertItemsServiceImpl::new(&repository, sqs_client, &q_url, &FixedFxRate());
+    let service = UpsertProductsServiceImpl::new(&repository, sqs_client, &q_url, &FixedFxRate());
 
     let cmds = fake::vec![UpsertProductCommand; 400];
     for cmd in cmds.clone() {
@@ -106,7 +106,7 @@ async fn should_push_items_to_queue_when_all_exist_and_actual_changes() {
     let repository = ProductDynamoDbRepositoryImpl::new(get_dynamodb_client().await, "table_1");
     let sqs_client = get_sqs_client().await;
     let q_url = INGEST_PRODUCT_QUEUE.queue_url();
-    let service = UpsertItemsServiceImpl::new(&repository, sqs_client, &q_url, &FixedFxRate());
+    let service = UpsertProductsServiceImpl::new(&repository, sqs_client, &q_url, &FixedFxRate());
 
     let mut cmds = fake::vec![UpsertProductCommand; 400];
     for cmd in cmds.clone() {

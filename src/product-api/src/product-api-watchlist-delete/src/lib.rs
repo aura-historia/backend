@@ -2,7 +2,7 @@ use aws_lambda_events::apigw::{ApiGatewayV2httpRequest, ApiGatewayV2httpResponse
 use common::api::api_gateway_v2_http_response_builder::ApiGatewayV2HttpResponseBuilder;
 use common::api::error::{ApiError, log_api_error};
 use common::shop_id::api::extract_shop_id_path;
-use common::shops_product_id::api::extract_shops_item_id_path;
+use common::shops_product_id::api::extract_shops_product_id_path;
 use common::user_id::api::extract_user_id_request_context;
 use lambda_runtime::LambdaEvent;
 use product::watchlist::service::product_watchlist_service::ProductWatchListService;
@@ -33,7 +33,7 @@ pub async fn handler(
     }
 }
 
-// DELETE /api/v1/me/watchlist/{shopId}/{shopsItemId}
+// DELETE /api/v1/me/watchlist/{shopId}/{shopsProductId}
 pub async fn handle(
     event: LambdaEvent<ApiGatewayV2httpRequest>,
     service: &impl ProductWatchListService,
@@ -41,7 +41,7 @@ pub async fn handle(
     let user_id = extract_user_id_request_context(&event.payload.request_context)?;
     tracing::Span::current().record("userId", user_id.to_string());
     let shop_id = extract_shop_id_path(&event.payload.path_parameters)?;
-    let shops_product_id = extract_shops_item_id_path(&event.payload.path_parameters)?;
+    let shops_product_id = extract_shops_product_id_path(&event.payload.path_parameters)?;
 
     let () = service
         .delete_watchlist_item(&user_id, &shop_id, &shops_product_id)

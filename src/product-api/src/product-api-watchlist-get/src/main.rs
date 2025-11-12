@@ -30,13 +30,13 @@ async fn main() -> Result<(), Error> {
         WatchlistProductDynamoDbRepositoryImpl::new(&dynamodb_client, &table_name);
     let user_repository = UserDynamoDbRepositoryImpl::new(&dynamodb_client, &table_name);
     let item_repository = ProductDynamoDbRepositoryImpl::new(&dynamodb_client, &table_name);
-    let get_item_service = GetProductServiceImpl::new(&item_repository);
+    let get_product_service = GetProductServiceImpl::new(&item_repository);
 
     let service = ProductWatchListServiceImpl::new(
         &watchlist_repository,
         &user_repository,
         &item_repository,
-        &get_item_service,
+        &get_product_service,
     );
 
     info!(

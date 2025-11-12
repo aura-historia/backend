@@ -9,7 +9,7 @@ use product::dynamodb::{
     repository::{ProductDynamoDbRepository, ProductDynamoDbRepositoryImpl},
 };
 use product::watchlist::data::watchlist_product_data::WatchlistProductData;
-use product_api_watchlist_get::WatchlistItemDataView;
+use product_api_watchlist_get::WatchlistProductDataView;
 use product_api_watchlist_patch::WatchlistItemPatch;
 use staging_tests::{create_random_test_user, get_dynamodb_client, staging_test};
 
@@ -91,7 +91,7 @@ async fn should_put_and_get_and_patch_and_delete_watchlist_item_and_verify_not_e
         .unwrap();
     assert_eq!(200, get_response.status());
     let gotten = get_response
-        .json::<TimeCursoredData<WatchlistItemDataView>>()
+        .json::<TimeCursoredData<WatchlistProductDataView>>()
         .await
         .unwrap();
 
@@ -158,7 +158,7 @@ async fn should_put_and_get_and_patch_and_delete_watchlist_item_and_verify_not_e
         .unwrap();
     assert_eq!(200, get_response.status());
     let gotten = get_response
-        .json::<TimeCursoredData<WatchlistItemDataView>>()
+        .json::<TimeCursoredData<WatchlistProductDataView>>()
         .await
         .unwrap();
 

@@ -1,5 +1,5 @@
 #[derive(Debug, Clone, Copy, PartialEq)]
-pub struct ItemUserState {
+pub struct ProductUserState {
     pub watchlist: WatchlistUserState,
 }
 

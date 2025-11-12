@@ -39,19 +39,19 @@ pub trait ProductEventMailPayloadService {
 
 pub struct ItemEventMailPayloadServiceImpl<'a> {
     watchlist_service: &'a (dyn ProductWatchListService + Sync),
-    get_item_service: &'a (dyn GetProductService + Sync),
+    get_product_service: &'a (dyn GetProductService + Sync),
     sender_email: Email,
 }
 
 impl<'a> ItemEventMailPayloadServiceImpl<'a> {
     pub fn new(
         watchlist_service: &'a (dyn ProductWatchListService + Sync),
-        get_item_service: &'a (dyn GetProductService + Sync),
+        get_product_service: &'a (dyn GetProductService + Sync),
         sender_email: Email,
     ) -> Self {
         ItemEventMailPayloadServiceImpl {
             watchlist_service,
-            get_item_service,
+            get_product_service,
             sender_email,
         }
     }
@@ -72,7 +72,7 @@ impl<'a> ProductEventMailPayloadService for ItemEventMailPayloadServiceImpl<'a> 
         }
 
         let item = self
-            .get_item_service
+            .get_product_service
             .find_item(event.payload.shop_id(), event.payload.shops_product_id())
             .await?;
 

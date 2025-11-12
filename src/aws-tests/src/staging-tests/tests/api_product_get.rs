@@ -77,12 +77,12 @@ async fn should_respond_200_personalized_when_authenticated_and_item_does_exist_
     );
     let user_repository =
         UserDynamoDbRepositoryImpl::new(ddb_client, &get_cfn_output().dynamodb_table_1_name);
-    let get_item_service = GetProductServiceImpl::new(&item_repository);
+    let get_product_service = GetProductServiceImpl::new(&item_repository);
     let watchlist_service = ProductWatchListServiceImpl::new(
         &watchlist_repository,
         &user_repository,
         &item_repository,
-        &get_item_service,
+        &get_product_service,
     );
     let record = Faker.fake::<ProductRecord>();
     let insert_res = item_repository

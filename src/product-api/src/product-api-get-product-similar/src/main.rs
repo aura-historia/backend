@@ -45,7 +45,8 @@ async fn main() -> Result<(), Error> {
 
     let watchlist_repository =
         WatchlistProductDynamoDbRepositoryImpl::new(&dynamodb_client, &table_name);
-    let item_personalization_service = ItemPersonalizationServiceImpl::new(&watchlist_repository);
+    let product_personalization_service =
+        ItemPersonalizationServiceImpl::new(&watchlist_repository);
 
     let user_pool_id = std::env::var("USER_POOL_ID")?;
     let user_pool_public_client_id = std::env::var("USER_POOL_PUBLIC_CLIENT_ID")?;
@@ -69,7 +70,7 @@ async fn main() -> Result<(), Error> {
                 event,
                 &semantic_search_service,
                 &access_token_verifier_service,
-                &item_personalization_service,
+                &product_personalization_service,
             )
             .await
         },

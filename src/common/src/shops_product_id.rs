@@ -58,7 +58,7 @@ pub mod api {
     };
     use std::collections::HashMap;
 
-    pub fn extract_shops_item_id_path(
+    pub fn extract_shops_product_id_path(
         path_params: &HashMap<String, String>,
     ) -> Result<ShopsProductId, ApiError> {
         path_params

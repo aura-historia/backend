@@ -23,14 +23,14 @@ pub trait UpsertProductsService {
     async fn upsert(&self, commands: Vec<UpsertProductCommand>) -> UpsertItemsOutput;
 }
 
-pub struct UpsertItemsServiceImpl<'a, T: FxRate + Sync> {
+pub struct UpsertProductsServiceImpl<'a, T: FxRate + Sync> {
     dynamodb_repository: &'a (dyn ProductDynamoDbRepository + Sync),
     sqs_client: &'a aws_sdk_sqs::Client,
     product_ingest_events_dynamodb_queue_url: &'a str,
     fx_rate: &'a T,
 }
 
-impl<'a, T: FxRate + Sync> UpsertItemsServiceImpl<'a, T> {
+impl<'a, T: FxRate + Sync> UpsertProductsServiceImpl<'a, T> {
     pub fn new(
         dynamodb_repository: &'a (dyn ProductDynamoDbRepository + Sync),
         sqs_client: &'a aws_sdk_sqs::Client,
@@ -47,7 +47,7 @@ impl<'a, T: FxRate + Sync> UpsertItemsServiceImpl<'a, T> {
 }
 
 #[async_trait]
-impl<T: FxRate + Sync> UpsertProductsService for UpsertItemsServiceImpl<'_, T> {
+impl<T: FxRate + Sync> UpsertProductsService for UpsertProductsServiceImpl<'_, T> {
     async fn upsert(&self, commands: Vec<UpsertProductCommand>) -> UpsertItemsOutput {
         let chunks = commands
             .into_iter()
@@ -73,7 +73,7 @@ impl<T: FxRate + Sync> UpsertProductsService for UpsertItemsServiceImpl<'_, T> {
     }
 }
 
-impl<T: FxRate + Sync> UpsertItemsServiceImpl<'_, T> {
+impl<T: FxRate + Sync> UpsertProductsServiceImpl<'_, T> {
     async fn handle_put_chunk_with_retry(
         &self,
         chunk: Batch<UpsertProductCommand, 100>,
@@ -324,7 +324,7 @@ pub mod tests {
     use crate::core::product::Product;
     use crate::dynamodb::repository::MockProductDynamoDbRepository;
     use crate::service::product_command::UpsertProductCommand;
-    use crate::service::upsert_service::{UpsertItemsServiceImpl, determine_update_events};
+    use crate::service::upsert_service::{UpsertProductsServiceImpl, determine_update_events};
     use aws_config::BehaviorVersion;
     use aws_sdk_dynamodb::error::SdkError;
     use common::has_key::HasKey;
@@ -454,8 +454,12 @@ pub mod tests {
 
         let sqs_client =
             aws_sdk_sqs::Client::new(&aws_config::defaults(BehaviorVersion::latest()).load().await);
-        let service =
-            UpsertItemsServiceImpl::new(&repository, &sqs_client, "ingest-q-url", &FixedFxRate());
+        let service = UpsertProductsServiceImpl::new(
+            &repository,
+            &sqs_client,
+            "ingest-q-url",
+            &FixedFxRate(),
+        );
 
         let mut skipped_count = 0;
         let mut expected = fake::vec![UpsertProductCommand; 89];
@@ -494,8 +498,12 @@ pub mod tests {
 
         let sqs_client =
             aws_sdk_sqs::Client::new(&aws_config::defaults(BehaviorVersion::latest()).load().await);
-        let service =
-            UpsertItemsServiceImpl::new(&repository, &sqs_client, "ingest-q-url", &FixedFxRate());
+        let service = UpsertProductsServiceImpl::new(
+            &repository,
+            &sqs_client,
+            "ingest-q-url",
+            &FixedFxRate(),
+        );
 
         let mut skipped_count = 0;
 

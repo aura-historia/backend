@@ -45,12 +45,12 @@ async fn should_respond_200_when_hits_authenticated() {
         WatchlistProductDynamoDbRepositoryImpl::new(dynamodb_client, &cfn.dynamodb_table_1_name);
     let item_repository =
         ProductDynamoDbRepositoryImpl::new(dynamodb_client, &cfn.dynamodb_table_1_name);
-    let get_item_service = GetProductServiceImpl::new(&item_repository);
+    let get_product_service = GetProductServiceImpl::new(&item_repository);
     let item_watchlist_service = ProductWatchListServiceImpl::new(
         &watchlist_repository,
         &user_repository,
         &item_repository,
-        &get_item_service,
+        &get_product_service,
     );
 
     let now = SystemTime::now();

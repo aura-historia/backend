@@ -10,17 +10,17 @@ use common::language::domain::Language;
 use common::personalized::Personalized;
 use common::personalized::api::PersonalizedData;
 use common::shop_id::api::extract_shop_id_path;
-use common::shops_product_id::api::extract_shops_item_id_path;
+use common::shops_product_id::api::extract_shops_product_id_path;
 use lambda_runtime::LambdaEvent;
 use product::core::product::LocalizedProductView;
-use product::core::user_state::ItemUserState;
+use product::core::user_state::ProductUserState;
 use product::data::get_data::GetProductData;
 use product::data::user_state_data::ProductUserStateData;
 use product::service::get_service::GetProductService;
-use product::service::personalization_service::ItemPersonalizationService;
+use product::service::personalization_service::ProductPersonalizationService;
 
 #[tracing::instrument(
-    skip(event, get_item_service, access_token_verifier_service, item_personalization_service),
+    skip(event, get_product_service, access_token_verifier_service, product_personalization_service),
     fields(
         requestId = %event.context.request_id,
         method = event.payload.request_context.http.method.as_str(),
@@ -34,15 +34,15 @@ use product::service::personalization_service::ItemPersonalizationService;
 )]
 pub async fn handler(
     event: LambdaEvent<ApiGatewayV2httpRequest>,
-    get_item_service: &impl GetProductService,
+    get_product_service: &impl GetProductService,
     access_token_verifier_service: &(impl AccessTokenVerifierService + Sync),
-    item_personalization_service: &impl ItemPersonalizationService,
+    product_personalization_service: &impl ProductPersonalizationService,
 ) -> Result<ApiGatewayV2httpResponse, lambda_runtime::Error> {
     match handle(
         event,
-        get_item_service,
+        get_product_service,
         access_token_verifier_service,
-        item_personalization_service,
+        product_personalization_service,
     )
     .await
     {
@@ -54,12 +54,12 @@ pub async fn handler(
     }
 }
 
-// GET /api/v1/items/{shopId}/{shopsItemId}
+// GET /api/v1/products/{shopId}/{shopsProductId}
 pub async fn handle(
     event: LambdaEvent<ApiGatewayV2httpRequest>,
-    get_item_service: &impl GetProductService,
+    get_product_service: &impl GetProductService,
     access_token_verifier_service: &(impl AccessTokenVerifierService + Sync),
-    item_personalization_service: &impl ItemPersonalizationService,
+    product_personalization_service: &impl ProductPersonalizationService,
 ) -> Result<ApiGatewayV2httpResponse, ApiError> {
     let user_id_opt = access_token_verifier_service
         .verify_extract_user_id(&event.payload.headers)
@@ -74,10 +74,10 @@ pub async fn handle(
         .collect::<Vec<_>>();
     let currency = extract_currency_query(&event.payload.query_string_parameters)?.into();
     let shop_id = extract_shop_id_path(&event.payload.path_parameters)?;
-    let shops_product_id = extract_shops_item_id_path(&event.payload.path_parameters)?;
+    let shops_product_id = extract_shops_product_id_path(&event.payload.path_parameters)?;
 
-    let localized_item: LocalizedProductView = get_item_service
-        .view_item(
+    let localized_product: LocalizedProductView = get_product_service
+        .view_product(
             &shop_id,
             &shops_product_id,
             languages.as_slice(),
@@ -88,17 +88,17 @@ pub async fn handle(
     let personalized_item_data: PersonalizedData<GetProductData, ProductUserStateData> =
         match user_id_opt {
             None => PersonalizedData {
-                item: GetProductData::from(localized_item),
+                item: GetProductData::from(localized_product),
                 user_state: None,
             },
-            Some(user_id) => item_personalization_service
-                .personalize_watchlist(&user_id, localized_item)
+            Some(user_id) => product_personalization_service
+                .personalize_watchlist(&user_id, localized_product)
                 .await
                 .map(|personalized_watchlist| Personalized {
                     item: personalized_watchlist.item,
                     user_state: personalized_watchlist
                         .user_state
-                        .map(|watchlist| ItemUserState { watchlist }),
+                        .map(|watchlist| ProductUserState { watchlist }),
                 })?
                 .into(),
         };
@@ -145,7 +145,7 @@ mod tests {
     use lambda_runtime::LambdaEvent;
     use product::core::product::LocalizedProductView;
     use product::service::get_service::{GetProductError, MockGetProductService};
-    use product::service::personalization_service::MockItemPersonalizationService;
+    use product::service::personalization_service::MockProductPersonalizationService;
     use test_api::{ApiGatewayV2httpRequestProxy, extract_apigw_response_json_body};
     use time::OffsetDateTime;
     use time::macros::datetime;
@@ -177,9 +177,9 @@ mod tests {
         cognito_service
             .expect_verify_extract_user_id()
             .return_once(|_| Box::pin(async { Ok(None) }));
-        let item_personalization_service = MockItemPersonalizationService::default();
-        let mut get_item_service = MockGetProductService::default();
-        get_item_service.expect_view_item().return_once(
+        let product_personalization_service = MockProductPersonalizationService::default();
+        let mut get_product_service = MockGetProductService::default();
+        get_product_service.expect_view_item().return_once(
             move |shop_id, shops_product_id, _, _, _| {
                 let item = LocalizedProductView {
                     product_id: Default::default(),
@@ -203,9 +203,9 @@ mod tests {
 
         let response = handler(
             lambda_event,
-            &get_item_service,
+            &get_product_service,
             &cognito_service,
-            &item_personalization_service,
+            &product_personalization_service,
         )
         .await
         .unwrap();
@@ -228,9 +228,9 @@ mod tests {
         cognito_service
             .expect_verify_extract_user_id()
             .return_once(|_| Box::pin(async { Ok(None) }));
-        let item_personalization_service = MockItemPersonalizationService::default();
-        let mut get_item_service = MockGetProductService::default();
-        get_item_service.expect_view_item().return_once(
+        let product_personalization_service = MockProductPersonalizationService::default();
+        let mut get_product_service = MockGetProductService::default();
+        get_product_service.expect_view_item().return_once(
             move |shop_id, shops_product_id, _, _, _| {
                 let item = LocalizedProductView {
                     product_id: Default::default(),
@@ -263,9 +263,9 @@ mod tests {
         };
         let response = handler(
             lambda_event,
-            &get_item_service,
+            &get_product_service,
             &cognito_service,
-            &item_personalization_service,
+            &product_personalization_service,
         )
         .await
         .unwrap();
@@ -284,9 +284,9 @@ mod tests {
         cognito_service
             .expect_verify_extract_user_id()
             .return_once(|_| Box::pin(async { Ok(None) }));
-        let item_personalization_service = MockItemPersonalizationService::default();
-        let mut get_item_service = MockGetProductService::default();
-        get_item_service.expect_view_item().return_once(
+        let product_personalization_service = MockProductPersonalizationService::default();
+        let mut get_product_service = MockGetProductService::default();
+        get_product_service.expect_view_item().return_once(
             move |shop_id, shops_product_id, _, _, _| {
                 let item = LocalizedProductView {
                     product_id: Default::default(),
@@ -319,9 +319,9 @@ mod tests {
         };
         let response = handler(
             lambda_event,
-            &get_item_service,
+            &get_product_service,
             &cognito_service,
-            &item_personalization_service,
+            &product_personalization_service,
         )
         .await
         .unwrap();
@@ -347,9 +347,9 @@ mod tests {
         cognito_service
             .expect_verify_extract_user_id()
             .return_once(|_| Box::pin(async { Ok(None) }));
-        let item_personalization_service = MockItemPersonalizationService::default();
-        let mut get_item_service = MockGetProductService::default();
-        get_item_service.expect_view_item().return_once(
+        let product_personalization_service = MockProductPersonalizationService::default();
+        let mut get_product_service = MockGetProductService::default();
+        get_product_service.expect_view_item().return_once(
             move |shop_id, shops_product_id, _, _, history| {
                 assert_eq!(expected_history, history);
                 let item = LocalizedProductView {
@@ -384,9 +384,9 @@ mod tests {
         };
         let response = handler(
             lambda_event,
-            &get_item_service,
+            &get_product_service,
             &cognito_service,
-            &item_personalization_service,
+            &product_personalization_service,
         )
         .await
         .unwrap();
@@ -403,9 +403,9 @@ mod tests {
         cognito_service
             .expect_verify_extract_user_id()
             .return_once(|_| Box::pin(async { Ok(None) }));
-        let item_personalization_service = MockItemPersonalizationService::default();
-        let mut get_item_service = MockGetProductService::default();
-        get_item_service.expect_view_item().never();
+        let product_personalization_service = MockProductPersonalizationService::default();
+        let mut get_product_service = MockGetProductService::default();
+        get_product_service.expect_view_item().never();
         let lambda_event = LambdaEvent {
             payload: ApiGatewayV2httpRequestProxy::builder()
                 .http_method(http::Method::GET)
@@ -416,9 +416,9 @@ mod tests {
 
         let response = handler(
             lambda_event,
-            &get_item_service,
+            &get_product_service,
             &cognito_service,
-            &item_personalization_service,
+            &product_personalization_service,
         )
         .await
         .unwrap();
@@ -434,9 +434,9 @@ mod tests {
         cognito_service
             .expect_verify_extract_user_id()
             .return_once(|_| Box::pin(async { Ok(None) }));
-        let item_personalization_service = MockItemPersonalizationService::default();
-        let mut get_item_service = MockGetProductService::default();
-        get_item_service.expect_view_item().never();
+        let product_personalization_service = MockProductPersonalizationService::default();
+        let mut get_product_service = MockGetProductService::default();
+        get_product_service.expect_view_item().never();
         let lambda_event = LambdaEvent {
             payload: ApiGatewayV2httpRequestProxy::builder()
                 .http_method(http::Method::GET)
@@ -447,9 +447,9 @@ mod tests {
 
         let response = handler(
             lambda_event,
-            &get_item_service,
+            &get_product_service,
             &cognito_service,
-            &item_personalization_service,
+            &product_personalization_service,
         )
         .await
         .unwrap();
@@ -465,9 +465,9 @@ mod tests {
         cognito_service
             .expect_verify_extract_user_id()
             .return_once(|_| Box::pin(async { Ok(None) }));
-        let item_personalization_service = MockItemPersonalizationService::default();
-        let mut get_item_service = MockGetProductService::default();
-        get_item_service.expect_view_item().never();
+        let product_personalization_service = MockProductPersonalizationService::default();
+        let mut get_product_service = MockGetProductService::default();
+        get_product_service.expect_view_item().never();
         let lambda_event = LambdaEvent {
             payload: ApiGatewayV2httpRequestProxy::builder()
                 .http_method(http::Method::GET)
@@ -480,9 +480,9 @@ mod tests {
 
         let response = handler(
             lambda_event,
-            &get_item_service,
+            &get_product_service,
             &cognito_service,
-            &item_personalization_service,
+            &product_personalization_service,
         )
         .await
         .unwrap();
@@ -509,9 +509,9 @@ mod tests {
         cognito_service
             .expect_verify_extract_user_id()
             .return_once(|_| Box::pin(async { Ok(None) }));
-        let item_personalization_service = MockItemPersonalizationService::default();
-        let mut get_item_service = MockGetProductService::default();
-        get_item_service.expect_view_item().return_once(
+        let product_personalization_service = MockProductPersonalizationService::default();
+        let mut get_product_service = MockGetProductService::default();
+        get_product_service.expect_view_item().return_once(
             move |shop_id, shops_product_id, _, _, _| {
                 let shop_id = *shop_id;
                 let shops_product_id = shops_product_id.clone();
@@ -523,9 +523,9 @@ mod tests {
 
         let response = handler(
             lambda_event,
-            &get_item_service,
+            &get_product_service,
             &cognito_service,
-            &item_personalization_service,
+            &product_personalization_service,
         )
         .await
         .unwrap();

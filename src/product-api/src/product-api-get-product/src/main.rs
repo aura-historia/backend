@@ -27,10 +27,11 @@ async fn main() -> Result<(), Error> {
     let table_name = std::env::var("DYNAMODB_TABLE_NAME")?;
     let client = Client::new(&aws_config);
     let item_dynamodb_repository = ProductDynamoDbRepositoryImpl::new(&client, &table_name);
-    let get_item_service = GetProductServiceImpl::new(&item_dynamodb_repository);
+    let get_product_service = GetProductServiceImpl::new(&item_dynamodb_repository);
 
     let watchlist_repository = WatchlistProductDynamoDbRepositoryImpl::new(&client, &table_name);
-    let item_personalization_service = ItemPersonalizationServiceImpl::new(&watchlist_repository);
+    let product_personalization_service =
+        ItemPersonalizationServiceImpl::new(&watchlist_repository);
 
     let user_pool_id = std::env::var("USER_POOL_ID")?;
     let user_pool_public_client_id = std::env::var("USER_POOL_PUBLIC_CLIENT_ID")?;
@@ -52,9 +53,9 @@ async fn main() -> Result<(), Error> {
         |event: LambdaEvent<ApiGatewayV2httpRequest>| async {
             handler(
                 event,
-                &get_item_service,
+                &get_product_service,
                 &access_token_verifier_service,
-                &item_personalization_service,
+                &product_personalization_service,
             )
             .await
         },

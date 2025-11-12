@@ -1060,7 +1060,8 @@ async fn should_202_when_similar_items_have_not_been_computed_for_anon() {
         WatchlistProductDynamoDbRepositoryImpl::new(get_dynamodb_client().await, "table_1");
     let item_opensearch_repository =
         ProductOpenSearchRepositoryImpl::new(get_opensearch_client().await);
-    let item_personalization_service = ItemPersonalizationServiceImpl::new(&watchlist_repository);
+    let product_personalization_service =
+        ItemPersonalizationServiceImpl::new(&watchlist_repository);
     let semantic_search_service =
         SemanticSearchServiceImpl::new(&item_dynamodb_repository, &item_opensearch_repository);
     let mut cognito_service = MockAccessTokenVerifierService::default();
@@ -1108,7 +1109,7 @@ async fn should_202_when_similar_items_have_not_been_computed_for_anon() {
         lambda_event,
         &semantic_search_service,
         &cognito_service,
-        &item_personalization_service,
+        &product_personalization_service,
     )
     .await
     .unwrap();
@@ -1123,7 +1124,8 @@ async fn should_200_when_similar_items_have_been_computed_for_anon() {
         WatchlistProductDynamoDbRepositoryImpl::new(get_dynamodb_client().await, "table_1");
     let item_opensearch_repository =
         ProductOpenSearchRepositoryImpl::new(get_opensearch_client().await);
-    let item_personalization_service = ItemPersonalizationServiceImpl::new(&watchlist_repository);
+    let product_personalization_service =
+        ItemPersonalizationServiceImpl::new(&watchlist_repository);
     let semantic_search_service =
         SemanticSearchServiceImpl::new(&item_dynamodb_repository, &item_opensearch_repository);
     let mut cognito_service = MockAccessTokenVerifierService::default();
@@ -1175,7 +1177,7 @@ async fn should_200_when_similar_items_have_been_computed_for_anon() {
         lambda_event,
         &semantic_search_service,
         &cognito_service,
-        &item_personalization_service,
+        &product_personalization_service,
     )
     .await
     .unwrap();
@@ -1215,20 +1217,21 @@ async fn should_200_and_personalize_when_similar_items_have_been_computed_for_au
         WatchlistProductDynamoDbRepositoryImpl::new(get_dynamodb_client().await, "table_1");
     let item_opensearch_repository =
         ProductOpenSearchRepositoryImpl::new(get_opensearch_client().await);
-    let item_personalization_service = ItemPersonalizationServiceImpl::new(&watchlist_repository);
+    let product_personalization_service =
+        ItemPersonalizationServiceImpl::new(&watchlist_repository);
     let semantic_search_service =
         SemanticSearchServiceImpl::new(&item_dynamodb_repository, &item_opensearch_repository);
     let mut cognito_service = MockAccessTokenVerifierService::default();
     cognito_service
         .expect_verify_extract_user_id()
         .return_once(move |_| Box::pin(async move { Ok(Some(user_id)) }));
-    let get_item_service = GetProductServiceImpl::new(&item_dynamodb_repository);
+    let get_product_service = GetProductServiceImpl::new(&item_dynamodb_repository);
     let user_repository = UserDynamoDbRepositoryImpl::new(get_dynamodb_client().await, "table_1");
     let watchlist_service = ProductWatchListServiceImpl::new(
         &watchlist_repository,
         &user_repository,
         &item_dynamodb_repository,
-        &get_item_service,
+        &get_product_service,
     );
 
     let _ = user_repository.put_user_record(user_record).await.unwrap();
@@ -1297,7 +1300,7 @@ async fn should_200_and_personalize_when_similar_items_have_been_computed_for_au
         lambda_event,
         &semantic_search_service,
         &cognito_service,
-        &item_personalization_service,
+        &product_personalization_service,
     )
     .await
     .unwrap();

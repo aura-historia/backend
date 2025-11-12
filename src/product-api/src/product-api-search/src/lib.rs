@@ -18,14 +18,14 @@ use product::{
     core::sort_product_field::SortProductField,
     data::{product_search_data::ProductSearchData, user_state_data::ProductUserStateData},
 };
-use product::{core::user_state::ItemUserState, service::query_service::QueryProductService};
+use product::{core::user_state::ProductUserState, service::query_service::QueryProductService};
 use product::{
     data::{get_data::GetProductData, sort_product_field_data::SortProductFieldData},
-    service::personalization_service::ItemPersonalizationService,
+    service::personalization_service::ProductPersonalizationService,
 };
 
 #[tracing::instrument(
-    skip(event, query_item_service, access_token_verifier_service, item_personalization_service),
+    skip(event, query_item_service, access_token_verifier_service, product_personalization_service),
     fields(
         requestId = %event.context.request_id,
         method = event.payload.request_context.http.method.as_str(),
@@ -41,13 +41,13 @@ pub async fn handler(
     event: LambdaEvent<ApiGatewayV2httpRequest>,
     query_item_service: &impl QueryProductService,
     access_token_verifier_service: &(impl AccessTokenVerifierService + Sync),
-    item_personalization_service: &impl ItemPersonalizationService,
+    product_personalization_service: &impl ProductPersonalizationService,
 ) -> Result<ApiGatewayV2httpResponse, lambda_runtime::Error> {
     match handle(
         event,
         query_item_service,
         access_token_verifier_service,
-        item_personalization_service,
+        product_personalization_service,
     )
     .await
     {
@@ -64,7 +64,7 @@ pub async fn handle(
     event: LambdaEvent<ApiGatewayV2httpRequest>,
     service: &impl QueryProductService,
     access_token_verifier_service: &(impl AccessTokenVerifierService + Sync),
-    item_personalization_service: &impl ItemPersonalizationService,
+    product_personalization_service: &impl ProductPersonalizationService,
 ) -> Result<ApiGatewayV2httpResponse, ApiError> {
     let user_id_opt = access_token_verifier_service
         .verify_extract_user_id(&event.payload.headers)
@@ -96,7 +96,7 @@ pub async fn handle(
         .await?;
     let cursored_result = match user_id_opt {
         Some(user_id) => {
-            let personalized_items = item_personalization_service
+            let personalized_items = product_personalization_service
                 .personalize_all_watchlist(&user_id, search_result.items)
                 .await?
                 .into_iter()
@@ -104,7 +104,7 @@ pub async fn handle(
                     item: personalized_item.item,
                     user_state: personalized_item
                         .user_state
-                        .map(|watchlist| ItemUserState { watchlist }),
+                        .map(|watchlist| ProductUserState { watchlist }),
                 })
                 .collect();
             CursoredResult {
@@ -140,7 +140,7 @@ mod tests {
     use lambda_runtime::LambdaEvent;
     use product::core::product::LocalizedProductView;
     use product::data::product_search_data::ProductSearchData;
-    use product::service::personalization_service::MockItemPersonalizationService;
+    use product::service::personalization_service::MockProductPersonalizationService;
     use product::service::query_service::MockQueryProductService;
     use serde_json::json;
     use test_api::ApiGatewayV2httpRequestProxy;
@@ -166,7 +166,7 @@ mod tests {
             context: Default::default(),
         };
 
-        let item_personalization_service = MockItemPersonalizationService::default();
+        let product_personalization_service = MockProductPersonalizationService::default();
         let mut access_token_verifier_service = MockAccessTokenVerifierService::default();
         access_token_verifier_service
             .expect_verify_extract_user_id()
@@ -190,7 +190,7 @@ mod tests {
             lambda_event,
             &query_item_service,
             &access_token_verifier_service,
-            &item_personalization_service,
+            &product_personalization_service,
         )
         .await
         .unwrap();

@@ -16,7 +16,7 @@ pub enum ProductPersonalizationError {
 
 #[async_trait::async_trait]
 #[mockall::automock]
-pub trait ItemPersonalizationService {
+pub trait ProductPersonalizationService {
     async fn personalize_watchlist(
         &self,
         user_id: &UserId,
@@ -43,7 +43,7 @@ impl<'a> ItemPersonalizationServiceImpl<'a> {
 }
 
 #[async_trait::async_trait]
-impl<'a> ItemPersonalizationService for ItemPersonalizationServiceImpl<'a> {
+impl<'a> ProductPersonalizationService for ItemPersonalizationServiceImpl<'a> {
     async fn personalize_watchlist(
         &self,
         user_id: &UserId,
@@ -116,7 +116,7 @@ mod tests {
     use crate::{
         core::product::LocalizedProductView,
         service::personalization_service::{
-            ItemPersonalizationService, ItemPersonalizationServiceImpl,
+            ItemPersonalizationServiceImpl, ProductPersonalizationService,
         },
         watchlist::dynamodb::{
             record::WatchlistProductRecord, repository::MockWatchlistProductDynamoDbRepository,

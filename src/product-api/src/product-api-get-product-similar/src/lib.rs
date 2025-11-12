@@ -9,19 +9,19 @@ use common::{
     language::{data::api::extract_languages_header, domain::Language},
     personalized::{Personalized, api::PersonalizedData},
     shop_id::api::extract_shop_id_path,
-    shops_product_id::api::extract_shops_item_id_path,
+    shops_product_id::api::extract_shops_product_id_path,
 };
 use lambda_runtime::LambdaEvent;
-use product::core::user_state::ItemUserState;
+use product::core::user_state::ProductUserState;
 use product::{
-    data::get_data::GetProductData, service::personalization_service::ItemPersonalizationService,
+    data::get_data::GetProductData, service::personalization_service::ProductPersonalizationService,
 };
 use product::{
     data::user_state_data::ProductUserStateData, service::semantic_service::SemanticSearchService,
 };
 
 #[tracing::instrument(
-    skip(event, semantic_search_service, access_token_verifier_service, item_personalization_service),
+    skip(event, semantic_search_service, access_token_verifier_service, product_personalization_service),
     fields(
         requestId = %event.context.request_id,
         method = event.payload.request_context.http.method.as_str(),
@@ -37,13 +37,13 @@ pub async fn handler(
     event: LambdaEvent<ApiGatewayV2httpRequest>,
     semantic_search_service: &impl SemanticSearchService,
     access_token_verifier_service: &(impl AccessTokenVerifierService + Sync),
-    item_personalization_service: &impl ItemPersonalizationService,
+    product_personalization_service: &impl ProductPersonalizationService,
 ) -> Result<ApiGatewayV2httpResponse, lambda_runtime::Error> {
     match handle(
         event,
         semantic_search_service,
         access_token_verifier_service,
-        item_personalization_service,
+        product_personalization_service,
     )
     .await
     {
@@ -55,12 +55,12 @@ pub async fn handler(
     }
 }
 
-// GET /api/v1/items/{shopId}/{shopsItemId}/similar
+// GET /api/v1/products/{shopId}/{shopsProductId}/similar
 pub async fn handle(
     event: LambdaEvent<ApiGatewayV2httpRequest>,
     semantic_search_service: &impl SemanticSearchService,
     access_token_verifier_service: &(impl AccessTokenVerifierService + Sync),
-    item_personalization_service: &impl ItemPersonalizationService,
+    product_personalization_service: &impl ProductPersonalizationService,
 ) -> Result<ApiGatewayV2httpResponse, ApiError> {
     let user_id_opt = access_token_verifier_service
         .verify_extract_user_id(&event.payload.headers)
@@ -75,7 +75,7 @@ pub async fn handle(
         .collect::<Vec<_>>();
     let currency = extract_currency_query(&event.payload.query_string_parameters)?;
     let shop_id = extract_shop_id_path(&event.payload.path_parameters)?;
-    let shops_product_id = extract_shops_item_id_path(&event.payload.path_parameters)?;
+    let shops_product_id = extract_shops_product_id_path(&event.payload.path_parameters)?;
 
     let localized_similar_items_opt = semantic_search_service
         .similar_products(&shop_id, &shops_product_id, &languages, &currency.into())
@@ -86,7 +86,7 @@ pub async fn handle(
             let location = match event.payload.request_context.domain_name {
                 None => None,
                 Some(domain_name) => event.payload.request_context.stage.map(|stage_name| format!(
-                        "https://{domain_name}/{stage_name}/api/v1/items/{shop_id}/{shops_product_id}/similar",
+                        "https://{domain_name}/{stage_name}/api/v1/products/{shop_id}/{shops_product_id}/similar",
                     )),
             };
             Ok(ApiGatewayV2HttpResponseBuilder::json(202)
@@ -102,7 +102,7 @@ pub async fn handle(
                         user_state: None,
                     })
                     .collect(),
-                Some(user_id) => item_personalization_service
+                Some(user_id) => product_personalization_service
                     .personalize_all_watchlist(&user_id, localized_similar_items)
                     .await?
                     .into_iter()
@@ -110,7 +110,7 @@ pub async fn handle(
                         item: personalized_item.item,
                         user_state: personalized_item
                             .user_state
-                            .map(|watchlist| ItemUserState { watchlist }),
+                            .map(|watchlist| ProductUserState { watchlist }),
                     })
                     .collect::<Vec<_>>(),
             };
@@ -138,7 +138,7 @@ mod tests {
     use fake::Faker;
     use http::header::LOCATION;
     use lambda_runtime::LambdaEvent;
-    use product::service::personalization_service::MockItemPersonalizationService;
+    use product::service::personalization_service::MockProductPersonalizationService;
     use product::service::semantic_service::MockSemanticSearchService;
     use product::service::semantic_service::SemanticSearchProductsError;
     use test_api::{ApiGatewayV2httpRequestProxy, extract_apigw_response_json_body};
@@ -149,7 +149,7 @@ mod tests {
         cognito_service
             .expect_verify_extract_user_id()
             .return_once(|_| Box::pin(async { Ok(None) }));
-        let item_personalization_service = MockItemPersonalizationService::default();
+        let product_personalization_service = MockProductPersonalizationService::default();
         let mut semantic_search_service = MockSemanticSearchService::default();
         semantic_search_service
             .expect_similar_products()
@@ -168,7 +168,7 @@ mod tests {
             lambda_event,
             &semantic_search_service,
             &cognito_service,
-            &item_personalization_service,
+            &product_personalization_service,
         )
         .await
         .unwrap();
@@ -181,7 +181,7 @@ mod tests {
         cognito_service
             .expect_verify_extract_user_id()
             .return_once(|_| Box::pin(async { Ok(None) }));
-        let item_personalization_service = MockItemPersonalizationService::default();
+        let product_personalization_service = MockProductPersonalizationService::default();
         let mut semantic_search_service = MockSemanticSearchService::default();
         semantic_search_service
             .expect_similar_products()
@@ -200,7 +200,7 @@ mod tests {
             lambda_event,
             &semantic_search_service,
             &cognito_service,
-            &item_personalization_service,
+            &product_personalization_service,
         )
         .await
         .unwrap();
@@ -213,7 +213,7 @@ mod tests {
         cognito_service
             .expect_verify_extract_user_id()
             .return_once(|_| Box::pin(async { Ok(None) }));
-        let item_personalization_service = MockItemPersonalizationService::default();
+        let product_personalization_service = MockProductPersonalizationService::default();
         let mut semantic_search_service = MockSemanticSearchService::default();
         semantic_search_service
             .expect_similar_products()
@@ -236,13 +236,15 @@ mod tests {
             lambda_event,
             &semantic_search_service,
             &cognito_service,
-            &item_personalization_service,
+            &product_personalization_service,
         )
         .await
         .unwrap();
         assert_eq!(202, response.status_code);
         assert_eq!(
-            format!("https://my.domain.com/prod/api/v1/items/{shop_id}/{shops_product_id}/similar"),
+            format!(
+                "https://my.domain.com/prod/api/v1/products/{shop_id}/{shops_product_id}/similar"
+            ),
             response.headers.get(LOCATION).unwrap().to_str().unwrap()
         )
     }
@@ -253,7 +255,7 @@ mod tests {
         cognito_service
             .expect_verify_extract_user_id()
             .return_once(|_| Box::pin(async { Ok(None) }));
-        let item_personalization_service = MockItemPersonalizationService::default();
+        let product_personalization_service = MockProductPersonalizationService::default();
         let semantic_search_service = MockSemanticSearchService::default();
         let lambda_event = LambdaEvent {
             payload: ApiGatewayV2httpRequestProxy::builder()
@@ -267,7 +269,7 @@ mod tests {
             lambda_event,
             &semantic_search_service,
             &cognito_service,
-            &item_personalization_service,
+            &product_personalization_service,
         )
         .await
         .unwrap();
@@ -283,7 +285,7 @@ mod tests {
         cognito_service
             .expect_verify_extract_user_id()
             .return_once(|_| Box::pin(async { Ok(None) }));
-        let item_personalization_service = MockItemPersonalizationService::default();
+        let product_personalization_service = MockProductPersonalizationService::default();
         let semantic_search_service = MockSemanticSearchService::default();
         let lambda_event = LambdaEvent {
             payload: ApiGatewayV2httpRequestProxy::builder()
@@ -297,7 +299,7 @@ mod tests {
             lambda_event,
             &semantic_search_service,
             &cognito_service,
-            &item_personalization_service,
+            &product_personalization_service,
         )
         .await
         .unwrap();
@@ -324,7 +326,7 @@ mod tests {
         cognito_service
             .expect_verify_extract_user_id()
             .return_once(|_| Box::pin(async { Ok(None) }));
-        let item_personalization_service = MockItemPersonalizationService::default();
+        let product_personalization_service = MockProductPersonalizationService::default();
         let mut semantic_search_service = MockSemanticSearchService::default();
         semantic_search_service
             .expect_similar_products()
@@ -343,7 +345,7 @@ mod tests {
             lambda_event,
             &semantic_search_service,
             &cognito_service,
-            &item_personalization_service,
+            &product_personalization_service,
         )
         .await
         .unwrap();

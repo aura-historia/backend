@@ -88,7 +88,7 @@ pub trait GetProductService {
         shops_product_id: &ShopsProductId,
     ) -> Result<Product, GetProductError>;
 
-    async fn view_item(
+    async fn view_product(
         &self,
         shop_id: &ShopId,
         shops_product_id: &ShopsProductId,
@@ -134,7 +134,7 @@ impl<'a> GetProductService for GetProductServiceImpl<'a> {
         Ok(product_record.into())
     }
 
-    async fn view_item(
+    async fn view_product(
         &self,
         shop_id: &ShopId,
         shops_product_id: &ShopsProductId,
@@ -587,7 +587,7 @@ mod tests {
         }
     }
 
-    mod view_item {
+    mod view_product {
         use crate::dynamodb::{
             product_event_record::ProductEventRecord, product_record::ProductRecord,
             repository::MockProductDynamoDbRepository,
@@ -622,7 +622,7 @@ mod tests {
                 repository: &repository,
             };
             let actual = service
-                .view_item(
+                .view_product(
                     &ShopId::new(),
                     &ShopsProductId::new(),
                     &[],
@@ -643,7 +643,7 @@ mod tests {
                 repository: &repository,
             };
             let actual = service
-                .view_item(
+                .view_product(
                     &ShopId::new(),
                     &ShopsProductId::new(),
                     &[],
@@ -671,7 +671,7 @@ mod tests {
                 repository: &repository,
             };
             let actual = service
-                .view_item(
+                .view_product(
                     &ShopId::new(),
                     &ShopsProductId::new(),
                     &[],
@@ -713,7 +713,7 @@ mod tests {
                 repository: &repository,
             };
             let actual_price = service
-                .view_item(
+                .view_product(
                     &ShopId::new(),
                     &ShopsProductId::new(),
                     &[],
@@ -757,7 +757,7 @@ mod tests {
                 repository: &repository,
             };
             let actual_title = service
-                .view_item(
+                .view_product(
                     &ShopId::new(),
                     &ShopsProductId::new(),
                     languages,
@@ -800,7 +800,7 @@ mod tests {
                 repository: &repository,
             };
             let actual_title = service
-                .view_item(
+                .view_product(
                     &ShopId::new(),
                     &ShopsProductId::new(),
                     languages,
@@ -844,7 +844,7 @@ mod tests {
                 repository: &repository,
             };
             let actual_description = service
-                .view_item(
+                .view_product(
                     &ShopId::new(),
                     &ShopsProductId::new(),
                     languages,
@@ -889,7 +889,7 @@ mod tests {
                 repository: &repository,
             };
             let actual_description = service
-                .view_item(
+                .view_product(
                     &ShopId::new(),
                     &ShopsProductId::new(),
                     languages,
@@ -931,7 +931,7 @@ mod tests {
                 repository: &repository,
             };
             let actual_description = service
-                .view_item(
+                .view_product(
                     &ShopId::new(),
                     &ShopsProductId::new(),
                     languages,
@@ -956,7 +956,7 @@ mod tests {
                 repository: &repository,
             };
             let actual = service
-                .view_item(&shop_id, &shops_product_id, &[], &Currency::Eur, false)
+                .view_product(&shop_id, &shops_product_id, &[], &Currency::Eur, false)
                 .await;
 
             assert!(actual.is_err());
@@ -998,7 +998,7 @@ mod tests {
                 repository: &repository,
             };
             let actual = service
-                .view_item(&shop_id, &shops_product_id, &[], &Currency::Eur, false)
+                .view_product(&shop_id, &shops_product_id, &[], &Currency::Eur, false)
                 .await;
 
             assert!(actual.is_err());

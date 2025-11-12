@@ -41,8 +41,9 @@ async fn should_respond_200_with_history_when_anon_and_history_flag_true() {
     let ddb_client = get_dynamodb_client().await;
     let item_repository = ProductDynamoDbRepositoryImpl::new(ddb_client, "table_1");
     let watchlist_repository = WatchlistProductDynamoDbRepositoryImpl::new(ddb_client, "table_1");
-    let get_item_service = GetProductServiceImpl::new(&item_repository);
-    let item_personalization_service = ItemPersonalizationServiceImpl::new(&watchlist_repository);
+    let get_product_service = GetProductServiceImpl::new(&item_repository);
+    let product_personalization_service =
+        ItemPersonalizationServiceImpl::new(&watchlist_repository);
     let mut access_token_verifier_service = MockAccessTokenVerifierService::default();
     access_token_verifier_service
         .expect_verify_extract_user_id()
@@ -114,9 +115,9 @@ async fn should_respond_200_with_history_when_anon_and_history_flag_true() {
     };
     let response = handler(
         lambda_event,
-        &get_item_service,
+        &get_product_service,
         &access_token_verifier_service,
-        &item_personalization_service,
+        &product_personalization_service,
     )
     .await
     .unwrap();
@@ -149,8 +150,9 @@ async fn should_respond_200_without_history_when_anon_and_history_flag_false() {
     let ddb_client = get_dynamodb_client().await;
     let item_repository = ProductDynamoDbRepositoryImpl::new(ddb_client, "table_1");
     let watchlist_repository = WatchlistProductDynamoDbRepositoryImpl::new(ddb_client, "table_1");
-    let get_item_service = GetProductServiceImpl::new(&item_repository);
-    let item_personalization_service = ItemPersonalizationServiceImpl::new(&watchlist_repository);
+    let get_product_service = GetProductServiceImpl::new(&item_repository);
+    let product_personalization_service =
+        ItemPersonalizationServiceImpl::new(&watchlist_repository);
     let mut access_token_verifier_service = MockAccessTokenVerifierService::default();
     access_token_verifier_service
         .expect_verify_extract_user_id()
@@ -221,9 +223,9 @@ async fn should_respond_200_without_history_when_anon_and_history_flag_false() {
     };
     let response = handler(
         lambda_event,
-        &get_item_service,
+        &get_product_service,
         &access_token_verifier_service,
-        &item_personalization_service,
+        &product_personalization_service,
     )
     .await
     .unwrap();
@@ -241,8 +243,9 @@ async fn should_respond_200_personalized_when_authenticated_and_not_watched() {
     let user_repository = UserDynamoDbRepositoryImpl::new(ddb_client, "table_1");
     let item_repository = ProductDynamoDbRepositoryImpl::new(ddb_client, "table_1");
     let watchlist_repository = WatchlistProductDynamoDbRepositoryImpl::new(ddb_client, "table_1");
-    let get_item_service = GetProductServiceImpl::new(&item_repository);
-    let item_personalization_service = ItemPersonalizationServiceImpl::new(&watchlist_repository);
+    let get_product_service = GetProductServiceImpl::new(&item_repository);
+    let product_personalization_service =
+        ItemPersonalizationServiceImpl::new(&watchlist_repository);
 
     let user_record = Faker.fake::<UserRecord>();
     let _ = user_repository
@@ -319,9 +322,9 @@ async fn should_respond_200_personalized_when_authenticated_and_not_watched() {
     };
     let response = handler(
         lambda_event,
-        &get_item_service,
+        &get_product_service,
         &access_token_verifier_service,
-        &item_personalization_service,
+        &product_personalization_service,
     )
     .await
     .unwrap();
@@ -347,15 +350,16 @@ async fn should_respond_200_personalized_when_authenticated_and_watched() {
     let ddb_client = get_dynamodb_client().await;
     let user_repository = UserDynamoDbRepositoryImpl::new(ddb_client, "table_1");
     let item_repository = ProductDynamoDbRepositoryImpl::new(ddb_client, "table_1");
-    let get_item_service = GetProductServiceImpl::new(&item_repository);
+    let get_product_service = GetProductServiceImpl::new(&item_repository);
     let watchlist_repository = WatchlistProductDynamoDbRepositoryImpl::new(ddb_client, "table_1");
     let watchlist_service = ProductWatchListServiceImpl::new(
         &watchlist_repository,
         &user_repository,
         &item_repository,
-        &get_item_service,
+        &get_product_service,
     );
-    let item_personalization_service = ItemPersonalizationServiceImpl::new(&watchlist_repository);
+    let product_personalization_service =
+        ItemPersonalizationServiceImpl::new(&watchlist_repository);
 
     let user_record = Faker.fake::<UserRecord>();
     let _ = user_repository
@@ -448,9 +452,9 @@ async fn should_respond_200_personalized_when_authenticated_and_watched() {
     };
     let response = handler(
         lambda_event,
-        &get_item_service,
+        &get_product_service,
         &access_token_verifier_service,
-        &item_personalization_service,
+        &product_personalization_service,
     )
     .await
     .unwrap();

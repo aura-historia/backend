@@ -5,7 +5,7 @@ use lambda_runtime::tracing::info;
 use lambda_runtime::{Error, LambdaEvent, run, service_fn};
 use product::dynamodb::repository::ProductDynamoDbRepositoryImpl;
 use product::service::enrichment_service::ItemCommandEnrichmentServiceImpl;
-use product::service::upsert_service::UpsertItemsServiceImpl;
+use product::service::upsert_service::UpsertProductsServiceImpl;
 use product_api_put_products::handler;
 use shop::dynamodb::repository::ShopDynamoDbRepositoryImpl;
 
@@ -30,7 +30,7 @@ async fn main() -> Result<(), Error> {
     let shop_repository = ShopDynamoDbRepositoryImpl::new(&dynamodb_client, &table_name);
     let sqs_client = aws_sdk_sqs::Client::new(&aws_config);
     let fx_rate = FixedFxRate();
-    let upsert_service = UpsertItemsServiceImpl::new(
+    let upsert_service = UpsertProductsServiceImpl::new(
         &item_repository,
         &sqs_client,
         &ingest_item_events_queue_url,

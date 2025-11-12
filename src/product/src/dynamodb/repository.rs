@@ -230,14 +230,14 @@ impl<'a> ProductDynamoDbRepository for ProductDynamoDbRepositoryImpl<'a> {
                 Some(unknown_sk) => {
                     error!(
                         payload = ?record,
-                        "Attempted to deserialize but record in item-partition contains unknown value '{unknown_sk}' for field 'sk'. Skipping record."
+                        "Attempted to deserialize but record in product-partition contains unknown value '{unknown_sk}' for field 'sk'. Skipping record."
                     );
                     (materialized, events)
                 },
                 None => {
                     error!(
                         payload = ?record,
-                        "Attempted to deserialize record in item-partition but no String-Field 'sk' exists. Skipping record."
+                        "Attempted to deserialize record in product-partition but no String-Field 'sk' exists. Skipping record."
                     );
                     (materialized, events)
                 }

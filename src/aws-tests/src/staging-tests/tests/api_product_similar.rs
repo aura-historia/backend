@@ -1200,7 +1200,7 @@ async fn should_200_and_personalize_when_similar_items_have_been_computed_for_au
     );
     let item_opensearch_repository =
         ProductOpenSearchRepositoryImpl::new(get_opensearch_client().await);
-    let get_item_service = GetProductServiceImpl::new(&item_dynamodb_repository);
+    let get_product_service = GetProductServiceImpl::new(&item_dynamodb_repository);
     let user_repository = UserDynamoDbRepositoryImpl::new(
         get_dynamodb_client().await,
         &get_cfn_output().dynamodb_table_1_name,
@@ -1209,7 +1209,7 @@ async fn should_200_and_personalize_when_similar_items_have_been_computed_for_au
         &watchlist_repository,
         &user_repository,
         &item_dynamodb_repository,
-        &get_item_service,
+        &get_product_service,
     );
 
     let product_record: ProductRecord = Faker.fake();

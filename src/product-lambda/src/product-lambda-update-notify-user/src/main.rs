@@ -39,18 +39,18 @@ async fn main() -> Result<(), Error> {
     let user_repository = UserDynamoDbRepositoryImpl::new(&dynamodb_client, &table_name);
     let item_repository = ProductDynamoDbRepositoryImpl::new(&dynamodb_client, &table_name);
 
-    let get_item_service = GetProductServiceImpl::new(&item_repository);
+    let get_product_service = GetProductServiceImpl::new(&item_repository);
     let watchlist_service = ProductWatchListServiceImpl::new(
         &watchlist_repository,
         &user_repository,
         &item_repository,
-        &get_item_service,
+        &get_product_service,
     );
 
     let sender_mail_str = std::env::var("SENDER_MAIL")?;
     let sender_mail = Email::try_from(sender_mail_str)?;
     let item_event_mail_payload_service =
-        ItemEventMailPayloadServiceImpl::new(&watchlist_service, &get_item_service, sender_mail);
+        ItemEventMailPayloadServiceImpl::new(&watchlist_service, &get_product_service, sender_mail);
 
     info!("Lambda cold start completed, client initialized.");
 
