@@ -1,12 +1,12 @@
 use crate::dynamodb::product_event_record::ProductEventRecord;
-use crate::opensearch::product_state_document::ItemStateDocument;
+use crate::opensearch::product_state_document::ProductStateDocument;
 use common::event_id::EventId;
 use serde::Serialize;
 use time::OffsetDateTime;
 
 #[derive(Debug, Clone, PartialEq, Serialize)]
 #[serde(rename_all = "camelCase")]
-pub struct ItemUpdateDocument {
+pub struct ProductUpdateDocument {
     pub event_id: EventId,
 
     #[serde(skip_serializing_if = "Option::is_none", default)]
@@ -28,7 +28,7 @@ pub struct ItemUpdateDocument {
     pub price_nzd: Option<u64>,
 
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub state: Option<ItemStateDocument>,
+    pub state: Option<ProductStateDocument>,
 
     #[serde(skip_serializing_if = "Option::is_none", default)]
     pub text_embedding: Option<Vec<f32>>,
@@ -37,7 +37,7 @@ pub struct ItemUpdateDocument {
     pub updated: OffsetDateTime,
 }
 
-impl Default for ItemUpdateDocument {
+impl Default for ProductUpdateDocument {
     fn default() -> Self {
         Self {
             event_id: EventId::new(),
@@ -54,10 +54,10 @@ impl Default for ItemUpdateDocument {
     }
 }
 
-impl From<ProductEventRecord> for ItemUpdateDocument {
+impl From<ProductEventRecord> for ProductUpdateDocument {
     fn from(event_record: ProductEventRecord) -> Self {
-        let state = event_record.new_state.map(ItemStateDocument::from);
-        ItemUpdateDocument {
+        let state = event_record.new_state.map(ProductStateDocument::from);
+        ProductUpdateDocument {
             event_id: event_record.event_id,
             price_eur: event_record.new_price_eur,
             price_usd: event_record.new_price_usd,
@@ -78,10 +78,10 @@ mod faker {
     use common::price::domain::MonetaryAmount;
     use fake::{Dummy, Fake, Faker, Rng};
 
-    impl Dummy<Faker> for ItemUpdateDocument {
+    impl Dummy<Faker> for ProductUpdateDocument {
         fn dummy_with_rng<R: Rng + ?Sized>(config: &Faker, rng: &mut R) -> Self {
             let state = config.fake_with_rng(rng);
-            ItemUpdateDocument {
+            ProductUpdateDocument {
                 event_id: config.fake_with_rng(rng),
                 price_eur: Some(config.fake_with_rng::<MonetaryAmount, _>(rng).into()),
                 price_usd: Some(config.fake_with_rng::<MonetaryAmount, _>(rng).into()),
@@ -98,12 +98,12 @@ mod faker {
 
     #[cfg(test)]
     mod tests {
-        use crate::opensearch::product_update_document::ItemUpdateDocument;
+        use crate::opensearch::product_update_document::ProductUpdateDocument;
         use fake::{Fake, Faker};
 
         #[test]
         fn should_fake_item_update_document() {
-            let _ = Faker.fake::<ItemUpdateDocument>();
+            let _ = Faker.fake::<ProductUpdateDocument>();
         }
     }
 }

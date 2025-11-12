@@ -3,17 +3,19 @@ use common::{
     currency::domain::Currency,
     event::Event,
     event_id::EventId,
-    product_state::domain::ProductState,
     price::domain::{FixedFxRate, FxRate, Price},
+    product_state::domain::ProductState,
 };
 use fake::{Fake, Faker};
+use item_api_get_item::handler;
+use lambda_runtime::LambdaEvent;
 use product::{
     core::product_event::{
         ItemEventPayload, ItemPriceChangeEventPayload, ItemStateChangeEventPayload,
     },
     service::personalization_service::ItemPersonalizationServiceImpl,
     watchlist::service::{
-        command::UpdateWatchlistItemCommand, item_watchlist_service::ItemWatchListService,
+        command::UpdateWatchlistItemCommand, item_watchlist_service::ProductWatchListService,
     },
 };
 use product::{
@@ -25,10 +27,8 @@ use product::{
 };
 use product::{
     service::get_service::GetItemServiceImpl,
-    watchlist::service::item_watchlist_service::ItemWatchListServiceImpl,
+    watchlist::service::item_watchlist_service::ProductWatchListServiceImpl,
 };
-use item_api_get_item::handler;
-use lambda_runtime::LambdaEvent;
 use std::time::{Duration, SystemTime};
 use test_api::*;
 use user::dynamodb::{
@@ -349,7 +349,7 @@ async fn should_respond_200_personalized_when_authenticated_and_watched() {
     let item_repository = ProductDynamoDbRepositoryImpl::new(ddb_client, "table_1");
     let get_item_service = GetItemServiceImpl::new(&item_repository);
     let watchlist_repository = WatchlistItemDynamoDbRepositoryImpl::new(ddb_client, "table_1");
-    let watchlist_service = ItemWatchListServiceImpl::new(
+    let watchlist_service = ProductWatchListServiceImpl::new(
         &watchlist_repository,
         &user_repository,
         &item_repository,

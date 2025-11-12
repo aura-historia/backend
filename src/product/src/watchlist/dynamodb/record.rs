@@ -1,5 +1,7 @@
-use crate::watchlist::core::watchlist_product::WatchlistItem;
-use common::{product_id::ProductId, shop_id::ShopId, shops_product_id::ShopsProductId, user_id::UserId};
+use crate::watchlist::core::watchlist_product::WatchlistProduct;
+use common::{
+    product_id::ProductId, shop_id::ShopId, shops_product_id::ShopsProductId, user_id::UserId,
+};
 use serde::{Deserialize, Serialize};
 use time::{OffsetDateTime, error::Format, format_description::well_known::Rfc3339};
 use user::dynamodb::user_record::UserRecord;
@@ -60,9 +62,9 @@ pub fn mk_gsi1_sk(user_id: &UserId) -> String {
     format!("user#{user_id}")
 }
 
-impl From<WatchlistItemRecord> for WatchlistItem {
+impl From<WatchlistItemRecord> for WatchlistProduct {
     fn from(record: WatchlistItemRecord) -> Self {
-        WatchlistItem {
+        WatchlistProduct {
             shop_id: record.shop_id,
             shops_product_id: record.shops_product_id,
             product_id: record.product_id,

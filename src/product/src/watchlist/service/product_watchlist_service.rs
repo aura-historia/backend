@@ -1,22 +1,22 @@
 use crate::dynamodb::repository::ProductDynamoDbRepository;
 use crate::service::get_service::{GetItemError, GetItemService};
 use crate::{
-    watchlist::core::watchlist_item::{LocalizedWatchlistItemView, WatchlistItem},
+    watchlist::core::watchlist_item::{LocalizedWatchlistItemView, WatchlistProduct},
     watchlist::dynamodb::record::{WatchlistItemRecord, mk_lsi1_sk, mk_pk, mk_sk},
     watchlist::dynamodb::record_update::WatchlistItemRecordUpdate,
     watchlist::dynamodb::repository::WatchlistItemDynamoDbRepository,
     watchlist::service::command::UpdateWatchlistItemCommand,
-    watchlist::service::sort_watchlist_item_field::SortWatchlistItemField,
+    watchlist::service::sort_watchlist_item_field::SortWatchlistProductField,
 };
 use aws_sdk_dynamodb::{
     config::http::HttpResponse, error::SdkError, operation::put_item::PutItemError,
 };
 use common::{
     currency::domain::Currency,
-    product_id::{ProductId, ProductKey},
     language::domain::Language,
     pagination::cursor::{Cursor, CursoredResult},
     price::domain::MonetaryAmountOverflowError,
+    product_id::{ProductId, ProductKey},
     shop_id::ShopId,
     shops_product_id::ShopsProductId,
     sort::{Sort, SortOrder},
@@ -33,14 +33,14 @@ pub enum WatchItemError {
     #[error("{0}")]
     MonetaryAmountOverflowError(#[from] MonetaryAmountOverflowError),
 
-    #[error("Item with ShopId '{0}' and ShopsProductId '{1}' not found.")]
+    #[error("Product with ShopId '{0}' and ShopsProductId '{1}' not found.")]
     ItemNotFound(ShopId, ShopsProductId),
 
     #[error("There exists no User with id '{0}'.")]
     UserNotFound(UserId),
 
     #[error(
-        "There exists no Watchlist-Item for user '{0}' with Shop-Id '{1}' and Shops-Item-Id '{2}'."
+        "There exists no Watchlist-Product for user '{0}' with Shop-Id '{1}' and Shops-Product-Id '{2}'."
     )]
     WatchlistItemNotFound(UserId, ShopId, ShopsProductId),
 
@@ -136,20 +136,20 @@ pub mod api {
 
 #[async_trait::async_trait]
 #[mockall::automock]
-pub trait ItemWatchListService {
+pub trait ProductWatchListService {
     async fn find_watchlist_item(
         &self,
         user_id: &UserId,
         shop_id: &ShopId,
         shops_product_id: &ShopsProductId,
-    ) -> Result<WatchlistItem, WatchItemError>;
+    ) -> Result<WatchlistProduct, WatchItemError>;
 
     async fn create_watchlist_item(
         &self,
         user_id: &UserId,
         shop_id: &ShopId,
         shops_product_id: &ShopsProductId,
-    ) -> Result<WatchlistItem, WatchItemError>;
+    ) -> Result<WatchlistProduct, WatchItemError>;
 
     async fn delete_watchlist_item(
         &self,
@@ -164,14 +164,14 @@ pub trait ItemWatchListService {
         shop_id: &ShopId,
         shops_product_id: &ShopsProductId,
         update: UpdateWatchlistItemCommand,
-    ) -> Result<WatchlistItem, WatchItemError>;
+    ) -> Result<WatchlistProduct, WatchItemError>;
 
     async fn view_watchlist(
         &self,
         user_id: &UserId,
         languages: &[Language],
         currency: &Currency,
-        sort: &Option<Sort<SortWatchlistItemField>>,
+        sort: &Option<Sort<SortWatchlistProductField>>,
         cursor: &Option<Cursor<OffsetDateTime>>,
     ) -> Result<CursoredResult<LocalizedWatchlistItemView, OffsetDateTime>, WatchItemError>;
 
@@ -181,14 +181,14 @@ pub trait ItemWatchListService {
     ) -> Result<Vec<User>, WatchItemError>;
 }
 
-pub struct ItemWatchListServiceImpl<'a> {
+pub struct ProductWatchListServiceImpl<'a> {
     watchlist_repository: &'a (dyn WatchlistItemDynamoDbRepository + Sync),
     user_repository: &'a (dyn UserDynamoDbRepository + Sync),
     item_repository: &'a (dyn ProductDynamoDbRepository + Sync),
     get_item_service: &'a (dyn GetItemService + Sync),
 }
 
-impl<'a> ItemWatchListServiceImpl<'a> {
+impl<'a> ProductWatchListServiceImpl<'a> {
     pub fn new(
         watchlist_repository: &'a (dyn WatchlistItemDynamoDbRepository + Sync),
         user_repository: &'a (dyn UserDynamoDbRepository + Sync),
@@ -205,13 +205,13 @@ impl<'a> ItemWatchListServiceImpl<'a> {
 }
 
 #[async_trait::async_trait]
-impl<'a> ItemWatchListService for ItemWatchListServiceImpl<'a> {
+impl<'a> ProductWatchListService for ProductWatchListServiceImpl<'a> {
     async fn find_watchlist_item(
         &self,
         user_id: &UserId,
         shop_id: &ShopId,
         shops_product_id: &ShopsProductId,
-    ) -> Result<WatchlistItem, WatchItemError> {
+    ) -> Result<WatchlistProduct, WatchItemError> {
         let watchlist_record = self
             .watchlist_repository
             .get_watchlist_record(user_id, shop_id, shops_product_id)
@@ -230,7 +230,7 @@ impl<'a> ItemWatchListService for ItemWatchListServiceImpl<'a> {
         user_id: &UserId,
         shop_id: &ShopId,
         shops_product_id: &ShopsProductId,
-    ) -> Result<WatchlistItem, WatchItemError> {
+    ) -> Result<WatchlistProduct, WatchItemError> {
         let product_record = self
             .item_repository
             .get_item_record(shop_id, shops_product_id)
@@ -299,7 +299,7 @@ impl<'a> ItemWatchListService for ItemWatchListServiceImpl<'a> {
         shop_id: &ShopId,
         shops_product_id: &ShopsProductId,
         update: UpdateWatchlistItemCommand,
-    ) -> Result<WatchlistItem, WatchItemError> {
+    ) -> Result<WatchlistProduct, WatchItemError> {
         let watchlist_record = self
             .watchlist_repository
             .get_watchlist_record(user_id, shop_id, shops_product_id)
@@ -319,7 +319,11 @@ impl<'a> ItemWatchListService for ItemWatchListServiceImpl<'a> {
                     user_id,
                     shop_id,
                     shops_product_id,
-                    WatchlistItemRecordUpdate::from_cmd(update, user_id, &watchlist_record.product_id),
+                    WatchlistItemRecordUpdate::from_cmd(
+                        update,
+                        user_id,
+                        &watchlist_record.product_id,
+                    ),
                 )
                 .await?;
 
@@ -332,11 +336,11 @@ impl<'a> ItemWatchListService for ItemWatchListServiceImpl<'a> {
         user_id: &UserId,
         languages: &[Language],
         currency: &Currency,
-        sort: &Option<Sort<SortWatchlistItemField>>,
+        sort: &Option<Sort<SortWatchlistProductField>>,
         cursor: &Option<Cursor<OffsetDateTime>>,
     ) -> Result<CursoredResult<LocalizedWatchlistItemView, OffsetDateTime>, WatchItemError> {
         let sort = sort.unwrap_or(Sort {
-            sort: SortWatchlistItemField::Created,
+            sort: SortWatchlistProductField::Created,
             order: SortOrder::Asc,
         });
         let cursor = (*cursor).unwrap_or_default();
@@ -369,7 +373,7 @@ impl<'a> ItemWatchListService for ItemWatchListServiceImpl<'a> {
                                 updated: watchlist_record.updated,
                             }),
                             None => {
-                                tracing::error!("Could not find timestamp 'created' for Watchlist-Item after Batch-Get. This is a bug. Skipping Item.");
+                                tracing::error!("Could not find timestamp 'created' for Watchlist-Product after Batch-Get. This is a bug. Skipping Product.");
                                 None
                             },
                         },
@@ -426,7 +430,7 @@ mod tests {
         use crate::{
             watchlist::dynamodb::repository::MockWatchlistItemDynamoDbRepository,
             watchlist::service::item_watchlist_service::{
-                ItemWatchListService, ItemWatchListServiceImpl, WatchItemError,
+                ProductWatchListService, ProductWatchListServiceImpl, WatchItemError,
             },
         };
         use aws_sdk_dynamodb::{
@@ -448,7 +452,7 @@ mod tests {
                 .return_once(|_, _, _| Box::pin(async { Ok(None) }));
             let get_item_service = GetItemServiceImpl::new(&item_repository);
 
-            let service = ItemWatchListServiceImpl::new(
+            let service = ProductWatchListServiceImpl::new(
                 &watchlist_repository,
                 &user_repository,
                 &item_repository,
@@ -505,7 +509,7 @@ mod tests {
                 .return_once(|_, _, _| Box::pin(async { Err(expected) }));
             let get_item_service = GetItemServiceImpl::new(&item_repository);
 
-            let service = ItemWatchListServiceImpl::new(
+            let service = ProductWatchListServiceImpl::new(
                 &watchlist_repository,
                 &user_repository,
                 &item_repository,
@@ -530,7 +534,7 @@ mod tests {
         use crate::{
             watchlist::dynamodb::repository::MockWatchlistItemDynamoDbRepository,
             watchlist::service::item_watchlist_service::{
-                ItemWatchListService, ItemWatchListServiceImpl, WatchItemError,
+                ProductWatchListService, ProductWatchListServiceImpl, WatchItemError,
             },
         };
         use aws_sdk_dynamodb::{
@@ -559,7 +563,7 @@ mod tests {
                 .return_once(|_| Box::pin(async { Ok(PutItemOutput::builder().build()) }));
             let get_item_service = GetItemServiceImpl::new(&item_repository);
 
-            let service = ItemWatchListServiceImpl::new(
+            let service = ProductWatchListServiceImpl::new(
                 &watchlist_repository,
                 &user_repository,
                 &item_repository,
@@ -582,7 +586,7 @@ mod tests {
             let watchlist_repository = MockWatchlistItemDynamoDbRepository::default();
             let get_item_service = GetItemServiceImpl::new(&item_repository);
 
-            let service = ItemWatchListServiceImpl::new(
+            let service = ProductWatchListServiceImpl::new(
                 &watchlist_repository,
                 &user_repository,
                 &item_repository,
@@ -632,7 +636,7 @@ mod tests {
             let watchlist_repository = MockWatchlistItemDynamoDbRepository::default();
             let get_item_service = GetItemServiceImpl::new(&item_repository);
 
-            let service = ItemWatchListServiceImpl::new(
+            let service = ProductWatchListServiceImpl::new(
                 &watchlist_repository,
                 &user_repository,
                 &item_repository,
@@ -681,7 +685,7 @@ mod tests {
             let watchlist_repository = MockWatchlistItemDynamoDbRepository::default();
             let get_item_service = GetItemServiceImpl::new(&item_repository);
 
-            let service = ItemWatchListServiceImpl::new(
+            let service = ProductWatchListServiceImpl::new(
                 &watchlist_repository,
                 &user_repository,
                 &item_repository,
@@ -733,7 +737,7 @@ mod tests {
                 .return_once(|_| Box::pin(async { Err(expected) }));
             let get_item_service = GetItemServiceImpl::new(&item_repository);
 
-            let service = ItemWatchListServiceImpl::new(
+            let service = ProductWatchListServiceImpl::new(
                 &watchlist_repository,
                 &user_repository,
                 &item_repository,
@@ -758,7 +762,7 @@ mod tests {
         use crate::{
             watchlist::dynamodb::repository::MockWatchlistItemDynamoDbRepository,
             watchlist::service::item_watchlist_service::{
-                ItemWatchListService, ItemWatchListServiceImpl, WatchItemError,
+                ProductWatchListService, ProductWatchListServiceImpl, WatchItemError,
             },
         };
         use aws_sdk_dynamodb::{
@@ -783,7 +787,7 @@ mod tests {
                 .return_once(|_, _, _| Box::pin(async { Ok(DeleteItemOutput::builder().build()) }));
             let get_item_service = GetItemServiceImpl::new(&item_repository);
 
-            let service = ItemWatchListServiceImpl::new(
+            let service = ProductWatchListServiceImpl::new(
                 &watchlist_repository,
                 &user_repository,
                 &item_repository,
@@ -806,7 +810,7 @@ mod tests {
                 .return_once(|_, _, _| Box::pin(async { Ok(None) }));
             let get_item_service = GetItemServiceImpl::new(&item_repository);
 
-            let service = ItemWatchListServiceImpl::new(
+            let service = ProductWatchListServiceImpl::new(
                 &watchlist_repository,
                 &user_repository,
                 &item_repository,
@@ -863,7 +867,7 @@ mod tests {
                 .return_once(|_, _, _| Box::pin(async { Err(expected) }));
             let get_item_service = GetItemServiceImpl::new(&item_repository);
 
-            let service = ItemWatchListServiceImpl::new(
+            let service = ProductWatchListServiceImpl::new(
                 &watchlist_repository,
                 &user_repository,
                 &item_repository,
@@ -911,7 +915,7 @@ mod tests {
                 .return_once(|_, _, _| Box::pin(async { Err(expected) }));
             let get_item_service = GetItemServiceImpl::new(&item_repository);
 
-            let service = ItemWatchListServiceImpl::new(
+            let service = ProductWatchListServiceImpl::new(
                 &watchlist_repository,
                 &user_repository,
                 &item_repository,
@@ -938,7 +942,7 @@ mod tests {
             watchlist::dynamodb::repository::MockWatchlistItemDynamoDbRepository,
             watchlist::service::command::UpdateWatchlistItemCommand,
             watchlist::service::item_watchlist_service::{
-                ItemWatchListService, ItemWatchListServiceImpl, WatchItemError,
+                ProductWatchListService, ProductWatchListServiceImpl, WatchItemError,
             },
         };
         use aws_sdk_dynamodb::{
@@ -968,7 +972,7 @@ mod tests {
                 .return_once(|_, _, _, _| Box::pin(async { Ok(Faker.fake()) }));
             let get_item_service = GetItemServiceImpl::new(&item_repository);
 
-            let service = ItemWatchListServiceImpl::new(
+            let service = ProductWatchListServiceImpl::new(
                 &watchlist_repository,
                 &user_repository,
                 &item_repository,
@@ -998,7 +1002,7 @@ mod tests {
                 .return_once(|_, _, _| Box::pin(async { Ok(None) }));
             let get_item_service = GetItemServiceImpl::new(&item_repository);
 
-            let service = ItemWatchListServiceImpl::new(
+            let service = ProductWatchListServiceImpl::new(
                 &watchlist_repository,
                 &user_repository,
                 &item_repository,
@@ -1062,7 +1066,7 @@ mod tests {
                 .return_once(|_, _, _| Box::pin(async { Err(expected) }));
             let get_item_service = GetItemServiceImpl::new(&item_repository);
 
-            let service = ItemWatchListServiceImpl::new(
+            let service = ProductWatchListServiceImpl::new(
                 &watchlist_repository,
                 &user_repository,
                 &item_repository,
@@ -1123,7 +1127,7 @@ mod tests {
                 .return_once(|_, _, _, _| Box::pin(async { Err(expected) }));
             let get_item_service = GetItemServiceImpl::new(&item_repository);
 
-            let service = ItemWatchListServiceImpl::new(
+            let service = ProductWatchListServiceImpl::new(
                 &watchlist_repository,
                 &user_repository,
                 &item_repository,
@@ -1155,7 +1159,7 @@ mod tests {
         use crate::{
             watchlist::dynamodb::repository::MockWatchlistItemDynamoDbRepository,
             watchlist::service::item_watchlist_service::{
-                ItemWatchListService, ItemWatchListServiceImpl, WatchItemError,
+                ProductWatchListService, ProductWatchListServiceImpl, WatchItemError,
             },
         };
         use aws_sdk_dynamodb::{
@@ -1192,7 +1196,7 @@ mod tests {
                 .expect_query_watchlist_records()
                 .return_once(|_, _, _| Box::pin(async { Err(expected) }));
             let get_item_service = MockGetItemService::default();
-            let service = ItemWatchListServiceImpl::new(
+            let service = ProductWatchListServiceImpl::new(
                 &watchlist_repository,
                 &user_repository,
                 &item_repository,

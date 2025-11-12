@@ -7,11 +7,13 @@ use common::api::{
 use common::shop_id::api::extract_shop_id_path;
 use common::shops_product_id::api::extract_shops_item_id_path;
 use common::user_id::api::extract_user_id_request_context;
-use product::watchlist::{
-    data::watchlist_item_data::WatchlistItemData,
-    service::{command::UpdateWatchlistItemCommand, item_watchlist_service::ItemWatchListService},
-};
 use lambda_runtime::LambdaEvent;
+use product::watchlist::{
+    data::watchlist_item_data::WatchlistProductData,
+    service::{
+        command::UpdateWatchlistItemCommand, item_watchlist_service::ProductWatchListService,
+    },
+};
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -44,7 +46,7 @@ impl From<WatchlistItemPatch> for UpdateWatchlistItemCommand {
 )]
 pub async fn handler(
     event: LambdaEvent<ApiGatewayV2httpRequest>,
-    service: &impl ItemWatchListService,
+    service: &impl ProductWatchListService,
 ) -> Result<ApiGatewayV2httpResponse, lambda_runtime::Error> {
     match handle(event, service).await {
         Ok(response) => Ok(response),
@@ -58,7 +60,7 @@ pub async fn handler(
 // PATCH /api/v1/me/watchlist/{shopId}/{shopsItemId}
 pub async fn handle(
     event: LambdaEvent<ApiGatewayV2httpRequest>,
-    service: &impl ItemWatchListService,
+    service: &impl ProductWatchListService,
 ) -> Result<ApiGatewayV2httpResponse, ApiError> {
     let user_id = extract_user_id_request_context(&event.payload.request_context)?;
     tracing::Span::current().record("userId", user_id.to_string());
@@ -83,7 +85,7 @@ pub async fn handle(
 
     Ok(ApiGatewayV2HttpResponseBuilder::json(200)
         .last_modified(watchlist_item.updated)
-        .body_serde(WatchlistItemData::from(watchlist_item))?
+        .body_serde(WatchlistProductData::from(watchlist_item))?
         .build())
 }
 
@@ -92,8 +94,8 @@ mod tests {
     use crate::{WatchlistItemPatch, handler};
     use common::{shop_id::ShopId, shops_product_id::ShopsProductId, user_id::UserId};
     use fake::{Fake, Faker};
-    use product::watchlist::service::item_watchlist_service::MockItemWatchListService;
     use lambda_runtime::LambdaEvent;
+    use product::watchlist::service::product_watchlist_service::MockItemWatchListService;
     use test_api::{ApiGatewayV2httpRequestProxy, extract_apigw_response_json_body};
     use time::{OffsetDateTime, format_description::well_known::Rfc3339};
 

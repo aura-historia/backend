@@ -1,14 +1,14 @@
 use common::currency::domain::Currency;
-use common::product_state::domain::ProductState;
 use common::language::domain::Language;
 use common::price::domain::MonetaryAmount;
+use common::product_state::domain::ProductState;
 use common::query::any_of_query::AnyOfQuery;
 use common::query::range_query::RangeQuery;
 use common::query::text_query::TextQuery;
 use time::OffsetDateTime;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct ItemSearch {
+pub struct ProductSearch {
     pub language: Language,
     pub currency: Currency,
     pub item_query: TextQuery,
@@ -24,9 +24,9 @@ pub mod faker {
     use super::*;
     use fake::{Dummy, Fake, Faker, Rng};
 
-    impl Dummy<Faker> for ItemSearch {
+    impl Dummy<Faker> for ProductSearch {
         fn dummy_with_rng<R: Rng + ?Sized>(config: &Faker, rng: &mut R) -> Self {
-            ItemSearch {
+            ProductSearch {
                 language: config.fake_with_rng(rng),
                 currency: config.fake_with_rng(rng),
                 item_query: config.fake_with_rng(rng),

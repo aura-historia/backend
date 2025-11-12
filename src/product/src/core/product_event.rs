@@ -3,11 +3,11 @@ use crate::core::title::Title;
 use common::currency::domain::Currency;
 use common::event::Event;
 use common::has_key::HasKey;
-use common::product_id::{ProductId, ProductKey};
-use common::product_state::domain::ProductState;
 use common::language::domain::Language;
 use common::localized::Localized;
 use common::price::domain::{MonetaryAmount, Price};
+use common::product_id::{ProductId, ProductKey};
+use common::product_state::domain::ProductState;
 use common::shop_id::ShopId;
 use common::shop_name::ShopName;
 use common::shops_product_id::ShopsProductId;
@@ -397,8 +397,8 @@ mod faker {
     #[cfg(test)]
     mod tests {
         use crate::core::product_event::{
-            ItemCreatedEventPayload, ProductEvent, ItemEventPayload, ItemPriceRemovedEventPayload,
-            ItemStateChangeEventPayload,
+            ItemCreatedEventPayload, ItemEventPayload, ItemPriceRemovedEventPayload,
+            ItemStateChangeEventPayload, ProductEvent,
         };
         use fake::{Fake, Faker};
 

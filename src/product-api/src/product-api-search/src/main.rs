@@ -1,15 +1,15 @@
 use aws_config::BehaviorVersion;
 use aws_lambda_events::apigw::ApiGatewayV2httpRequest;
 use cognito::access_token_verifier_service::AccessTokenVerifierServiceImpl;
-use product::opensearch::repository::ProductOpenSearchRepositoryImpl;
-use product::service::personalization_service::ItemPersonalizationServiceImpl;
-use product::service::query_service::QueryItemServiceImpl;
-use product::watchlist::dynamodb::repository::WatchlistItemDynamoDbRepositoryImpl;
 use item_api_search::handler;
 use lambda_runtime::tracing::info;
 use lambda_runtime::{Error, LambdaEvent, run, service_fn};
 use opensearch::http::Url;
 use opensearch::http::transport::{SingleNodeConnectionPool, TransportBuilder};
+use product::opensearch::repository::ProductOpenSearchRepositoryImpl;
+use product::service::personalization_service::ItemPersonalizationServiceImpl;
+use product::service::query_service::QueryItemServiceImpl;
+use product::watchlist::dynamodb::repository::WatchlistItemDynamoDbRepositoryImpl;
 use std::env;
 
 #[tokio::main]

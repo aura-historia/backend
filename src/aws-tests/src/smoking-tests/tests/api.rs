@@ -1,6 +1,6 @@
 use aws_tests_common::get_cfn_output;
 use fake::{Fake, Faker};
-use product::data::item_search_data::ItemSearchData;
+use product::data::product_search_data::ProductSearchData;
 use smoking_tests::smoking_test;
 use uuid::Uuid;
 
@@ -28,7 +28,7 @@ async fn should_respond_200_for_search_items() {
             "{}/api/v1/items/search?sort=price&order=asc&from=0&size=5",
             get_cfn_output().api_gateway_endpoint_url
         ))
-        .json(&Faker.fake::<ItemSearchData>())
+        .json(&Faker.fake::<ProductSearchData>())
         .send()
         .await
         .unwrap();

@@ -8,12 +8,12 @@ use common::{
     api::api_gateway_v2_http_response_builder::ApiGatewayV2HttpResponseBuilder,
     sort::api::extract_sort_query,
 };
-use product::data::get_data::GetItemData;
-use product::watchlist::core::watchlist_item::LocalizedWatchlistItemView;
-use product::watchlist::data::sort_watchlist_item_field_data::SortWatchlistItemFieldData;
-use product::watchlist::service::item_watchlist_service::ItemWatchListService;
-use product::watchlist::service::sort_watchlist_item_field::SortWatchlistItemField;
 use lambda_runtime::LambdaEvent;
+use product::data::get_data::GetItemData;
+use product::watchlist::core::watchlist_product::LocalizedWatchlistItemView;
+use product::watchlist::data::sort_watchlist_product_field_data::SortWatchlistProductFieldData;
+use product::watchlist::service::product_watchlist_service::ProductWatchListService;
+use product::watchlist::service::sort_watchlist_product_field::SortWatchlistProductField;
 use serde::{Deserialize, Serialize};
 use time::OffsetDateTime;
 
@@ -57,7 +57,7 @@ impl From<LocalizedWatchlistItemView> for WatchlistItemDataView {
 )]
 pub async fn handler(
     event: LambdaEvent<ApiGatewayV2httpRequest>,
-    service: &impl ItemWatchListService,
+    service: &impl ProductWatchListService,
 ) -> Result<ApiGatewayV2httpResponse, lambda_runtime::Error> {
     match handle(event, service).await {
         Ok(response) => Ok(response),
@@ -71,15 +71,16 @@ pub async fn handler(
 // GET /api/v1/me/watchlist
 pub async fn handle(
     event: LambdaEvent<ApiGatewayV2httpRequest>,
-    service: &impl ItemWatchListService,
+    service: &impl ProductWatchListService,
 ) -> Result<ApiGatewayV2httpResponse, ApiError> {
     let user_id = extract_user_id_request_context(&event.payload.request_context)?;
     tracing::Span::current().record("userId", user_id.to_string());
     let language = extract_language_header(&event.payload.headers)?;
     let currency = extract_currency_query(&event.payload.query_string_parameters)?;
-    let sort =
-        extract_sort_query::<SortWatchlistItemFieldData>(&event.payload.query_string_parameters)?
-            .map(|sort_data| sort_data.map(SortWatchlistItemField::from));
+    let sort = extract_sort_query::<SortWatchlistProductFieldData>(
+        &event.payload.query_string_parameters,
+    )?
+    .map(|sort_data| sort_data.map(SortWatchlistProductField::from));
     let cursor = extract_time_cursor_query(&event.payload.query_string_parameters)?;
 
     let items = service
@@ -103,8 +104,8 @@ mod tests {
     use crate::handler;
     use common::user_id::UserId;
     use fake::{Fake, Faker};
-    use product::watchlist::service::item_watchlist_service::MockItemWatchListService;
     use lambda_runtime::LambdaEvent;
+    use product::watchlist::service::product_watchlist_service::MockItemWatchListService;
     use test_api::ApiGatewayV2httpRequestProxy;
     use time::{OffsetDateTime, format_description::well_known::Rfc3339};
 

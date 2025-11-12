@@ -4,7 +4,7 @@ use serde::{Deserialize, Serialize};
 #[cfg_attr(feature = "test-data", derive(fake::Dummy))]
 #[derive(Copy, Clone, Eq, PartialEq, Debug, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "SCREAMING_SNAKE_CASE")]
-pub enum ItemStateData {
+pub enum ProductStateData {
     Listed,
     Available,
     Reserved,
@@ -13,46 +13,46 @@ pub enum ItemStateData {
     Unknown,
 }
 
-impl From<ProductState> for ItemStateData {
+impl From<ProductState> for ProductStateData {
     fn from(domain: ProductState) -> Self {
         match domain {
-            ProductState::Listed => ItemStateData::Listed,
-            ProductState::Available => ItemStateData::Available,
-            ProductState::Reserved => ItemStateData::Reserved,
-            ProductState::Sold => ItemStateData::Sold,
-            ProductState::Removed => ItemStateData::Removed,
-            ProductState::Unknown => ItemStateData::Unknown,
+            ProductState::Listed => ProductStateData::Listed,
+            ProductState::Available => ProductStateData::Available,
+            ProductState::Reserved => ProductStateData::Reserved,
+            ProductState::Sold => ProductStateData::Sold,
+            ProductState::Removed => ProductStateData::Removed,
+            ProductState::Unknown => ProductStateData::Unknown,
         }
     }
 }
 
-impl From<ItemStateData> for ProductState {
-    fn from(cmd: ItemStateData) -> Self {
+impl From<ProductStateData> for ProductState {
+    fn from(cmd: ProductStateData) -> Self {
         match cmd {
-            ItemStateData::Listed => ProductState::Listed,
-            ItemStateData::Available => ProductState::Available,
-            ItemStateData::Reserved => ProductState::Reserved,
-            ItemStateData::Sold => ProductState::Sold,
-            ItemStateData::Removed => ProductState::Removed,
-            ItemStateData::Unknown => ProductState::Unknown,
+            ProductStateData::Listed => ProductState::Listed,
+            ProductStateData::Available => ProductState::Available,
+            ProductStateData::Reserved => ProductState::Reserved,
+            ProductStateData::Sold => ProductState::Sold,
+            ProductStateData::Removed => ProductState::Removed,
+            ProductStateData::Unknown => ProductState::Unknown,
         }
     }
 }
 
 #[cfg(test)]
 mod tests {
-    use super::ItemStateData;
+    use super::ProductStateData;
     use rstest::rstest;
 
     #[rstest]
-    #[case(ItemStateData::Listed, "\"LISTED\"")]
-    #[case(ItemStateData::Available, "\"AVAILABLE\"")]
-    #[case(ItemStateData::Reserved, "\"RESERVED\"")]
-    #[case(ItemStateData::Sold, "\"SOLD\"")]
-    #[case(ItemStateData::Removed, "\"REMOVED\"")]
-    #[case(ItemStateData::Unknown, "\"UNKNOWN\"")]
+    #[case(ProductStateData::Listed, "\"LISTED\"")]
+    #[case(ProductStateData::Available, "\"AVAILABLE\"")]
+    #[case(ProductStateData::Reserved, "\"RESERVED\"")]
+    #[case(ProductStateData::Sold, "\"SOLD\"")]
+    #[case(ProductStateData::Removed, "\"REMOVED\"")]
+    #[case(ProductStateData::Unknown, "\"UNKNOWN\"")]
     fn should_serialize_item_state_data_in_screaming_snake_case(
-        #[case] item_state_record: ItemStateData,
+        #[case] item_state_record: ProductStateData,
         #[case] expected: &str,
     ) {
         let actual = serde_json::to_string(&item_state_record).unwrap();
@@ -60,17 +60,17 @@ mod tests {
     }
 
     #[rstest]
-    #[case("\"LISTED\"", ItemStateData::Listed)]
-    #[case("\"AVAILABLE\"", ItemStateData::Available)]
-    #[case("\"RESERVED\"", ItemStateData::Reserved)]
-    #[case("\"SOLD\"", ItemStateData::Sold)]
-    #[case("\"REMOVED\"", ItemStateData::Removed)]
-    #[case("\"UNKNOWN\"", ItemStateData::Unknown)]
+    #[case("\"LISTED\"", ProductStateData::Listed)]
+    #[case("\"AVAILABLE\"", ProductStateData::Available)]
+    #[case("\"RESERVED\"", ProductStateData::Reserved)]
+    #[case("\"SOLD\"", ProductStateData::Sold)]
+    #[case("\"REMOVED\"", ProductStateData::Removed)]
+    #[case("\"UNKNOWN\"", ProductStateData::Unknown)]
     fn should_deserialize_item_state_data_in_screaming_snake_case(
         #[case] currency: &str,
-        #[case] expected: ItemStateData,
+        #[case] expected: ProductStateData,
     ) {
-        let actual = serde_json::from_str::<ItemStateData>(currency).unwrap();
+        let actual = serde_json::from_str::<ProductStateData>(currency).unwrap();
         assert_eq!(actual, expected);
     }
 }

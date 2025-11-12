@@ -1,6 +1,6 @@
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct Personalized<Item, UserState> {
-    pub item: Item,
+pub struct Personalized<Product, UserState> {
+    pub item: Product,
     pub user_state: Option<UserState>,
 }
 
@@ -18,13 +18,13 @@ pub mod api {
         pub user_state: Option<UserStateData>,
     }
 
-    impl<Item, UserState, ProductData, UserStateData> From<Personalized<Item, UserState>>
+    impl<Product, UserState, ProductData, UserStateData> From<Personalized<Product, UserState>>
         for PersonalizedData<ProductData, UserStateData>
     where
-        Item: Into<ProductData>,
+        Product: Into<ProductData>,
         UserState: Into<UserStateData>,
     {
-        fn from(personalized: Personalized<Item, UserState>) -> Self {
+        fn from(personalized: Personalized<Product, UserState>) -> Self {
             PersonalizedData {
                 item: personalized.item.into(),
                 user_state: personalized.user_state.map(Into::into),

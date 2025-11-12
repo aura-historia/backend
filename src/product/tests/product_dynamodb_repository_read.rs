@@ -9,15 +9,15 @@ mod get_item_record {
     use crate::get_repository;
     use common::currency::record::CurrencyRecord;
     use common::event_id::EventId;
-    use common::product_id::ProductId;
     use common::language::record::{LanguageRecord, TextRecord};
     use common::price::record::PriceRecord;
+    use common::product_id::ProductId;
     use common::shop_id::ShopId;
     use common::shops_product_id::ShopsProductId;
-    use product::dynamodb::item_event_record::{self, ProductEventRecord};
-    use product::dynamodb::item_event_type_record::ProductEventTypeRecord;
+    use product::dynamodb::product_event_record::{self, ProductEventRecord};
+    use product::dynamodb::product_event_type_record::ProductEventTypeRecord;
     use product::dynamodb::product_record::{self, ProductRecord};
-    use product::dynamodb::item_state_record::ProductStateRecord;
+    use product::dynamodb::product_state_record::ProductStateRecord;
     use product::dynamodb::repository::ProductDynamoDbRepository;
     use test_api::*;
     use time::OffsetDateTime;
@@ -244,16 +244,16 @@ mod get_item_record {
 
 mod query_item_record_and_event_records {
     use crate::get_repository;
-    use common::product_state::domain::ProductState;
     use common::price::domain::Price;
+    use common::product_state::domain::ProductState;
     use common::shop_id::ShopId;
     use common::shops_product_id::ShopsProductId;
     use fake::{Fake, Faker};
     use product::core::product_event::{
-        ItemCreatedEventPayload, ProductEvent, ItemEventPayload, ItemStateChangeEventPayload,
+        ItemCreatedEventPayload, ItemEventPayload, ItemStateChangeEventPayload, ProductEvent,
     };
-    use product::dynamodb::item_event_record::ProductEventRecord;
-    use product::dynamodb::item_event_type_record::ProductEventTypeRecord;
+    use product::dynamodb::product_event_record::ProductEventRecord;
+    use product::dynamodb::product_event_type_record::ProductEventTypeRecord;
     use product::dynamodb::product_record::ProductRecord;
     use product::dynamodb::repository::ProductDynamoDbRepository;
     use test_api::*;
@@ -451,13 +451,13 @@ mod batch_get_item_records {
     use common::batch::Batch;
     use common::currency::record::CurrencyRecord;
     use common::event_id::EventId;
-    use common::product_id::{ProductId, ProductKey};
     use common::language::record::{LanguageRecord, TextRecord};
     use common::price::record::PriceRecord;
+    use common::product_id::{ProductId, ProductKey};
     use common::shop_id::ShopId;
     use common::shops_product_id::ShopsProductId;
     use product::dynamodb::product_record::{self, ProductRecord};
-    use product::dynamodb::item_state_record::ProductStateRecord;
+    use product::dynamodb::product_state_record::ProductStateRecord;
     use product::dynamodb::repository::ProductDynamoDbRepository;
     use test_api::*;
     use time::OffsetDateTime;
@@ -694,13 +694,13 @@ mod batch_exist_item_records {
     use common::currency::record::CurrencyRecord;
     use common::event_id::EventId;
     use common::has_key::HasKey;
-    use common::product_id::{ProductId, ProductKey};
     use common::language::record::{LanguageRecord, TextRecord};
     use common::price::record::PriceRecord;
+    use common::product_id::{ProductId, ProductKey};
     use common::shop_id::ShopId;
     use common::shops_product_id::ShopsProductId;
     use product::dynamodb::product_record::{self, ProductRecord};
-    use product::dynamodb::item_state_record::ProductStateRecord;
+    use product::dynamodb::product_state_record::ProductStateRecord;
     use product::dynamodb::repository::ProductDynamoDbRepository;
     use test_api::*;
     use time::OffsetDateTime;
@@ -929,13 +929,13 @@ mod get_item_id {
     use crate::get_repository;
     use common::currency::record::CurrencyRecord;
     use common::event_id::EventId;
-    use common::product_id::ProductId;
     use common::language::record::{LanguageRecord, TextRecord};
     use common::price::record::PriceRecord;
+    use common::product_id::ProductId;
     use common::shop_id::ShopId;
     use common::shops_product_id::ShopsProductId;
     use product::dynamodb::product_record::{self, ProductRecord};
-    use product::dynamodb::item_state_record::ProductStateRecord;
+    use product::dynamodb::product_state_record::ProductStateRecord;
     use product::dynamodb::repository::ProductDynamoDbRepository;
     use test_api::*;
     use time::OffsetDateTime;

@@ -15,8 +15,8 @@ use aws_sdk_dynamodb::{
     types::{AttributeValue, ReturnValue},
 };
 use common::{
-    dynamodb_update::DynamoDbUpdate, product_id::ProductId, pagination::cursor::Cursor, shop_id::ShopId,
-    shops_product_id::ShopsProductId, user_id::UserId,
+    dynamodb_update::DynamoDbUpdate, pagination::cursor::Cursor, product_id::ProductId,
+    shop_id::ShopId, shops_product_id::ShopsProductId, user_id::UserId,
 };
 use time::{OffsetDateTime, macros::datetime};
 use tracing::error;

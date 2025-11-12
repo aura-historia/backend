@@ -5,7 +5,7 @@ use crate::dynamodb::repository::UserSearchFilterDynamoDbRepository;
 use crate::service::user_search_filter_update::UserSearchFilterUpdate;
 use aws_sdk_dynamodb::{config::http::HttpResponse, error::SdkError};
 use common::{sort::SortOrder, user_id::UserId};
-use product::core::item_search::ItemSearch;
+use product::core::product_search::ProductSearch;
 use time::OffsetDateTime;
 
 #[derive(thiserror::Error, Debug)]
@@ -78,7 +78,7 @@ pub trait UserSearchFilterService {
         &self,
         user_id: &UserId,
         name: UserSearchFilterName,
-        search_filter: ItemSearch,
+        search_filter: ProductSearch,
     ) -> Result<UserSearchFilter, UserSearchFilterError>;
 
     async fn delete_user_search_filter(
@@ -145,7 +145,7 @@ impl<'a> UserSearchFilterService for UserSearchFilterServiceImpl<'a> {
         &self,
         user_id: &UserId,
         name: UserSearchFilterName,
-        search: ItemSearch,
+        search: ProductSearch,
     ) -> Result<UserSearchFilter, UserSearchFilterError> {
         let user_search_filter = UserSearchFilter {
             user_id: *user_id,

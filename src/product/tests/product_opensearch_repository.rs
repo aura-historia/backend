@@ -1,22 +1,24 @@
 use common::currency::domain::Currency;
 use common::event_id::EventId;
-use common::product_id::ProductId;
-use common::product_state::domain::ProductState;
 use common::language::domain::Language;
 use common::pagination::cursor::Cursor;
 use common::price::domain::MonetaryAmount;
+use common::product_id::ProductId;
+use common::product_state::domain::ProductState;
 use common::query::any_of_query::AnyOfQuery;
 use common::query::range_query::RangeQuery;
 use common::shops_product_id::ShopsProductId;
 use common::sort::{Sort, SortOrder};
 use fake::rand;
-use product::core::item_search::ItemSearch;
-use product::core::sort_item_field::SortItemField;
-use product::opensearch::item_document::ItemDocument;
-use product::opensearch::item_state_document::ItemStateDocument;
-use product::opensearch::item_update_document::ItemUpdateDocument;
-use product::opensearch::repository::{ProductOpenSearchRepository, ProductOpenSearchRepositoryImpl};
 use opensearch::http::Url;
+use product::core::product_search::ProductSearch;
+use product::core::sort_product_field::SortProductField;
+use product::opensearch::product_document::ProductDocument;
+use product::opensearch::product_state_document::ProductStateDocument;
+use product::opensearch::product_update_document::ProductUpdateDocument;
+use product::opensearch::repository::{
+    ProductOpenSearchRepository, ProductOpenSearchRepositoryImpl,
+};
 use serde_json::json;
 use std::collections::HashMap;
 use std::collections::HashSet;
@@ -29,7 +31,7 @@ use time::macros::datetime;
 #[localstack_test(services = [OpenSearch()])]
 async fn should_create_item_document() {
     let product_id = ProductId::new();
-    let expected = ItemDocument {
+    let expected = ProductDocument {
         product_id,
         event_id: Default::default(),
         shop_id: Default::default(),
@@ -45,7 +47,7 @@ async fn should_create_item_document() {
         price_aud: None,
         price_cad: None,
         price_nzd: None,
-        state: ItemStateDocument::Listed,
+        state: ProductStateDocument::Listed,
         url: Url::parse("https://foo.com/bar").unwrap(),
         images: vec![Url::parse("https://foo.com/bar").unwrap()],
         text_embedding: None,
@@ -68,7 +70,7 @@ async fn should_create_item_document() {
 #[localstack_test(services = [OpenSearch()])]
 async fn should_create_item_documents() {
     let item_id1 = ProductId::new();
-    let expected1 = ItemDocument {
+    let expected1 = ProductDocument {
         product_id: item_id1,
         event_id: Default::default(),
         shop_id: Default::default(),
@@ -84,7 +86,7 @@ async fn should_create_item_documents() {
         price_aud: None,
         price_cad: None,
         price_nzd: None,
-        state: ItemStateDocument::Listed,
+        state: ProductStateDocument::Listed,
         url: Url::parse("https://foo.com/bar").unwrap(),
         images: vec![Url::parse("https://foo.com/bar").unwrap()],
         text_embedding: None,
@@ -92,7 +94,7 @@ async fn should_create_item_documents() {
         updated: OffsetDateTime::now_utc(),
     };
     let item_id2 = ProductId::new();
-    let expected2 = ItemDocument {
+    let expected2 = ProductDocument {
         product_id: item_id2,
         event_id: Default::default(),
         shop_id: Default::default(),
@@ -108,7 +110,7 @@ async fn should_create_item_documents() {
         price_aud: None,
         price_cad: None,
         price_nzd: None,
-        state: ItemStateDocument::Listed,
+        state: ProductStateDocument::Listed,
         url: Url::parse("https://foo.com/bar").unwrap(),
         images: vec![Url::parse("https://foo.com/bar").unwrap()],
         text_embedding: None,
@@ -133,7 +135,7 @@ async fn should_create_item_documents() {
 #[localstack_test(services = [OpenSearch()])]
 async fn should_update_item_document() {
     let product_id = ProductId::new();
-    let initial = ItemDocument {
+    let initial = ProductDocument {
         product_id,
         event_id: Default::default(),
         shop_id: Default::default(),
@@ -149,7 +151,7 @@ async fn should_update_item_document() {
         price_aud: None,
         price_cad: None,
         price_nzd: None,
-        state: ItemStateDocument::Listed,
+        state: ProductStateDocument::Listed,
         url: Url::parse("https://foo.com/bar").unwrap(),
         images: vec![Url::parse("https://foo.com/bar").unwrap()],
         text_embedding: None,
@@ -167,7 +169,7 @@ async fn should_update_item_document() {
 
     let updated_event_id = EventId::new();
     let updated_update_ts = OffsetDateTime::now_utc();
-    let update = ItemUpdateDocument {
+    let update = ProductUpdateDocument {
         event_id: updated_event_id,
         price_eur: None,
         price_usd: None,
@@ -175,7 +177,7 @@ async fn should_update_item_document() {
         price_aud: None,
         price_cad: None,
         price_nzd: None,
-        state: Some(ItemStateDocument::Sold),
+        state: Some(ProductStateDocument::Sold),
         text_embedding: None,
         updated: updated_update_ts,
     };
@@ -189,7 +191,7 @@ async fn should_update_item_document() {
 
     let mut expected = initial;
     expected.event_id = updated_event_id;
-    expected.state = ItemStateDocument::Sold;
+    expected.state = ProductStateDocument::Sold;
     expected.updated = updated_update_ts;
 
     let actual = read_by_id("items", product_id).await;
@@ -199,7 +201,7 @@ async fn should_update_item_document() {
 
 #[localstack_test(services = [OpenSearch()])]
 async fn should_search_item_documents() {
-    let expected = ItemDocument {
+    let expected = ProductDocument {
         product_id: Default::default(),
         event_id: Default::default(),
         shop_id: Default::default(),
@@ -215,7 +217,7 @@ async fn should_search_item_documents() {
         price_aud: None,
         price_cad: None,
         price_nzd: None,
-        state: ItemStateDocument::Available,
+        state: ProductStateDocument::Available,
         url: Url::parse("https://foo.com/bar").unwrap(),
         images: vec![Url::parse("https://foo.com/bar").unwrap()],
         text_embedding: None,
@@ -233,7 +235,7 @@ async fn should_search_item_documents() {
 
     tokio::time::sleep(Duration::from_millis(3000)).await;
 
-    let search_filter = ItemSearch {
+    let search_filter = ProductSearch {
         language: Language::De,
         currency: Currency::Eur,
         item_query: "Hallo Welt".try_into().unwrap(),
@@ -247,7 +249,7 @@ async fn should_search_item_documents() {
         .search_item_documents(
             &search_filter,
             &Sort {
-                sort: SortItemField::Score,
+                sort: SortProductField::Score,
                 order: SortOrder::Desc,
             },
             &None,
@@ -268,7 +270,7 @@ async fn should_search_item_documents() {
 
 #[localstack_test(services = [OpenSearch()])]
 async fn should_search_item_documents_when_all_arguments_are_given() {
-    let items = fake::vec![ItemDocument; 1000];
+    let items = fake::vec![ProductDocument; 1000];
     let client = get_opensearch_client().await;
     let repository = ProductOpenSearchRepositoryImpl::new(client);
     let response = repository
@@ -279,7 +281,7 @@ async fn should_search_item_documents_when_all_arguments_are_given() {
     refresh_index("items").await;
     tokio::time::sleep(Duration::from_millis(3000)).await;
 
-    let search_filter = ItemSearch {
+    let search_filter = ProductSearch {
         language: Language::De,
         currency: Currency::Eur,
         item_query: "Lorem".try_into().unwrap(),
@@ -302,7 +304,7 @@ async fn should_search_item_documents_when_all_arguments_are_given() {
         }),
     };
     let sort = Sort {
-        sort: SortItemField::Price,
+        sort: SortProductField::Price,
         order: SortOrder::Asc,
     };
     let page = Cursor {
@@ -323,7 +325,7 @@ async fn should_search_item_documents_when_all_arguments_are_given() {
 #[case(&[ProductState::Reserved, ProductState::Listed, ProductState::Removed])]
 #[localstack_test(services = [OpenSearch()])]
 async fn should_search_item_documents_when_states_are_given(#[case] states: &[ProductState]) {
-    let items = fake::vec![ItemDocument; 3000]
+    let items = fake::vec![ProductDocument; 3000]
         .into_iter()
         .map(|mut item| {
             item.title_de = Some("The same title".into());
@@ -340,7 +342,7 @@ async fn should_search_item_documents_when_states_are_given(#[case] states: &[Pr
     refresh_index("items").await;
     tokio::time::sleep(Duration::from_millis(3000)).await;
 
-    let search_filter = ItemSearch {
+    let search_filter = ProductSearch {
         language: Language::De,
         currency: Currency::Eur,
         item_query: "The same title".try_into().unwrap(),
@@ -354,7 +356,7 @@ async fn should_search_item_documents_when_states_are_given(#[case] states: &[Pr
         .search_item_documents(
             &search_filter,
             &Sort {
-                sort: SortItemField::Score,
+                sort: SortProductField::Score,
                 order: SortOrder::Desc,
             },
             &None,
@@ -374,7 +376,7 @@ async fn should_search_item_documents_when_states_are_given(#[case] states: &[Pr
 
 #[localstack_test(services = [OpenSearch()])]
 async fn should_search_item_documents_when_no_states_are_given() {
-    let items = fake::vec![ItemDocument; 100]
+    let items = fake::vec![ProductDocument; 100]
         .into_iter()
         .map(|mut item| {
             item.title_de = Some("The same title".into());
@@ -391,7 +393,7 @@ async fn should_search_item_documents_when_no_states_are_given() {
     refresh_index("items").await;
     tokio::time::sleep(Duration::from_millis(3000)).await;
 
-    let search_filter = ItemSearch {
+    let search_filter = ProductSearch {
         language: Language::De,
         currency: Currency::Eur,
         item_query: "The same title".try_into().unwrap(),
@@ -405,7 +407,7 @@ async fn should_search_item_documents_when_no_states_are_given() {
         .search_item_documents(
             &search_filter,
             &Sort {
-                sort: SortItemField::Score,
+                sort: SortProductField::Score,
                 order: SortOrder::Desc,
             },
             &None,
@@ -429,7 +431,7 @@ async fn should_search_item_documents_when_no_states_are_given() {
 async fn should_search_item_documents_when_price_range_is_given(
     #[case] price_query: RangeQuery<MonetaryAmount>,
 ) {
-    let cheap_items = fake::vec![ItemDocument; 50]
+    let cheap_items = fake::vec![ProductDocument; 50]
         .into_iter()
         .map(|mut item| {
             item.title_de = Some("The same title".into());
@@ -437,7 +439,7 @@ async fn should_search_item_documents_when_price_range_is_given(
             item
         })
         .collect::<Vec<_>>();
-    let expensive_items = fake::vec![ItemDocument; 50]
+    let expensive_items = fake::vec![ProductDocument; 50]
         .into_iter()
         .map(|mut item| {
             item.title_de = Some("The same title".into());
@@ -456,7 +458,7 @@ async fn should_search_item_documents_when_price_range_is_given(
     refresh_index("items").await;
     tokio::time::sleep(Duration::from_millis(3000)).await;
 
-    let search_filter = ItemSearch {
+    let search_filter = ProductSearch {
         language: Language::De,
         currency: Currency::Eur,
         item_query: "The same title".try_into().unwrap(),
@@ -470,7 +472,7 @@ async fn should_search_item_documents_when_price_range_is_given(
         .search_item_documents(
             &search_filter,
             &Sort {
-                sort: SortItemField::Score,
+                sort: SortProductField::Score,
                 order: SortOrder::Desc,
             },
             &Some(Cursor {
@@ -510,7 +512,7 @@ async fn should_search_item_documents_when_price_range_is_given(
 
 #[localstack_test(services = [OpenSearch()])]
 async fn should_search_item_documents_respecting_paging_when_sorted_by_price() {
-    let items = fake::vec![ItemDocument; 1000]
+    let items = fake::vec![ProductDocument; 1000]
         .into_iter()
         .map(|mut item| {
             item.title_en = Some("The same title".into());
@@ -528,7 +530,7 @@ async fn should_search_item_documents_respecting_paging_when_sorted_by_price() {
     refresh_index("items").await;
     tokio::time::sleep(Duration::from_millis(3000)).await;
 
-    let search_filter = ItemSearch {
+    let search_filter = ProductSearch {
         language: Language::En,
         currency: Currency::Usd,
         item_query: "The same title".try_into().unwrap(),
@@ -542,7 +544,7 @@ async fn should_search_item_documents_respecting_paging_when_sorted_by_price() {
         .search_item_documents(
             &search_filter,
             &Sort {
-                sort: SortItemField::Price,
+                sort: SortProductField::Price,
                 order: SortOrder::Asc,
             },
             &Some(Cursor {
@@ -558,7 +560,7 @@ async fn should_search_item_documents_respecting_paging_when_sorted_by_price() {
         .into_iter()
         .map(|hit| hit.source)
         .collect::<Vec<_>>();
-    let sorter = |l: &ItemDocument, r: &ItemDocument| match l
+    let sorter = |l: &ProductDocument, r: &ProductDocument| match l
         .price_usd
         .unwrap()
         .cmp(&r.price_usd.unwrap())
@@ -577,7 +579,7 @@ async fn should_search_item_documents_respecting_paging_when_sorted_by_price() {
 
 #[localstack_test(services = [OpenSearch()])]
 async fn should_search_item_documents_respecting_search_after_when_sorted_by_price() {
-    let mut expected_items = fake::vec![ItemDocument; 200]
+    let mut expected_items = fake::vec![ProductDocument; 200]
         .into_iter()
         .map(|mut item| {
             item.title_en = Some("The same title".into());
@@ -595,7 +597,7 @@ async fn should_search_item_documents_respecting_search_after_when_sorted_by_pri
     refresh_index("items").await;
     tokio::time::sleep(Duration::from_millis(3000)).await;
 
-    let sorter = |l: &ItemDocument, r: &ItemDocument| match l
+    let sorter = |l: &ProductDocument, r: &ProductDocument| match l
         .price_usd
         .unwrap()
         .cmp(&r.price_usd.unwrap())
@@ -604,7 +606,7 @@ async fn should_search_item_documents_respecting_search_after_when_sorted_by_pri
         ord => ord,
     };
     expected_items.sort_by(sorter);
-    let search_filter = ItemSearch {
+    let search_filter = ProductSearch {
         language: Language::En,
         currency: Currency::Usd,
         item_query: "The same title".try_into().unwrap(),
@@ -618,7 +620,7 @@ async fn should_search_item_documents_respecting_search_after_when_sorted_by_pri
         .search_item_documents(
             &search_filter,
             &Sort {
-                sort: SortItemField::Price,
+                sort: SortProductField::Price,
                 order: SortOrder::Asc,
             },
             &Some(Cursor {
@@ -649,7 +651,7 @@ async fn should_search_item_documents_respecting_search_after_when_sorted_by_pri
 #[localstack_test(services = [OpenSearch()])]
 async fn should_get_item_document() {
     let product_id = ProductId::new();
-    let expected = ItemDocument {
+    let expected = ProductDocument {
         product_id,
         event_id: Default::default(),
         shop_id: Default::default(),
@@ -665,7 +667,7 @@ async fn should_get_item_document() {
         price_aud: None,
         price_cad: None,
         price_nzd: None,
-        state: ItemStateDocument::Listed,
+        state: ProductStateDocument::Listed,
         url: Url::parse("https://foo.com/bar").unwrap(),
         images: vec![Url::parse("https://foo.com/bar").unwrap()],
         text_embedding: None,
@@ -1715,7 +1717,7 @@ const EXAMPLE_EMBEDDING: [f32; 1024] = [
 async fn should_return_k_nearest_neighbors() {
     let client = get_opensearch_client().await;
     let repository = ProductOpenSearchRepositoryImpl::new(client);
-    let mut documents = fake::vec![ItemDocument; 20];
+    let mut documents = fake::vec![ProductDocument; 20];
     for document in &mut documents {
         document.text_embedding = Some(EXAMPLE_EMBEDDING.into());
     }

@@ -2,11 +2,11 @@ pub mod service;
 
 use crate::service::ItemEventMailPayloadService;
 use aws_lambda_events::sqs::{BatchItemFailure, SqsBatchResponse, SqsEvent};
-use product::core::product_event::ProductEvent;
-use product::dynamodb::item_event_record::ProductEventRecord;
 use item_lambda_common::extract_item_event_record;
 use lambda_runtime::LambdaEvent;
 use mail_core::{payload::MailPayload, queue_service::QueueMailService};
+use product::core::product_event::ProductEvent;
+use product::dynamodb::product_event_record::ProductEventRecord;
 use tracing::{error, info};
 
 #[tracing::instrument(skip(queue_mail_service, item_event_mail_payload_service, event), fields(requestId = %event.context.request_id))]
@@ -116,11 +116,11 @@ mod tests {
     use aws_lambda_events::sqs::{SqsEvent, SqsMessage};
     use aws_sdk_dynamodb::error::SdkError;
     use fake::{Fake, Faker};
-    use product::core::product_event::ProductEvent;
-    use product::dynamodb::item_event_record::ProductEventRecord;
     use lambda_runtime::{Context, LambdaEvent};
     use mail_core::payload::MailPayload;
     use mail_core::queue_service::MockQueueMailService;
+    use product::core::product_event::ProductEvent;
+    use product::dynamodb::product_event_record::ProductEventRecord;
     use std::ops::SubAssign;
     use std::sync::Arc;
     use std::time::SystemTime;

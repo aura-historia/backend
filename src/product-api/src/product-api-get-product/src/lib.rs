@@ -11,13 +11,13 @@ use common::personalized::Personalized;
 use common::personalized::api::PersonalizedData;
 use common::shop_id::api::extract_shop_id_path;
 use common::shops_product_id::api::extract_shops_item_id_path;
-use product::core::item::LocalizedItemView;
+use lambda_runtime::LambdaEvent;
+use product::core::product::LocalizedItemView;
 use product::core::user_state::ItemUserState;
 use product::data::get_data::GetItemData;
 use product::data::user_state_data::ItemUserStateData;
 use product::service::get_service::GetItemService;
 use product::service::personalization_service::ItemPersonalizationService;
-use lambda_runtime::LambdaEvent;
 
 #[tracing::instrument(
     skip(event, get_item_service, access_token_verifier_service, item_personalization_service),
@@ -135,17 +135,17 @@ mod tests {
     use crate::handler;
     use cognito::access_token_verifier_service::MockAccessTokenVerifierService;
     use common::event_id::EventId;
-    use common::product_state::domain::ProductState;
     use common::language::data::LanguageData;
     use common::language::domain::Language;
     use common::localized::Localized;
+    use common::product_state::domain::ProductState;
     use common::shop_id::ShopId;
     use common::shops_product_id::ShopsProductId;
     use http::header::{ACCEPT_LANGUAGE, CONTENT_LANGUAGE, ETAG, LAST_MODIFIED};
-    use product::core::item::LocalizedItemView;
+    use lambda_runtime::LambdaEvent;
+    use product::core::product::LocalizedItemView;
     use product::service::get_service::{GetItemError, MockGetItemService};
     use product::service::personalization_service::MockItemPersonalizationService;
-    use lambda_runtime::LambdaEvent;
     use test_api::{ApiGatewayV2httpRequestProxy, extract_apigw_response_json_body};
     use time::OffsetDateTime;
     use time::macros::datetime;
@@ -179,9 +179,8 @@ mod tests {
             .return_once(|_| Box::pin(async { Ok(None) }));
         let item_personalization_service = MockItemPersonalizationService::default();
         let mut get_item_service = MockGetItemService::default();
-        get_item_service
-            .expect_view_item()
-            .return_once(move |shop_id, shops_product_id, _, _, _| {
+        get_item_service.expect_view_item().return_once(
+            move |shop_id, shops_product_id, _, _, _| {
                 let item = LocalizedItemView {
                     product_id: Default::default(),
                     event_id: EventId::new(),
@@ -199,7 +198,8 @@ mod tests {
                     history: None,
                 };
                 Box::pin(async move { Ok(item) })
-            });
+            },
+        );
 
         let response = handler(
             lambda_event,
@@ -230,9 +230,8 @@ mod tests {
             .return_once(|_| Box::pin(async { Ok(None) }));
         let item_personalization_service = MockItemPersonalizationService::default();
         let mut get_item_service = MockGetItemService::default();
-        get_item_service
-            .expect_view_item()
-            .return_once(move |shop_id, shops_product_id, _, _, _| {
+        get_item_service.expect_view_item().return_once(
+            move |shop_id, shops_product_id, _, _, _| {
                 let item = LocalizedItemView {
                     product_id: Default::default(),
                     event_id,
@@ -250,7 +249,8 @@ mod tests {
                     history: None,
                 };
                 Box::pin(async move { Ok(item) })
-            });
+            },
+        );
         let shop_id = ShopId::new();
         let shops_product_id = ShopsProductId::new();
         let lambda_event = LambdaEvent {
@@ -286,9 +286,8 @@ mod tests {
             .return_once(|_| Box::pin(async { Ok(None) }));
         let item_personalization_service = MockItemPersonalizationService::default();
         let mut get_item_service = MockGetItemService::default();
-        get_item_service
-            .expect_view_item()
-            .return_once(move |shop_id, shops_product_id, _, _, _| {
+        get_item_service.expect_view_item().return_once(
+            move |shop_id, shops_product_id, _, _, _| {
                 let item = LocalizedItemView {
                     product_id: Default::default(),
                     event_id,
@@ -306,7 +305,8 @@ mod tests {
                     history: None,
                 };
                 Box::pin(async move { Ok(item) })
-            });
+            },
+        );
         let shop_id = ShopId::new();
         let shops_product_id = ShopsProductId::new();
         let lambda_event = LambdaEvent {
@@ -511,13 +511,13 @@ mod tests {
             .return_once(|_| Box::pin(async { Ok(None) }));
         let item_personalization_service = MockItemPersonalizationService::default();
         let mut get_item_service = MockGetItemService::default();
-        get_item_service
-            .expect_view_item()
-            .return_once(move |shop_id, shops_product_id, _, _, _| {
+        get_item_service.expect_view_item().return_once(
+            move |shop_id, shops_product_id, _, _, _| {
                 let shop_id = *shop_id;
                 let shops_product_id = shops_product_id.clone();
                 Box::pin(async move { Err(GetItemError::ItemNotFound(shop_id, shops_product_id)) })
-            });
+            },
+        );
 
         let response = handler(
             lambda_event,

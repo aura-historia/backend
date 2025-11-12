@@ -3,8 +3,8 @@ use common::{
     currency::domain::Currency,
     event::Event,
     event_id::EventId,
-    product_state::domain::ProductState,
     price::domain::{FixedFxRate, FxRate, Price},
+    product_state::domain::ProductState,
     shop_id::ShopId,
 };
 use fake::{Fake, Faker};
@@ -15,7 +15,7 @@ use product::{
     service::get_service::GetItemServiceImpl,
     watchlist::{
         dynamodb::repository::WatchlistItemDynamoDbRepositoryImpl,
-        service::item_watchlist_service::ItemWatchListServiceImpl,
+        service::item_watchlist_service::ProductWatchListServiceImpl,
     },
 };
 use product::{
@@ -23,7 +23,7 @@ use product::{
         product_record::ProductRecord,
         repository::{ProductDynamoDbRepository, ProductDynamoDbRepositoryImpl},
     },
-    watchlist::service::item_watchlist_service::ItemWatchListService,
+    watchlist::service::item_watchlist_service::ProductWatchListService,
 };
 use staging_tests::{create_random_test_user, get_dynamodb_client, staging_test};
 use std::time::{Duration, SystemTime};
@@ -78,7 +78,7 @@ async fn should_respond_200_personalized_when_authenticated_and_item_does_exist_
     let user_repository =
         UserDynamoDbRepositoryImpl::new(ddb_client, &get_cfn_output().dynamodb_table_1_name);
     let get_item_service = GetItemServiceImpl::new(&item_repository);
-    let watchlist_service = ItemWatchListServiceImpl::new(
+    let watchlist_service = ProductWatchListServiceImpl::new(
         &watchlist_repository,
         &user_repository,
         &item_repository,

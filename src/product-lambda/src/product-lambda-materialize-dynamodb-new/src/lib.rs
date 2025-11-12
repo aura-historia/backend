@@ -3,11 +3,11 @@ use common::product_id::ProductKey;
 use common::{
     batch::Batch, batch::dynamodb::handle_dynamodb_batch_write_put_item_output, has_key::HasKey,
 };
-use product::dynamodb::item_event_record::ProductEventRecord;
-use product::dynamodb::product_record::ProductRecord;
-use product::dynamodb::repository::ProductDynamoDbRepository;
 use item_lambda_common::extract_item_event_record;
 use lambda_runtime::LambdaEvent;
+use product::dynamodb::product_event_record::ProductEventRecord;
+use product::dynamodb::product_record::ProductRecord;
+use product::dynamodb::repository::ProductDynamoDbRepository;
 use std::collections::HashMap;
 use tracing::{error, info};
 
@@ -119,10 +119,10 @@ mod tests {
     use common::has_key::HasKey;
     use common::product_id::ProductKey;
     use fake::{Fake, Faker};
-    use product::core::product_event::{ItemCreatedEventPayload, ItemEventPayload};
-    use product::dynamodb::item_event_record::ProductEventRecord;
-    use product::dynamodb::repository::MockItemDynamoDbRepository;
     use lambda_runtime::{Context, LambdaEvent};
+    use product::core::product_event::{ItemCreatedEventPayload, ItemEventPayload};
+    use product::dynamodb::product_event_record::ProductEventRecord;
+    use product::dynamodb::repository::MockItemDynamoDbRepository;
     use std::collections::HashMap;
     use std::sync::{Arc, Mutex};
     use std::time::SystemTime;
@@ -365,7 +365,9 @@ mod tests {
             .returning(move |batch| {
                 let unprocessed = batch
                     .into_iter()
-                    .filter(|product_record| expected_failures_clone.contains(&product_record.key()))
+                    .filter(|product_record| {
+                        expected_failures_clone.contains(&product_record.key())
+                    })
                     .collect();
                 Box::pin(async move {
                     Ok(BatchWriteItemOutput::builder()

@@ -5,11 +5,11 @@ use common::api::error::{ApiError, log_api_error};
 use common::api::error_code::BAD_BODY_VALUE;
 use common::localized::Localized;
 use common::price::domain::Price;
+use lambda_runtime::LambdaEvent;
 use product::data::put_data::PutItemData;
 use product::service::enrichment_service::{EnrichItemCommandError, ItemCommandEnrichmentService};
-use product::service::item_command::{PipedItemCommand, UpsertItemCommand};
+use product::service::product_command::{PipedItemCommand, UpsertItemCommand};
 use product::service::upsert_service::UpsertItemsService;
-use lambda_runtime::LambdaEvent;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use tracing::warn;
@@ -202,13 +202,13 @@ mod tests {
     use common::api::collection::PutCollectionData;
     use common::shop_id::ShopId;
     use fake::{Fake, Faker};
+    use lambda_runtime::LambdaEvent;
     use product::data::put_data::PutItemData;
     use product::service::enrichment_service::{
         EnrichItemCommandsOutput, MockItemCommandEnrichmentService,
     };
-    use product::service::item_command::UpsertItemCommand;
+    use product::service::product_command::UpsertItemCommand;
     use product::service::upsert_service::{MockUpsertItemsService, UpsertItemsOutput};
-    use lambda_runtime::LambdaEvent;
     use test_api::ApiGatewayV2httpRequestProxy;
     use test_api::extract_apigw_response_json_body;
 

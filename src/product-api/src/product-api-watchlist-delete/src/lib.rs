@@ -4,8 +4,8 @@ use common::api::error::{ApiError, log_api_error};
 use common::shop_id::api::extract_shop_id_path;
 use common::shops_product_id::api::extract_shops_item_id_path;
 use common::user_id::api::extract_user_id_request_context;
-use product::watchlist::service::item_watchlist_service::ItemWatchListService;
 use lambda_runtime::LambdaEvent;
+use product::watchlist::service::product_watchlist_service::ProductWatchListService;
 
 #[tracing::instrument(
     skip(event, service),
@@ -22,7 +22,7 @@ use lambda_runtime::LambdaEvent;
 )]
 pub async fn handler(
     event: LambdaEvent<ApiGatewayV2httpRequest>,
-    service: &impl ItemWatchListService,
+    service: &impl ProductWatchListService,
 ) -> Result<ApiGatewayV2httpResponse, lambda_runtime::Error> {
     match handle(event, service).await {
         Ok(response) => Ok(response),
@@ -36,7 +36,7 @@ pub async fn handler(
 // DELETE /api/v1/me/watchlist/{shopId}/{shopsItemId}
 pub async fn handle(
     event: LambdaEvent<ApiGatewayV2httpRequest>,
-    service: &impl ItemWatchListService,
+    service: &impl ProductWatchListService,
 ) -> Result<ApiGatewayV2httpResponse, ApiError> {
     let user_id = extract_user_id_request_context(&event.payload.request_context)?;
     tracing::Span::current().record("userId", user_id.to_string());
@@ -54,8 +54,8 @@ pub async fn handle(
 mod tests {
     use crate::handler;
     use common::{shop_id::ShopId, shops_product_id::ShopsProductId, user_id::UserId};
-    use product::watchlist::service::item_watchlist_service::MockItemWatchListService;
     use lambda_runtime::LambdaEvent;
+    use product::watchlist::service::product_watchlist_service::MockItemWatchListService;
     use test_api::{ApiGatewayV2httpRequestProxy, extract_apigw_response_json_body};
     use time::{OffsetDateTime, format_description::well_known::Rfc3339};
 

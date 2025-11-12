@@ -1,7 +1,9 @@
 use common::product_id::{ProductId, ProductKey};
-use product::dynamodb::{item_update_record::ItemRecordUpdate, repository::ProductDynamoDbRepository};
+use product::dynamodb::{
+    item_update_record::ItemRecordUpdate, repository::ProductDynamoDbRepository,
+};
 use product::opensearch::{
-    item_update_document::ItemUpdateDocument, repository::ProductOpenSearchRepository,
+    item_update_document::ProductUpdateDocument, repository::ProductOpenSearchRepository,
 };
 use std::{
     collections::{HashMap, HashSet},
@@ -14,7 +16,7 @@ use tracing::{error, info, warn};
 pub trait EnrichmentPipeSink {
     async fn drain_documents(
         &self,
-        documents: HashMap<ProductId, ItemUpdateDocument>,
+        documents: HashMap<ProductId, ProductUpdateDocument>,
     ) -> HashSet<ProductId>;
 
     async fn drain_records(
@@ -44,7 +46,7 @@ impl EnrichmentPipeSinkImpl {
 impl EnrichmentPipeSink for EnrichmentPipeSinkImpl {
     async fn drain_documents(
         &self,
-        documents: HashMap<ProductId, ItemUpdateDocument>,
+        documents: HashMap<ProductId, ProductUpdateDocument>,
     ) -> HashSet<ProductId> {
         if documents.is_empty() {
             return HashSet::new();
@@ -60,16 +62,16 @@ impl EnrichmentPipeSink for EnrichmentPipeSinkImpl {
         let mut skipped = 0usize;
         let failures = match res {
             Err(err) => {
-                error!(error = %err, "Failed draining all ItemDocument-Updates for this sink.");
+                error!(error = %err, "Failed draining all ProductDocument-Updates for this sink.");
                 item_ids
             }
             Ok(response) => {
                 if response.errors {
                     response.items.into_iter().map(|res| res.unwrap_update()).filter_map(|failure | {
-                        warn!(error = ?failure.error, status = failure.status, itemId = failure.id, "Failed updating ItemDocument.");
+                        warn!(error = ?failure.error, status = failure.status, itemId = failure.id, "Failed updating ProductDocument.");
                         match ProductId::try_from(failure.id.as_str()) {
                             Err(err) => {
-                                error!(error = %err, itemId = failure.id, "Failed parsing returned '_id' from OpenSearch for 'ItemDocument' as 'ProductId'.
+                                error!(error = %err, itemId = failure.id, "Failed parsing returned '_id' from OpenSearch for 'ProductDocument' as 'ProductId'.
                                     This is highly likely to be a bug. Cannot retry.");
                                 skipped += 1;
                                 None
@@ -127,13 +129,13 @@ mod tests {
     mod drain_documents {
         use crate::pipeline::sink::{EnrichmentPipeSink, EnrichmentPipeSinkImpl};
         use common::{
-            product_id::ProductId,
             opensearch::bulk_response::{BulkItemResult, BulkOpResult, BulkResponse},
+            product_id::ProductId,
         };
         use fake::{Fake, Faker};
         use product::dynamodb::repository::MockItemDynamoDbRepository;
         use product::opensearch::{
-            item_update_document::ItemUpdateDocument, repository::MockItemOpenSearchRepository,
+            item_update_document::ProductUpdateDocument, repository::MockItemOpenSearchRepository,
         };
         use std::collections::HashSet;
         use std::{collections::HashMap, sync::Arc};
@@ -208,7 +210,7 @@ mod tests {
                 Arc::new(item_dynamodb_repository),
                 Arc::new(item_opensearch_repository),
             );
-            let input = fake::vec![(ProductId, ItemUpdateDocument); 1000]
+            let input = fake::vec![(ProductId, ProductUpdateDocument); 1000]
                 .into_iter()
                 .collect::<HashMap<_, _>>();
             let actual = sink.drain_documents(input.clone()).await;

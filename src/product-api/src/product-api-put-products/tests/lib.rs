@@ -1,12 +1,12 @@
 use common::{api::collection::PutCollectionData, price::domain::FixedFxRate};
 use fake::{Fake, Faker};
+use item_api_put_items::{PutItemsResponse, handler};
+use lambda_runtime::LambdaEvent;
 use product::data::put_data::PutItemData;
 use product::dynamodb::repository::ProductDynamoDbRepositoryImpl;
 use product::service::{
     enrichment_service::ItemCommandEnrichmentServiceImpl, upsert_service::UpsertItemsServiceImpl,
 };
-use item_api_put_items::{PutItemsResponse, handler};
-use lambda_runtime::LambdaEvent;
 use shop::core::shop::Shop;
 use shop::dynamodb::{
     repository::{ShopDynamoDbRepository, ShopDynamoDbRepositoryImpl},

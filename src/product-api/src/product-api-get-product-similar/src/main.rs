@@ -1,16 +1,16 @@
 use aws_config::BehaviorVersion;
 use aws_lambda_events::apigw::ApiGatewayV2httpRequest;
 use cognito::access_token_verifier_service::AccessTokenVerifierServiceImpl;
-use product::dynamodb::repository::ProductDynamoDbRepositoryImpl;
-use product::opensearch::repository::ProductOpenSearchRepositoryImpl;
-use product::service::personalization_service::ItemPersonalizationServiceImpl;
-use product::service::semantic_service::SemanticSearchServiceImpl;
-use product::watchlist::dynamodb::repository::WatchlistItemDynamoDbRepositoryImpl;
 use item_api_get_item_similar::handler;
 use lambda_runtime::tracing::info;
 use lambda_runtime::{Error, LambdaEvent, run, service_fn};
 use opensearch::http::Url;
 use opensearch::http::transport::{SingleNodeConnectionPool, TransportBuilder};
+use product::dynamodb::repository::ProductDynamoDbRepositoryImpl;
+use product::opensearch::repository::ProductOpenSearchRepositoryImpl;
+use product::service::personalization_service::ItemPersonalizationServiceImpl;
+use product::service::semantic_service::SemanticSearchServiceImpl;
+use product::watchlist::dynamodb::repository::WatchlistItemDynamoDbRepositoryImpl;
 use std::env;
 
 #[tokio::main]
@@ -38,7 +38,8 @@ async fn main() -> Result<(), Error> {
         .build()?;
     let opensearch_client = opensearch::OpenSearch::new(transport);
     let item_opensearch_repository = ProductOpenSearchRepositoryImpl::new(&opensearch_client);
-    let item_dynamodb_repository = ProductDynamoDbRepositoryImpl::new(&dynamodb_client, &table_name);
+    let item_dynamodb_repository =
+        ProductDynamoDbRepositoryImpl::new(&dynamodb_client, &table_name);
     let semantic_search_service =
         SemanticSearchServiceImpl::new(&item_dynamodb_repository, &item_opensearch_repository);
 

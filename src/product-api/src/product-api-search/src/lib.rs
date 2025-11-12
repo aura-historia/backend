@@ -13,16 +13,16 @@ use common::{
     personalized::{Personalized, api::PersonalizedData},
     sort::api::extract_sort_query,
 };
+use lambda_runtime::LambdaEvent;
 use product::{
-    core::sort_item_field::SortItemField,
-    data::{item_search_data::ItemSearchData, user_state_data::ItemUserStateData},
+    core::sort_item_field::SortProductField,
+    data::{item_search_data::ProductSearchData, user_state_data::ItemUserStateData},
 };
 use product::{core::user_state::ItemUserState, service::query_service::QueryItemService};
 use product::{
-    data::{get_data::GetItemData, sort_item_field_data::SortItemFieldData},
+    data::{get_data::GetItemData, sort_item_field_data::SortProductFieldData},
     service::personalization_service::ItemPersonalizationService,
 };
-use lambda_runtime::LambdaEvent;
 
 #[tracing::instrument(
     skip(event, query_item_service, access_token_verifier_service, item_personalization_service),
@@ -73,8 +73,8 @@ pub async fn handle(
         tracing::Span::current().record("userId", user_id.to_string());
     }
 
-    let sort = extract_sort_query::<SortItemFieldData>(&event.payload.query_string_parameters)?
-        .map(|sort_data| sort_data.map(SortItemField::from));
+    let sort = extract_sort_query::<SortProductFieldData>(&event.payload.query_string_parameters)?
+        .map(|sort_data| sort_data.map(SortProductField::from));
     let cursor =
         extract_json_cursor_query(&event.payload.query_string_parameters)?.unwrap_or_default();
     let body = event
@@ -85,7 +85,7 @@ pub async fn handle(
             let err_msg = "Body cannot be empty";
             ApiError::bad_request(BAD_BODY_VALUE, err_msg.into()).with_message(err_msg)
         })?;
-    let item_search_data: ItemSearchData = serde_json::from_str(&body).map_err(|err| {
+    let item_search_data: ProductSearchData = serde_json::from_str(&body).map_err(|err| {
         let err_msg = err.to_string();
         ApiError::bad_request(BAD_BODY_VALUE, Box::new(err)).with_message(err_msg)
     })?;
@@ -136,11 +136,11 @@ mod tests {
     use common::pagination::cursor::CursoredResult;
     use fake::Fake;
     use fake::Faker;
-    use product::core::item::LocalizedItemView;
-    use product::data::item_search_data::ItemSearchData;
+    use lambda_runtime::LambdaEvent;
+    use product::core::product::LocalizedItemView;
+    use product::data::product_search_data::ProductSearchData;
     use product::service::personalization_service::MockItemPersonalizationService;
     use product::service::query_service::MockQueryItemService;
-    use lambda_runtime::LambdaEvent;
     use serde_json::json;
     use test_api::ApiGatewayV2httpRequestProxy;
 
@@ -160,7 +160,7 @@ mod tests {
                 .http_method(http::Method::POST)
                 .try_query_string_parameter("sort", sort)
                 .try_query_string_parameter("order", order)
-                .body_serde(&Faker.fake::<ItemSearchData>())
+                .body_serde(&Faker.fake::<ProductSearchData>())
                 .build(),
             context: Default::default(),
         };

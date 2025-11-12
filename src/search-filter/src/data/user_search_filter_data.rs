@@ -3,7 +3,7 @@ use crate::core::{
     user_search_filter_name::UserSearchFilterName,
 };
 use common::user_id::UserId;
-use product::data::item_search_data::ItemSearchData;
+use product::data::product_search_data::ProductSearchData;
 use serde::{Deserialize, Serialize};
 use time::OffsetDateTime;
 
@@ -14,7 +14,7 @@ pub struct UserSearchFilterData {
     pub user_search_filter_id: UserSearchFilterId,
     pub name: UserSearchFilterName,
 
-    pub search: ItemSearchData,
+    pub search: ProductSearchData,
 
     #[serde(with = "time::serde::rfc3339")]
     pub created: OffsetDateTime,
@@ -61,8 +61,8 @@ mod tests {
     use crate::data::user_search_filter_data::UserSearchFilterData;
     use common::query::range_query::RangeQuery;
     use common::{currency::data::CurrencyData, language::data::LanguageData, user_id::UserId};
-    use product::data::item_search_data::ItemSearchData;
-    use product::data::item_state_data::ItemStateData;
+    use product::data::product_search_data::ProductSearchData;
+    use product::data::product_state_data::ProductStateData;
     use serde_json::json;
     use std::collections::HashSet;
     use time::macros::datetime;
@@ -75,7 +75,7 @@ mod tests {
             user_id,
             user_search_filter_id: search_filter_id,
             name: "My Boop Filter".into(),
-            search: ItemSearchData {
+            search: ProductSearchData {
                 language: LanguageData::De,
                 currency: CurrencyData::Eur,
                 item_query: "Boop".try_into().unwrap(),
@@ -84,7 +84,7 @@ mod tests {
                     min: Some(37),
                     max: Some(42),
                 }),
-                state_query: HashSet::from_iter([ItemStateData::Available]),
+                state_query: HashSet::from_iter([ProductStateData::Available]),
                 created_query: Some(RangeQuery {
                     min: Some(datetime!(2000 - 05 - 04 0:00 UTC)),
                     max: Some(datetime!(2025 - 05 - 04 0:00 UTC)),
@@ -163,7 +163,7 @@ mod tests {
             user_id,
             user_search_filter_id: search_filter_id,
             name: "My Boop Filter".into(),
-            search: ItemSearchData {
+            search: ProductSearchData {
                 language: LanguageData::De,
                 currency: CurrencyData::Eur,
                 item_query: "Boop".try_into().unwrap(),
@@ -172,7 +172,7 @@ mod tests {
                     min: Some(37),
                     max: Some(42),
                 }),
-                state_query: HashSet::from_iter([ItemStateData::Available]),
+                state_query: HashSet::from_iter([ProductStateData::Available]),
                 created_query: Some(RangeQuery {
                     min: Some(datetime!(2000 - 05 - 04 0:00 UTC)),
                     max: Some(datetime!(2025 - 05 - 04 0:00 UTC)),

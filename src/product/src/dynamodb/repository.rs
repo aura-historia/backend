@@ -56,7 +56,10 @@ pub trait ProductDynamoDbRepository {
     async fn get_item_records(
         &self,
         item_keys: &Batch<ProductKey, 100>,
-    ) -> Result<BatchGetItemResult<ProductRecord, ProductKey>, SdkError<BatchGetItemError, HttpResponse>>;
+    ) -> Result<
+        BatchGetItemResult<ProductRecord, ProductKey>,
+        SdkError<BatchGetItemError, HttpResponse>,
+    >;
 
     async fn exist_item_records(
         &self,
@@ -254,8 +257,10 @@ impl<'a> ProductDynamoDbRepository for ProductDynamoDbRepositoryImpl<'a> {
     async fn get_item_records(
         &self,
         item_keys: &Batch<ProductKey, 100>,
-    ) -> Result<BatchGetItemResult<ProductRecord, ProductKey>, SdkError<BatchGetItemError, HttpResponse>>
-    {
+    ) -> Result<
+        BatchGetItemResult<ProductRecord, ProductKey>,
+        SdkError<BatchGetItemError, HttpResponse>,
+    > {
         let keys = item_keys
             .iter()
             .map(|product_key| {

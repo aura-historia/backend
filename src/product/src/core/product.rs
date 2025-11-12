@@ -1,19 +1,19 @@
 use crate::core::description::Description;
 use crate::core::product_event::{
-    ItemCreatedEventPayload, ProductEvent, ItemEventPayload, ItemPriceChangeEventPayload,
+    ItemCreatedEventPayload, ItemEventPayload, ItemPriceChangeEventPayload,
     ItemPriceDiscoveryEventPayload, ItemPriceRemovedEventPayload, ItemStateChangeEventPayload,
-    LocalizedItemEventPayloadView,
+    LocalizedItemEventPayloadView, ProductEvent,
 };
 use crate::core::title::Title;
 use common::currency::domain::Currency;
 use common::event::Event;
 use common::event_id::EventId;
 use common::has_key::HasKey;
-use common::product_id::{ProductId, ProductKey};
-use common::product_state::domain::ProductState;
 use common::language::domain::Language;
 use common::localized::Localized;
 use common::price::domain::{FxRate, MonetaryAmount, Price};
+use common::product_id::{ProductId, ProductKey};
+use common::product_state::domain::ProductState;
 use common::shop_id::ShopId;
 use common::shop_name::ShopName;
 use common::shops_product_id::ShopsProductId;
@@ -22,7 +22,7 @@ use time::OffsetDateTime;
 use url::Url;
 
 #[derive(Debug, Clone, PartialEq)]
-pub struct Item {
+pub struct Product {
     pub product_id: ProductId,
     pub event_id: EventId,
     pub shop_id: ShopId,
@@ -41,7 +41,7 @@ pub struct Item {
     pub updated: OffsetDateTime,
 }
 
-impl Item {
+impl Product {
     #[allow(clippy::too_many_arguments)]
     pub fn create(
         shop_id: ShopId,
@@ -208,7 +208,7 @@ impl Item {
     }
 }
 
-impl HasKey for Item {
+impl HasKey for Product {
     type Key = ProductKey;
 
     fn key(&self) -> Self::Key {
@@ -243,7 +243,7 @@ mod faker {
     use common::price::domain::FixedFxRate;
     use fake::{Dummy, Fake, Faker, Rng};
 
-    impl Dummy<Faker> for Item {
+    impl Dummy<Faker> for Product {
         fn dummy_with_rng<R: Rng + ?Sized>(config: &Faker, rng: &mut R) -> Self {
             let native_price: Option<Price> = config.fake_with_rng(rng);
             let other_price = match native_price {
@@ -253,7 +253,7 @@ mod faker {
                     .unwrap(),
             };
             let state = config.fake_with_rng(rng);
-            Item {
+            Product {
                 product_id: config.fake_with_rng(rng),
                 event_id: config.fake_with_rng(rng),
                 shop_id: config.fake_with_rng(rng),
@@ -337,12 +337,12 @@ mod faker {
 
     #[cfg(test)]
     mod tests {
-        use crate::core::item::{Item, LocalizedItemView};
+        use crate::core::product::{LocalizedItemView, Product};
         use fake::{Fake, Faker};
 
         #[test]
         fn should_fake_item() {
-            let _ = Faker.fake::<Item>();
+            let _ = Faker.fake::<Product>();
         }
 
         #[test]
@@ -355,10 +355,10 @@ mod faker {
 #[cfg(test)]
 mod tests {
     mod state {
-        use crate::core::item::Item;
-        use common::product_state::domain::ProductState;
+        use crate::core::product::Product;
         use common::language::domain::Language;
         use common::localized::Localized;
+        use common::product_state::domain::ProductState;
         use time::OffsetDateTime;
         use url::Url;
 
@@ -373,7 +373,7 @@ mod tests {
             #[case] from_state: ProductState,
             #[case] to_state: ProductState,
         ) {
-            let mut item = Item {
+            let mut item = Product {
                 product_id: Default::default(),
                 event_id: Default::default(),
                 shop_id: Default::default(),
@@ -415,7 +415,7 @@ mod tests {
             #[case] from_state: ProductState,
             #[case] to_state: ProductState,
         ) {
-            let mut item = Item {
+            let mut item = Product {
                 product_id: Default::default(),
                 event_id: Default::default(),
                 shop_id: Default::default(),
@@ -457,7 +457,7 @@ mod tests {
             #[case] from_state: ProductState,
             #[case] to_state: ProductState,
         ) {
-            let mut item = Item {
+            let mut item = Product {
                 product_id: Default::default(),
                 event_id: Default::default(),
                 shop_id: Default::default(),
@@ -485,13 +485,13 @@ mod tests {
     }
 
     mod price {
-        use crate::core::item::Item;
+        use crate::core::product::Product;
         use crate::core::product_event::ItemEventPayload;
         use common::currency::domain::Currency;
-        use common::product_state::domain::ProductState;
         use common::language::domain::Language;
         use common::localized::Localized;
         use common::price::domain::{FxRate, MonetaryAmount, Price};
+        use common::product_state::domain::ProductState;
         use time::OffsetDateTime;
         use url::Url;
 
@@ -530,7 +530,7 @@ mod tests {
                 monetary_amount,
                 currency,
             };
-            let mut item = Item {
+            let mut item = Product {
                 product_id: Default::default(),
                 event_id: Default::default(),
                 shop_id: Default::default(),
@@ -575,7 +575,7 @@ mod tests {
         fn should_discover_price_when_price_changed_from_none_for_new_price(
             #[case] to_price: Price,
         ) {
-            let mut item = Item {
+            let mut item = Product {
                 product_id: Default::default(),
                 event_id: Default::default(),
                 shop_id: Default::default(),
@@ -626,7 +626,7 @@ mod tests {
         #[case::cad_non_zero(Price::new(460u64.into(), Currency::Cad))]
         #[case::nzd_non_zero(Price::new(477u64.into(), Currency::Nzd))]
         fn should_find_dropped_price_when_price_dropped_for_new_price(#[case] to_price: Price) {
-            let mut item = Item {
+            let mut item = Product {
                 product_id: Default::default(),
                 event_id: Default::default(),
                 shop_id: Default::default(),
@@ -681,7 +681,7 @@ mod tests {
         #[case::cad_non_zero(Price::new(460u64.into(), Currency::Cad))]
         #[case::nzd_non_zero(Price::new(477u64.into(), Currency::Nzd))]
         fn should_find_increased_price_when_price_increased_for_new_price(#[case] to_price: Price) {
-            let mut item = Item {
+            let mut item = Product {
                 product_id: Default::default(),
                 event_id: Default::default(),
                 shop_id: Default::default(),
@@ -739,7 +739,7 @@ mod tests {
         fn should_remove_price_when_price_changed_from_some_to_none_for_new_price(
             #[case] price: Price,
         ) {
-            let mut item = Item {
+            let mut item = Product {
                 product_id: Default::default(),
                 event_id: Default::default(),
                 shop_id: Default::default(),

@@ -1,7 +1,7 @@
 use crate::core::product_event::{
-    ItemCommonEventPayload, ItemCreatedEventPayload, ProductEvent, ItemEventPayload,
-    ItemPriceChangeEventPayload, ItemPriceDiscoveryEventPayload, ItemPriceRemovedEventPayload,
-    ItemStateChangeEventPayload,
+    ItemCommonEventPayload, ItemCreatedEventPayload, ItemEventPayload, ItemPriceChangeEventPayload,
+    ItemPriceDiscoveryEventPayload, ItemPriceRemovedEventPayload, ItemStateChangeEventPayload,
+    ProductEvent,
 };
 use crate::dynamodb::product_event_type_record::ProductEventTypeRecord;
 use crate::dynamodb::product_state_record::ProductStateRecord;
@@ -10,13 +10,13 @@ use common::error::missing_field::MissingPersistenceField;
 use common::event::Event;
 use common::event_id::EventId;
 use common::has_key::HasKey;
-use common::product_id::{ProductId, ProductKey};
-use common::product_state::domain::ProductState;
 use common::language::domain::Language;
 use common::language::record::TextRecord;
 use common::localized::Localized;
 use common::price::domain::Price;
 use common::price::record::PriceRecord;
+use common::product_id::{ProductId, ProductKey};
+use common::product_state::domain::ProductState;
 use common::shop_id::ShopId;
 use common::shop_name::ShopName;
 use common::shops_product_id::ShopsProductId;
@@ -741,7 +741,9 @@ impl TryFrom<ProductEventRecord> for ProductEvent {
                         shop_id,
                         shops_product_id,
                         native_price: record.new_price_native.map(Price::from).ok_or(
-                            MissingPersistenceField::new(field!(new_price_native@ProductEventRecord)),
+                            MissingPersistenceField::new(
+                                field!(new_price_native@ProductEventRecord),
+                            ),
                         )?,
                         other_price: new_other_price,
                     })
@@ -751,11 +753,15 @@ impl TryFrom<ProductEventRecord> for ProductEvent {
                         shop_id,
                         shops_product_id,
                         new_native_price: record.new_price_native.map(Price::from).ok_or(
-                            MissingPersistenceField::new(field!(new_price_native@ProductEventRecord)),
+                            MissingPersistenceField::new(
+                                field!(new_price_native@ProductEventRecord),
+                            ),
                         )?,
                         new_other_price,
                         old_native_price: record.old_price_native.map(Price::from).ok_or(
-                            MissingPersistenceField::new(field!(old_price_native@ProductEventRecord)),
+                            MissingPersistenceField::new(
+                                field!(old_price_native@ProductEventRecord),
+                            ),
                         )?,
                         old_other_price,
                     })
@@ -765,11 +771,15 @@ impl TryFrom<ProductEventRecord> for ProductEvent {
                         shop_id,
                         shops_product_id,
                         new_native_price: record.new_price_native.map(Price::from).ok_or(
-                            MissingPersistenceField::new(field!(new_price_native@ProductEventRecord)),
+                            MissingPersistenceField::new(
+                                field!(new_price_native@ProductEventRecord),
+                            ),
                         )?,
                         new_other_price,
                         old_native_price: record.old_price_native.map(Price::from).ok_or(
-                            MissingPersistenceField::new(field!(old_price_native@ProductEventRecord)),
+                            MissingPersistenceField::new(
+                                field!(old_price_native@ProductEventRecord),
+                            ),
                         )?,
                         old_other_price,
                     })
@@ -779,7 +789,9 @@ impl TryFrom<ProductEventRecord> for ProductEvent {
                         shop_id,
                         shops_product_id,
                         old_native_price: record.old_price_native.map(Price::from).ok_or(
-                            MissingPersistenceField::new(field!(old_price_native@ProductEventRecord)),
+                            MissingPersistenceField::new(
+                                field!(old_price_native@ProductEventRecord),
+                            ),
                         )?,
                         old_other_price,
                     })

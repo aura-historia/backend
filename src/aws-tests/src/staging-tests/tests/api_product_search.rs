@@ -4,26 +4,26 @@ use common::language::record::{LanguageRecord, TextRecord};
 use common::price::record::PriceRecord;
 use common::query::range_query::RangeQuery;
 use common::{
-    currency::data::CurrencyData, event_id::EventId, product_id::ProductId, language::data::LanguageData,
-    shop_id::ShopId, shops_product_id::ShopsProductId,
+    currency::data::CurrencyData, event_id::EventId, language::data::LanguageData,
+    product_id::ProductId, shop_id::ShopId, shops_product_id::ShopsProductId,
 };
 use fake::{Fake, Faker};
-use product::data::item_search_data::ItemSearchData;
-use product::data::item_state_data::ItemStateData;
+use opensearch::{IndexParts, params::Refresh};
+use product::data::product_search_data::ProductSearchData;
+use product::data::product_state_data::ProductStateData;
 use product::dynamodb::product_record::{self, ProductRecord};
-use product::dynamodb::item_state_record::ProductStateRecord;
+use product::dynamodb::product_state_record::ProductStateRecord;
 use product::dynamodb::repository::{ProductDynamoDbRepository, ProductDynamoDbRepositoryImpl};
 use product::opensearch::{
-    item_document::ItemDocument,
-    item_state_document::ItemStateDocument,
+    item_document::ProductDocument,
+    item_state_document::ProductStateDocument,
     repository::{ProductOpenSearchRepository, ProductOpenSearchRepositoryImpl},
 };
 use product::service::get_service::GetItemServiceImpl;
 use product::watchlist::dynamodb::repository::WatchlistItemDynamoDbRepositoryImpl;
-use product::watchlist::service::item_watchlist_service::{
-    ItemWatchListService, ItemWatchListServiceImpl,
+use product::watchlist::service::product_watchlist_service::{
+    ProductWatchListService, ProductWatchListServiceImpl,
 };
-use opensearch::{IndexParts, params::Refresh};
 use staging_tests::{
     create_random_test_user, get_dynamodb_client, get_opensearch_client, staging_test,
 };
@@ -46,7 +46,7 @@ async fn should_respond_200_when_hits_authenticated() {
     let item_repository =
         ProductDynamoDbRepositoryImpl::new(dynamodb_client, &cfn.dynamodb_table_1_name);
     let get_item_service = GetItemServiceImpl::new(&item_repository);
-    let item_watchlist_service = ItemWatchListServiceImpl::new(
+    let item_watchlist_service = ProductWatchListServiceImpl::new(
         &watchlist_repository,
         &user_repository,
         &item_repository,
@@ -56,7 +56,7 @@ async fn should_respond_200_when_hits_authenticated() {
     let now = SystemTime::now();
     let os_client = get_opensearch_client().await;
     let item_opensearch_repository = ProductOpenSearchRepositoryImpl::new(os_client);
-    let expected = ItemDocument {
+    let expected = ProductDocument {
         product_id: ProductId::new(),
         event_id: EventId::new(),
         shop_id: ShopId::new(),
@@ -72,14 +72,14 @@ async fn should_respond_200_when_hits_authenticated() {
         price_aud: Some(1700000),
         price_cad: Some(1800000),
         price_nzd: Some(1990000),
-        state: ItemStateDocument::Available,
+        state: ProductStateDocument::Available,
         url: Url::parse("https://hans-volker.com/chopin-etudes-op10-1833").unwrap(),
         images: vec![],
         text_embedding: None,
         created: now.into(),
         updated: now.into(),
     };
-    let mut all = fake::vec![ItemDocument; 10];
+    let mut all = fake::vec![ProductDocument; 10];
     all.push(expected.clone());
 
     let insert_res = item_opensearch_repository
@@ -141,11 +141,15 @@ async fn should_respond_200_when_hits_authenticated() {
 
     let user = create_random_test_user().await;
     item_watchlist_service
-        .create_watchlist_item(&user.sub.into(), &expected.shop_id, &expected.shops_product_id)
+        .create_watchlist_item(
+            &user.sub.into(),
+            &expected.shop_id,
+            &expected.shops_product_id,
+        )
         .await
         .unwrap();
 
-    let search_filter = ItemSearchData {
+    let search_filter = ProductSearchData {
         language: LanguageData::De,
         currency: CurrencyData::Eur,
         item_query: "Chopin Etudes Op.10".try_into().unwrap(),
@@ -154,7 +158,7 @@ async fn should_respond_200_when_hits_authenticated() {
             min: None,
             max: Some(99999999),
         }),
-        state_query: [ItemStateData::Available, ItemStateData::Listed].into(),
+        state_query: [ProductStateData::Available, ProductStateData::Listed].into(),
         created_query: Some(RangeQuery {
             min: None,
             max: Some(datetime!(2999 - 01 - 02 0:00 UTC)),
@@ -181,7 +185,10 @@ async fn should_respond_200_when_hits_authenticated() {
 
     let item = body["items"].as_array().unwrap()[0]["item"].clone();
     assert_eq!(expected.shop_id.to_string(), item["shopId"]);
-    assert_eq!(expected.shops_product_id.to_string(), item["shopsProductId"]);
+    assert_eq!(
+        expected.shops_product_id.to_string(),
+        item["shopsProductId"]
+    );
     assert_eq!(expected.product_id.to_string(), item["productId"]);
     assert_eq!(expected.event_id.to_string(), item["eventId"]);
     assert_eq!(expected.url.to_string(), item["url"]);
@@ -197,7 +204,7 @@ async fn should_respond_200_when_hits_authenticated() {
 async fn should_respond_200_when_hits_anon() {
     let os_client = get_opensearch_client().await;
     let repository = ProductOpenSearchRepositoryImpl::new(os_client);
-    let expected = ItemDocument {
+    let expected = ProductDocument {
         product_id: ProductId::new(),
         event_id: EventId::new(),
         shop_id: ShopId::new(),
@@ -213,14 +220,14 @@ async fn should_respond_200_when_hits_anon() {
         price_aud: Some(1700000),
         price_cad: Some(1800000),
         price_nzd: Some(1990000),
-        state: ItemStateDocument::Available,
+        state: ProductStateDocument::Available,
         url: Url::parse("https://hans-volker.com/chopin-etudes-op10-1833").unwrap(),
         images: vec![],
         text_embedding: None,
         created: SystemTime::now().into(),
         updated: SystemTime::now().into(),
     };
-    let mut all = fake::vec![ItemDocument; 10];
+    let mut all = fake::vec![ProductDocument; 10];
     all.push(expected.clone());
 
     let insert_res = repository.create_item_documents(all).await.unwrap();
@@ -233,7 +240,7 @@ async fn should_respond_200_when_hits_anon() {
         .unwrap();
     tokio::time::sleep(Duration::from_secs(3)).await;
 
-    let search_filter = ItemSearchData {
+    let search_filter = ProductSearchData {
         language: LanguageData::De,
         currency: CurrencyData::Eur,
         item_query: "Chopin Etudes Op.10".try_into().unwrap(),
@@ -242,7 +249,7 @@ async fn should_respond_200_when_hits_anon() {
             min: None,
             max: Some(99999999),
         }),
-        state_query: [ItemStateData::Available, ItemStateData::Listed].into(),
+        state_query: [ProductStateData::Available, ProductStateData::Listed].into(),
         created_query: Some(RangeQuery {
             min: None,
             max: Some(datetime!(2999 - 01 - 02 0:00 UTC)),
@@ -268,7 +275,10 @@ async fn should_respond_200_when_hits_anon() {
 
     let item = body["items"].as_array().unwrap()[0]["item"].clone();
     assert_eq!(expected.shop_id.to_string(), item["shopId"]);
-    assert_eq!(expected.shops_product_id.to_string(), item["shopsProductId"]);
+    assert_eq!(
+        expected.shops_product_id.to_string(),
+        item["shopsProductId"]
+    );
     assert_eq!(expected.product_id.to_string(), item["productId"]);
     assert_eq!(expected.event_id.to_string(), item["eventId"]);
     assert_eq!(expected.url.to_string(), item["url"]);
@@ -285,7 +295,7 @@ async fn should_respond_200_when_no_hits_anon() {
     );
     let response = reqwest::Client::new()
         .post(url)
-        .json(&Faker.fake::<ItemSearchData>())
+        .json(&Faker.fake::<ProductSearchData>())
         .send()
         .await
         .unwrap();

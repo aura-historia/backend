@@ -4,19 +4,21 @@ use common::personalized::api::PersonalizedData;
 use common::user_id::UserId;
 use fake::{Fake, Faker};
 use http::header::ACCEPT_LANGUAGE;
+use opensearch::IndexParts;
+use opensearch::params::Refresh;
 use product::data::get_data::GetItemData;
 use product::data::user_state_data::ItemUserStateData;
 use product::dynamodb::product_record::ProductRecord;
 use product::dynamodb::repository::{ProductDynamoDbRepository, ProductDynamoDbRepositoryImpl};
-use product::opensearch::item_document::ItemDocument;
-use product::opensearch::repository::{ProductOpenSearchRepository, ProductOpenSearchRepositoryImpl};
+use product::opensearch::product_document::ProductDocument;
+use product::opensearch::repository::{
+    ProductOpenSearchRepository, ProductOpenSearchRepositoryImpl,
+};
 use product::service::get_service::GetItemServiceImpl;
 use product::watchlist::dynamodb::repository::WatchlistItemDynamoDbRepositoryImpl;
-use product::watchlist::service::item_watchlist_service::{
-    ItemWatchListService, ItemWatchListServiceImpl,
+use product::watchlist::service::product_watchlist_service::{
+    ProductWatchListService, ProductWatchListServiceImpl,
 };
-use opensearch::IndexParts;
-use opensearch::params::Refresh;
 use staging_tests::{
     create_random_test_user, get_dynamodb_client, get_opensearch_client, staging_test,
 };
@@ -1071,8 +1073,8 @@ async fn should_202_when_similar_items_have_not_been_computed_for_anon() {
             .is_empty()
     );
 
-    let item_document: ItemDocument = product_record.clone().into();
-    let mut item_documents = fake::vec![ItemDocument; 10];
+    let item_document: ProductDocument = product_record.clone().into();
+    let mut item_documents = fake::vec![ProductDocument; 10];
     for doc in &mut item_documents {
         doc.text_embedding = None;
     }
@@ -1123,9 +1125,9 @@ async fn should_200_when_similar_items_have_been_computed_for_anon() {
             .is_empty()
     );
 
-    let mut item_document: ItemDocument = product_record.clone().into();
+    let mut item_document: ProductDocument = product_record.clone().into();
     item_document.text_embedding = Some(EXAMPLE_EMBEDDING.into());
-    let mut item_documents = fake::vec![ItemDocument; 10];
+    let mut item_documents = fake::vec![ProductDocument; 10];
     for doc in &mut item_documents {
         doc.text_embedding = Some(EXAMPLE_EMBEDDING.into());
         doc.title_en = Some("My expected english title".into())
@@ -1203,7 +1205,7 @@ async fn should_200_and_personalize_when_similar_items_have_been_computed_for_au
         get_dynamodb_client().await,
         &get_cfn_output().dynamodb_table_1_name,
     );
-    let watchlist_service = ItemWatchListServiceImpl::new(
+    let watchlist_service = ProductWatchListServiceImpl::new(
         &watchlist_repository,
         &user_repository,
         &item_dynamodb_repository,
@@ -1230,17 +1232,21 @@ async fn should_200_and_personalize_when_similar_items_have_been_computed_for_au
 
     for product_record in item_records.iter() {
         let _ = watchlist_service
-            .create_watchlist_item(&user_id, &product_record.shop_id, &product_record.shops_product_id)
+            .create_watchlist_item(
+                &user_id,
+                &product_record.shop_id,
+                &product_record.shops_product_id,
+            )
             .await
             .unwrap();
     }
 
-    let mut item_document: ItemDocument = product_record.clone().into();
+    let mut item_document: ProductDocument = product_record.clone().into();
     item_document.text_embedding = Some(EXAMPLE_EMBEDDING.into());
     let mut item_documents = item_records
         .clone()
         .into_iter()
-        .map(ItemDocument::from)
+        .map(ProductDocument::from)
         .collect::<Vec<_>>();
     for doc in &mut item_documents {
         doc.text_embedding = Some(EXAMPLE_EMBEDDING.into());

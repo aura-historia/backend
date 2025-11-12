@@ -1,11 +1,11 @@
-use crate::core::item::LocalizedItemView;
-use crate::data::get_item_event_data::GetItemEventData;
-use crate::data::product_state_data::ItemStateData;
+use crate::core::product::LocalizedItemView;
+use crate::data::get_product_event_data::GetProductEventData;
+use crate::data::product_state_data::ProductStateData;
 use common::event_id::EventId;
 use common::has_key::HasKey;
-use common::product_id::{ProductId, ProductKey};
 use common::language::data::LocalizedTextData;
 use common::price::data::PriceData;
+use common::product_id::{ProductId, ProductKey};
 use common::shop_id::ShopId;
 use common::shops_product_id::ShopsProductId;
 use serde::{Deserialize, Serialize};
@@ -33,7 +33,7 @@ pub struct GetItemData {
     #[serde(skip_serializing_if = "Option::is_none", default)]
     pub price: Option<PriceData>,
 
-    pub state: ItemStateData,
+    pub state: ProductStateData,
 
     pub url: Url,
 
@@ -47,7 +47,7 @@ pub struct GetItemData {
     pub updated: OffsetDateTime,
 
     #[serde(skip_serializing_if = "Option::is_none", default)]
-    pub history: Option<Vec<GetItemEventData>>,
+    pub history: Option<Vec<GetProductEventData>>,
 }
 
 impl HasKey for GetItemData {
@@ -112,17 +112,17 @@ mod tests {
     use crate::{
         data::get_data::GetItemData,
         data::get_item_event_data::{
-            GetItemEventData, ItemEventPayloadData, ItemEventPriceChangedPayloadData,
+            GetProductEventData, ItemEventPayloadData, ItemEventPriceChangedPayloadData,
             ItemEventStateChangedPayloadData, ItemEventTypeData,
         },
-        data::item_state_data::ItemStateData,
+        data::item_state_data::ProductStateData,
     };
     use common::{
         currency::data::CurrencyData,
         event_id::EventId,
-        product_id::ProductId,
         language::data::{LanguageData, LocalizedTextData},
         price::data::PriceData,
+        product_id::ProductId,
         shop_id::ShopId,
         shops_product_id::ShopsProductId,
     };
@@ -145,7 +145,7 @@ mod tests {
             title: LocalizedTextData::new("Mein titel", LanguageData::De),
             description: Some(LocalizedTextData::new("My description", LanguageData::En)),
             price: Some(PriceData::new(CurrencyData::Eur, 50000)),
-            state: ItemStateData::Reserved,
+            state: ProductStateData::Reserved,
             url: Url::parse("https://my-shop.de/item").unwrap(),
             images: vec![
                 Url::parse("https://my-shop.de/item/images/1").unwrap(),
@@ -154,7 +154,7 @@ mod tests {
             created: utc_datetime!(2025 - 05 - 05 0:00).into(),
             updated: utc_datetime!(2025 - 05 - 05 0:00).into(),
             history: Some(vec![
-                GetItemEventData {
+                GetProductEventData {
                     event_type: ItemEventTypeData::StateAvailable,
                     product_id,
                     event_id,
@@ -162,13 +162,13 @@ mod tests {
                     shops_product_id: shops_product_id.clone(),
                     payload: ItemEventPayloadData::StateAvailable(
                         ItemEventStateChangedPayloadData {
-                            old_state: ItemStateData::Listed,
-                            new_state: ItemStateData::Available,
+                            old_state: ProductStateData::Listed,
+                            new_state: ProductStateData::Available,
                         },
                     ),
                     timestamp: utc_datetime!(2025 - 05 - 05 0:00).into(),
                 },
-                GetItemEventData {
+                GetProductEventData {
                     event_type: ItemEventTypeData::PriceDropped,
                     product_id,
                     event_id,

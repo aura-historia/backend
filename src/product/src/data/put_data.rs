@@ -1,4 +1,4 @@
-use crate::data::product_state_data::ItemStateData;
+use crate::data::product_state_data::ProductStateData;
 use common::language::data::LocalizedTextData;
 use common::price::data::PriceData;
 use common::shops_product_id::ShopsProductId;
@@ -18,7 +18,7 @@ pub struct PutItemData {
     #[serde(skip_serializing_if = "Option::is_none", default)]
     pub price: Option<PriceData>,
 
-    pub state: ItemStateData,
+    pub state: ProductStateData,
 
     pub url: Url,
 
@@ -86,7 +86,7 @@ mod faker {
 
 #[cfg(test)]
 mod tests {
-    use crate::data::{item_state_data::ItemStateData, put_data::PutItemData};
+    use crate::data::{item_state_data::ProductStateData, put_data::PutItemData};
     use common::{
         currency::data::CurrencyData,
         language::data::{LanguageData, LocalizedTextData},
@@ -123,7 +123,7 @@ mod tests {
             title: LocalizedTextData::new("Mein titel", LanguageData::De),
             description: Some(LocalizedTextData::new("My description", LanguageData::En)),
             price: Some(PriceData::new(CurrencyData::Eur, 50000)),
-            state: ItemStateData::Reserved,
+            state: ProductStateData::Reserved,
             url: Url::parse("https://my-shop.de/item").unwrap(),
             images: vec![
                 Url::parse("https://my-shop.de/item/images/1").unwrap(),

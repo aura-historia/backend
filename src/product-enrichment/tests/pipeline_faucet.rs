@@ -3,9 +3,9 @@ use aws_lambda_events::{
     eventbridge::EventBridgeEvent,
 };
 use common::{event::Event, event_id::EventId, product_id::ProductId};
-use product::core::product_event::{ItemCreatedEventPayload, ItemEventPayload};
-use product::dynamodb::item_event_record::ProductEventRecord;
 use item_enrichment::pipeline::faucet::{EnrichmentPipeFaucet, EnrichmentPipeFaucetImpl};
+use product::core::product_event::{ItemCreatedEventPayload, ItemEventPayload};
+use product::dynamodb::product_event_record::ProductEventRecord;
 use std::{sync::Arc, time::SystemTime};
 use test_api::*;
 use time::OffsetDateTime;

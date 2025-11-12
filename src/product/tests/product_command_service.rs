@@ -1,5 +1,5 @@
-use common::{product_state::domain::ProductState, price::domain::FixedFxRate};
-use product::core::item::Item;
+use common::{price::domain::FixedFxRate, product_state::domain::ProductState};
+use product::core::product::Product;
 use product::dynamodb::{
     item_event_record::ProductEventRecord,
     item_event_type_record::ProductEventTypeRecord,
@@ -59,7 +59,7 @@ async fn should_push_no_items_to_queue_when_all_exist_and_no_changes() {
 
     let cmds = fake::vec![UpsertItemCommand; 400];
     for cmd in cmds.clone() {
-        let event_record: ProductEventRecord = Item::create(
+        let event_record: ProductEventRecord = Product::create(
             cmd.shop_id,
             cmd.shops_product_id,
             cmd.shop_name,
@@ -110,7 +110,7 @@ async fn should_push_items_to_queue_when_all_exist_and_actual_changes() {
 
     let mut cmds = fake::vec![UpsertItemCommand; 400];
     for cmd in cmds.clone() {
-        let event_record: ProductEventRecord = Item::create(
+        let event_record: ProductEventRecord = Product::create(
             cmd.shop_id,
             cmd.shops_product_id,
             cmd.shop_name,
@@ -167,7 +167,10 @@ async fn should_push_items_to_queue_when_all_exist_and_actual_changes() {
                 for msg in msgs {
                     let event_record: ProductEventRecord =
                         serde_json::from_str(msg.body().unwrap()).unwrap();
-                    assert_eq!(ProductEventTypeRecord::StateAvailable, event_record.event_type);
+                    assert_eq!(
+                        ProductEventTypeRecord::StateAvailable,
+                        event_record.event_type
+                    );
                 }
             }
         }

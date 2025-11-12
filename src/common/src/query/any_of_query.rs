@@ -42,7 +42,7 @@ impl<T: Eq + Hash> AsMut<HashSet<T>> for AnyOfQuery<T> {
 }
 
 impl<T: Eq + Hash> IntoIterator for AnyOfQuery<T> {
-    type Item = T;
+    type Product = T;
     type IntoIter = std::collections::hash_set::IntoIter<T>;
 
     fn into_iter(self) -> Self::IntoIter {
@@ -51,7 +51,7 @@ impl<T: Eq + Hash> IntoIterator for AnyOfQuery<T> {
 }
 
 impl<'a, T: Eq + Hash> IntoIterator for &'a AnyOfQuery<T> {
-    type Item = &'a T;
+    type Product = &'a T;
     type IntoIter = std::collections::hash_set::Iter<'a, T>;
 
     fn into_iter(self) -> Self::IntoIter {
@@ -72,19 +72,19 @@ impl<T: Eq + Hash> From<AnyOfQuery<T>> for HashSet<T> {
 }
 
 impl<T: Eq + Hash> FromIterator<T> for AnyOfQuery<T> {
-    fn from_iter<I: IntoIterator<Item = T>>(iter: I) -> Self {
+    fn from_iter<I: IntoIterator<Product = T>>(iter: I) -> Self {
         Self(iter.into_iter().collect())
     }
 }
 
 impl<T: Eq + Hash> Extend<T> for AnyOfQuery<T> {
-    fn extend<I: IntoIterator<Item = T>>(&mut self, iter: I) {
+    fn extend<I: IntoIterator<Product = T>>(&mut self, iter: I) {
         self.0.extend(iter);
     }
 }
 
 impl<'a, T: Eq + Hash + Copy> Extend<&'a T> for AnyOfQuery<T> {
-    fn extend<I: IntoIterator<Item = &'a T>>(&mut self, iter: I) {
+    fn extend<I: IntoIterator<Product = &'a T>>(&mut self, iter: I) {
         self.0.extend(iter.into_iter().copied());
     }
 }

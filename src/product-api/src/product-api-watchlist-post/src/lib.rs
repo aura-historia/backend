@@ -4,9 +4,9 @@ use common::api::error::{ApiError, log_api_error};
 use common::api::error_code::BAD_BODY_VALUE;
 use common::product_id::api::ProductKeyData;
 use common::user_id::api::extract_user_id_request_context;
-use product::watchlist::data::watchlist_item_data::WatchlistItemData;
-use product::watchlist::service::item_watchlist_service::ItemWatchListService;
 use lambda_runtime::LambdaEvent;
+use product::watchlist::data::watchlist_product_data::WatchlistProductData;
+use product::watchlist::service::product_watchlist_service::ProductWatchListService;
 
 #[tracing::instrument(
     skip(event, service),
@@ -23,7 +23,7 @@ use lambda_runtime::LambdaEvent;
 )]
 pub async fn handler(
     event: LambdaEvent<ApiGatewayV2httpRequest>,
-    service: &impl ItemWatchListService,
+    service: &impl ProductWatchListService,
 ) -> Result<ApiGatewayV2httpResponse, lambda_runtime::Error> {
     match handle(event, service).await {
         Ok(response) => Ok(response),
@@ -37,7 +37,7 @@ pub async fn handler(
 // POST /api/v1/me/watchlist
 pub async fn handle(
     event: LambdaEvent<ApiGatewayV2httpRequest>,
-    service: &impl ItemWatchListService,
+    service: &impl ProductWatchListService,
 ) -> Result<ApiGatewayV2httpResponse, ApiError> {
     let user_id = extract_user_id_request_context(&event.payload.request_context)?;
     tracing::Span::current().record("userId", user_id.to_string());
@@ -75,7 +75,7 @@ pub async fn handle(
 
     Ok(ApiGatewayV2HttpResponseBuilder::json(201)
         .try_location(location.as_deref())
-        .body_serde(WatchlistItemData::from(watchlist_item))?
+        .body_serde(WatchlistProductData::from(watchlist_item))?
         .build())
 }
 
@@ -85,8 +85,8 @@ mod tests {
     use common::{product_id::api::ProductKeyData, user_id::UserId};
     use fake::{Fake, Faker};
     use http::header::LOCATION;
-    use product::watchlist::service::item_watchlist_service::MockItemWatchListService;
     use lambda_runtime::LambdaEvent;
+    use product::watchlist::service::product_watchlist_service::MockItemWatchListService;
     use test_api::ApiGatewayV2httpRequestProxy;
 
     #[tokio::test]

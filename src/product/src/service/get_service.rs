@@ -1,10 +1,10 @@
 use crate::core::description::Description;
-use crate::core::item::{Item, LocalizedItemView};
+use crate::core::product::{LocalizedItemView, Product};
 use crate::core::product_event::{
-    ProductEvent, ItemEventPayload, LocalizedItemCreatedEventPayloadView,
-    LocalizedItemEventPayloadView, LocalizedItemPriceChangeEventPayloadView,
-    LocalizedItemPriceDiscoveryEventPayloadView, LocalizedItemPriceRemovedEventPayloadView,
-    LocalizedItemStateChangeEventPayloadView,
+    ItemEventPayload, LocalizedItemCreatedEventPayloadView, LocalizedItemEventPayloadView,
+    LocalizedItemPriceChangeEventPayloadView, LocalizedItemPriceDiscoveryEventPayloadView,
+    LocalizedItemPriceRemovedEventPayloadView, LocalizedItemStateChangeEventPayloadView,
+    ProductEvent,
 };
 use crate::core::title::Title;
 use crate::dynamodb::product_event_record::ProductEventRecord;
@@ -16,10 +16,10 @@ use aws_sdk_dynamodb::error::SdkError;
 use common::batch::Batch;
 use common::currency::domain::Currency;
 use common::event::Event;
-use common::product_id::{ProductId, ProductKey};
 use common::language::domain::Language;
 use common::localized::Localized;
 use common::price::domain::{MonetaryAmountOverflowError, Price};
+use common::product_id::{ProductId, ProductKey};
 use common::shop_id::ShopId;
 use common::shops_product_id::ShopsProductId;
 use std::collections::HashMap;
@@ -27,7 +27,7 @@ use tracing::error;
 
 #[derive(thiserror::Error, Debug)]
 pub enum GetItemError {
-    #[error("Item with ShopId '{0}' and ShopsProductId '{1}' not found.")]
+    #[error("Product with ShopId '{0}' and ShopsProductId '{1}' not found.")]
     ItemNotFound(ShopId, ShopsProductId),
 
     #[error("{0}")]
@@ -86,7 +86,7 @@ pub trait GetItemService {
         &self,
         shop_id: &ShopId,
         shops_product_id: &ShopsProductId,
-    ) -> Result<Item, GetItemError>;
+    ) -> Result<Product, GetItemError>;
 
     async fn view_item(
         &self,
@@ -121,12 +121,15 @@ impl<'a> GetItemService for GetItemServiceImpl<'a> {
         &self,
         shop_id: &ShopId,
         shops_product_id: &ShopsProductId,
-    ) -> Result<Item, GetItemError> {
+    ) -> Result<Product, GetItemError> {
         let product_record = self
             .repository
             .get_item_record(shop_id, shops_product_id)
             .await?
-            .ok_or(GetItemError::ItemNotFound(*shop_id, shops_product_id.clone()))?;
+            .ok_or(GetItemError::ItemNotFound(
+                *shop_id,
+                shops_product_id.clone(),
+            ))?;
 
         Ok(product_record.into())
     }
@@ -143,13 +146,19 @@ impl<'a> GetItemService for GetItemServiceImpl<'a> {
             self.repository
                 .query_item_record_and_event_records(shop_id, shops_product_id)
                 .await?
-                .ok_or(GetItemError::ItemNotFound(*shop_id, shops_product_id.clone()))?
+                .ok_or(GetItemError::ItemNotFound(
+                    *shop_id,
+                    shops_product_id.clone(),
+                ))?
         } else {
             let product_record = self
                 .repository
                 .get_item_record(shop_id, shops_product_id)
                 .await?
-                .ok_or(GetItemError::ItemNotFound(*shop_id, shops_product_id.clone()))?;
+                .ok_or(GetItemError::ItemNotFound(
+                    *shop_id,
+                    shops_product_id.clone(),
+                ))?;
             (product_record, vec![])
         };
 
@@ -507,7 +516,9 @@ mod tests {
             let service = GetItemServiceImpl {
                 repository: &repository,
             };
-            let actual = service.find_item(&ShopId::new(), &ShopsProductId::new()).await;
+            let actual = service
+                .find_item(&ShopId::new(), &ShopsProductId::new())
+                .await;
             assert!(actual.is_ok());
         }
 
@@ -696,7 +707,13 @@ mod tests {
                 repository: &repository,
             };
             let actual_price = service
-                .view_item(&ShopId::new(), &ShopsProductId::new(), &[], &currency, false)
+                .view_item(
+                    &ShopId::new(),
+                    &ShopsProductId::new(),
+                    &[],
+                    &currency,
+                    false,
+                )
                 .await
                 .unwrap()
                 .price
@@ -987,7 +1004,9 @@ mod tests {
     }
 
     mod view_items {
-        use crate::dynamodb::{product_record::ProductRecord, repository::MockItemDynamoDbRepository};
+        use crate::dynamodb::{
+            product_record::ProductRecord, repository::MockItemDynamoDbRepository,
+        };
         use crate::service::get_service::{GetItemError, GetItemService, GetItemServiceImpl};
         use aws_sdk_dynamodb::{
             config::http::HttpResponse,

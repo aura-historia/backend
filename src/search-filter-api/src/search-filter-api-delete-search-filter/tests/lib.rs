@@ -1,7 +1,7 @@
 use common::user_id::UserId;
 use fake::{Fake, Faker};
-use product::core::item_search::ItemSearch;
 use lambda_runtime::LambdaEvent;
+use product::core::product_search::ProductSearch;
 use search_filter::dynamodb::repository::{
     UserSearchFilterDynamoDbRepository, UserSearchFilterDynamoDbRepositoryImpl,
 };
@@ -19,7 +19,7 @@ async fn should_delete_search_filter() {
 
     let user_id = UserId::new();
     let expected = service
-        .save_user_search_filter(&user_id, Faker.fake(), Faker.fake::<ItemSearch>())
+        .save_user_search_filter(&user_id, Faker.fake(), Faker.fake::<ProductSearch>())
         .await
         .unwrap();
     let lambda_event = LambdaEvent {

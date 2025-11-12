@@ -1,15 +1,17 @@
 use std::{panic, time::Duration};
 
 use aws_tests_common::get_cfn_output;
-use common::{api::collection::PutCollectionData, product_id::api::ProductKeyData, user_id::UserId};
+use common::{
+    api::collection::PutCollectionData, product_id::api::ProductKeyData, user_id::UserId,
+};
 use fake::{Fake, Faker};
-use product::data::{item_state_data::ItemStateData, put_data::PutItemData};
+use item_api_watchlist_patch::WatchlistItemPatch;
+use product::data::{item_state_data::ProductStateData, put_data::PutItemData};
 use product::dynamodb::repository::{ProductDynamoDbRepository, ProductDynamoDbRepositoryImpl};
 use product::watchlist::{
-    data::watchlist_item_data::WatchlistItemData,
+    data::watchlist_item_data::WatchlistProductData,
     dynamodb::repository::{WatchlistItemDynamoDbRepository, WatchlistItemDynamoDbRepositoryImpl},
 };
-use item_api_watchlist_patch::WatchlistItemPatch;
 use shop::core::shop::Shop;
 use shop::dynamodb::{
     repository::{ShopDynamoDbRepository, ShopDynamoDbRepositoryImpl},
@@ -59,8 +61,10 @@ async fn should_send_email_to_user_when_watched_item_has_update() {
         .unwrap();
     assert_eq!(200, response.status());
     tokio::time::sleep(Duration::from_secs(45)).await;
-    let item_repository =
-        ProductDynamoDbRepositoryImpl::new(get_dynamodb_client().await, &stack.dynamodb_table_1_name);
+    let item_repository = ProductDynamoDbRepositoryImpl::new(
+        get_dynamodb_client().await,
+        &stack.dynamodb_table_1_name,
+    );
     assert!(
         item_repository
             .get_item_record(&shop.shop_id, &put_item_data.shops_product_id)
@@ -127,7 +131,7 @@ async fn should_send_email_to_user_when_watched_item_has_update() {
         .await
         .unwrap();
     assert_eq!(200, patch_response.status());
-    let patched = patch_response.json::<WatchlistItemData>().await.unwrap();
+    let patched = patch_response.json::<WatchlistProductData>().await.unwrap();
     tokio::time::sleep(Duration::from_secs(10)).await;
     let watchlist_repository = WatchlistItemDynamoDbRepositoryImpl::new(
         get_dynamodb_client().await,
@@ -144,10 +148,10 @@ async fn should_send_email_to_user_when_watched_item_has_update() {
     tokio::time::sleep(Duration::from_secs(10)).await;
 
     // update item
-    put_item_data.state = if matches!(put_item_data.state, ItemStateData::Available) {
-        ItemStateData::Sold
+    put_item_data.state = if matches!(put_item_data.state, ProductStateData::Available) {
+        ProductStateData::Sold
     } else {
-        ItemStateData::Available
+        ProductStateData::Available
     };
     let url = format!("{}/api/v1/items", stack.api_gateway_endpoint_url);
     let response = reqwest::Client::new()
@@ -162,10 +166,10 @@ async fn should_send_email_to_user_when_watched_item_has_update() {
 
     // verify email with update-notification arrived
     match put_item_data.state {
-        ItemStateData::Available => {
+        ProductStateData::Available => {
             assert!(wait_for_email("Antiquität verfügbar").await)
         }
-        ItemStateData::Sold => {
+        ProductStateData::Sold => {
             assert!(wait_for_email("Antiquität verkauft").await)
         }
         other => panic!(

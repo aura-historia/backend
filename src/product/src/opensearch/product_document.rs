@@ -1,6 +1,6 @@
 use crate::dynamodb::product_event_record::ProductEventRecord;
 use crate::dynamodb::product_record::ProductRecord;
-use crate::opensearch::product_state_document::ItemStateDocument;
+use crate::opensearch::product_state_document::ProductStateDocument;
 use common::error::mapping_error::PersistenceMappingError;
 use common::error::missing_field::MissingPersistenceField;
 use common::product_id::{ProductId, ProductKey};
@@ -14,7 +14,7 @@ use url::Url;
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
-pub struct ItemDocument {
+pub struct ProductDocument {
     pub product_id: ProductId,
 
     pub event_id: EventId,
@@ -55,7 +55,7 @@ pub struct ItemDocument {
     #[serde(skip_serializing_if = "Option::is_none", default)]
     pub price_nzd: Option<u64>,
 
-    pub state: ItemStateDocument,
+    pub state: ProductStateDocument,
 
     pub url: Url,
 
@@ -73,13 +73,13 @@ pub struct ItemDocument {
     pub updated: OffsetDateTime,
 }
 
-impl ItemDocument {
+impl ProductDocument {
     pub fn _id(&self) -> ProductId {
         self.product_id
     }
 }
 
-impl HasKey for ItemDocument {
+impl HasKey for ProductDocument {
     type Key = ProductKey;
 
     fn key(&self) -> Self::Key {
@@ -90,22 +90,22 @@ impl HasKey for ItemDocument {
     }
 }
 
-impl TryFrom<ProductEventRecord> for ItemDocument {
+impl TryFrom<ProductEventRecord> for ProductDocument {
     type Error = PersistenceMappingError;
 
     fn try_from(event_record: ProductEventRecord) -> Result<Self, Self::Error> {
         let state = event_record
             .new_state
-            .map(ItemStateDocument::from)
+            .map(ProductStateDocument::from)
             .ok_or_else(|| MissingPersistenceField::new(field!(new_state@ProductEventRecord)))?;
-        let document = ItemDocument {
+        let document = ProductDocument {
             product_id: event_record.product_id,
             event_id: event_record.event_id,
             shop_id: event_record.shop_id,
             shops_product_id: event_record.shops_product_id,
-            shop_name: event_record
-                .shop_name
-                .ok_or_else(|| MissingPersistenceField::new(field!(shop_name@ProductEventRecord)))?,
+            shop_name: event_record.shop_name.ok_or_else(|| {
+                MissingPersistenceField::new(field!(shop_name@ProductEventRecord))
+            })?,
             title_de: event_record.title_de,
             title_en: event_record.title_en,
             description_de: event_record.description_de,
@@ -129,9 +129,9 @@ impl TryFrom<ProductEventRecord> for ItemDocument {
     }
 }
 
-impl From<ProductRecord> for ItemDocument {
+impl From<ProductRecord> for ProductDocument {
     fn from(record: ProductRecord) -> Self {
-        ItemDocument {
+        ProductDocument {
             product_id: record.product_id,
             event_id: record.event_id,
             shop_id: record.shop_id,
@@ -166,10 +166,10 @@ mod faker {
     use common::shop_name::ShopName;
     use fake::{Dummy, Fake, Faker, Rng};
 
-    impl Dummy<Faker> for ItemDocument {
+    impl Dummy<Faker> for ProductDocument {
         fn dummy_with_rng<R: Rng + ?Sized>(config: &Faker, rng: &mut R) -> Self {
-            let state: ItemStateDocument = config.fake_with_rng(rng);
-            ItemDocument {
+            let state: ProductStateDocument = config.fake_with_rng(rng);
+            ProductDocument {
                 product_id: config.fake_with_rng(rng),
                 event_id: config.fake_with_rng(rng),
                 shop_id: config.fake_with_rng(rng),
@@ -217,12 +217,12 @@ mod faker {
 
     #[cfg(test)]
     mod tests {
-        use crate::opensearch::product_document::ItemDocument;
+        use crate::opensearch::product_document::ProductDocument;
         use fake::{Fake, Faker};
 
         #[test]
         fn should_fake_item_document() {
-            let _ = Faker.fake::<ItemDocument>();
+            let _ = Faker.fake::<ProductDocument>();
         }
     }
 }

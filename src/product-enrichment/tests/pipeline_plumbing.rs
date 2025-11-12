@@ -3,12 +3,6 @@ use aws_lambda_events::{
     eventbridge::EventBridgeEvent,
 };
 use common::{event::Event, event_id::EventId, product_id::ProductId};
-use product::core::product_event::{ItemCreatedEventPayload, ItemEventPayload};
-use product::dynamodb::{
-    item_event_record::ProductEventRecord,
-    repository::{ProductDynamoDbRepository, ProductDynamoDbRepositoryImpl},
-};
-use product::opensearch::repository::{ProductOpenSearchRepository, ProductOpenSearchRepositoryImpl};
 use item_enrichment::pipeline::pipe::EnrichmentPipe;
 use item_enrichment::{
     embed::EmbeddingDelegateImpl,
@@ -18,6 +12,14 @@ use item_enrichment::{
         plumbing::{EnrichmentPlumbing, EnrichmentPlumbingImpl},
         sink::EnrichmentPipeSinkImpl,
     },
+};
+use product::core::product_event::{ItemCreatedEventPayload, ItemEventPayload};
+use product::dynamodb::{
+    item_event_record::ProductEventRecord,
+    repository::{ProductDynamoDbRepository, ProductDynamoDbRepositoryImpl},
+};
+use product::opensearch::repository::{
+    ProductOpenSearchRepository, ProductOpenSearchRepositoryImpl,
 };
 use std::{sync::Arc, time::SystemTime};
 use test_api::*;

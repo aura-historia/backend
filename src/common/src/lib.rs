@@ -13,10 +13,10 @@ pub mod event_id;
 #[cfg(feature = "test-data")]
 pub mod fake;
 pub mod has_key;
-pub mod product_id;
-pub mod product_state;
 pub mod language;
 pub mod localized;
+pub mod product_id;
+pub mod product_state;
 
 #[cfg(feature = "opensearch")]
 pub mod opensearch;

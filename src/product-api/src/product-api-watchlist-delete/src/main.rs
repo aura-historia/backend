@@ -1,12 +1,12 @@
 use aws_config::BehaviorVersion;
 use aws_lambda_events::apigw::ApiGatewayV2httpRequest;
-use product::dynamodb::repository::ProductDynamoDbRepositoryImpl;
-use product::service::get_service::GetItemServiceImpl;
-use product::watchlist::dynamodb::repository::WatchlistItemDynamoDbRepositoryImpl;
-use product::watchlist::service::item_watchlist_service::ItemWatchListServiceImpl;
 use item_api_watchlist_delete::handler;
 use lambda_runtime::tracing::info;
 use lambda_runtime::{Error, LambdaEvent, run, service_fn};
+use product::dynamodb::repository::ProductDynamoDbRepositoryImpl;
+use product::service::get_service::GetItemServiceImpl;
+use product::watchlist::dynamodb::repository::WatchlistItemDynamoDbRepositoryImpl;
+use product::watchlist::service::product_watchlist_service::ProductWatchListServiceImpl;
 use user::dynamodb::repository::UserDynamoDbRepositoryImpl;
 
 #[tokio::main]
@@ -32,7 +32,7 @@ async fn main() -> Result<(), Error> {
     let item_repository = ProductDynamoDbRepositoryImpl::new(&dynamodb_client, &table_name);
     let get_item_service = GetItemServiceImpl::new(&item_repository);
 
-    let service = ItemWatchListServiceImpl::new(
+    let service = ProductWatchListServiceImpl::new(
         &watchlist_repository,
         &user_repository,
         &item_repository,

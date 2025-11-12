@@ -1,16 +1,16 @@
 use aws_tests_common::get_cfn_output;
 use common::{
-    product_id::api::ProductKeyData, pagination::cursor::api::TimeCursoredData, shop_id::ShopId,
+    pagination::cursor::api::TimeCursoredData, product_id::api::ProductKeyData, shop_id::ShopId,
     shops_product_id::ShopsProductId,
 };
 use fake::{Fake, Faker};
+use item_api_watchlist_get::WatchlistItemDataView;
+use item_api_watchlist_patch::WatchlistItemPatch;
 use product::dynamodb::{
     product_record::ProductRecord,
     repository::{ProductDynamoDbRepository, ProductDynamoDbRepositoryImpl},
 };
-use product::watchlist::data::watchlist_item_data::WatchlistItemData;
-use item_api_watchlist_get::WatchlistItemDataView;
-use item_api_watchlist_patch::WatchlistItemPatch;
+use product::watchlist::data::watchlist_product_data::WatchlistProductData;
 use staging_tests::{create_random_test_user, get_dynamodb_client, staging_test};
 
 #[staging_test]
@@ -121,10 +121,13 @@ async fn should_put_and_get_and_patch_and_delete_watchlist_item_and_verify_not_e
         .await
         .unwrap();
     assert_eq!(200, patch_response.status());
-    let patch_res_payload = patch_response.json::<WatchlistItemData>().await.unwrap();
+    let patch_res_payload = patch_response.json::<WatchlistProductData>().await.unwrap();
     assert_eq!(gotten.items[0].created, patch_res_payload.created);
     assert_eq!(materialized.shop_id, patch_res_payload.shop_id);
-    assert_eq!(materialized.shops_product_id, patch_res_payload.shops_product_id);
+    assert_eq!(
+        materialized.shops_product_id,
+        patch_res_payload.shops_product_id
+    );
     assert_eq!(materialized.product_id, patch_res_payload.product_id);
 
     // Delete gotten

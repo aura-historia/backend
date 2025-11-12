@@ -3,15 +3,17 @@ use common::{
     language::{data::LanguageData, domain::Language},
     price::domain::Price,
 };
-use product::core::{
-    item::Item,
-    product_event::{ItemCommonEventPayload, ProductEvent, ItemEventPayload},
-};
-use product::service::get_service::{GetItemError, GetItemService};
-use product::watchlist::service::item_watchlist_service::{ItemWatchListService, WatchItemError};
 use mail_core::{
     payload::MailPayload,
     template::{MailTemplate, MailTemplateType},
+};
+use product::core::{
+    item::Product,
+    product_event::{ItemCommonEventPayload, ItemEventPayload, ProductEvent},
+};
+use product::service::get_service::{GetItemError, GetItemService};
+use product::watchlist::service::product_watchlist_service::{
+    ProductWatchListService, WatchItemError,
 };
 use serde_email::Email;
 use serde_json::json;
@@ -36,14 +38,14 @@ pub trait ItemEventMailPayloadService {
 }
 
 pub struct ItemEventMailPayloadServiceImpl<'a> {
-    watchlist_service: &'a (dyn ItemWatchListService + Sync),
+    watchlist_service: &'a (dyn ProductWatchListService + Sync),
     get_item_service: &'a (dyn GetItemService + Sync),
     sender_email: Email,
 }
 
 impl<'a> ItemEventMailPayloadServiceImpl<'a> {
     pub fn new(
-        watchlist_service: &'a (dyn ItemWatchListService + Sync),
+        watchlist_service: &'a (dyn ProductWatchListService + Sync),
         get_item_service: &'a (dyn GetItemService + Sync),
         sender_email: Email,
     ) -> Self {
@@ -83,7 +85,7 @@ impl<'a> ItemEventMailPayloadService for ItemEventMailPayloadServiceImpl<'a> {
 }
 
 impl<'a> ItemEventMailPayloadServiceImpl<'a> {
-    fn customize_mail(&self, user: User, item: &Item, event: &ProductEvent) -> MailPayload {
+    fn customize_mail(&self, user: User, item: &Product, event: &ProductEvent) -> MailPayload {
         // Defaulting to German/EUR now because UserRecord doesn't contain preferences yet
         let title = item
             .other_title

@@ -5,11 +5,11 @@ use common::query::range_query::RangeQuery;
 use common::query::text_query::TextQuery;
 use common::{
     currency::{domain::Currency, record::CurrencyRecord},
-    product_state::domain::ProductState,
     language::{domain::Language, record::LanguageRecord},
     price::domain::MonetaryAmount,
+    product_state::domain::ProductState,
 };
-use product::dynamodb::item_state_record::ProductStateRecord;
+use product::dynamodb::product_state_record::ProductStateRecord;
 use time::OffsetDateTime;
 
 #[derive(Debug, Clone, PartialEq)]
@@ -78,7 +78,7 @@ impl From<UserSearchFilterUpdate> for UserSearchFilterRecordUpdate {
 mod fake {
     use crate::service::user_search_filter_update::UserSearchFilterUpdate;
     use fake::{Dummy, Fake, Faker};
-    use product::core::item_search::faker::fake_range_query_datetime;
+    use product::core::product_search::faker::fake_range_query_datetime;
     use time::OffsetDateTime;
 
     impl Dummy<Faker> for UserSearchFilterUpdate {

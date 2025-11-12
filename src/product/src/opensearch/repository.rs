@@ -1,15 +1,15 @@
-use crate::core::item_search::ItemSearch;
-use crate::core::sort_item_field::SortItemField;
-use crate::opensearch::product_document::ItemDocument;
-use crate::opensearch::product_state_document::ItemStateDocument;
-use crate::opensearch::product_update_document::ItemUpdateDocument;
+use crate::core::product_search::ProductSearch;
+use crate::core::sort_product_field::SortProductField;
+use crate::opensearch::product_document::ProductDocument;
+use crate::opensearch::product_state_document::ProductStateDocument;
+use crate::opensearch::product_update_document::ProductUpdateDocument;
 use async_trait::async_trait;
 use common::currency::domain::Currency;
-use common::product_id::ProductId;
-use common::product_state::domain::ProductState;
 use common::language::domain::Language;
 use common::opensearch::{bulk_response::BulkResponse, search_response::SearchResponse};
 use common::pagination::cursor::Cursor;
+use common::product_id::ProductId;
+use common::product_state::domain::ProductState;
 use common::sort::{Sort, SortOrder};
 use opensearch::{BulkOperation, BulkOperations, BulkParts, GetParts, SearchParts};
 use serde::ser::Error;
@@ -24,28 +24,29 @@ use time::format_description::well_known;
 pub trait ProductOpenSearchRepository {
     async fn create_item_documents(
         &self,
-        documents: Vec<ItemDocument>,
+        documents: Vec<ProductDocument>,
     ) -> Result<BulkResponse, opensearch::Error>;
 
     async fn update_item_documents(
         &self,
-        updates: HashMap<ProductId, ItemUpdateDocument>,
+        updates: HashMap<ProductId, ProductUpdateDocument>,
     ) -> Result<BulkResponse, opensearch::Error>;
 
     async fn search_item_documents(
         &self,
-        search: &ItemSearch,
-        sort: &Sort<SortItemField>,
+        search: &ProductSearch,
+        sort: &Sort<SortProductField>,
         page: &Option<Cursor<serde_json::Value>>,
-    ) -> Result<SearchResponse<ItemDocument>, opensearch::Error>;
+    ) -> Result<SearchResponse<ProductDocument>, opensearch::Error>;
 
-    async fn get_by_id(&self, product_id: &ProductId) -> Result<ItemDocument, opensearch::Error>;
+    async fn get_by_id(&self, product_id: &ProductId)
+    -> Result<ProductDocument, opensearch::Error>;
 
     async fn k_nn_text(
         &self,
         text_embedding: &[f32],
         k: u16,
-    ) -> Result<SearchResponse<ItemDocument>, opensearch::Error>;
+    ) -> Result<SearchResponse<ProductDocument>, opensearch::Error>;
 }
 
 pub struct ProductOpenSearchRepositoryImpl<'a> {
@@ -62,7 +63,7 @@ impl<'a> ProductOpenSearchRepositoryImpl<'a> {
 impl<'a> ProductOpenSearchRepository for ProductOpenSearchRepositoryImpl<'a> {
     async fn create_item_documents(
         &self,
-        documents: Vec<ItemDocument>,
+        documents: Vec<ProductDocument>,
     ) -> Result<BulkResponse, opensearch::Error> {
         let mut ops = BulkOperations::new();
 
@@ -90,7 +91,7 @@ impl<'a> ProductOpenSearchRepository for ProductOpenSearchRepositoryImpl<'a> {
 
     async fn update_item_documents(
         &self,
-        updates: HashMap<ProductId, ItemUpdateDocument>,
+        updates: HashMap<ProductId, ProductUpdateDocument>,
     ) -> Result<BulkResponse, opensearch::Error> {
         let mut ops = BulkOperations::new();
         for (_id, doc) in updates {
@@ -122,10 +123,10 @@ impl<'a> ProductOpenSearchRepository for ProductOpenSearchRepositoryImpl<'a> {
 
     async fn search_item_documents(
         &self,
-        search: &ItemSearch,
-        sort: &Sort<SortItemField>,
+        search: &ProductSearch,
+        sort: &Sort<SortProductField>,
         cursor: &Option<Cursor<serde_json::Value>>,
-    ) -> Result<SearchResponse<ItemDocument>, opensearch::Error> {
+    ) -> Result<SearchResponse<ProductDocument>, opensearch::Error> {
         let mut must = Vec::with_capacity(3);
         let mut filter = Vec::with_capacity(10);
 
@@ -169,7 +170,7 @@ impl<'a> ProductOpenSearchRepository for ProductOpenSearchRepositoryImpl<'a> {
             states => {
                 let state_values: Vec<&str> = states
                     .iter()
-                    .map(|state| ItemStateDocument::from(**state))
+                    .map(|state| ProductStateDocument::from(**state))
                     .map(|s| s.as_str())
                     .collect();
 
@@ -266,16 +267,16 @@ impl<'a> ProductOpenSearchRepository for ProductOpenSearchRepositoryImpl<'a> {
         }
 
         let sort_field = match sort.sort {
-            SortItemField::Score => "_score",
-            SortItemField::Price => price_field,
-            SortItemField::Created => "created",
-            SortItemField::Updated => "updated",
+            SortProductField::Score => "_score",
+            SortProductField::Price => price_field,
+            SortProductField::Created => "created",
+            SortProductField::Updated => "updated",
         };
         let order = match sort.order {
             SortOrder::Asc => "asc",
             SortOrder::Desc => "desc",
         };
-        let primary_sort = if matches!(sort.sort, SortItemField::Score) {
+        let primary_sort = if matches!(sort.sort, SortProductField::Score) {
             json!({ sort_field: { "order": order } })
         } else {
             json!({ sort_field: { "order": order, "missing": "_last" } })
@@ -296,17 +297,20 @@ impl<'a> ProductOpenSearchRepository for ProductOpenSearchRepositoryImpl<'a> {
             .await?;
         let payload = response.text().await?;
 
-        let search_response = serde_json::from_str::<SearchResponse<ItemDocument>>(&payload)
+        let search_response = serde_json::from_str::<SearchResponse<ProductDocument>>(&payload)
             .map_err(|err| {
                 serde_json::Error::custom(format!(
-                    "Failed deserializing 'SearchResponse<ItemDocument>' with error '{err}'. Received payload: {payload}"
+                    "Failed deserializing 'SearchResponse<ProductDocument>' with error '{err}'. Received payload: {payload}"
                 ))
             })?;
 
         Ok(search_response)
     }
 
-    async fn get_by_id(&self, product_id: &ProductId) -> Result<ItemDocument, opensearch::Error> {
+    async fn get_by_id(
+        &self,
+        product_id: &ProductId,
+    ) -> Result<ProductDocument, opensearch::Error> {
         let mut response: serde_json::Value = self
             .client
             .get(GetParts::IndexId("items", &product_id.to_string()))
@@ -323,7 +327,7 @@ impl<'a> ProductOpenSearchRepository for ProductOpenSearchRepositoryImpl<'a> {
         &self,
         text_embedding: &[f32],
         k: u16,
-    ) -> Result<SearchResponse<ItemDocument>, opensearch::Error> {
+    ) -> Result<SearchResponse<ProductDocument>, opensearch::Error> {
         let body = json!({
             "size": k,
             "query": {
@@ -342,10 +346,10 @@ impl<'a> ProductOpenSearchRepository for ProductOpenSearchRepositoryImpl<'a> {
             .send()
             .await?;
         let payload = response.text().await?;
-        let knn_response = serde_json::from_str::<SearchResponse<ItemDocument>>(&payload)
+        let knn_response = serde_json::from_str::<SearchResponse<ProductDocument>>(&payload)
             .map_err(|err| {
                 serde_json::Error::custom(format!(
-                    "Failed deserializing 'SearchResponse<ItemDocument>' with error '{err}'. Received payload: {payload}"
+                    "Failed deserializing 'SearchResponse<ProductDocument>' with error '{err}'. Received payload: {payload}"
                 ))
             })?;
         Ok(knn_response)

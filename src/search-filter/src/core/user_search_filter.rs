@@ -3,7 +3,7 @@ use crate::{
     core::user_search_filter_name::UserSearchFilterName,
 };
 use common::user_id::UserId;
-use product::core::item_search::ItemSearch;
+use product::core::product_search::ProductSearch;
 use time::OffsetDateTime;
 
 #[derive(Debug, Clone)]
@@ -11,7 +11,7 @@ pub struct UserSearchFilter {
     pub user_id: UserId,
     pub user_search_filter_id: UserSearchFilterId,
     pub name: UserSearchFilterName,
-    pub search: ItemSearch,
+    pub search: ProductSearch,
     pub created: OffsetDateTime,
     pub updated: OffsetDateTime,
 }

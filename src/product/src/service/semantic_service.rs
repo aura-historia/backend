@@ -13,7 +13,7 @@ use tracing::{error, warn};
 #[derive(thiserror::Error, Debug)]
 #[allow(clippy::large_enum_variant)]
 pub enum SemanticSearchItemsError {
-    #[error("Item with ShopId '{0}' and ShopsProductId '{1}' not found.")]
+    #[error("Product with ShopId '{0}' and ShopsProductId '{1}' not found.")]
     ItemNotFound(ShopId, ShopsProductId),
 
     #[error("OpenSearchError: {0}")]
@@ -99,7 +99,7 @@ impl<'a> SemanticSearchService for SemanticSearchServiceImpl<'a> {
                         shopItemId = %shops_product_id,
                         itemId = %product_id,
                         "When trying to find similar items for given ProductId,
-                         ItemDocument for ProductId did not have a textEmbedding
+                         ProductDocument for ProductId did not have a textEmbedding
                          although it was created at least one day prior -
                          hence why the nightly item-enrichment SHOULD have run and embedded the text."
                     );
@@ -128,7 +128,7 @@ impl<'a> SemanticSearchService for SemanticSearchServiceImpl<'a> {
 mod tests {
     use crate::{
         dynamodb::repository::MockItemDynamoDbRepository,
-        opensearch::{item_document::ItemDocument, repository::MockItemOpenSearchRepository},
+        opensearch::{item_document::ProductDocument, repository::MockItemOpenSearchRepository},
         service::semantic_service::{
             SemanticSearchItemsError, SemanticSearchService, SemanticSearchServiceImpl,
         },
@@ -137,10 +137,10 @@ mod tests {
     use aws_sdk_dynamodb::error::ConnectorError;
     use aws_sdk_dynamodb::error::SdkError;
     use common::{
-        product_id::ProductId,
         opensearch::search_response::{
             HitsMetadata, SearchHit, SearchResponse, ShardStats, TotalHits,
         },
+        product_id::ProductId,
         shop_id::ShopId,
         shops_product_id::ShopsProductId,
     };
@@ -161,7 +161,7 @@ mod tests {
             .return_once(|product_id| {
                 let product_id = *product_id;
                 Box::pin(async move {
-                    let mut doc = Faker.fake::<ItemDocument>();
+                    let mut doc = Faker.fake::<ProductDocument>();
                     doc.product_id = product_id;
                     doc.text_embedding = Some(Faker.fake());
                     Ok(doc)
@@ -186,7 +186,7 @@ mod tests {
                                 relation: "eq".to_string(),
                             },
                             max_score: None,
-                            hits: fake::vec![ItemDocument; 42]
+                            hits: fake::vec![ProductDocument; 42]
                                 .into_iter()
                                 .map(|doc| SearchHit {
                                     index: "items".to_string(),
@@ -222,7 +222,7 @@ mod tests {
             .return_once(|product_id| {
                 let product_id = *product_id;
                 Box::pin(async move {
-                    let mut doc = Faker.fake::<ItemDocument>();
+                    let mut doc = Faker.fake::<ProductDocument>();
                     doc.product_id = product_id;
                     Ok(doc)
                 })
@@ -246,7 +246,7 @@ mod tests {
                                 relation: "eq".to_string(),
                             },
                             max_score: None,
-                            hits: fake::vec![ItemDocument; 42]
+                            hits: fake::vec![ProductDocument; 42]
                                 .into_iter()
                                 .map(|doc| SearchHit {
                                     index: "items".to_string(),
@@ -299,7 +299,7 @@ mod tests {
         let mut opensearch_repository = MockItemOpenSearchRepository::default();
 
         let product_id = ProductId::new();
-        let mut root = Faker.fake::<ItemDocument>();
+        let mut root = Faker.fake::<ProductDocument>();
         root.product_id = product_id;
         root.text_embedding = Some(Faker.fake());
         let root_clone1 = root.clone();
@@ -314,7 +314,7 @@ mod tests {
         opensearch_repository
             .expect_k_nn_text()
             .return_once(|_, _| {
-                let mut documents = fake::vec![ItemDocument; 42];
+                let mut documents = fake::vec![ProductDocument; 42];
                 documents.push(root_clone2);
                 Box::pin(async move {
                     Ok(SearchResponse {
@@ -429,7 +429,7 @@ mod tests {
             .return_once(|product_id| {
                 let product_id = *product_id;
                 Box::pin(async move {
-                    let mut doc = Faker.fake::<ItemDocument>();
+                    let mut doc = Faker.fake::<ProductDocument>();
                     doc.product_id = product_id;
                     doc.text_embedding = Some(Faker.fake());
                     Ok(doc)

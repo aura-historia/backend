@@ -2,8 +2,10 @@ use aws_lambda_events::sqs::{BatchItemFailure, SqsBatchResponse, SqsEvent, SqsMe
 use common::batch::dynamodb::handle_dynamodb_batch_write_put_item_output;
 use common::product_id::ProductKey;
 use common::{batch::Batch, has_key::HasKey};
-use product::dynamodb::{item_event_record::ProductEventRecord, repository::ProductDynamoDbRepository};
 use lambda_runtime::LambdaEvent;
+use product::dynamodb::{
+    item_event_record::ProductEventRecord, repository::ProductDynamoDbRepository,
+};
 use std::collections::HashMap;
 use tracing::{error, info};
 
@@ -26,7 +28,10 @@ pub async fn handler(
     let batches = Batch::<_, 25>::chunked_from(event_records);
     let mut failed_keys = Vec::new();
     for batch in batches {
-        let item_keys = batch.iter().map(ProductEventRecord::key).collect::<Vec<_>>();
+        let item_keys = batch
+            .iter()
+            .map(ProductEventRecord::key)
+            .collect::<Vec<_>>();
         let put_batch_res = repository.put_item_event_records(batch).await;
         match put_batch_res {
             Ok(output) => handle_dynamodb_batch_write_put_item_output::<ProductEventRecord>(
@@ -113,10 +118,10 @@ mod tests {
     };
     use common::has_key::HasKey;
     use fake::{Fake, Faker};
+    use lambda_runtime::{Context, LambdaEvent};
     use product::dynamodb::{
         item_event_record::ProductEventRecord, repository::MockItemDynamoDbRepository,
     };
-    use lambda_runtime::{Context, LambdaEvent};
     use std::collections::HashMap;
     use uuid::Uuid;
 

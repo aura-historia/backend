@@ -1,7 +1,7 @@
-use crate::core::item_search::ItemSearch;
-use crate::core::sort_item_field::SortItemField;
+use crate::core::product_search::ProductSearch;
+use crate::core::sort_product_field::SortProductField;
 use crate::core::{description::Description, item::LocalizedItemView, title::Title};
-use crate::opensearch::product_document::ItemDocument;
+use crate::opensearch::product_document::ProductDocument;
 use crate::opensearch::repository::ProductOpenSearchRepository;
 use async_trait::async_trait;
 use common::language::domain::Language;
@@ -39,8 +39,8 @@ pub mod api {
 pub trait QueryItemService {
     async fn search_items(
         &self,
-        search: &ItemSearch,
-        sort: &Option<Sort<SortItemField>>,
+        search: &ProductSearch,
+        sort: &Option<Sort<SortProductField>>,
         page: &Option<Cursor<serde_json::Value>>,
     ) -> Result<CursoredResult<LocalizedItemView, serde_json::Value>, SearchItemsError>;
 }
@@ -59,8 +59,8 @@ impl<'a> QueryItemServiceImpl<'a> {
 impl<'a> QueryItemService for QueryItemServiceImpl<'a> {
     async fn search_items(
         &self,
-        search: &ItemSearch,
-        sort: &Option<Sort<SortItemField>>,
+        search: &ProductSearch,
+        sort: &Option<Sort<SortProductField>>,
         page: &Option<Cursor<serde_json::Value>>,
     ) -> Result<CursoredResult<LocalizedItemView, serde_json::Value>, SearchItemsError> {
         let search_response = self
@@ -68,7 +68,7 @@ impl<'a> QueryItemService for QueryItemServiceImpl<'a> {
             .search_item_documents(
                 search,
                 &sort.unwrap_or(Sort {
-                    sort: SortItemField::Score,
+                    sort: SortProductField::Score,
                     order: SortOrder::Desc,
                 }),
                 page,
@@ -112,7 +112,7 @@ impl<'a> QueryItemService for QueryItemServiceImpl<'a> {
 }
 
 pub fn localize_item_document(
-    item_document: ItemDocument,
+    item_document: ProductDocument,
     languages: &[Language],
     currency: &Currency,
 ) -> LocalizedItemView {
@@ -184,10 +184,10 @@ pub fn localize_item_document(
 
 #[cfg(test)]
 mod tests {
-    use crate::core::item_search::ItemSearch;
-    use crate::core::sort_item_field::SortItemField;
+    use crate::core::product_search::ProductSearch;
+    use crate::core::sort_product_field::SortProductField;
     use crate::opensearch::{
-        item_document::ItemDocument, repository::MockItemOpenSearchRepository,
+        item_document::ProductDocument, repository::MockItemOpenSearchRepository,
     };
     use crate::service::query_service::{QueryItemService, QueryItemServiceImpl};
     use common::pagination::cursor::Cursor;
@@ -195,11 +195,11 @@ mod tests {
     use common::query::range_query::RangeQuery;
     use common::{
         currency::domain::Currency,
-        product_state::domain::ProductState,
         language::domain::Language,
         opensearch::search_response::{
             HitsMetadata, SearchHit, SearchResponse, ShardStats, TotalHits,
         },
+        product_state::domain::ProductState,
         sort::{Sort, SortOrder},
     };
     use serde::ser::Error;
@@ -207,7 +207,7 @@ mod tests {
     use std::collections::HashSet;
     use time::macros::datetime;
 
-    fn mk_search_response(item_documents: Vec<ItemDocument>) -> SearchResponse<ItemDocument> {
+    fn mk_search_response(item_documents: Vec<ProductDocument>) -> SearchResponse<ProductDocument> {
         SearchResponse {
             took: 42,
             timed_out: false,
@@ -240,7 +240,7 @@ mod tests {
     #[tokio::test]
     #[rstest::rstest]
     #[case(
-        ItemSearch {
+        ProductSearch {
             language: Language::De,
             currency: Currency::Eur,
             item_query: "Hallo Welt".try_into().unwrap(),
@@ -250,12 +250,12 @@ mod tests {
             created_query: Some(RangeQuery { min: Some(datetime!(1000-01-01 0:00 UTC)), max: Some(datetime!(3000-01-01 0:00 UTC)) }),
             updated_query: Some(RangeQuery { min: Some(datetime!(1000-01-01 0:00 UTC)), max: Some(datetime!(3000-01-01 0:00 UTC)) }),
         },
-        Some(Sort { sort: SortItemField::Price, order: SortOrder::Asc }),
+        Some(Sort { sort: SortProductField::Price, order: SortOrder::Asc }),
         Some(Cursor { search_after: None, size: 20 }),
         100
     )]
     #[case(
-        ItemSearch {
+        ProductSearch {
             language: Language::En,
             currency: Currency::Usd,
             item_query: "Hallo Welt".try_into().unwrap(),
@@ -265,12 +265,12 @@ mod tests {
             created_query: Some(RangeQuery { min: Some(datetime!(1000-01-01 0:00 UTC)), max: Some(datetime!(3000-01-01 0:00 UTC)) }),
             updated_query: Some(RangeQuery { min: Some(datetime!(1000-01-01 0:00 UTC)), max: Some(datetime!(3000-01-01 0:00 UTC)) }),
         },
-        Some(Sort { sort: SortItemField::Price, order: SortOrder::Desc }),
+        Some(Sort { sort: SortProductField::Price, order: SortOrder::Desc }),
         Some(Cursor { search_after: Some(json!([12345, "foo"])), size: 20 }),
         500
     )]
     #[case(
-        ItemSearch {
+        ProductSearch {
             language: Language::En,
             currency: Currency::Gbp,
             item_query: "Hallo Welten!".try_into().unwrap(),
@@ -285,7 +285,7 @@ mod tests {
         1111
     )]
     #[case(
-        ItemSearch {
+        ProductSearch {
             language: Language::Fr,
             currency: Currency::Eur,
             item_query: "Hallo Welten!".try_into().unwrap(),
@@ -300,7 +300,7 @@ mod tests {
         123
     )]
     #[case(
-        ItemSearch {
+        ProductSearch {
             language: Language::Es,
             currency: Currency::Eur,
             item_query: "Hallo Welten!".try_into().unwrap(),
@@ -315,8 +315,8 @@ mod tests {
         1234
     )]
     async fn should_search_items(
-        #[case] search: ItemSearch,
-        #[case] sort: Option<Sort<SortItemField>>,
+        #[case] search: ProductSearch,
+        #[case] sort: Option<Sort<SortProductField>>,
         #[case] page: Option<Cursor<serde_json::Value>>,
         #[case] count: usize,
     ) {
@@ -324,7 +324,7 @@ mod tests {
         repository
             .expect_search_item_documents()
             .return_once(move |_, _, _| {
-                Box::pin(async move { Ok(mk_search_response(fake::vec![ItemDocument; count])) })
+                Box::pin(async move { Ok(mk_search_response(fake::vec![ProductDocument; count])) })
             });
         let service = QueryItemServiceImpl::new(&repository);
 
@@ -350,7 +350,7 @@ mod tests {
 
         let actual = service
             .search_items(
-                &ItemSearch {
+                &ProductSearch {
                     language: Language::De,
                     currency: Currency::Cad,
                     item_query: "Hallo Welten!".try_into().unwrap(),
@@ -381,7 +381,7 @@ mod tests {
         repository
             .expect_search_item_documents()
             .return_once(move |_, _, _| {
-                let items = fake::vec![ItemDocument; 369]
+                let items = fake::vec![ProductDocument; 369]
                     .into_iter()
                     .map(|mut item| {
                         item.price_eur = Some(2);
@@ -399,7 +399,7 @@ mod tests {
 
         let actual = service
             .search_items(
-                &ItemSearch {
+                &ProductSearch {
                     language: Language::De,
                     currency,
                     item_query: "Hallo Welten!".try_into().unwrap(),
@@ -434,7 +434,7 @@ mod tests {
         repository
             .expect_search_item_documents()
             .return_once(move |_, _, _| {
-                let items = fake::vec![ItemDocument; 369]
+                let items = fake::vec![ProductDocument; 369]
                     .into_iter()
                     .map(|mut item| {
                         item.title_de = Some("German".to_string());
@@ -450,7 +450,7 @@ mod tests {
 
         let actual = service
             .search_items(
-                &ItemSearch {
+                &ProductSearch {
                     language,
                     currency: Currency::Aud,
                     item_query: "Hallo Welten!".try_into().unwrap(),

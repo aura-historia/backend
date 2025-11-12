@@ -1,4 +1,4 @@
-use crate::core::item::Item;
+use crate::core::product::Product;
 use crate::core::product_event::ProductEvent;
 use crate::dynamodb::product_event_record::ProductEventRecord;
 use crate::dynamodb::repository::ProductDynamoDbRepository;
@@ -134,7 +134,7 @@ impl<T: FxRate + Sync> UpsertItemsServiceImpl<'_, T> {
                                 error!(
                                     shopId = %unprocessed_key.shop_id,
                                     shopsItemId = %unprocessed_key.shops_product_id,
-                                    "Couldn't find PutItemCommand for unprocessed Item. This is a bug. Not retrying."
+                                    "Couldn't find PutItemCommand for unprocessed Product. This is a bug. Not retrying."
                                 );
                             }
                         }
@@ -144,12 +144,12 @@ impl<T: FxRate + Sync> UpsertItemsServiceImpl<'_, T> {
                 let mut update_chunk = Vec::with_capacity(records.items.len());
                 for record in records.items {
                     match mut_key_cmds.remove(&record.key()) {
-                        Some(update_cmd) => update_chunk.push((Item::from(record), update_cmd)),
+                        Some(update_cmd) => update_chunk.push((Product::from(record), update_cmd)),
                         None => {
                             error!(
                                 shopId = %record.shop_id,
                                 shopsItemId = %record.shops_product_id,
-                                "Couldn't find PutItemCommand for Item proven to exist. This is a bug. Not retrying."
+                                "Couldn't find PutItemCommand for Product proven to exist. This is a bug. Not retrying."
                             );
                         }
                     }
@@ -246,7 +246,7 @@ impl<T: FxRate + Sync> UpsertItemsServiceImpl<'_, T> {
                         })
                 })
                 .unwrap_or_default();
-            Item::create(
+            Product::create(
                 cmd.shop_id,
                 cmd.shops_product_id,
                 cmd.shop_name,
@@ -275,7 +275,7 @@ impl<T: FxRate + Sync> UpsertItemsServiceImpl<'_, T> {
 
     async fn extract_update_events(
         &self,
-        update_chunk: Vec<(Item, UpsertItemCommand)>,
+        update_chunk: Vec<(Product, UpsertItemCommand)>,
         skipped_count: &mut usize,
     ) -> Vec<ProductEventRecord> {
         determine_update_events(update_chunk, skipped_count, self.fx_rate)
@@ -294,7 +294,7 @@ impl<T: FxRate + Sync> UpsertItemsServiceImpl<'_, T> {
 }
 
 fn determine_update_events(
-    update_chunk: Vec<(Item, UpsertItemCommand)>,
+    update_chunk: Vec<(Product, UpsertItemCommand)>,
     skipped_count: &mut usize,
     fx_rate: &impl FxRate,
 ) -> Vec<ProductEvent> {
@@ -321,24 +321,24 @@ fn determine_update_events(
 
 #[cfg(test)]
 pub mod tests {
-    use crate::core::item::Item;
+    use crate::core::product::Product;
     use crate::dynamodb::repository::MockItemDynamoDbRepository;
     use crate::service::product_command::UpsertItemCommand;
     use crate::service::upsert_service::{UpsertItemsServiceImpl, determine_update_events};
     use aws_config::BehaviorVersion;
     use aws_sdk_dynamodb::error::SdkError;
     use common::has_key::HasKey;
-    use common::{product_state::domain::ProductState, price::domain::FixedFxRate};
+    use common::{price::domain::FixedFxRate, product_state::domain::ProductState};
     use fake::{Fake, Faker};
 
     #[test]
     fn should_determine_no_update_events_when_only_skipped() {
-        let item1 = Faker.fake::<Item>();
+        let item1 = Faker.fake::<Product>();
         let mut update1 = Faker.fake::<UpsertItemCommand>();
         update1.native_price = item1.native_price;
         update1.state = item1.state;
 
-        let item2 = Faker.fake::<Item>();
+        let item2 = Faker.fake::<Product>();
         let mut update2 = Faker.fake::<UpsertItemCommand>();
         update2.native_price = item2.native_price;
         update2.state = item2.state;
@@ -353,7 +353,7 @@ pub mod tests {
 
     #[test]
     fn should_determine_update_events_when_none_skipped() {
-        let item1 = Faker.fake::<Item>();
+        let item1 = Faker.fake::<Product>();
         let update1 = UpsertItemCommand {
             shop_id: item1.clone().shop_id,
             shops_product_id: item1.clone().shops_product_id,
@@ -369,7 +369,7 @@ pub mod tests {
             images: item1.clone().images,
         };
 
-        let item2 = Faker.fake::<Item>();
+        let item2 = Faker.fake::<Product>();
         let update2 = UpsertItemCommand {
             shop_id: item2.clone().shop_id,
             shops_product_id: item2.clone().shops_product_id,
@@ -399,7 +399,7 @@ pub mod tests {
 
     #[test]
     fn should_determine_update_events_when_some_skipped() {
-        let item1 = Faker.fake::<Item>();
+        let item1 = Faker.fake::<Product>();
         let update1 = UpsertItemCommand {
             shop_id: item1.clone().shop_id,
             shops_product_id: item1.clone().shops_product_id,
@@ -415,7 +415,7 @@ pub mod tests {
             images: item1.clone().images,
         };
 
-        let item2 = Faker.fake::<Item>();
+        let item2 = Faker.fake::<Product>();
         let mut update2 = Faker.fake::<UpsertItemCommand>();
         update2.native_price = item2.native_price;
         update2.state = item2.state;

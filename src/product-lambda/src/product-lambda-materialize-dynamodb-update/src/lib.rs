@@ -3,10 +3,10 @@ use std::collections::HashMap;
 use aws_lambda_events::sqs::{BatchItemFailure, SqsBatchResponse, SqsEvent, SqsMessage};
 use common::has_key::HasKey;
 use common::product_id::ProductKey;
-use product::dynamodb::item_update_record::ItemRecordUpdate;
-use product::dynamodb::repository::ProductDynamoDbRepository;
 use item_lambda_common::extract_item_event_record;
 use lambda_runtime::LambdaEvent;
+use product::dynamodb::product_update_record::ItemRecordUpdate;
+use product::dynamodb::repository::ProductDynamoDbRepository;
 use tracing::{error, info};
 
 #[tracing::instrument(skip(repository, event), fields(requestId = %event.context.request_id))]
@@ -93,10 +93,10 @@ mod tests {
     use aws_sdk_dynamodb::error::SdkError;
     use aws_sdk_dynamodb::operation::update_item::UpdateItemOutput;
     use fake::{Fake, Faker};
-    use product::core::product_event::{ItemCommonEventPayload, ProductEvent};
-    use product::dynamodb::item_event_record::ProductEventRecord;
-    use product::dynamodb::repository::MockItemDynamoDbRepository;
     use lambda_runtime::{Context, LambdaEvent};
+    use product::core::product_event::{ItemCommonEventPayload, ProductEvent};
+    use product::dynamodb::product_event_record::ProductEventRecord;
+    use product::dynamodb::repository::MockItemDynamoDbRepository;
     use std::time::SystemTime;
     use uuid::Uuid;
 

@@ -1,6 +1,6 @@
 use std::time::Duration;
 
-use common::{product_id::ProductId, pagination::cursor::Cursor, user_id::UserId};
+use common::{pagination::cursor::Cursor, product_id::ProductId, user_id::UserId};
 use fake::{Fake, Faker};
 use product::watchlist::dynamodb::{
     record::{WatchlistItemRecord, mk_gsi1_pk, mk_gsi1_sk, mk_pk},
@@ -256,7 +256,11 @@ fn should_set_notifications_true_for_update() {
         .unwrap();
 
     let actual = repository
-        .get_watchlist_record(&initial.user_id, &initial.shop_id, &initial.shops_product_id)
+        .get_watchlist_record(
+            &initial.user_id,
+            &initial.shop_id,
+            &initial.shops_product_id,
+        )
         .await
         .unwrap()
         .unwrap();
@@ -294,7 +298,11 @@ fn should_set_notifications_false_for_update() {
         .unwrap();
 
     let actual = repository
-        .get_watchlist_record(&initial.user_id, &initial.shop_id, &initial.shops_product_id)
+        .get_watchlist_record(
+            &initial.user_id,
+            &initial.shop_id,
+            &initial.shops_product_id,
+        )
         .await
         .unwrap()
         .unwrap();

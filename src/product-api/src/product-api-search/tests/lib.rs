@@ -2,18 +2,18 @@ use cognito::access_token_verifier_service::MockAccessTokenVerifierService;
 use common::personalized::api::PersonalizedData;
 use common::{pagination::cursor::api::JsonCursoredData, query::range_query::RangeQuery};
 use fake::{Fake, Faker, rand};
+use item_api_search::handler;
+use lambda_runtime::LambdaEvent;
 use product::data::get_data::GetItemData;
-use product::data::item_search_data::ItemSearchData;
+use product::data::product_search_data::ProductSearchData;
 use product::data::user_state_data::ItemUserStateData;
 use product::opensearch::{
-    item_document::ItemDocument,
+    item_document::ProductDocument,
     repository::{ProductOpenSearchRepository, ProductOpenSearchRepositoryImpl},
 };
 use product::service::personalization_service::ItemPersonalizationServiceImpl;
 use product::service::query_service::QueryItemServiceImpl;
 use product::watchlist::dynamodb::repository::WatchlistItemDynamoDbRepositoryImpl;
-use item_api_search::handler;
-use lambda_runtime::LambdaEvent;
 use test_api::*;
 use time::OffsetDateTime;
 use time::macros::datetime;
@@ -33,7 +33,7 @@ async fn should_200_when_no_hits() {
     let lambda_event = LambdaEvent {
         payload: ApiGatewayV2httpRequestProxy::builder()
             .http_method(http::Method::POST)
-            .body_serde(&Faker.fake::<ItemSearchData>())
+            .body_serde(&Faker.fake::<ProductSearchData>())
             .build(),
         context: Default::default(),
     };
@@ -67,7 +67,7 @@ async fn should_200_when_following_search_after_from_previous_response_for_sort_
         .expect_verify_extract_user_id()
         .returning(|_| Box::pin(async { Ok(None) }));
 
-    let search = ItemSearchData {
+    let search = ProductSearchData {
         language: common::language::data::LanguageData::De,
         currency: common::currency::data::CurrencyData::Eur,
         item_query: "Der erwartete Titel".try_into().unwrap(),
@@ -78,7 +78,7 @@ async fn should_200_when_following_search_after_from_previous_response_for_sort_
         updated_query: None,
     };
 
-    let mut items = fake::vec![ItemDocument; 1370];
+    let mut items = fake::vec![ProductDocument; 1370];
     for item in &mut items {
         item.title_de = Some("Der erwartete Titel".to_string());
         item.price_eur = Some(rand::random_range(1..=10000000));
@@ -91,7 +91,7 @@ async fn should_200_when_following_search_after_from_previous_response_for_sort_
     refresh_index("items").await;
     tokio::time::sleep(std::time::Duration::from_secs(10)).await;
 
-    let sorter = |l: &ItemDocument, r: &ItemDocument| match l
+    let sorter = |l: &ProductDocument, r: &ProductDocument| match l
         .price_eur
         .unwrap()
         .cmp(&r.price_eur.unwrap())
@@ -199,7 +199,7 @@ async fn should_200_when_following_search_after_from_previous_response_for_sort_
         .expect_verify_extract_user_id()
         .returning(|_| Box::pin(async { Ok(None) }));
 
-    let search = ItemSearchData {
+    let search = ProductSearchData {
         language: common::language::data::LanguageData::De,
         currency: common::currency::data::CurrencyData::Eur,
         item_query: "Der erwartete Titel".try_into().unwrap(),
@@ -210,7 +210,7 @@ async fn should_200_when_following_search_after_from_previous_response_for_sort_
         updated_query: None,
     };
 
-    let mut items = fake::vec![ItemDocument; 1370];
+    let mut items = fake::vec![ProductDocument; 1370];
     for item in &mut items {
         item.title_de = Some("Der erwartete Titel".to_string());
         item.price_eur = Some(rand::random_range(1..=10000000));
@@ -223,13 +223,17 @@ async fn should_200_when_following_search_after_from_previous_response_for_sort_
     refresh_index("items").await;
     tokio::time::sleep(std::time::Duration::from_secs(10)).await;
 
-    let sorter = |l: &ItemDocument, r: &ItemDocument| match l
+    let sorter = |l: &ProductDocument, r: &ProductDocument| match l
         .price_eur
         .unwrap()
         .cmp(&r.price_eur.unwrap())
         .reverse()
     {
-        std::cmp::Ordering::Equal => l.product_id.to_string().cmp(&r.product_id.to_string()).reverse(),
+        std::cmp::Ordering::Equal => l
+            .product_id
+            .to_string()
+            .cmp(&r.product_id.to_string())
+            .reverse(),
         ord => ord,
     };
     items.sort_by(sorter);
@@ -332,7 +336,7 @@ async fn should_200_when_following_search_after_from_previous_response_for_impli
         .expect_verify_extract_user_id()
         .returning(|_| Box::pin(async { Ok(None) }));
 
-    let search = ItemSearchData {
+    let search = ProductSearchData {
         language: common::language::data::LanguageData::De,
         currency: common::currency::data::CurrencyData::Usd,
         item_query: "Der erwartete Titel".try_into().unwrap(),
@@ -343,7 +347,7 @@ async fn should_200_when_following_search_after_from_previous_response_for_impli
         updated_query: None,
     };
 
-    let mut items = fake::vec![ItemDocument; 1370];
+    let mut items = fake::vec![ProductDocument; 1370];
     for item in &mut items {
         item.title_de = Some("Der erwartete Titel".to_string());
     }
@@ -431,7 +435,7 @@ async fn should_200_when_following_search_after_from_previous_response_for_expli
         .expect_verify_extract_user_id()
         .returning(|_| Box::pin(async { Ok(None) }));
 
-    let search = ItemSearchData {
+    let search = ProductSearchData {
         language: common::language::data::LanguageData::De,
         currency: common::currency::data::CurrencyData::Usd,
         item_query: "Der erwartete Titel".try_into().unwrap(),
@@ -442,7 +446,7 @@ async fn should_200_when_following_search_after_from_previous_response_for_expli
         updated_query: None,
     };
 
-    let mut items = fake::vec![ItemDocument; 1370];
+    let mut items = fake::vec![ProductDocument; 1370];
     for item in &mut items {
         item.title_de = Some("Der erwartete Titel".to_string());
     }
@@ -544,7 +548,7 @@ async fn should_200_when_created_query(
         .returning(|_| Box::pin(async { Ok(None) }));
 
     let created = RangeQuery { min, max };
-    let search = ItemSearchData {
+    let search = ProductSearchData {
         language: common::language::data::LanguageData::De,
         currency: common::currency::data::CurrencyData::Eur,
         item_query: "Der erwartete Titel".try_into().unwrap(),
@@ -562,7 +566,7 @@ async fn should_200_when_created_query(
         context: Default::default(),
     };
 
-    let mut items = fake::vec![ItemDocument; 1370];
+    let mut items = fake::vec![ProductDocument; 1370];
     for item in &mut items {
         item.title_de = Some("Der erwartete Titel".to_string());
     }
@@ -629,7 +633,7 @@ async fn should_200_when_updated_query(
         .returning(|_| Box::pin(async { Ok(None) }));
 
     let updated = RangeQuery { min, max };
-    let search = ItemSearchData {
+    let search = ProductSearchData {
         language: common::language::data::LanguageData::De,
         currency: common::currency::data::CurrencyData::Eur,
         item_query: "Der erwartete Titel".try_into().unwrap(),
@@ -647,7 +651,7 @@ async fn should_200_when_updated_query(
         context: Default::default(),
     };
 
-    let mut items = fake::vec![ItemDocument; 1370];
+    let mut items = fake::vec![ProductDocument; 1370];
     for item in &mut items {
         item.title_de = Some("Der erwartete Titel".to_string());
     }
@@ -704,7 +708,7 @@ async fn should_200_personalized_when_authenticated_and_not_watching() {
         .expect_verify_extract_user_id()
         .returning(|_| Box::pin(async { Ok(Some(Faker.fake())) }));
 
-    let search = ItemSearchData {
+    let search = ProductSearchData {
         language: common::language::data::LanguageData::De,
         currency: common::currency::data::CurrencyData::Eur,
         item_query: "Der erwartete Titel".try_into().unwrap(),
@@ -722,7 +726,7 @@ async fn should_200_personalized_when_authenticated_and_not_watching() {
         context: Default::default(),
     };
 
-    let mut items = fake::vec![ItemDocument; 1370];
+    let mut items = fake::vec![ProductDocument; 1370];
     for item in &mut items {
         item.title_de = Some("Der erwartete Titel".to_string());
     }

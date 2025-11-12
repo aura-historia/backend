@@ -1,8 +1,8 @@
 use common::query::range_query::RangeQuery;
 use common::user_id::UserId;
 use fake::{Fake, Faker};
-use product::core::item_search::ItemSearch;
 use lambda_runtime::LambdaEvent;
+use product::core::product_search::ProductSearch;
 use search_filter::data::user_search_filter_data::UserSearchFilterData;
 use search_filter::dynamodb::repository::UserSearchFilterDynamoDbRepositoryImpl;
 use search_filter::service::user_search_filter_service::{
@@ -22,7 +22,7 @@ async fn should_update_search_filter() {
 
     let user_id = UserId::new();
     let initial = service
-        .save_user_search_filter(&user_id, Faker.fake(), Faker.fake::<ItemSearch>())
+        .save_user_search_filter(&user_id, Faker.fake(), Faker.fake::<ProductSearch>())
         .await
         .unwrap();
 

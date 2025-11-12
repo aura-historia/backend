@@ -1,11 +1,11 @@
-use crate::watchlist::core::watchlist_product::WatchlistItem;
+use crate::watchlist::core::watchlist_product::WatchlistProduct;
 use common::{product_id::ProductId, shop_id::ShopId, shops_product_id::ShopsProductId};
 use serde::{Deserialize, Serialize};
 use time::OffsetDateTime;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
-pub struct WatchlistItemData {
+pub struct WatchlistProductData {
     pub shop_id: ShopId,
     pub shops_product_id: ShopsProductId,
     pub product_id: ProductId,
@@ -18,9 +18,9 @@ pub struct WatchlistItemData {
     pub updated: OffsetDateTime,
 }
 
-impl From<WatchlistItem> for WatchlistItemData {
-    fn from(domain: WatchlistItem) -> Self {
-        WatchlistItemData {
+impl From<WatchlistProduct> for WatchlistProductData {
+    fn from(domain: WatchlistProduct) -> Self {
+        WatchlistProductData {
             shop_id: domain.shop_id,
             shops_product_id: domain.shops_product_id,
             product_id: domain.product_id,

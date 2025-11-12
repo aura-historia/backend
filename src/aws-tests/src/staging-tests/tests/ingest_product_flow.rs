@@ -1,24 +1,24 @@
 use aws_tests_common::get_cfn_output;
 use common::{
     api::collection::PutCollectionData,
-    product_state::domain::ProductState,
     language::data::LocalizedTextData,
+    product_state::domain::ProductState,
     sort::{Sort, SortOrder},
 };
 use fake::{Fake, Faker};
-use product::core::sort_item_field::SortItemField;
-use product::data::{item_state_data::ItemStateData, put_data::PutItemData};
+use opensearch::{GetParts, IndexParts, params::Refresh};
+use product::core::sort_product_field::SortProductField;
+use product::data::{item_state_data::ProductStateData, put_data::PutItemData};
 use product::dynamodb::{
-    product_record::ProductRecord,
     item_state_record::ProductStateRecord,
+    product_record::ProductRecord,
     repository::{ProductDynamoDbRepository, ProductDynamoDbRepositoryImpl},
 };
 use product::opensearch::{
-    item_document::ItemDocument,
+    item_document::ProductDocument,
     repository::{ProductOpenSearchRepository, ProductOpenSearchRepositoryImpl},
 };
-use product::{core::item_search::ItemSearch, dynamodb::product_record::mk_pk};
-use opensearch::{GetParts, IndexParts, params::Refresh};
+use product::{core::item_search::ProductSearch, dynamodb::product_record::mk_pk};
 use serde::de::DeserializeOwned;
 use shop::core::shop::Shop;
 use shop::dynamodb::{
@@ -89,7 +89,8 @@ async fn should_materialize_item_in_dynamodb_when_put_new_item() {
     assert_eq!(200, response.status());
 
     let dynamodb_client = get_dynamodb_client().await;
-    let repository = ProductDynamoDbRepositoryImpl::new(dynamodb_client, &stack.dynamodb_table_1_name);
+    let repository =
+        ProductDynamoDbRepositoryImpl::new(dynamodb_client, &stack.dynamodb_table_1_name);
 
     let deadline = Instant::now() + Duration::from_secs(60);
     loop {
@@ -100,7 +101,10 @@ async fn should_materialize_item_in_dynamodb_when_put_new_item() {
 
         if let Some(materialized) = materialized {
             assert_eq!(shop.shop_id, materialized.shop_id);
-            assert_eq!(put_item_data.shops_product_id, materialized.shops_product_id);
+            assert_eq!(
+                put_item_data.shops_product_id,
+                materialized.shops_product_id
+            );
             assert_eq!(put_item_data.url, materialized.url);
             break;
         }
@@ -120,7 +124,8 @@ async fn should_materialize_item_in_dynamodb_when_put_new_item() {
 async fn should_materialize_item_in_dynamodb_for_update_item_command() {
     let stack = get_cfn_output();
     let dynamodb_client = get_dynamodb_client().await;
-    let repository = ProductDynamoDbRepositoryImpl::new(dynamodb_client, &stack.dynamodb_table_1_name);
+    let repository =
+        ProductDynamoDbRepositoryImpl::new(dynamodb_client, &stack.dynamodb_table_1_name);
     let shop = prepare_test_shop().await;
 
     let mut materialized_old: ProductRecord = Faker.fake();
@@ -138,8 +143,8 @@ async fn should_materialize_item_in_dynamodb_for_update_item_command() {
     tokio::time::sleep(Duration::from_secs(3)).await;
 
     let new_state = match materialized_old.state {
-        ProductStateRecord::Available => ItemStateData::Sold,
-        _ => ItemStateData::Available,
+        ProductStateRecord::Available => ProductStateData::Sold,
+        _ => ProductStateData::Available,
     };
     let put_item_data = PutItemData {
         shops_product_id: materialized_old.shops_product_id,
@@ -173,7 +178,10 @@ async fn should_materialize_item_in_dynamodb_for_update_item_command() {
             && ProductState::from(new_state) == ProductState::from(materialized.state)
         {
             assert_eq!(shop.shop_id, materialized.shop_id);
-            assert_eq!(put_item_data.shops_product_id, materialized.shops_product_id);
+            assert_eq!(
+                put_item_data.shops_product_id,
+                materialized.shops_product_id
+            );
             assert_eq!(
                 ProductState::from(new_state),
                 ProductState::from(materialized.state)
@@ -227,7 +235,7 @@ async fn should_materialize_item_in_opensearch_for_create_item_command() {
     loop {
         let materialized = repository
             .search_item_documents(
-                &ItemSearch {
+                &ProductSearch {
                     language: common::language::domain::Language::En,
                     currency: common::currency::domain::Currency::Eur,
                     item_query: "Exactly the expected title".try_into().unwrap(),
@@ -238,7 +246,7 @@ async fn should_materialize_item_in_opensearch_for_create_item_command() {
                     updated_query: None,
                 },
                 &Sort {
-                    sort: SortItemField::Score,
+                    sort: SortProductField::Score,
                     order: SortOrder::Desc,
                 },
                 &None,
@@ -262,7 +270,7 @@ async fn should_materialize_item_in_opensearch_for_create_item_command() {
 
         if Instant::now() >= deadline {
             panic!(
-                "Timeout: ItemDocument with shop_id '{}' and shops_product_id '{}' not found in OpenSearch after 60 seconds",
+                "Timeout: ProductDocument with shop_id '{}' and shops_product_id '{}' not found in OpenSearch after 60 seconds",
                 shop.shop_id, put_item_data.shops_product_id
             );
         }
@@ -278,7 +286,8 @@ async fn should_materialize_item_in_opensearch_for_update_item_command() {
 
     // we also need to ingest materialized into DynamoDB because item-write-lambda-update performs validity and existence checks in the primary data-store
     let dynamodb_client = get_dynamodb_client().await;
-    let repository = ProductDynamoDbRepositoryImpl::new(dynamodb_client, &stack.dynamodb_table_1_name);
+    let repository =
+        ProductDynamoDbRepositoryImpl::new(dynamodb_client, &stack.dynamodb_table_1_name);
     let mut materialized_ddb_old: ProductRecord = Faker.fake();
     materialized_ddb_old.pk = mk_pk(&shop.shop_id, &materialized_ddb_old.shops_product_id);
     materialized_ddb_old.shop_id = shop.shop_id;
@@ -295,7 +304,7 @@ async fn should_materialize_item_in_opensearch_for_update_item_command() {
 
     let opensearch_client = get_opensearch_client().await;
     let repository = ProductOpenSearchRepositoryImpl::new(opensearch_client);
-    let materialized_os_old: ItemDocument = materialized_ddb_old.clone().into();
+    let materialized_os_old: ProductDocument = materialized_ddb_old.clone().into();
     let insert_res = repository
         .create_item_documents(vec![materialized_os_old.clone()])
         .await
@@ -305,8 +314,8 @@ async fn should_materialize_item_in_opensearch_for_update_item_command() {
     tokio::time::sleep(Duration::from_secs(10)).await;
 
     let new_state = match materialized_ddb_old.state {
-        ProductStateRecord::Available => ItemStateData::Sold,
-        _ => ItemStateData::Available,
+        ProductStateRecord::Available => ProductStateData::Sold,
+        _ => ProductStateData::Available,
     };
     let put_item_data = PutItemData {
         shops_product_id: materialized_ddb_old.shops_product_id,
@@ -334,7 +343,7 @@ async fn should_materialize_item_in_opensearch_for_update_item_command() {
         refresh_index("items").await;
         let materialized = repository
             .search_item_documents(
-                &ItemSearch {
+                &ProductSearch {
                     language: common::language::domain::Language::En,
                     currency: common::currency::domain::Currency::Usd,
                     item_query: "Exactly the expected title".try_into().unwrap(),
@@ -345,7 +354,7 @@ async fn should_materialize_item_in_opensearch_for_update_item_command() {
                     updated_query: None,
                 },
                 &Sort {
-                    sort: SortItemField::Score,
+                    sort: SortProductField::Score,
                     order: SortOrder::Desc,
                 },
                 &None,
@@ -374,7 +383,7 @@ async fn should_materialize_item_in_opensearch_for_update_item_command() {
 
         if Instant::now() >= deadline {
             panic!(
-                "Timeout: ItemDocument with shop_id '{}' and shops_product_id '{}' \
+                "Timeout: ProductDocument with shop_id '{}' and shops_product_id '{}' \
                     has not been updated in OpenSearch or been updated with expected state after 60 seconds",
                 shop.shop_id, put_item_data.shops_product_id
             );

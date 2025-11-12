@@ -2,9 +2,9 @@ use std::sync::Arc;
 
 use crate::pipeline::pipe::{PipeItem, PipeItemSource, PipeItemUpdate};
 use common::product_id::ProductId;
-use product::core::product_event::{ProductEvent, ItemEventPayload};
-use product::dynamodb::item_event_record::ProductEventRecord;
 use item_lambda_common::extract_item_event_record;
+use product::core::product_event::{ItemEventPayload, ProductEvent};
+use product::dynamodb::product_event_record::ProductEventRecord;
 use tracing::{error, info};
 
 #[async_trait::async_trait]

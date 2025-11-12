@@ -1,10 +1,10 @@
 use aws_lambda_events::sqs::{BatchItemFailure, SqsBatchResponse, SqsEvent, SqsMessage};
-use common::product_id::ProductId;
 use common::opensearch::bulk_response::{BulkItemResult, BulkResponse};
-use product::opensearch::item_update_document::ItemUpdateDocument;
-use product::opensearch::repository::ProductOpenSearchRepository;
+use common::product_id::ProductId;
 use item_lambda_common::extract_item_event_record;
 use lambda_runtime::LambdaEvent;
+use product::opensearch::product_update_document::ProductUpdateDocument;
+use product::opensearch::repository::ProductOpenSearchRepository;
 use std::collections::HashMap;
 use tracing::{error, info, warn};
 
@@ -62,14 +62,14 @@ fn extract_message_data(
     failed_message_ids: &mut Vec<String>,
     skipped_count: &mut usize,
     message_ids: &mut HashMap<ProductId, String>,
-) -> Option<(ProductId, ItemUpdateDocument)> {
+) -> Option<(ProductId, ProductUpdateDocument)> {
     let message_id = message
         .message_id
         .clone()
         .expect("shouldn't receive an SQS-Message without 'message_id' because AWS sets it.");
     let item_event_record = extract_item_event_record(message, failed_message_ids, skipped_count)?;
     let product_id = item_event_record.product_id;
-    let update_document = ItemUpdateDocument::from(item_event_record);
+    let update_document = ProductUpdateDocument::from(item_event_record);
     message_ids.insert(product_id, message_id);
     Some((product_id, update_document))
 }
@@ -139,11 +139,11 @@ mod tests {
     use common::opensearch::bulk_response::{BulkError, BulkResponse};
     use fake::Fake;
     use fake::Faker;
+    use lambda_runtime::LambdaEvent;
     use product::core::product_event::ProductEvent;
     use product::core::product_event::{ItemCreatedEventPayload, ItemEventPayload};
-    use product::dynamodb::item_event_record::ProductEventRecord;
+    use product::dynamodb::product_event_record::ProductEventRecord;
     use product::opensearch::repository::MockItemOpenSearchRepository;
-    use lambda_runtime::LambdaEvent;
     use std::collections::HashMap;
     use std::time::SystemTime;
     use time::OffsetDateTime;

@@ -5,11 +5,11 @@ use crate::core::{
 use common::query::range_query::RangeQuery;
 use common::query::text_query::TextQuery;
 use common::{
-    currency::record::CurrencyRecord, product_state::domain::ProductState,
-    language::record::LanguageRecord, price::domain::MonetaryAmount, user_id::UserId,
+    currency::record::CurrencyRecord, language::record::LanguageRecord,
+    price::domain::MonetaryAmount, product_state::domain::ProductState, user_id::UserId,
 };
-use product::core::item_search::ItemSearch;
-use product::dynamodb::item_state_record::ProductStateRecord;
+use product::core::product_search::ProductSearch;
+use product::dynamodb::product_state_record::ProductStateRecord;
 use serde::{Deserialize, Serialize};
 use std::collections::HashSet;
 use time::OffsetDateTime;
@@ -71,7 +71,7 @@ impl From<UserSearchFilterRecord> for UserSearchFilter {
             user_id: record.user_id,
             user_search_filter_id: record.user_search_filter_id,
             name: record.name,
-            search: ItemSearch {
+            search: ProductSearch {
                 language: record.language.into(),
                 currency: record.currency.into(),
                 item_query: record.item_query,
@@ -127,7 +127,7 @@ impl From<UserSearchFilter> for UserSearchFilterRecord {
 mod fake {
     use crate::dynamodb::user_search_filter_record::{UserSearchFilterRecord, mk_pk, mk_sk};
     use fake::{Dummy, Fake, Faker};
-    use product::core::item_search::faker::fake_range_query_datetime;
+    use product::core::product_search::faker::fake_range_query_datetime;
     use time::OffsetDateTime;
 
     impl Dummy<Faker> for UserSearchFilterRecord {

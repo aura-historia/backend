@@ -2,11 +2,11 @@ use common::query::range_query::RangeQuery;
 use common::query::text_query::TextQuery;
 use common::{
     currency::{data::CurrencyData, domain::Currency},
-    product_state::domain::ProductState,
     language::{data::LanguageData, domain::Language},
     price::domain::MonetaryAmount,
+    product_state::domain::ProductState,
 };
-use product::data::item_state_data::ItemStateData;
+use product::data::product_state_data::ProductStateData;
 use search_filter::core::user_search_filter_name::UserSearchFilterName;
 use search_filter::service::user_search_filter_update::UserSearchFilterUpdate;
 use serde::{Deserialize, Serialize};
@@ -47,7 +47,7 @@ pub struct PatchItemSearchData {
     pub price_query: Option<RangeQuery<u64>>,
 
     #[serde(rename = "state", skip_serializing_if = "Option::is_none", default)]
-    pub state_query: Option<HashSet<ItemStateData>>,
+    pub state_query: Option<HashSet<ProductStateData>>,
 
     #[serde(
         rename = "created",
@@ -103,7 +103,7 @@ impl From<PatchUserSearchFilterData> for UserSearchFilterUpdate {
 mod faker {
     use super::*;
     use fake::{Dummy, Fake, Faker, Rng};
-    use product::core::item_search::faker::fake_range_query_datetime;
+    use product::core::product_search::faker::fake_range_query_datetime;
 
     impl Dummy<Faker> for PatchItemSearchData {
         fn dummy_with_rng<R: Rng + ?Sized>(config: &Faker, rng: &mut R) -> Self {
@@ -126,7 +126,7 @@ mod tests {
     use crate::patch::{PatchItemSearchData, PatchUserSearchFilterData};
     use common::query::range_query::RangeQuery;
     use common::{currency::data::CurrencyData, language::data::LanguageData};
-    use product::data::item_state_data::ItemStateData;
+    use product::data::product_state_data::ProductStateData;
     use serde_json::json;
     use std::collections::HashSet;
     use time::macros::datetime;
@@ -161,7 +161,7 @@ mod tests {
                 min: Some(37),
                 max: Some(42),
             }),
-            state_query: Some(HashSet::from_iter([ItemStateData::Available])),
+            state_query: Some(HashSet::from_iter([ProductStateData::Available])),
             created_query: Some(RangeQuery {
                 min: Some(datetime!(2000 - 05 - 04 0:00 UTC)),
                 max: Some(datetime!(2025 - 05 - 04 0:00 UTC)),
@@ -212,7 +212,7 @@ mod tests {
                     min: Some(37),
                     max: Some(42),
                 }),
-                state_query: Some(HashSet::from_iter([ItemStateData::Available])),
+                state_query: Some(HashSet::from_iter([ProductStateData::Available])),
                 created_query: Some(RangeQuery {
                     min: Some(datetime!(2000 - 05 - 04 0:00 UTC)),
                     max: Some(datetime!(2025 - 05 - 04 0:00 UTC)),

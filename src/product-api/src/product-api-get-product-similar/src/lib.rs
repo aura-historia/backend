@@ -11,6 +11,7 @@ use common::{
     shop_id::api::extract_shop_id_path,
     shops_product_id::api::extract_shops_item_id_path,
 };
+use lambda_runtime::LambdaEvent;
 use product::core::user_state::ItemUserState;
 use product::{
     data::get_data::GetItemData, service::personalization_service::ItemPersonalizationService,
@@ -18,7 +19,6 @@ use product::{
 use product::{
     data::user_state_data::ItemUserStateData, service::semantic_service::SemanticSearchService,
 };
-use lambda_runtime::LambdaEvent;
 
 #[tracing::instrument(
     skip(event, semantic_search_service, access_token_verifier_service, item_personalization_service),
@@ -137,10 +137,10 @@ mod tests {
     use fake::Fake;
     use fake::Faker;
     use http::header::LOCATION;
+    use lambda_runtime::LambdaEvent;
     use product::service::personalization_service::MockItemPersonalizationService;
     use product::service::semantic_service::MockSemanticSearchService;
     use product::service::semantic_service::SemanticSearchItemsError;
-    use lambda_runtime::LambdaEvent;
     use test_api::{ApiGatewayV2httpRequestProxy, extract_apigw_response_json_body};
 
     #[tokio::test]

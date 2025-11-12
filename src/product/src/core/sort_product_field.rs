@@ -1,5 +1,5 @@
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
-pub enum SortItemField {
+pub enum SortProductField {
     #[default]
     Score,
     Price,

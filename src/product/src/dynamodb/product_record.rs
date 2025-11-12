@@ -1,4 +1,4 @@
-use crate::core::item::Item;
+use crate::core::product::Product;
 use crate::dynamodb::product_event_record::ProductEventRecord;
 use crate::dynamodb::product_state_record::ProductStateRecord;
 use common::currency::domain::Currency;
@@ -6,12 +6,12 @@ use common::error::mapping_error::PersistenceMappingError;
 use common::error::missing_field::MissingPersistenceField;
 use common::event_id::EventId;
 use common::has_key::HasKey;
-use common::product_id::{ProductId, ProductKey};
 use common::language::domain::Language;
 use common::language::record::TextRecord;
 use common::localized::Localized;
 use common::price::domain::Price;
 use common::price::record::PriceRecord;
+use common::product_id::{ProductId, ProductKey};
 use common::shop_id::ShopId;
 use common::shops_product_id::ShopsProductId;
 use field::field;
@@ -90,7 +90,7 @@ impl HasKey for ProductRecord {
     }
 }
 
-impl From<ProductRecord> for Item {
+impl From<ProductRecord> for Product {
     fn from(record: ProductRecord) -> Self {
         let mut other_title = HashMap::with_capacity(2);
         if let Some(title_en) = record.title_en {
@@ -128,7 +128,7 @@ impl From<ProductRecord> for Item {
             other_price.insert(Currency::Nzd, price_eur.into());
         }
 
-        Item {
+        Product {
             product_id: record.product_id,
             event_id: record.event_id,
             shop_id: record.shop_id,
@@ -165,9 +165,9 @@ impl TryFrom<ProductEventRecord> for ProductRecord {
             event_id: event_record.event_id,
             shop_id: event_record.shop_id,
             shops_product_id: event_record.shops_product_id,
-            shop_name: event_record
-                .shop_name
-                .ok_or_else(|| MissingPersistenceField::new(field!(shop_name@ProductEventRecord)))?,
+            shop_name: event_record.shop_name.ok_or_else(|| {
+                MissingPersistenceField::new(field!(shop_name@ProductEventRecord))
+            })?,
             title_native: event_record.title_native.ok_or_else(|| {
                 MissingPersistenceField::new(field!(title_native@ProductEventRecord))
             })?,
@@ -183,9 +183,9 @@ impl TryFrom<ProductEventRecord> for ProductRecord {
             price_aud: event_record.new_price_aud,
             price_cad: event_record.new_price_cad,
             price_nzd: event_record.new_price_nzd,
-            state: event_record
-                .new_state
-                .ok_or_else(|| MissingPersistenceField::new(field!(new_state@ProductEventRecord)))?,
+            state: event_record.new_state.ok_or_else(|| {
+                MissingPersistenceField::new(field!(new_state@ProductEventRecord))
+            })?,
             url: event_record
                 .url
                 .ok_or_else(|| MissingPersistenceField::new(field!(url@ProductEventRecord)))?,
