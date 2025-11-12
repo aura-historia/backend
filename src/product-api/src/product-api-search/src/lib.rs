@@ -18,7 +18,7 @@ use product::{
     core::sort_product_field::SortProductField,
     data::{product_search_data::ProductSearchData, user_state_data::ProductUserStateData},
 };
-use product::{core::user_state::ItemUserState, service::query_service::QueryItemService};
+use product::{core::user_state::ItemUserState, service::query_service::QueryProductService};
 use product::{
     data::{get_data::GetProductData, sort_product_field_data::SortProductFieldData},
     service::personalization_service::ItemPersonalizationService,
@@ -39,7 +39,7 @@ use product::{
 )]
 pub async fn handler(
     event: LambdaEvent<ApiGatewayV2httpRequest>,
-    query_item_service: &impl QueryItemService,
+    query_item_service: &impl QueryProductService,
     access_token_verifier_service: &(impl AccessTokenVerifierService + Sync),
     item_personalization_service: &impl ItemPersonalizationService,
 ) -> Result<ApiGatewayV2httpResponse, lambda_runtime::Error> {
@@ -62,7 +62,7 @@ pub async fn handler(
 // POST /api/v1/items/search
 pub async fn handle(
     event: LambdaEvent<ApiGatewayV2httpRequest>,
-    service: &impl QueryItemService,
+    service: &impl QueryProductService,
     access_token_verifier_service: &(impl AccessTokenVerifierService + Sync),
     item_personalization_service: &impl ItemPersonalizationService,
 ) -> Result<ApiGatewayV2httpResponse, ApiError> {
@@ -92,7 +92,7 @@ pub async fn handle(
 
     let item_search = product_search_data.into();
     let search_result = service
-        .search_items(&item_search, &sort, &Some(cursor))
+        .search_products(&item_search, &sort, &Some(cursor))
         .await?;
     let cursored_result = match user_id_opt {
         Some(user_id) => {
@@ -141,7 +141,7 @@ mod tests {
     use product::core::product::LocalizedProductView;
     use product::data::product_search_data::ProductSearchData;
     use product::service::personalization_service::MockItemPersonalizationService;
-    use product::service::query_service::MockQueryItemService;
+    use product::service::query_service::MockQueryProductService;
     use serde_json::json;
     use test_api::ApiGatewayV2httpRequestProxy;
 
@@ -171,9 +171,9 @@ mod tests {
         access_token_verifier_service
             .expect_verify_extract_user_id()
             .return_once(|_| Box::pin(async { Ok(None) }));
-        let mut query_item_service = MockQueryItemService::default();
+        let mut query_item_service = MockQueryProductService::default();
         query_item_service
-            .expect_search_items()
+            .expect_search_products()
             .return_once(|_, _, cursor| {
                 let count = cursor.as_ref().map(|cursor| cursor.size).unwrap_or(20) as usize;
                 let search_result = CursoredResult {

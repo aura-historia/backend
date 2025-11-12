@@ -11,7 +11,7 @@ use product::opensearch::{
     repository::{ProductOpenSearchRepository, ProductOpenSearchRepositoryImpl},
 };
 use product::service::personalization_service::ItemPersonalizationServiceImpl;
-use product::service::query_service::QueryItemServiceImpl;
+use product::service::query_service::QueryProductServiceImpl;
 use product::watchlist::dynamodb::repository::WatchlistProductDynamoDbRepositoryImpl;
 use product_api_search::handler;
 use test_api::*;
@@ -25,7 +25,7 @@ async fn should_200_when_no_hits() {
     let product_personalization_service =
         ItemPersonalizationServiceImpl::new(&watchlist_repository);
     let opensearch_repository = ProductOpenSearchRepositoryImpl::new(get_opensearch_client().await);
-    let query_service = QueryItemServiceImpl::new(&opensearch_repository);
+    let query_service = QueryProductServiceImpl::new(&opensearch_repository);
     let mut access_token_verifier_service = MockAccessTokenVerifierService::default();
     access_token_verifier_service
         .expect_verify_extract_user_id()
@@ -63,7 +63,7 @@ async fn should_200_when_following_search_after_from_previous_response_for_sort_
     let product_personalization_service =
         ItemPersonalizationServiceImpl::new(&watchlist_repository);
     let opensearch_repository = ProductOpenSearchRepositoryImpl::new(get_opensearch_client().await);
-    let query_service = QueryItemServiceImpl::new(&opensearch_repository);
+    let query_service = QueryProductServiceImpl::new(&opensearch_repository);
     let mut access_token_verifier_service = MockAccessTokenVerifierService::default();
     access_token_verifier_service
         .expect_verify_extract_user_id()
@@ -196,7 +196,7 @@ async fn should_200_when_following_search_after_from_previous_response_for_sort_
     let product_personalization_service =
         ItemPersonalizationServiceImpl::new(&watchlist_repository);
     let opensearch_repository = ProductOpenSearchRepositoryImpl::new(get_opensearch_client().await);
-    let query_service = QueryItemServiceImpl::new(&opensearch_repository);
+    let query_service = QueryProductServiceImpl::new(&opensearch_repository);
     let mut access_token_verifier_service = MockAccessTokenVerifierService::default();
     access_token_verifier_service
         .expect_verify_extract_user_id()
@@ -334,7 +334,7 @@ async fn should_200_when_following_search_after_from_previous_response_for_impli
     let product_personalization_service =
         ItemPersonalizationServiceImpl::new(&watchlist_repository);
     let opensearch_repository = ProductOpenSearchRepositoryImpl::new(get_opensearch_client().await);
-    let query_service = QueryItemServiceImpl::new(&opensearch_repository);
+    let query_service = QueryProductServiceImpl::new(&opensearch_repository);
     let mut access_token_verifier_service = MockAccessTokenVerifierService::default();
     access_token_verifier_service
         .expect_verify_extract_user_id()
@@ -434,7 +434,7 @@ async fn should_200_when_following_search_after_from_previous_response_for_expli
     let product_personalization_service =
         ItemPersonalizationServiceImpl::new(&watchlist_repository);
     let opensearch_repository = ProductOpenSearchRepositoryImpl::new(get_opensearch_client().await);
-    let query_service = QueryItemServiceImpl::new(&opensearch_repository);
+    let query_service = QueryProductServiceImpl::new(&opensearch_repository);
     let mut access_token_verifier_service = MockAccessTokenVerifierService::default();
     access_token_verifier_service
         .expect_verify_extract_user_id()
@@ -547,7 +547,7 @@ async fn should_200_when_created_query(
     let product_personalization_service =
         ItemPersonalizationServiceImpl::new(&watchlist_repository);
     let opensearch_repository = ProductOpenSearchRepositoryImpl::new(get_opensearch_client().await);
-    let query_service = QueryItemServiceImpl::new(&opensearch_repository);
+    let query_service = QueryProductServiceImpl::new(&opensearch_repository);
     let mut access_token_verifier_service = MockAccessTokenVerifierService::default();
     access_token_verifier_service
         .expect_verify_extract_user_id()
@@ -633,7 +633,7 @@ async fn should_200_when_updated_query(
     let product_personalization_service =
         ItemPersonalizationServiceImpl::new(&watchlist_repository);
     let opensearch_repository = ProductOpenSearchRepositoryImpl::new(get_opensearch_client().await);
-    let query_service = QueryItemServiceImpl::new(&opensearch_repository);
+    let query_service = QueryProductServiceImpl::new(&opensearch_repository);
     let mut access_token_verifier_service = MockAccessTokenVerifierService::default();
     access_token_verifier_service
         .expect_verify_extract_user_id()
@@ -710,7 +710,7 @@ async fn should_200_personalized_when_authenticated_and_not_watching() {
     let product_personalization_service =
         ItemPersonalizationServiceImpl::new(&watchlist_repository);
     let opensearch_repository = ProductOpenSearchRepositoryImpl::new(get_opensearch_client().await);
-    let query_service = QueryItemServiceImpl::new(&opensearch_repository);
+    let query_service = QueryProductServiceImpl::new(&opensearch_repository);
     let mut access_token_verifier_service = MockAccessTokenVerifierService::default();
     access_token_verifier_service
         .expect_verify_extract_user_id()

@@ -7,7 +7,7 @@ use opensearch::http::Url;
 use opensearch::http::transport::{SingleNodeConnectionPool, TransportBuilder};
 use product::opensearch::repository::ProductOpenSearchRepositoryImpl;
 use product::service::personalization_service::ItemPersonalizationServiceImpl;
-use product::service::query_service::QueryItemServiceImpl;
+use product::service::query_service::QueryProductServiceImpl;
 use product::watchlist::dynamodb::repository::WatchlistProductDynamoDbRepositoryImpl;
 use product_api_search::handler;
 use std::env;
@@ -34,7 +34,7 @@ async fn main() -> Result<(), Error> {
         .build()?;
     let opensearch_client = opensearch::OpenSearch::new(transport);
     let item_opensearch_repository = ProductOpenSearchRepositoryImpl::new(&opensearch_client);
-    let query_item_service = QueryItemServiceImpl::new(&item_opensearch_repository);
+    let query_item_service = QueryProductServiceImpl::new(&item_opensearch_repository);
 
     let dynamodb_client = aws_sdk_dynamodb::Client::new(&aws_config);
     let table_name = std::env::var("DYNAMODB_TABLE_NAME")?;

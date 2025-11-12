@@ -36,8 +36,8 @@ pub mod api {
 
 #[async_trait]
 #[mockall::automock]
-pub trait QueryItemService {
-    async fn search_items(
+pub trait QueryProductService {
+    async fn search_products(
         &self,
         search: &ProductSearch,
         sort: &Option<Sort<SortProductField>>,
@@ -45,19 +45,19 @@ pub trait QueryItemService {
     ) -> Result<CursoredResult<LocalizedProductView, serde_json::Value>, SearchItemsError>;
 }
 
-pub struct QueryItemServiceImpl<'a> {
+pub struct QueryProductServiceImpl<'a> {
     repository: &'a (dyn ProductOpenSearchRepository + Sync),
 }
 
-impl<'a> QueryItemServiceImpl<'a> {
+impl<'a> QueryProductServiceImpl<'a> {
     pub fn new(repository: &'a (dyn ProductOpenSearchRepository + Sync)) -> Self {
         Self { repository }
     }
 }
 
 #[async_trait]
-impl<'a> QueryItemService for QueryItemServiceImpl<'a> {
-    async fn search_items(
+impl<'a> QueryProductService for QueryProductServiceImpl<'a> {
+    async fn search_products(
         &self,
         search: &ProductSearch,
         sort: &Option<Sort<SortProductField>>,
@@ -189,7 +189,7 @@ mod tests {
     use crate::opensearch::{
         product_document::ProductDocument, repository::MockProductOpenSearchRepository,
     };
-    use crate::service::query_service::{QueryItemService, QueryItemServiceImpl};
+    use crate::service::query_service::{QueryProductService, QueryProductServiceImpl};
     use common::pagination::cursor::Cursor;
     use common::query::any_of_query::AnyOfQuery;
     use common::query::range_query::RangeQuery;
@@ -328,9 +328,12 @@ mod tests {
             .return_once(move |_, _, _| {
                 Box::pin(async move { Ok(mk_search_response(fake::vec![ProductDocument; count])) })
             });
-        let service = QueryItemServiceImpl::new(&repository);
+        let service = QueryProductServiceImpl::new(&repository);
 
-        let actual = service.search_items(&search, &sort, &page).await.unwrap();
+        let actual = service
+            .search_products(&search, &sort, &page)
+            .await
+            .unwrap();
 
         assert_eq!(count, actual.items.len());
         assert_eq!(count, actual.total.unwrap() as usize);
@@ -348,10 +351,10 @@ mod tests {
                     )))
                 })
             });
-        let service = QueryItemServiceImpl::new(&repository);
+        let service = QueryProductServiceImpl::new(&repository);
 
         let actual = service
-            .search_items(
+            .search_products(
                 &ProductSearch {
                     language: Language::De,
                     currency: Currency::Cad,
@@ -397,10 +400,10 @@ mod tests {
                     .collect();
                 Box::pin(async move { Ok(mk_search_response(items)) })
             });
-        let service = QueryItemServiceImpl::new(&repository);
+        let service = QueryProductServiceImpl::new(&repository);
 
         let actual = service
-            .search_items(
+            .search_products(
                 &ProductSearch {
                     language: Language::De,
                     currency,
@@ -448,10 +451,10 @@ mod tests {
                     .collect();
                 Box::pin(async move { Ok(mk_search_response(items)) })
             });
-        let service = QueryItemServiceImpl::new(&repository);
+        let service = QueryProductServiceImpl::new(&repository);
 
         let actual = service
-            .search_items(
+            .search_products(
                 &ProductSearch {
                     language,
                     currency: Currency::Aud,
