@@ -1,4 +1,10 @@
 use aws_config::{BehaviorVersion, SdkConfig};
+use opensearch::http::{
+    Url,
+    transport::{SingleNodeConnectionPool, TransportBuilder},
+};
+use product::dynamodb::repository::ProductDynamoDbRepositoryImpl;
+use product::opensearch::repository::ProductOpenSearchRepositoryImpl;
 use product_enrichment::{
     embed::EmbeddingDelegateImpl,
     pipeline::{
@@ -9,12 +15,6 @@ use product_enrichment::{
         sink::EnrichmentPipeSinkImpl,
     },
 };
-use opensearch::http::{
-    Url,
-    transport::{SingleNodeConnectionPool, TransportBuilder},
-};
-use product::dynamodb::repository::ProductDynamoDbRepositoryImpl;
-use product::opensearch::repository::ProductOpenSearchRepositoryImpl;
 use std::sync::Arc;
 use tokio::sync::OnceCell;
 use tracing::info;

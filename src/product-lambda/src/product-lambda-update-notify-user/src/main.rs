@@ -1,6 +1,5 @@
 use aws_config::BehaviorVersion;
 use aws_lambda_events::sqs::SqsEvent;
-use product_lambda_update_notify_user::{handler, service::ItemEventMailPayloadServiceImpl};
 use lambda_runtime::{Error, LambdaEvent, run, service_fn};
 use mail_core::queue_service::QueueMailServiceImpl;
 use product::dynamodb::repository::ProductDynamoDbRepositoryImpl;
@@ -9,6 +8,7 @@ use product::watchlist::{
     dynamodb::repository::WatchlistProductDynamoDbRepositoryImpl,
     service::product_watchlist_service::ProductWatchListServiceImpl,
 };
+use product_lambda_update_notify_user::{handler, service::ItemEventMailPayloadServiceImpl};
 use serde_email::Email;
 use tracing::info;
 use user::dynamodb::repository::UserDynamoDbRepositoryImpl;
