@@ -14,12 +14,12 @@ use common::shops_product_id::ShopsProductId;
 use std::collections::HashMap;
 use url::Url;
 
-pub type ProductEvent = Event<ProductId, ItemEventPayload>;
+pub type ProductEvent = Event<ProductId, ProductEventPayload>;
 
 #[cfg_attr(feature = "test-data", derive(fake::Dummy))]
 #[derive(Debug, Clone, PartialEq)]
 #[allow(clippy::large_enum_variant)]
-pub enum ItemEventPayload {
+pub enum ProductEventPayload {
     Created(ItemCreatedEventPayload),
     StateListed(ItemStateChangeEventPayload),
     StateAvailable(ItemStateChangeEventPayload),
@@ -33,50 +33,50 @@ pub enum ItemEventPayload {
     PriceRemoved(ItemPriceRemovedEventPayload),
 }
 
-impl ItemEventPayload {
+impl ProductEventPayload {
     pub fn as_created(&self) -> Option<&ItemCreatedEventPayload> {
         match self {
-            ItemEventPayload::Created(payload) => Some(payload),
+            ProductEventPayload::Created(payload) => Some(payload),
             _ => None,
         }
     }
 
     pub fn as_state_changed(&self) -> Option<&ItemStateChangeEventPayload> {
         match self {
-            ItemEventPayload::StateListed(payload) => Some(payload),
-            ItemEventPayload::StateAvailable(payload) => Some(payload),
-            ItemEventPayload::StateReserved(payload) => Some(payload),
-            ItemEventPayload::StateSold(payload) => Some(payload),
-            ItemEventPayload::StateRemoved(payload) => Some(payload),
-            ItemEventPayload::StateUnknown(payload) => Some(payload),
+            ProductEventPayload::StateListed(payload) => Some(payload),
+            ProductEventPayload::StateAvailable(payload) => Some(payload),
+            ProductEventPayload::StateReserved(payload) => Some(payload),
+            ProductEventPayload::StateSold(payload) => Some(payload),
+            ProductEventPayload::StateRemoved(payload) => Some(payload),
+            ProductEventPayload::StateUnknown(payload) => Some(payload),
             _ => None,
         }
     }
 
     pub fn as_price_discovered(&self) -> Option<&ItemPriceDiscoveryEventPayload> {
         match self {
-            ItemEventPayload::PriceDiscovered(payload) => Some(payload),
+            ProductEventPayload::PriceDiscovered(payload) => Some(payload),
             _ => None,
         }
     }
 
     pub fn as_price_changed(&self) -> Option<&ItemPriceChangeEventPayload> {
         match self {
-            ItemEventPayload::PriceDropped(payload) => Some(payload),
-            ItemEventPayload::PriceIncreased(payload) => Some(payload),
+            ProductEventPayload::PriceDropped(payload) => Some(payload),
+            ProductEventPayload::PriceIncreased(payload) => Some(payload),
             _ => None,
         }
     }
 
     pub fn as_price_removed(&self) -> Option<&ItemPriceRemovedEventPayload> {
         match self {
-            ItemEventPayload::PriceRemoved(payload) => Some(payload),
+            ProductEventPayload::PriceRemoved(payload) => Some(payload),
             _ => None,
         }
     }
 }
 
-impl HasKey for ItemEventPayload {
+impl HasKey for ProductEventPayload {
     type Key = ProductKey;
 
     fn key(&self) -> ProductKey {
@@ -84,41 +84,41 @@ impl HasKey for ItemEventPayload {
     }
 }
 
-pub trait ItemCommonEventPayload {
+pub trait ProductCommonEventPayload {
     fn shop_id(&self) -> &ShopId;
     fn shops_product_id(&self) -> &ShopsProductId;
 }
 
-impl ItemCommonEventPayload for ItemEventPayload {
+impl ProductCommonEventPayload for ProductEventPayload {
     fn shop_id(&self) -> &ShopId {
         match self {
-            ItemEventPayload::Created(payload) => payload.shop_id(),
-            ItemEventPayload::StateListed(payload) => payload.shop_id(),
-            ItemEventPayload::StateAvailable(payload) => payload.shop_id(),
-            ItemEventPayload::StateReserved(payload) => payload.shop_id(),
-            ItemEventPayload::StateSold(payload) => payload.shop_id(),
-            ItemEventPayload::StateRemoved(payload) => payload.shop_id(),
-            ItemEventPayload::StateUnknown(payload) => payload.shop_id(),
-            ItemEventPayload::PriceDiscovered(payload) => payload.shop_id(),
-            ItemEventPayload::PriceDropped(payload) => payload.shop_id(),
-            ItemEventPayload::PriceIncreased(payload) => payload.shop_id(),
-            ItemEventPayload::PriceRemoved(payload) => payload.shop_id(),
+            ProductEventPayload::Created(payload) => payload.shop_id(),
+            ProductEventPayload::StateListed(payload) => payload.shop_id(),
+            ProductEventPayload::StateAvailable(payload) => payload.shop_id(),
+            ProductEventPayload::StateReserved(payload) => payload.shop_id(),
+            ProductEventPayload::StateSold(payload) => payload.shop_id(),
+            ProductEventPayload::StateRemoved(payload) => payload.shop_id(),
+            ProductEventPayload::StateUnknown(payload) => payload.shop_id(),
+            ProductEventPayload::PriceDiscovered(payload) => payload.shop_id(),
+            ProductEventPayload::PriceDropped(payload) => payload.shop_id(),
+            ProductEventPayload::PriceIncreased(payload) => payload.shop_id(),
+            ProductEventPayload::PriceRemoved(payload) => payload.shop_id(),
         }
     }
 
     fn shops_product_id(&self) -> &ShopsProductId {
         match self {
-            ItemEventPayload::Created(payload) => payload.shops_product_id(),
-            ItemEventPayload::StateListed(payload) => payload.shops_product_id(),
-            ItemEventPayload::StateAvailable(payload) => payload.shops_product_id(),
-            ItemEventPayload::StateReserved(payload) => payload.shops_product_id(),
-            ItemEventPayload::StateSold(payload) => payload.shops_product_id(),
-            ItemEventPayload::StateRemoved(payload) => payload.shops_product_id(),
-            ItemEventPayload::StateUnknown(payload) => payload.shops_product_id(),
-            ItemEventPayload::PriceDiscovered(payload) => payload.shops_product_id(),
-            ItemEventPayload::PriceDropped(payload) => payload.shops_product_id(),
-            ItemEventPayload::PriceIncreased(payload) => payload.shops_product_id(),
-            ItemEventPayload::PriceRemoved(payload) => payload.shops_product_id(),
+            ProductEventPayload::Created(payload) => payload.shops_product_id(),
+            ProductEventPayload::StateListed(payload) => payload.shops_product_id(),
+            ProductEventPayload::StateAvailable(payload) => payload.shops_product_id(),
+            ProductEventPayload::StateReserved(payload) => payload.shops_product_id(),
+            ProductEventPayload::StateSold(payload) => payload.shops_product_id(),
+            ProductEventPayload::StateRemoved(payload) => payload.shops_product_id(),
+            ProductEventPayload::StateUnknown(payload) => payload.shops_product_id(),
+            ProductEventPayload::PriceDiscovered(payload) => payload.shops_product_id(),
+            ProductEventPayload::PriceDropped(payload) => payload.shops_product_id(),
+            ProductEventPayload::PriceIncreased(payload) => payload.shops_product_id(),
+            ProductEventPayload::PriceRemoved(payload) => payload.shops_product_id(),
         }
     }
 }
@@ -139,7 +139,7 @@ pub struct ItemCreatedEventPayload {
     pub images: Vec<Url>,
 }
 
-impl ItemCommonEventPayload for ItemCreatedEventPayload {
+impl ProductCommonEventPayload for ItemCreatedEventPayload {
     fn shop_id(&self) -> &ShopId {
         &self.shop_id
     }
@@ -156,7 +156,7 @@ pub struct ItemStateChangeEventPayload {
     pub old_state: ProductState,
 }
 
-impl ItemCommonEventPayload for ItemStateChangeEventPayload {
+impl ProductCommonEventPayload for ItemStateChangeEventPayload {
     fn shop_id(&self) -> &ShopId {
         &self.shop_id
     }
@@ -174,7 +174,7 @@ pub struct ItemPriceDiscoveryEventPayload {
     pub other_price: HashMap<Currency, MonetaryAmount>,
 }
 
-impl ItemCommonEventPayload for ItemPriceDiscoveryEventPayload {
+impl ProductCommonEventPayload for ItemPriceDiscoveryEventPayload {
     fn shop_id(&self) -> &ShopId {
         &self.shop_id
     }
@@ -194,7 +194,7 @@ pub struct ItemPriceChangeEventPayload {
     pub old_other_price: HashMap<Currency, MonetaryAmount>,
 }
 
-impl ItemCommonEventPayload for ItemPriceChangeEventPayload {
+impl ProductCommonEventPayload for ItemPriceChangeEventPayload {
     fn shop_id(&self) -> &ShopId {
         &self.shop_id
     }
@@ -212,7 +212,7 @@ pub struct ItemPriceRemovedEventPayload {
     pub old_other_price: HashMap<Currency, MonetaryAmount>,
 }
 
-impl ItemCommonEventPayload for ItemPriceRemovedEventPayload {
+impl ProductCommonEventPayload for ItemPriceRemovedEventPayload {
     fn shop_id(&self) -> &ShopId {
         &self.shop_id
     }
@@ -397,8 +397,8 @@ mod faker {
     #[cfg(test)]
     mod tests {
         use crate::core::product_event::{
-            ItemCreatedEventPayload, ItemEventPayload, ItemPriceRemovedEventPayload,
-            ItemStateChangeEventPayload, ProductEvent,
+            ItemCreatedEventPayload, ItemPriceRemovedEventPayload, ItemStateChangeEventPayload,
+            ProductEvent, ProductEventPayload,
         };
         use fake::{Fake, Faker};
 
@@ -424,7 +424,7 @@ mod faker {
 
         #[test]
         fn should_fake_item_event_payload() {
-            let _ = Faker.fake::<ItemEventPayload>();
+            let _ = Faker.fake::<ProductEventPayload>();
         }
 
         #[test]

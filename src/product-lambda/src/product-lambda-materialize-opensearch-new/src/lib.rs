@@ -5,7 +5,7 @@ use lambda_runtime::LambdaEvent;
 use product::dynamodb::product_event_record::ProductEventRecord;
 use product::opensearch::product_document::ProductDocument;
 use product::opensearch::repository::ProductOpenSearchRepository;
-use product_lambda_common::extract_item_event_record;
+use product_lambda_common::extract_product_event_record;
 use std::collections::HashMap;
 use tracing::{error, info, warn};
 
@@ -70,8 +70,9 @@ fn extract_message_data(
         .message_id
         .clone()
         .expect("shouldn't receive an SQS-Message without 'message_id' because AWS sets it.");
-    let item_event_record = extract_item_event_record(message, failed_message_ids, skipped_count)?;
-    match ProductDocument::try_from(item_event_record) {
+    let product_event_record =
+        extract_product_event_record(message, failed_message_ids, skipped_count)?;
+    match ProductDocument::try_from(product_event_record) {
         Ok(document) => {
             message_ids.insert(document._id(), message_id);
             Some(document)
@@ -155,7 +156,7 @@ mod tests {
     use fake::Fake;
     use fake::Faker;
     use lambda_runtime::LambdaEvent;
-    use product::core::product_event::{ItemCreatedEventPayload, ItemEventPayload};
+    use product::core::product_event::{ItemCreatedEventPayload, ProductEventPayload};
     use product::dynamodb::product_event_record::ProductEventRecord;
     use product::opensearch::repository::MockItemOpenSearchRepository;
     use std::collections::HashMap;
@@ -163,7 +164,7 @@ mod tests {
     use time::OffsetDateTime;
     use uuid::Uuid;
 
-    fn mk_event_bridge_payload(item_event_record: &ProductEventRecord) -> String {
+    fn mk_event_bridge_payload(product_event_record: &ProductEventRecord) -> String {
         let event = EventBridgeEvent {
             version: None,
             id: None,
@@ -178,7 +179,7 @@ mod tests {
                 change: StreamRecord {
                     approximate_creation_date_time: SystemTime::now().into(),
                     keys: Default::default(),
-                    new_image: serde_dynamo::to_item(item_event_record).unwrap(),
+                    new_image: serde_dynamo::to_item(product_event_record).unwrap(),
                     old_image: Default::default(),
                     sequence_number: None,
                     size_bytes: 42,
@@ -224,7 +225,7 @@ mod tests {
 
         let records = fake::vec![ItemCreatedEventPayload; record_count]
             .into_iter()
-            .map(ItemEventPayload::Created)
+            .map(ProductEventPayload::Created)
             .map(|event_payload| Event {
                 aggregate_id: Faker.fake(),
                 event_id: Faker.fake(),
@@ -282,7 +283,7 @@ mod tests {
         let expected_failures_clone = expected_failures.clone();
         let records = fake::vec![ItemCreatedEventPayload; record_count]
             .into_iter()
-            .map(ItemEventPayload::Created)
+            .map(ProductEventPayload::Created)
             .map(|event_payload| Event {
                 aggregate_id: Faker.fake(),
                 event_id: Faker.fake(),

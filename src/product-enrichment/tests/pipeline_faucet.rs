@@ -4,7 +4,7 @@ use aws_lambda_events::{
 };
 use common::{event::Event, event_id::EventId, product_id::ProductId};
 use item_enrichment::pipeline::faucet::{EnrichmentPipeFaucet, EnrichmentPipeFaucetImpl};
-use product::core::product_event::{ItemCreatedEventPayload, ItemEventPayload};
+use product::core::product_event::{ItemCreatedEventPayload, ProductEventPayload};
 use product::dynamodb::product_event_record::ProductEventRecord;
 use std::{sync::Arc, time::SystemTime};
 use test_api::*;
@@ -15,7 +15,7 @@ const ENRICHMENT_QUEUE: Sqs = Sqs {
     name: "enrichment-queue",
 };
 
-fn mk_event_bridge_payload(item_event_record: &ProductEventRecord) -> String {
+fn mk_event_bridge_payload(product_event_record: &ProductEventRecord) -> String {
     let event = EventBridgeEvent {
         version: None,
         id: None,
@@ -30,7 +30,7 @@ fn mk_event_bridge_payload(item_event_record: &ProductEventRecord) -> String {
             change: StreamRecord {
                 approximate_creation_date_time: SystemTime::now().into(),
                 keys: Default::default(),
-                new_image: serde_dynamo::to_item(item_event_record).unwrap(),
+                new_image: serde_dynamo::to_item(product_event_record).unwrap(),
                 old_image: Default::default(),
                 sequence_number: None,
                 size_bytes: 42,
@@ -67,7 +67,7 @@ async fn should_pour_messages(#[case] queue_count: usize, #[case] pour_count: i3
             aggregate_id: ProductId::new(),
             event_id: EventId::new(),
             timestamp: OffsetDateTime::now_utc(),
-            payload: ItemEventPayload::Created(payload),
+            payload: ProductEventPayload::Created(payload),
         })
         .map(|event| ProductEventRecord::try_from(event).unwrap());
     for event_record in event_records {

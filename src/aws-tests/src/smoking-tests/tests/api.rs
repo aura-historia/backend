@@ -18,7 +18,7 @@ async fn should_respond_404_for_get_item_when_not_exists() {
 
     let body = response.json::<serde_json::Value>().await.unwrap();
     assert_eq!(404, body["status"]);
-    assert_eq!("ITEM_NOT_FOUND", body["error"]);
+    assert_eq!("PRODUCT_NOT_FOUND", body["error"]);
 }
 
 #[smoking_test]

@@ -15,12 +15,12 @@ use common::{
 };
 use lambda_runtime::LambdaEvent;
 use product::{
-    core::sort_item_field::SortProductField,
-    data::{item_search_data::ProductSearchData, user_state_data::ItemUserStateData},
+    core::sort_product_field::SortProductField,
+    data::{product_search_data::ProductSearchData, user_state_data::ProductUserStateData},
 };
 use product::{core::user_state::ItemUserState, service::query_service::QueryItemService};
 use product::{
-    data::{get_data::GetItemData, sort_item_field_data::SortProductFieldData},
+    data::{get_data::GetProductData, sort_product_field_data::SortProductFieldData},
     service::personalization_service::ItemPersonalizationService,
 };
 
@@ -85,12 +85,12 @@ pub async fn handle(
             let err_msg = "Body cannot be empty";
             ApiError::bad_request(BAD_BODY_VALUE, err_msg.into()).with_message(err_msg)
         })?;
-    let item_search_data: ProductSearchData = serde_json::from_str(&body).map_err(|err| {
+    let product_search_data: ProductSearchData = serde_json::from_str(&body).map_err(|err| {
         let err_msg = err.to_string();
         ApiError::bad_request(BAD_BODY_VALUE, Box::new(err)).with_message(err_msg)
     })?;
 
-    let item_search = item_search_data.into();
+    let item_search = product_search_data.into();
     let search_result = service
         .search_items(&item_search, &sort, &Some(cursor))
         .await?;
@@ -119,8 +119,9 @@ pub async fn handle(
         }),
     };
 
-    let json_cursored_data: JsonCursoredData<PersonalizedData<GetItemData, ItemUserStateData>> =
-        JsonCursoredData::from(cursored_result);
+    let json_cursored_data: JsonCursoredData<
+        PersonalizedData<GetProductData, ProductUserStateData>,
+    > = JsonCursoredData::from(cursored_result);
 
     Ok(ApiGatewayV2HttpResponseBuilder::json(200)
         .body_serde(json_cursored_data)?

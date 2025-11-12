@@ -14,8 +14,8 @@ use common::shops_product_id::api::extract_shops_item_id_path;
 use lambda_runtime::LambdaEvent;
 use product::core::product::LocalizedProductView;
 use product::core::user_state::ItemUserState;
-use product::data::get_data::GetItemData;
-use product::data::user_state_data::ItemUserStateData;
+use product::data::get_data::GetProductData;
+use product::data::user_state_data::ProductUserStateData;
 use product::service::get_service::GetProductService;
 use product::service::personalization_service::ItemPersonalizationService;
 
@@ -85,23 +85,23 @@ pub async fn handle(
             extract_history_query(&event.payload.query_string_parameters)?,
         )
         .await?;
-    let personalized_item_data: PersonalizedData<GetItemData, ItemUserStateData> = match user_id_opt
-    {
-        None => PersonalizedData {
-            item: GetItemData::from(localized_item),
-            user_state: None,
-        },
-        Some(user_id) => item_personalization_service
-            .personalize_watchlist(&user_id, localized_item)
-            .await
-            .map(|personalized_watchlist| Personalized {
-                item: personalized_watchlist.item,
-                user_state: personalized_watchlist
-                    .user_state
-                    .map(|watchlist| ItemUserState { watchlist }),
-            })?
-            .into(),
-    };
+    let personalized_item_data: PersonalizedData<GetProductData, ProductUserStateData> =
+        match user_id_opt {
+            None => PersonalizedData {
+                item: GetProductData::from(localized_item),
+                user_state: None,
+            },
+            Some(user_id) => item_personalization_service
+                .personalize_watchlist(&user_id, localized_item)
+                .await
+                .map(|personalized_watchlist| Personalized {
+                    item: personalized_watchlist.item,
+                    user_state: personalized_watchlist
+                        .user_state
+                        .map(|watchlist| ItemUserState { watchlist }),
+                })?
+                .into(),
+        };
 
     let content_language = personalized_item_data.item.title.language;
     Ok(ApiGatewayV2HttpResponseBuilder::json(200)
@@ -516,7 +516,7 @@ mod tests {
                 let shop_id = *shop_id;
                 let shops_product_id = shops_product_id.clone();
                 Box::pin(
-                    async move { Err(GetProductError::ItemNotFound(shop_id, shops_product_id)) },
+                    async move { Err(GetProductError::ProductNotFound(shop_id, shops_product_id)) },
                 )
             },
         );

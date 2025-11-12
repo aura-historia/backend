@@ -1,5 +1,5 @@
 use aws_config::{BehaviorVersion, SdkConfig};
-use item_enrichment::{
+use product_enrichment::{
     embed::EmbeddingDelegateImpl,
     pipeline::{
         embed::EmbeddingEnrichmentPipeImpl,

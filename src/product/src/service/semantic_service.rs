@@ -14,33 +14,33 @@ use tracing::{error, warn};
 
 #[derive(thiserror::Error, Debug)]
 #[allow(clippy::large_enum_variant)]
-pub enum SemanticSearchItemsError {
+pub enum SemanticSearchProductsError {
     #[error("Product with ShopId '{0}' and ShopsProductId '{1}' not found.")]
-    ItemNotFound(ShopId, ShopsProductId),
+    ProductNotFound(ShopId, ShopsProductId),
 
     #[error("OpenSearchError: {0}")]
     OpenSearchError(#[from] opensearch::Error),
 
     #[error("Encountered DynamoDB SdkError for GetItem: {0}")]
-    SdkGetItemError(#[from] SdkError<aws_sdk_dynamodb::operation::get_item::GetItemError>),
+    SdkGetProductError(#[from] SdkError<aws_sdk_dynamodb::operation::get_item::GetItemError>),
 }
 
 #[cfg(feature = "data")]
 pub mod api {
-    use crate::service::semantic_service::SemanticSearchItemsError;
+    use crate::service::semantic_service::SemanticSearchProductsError;
     use common::api::error::ApiError;
-    use common::api::error_code::{INTERNAL_SERVER_ERROR, ITEM_NOT_FOUND};
+    use common::api::error_code::{INTERNAL_SERVER_ERROR, PRODUCT_NOT_FOUND};
 
-    impl From<SemanticSearchItemsError> for ApiError {
-        fn from(err: SemanticSearchItemsError) -> Self {
+    impl From<SemanticSearchProductsError> for ApiError {
+        fn from(err: SemanticSearchProductsError) -> Self {
             match err {
-                SemanticSearchItemsError::ItemNotFound(_, _) => {
-                    ApiError::not_found(ITEM_NOT_FOUND, Box::new(err))
+                SemanticSearchProductsError::ProductNotFound(_, _) => {
+                    ApiError::not_found(PRODUCT_NOT_FOUND, Box::new(err))
                 }
-                SemanticSearchItemsError::OpenSearchError(_) => {
+                SemanticSearchProductsError::OpenSearchError(_) => {
                     ApiError::internal_server_error(INTERNAL_SERVER_ERROR, Box::new(err))
                 }
-                SemanticSearchItemsError::SdkGetItemError(sdk_error) => sdk_error.into(),
+                SemanticSearchProductsError::SdkGetProductError(sdk_error) => sdk_error.into(),
             }
         }
     }
@@ -55,7 +55,7 @@ pub trait SemanticSearchService {
         shops_product_id: &ShopsProductId,
         languages: &[Language],
         currency: &Currency,
-    ) -> Result<Option<Vec<LocalizedProductView>>, SemanticSearchItemsError>;
+    ) -> Result<Option<Vec<LocalizedProductView>>, SemanticSearchProductsError>;
 }
 
 pub struct SemanticSearchServiceImpl<'a> {
@@ -83,12 +83,12 @@ impl<'a> SemanticSearchService for SemanticSearchServiceImpl<'a> {
         shops_product_id: &ShopsProductId,
         languages: &[Language],
         currency: &Currency,
-    ) -> Result<Option<Vec<LocalizedProductView>>, SemanticSearchItemsError> {
+    ) -> Result<Option<Vec<LocalizedProductView>>, SemanticSearchProductsError> {
         let product_id = self
             .dynamodb_repository
             .get_item_id(shop_id, shops_product_id)
             .await?
-            .ok_or(SemanticSearchItemsError::ItemNotFound(
+            .ok_or(SemanticSearchProductsError::ProductNotFound(
                 *shop_id,
                 shops_product_id.clone(),
             ))?;
@@ -129,10 +129,10 @@ impl<'a> SemanticSearchService for SemanticSearchServiceImpl<'a> {
 #[cfg(test)]
 mod tests {
     use crate::{
-        dynamodb::repository::MockItemDynamoDbRepository,
+        dynamodb::repository::MockProductDynamoDbRepository,
         opensearch::{item_document::ProductDocument, repository::MockItemOpenSearchRepository},
         service::semantic_service::{
-            SemanticSearchItemsError, SemanticSearchService, SemanticSearchServiceImpl,
+            SemanticSearchProductsError, SemanticSearchService, SemanticSearchServiceImpl,
         },
     };
     use aws_sdk_dynamodb::config::http::HttpResponse;
@@ -152,7 +152,7 @@ mod tests {
 
     #[tokio::test]
     async fn should_return_similar_items_when_text_embedding_exists() {
-        let mut dynamodb_repository = MockItemDynamoDbRepository::default();
+        let mut dynamodb_repository = MockProductDynamoDbRepository::default();
         let mut opensearch_repository = MockItemOpenSearchRepository::default();
 
         dynamodb_repository
@@ -213,7 +213,7 @@ mod tests {
 
     #[tokio::test]
     async fn should_return_no_items_when_text_embedding_not_exists() {
-        let mut dynamodb_repository = MockItemDynamoDbRepository::default();
+        let mut dynamodb_repository = MockProductDynamoDbRepository::default();
         let mut opensearch_repository = MockItemOpenSearchRepository::default();
 
         dynamodb_repository
@@ -273,7 +273,7 @@ mod tests {
 
     #[tokio::test]
     async fn should_err_item_not_found_when_item_not_exists() {
-        let mut dynamodb_repository = MockItemDynamoDbRepository::default();
+        let mut dynamodb_repository = MockProductDynamoDbRepository::default();
         let opensearch_repository = MockItemOpenSearchRepository::default();
 
         dynamodb_repository
@@ -287,17 +287,19 @@ mod tests {
             .similar_items(&shop_id, &shops_product_id, &[Faker.fake()], &Faker.fake())
             .await;
         match actual.unwrap_err() {
-            SemanticSearchItemsError::ItemNotFound(err_shop_id, err_shops_item_id) => {
+            SemanticSearchProductsError::ProductNotFound(err_shop_id, err_shops_product_id) => {
                 assert_eq!(shop_id, err_shop_id);
-                assert_eq!(shops_product_id, err_shops_item_id);
+                assert_eq!(shops_product_id, err_shops_product_id);
             }
-            other => panic!("Expected 'SemanticSearchItemsError::ItemNotFound' but got '{other}'"),
+            other => {
+                panic!("Expected 'SemanticSearchProductsError::ProductNotFound' but got '{other}'")
+            }
         }
     }
 
     #[tokio::test]
     async fn should_filter_out_self() {
-        let mut dynamodb_repository = MockItemDynamoDbRepository::default();
+        let mut dynamodb_repository = MockProductDynamoDbRepository::default();
         let mut opensearch_repository = MockItemOpenSearchRepository::default();
 
         let product_id = ProductId::new();
@@ -375,7 +377,7 @@ mod tests {
     async fn should_err_when_sdk_get_item_error(
         #[case] expected: SdkError<aws_sdk_dynamodb::operation::get_item::GetItemError>,
     ) {
-        let mut dynamodb_repository = MockItemDynamoDbRepository::default();
+        let mut dynamodb_repository = MockProductDynamoDbRepository::default();
         let opensearch_repository = MockItemOpenSearchRepository::default();
 
         dynamodb_repository
@@ -387,16 +389,18 @@ mod tests {
             .similar_items(&Faker.fake(), &Faker.fake(), &[Faker.fake()], &Faker.fake())
             .await;
         match actual.unwrap_err() {
-            SemanticSearchItemsError::SdkGetItemError(_) => {}
+            SemanticSearchProductsError::SdkGetProductError(_) => {}
             other => {
-                panic!("Expected 'SemanticSearchItemsError::SdkGetItemError' but got '{other}'")
+                panic!(
+                    "Expected 'SemanticSearchProductsError::SdkGetProductError' but got '{other}'"
+                )
             }
         }
     }
 
     #[tokio::test]
     async fn should_err_when_item_document_not_exists() {
-        let mut dynamodb_repository = MockItemDynamoDbRepository::default();
+        let mut dynamodb_repository = MockProductDynamoDbRepository::default();
         let mut opensearch_repository = MockItemOpenSearchRepository::default();
 
         dynamodb_repository
@@ -411,16 +415,16 @@ mod tests {
             .similar_items(&Faker.fake(), &Faker.fake(), &[Faker.fake()], &Faker.fake())
             .await;
         match actual.unwrap_err() {
-            SemanticSearchItemsError::OpenSearchError(_) => {}
+            SemanticSearchProductsError::OpenSearchError(_) => {}
             other => {
-                panic!("Expected 'SemanticSearchItemsError::OpenSearchError' but got '{other}'")
+                panic!("Expected 'SemanticSearchProductsError::OpenSearchError' but got '{other}'")
             }
         }
     }
 
     #[tokio::test]
     async fn should_err_when_knn_fails() {
-        let mut dynamodb_repository = MockItemDynamoDbRepository::default();
+        let mut dynamodb_repository = MockProductDynamoDbRepository::default();
         let mut opensearch_repository = MockItemOpenSearchRepository::default();
 
         dynamodb_repository
@@ -446,9 +450,9 @@ mod tests {
             .similar_items(&Faker.fake(), &Faker.fake(), &[Faker.fake()], &Faker.fake())
             .await;
         match actual.unwrap_err() {
-            SemanticSearchItemsError::OpenSearchError(_) => {}
+            SemanticSearchProductsError::OpenSearchError(_) => {}
             other => {
-                panic!("Expected 'SemanticSearchItemsError::OpenSearchError' but got '{other}'")
+                panic!("Expected 'SemanticSearchProductsError::OpenSearchError' but got '{other}'")
             }
         }
     }

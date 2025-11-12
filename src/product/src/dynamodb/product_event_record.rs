@@ -1,7 +1,7 @@
 use crate::core::product_event::{
-    ItemCommonEventPayload, ItemCreatedEventPayload, ItemEventPayload, ItemPriceChangeEventPayload,
-    ItemPriceDiscoveryEventPayload, ItemPriceRemovedEventPayload, ItemStateChangeEventPayload,
-    ProductEvent,
+    ItemCreatedEventPayload, ItemPriceChangeEventPayload, ItemPriceDiscoveryEventPayload,
+    ItemPriceRemovedEventPayload, ItemStateChangeEventPayload, ProductCommonEventPayload,
+    ProductEvent, ProductEventPayload,
 };
 use crate::dynamodb::product_event_type_record::ProductEventTypeRecord;
 use crate::dynamodb::product_state_record::ProductStateRecord;
@@ -137,7 +137,7 @@ impl TryFrom<ProductEvent> for ProductEventRecord {
         let shops_product_id = shops_product_id.clone();
 
         match domain.payload {
-            ItemEventPayload::Created(payload) => {
+            ProductEventPayload::Created(payload) => {
                 let mut payload = payload;
                 payload.other_title.insert(
                     payload.native_title.localization,
@@ -224,7 +224,7 @@ impl TryFrom<ProductEvent> for ProductEventRecord {
                 };
                 Ok(record)
             }
-            ItemEventPayload::StateListed(payload) => Ok(mk_state_event_record(
+            ProductEventPayload::StateListed(payload) => Ok(mk_state_event_record(
                 ProductStateRecord::Listed,
                 payload.old_state.into(),
                 pk,
@@ -236,7 +236,7 @@ impl TryFrom<ProductEvent> for ProductEventRecord {
                 shops_product_id,
                 domain.timestamp,
             )),
-            ItemEventPayload::StateReserved(payload) => Ok(mk_state_event_record(
+            ProductEventPayload::StateReserved(payload) => Ok(mk_state_event_record(
                 ProductStateRecord::Reserved,
                 payload.old_state.into(),
                 pk,
@@ -248,7 +248,7 @@ impl TryFrom<ProductEvent> for ProductEventRecord {
                 shops_product_id,
                 domain.timestamp,
             )),
-            ItemEventPayload::StateAvailable(payload) => Ok(mk_state_event_record(
+            ProductEventPayload::StateAvailable(payload) => Ok(mk_state_event_record(
                 ProductStateRecord::Available,
                 payload.old_state.into(),
                 pk,
@@ -260,7 +260,7 @@ impl TryFrom<ProductEvent> for ProductEventRecord {
                 shops_product_id,
                 domain.timestamp,
             )),
-            ItemEventPayload::StateSold(payload) => Ok(mk_state_event_record(
+            ProductEventPayload::StateSold(payload) => Ok(mk_state_event_record(
                 ProductStateRecord::Sold,
                 payload.old_state.into(),
                 pk,
@@ -272,7 +272,7 @@ impl TryFrom<ProductEvent> for ProductEventRecord {
                 shops_product_id,
                 domain.timestamp,
             )),
-            ItemEventPayload::StateRemoved(payload) => Ok(mk_state_event_record(
+            ProductEventPayload::StateRemoved(payload) => Ok(mk_state_event_record(
                 ProductStateRecord::Removed,
                 payload.old_state.into(),
                 pk,
@@ -284,7 +284,7 @@ impl TryFrom<ProductEvent> for ProductEventRecord {
                 shops_product_id,
                 domain.timestamp,
             )),
-            ItemEventPayload::StateUnknown(payload) => Ok(mk_state_event_record(
+            ProductEventPayload::StateUnknown(payload) => Ok(mk_state_event_record(
                 ProductStateRecord::Unknown,
                 payload.old_state.into(),
                 pk,
@@ -296,7 +296,7 @@ impl TryFrom<ProductEvent> for ProductEventRecord {
                 shops_product_id,
                 domain.timestamp,
             )),
-            ItemEventPayload::PriceDiscovered(payload) => Ok(ProductEventRecord {
+            ProductEventPayload::PriceDiscovered(payload) => Ok(ProductEventRecord {
                 pk,
                 sk,
                 product_id,
@@ -356,7 +356,7 @@ impl TryFrom<ProductEvent> for ProductEventRecord {
                 images: None,
                 timestamp: domain.timestamp,
             }),
-            ItemEventPayload::PriceIncreased(payload) => Ok(mk_price_change_event_record(
+            ProductEventPayload::PriceIncreased(payload) => Ok(mk_price_change_event_record(
                 payload,
                 pk,
                 sk,
@@ -367,7 +367,7 @@ impl TryFrom<ProductEvent> for ProductEventRecord {
                 shops_product_id,
                 domain.timestamp,
             )),
-            ItemEventPayload::PriceDropped(payload) => Ok(mk_price_change_event_record(
+            ProductEventPayload::PriceDropped(payload) => Ok(mk_price_change_event_record(
                 payload,
                 pk,
                 sk,
@@ -378,7 +378,7 @@ impl TryFrom<ProductEvent> for ProductEventRecord {
                 shops_product_id,
                 domain.timestamp,
             )),
-            ItemEventPayload::PriceRemoved(payload) => Ok(ProductEventRecord {
+            ProductEventPayload::PriceRemoved(payload) => Ok(ProductEventRecord {
                 pk,
                 sk,
                 product_id,
@@ -659,7 +659,7 @@ impl TryFrom<ProductEventRecord> for ProductEvent {
                         other_description.insert(Language::En, description_en.into());
                     }
 
-                    ItemEventPayload::Created(ItemCreatedEventPayload {
+                    ProductEventPayload::Created(ItemCreatedEventPayload {
                         shop_id,
                         shops_product_id,
                         shop_name: record.shop_name.map(ShopName::from).ok_or(
@@ -683,7 +683,7 @@ impl TryFrom<ProductEventRecord> for ProductEvent {
                     })
                 }
                 ProductEventTypeRecord::StateListed => {
-                    ItemEventPayload::StateListed(ItemStateChangeEventPayload {
+                    ProductEventPayload::StateListed(ItemStateChangeEventPayload {
                         shop_id,
                         shops_product_id,
                         old_state: record.old_state.map(ProductState::from).ok_or(
@@ -692,7 +692,7 @@ impl TryFrom<ProductEventRecord> for ProductEvent {
                     })
                 }
                 ProductEventTypeRecord::StateAvailable => {
-                    ItemEventPayload::StateAvailable(ItemStateChangeEventPayload {
+                    ProductEventPayload::StateAvailable(ItemStateChangeEventPayload {
                         shop_id,
                         shops_product_id,
                         old_state: record.old_state.map(ProductState::from).ok_or(
@@ -701,7 +701,7 @@ impl TryFrom<ProductEventRecord> for ProductEvent {
                     })
                 }
                 ProductEventTypeRecord::StateReserved => {
-                    ItemEventPayload::StateReserved(ItemStateChangeEventPayload {
+                    ProductEventPayload::StateReserved(ItemStateChangeEventPayload {
                         shop_id,
                         shops_product_id,
                         old_state: record.old_state.map(ProductState::from).ok_or(
@@ -710,7 +710,7 @@ impl TryFrom<ProductEventRecord> for ProductEvent {
                     })
                 }
                 ProductEventTypeRecord::StateSold => {
-                    ItemEventPayload::StateSold(ItemStateChangeEventPayload {
+                    ProductEventPayload::StateSold(ItemStateChangeEventPayload {
                         shop_id,
                         shops_product_id,
                         old_state: record.old_state.map(ProductState::from).ok_or(
@@ -719,7 +719,7 @@ impl TryFrom<ProductEventRecord> for ProductEvent {
                     })
                 }
                 ProductEventTypeRecord::StateRemoved => {
-                    ItemEventPayload::StateRemoved(ItemStateChangeEventPayload {
+                    ProductEventPayload::StateRemoved(ItemStateChangeEventPayload {
                         shop_id,
                         shops_product_id,
                         old_state: record.old_state.map(ProductState::from).ok_or(
@@ -728,7 +728,7 @@ impl TryFrom<ProductEventRecord> for ProductEvent {
                     })
                 }
                 ProductEventTypeRecord::StateUnknown => {
-                    ItemEventPayload::StateUnknown(ItemStateChangeEventPayload {
+                    ProductEventPayload::StateUnknown(ItemStateChangeEventPayload {
                         shop_id,
                         shops_product_id,
                         old_state: record.old_state.map(ProductState::from).ok_or(
@@ -737,7 +737,7 @@ impl TryFrom<ProductEventRecord> for ProductEvent {
                     })
                 }
                 ProductEventTypeRecord::PriceDiscovered => {
-                    ItemEventPayload::PriceDiscovered(ItemPriceDiscoveryEventPayload {
+                    ProductEventPayload::PriceDiscovered(ItemPriceDiscoveryEventPayload {
                         shop_id,
                         shops_product_id,
                         native_price: record.new_price_native.map(Price::from).ok_or(
@@ -749,7 +749,7 @@ impl TryFrom<ProductEventRecord> for ProductEvent {
                     })
                 }
                 ProductEventTypeRecord::PriceDropped => {
-                    ItemEventPayload::PriceDropped(ItemPriceChangeEventPayload {
+                    ProductEventPayload::PriceDropped(ItemPriceChangeEventPayload {
                         shop_id,
                         shops_product_id,
                         new_native_price: record.new_price_native.map(Price::from).ok_or(
@@ -767,7 +767,7 @@ impl TryFrom<ProductEventRecord> for ProductEvent {
                     })
                 }
                 ProductEventTypeRecord::PriceIncreased => {
-                    ItemEventPayload::PriceIncreased(ItemPriceChangeEventPayload {
+                    ProductEventPayload::PriceIncreased(ItemPriceChangeEventPayload {
                         shop_id,
                         shops_product_id,
                         new_native_price: record.new_price_native.map(Price::from).ok_or(
@@ -785,7 +785,7 @@ impl TryFrom<ProductEventRecord> for ProductEvent {
                     })
                 }
                 ProductEventTypeRecord::PriceRemoved => {
-                    ItemEventPayload::PriceRemoved(ItemPriceRemovedEventPayload {
+                    ProductEventPayload::PriceRemoved(ItemPriceRemovedEventPayload {
                         shop_id,
                         shops_product_id,
                         old_native_price: record.old_price_native.map(Price::from).ok_or(

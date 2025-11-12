@@ -3,7 +3,7 @@ use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, Copy, PartialEq, Default, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
-pub struct ItemUserStateData {
+pub struct ProductUserStateData {
     pub watchlist: WatchlistUserStateData,
 }
 #[derive(Debug, Clone, Copy, PartialEq, Default, Serialize, Deserialize)]
@@ -13,9 +13,9 @@ pub struct WatchlistUserStateData {
     pub notifications: bool,
 }
 
-impl From<ItemUserState> for ItemUserStateData {
+impl From<ItemUserState> for ProductUserStateData {
     fn from(value: ItemUserState) -> Self {
-        ItemUserStateData {
+        ProductUserStateData {
             watchlist: value.watchlist.into(),
         }
     }

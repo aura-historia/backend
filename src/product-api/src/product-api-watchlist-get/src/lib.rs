@@ -9,7 +9,7 @@ use common::{
     sort::api::extract_sort_query,
 };
 use lambda_runtime::LambdaEvent;
-use product::data::get_data::GetItemData;
+use product::data::get_data::GetProductData;
 use product::watchlist::core::watchlist_product::LocalizedWatchlistProductView;
 use product::watchlist::data::sort_watchlist_product_field_data::SortWatchlistProductFieldData;
 use product::watchlist::service::product_watchlist_service::ProductWatchListService;
@@ -20,7 +20,7 @@ use time::OffsetDateTime;
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct WatchlistItemDataView {
-    pub item: GetItemData,
+    pub item: GetProductData,
 
     pub notifications: bool,
 

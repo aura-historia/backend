@@ -11,7 +11,7 @@ use item_api_get_item::handler;
 use lambda_runtime::LambdaEvent;
 use product::{
     core::product_event::{
-        ItemEventPayload, ItemPriceChangeEventPayload, ItemStateChangeEventPayload,
+        ItemPriceChangeEventPayload, ItemStateChangeEventPayload, ProductEventPayload,
     },
     service::personalization_service::ItemPersonalizationServiceImpl,
     watchlist::service::{
@@ -26,7 +26,7 @@ use product::{
     watchlist::dynamodb::repository::WatchlistProductDynamoDbRepositoryImpl,
 };
 use product::{
-    service::get_service::GetItemServiceImpl,
+    service::get_service::GetProductServiceImpl,
     watchlist::service::product_watchlist_service::ProductWatchListServiceImpl,
 };
 use std::time::{Duration, SystemTime};
@@ -41,7 +41,7 @@ async fn should_respond_200_with_history_when_anon_and_history_flag_true() {
     let ddb_client = get_dynamodb_client().await;
     let item_repository = ProductDynamoDbRepositoryImpl::new(ddb_client, "table_1");
     let watchlist_repository = WatchlistProductDynamoDbRepositoryImpl::new(ddb_client, "table_1");
-    let get_item_service = GetItemServiceImpl::new(&item_repository);
+    let get_item_service = GetProductServiceImpl::new(&item_repository);
     let item_personalization_service = ItemPersonalizationServiceImpl::new(&watchlist_repository);
     let mut access_token_verifier_service = MockAccessTokenVerifierService::default();
     access_token_verifier_service
@@ -62,7 +62,7 @@ async fn should_respond_200_with_history_when_anon_and_history_flag_true() {
         aggregate_id: record.product_id,
         event_id: event_1_id,
         timestamp: SystemTime::now().into(),
-        payload: ItemEventPayload::PriceDropped(ItemPriceChangeEventPayload {
+        payload: ProductEventPayload::PriceDropped(ItemPriceChangeEventPayload {
             shop_id: record.shop_id,
             shops_product_id: record.shops_product_id.clone(),
             new_native_price: event_1_price,
@@ -84,7 +84,7 @@ async fn should_respond_200_with_history_when_anon_and_history_flag_true() {
         aggregate_id: record.product_id,
         event_id: event_2_id,
         timestamp: SystemTime::now().into(),
-        payload: ItemEventPayload::StateRemoved(ItemStateChangeEventPayload {
+        payload: ProductEventPayload::StateRemoved(ItemStateChangeEventPayload {
             shop_id: record.shop_id,
             shops_product_id: record.shops_product_id.clone(),
             old_state: ProductState::Sold,
@@ -149,7 +149,7 @@ async fn should_respond_200_without_history_when_anon_and_history_flag_false() {
     let ddb_client = get_dynamodb_client().await;
     let item_repository = ProductDynamoDbRepositoryImpl::new(ddb_client, "table_1");
     let watchlist_repository = WatchlistProductDynamoDbRepositoryImpl::new(ddb_client, "table_1");
-    let get_item_service = GetItemServiceImpl::new(&item_repository);
+    let get_item_service = GetProductServiceImpl::new(&item_repository);
     let item_personalization_service = ItemPersonalizationServiceImpl::new(&watchlist_repository);
     let mut access_token_verifier_service = MockAccessTokenVerifierService::default();
     access_token_verifier_service
@@ -170,7 +170,7 @@ async fn should_respond_200_without_history_when_anon_and_history_flag_false() {
         aggregate_id: record.product_id,
         event_id: event_1_id,
         timestamp: SystemTime::now().into(),
-        payload: ItemEventPayload::PriceDropped(ItemPriceChangeEventPayload {
+        payload: ProductEventPayload::PriceDropped(ItemPriceChangeEventPayload {
             shop_id: record.shop_id,
             shops_product_id: record.shops_product_id.clone(),
             new_native_price: event_1_price,
@@ -192,7 +192,7 @@ async fn should_respond_200_without_history_when_anon_and_history_flag_false() {
         aggregate_id: record.product_id,
         event_id: event_2_id,
         timestamp: SystemTime::now().into(),
-        payload: ItemEventPayload::StateRemoved(ItemStateChangeEventPayload {
+        payload: ProductEventPayload::StateRemoved(ItemStateChangeEventPayload {
             shop_id: record.shop_id,
             shops_product_id: record.shops_product_id.clone(),
             old_state: ProductState::Sold,
@@ -241,7 +241,7 @@ async fn should_respond_200_personalized_when_authenticated_and_not_watched() {
     let user_repository = UserDynamoDbRepositoryImpl::new(ddb_client, "table_1");
     let item_repository = ProductDynamoDbRepositoryImpl::new(ddb_client, "table_1");
     let watchlist_repository = WatchlistProductDynamoDbRepositoryImpl::new(ddb_client, "table_1");
-    let get_item_service = GetItemServiceImpl::new(&item_repository);
+    let get_item_service = GetProductServiceImpl::new(&item_repository);
     let item_personalization_service = ItemPersonalizationServiceImpl::new(&watchlist_repository);
 
     let user_record = Faker.fake::<UserRecord>();
@@ -268,7 +268,7 @@ async fn should_respond_200_personalized_when_authenticated_and_not_watched() {
         aggregate_id: record.product_id,
         event_id: event_1_id,
         timestamp: SystemTime::now().into(),
-        payload: ItemEventPayload::PriceDropped(ItemPriceChangeEventPayload {
+        payload: ProductEventPayload::PriceDropped(ItemPriceChangeEventPayload {
             shop_id: record.shop_id,
             shops_product_id: record.shops_product_id.clone(),
             new_native_price: event_1_price,
@@ -290,7 +290,7 @@ async fn should_respond_200_personalized_when_authenticated_and_not_watched() {
         aggregate_id: record.product_id,
         event_id: event_2_id,
         timestamp: SystemTime::now().into(),
-        payload: ItemEventPayload::StateRemoved(ItemStateChangeEventPayload {
+        payload: ProductEventPayload::StateRemoved(ItemStateChangeEventPayload {
             shop_id: record.shop_id,
             shops_product_id: record.shops_product_id.clone(),
             old_state: ProductState::Sold,
@@ -347,7 +347,7 @@ async fn should_respond_200_personalized_when_authenticated_and_watched() {
     let ddb_client = get_dynamodb_client().await;
     let user_repository = UserDynamoDbRepositoryImpl::new(ddb_client, "table_1");
     let item_repository = ProductDynamoDbRepositoryImpl::new(ddb_client, "table_1");
-    let get_item_service = GetItemServiceImpl::new(&item_repository);
+    let get_item_service = GetProductServiceImpl::new(&item_repository);
     let watchlist_repository = WatchlistProductDynamoDbRepositoryImpl::new(ddb_client, "table_1");
     let watchlist_service = ProductWatchListServiceImpl::new(
         &watchlist_repository,
@@ -397,7 +397,7 @@ async fn should_respond_200_personalized_when_authenticated_and_watched() {
         aggregate_id: record.product_id,
         event_id: event_1_id,
         timestamp: SystemTime::now().into(),
-        payload: ItemEventPayload::PriceDropped(ItemPriceChangeEventPayload {
+        payload: ProductEventPayload::PriceDropped(ItemPriceChangeEventPayload {
             shop_id: record.shop_id,
             shops_product_id: record.shops_product_id.clone(),
             new_native_price: event_1_price,
@@ -419,7 +419,7 @@ async fn should_respond_200_personalized_when_authenticated_and_watched() {
         aggregate_id: record.product_id,
         event_id: event_2_id,
         timestamp: SystemTime::now().into(),
-        payload: ItemEventPayload::StateRemoved(ItemStateChangeEventPayload {
+        payload: ProductEventPayload::StateRemoved(ItemStateChangeEventPayload {
             shop_id: record.shop_id,
             shops_product_id: record.shops_product_id.clone(),
             old_state: ProductState::Sold,

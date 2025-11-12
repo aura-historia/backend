@@ -322,7 +322,7 @@ fn determine_update_events(
 #[cfg(test)]
 pub mod tests {
     use crate::core::product::Product;
-    use crate::dynamodb::repository::MockItemDynamoDbRepository;
+    use crate::dynamodb::repository::MockProductDynamoDbRepository;
     use crate::service::product_command::UpsertItemCommand;
     use crate::service::upsert_service::{UpsertItemsServiceImpl, determine_update_events};
     use aws_config::BehaviorVersion;
@@ -447,7 +447,7 @@ pub mod tests {
             aws_sdk_dynamodb::config::http::HttpResponse,
         >,
     ) {
-        let mut repository = MockItemDynamoDbRepository::default();
+        let mut repository = MockProductDynamoDbRepository::default();
         repository
             .expect_get_item_records()
             .return_once(|_| Box::pin(async { Err(expected) }));
@@ -474,7 +474,7 @@ pub mod tests {
         use common::batch::dynamodb::BatchGetItemResult;
         use std::time::Instant;
 
-        let mut repository = MockItemDynamoDbRepository::default();
+        let mut repository = MockProductDynamoDbRepository::default();
 
         let commands = fake::vec![UpsertItemCommand; 3];
 

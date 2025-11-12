@@ -19,7 +19,7 @@ use product::opensearch::{
     item_state_document::ProductStateDocument,
     repository::{ProductOpenSearchRepository, ProductOpenSearchRepositoryImpl},
 };
-use product::service::get_service::GetItemServiceImpl;
+use product::service::get_service::GetProductServiceImpl;
 use product::watchlist::dynamodb::repository::WatchlistProductDynamoDbRepositoryImpl;
 use product::watchlist::service::product_watchlist_service::{
     ProductWatchListService, ProductWatchListServiceImpl,
@@ -45,7 +45,7 @@ async fn should_respond_200_when_hits_authenticated() {
         WatchlistProductDynamoDbRepositoryImpl::new(dynamodb_client, &cfn.dynamodb_table_1_name);
     let item_repository =
         ProductDynamoDbRepositoryImpl::new(dynamodb_client, &cfn.dynamodb_table_1_name);
-    let get_item_service = GetItemServiceImpl::new(&item_repository);
+    let get_item_service = GetProductServiceImpl::new(&item_repository);
     let item_watchlist_service = ProductWatchListServiceImpl::new(
         &watchlist_repository,
         &user_repository,

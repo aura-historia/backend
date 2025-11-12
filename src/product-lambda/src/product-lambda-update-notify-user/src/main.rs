@@ -1,10 +1,10 @@
 use aws_config::BehaviorVersion;
 use aws_lambda_events::sqs::SqsEvent;
-use item_lambda_update_notify_user::{handler, service::ItemEventMailPayloadServiceImpl};
+use product_lambda_update_notify_user::{handler, service::ItemEventMailPayloadServiceImpl};
 use lambda_runtime::{Error, LambdaEvent, run, service_fn};
 use mail_core::queue_service::QueueMailServiceImpl;
 use product::dynamodb::repository::ProductDynamoDbRepositoryImpl;
-use product::service::get_service::GetItemServiceImpl;
+use product::service::get_service::GetProductServiceImpl;
 use product::watchlist::{
     dynamodb::repository::WatchlistProductDynamoDbRepositoryImpl,
     service::product_watchlist_service::ProductWatchListServiceImpl,
@@ -39,7 +39,7 @@ async fn main() -> Result<(), Error> {
     let user_repository = UserDynamoDbRepositoryImpl::new(&dynamodb_client, &table_name);
     let item_repository = ProductDynamoDbRepositoryImpl::new(&dynamodb_client, &table_name);
 
-    let get_item_service = GetItemServiceImpl::new(&item_repository);
+    let get_item_service = GetProductServiceImpl::new(&item_repository);
     let watchlist_service = ProductWatchListServiceImpl::new(
         &watchlist_repository,
         &user_repository,

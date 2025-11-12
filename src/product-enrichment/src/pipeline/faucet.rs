@@ -2,8 +2,8 @@ use std::sync::Arc;
 
 use crate::pipeline::pipe::{PipeItem, PipeItemSource, PipeItemUpdate};
 use common::product_id::ProductId;
-use item_lambda_common::extract_item_event_record;
-use product::core::product_event::{ItemEventPayload, ProductEvent};
+use product_lambda_common::extract_product_event_record;
+use product::core::product_event::{ProductEvent, ProductEventPayload};
 use product::dynamodb::product_event_record::ProductEventRecord;
 use tracing::{error, info};
 
@@ -85,11 +85,11 @@ impl EnrichmentPipeFaucet for EnrichmentPipeFaucetImpl {
                 "shouldn't receive an SQS-Message without 'receipt_handle' because AWS sets it.",
             );
             if let Some(event_record) =
-                extract_item_event_record(msg, &mut failed_message_ids, &mut skipped_count)
+                extract_product_event_record(msg, &mut failed_message_ids, &mut skipped_count)
             {
                 match ProductEvent::try_from(event_record) {
                     Ok(event) => match event.payload {
-                        ItemEventPayload::Created(payload) => {
+                        ProductEventPayload::Created(payload) => {
                             let message_ref = MessageRef {
                                 message_id,
                                 receipt_handle,
@@ -101,7 +101,7 @@ impl EnrichmentPipeFaucet for EnrichmentPipeFaucetImpl {
                             error!(
                                 itemId = %event.aggregate_id,
                                 payload = ?other,
-                                "Expected 'ItemEventPayload::Created' but got other.",
+                                "Expected 'ProductEventPayload::Created' but got other.",
                             );
                             skipped_count += 1;
                         }

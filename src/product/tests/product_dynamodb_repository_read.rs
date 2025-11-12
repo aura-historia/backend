@@ -179,8 +179,8 @@ mod get_item_record {
             updated: now,
         };
         let other2 = ProductEventRecord {
-            pk: item_event_record::mk_pk(&shop_id, &shops_product_id),
-            sk: item_event_record::mk_sk(&now).unwrap(),
+            pk: product_event_record::mk_pk(&shop_id, &shops_product_id),
+            sk: product_event_record::mk_sk(&now).unwrap(),
             product_id: ProductId::new(),
             event_id: EventId::new(),
             event_type: ProductEventTypeRecord::StateListed,
@@ -250,7 +250,7 @@ mod query_item_record_and_event_records {
     use common::shops_product_id::ShopsProductId;
     use fake::{Fake, Faker};
     use product::core::product_event::{
-        ItemCreatedEventPayload, ItemEventPayload, ItemStateChangeEventPayload, ProductEvent,
+        ItemCreatedEventPayload, ItemStateChangeEventPayload, ProductEvent, ProductEventPayload,
     };
     use product::dynamodb::product_event_record::ProductEventRecord;
     use product::dynamodb::product_event_type_record::ProductEventTypeRecord;
@@ -277,7 +277,7 @@ mod query_item_record_and_event_records {
             aggregate_id: Default::default(),
             event_id: Default::default(),
             timestamp: OffsetDateTime::now_utc(),
-            payload: ItemEventPayload::Created(Faker.fake()),
+            payload: ProductEventPayload::Created(Faker.fake()),
         }
         .try_into()
         .unwrap();
@@ -330,7 +330,7 @@ mod query_item_record_and_event_records {
             aggregate_id: Default::default(),
             event_id: Default::default(),
             timestamp: OffsetDateTime::now_utc(),
-            payload: ItemEventPayload::Created(ItemCreatedEventPayload {
+            payload: ProductEventPayload::Created(ItemCreatedEventPayload {
                 shop_id: expected_materialized.shop_id,
                 shops_product_id: expected_materialized.shops_product_id.clone(),
                 shop_name: expected_materialized.shop_name.clone().into(),
@@ -351,7 +351,7 @@ mod query_item_record_and_event_records {
             aggregate_id: Default::default(),
             event_id: Default::default(),
             timestamp: OffsetDateTime::now_utc(),
-            payload: ItemEventPayload::StateAvailable(ItemStateChangeEventPayload {
+            payload: ProductEventPayload::StateAvailable(ItemStateChangeEventPayload {
                 shop_id: expected_materialized.shop_id,
                 shops_product_id: expected_materialized.shops_product_id.clone(),
                 old_state: ProductState::Listed,
@@ -392,7 +392,7 @@ mod query_item_record_and_event_records {
             aggregate_id: Default::default(),
             event_id: Default::default(),
             timestamp: OffsetDateTime::now_utc(),
-            payload: ItemEventPayload::Created(ItemCreatedEventPayload {
+            payload: ProductEventPayload::Created(ItemCreatedEventPayload {
                 shop_id: expected_materialized.shop_id,
                 shops_product_id: expected_materialized.shops_product_id.clone(),
                 shop_name: expected_materialized.shop_name.clone().into(),
@@ -413,7 +413,7 @@ mod query_item_record_and_event_records {
             aggregate_id: Default::default(),
             event_id: Default::default(),
             timestamp: OffsetDateTime::now_utc(),
-            payload: ItemEventPayload::StateAvailable(ItemStateChangeEventPayload {
+            payload: ProductEventPayload::StateAvailable(ItemStateChangeEventPayload {
                 shop_id: expected_materialized.shop_id,
                 shops_product_id: expected_materialized.shops_product_id.clone(),
                 old_state: ProductState::Listed,

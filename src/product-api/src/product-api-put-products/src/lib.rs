@@ -24,7 +24,7 @@ pub enum PutItemError {
     #[error("MONETARY_AMOUNT_OVERFLOW")]
     MonetaryAmountOverflow,
 
-    #[error("ITEM_ENRICHMENT_FAILED")]
+    #[error("PRODUCT_ENRICHMENT_FAILED")]
     EnrichmentError,
 }
 
@@ -41,9 +41,9 @@ impl TryFrom<String> for PutItemError {
         match payload.as_str() {
             "SHOP_NOT_FOUND" => Ok(PutItemError::ShopNotFound),
             "MONETARY_AMOUNT_OVERFLOW" => Ok(PutItemError::MonetaryAmountOverflow),
-            "ITEM_ENRICHMENT_FAILED" => Ok(PutItemError::EnrichmentError),
+            "PRODUCT_ENRICHMENT_FAILED" => Ok(PutItemError::EnrichmentError),
             other => Err(format!(
-                "Expected any of 'SHOP_NOT_FOUND', 'MONETARY_AMOUNT_OVERFLOW', 'ITEM_ENRICHMENT_FAILED'. Got '{other}'"
+                "Expected any of 'SHOP_NOT_FOUND', 'MONETARY_AMOUNT_OVERFLOW', 'PRODUCT_ENRICHMENT_FAILED'. Got '{other}'"
             )),
         }
     }

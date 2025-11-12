@@ -8,21 +8,21 @@ use mail_core::{
     template::{MailTemplate, MailTemplateType},
 };
 use product::core::{
-    item::Product,
-    product_event::{ItemCommonEventPayload, ItemEventPayload, ProductEvent},
+    product::Product,
+    product_event::{ProductCommonEventPayload, ProductEvent, ProductEventPayload},
 };
 use product::service::get_service::{GetProductError, GetProductService};
 use product::watchlist::service::product_watchlist_service::{
-    ProductWatchListService, WatchItemError,
+    ProductWatchListService, WatchProductError,
 };
 use serde_email::Email;
 use serde_json::json;
 use user::core::user::User;
 
 #[derive(Debug, thiserror::Error)]
-pub enum ItemEventMailPayloadServiceError {
-    #[error("WatchItemError: {0}")]
-    WatchItemError(#[from] WatchItemError),
+pub enum ProductEventMailPayloadServiceError {
+    #[error("WatchProductError: {0}")]
+    WatchProductError(#[from] WatchProductError),
 
     #[error("GetProductError: {0}")]
     GetProductError(#[from] GetProductError),
@@ -30,11 +30,11 @@ pub enum ItemEventMailPayloadServiceError {
 
 #[async_trait::async_trait]
 #[mockall::automock]
-pub trait ItemEventMailPayloadService {
+pub trait ProductEventMailPayloadService {
     async fn create_mail_payloads(
         &self,
         event: ProductEvent,
-    ) -> Result<Vec<MailPayload>, ItemEventMailPayloadServiceError>;
+    ) -> Result<Vec<MailPayload>, ProductEventMailPayloadServiceError>;
 }
 
 pub struct ItemEventMailPayloadServiceImpl<'a> {
@@ -58,11 +58,11 @@ impl<'a> ItemEventMailPayloadServiceImpl<'a> {
 }
 
 #[async_trait::async_trait]
-impl<'a> ItemEventMailPayloadService for ItemEventMailPayloadServiceImpl<'a> {
+impl<'a> ProductEventMailPayloadService for ItemEventMailPayloadServiceImpl<'a> {
     async fn create_mail_payloads(
         &self,
         event: ProductEvent,
-    ) -> Result<Vec<MailPayload>, ItemEventMailPayloadServiceError> {
+    ) -> Result<Vec<MailPayload>, ProductEventMailPayloadServiceError> {
         let users = self
             .watchlist_service
             .find_users_with_notifications(&event.aggregate_id)
@@ -93,83 +93,83 @@ impl<'a> ItemEventMailPayloadServiceImpl<'a> {
             .unwrap_or(&item.native_title.payload);
 
         let subject = match event.payload {
-            ItemEventPayload::Created(_) => {
+            ProductEventPayload::Created(_) => {
                 format!("Neue Antiquität: {}", title)
             }
-            ItemEventPayload::StateListed(_) => {
+            ProductEventPayload::StateListed(_) => {
                 format!("Antiquität gelistet: {}", title)
             }
-            ItemEventPayload::StateAvailable(_) => {
+            ProductEventPayload::StateAvailable(_) => {
                 format!("Antiquität verfügbar: {}", title)
             }
-            ItemEventPayload::StateReserved(_) => {
+            ProductEventPayload::StateReserved(_) => {
                 format!("Antiquität reserviert: {}", title)
             }
-            ItemEventPayload::StateSold(_) => {
+            ProductEventPayload::StateSold(_) => {
                 format!("Antiquität verkauft: {}", title)
             }
-            ItemEventPayload::StateRemoved(_) => {
+            ProductEventPayload::StateRemoved(_) => {
                 format!("Antiquität entfernt: {}", title)
             }
-            ItemEventPayload::StateUnknown(_) => {
+            ProductEventPayload::StateUnknown(_) => {
                 format!("Zustand der Antiquität ist jetzt unbekannt: {}", title)
             }
-            ItemEventPayload::PriceDiscovered(_) => {
+            ProductEventPayload::PriceDiscovered(_) => {
                 format!("Antiquität hat jetzt einen Preis: {}", title)
             }
-            ItemEventPayload::PriceDropped(_) => {
+            ProductEventPayload::PriceDropped(_) => {
                 format!("Antiquität ist im Preis gefallen: {}", title)
             }
-            ItemEventPayload::PriceIncreased(_) => {
+            ProductEventPayload::PriceIncreased(_) => {
                 format!("Antiquität ist im Preis gestiegen: {}", title)
             }
-            ItemEventPayload::PriceRemoved(_) => {
+            ProductEventPayload::PriceRemoved(_) => {
                 format!("Preis beobachteter Antiquität wurde entfernt: {}", title)
             }
         };
 
         let template = match event.payload {
-            ItemEventPayload::Created(_) => MailTemplate {
+            ProductEventPayload::Created(_) => MailTemplate {
                 template_type: MailTemplateType::CreatedNotification,
                 language: LanguageData::De,
             },
-            ItemEventPayload::StateListed(_) => MailTemplate {
+            ProductEventPayload::StateListed(_) => MailTemplate {
                 template_type: MailTemplateType::StateListedNotification,
                 language: LanguageData::De,
             },
-            ItemEventPayload::StateAvailable(_) => MailTemplate {
+            ProductEventPayload::StateAvailable(_) => MailTemplate {
                 template_type: MailTemplateType::StateAvailableNotification,
                 language: LanguageData::De,
             },
-            ItemEventPayload::StateReserved(_) => MailTemplate {
+            ProductEventPayload::StateReserved(_) => MailTemplate {
                 template_type: MailTemplateType::StateReservedNotification,
                 language: LanguageData::De,
             },
-            ItemEventPayload::StateSold(_) => MailTemplate {
+            ProductEventPayload::StateSold(_) => MailTemplate {
                 template_type: MailTemplateType::StateSoldNotification,
                 language: LanguageData::De,
             },
-            ItemEventPayload::StateRemoved(_) => MailTemplate {
+            ProductEventPayload::StateRemoved(_) => MailTemplate {
                 template_type: MailTemplateType::StateRemovedNotification,
                 language: LanguageData::De,
             },
-            ItemEventPayload::StateUnknown(_) => MailTemplate {
+            ProductEventPayload::StateUnknown(_) => MailTemplate {
                 template_type: MailTemplateType::StateUnknownNotification,
                 language: LanguageData::De,
             },
-            ItemEventPayload::PriceDiscovered(_) => MailTemplate {
+            ProductEventPayload::PriceDiscovered(_) => MailTemplate {
                 template_type: MailTemplateType::PriceDiscoveredNotification,
                 language: LanguageData::De,
             },
-            ItemEventPayload::PriceDropped(_) => MailTemplate {
+            ProductEventPayload::PriceDropped(_) => MailTemplate {
                 template_type: MailTemplateType::PriceDroppedNotification,
                 language: LanguageData::De,
             },
-            ItemEventPayload::PriceIncreased(_) => MailTemplate {
+            ProductEventPayload::PriceIncreased(_) => MailTemplate {
                 template_type: MailTemplateType::PriceIncreasedNotification,
                 language: LanguageData::De,
             },
-            ItemEventPayload::PriceRemoved(_) => MailTemplate {
+            ProductEventPayload::PriceRemoved(_) => MailTemplate {
                 template_type: MailTemplateType::PriceRemovedNotification,
                 language: LanguageData::De,
             },

@@ -6,7 +6,7 @@ use product::dynamodb::{
     product_record::ProductRecord,
     repository::{ProductDynamoDbRepository, ProductDynamoDbRepositoryImpl},
 };
-use product::service::get_service::GetItemServiceImpl;
+use product::service::get_service::GetProductServiceImpl;
 use product::watchlist::{
     dynamodb::record::{WatchlistProductRecord, mk_gsi1_pk, mk_gsi1_sk, mk_lsi1_sk, mk_pk, mk_sk},
     dynamodb::repository::{
@@ -24,7 +24,7 @@ async fn should_200_when_sort_created_asc() {
     let user_repository = UserDynamoDbRepositoryImpl::new(client, "table_1");
     let item_repository = ProductDynamoDbRepositoryImpl::new(client, "table_1");
     let watchlist_repository = WatchlistProductDynamoDbRepositoryImpl::new(client, "table_1");
-    let get_item_service = GetItemServiceImpl::new(&item_repository);
+    let get_item_service = GetProductServiceImpl::new(&item_repository);
     let service = ProductWatchListServiceImpl::new(
         &watchlist_repository,
         &user_repository,
@@ -106,7 +106,7 @@ async fn should_200_when_sort_created_asc_search_after() {
     let user_repository = UserDynamoDbRepositoryImpl::new(client, "table_1");
     let item_repository = ProductDynamoDbRepositoryImpl::new(client, "table_1");
     let watchlist_repository = WatchlistProductDynamoDbRepositoryImpl::new(client, "table_1");
-    let get_item_service = GetItemServiceImpl::new(&item_repository);
+    let get_item_service = GetProductServiceImpl::new(&item_repository);
     let service = ProductWatchListServiceImpl::new(
         &watchlist_repository,
         &user_repository,
@@ -198,7 +198,7 @@ async fn should_200_when_sort_created_desc() {
     let user_repository = UserDynamoDbRepositoryImpl::new(client, "table_1");
     let item_repository = ProductDynamoDbRepositoryImpl::new(client, "table_1");
     let watchlist_repository = WatchlistProductDynamoDbRepositoryImpl::new(client, "table_1");
-    let get_item_service = GetItemServiceImpl::new(&item_repository);
+    let get_item_service = GetProductServiceImpl::new(&item_repository);
     let service = ProductWatchListServiceImpl::new(
         &watchlist_repository,
         &user_repository,
@@ -281,7 +281,7 @@ async fn should_200_when_sort_created_desc_search_after() {
     let user_repository = UserDynamoDbRepositoryImpl::new(client, "table_1");
     let item_repository = ProductDynamoDbRepositoryImpl::new(client, "table_1");
     let watchlist_repository = WatchlistProductDynamoDbRepositoryImpl::new(client, "table_1");
-    let get_item_service = GetItemServiceImpl::new(&item_repository);
+    let get_item_service = GetProductServiceImpl::new(&item_repository);
     let service = ProductWatchListServiceImpl::new(
         &watchlist_repository,
         &user_repository,

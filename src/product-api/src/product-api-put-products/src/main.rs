@@ -1,12 +1,12 @@
 use aws_config::BehaviorVersion;
 use aws_lambda_events::apigw::ApiGatewayV2httpRequest;
 use common::price::domain::FixedFxRate;
-use item_api_put_items::handler;
 use lambda_runtime::tracing::info;
 use lambda_runtime::{Error, LambdaEvent, run, service_fn};
 use product::dynamodb::repository::ProductDynamoDbRepositoryImpl;
 use product::service::enrichment_service::ItemCommandEnrichmentServiceImpl;
 use product::service::upsert_service::UpsertItemsServiceImpl;
+use product_api_put_products::handler;
 use shop::dynamodb::repository::ShopDynamoDbRepositoryImpl;
 
 #[tokio::main]

@@ -5,15 +5,15 @@ use fake::{Fake, Faker};
 use http::header::ACCEPT_LANGUAGE;
 use item_api_get_item_similar::handler;
 use lambda_runtime::LambdaEvent;
-use product::data::get_data::GetItemData;
-use product::data::user_state_data::ItemUserStateData;
+use product::data::get_data::GetProductData;
+use product::data::user_state_data::ProductUserStateData;
 use product::dynamodb::product_record::ProductRecord;
 use product::dynamodb::repository::{ProductDynamoDbRepository, ProductDynamoDbRepositoryImpl};
 use product::opensearch::product_document::ProductDocument;
 use product::opensearch::repository::{
     ProductOpenSearchRepository, ProductOpenSearchRepositoryImpl,
 };
-use product::service::get_service::GetItemServiceImpl;
+use product::service::get_service::GetProductServiceImpl;
 use product::service::personalization_service::ItemPersonalizationServiceImpl;
 use product::service::semantic_service::SemanticSearchServiceImpl;
 use product::watchlist::dynamodb::repository::WatchlistProductDynamoDbRepositoryImpl;
@@ -1181,7 +1181,7 @@ async fn should_200_when_similar_items_have_been_computed_for_anon() {
     .unwrap();
     assert_eq!(200, response.status_code);
     let response_payload = extract_apigw_response_json_body!(response);
-    let actual: Vec<PersonalizedData<GetItemData, ItemUserStateData>> =
+    let actual: Vec<PersonalizedData<GetProductData, ProductUserStateData>> =
         serde_json::from_value(response_payload).unwrap();
 
     // tough due to ANN
@@ -1222,7 +1222,7 @@ async fn should_200_and_personalize_when_similar_items_have_been_computed_for_au
     cognito_service
         .expect_verify_extract_user_id()
         .return_once(move |_| Box::pin(async move { Ok(Some(user_id)) }));
-    let get_item_service = GetItemServiceImpl::new(&item_dynamodb_repository);
+    let get_item_service = GetProductServiceImpl::new(&item_dynamodb_repository);
     let user_repository = UserDynamoDbRepositoryImpl::new(get_dynamodb_client().await, "table_1");
     let watchlist_service = ProductWatchListServiceImpl::new(
         &watchlist_repository,
@@ -1303,7 +1303,7 @@ async fn should_200_and_personalize_when_similar_items_have_been_computed_for_au
     .unwrap();
     assert_eq!(200, response.status_code);
     let response_payload = extract_apigw_response_json_body!(response);
-    let actual: Vec<PersonalizedData<GetItemData, ItemUserStateData>> =
+    let actual: Vec<PersonalizedData<GetProductData, ProductUserStateData>> =
         serde_json::from_value(response_payload).unwrap();
 
     // tough due to ANN

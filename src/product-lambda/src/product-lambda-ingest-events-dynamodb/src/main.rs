@@ -1,7 +1,7 @@
 use aws_config::BehaviorVersion;
 use aws_lambda_events::sqs::SqsEvent;
 use aws_sdk_dynamodb::Client;
-use item_lambda_ingest_events_dynamodb::handler;
+use product_lambda_ingest_events_dynamodb::handler;
 use lambda_runtime::{Error, LambdaEvent, run, service_fn};
 use product::dynamodb::repository::ProductDynamoDbRepositoryImpl;
 use tracing::info;

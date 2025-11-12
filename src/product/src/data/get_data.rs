@@ -14,7 +14,7 @@ use url::Url;
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
-pub struct GetItemData {
+pub struct GetProductData {
     pub product_id: ProductId,
 
     pub event_id: EventId,
@@ -50,7 +50,7 @@ pub struct GetItemData {
     pub history: Option<Vec<GetProductEventData>>,
 }
 
-impl HasKey for GetItemData {
+impl HasKey for GetProductData {
     type Key = ProductKey;
 
     fn key(&self) -> Self::Key {
@@ -61,9 +61,9 @@ impl HasKey for GetItemData {
     }
 }
 
-impl From<LocalizedProductView> for GetItemData {
+impl From<LocalizedProductView> for GetProductData {
     fn from(item_view: LocalizedProductView) -> Self {
-        GetItemData {
+        GetProductData {
             product_id: item_view.product_id,
             event_id: item_view.event_id,
             shop_id: item_view.shop_id,
@@ -89,7 +89,7 @@ mod faker {
     use super::*;
     use fake::{Dummy, Fake, Faker, Rng};
 
-    impl Dummy<Faker> for GetItemData {
+    impl Dummy<Faker> for GetProductData {
         fn dummy_with_rng<R: Rng + ?Sized>(config: &Faker, rng: &mut R) -> Self {
             config.fake_with_rng::<LocalizedProductView, _>(rng).into()
         }
@@ -97,12 +97,12 @@ mod faker {
 
     #[cfg(test)]
     mod tests {
-        use crate::data::get_data::GetItemData;
+        use crate::data::get_data::GetProductData;
         use fake::{Fake, Faker};
 
         #[test]
         fn should_fake_get_item_data() {
-            let _ = Faker.fake::<GetItemData>();
+            let _ = Faker.fake::<GetProductData>();
         }
     }
 }
@@ -110,7 +110,7 @@ mod faker {
 #[cfg(test)]
 mod tests {
     use crate::{
-        data::get_data::GetItemData,
+        data::get_data::GetProductData,
         data::get_item_event_data::{
             GetProductEventData, ItemEventPayloadData, ItemEventPriceChangedPayloadData,
             ItemEventStateChangedPayloadData, ItemEventTypeData,
@@ -136,7 +136,7 @@ mod tests {
         let event_id = EventId::new();
         let shop_id = ShopId::new();
         let shops_product_id = ShopsProductId::new();
-        let dto = GetItemData {
+        let dto = GetProductData {
             product_id,
             event_id,
             shop_id,

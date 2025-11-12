@@ -1,18 +1,18 @@
 pub mod service;
 
-use crate::service::ItemEventMailPayloadService;
+use crate::service::ProductEventMailPayloadService;
 use aws_lambda_events::sqs::{BatchItemFailure, SqsBatchResponse, SqsEvent};
 use lambda_runtime::LambdaEvent;
 use mail_core::{payload::MailPayload, queue_service::QueueMailService};
 use product::core::product_event::ProductEvent;
 use product::dynamodb::product_event_record::ProductEventRecord;
-use product_lambda_common::extract_item_event_record;
+use product_lambda_common::extract_product_event_record;
 use tracing::{error, info};
 
 #[tracing::instrument(skip(queue_mail_service, item_event_mail_payload_service, event), fields(requestId = %event.context.request_id))]
 pub async fn handler(
     queue_mail_service: &impl QueueMailService,
-    item_event_mail_payload_service: &impl ItemEventMailPayloadService,
+    item_event_mail_payload_service: &impl ProductEventMailPayloadService,
     event: LambdaEvent<SqsEvent>,
 ) -> Result<SqsBatchResponse, lambda_runtime::Error> {
     let records_count = event.payload.records.len();
@@ -26,10 +26,10 @@ pub async fn handler(
             .message_id
             .clone()
             .expect("shouldn't receive an SQS-Message without 'message_id' because AWS sets it.");
-        if let Some(item_event_record) =
-            extract_item_event_record(message, &mut failed_message_ids, &mut skipped_count)
+        if let Some(product_event_record) =
+            extract_product_event_record(message, &mut failed_message_ids, &mut skipped_count)
         {
-            match ProductEvent::try_from(item_event_record) {
+            match ProductEvent::try_from(product_event_record) {
                 Ok(product_event) => {
                     let mail_payloads_res = item_event_mail_payload_service
                         .create_mail_payloads(product_event)
@@ -110,7 +110,7 @@ async fn handle_mail_payloads(
 #[cfg(test)]
 mod tests {
     use super::handler;
-    use crate::service::{ItemEventMailPayloadServiceError, MockItemEventMailPayloadService};
+    use crate::service::{MockProductEventMailPayloadService, ProductEventMailPayloadServiceError};
     use aws_lambda_events::dynamodb::{EventRecord, StreamRecord};
     use aws_lambda_events::eventbridge::EventBridgeEvent;
     use aws_lambda_events::sqs::{SqsEvent, SqsMessage};
@@ -126,7 +126,7 @@ mod tests {
     use std::time::SystemTime;
     use uuid::Uuid;
 
-    fn mk_event_bridge_payload(item_event_record: &ProductEventRecord) -> String {
+    fn mk_event_bridge_payload(product_event_record: &ProductEventRecord) -> String {
         let event = EventBridgeEvent {
             version: None,
             id: None,
@@ -141,7 +141,7 @@ mod tests {
                 change: StreamRecord {
                     approximate_creation_date_time: SystemTime::now().into(),
                     keys: Default::default(),
-                    new_image: serde_dynamo::to_item(item_event_record).unwrap(),
+                    new_image: serde_dynamo::to_item(product_event_record).unwrap(),
                     old_image: Default::default(),
                     sequence_number: None,
                     size_bytes: 42,
@@ -178,10 +178,10 @@ mod tests {
             .into_iter()
             .map(ProductEventRecord::try_from)
             .map(Result::unwrap)
-            .map(|item_event_record| SqsMessage {
+            .map(|product_event_record| SqsMessage {
                 message_id: Some(Faker.fake()),
                 receipt_handle: None,
-                body: Some(mk_event_bridge_payload(&item_event_record)),
+                body: Some(mk_event_bridge_payload(&product_event_record)),
                 md5_of_body: None,
                 md5_of_message_attributes: None,
                 attributes: Default::default(),
@@ -195,7 +195,7 @@ mod tests {
             payload: SqsEvent { records },
             context: Context::default(),
         };
-        let mut item_event_mail_payload_service = MockItemEventMailPayloadService::default();
+        let mut item_event_mail_payload_service = MockProductEventMailPayloadService::default();
         item_event_mail_payload_service
             .expect_create_mail_payloads()
             .returning(|_| Box::pin(async move { Ok(fake::vec![MailPayload; 42]) }));
@@ -238,10 +238,10 @@ mod tests {
             .into_iter()
             .map(ProductEventRecord::try_from)
             .map(Result::unwrap)
-            .map(|item_event_record| SqsMessage {
+            .map(|product_event_record| SqsMessage {
                 message_id: Some(Faker.fake()),
                 receipt_handle: None,
-                body: Some(mk_event_bridge_payload(&item_event_record)),
+                body: Some(mk_event_bridge_payload(&product_event_record)),
                 md5_of_body: None,
                 md5_of_message_attributes: None,
                 attributes: Default::default(),
@@ -256,7 +256,7 @@ mod tests {
             context: Context::default(),
         };
 
-        let mut item_event_mail_payload_service = MockItemEventMailPayloadService::default();
+        let mut item_event_mail_payload_service = MockProductEventMailPayloadService::default();
         let remaining_failures: Arc<Mutex<usize>> = Arc::new(Mutex::new(failure_count));
         item_event_mail_payload_service
             .expect_create_mail_payloads()
@@ -267,8 +267,8 @@ mod tests {
                 } else {
                     remaining.sub_assign(1);
                     Box::pin(async move {
-                        Err(ItemEventMailPayloadServiceError::GetProductError(
-                            item::service::get_service::GetProductError::SdkGetItemError(
+                        Err(ProductEventMailPayloadServiceError::GetProductError(
+                            item::service::get_service::GetProductError::SdkGetProductError(
                                 SdkError::construction_failure("something went wrong"),
                             ),
                         ))

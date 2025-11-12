@@ -13,9 +13,9 @@ use item_enrichment::{
         sink::EnrichmentPipeSinkImpl,
     },
 };
-use product::core::product_event::{ItemCreatedEventPayload, ItemEventPayload};
+use product::core::product_event::{ItemCreatedEventPayload, ProductEventPayload};
 use product::dynamodb::{
-    item_event_record::ProductEventRecord,
+    product_event_record::ProductEventRecord,
     repository::{ProductDynamoDbRepository, ProductDynamoDbRepositoryImpl},
 };
 use product::opensearch::repository::{
@@ -30,7 +30,7 @@ const ENRICHMENT_QUEUE: Sqs = Sqs {
     name: "enrichment-queue",
 };
 
-fn mk_event_bridge_payload(item_event_record: &ProductEventRecord) -> String {
+fn mk_event_bridge_payload(product_event_record: &ProductEventRecord) -> String {
     let event = EventBridgeEvent {
         version: None,
         id: None,
@@ -45,7 +45,7 @@ fn mk_event_bridge_payload(item_event_record: &ProductEventRecord) -> String {
             change: StreamRecord {
                 approximate_creation_date_time: SystemTime::now().into(),
                 keys: Default::default(),
-                new_image: serde_dynamo::to_item(item_event_record).unwrap(),
+                new_image: serde_dynamo::to_item(product_event_record).unwrap(),
                 old_image: Default::default(),
                 sequence_number: None,
                 size_bytes: 42,
@@ -84,7 +84,7 @@ async fn should_plumb_messages(#[case] queue_count: usize, #[case] plumbing_coun
             aggregate_id: ProductId::new(),
             event_id: EventId::new(),
             timestamp: OffsetDateTime::now_utc(),
-            payload: ItemEventPayload::Created(payload),
+            payload: ProductEventPayload::Created(payload),
         })
         .map(|event| ProductEventRecord::try_from(event).unwrap());
     for event_record in event_records.clone() {

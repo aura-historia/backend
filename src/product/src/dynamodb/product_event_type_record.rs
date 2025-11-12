@@ -1,4 +1,4 @@
-use crate::core::product_event::ItemEventPayload;
+use crate::core::product_event::ProductEventPayload;
 use serde::{Deserialize, Serialize};
 
 #[cfg_attr(feature = "test-data", derive(fake::Dummy))]
@@ -18,20 +18,20 @@ pub enum ProductEventTypeRecord {
     PriceRemoved,
 }
 
-impl From<&ItemEventPayload> for ProductEventTypeRecord {
-    fn from(domain: &ItemEventPayload) -> Self {
+impl From<&ProductEventPayload> for ProductEventTypeRecord {
+    fn from(domain: &ProductEventPayload) -> Self {
         match domain {
-            ItemEventPayload::Created(_) => ProductEventTypeRecord::Created,
-            ItemEventPayload::StateListed(_) => ProductEventTypeRecord::StateListed,
-            ItemEventPayload::StateAvailable(_) => ProductEventTypeRecord::StateAvailable,
-            ItemEventPayload::StateReserved(_) => ProductEventTypeRecord::StateReserved,
-            ItemEventPayload::StateSold(_) => ProductEventTypeRecord::StateSold,
-            ItemEventPayload::StateRemoved(_) => ProductEventTypeRecord::StateRemoved,
-            ItemEventPayload::StateUnknown(_) => ProductEventTypeRecord::StateUnknown,
-            ItemEventPayload::PriceDiscovered(_) => ProductEventTypeRecord::PriceDiscovered,
-            ItemEventPayload::PriceDropped(_) => ProductEventTypeRecord::PriceDropped,
-            ItemEventPayload::PriceIncreased(_) => ProductEventTypeRecord::PriceIncreased,
-            ItemEventPayload::PriceRemoved(_) => ProductEventTypeRecord::PriceRemoved,
+            ProductEventPayload::Created(_) => ProductEventTypeRecord::Created,
+            ProductEventPayload::StateListed(_) => ProductEventTypeRecord::StateListed,
+            ProductEventPayload::StateAvailable(_) => ProductEventTypeRecord::StateAvailable,
+            ProductEventPayload::StateReserved(_) => ProductEventTypeRecord::StateReserved,
+            ProductEventPayload::StateSold(_) => ProductEventTypeRecord::StateSold,
+            ProductEventPayload::StateRemoved(_) => ProductEventTypeRecord::StateRemoved,
+            ProductEventPayload::StateUnknown(_) => ProductEventTypeRecord::StateUnknown,
+            ProductEventPayload::PriceDiscovered(_) => ProductEventTypeRecord::PriceDiscovered,
+            ProductEventPayload::PriceDropped(_) => ProductEventTypeRecord::PriceDropped,
+            ProductEventPayload::PriceIncreased(_) => ProductEventTypeRecord::PriceIncreased,
+            ProductEventPayload::PriceRemoved(_) => ProductEventTypeRecord::PriceRemoved,
         }
     }
 }

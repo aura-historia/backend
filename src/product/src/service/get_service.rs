@@ -1,10 +1,10 @@
 use crate::core::description::Description;
 use crate::core::product::{LocalizedProductView, Product};
 use crate::core::product_event::{
-    ItemEventPayload, LocalizedItemCreatedEventPayloadView, LocalizedItemEventPayloadView,
+    LocalizedItemCreatedEventPayloadView, LocalizedItemEventPayloadView,
     LocalizedItemPriceChangeEventPayloadView, LocalizedItemPriceDiscoveryEventPayloadView,
     LocalizedItemPriceRemovedEventPayloadView, LocalizedItemStateChangeEventPayloadView,
-    ProductEvent,
+    ProductEvent, ProductEventPayload,
 };
 use crate::core::title::Title;
 use crate::dynamodb::product_event_record::ProductEventRecord;
@@ -28,18 +28,18 @@ use tracing::error;
 #[derive(thiserror::Error, Debug)]
 pub enum GetProductError {
     #[error("Product with ShopId '{0}' and ShopsProductId '{1}' not found.")]
-    ItemNotFound(ShopId, ShopsProductId),
+    ProductNotFound(ShopId, ShopsProductId),
 
     #[error("{0}")]
     MonetaryAmountOverflowError(#[from] MonetaryAmountOverflowError),
 
     #[error("Encountered DynamoDB SdkError for GetItem: {0}")]
-    SdkGetItemError(
+    SdkGetProductError(
         #[from] SdkError<aws_sdk_dynamodb::operation::get_item::GetItemError, HttpResponse>,
     ),
 
     #[error("Encountered DynamoDB SdkError for BatchGetItem: {0}")]
-    SdkBatchGetItemError(
+    SdkBatchGetProductError(
         #[from]
         SdkError<aws_sdk_dynamodb::operation::batch_get_item::BatchGetItemError, HttpResponse>,
     ),
@@ -56,20 +56,20 @@ pub mod api {
     use crate::service::get_service::GetProductError;
     use common::api::error::ApiError;
     use common::api::error_code::{
-        ITEM_NOT_FOUND, MONETARY_AMOUNT_OVERFLOW, UNPROCESSED_AFTER_MAX_RETRIES,
+        MONETARY_AMOUNT_OVERFLOW, PRODUCT_NOT_FOUND, UNPROCESSED_AFTER_MAX_RETRIES,
     };
 
     impl From<GetProductError> for ApiError {
         fn from(err: GetProductError) -> Self {
             match err {
-                GetProductError::ItemNotFound(_, _) => {
-                    ApiError::not_found(ITEM_NOT_FOUND, Box::new(err))
+                GetProductError::ProductNotFound(_, _) => {
+                    ApiError::not_found(PRODUCT_NOT_FOUND, Box::new(err))
                 }
                 GetProductError::MonetaryAmountOverflowError(_) => {
                     ApiError::internal_server_error(MONETARY_AMOUNT_OVERFLOW, Box::new(err))
                 }
-                GetProductError::SdkGetItemError(err) => err.into(),
-                GetProductError::SdkBatchGetItemError(err) => err.into(),
+                GetProductError::SdkGetProductError(err) => err.into(),
+                GetProductError::SdkBatchGetProductError(err) => err.into(),
                 GetProductError::SdkQueryError(err) => err.into(),
                 GetProductError::UnprocessedAfterMaxRetries(_) => {
                     ApiError::service_unavailable(UNPROCESSED_AFTER_MAX_RETRIES, Box::new(err))
@@ -105,18 +105,18 @@ pub trait GetProductService {
     ) -> Result<Vec<LocalizedProductView>, GetProductError>;
 }
 
-pub struct GetItemServiceImpl<'a> {
+pub struct GetProductServiceImpl<'a> {
     repository: &'a (dyn ProductDynamoDbRepository + Sync),
 }
 
-impl<'a> GetItemServiceImpl<'a> {
+impl<'a> GetProductServiceImpl<'a> {
     pub fn new(repository: &'a (dyn ProductDynamoDbRepository + Sync)) -> Self {
         Self { repository }
     }
 }
 
 #[async_trait]
-impl<'a> GetProductService for GetItemServiceImpl<'a> {
+impl<'a> GetProductService for GetProductServiceImpl<'a> {
     async fn find_item(
         &self,
         shop_id: &ShopId,
@@ -126,7 +126,7 @@ impl<'a> GetProductService for GetItemServiceImpl<'a> {
             .repository
             .get_item_record(shop_id, shops_product_id)
             .await?
-            .ok_or(GetProductError::ItemNotFound(
+            .ok_or(GetProductError::ProductNotFound(
                 *shop_id,
                 shops_product_id.clone(),
             ))?;
@@ -146,7 +146,7 @@ impl<'a> GetProductService for GetItemServiceImpl<'a> {
             self.repository
                 .query_item_record_and_event_records(shop_id, shops_product_id)
                 .await?
-                .ok_or(GetProductError::ItemNotFound(
+                .ok_or(GetProductError::ProductNotFound(
                     *shop_id,
                     shops_product_id.clone(),
                 ))?
@@ -155,7 +155,7 @@ impl<'a> GetProductService for GetItemServiceImpl<'a> {
                 .repository
                 .get_item_record(shop_id, shops_product_id)
                 .await?
-                .ok_or(GetProductError::ItemNotFound(
+                .ok_or(GetProductError::ProductNotFound(
                     *shop_id,
                     shops_product_id.clone(),
                 ))?;
@@ -221,7 +221,7 @@ impl<'a> GetProductService for GetItemServiceImpl<'a> {
     }
 }
 
-impl<'a> GetItemServiceImpl<'a> {
+impl<'a> GetProductServiceImpl<'a> {
     async fn view_items_with_unprocessed(
         &self,
         items: Vec<ProductKey>,
@@ -328,7 +328,7 @@ fn localize_item_event(
     currency: &Currency,
 ) -> Event<ProductId, LocalizedItemEventPayloadView> {
     let payload = match event.payload {
-        ItemEventPayload::Created(payload) => {
+        ProductEventPayload::Created(payload) => {
             let mut titles = payload.other_title;
             titles.insert(
                 payload.native_title.localization,
@@ -360,49 +360,51 @@ fn localize_item_event(
                     images: payload.images,
                 })
         }
-        ItemEventPayload::StateListed(payload) => {
+        ProductEventPayload::StateListed(payload) => {
             LocalizedItemEventPayloadView::StateListed(LocalizedItemStateChangeEventPayloadView {
                 shop_id: payload.shop_id,
                 shops_product_id: payload.shops_product_id,
                 old_state: payload.old_state,
             })
         }
-        ItemEventPayload::StateAvailable(payload) => LocalizedItemEventPayloadView::StateAvailable(
-            LocalizedItemStateChangeEventPayloadView {
-                shop_id: payload.shop_id,
-                shops_product_id: payload.shops_product_id,
-                old_state: payload.old_state,
-            },
-        ),
-        ItemEventPayload::StateReserved(payload) => {
+        ProductEventPayload::StateAvailable(payload) => {
+            LocalizedItemEventPayloadView::StateAvailable(
+                LocalizedItemStateChangeEventPayloadView {
+                    shop_id: payload.shop_id,
+                    shops_product_id: payload.shops_product_id,
+                    old_state: payload.old_state,
+                },
+            )
+        }
+        ProductEventPayload::StateReserved(payload) => {
             LocalizedItemEventPayloadView::StateReserved(LocalizedItemStateChangeEventPayloadView {
                 shop_id: payload.shop_id,
                 shops_product_id: payload.shops_product_id,
                 old_state: payload.old_state,
             })
         }
-        ItemEventPayload::StateSold(payload) => {
+        ProductEventPayload::StateSold(payload) => {
             LocalizedItemEventPayloadView::StateSold(LocalizedItemStateChangeEventPayloadView {
                 shop_id: payload.shop_id,
                 shops_product_id: payload.shops_product_id,
                 old_state: payload.old_state,
             })
         }
-        ItemEventPayload::StateRemoved(payload) => {
+        ProductEventPayload::StateRemoved(payload) => {
             LocalizedItemEventPayloadView::StateRemoved(LocalizedItemStateChangeEventPayloadView {
                 shop_id: payload.shop_id,
                 shops_product_id: payload.shops_product_id,
                 old_state: payload.old_state,
             })
         }
-        ItemEventPayload::StateUnknown(payload) => {
+        ProductEventPayload::StateUnknown(payload) => {
             LocalizedItemEventPayloadView::StateUnknown(LocalizedItemStateChangeEventPayloadView {
                 shop_id: payload.shop_id,
                 shops_product_id: payload.shops_product_id,
                 old_state: payload.old_state,
             })
         }
-        ItemEventPayload::PriceDiscovered(payload) => {
+        ProductEventPayload::PriceDiscovered(payload) => {
             let mut prices = payload.other_price;
             prices.insert(
                 payload.native_price.currency,
@@ -419,7 +421,7 @@ fn localize_item_event(
                     },
                 )
         }
-        ItemEventPayload::PriceDropped(payload) => {
+        ProductEventPayload::PriceDropped(payload) => {
             let mut new_prices = payload.new_other_price;
             new_prices.insert(
                 payload.new_native_price.currency,
@@ -445,7 +447,7 @@ fn localize_item_event(
                     },
                 )
         }
-        ItemEventPayload::PriceIncreased(payload) => {
+        ProductEventPayload::PriceIncreased(payload) => {
             let mut new_prices = payload.new_other_price;
             new_prices.insert(
                 payload.new_native_price.currency,
@@ -471,7 +473,7 @@ fn localize_item_event(
                     },
                 )
         }
-        ItemEventPayload::PriceRemoved(payload) => {
+        ProductEventPayload::PriceRemoved(payload) => {
             let mut old_prices = payload.old_other_price;
             old_prices.insert(
                 payload.old_native_price.currency,
@@ -498,8 +500,10 @@ fn localize_item_event(
 #[cfg(test)]
 mod tests {
     mod find_item {
-        use crate::dynamodb::repository::MockItemDynamoDbRepository;
-        use crate::service::get_service::{GetItemServiceImpl, GetProductError, GetProductService};
+        use crate::dynamodb::repository::MockProductDynamoDbRepository;
+        use crate::service::get_service::{
+            GetProductError, GetProductService, GetProductServiceImpl,
+        };
         use aws_sdk_dynamodb::{
             config::http::HttpResponse,
             error::{ConnectorError, SdkError},
@@ -509,11 +513,11 @@ mod tests {
 
         #[tokio::test]
         async fn should_return_item_when_exists() {
-            let mut repository = MockItemDynamoDbRepository::default();
+            let mut repository = MockProductDynamoDbRepository::default();
             repository
                 .expect_get_item_record()
                 .return_once(|_, _| Box::pin(async { Ok(Some(Faker.fake())) }));
-            let service = GetItemServiceImpl {
+            let service = GetProductServiceImpl {
                 repository: &repository,
             };
             let actual = service
@@ -526,22 +530,22 @@ mod tests {
         async fn should_return_item_not_found_err_when_item_does_not_exist() {
             let shop_id = ShopId::new();
             let shops_product_id = "non-existent".into();
-            let mut repository = MockItemDynamoDbRepository::default();
+            let mut repository = MockProductDynamoDbRepository::default();
             repository
                 .expect_get_item_record()
                 .return_once(|_, _| Box::pin(async { Ok(None) }));
-            let service = GetItemServiceImpl {
+            let service = GetProductServiceImpl {
                 repository: &repository,
             };
             let actual = service.find_item(&shop_id, &shops_product_id).await;
 
             assert!(actual.is_err());
             match actual.unwrap_err() {
-                GetProductError::ItemNotFound(err_shop_id, err_shops_item_id) => {
+                GetProductError::ProductNotFound(err_shop_id, err_shops_product_id) => {
                     assert_eq!(err_shop_id, shop_id);
-                    assert_eq!(err_shops_item_id, shops_product_id);
+                    assert_eq!(err_shops_product_id, shops_product_id);
                 }
-                _ => panic!("expected GetProductError::ItemNotFound"),
+                _ => panic!("expected GetProductError::ProductNotFound"),
             }
         }
 
@@ -566,29 +570,31 @@ mod tests {
         ) {
             let shop_id = ShopId::new();
             let shops_product_id = "non-existent".into();
-            let mut repository = MockItemDynamoDbRepository::default();
+            let mut repository = MockProductDynamoDbRepository::default();
             repository
                 .expect_get_item_record()
                 .return_once(|_, _| Box::pin(async { Err(expected) }));
-            let service = GetItemServiceImpl {
+            let service = GetProductServiceImpl {
                 repository: &repository,
             };
             let actual = service.find_item(&shop_id, &shops_product_id).await;
 
             assert!(actual.is_err());
             match actual.unwrap_err() {
-                GetProductError::SdkGetItemError(_) => {}
-                _ => panic!("expected GetProductError::ItemNotFound"),
+                GetProductError::SdkGetProductError(_) => {}
+                _ => panic!("expected GetProductError::ProductNotFound"),
             }
         }
     }
 
     mod view_item {
         use crate::dynamodb::{
-            item_event_record::ProductEventRecord, product_record::ProductRecord,
-            repository::MockItemDynamoDbRepository,
+            product_event_record::ProductEventRecord, product_record::ProductRecord,
+            repository::MockProductDynamoDbRepository,
         };
-        use crate::service::get_service::{GetItemServiceImpl, GetProductError, GetProductService};
+        use crate::service::get_service::{
+            GetProductError, GetProductService, GetProductServiceImpl,
+        };
         use aws_sdk_dynamodb::{
             config::http::HttpResponse,
             error::{ConnectorError, SdkError},
@@ -608,11 +614,11 @@ mod tests {
 
         #[tokio::test]
         async fn should_return_item_when_exists_without_history() {
-            let mut repository = MockItemDynamoDbRepository::default();
+            let mut repository = MockProductDynamoDbRepository::default();
             repository
                 .expect_get_item_record()
                 .return_once(|_, _| Box::pin(async { Ok(Some(Faker.fake())) }));
-            let service = GetItemServiceImpl {
+            let service = GetProductServiceImpl {
                 repository: &repository,
             };
             let actual = service
@@ -629,11 +635,11 @@ mod tests {
 
         #[tokio::test]
         async fn should_return_item_when_exists_with_history() {
-            let mut repository = MockItemDynamoDbRepository::default();
+            let mut repository = MockProductDynamoDbRepository::default();
             repository
                 .expect_query_item_record_and_event_records()
                 .return_once(|_, _| Box::pin(async { Ok(Some(Faker.fake())) }));
-            let service = GetItemServiceImpl {
+            let service = GetProductServiceImpl {
                 repository: &repository,
             };
             let actual = service
@@ -650,7 +656,7 @@ mod tests {
 
         #[tokio::test]
         async fn should_keep_history_in_exact_order_as_dynamodb_read() {
-            let mut repository = MockItemDynamoDbRepository::default();
+            let mut repository = MockProductDynamoDbRepository::default();
             let mut events = fake::vec![ProductEventRecord; 100];
             events.sort_by(|l, r| l.product_id.cmp(&r.product_id));
             let expected = events
@@ -661,7 +667,7 @@ mod tests {
             repository
                 .expect_query_item_record_and_event_records()
                 .return_once(|_, _| Box::pin(async { Ok(Some((Faker.fake(), events))) }));
-            let service = GetItemServiceImpl {
+            let service = GetProductServiceImpl {
                 repository: &repository,
             };
             let actual = service
@@ -692,7 +698,7 @@ mod tests {
         #[case::cad(Currency::Cad, 4000)]
         #[case::nzd(Currency::Nzd, 42)]
         async fn should_respect_currency(#[case] currency: Currency, #[case] expected_amount: u64) {
-            let mut repository = MockItemDynamoDbRepository::default();
+            let mut repository = MockProductDynamoDbRepository::default();
             let mut expected_record: ProductRecord = Faker.fake();
             expected_record.price_eur = Some(2);
             expected_record.price_gbp = Some(4);
@@ -703,7 +709,7 @@ mod tests {
             repository
                 .expect_get_item_record()
                 .return_once(|_, _| Box::pin(async { Ok(Some(expected_record)) }));
-            let service = GetItemServiceImpl {
+            let service = GetProductServiceImpl {
                 repository: &repository,
             };
             let actual_price = service
@@ -739,7 +745,7 @@ mod tests {
             #[case] expected_language: Language,
             #[case] expected_title: &str,
         ) {
-            let mut repository = MockItemDynamoDbRepository::default();
+            let mut repository = MockProductDynamoDbRepository::default();
             let mut expected_record: ProductRecord = Faker.fake();
             expected_record.title_native = TextRecord::new("Spanish", LanguageRecord::Es);
             expected_record.title_de = Some("German".to_string());
@@ -747,7 +753,7 @@ mod tests {
             repository
                 .expect_get_item_record()
                 .return_once(|_, _| Box::pin(async { Ok(Some(expected_record)) }));
-            let service = GetItemServiceImpl {
+            let service = GetProductServiceImpl {
                 repository: &repository,
             };
             let actual_title = service
@@ -782,7 +788,7 @@ mod tests {
             #[case] expected_language: Language,
             #[case] expected_title: &str,
         ) {
-            let mut repository = MockItemDynamoDbRepository::default();
+            let mut repository = MockProductDynamoDbRepository::default();
             let mut expected_record: ProductRecord = Faker.fake();
             expected_record.title_native = TextRecord::new("Spanish", LanguageRecord::Es);
             expected_record.title_de = None;
@@ -790,7 +796,7 @@ mod tests {
             repository
                 .expect_get_item_record()
                 .return_once(|_, _| Box::pin(async { Ok(Some(expected_record)) }));
-            let service = GetItemServiceImpl {
+            let service = GetProductServiceImpl {
                 repository: &repository,
             };
             let actual_title = service
@@ -825,7 +831,7 @@ mod tests {
             #[case] expected_language: Language,
             #[case] expected_description: &str,
         ) {
-            let mut repository = MockItemDynamoDbRepository::default();
+            let mut repository = MockProductDynamoDbRepository::default();
             let mut expected_record: ProductRecord = Faker.fake();
             expected_record.description_native =
                 Some(TextRecord::new("Spanish", LanguageRecord::Es));
@@ -834,7 +840,7 @@ mod tests {
             repository
                 .expect_get_item_record()
                 .return_once(|_, _| Box::pin(async { Ok(Some(expected_record)) }));
-            let service = GetItemServiceImpl {
+            let service = GetProductServiceImpl {
                 repository: &repository,
             };
             let actual_description = service
@@ -870,7 +876,7 @@ mod tests {
             #[case] expected_language: Language,
             #[case] expected_description: &str,
         ) {
-            let mut repository = MockItemDynamoDbRepository::default();
+            let mut repository = MockProductDynamoDbRepository::default();
             let mut expected_record: ProductRecord = Faker.fake();
             expected_record.description_native =
                 Some(TextRecord::new("Spanish", LanguageRecord::Es));
@@ -879,7 +885,7 @@ mod tests {
             repository
                 .expect_get_item_record()
                 .return_once(|_, _| Box::pin(async { Ok(Some(expected_record)) }));
-            let service = GetItemServiceImpl {
+            let service = GetProductServiceImpl {
                 repository: &repository,
             };
             let actual_description = service
@@ -913,7 +919,7 @@ mod tests {
         async fn should_return_item_without_description_when_none_exists(
             #[case] languages: &[Language],
         ) {
-            let mut repository = MockItemDynamoDbRepository::default();
+            let mut repository = MockProductDynamoDbRepository::default();
             let mut expected_record: ProductRecord = Faker.fake();
             expected_record.description_native = None;
             expected_record.description_de = None;
@@ -921,7 +927,7 @@ mod tests {
             repository
                 .expect_get_item_record()
                 .return_once(|_, _| Box::pin(async { Ok(Some(expected_record)) }));
-            let service = GetItemServiceImpl {
+            let service = GetProductServiceImpl {
                 repository: &repository,
             };
             let actual_description = service
@@ -942,11 +948,11 @@ mod tests {
         async fn should_return_item_not_found_err_when_item_does_not_exist() {
             let shop_id = ShopId::new();
             let shops_product_id = "non-existent".into();
-            let mut repository = MockItemDynamoDbRepository::default();
+            let mut repository = MockProductDynamoDbRepository::default();
             repository
                 .expect_get_item_record()
                 .return_once(|_, _| Box::pin(async { Ok(None) }));
-            let service = GetItemServiceImpl {
+            let service = GetProductServiceImpl {
                 repository: &repository,
             };
             let actual = service
@@ -955,11 +961,11 @@ mod tests {
 
             assert!(actual.is_err());
             match actual.unwrap_err() {
-                GetProductError::ItemNotFound(err_shop_id, err_shops_item_id) => {
+                GetProductError::ProductNotFound(err_shop_id, err_shops_product_id) => {
                     assert_eq!(err_shop_id, shop_id);
-                    assert_eq!(err_shops_item_id, shops_product_id);
+                    assert_eq!(err_shops_product_id, shops_product_id);
                 }
-                _ => panic!("expected GetProductError::ItemNotFound"),
+                _ => panic!("expected GetProductError::ProductNotFound"),
             }
         }
 
@@ -984,11 +990,11 @@ mod tests {
         ) {
             let shop_id = ShopId::new();
             let shops_product_id = "non-existent".into();
-            let mut repository = MockItemDynamoDbRepository::default();
+            let mut repository = MockProductDynamoDbRepository::default();
             repository
                 .expect_get_item_record()
                 .return_once(|_, _| Box::pin(async { Err(expected) }));
-            let service = GetItemServiceImpl {
+            let service = GetProductServiceImpl {
                 repository: &repository,
             };
             let actual = service
@@ -997,17 +1003,19 @@ mod tests {
 
             assert!(actual.is_err());
             match actual.unwrap_err() {
-                GetProductError::SdkGetItemError(_) => {}
-                _ => panic!("expected GetProductError::ItemNotFound"),
+                GetProductError::SdkGetProductError(_) => {}
+                _ => panic!("expected GetProductError::ProductNotFound"),
             }
         }
     }
 
     mod view_items {
         use crate::dynamodb::{
-            product_record::ProductRecord, repository::MockItemDynamoDbRepository,
+            product_record::ProductRecord, repository::MockProductDynamoDbRepository,
         };
-        use crate::service::get_service::{GetItemServiceImpl, GetProductError, GetProductService};
+        use crate::service::get_service::{
+            GetProductError, GetProductService, GetProductServiceImpl,
+        };
         use aws_sdk_dynamodb::{
             config::http::HttpResponse,
             error::{ConnectorError, SdkError},
@@ -1017,7 +1025,7 @@ mod tests {
 
         #[tokio::test]
         async fn should_return_items_when_all_processed() {
-            let mut repository = MockItemDynamoDbRepository::default();
+            let mut repository = MockProductDynamoDbRepository::default();
             repository.expect_get_item_records().returning(|_| {
                 Box::pin(async {
                     Ok(BatchGetItemResult {
@@ -1026,7 +1034,7 @@ mod tests {
                     })
                 })
             });
-            let service = GetItemServiceImpl {
+            let service = GetProductServiceImpl {
                 repository: &repository,
             };
             let actual = service
@@ -1038,7 +1046,7 @@ mod tests {
 
         #[tokio::test]
         async fn should_completely_fail_when_some_processed() {
-            let mut repository = MockItemDynamoDbRepository::default();
+            let mut repository = MockProductDynamoDbRepository::default();
             repository.expect_get_item_records().returning(|_| {
                 Box::pin(async {
                     Ok(BatchGetItemResult {
@@ -1049,7 +1057,7 @@ mod tests {
                     })
                 })
             });
-            let service = GetItemServiceImpl {
+            let service = GetProductServiceImpl {
                 repository: &repository,
             };
             let actual = service
@@ -1085,11 +1093,11 @@ mod tests {
                 aws_sdk_dynamodb::config::http::HttpResponse,
             >,
         ) {
-            let mut repository = MockItemDynamoDbRepository::default();
+            let mut repository = MockProductDynamoDbRepository::default();
             repository
                 .expect_get_item_records()
                 .return_once(|_| Box::pin(async { Err(expected) }));
-            let service = GetItemServiceImpl {
+            let service = GetProductServiceImpl {
                 repository: &repository,
             };
             let actual = service
@@ -1098,8 +1106,8 @@ mod tests {
 
             assert!(actual.is_err());
             match actual.unwrap_err() {
-                GetProductError::SdkBatchGetItemError(_) => {}
-                _ => panic!("expected GetProductError::SdkBatchGetItemError"),
+                GetProductError::SdkBatchGetProductError(_) => {}
+                _ => panic!("expected GetProductError::SdkBatchGetProductError"),
             }
         }
     }

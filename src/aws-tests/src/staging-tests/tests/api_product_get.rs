@@ -10,9 +10,9 @@ use common::{
 use fake::{Fake, Faker};
 use product::{
     core::product_event::{
-        ItemEventPayload, ItemPriceChangeEventPayload, ItemStateChangeEventPayload,
+        ItemPriceChangeEventPayload, ItemStateChangeEventPayload, ProductEventPayload,
     },
-    service::get_service::GetItemServiceImpl,
+    service::get_service::GetProductServiceImpl,
     watchlist::{
         dynamodb::repository::WatchlistProductDynamoDbRepositoryImpl,
         service::item_watchlist_service::ProductWatchListServiceImpl,
@@ -77,7 +77,7 @@ async fn should_respond_200_personalized_when_authenticated_and_item_does_exist_
     );
     let user_repository =
         UserDynamoDbRepositoryImpl::new(ddb_client, &get_cfn_output().dynamodb_table_1_name);
-    let get_item_service = GetItemServiceImpl::new(&item_repository);
+    let get_item_service = GetProductServiceImpl::new(&item_repository);
     let watchlist_service = ProductWatchListServiceImpl::new(
         &watchlist_repository,
         &user_repository,
@@ -154,7 +154,7 @@ async fn should_respond_200_with_history() {
         aggregate_id: record.product_id,
         event_id: event_1_id,
         timestamp: SystemTime::now().into(),
-        payload: ItemEventPayload::PriceDropped(ItemPriceChangeEventPayload {
+        payload: ProductEventPayload::PriceDropped(ItemPriceChangeEventPayload {
             shop_id: record.shop_id,
             shops_product_id: record.shops_product_id.clone(),
             new_native_price: event_1_price,
@@ -175,7 +175,7 @@ async fn should_respond_200_with_history() {
         aggregate_id: record.product_id,
         event_id: event_2_id,
         timestamp: SystemTime::now().into(),
-        payload: ItemEventPayload::StateRemoved(ItemStateChangeEventPayload {
+        payload: ProductEventPayload::StateRemoved(ItemStateChangeEventPayload {
             shop_id: record.shop_id,
             shops_product_id: record.shops_product_id.clone(),
             old_state: ProductState::Sold,
@@ -236,5 +236,5 @@ async fn should_respond_404_when_item_does_not_exist() {
 
     let body = response.json::<serde_json::Value>().await.unwrap();
     assert_eq!(404, body["status"]);
-    assert_eq!("ITEM_NOT_FOUND", body["error"]);
+    assert_eq!("PRODUCT_NOT_FOUND", body["error"]);
 }

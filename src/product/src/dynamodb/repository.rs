@@ -122,11 +122,11 @@ impl<'a> ProductDynamoDbRepository for ProductDynamoDbRepositoryImpl<'a> {
         &self,
         shop_id: &ShopId,
         shops_product_id: &ShopsProductId,
-        item_update_record: ProductRecordUpdate,
+        product_update_record: ProductRecordUpdate,
     ) -> Result<UpdateItemOutput, SdkError<UpdateItemError, HttpResponse>> {
         let pk = product_record::mk_pk(shop_id, shops_product_id);
         let sk = product_record::mk_sk().to_owned();
-        let update_expr = item_update_record.into_update_expr()?;
+        let update_expr = product_update_record.into_update_expr()?;
 
         self.client
             .update_item()

@@ -2,7 +2,7 @@ use std::collections::HashSet;
 
 use common::product_id::ProductId;
 use product::core::product_event::ItemCreatedEventPayload;
-use product::dynamodb::product_update_record::ItemRecordUpdate;
+use product::dynamodb::product_update_record::ProductRecordUpdate;
 use product::opensearch::product_update_document::ProductUpdateDocument;
 
 #[cfg_attr(feature = "test-data", derive(fake::Dummy))]
@@ -23,7 +23,7 @@ pub struct PipeItemSource {
 #[derive(Debug, Clone, Default)]
 pub struct PipeItemUpdate {
     pub document: Option<ProductUpdateDocument>,
-    pub record: Option<ItemRecordUpdate>,
+    pub record: Option<ProductRecordUpdate>,
 }
 
 #[cfg_attr(feature = "test-data", derive(fake::Dummy))]

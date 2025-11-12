@@ -31,7 +31,7 @@ impl From<aws_sdk_sqs::types::Message> for SqsMessage {
 }
 
 #[tracing::instrument(skip(message, failed_message_ids, skipped_count))]
-pub fn extract_item_event_record(
+pub fn extract_product_event_record(
     message: impl Into<SqsMessage>,
     failed_message_ids: &mut Vec<String>,
     skipped_count: &mut usize,
@@ -52,7 +52,7 @@ pub fn extract_item_event_record(
                 Ok(event_bridge_event) => match serde_dynamo::from_item::<_, ProductEventRecord>(
                     event_bridge_event.detail.change.new_image,
                 ) {
-                    Ok(item_event_record) => Some(item_event_record),
+                    Ok(product_event_record) => Some(product_event_record),
                     Err(e) => {
                         error!(
                             error = %e,
@@ -81,7 +81,7 @@ pub fn extract_item_event_record(
 
 #[cfg(test)]
 mod tests {
-    use crate::extract_item_event_record;
+    use crate::extract_product_event_record;
     use aws_lambda_events::{
         dynamodb::{EventRecord, StreamRecord},
         eventbridge::EventBridgeEvent,
@@ -109,7 +109,7 @@ mod tests {
 
         let mut failed_message_ids = vec![];
         let mut skipped_count = 0;
-        let actual = extract_item_event_record(msg, &mut failed_message_ids, &mut skipped_count);
+        let actual = extract_product_event_record(msg, &mut failed_message_ids, &mut skipped_count);
 
         assert!(actual.is_none());
         assert_eq!(vec!["msg1".to_string()], failed_message_ids);
@@ -133,7 +133,7 @@ mod tests {
 
         let mut failed_message_ids = vec![];
         let mut skipped_count = 0;
-        let actual = extract_item_event_record(msg, &mut failed_message_ids, &mut skipped_count);
+        let actual = extract_product_event_record(msg, &mut failed_message_ids, &mut skipped_count);
 
         assert!(actual.is_none());
         assert!(failed_message_ids.is_empty());
@@ -158,7 +158,7 @@ mod tests {
 
         let mut failed_message_ids = vec![];
         let mut skipped_count = 0;
-        let actual = extract_item_event_record(msg, &mut failed_message_ids, &mut skipped_count);
+        let actual = extract_product_event_record(msg, &mut failed_message_ids, &mut skipped_count);
 
         assert!(actual.is_none());
         assert_eq!(vec!["test_msg".to_string()], failed_message_ids);
@@ -213,7 +213,7 @@ mod tests {
 
         let mut failed_message_ids = vec![];
         let mut skipped_count = 0;
-        let actual = extract_item_event_record(msg, &mut failed_message_ids, &mut skipped_count);
+        let actual = extract_product_event_record(msg, &mut failed_message_ids, &mut skipped_count);
 
         assert!(actual.is_some());
         assert_eq!(expected, actual.unwrap());

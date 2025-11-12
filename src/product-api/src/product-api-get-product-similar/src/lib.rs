@@ -14,10 +14,10 @@ use common::{
 use lambda_runtime::LambdaEvent;
 use product::core::user_state::ItemUserState;
 use product::{
-    data::get_data::GetItemData, service::personalization_service::ItemPersonalizationService,
+    data::get_data::GetProductData, service::personalization_service::ItemPersonalizationService,
 };
 use product::{
-    data::user_state_data::ItemUserStateData, service::semantic_service::SemanticSearchService,
+    data::user_state_data::ProductUserStateData, service::semantic_service::SemanticSearchService,
 };
 
 #[tracing::instrument(
@@ -115,7 +115,7 @@ pub async fn handle(
                     .collect::<Vec<_>>(),
             };
 
-            let similar_items_data: Vec<PersonalizedData<GetItemData, ItemUserStateData>> =
+            let similar_items_data: Vec<PersonalizedData<GetProductData, ProductUserStateData>> =
                 personalized_similar_items
                     .into_iter()
                     .map(PersonalizedData::from)
@@ -140,7 +140,7 @@ mod tests {
     use lambda_runtime::LambdaEvent;
     use product::service::personalization_service::MockItemPersonalizationService;
     use product::service::semantic_service::MockSemanticSearchService;
-    use product::service::semantic_service::SemanticSearchItemsError;
+    use product::service::semantic_service::SemanticSearchProductsError;
     use test_api::{ApiGatewayV2httpRequestProxy, extract_apigw_response_json_body};
 
     #[tokio::test]
@@ -331,7 +331,7 @@ mod tests {
                 let shop_id = *shop_id;
                 let shops_product_id = shops_product_id.clone();
                 Box::pin(async move {
-                    Err(SemanticSearchItemsError::ItemNotFound(
+                    Err(SemanticSearchProductsError::ProductNotFound(
                         shop_id,
                         shops_product_id,
                     ))

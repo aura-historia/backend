@@ -1,9 +1,9 @@
 use common::product_id::{ProductId, ProductKey};
 use product::dynamodb::{
-    item_update_record::ItemRecordUpdate, repository::ProductDynamoDbRepository,
+    product_update_record::ProductRecordUpdate, repository::ProductDynamoDbRepository,
 };
 use product::opensearch::{
-    item_update_document::ProductUpdateDocument, repository::ProductOpenSearchRepository,
+    product_update_document::ProductUpdateDocument, repository::ProductOpenSearchRepository,
 };
 use std::{
     collections::{HashMap, HashSet},
@@ -21,7 +21,7 @@ pub trait EnrichmentPipeSink {
 
     async fn drain_records(
         &self,
-        records: HashMap<ProductId, (ProductKey, ItemRecordUpdate)>,
+        records: HashMap<ProductId, (ProductKey, ProductRecordUpdate)>,
     ) -> HashSet<ProductId>;
 }
 
@@ -98,7 +98,7 @@ impl EnrichmentPipeSink for EnrichmentPipeSinkImpl {
 
     async fn drain_records(
         &self,
-        records: HashMap<ProductId, (ProductKey, ItemRecordUpdate)>,
+        records: HashMap<ProductId, (ProductKey, ProductRecordUpdate)>,
     ) -> HashSet<ProductId> {
         let count = records.len();
         let mut failures = HashSet::new();
@@ -133,16 +133,17 @@ mod tests {
             product_id::ProductId,
         };
         use fake::{Fake, Faker};
-        use product::dynamodb::repository::MockItemDynamoDbRepository;
+        use product::dynamodb::repository::MockProductDynamoDbRepository;
         use product::opensearch::{
-            item_update_document::ProductUpdateDocument, repository::MockItemOpenSearchRepository,
+            product_update_document::ProductUpdateDocument,
+            repository::MockItemOpenSearchRepository,
         };
         use std::collections::HashSet;
         use std::{collections::HashMap, sync::Arc};
 
         #[tokio::test]
         async fn should_drain_documents_when_successful() {
-            let item_dynamodb_repository = MockItemDynamoDbRepository::default();
+            let item_dynamodb_repository = MockProductDynamoDbRepository::default();
             let mut item_opensearch_repository = MockItemOpenSearchRepository::default();
             item_opensearch_repository
                 .expect_update_item_documents()
@@ -180,7 +181,7 @@ mod tests {
         #[case(1000)]
         #[tokio::test]
         async fn should_return_partial_failures(#[case] failure_count: usize) {
-            let item_dynamodb_repository = MockItemDynamoDbRepository::default();
+            let item_dynamodb_repository = MockProductDynamoDbRepository::default();
             let mut item_opensearch_repository = MockItemOpenSearchRepository::default();
             item_opensearch_repository
                 .expect_update_item_documents()
@@ -232,7 +233,7 @@ mod tests {
         use common::product_id::{ProductId, ProductKey};
         use fake::{Fake, Faker};
         use product::dynamodb::{
-            item_update_record::ItemRecordUpdate, repository::MockItemDynamoDbRepository,
+            product_update_record::ProductRecordUpdate, repository::MockProductDynamoDbRepository,
         };
         use product::opensearch::repository::MockItemOpenSearchRepository;
         use std::collections::HashSet;
@@ -241,7 +242,7 @@ mod tests {
         #[tokio::test]
         async fn should_drain_records_when_successful() {
             let item_opensearch_repository = MockItemOpenSearchRepository::default();
-            let mut item_dynamodb_repository = MockItemDynamoDbRepository::default();
+            let mut item_dynamodb_repository = MockProductDynamoDbRepository::default();
             item_dynamodb_repository
                 .expect_update_item_record()
                 .returning(|_, _, _| Box::pin(async { Ok(UpdateItemOutput::builder().build()) }));
@@ -271,7 +272,7 @@ mod tests {
         #[tokio::test]
         async fn should_return_partial_failures(#[case] failure_count: usize) {
             let item_opensearch_repository = MockItemOpenSearchRepository::default();
-            let mut item_dynamodb_repository = MockItemDynamoDbRepository::default();
+            let mut item_dynamodb_repository = MockProductDynamoDbRepository::default();
 
             item_dynamodb_repository
                 .expect_update_item_record()
@@ -283,7 +284,7 @@ mod tests {
                 Arc::new(item_dynamodb_repository),
                 Arc::new(item_opensearch_repository),
             );
-            let input = fake::vec![(ProductId, (ProductKey, ItemRecordUpdate)); failure_count]
+            let input = fake::vec![(ProductId, (ProductKey, ProductRecordUpdate)); failure_count]
                 .into_iter()
                 .collect::<HashMap<_, _>>();
             let actual = sink.drain_records(input.clone()).await;

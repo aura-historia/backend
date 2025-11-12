@@ -6,15 +6,15 @@ use fake::{Fake, Faker};
 use http::header::ACCEPT_LANGUAGE;
 use opensearch::IndexParts;
 use opensearch::params::Refresh;
-use product::data::get_data::GetItemData;
-use product::data::user_state_data::ItemUserStateData;
+use product::data::get_data::GetProductData;
+use product::data::user_state_data::ProductUserStateData;
 use product::dynamodb::product_record::ProductRecord;
 use product::dynamodb::repository::{ProductDynamoDbRepository, ProductDynamoDbRepositoryImpl};
 use product::opensearch::product_document::ProductDocument;
 use product::opensearch::repository::{
     ProductOpenSearchRepository, ProductOpenSearchRepositoryImpl,
 };
-use product::service::get_service::GetItemServiceImpl;
+use product::service::get_service::GetProductServiceImpl;
 use product::watchlist::dynamodb::repository::WatchlistProductDynamoDbRepositoryImpl;
 use product::watchlist::service::product_watchlist_service::{
     ProductWatchListService, ProductWatchListServiceImpl,
@@ -1162,7 +1162,7 @@ async fn should_200_when_similar_items_have_been_computed_for_anon() {
         .unwrap();
 
     assert_eq!(200, response.status().as_u16());
-    let actual: Vec<PersonalizedData<GetItemData, ItemUserStateData>> =
+    let actual: Vec<PersonalizedData<GetProductData, ProductUserStateData>> =
         response.json().await.unwrap();
 
     // tough due to ANN
@@ -1200,7 +1200,7 @@ async fn should_200_and_personalize_when_similar_items_have_been_computed_for_au
     );
     let item_opensearch_repository =
         ProductOpenSearchRepositoryImpl::new(get_opensearch_client().await);
-    let get_item_service = GetItemServiceImpl::new(&item_dynamodb_repository);
+    let get_item_service = GetProductServiceImpl::new(&item_dynamodb_repository);
     let user_repository = UserDynamoDbRepositoryImpl::new(
         get_dynamodb_client().await,
         &get_cfn_output().dynamodb_table_1_name,
@@ -1282,7 +1282,7 @@ async fn should_200_and_personalize_when_similar_items_have_been_computed_for_au
         .unwrap();
 
     assert_eq!(200, response.status().as_u16());
-    let actual: Vec<PersonalizedData<GetItemData, ItemUserStateData>> =
+    let actual: Vec<PersonalizedData<GetProductData, ProductUserStateData>> =
         response.json().await.unwrap();
 
     // tough due to ANN

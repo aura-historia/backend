@@ -1,8 +1,8 @@
 use crate::core::description::Description;
 use crate::core::product_event::{
-    ItemCreatedEventPayload, ItemEventPayload, ItemPriceChangeEventPayload,
-    ItemPriceDiscoveryEventPayload, ItemPriceRemovedEventPayload, ItemStateChangeEventPayload,
-    LocalizedItemEventPayloadView, ProductEvent,
+    ItemCreatedEventPayload, ItemPriceChangeEventPayload, ItemPriceDiscoveryEventPayload,
+    ItemPriceRemovedEventPayload, ItemStateChangeEventPayload, LocalizedItemEventPayloadView,
+    ProductEvent, ProductEventPayload,
 };
 use crate::core::title::Title;
 use common::currency::domain::Currency;
@@ -75,7 +75,7 @@ impl Product {
             aggregate_id: ProductId::new(),
             event_id: EventId::new(),
             timestamp: OffsetDateTime::now_utc(),
-            payload: ItemEventPayload::Created(payload),
+            payload: ProductEventPayload::Created(payload),
         }
     }
 
@@ -86,12 +86,12 @@ impl Product {
             let old_state = self.state;
             self.state = new_state;
             let event_payload_constructor = match new_state {
-                ProductState::Listed => ItemEventPayload::StateListed,
-                ProductState::Available => ItemEventPayload::StateAvailable,
-                ProductState::Reserved => ItemEventPayload::StateReserved,
-                ProductState::Sold => ItemEventPayload::StateSold,
-                ProductState::Removed => ItemEventPayload::StateRemoved,
-                ProductState::Unknown => ItemEventPayload::StateUnknown,
+                ProductState::Listed => ProductEventPayload::StateListed,
+                ProductState::Available => ProductEventPayload::StateAvailable,
+                ProductState::Reserved => ProductEventPayload::StateReserved,
+                ProductState::Sold => ProductEventPayload::StateSold,
+                ProductState::Removed => ProductEventPayload::StateRemoved,
+                ProductState::Unknown => ProductEventPayload::StateUnknown,
             };
             let event = Event {
                 aggregate_id: self.product_id,
@@ -127,7 +127,7 @@ impl Product {
                     aggregate_id: self.product_id,
                     event_id: EventId::new(),
                     timestamp: OffsetDateTime::now_utc(),
-                    payload: ItemEventPayload::PriceDiscovered(ItemPriceDiscoveryEventPayload {
+                    payload: ProductEventPayload::PriceDiscovered(ItemPriceDiscoveryEventPayload {
                         shop_id: self.shop_id,
                         shops_product_id: self.shops_product_id.clone(),
                         native_price: new_native_price,
@@ -153,7 +153,7 @@ impl Product {
                         aggregate_id: self.product_id,
                         event_id: EventId::new(),
                         timestamp: OffsetDateTime::now_utc(),
-                        payload: ItemEventPayload::PriceIncreased(payload),
+                        payload: ProductEventPayload::PriceIncreased(payload),
                     };
                     Some(event)
                 } else if old_price_for_new_currency.monetary_amount
@@ -163,7 +163,7 @@ impl Product {
                         aggregate_id: self.product_id,
                         event_id: EventId::new(),
                         timestamp: OffsetDateTime::now_utc(),
-                        payload: ItemEventPayload::PriceDropped(payload),
+                        payload: ProductEventPayload::PriceDropped(payload),
                     };
                     Some(event)
                 } else {
@@ -188,7 +188,7 @@ impl Product {
                     aggregate_id: self.product_id,
                     event_id: EventId::new(),
                     timestamp: OffsetDateTime::now_utc(),
-                    payload: ItemEventPayload::PriceRemoved(payload),
+                    payload: ProductEventPayload::PriceRemoved(payload),
                 };
                 Some(event)
             }
@@ -486,7 +486,7 @@ mod tests {
 
     mod price {
         use crate::core::product::Product;
-        use crate::core::product_event::ItemEventPayload;
+        use crate::core::product_event::ProductEventPayload;
         use common::currency::domain::Currency;
         use common::language::domain::Language;
         use common::localized::Localized;
@@ -599,7 +599,7 @@ mod tests {
             let actual = item.new_price(Some(to_price), &IdentityFxRate).unwrap();
 
             match actual.payload {
-                ItemEventPayload::PriceDiscovered(payload) => {
+                ProductEventPayload::PriceDiscovered(payload) => {
                     assert_eq!(to_price, payload.native_price);
                     assert!(
                         payload
@@ -614,7 +614,7 @@ mod tests {
                             .all(|(_, amount)| &to_price.monetary_amount == amount)
                     );
                 }
-                _ => panic!("Expected ItemEventPayload::PriceDiscovered"),
+                _ => panic!("Expected ProductEventPayload::PriceDiscovered"),
             }
         }
 
@@ -650,7 +650,7 @@ mod tests {
             let actual = item.new_price(Some(to_price), &IdentityFxRate).unwrap();
 
             match actual.payload {
-                ItemEventPayload::PriceDropped(payload) => {
+                ProductEventPayload::PriceDropped(payload) => {
                     assert_eq!(to_price, payload.new_native_price);
                     assert!(
                         payload
@@ -669,7 +669,7 @@ mod tests {
                             .all(|(_, amount)| &to_price.monetary_amount == amount)
                     );
                 }
-                _ => panic!("Expected ItemEventPayload::PriceDropped"),
+                _ => panic!("Expected ProductEventPayload::PriceDropped"),
             }
         }
 
@@ -705,7 +705,7 @@ mod tests {
             let actual = item.new_price(Some(to_price), &IdentityFxRate).unwrap();
 
             match actual.payload {
-                ItemEventPayload::PriceIncreased(payload) => {
+                ProductEventPayload::PriceIncreased(payload) => {
                     assert_eq!(to_price, payload.new_native_price);
                     assert!(
                         payload
@@ -719,7 +719,7 @@ mod tests {
                     );
                     assert_eq!(item.native_price, Some(to_price));
                 }
-                _ => panic!("Expected ItemEventPayload::PriceIncreased"),
+                _ => panic!("Expected ProductEventPayload::PriceIncreased"),
             }
         }
 
@@ -763,12 +763,12 @@ mod tests {
             let actual = item.new_price(None, &IdentityFxRate).unwrap();
 
             match actual.payload {
-                ItemEventPayload::PriceRemoved(payload) => {
+                ProductEventPayload::PriceRemoved(payload) => {
                     assert!(item.native_price.is_none());
                     assert!(item.other_price.is_empty());
                     assert_eq!(price, payload.old_native_price);
                 }
-                _ => panic!("Expected ItemEventPayload::PriceRemoved"),
+                _ => panic!("Expected ProductEventPayload::PriceRemoved"),
             }
         }
     }

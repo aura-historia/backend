@@ -4,9 +4,9 @@ use aws_lambda_events::sqs::{BatchItemFailure, SqsBatchResponse, SqsEvent, SqsMe
 use common::has_key::HasKey;
 use common::product_id::ProductKey;
 use lambda_runtime::LambdaEvent;
-use product::dynamodb::product_update_record::ItemRecordUpdate;
+use product::dynamodb::product_update_record::ProductRecordUpdate;
 use product::dynamodb::repository::ProductDynamoDbRepository;
-use product_lambda_common::extract_item_event_record;
+use product_lambda_common::extract_product_event_record;
 use tracing::{error, info};
 
 #[tracing::instrument(skip(repository, event), fields(requestId = %event.context.request_id))]
@@ -72,14 +72,15 @@ fn extract_message_data(
     failed_message_ids: &mut Vec<String>,
     skipped_count: &mut usize,
     message_ids: &mut HashMap<ProductKey, String>,
-) -> Option<(ProductKey, ItemRecordUpdate)> {
+) -> Option<(ProductKey, ProductRecordUpdate)> {
     let message_id = message
         .message_id
         .clone()
         .expect("shouldn't receive an SQS-Message without 'message_id' because AWS sets it.");
-    let item_event_record = extract_item_event_record(message, failed_message_ids, skipped_count)?;
-    let key = item_event_record.key();
-    let update_record = ItemRecordUpdate::from(item_event_record);
+    let product_event_record =
+        extract_product_event_record(message, failed_message_ids, skipped_count)?;
+    let key = product_event_record.key();
+    let update_record = ProductRecordUpdate::from(product_event_record);
     message_ids.insert(key.clone(), message_id);
     Some((key, update_record))
 }
@@ -94,13 +95,13 @@ mod tests {
     use aws_sdk_dynamodb::operation::update_item::UpdateItemOutput;
     use fake::{Fake, Faker};
     use lambda_runtime::{Context, LambdaEvent};
-    use product::core::product_event::{ItemCommonEventPayload, ProductEvent};
+    use product::core::product_event::{ProductCommonEventPayload, ProductEvent};
     use product::dynamodb::product_event_record::ProductEventRecord;
-    use product::dynamodb::repository::MockItemDynamoDbRepository;
+    use product::dynamodb::repository::MockProductDynamoDbRepository;
     use std::time::SystemTime;
     use uuid::Uuid;
 
-    fn mk_event_bridge_payload(item_event_record: &ProductEventRecord) -> String {
+    fn mk_event_bridge_payload(product_event_record: &ProductEventRecord) -> String {
         let event = EventBridgeEvent {
             version: None,
             id: None,
@@ -115,7 +116,7 @@ mod tests {
                 change: StreamRecord {
                     approximate_creation_date_time: SystemTime::now().into(),
                     keys: Default::default(),
-                    new_image: serde_dynamo::to_item(item_event_record).unwrap(),
+                    new_image: serde_dynamo::to_item(product_event_record).unwrap(),
                     old_image: Default::default(),
                     sequence_number: None,
                     size_bytes: 42,
@@ -152,10 +153,10 @@ mod tests {
             .into_iter()
             .map(ProductEventRecord::try_from)
             .map(Result::unwrap)
-            .map(|item_event_record| SqsMessage {
+            .map(|product_event_record| SqsMessage {
                 message_id: Some(Faker.fake()),
                 receipt_handle: None,
-                body: Some(mk_event_bridge_payload(&item_event_record)),
+                body: Some(mk_event_bridge_payload(&product_event_record)),
                 md5_of_body: None,
                 md5_of_message_attributes: None,
                 attributes: Default::default(),
@@ -169,7 +170,7 @@ mod tests {
             payload: SqsEvent { records },
             context: Context::default(),
         };
-        let mut repository = MockItemDynamoDbRepository::default();
+        let mut repository = MockProductDynamoDbRepository::default();
         repository
             .expect_update_item_record()
             .returning(move |_, _, _| {
@@ -235,7 +236,7 @@ mod tests {
             payload: SqsEvent { records },
             context: Context::default(),
         };
-        let mut repository = MockItemDynamoDbRepository::default();
+        let mut repository = MockProductDynamoDbRepository::default();
         repository
             .expect_update_item_record()
             .returning(move |shop_id, shops_product_id, _| {

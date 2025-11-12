@@ -4,7 +4,7 @@ use common::product_id::ProductKey;
 use common::{batch::Batch, has_key::HasKey};
 use lambda_runtime::LambdaEvent;
 use product::dynamodb::{
-    item_event_record::ProductEventRecord, repository::ProductDynamoDbRepository,
+    product_event_record::ProductEventRecord, repository::ProductDynamoDbRepository,
 };
 use std::collections::HashMap;
 use tracing::{error, info};
@@ -120,7 +120,7 @@ mod tests {
     use fake::{Fake, Faker};
     use lambda_runtime::{Context, LambdaEvent};
     use product::dynamodb::{
-        item_event_record::ProductEventRecord, repository::MockItemDynamoDbRepository,
+        product_event_record::ProductEventRecord, repository::MockProductDynamoDbRepository,
     };
     use std::collections::HashMap;
     use uuid::Uuid;
@@ -161,7 +161,7 @@ mod tests {
             context: Context::default(),
         };
 
-        let mut repository = MockItemDynamoDbRepository::default();
+        let mut repository = MockProductDynamoDbRepository::default();
         repository
             .expect_put_item_event_records()
             .returning(|_| Box::pin(async { Ok(BatchWriteItemOutput::builder().build()) }));
@@ -217,7 +217,7 @@ mod tests {
             context: Context::default(),
         };
 
-        let mut repository = MockItemDynamoDbRepository::default();
+        let mut repository = MockProductDynamoDbRepository::default();
         repository
             .expect_put_item_event_records()
             .return_once(move |_| {

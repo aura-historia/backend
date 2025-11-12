@@ -4,9 +4,9 @@ use common::{pagination::cursor::api::JsonCursoredData, query::range_query::Rang
 use fake::{Fake, Faker, rand};
 use item_api_search::handler;
 use lambda_runtime::LambdaEvent;
-use product::data::get_data::GetItemData;
+use product::data::get_data::GetProductData;
 use product::data::product_search_data::ProductSearchData;
-use product::data::user_state_data::ItemUserStateData;
+use product::data::user_state_data::ProductUserStateData;
 use product::opensearch::{
     item_document::ProductDocument,
     repository::{ProductOpenSearchRepository, ProductOpenSearchRepositoryImpl},
@@ -49,7 +49,7 @@ async fn should_200_when_no_hits() {
     assert_eq!(200, response.status_code);
 
     let json = extract_apigw_response_json_body!(response);
-    let response_data: JsonCursoredData<PersonalizedData<GetItemData, ItemUserStateData>> =
+    let response_data: JsonCursoredData<PersonalizedData<GetProductData, ProductUserStateData>> =
         serde_json::from_value(json).unwrap();
     assert!(response_data.items.is_empty());
     assert_eq!(0, response_data.total.unwrap());
@@ -123,7 +123,7 @@ async fn should_200_when_following_search_after_from_previous_response_for_sort_
     .unwrap();
     assert_eq!(200, response_1.status_code);
     let json = extract_apigw_response_json_body!(response_1);
-    let response_data: JsonCursoredData<PersonalizedData<GetItemData, ItemUserStateData>> =
+    let response_data: JsonCursoredData<PersonalizedData<GetProductData, ProductUserStateData>> =
         serde_json::from_value(json).unwrap();
     assert_eq!(50, response_data.size);
     assert_eq!(1370, response_data.total.unwrap());
@@ -167,7 +167,7 @@ async fn should_200_when_following_search_after_from_previous_response_for_sort_
     .unwrap();
     assert_eq!(200, response_2.status_code);
     let json_2 = extract_apigw_response_json_body!(response_2);
-    let response_data_2: JsonCursoredData<PersonalizedData<GetItemData, ItemUserStateData>> =
+    let response_data_2: JsonCursoredData<PersonalizedData<GetProductData, ProductUserStateData>> =
         serde_json::from_value(json_2).unwrap();
     assert_eq!(50, response_data_2.size);
     assert_eq!(1370, response_data_2.total.unwrap());
@@ -260,7 +260,7 @@ async fn should_200_when_following_search_after_from_previous_response_for_sort_
     .unwrap();
     assert_eq!(200, response_1.status_code);
     let json = extract_apigw_response_json_body!(response_1);
-    let response_data: JsonCursoredData<PersonalizedData<GetItemData, ItemUserStateData>> =
+    let response_data: JsonCursoredData<PersonalizedData<GetProductData, ProductUserStateData>> =
         serde_json::from_value(json).unwrap();
     assert_eq!(50, response_data.size);
     assert_eq!(1370, response_data.total.unwrap());
@@ -304,7 +304,7 @@ async fn should_200_when_following_search_after_from_previous_response_for_sort_
     .unwrap();
     assert_eq!(200, response_2.status_code);
     let json_2 = extract_apigw_response_json_body!(response_2);
-    let response_data_2: JsonCursoredData<PersonalizedData<GetItemData, ItemUserStateData>> =
+    let response_data_2: JsonCursoredData<PersonalizedData<GetProductData, ProductUserStateData>> =
         serde_json::from_value(json_2).unwrap();
     assert_eq!(50, response_data_2.size);
     assert_eq!(1370, response_data_2.total.unwrap());
@@ -379,7 +379,7 @@ async fn should_200_when_following_search_after_from_previous_response_for_impli
     .unwrap();
     assert_eq!(200, response_1.status_code);
     let json = extract_apigw_response_json_body!(response_1);
-    let response_data: JsonCursoredData<PersonalizedData<GetItemData, ItemUserStateData>> =
+    let response_data: JsonCursoredData<PersonalizedData<GetProductData, ProductUserStateData>> =
         serde_json::from_value(json).unwrap();
     assert_eq!(50, response_data.size);
     assert_eq!(1370, response_data.total.unwrap());
@@ -408,7 +408,7 @@ async fn should_200_when_following_search_after_from_previous_response_for_impli
     .unwrap();
     assert_eq!(200, response_2.status_code);
     let json_2 = extract_apigw_response_json_body!(response_2);
-    let response_data_2: JsonCursoredData<PersonalizedData<GetItemData, ItemUserStateData>> =
+    let response_data_2: JsonCursoredData<PersonalizedData<GetProductData, ProductUserStateData>> =
         serde_json::from_value(json_2).unwrap();
     assert_eq!(50, response_data_2.size);
     assert_eq!(1370, response_data_2.total.unwrap());
@@ -480,7 +480,7 @@ async fn should_200_when_following_search_after_from_previous_response_for_expli
     .unwrap();
     assert_eq!(200, response_1.status_code);
     let json = extract_apigw_response_json_body!(response_1);
-    let response_data: JsonCursoredData<PersonalizedData<GetItemData, ItemUserStateData>> =
+    let response_data: JsonCursoredData<PersonalizedData<GetProductData, ProductUserStateData>> =
         serde_json::from_value(json).unwrap();
     assert_eq!(50, response_data.size);
     assert_eq!(1370, response_data.total.unwrap());
@@ -511,7 +511,7 @@ async fn should_200_when_following_search_after_from_previous_response_for_expli
     .unwrap();
     assert_eq!(200, response_2.status_code);
     let json_2 = extract_apigw_response_json_body!(response_2);
-    let response_data_2: JsonCursoredData<PersonalizedData<GetItemData, ItemUserStateData>> =
+    let response_data_2: JsonCursoredData<PersonalizedData<GetProductData, ProductUserStateData>> =
         serde_json::from_value(json_2).unwrap();
     assert_eq!(50, response_data_2.size);
     assert_eq!(1370, response_data_2.total.unwrap());
@@ -589,7 +589,7 @@ async fn should_200_when_created_query(
     assert_eq!(200, response.status_code);
 
     let json = extract_apigw_response_json_body!(response);
-    let response_data: JsonCursoredData<PersonalizedData<GetItemData, ItemUserStateData>> =
+    let response_data: JsonCursoredData<PersonalizedData<GetProductData, ProductUserStateData>> =
         serde_json::from_value(json).unwrap();
     assert!(!response_data.items.is_empty());
 
@@ -674,7 +674,7 @@ async fn should_200_when_updated_query(
     assert_eq!(200, response.status_code);
 
     let json = extract_apigw_response_json_body!(response);
-    let response_data: JsonCursoredData<PersonalizedData<GetItemData, ItemUserStateData>> =
+    let response_data: JsonCursoredData<PersonalizedData<GetProductData, ProductUserStateData>> =
         serde_json::from_value(json).unwrap();
     assert!(!response_data.items.is_empty());
 
@@ -750,7 +750,7 @@ async fn should_200_personalized_when_authenticated_and_not_watching() {
 
     let json = extract_apigw_response_json_body!(response);
     assert!(json["items"][0]["userState"].is_object());
-    let response_data: JsonCursoredData<PersonalizedData<GetItemData, ItemUserStateData>> =
+    let response_data: JsonCursoredData<PersonalizedData<GetProductData, ProductUserStateData>> =
         serde_json::from_value(json).unwrap();
     assert!(response_data.items.iter().all(|item| {
         let user_state = item.user_state.unwrap();

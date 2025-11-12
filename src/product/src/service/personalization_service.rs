@@ -114,7 +114,7 @@ impl<'a> ItemPersonalizationService for ItemPersonalizationServiceImpl<'a> {
 #[cfg(test)]
 mod tests {
     use crate::{
-        core::item::LocalizedProductView,
+        core::product::LocalizedProductView,
         service::personalization_service::{
             ItemPersonalizationService, ItemPersonalizationServiceImpl,
         },

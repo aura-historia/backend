@@ -1,7 +1,6 @@
 use aws_config::BehaviorVersion;
 use aws_lambda_events::apigw::ApiGatewayV2httpRequest;
 use cognito::access_token_verifier_service::AccessTokenVerifierServiceImpl;
-use item_api_get_item_similar::handler;
 use lambda_runtime::tracing::info;
 use lambda_runtime::{Error, LambdaEvent, run, service_fn};
 use opensearch::http::Url;
@@ -11,6 +10,7 @@ use product::opensearch::repository::ProductOpenSearchRepositoryImpl;
 use product::service::personalization_service::ItemPersonalizationServiceImpl;
 use product::service::semantic_service::SemanticSearchServiceImpl;
 use product::watchlist::dynamodb::repository::WatchlistProductDynamoDbRepositoryImpl;
+use product_api_get_product_similar::handler;
 use std::env;
 
 #[tokio::main]

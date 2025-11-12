@@ -10,7 +10,7 @@ use product::dynamodb::product_event_record::{self, ProductEventRecord};
 use product::dynamodb::product_event_type_record::ProductEventTypeRecord;
 use product::dynamodb::product_record::{self, ProductRecord};
 use product::dynamodb::product_state_record::ProductStateRecord;
-use product::dynamodb::product_update_record::ItemRecordUpdate;
+use product::dynamodb::product_update_record::ProductRecordUpdate;
 use product::dynamodb::repository::{ProductDynamoDbRepository, ProductDynamoDbRepositoryImpl};
 use test_api::*;
 use time::OffsetDateTime;
@@ -173,8 +173,8 @@ async fn should_put_item_event_records_for_single_record() {
         currency: CurrencyRecord::Eur,
     });
     let expected = ProductEventRecord {
-        pk: item_event_record::mk_pk(&shop_id, &shops_product_id),
-        sk: item_event_record::mk_sk(&now).unwrap(),
+        pk: product_event_record::mk_pk(&shop_id, &shops_product_id),
+        sk: product_event_record::mk_sk(&now).unwrap(),
         product_id: ProductId::new(),
         event_id: EventId::new(),
         event_type: ProductEventTypeRecord::Created,
@@ -242,8 +242,8 @@ async fn should_put_item_event_records_for_multiple_records() {
         currency: CurrencyRecord::Eur,
     });
     let expected1 = ProductEventRecord {
-        pk: item_event_record::mk_pk(&shop_id, &shops_item_id1),
-        sk: item_event_record::mk_sk(&now1).unwrap(),
+        pk: product_event_record::mk_pk(&shop_id, &shops_item_id1),
+        sk: product_event_record::mk_sk(&now1).unwrap(),
         product_id: ProductId::new(),
         event_id: EventId::new(),
         event_type: ProductEventTypeRecord::Created,
@@ -281,8 +281,8 @@ async fn should_put_item_event_records_for_multiple_records() {
     let now2 = OffsetDateTime::now_utc();
     let shops_item_id2: ShopsProductId = "123465".into();
     let expected2 = ProductEventRecord {
-        pk: item_event_record::mk_pk(&shop_id, &shops_item_id2),
-        sk: item_event_record::mk_sk(&now2).unwrap(),
+        pk: product_event_record::mk_pk(&shop_id, &shops_item_id2),
+        sk: product_event_record::mk_sk(&now2).unwrap(),
         product_id: ProductId::new(),
         event_id: EventId::new(),
         event_type: ProductEventTypeRecord::Created,
@@ -378,7 +378,7 @@ async fn should_update_item_record() {
     };
     let now2 = OffsetDateTime::now_utc();
     let event_id2 = EventId::new();
-    let update = ItemRecordUpdate {
+    let update = ProductRecordUpdate {
         event_id: event_id2,
         price_native: None,
         price_eur: None,
