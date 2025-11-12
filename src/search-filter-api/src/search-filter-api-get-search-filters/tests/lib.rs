@@ -1,6 +1,6 @@
 use common::user_id::UserId;
 use fake::{Fake, Faker};
-use item::core::item_search::ItemSearch;
+use product::core::item_search::ItemSearch;
 use lambda_runtime::LambdaEvent;
 use search_filter::core::user_search_filter_id::UserSearchFilterId;
 use search_filter::dynamodb::repository::UserSearchFilterDynamoDbRepositoryImpl;

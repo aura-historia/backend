@@ -3,7 +3,7 @@ use crate::core::{
     user_search_filter_name::UserSearchFilterName,
 };
 use common::user_id::UserId;
-use item::data::item_search_data::ItemSearchData;
+use product::data::item_search_data::ItemSearchData;
 use serde::{Deserialize, Serialize};
 use time::OffsetDateTime;
 
@@ -61,8 +61,8 @@ mod tests {
     use crate::data::user_search_filter_data::UserSearchFilterData;
     use common::query::range_query::RangeQuery;
     use common::{currency::data::CurrencyData, language::data::LanguageData, user_id::UserId};
-    use item::data::item_search_data::ItemSearchData;
-    use item::data::item_state_data::ItemStateData;
+    use product::data::item_search_data::ItemSearchData;
+    use product::data::item_state_data::ItemStateData;
     use serde_json::json;
     use std::collections::HashSet;
     use time::macros::datetime;

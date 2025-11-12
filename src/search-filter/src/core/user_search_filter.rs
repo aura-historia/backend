@@ -3,7 +3,7 @@ use crate::{
     core::user_search_filter_name::UserSearchFilterName,
 };
 use common::user_id::UserId;
-use item::core::item_search::ItemSearch;
+use product::core::item_search::ItemSearch;
 use time::OffsetDateTime;
 
 #[derive(Debug, Clone)]

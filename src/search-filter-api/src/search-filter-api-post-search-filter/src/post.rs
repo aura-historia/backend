@@ -1,4 +1,4 @@
-use item::data::item_search_data::ItemSearchData;
+use product::data::item_search_data::ItemSearchData;
 use search_filter::core::user_search_filter_name::UserSearchFilterName;
 use serde::{Deserialize, Serialize};
 
@@ -28,8 +28,8 @@ mod faker {
 mod tests {
     use common::query::range_query::RangeQuery;
     use common::{currency::data::CurrencyData, language::data::LanguageData};
-    use item::data::item_search_data::ItemSearchData;
-    use item::data::item_state_data::ItemStateData;
+    use product::data::item_search_data::ItemSearchData;
+    use product::data::item_state_data::ItemStateData;
     use serde_json::json;
     use std::collections::HashSet;
     use time::macros::datetime;

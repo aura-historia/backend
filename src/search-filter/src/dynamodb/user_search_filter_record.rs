@@ -5,11 +5,11 @@ use crate::core::{
 use common::query::range_query::RangeQuery;
 use common::query::text_query::TextQuery;
 use common::{
-    currency::record::CurrencyRecord, item_state::domain::ItemState,
+    currency::record::CurrencyRecord, product_state::domain::ProductState,
     language::record::LanguageRecord, price::domain::MonetaryAmount, user_id::UserId,
 };
-use item::core::item_search::ItemSearch;
-use item::dynamodb::item_state_record::ItemStateRecord;
+use product::core::item_search::ItemSearch;
+use product::dynamodb::item_state_record::ProductStateRecord;
 use serde::{Deserialize, Serialize};
 use std::collections::HashSet;
 use time::OffsetDateTime;
@@ -30,7 +30,7 @@ pub struct UserSearchFilterRecord {
     pub price_query: Option<RangeQuery<u64>>,
 
     #[serde(default, skip_serializing_if = "HashSet::is_empty")]
-    pub state_query: HashSet<ItemStateRecord>,
+    pub state_query: HashSet<ProductStateRecord>,
 
     #[serde(
         with = "common::query::range_query::range_rfc3339::option",
@@ -82,7 +82,7 @@ impl From<UserSearchFilterRecord> for UserSearchFilter {
                 state_query: record
                     .state_query
                     .into_iter()
-                    .map(ItemState::from)
+                    .map(ProductState::from)
                     .collect(),
                 created_query: record.created_query,
                 updated_query: record.updated_query,
@@ -111,7 +111,7 @@ impl From<UserSearchFilter> for UserSearchFilterRecord {
                 .search
                 .state_query
                 .into_iter()
-                .map(ItemStateRecord::from)
+                .map(ProductStateRecord::from)
                 .collect(),
             created_query: user_search_filter.search.created_query,
             language: user_search_filter.search.language.into(),
@@ -127,7 +127,7 @@ impl From<UserSearchFilter> for UserSearchFilterRecord {
 mod fake {
     use crate::dynamodb::user_search_filter_record::{UserSearchFilterRecord, mk_pk, mk_sk};
     use fake::{Dummy, Fake, Faker};
-    use item::core::item_search::faker::fake_range_query_datetime;
+    use product::core::item_search::faker::fake_range_query_datetime;
     use time::OffsetDateTime;
 
     impl Dummy<Faker> for UserSearchFilterRecord {

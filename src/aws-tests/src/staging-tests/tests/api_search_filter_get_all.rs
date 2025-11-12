@@ -1,7 +1,7 @@
 use aws_tests_common::get_cfn_output;
 use common::pagination::page::api::PaginatedData;
 use fake::{Fake, Faker};
-use item::core::item_search::ItemSearch;
+use product::core::item_search::ItemSearch;
 use search_filter::core::user_search_filter_name::UserSearchFilterName;
 use search_filter::data::user_search_filter_data::UserSearchFilterData;
 use search_filter::dynamodb::repository::UserSearchFilterDynamoDbRepositoryImpl;

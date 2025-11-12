@@ -5,7 +5,7 @@ use crate::dynamodb::repository::UserSearchFilterDynamoDbRepository;
 use crate::service::user_search_filter_update::UserSearchFilterUpdate;
 use aws_sdk_dynamodb::{config::http::HttpResponse, error::SdkError};
 use common::{sort::SortOrder, user_id::UserId};
-use item::core::item_search::ItemSearch;
+use product::core::item_search::ItemSearch;
 use time::OffsetDateTime;
 
 #[derive(thiserror::Error, Debug)]

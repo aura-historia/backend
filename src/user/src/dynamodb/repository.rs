@@ -58,7 +58,7 @@ impl<'a> UserDynamoDbRepository for UserDynamoDbRepositoryImpl<'a> {
             .item
             .map(serde_dynamo::from_item::<_, UserRecord>)
             .and_then(|user_record_res| match user_record_res {
-                Ok(item_record) => Some(item_record),
+                Ok(product_record) => Some(product_record),
                 Err(err) => {
                     error!(error = %err, type = %std::any::type_name::<UserRecord>(), "Failed deserializing.");
                     None

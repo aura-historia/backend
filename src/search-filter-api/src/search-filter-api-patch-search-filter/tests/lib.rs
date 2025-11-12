@@ -1,7 +1,7 @@
 use common::query::range_query::RangeQuery;
 use common::user_id::UserId;
 use fake::{Fake, Faker};
-use item::core::item_search::ItemSearch;
+use product::core::item_search::ItemSearch;
 use lambda_runtime::LambdaEvent;
 use search_filter::data::user_search_filter_data::UserSearchFilterData;
 use search_filter::dynamodb::repository::UserSearchFilterDynamoDbRepositoryImpl;

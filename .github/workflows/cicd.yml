@@ -68,10 +68,10 @@ jobs:
           - src/search-filter
           - src/search-filter-api
           - src/aws-tests
-          - src/item
-          - src/item-api
-          - src/item-enrichment
-          - src/item-lambda
+          - src/product
+          - src/product-api
+          - src/product-enrichment
+          - src/product-lambda
           - src/shop
           - src/shop-api
           - src/test-api
@@ -137,12 +137,12 @@ jobs:
           - src/search-filter-api/src/search-filter-api-get-search-filters
           - src/search-filter-api/src/search-filter-api-patch-search-filter
           - src/search-filter-api/src/search-filter-api-post-search-filter
-          - src/item
-          - src/item-api/src/item-api-get-item
-          - src/item-api/src/item-api-get-item-similar
-          - src/item-api/src/item-api-put-items
-          - src/item-api/src/item-api-search
-          - src/item-api/src/item-api-watchlist-get
+          - src/product
+          - src/product-api/src/item-api-get-item
+          - src/product-api/src/item-api-get-item-similar
+          - src/product-api/src/item-api-put-items
+          - src/product-api/src/item-api-search
+          - src/product-api/src/item-api-watchlist-get
           - src/shop
           - src/shop-api/src/shop-api-search
           - src/test-api
@@ -247,22 +247,22 @@ jobs:
           - src/search-filter-api/src/search-filter-api-get-search-filters
           - src/search-filter-api/src/search-filter-api-patch-search-filter
           - src/search-filter-api/src/search-filter-api-post-search-filter
-          - src/item-api/src/item-api-get-item
-          - src/item-api/src/item-api-get-item-similar
-          - src/item-api/src/item-api-put-items
-          - src/item-api/src/item-api-search
-          - src/item-api/src/item-api-watchlist-delete
-          - src/item-api/src/item-api-watchlist-get
-          - src/item-api/src/item-api-watchlist-post
-          - src/item-api/src/item-api-watchlist-patch
-          - src/item-enrichment/src/item-enrichment-asg-scale-down
-          - src/item-enrichment/src/item-enrichment-asg-scale-up
-          - src/item-lambda/src/item-lambda-ingest-events-dynamodb
-          - src/item-lambda/src/item-lambda-materialize-dynamodb-new
-          - src/item-lambda/src/item-lambda-materialize-dynamodb-update
-          - src/item-lambda/src/item-lambda-materialize-opensearch-new
-          - src/item-lambda/src/item-lambda-materialize-opensearch-update
-          - src/item-lambda/src/item-lambda-update-notify-user
+          - src/product-api/src/item-api-get-item
+          - src/product-api/src/item-api-get-item-similar
+          - src/product-api/src/item-api-put-items
+          - src/product-api/src/item-api-search
+          - src/product-api/src/item-api-watchlist-delete
+          - src/product-api/src/item-api-watchlist-get
+          - src/product-api/src/item-api-watchlist-post
+          - src/product-api/src/item-api-watchlist-patch
+          - src/product-enrichment/src/item-enrichment-asg-scale-down
+          - src/product-enrichment/src/item-enrichment-asg-scale-up
+          - src/product-lambda/src/item-lambda-ingest-events-dynamodb
+          - src/product-lambda/src/item-lambda-materialize-dynamodb-new
+          - src/product-lambda/src/item-lambda-materialize-dynamodb-update
+          - src/product-lambda/src/item-lambda-materialize-opensearch-new
+          - src/product-lambda/src/item-lambda-materialize-opensearch-update
+          - src/product-lambda/src/item-lambda-update-notify-user
           - src/shop-api/src/shop-api-search
           - src/shop-api/src/shop-api-get-shop
           - src/cognito-post-confirmation
@@ -338,7 +338,7 @@ jobs:
     strategy:
       matrix:
         crate:
-          - src/item-enrichment
+          - src/product-enrichment
     steps:
       - uses: actions/checkout@v5
 
@@ -389,7 +389,7 @@ jobs:
     strategy:
       matrix:
         resource:
-          - src/item-enrichment/user-data.sh
+          - src/product-enrichment/user-data.sh
     steps:
       - uses: actions/checkout@v5
 
@@ -452,8 +452,8 @@ jobs:
 
       - name: Setup OpenSearch index 'items'
         run: |
-          chmod +x ci/setup-opensearch-index-items.sh
-          ./ci/setup-opensearch-index-items.sh
+          chmod +x ci/setup-opensearch-indices.sh
+          ./ci/setup-opensearch-indices.sh
 
   aws-staging-test:
     name: AWS Staging-Test

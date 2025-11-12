@@ -1,7 +1,7 @@
 pub use aws_tests;
 pub use common;
-pub use item;
-pub use item_api;
+pub use product;
+pub use product_api;
 pub use search_filter;
 pub use search_filter_api;
 pub use shop;

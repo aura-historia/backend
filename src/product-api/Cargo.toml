@@ -1,0 +1,14 @@
+[package]
+name = "product-api"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+product-api-get-product = { workspace = true }
+product-api-get-product-similar = { workspace = true }
+product-api-put-products = { workspace = true }
+product-api-search = { workspace = true }
+product-api-watchlist-get = { workspace = true }
+product-api-watchlist-patch = { workspace = true }
+product-api-watchlist-post = { workspace = true }
+product-api-watchlist-delete = { workspace = true }

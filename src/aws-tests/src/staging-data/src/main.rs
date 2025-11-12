@@ -4,7 +4,7 @@ use fake::{
     Fake, Faker,
     rand::{self, seq::IndexedRandom},
 };
-use item::data::put_data::PutItemData;
+use product::data::put_data::PutItemData;
 use shop::core::shop::Shop;
 use shop::dynamodb::{
     repository::{ShopDynamoDbRepository, ShopDynamoDbRepositoryImpl},

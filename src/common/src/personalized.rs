@@ -11,17 +11,17 @@ pub mod api {
 
     #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
     #[serde(rename_all = "camelCase")]
-    pub struct PersonalizedData<ItemData, UserStateData> {
-        pub item: ItemData,
+    pub struct PersonalizedData<ProductData, UserStateData> {
+        pub item: ProductData,
 
         #[serde(default, skip_serializing_if = "Option::is_none")]
         pub user_state: Option<UserStateData>,
     }
 
-    impl<Item, UserState, ItemData, UserStateData> From<Personalized<Item, UserState>>
-        for PersonalizedData<ItemData, UserStateData>
+    impl<Item, UserState, ProductData, UserStateData> From<Personalized<Item, UserState>>
+        for PersonalizedData<ProductData, UserStateData>
     where
-        Item: Into<ItemData>,
+        Item: Into<ProductData>,
         UserState: Into<UserStateData>,
     {
         fn from(personalized: Personalized<Item, UserState>) -> Self {

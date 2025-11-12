@@ -1,6 +1,6 @@
 use aws_tests_common::get_cfn_output;
 use fake::{Fake, Faker};
-use item::data::item_search_data::ItemSearchData;
+use product::data::item_search_data::ItemSearchData;
 use smoking_tests::smoking_test;
 use uuid::Uuid;
 

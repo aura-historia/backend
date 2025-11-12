@@ -1,0 +1,13 @@
+[package]
+name = "product-lambda"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+product-lambda-common = { workspace = true }
+product-lambda-ingest-events-dynamodb = { workspace = true }
+product-lambda-materialize-dynamodb-new = { workspace = true }
+product-lambda-materialize-dynamodb-update = { workspace = true }
+product-lambda-materialize-opensearch-new = { workspace = true }
+product-lambda-materialize-opensearch-update = { workspace = true }
+product-lambda-update-notify-user = { workspace = true }

@@ -3,7 +3,7 @@ use common::dynamodb_update::DynamoDbUpdate;
 use common::query::range_query::RangeQuery;
 use common::query::text_query::TextQuery;
 use common::{currency::record::CurrencyRecord, language::record::LanguageRecord};
-use item::dynamodb::item_state_record::ItemStateRecord;
+use product::dynamodb::item_state_record::ProductStateRecord;
 use serde::{Deserialize, Serialize};
 use std::collections::HashSet;
 use time::OffsetDateTime;
@@ -23,7 +23,7 @@ pub struct UserSearchFilterRecordUpdate {
     pub price_query: Option<RangeQuery<u64>>,
 
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub state_query: Option<HashSet<ItemStateRecord>>,
+    pub state_query: Option<HashSet<ProductStateRecord>>,
 
     #[serde(
         with = "common::query::range_query::range_rfc3339::option",
@@ -55,7 +55,7 @@ impl DynamoDbUpdate for UserSearchFilterRecordUpdate {}
 mod fake {
     use crate::dynamodb::user_search_filter_record_update::UserSearchFilterRecordUpdate;
     use fake::{Dummy, Fake, Faker};
-    use item::core::item_search::faker::fake_range_query_datetime;
+    use product::core::item_search::faker::fake_range_query_datetime;
     use time::OffsetDateTime;
 
     impl Dummy<Faker> for UserSearchFilterRecordUpdate {

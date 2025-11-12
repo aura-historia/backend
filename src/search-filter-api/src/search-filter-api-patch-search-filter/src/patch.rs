@@ -2,11 +2,11 @@ use common::query::range_query::RangeQuery;
 use common::query::text_query::TextQuery;
 use common::{
     currency::{data::CurrencyData, domain::Currency},
-    item_state::domain::ItemState,
+    product_state::domain::ProductState,
     language::{data::LanguageData, domain::Language},
     price::domain::MonetaryAmount,
 };
-use item::data::item_state_data::ItemStateData;
+use product::data::item_state_data::ItemStateData;
 use search_filter::core::user_search_filter_name::UserSearchFilterName;
 use search_filter::service::user_search_filter_update::UserSearchFilterUpdate;
 use serde::{Deserialize, Serialize};
@@ -90,7 +90,7 @@ impl From<PatchUserSearchFilterData> for UserSearchFilterUpdate {
             state_query: patch.search.as_ref().and_then(|sf| {
                 sf.state_query
                     .clone()
-                    .map(|states| states.into_iter().map(ItemState::from).collect())
+                    .map(|states| states.into_iter().map(ProductState::from).collect())
             }),
             created_query: patch.search.as_ref().and_then(|sf| sf.created_query),
             updated_query: patch.search.as_ref().and_then(|sf| sf.updated_query),
@@ -103,7 +103,7 @@ impl From<PatchUserSearchFilterData> for UserSearchFilterUpdate {
 mod faker {
     use super::*;
     use fake::{Dummy, Fake, Faker, Rng};
-    use item::core::item_search::faker::fake_range_query_datetime;
+    use product::core::item_search::faker::fake_range_query_datetime;
 
     impl Dummy<Faker> for PatchItemSearchData {
         fn dummy_with_rng<R: Rng + ?Sized>(config: &Faker, rng: &mut R) -> Self {
@@ -126,7 +126,7 @@ mod tests {
     use crate::patch::{PatchItemSearchData, PatchUserSearchFilterData};
     use common::query::range_query::RangeQuery;
     use common::{currency::data::CurrencyData, language::data::LanguageData};
-    use item::data::item_state_data::ItemStateData;
+    use product::data::item_state_data::ItemStateData;
     use serde_json::json;
     use std::collections::HashSet;
     use time::macros::datetime;
