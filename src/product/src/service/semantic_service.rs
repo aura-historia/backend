@@ -1,6 +1,8 @@
 use crate::dynamodb::repository::ProductDynamoDbRepository;
 use crate::opensearch::repository::ProductOpenSearchRepository;
-use crate::{core::product::LocalizedProductView, service::query_service::localize_product_document};
+use crate::{
+    core::product::LocalizedProductView, service::query_service::localize_product_document,
+};
 use async_trait::async_trait;
 use aws_sdk_dynamodb::error::SdkError;
 use common::currency::domain::Currency;

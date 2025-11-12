@@ -22,7 +22,9 @@ pub struct WatchlistProduct {
 
 #[cfg(feature = "test-data")]
 mod faker {
-    use crate::watchlist::core::watchlist_product::{LocalizedWatchlistProductView, WatchlistProduct};
+    use crate::watchlist::core::watchlist_product::{
+        LocalizedWatchlistProductView, WatchlistProduct,
+    };
     use fake::{Dummy, Fake, Faker, Rng};
     use time::OffsetDateTime;
 

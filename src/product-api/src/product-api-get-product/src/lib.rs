@@ -515,7 +515,9 @@ mod tests {
             move |shop_id, shops_product_id, _, _, _| {
                 let shop_id = *shop_id;
                 let shops_product_id = shops_product_id.clone();
-                Box::pin(async move { Err(GetProductError::ItemNotFound(shop_id, shops_product_id)) })
+                Box::pin(
+                    async move { Err(GetProductError::ItemNotFound(shop_id, shops_product_id)) },
+                )
             },
         );
 

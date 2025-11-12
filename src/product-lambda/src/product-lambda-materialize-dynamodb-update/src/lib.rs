@@ -3,10 +3,10 @@ use std::collections::HashMap;
 use aws_lambda_events::sqs::{BatchItemFailure, SqsBatchResponse, SqsEvent, SqsMessage};
 use common::has_key::HasKey;
 use common::product_id::ProductKey;
-use product_lambda_common::extract_item_event_record;
 use lambda_runtime::LambdaEvent;
 use product::dynamodb::product_update_record::ItemRecordUpdate;
 use product::dynamodb::repository::ProductDynamoDbRepository;
+use product_lambda_common::extract_item_event_record;
 use tracing::{error, info};
 
 #[tracing::instrument(skip(repository, event), fields(requestId = %event.context.request_id))]

@@ -77,7 +77,8 @@ impl<'a> ItemPersonalizationService for ItemPersonalizationServiceImpl<'a> {
         &self,
         user_id: &UserId,
         items: Vec<LocalizedProductView>,
-    ) -> Result<Vec<Personalized<LocalizedProductView, WatchlistUserState>>, WatchProductError> {
+    ) -> Result<Vec<Personalized<LocalizedProductView, WatchlistUserState>>, WatchProductError>
+    {
         let watchlist_records = self
             .watchlist_repository
             .query_watchlist_records_all(user_id, true)

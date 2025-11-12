@@ -2,11 +2,11 @@ pub mod service;
 
 use crate::service::ItemEventMailPayloadService;
 use aws_lambda_events::sqs::{BatchItemFailure, SqsBatchResponse, SqsEvent};
-use product_lambda_common::extract_item_event_record;
 use lambda_runtime::LambdaEvent;
 use mail_core::{payload::MailPayload, queue_service::QueueMailService};
 use product::core::product_event::ProductEvent;
 use product::dynamodb::product_event_record::ProductEventRecord;
+use product_lambda_common::extract_item_event_record;
 use tracing::{error, info};
 
 #[tracing::instrument(skip(queue_mail_service, item_event_mail_payload_service, event), fields(requestId = %event.context.request_id))]

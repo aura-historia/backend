@@ -9,7 +9,9 @@ use product::dynamodb::{
 use product::service::get_service::GetItemServiceImpl;
 use product::watchlist::{
     dynamodb::record::{WatchlistProductRecord, mk_gsi1_pk, mk_gsi1_sk, mk_lsi1_sk, mk_pk, mk_sk},
-    dynamodb::repository::{WatchlistProductDynamoDbRepository, WatchlistProductDynamoDbRepositoryImpl},
+    dynamodb::repository::{
+        WatchlistProductDynamoDbRepository, WatchlistProductDynamoDbRepositoryImpl,
+    },
     service::product_watchlist_service::ProductWatchListServiceImpl,
 };
 use test_api::*;

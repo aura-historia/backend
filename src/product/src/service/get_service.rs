@@ -499,7 +499,7 @@ fn localize_item_event(
 mod tests {
     mod find_item {
         use crate::dynamodb::repository::MockItemDynamoDbRepository;
-        use crate::service::get_service::{GetProductError, GetProductService, GetItemServiceImpl};
+        use crate::service::get_service::{GetItemServiceImpl, GetProductError, GetProductService};
         use aws_sdk_dynamodb::{
             config::http::HttpResponse,
             error::{ConnectorError, SdkError},
@@ -588,7 +588,7 @@ mod tests {
             item_event_record::ProductEventRecord, product_record::ProductRecord,
             repository::MockItemDynamoDbRepository,
         };
-        use crate::service::get_service::{GetProductError, GetProductService, GetItemServiceImpl};
+        use crate::service::get_service::{GetItemServiceImpl, GetProductError, GetProductService};
         use aws_sdk_dynamodb::{
             config::http::HttpResponse,
             error::{ConnectorError, SdkError},
@@ -1007,7 +1007,7 @@ mod tests {
         use crate::dynamodb::{
             product_record::ProductRecord, repository::MockItemDynamoDbRepository,
         };
-        use crate::service::get_service::{GetProductError, GetProductService, GetItemServiceImpl};
+        use crate::service::get_service::{GetItemServiceImpl, GetProductError, GetProductService};
         use aws_sdk_dynamodb::{
             config::http::HttpResponse,
             error::{ConnectorError, SdkError},
@@ -1059,7 +1059,9 @@ mod tests {
             match actual {
                 GetProductError::UnprocessedAfterMaxRetries(_) => {}
                 other => {
-                    panic!("Expected 'GetProductError::UnprocessedAfterMaxRetries'. Got '{other:?}'.")
+                    panic!(
+                        "Expected 'GetProductError::UnprocessedAfterMaxRetries'. Got '{other:?}'."
+                    )
                 }
             }
         }

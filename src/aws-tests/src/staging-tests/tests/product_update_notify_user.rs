@@ -10,7 +10,9 @@ use product::data::{item_state_data::ProductStateData, put_data::PutItemData};
 use product::dynamodb::repository::{ProductDynamoDbRepository, ProductDynamoDbRepositoryImpl};
 use product::watchlist::{
     data::watchlist_item_data::WatchlistProductData,
-    dynamodb::repository::{WatchlistProductDynamoDbRepository, WatchlistProductDynamoDbRepositoryImpl},
+    dynamodb::repository::{
+        WatchlistProductDynamoDbRepository, WatchlistProductDynamoDbRepositoryImpl,
+    },
 };
 use shop::core::shop::Shop;
 use shop::dynamodb::{

@@ -338,7 +338,8 @@ impl<'a> ProductWatchListService for ProductWatchListServiceImpl<'a> {
         currency: &Currency,
         sort: &Option<Sort<SortWatchlistProductField>>,
         cursor: &Option<Cursor<OffsetDateTime>>,
-    ) -> Result<CursoredResult<LocalizedWatchlistProductView, OffsetDateTime>, WatchProductError> {
+    ) -> Result<CursoredResult<LocalizedWatchlistProductView, OffsetDateTime>, WatchProductError>
+    {
         let sort = sort.unwrap_or(Sort {
             sort: SortWatchlistProductField::Created,
             order: SortOrder::Asc,
@@ -477,7 +478,9 @@ mod tests {
                     assert_eq!(shops_product_id, err_shops_item_id);
                 }
                 err => {
-                    panic!("Expected 'WatchProductError::WatchlistTimestampNotFound' but got '{err}'")
+                    panic!(
+                        "Expected 'WatchProductError::WatchlistTimestampNotFound' but got '{err}'"
+                    )
                 }
             }
         }
@@ -835,7 +838,9 @@ mod tests {
                     assert_eq!(shops_product_id, err_shops_item_id);
                 }
                 err => {
-                    panic!("Expected 'WatchProductError::WatchlistTimestampNotFound' but got '{err}'")
+                    panic!(
+                        "Expected 'WatchProductError::WatchlistTimestampNotFound' but got '{err}'"
+                    )
                 }
             }
         }
@@ -1034,7 +1039,9 @@ mod tests {
                     assert_eq!(shops_product_id, err_shops_item_id);
                 }
                 err => {
-                    panic!("Expected 'WatchProductError::WatchlistTimestampNotFound' but got '{err}'")
+                    panic!(
+                        "Expected 'WatchProductError::WatchlistTimestampNotFound' but got '{err}'"
+                    )
                 }
             }
         }
