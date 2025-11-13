@@ -10,7 +10,7 @@ use search_filter::service::user_search_filter_service::{
 };
 use search_filter_api_patch_search_filter::{
     handler,
-    patch::{PatchItemSearchData, PatchUserSearchFilterData},
+    patch::{PatchProductSearchData, PatchUserSearchFilterData},
 };
 use test_api::*;
 
@@ -28,10 +28,10 @@ async fn should_update_search_filter() {
 
     let patch = PatchUserSearchFilterData {
         name: Some("thorbens filter".into()),
-        search: Some(PatchItemSearchData {
+        search: Some(PatchProductSearchData {
             language: None,
             currency: None,
-            item_query: None,
+            product_query: None,
             shop_name_query: Some("Whoop boop woah".try_into().unwrap()),
             price_query: Some(RangeQuery {
                 min: Some(37),

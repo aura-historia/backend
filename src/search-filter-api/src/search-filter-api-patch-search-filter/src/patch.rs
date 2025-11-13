@@ -21,20 +21,20 @@ pub struct PatchUserSearchFilterData {
     pub name: Option<UserSearchFilterName>,
 
     #[serde(skip_serializing_if = "Option::is_none", default)]
-    pub search: Option<PatchItemSearchData>,
+    pub search: Option<PatchProductSearchData>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Default)]
 #[serde(rename_all = "camelCase")]
-pub struct PatchItemSearchData {
+pub struct PatchProductSearchData {
     #[serde(skip_serializing_if = "Option::is_none", default)]
     pub language: Option<LanguageData>,
 
     #[serde(skip_serializing_if = "Option::is_none", default)]
     pub currency: Option<CurrencyData>,
 
-    #[serde(rename = "itemQuery", skip_serializing_if = "Option::is_none", default)]
-    pub item_query: Option<TextQuery>,
+    #[serde(rename = "productQuery", skip_serializing_if = "Option::is_none", default)]
+    pub product_query: Option<TextQuery>,
 
     #[serde(
         rename = "shopNameQuery",
@@ -78,7 +78,7 @@ impl From<PatchUserSearchFilterData> for UserSearchFilterUpdate {
                 .search
                 .as_ref()
                 .and_then(|sf| sf.currency.map(Currency::from)),
-            item_query: patch.search.as_ref().and_then(|sf| sf.item_query.clone()),
+            product_query: patch.search.as_ref().and_then(|sf| sf.product_query.clone()),
             shop_name_query: patch
                 .search
                 .as_ref()
@@ -105,12 +105,12 @@ mod faker {
     use fake::{Dummy, Fake, Faker, Rng};
     use product::core::product_search::faker::fake_range_query_datetime;
 
-    impl Dummy<Faker> for PatchItemSearchData {
+    impl Dummy<Faker> for PatchProductSearchData {
         fn dummy_with_rng<R: Rng + ?Sized>(config: &Faker, rng: &mut R) -> Self {
-            PatchItemSearchData {
+            PatchProductSearchData {
                 language: config.fake_with_rng(rng),
                 currency: config.fake_with_rng(rng),
-                item_query: config.fake_with_rng(rng),
+                product_query: config.fake_with_rng(rng),
                 shop_name_query: config.fake_with_rng(rng),
                 price_query: config.fake_with_rng(rng),
                 state_query: config.fake_with_rng(rng),
@@ -123,7 +123,7 @@ mod faker {
 
 #[cfg(test)]
 mod tests {
-    use crate::patch::{PatchItemSearchData, PatchUserSearchFilterData};
+    use crate::patch::{PatchProductSearchData, PatchUserSearchFilterData};
     use common::query::range_query::RangeQuery;
     use common::{currency::data::CurrencyData, language::data::LanguageData};
     use product::data::product_state_data::ProductStateData;
@@ -136,7 +136,7 @@ mod tests {
         let json = json!({
             "language": "de",
             "currency": "EUR",
-            "itemQuery": "Boop",
+            "productQuery": "Boop",
             "shopNameQuery": "Baap",
             "price": {
                 "min": 37,
@@ -152,10 +152,10 @@ mod tests {
                 "max": "2025-05-04T00:00:00Z",
             }
         });
-        let expected = PatchItemSearchData {
+        let expected = PatchProductSearchData {
             language: Some(LanguageData::De),
             currency: Some(CurrencyData::Eur),
-            item_query: Some("Boop".try_into().unwrap()),
+            product_query: Some("Boop".try_into().unwrap()),
             shop_name_query: Some("Baap".try_into().unwrap()),
             price_query: Some(RangeQuery {
                 min: Some(37),
@@ -172,7 +172,7 @@ mod tests {
             }),
         };
 
-        let actual: PatchItemSearchData = serde_json::from_value(json).unwrap();
+        let actual: PatchProductSearchData = serde_json::from_value(json).unwrap();
 
         assert_eq!(expected, actual);
     }
@@ -184,7 +184,7 @@ mod tests {
             "search": {
                 "language": "de",
                 "currency": "EUR",
-                "itemQuery": "Boop",
+                "productQuery": "Boop",
                 "shopNameQuery": "Baap",
                 "price": {
                     "min": 37,
@@ -203,10 +203,10 @@ mod tests {
         });
         let expected = PatchUserSearchFilterData {
             name: Some("hugos filter for peppino".into()),
-            search: Some(PatchItemSearchData {
+            search: Some(PatchProductSearchData {
                 language: Some(LanguageData::De),
                 currency: Some(CurrencyData::Eur),
-                item_query: Some("Boop".try_into().unwrap()),
+                product_query: Some("Boop".try_into().unwrap()),
                 shop_name_query: Some("Baap".try_into().unwrap()),
                 price_query: Some(RangeQuery {
                     min: Some(37),

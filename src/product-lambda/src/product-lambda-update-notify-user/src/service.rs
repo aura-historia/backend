@@ -37,19 +37,19 @@ pub trait ProductEventMailPayloadService {
     ) -> Result<Vec<MailPayload>, ProductEventMailPayloadServiceError>;
 }
 
-pub struct ItemEventMailPayloadServiceImpl<'a> {
+pub struct ProductEventMailPayloadServiceImpl<'a> {
     watchlist_service: &'a (dyn ProductWatchListService + Sync),
     get_product_service: &'a (dyn GetProductService + Sync),
     sender_email: Email,
 }
 
-impl<'a> ItemEventMailPayloadServiceImpl<'a> {
+impl<'a> ProductEventMailPayloadServiceImpl<'a> {
     pub fn new(
         watchlist_service: &'a (dyn ProductWatchListService + Sync),
         get_product_service: &'a (dyn GetProductService + Sync),
         sender_email: Email,
     ) -> Self {
-        ItemEventMailPayloadServiceImpl {
+        ProductEventMailPayloadServiceImpl {
             watchlist_service,
             get_product_service,
             sender_email,
@@ -58,7 +58,7 @@ impl<'a> ItemEventMailPayloadServiceImpl<'a> {
 }
 
 #[async_trait::async_trait]
-impl<'a> ProductEventMailPayloadService for ItemEventMailPayloadServiceImpl<'a> {
+impl<'a> ProductEventMailPayloadService for ProductEventMailPayloadServiceImpl<'a> {
     async fn create_mail_payloads(
         &self,
         event: ProductEvent,
@@ -84,7 +84,7 @@ impl<'a> ProductEventMailPayloadService for ItemEventMailPayloadServiceImpl<'a> 
     }
 }
 
-impl<'a> ItemEventMailPayloadServiceImpl<'a> {
+impl<'a> ProductEventMailPayloadServiceImpl<'a> {
     fn customize_mail(&self, user: User, item: &Product, event: &ProductEvent) -> MailPayload {
         // Defaulting to German/EUR now because UserRecord doesn't contain preferences yet
         let title = item

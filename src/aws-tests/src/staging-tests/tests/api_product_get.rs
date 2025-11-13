@@ -10,7 +10,7 @@ use common::{
 use fake::{Fake, Faker};
 use product::{
     core::product_event::{
-        ItemPriceChangeEventPayload, ItemStateChangeEventPayload, ProductEventPayload,
+        ProductPriceChangeEventPayload, ProductStateChangeEventPayload, ProductEventPayload,
     },
     service::get_service::GetProductServiceImpl,
     watchlist::{
@@ -30,7 +30,7 @@ use std::time::{Duration, SystemTime};
 use user::dynamodb::repository::UserDynamoDbRepositoryImpl;
 
 #[staging_test]
-async fn should_respond_200_when_anon_and_item_does_exist() {
+async fn should_respond_200_when_anon_and_product_does_exist() {
     let ddb_client = get_dynamodb_client().await;
     let repository =
         ProductDynamoDbRepositoryImpl::new(ddb_client, &get_cfn_output().dynamodb_table_1_name);
@@ -43,7 +43,7 @@ async fn should_respond_200_when_anon_and_item_does_exist() {
     tokio::time::sleep(Duration::from_secs(1)).await;
 
     let url = format!(
-        "{}/api/v1/items/{}/{}?currency=GBP",
+        "{}/api/v1/products/{}/{}?currency=GBP",
         get_cfn_output().api_gateway_endpoint_url,
         record.shop_id,
         record.shops_product_id
@@ -66,10 +66,10 @@ async fn should_respond_200_when_anon_and_item_does_exist() {
 }
 
 #[staging_test]
-async fn should_respond_200_personalized_when_authenticated_and_item_does_exist_and_watched() {
+async fn should_respond_200_personalized_when_authenticated_and_product_does_exist_and_watched() {
     let user = create_random_test_user().await;
     let ddb_client = get_dynamodb_client().await;
-    let item_repository =
+    let product_repository =
         ProductDynamoDbRepositoryImpl::new(ddb_client, &get_cfn_output().dynamodb_table_1_name);
     let watchlist_repository = WatchlistProductDynamoDbRepositoryImpl::new(
         ddb_client,
@@ -77,15 +77,15 @@ async fn should_respond_200_personalized_when_authenticated_and_item_does_exist_
     );
     let user_repository =
         UserDynamoDbRepositoryImpl::new(ddb_client, &get_cfn_output().dynamodb_table_1_name);
-    let get_product_service = GetProductServiceImpl::new(&item_repository);
+    let get_product_service = GetProductServiceImpl::new(&product_repository);
     let watchlist_service = ProductWatchListServiceImpl::new(
         &watchlist_repository,
         &user_repository,
-        &item_repository,
+        &product_repository,
         &get_product_service,
     );
     let record = Faker.fake::<ProductRecord>();
-    let insert_res = item_repository
+    let insert_res = product_repository
         .put_product_records([record.clone()].into())
         .await
         .unwrap();
@@ -93,12 +93,12 @@ async fn should_respond_200_personalized_when_authenticated_and_item_does_exist_
     tokio::time::sleep(Duration::from_secs(1)).await;
 
     watchlist_service
-        .create_watchlist_item(&user.sub.into(), &record.shop_id, &record.shops_product_id)
+        .create_watchlist_product(&user.sub.into(), &record.shop_id, &record.shops_product_id)
         .await
         .unwrap();
 
     let url = format!(
-        "{}/api/v1/items/{}/{}?currency=GBP",
+        "{}/api/v1/products/{}/{}?currency=GBP",
         get_cfn_output().api_gateway_endpoint_url,
         record.shop_id,
         record.shops_product_id
@@ -154,7 +154,7 @@ async fn should_respond_200_with_history() {
         aggregate_id: record.product_id,
         event_id: event_1_id,
         timestamp: SystemTime::now().into(),
-        payload: ProductEventPayload::PriceDropped(ItemPriceChangeEventPayload {
+        payload: ProductEventPayload::PriceDropped(ProductPriceChangeEventPayload {
             shop_id: record.shop_id,
             shops_product_id: record.shops_product_id.clone(),
             new_native_price: event_1_price,
@@ -175,7 +175,7 @@ async fn should_respond_200_with_history() {
         aggregate_id: record.product_id,
         event_id: event_2_id,
         timestamp: SystemTime::now().into(),
-        payload: ProductEventPayload::StateRemoved(ItemStateChangeEventPayload {
+        payload: ProductEventPayload::StateRemoved(ProductStateChangeEventPayload {
             shop_id: record.shop_id,
             shops_product_id: record.shops_product_id.clone(),
             old_state: ProductState::Sold,
@@ -195,7 +195,7 @@ async fn should_respond_200_with_history() {
     tokio::time::sleep(Duration::from_secs(1)).await;
 
     let url = format!(
-        "{}/api/v1/items/{}/{}?currency=USD&history=true",
+        "{}/api/v1/products/{}/{}?currency=USD&history=true",
         get_cfn_output().api_gateway_endpoint_url,
         record.shop_id,
         record.shops_product_id
@@ -224,9 +224,9 @@ async fn should_respond_200_with_history() {
 }
 
 #[staging_test]
-async fn should_respond_404_when_item_does_not_exist() {
+async fn should_respond_404_when_product_does_not_exist() {
     let response = reqwest::get(format!(
-        "{}/api/v1/items/{}/bar",
+        "{}/api/v1/products/{}/bar",
         get_cfn_output().api_gateway_endpoint_url,
         ShopId::new()
     ))

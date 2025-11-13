@@ -77,11 +77,11 @@ pub async fn handle(
     let shop_id = extract_shop_id_path(&event.payload.path_parameters)?;
     let shops_product_id = extract_shops_product_id_path(&event.payload.path_parameters)?;
 
-    let localized_similar_items_opt = semantic_search_service
+    let localized_similar_products_opt = semantic_search_service
         .similar_products(&shop_id, &shops_product_id, &languages, &currency.into())
         .await?;
 
-    match localized_similar_items_opt {
+    match localized_similar_products_opt {
         None => {
             let location = match event.payload.request_context.domain_name {
                 None => None,
@@ -115,14 +115,14 @@ pub async fn handle(
                     .collect::<Vec<_>>(),
             };
 
-            let similar_items_data: Vec<PersonalizedData<GetProductData, ProductUserStateData>> =
+            let similar_products_data: Vec<PersonalizedData<GetProductData, ProductUserStateData>> =
                 personalized_similar_items
                     .into_iter()
                     .map(PersonalizedData::from)
                     .collect();
 
             Ok(ApiGatewayV2HttpResponseBuilder::json(200)
-                .body_serde(similar_items_data)?
+                .body_serde(similar_products_data)?
                 .build())
         }
     }
@@ -144,7 +144,7 @@ mod tests {
     use test_api::{ApiGatewayV2httpRequestProxy, extract_apigw_response_json_body};
 
     #[tokio::test]
-    async fn should_200_when_similar_items_have_been_computed_and_empty() {
+    async fn should_200_when_similar_products_have_been_computed_and_empty() {
         let mut cognito_service = MockAccessTokenVerifierService::default();
         cognito_service
             .expect_verify_extract_user_id()
@@ -176,7 +176,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn should_200_when_similar_items_have_been_computed_and_not_empty() {
+    async fn should_200_when_similar_products_have_been_computed_and_not_empty() {
         let mut cognito_service = MockAccessTokenVerifierService::default();
         cognito_service
             .expect_verify_extract_user_id()
@@ -208,7 +208,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn should_202_when_similar_items_have_not_been_computed() {
+    async fn should_202_when_similar_products_have_not_been_computed() {
         let mut cognito_service = MockAccessTokenVerifierService::default();
         cognito_service
             .expect_verify_extract_user_id()
@@ -280,7 +280,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn should_400_when_path_param_shops_item_id_is_missing() {
+    async fn should_400_when_path_param_shops_product_id_is_missing() {
         let mut cognito_service = MockAccessTokenVerifierService::default();
         cognito_service
             .expect_verify_extract_user_id()
@@ -310,7 +310,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn should_404_when_item_does_not_exist() {
+    async fn should_404_when_product_does_not_exist() {
         let shop_id = ShopId::new();
         let shops_product_id = ShopsProductId::new();
         let lambda_event = LambdaEvent {

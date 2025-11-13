@@ -3,7 +3,7 @@ use common::language::data::LanguageData;
 use fake::{Fake, Faker};
 use search_filter::data::user_search_filter_data::UserSearchFilterData;
 use search_filter_api_patch_search_filter::patch::{
-    PatchItemSearchData, PatchUserSearchFilterData,
+    PatchProductSearchData, PatchUserSearchFilterData,
 };
 use search_filter_api_post_search_filter::post::PostUserSearchFilterData;
 use staging_tests::create_random_test_user;
@@ -88,10 +88,10 @@ async fn should_create_and_get_and_delete_and_verify_not_exists() {
     );
     let patch = PatchUserSearchFilterData {
         name: None,
-        search: Some(PatchItemSearchData {
+        search: Some(PatchProductSearchData {
             language: Some(LanguageData::Fr),
             currency: None,
-            item_query: Some("weesl bee wuff".try_into().unwrap()),
+            product_query: Some("weesl bee wuff".try_into().unwrap()),
             shop_name_query: None,
             price_query: None,
             state_query: None,
@@ -113,7 +113,7 @@ async fn should_create_and_get_and_delete_and_verify_not_exists() {
         &patched.search.language
     );
     assert_eq!(
-        &patch.search.unwrap().item_query.unwrap(),
+        &patch.search.unwrap().product_query.unwrap(),
         &patched.search.product_query
     );
     assert_eq!(posted.user_search_filter_id, patched.user_search_filter_id);

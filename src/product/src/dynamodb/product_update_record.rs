@@ -107,7 +107,7 @@ mod faker {
         use fake::{Fake, Faker};
 
         #[test]
-        fn should_fake_item_record_update() {
+        fn should_fake_product_record_update() {
             let _ = Faker.fake::<ProductRecordUpdate>();
         }
     }

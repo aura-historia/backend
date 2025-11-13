@@ -101,8 +101,8 @@ impl<'a> SemanticSearchService for SemanticSearchServiceImpl<'a> {
                 if OffsetDateTime::now_utc().date() > document.created.date() {
                     warn!(
                         shopId = %shop_id,
-                        shopItemId = %shops_product_id,
-                        itemId = %product_id,
+                        shopProductId = %shops_product_id,
+                        productId = %product_id,
                         "When trying to find similar products for given ProductId,
                          ProductDocument for ProductId did not have a textEmbedding
                          although it was created at least one day prior -

@@ -1,12 +1,12 @@
 use common::{api::collection::PutCollectionData, price::domain::FixedFxRate};
 use fake::{Fake, Faker};
 use lambda_runtime::LambdaEvent;
-use product::data::put_data::PutItemData;
+use product::data::put_data::PutProductData;
 use product::dynamodb::repository::ProductDynamoDbRepositoryImpl;
 use product::service::{
-    enrichment_service::ItemCommandEnrichmentServiceImpl, upsert_service::UpsertProductsServiceImpl,
+    enrichment_service::ProductCommandEnrichmentServiceImpl, upsert_service::UpsertProductsServiceImpl,
 };
-use product_api_put_products::{PutItemsResponse, handler};
+use product_api_put_products::{PutProductsResponse, handler};
 use shop::core::shop::Shop;
 use shop::dynamodb::{
     repository::{ShopDynamoDbRepository, ShopDynamoDbRepositoryImpl},
@@ -19,22 +19,22 @@ const INGEST_QUEUE: Sqs = Sqs {
 };
 
 #[localstack_test(services = [DynamoDB(), INGEST_QUEUE])]
-async fn should_fail_items_with_unknown_url() {
+async fn should_fail_products_with_unknown_url() {
     let dynamodb_client = get_dynamodb_client().await;
     let sqs_client = get_sqs_client().await;
     let shop_repository = ShopDynamoDbRepositoryImpl::new(dynamodb_client, "table_1");
-    let item_repository = ProductDynamoDbRepositoryImpl::new(dynamodb_client, "table_1");
+    let product_repository = ProductDynamoDbRepositoryImpl::new(dynamodb_client, "table_1");
     let fx_rate = FixedFxRate();
     let queue_url = INGEST_QUEUE.queue_url();
-    let enrichment_service = ItemCommandEnrichmentServiceImpl::new(&shop_repository, &fx_rate);
+    let enrichment_service = ProductCommandEnrichmentServiceImpl::new(&shop_repository, &fx_rate);
     let upsert_service =
-        UpsertProductsServiceImpl::new(&item_repository, sqs_client, &queue_url, &fx_rate);
+        UpsertProductsServiceImpl::new(&product_repository, sqs_client, &queue_url, &fx_rate);
 
     let lambda_event = LambdaEvent {
         payload: ApiGatewayV2httpRequestProxy::builder()
             .http_method(http::Method::PUT)
             .body_serde(&PutCollectionData {
-                items: fake::vec![PutItemData; 1870],
+                items: fake::vec![PutProductData; 1870],
             })
             .build(),
         context: Default::default(),
@@ -44,7 +44,7 @@ async fn should_fail_items_with_unknown_url() {
         .unwrap();
 
     let actual_json = extract_apigw_response_json_body!(response);
-    let actual = serde_json::from_value::<PutItemsResponse>(actual_json).unwrap();
+    let actual = serde_json::from_value::<PutProductsResponse>(actual_json).unwrap();
 
     assert!(actual.unprocessed.is_empty());
     assert_eq!(0, actual.skipped);
@@ -52,16 +52,16 @@ async fn should_fail_items_with_unknown_url() {
 }
 
 #[localstack_test(services = [DynamoDB(), INGEST_QUEUE])]
-async fn should_put_items_with_known_url() {
+async fn should_put_products_with_known_url() {
     let dynamodb_client = get_dynamodb_client().await;
     let sqs_client = get_sqs_client().await;
     let shop_repository = ShopDynamoDbRepositoryImpl::new(dynamodb_client, "table_1");
-    let item_repository = ProductDynamoDbRepositoryImpl::new(dynamodb_client, "table_1");
+    let product_repository = ProductDynamoDbRepositoryImpl::new(dynamodb_client, "table_1");
     let fx_rate = FixedFxRate();
     let queue_url = INGEST_QUEUE.queue_url();
-    let enrichment_service = ItemCommandEnrichmentServiceImpl::new(&shop_repository, &fx_rate);
+    let enrichment_service = ProductCommandEnrichmentServiceImpl::new(&shop_repository, &fx_rate);
     let upsert_service =
-        UpsertProductsServiceImpl::new(&item_repository, sqs_client, &queue_url, &fx_rate);
+        UpsertProductsServiceImpl::new(&product_repository, sqs_client, &queue_url, &fx_rate);
 
     let shop = Faker.fake::<Shop>();
     let mut shop_records = ShopRecord::try_clone_from_shop_as_shop_url_records(&shop).unwrap();
@@ -71,7 +71,7 @@ async fn should_put_items_with_known_url() {
         .await
         .unwrap();
 
-    let mut items = fake::vec![PutItemData; 235];
+    let mut items = fake::vec![PutProductData; 235];
     for item in &mut items {
         let shop_host = shop.urls[0].host_str();
         item.url.set_host(shop_host).unwrap();
@@ -90,7 +90,7 @@ async fn should_put_items_with_known_url() {
         .unwrap();
 
     let actual_json = extract_apigw_response_json_body!(response);
-    let actual = serde_json::from_value::<PutItemsResponse>(actual_json).unwrap();
+    let actual = serde_json::from_value::<PutProductsResponse>(actual_json).unwrap();
 
     assert!(actual.unprocessed.is_empty());
     assert!(actual.failed.is_empty());

@@ -29,7 +29,7 @@ use time::OffsetDateTime;
 use time::macros::datetime;
 
 #[localstack_test(services = [OpenSearch()])]
-async fn should_create_item_document() {
+async fn should_create_product_document() {
     let product_id = ProductId::new();
     let expected = ProductDocument {
         product_id,
@@ -68,10 +68,10 @@ async fn should_create_item_document() {
 }
 
 #[localstack_test(services = [OpenSearch()])]
-async fn should_create_item_documents() {
-    let item_id1 = ProductId::new();
+async fn should_create_product_documents() {
+    let product_id1 = ProductId::new();
     let expected1 = ProductDocument {
-        product_id: item_id1,
+        product_id: product_id1,
         event_id: Default::default(),
         shop_id: Default::default(),
         shops_product_id: ShopsProductId::from("abcdefgh"),
@@ -93,9 +93,9 @@ async fn should_create_item_documents() {
         created: OffsetDateTime::now_utc(),
         updated: OffsetDateTime::now_utc(),
     };
-    let item_id2 = ProductId::new();
+    let product_id2 = ProductId::new();
     let expected2 = ProductDocument {
-        product_id: item_id2,
+        product_id: product_id2,
         event_id: Default::default(),
         shop_id: Default::default(),
         shops_product_id: ShopsProductId::from("abcdefgh"),
@@ -125,15 +125,15 @@ async fn should_create_item_documents() {
         .unwrap();
     assert!(!response.errors);
     refresh_index("items").await;
-    let actual1 = read_by_id("items", item_id1).await;
-    let actual2 = read_by_id("items", item_id2).await;
+    let actual1 = read_by_id("items", product_id1).await;
+    let actual2 = read_by_id("items", product_id2).await;
 
     assert_eq!(expected1, actual1);
     assert_eq!(expected2, actual2);
 }
 
 #[localstack_test(services = [OpenSearch()])]
-async fn should_update_item_document() {
+async fn should_update_product_document() {
     let product_id = ProductId::new();
     let initial = ProductDocument {
         product_id,
@@ -200,7 +200,7 @@ async fn should_update_item_document() {
 }
 
 #[localstack_test(services = [OpenSearch()])]
-async fn should_search_item_documents() {
+async fn should_search_product_documents() {
     let expected = ProductDocument {
         product_id: Default::default(),
         event_id: Default::default(),
@@ -269,7 +269,7 @@ async fn should_search_item_documents() {
 }
 
 #[localstack_test(services = [OpenSearch()])]
-async fn should_search_item_documents_when_all_arguments_are_given() {
+async fn should_search_product_documents_when_all_arguments_are_given() {
     let items = fake::vec![ProductDocument; 1000];
     let client = get_opensearch_client().await;
     let repository = ProductOpenSearchRepositoryImpl::new(client);
@@ -324,7 +324,7 @@ async fn should_search_item_documents_when_all_arguments_are_given() {
 #[case(&[ProductState::Listed, ProductState::Available])]
 #[case(&[ProductState::Reserved, ProductState::Listed, ProductState::Removed])]
 #[localstack_test(services = [OpenSearch()])]
-async fn should_search_item_documents_when_states_are_given(#[case] states: &[ProductState]) {
+async fn should_search_product_documents_when_states_are_given(#[case] states: &[ProductState]) {
     let items = fake::vec![ProductDocument; 3000]
         .into_iter()
         .map(|mut item| {
@@ -375,7 +375,7 @@ async fn should_search_item_documents_when_states_are_given(#[case] states: &[Pr
 }
 
 #[localstack_test(services = [OpenSearch()])]
-async fn should_search_item_documents_when_no_states_are_given() {
+async fn should_search_product_documents_when_no_states_are_given() {
     let items = fake::vec![ProductDocument; 100]
         .into_iter()
         .map(|mut item| {
@@ -428,7 +428,7 @@ async fn should_search_item_documents_when_no_states_are_given() {
 #[case(RangeQuery { min: None, max: None })]
 #[case(RangeQuery { min: None, max: None })]
 #[localstack_test(services = [OpenSearch()])]
-async fn should_search_item_documents_when_price_range_is_given(
+async fn should_search_product_documents_when_price_range_is_given(
     #[case] price_query: RangeQuery<MonetaryAmount>,
 ) {
     let cheap_items = fake::vec![ProductDocument; 50]
@@ -511,7 +511,7 @@ async fn should_search_item_documents_when_price_range_is_given(
 }
 
 #[localstack_test(services = [OpenSearch()])]
-async fn should_search_item_documents_respecting_paging_when_sorted_by_price() {
+async fn should_search_product_documents_respecting_paging_when_sorted_by_price() {
     let items = fake::vec![ProductDocument; 1000]
         .into_iter()
         .map(|mut item| {
@@ -578,7 +578,7 @@ async fn should_search_item_documents_respecting_paging_when_sorted_by_price() {
 }
 
 #[localstack_test(services = [OpenSearch()])]
-async fn should_search_item_documents_respecting_search_after_when_sorted_by_price() {
+async fn should_search_product_documents_respecting_search_after_when_sorted_by_price() {
     let mut expected_items = fake::vec![ProductDocument; 200]
         .into_iter()
         .map(|mut item| {
@@ -649,7 +649,7 @@ async fn should_search_item_documents_respecting_search_after_when_sorted_by_pri
 }
 
 #[localstack_test(services = [OpenSearch()])]
-async fn should_get_item_document() {
+async fn should_get_product_document() {
     let product_id = ProductId::new();
     let expected = ProductDocument {
         product_id,

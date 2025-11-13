@@ -16,7 +16,7 @@ pub struct ProductSearchData {
 
     pub currency: CurrencyData,
 
-    #[serde(rename = "itemQuery")]
+    #[serde(rename = "productQuery")]
     pub product_query: TextQuery,
 
     #[serde(
@@ -149,7 +149,7 @@ mod tests {
         let expected = json!({
             "language": "de",
             "currency": "EUR",
-            "itemQuery": "Boop",
+            "productQuery": "Boop",
             "shopNameQuery": "Baap",
             "price": {
                 "min": 37,
@@ -176,7 +176,7 @@ mod tests {
         let json = json!({
             "language": "de",
             "currency": "EUR",
-            "itemQuery": "Boop",
+            "productQuery": "Boop",
             "shopNameQuery": "Baap",
             "price": {
                 "min": 37,
@@ -232,7 +232,7 @@ mod tests {
         let expected = json!({
             "language": "de",
             "currency": "EUR",
-            "itemQuery": "Boop",
+            "productQuery": "Boop",
         });
 
         let actual = serde_json::to_value(search_filter).unwrap();
@@ -245,7 +245,7 @@ mod tests {
         let json = json!({
             "language": "de",
             "currency": "EUR",
-            "itemQuery": "Boop",
+            "productQuery": "Boop",
         });
         let expected = ProductSearchData {
             language: LanguageData::De,

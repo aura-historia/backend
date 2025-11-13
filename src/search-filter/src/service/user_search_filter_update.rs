@@ -15,7 +15,7 @@ use time::OffsetDateTime;
 #[derive(Debug, Clone, PartialEq)]
 pub struct UserSearchFilterUpdate {
     pub name: Option<UserSearchFilterName>,
-    pub item_query: Option<TextQuery>,
+    pub product_query: Option<TextQuery>,
     pub shop_name_query: Option<TextQuery>,
     pub price_query: Option<RangeQuery<MonetaryAmount>>,
     pub state_query: Option<AnyOfQuery<ProductState>>,
@@ -30,7 +30,7 @@ impl UserSearchFilterUpdate {
     pub fn is_empty(&self) -> bool {
         let UserSearchFilterUpdate {
             name: search_filter_name,
-            item_query,
+            product_query,
             shop_name_query,
             price_query,
             state_query,
@@ -42,7 +42,7 @@ impl UserSearchFilterUpdate {
         } = self;
 
         search_filter_name.is_none()
-            && item_query.is_none()
+            && product_query.is_none()
             && shop_name_query.is_none()
             && price_query.is_none()
             && state_query.is_none()
@@ -57,7 +57,7 @@ impl From<UserSearchFilterUpdate> for UserSearchFilterRecordUpdate {
     fn from(update: UserSearchFilterUpdate) -> Self {
         UserSearchFilterRecordUpdate {
             name: update.name,
-            item_query: update.item_query,
+            product_query: update.product_query,
             shop_name_query: update.shop_name_query,
             price_query: update
                 .price_query
@@ -85,7 +85,7 @@ mod fake {
         fn dummy_with_rng<R: fake::Rng + ?Sized>(config: &Faker, rng: &mut R) -> Self {
             UserSearchFilterUpdate {
                 name: config.fake_with_rng(rng),
-                item_query: config.fake_with_rng(rng),
+                product_query: config.fake_with_rng(rng),
                 shop_name_query: config.fake_with_rng(rng),
                 price_query: config.fake_with_rng(rng),
                 state_query: config.fake_with_rng(rng),

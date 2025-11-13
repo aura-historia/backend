@@ -1053,16 +1053,16 @@ const EXAMPLE_EMBEDDING: [f32; 1024] = [
 ];
 
 #[staging_test]
-async fn should_202_when_similar_items_have_not_been_computed_for_anon() {
-    let item_dynamodb_repository = ProductDynamoDbRepositoryImpl::new(
+async fn should_202_when_similar_products_have_not_been_computed_for_anon() {
+    let product_dynamodb_repository = ProductDynamoDbRepositoryImpl::new(
         get_dynamodb_client().await,
         &get_cfn_output().dynamodb_table_1_name,
     );
-    let item_opensearch_repository =
+    let product_opensearch_repository =
         ProductOpenSearchRepositoryImpl::new(get_opensearch_client().await);
 
     let product_record: ProductRecord = Faker.fake();
-    let ddb_insert_res = item_dynamodb_repository
+    let ddb_insert_res = product_dynamodb_repository
         .put_product_records([product_record.clone()].into())
         .await
         .unwrap();
@@ -1073,14 +1073,14 @@ async fn should_202_when_similar_items_have_not_been_computed_for_anon() {
             .is_empty()
     );
 
-    let item_document: ProductDocument = product_record.clone().into();
-    let mut item_documents = fake::vec![ProductDocument; 10];
-    for doc in &mut item_documents {
+    let product_document: ProductDocument = product_record.clone().into();
+    let mut product_documents = fake::vec![ProductDocument; 10];
+    for doc in &mut product_documents {
         doc.text_embedding = None;
     }
-    item_documents.push(item_document);
-    let os_insert_res = item_opensearch_repository
-        .create_product_documents(item_documents.clone())
+    product_documents.push(product_document);
+    let os_insert_res = product_opensearch_repository
+        .create_product_documents(product_documents.clone())
         .await
         .unwrap();
     assert!(!os_insert_res.errors);
@@ -1095,7 +1095,7 @@ async fn should_202_when_similar_items_have_not_been_computed_for_anon() {
     tokio::time::sleep(Duration::from_secs(20)).await;
 
     let url = format!(
-        "{}/api/v1/items/{}/{}/similar",
+        "{}/api/v1/products/{}/{}/similar",
         get_cfn_output().api_gateway_endpoint_url,
         product_record.shop_id,
         product_record.shops_product_id,
@@ -1105,16 +1105,16 @@ async fn should_202_when_similar_items_have_not_been_computed_for_anon() {
 }
 
 #[staging_test]
-async fn should_200_when_similar_items_have_been_computed_for_anon() {
-    let item_dynamodb_repository = ProductDynamoDbRepositoryImpl::new(
+async fn should_200_when_similar_products_have_been_computed_for_anon() {
+    let product_dynamodb_repository = ProductDynamoDbRepositoryImpl::new(
         get_dynamodb_client().await,
         &get_cfn_output().dynamodb_table_1_name,
     );
-    let item_opensearch_repository =
+    let product_opensearch_repository =
         ProductOpenSearchRepositoryImpl::new(get_opensearch_client().await);
 
     let product_record: ProductRecord = Faker.fake();
-    let ddb_insert_res = item_dynamodb_repository
+    let ddb_insert_res = product_dynamodb_repository
         .put_product_records([product_record.clone()].into())
         .await
         .unwrap();
@@ -1125,16 +1125,16 @@ async fn should_200_when_similar_items_have_been_computed_for_anon() {
             .is_empty()
     );
 
-    let mut item_document: ProductDocument = product_record.clone().into();
-    item_document.text_embedding = Some(EXAMPLE_EMBEDDING.into());
-    let mut item_documents = fake::vec![ProductDocument; 10];
-    for doc in &mut item_documents {
+    let mut product_document: ProductDocument = product_record.clone().into();
+    product_document.text_embedding = Some(EXAMPLE_EMBEDDING.into());
+    let mut product_documents = fake::vec![ProductDocument; 10];
+    for doc in &mut product_documents {
         doc.text_embedding = Some(EXAMPLE_EMBEDDING.into());
         doc.title_en = Some("My expected english title".into())
     }
-    item_documents.push(item_document);
-    let os_insert_res = item_opensearch_repository
-        .create_product_documents(item_documents.clone())
+    product_documents.push(product_document);
+    let os_insert_res = product_opensearch_repository
+        .create_product_documents(product_documents.clone())
         .await
         .unwrap();
     assert!(!os_insert_res.errors);
@@ -1149,7 +1149,7 @@ async fn should_200_when_similar_items_have_been_computed_for_anon() {
     tokio::time::sleep(Duration::from_secs(20)).await;
 
     let url = format!(
-        "{}/api/v1/items/{}/{}/similar?currency=USD",
+        "{}/api/v1/products/{}/{}/similar?currency=USD",
         get_cfn_output().api_gateway_endpoint_url,
         product_record.shop_id,
         product_record.shops_product_id,
@@ -1168,7 +1168,7 @@ async fn should_200_when_similar_items_have_been_computed_for_anon() {
     // tough due to ANN
     assert!(1 < actual.len());
     assert!(actual.iter().all(|actual| {
-        item_documents
+        product_documents
             .iter()
             .any(|expected| expected.product_id == actual.item.product_id)
     }));
@@ -1187,10 +1187,10 @@ async fn should_200_when_similar_items_have_been_computed_for_anon() {
 }
 
 #[staging_test]
-async fn should_200_and_personalize_when_similar_items_have_been_computed_for_authenticated() {
+async fn should_200_and_personalize_when_similar_products_have_been_computed_for_authenticated() {
     let user = create_random_test_user().await;
     let user_id: UserId = user.sub.into();
-    let item_dynamodb_repository = ProductDynamoDbRepositoryImpl::new(
+    let product_dynamodb_repository = ProductDynamoDbRepositoryImpl::new(
         get_dynamodb_client().await,
         &get_cfn_output().dynamodb_table_1_name,
     );
@@ -1198,9 +1198,9 @@ async fn should_200_and_personalize_when_similar_items_have_been_computed_for_au
         get_dynamodb_client().await,
         &get_cfn_output().dynamodb_table_1_name,
     );
-    let item_opensearch_repository =
+    let product_opensearch_repository =
         ProductOpenSearchRepositoryImpl::new(get_opensearch_client().await);
-    let get_product_service = GetProductServiceImpl::new(&item_dynamodb_repository);
+    let get_product_service = GetProductServiceImpl::new(&product_dynamodb_repository);
     let user_repository = UserDynamoDbRepositoryImpl::new(
         get_dynamodb_client().await,
         &get_cfn_output().dynamodb_table_1_name,
@@ -1208,15 +1208,15 @@ async fn should_200_and_personalize_when_similar_items_have_been_computed_for_au
     let watchlist_service = ProductWatchListServiceImpl::new(
         &watchlist_repository,
         &user_repository,
-        &item_dynamodb_repository,
+        &product_dynamodb_repository,
         &get_product_service,
     );
 
     let product_record: ProductRecord = Faker.fake();
-    let item_records = fake::vec![ProductRecord; 12];
-    let ddb_insert_res = item_dynamodb_repository
+    let product_records = fake::vec![ProductRecord; 12];
+    let ddb_insert_res = product_dynamodb_repository
         .put_product_records(
-            [vec![product_record.clone()], item_records.clone()]
+            [vec![product_record.clone()], product_records.clone()]
                 .concat()
                 .try_into()
                 .unwrap(),
@@ -1230,9 +1230,9 @@ async fn should_200_and_personalize_when_similar_items_have_been_computed_for_au
             .is_empty()
     );
 
-    for product_record in item_records.iter() {
+    for product_record in product_records.iter() {
         let _ = watchlist_service
-            .create_watchlist_item(
+            .create_watchlist_product(
                 &user_id,
                 &product_record.shop_id,
                 &product_record.shops_product_id,
@@ -1241,20 +1241,20 @@ async fn should_200_and_personalize_when_similar_items_have_been_computed_for_au
             .unwrap();
     }
 
-    let mut item_document: ProductDocument = product_record.clone().into();
-    item_document.text_embedding = Some(EXAMPLE_EMBEDDING.into());
-    let mut item_documents = item_records
+    let mut product_document: ProductDocument = product_record.clone().into();
+    product_document.text_embedding = Some(EXAMPLE_EMBEDDING.into());
+    let mut product_documents = product_records
         .clone()
         .into_iter()
         .map(ProductDocument::from)
         .collect::<Vec<_>>();
-    for doc in &mut item_documents {
+    for doc in &mut product_documents {
         doc.text_embedding = Some(EXAMPLE_EMBEDDING.into());
         doc.title_de = Some("My expected german title".into());
     }
-    item_documents.push(item_document);
-    let os_insert_res = item_opensearch_repository
-        .create_product_documents(item_documents.clone())
+    product_documents.push(product_document);
+    let os_insert_res = product_opensearch_repository
+        .create_product_documents(product_documents.clone())
         .await
         .unwrap();
     assert!(!os_insert_res.errors);
@@ -1268,7 +1268,7 @@ async fn should_200_and_personalize_when_similar_items_have_been_computed_for_au
     tokio::time::sleep(Duration::from_secs(20)).await;
 
     let url = format!(
-        "{}/api/v1/items/{}/{}/similar?currency=EUR",
+        "{}/api/v1/products/{}/{}/similar?currency=EUR",
         get_cfn_output().api_gateway_endpoint_url,
         product_record.shop_id,
         product_record.shops_product_id,
@@ -1288,7 +1288,7 @@ async fn should_200_and_personalize_when_similar_items_have_been_computed_for_au
     // tough due to ANN
     assert!(1 < actual.len());
     assert!(actual.iter().all(|actual| {
-        item_documents
+        product_documents
             .iter()
             .any(|expected| expected.product_id == actual.item.product_id)
     }));

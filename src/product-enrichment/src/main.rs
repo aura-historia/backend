@@ -94,7 +94,7 @@ async fn main() {
     let table_name = std::env::var("DYNAMODB_TABLE_NAME")
         .expect("shouldn't fail reading env-var 'DYNAMODB_TABLE_NAME'");
     info!(tableName = table_name, "Loaded DynamoDb table-name.");
-    let item_dynamodb_repository =
+    let product_dynamodb_repository =
         ProductDynamoDbRepositoryImpl::new(get_dynamodb_client().await, &table_name);
     info!(type = %std::any::type_name::<ProductDynamoDbRepositoryImpl>(), "Loaded component.");
 
@@ -106,7 +106,7 @@ async fn main() {
     );
     let sqs_client_arc = Arc::new(get_sqs_client().await.clone());
 
-    let item_opensearch_repository =
+    let product_opensearch_repository =
         ProductOpenSearchRepositoryImpl::new(get_opensearch_client().await);
     info!(type = %std::any::type_name::<ProductOpenSearchRepositoryImpl>(), "Loaded component.");
 
@@ -122,8 +122,8 @@ async fn main() {
     let pipes: Vec<Box<dyn EnrichmentPipe + Send + Sync>> = vec![Box::new(embedding_pipe)];
 
     let sink = EnrichmentPipeSinkImpl::new(
-        Arc::new(item_dynamodb_repository),
-        Arc::new(item_opensearch_repository),
+        Arc::new(product_dynamodb_repository),
+        Arc::new(product_opensearch_repository),
     );
     info!(type = %std::any::type_name::<EnrichmentPipeSinkImpl>(), "Loaded component.");
 

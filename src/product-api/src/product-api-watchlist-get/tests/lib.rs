@@ -22,25 +22,25 @@ use user::dynamodb::repository::UserDynamoDbRepositoryImpl;
 async fn should_200_when_sort_created_asc() {
     let client = get_dynamodb_client().await;
     let user_repository = UserDynamoDbRepositoryImpl::new(client, "table_1");
-    let item_repository = ProductDynamoDbRepositoryImpl::new(client, "table_1");
+    let product_repository = ProductDynamoDbRepositoryImpl::new(client, "table_1");
     let watchlist_repository = WatchlistProductDynamoDbRepositoryImpl::new(client, "table_1");
-    let get_product_service = GetProductServiceImpl::new(&item_repository);
+    let get_product_service = GetProductServiceImpl::new(&product_repository);
     let service = ProductWatchListServiceImpl::new(
         &watchlist_repository,
         &user_repository,
-        &item_repository,
+        &product_repository,
         &get_product_service,
     );
 
-    let item_records = fake::vec![ProductRecord; 23];
-    let put_res = item_repository
-        .put_product_records(item_records.clone().try_into().unwrap())
+    let product_records = fake::vec![ProductRecord; 23];
+    let put_res = product_repository
+        .put_product_records(product_records.clone().try_into().unwrap())
         .await
         .unwrap();
     assert!(put_res.unprocessed_items.unwrap_or_default().is_empty());
 
     let user_id = UserId::new();
-    for product_record in item_records.clone() {
+    for product_record in product_records.clone() {
         let created = OffsetDateTime::now_utc();
         let watchlist_record = WatchlistProductRecord {
             pk: mk_pk(&user_id),
@@ -63,7 +63,7 @@ async fn should_200_when_sort_created_asc() {
             .unwrap();
     }
 
-    let expected = item_records
+    let expected = product_records
         .into_iter()
         .take(10)
         .map(|record| record.product_id)
@@ -104,19 +104,19 @@ async fn should_200_when_sort_created_asc() {
 async fn should_200_when_sort_created_asc_search_after() {
     let client = get_dynamodb_client().await;
     let user_repository = UserDynamoDbRepositoryImpl::new(client, "table_1");
-    let item_repository = ProductDynamoDbRepositoryImpl::new(client, "table_1");
+    let product_repository = ProductDynamoDbRepositoryImpl::new(client, "table_1");
     let watchlist_repository = WatchlistProductDynamoDbRepositoryImpl::new(client, "table_1");
-    let get_product_service = GetProductServiceImpl::new(&item_repository);
+    let get_product_service = GetProductServiceImpl::new(&product_repository);
     let service = ProductWatchListServiceImpl::new(
         &watchlist_repository,
         &user_repository,
-        &item_repository,
+        &product_repository,
         &get_product_service,
     );
 
-    let item_records = fake::vec![ProductRecord; 23];
-    let put_res = item_repository
-        .put_product_records(item_records.clone().try_into().unwrap())
+    let product_records = fake::vec![ProductRecord; 23];
+    let put_res = product_repository
+        .put_product_records(product_records.clone().try_into().unwrap())
         .await
         .unwrap();
     assert!(put_res.unprocessed_items.unwrap_or_default().is_empty());
@@ -124,7 +124,7 @@ async fn should_200_when_sort_created_asc_search_after() {
     let user_id = UserId::new();
     let mut from = None;
     let mut expected_next_after = None;
-    for (i, product_record) in item_records.iter().cloned().enumerate() {
+    for (i, product_record) in product_records.iter().cloned().enumerate() {
         let created = OffsetDateTime::now_utc();
         if i == 7 {
             from = Some(created);
@@ -153,7 +153,7 @@ async fn should_200_when_sort_created_asc_search_after() {
             .unwrap();
     }
 
-    let expected = item_records
+    let expected = product_records
         .iter()
         .skip(8)
         .take(12)
@@ -196,25 +196,25 @@ async fn should_200_when_sort_created_asc_search_after() {
 async fn should_200_when_sort_created_desc() {
     let client = get_dynamodb_client().await;
     let user_repository = UserDynamoDbRepositoryImpl::new(client, "table_1");
-    let item_repository = ProductDynamoDbRepositoryImpl::new(client, "table_1");
+    let product_repository = ProductDynamoDbRepositoryImpl::new(client, "table_1");
     let watchlist_repository = WatchlistProductDynamoDbRepositoryImpl::new(client, "table_1");
-    let get_product_service = GetProductServiceImpl::new(&item_repository);
+    let get_product_service = GetProductServiceImpl::new(&product_repository);
     let service = ProductWatchListServiceImpl::new(
         &watchlist_repository,
         &user_repository,
-        &item_repository,
+        &product_repository,
         &get_product_service,
     );
 
-    let item_records = fake::vec![ProductRecord; 23];
-    let put_res = item_repository
-        .put_product_records(item_records.clone().try_into().unwrap())
+    let product_records = fake::vec![ProductRecord; 23];
+    let put_res = product_repository
+        .put_product_records(product_records.clone().try_into().unwrap())
         .await
         .unwrap();
     assert!(put_res.unprocessed_items.unwrap_or_default().is_empty());
 
     let user_id = UserId::new();
-    for product_record in item_records.clone() {
+    for product_record in product_records.clone() {
         let created = OffsetDateTime::now_utc();
         let watchlist_record = WatchlistProductRecord {
             pk: mk_pk(&user_id),
@@ -237,7 +237,7 @@ async fn should_200_when_sort_created_desc() {
             .unwrap();
     }
 
-    let expected = item_records
+    let expected = product_records
         .into_iter()
         .skip(16)
         .rev()
@@ -279,19 +279,19 @@ async fn should_200_when_sort_created_desc() {
 async fn should_200_when_sort_created_desc_search_after() {
     let client = get_dynamodb_client().await;
     let user_repository = UserDynamoDbRepositoryImpl::new(client, "table_1");
-    let item_repository = ProductDynamoDbRepositoryImpl::new(client, "table_1");
+    let product_repository = ProductDynamoDbRepositoryImpl::new(client, "table_1");
     let watchlist_repository = WatchlistProductDynamoDbRepositoryImpl::new(client, "table_1");
-    let get_product_service = GetProductServiceImpl::new(&item_repository);
+    let get_product_service = GetProductServiceImpl::new(&product_repository);
     let service = ProductWatchListServiceImpl::new(
         &watchlist_repository,
         &user_repository,
-        &item_repository,
+        &product_repository,
         &get_product_service,
     );
 
-    let item_records = fake::vec![ProductRecord; 23];
-    let put_res = item_repository
-        .put_product_records(item_records.clone().try_into().unwrap())
+    let product_records = fake::vec![ProductRecord; 23];
+    let put_res = product_repository
+        .put_product_records(product_records.clone().try_into().unwrap())
         .await
         .unwrap();
     assert!(put_res.unprocessed_items.unwrap_or_default().is_empty());
@@ -299,7 +299,7 @@ async fn should_200_when_sort_created_desc_search_after() {
     let user_id = UserId::new();
     let mut from = None;
     let mut expected_next_after = None;
-    for (i, product_record) in item_records.iter().cloned().enumerate() {
+    for (i, product_record) in product_records.iter().cloned().enumerate() {
         let created = OffsetDateTime::now_utc();
         if i == 7 {
             from = Some(created);
@@ -328,7 +328,7 @@ async fn should_200_when_sort_created_desc_search_after() {
             .unwrap();
     }
 
-    let expected = item_records
+    let expected = product_records
         .iter()
         .take(7)
         .rev()

@@ -1,6 +1,6 @@
 use std::sync::Arc;
 
-use crate::pipeline::pipe::{PipeItem, PipeItemSource, PipeItemUpdate};
+use crate::pipeline::pipe::{PipeProduct, PipeProductSource, PipeProductUpdate};
 use common::product_id::ProductId;
 use product::core::product_event::{ProductEvent, ProductEventPayload};
 use product::dynamodb::product_event_record::ProductEventRecord;
@@ -10,7 +10,7 @@ use tracing::{error, info};
 #[async_trait::async_trait]
 #[mockall::automock]
 pub trait EnrichmentPipeFaucet {
-    async fn pour(&self, count: i32) -> Vec<(PipeItem, MessageRef)>;
+    async fn pour(&self, count: i32) -> Vec<(PipeProduct, MessageRef)>;
 }
 
 pub struct EnrichmentPipeFaucetImpl {
@@ -37,7 +37,7 @@ pub struct MessageRef {
 
 #[async_trait::async_trait]
 impl EnrichmentPipeFaucet for EnrichmentPipeFaucetImpl {
-    async fn pour(&self, count: i32) -> Vec<(PipeItem, MessageRef)> {
+    async fn pour(&self, count: i32) -> Vec<(PipeProduct, MessageRef)> {
         let count = count as usize;
         let mut messages = Vec::with_capacity(count);
         loop {
@@ -99,7 +99,7 @@ impl EnrichmentPipeFaucet for EnrichmentPipeFaucetImpl {
                         }
                         other => {
                             error!(
-                                itemId = %event.aggregate_id,
+                                productId = %event.aggregate_id,
                                 payload = ?other,
                                 "Expected 'ProductEventPayload::Created' but got other.",
                             );
@@ -119,15 +119,15 @@ impl EnrichmentPipeFaucet for EnrichmentPipeFaucetImpl {
             }
         }
 
-        let pipe_items: Vec<(PipeItem, MessageRef)> = water
+        let pipe_items: Vec<(PipeProduct, MessageRef)> = water
             .into_iter()
             .map(|(payload, message_ref)| {
-                let pipe_item = PipeItem {
-                    source: PipeItemSource {
+                let pipe_item = PipeProduct {
+                    source: PipeProductSource {
                         product_id: message_ref.product_id,
                         payload,
                     },
-                    update: PipeItemUpdate::default(),
+                    update: PipeProductUpdate::default(),
                 };
                 (pipe_item, message_ref)
             })

@@ -12,7 +12,7 @@ use std::collections::HashMap;
 use tracing::error;
 
 #[derive(Debug, Clone, PartialEq)]
-pub struct UpsertItemsOutput {
+pub struct UpsertProductsOutput {
     pub unprocessed: Vec<UpsertProductCommand>,
     pub skipped: usize,
 }
@@ -20,7 +20,7 @@ pub struct UpsertItemsOutput {
 #[async_trait]
 #[mockall::automock]
 pub trait UpsertProductsService {
-    async fn upsert(&self, commands: Vec<UpsertProductCommand>) -> UpsertItemsOutput;
+    async fn upsert(&self, commands: Vec<UpsertProductCommand>) -> UpsertProductsOutput;
 }
 
 pub struct UpsertProductsServiceImpl<'a, T: FxRate + Sync> {
@@ -48,7 +48,7 @@ impl<'a, T: FxRate + Sync> UpsertProductsServiceImpl<'a, T> {
 
 #[async_trait]
 impl<T: FxRate + Sync> UpsertProductsService for UpsertProductsServiceImpl<'_, T> {
-    async fn upsert(&self, commands: Vec<UpsertProductCommand>) -> UpsertItemsOutput {
+    async fn upsert(&self, commands: Vec<UpsertProductCommand>) -> UpsertProductsOutput {
         let chunks = commands
             .into_iter()
             .chunks(100)
@@ -66,7 +66,7 @@ impl<T: FxRate + Sync> UpsertProductsService for UpsertProductsServiceImpl<'_, T
             unprocessed.append(&mut failed);
         }
 
-        UpsertItemsOutput {
+        UpsertProductsOutput {
             unprocessed,
             skipped,
         }
@@ -133,7 +133,7 @@ impl<T: FxRate + Sync> UpsertProductsServiceImpl<'_, T> {
                             None => {
                                 error!(
                                     shopId = %unprocessed_key.shop_id,
-                                    shopsItemId = %unprocessed_key.shops_product_id,
+                                    shopsProductId = %unprocessed_key.shops_product_id,
                                     "Couldn't find PutItemCommand for unprocessed Product. This is a bug. Not retrying."
                                 );
                             }
@@ -148,7 +148,7 @@ impl<T: FxRate + Sync> UpsertProductsServiceImpl<'_, T> {
                         None => {
                             error!(
                                 shopId = %record.shop_id,
-                                shopsItemId = %record.shops_product_id,
+                                shopsProductId = %record.shops_product_id,
                                 "Couldn't find PutItemCommand for Product proven to exist. This is a bug. Not retrying."
                             );
                         }
@@ -189,7 +189,7 @@ impl<T: FxRate + Sync> UpsertProductsServiceImpl<'_, T> {
                                         None => {
                                             error!(
                                                 shopId = %failed_key.shop_id,
-                                                shopsItemId = %failed_key.shops_product_id,
+                                                shopsProductId = %failed_key.shops_product_id,
                                                 "Couldn't find PutItemCommand for unproccesed message. This is a bug. Not retrying."
                                             );
                                         }
@@ -209,7 +209,7 @@ impl<T: FxRate + Sync> UpsertProductsServiceImpl<'_, T> {
                                     None => {
                                         error!(
                                             shopId = %key.shop_id,
-                                            shopsItemId = %key.shops_product_id,
+                                            shopsProductId = %key.shops_product_id,
                                             "Couldn't find PutItemCommand for unproccesed message. This is a bug. Not retrying."
                                         );
                                     }
@@ -441,7 +441,7 @@ pub mod tests {
         aws_sdk_dynamodb::operation::batch_get_item::BatchGetItemError::unhandled("Something went wrong"),
         aws_sdk_dynamodb::config::http::HttpResponse::new(500u16.try_into().unwrap(), "{}".into())
     ))]
-    async fn should_fail_entire_chunk_when_batch_get_item_entirely_fails(
+    async fn should_fail_entire_chunk_when_batch_get_product_entirely_fails(
         #[case] expected: SdkError<
             aws_sdk_dynamodb::operation::batch_get_item::BatchGetItemError,
             aws_sdk_dynamodb::config::http::HttpResponse,

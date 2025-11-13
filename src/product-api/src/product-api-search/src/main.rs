@@ -6,7 +6,7 @@ use lambda_runtime::{Error, LambdaEvent, run, service_fn};
 use opensearch::http::Url;
 use opensearch::http::transport::{SingleNodeConnectionPool, TransportBuilder};
 use product::opensearch::repository::ProductOpenSearchRepositoryImpl;
-use product::service::personalization_service::ItemPersonalizationServiceImpl;
+use product::service::personalization_service::ProductPersonalizationServiceImpl;
 use product::service::query_service::QueryProductServiceImpl;
 use product::watchlist::dynamodb::repository::WatchlistProductDynamoDbRepositoryImpl;
 use product_api_search::handler;
@@ -33,15 +33,15 @@ async fn main() -> Result<(), Error> {
         .service_name("es")
         .build()?;
     let opensearch_client = opensearch::OpenSearch::new(transport);
-    let item_opensearch_repository = ProductOpenSearchRepositoryImpl::new(&opensearch_client);
-    let query_item_service = QueryProductServiceImpl::new(&item_opensearch_repository);
+    let product_opensearch_repository = ProductOpenSearchRepositoryImpl::new(&opensearch_client);
+    let query_product_service = QueryProductServiceImpl::new(&product_opensearch_repository);
 
     let dynamodb_client = aws_sdk_dynamodb::Client::new(&aws_config);
     let table_name = std::env::var("DYNAMODB_TABLE_NAME")?;
     let watchlist_repository =
         WatchlistProductDynamoDbRepositoryImpl::new(&dynamodb_client, &table_name);
     let product_personalization_service =
-        ItemPersonalizationServiceImpl::new(&watchlist_repository);
+        ProductPersonalizationServiceImpl::new(&watchlist_repository);
 
     let user_pool_id = std::env::var("USER_POOL_ID")?;
     let user_pool_public_client_id = std::env::var("USER_POOL_PUBLIC_CLIENT_ID")?;
@@ -63,7 +63,7 @@ async fn main() -> Result<(), Error> {
         |event: LambdaEvent<ApiGatewayV2httpRequest>| async {
             handler(
                 event,
-                &query_item_service,
+                &query_product_service,
                 &access_token_verifier_service,
                 &product_personalization_service,
             )

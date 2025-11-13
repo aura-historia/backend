@@ -1,7 +1,7 @@
 use crate::core::description::Description;
 use crate::core::product_event::{
-    ItemCreatedEventPayload, ItemPriceChangeEventPayload, ItemPriceDiscoveryEventPayload,
-    ItemPriceRemovedEventPayload, ItemStateChangeEventPayload, LocalizedItemEventPayloadView,
+    ProductCreatedEventPayload, ProductPriceChangeEventPayload, ProductPriceDiscoveryEventPayload,
+    ProductPriceRemovedEventPayload, ProductStateChangeEventPayload, LocalizedProductEventPayloadView,
     ProductEvent, ProductEventPayload,
 };
 use crate::core::title::Title;
@@ -57,7 +57,7 @@ impl Product {
         url: Url,
         images: Vec<Url>,
     ) -> ProductEvent {
-        let payload = ItemCreatedEventPayload {
+        let payload = ProductCreatedEventPayload {
             shop_id,
             shops_product_id,
             shop_name,
@@ -97,7 +97,7 @@ impl Product {
                 aggregate_id: self.product_id,
                 event_id: EventId::new(),
                 timestamp: OffsetDateTime::now_utc(),
-                payload: event_payload_constructor(ItemStateChangeEventPayload {
+                payload: event_payload_constructor(ProductStateChangeEventPayload {
                     shop_id: self.shop_id,
                     shops_product_id: self.shops_product_id.clone(),
                     old_state,
@@ -127,7 +127,7 @@ impl Product {
                     aggregate_id: self.product_id,
                     event_id: EventId::new(),
                     timestamp: OffsetDateTime::now_utc(),
-                    payload: ProductEventPayload::PriceDiscovered(ItemPriceDiscoveryEventPayload {
+                    payload: ProductEventPayload::PriceDiscovered(ProductPriceDiscoveryEventPayload {
                         shop_id: self.shop_id,
                         shops_product_id: self.shops_product_id.clone(),
                         native_price: new_native_price,
@@ -140,7 +140,7 @@ impl Product {
                 let old_price_for_new_currency = old_native_price
                     .into_exchanged(fx_rate, new_native_price.currency)
                     .unwrap_or(old_native_price);
-                let payload = ItemPriceChangeEventPayload {
+                let payload = ProductPriceChangeEventPayload {
                     shop_id: self.shop_id,
                     shops_product_id: self.shops_product_id.clone(),
                     new_native_price,
@@ -178,7 +178,7 @@ impl Product {
             Some(old_native_price) => {
                 self.native_price = None;
                 let old_other_price = self.other_price.drain().collect();
-                let payload = ItemPriceRemovedEventPayload {
+                let payload = ProductPriceRemovedEventPayload {
                     shop_id: self.shop_id,
                     shops_product_id: self.shops_product_id.clone(),
                     old_native_price,
@@ -234,7 +234,7 @@ pub struct LocalizedProductView {
     pub images: Vec<Url>,
     pub created: OffsetDateTime,
     pub updated: OffsetDateTime,
-    pub history: Option<Vec<Event<ProductId, LocalizedItemEventPayloadView>>>,
+    pub history: Option<Vec<Event<ProductId, LocalizedProductEventPayloadView>>>,
 }
 
 #[cfg(feature = "test-data")]
@@ -341,12 +341,12 @@ mod faker {
         use fake::{Fake, Faker};
 
         #[test]
-        fn should_fake_item() {
+        fn should_fake_product() {
             let _ = Faker.fake::<Product>();
         }
 
         #[test]
-        fn should_fake_localized_item_view() {
+        fn should_fake_localized_product_view() {
             let _ = Faker.fake::<LocalizedProductView>();
         }
     }

@@ -135,7 +135,7 @@ mod faker {
         use fake::{Fake, Faker};
 
         #[test]
-        fn should_fake_watchlist_item_record() {
+        fn should_fake_watchlist_product_record() {
             let _ = Faker.fake::<WatchlistProductRecord>();
         }
     }

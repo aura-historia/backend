@@ -78,7 +78,7 @@ mod tests {
     #[case(ProductStateDocument::Sold, "\"SOLD\"")]
     #[case(ProductStateDocument::Removed, "\"REMOVED\"")]
     #[case(ProductStateDocument::Unknown, "\"UNKNOWN\"")]
-    fn should_serialize_item_state_document_in_screaming_snake_case(
+    fn should_serialize_product_state_document_in_screaming_snake_case(
         #[case] state: ProductStateDocument,
         #[case] expected: &str,
     ) {
@@ -93,7 +93,7 @@ mod tests {
     #[case("\"SOLD\"", ProductStateDocument::Sold)]
     #[case("\"REMOVED\"", ProductStateDocument::Removed)]
     #[case("\"UNKNOWN\"", ProductStateDocument::Unknown)]
-    fn should_deserialize_item_state_document_in_screaming_snake_case(
+    fn should_deserialize_product_state_document_in_screaming_snake_case(
         #[case] state: &str,
         #[case] expected: ProductStateDocument,
     ) {

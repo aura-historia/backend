@@ -5,7 +5,7 @@ use common::{
     api::collection::PutCollectionData, product_id::api::ProductKeyData, user_id::UserId,
 };
 use fake::{Fake, Faker};
-use product::data::{product_state_data::ProductStateData, put_data::PutItemData};
+use product::data::{product_state_data::ProductStateData, put_data::PutProductData};
 use product::dynamodb::repository::{ProductDynamoDbRepository, ProductDynamoDbRepositoryImpl};
 use product::watchlist::{
     data::watchlist_product_data::WatchlistProductData,
@@ -13,7 +13,7 @@ use product::watchlist::{
         WatchlistProductDynamoDbRepository, WatchlistProductDynamoDbRepositoryImpl,
     },
 };
-use product_api_watchlist_patch::WatchlistItemPatch;
+use product_api_watchlist_patch::WatchlistProductPatch;
 use shop::core::shop::Shop;
 use shop::dynamodb::{
     repository::{ShopDynamoDbRepository, ShopDynamoDbRepositoryImpl},
@@ -47,12 +47,12 @@ async fn should_send_email_to_user_when_watched_product_has_update() {
     let shop = prepare_test_shop().await;
 
     // create item
-    let mut put_product_data: PutItemData = Faker.fake();
+    let mut put_product_data: PutProductData = Faker.fake();
     put_product_data
         .url
         .set_host(shop.urls.first().unwrap().host_str())
         .unwrap();
-    let url = format!("{}/api/v1/items", stack.api_gateway_endpoint_url);
+    let url = format!("{}/api/v1/products", stack.api_gateway_endpoint_url);
     let response = reqwest::Client::new()
         .put(url)
         .json(&PutCollectionData {
@@ -126,7 +126,7 @@ async fn should_send_email_to_user_when_watched_product_has_update() {
     let patch_response = reqwest::Client::new()
         .patch(patch_url)
         .bearer_auth(&user.access_token)
-        .json(&WatchlistItemPatch {
+        .json(&WatchlistProductPatch {
             notifications: Some(true),
         })
         .send()
@@ -155,7 +155,7 @@ async fn should_send_email_to_user_when_watched_product_has_update() {
     } else {
         ProductStateData::Available
     };
-    let url = format!("{}/api/v1/items", stack.api_gateway_endpoint_url);
+    let url = format!("{}/api/v1/products", stack.api_gateway_endpoint_url);
     let response = reqwest::Client::new()
         .put(url)
         .json(&PutCollectionData {

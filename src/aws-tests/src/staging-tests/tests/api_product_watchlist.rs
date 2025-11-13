@@ -10,7 +10,7 @@ use product::dynamodb::{
 };
 use product::watchlist::data::watchlist_product_data::WatchlistProductData;
 use product_api_watchlist_get::WatchlistProductDataView;
-use product_api_watchlist_patch::WatchlistItemPatch;
+use product_api_watchlist_patch::WatchlistProductPatch;
 use staging_tests::{create_random_test_user, get_dynamodb_client, staging_test};
 
 #[staging_test]
@@ -46,7 +46,7 @@ async fn should_401_when_unauthorized_for_get() {
 }
 
 #[staging_test]
-async fn should_put_and_get_and_patch_and_delete_watchlist_item_and_verify_not_exists() {
+async fn should_put_and_get_and_patch_and_delete_watchlist_product_and_verify_not_exists() {
     let user = create_random_test_user().await;
 
     // persist materialized item-record we want to watch
@@ -117,7 +117,7 @@ async fn should_put_and_get_and_patch_and_delete_watchlist_item_and_verify_not_e
     let patch_response = reqwest::Client::new()
         .patch(patch_url)
         .bearer_auth(&user.access_token)
-        .json(&WatchlistItemPatch {
+        .json(&WatchlistProductPatch {
             notifications: Some(!gotten.items[0].notifications),
         })
         .send()

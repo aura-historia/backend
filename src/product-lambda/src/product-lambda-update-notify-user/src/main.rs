@@ -8,7 +8,7 @@ use product::watchlist::{
     dynamodb::repository::WatchlistProductDynamoDbRepositoryImpl,
     service::product_watchlist_service::ProductWatchListServiceImpl,
 };
-use product_lambda_update_notify_user::{handler, service::ItemEventMailPayloadServiceImpl};
+use product_lambda_update_notify_user::{handler, service::ProductEventMailPayloadServiceImpl};
 use serde_email::Email;
 use tracing::info;
 use user::dynamodb::repository::UserDynamoDbRepositoryImpl;
@@ -37,25 +37,25 @@ async fn main() -> Result<(), Error> {
     let watchlist_repository =
         WatchlistProductDynamoDbRepositoryImpl::new(&dynamodb_client, &table_name);
     let user_repository = UserDynamoDbRepositoryImpl::new(&dynamodb_client, &table_name);
-    let item_repository = ProductDynamoDbRepositoryImpl::new(&dynamodb_client, &table_name);
+    let product_repository = ProductDynamoDbRepositoryImpl::new(&dynamodb_client, &table_name);
 
-    let get_product_service = GetProductServiceImpl::new(&item_repository);
+    let get_product_service = GetProductServiceImpl::new(&product_repository);
     let watchlist_service = ProductWatchListServiceImpl::new(
         &watchlist_repository,
         &user_repository,
-        &item_repository,
+        &product_repository,
         &get_product_service,
     );
 
     let sender_mail_str = std::env::var("SENDER_MAIL")?;
     let sender_mail = Email::try_from(sender_mail_str)?;
-    let item_event_mail_payload_service =
-        ItemEventMailPayloadServiceImpl::new(&watchlist_service, &get_product_service, sender_mail);
+    let product_event_mail_payload_service =
+        ProductEventMailPayloadServiceImpl::new(&watchlist_service, &get_product_service, sender_mail);
 
     info!("Lambda cold start completed, client initialized.");
 
     run(service_fn(|event: LambdaEvent<SqsEvent>| async {
-        handler(&queue_mail_service, &item_event_mail_payload_service, event).await
+        handler(&queue_mail_service, &product_event_mail_payload_service, event).await
     }))
     .await
 }

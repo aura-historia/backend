@@ -6,9 +6,9 @@ use common::api::error_code::BAD_BODY_VALUE;
 use common::localized::Localized;
 use common::price::domain::Price;
 use lambda_runtime::LambdaEvent;
-use product::data::put_data::PutItemData;
-use product::service::enrichment_service::{EnrichItemCommandError, ItemCommandEnrichmentService};
-use product::service::product_command::{PipedItemCommand, UpsertProductCommand};
+use product::data::put_data::PutProductData;
+use product::service::enrichment_service::{EnrichProductCommandError, ItemCommandEnrichmentService};
+use product::service::product_command::{PipedProductCommand, UpsertProductCommand};
 use product::service::upsert_service::UpsertProductsService;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
@@ -17,7 +17,7 @@ use url::Url;
 
 #[derive(thiserror::Error, Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(untagged, into = "String", try_from = "String")]
-pub enum PutItemError {
+pub enum PutProductError {
     #[error("SHOP_NOT_FOUND")]
     ShopNotFound,
 
@@ -28,20 +28,20 @@ pub enum PutItemError {
     EnrichmentError,
 }
 
-impl From<PutItemError> for String {
-    fn from(err: PutItemError) -> String {
+impl From<PutProductError> for String {
+    fn from(err: PutProductError) -> String {
         err.to_string()
     }
 }
 
-impl TryFrom<String> for PutItemError {
+impl TryFrom<String> for PutProductError {
     type Error = String;
 
     fn try_from(payload: String) -> Result<Self, Self::Error> {
         match payload.as_str() {
-            "SHOP_NOT_FOUND" => Ok(PutItemError::ShopNotFound),
-            "MONETARY_AMOUNT_OVERFLOW" => Ok(PutItemError::MonetaryAmountOverflow),
-            "PRODUCT_ENRICHMENT_FAILED" => Ok(PutItemError::EnrichmentError),
+            "SHOP_NOT_FOUND" => Ok(PutProductError::ShopNotFound),
+            "MONETARY_AMOUNT_OVERFLOW" => Ok(PutProductError::MonetaryAmountOverflow),
+            "PRODUCT_ENRICHMENT_FAILED" => Ok(PutProductError::EnrichmentError),
             other => Err(format!(
                 "Expected any of 'SHOP_NOT_FOUND', 'MONETARY_AMOUNT_OVERFLOW', 'PRODUCT_ENRICHMENT_FAILED'. Got '{other}'"
             )),
@@ -49,25 +49,25 @@ impl TryFrom<String> for PutItemError {
     }
 }
 
-impl From<EnrichItemCommandError> for PutItemError {
-    fn from(cmd_error: EnrichItemCommandError) -> Self {
+impl From<EnrichProductCommandError> for PutProductError {
+    fn from(cmd_error: EnrichProductCommandError) -> Self {
         match cmd_error {
-            EnrichItemCommandError::MonetaryAmountOverflowError(_) => {
-                PutItemError::MonetaryAmountOverflow
+            EnrichProductCommandError::MonetaryAmountOverflowError(_) => {
+                PutProductError::MonetaryAmountOverflow
             }
-            EnrichItemCommandError::UnknownShopUrl(_) => PutItemError::ShopNotFound,
+            EnrichProductCommandError::UnknownShopUrl(_) => PutProductError::ShopNotFound,
         }
     }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
-pub struct PutItemsResponse {
+pub struct PutProductsResponse {
     #[serde(default)]
     pub unprocessed: Vec<Url>,
 
     #[serde(default)]
-    pub failed: HashMap<Url, PutItemError>,
+    pub failed: HashMap<Url, PutProductError>,
 
     pub skipped: u64,
 }
@@ -98,7 +98,7 @@ pub async fn handler(
     }
 }
 
-// PUT /api/v1/items
+// PUT /api/v1/products
 pub async fn handle(
     event: LambdaEvent<ApiGatewayV2httpRequest>,
     upsert_service: &impl UpsertProductsService,
@@ -112,16 +112,16 @@ pub async fn handle(
             let err_msg = "Body cannot be empty";
             ApiError::bad_request(BAD_BODY_VALUE, err_msg.into()).with_message(err_msg)
         })?;
-    let items_data: PutCollectionData<PutItemData> =
+    let products_data: PutCollectionData<PutProductData> =
         serde_json::from_str(&body).map_err(|err| {
             let err_msg = err.to_string();
             ApiError::bad_request(BAD_BODY_VALUE, Box::new(err)).with_message(err_msg)
         })?;
 
-    let commands = items_data
+    let commands = products_data
         .items
         .into_iter()
-        .map(put_item_data_to_command)
+        .map(put_product_data_to_command)
         .collect::<Vec<_>>();
 
     let mut unprocessed = Vec::new();
@@ -138,7 +138,7 @@ pub async fn handle(
         &mut enriched_res
             .failed
             .into_iter()
-            .map(|(piped_cmd, err)| (piped_cmd.url, PutItemError::from(err))),
+            .map(|(piped_cmd, err)| (piped_cmd.url, PutProductError::from(err))),
     );
     let enriched_upsert_cmds = enriched_res
         .enriched
@@ -150,7 +150,7 @@ pub async fn handle(
                 Err(err) => {
                     warn!(
                         error = %err,
-                        fromType = %std::any::type_name::<PipedItemCommand>(),
+                        fromType = %std::any::type_name::<PipedProductCommand>(),
                         toType = %std::any::type_name::<UpsertProductCommand>(),
                         "Failed mapping types."
                     );
@@ -169,7 +169,7 @@ pub async fn handle(
             .map(|upsert_cmd| upsert_cmd.url),
     );
 
-    let response_payload = PutItemsResponse {
+    let response_payload = PutProductsResponse {
         unprocessed,
         failed,
         skipped: upsert_res.skipped as u64,
@@ -179,8 +179,8 @@ pub async fn handle(
         .build())
 }
 
-fn put_item_data_to_command(data: PutItemData) -> PipedItemCommand {
-    PipedItemCommand {
+fn put_product_data_to_command(data: PutProductData) -> PipedProductCommand {
+    PipedProductCommand {
         shop_id: None,
         shops_product_id: data.shops_product_id,
         shop_name: None,
@@ -203,12 +203,12 @@ mod tests {
     use common::shop_id::ShopId;
     use fake::{Fake, Faker};
     use lambda_runtime::LambdaEvent;
-    use product::data::put_data::PutItemData;
+    use product::data::put_data::PutProductData;
     use product::service::enrichment_service::{
-        EnrichItemCommandsOutput, MockItemCommandEnrichmentService,
+        EnrichProductCommandsOutput, MockItemCommandEnrichmentService,
     };
     use product::service::product_command::UpsertProductCommand;
-    use product::service::upsert_service::{MockUpsertProductsService, UpsertItemsOutput};
+    use product::service::upsert_service::{MockUpsertProductsService, UpsertProductsOutput};
     use test_api::ApiGatewayV2httpRequestProxy;
     use test_api::extract_apigw_response_json_body;
 
@@ -234,7 +234,7 @@ mod tests {
         let mut enrich_service = MockItemCommandEnrichmentService::default();
         enrich_service.expect_enrich().return_once(|cmds| {
             Box::pin(async {
-                EnrichItemCommandsOutput {
+                EnrichProductCommandsOutput {
                     enriched: cmds
                         .into_iter()
                         .map(|mut cmd| {
@@ -251,7 +251,7 @@ mod tests {
         let mut upsert_service = MockUpsertProductsService::default();
         upsert_service.expect_upsert().return_once(move |_| {
             Box::pin(async move {
-                UpsertItemsOutput {
+                UpsertProductsOutput {
                     unprocessed: fake::vec![UpsertProductCommand; failures],
                     skipped,
                 }
@@ -262,7 +262,7 @@ mod tests {
             payload: ApiGatewayV2httpRequestProxy::builder()
                 .http_method(http::Method::PUT)
                 .body_serde(&PutCollectionData {
-                    items: fake::vec![PutItemData; 1234],
+                    items: fake::vec![PutProductData; 1234],
                 })
                 .build(),
             context: Default::default(),

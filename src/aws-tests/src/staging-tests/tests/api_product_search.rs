@@ -43,19 +43,19 @@ async fn should_respond_200_when_hits_authenticated() {
         UserDynamoDbRepositoryImpl::new(dynamodb_client, &cfn.dynamodb_table_1_name);
     let watchlist_repository =
         WatchlistProductDynamoDbRepositoryImpl::new(dynamodb_client, &cfn.dynamodb_table_1_name);
-    let item_repository =
+    let product_repository =
         ProductDynamoDbRepositoryImpl::new(dynamodb_client, &cfn.dynamodb_table_1_name);
-    let get_product_service = GetProductServiceImpl::new(&item_repository);
-    let item_watchlist_service = ProductWatchListServiceImpl::new(
+    let get_product_service = GetProductServiceImpl::new(&product_repository);
+    let product_watchlist_service = ProductWatchListServiceImpl::new(
         &watchlist_repository,
         &user_repository,
-        &item_repository,
+        &product_repository,
         &get_product_service,
     );
 
     let now = SystemTime::now();
     let os_client = get_opensearch_client().await;
-    let item_opensearch_repository = ProductOpenSearchRepositoryImpl::new(os_client);
+    let product_opensearch_repository = ProductOpenSearchRepositoryImpl::new(os_client);
     let expected = ProductDocument {
         product_id: ProductId::new(),
         event_id: EventId::new(),
@@ -82,7 +82,7 @@ async fn should_respond_200_when_hits_authenticated() {
     let mut all = fake::vec![ProductDocument; 10];
     all.push(expected.clone());
 
-    let insert_res = item_opensearch_repository
+    let insert_res = product_opensearch_repository
         .create_product_documents(all)
         .await
         .unwrap();
@@ -128,7 +128,7 @@ async fn should_respond_200_when_hits_authenticated() {
         created: now.into(),
         updated: now.into(),
     };
-    let ddb_batch_write_res = item_repository
+    let ddb_batch_write_res = product_repository
         .put_product_records([ddb_materialized].into())
         .await
         .unwrap();
@@ -140,8 +140,8 @@ async fn should_respond_200_when_hits_authenticated() {
     );
 
     let user = create_random_test_user().await;
-    item_watchlist_service
-        .create_watchlist_item(
+    product_watchlist_service
+        .create_watchlist_product(
             &user.sub.into(),
             &expected.shop_id,
             &expected.shops_product_id,
@@ -167,7 +167,7 @@ async fn should_respond_200_when_hits_authenticated() {
     };
 
     let url = format!(
-        "{}/api/v1/items/search?sort=created&order=asc&size=5",
+        "{}/api/v1/products/search?sort=created&order=asc&size=5",
         get_cfn_output().api_gateway_endpoint_url
     );
     let response = reqwest::Client::new()
@@ -258,7 +258,7 @@ async fn should_respond_200_when_hits_anon() {
     };
 
     let url = format!(
-        "{}/api/v1/items/search?sort=created&order=asc&size=5",
+        "{}/api/v1/products/search?sort=created&order=asc&size=5",
         get_cfn_output().api_gateway_endpoint_url
     );
     let response = reqwest::Client::new()
@@ -290,7 +290,7 @@ async fn should_respond_200_when_hits_anon() {
 #[staging_test]
 async fn should_respond_200_when_no_hits_anon() {
     let url = format!(
-        "{}/api/v1/items/search",
+        "{}/api/v1/products/search",
         get_cfn_output().api_gateway_endpoint_url
     );
     let response = reqwest::Client::new()

@@ -6,7 +6,7 @@ use lambda_runtime::tracing::info;
 use lambda_runtime::{Error, LambdaEvent, run, service_fn};
 use product::dynamodb::repository::ProductDynamoDbRepositoryImpl;
 use product::service::get_service::GetProductServiceImpl;
-use product::service::personalization_service::ItemPersonalizationServiceImpl;
+use product::service::personalization_service::ProductPersonalizationServiceImpl;
 use product::watchlist::dynamodb::repository::WatchlistProductDynamoDbRepositoryImpl;
 use product_api_get_product::handler;
 
@@ -26,12 +26,12 @@ async fn main() -> Result<(), Error> {
 
     let table_name = std::env::var("DYNAMODB_TABLE_NAME")?;
     let client = Client::new(&aws_config);
-    let item_dynamodb_repository = ProductDynamoDbRepositoryImpl::new(&client, &table_name);
-    let get_product_service = GetProductServiceImpl::new(&item_dynamodb_repository);
+    let product_dynamodb_repository = ProductDynamoDbRepositoryImpl::new(&client, &table_name);
+    let get_product_service = GetProductServiceImpl::new(&product_dynamodb_repository);
 
     let watchlist_repository = WatchlistProductDynamoDbRepositoryImpl::new(&client, &table_name);
     let product_personalization_service =
-        ItemPersonalizationServiceImpl::new(&watchlist_repository);
+        ProductPersonalizationServiceImpl::new(&watchlist_repository);
 
     let user_pool_id = std::env::var("USER_POOL_ID")?;
     let user_pool_public_client_id = std::env::var("USER_POOL_PUBLIC_CLIENT_ID")?;

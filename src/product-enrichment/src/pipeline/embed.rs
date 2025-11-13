@@ -2,7 +2,7 @@ use std::{collections::HashSet, sync::Arc};
 
 use crate::{
     embed::EmbeddingDelegate,
-    pipeline::pipe::{EnrichmentPipe, PipeItem, PipeResult},
+    pipeline::pipe::{EnrichmentPipe, PipeProduct, PipeResult},
 };
 use common::batch::Batch;
 use tracing::{error, info};
@@ -18,11 +18,11 @@ impl EmbeddingEnrichmentPipeImpl {
 }
 
 impl EnrichmentPipe for EmbeddingEnrichmentPipeImpl {
-    fn enrich(&self, items: Vec<PipeItem>) -> PipeResult {
+    fn enrich(&self, items: Vec<PipeProduct>) -> PipeResult {
         let count = items.len();
         let mut successes = Vec::with_capacity(items.len());
         let mut failures = HashSet::new();
-        let batches: Vec<Batch<PipeItem, 64>> = Batch::chunked_from(items.into_iter());
+        let batches: Vec<Batch<PipeProduct, 64>> = Batch::chunked_from(items.into_iter());
 
         for document_batch in batches {
             let input_batch_iter = document_batch.iter().map(|pipe_item| {
@@ -85,7 +85,7 @@ pub mod tests {
         embed::MockEmbeddingDelegate,
         pipeline::{
             embed::EmbeddingEnrichmentPipeImpl,
-            pipe::{EnrichmentPipe, PipeItem},
+            pipe::{EnrichmentPipe, PipeProduct},
         },
     };
     use pyo3::{PyErr, exceptions::PyTypeError};

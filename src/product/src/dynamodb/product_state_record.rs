@@ -51,11 +51,11 @@ mod tests {
     #[case(ProductStateRecord::Sold, "\"SOLD\"")]
     #[case(ProductStateRecord::Removed, "\"REMOVED\"")]
     #[case(ProductStateRecord::Unknown, "\"UNKNOWN\"")]
-    fn should_serialize_item_state_record_in_screaming_snake_case(
-        #[case] item_state_record: ProductStateRecord,
+    fn should_serialize_product_state_record_in_screaming_snake_case(
+        #[case] product_state_record: ProductStateRecord,
         #[case] expected: &str,
     ) {
-        let actual = serde_json::to_string(&item_state_record).unwrap();
+        let actual = serde_json::to_string(&product_state_record).unwrap();
         assert_eq!(actual, expected);
     }
 
@@ -66,7 +66,7 @@ mod tests {
     #[case("\"SOLD\"", ProductStateRecord::Sold)]
     #[case("\"REMOVED\"", ProductStateRecord::Removed)]
     #[case("\"UNKNOWN\"", ProductStateRecord::Unknown)]
-    fn should_deserialize_item_state_record_in_screaming_snake_case(
+    fn should_deserialize_product_state_record_in_screaming_snake_case(
         #[case] currency: &str,
         #[case] expected: ProductStateRecord,
     ) {

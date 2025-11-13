@@ -52,10 +52,10 @@ mod tests {
     #[case(ProductStateData::Removed, "\"REMOVED\"")]
     #[case(ProductStateData::Unknown, "\"UNKNOWN\"")]
     fn should_serialize_product_state_data_in_screaming_snake_case(
-        #[case] item_state_record: ProductStateData,
+        #[case] product_state_record: ProductStateData,
         #[case] expected: &str,
     ) {
-        let actual = serde_json::to_string(&item_state_record).unwrap();
+        let actual = serde_json::to_string(&product_state_record).unwrap();
         assert_eq!(actual, expected);
     }
 

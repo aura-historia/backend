@@ -113,7 +113,7 @@ mod tests {
     }
 
     #[test]
-    fn should_parse_partial_failure_when_one_item_has_error_for_bulk_response() {
+    fn should_parse_partial_failure_when_one_product_has_error_for_bulk_response() {
         let json = json!({
             "took": 12,
             "errors": true,
@@ -171,7 +171,7 @@ mod tests {
     }
 
     #[test]
-    fn should_default_to_empty_items_when_missing_for_bulk_response() {
+    fn should_default_to_empty_products_when_missing_for_bulk_response() {
         let json = json!({
             "took": 5,
             "errors": false

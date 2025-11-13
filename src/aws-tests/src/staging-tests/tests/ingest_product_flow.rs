@@ -8,7 +8,7 @@ use common::{
 use fake::{Fake, Faker};
 use opensearch::{GetParts, IndexParts, params::Refresh};
 use product::core::sort_product_field::SortProductField;
-use product::data::{product_state_data::ProductStateData, put_data::PutItemData};
+use product::data::{product_state_data::ProductStateData, put_data::PutProductData};
 use product::dynamodb::{
     product_record::ProductRecord,
     product_state_record::ProductStateRecord,
@@ -71,13 +71,13 @@ async fn prepare_test_shop() -> Shop {
 async fn should_materialize_product_in_dynamodb_when_put_new_item() {
     let stack = get_cfn_output();
     let shop = prepare_test_shop().await;
-    let mut put_product_data: PutItemData = Faker.fake();
+    let mut put_product_data: PutProductData = Faker.fake();
     put_product_data
         .url
         .set_host(shop.urls.first().unwrap().host_str())
         .unwrap();
 
-    let url = format!("{}/api/v1/items", stack.api_gateway_endpoint_url);
+    let url = format!("{}/api/v1/products", stack.api_gateway_endpoint_url);
     let response = reqwest::Client::new()
         .put(url)
         .json(&PutCollectionData {
@@ -146,7 +146,7 @@ async fn should_materialize_product_in_dynamodb_for_update_product_command() {
         ProductStateRecord::Available => ProductStateData::Sold,
         _ => ProductStateData::Available,
     };
-    let put_product_data = PutItemData {
+    let put_product_data = PutProductData {
         shops_product_id: materialized_old.shops_product_id,
         title: Faker.fake(),
         description: None,
@@ -156,7 +156,7 @@ async fn should_materialize_product_in_dynamodb_for_update_product_command() {
         images: materialized_old.images,
     };
 
-    let url = format!("{}/api/v1/items", stack.api_gateway_endpoint_url);
+    let url = format!("{}/api/v1/products", stack.api_gateway_endpoint_url);
     let response = reqwest::Client::new()
         .put(url)
         .json(&PutCollectionData {
@@ -204,7 +204,7 @@ async fn should_materialize_product_in_dynamodb_for_update_product_command() {
 #[staging_test]
 async fn should_materialize_product_in_opensearch_for_create_product_command() {
     let stack = get_cfn_output();
-    let mut put_product_data: PutItemData = Faker.fake();
+    let mut put_product_data: PutProductData = Faker.fake();
     let shop = prepare_test_shop().await;
 
     put_product_data.title = LocalizedTextData {
@@ -216,7 +216,7 @@ async fn should_materialize_product_in_opensearch_for_create_product_command() {
         .set_host(shop.urls.first().unwrap().host_str())
         .unwrap();
 
-    let url = format!("{}/api/v1/items", stack.api_gateway_endpoint_url);
+    let url = format!("{}/api/v1/products", stack.api_gateway_endpoint_url);
     let response = reqwest::Client::new()
         .put(url)
         .json(&PutCollectionData {
@@ -317,7 +317,7 @@ async fn should_materialize_product_in_opensearch_for_update_product_command() {
         ProductStateRecord::Available => ProductStateData::Sold,
         _ => ProductStateData::Available,
     };
-    let put_product_data = PutItemData {
+    let put_product_data = PutProductData {
         shops_product_id: materialized_ddb_old.shops_product_id,
         title: Faker.fake(),
         description: None,
@@ -327,7 +327,7 @@ async fn should_materialize_product_in_opensearch_for_update_product_command() {
         images: materialized_ddb_old.images,
     };
 
-    let url = format!("{}/api/v1/items", stack.api_gateway_endpoint_url);
+    let url = format!("{}/api/v1/products", stack.api_gateway_endpoint_url);
     let response = reqwest::Client::new()
         .put(url)
         .json(&PutCollectionData {

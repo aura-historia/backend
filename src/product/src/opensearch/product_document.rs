@@ -221,7 +221,7 @@ mod faker {
         use fake::{Fake, Faker};
 
         #[test]
-        fn should_fake_item_document() {
+        fn should_fake_product_document() {
             let _ = Faker.fake::<ProductDocument>();
         }
     }

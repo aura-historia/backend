@@ -104,7 +104,7 @@ mod tests {
             "search": {
                 "language": "de",
                 "currency": "EUR",
-                "itemQuery": "Boop",
+                "productQuery": "Boop",
                 "shopNameQuery": "Baap",
                 "price": {
                     "min": 37,
@@ -140,7 +140,7 @@ mod tests {
             "search": {
                 "language": "de",
                 "currency": "EUR",
-                "itemQuery": "Boop",
+                "productQuery": "Boop",
                 "shopNameQuery": "Baap",
                 "price": {
                     "min": 37,

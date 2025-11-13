@@ -269,7 +269,7 @@ impl<'a> WatchlistProductDynamoDbRepository for WatchlistProductDynamoDbReposito
                     error!(
                         userId = %user_id,
                         shopId = %shop_id,
-                        shopsItemId = %shops_product_id,
+                        shopsProductId = %shops_product_id,
                         error = %err,
                         type = %std::any::type_name::<WatchlistProductRecord>(),
                         "Failed deserializing WatchlistProductRecord."
@@ -326,7 +326,7 @@ impl<'a> WatchlistProductDynamoDbRepository for WatchlistProductDynamoDbReposito
                             error!(
                                 userId = %user_id,
                                 shopId = %shop_id,
-                                shopsItemId = %shops_product_id,
+                                shopsProductId = %shops_product_id,
                                 error = %err,
                                 type = %std::any::type_name::<WatchlistProductRecord>(),
                                 "Failed deserializing WatchlistProductRecord."
@@ -368,7 +368,7 @@ impl<'a> WatchlistProductDynamoDbRepository for WatchlistProductDynamoDbReposito
             .filter_map(|res| match res {
                 Ok(record) => Some(record.user_record),
                 Err(err) => {
-                    error!(itemId = %product_id, error = %err, type = %std::any::type_name::<WatchlistProductRecord>(), "Failed deserializing.");
+                    error!(productId = %product_id, error = %err, type = %std::any::type_name::<WatchlistProductRecord>(), "Failed deserializing.");
                     None
                 }
             })

@@ -91,7 +91,7 @@ impl IntegrationTestService for OpenSearch {
         // Clear all documents from the items index to ensure test isolation
         clear_index_data("products")
             .await
-            .expect("shouldn't fail clearing OpenSearch index data from 'items'");
+            .expect("shouldn't fail clearing OpenSearch index data from 'products'");
         refresh_index("products").await;
         clear_index_data("shops")
             .await
@@ -192,7 +192,7 @@ static SHOPS_INDEX_MAPPING_STR: &str = include_str!(concat!(
 async fn set_up_indices() -> Result<Response, Error> {
     let client = get_opensearch_client().await;
 
-    // Index 'items'
+    // Index 'products'
     let exists_response = client
         .indices()
         .exists(IndicesExistsParts::Index(&["products"]))
@@ -200,12 +200,12 @@ async fn set_up_indices() -> Result<Response, Error> {
         .await?;
 
     if exists_response.status_code().is_success() {
-        debug!("OpenSearch index 'items' already exists, skipping creation");
+        debug!("OpenSearch index 'products' already exists, skipping creation");
         // Return a mock response since index exists
         return Ok(exists_response);
     }
 
-    debug!("OpenSearch index 'items' does not exist, creating it");
+    debug!("OpenSearch index 'products' does not exist, creating it");
 
     get_opensearch_client()
         .await

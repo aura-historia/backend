@@ -67,7 +67,7 @@ impl IntegrationTestService for DynamoDB {
 async fn set_up_tables() -> Result<(), Error> {
     set_up_table_1()
         .await
-        .expect("shouldn't fail setting up table 'items'");
+        .expect("shouldn't fail setting up table 'products'");
 
     debug!("Successfully set up tables.");
 

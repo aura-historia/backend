@@ -5,7 +5,7 @@ async fn get_repository() -> ProductDynamoDbRepositoryImpl<'static> {
     ProductDynamoDbRepositoryImpl::new(get_dynamodb_client().await, "table_1")
 }
 
-mod get_item_record {
+mod get_product_record {
     use crate::get_repository;
     use common::currency::record::CurrencyRecord;
     use common::event_id::EventId;
@@ -24,7 +24,7 @@ mod get_item_record {
     use url::Url;
 
     #[localstack_test(services = [DynamoDB()])]
-    async fn should_return_nothing_for_get_item_record_when_table_is_empty() {
+    async fn should_return_nothing_for_get_product_record_when_table_is_empty() {
         let repository = get_repository().await;
         let actual = repository
             .get_product_record(&ShopId::new(), &"non-existent".into())
@@ -35,7 +35,7 @@ mod get_item_record {
     }
 
     #[localstack_test(services = [DynamoDB()])]
-    async fn should_return_item_record_for_get_item_record_when_exists() {
+    async fn should_return_product_record_for_get_product_record_when_exists() {
         let now = OffsetDateTime::now_utc();
         let shop_id = ShopId::new();
         let shops_product_id: ShopsProductId = "123465".into();
@@ -90,7 +90,7 @@ mod get_item_record {
     }
 
     #[localstack_test(services = [DynamoDB()])]
-    async fn should_return_nothing_for_get_item_record_when_only_others_exist() {
+    async fn should_return_nothing_for_get_product_record_when_only_others_exist() {
         let now = OffsetDateTime::now_utc();
         let shop_id = ShopId::new();
         let shops_product_id: ShopsProductId = "123465".into();
@@ -144,7 +144,7 @@ mod get_item_record {
     }
 
     #[localstack_test(services = [DynamoDB()])]
-    async fn should_return_nothing_for_get_item_record_when_only_others_exist_mix() {
+    async fn should_return_nothing_for_get_product_record_when_only_others_exist_mix() {
         let now = OffsetDateTime::now_utc();
         let shop_id = ShopId::new();
         let shops_product_id: ShopsProductId = "123465".into();
@@ -242,7 +242,7 @@ mod get_item_record {
     }
 }
 
-mod query_item_record_and_event_records {
+mod query_product_record_and_event_records {
     use crate::get_repository;
     use common::price::domain::Price;
     use common::product_state::domain::ProductState;
@@ -250,7 +250,7 @@ mod query_item_record_and_event_records {
     use common::shops_product_id::ShopsProductId;
     use fake::{Fake, Faker};
     use product::core::product_event::{
-        ItemCreatedEventPayload, ItemStateChangeEventPayload, ProductEvent, ProductEventPayload,
+        ProductCreatedEventPayload, ProductStateChangeEventPayload, ProductEvent, ProductEventPayload,
     };
     use product::dynamodb::product_event_record::ProductEventRecord;
     use product::dynamodb::product_event_type_record::ProductEventTypeRecord;
@@ -330,7 +330,7 @@ mod query_item_record_and_event_records {
             aggregate_id: Default::default(),
             event_id: Default::default(),
             timestamp: OffsetDateTime::now_utc(),
-            payload: ProductEventPayload::Created(ItemCreatedEventPayload {
+            payload: ProductEventPayload::Created(ProductCreatedEventPayload {
                 shop_id: expected_materialized.shop_id,
                 shops_product_id: expected_materialized.shops_product_id.clone(),
                 shop_name: expected_materialized.shop_name.clone().into(),
@@ -351,7 +351,7 @@ mod query_item_record_and_event_records {
             aggregate_id: Default::default(),
             event_id: Default::default(),
             timestamp: OffsetDateTime::now_utc(),
-            payload: ProductEventPayload::StateAvailable(ItemStateChangeEventPayload {
+            payload: ProductEventPayload::StateAvailable(ProductStateChangeEventPayload {
                 shop_id: expected_materialized.shop_id,
                 shops_product_id: expected_materialized.shops_product_id.clone(),
                 old_state: ProductState::Listed,
@@ -392,7 +392,7 @@ mod query_item_record_and_event_records {
             aggregate_id: Default::default(),
             event_id: Default::default(),
             timestamp: OffsetDateTime::now_utc(),
-            payload: ProductEventPayload::Created(ItemCreatedEventPayload {
+            payload: ProductEventPayload::Created(ProductCreatedEventPayload {
                 shop_id: expected_materialized.shop_id,
                 shops_product_id: expected_materialized.shops_product_id.clone(),
                 shop_name: expected_materialized.shop_name.clone().into(),
@@ -413,7 +413,7 @@ mod query_item_record_and_event_records {
             aggregate_id: Default::default(),
             event_id: Default::default(),
             timestamp: OffsetDateTime::now_utc(),
-            payload: ProductEventPayload::StateAvailable(ItemStateChangeEventPayload {
+            payload: ProductEventPayload::StateAvailable(ProductStateChangeEventPayload {
                 shop_id: expected_materialized.shop_id,
                 shops_product_id: expected_materialized.shops_product_id.clone(),
                 old_state: ProductState::Listed,
@@ -446,7 +446,7 @@ mod query_item_record_and_event_records {
     }
 }
 
-mod batch_get_item_records {
+mod batch_get_product_records {
     use crate::get_repository;
     use common::batch::Batch;
     use common::currency::record::CurrencyRecord;
@@ -464,7 +464,7 @@ mod batch_get_item_records {
     use url::Url;
 
     #[localstack_test(services = [DynamoDB()])]
-    async fn should_return_item_records_for_batch_get_item_records_when_all_exist() {
+    async fn should_return_product_records_for_batch_get_product_records_when_all_exist() {
         let repository = get_repository().await;
         let shop_id = ShopId::new();
         let mk_expected = |n: i32| {
@@ -538,7 +538,7 @@ mod batch_get_item_records {
     }
 
     #[localstack_test(services = [DynamoDB()])]
-    async fn should_return_item_records_for_batch_get_item_records_when_some_do_not_exist() {
+    async fn should_return_product_records_for_batch_get_product_records_when_some_do_not_exist() {
         let client = get_dynamodb_client().await;
         let shop_id = ShopId::new();
         let mk_expected = |n: i32| {
@@ -612,7 +612,7 @@ mod batch_get_item_records {
     }
 
     #[localstack_test(services = [DynamoDB()])]
-    async fn should_return_item_records_for_batch_get_item_records_when_more_than_100_exist() {
+    async fn should_return_product_records_for_batch_get_product_records_when_more_than_100_exist() {
         let client = get_dynamodb_client().await;
         let shop_id = ShopId::new();
         let mk_expected = |n: i32| {
@@ -688,7 +688,7 @@ mod batch_get_item_records {
     }
 }
 
-mod batch_exist_item_records {
+mod batch_exist_product_records {
     use crate::get_repository;
     use common::batch::Batch;
     use common::currency::record::CurrencyRecord;
@@ -707,7 +707,7 @@ mod batch_exist_item_records {
     use url::Url;
 
     #[localstack_test(services = [DynamoDB()])]
-    async fn should_return_item_keys_for_batch_exist_item_records_when_all_exist() {
+    async fn should_return_product_keys_for_batch_exist_product_records_when_all_exist() {
         let client = get_dynamodb_client().await;
         let shop_id = ShopId::new();
         let mk_expected = |n: i32| {
@@ -779,7 +779,7 @@ mod batch_exist_item_records {
     }
 
     #[localstack_test(services = [DynamoDB()])]
-    async fn should_return_item_keys_for_batch_exist_item_records_when_some_do_not_exist() {
+    async fn should_return_product_keys_for_batch_exist_product_records_when_some_do_not_exist() {
         let client = get_dynamodb_client().await;
         let shop_id = ShopId::new();
         let mk_expected = |n: i32| {
@@ -851,7 +851,7 @@ mod batch_exist_item_records {
     }
 
     #[localstack_test(services = [DynamoDB()])]
-    async fn should_return_item_keys_for_batch_exist_item_records_when_more_than_100_exist() {
+    async fn should_return_product_keys_for_batch_exist_product_records_when_more_than_100_exist() {
         let client = get_dynamodb_client().await;
         let shop_id = ShopId::new();
         let mk_expected = |n: i32| {
@@ -925,7 +925,7 @@ mod batch_exist_item_records {
     }
 }
 
-mod get_item_id {
+mod get_product_id {
     use crate::get_repository;
     use common::currency::record::CurrencyRecord;
     use common::event_id::EventId;
@@ -942,7 +942,7 @@ mod get_item_id {
     use url::Url;
 
     #[localstack_test(services = [DynamoDB()])]
-    async fn should_return_item_id_for_get_item_id_when_exists() {
+    async fn should_return_product_id_for_get_product_id_when_exists() {
         let now = OffsetDateTime::now_utc();
         let shop_id = ShopId::new();
         let shops_product_id: ShopsProductId = "123465".into();
@@ -998,7 +998,7 @@ mod get_item_id {
     }
 
     #[localstack_test(services = [DynamoDB()])]
-    async fn should_return_nothing_for_get_item_id_when_only_others_exist() {
+    async fn should_return_nothing_for_get_product_id_when_only_others_exist() {
         let now = OffsetDateTime::now_utc();
         let shop_id = ShopId::new();
         let shops_product_id: ShopsProductId = "123465".into();

@@ -13,7 +13,7 @@ use product::opensearch::repository::{
     ProductOpenSearchRepository, ProductOpenSearchRepositoryImpl,
 };
 use product::service::get_service::GetProductServiceImpl;
-use product::service::personalization_service::ItemPersonalizationServiceImpl;
+use product::service::personalization_service::ProductPersonalizationServiceImpl;
 use product::service::semantic_service::SemanticSearchServiceImpl;
 use product::watchlist::dynamodb::repository::WatchlistProductDynamoDbRepositoryImpl;
 use product::watchlist::service::product_watchlist_service::{
@@ -1053,24 +1053,24 @@ const EXAMPLE_EMBEDDING: [f32; 1024] = [
 ];
 
 #[localstack_test(services = [OpenSearch(), DynamoDB()])]
-async fn should_202_when_similar_items_have_not_been_computed_for_anon() {
-    let item_dynamodb_repository =
+async fn should_202_when_similar_products_have_not_been_computed_for_anon() {
+    let product_dynamodb_repository =
         ProductDynamoDbRepositoryImpl::new(get_dynamodb_client().await, "table_1");
     let watchlist_repository =
         WatchlistProductDynamoDbRepositoryImpl::new(get_dynamodb_client().await, "table_1");
-    let item_opensearch_repository =
+    let product_opensearch_repository =
         ProductOpenSearchRepositoryImpl::new(get_opensearch_client().await);
     let product_personalization_service =
-        ItemPersonalizationServiceImpl::new(&watchlist_repository);
+        ProductPersonalizationServiceImpl::new(&watchlist_repository);
     let semantic_search_service =
-        SemanticSearchServiceImpl::new(&item_dynamodb_repository, &item_opensearch_repository);
+        SemanticSearchServiceImpl::new(&product_dynamodb_repository, &product_opensearch_repository);
     let mut cognito_service = MockAccessTokenVerifierService::default();
     cognito_service
         .expect_verify_extract_user_id()
         .return_once(|_| Box::pin(async { Ok(None) }));
 
     let product_record: ProductRecord = Faker.fake();
-    let ddb_insert_res = item_dynamodb_repository
+    let ddb_insert_res = product_dynamodb_repository
         .put_product_records([product_record.clone()].into())
         .await
         .unwrap();
@@ -1081,14 +1081,14 @@ async fn should_202_when_similar_items_have_not_been_computed_for_anon() {
             .is_empty()
     );
 
-    let item_document: ProductDocument = product_record.clone().into();
-    let mut item_documents = fake::vec![ProductDocument; 10];
-    for doc in &mut item_documents {
+    let product_document: ProductDocument = product_record.clone().into();
+    let mut product_documents = fake::vec![ProductDocument; 10];
+    for doc in &mut product_documents {
         doc.text_embedding = Some(EXAMPLE_EMBEDDING.into());
     }
-    item_documents.push(item_document);
-    let os_insert_res = item_opensearch_repository
-        .create_product_documents(item_documents.clone())
+    product_documents.push(product_document);
+    let os_insert_res = product_opensearch_repository
+        .create_product_documents(product_documents.clone())
         .await
         .unwrap();
     assert!(!os_insert_res.errors);
@@ -1117,24 +1117,24 @@ async fn should_202_when_similar_items_have_not_been_computed_for_anon() {
 }
 
 #[localstack_test(services = [OpenSearch(), DynamoDB()])]
-async fn should_200_when_similar_items_have_been_computed_for_anon() {
-    let item_dynamodb_repository =
+async fn should_200_when_similar_products_have_been_computed_for_anon() {
+    let product_dynamodb_repository =
         ProductDynamoDbRepositoryImpl::new(get_dynamodb_client().await, "table_1");
     let watchlist_repository =
         WatchlistProductDynamoDbRepositoryImpl::new(get_dynamodb_client().await, "table_1");
-    let item_opensearch_repository =
+    let product_opensearch_repository =
         ProductOpenSearchRepositoryImpl::new(get_opensearch_client().await);
     let product_personalization_service =
-        ItemPersonalizationServiceImpl::new(&watchlist_repository);
+        ProductPersonalizationServiceImpl::new(&watchlist_repository);
     let semantic_search_service =
-        SemanticSearchServiceImpl::new(&item_dynamodb_repository, &item_opensearch_repository);
+        SemanticSearchServiceImpl::new(&product_dynamodb_repository, &product_opensearch_repository);
     let mut cognito_service = MockAccessTokenVerifierService::default();
     cognito_service
         .expect_verify_extract_user_id()
         .return_once(|_| Box::pin(async { Ok(None) }));
 
     let product_record: ProductRecord = Faker.fake();
-    let ddb_insert_res = item_dynamodb_repository
+    let ddb_insert_res = product_dynamodb_repository
         .put_product_records([product_record.clone()].into())
         .await
         .unwrap();
@@ -1145,16 +1145,16 @@ async fn should_200_when_similar_items_have_been_computed_for_anon() {
             .is_empty()
     );
 
-    let mut item_document: ProductDocument = product_record.clone().into();
-    item_document.text_embedding = Some(EXAMPLE_EMBEDDING.into());
-    let mut item_documents = fake::vec![ProductDocument; 10];
-    for doc in &mut item_documents {
+    let mut product_document: ProductDocument = product_record.clone().into();
+    product_document.text_embedding = Some(EXAMPLE_EMBEDDING.into());
+    let mut product_documents = fake::vec![ProductDocument; 10];
+    for doc in &mut product_documents {
         doc.text_embedding = Some(EXAMPLE_EMBEDDING.into());
         doc.title_en = Some("My expected english title".into())
     }
-    item_documents.push(item_document);
-    let os_insert_res = item_opensearch_repository
-        .create_product_documents(item_documents.clone())
+    product_documents.push(product_document);
+    let os_insert_res = product_opensearch_repository
+        .create_product_documents(product_documents.clone())
         .await
         .unwrap();
     assert!(!os_insert_res.errors);
@@ -1189,7 +1189,7 @@ async fn should_200_when_similar_items_have_been_computed_for_anon() {
     // tough due to ANN
     assert!(1 < actual.len());
     assert!(actual.iter().all(|actual| {
-        item_documents
+        product_documents
             .iter()
             .any(|expected| expected.product_id == actual.item.product_id)
     }));
@@ -1208,39 +1208,39 @@ async fn should_200_when_similar_items_have_been_computed_for_anon() {
 }
 
 #[localstack_test(services = [OpenSearch(), DynamoDB()])]
-async fn should_200_and_personalize_when_similar_items_have_been_computed_for_authenticated() {
+async fn should_200_and_personalize_when_similar_products_have_been_computed_for_authenticated() {
     let user_record = Faker.fake::<UserRecord>();
     let user_id = user_record.id;
-    let item_dynamodb_repository =
+    let product_dynamodb_repository =
         ProductDynamoDbRepositoryImpl::new(get_dynamodb_client().await, "table_1");
     let watchlist_repository =
         WatchlistProductDynamoDbRepositoryImpl::new(get_dynamodb_client().await, "table_1");
-    let item_opensearch_repository =
+    let product_opensearch_repository =
         ProductOpenSearchRepositoryImpl::new(get_opensearch_client().await);
     let product_personalization_service =
-        ItemPersonalizationServiceImpl::new(&watchlist_repository);
+        ProductPersonalizationServiceImpl::new(&watchlist_repository);
     let semantic_search_service =
-        SemanticSearchServiceImpl::new(&item_dynamodb_repository, &item_opensearch_repository);
+        SemanticSearchServiceImpl::new(&product_dynamodb_repository, &product_opensearch_repository);
     let mut cognito_service = MockAccessTokenVerifierService::default();
     cognito_service
         .expect_verify_extract_user_id()
         .return_once(move |_| Box::pin(async move { Ok(Some(user_id)) }));
-    let get_product_service = GetProductServiceImpl::new(&item_dynamodb_repository);
+    let get_product_service = GetProductServiceImpl::new(&product_dynamodb_repository);
     let user_repository = UserDynamoDbRepositoryImpl::new(get_dynamodb_client().await, "table_1");
     let watchlist_service = ProductWatchListServiceImpl::new(
         &watchlist_repository,
         &user_repository,
-        &item_dynamodb_repository,
+        &product_dynamodb_repository,
         &get_product_service,
     );
 
     let _ = user_repository.put_user_record(user_record).await.unwrap();
 
     let product_record: ProductRecord = Faker.fake();
-    let item_records = fake::vec![ProductRecord; 12];
-    let ddb_insert_res = item_dynamodb_repository
+    let product_records = fake::vec![ProductRecord; 12];
+    let ddb_insert_res = product_dynamodb_repository
         .put_product_records(
-            [vec![product_record.clone()], item_records.clone()]
+            [vec![product_record.clone()], product_records.clone()]
                 .concat()
                 .try_into()
                 .unwrap(),
@@ -1254,9 +1254,9 @@ async fn should_200_and_personalize_when_similar_items_have_been_computed_for_au
             .is_empty()
     );
 
-    for product_record in item_records.iter() {
+    for product_record in product_records.iter() {
         let _ = watchlist_service
-            .create_watchlist_item(
+            .create_watchlist_product(
                 &user_id,
                 &product_record.shop_id,
                 &product_record.shops_product_id,
@@ -1265,20 +1265,20 @@ async fn should_200_and_personalize_when_similar_items_have_been_computed_for_au
             .unwrap();
     }
 
-    let mut item_document: ProductDocument = product_record.clone().into();
-    item_document.text_embedding = Some(EXAMPLE_EMBEDDING.into());
-    let mut item_documents = item_records
+    let mut product_document: ProductDocument = product_record.clone().into();
+    product_document.text_embedding = Some(EXAMPLE_EMBEDDING.into());
+    let mut product_documents = product_records
         .clone()
         .into_iter()
         .map(ProductDocument::from)
         .collect::<Vec<_>>();
-    for doc in &mut item_documents {
+    for doc in &mut product_documents {
         doc.text_embedding = Some(EXAMPLE_EMBEDDING.into());
         doc.title_de = Some("My expected german title".into());
     }
-    item_documents.push(item_document);
-    let os_insert_res = item_opensearch_repository
-        .create_product_documents(item_documents.clone())
+    product_documents.push(product_document);
+    let os_insert_res = product_opensearch_repository
+        .create_product_documents(product_documents.clone())
         .await
         .unwrap();
     assert!(!os_insert_res.errors);
@@ -1312,7 +1312,7 @@ async fn should_200_and_personalize_when_similar_items_have_been_computed_for_au
     // tough due to ANN
     assert!(1 < actual.len());
     assert!(actual.iter().all(|actual| {
-        item_documents
+        product_documents
             .iter()
             .any(|expected| expected.product_id == actual.item.product_id)
     }));

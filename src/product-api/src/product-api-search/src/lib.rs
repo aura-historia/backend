@@ -25,7 +25,7 @@ use product::{
 };
 
 #[tracing::instrument(
-    skip(event, query_item_service, access_token_verifier_service, product_personalization_service),
+    skip(event, query_product_service, access_token_verifier_service, product_personalization_service),
     fields(
         requestId = %event.context.request_id,
         method = event.payload.request_context.http.method.as_str(),
@@ -39,13 +39,13 @@ use product::{
 )]
 pub async fn handler(
     event: LambdaEvent<ApiGatewayV2httpRequest>,
-    query_item_service: &impl QueryProductService,
+    query_product_service: &impl QueryProductService,
     access_token_verifier_service: &(impl AccessTokenVerifierService + Sync),
     product_personalization_service: &impl ProductPersonalizationService,
 ) -> Result<ApiGatewayV2httpResponse, lambda_runtime::Error> {
     match handle(
         event,
-        query_item_service,
+        query_product_service,
         access_token_verifier_service,
         product_personalization_service,
     )
@@ -59,7 +59,7 @@ pub async fn handler(
     }
 }
 
-// POST /api/v1/items/search
+// POST /api/v1/products/search
 pub async fn handle(
     event: LambdaEvent<ApiGatewayV2httpRequest>,
     service: &impl QueryProductService,
@@ -90,9 +90,9 @@ pub async fn handle(
         ApiError::bad_request(BAD_BODY_VALUE, Box::new(err)).with_message(err_msg)
     })?;
 
-    let item_search = product_search_data.into();
+    let product_search = product_search_data.into();
     let search_result = service
-        .search_products(&item_search, &sort, &Some(cursor))
+        .search_products(&product_search, &sort, &Some(cursor))
         .await?;
     let cursored_result = match user_id_opt {
         Some(user_id) => {
@@ -171,8 +171,8 @@ mod tests {
         access_token_verifier_service
             .expect_verify_extract_user_id()
             .return_once(|_| Box::pin(async { Ok(None) }));
-        let mut query_item_service = MockQueryProductService::default();
-        query_item_service
+        let mut query_product_service = MockQueryProductService::default();
+        query_product_service
             .expect_search_products()
             .return_once(|_, _, cursor| {
                 let count = cursor.as_ref().map(|cursor| cursor.size).unwrap_or(20) as usize;
@@ -188,7 +188,7 @@ mod tests {
             });
         let response = handler(
             lambda_event,
-            &query_item_service,
+            &query_product_service,
             &access_token_verifier_service,
             &product_personalization_service,
         )

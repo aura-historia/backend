@@ -51,7 +51,7 @@ async fn should_push_all_products_to_queue_as_created_when_none_exist() {
 }
 
 #[localstack_test(services = [DynamoDB(), INGEST_PRODUCT_QUEUE])]
-async fn should_push_no_items_to_queue_when_all_exist_and_no_changes() {
+async fn should_push_no_products_to_queue_when_all_exist_and_no_changes() {
     let repository = ProductDynamoDbRepositoryImpl::new(get_dynamodb_client().await, "table_1");
     let sqs_client = get_sqs_client().await;
     let q_url = INGEST_PRODUCT_QUEUE.queue_url();
@@ -102,7 +102,7 @@ async fn should_push_no_items_to_queue_when_all_exist_and_no_changes() {
 }
 
 #[localstack_test(services = [DynamoDB(), INGEST_PRODUCT_QUEUE])]
-async fn should_push_items_to_queue_when_all_exist_and_actual_changes() {
+async fn should_push_products_to_queue_when_all_exist_and_actual_changes() {
     let repository = ProductDynamoDbRepositoryImpl::new(get_dynamodb_client().await, "table_1");
     let sqs_client = get_sqs_client().await;
     let q_url = INGEST_PRODUCT_QUEUE.queue_url();

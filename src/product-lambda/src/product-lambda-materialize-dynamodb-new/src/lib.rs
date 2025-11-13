@@ -1,7 +1,7 @@
 use aws_lambda_events::sqs::{BatchItemFailure, SqsBatchResponse, SqsEvent, SqsMessage};
 use common::product_id::ProductKey;
 use common::{
-    batch::Batch, batch::dynamodb::handle_dynamodb_batch_write_put_item_output, has_key::HasKey,
+    batch::Batch, batch::dynamodb::handle_dynamodb_batch_write_put_product_output, has_key::HasKey,
 };
 use lambda_runtime::LambdaEvent;
 use product::dynamodb::product_event_record::ProductEventRecord;
@@ -36,15 +36,15 @@ pub async fn handler(
     }
 
     for batch in Batch::<ProductRecord, 25>::chunked_from(materialized_records.into_iter()) {
-        let item_keys = batch.iter().map(ProductRecord::key).collect::<Vec<_>>();
+        let product_keys = batch.iter().map(ProductRecord::key).collect::<Vec<_>>();
         let mut failures = Vec::new();
         match repository.put_product_records(batch).await {
             Ok(output) => {
-                handle_dynamodb_batch_write_put_item_output::<ProductRecord>(output, &mut failures);
+                handle_dynamodb_batch_write_put_product_output::<ProductRecord>(output, &mut failures);
             }
             Err(err) => {
                 error!(error = ?err, "Failed entire batch.");
-                failures = item_keys;
+                failures = product_keys;
             }
         }
         failures
@@ -72,7 +72,7 @@ pub async fn handler(
     let sqs_batch_response = SqsBatchResponse {
         batch_item_failures: failed_message_ids
             .into_iter()
-            .map(|item_identifier| BatchItemFailure { item_identifier })
+            .map(|product_identifier| BatchItemFailure { item_identifier })
             .collect(),
     };
     Ok(sqs_batch_response)
@@ -121,7 +121,7 @@ mod tests {
     use common::product_id::ProductKey;
     use fake::{Fake, Faker};
     use lambda_runtime::{Context, LambdaEvent};
-    use product::core::product_event::{ItemCreatedEventPayload, ProductEventPayload};
+    use product::core::product_event::{ProductCreatedEventPayload, ProductEventPayload};
     use product::dynamodb::product_event_record::ProductEventRecord;
     use product::dynamodb::repository::MockProductDynamoDbRepository;
     use std::collections::HashMap;
@@ -288,7 +288,7 @@ mod tests {
             .unwrap()
             .batch_item_failures
             .into_iter()
-            .map(|failure| failure.item_identifier)
+            .map(|failure| failure.product_identifier)
             .collect::<Vec<_>>();
         actual_failed_message_ids.sort();
         let mut expected_failed_message_ids = failed_keys
@@ -381,7 +381,7 @@ mod tests {
             .unwrap()
             .batch_item_failures
             .into_iter()
-            .map(|failure| failure.item_identifier)
+            .map(|failure| failure.product_identifier)
             .collect::<Vec<_>>();
         actual_failed_message_ids.sort();
         let mut expected_failed_message_ids = expected_failures

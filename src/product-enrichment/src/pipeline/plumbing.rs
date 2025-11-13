@@ -1,6 +1,6 @@
 use crate::pipeline::{
     faucet::{EnrichmentPipeFaucet, MessageRef},
-    pipe::{EnrichmentPipe, PipeItem},
+    pipe::{EnrichmentPipe, PipeProduct},
     sink::EnrichmentPipeSink,
 };
 use aws_sdk_sqs::types::DeleteMessageBatchRequestEntry;
@@ -40,7 +40,7 @@ impl EnrichmentPlumbing for EnrichmentPlumbingImpl {
         info!(count = count, "Started plumbing.");
 
         // find water
-        let (pipe_items, message_refs): (Vec<PipeItem>, Vec<MessageRef>) =
+        let (pipe_items, message_refs): (Vec<PipeProduct>, Vec<MessageRef>) =
             self.faucet.pour(count).await.into_iter().unzip();
         let mut message_refs = message_refs
             .into_iter()
@@ -48,7 +48,7 @@ impl EnrichmentPlumbing for EnrichmentPlumbingImpl {
             .collect::<HashMap<_, _>>();
 
         // run water through pipes
-        let (enriched_items, mut failed_items) =
+        let (enriched_products, mut failed_items) =
             self.pipes
                 .iter()
                 .fold((pipe_items, HashSet::new()), |(pipe_in, leak_in), pipe| {
@@ -61,7 +61,7 @@ impl EnrichmentPlumbing for EnrichmentPlumbingImpl {
                 });
 
         // route water to sink
-        let (drain_documents, drain_records) = enriched_items.into_iter().fold(
+        let (drain_documents, drain_records) = enriched_products.into_iter().fold(
             (HashMap::new(), HashMap::new()),
             |(mut drain_documents, mut drain_records), pipe_item| {
                 if let Some(document_update) = pipe_item.update.document {
@@ -216,7 +216,7 @@ impl EnrichmentPlumbingImpl {
 mod tests {
     use crate::pipeline::{
         faucet::{MessageRef, MockEnrichmentPipeFaucet},
-        pipe::{EnrichmentPipe, MockEnrichmentPipe, PipeItem, PipeResult},
+        pipe::{EnrichmentPipe, MockEnrichmentPipe, PipeProduct, PipeResult},
         plumbing::{EnrichmentPlumbing, EnrichmentPlumbingImpl},
         sink::MockEnrichmentPipeSink,
     };

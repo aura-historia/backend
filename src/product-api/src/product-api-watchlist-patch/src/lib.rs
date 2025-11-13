@@ -18,13 +18,13 @@ use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
-pub struct WatchlistItemPatch {
+pub struct WatchlistProductPatch {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub notifications: Option<bool>,
 }
 
-impl From<WatchlistItemPatch> for UpdateWatchlistProductCommand {
-    fn from(patch: WatchlistItemPatch) -> Self {
+impl From<WatchlistProductPatch> for UpdateWatchlistProductCommand {
+    fn from(patch: WatchlistProductPatch) -> Self {
         UpdateWatchlistProductCommand {
             notifications: patch.notifications,
         }
@@ -74,24 +74,24 @@ pub async fn handle(
             let err_msg = "Body cannot be empty";
             ApiError::bad_request(BAD_BODY_VALUE, err_msg.into()).with_message(err_msg)
         })?;
-    let patch: WatchlistItemPatch = serde_json::from_str(&body).map_err(|err| {
+    let patch: WatchlistProductPatch = serde_json::from_str(&body).map_err(|err| {
         let err_msg = err.to_string();
         ApiError::bad_request(BAD_BODY_VALUE, Box::new(err)).with_message(err_msg)
     })?;
 
-    let watchlist_item = service
-        .update_watchlist_item(&user_id, &shop_id, &shops_product_id, patch.into())
+    let watchlist_product = service
+        .update_watchlist_product(&user_id, &shop_id, &shops_product_id, patch.into())
         .await?;
 
     Ok(ApiGatewayV2HttpResponseBuilder::json(200)
-        .last_modified(watchlist_item.updated)
-        .body_serde(WatchlistProductData::from(watchlist_item))?
+        .last_modified(watchlist_product.updated)
+        .body_serde(WatchlistProductData::from(watchlist_product))?
         .build())
 }
 
 #[cfg(test)]
 mod tests {
-    use crate::{WatchlistItemPatch, handler};
+    use crate::{WatchlistProductPatch, handler};
     use common::{shop_id::ShopId, shops_product_id::ShopsProductId, user_id::UserId};
     use fake::{Fake, Faker};
     use lambda_runtime::LambdaEvent;
@@ -103,7 +103,7 @@ mod tests {
     async fn should_200_when_success() {
         let mut service = MockProductWatchListService::default();
         service
-            .expect_update_watchlist_item()
+            .expect_update_watchlist_product()
             .return_once(|_, _, _, _| Box::pin(async { Ok(Faker.fake()) }));
 
         let lambda_event = LambdaEvent {
@@ -115,7 +115,7 @@ mod tests {
                     "created",
                     OffsetDateTime::now_utc().format(&Rfc3339).unwrap(),
                 )
-                .body_serde(&WatchlistItemPatch {
+                .body_serde(&WatchlistProductPatch {
                     notifications: Some(true),
                 })
                 .jwt_claim("sub", UserId::new())
@@ -131,7 +131,7 @@ mod tests {
     #[tokio::test]
     async fn should_400_when_shop_id_missing() {
         let mut service = MockProductWatchListService::default();
-        service.expect_delete_watchlist_item().never();
+        service.expect_delete_watchlist_product().never();
 
         let lambda_event = LambdaEvent {
             payload: ApiGatewayV2httpRequestProxy::builder()
@@ -141,7 +141,7 @@ mod tests {
                     "created",
                     OffsetDateTime::now_utc().format(&Rfc3339).unwrap(),
                 )
-                .body_serde(&WatchlistItemPatch {
+                .body_serde(&WatchlistProductPatch {
                     notifications: Faker.fake(),
                 })
                 .jwt_claim("sub", UserId::new())
@@ -159,9 +159,9 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn should_400_when_shops_item_id_missing() {
+    async fn should_400_when_shops_product_id_missing() {
         let mut service = MockProductWatchListService::default();
-        service.expect_delete_watchlist_item().never();
+        service.expect_delete_watchlist_product().never();
 
         let lambda_event = LambdaEvent {
             payload: ApiGatewayV2httpRequestProxy::builder()
@@ -171,7 +171,7 @@ mod tests {
                     "created",
                     OffsetDateTime::now_utc().format(&Rfc3339).unwrap(),
                 )
-                .body_serde(&WatchlistItemPatch {
+                .body_serde(&WatchlistProductPatch {
                     notifications: Faker.fake(),
                 })
                 .jwt_claim("sub", UserId::new())
@@ -191,7 +191,7 @@ mod tests {
     #[tokio::test]
     async fn should_400_when_body_missing() {
         let mut service = MockProductWatchListService::default();
-        service.expect_delete_watchlist_item().never();
+        service.expect_delete_watchlist_product().never();
 
         let lambda_event = LambdaEvent {
             payload: ApiGatewayV2httpRequestProxy::builder()
@@ -217,7 +217,7 @@ mod tests {
     #[tokio::test]
     async fn should_400_when_body_invalid() {
         let mut service = MockProductWatchListService::default();
-        service.expect_delete_watchlist_item().never();
+        service.expect_delete_watchlist_product().never();
 
         let lambda_event = LambdaEvent {
             payload: ApiGatewayV2httpRequestProxy::builder()
@@ -244,7 +244,7 @@ mod tests {
     #[tokio::test]
     async fn should_401_when_sub_missing() {
         let mut service = MockProductWatchListService::default();
-        service.expect_delete_watchlist_item().never();
+        service.expect_delete_watchlist_product().never();
 
         let lambda_event = LambdaEvent {
             payload: ApiGatewayV2httpRequestProxy::builder()
@@ -255,7 +255,7 @@ mod tests {
                     "created",
                     OffsetDateTime::now_utc().format(&Rfc3339).unwrap(),
                 )
-                .body_serde(&WatchlistItemPatch {
+                .body_serde(&WatchlistProductPatch {
                     notifications: Faker.fake(),
                 })
                 .build(),

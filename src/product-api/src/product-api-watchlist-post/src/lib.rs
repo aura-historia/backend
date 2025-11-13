@@ -49,16 +49,16 @@ pub async fn handle(
             let err_msg = "Body cannot be empty";
             ApiError::bad_request(BAD_BODY_VALUE, err_msg.into()).with_message(err_msg)
         })?;
-    let item_key_data: ProductKeyData = serde_json::from_str(&body).map_err(|err| {
+    let product_key_data: ProductKeyData = serde_json::from_str(&body).map_err(|err| {
         let err_msg = err.to_string();
         ApiError::bad_request(BAD_BODY_VALUE, Box::new(err)).with_message(err_msg)
     })?;
 
-    let watchlist_item = service
-        .create_watchlist_item(
+    let watchlist_product = service
+        .create_watchlist_product(
             &user_id,
-            &item_key_data.shop_id,
-            &item_key_data.shops_product_id,
+            &product_key_data.shop_id,
+            &product_key_data.shops_product_id,
         )
         .await?;
 
@@ -67,7 +67,7 @@ pub async fn handle(
         Some(domain_name) => match event.payload.request_context.stage {
             Some(stage_name) => Some(format!(
                 "https://{domain_name}/{stage_name}/api/v1/me/watchlist/{}/{}",
-                item_key_data.shop_id, item_key_data.shops_product_id
+                product_key_data.shop_id, product_key_data.shops_product_id
             )),
             None => None,
         },
@@ -75,7 +75,7 @@ pub async fn handle(
 
     Ok(ApiGatewayV2HttpResponseBuilder::json(201)
         .try_location(location.as_deref())
-        .body_serde(WatchlistProductData::from(watchlist_item))?
+        .body_serde(WatchlistProductData::from(watchlist_product))?
         .build())
 }
 
@@ -93,14 +93,14 @@ mod tests {
     async fn should_201_when_success() {
         let mut service = MockProductWatchListService::default();
         service
-            .expect_create_watchlist_item()
+            .expect_create_watchlist_product()
             .return_once(|_, _, _| Box::pin(async { Ok(Faker.fake()) }));
 
-        let item_key_data = Faker.fake::<ProductKeyData>();
+        let product_key_data = Faker.fake::<ProductKeyData>();
         let lambda_event = LambdaEvent {
             payload: ApiGatewayV2httpRequestProxy::builder()
                 .http_method(http::Method::POST)
-                .body_serde(&item_key_data)
+                .body_serde(&product_key_data)
                 .jwt_claim("sub", UserId::new())
                 .domain_name("my.domain.com")
                 .stage("prod")
@@ -114,7 +114,7 @@ mod tests {
         assert_eq!(
             format!(
                 "https://my.domain.com/prod/api/v1/me/watchlist/{}/{}",
-                item_key_data.shop_id, item_key_data.shops_product_id
+                product_key_data.shop_id, product_key_data.shops_product_id
             ),
             response.headers.get(LOCATION).unwrap().to_str().unwrap()
         )
@@ -123,7 +123,7 @@ mod tests {
     #[tokio::test]
     async fn should_401_when_sub_missing() {
         let mut service = MockProductWatchListService::default();
-        service.expect_create_watchlist_item().never();
+        service.expect_create_watchlist_product().never();
 
         let lambda_event = LambdaEvent {
             payload: ApiGatewayV2httpRequestProxy::builder()

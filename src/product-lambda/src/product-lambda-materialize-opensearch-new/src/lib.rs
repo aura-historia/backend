@@ -23,13 +23,13 @@ pub async fn handler(
     let mut message_ids: HashMap<ProductId, String> = HashMap::with_capacity(records_count);
 
     for message in event.payload.records {
-        if let Some(item_document) = extract_message_data(
+        if let Some(product_document) = extract_message_data(
             message,
             &mut failed_message_ids,
             &mut skipped_count,
             &mut message_ids,
         ) {
-            materialized_documents.push(item_document);
+            materialized_documents.push(product_document);
         }
     }
 
@@ -54,7 +54,7 @@ pub async fn handler(
     let sqs_batch_response = SqsBatchResponse {
         batch_item_failures: failed_message_ids
             .into_iter()
-            .map(|item_identifier| BatchItemFailure { item_identifier })
+            .map(|product_identifier| BatchItemFailure { item_identifier })
             .collect(),
     };
     Ok(sqs_batch_response)
@@ -99,7 +99,7 @@ fn handle_bulk_response(
         let failures = response
             .items
             .into_iter()
-            .filter_map(|bulk_item_result| match bulk_item_result {
+            .filter_map(|bulk_product_result| match bulk_product_result {
                 BulkItemResult::Create { create } => Some(create),
                 other => {
                     error!(actual = ?other, "Expected BulkItemResult::Create.");
@@ -111,7 +111,7 @@ fn handle_bulk_response(
         for failure in failures {
             warn!(
                 index = failure.index,
-                itemId = failure.id,
+                productId = failure.id,
                 status = failure.status,
                 error = ?failure.error,
                 "Failed creating item in OpenSearch."
@@ -124,7 +124,7 @@ fn handle_bulk_response(
                     None => {
                         error!(
                             index = failure.index,
-                            itemId = failure.id,
+                            productId = failure.id,
                             "Failed re-mapping item-id to message-id. Cannot retry."
                         );
                     }
@@ -132,7 +132,7 @@ fn handle_bulk_response(
                 Err(err) => {
                     error!(
                         index = failure.index,
-                        itemId = failure.id,
+                        productId = failure.id,
                         error = %err,
                         payload = ?failure,
                         "Failed parsing '_id' from OpenSearch-Response as 'ProductId'. Cannot retry."
@@ -156,7 +156,7 @@ mod tests {
     use fake::Fake;
     use fake::Faker;
     use lambda_runtime::LambdaEvent;
-    use product::core::product_event::{ItemCreatedEventPayload, ProductEventPayload};
+    use product::core::product_event::{ProductCreatedEventPayload, ProductEventPayload};
     use product::dynamodb::product_event_record::ProductEventRecord;
     use product::opensearch::repository::MockProductOpenSearchRepository;
     use std::collections::HashMap;
@@ -321,8 +321,8 @@ mod tests {
             .return_once(move |batch| {
                 let failures: Vec<_> = batch
                     .iter()
-                    .filter(|&item_document| {
-                        expected_failures_clone.contains(&item_document.product_id)
+                    .filter(|&product_document| {
+                        expected_failures_clone.contains(&product_document.product_id)
                     })
                     .cloned()
                     .map(|unprocessed_doc| {
@@ -348,8 +348,8 @@ mod tests {
 
                 let successes: Vec<_> = batch
                     .into_iter()
-                    .filter(|item_document| {
-                        !expected_failures_clone.contains(&item_document.product_id)
+                    .filter(|product_document| {
+                        !expected_failures_clone.contains(&product_document.product_id)
                     })
                     .map(|unprocessed_doc| {
                         let index: String = Faker.fake();
@@ -377,7 +377,7 @@ mod tests {
             .unwrap()
             .batch_item_failures
             .into_iter()
-            .map(|failure| failure.item_identifier)
+            .map(|failure| failure.product_identifier)
             .collect::<Vec<_>>();
         actual_failed_message_ids.sort();
         let mut expected_failed_message_ids = expected_failures

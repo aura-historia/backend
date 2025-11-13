@@ -3,7 +3,7 @@ use aws_lambda_events::{
     eventbridge::EventBridgeEvent,
 };
 use common::{event::Event, event_id::EventId, product_id::ProductId};
-use product::core::product_event::{ItemCreatedEventPayload, ProductEventPayload};
+use product::core::product_event::{ProductCreatedEventPayload, ProductEventPayload};
 use product::dynamodb::{
     product_event_record::ProductEventRecord,
     repository::{ProductDynamoDbRepository, ProductDynamoDbRepositoryImpl},
@@ -74,8 +74,8 @@ async fn should_plumb_messages(#[case] queue_count: usize, #[case] plumbing_coun
     let enrichment_queue_url = ENRICHMENT_QUEUE.queue_url();
     let sqs_client = Arc::new(get_sqs_client().await.clone());
     let dynamodb_client = get_dynamodb_client().await;
-    let item_dynamodb_repository = ProductDynamoDbRepositoryImpl::new(dynamodb_client, "table_1");
-    let item_opensearch_repository =
+    let product_dynamodb_repository = ProductDynamoDbRepositoryImpl::new(dynamodb_client, "table_1");
+    let product_opensearch_repository =
         ProductOpenSearchRepositoryImpl::new(get_opensearch_client().await);
 
     let event_records = fake::vec![ItemCreatedEventPayload; queue_count]
@@ -99,12 +99,12 @@ async fn should_plumb_messages(#[case] queue_count: usize, #[case] plumbing_coun
             .unwrap();
 
         // Simulate existing materialized views
-        let ddb_put_res = item_dynamodb_repository
+        let ddb_put_res = product_dynamodb_repository
             .put_product_records([event_record.clone().try_into().unwrap()].into())
             .await
             .unwrap();
         assert!(ddb_put_res.unprocessed_items.unwrap_or_default().is_empty());
-        let os_create_res = item_opensearch_repository
+        let os_create_res = product_opensearch_repository
             .create_product_documents(vec![event_record.clone().try_into().unwrap()])
             .await
             .unwrap();
@@ -117,8 +117,8 @@ async fn should_plumb_messages(#[case] queue_count: usize, #[case] plumbing_coun
     let embedding_pipe = EmbeddingEnrichmentPipeImpl::new(Arc::new(embedding_delegate));
     let pipes: Vec<Box<dyn EnrichmentPipe + Send + Sync>> = vec![Box::new(embedding_pipe)];
     let sink = EnrichmentPipeSinkImpl::new(
-        Arc::new(item_dynamodb_repository),
-        Arc::new(item_opensearch_repository),
+        Arc::new(product_dynamodb_repository),
+        Arc::new(product_opensearch_repository),
     );
 
     let plumbing = EnrichmentPlumbingImpl::new(

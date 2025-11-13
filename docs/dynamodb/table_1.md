@@ -10,7 +10,7 @@
 
 #### Item
 
-- PK is composite of `ShopId` and `ShopsItemId`
+- PK is composite of `ShopId` and `ShopsProductId`
 - Primary event-store - via timestamp in SK
 - Contains a materialized view with extra SK
 
@@ -27,7 +27,7 @@
 
 - PK is `UserId` (Cognito-Sub)
 - SK
-  - Composite of `ShopId` and `ShopsItemId` for items on users watchlist
+  - Composite of `ShopId` and `ShopsProductId` for items on users watchlist
   - `SearchFilterId` for saved search-filters
   - Constant `details` for user-data (Cognito only acts as IDP)
 
@@ -51,7 +51,7 @@
 - PK is `gsi1_pk`
 - SK is `gsi1_sk`
 - User
-  - PK is `ItemId` 
+  - PK is `ProductId` 
   - SK is `UserId` 
   - Uses it to query all users that have notifications for an item on their watchlist activated
   - SK is sparse locally - it's only set if an item is on the users watchlist **and** notifications are activated

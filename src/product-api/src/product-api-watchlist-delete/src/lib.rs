@@ -44,7 +44,7 @@ pub async fn handle(
     let shops_product_id = extract_shops_product_id_path(&event.payload.path_parameters)?;
 
     let () = service
-        .delete_watchlist_item(&user_id, &shop_id, &shops_product_id)
+        .delete_watchlist_product(&user_id, &shop_id, &shops_product_id)
         .await?;
 
     Ok(ApiGatewayV2HttpResponseBuilder::json(204).build())
@@ -63,7 +63,7 @@ mod tests {
     async fn should_204_when_success() {
         let mut service = MockProductWatchListService::default();
         service
-            .expect_delete_watchlist_item()
+            .expect_delete_watchlist_product()
             .return_once(|_, _, _| Box::pin(async { Ok(()) }));
 
         let lambda_event = LambdaEvent {
@@ -88,7 +88,7 @@ mod tests {
     #[tokio::test]
     async fn should_400_when_shop_id_missing() {
         let mut service = MockProductWatchListService::default();
-        service.expect_delete_watchlist_item().never();
+        service.expect_delete_watchlist_product().never();
 
         let lambda_event = LambdaEvent {
             payload: ApiGatewayV2httpRequestProxy::builder()
@@ -113,9 +113,9 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn should_400_when_shops_item_id_missing() {
+    async fn should_400_when_shops_product_id_missing() {
         let mut service = MockProductWatchListService::default();
-        service.expect_delete_watchlist_item().never();
+        service.expect_delete_watchlist_product().never();
 
         let lambda_event = LambdaEvent {
             payload: ApiGatewayV2httpRequestProxy::builder()
@@ -142,7 +142,7 @@ mod tests {
     #[tokio::test]
     async fn should_401_when_sub_missing() {
         let mut service = MockProductWatchListService::default();
-        service.expect_delete_watchlist_item().never();
+        service.expect_delete_watchlist_product().never();
 
         let lambda_event = LambdaEvent {
             payload: ApiGatewayV2httpRequestProxy::builder()

@@ -5,9 +5,9 @@ use smoking_tests::smoking_test;
 use uuid::Uuid;
 
 #[smoking_test]
-async fn should_respond_404_for_get_item_when_not_exists() {
+async fn should_respond_404_for_get_product_when_not_exists() {
     let response = reqwest::get(format!(
-        "{}/api/v1/items/{}/{}",
+        "{}/api/v1/products/{}/{}",
         get_cfn_output().api_gateway_endpoint_url,
         Uuid::new_v4(),
         Uuid::new_v4()
@@ -25,7 +25,7 @@ async fn should_respond_404_for_get_item_when_not_exists() {
 async fn should_respond_200_for_search_items() {
     let response = reqwest::Client::new()
         .post(format!(
-            "{}/api/v1/items/search?sort=price&order=asc&from=0&size=5",
+            "{}/api/v1/products/search?sort=price&order=asc&from=0&size=5",
             get_cfn_output().api_gateway_endpoint_url
         ))
         .json(&Faker.fake::<ProductSearchData>())

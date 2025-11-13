@@ -21,7 +21,7 @@ async fn get_repository() -> ProductDynamoDbRepositoryImpl<'static> {
 }
 
 #[localstack_test(services = [DynamoDB()])]
-async fn should_put_item_records_for_single_record() {
+async fn should_put_product_records_for_single_record() {
     let now = OffsetDateTime::now_utc();
     let shop_id = ShopId::new();
     let shops_product_id: ShopsProductId = "123465".into();
@@ -73,17 +73,17 @@ async fn should_put_item_records_for_single_record() {
 }
 
 #[localstack_test(services = [DynamoDB()])]
-async fn should_put_item_records_for_multiple_records() {
+async fn should_put_product_records_for_multiple_records() {
     let now1 = OffsetDateTime::now_utc();
     let shop_id = ShopId::new();
-    let shops_item_id_1: ShopsProductId = "123465".into();
+    let shops_product_id_1: ShopsProductId = "123465".into();
     let expected1 = ProductRecord {
-        pk: format!("product#shop_id#{shop_id}#shops_product_id#{shops_item_id_1}"),
+        pk: format!("product#shop_id#{shop_id}#shops_product_id#{shops_product_id_1}"),
         sk: "product#materialized".to_string(),
         product_id: ProductId::new(),
         event_id: EventId::new(),
         shop_id,
-        shops_product_id: shops_item_id_1.clone(),
+        shops_product_id: shops_product_id_1.clone(),
         shop_name: "Foo".to_string(),
         title_native: TextRecord::new("Bar", LanguageRecord::De),
         title_de: Some("Bar".to_string()),
@@ -107,15 +107,15 @@ async fn should_put_item_records_for_multiple_records() {
         created: now1,
         updated: now1,
     };
-    let shops_item_id_2: ShopsProductId = "abcdefg".into();
+    let shops_product_id_2: ShopsProductId = "abcdefg".into();
     let now2 = OffsetDateTime::now_utc();
     let expected2 = ProductRecord {
-        pk: format!("product#shop_id#{shop_id}#shops_product_id#{shops_item_id_2}"),
+        pk: format!("product#shop_id#{shop_id}#shops_product_id#{shops_product_id_2}"),
         sk: "product#materialized".to_string(),
         product_id: ProductId::new(),
         event_id: EventId::new(),
         shop_id,
-        shops_product_id: shops_item_id_2.clone(),
+        shops_product_id: shops_product_id_2.clone(),
         shop_name: "Foo".to_string(),
         title_native: TextRecord::new("Bar", LanguageRecord::De),
         title_de: Some("Bar".to_string()),
@@ -148,13 +148,13 @@ async fn should_put_item_records_for_multiple_records() {
 
     let actual1 = get_repository()
         .await
-        .get_product_record(&shop_id, &shops_item_id_1)
+        .get_product_record(&shop_id, &shops_product_id_1)
         .await
         .unwrap()
         .unwrap();
     let actual2 = get_repository()
         .await
-        .get_product_record(&shop_id, &shops_item_id_2)
+        .get_product_record(&shop_id, &shops_product_id_2)
         .await
         .unwrap()
         .unwrap();
@@ -164,7 +164,7 @@ async fn should_put_item_records_for_multiple_records() {
 }
 
 #[localstack_test(services = [DynamoDB()])]
-async fn should_put_item_event_records_for_single_record() {
+async fn should_put_product_event_records_for_single_record() {
     let now = OffsetDateTime::now_utc();
     let shop_id = ShopId::new();
     let shops_product_id: ShopsProductId = "123465".into();
@@ -233,23 +233,23 @@ async fn should_put_item_event_records_for_single_record() {
 }
 
 #[localstack_test(services = [DynamoDB()])]
-async fn should_put_item_event_records_for_multiple_records() {
+async fn should_put_product_event_records_for_multiple_records() {
     let shop_id = ShopId::new();
     let now1 = OffsetDateTime::now_utc();
-    let shops_item_id1: ShopsProductId = "123465".into();
+    let shops_product_id1: ShopsProductId = "123465".into();
     let price = Some(PriceRecord {
         amount: 110,
         currency: CurrencyRecord::Eur,
     });
     let expected1 = ProductEventRecord {
-        pk: product_event_record::mk_pk(&shop_id, &shops_item_id1),
+        pk: product_event_record::mk_pk(&shop_id, &shops_product_id1),
         sk: product_event_record::mk_sk(&now1).unwrap(),
         product_id: ProductId::new(),
         event_id: EventId::new(),
         event_type: ProductEventTypeRecord::Created,
         event_type_schema_version: 0,
         shop_id,
-        shops_product_id: shops_item_id1.clone(),
+        shops_product_id: shops_product_id1.clone(),
         shop_name: Some("Foo".to_string()),
         title_native: Some(TextRecord::new("Bar", LanguageRecord::De)),
         title_de: Some("Bar".to_string()),
@@ -279,16 +279,16 @@ async fn should_put_item_event_records_for_multiple_records() {
     };
 
     let now2 = OffsetDateTime::now_utc();
-    let shops_item_id2: ShopsProductId = "123465".into();
+    let shops_product_id2: ShopsProductId = "123465".into();
     let expected2 = ProductEventRecord {
-        pk: product_event_record::mk_pk(&shop_id, &shops_item_id2),
+        pk: product_event_record::mk_pk(&shop_id, &shops_product_id2),
         sk: product_event_record::mk_sk(&now2).unwrap(),
         product_id: ProductId::new(),
         event_id: EventId::new(),
         event_type: ProductEventTypeRecord::Created,
         event_type_schema_version: 0,
         shop_id,
-        shops_product_id: shops_item_id2.clone(),
+        shops_product_id: shops_product_id2.clone(),
         shop_name: Some("Foo".to_string()),
         title_native: Some(TextRecord::new("Bar", LanguageRecord::De)),
         title_de: Some("Bar".to_string()),
@@ -341,7 +341,7 @@ async fn should_put_item_event_records_for_multiple_records() {
 }
 
 #[localstack_test(services = [DynamoDB()])]
-async fn should_update_item_record() {
+async fn should_update_product_record() {
     let now = OffsetDateTime::now_utc();
     let shop_id = ShopId::new();
     let shops_product_id: ShopsProductId = "123465".into();

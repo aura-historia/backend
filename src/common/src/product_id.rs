@@ -126,9 +126,9 @@ impl TryFrom<&str> for ProductId {
 mod tests {
     #[rstest::rstest]
     #[case::differing(uuid::Uuid::new_v4().to_string(), "123456")]
-    #[case::item_containing_separator(uuid::Uuid::new_v4().to_string(), "1874874#489746152")]
-    #[case::item_containing_separator(uuid::Uuid::new_v4().to_string(), "1874874#489746152#49874651#845")]
-    fn should_display_item_key(#[case] shop_id: String, #[case] shops_product_id: &str) {
+    #[case::product_containing_separator(uuid::Uuid::new_v4().to_string(), "1874874#489746152")]
+    #[case::product_containing_separator(uuid::Uuid::new_v4().to_string(), "1874874#489746152#49874651#845")]
+    fn should_display_product_key(#[case] shop_id: String, #[case] shops_product_id: &str) {
         use crate::product_id::ProductKey;
 
         let expected = format!("shop_id#{shop_id}#shops_product_id#{shops_product_id}");
@@ -144,9 +144,9 @@ mod tests {
 
     #[rstest::rstest]
     #[case::differing(uuid::Uuid::new_v4().to_string(), "123456")]
-    #[case::item_containing_separator(uuid::Uuid::new_v4().to_string(), "1874874#489746152")]
-    #[case::item_containing_separator(uuid::Uuid::new_v4().to_string(), "1874874#489746152#49874651#845")]
-    fn should_into_string_item_key(#[case] shop_id: String, #[case] shops_product_id: &str) {
+    #[case::product_containing_separator(uuid::Uuid::new_v4().to_string(), "1874874#489746152")]
+    #[case::product_containing_separator(uuid::Uuid::new_v4().to_string(), "1874874#489746152#49874651#845")]
+    fn should_into_string_product_key(#[case] shop_id: String, #[case] shops_product_id: &str) {
         use crate::product_id::ProductKey;
 
         let expected = format!("shop_id#{shop_id}#shops_product_id#{shops_product_id}");
@@ -162,9 +162,9 @@ mod tests {
 
     #[rstest::rstest]
     #[case::differing(uuid::Uuid::new_v4().to_string(), "123456")]
-    #[case::item_containing_separator(uuid::Uuid::new_v4().to_string(), "1874874#489746152")]
-    #[case::item_containing_separator(uuid::Uuid::new_v4().to_string(), "1874874#489746152#49874651#845")]
-    fn should_parse_item_key(#[case] shop_id: String, #[case] shops_product_id: &str) {
+    #[case::product_containing_separator(uuid::Uuid::new_v4().to_string(), "1874874#489746152")]
+    #[case::product_containing_separator(uuid::Uuid::new_v4().to_string(), "1874874#489746152#49874651#845")]
+    fn should_parse_product_key(#[case] shop_id: String, #[case] shops_product_id: &str) {
         use crate::product_id::ProductKey;
 
         let payload = format!("shop_id#{shop_id}#shops_product_id#{shops_product_id}");

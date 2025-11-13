@@ -85,7 +85,7 @@ pub async fn handle(
             extract_history_query(&event.payload.query_string_parameters)?,
         )
         .await?;
-    let personalized_item_data: PersonalizedData<GetProductData, ProductUserStateData> =
+    let personalized_product_data: PersonalizedData<GetProductData, ProductUserStateData> =
         match user_id_opt {
             None => PersonalizedData {
                 item: GetProductData::from(localized_product),
@@ -103,12 +103,12 @@ pub async fn handle(
                 .into(),
         };
 
-    let content_language = personalized_item_data.item.title.language;
+    let content_language = personalized_product_data.item.title.language;
     Ok(ApiGatewayV2HttpResponseBuilder::json(200)
         .content_language(content_language)
-        .e_tag(personalized_item_data.item.event_id.to_string().as_str())
-        .last_modified(personalized_item_data.item.updated)
-        .body_serde(personalized_item_data)?
+        .e_tag(personalized_product_data.item.event_id.to_string().as_str())
+        .last_modified(personalized_product_data.item.updated)
+        .body_serde(personalized_product_data)?
         .build())
 }
 
@@ -429,7 +429,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn should_400_when_path_param_shops_item_id_is_missing() {
+    async fn should_400_when_path_param_shops_product_id_is_missing() {
         let mut cognito_service = MockAccessTokenVerifierService::default();
         cognito_service
             .expect_verify_extract_user_id()
@@ -493,7 +493,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn should_404_when_item_does_not_exist() {
+    async fn should_404_when_product_does_not_exist() {
         let shop_id = ShopId::new();
         let shops_product_id = ShopsProductId::new();
         let lambda_event = LambdaEvent {

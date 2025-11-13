@@ -20,7 +20,7 @@ pub trait ProductPersonalizationService {
     async fn personalize_watchlist(
         &self,
         user_id: &UserId,
-        item: LocalizedProductView,
+        product: LocalizedProductView,
     ) -> Result<Personalized<LocalizedProductView, WatchlistUserState>, WatchProductError>;
 
     async fn personalize_all_watchlist(
@@ -30,11 +30,11 @@ pub trait ProductPersonalizationService {
     ) -> Result<Vec<Personalized<LocalizedProductView, WatchlistUserState>>, WatchProductError>;
 }
 
-pub struct ItemPersonalizationServiceImpl<'a> {
+pub struct ProductPersonalizationServiceImpl<'a> {
     watchlist_repository: &'a (dyn WatchlistProductDynamoDbRepository + Sync),
 }
 
-impl<'a> ItemPersonalizationServiceImpl<'a> {
+impl<'a> ProductPersonalizationServiceImpl<'a> {
     pub fn new(watchlist_repository: &'a (dyn WatchlistProductDynamoDbRepository + Sync)) -> Self {
         Self {
             watchlist_repository,
@@ -43,27 +43,27 @@ impl<'a> ItemPersonalizationServiceImpl<'a> {
 }
 
 #[async_trait::async_trait]
-impl<'a> ProductPersonalizationService for ItemPersonalizationServiceImpl<'a> {
+impl<'a> ProductPersonalizationService for ProductPersonalizationServiceImpl<'a> {
     async fn personalize_watchlist(
         &self,
         user_id: &UserId,
-        item: LocalizedProductView,
+        product: LocalizedProductView,
     ) -> Result<Personalized<LocalizedProductView, WatchlistUserState>, WatchProductError> {
         let watchlist_record = self
             .watchlist_repository
-            .get_watchlist_record(user_id, &item.shop_id, &item.shops_product_id)
+            .get_watchlist_record(user_id, &product.shop_id, &product.shops_product_id)
             .await?;
 
         let personalized = match watchlist_record {
             None => Personalized {
-                item,
+                item: product,
                 user_state: Some(WatchlistUserState {
                     watching: false,
                     notifications: false,
                 }),
             },
             Some(record) => Personalized {
-                item,
+                item: product,
                 user_state: Some(WatchlistUserState {
                     watching: true,
                     notifications: record.notifications,
@@ -76,7 +76,7 @@ impl<'a> ProductPersonalizationService for ItemPersonalizationServiceImpl<'a> {
     async fn personalize_all_watchlist(
         &self,
         user_id: &UserId,
-        items: Vec<LocalizedProductView>,
+        products: Vec<LocalizedProductView>,
     ) -> Result<Vec<Personalized<LocalizedProductView, WatchlistUserState>>, WatchProductError>
     {
         let watchlist_records = self
@@ -87,7 +87,7 @@ impl<'a> ProductPersonalizationService for ItemPersonalizationServiceImpl<'a> {
             .map(|watchlist_record| (watchlist_record.product_id, watchlist_record))
             .collect::<HashMap<_, _>>();
 
-        let personalized_items = items
+        let personalized_items = products
             .into_iter()
             .map(|item| {
                 let user_state = watchlist_records
@@ -116,7 +116,7 @@ mod tests {
     use crate::{
         core::product::LocalizedProductView,
         service::personalization_service::{
-            ItemPersonalizationServiceImpl, ProductPersonalizationService,
+            ProductPersonalizationServiceImpl, ProductPersonalizationService,
         },
         watchlist::dynamodb::{
             record::WatchlistProductRecord, repository::MockWatchlistProductDynamoDbRepository,
@@ -154,7 +154,7 @@ mod tests {
                 })
             });
 
-        let service = ItemPersonalizationServiceImpl::new(&watchlist_repository);
+        let service = ProductPersonalizationServiceImpl::new(&watchlist_repository);
 
         let mut input = Faker.fake::<LocalizedProductView>();
         input.product_id = product_id;
@@ -196,7 +196,7 @@ mod tests {
                 })
             });
 
-        let service = ItemPersonalizationServiceImpl::new(&watchlist_repository);
+        let service = ProductPersonalizationServiceImpl::new(&watchlist_repository);
 
         let mut input = Faker.fake::<LocalizedProductView>();
         input.product_id = product_id;
@@ -218,7 +218,7 @@ mod tests {
             .expect_get_watchlist_record()
             .return_once(move |_, _, _| Box::pin(async move { Ok(None) }));
 
-        let service = ItemPersonalizationServiceImpl::new(&watchlist_repository);
+        let service = ProductPersonalizationServiceImpl::new(&watchlist_repository);
 
         let mut input = Faker.fake::<LocalizedProductView>();
         input.product_id = product_id;
@@ -294,7 +294,7 @@ mod tests {
                 })
             });
 
-        let service = ItemPersonalizationServiceImpl::new(&watchlist_repository);
+        let service = ProductPersonalizationServiceImpl::new(&watchlist_repository);
 
         let mut watched_in1 = Faker.fake::<LocalizedProductView>();
         watched_in1.product_id = item1_id;

@@ -14,7 +14,7 @@ pub struct UserSearchFilterRecordUpdate {
     pub name: Option<UserSearchFilterName>,
 
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub item_query: Option<TextQuery>,
+    pub product_query: Option<TextQuery>,
 
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub shop_name_query: Option<TextQuery>,
@@ -62,7 +62,7 @@ mod fake {
         fn dummy_with_rng<R: fake::Rng + ?Sized>(config: &Faker, rng: &mut R) -> Self {
             UserSearchFilterRecordUpdate {
                 name: config.fake_with_rng(rng),
-                item_query: config.fake_with_rng(rng),
+                product_query: config.fake_with_rng(rng),
                 shop_name_query: config.fake_with_rng(rng),
                 price_query: config.fake_with_rng(rng),
                 state_query: config.fake_with_rng(rng),

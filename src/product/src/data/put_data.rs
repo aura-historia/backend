@@ -7,7 +7,7 @@ use url::Url;
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
-pub struct PutItemData {
+pub struct PutProductData {
     pub shops_product_id: ShopsProductId,
 
     pub title: LocalizedTextData,
@@ -33,10 +33,10 @@ mod faker {
     use common::{fake::url::ImageUrl, language::data::LanguageData};
     use fake::{Dummy, Fake, Faker, Rng};
 
-    impl Dummy<Faker> for PutItemData {
+    impl Dummy<Faker> for PutProductData {
         fn dummy_with_rng<R: Rng + ?Sized>(config: &Faker, rng: &mut R) -> Self {
             let image_count = rng.random_range(0..=7);
-            PutItemData {
+            PutProductData {
                 shops_product_id: config.fake_with_rng(rng),
                 title: LocalizedTextData {
                     text: config.fake_with_rng::<Title, R>(rng).into(),
@@ -74,19 +74,19 @@ mod faker {
 
     #[cfg(test)]
     mod tests {
-        use crate::data::put_data::PutItemData;
+        use crate::data::put_data::PutProductData;
         use fake::{Fake, Faker};
 
         #[test]
-        fn should_fake_put_item_data() {
-            let _ = Faker.fake::<PutItemData>();
+        fn should_fake_put_product_data() {
+            let _ = Faker.fake::<PutProductData>();
         }
     }
 }
 
 #[cfg(test)]
 mod tests {
-    use crate::data::{product_state_data::ProductStateData, put_data::PutItemData};
+    use crate::data::{product_state_data::ProductStateData, put_data::PutProductData};
     use common::{
         currency::data::CurrencyData,
         language::data::{LanguageData, LocalizedTextData},
@@ -97,7 +97,7 @@ mod tests {
     use url::Url;
 
     #[test]
-    fn should_deserialize_put_item_data() {
+    fn should_deserialize_put_product_data() {
         let shops_product_id = ShopsProductId::new();
         let json = json!({
             "shopsProductId": shops_product_id,
@@ -118,7 +118,7 @@ mod tests {
             "images": ["https://my-shop.de/item/images/1", "https://my-shop.de/item/images/2"],
         });
 
-        let expected = PutItemData {
+        let expected = PutProductData {
             shops_product_id: shops_product_id.clone(),
             title: LocalizedTextData::new("Mein titel", LanguageData::De),
             description: Some(LocalizedTextData::new("My description", LanguageData::En)),

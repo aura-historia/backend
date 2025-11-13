@@ -43,7 +43,7 @@ impl HasKey for UpsertProductCommand {
 }
 
 #[derive(Debug, Clone, PartialEq)]
-pub struct PipedItemCommand {
+pub struct PipedProductCommand {
     pub shop_id: Option<ShopId>,
     pub shops_product_id: ShopsProductId,
     pub shop_name: Option<ShopName>,
@@ -58,10 +58,10 @@ pub struct PipedItemCommand {
     pub images: Vec<Url>,
 }
 
-impl TryFrom<PipedItemCommand> for UpsertProductCommand {
+impl TryFrom<PipedProductCommand> for UpsertProductCommand {
     type Error = MissingRequiredField;
 
-    fn try_from(piped_cmd: PipedItemCommand) -> Result<Self, Self::Error> {
+    fn try_from(piped_cmd: PipedProductCommand) -> Result<Self, Self::Error> {
         let cmd = UpsertProductCommand {
             shop_id: piped_cmd.shop_id.ok_or(MissingRequiredField::from(
                 field!(shop_id@UpsertProductCommand),
@@ -128,7 +128,7 @@ mod faker {
         use fake::{Fake, Faker};
 
         #[test]
-        fn should_fake_create_item_command() {
+        fn should_fake_create_product_command() {
             let _ = Faker.fake::<UpsertProductCommand>();
         }
     }

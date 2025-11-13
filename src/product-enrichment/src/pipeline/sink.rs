@@ -26,18 +26,18 @@ pub trait EnrichmentPipeSink {
 }
 
 pub struct EnrichmentPipeSinkImpl {
-    item_dynamodb_repository: Arc<dyn ProductDynamoDbRepository + Send + Sync>,
-    item_opensearch_repository: Arc<dyn ProductOpenSearchRepository + Send + Sync>,
+    product_dynamodb_repository: Arc<dyn ProductDynamoDbRepository + Send + Sync>,
+    product_opensearch_repository: Arc<dyn ProductOpenSearchRepository + Send + Sync>,
 }
 
 impl EnrichmentPipeSinkImpl {
     pub fn new(
-        item_dynamodb_repository: Arc<dyn ProductDynamoDbRepository + Send + Sync>,
-        item_opensearch_repository: Arc<dyn ProductOpenSearchRepository + Send + Sync>,
+        product_dynamodb_repository: Arc<dyn ProductDynamoDbRepository + Send + Sync>,
+        product_opensearch_repository: Arc<dyn ProductOpenSearchRepository + Send + Sync>,
     ) -> Self {
         Self {
-            item_dynamodb_repository,
-            item_opensearch_repository,
+            product_dynamodb_repository,
+            product_opensearch_repository,
         }
     }
 }
@@ -53,9 +53,9 @@ impl EnrichmentPipeSink for EnrichmentPipeSinkImpl {
         }
 
         let count = documents.len();
-        let item_ids = documents.keys().copied().collect::<HashSet<_>>();
+        let product_ids = documents.keys().copied().collect::<HashSet<_>>();
         let res = self
-            .item_opensearch_repository
+            .product_opensearch_repository
             .update_product_documents(documents)
             .await;
 
@@ -63,15 +63,15 @@ impl EnrichmentPipeSink for EnrichmentPipeSinkImpl {
         let failures = match res {
             Err(err) => {
                 error!(error = %err, "Failed draining all ProductDocument-Updates for this sink.");
-                item_ids
+                product_ids
             }
             Ok(response) => {
                 if response.errors {
                     response.items.into_iter().map(|res| res.unwrap_update()).filter_map(|failure | {
-                        warn!(error = ?failure.error, status = failure.status, itemId = failure.id, "Failed updating ProductDocument.");
+                        warn!(error = ?failure.error, status = failure.status, productId = failure.id, "Failed updating ProductDocument.");
                         match ProductId::try_from(failure.id.as_str()) {
                             Err(err) => {
-                                error!(error = %err, itemId = failure.id, "Failed parsing returned '_id' from OpenSearch for 'ProductDocument' as 'ProductId'.
+                                error!(error = %err, productId = failure.id, "Failed parsing returned '_id' from OpenSearch for 'ProductDocument' as 'ProductId'.
                                     This is highly likely to be a bug. Cannot retry.");
                                 skipped += 1;
                                 None
@@ -104,11 +104,11 @@ impl EnrichmentPipeSink for EnrichmentPipeSinkImpl {
         let mut failures = HashSet::new();
         for (product_id, (product_key, record)) in records {
             let res = self
-                .item_dynamodb_repository
+                .product_dynamodb_repository
                 .update_product_record(&product_key.shop_id, &product_key.shops_product_id, record)
                 .await;
             if let Err(err) = res {
-                error!(error = ?err, itemId = %product_id, "Failed updating ProductRecord.");
+                error!(error = ?err, productId = %product_id, "Failed updating ProductRecord.");
                 failures.insert(product_id);
             }
         }
@@ -143,9 +143,9 @@ mod tests {
 
         #[tokio::test]
         async fn should_drain_documents_when_successful() {
-            let item_dynamodb_repository = MockProductDynamoDbRepository::default();
-            let mut item_opensearch_repository = MockProductOpenSearchRepository::default();
-            item_opensearch_repository
+            let product_dynamodb_repository = MockProductDynamoDbRepository::default();
+            let mut product_opensearch_repository = MockProductOpenSearchRepository::default();
+            product_opensearch_repository
                 .expect_update_product_documents()
                 .return_once(|_| {
                     Box::pin(async {
@@ -158,8 +158,8 @@ mod tests {
                 });
 
             let sink = EnrichmentPipeSinkImpl::new(
-                Arc::new(item_dynamodb_repository),
-                Arc::new(item_opensearch_repository),
+                Arc::new(product_dynamodb_repository),
+                Arc::new(product_opensearch_repository),
             );
             let actual = sink.drain_documents(Faker.fake()).await;
 
@@ -181,9 +181,9 @@ mod tests {
         #[case(1000)]
         #[tokio::test]
         async fn should_return_partial_failures(#[case] failure_count: usize) {
-            let item_dynamodb_repository = MockProductDynamoDbRepository::default();
-            let mut item_opensearch_repository = MockProductOpenSearchRepository::default();
-            item_opensearch_repository
+            let product_dynamodb_repository = MockProductDynamoDbRepository::default();
+            let mut product_opensearch_repository = MockProductOpenSearchRepository::default();
+            product_opensearch_repository
                 .expect_update_product_documents()
                 .return_once(move |documents| {
                     Box::pin(async move {
@@ -208,8 +208,8 @@ mod tests {
                 });
 
             let sink = EnrichmentPipeSinkImpl::new(
-                Arc::new(item_dynamodb_repository),
-                Arc::new(item_opensearch_repository),
+                Arc::new(product_dynamodb_repository),
+                Arc::new(product_opensearch_repository),
             );
             let input = fake::vec![(ProductId, ProductUpdateDocument); 1000]
                 .into_iter()
@@ -241,15 +241,15 @@ mod tests {
 
         #[tokio::test]
         async fn should_drain_records_when_successful() {
-            let item_opensearch_repository = MockProductOpenSearchRepository::default();
-            let mut item_dynamodb_repository = MockProductDynamoDbRepository::default();
-            item_dynamodb_repository
+            let product_opensearch_repository = MockProductOpenSearchRepository::default();
+            let mut product_dynamodb_repository = MockProductDynamoDbRepository::default();
+            product_dynamodb_repository
                 .expect_update_product_record()
                 .returning(|_, _, _| Box::pin(async { Ok(UpdateItemOutput::builder().build()) }));
 
             let sink = EnrichmentPipeSinkImpl::new(
-                Arc::new(item_dynamodb_repository),
-                Arc::new(item_opensearch_repository),
+                Arc::new(product_dynamodb_repository),
+                Arc::new(product_opensearch_repository),
             );
             let actual = sink.drain_records(Faker.fake()).await;
 
@@ -271,18 +271,18 @@ mod tests {
         #[case(1000)]
         #[tokio::test]
         async fn should_return_partial_failures(#[case] failure_count: usize) {
-            let item_opensearch_repository = MockProductOpenSearchRepository::default();
-            let mut item_dynamodb_repository = MockProductDynamoDbRepository::default();
+            let product_opensearch_repository = MockProductOpenSearchRepository::default();
+            let mut product_dynamodb_repository = MockProductDynamoDbRepository::default();
 
-            item_dynamodb_repository
+            product_dynamodb_repository
                 .expect_update_product_record()
                 .returning(|_, _, _| {
                     Box::pin(async { Err(SdkError::construction_failure("Something went wrong")) })
                 });
 
             let sink = EnrichmentPipeSinkImpl::new(
-                Arc::new(item_dynamodb_repository),
-                Arc::new(item_opensearch_repository),
+                Arc::new(product_dynamodb_repository),
+                Arc::new(product_opensearch_repository),
             );
             let input = fake::vec![(ProductId, (ProductKey, ProductRecordUpdate)); failure_count]
                 .into_iter()

@@ -21,7 +21,7 @@ pub struct UserSearchFilterRecord {
     pub user_id: UserId,
     pub user_search_filter_id: UserSearchFilterId,
     pub name: UserSearchFilterName,
-    pub item_query: TextQuery,
+    pub product_query: TextQuery,
 
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub shop_name_query: Option<TextQuery>,
@@ -74,7 +74,7 @@ impl From<UserSearchFilterRecord> for UserSearchFilter {
             search: ProductSearch {
                 language: record.language.into(),
                 currency: record.currency.into(),
-                product_query: record.item_query,
+                product_query: record.product_query,
                 shop_name_query: record.shop_name_query,
                 price_query: record
                     .price_query
@@ -101,7 +101,7 @@ impl From<UserSearchFilter> for UserSearchFilterRecord {
             user_id: user_search_filter.user_id,
             user_search_filter_id: user_search_filter.user_search_filter_id,
             name: user_search_filter.name,
-            item_query: user_search_filter.search.product_query,
+            product_query: user_search_filter.search.product_query,
             shop_name_query: user_search_filter.search.shop_name_query,
             price_query: user_search_filter
                 .search
@@ -140,7 +140,7 @@ mod fake {
                 user_id,
                 user_search_filter_id: search_filter_id,
                 name: config.fake_with_rng(rng),
-                item_query: config.fake_with_rng(rng),
+                product_query: config.fake_with_rng(rng),
                 shop_name_query: config.fake_with_rng(rng),
                 price_query: config.fake_with_rng(rng),
                 state_query: config.fake_with_rng(rng),

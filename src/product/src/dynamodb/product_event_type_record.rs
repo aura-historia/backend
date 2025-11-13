@@ -52,11 +52,11 @@ mod tests {
     #[case(ProductEventTypeRecord::PriceDiscovered, "\"PRICE_DISCOVERED\"")]
     #[case(ProductEventTypeRecord::PriceDropped, "\"PRICE_DROPPED\"")]
     #[case(ProductEventTypeRecord::PriceIncreased, "\"PRICE_INCREASED\"")]
-    fn should_serialize_item_event_type_record_in_screaming_snake_case(
-        #[case] item_state_record: ProductEventTypeRecord,
+    fn should_serialize_product_event_type_record_in_screaming_snake_case(
+        #[case] product_state_record: ProductEventTypeRecord,
         #[case] expected: &str,
     ) {
-        let actual = serde_json::to_string(&item_state_record).unwrap();
+        let actual = serde_json::to_string(&product_state_record).unwrap();
         assert_eq!(actual, expected);
     }
 
@@ -71,7 +71,7 @@ mod tests {
     #[case("\"PRICE_DISCOVERED\"", ProductEventTypeRecord::PriceDiscovered)]
     #[case("\"PRICE_DROPPED\"", ProductEventTypeRecord::PriceDropped)]
     #[case("\"PRICE_INCREASED\"", ProductEventTypeRecord::PriceIncreased)]
-    fn should_deserialize_item_event_type_record_in_screaming_snake_case(
+    fn should_deserialize_product_event_type_record_in_screaming_snake_case(
         #[case] currency: &str,
         #[case] expected: ProductEventTypeRecord,
     ) {

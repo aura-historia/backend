@@ -62,22 +62,22 @@ impl HasKey for GetProductData {
 }
 
 impl From<LocalizedProductView> for GetProductData {
-    fn from(item_view: LocalizedProductView) -> Self {
+    fn from(product_view: LocalizedProductView) -> Self {
         GetProductData {
-            product_id: item_view.product_id,
-            event_id: item_view.event_id,
-            shop_id: item_view.shop_id,
-            shops_product_id: item_view.shops_product_id,
-            shop_name: item_view.shop_name.into(),
-            title: item_view.title.into(),
-            description: item_view.description.map(LocalizedTextData::from),
-            price: item_view.price.map(PriceData::from),
-            state: item_view.state.into(),
-            url: item_view.url,
-            images: item_view.images,
-            created: item_view.created,
-            updated: item_view.updated,
-            history: item_view
+            product_id: product_view.product_id,
+            event_id: product_view.event_id,
+            shop_id: product_view.shop_id,
+            shops_product_id: product_view.shops_product_id,
+            shop_name: product_view.shop_name.into(),
+            title: product_view.title.into(),
+            description: product_view.description.map(LocalizedTextData::from),
+            price: product_view.price.map(PriceData::from),
+            state: product_view.state.into(),
+            url: product_view.url,
+            images: product_view.images,
+            created: product_view.created,
+            updated: product_view.updated,
+            history: product_view
                 .history
                 .map(|events| events.into_iter().map(|event| event.into()).collect()),
         }
@@ -101,7 +101,7 @@ mod faker {
         use fake::{Fake, Faker};
 
         #[test]
-        fn should_fake_get_item_data() {
+        fn should_fake_get_product_data() {
             let _ = Faker.fake::<GetProductData>();
         }
     }
@@ -112,8 +112,8 @@ mod tests {
     use crate::{
         data::get_data::GetProductData,
         data::get_product_event_data::{
-            GetProductEventData, ItemEventPayloadData, ItemEventPriceChangedPayloadData,
-            ItemEventStateChangedPayloadData, ItemEventTypeData,
+            GetProductEventData, ProductEventPayloadData, ProductEventPriceChangedPayloadData,
+            ProductEventStateChangedPayloadData, ProductEventTypeData,
         },
         data::product_state_data::ProductStateData,
     };
@@ -131,7 +131,7 @@ mod tests {
     use url::Url;
 
     #[test]
-    fn should_serialize_get_item_data() {
+    fn should_serialize_get_product_data() {
         let product_id = ProductId::new();
         let event_id = EventId::new();
         let shop_id = ShopId::new();
@@ -155,13 +155,13 @@ mod tests {
             updated: utc_datetime!(2025 - 05 - 05 0:00).into(),
             history: Some(vec![
                 GetProductEventData {
-                    event_type: ItemEventTypeData::StateAvailable,
+                    event_type: ProductEventTypeData::StateAvailable,
                     product_id,
                     event_id,
                     shop_id,
                     shops_product_id: shops_product_id.clone(),
-                    payload: ItemEventPayloadData::StateAvailable(
-                        ItemEventStateChangedPayloadData {
+                    payload: ProductEventPayloadData::StateAvailable(
+                        ProductEventStateChangedPayloadData {
                             old_state: ProductStateData::Listed,
                             new_state: ProductStateData::Available,
                         },
@@ -169,12 +169,12 @@ mod tests {
                     timestamp: utc_datetime!(2025 - 05 - 05 0:00).into(),
                 },
                 GetProductEventData {
-                    event_type: ItemEventTypeData::PriceDropped,
+                    event_type: ProductEventTypeData::PriceDropped,
                     product_id,
                     event_id,
                     shop_id,
                     shops_product_id: shops_product_id.clone(),
-                    payload: ItemEventPayloadData::PriceDropped(ItemEventPriceChangedPayloadData {
+                    payload: ProductEventPayloadData::PriceDropped(ProductEventPriceChangedPayloadData {
                         old_price: PriceData::new(CurrencyData::Eur, 69),
                         new_price: PriceData::new(CurrencyData::Eur, 42),
                     }),

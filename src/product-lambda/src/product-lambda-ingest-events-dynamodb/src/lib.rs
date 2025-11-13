@@ -1,5 +1,5 @@
 use aws_lambda_events::sqs::{BatchItemFailure, SqsBatchResponse, SqsEvent, SqsMessage};
-use common::batch::dynamodb::handle_dynamodb_batch_write_put_item_output;
+use common::batch::dynamodb::handle_dynamodb_batch_write_put_product_output;
 use common::product_id::ProductKey;
 use common::{batch::Batch, has_key::HasKey};
 use lambda_runtime::LambdaEvent;
@@ -28,19 +28,19 @@ pub async fn handler(
     let batches = Batch::<_, 25>::chunked_from(event_records);
     let mut failed_keys = Vec::new();
     for batch in batches {
-        let item_keys = batch
+        let product_keys = batch
             .iter()
             .map(ProductEventRecord::key)
             .collect::<Vec<_>>();
         let put_batch_res = repository.put_product_event_records(batch).await;
         match put_batch_res {
-            Ok(output) => handle_dynamodb_batch_write_put_item_output::<ProductEventRecord>(
+            Ok(output) => handle_dynamodb_batch_write_put_product_output::<ProductEventRecord>(
                 output,
                 &mut failed_keys,
             ),
             Err(err) => {
                 error!(error = ?err, "Failed writing entire ProductEventRecord-Batch due to SdkError.");
-                failed_keys.extend(item_keys);
+                failed_keys.extend(product_keys);
             }
         }
     }
@@ -67,7 +67,7 @@ pub async fn handler(
     let sqs_batch_response = SqsBatchResponse {
         batch_item_failures: failed_message_ids
             .into_iter()
-            .map(|item_identifier| BatchItemFailure { item_identifier })
+            .map(|product_identifier| BatchItemFailure { item_identifier })
             .collect(),
     };
 
@@ -248,7 +248,7 @@ mod tests {
             .unwrap()
             .batch_item_failures
             .into_iter()
-            .map(|failure| failure.item_identifier)
+            .map(|failure| failure.product_identifier)
             .collect::<Vec<_>>();
         actual_failed_message_ids.sort();
 

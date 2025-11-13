@@ -55,7 +55,7 @@ pub trait ProductDynamoDbRepository {
 
     async fn get_product_records(
         &self,
-        item_keys: &Batch<ProductKey, 100>,
+        product_keys: &Batch<ProductKey, 100>,
     ) -> Result<
         BatchGetItemResult<ProductRecord, ProductKey>,
         SdkError<BatchGetItemError, HttpResponse>,
@@ -63,7 +63,7 @@ pub trait ProductDynamoDbRepository {
 
     async fn exist_product_records(
         &self,
-        item_keys: &Batch<ProductKey, 100>,
+        product_keys: &Batch<ProductKey, 100>,
     ) -> Result<BatchGetItemResult<ProductKey, ProductKey>, SdkError<BatchGetItemError, HttpResponse>>;
 
     async fn get_product_id(
@@ -256,12 +256,12 @@ impl<'a> ProductDynamoDbRepository for ProductDynamoDbRepositoryImpl<'a> {
 
     async fn get_product_records(
         &self,
-        item_keys: &Batch<ProductKey, 100>,
+        product_keys: &Batch<ProductKey, 100>,
     ) -> Result<
         BatchGetItemResult<ProductRecord, ProductKey>,
         SdkError<BatchGetItemError, HttpResponse>,
     > {
-        let keys = item_keys
+        let keys = product_keys
             .iter()
             .map(|product_key| {
                 let mut columns = HashMap::with_capacity(2);
@@ -342,10 +342,10 @@ impl<'a> ProductDynamoDbRepository for ProductDynamoDbRepositoryImpl<'a> {
 
     async fn exist_product_records(
         &self,
-        item_keys: &Batch<ProductKey, 100>,
+        product_keys: &Batch<ProductKey, 100>,
     ) -> Result<BatchGetItemResult<ProductKey, ProductKey>, SdkError<BatchGetItemError, HttpResponse>>
     {
-        let keys = item_keys
+        let keys = product_keys
             .iter()
             .map(|product_key| {
                 let mut columns = HashMap::with_capacity(2);
@@ -507,7 +507,7 @@ mod tests {
     #[rstest::rstest]
     #[case::differing("a1caead3-a50d-44a4-b9fb-a15d2397601e", "123456")]
     #[case::containing_separator("a1caead3-a50d-44a4-b9fb-a15d2397601e", "abcdefg#boop")]
-    fn should_extract_item_key_from_pk_sk_map_when_pk_exists_and_is_valid_for(
+    fn should_extract_product_key_from_pk_sk_map_when_pk_exists_and_is_valid_for(
         #[case] shop_id: &str,
         #[case] shops_product_id: &str,
     ) {

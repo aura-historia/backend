@@ -1,9 +1,9 @@
 use crate::core::description::Description;
 use crate::core::product::{LocalizedProductView, Product};
 use crate::core::product_event::{
-    LocalizedItemCreatedEventPayloadView, LocalizedItemEventPayloadView,
-    LocalizedItemPriceChangeEventPayloadView, LocalizedItemPriceDiscoveryEventPayloadView,
-    LocalizedItemPriceRemovedEventPayloadView, LocalizedItemStateChangeEventPayloadView,
+    LocalizedProductCreatedEventPayloadView, LocalizedProductEventPayloadView,
+    LocalizedProductPriceChangeEventPayloadView, LocalizedProductPriceDiscoveryEventPayloadView,
+    LocalizedProductPriceRemovedEventPayloadView, LocalizedProductStateChangeEventPayloadView,
     ProductEvent, ProductEventPayload,
 };
 use crate::core::title::Title;
@@ -82,7 +82,7 @@ pub mod api {
 #[async_trait]
 #[mockall::automock]
 pub trait GetProductService {
-    async fn find_item(
+    async fn find_product(
         &self,
         shop_id: &ShopId,
         shops_product_id: &ShopsProductId,
@@ -97,7 +97,7 @@ pub trait GetProductService {
         history: bool,
     ) -> Result<LocalizedProductView, GetProductError>;
 
-    async fn view_items(
+    async fn view_products(
         &self,
         items: Vec<ProductKey>,
         languages: &[Language],
@@ -117,7 +117,7 @@ impl<'a> GetProductServiceImpl<'a> {
 
 #[async_trait]
 impl<'a> GetProductService for GetProductServiceImpl<'a> {
-    async fn find_item(
+    async fn find_product(
         &self,
         shop_id: &ShopId,
         shops_product_id: &ShopsProductId,
@@ -162,7 +162,8 @@ impl<'a> GetProductService for GetProductServiceImpl<'a> {
             (product_record, vec![])
         };
 
-        let mut item_view = localize_item_record(product_record, currency, preferred_languages);
+        let mut product_view =
+            localize_product_record(product_record, currency, preferred_languages);
 
         let event_views = event_records
             .into_iter()
@@ -179,14 +180,14 @@ impl<'a> GetProductService for GetProductServiceImpl<'a> {
                     None
                 }
             })
-            .map(|event| localize_item_event(event, preferred_languages, currency))
+            .map(|event| localize_product_event(event, preferred_languages, currency))
             .collect();
-        item_view.history = if history { Some(event_views) } else { None };
+        product_view.history = if history { Some(event_views) } else { None };
 
-        Ok(item_view)
+        Ok(product_view)
     }
 
-    async fn view_items(
+    async fn view_products(
         &self,
         items: Vec<ProductKey>,
         languages: &[Language],
@@ -200,7 +201,7 @@ impl<'a> GetProductService for GetProductServiceImpl<'a> {
         let mut retry_count = 0;
         loop {
             let (mut local_views, local_unprocessed) = self
-                .view_items_with_unprocessed(unprocessed, languages, currency)
+                .view_products_with_unprocessed(unprocessed, languages, currency)
                 .await?;
             views.append(&mut local_views);
 
@@ -222,7 +223,7 @@ impl<'a> GetProductService for GetProductServiceImpl<'a> {
 }
 
 impl<'a> GetProductServiceImpl<'a> {
-    async fn view_items_with_unprocessed(
+    async fn view_products_with_unprocessed(
         &self,
         items: Vec<ProductKey>,
         languages: &[Language],
@@ -238,7 +239,7 @@ impl<'a> GetProductServiceImpl<'a> {
             let local_views = result
                 .items
                 .into_iter()
-                .map(|record| localize_item_record(record, currency, languages));
+                .map(|record| localize_product_record(record, currency, languages));
             views.extend(local_views);
         }
 
@@ -246,7 +247,7 @@ impl<'a> GetProductServiceImpl<'a> {
     }
 }
 
-fn localize_item_record(
+fn localize_product_record(
     product_record: ProductRecord,
     currency: &Currency,
     preferred_languages: &[Language],
@@ -322,11 +323,11 @@ fn localize_item_record(
     }
 }
 
-fn localize_item_event(
+fn localize_product_event(
     event: ProductEvent,
     preferred_languages: &[Language],
     currency: &Currency,
-) -> Event<ProductId, LocalizedItemEventPayloadView> {
+) -> Event<ProductId, LocalizedProductEventPayloadView> {
     let payload = match event.payload {
         ProductEventPayload::Created(payload) => {
             let mut titles = payload.other_title;
@@ -342,7 +343,7 @@ fn localize_item_event(
             if let Some(native_price) = payload.native_price {
                 prices.insert(native_price.currency, native_price.monetary_amount);
             }
-            LocalizedItemEventPayloadView::Created(LocalizedItemCreatedEventPayloadView {
+            LocalizedProductEventPayloadView::Created(LocalizedProductCreatedEventPayloadView {
                     shop_id: payload.shop_id,
                     shops_product_id: payload.shops_product_id,
                     shop_name: payload.shop_name,
@@ -360,16 +361,16 @@ fn localize_item_event(
                     images: payload.images,
                 })
         }
-        ProductEventPayload::StateListed(payload) => {
-            LocalizedItemEventPayloadView::StateListed(LocalizedItemStateChangeEventPayloadView {
+        ProductEventPayload::StateListed(payload) => LocalizedProductEventPayloadView::StateListed(
+            LocalizedProductStateChangeEventPayloadView {
                 shop_id: payload.shop_id,
                 shops_product_id: payload.shops_product_id,
                 old_state: payload.old_state,
-            })
-        }
+            },
+        ),
         ProductEventPayload::StateAvailable(payload) => {
-            LocalizedItemEventPayloadView::StateAvailable(
-                LocalizedItemStateChangeEventPayloadView {
+            LocalizedProductEventPayloadView::StateAvailable(
+                LocalizedProductStateChangeEventPayloadView {
                     shop_id: payload.shop_id,
                     shops_product_id: payload.shops_product_id,
                     old_state: payload.old_state,
@@ -377,32 +378,38 @@ fn localize_item_event(
             )
         }
         ProductEventPayload::StateReserved(payload) => {
-            LocalizedItemEventPayloadView::StateReserved(LocalizedItemStateChangeEventPayloadView {
+            LocalizedProductEventPayloadView::StateReserved(
+                LocalizedProductStateChangeEventPayloadView {
+                    shop_id: payload.shop_id,
+                    shops_product_id: payload.shops_product_id,
+                    old_state: payload.old_state,
+                },
+            )
+        }
+        ProductEventPayload::StateSold(payload) => LocalizedProductEventPayloadView::StateSold(
+            LocalizedProductStateChangeEventPayloadView {
                 shop_id: payload.shop_id,
                 shops_product_id: payload.shops_product_id,
                 old_state: payload.old_state,
-            })
-        }
-        ProductEventPayload::StateSold(payload) => {
-            LocalizedItemEventPayloadView::StateSold(LocalizedItemStateChangeEventPayloadView {
-                shop_id: payload.shop_id,
-                shops_product_id: payload.shops_product_id,
-                old_state: payload.old_state,
-            })
-        }
+            },
+        ),
         ProductEventPayload::StateRemoved(payload) => {
-            LocalizedItemEventPayloadView::StateRemoved(LocalizedItemStateChangeEventPayloadView {
-                shop_id: payload.shop_id,
-                shops_product_id: payload.shops_product_id,
-                old_state: payload.old_state,
-            })
+            LocalizedProductEventPayloadView::StateRemoved(
+                LocalizedProductStateChangeEventPayloadView {
+                    shop_id: payload.shop_id,
+                    shops_product_id: payload.shops_product_id,
+                    old_state: payload.old_state,
+                },
+            )
         }
         ProductEventPayload::StateUnknown(payload) => {
-            LocalizedItemEventPayloadView::StateUnknown(LocalizedItemStateChangeEventPayloadView {
-                shop_id: payload.shop_id,
-                shops_product_id: payload.shops_product_id,
-                old_state: payload.old_state,
-            })
+            LocalizedProductEventPayloadView::StateUnknown(
+                LocalizedProductStateChangeEventPayloadView {
+                    shop_id: payload.shop_id,
+                    shops_product_id: payload.shops_product_id,
+                    old_state: payload.old_state,
+                },
+            )
         }
         ProductEventPayload::PriceDiscovered(payload) => {
             let mut prices = payload.other_price;
@@ -410,8 +417,8 @@ fn localize_item_event(
                 payload.native_price.currency,
                 payload.native_price.monetary_amount,
             );
-            LocalizedItemEventPayloadView::PriceDiscovered(
-                    LocalizedItemPriceDiscoveryEventPayloadView {
+            LocalizedProductEventPayloadView::PriceDiscovered(
+                LocalizedProductPriceDiscoveryEventPayloadView {
                         shop_id: payload.shop_id,
                         shops_product_id: payload.shops_product_id,
                         price: Currency::resolve(&[*currency], prices).unwrap_or_else(|| {
@@ -432,8 +439,8 @@ fn localize_item_event(
                 payload.old_native_price.currency,
                 payload.old_native_price.monetary_amount,
             );
-            LocalizedItemEventPayloadView::PriceDropped(
-                    LocalizedItemPriceChangeEventPayloadView {
+            LocalizedProductEventPayloadView::PriceDropped(
+                LocalizedProductPriceChangeEventPayloadView {
                         shop_id: payload.shop_id,
                         shops_product_id: payload.shops_product_id,
                         new_price: Currency::resolve(&[*currency], new_prices).unwrap_or_else(|| {
@@ -458,8 +465,8 @@ fn localize_item_event(
                 payload.old_native_price.currency,
                 payload.old_native_price.monetary_amount,
             );
-            LocalizedItemEventPayloadView::PriceIncreased(
-                    LocalizedItemPriceChangeEventPayloadView {
+            LocalizedProductEventPayloadView::PriceIncreased(
+                LocalizedProductPriceChangeEventPayloadView {
                         shop_id: payload.shop_id,
                         shops_product_id: payload.shops_product_id,
                         new_price: Currency::resolve(&[*currency], new_prices).unwrap_or_else(|| {
@@ -479,7 +486,7 @@ fn localize_item_event(
                 payload.old_native_price.currency,
                 payload.old_native_price.monetary_amount,
             );
-            LocalizedItemEventPayloadView::PriceRemoved(LocalizedItemPriceRemovedEventPayloadView {
+            LocalizedProductEventPayloadView::PriceRemoved(LocalizedProductPriceRemovedEventPayloadView {
                 shop_id: payload.shop_id,
                 shops_product_id: payload.shops_product_id,
                 old_price: Currency::resolve(&[*currency], old_prices).unwrap_or_else(|| {
@@ -499,7 +506,7 @@ fn localize_item_event(
 
 #[cfg(test)]
 mod tests {
-    mod find_item {
+    mod find_product {
         use crate::dynamodb::repository::MockProductDynamoDbRepository;
         use crate::service::get_service::{
             GetProductError, GetProductService, GetProductServiceImpl,
@@ -512,7 +519,7 @@ mod tests {
         use fake::{Fake, Faker};
 
         #[tokio::test]
-        async fn should_return_item_when_exists() {
+        async fn should_return_product_when_exists() {
             let mut repository = MockProductDynamoDbRepository::default();
             repository
                 .expect_get_product_record()
@@ -521,13 +528,13 @@ mod tests {
                 repository: &repository,
             };
             let actual = service
-                .find_item(&ShopId::new(), &ShopsProductId::new())
+                .find_product(&ShopId::new(), &ShopsProductId::new())
                 .await;
             assert!(actual.is_ok());
         }
 
         #[tokio::test]
-        async fn should_return_item_not_found_err_when_item_does_not_exist() {
+        async fn should_return_product_not_found_err_when_product_does_not_exist() {
             let shop_id = ShopId::new();
             let shops_product_id = "non-existent".into();
             let mut repository = MockProductDynamoDbRepository::default();
@@ -537,7 +544,7 @@ mod tests {
             let service = GetProductServiceImpl {
                 repository: &repository,
             };
-            let actual = service.find_item(&shop_id, &shops_product_id).await;
+            let actual = service.find_product(&shop_id, &shops_product_id).await;
 
             assert!(actual.is_err());
             match actual.unwrap_err() {
@@ -577,7 +584,7 @@ mod tests {
             let service = GetProductServiceImpl {
                 repository: &repository,
             };
-            let actual = service.find_item(&shop_id, &shops_product_id).await;
+            let actual = service.find_product(&shop_id, &shops_product_id).await;
 
             assert!(actual.is_err());
             match actual.unwrap_err() {
@@ -613,7 +620,7 @@ mod tests {
         use itertools::Itertools;
 
         #[tokio::test]
-        async fn should_return_item_when_exists_without_history() {
+        async fn should_return_product_when_exists_without_history() {
             let mut repository = MockProductDynamoDbRepository::default();
             repository
                 .expect_get_product_record()
@@ -634,7 +641,7 @@ mod tests {
         }
 
         #[tokio::test]
-        async fn should_return_item_when_exists_with_history() {
+        async fn should_return_product_when_exists_with_history() {
             let mut repository = MockProductDynamoDbRepository::default();
             repository
                 .expect_query_product_record_and_event_records()
@@ -916,7 +923,7 @@ mod tests {
         #[case(&[En, De, Es])]
         #[case(&[Es, De, En])]
         #[case(&[Es, En, De])]
-        async fn should_return_item_without_description_when_none_exists(
+        async fn should_return_product_without_description_when_none_exists(
             #[case] languages: &[Language],
         ) {
             let mut repository = MockProductDynamoDbRepository::default();
@@ -945,7 +952,7 @@ mod tests {
         }
 
         #[tokio::test]
-        async fn should_return_item_not_found_err_when_item_does_not_exist() {
+        async fn should_return_product_not_found_err_when_product_does_not_exist() {
             let shop_id = ShopId::new();
             let shops_product_id = "non-existent".into();
             let mut repository = MockProductDynamoDbRepository::default();
@@ -1009,7 +1016,7 @@ mod tests {
         }
     }
 
-    mod view_items {
+    mod view_products {
         use crate::dynamodb::{
             product_record::ProductRecord, repository::MockProductDynamoDbRepository,
         };
@@ -1024,7 +1031,7 @@ mod tests {
         use common::{batch::dynamodb::BatchGetItemResult, product_id::ProductKey};
 
         #[tokio::test]
-        async fn should_return_items_when_all_processed() {
+        async fn should_return_products_when_all_processed() {
             let mut repository = MockProductDynamoDbRepository::default();
             repository.expect_get_product_records().returning(|_| {
                 Box::pin(async {
@@ -1038,7 +1045,7 @@ mod tests {
                 repository: &repository,
             };
             let actual = service
-                .view_items(fake::vec![ProductKey; 42], &[], &Currency::Eur)
+                .view_products(fake::vec![ProductKey; 42], &[], &Currency::Eur)
                 .await
                 .unwrap();
             assert_eq!(42, actual.len());
@@ -1061,7 +1068,7 @@ mod tests {
                 repository: &repository,
             };
             let actual = service
-                .view_items(fake::vec![ProductKey; 42], &[], &Currency::Eur)
+                .view_products(fake::vec![ProductKey; 42], &[], &Currency::Eur)
                 .await
                 .unwrap_err();
             match actual {
@@ -1101,7 +1108,7 @@ mod tests {
                 repository: &repository,
             };
             let actual = service
-                .view_items(fake::vec![ProductKey; 222], &[], &Currency::Eur)
+                .view_products(fake::vec![ProductKey; 222], &[], &Currency::Eur)
                 .await;
 
             assert!(actual.is_err());

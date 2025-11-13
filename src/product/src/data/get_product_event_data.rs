@@ -1,4 +1,4 @@
-use crate::core::product_event::LocalizedItemEventPayloadView;
+use crate::core::product_event::LocalizedProductEventPayloadView;
 use crate::data::product_state_data::ProductStateData;
 use common::{
     event::Event, event_id::EventId, price::data::PriceData, product_id::ProductId,
@@ -9,7 +9,7 @@ use time::OffsetDateTime;
 
 #[derive(Copy, Clone, Eq, PartialEq, Debug, Serialize, Deserialize)]
 #[serde(rename_all = "SCREAMING_SNAKE_CASE")]
-pub enum ItemEventTypeData {
+pub enum ProductEventTypeData {
     Created,
     StateListed,
     StateAvailable,
@@ -25,49 +25,49 @@ pub enum ItemEventTypeData {
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(untagged)]
-pub enum ItemEventPayloadData {
-    Created(ItemCreatedEventPayloadData),
-    StateListed(ItemEventStateChangedPayloadData),
-    StateAvailable(ItemEventStateChangedPayloadData),
-    StateReserved(ItemEventStateChangedPayloadData),
-    StateSold(ItemEventStateChangedPayloadData),
-    StateRemoved(ItemEventStateChangedPayloadData),
-    StateUnknown(ItemEventStateChangedPayloadData),
-    PriceDiscovered(ItemEventPriceDiscoveredPayloadData),
-    PriceDropped(ItemEventPriceChangedPayloadData),
-    PriceIncreased(ItemEventPriceChangedPayloadData),
-    PriceRemoved(ItemEventPriceRemovedPayloadData),
+pub enum ProductEventPayloadData {
+    Created(ProductCreatedEventPayloadData),
+    StateListed(ProductEventStateChangedPayloadData),
+    StateAvailable(ProductEventStateChangedPayloadData),
+    StateReserved(ProductEventStateChangedPayloadData),
+    StateSold(ProductEventStateChangedPayloadData),
+    StateRemoved(ProductEventStateChangedPayloadData),
+    StateUnknown(ProductEventStateChangedPayloadData),
+    PriceDiscovered(ProductEventPriceDiscoveredPayloadData),
+    PriceDropped(ProductEventPriceChangedPayloadData),
+    PriceIncreased(ProductEventPriceChangedPayloadData),
+    PriceRemoved(ProductEventPriceRemovedPayloadData),
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
-pub struct ItemEventStateChangedPayloadData {
+pub struct ProductEventStateChangedPayloadData {
     pub old_state: ProductStateData,
     pub new_state: ProductStateData,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
-pub struct ItemEventPriceDiscoveredPayloadData {
+pub struct ProductEventPriceDiscoveredPayloadData {
     pub new_price: PriceData,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
-pub struct ItemEventPriceChangedPayloadData {
+pub struct ProductEventPriceChangedPayloadData {
     pub old_price: PriceData,
     pub new_price: PriceData,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
-pub struct ItemEventPriceRemovedPayloadData {
+pub struct ProductEventPriceRemovedPayloadData {
     pub old_price: PriceData,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
-pub struct ItemCreatedEventPayloadData {
+pub struct ProductCreatedEventPayloadData {
     #[serde(skip_serializing_if = "Option::is_none", default)]
     pub price: Option<PriceData>,
 
@@ -77,114 +77,114 @@ pub struct ItemCreatedEventPayloadData {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct GetProductEventData {
-    pub event_type: ItemEventTypeData,
+    pub event_type: ProductEventTypeData,
     pub product_id: ProductId,
     pub event_id: EventId,
     pub shop_id: ShopId,
     pub shops_product_id: ShopsProductId,
-    pub payload: ItemEventPayloadData,
+    pub payload: ProductEventPayloadData,
 
     #[serde(with = "time::serde::rfc3339")]
     pub timestamp: OffsetDateTime,
 }
 
-impl From<Event<ProductId, LocalizedItemEventPayloadView>> for GetProductEventData {
-    fn from(event: Event<ProductId, LocalizedItemEventPayloadView>) -> Self {
+impl From<Event<ProductId, LocalizedProductEventPayloadView>> for GetProductEventData {
+    fn from(event: Event<ProductId, LocalizedProductEventPayloadView>) -> Self {
         let (event_type, shop_id, shops_product_id, payload) = match event.payload {
-            LocalizedItemEventPayloadView::Created(payload) => (
-                ItemEventTypeData::Created,
+            LocalizedProductEventPayloadView::Created(payload) => (
+                ProductEventTypeData::Created,
                 payload.shop_id,
                 payload.shops_product_id,
-                ItemEventPayloadData::Created(ItemCreatedEventPayloadData {
+                ProductEventPayloadData::Created(ProductCreatedEventPayloadData {
                     price: payload.price.map(PriceData::from),
                     state: payload.state.into(),
                 }),
             ),
-            LocalizedItemEventPayloadView::StateListed(payload) => (
-                ItemEventTypeData::StateListed,
+            LocalizedProductEventPayloadView::StateListed(payload) => (
+                ProductEventTypeData::StateListed,
                 payload.shop_id,
                 payload.shops_product_id,
-                ItemEventPayloadData::StateListed(ItemEventStateChangedPayloadData {
+                ProductEventPayloadData::StateListed(ProductEventStateChangedPayloadData {
                     old_state: payload.old_state.into(),
                     new_state: ProductStateData::Listed,
                 }),
             ),
-            LocalizedItemEventPayloadView::StateAvailable(payload) => (
-                ItemEventTypeData::StateAvailable,
+            LocalizedProductEventPayloadView::StateAvailable(payload) => (
+                ProductEventTypeData::StateAvailable,
                 payload.shop_id,
                 payload.shops_product_id,
-                ItemEventPayloadData::StateAvailable(ItemEventStateChangedPayloadData {
+                ProductEventPayloadData::StateAvailable(ProductEventStateChangedPayloadData {
                     old_state: payload.old_state.into(),
                     new_state: ProductStateData::Available,
                 }),
             ),
-            LocalizedItemEventPayloadView::StateReserved(payload) => (
-                ItemEventTypeData::StateReserved,
+            LocalizedProductEventPayloadView::StateReserved(payload) => (
+                ProductEventTypeData::StateReserved,
                 payload.shop_id,
                 payload.shops_product_id,
-                ItemEventPayloadData::StateReserved(ItemEventStateChangedPayloadData {
+                ProductEventPayloadData::StateReserved(ProductEventStateChangedPayloadData {
                     old_state: payload.old_state.into(),
                     new_state: ProductStateData::Reserved,
                 }),
             ),
-            LocalizedItemEventPayloadView::StateSold(payload) => (
-                ItemEventTypeData::StateSold,
+            LocalizedProductEventPayloadView::StateSold(payload) => (
+                ProductEventTypeData::StateSold,
                 payload.shop_id,
                 payload.shops_product_id,
-                ItemEventPayloadData::StateSold(ItemEventStateChangedPayloadData {
+                ProductEventPayloadData::StateSold(ProductEventStateChangedPayloadData {
                     old_state: payload.old_state.into(),
                     new_state: ProductStateData::Sold,
                 }),
             ),
-            LocalizedItemEventPayloadView::StateRemoved(payload) => (
-                ItemEventTypeData::StateRemoved,
+            LocalizedProductEventPayloadView::StateRemoved(payload) => (
+                ProductEventTypeData::StateRemoved,
                 payload.shop_id,
                 payload.shops_product_id,
-                ItemEventPayloadData::StateRemoved(ItemEventStateChangedPayloadData {
+                ProductEventPayloadData::StateRemoved(ProductEventStateChangedPayloadData {
                     old_state: payload.old_state.into(),
                     new_state: ProductStateData::Removed,
                 }),
             ),
-            LocalizedItemEventPayloadView::StateUnknown(payload) => (
-                ItemEventTypeData::StateUnknown,
+            LocalizedProductEventPayloadView::StateUnknown(payload) => (
+                ProductEventTypeData::StateUnknown,
                 payload.shop_id,
                 payload.shops_product_id,
-                ItemEventPayloadData::StateUnknown(ItemEventStateChangedPayloadData {
+                ProductEventPayloadData::StateUnknown(ProductEventStateChangedPayloadData {
                     old_state: payload.old_state.into(),
                     new_state: ProductStateData::Unknown,
                 }),
             ),
-            LocalizedItemEventPayloadView::PriceDiscovered(payload) => (
-                ItemEventTypeData::PriceDiscovered,
+            LocalizedProductEventPayloadView::PriceDiscovered(payload) => (
+                ProductEventTypeData::PriceDiscovered,
                 payload.shop_id,
                 payload.shops_product_id,
-                ItemEventPayloadData::PriceDiscovered(ItemEventPriceDiscoveredPayloadData {
+                ProductEventPayloadData::PriceDiscovered(ProductEventPriceDiscoveredPayloadData {
                     new_price: payload.price.into(),
                 }),
             ),
-            LocalizedItemEventPayloadView::PriceDropped(payload) => (
-                ItemEventTypeData::PriceDropped,
+            LocalizedProductEventPayloadView::PriceDropped(payload) => (
+                ProductEventTypeData::PriceDropped,
                 payload.shop_id,
                 payload.shops_product_id,
-                ItemEventPayloadData::PriceDropped(ItemEventPriceChangedPayloadData {
+                ProductEventPayloadData::PriceDropped(ProductEventPriceChangedPayloadData {
                     old_price: payload.old_price.into(),
                     new_price: payload.new_price.into(),
                 }),
             ),
-            LocalizedItemEventPayloadView::PriceIncreased(payload) => (
-                ItemEventTypeData::PriceIncreased,
+            LocalizedProductEventPayloadView::PriceIncreased(payload) => (
+                ProductEventTypeData::PriceIncreased,
                 payload.shop_id,
                 payload.shops_product_id,
-                ItemEventPayloadData::PriceIncreased(ItemEventPriceChangedPayloadData {
+                ProductEventPayloadData::PriceIncreased(ProductEventPriceChangedPayloadData {
                     old_price: payload.old_price.into(),
                     new_price: payload.new_price.into(),
                 }),
             ),
-            LocalizedItemEventPayloadView::PriceRemoved(payload) => (
-                ItemEventTypeData::PriceRemoved,
+            LocalizedProductEventPayloadView::PriceRemoved(payload) => (
+                ProductEventTypeData::PriceRemoved,
                 payload.shop_id,
                 payload.shops_product_id,
-                ItemEventPayloadData::PriceRemoved(ItemEventPriceRemovedPayloadData {
+                ProductEventPayloadData::PriceRemoved(ProductEventPriceRemovedPayloadData {
                     old_price: payload.old_price.into(),
                 }),
             ),
@@ -205,15 +205,15 @@ impl From<Event<ProductId, LocalizedItemEventPayloadView>> for GetProductEventDa
 #[cfg(test)]
 mod tests {
     use crate::core::product_event::{
-        LocalizedItemCreatedEventPayloadView, LocalizedItemEventPayloadView,
-        LocalizedItemPriceChangeEventPayloadView, LocalizedItemPriceDiscoveryEventPayloadView,
-        LocalizedItemStateChangeEventPayloadView,
+        LocalizedProductCreatedEventPayloadView, LocalizedProductEventPayloadView,
+        LocalizedProductPriceChangeEventPayloadView, LocalizedProductPriceDiscoveryEventPayloadView,
+        LocalizedProductStateChangeEventPayloadView,
     };
     use crate::data::{
         get_product_event_data::{
-            GetProductEventData, ItemCreatedEventPayloadData, ItemEventPayloadData,
-            ItemEventPriceChangedPayloadData, ItemEventPriceDiscoveredPayloadData,
-            ItemEventStateChangedPayloadData, ItemEventTypeData,
+            GetProductEventData, ProductCreatedEventPayloadData, ProductEventPayloadData,
+            ProductEventPriceChangedPayloadData, ProductEventPriceDiscoveredPayloadData,
+            ProductEventStateChangedPayloadData, ProductEventTypeData,
         },
         product_state_data::ProductStateData,
     };
@@ -399,8 +399,8 @@ mod tests {
             timestamp: utc_datetime!(2025 - 05 - 05 2:22).into(),
         }
     )]
-    fn should_from_event_localized_item_event_payload_for_get_product_event_data(
-        #[case] payload_view: LocalizedItemEventPayloadView,
+    fn should_from_event_localized_product_event_payload_for_get_product_event_data(
+        #[case] payload_view: LocalizedProductEventPayloadView,
         #[case] expected: GetProductEventData,
     ) {
         let event = Event {

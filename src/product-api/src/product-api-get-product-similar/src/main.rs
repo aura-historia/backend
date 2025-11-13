@@ -7,7 +7,7 @@ use opensearch::http::Url;
 use opensearch::http::transport::{SingleNodeConnectionPool, TransportBuilder};
 use product::dynamodb::repository::ProductDynamoDbRepositoryImpl;
 use product::opensearch::repository::ProductOpenSearchRepositoryImpl;
-use product::service::personalization_service::ItemPersonalizationServiceImpl;
+use product::service::personalization_service::ProductPersonalizationServiceImpl;
 use product::service::semantic_service::SemanticSearchServiceImpl;
 use product::watchlist::dynamodb::repository::WatchlistProductDynamoDbRepositoryImpl;
 use product_api_get_product_similar::handler;
@@ -37,16 +37,16 @@ async fn main() -> Result<(), Error> {
         .service_name("es")
         .build()?;
     let opensearch_client = opensearch::OpenSearch::new(transport);
-    let item_opensearch_repository = ProductOpenSearchRepositoryImpl::new(&opensearch_client);
-    let item_dynamodb_repository =
+    let product_opensearch_repository = ProductOpenSearchRepositoryImpl::new(&opensearch_client);
+    let product_dynamodb_repository =
         ProductDynamoDbRepositoryImpl::new(&dynamodb_client, &table_name);
     let semantic_search_service =
-        SemanticSearchServiceImpl::new(&item_dynamodb_repository, &item_opensearch_repository);
+        SemanticSearchServiceImpl::new(&product_dynamodb_repository, &product_opensearch_repository);
 
     let watchlist_repository =
         WatchlistProductDynamoDbRepositoryImpl::new(&dynamodb_client, &table_name);
     let product_personalization_service =
-        ItemPersonalizationServiceImpl::new(&watchlist_repository);
+        ProductPersonalizationServiceImpl::new(&watchlist_repository);
 
     let user_pool_id = std::env::var("USER_POOL_ID")?;
     let user_pool_public_client_id = std::env::var("USER_POOL_PUBLIC_CLIENT_ID")?;

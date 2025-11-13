@@ -13,20 +13,20 @@ use std::collections::HashMap;
 use tracing::{error, warn};
 
 #[derive(thiserror::Error, Debug)]
-pub enum SearchItemsError {
+pub enum SearchProductsError {
     #[error("OpenSearchError: {0}")]
     OpenSearchError(#[from] opensearch::Error),
 }
 
 #[cfg(feature = "data")]
 pub mod api {
-    use crate::service::query_service::SearchItemsError;
+    use crate::service::query_service::SearchProductsError;
     use common::api::error::ApiError;
     use common::api::error_code::INTERNAL_SERVER_ERROR;
-    impl From<SearchItemsError> for ApiError {
-        fn from(err: SearchItemsError) -> Self {
+    impl From<SearchProductsError> for ApiError {
+        fn from(err: SearchProductsError) -> Self {
             match err {
-                SearchItemsError::OpenSearchError(_) => {
+                SearchProductsError::OpenSearchError(_) => {
                     ApiError::internal_server_error(INTERNAL_SERVER_ERROR, Box::new(err))
                 }
             }
@@ -42,7 +42,7 @@ pub trait QueryProductService {
         search: &ProductSearch,
         sort: &Option<Sort<SortProductField>>,
         page: &Option<Cursor<serde_json::Value>>,
-    ) -> Result<CursoredResult<LocalizedProductView, serde_json::Value>, SearchItemsError>;
+    ) -> Result<CursoredResult<LocalizedProductView, serde_json::Value>, SearchProductsError>;
 }
 
 pub struct QueryProductServiceImpl<'a> {
@@ -62,7 +62,7 @@ impl<'a> QueryProductService for QueryProductServiceImpl<'a> {
         search: &ProductSearch,
         sort: &Option<Sort<SortProductField>>,
         page: &Option<Cursor<serde_json::Value>>,
-    ) -> Result<CursoredResult<LocalizedProductView, serde_json::Value>, SearchItemsError> {
+    ) -> Result<CursoredResult<LocalizedProductView, serde_json::Value>, SearchProductsError> {
         let search_response = self
             .repository
             .search_product_documents(
@@ -93,7 +93,7 @@ impl<'a> QueryProductService for QueryProductServiceImpl<'a> {
             );
         }
 
-        let item_views = search_response
+        let product_views = search_response
             .hits
             .hits
             .into_iter()
@@ -104,7 +104,7 @@ impl<'a> QueryProductService for QueryProductServiceImpl<'a> {
             .collect::<Vec<_>>();
 
         Ok(CursoredResult {
-            items: item_views,
+            items: product_views,
             cursor,
             total: Some(search_response.hits.total.value),
         })
@@ -135,7 +135,7 @@ pub fn localize_product_document(
     let title = Language::resolve(languages, available_titles).unwrap_or_else(|| {
         error!(
             shopId = %product_document.shop_id,
-            shopsItemId = %product_document.shops_product_id,
+            shopsProductId = %product_document.shops_product_id,
             "Failed resolving title. This SHOULD be impossible because the native title always exists."
         );
         Localized::new(Language::En, "Unknown title".into())

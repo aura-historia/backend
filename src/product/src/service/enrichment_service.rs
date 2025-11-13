@@ -1,4 +1,4 @@
-use crate::service::product_command::PipedItemCommand;
+use crate::service::product_command::PipedProductCommand;
 use common::{
     batch::Batch,
     price::domain::{FxRate, MonetaryAmountOverflowError},
@@ -11,14 +11,14 @@ use tracing::error;
 use url::Url;
 
 #[derive(Debug, Clone, PartialEq, Default)]
-pub struct EnrichItemCommandsOutput {
-    pub enriched: Vec<PipedItemCommand>,
-    pub failed: Vec<(PipedItemCommand, EnrichItemCommandError)>,
-    pub unprocessed: Vec<PipedItemCommand>,
+pub struct EnrichProductCommandsOutput {
+    pub enriched: Vec<PipedProductCommand>,
+    pub failed: Vec<(PipedProductCommand, EnrichProductCommandError)>,
+    pub unprocessed: Vec<PipedProductCommand>,
 }
 
 #[derive(thiserror::Error, Debug, Clone, PartialEq, Eq)]
-pub enum EnrichItemCommandError {
+pub enum EnrichProductCommandError {
     #[error("MonetaryAmountOverflowError: {0}")]
     MonetaryAmountOverflowError(#[from] MonetaryAmountOverflowError),
 
@@ -28,12 +28,12 @@ pub enum EnrichItemCommandError {
 
 #[async_trait::async_trait]
 #[mockall::automock]
-pub trait ItemCommandEnrichmentService {
-    async fn enrich_shop(&self, commands: Vec<PipedItemCommand>) -> EnrichItemCommandsOutput;
+pub trait ProductCommandEnrichmentService {
+    async fn enrich_shop(&self, commands: Vec<PipedProductCommand>) -> EnrichProductCommandsOutput;
 
-    fn enrich_price(&self, commands: Vec<PipedItemCommand>) -> EnrichItemCommandsOutput;
+    fn enrich_price(&self, commands: Vec<PipedProductCommand>) -> EnrichProductCommandsOutput;
 
-    async fn enrich(&self, commands: Vec<PipedItemCommand>) -> EnrichItemCommandsOutput {
+    async fn enrich(&self, commands: Vec<PipedProductCommand>) -> EnrichProductCommandsOutput {
         let mut price_enriched_res = self.enrich_price(commands);
         let mut shop_enriched_res = self.enrich_shop(price_enriched_res.enriched).await;
 
@@ -48,12 +48,12 @@ pub trait ItemCommandEnrichmentService {
     }
 }
 
-pub struct ItemCommandEnrichmentServiceImpl<'a, T: FxRate + Sync> {
+pub struct ProductCommandEnrichmentServiceImpl<'a, T: FxRate + Sync> {
     shop_dynamodb_repository: &'a (dyn ShopDynamoDbRepository + Sync),
     fx_rate: &'a T,
 }
 
-impl<'a, T: FxRate + Sync> ItemCommandEnrichmentServiceImpl<'a, T> {
+impl<'a, T: FxRate + Sync> ProductCommandEnrichmentServiceImpl<'a, T> {
     pub fn new(
         shop_dynamodb_repository: &'a (dyn ShopDynamoDbRepository + Sync),
         fx_rate: &'a T,
@@ -66,10 +66,10 @@ impl<'a, T: FxRate + Sync> ItemCommandEnrichmentServiceImpl<'a, T> {
 }
 
 #[async_trait::async_trait]
-impl<'a, T: FxRate + Sync> ItemCommandEnrichmentService
-    for ItemCommandEnrichmentServiceImpl<'a, T>
+impl<'a, T: FxRate + Sync> ProductCommandEnrichmentService
+    for ProductCommandEnrichmentServiceImpl<'a, T>
 {
-    async fn enrich_shop(&self, commands: Vec<PipedItemCommand>) -> EnrichItemCommandsOutput {
+    async fn enrich_shop(&self, commands: Vec<PipedProductCommand>) -> EnrichProductCommandsOutput {
         let shop_identifiers = commands
             .iter()
             .map(|cmd| normalize_url(cmd.url.clone()))
@@ -98,7 +98,7 @@ impl<'a, T: FxRate + Sync> ItemCommandEnrichmentService
             };
         }
 
-        let mut output = EnrichItemCommandsOutput::default();
+        let mut output = EnrichProductCommandsOutput::default();
         for mut cmd in commands {
             let shop_url = normalize_url(cmd.url.clone());
             let shop_identifier = ShopIdentifier::ShopUrl(shop_url);
@@ -115,7 +115,7 @@ impl<'a, T: FxRate + Sync> ItemCommandEnrichmentService
                     }
                     None => output
                         .failed
-                        .push((cmd, EnrichItemCommandError::UnknownShopUrl(shop_url))),
+                        .push((cmd, EnrichProductCommandError::UnknownShopUrl(shop_url))),
                 }
             }
         }
@@ -123,8 +123,8 @@ impl<'a, T: FxRate + Sync> ItemCommandEnrichmentService
         output
     }
 
-    fn enrich_price(&self, commands: Vec<PipedItemCommand>) -> EnrichItemCommandsOutput {
-        let mut output = EnrichItemCommandsOutput::default();
+    fn enrich_price(&self, commands: Vec<PipedProductCommand>) -> EnrichProductCommandsOutput {
+        let mut output = EnrichProductCommandsOutput::default();
 
         for mut cmd in commands {
             let other_price_res = cmd
@@ -141,7 +141,9 @@ impl<'a, T: FxRate + Sync> ItemCommandEnrichmentService
                     output.enriched.push(cmd);
                 }
                 Err(err) => {
-                    output.failed.push((cmd, EnrichItemCommandError::from(err)));
+                    output
+                        .failed
+                        .push((cmd, EnrichProductCommandError::from(err)));
                 }
             }
         }
@@ -167,7 +169,7 @@ mod faker {
     use common::price::domain::{FixedFxRate, Price};
     use fake::{Dummy, Fake, Faker, Rng};
 
-    impl Dummy<Faker> for PipedItemCommand {
+    impl Dummy<Faker> for PipedProductCommand {
         fn dummy_with_rng<R: Rng + ?Sized>(config: &Faker, rng: &mut R) -> Self {
             let native_price: Option<Price> = config.fake_with_rng(rng);
             let other_price = match native_price {
@@ -177,7 +179,7 @@ mod faker {
                     .unwrap(),
             };
             let state = config.fake_with_rng(rng);
-            PipedItemCommand {
+            PipedProductCommand {
                 shop_id: config.fake_with_rng(rng),
                 shops_product_id: config.fake_with_rng(rng),
                 shop_name: config.fake_with_rng(rng),
@@ -218,7 +220,7 @@ mod faker {
 #[cfg(test)]
 mod tests {
     use crate::service::enrichment_service::{
-        ItemCommandEnrichmentService, ItemCommandEnrichmentServiceImpl, PipedItemCommand,
+        PipedProductCommand, ProductCommandEnrichmentService, ProductCommandEnrichmentServiceImpl,
         normalize_url,
     };
     use aws_sdk_sqs::error::SdkError;
@@ -253,9 +255,9 @@ mod tests {
     fn should_enrich_price_when_other_none() {
         let repository = MockShopDynamoDbRepository::new();
         let fx_rate = FixedFxRate();
-        let service = ItemCommandEnrichmentServiceImpl::new(&repository, &fx_rate);
+        let service = ProductCommandEnrichmentServiceImpl::new(&repository, &fx_rate);
 
-        let mut cmd = Faker.fake::<PipedItemCommand>();
+        let mut cmd = Faker.fake::<PipedProductCommand>();
         cmd.native_price = Some(Faker.fake());
         cmd.other_price.clear();
 
@@ -266,7 +268,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn should_return_enriched_items() {
+    async fn should_return_enriched_products() {
         let mut repository = MockShopDynamoDbRepository::new();
         let fx_rate = FixedFxRate();
 
@@ -293,7 +295,7 @@ mod tests {
             })
         });
 
-        let service = ItemCommandEnrichmentServiceImpl::new(&repository, &fx_rate);
+        let service = ProductCommandEnrichmentServiceImpl::new(&repository, &fx_rate);
         let cmds = fake::vec![PipedItemCommand; 1234];
         let actual = service.enrich_shop(cmds.clone()).await;
 
@@ -310,7 +312,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn should_return_unprocessed_items_for_unprocessed_shops() {
+    async fn should_return_unprocessed_products_for_unprocessed_shops() {
         let mut repository = MockShopDynamoDbRepository::new();
         let fx_rate = FixedFxRate();
 
@@ -324,7 +326,7 @@ mod tests {
             })
         });
 
-        let service = ItemCommandEnrichmentServiceImpl::new(&repository, &fx_rate);
+        let service = ProductCommandEnrichmentServiceImpl::new(&repository, &fx_rate);
         let actual = service
             .enrich_shop(fake::vec![PipedItemCommand; 1234])
             .await;
@@ -335,7 +337,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn should_return_unprocessed_items_for_failed_shops() {
+    async fn should_return_unprocessed_products_for_failed_shops() {
         let mut repository = MockShopDynamoDbRepository::new();
         let fx_rate = FixedFxRate();
 
@@ -343,7 +345,7 @@ mod tests {
             Box::pin(async { Err(SdkError::construction_failure("Something went wrong")) })
         });
 
-        let service = ItemCommandEnrichmentServiceImpl::new(&repository, &fx_rate);
+        let service = ProductCommandEnrichmentServiceImpl::new(&repository, &fx_rate);
         let actual = service
             .enrich_shop(fake::vec![PipedItemCommand; 1234])
             .await;
@@ -354,7 +356,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn should_return_failed_items_for_unknown_shops() {
+    async fn should_return_failed_products_for_unknown_shops() {
         let mut repository = MockShopDynamoDbRepository::new();
         let fx_rate = FixedFxRate();
 
@@ -367,7 +369,7 @@ mod tests {
             })
         });
 
-        let service = ItemCommandEnrichmentServiceImpl::new(&repository, &fx_rate);
+        let service = ProductCommandEnrichmentServiceImpl::new(&repository, &fx_rate);
         let cmds = fake::vec![PipedItemCommand; 1234];
         let actual = service.enrich_shop(cmds.clone()).await;
 
