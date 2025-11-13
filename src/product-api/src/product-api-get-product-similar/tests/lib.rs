@@ -1062,8 +1062,10 @@ async fn should_202_when_similar_products_have_not_been_computed_for_anon() {
         ProductOpenSearchRepositoryImpl::new(get_opensearch_client().await);
     let product_personalization_service =
         ProductPersonalizationServiceImpl::new(&watchlist_repository);
-    let semantic_search_service =
-        SemanticSearchServiceImpl::new(&product_dynamodb_repository, &product_opensearch_repository);
+    let semantic_search_service = SemanticSearchServiceImpl::new(
+        &product_dynamodb_repository,
+        &product_opensearch_repository,
+    );
     let mut cognito_service = MockAccessTokenVerifierService::default();
     cognito_service
         .expect_verify_extract_user_id()
@@ -1126,8 +1128,10 @@ async fn should_200_when_similar_products_have_been_computed_for_anon() {
         ProductOpenSearchRepositoryImpl::new(get_opensearch_client().await);
     let product_personalization_service =
         ProductPersonalizationServiceImpl::new(&watchlist_repository);
-    let semantic_search_service =
-        SemanticSearchServiceImpl::new(&product_dynamodb_repository, &product_opensearch_repository);
+    let semantic_search_service = SemanticSearchServiceImpl::new(
+        &product_dynamodb_repository,
+        &product_opensearch_repository,
+    );
     let mut cognito_service = MockAccessTokenVerifierService::default();
     cognito_service
         .expect_verify_extract_user_id()
@@ -1219,8 +1223,10 @@ async fn should_200_and_personalize_when_similar_products_have_been_computed_for
         ProductOpenSearchRepositoryImpl::new(get_opensearch_client().await);
     let product_personalization_service =
         ProductPersonalizationServiceImpl::new(&watchlist_repository);
-    let semantic_search_service =
-        SemanticSearchServiceImpl::new(&product_dynamodb_repository, &product_opensearch_repository);
+    let semantic_search_service = SemanticSearchServiceImpl::new(
+        &product_dynamodb_repository,
+        &product_opensearch_repository,
+    );
     let mut cognito_service = MockAccessTokenVerifierService::default();
     cognito_service
         .expect_verify_extract_user_id()

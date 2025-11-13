@@ -116,7 +116,7 @@ mod tests {
     use crate::{
         core::product::LocalizedProductView,
         service::personalization_service::{
-            ProductPersonalizationServiceImpl, ProductPersonalizationService,
+            ProductPersonalizationService, ProductPersonalizationServiceImpl,
         },
         watchlist::dynamodb::{
             record::WatchlistProductRecord, repository::MockWatchlistProductDynamoDbRepository,

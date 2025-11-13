@@ -4,7 +4,8 @@ use lambda_runtime::LambdaEvent;
 use product::data::put_data::PutProductData;
 use product::dynamodb::repository::ProductDynamoDbRepositoryImpl;
 use product::service::{
-    enrichment_service::ProductCommandEnrichmentServiceImpl, upsert_service::UpsertProductsServiceImpl,
+    enrichment_service::ProductCommandEnrichmentServiceImpl,
+    upsert_service::UpsertProductsServiceImpl,
 };
 use product_api_put_products::{PutProductsResponse, handler};
 use shop::core::shop::Shop;

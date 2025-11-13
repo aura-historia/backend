@@ -119,28 +119,28 @@ impl EnrichmentPipeFaucet for EnrichmentPipeFaucetImpl {
             }
         }
 
-        let pipe_items: Vec<(PipeProduct, MessageRef)> = water
+        let pipe_products: Vec<(PipeProduct, MessageRef)> = water
             .into_iter()
             .map(|(payload, message_ref)| {
-                let pipe_item = PipeProduct {
+                let pipe_product = PipeProduct {
                     source: PipeProductSource {
                         product_id: message_ref.product_id,
                         payload,
                     },
                     update: PipeProductUpdate::default(),
                 };
-                (pipe_item, message_ref)
+                (pipe_product, message_ref)
             })
             .collect();
 
         info!(
             count = count,
-            successes = pipe_items.len(),
+            successes = pipe_products.len(),
             skipped = skipped_count,
             failures = failed_message_ids.len(),
             "Faucet poured."
         );
 
-        pipe_items
+        pipe_products
     }
 }

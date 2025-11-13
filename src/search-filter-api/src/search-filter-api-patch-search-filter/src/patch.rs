@@ -33,7 +33,11 @@ pub struct PatchProductSearchData {
     #[serde(skip_serializing_if = "Option::is_none", default)]
     pub currency: Option<CurrencyData>,
 
-    #[serde(rename = "productQuery", skip_serializing_if = "Option::is_none", default)]
+    #[serde(
+        rename = "productQuery",
+        skip_serializing_if = "Option::is_none",
+        default
+    )]
     pub product_query: Option<TextQuery>,
 
     #[serde(
@@ -78,7 +82,10 @@ impl From<PatchUserSearchFilterData> for UserSearchFilterUpdate {
                 .search
                 .as_ref()
                 .and_then(|sf| sf.currency.map(Currency::from)),
-            product_query: patch.search.as_ref().and_then(|sf| sf.product_query.clone()),
+            product_query: patch
+                .search
+                .as_ref()
+                .and_then(|sf| sf.product_query.clone()),
             shop_name_query: patch
                 .search
                 .as_ref()

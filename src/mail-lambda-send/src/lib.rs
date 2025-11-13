@@ -57,7 +57,7 @@ pub async fn handler(
     let sqs_batch_response = SqsBatchResponse {
         batch_item_failures: failed_message_ids
             .into_iter()
-            .map(|product_identifier| BatchItemFailure { item_identifier })
+            .map(|item_identifier| BatchItemFailure { item_identifier })
             .collect(),
     };
 

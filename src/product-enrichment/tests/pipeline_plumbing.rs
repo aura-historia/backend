@@ -74,11 +74,12 @@ async fn should_plumb_messages(#[case] queue_count: usize, #[case] plumbing_coun
     let enrichment_queue_url = ENRICHMENT_QUEUE.queue_url();
     let sqs_client = Arc::new(get_sqs_client().await.clone());
     let dynamodb_client = get_dynamodb_client().await;
-    let product_dynamodb_repository = ProductDynamoDbRepositoryImpl::new(dynamodb_client, "table_1");
+    let product_dynamodb_repository =
+        ProductDynamoDbRepositoryImpl::new(dynamodb_client, "table_1");
     let product_opensearch_repository =
         ProductOpenSearchRepositoryImpl::new(get_opensearch_client().await);
 
-    let event_records = fake::vec![ItemCreatedEventPayload; queue_count]
+    let event_records = fake::vec![ProductCreatedEventPayload; queue_count]
         .into_iter()
         .map(|payload| Event {
             aggregate_id: ProductId::new(),

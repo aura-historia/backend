@@ -61,7 +61,7 @@ async fn should_pour_messages(#[case] queue_count: usize, #[case] pour_count: i3
     let enrichment_queue_url = ENRICHMENT_QUEUE.queue_url();
     let sqs_client = Arc::new(get_sqs_client().await.clone());
 
-    let event_records = fake::vec![ItemCreatedEventPayload; queue_count]
+    let event_records = fake::vec![ProductCreatedEventPayload; queue_count]
         .into_iter()
         .map(|payload| Event {
             aggregate_id: ProductId::new(),
@@ -89,16 +89,16 @@ async fn should_pour_messages(#[case] queue_count: usize, #[case] pour_count: i3
     assert!(
         actual
             .iter()
-            .all(|(pipe_item, msg_ref)| pipe_item.source.product_id == msg_ref.product_id)
+            .all(|(pipe_product, msg_ref)| pipe_product.source.product_id == msg_ref.product_id)
     );
     assert!(
         actual
             .iter()
-            .all(|(pipe_item, _)| pipe_item.update.document.is_none())
+            .all(|(pipe_product, _)| pipe_product.update.document.is_none())
     );
     assert!(
         actual
             .iter()
-            .all(|(pipe_item, _)| pipe_item.update.record.is_none())
+            .all(|(pipe_product, _)| pipe_product.update.record.is_none())
     );
 }

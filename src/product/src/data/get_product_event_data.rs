@@ -206,7 +206,8 @@ impl From<Event<ProductId, LocalizedProductEventPayloadView>> for GetProductEven
 mod tests {
     use crate::core::product_event::{
         LocalizedProductCreatedEventPayloadView, LocalizedProductEventPayloadView,
-        LocalizedProductPriceChangeEventPayloadView, LocalizedProductPriceDiscoveryEventPayloadView,
+        LocalizedProductPriceChangeEventPayloadView,
+        LocalizedProductPriceDiscoveryEventPayloadView,
         LocalizedProductStateChangeEventPayloadView,
     };
     use crate::data::{
@@ -230,7 +231,7 @@ mod tests {
 
     #[rstest::rstest]
     #[case::created(
-        LocalizedItemEventPayloadView::Created(LocalizedItemCreatedEventPayloadView {
+        LocalizedProductEventPayloadView::Created(LocalizedProductCreatedEventPayloadView {
             shop_id: "569c809e-b9e0-48c0-8c52-ac37d82a0959".try_into().unwrap(),
             shops_product_id: "bar".into(),
             shop_name: "baz".into(),
@@ -242,160 +243,160 @@ mod tests {
             images: vec![],
         }),
         GetProductEventData {
-            event_type: ItemEventTypeData::Created,
+            event_type: ProductEventTypeData::Created,
             product_id: Uuid::max().into(),
             event_id: Uuid::max().into(),
             shop_id: "569c809e-b9e0-48c0-8c52-ac37d82a0959".try_into().unwrap(),
             shops_product_id: "bar".into(),
-            payload: ItemEventPayloadData::Created(ItemCreatedEventPayloadData { price: Some(PriceData::new(CurrencyData::Eur, 500u64)), state: ProductStateData::Listed }),
+            payload: ProductEventPayloadData::Created(ProductCreatedEventPayloadData { price: Some(PriceData::new(CurrencyData::Eur, 500u64)), state: ProductStateData::Listed }),
             timestamp: utc_datetime!(2025 - 05 - 05 2:22).into(),
         }
     )]
     #[case::state_listed(
-        LocalizedItemEventPayloadView::StateListed(LocalizedItemStateChangeEventPayloadView {
+        LocalizedProductEventPayloadView::StateListed(LocalizedProductStateChangeEventPayloadView {
             shop_id: "569c809e-b9e0-48c0-8c52-ac37d82a0959".try_into().unwrap(),
             shops_product_id: "bar".into(),
             old_state: ProductState::Available
         }),
         GetProductEventData {
-            event_type: ItemEventTypeData::StateListed,
+            event_type: ProductEventTypeData::StateListed,
             product_id: Uuid::max().into(),
             event_id: Uuid::max().into(),
             shop_id: "569c809e-b9e0-48c0-8c52-ac37d82a0959".try_into().unwrap(),
             shops_product_id: "bar".into(),
-            payload: ItemEventPayloadData::StateListed(ItemEventStateChangedPayloadData { old_state: ProductStateData::Available, new_state: ProductStateData::Listed }),
+            payload: ProductEventPayloadData::StateListed(ProductEventStateChangedPayloadData { old_state: ProductStateData::Available, new_state: ProductStateData::Listed }),
             timestamp: utc_datetime!(2025 - 05 - 05 2:22).into(),
         }
     )]
     #[case::state_available(
-        LocalizedItemEventPayloadView::StateAvailable(LocalizedItemStateChangeEventPayloadView {
+        LocalizedProductEventPayloadView::StateAvailable(LocalizedProductStateChangeEventPayloadView {
             shop_id: "569c809e-b9e0-48c0-8c52-ac37d82a0959".try_into().unwrap(),
             shops_product_id: "bar".into(),
             old_state: ProductState::Listed
         }),
         GetProductEventData {
-            event_type: ItemEventTypeData::StateAvailable,
+            event_type: ProductEventTypeData::StateAvailable,
             product_id: Uuid::max().into(),
             event_id: Uuid::max().into(),
             shop_id: "569c809e-b9e0-48c0-8c52-ac37d82a0959".try_into().unwrap(),
             shops_product_id: "bar".into(),
-            payload: ItemEventPayloadData::StateAvailable(ItemEventStateChangedPayloadData { old_state: ProductStateData::Listed, new_state: ProductStateData::Available }),
+            payload: ProductEventPayloadData::StateAvailable(ProductEventStateChangedPayloadData { old_state: ProductStateData::Listed, new_state: ProductStateData::Available }),
             timestamp: utc_datetime!(2025 - 05 - 05 2:22).into(),
         }
     )]
     #[case::state_reserved(
-        LocalizedItemEventPayloadView::StateReserved(LocalizedItemStateChangeEventPayloadView {
+        LocalizedProductEventPayloadView::StateReserved(LocalizedProductStateChangeEventPayloadView {
             shop_id: "569c809e-b9e0-48c0-8c52-ac37d82a0959".try_into().unwrap(),
             shops_product_id: "bar".into(),
             old_state: ProductState::Available
         }),
         GetProductEventData {
-            event_type: ItemEventTypeData::StateReserved,
+            event_type: ProductEventTypeData::StateReserved,
             product_id: Uuid::max().into(),
             event_id: Uuid::max().into(),
             shop_id: "569c809e-b9e0-48c0-8c52-ac37d82a0959".try_into().unwrap(),
             shops_product_id: "bar".into(),
-            payload: ItemEventPayloadData::StateReserved(ItemEventStateChangedPayloadData { old_state: ProductStateData::Available, new_state: ProductStateData::Reserved }),
+            payload: ProductEventPayloadData::StateReserved(ProductEventStateChangedPayloadData { old_state: ProductStateData::Available, new_state: ProductStateData::Reserved }),
             timestamp: utc_datetime!(2025 - 05 - 05 2:22).into(),
         }
     )]
     #[case::state_sold(
-        LocalizedItemEventPayloadView::StateSold(LocalizedItemStateChangeEventPayloadView {
+        LocalizedProductEventPayloadView::StateSold(LocalizedProductStateChangeEventPayloadView {
             shop_id: "569c809e-b9e0-48c0-8c52-ac37d82a0959".try_into().unwrap(),
             shops_product_id: "bar".into(),
             old_state: ProductState::Reserved
         }),
         GetProductEventData {
-            event_type: ItemEventTypeData::StateSold,
+            event_type: ProductEventTypeData::StateSold,
             product_id: Uuid::max().into(),
             event_id: Uuid::max().into(),
             shop_id: "569c809e-b9e0-48c0-8c52-ac37d82a0959".try_into().unwrap(),
             shops_product_id: "bar".into(),
-            payload: ItemEventPayloadData::StateSold(ItemEventStateChangedPayloadData { old_state: ProductStateData::Reserved, new_state: ProductStateData::Sold }),
+            payload: ProductEventPayloadData::StateSold(ProductEventStateChangedPayloadData { old_state: ProductStateData::Reserved, new_state: ProductStateData::Sold }),
             timestamp: utc_datetime!(2025 - 05 - 05 2:22).into(),
         }
     )]
     #[case::state_removed(
-        LocalizedItemEventPayloadView::StateRemoved(LocalizedItemStateChangeEventPayloadView {
+        LocalizedProductEventPayloadView::StateRemoved(LocalizedProductStateChangeEventPayloadView {
             shop_id: "569c809e-b9e0-48c0-8c52-ac37d82a0959".try_into().unwrap(),
             shops_product_id: "bar".into(),
             old_state: ProductState::Sold
         }),
         GetProductEventData {
-            event_type: ItemEventTypeData::StateRemoved,
+            event_type: ProductEventTypeData::StateRemoved,
             product_id: Uuid::max().into(),
             event_id: Uuid::max().into(),
             shop_id: "569c809e-b9e0-48c0-8c52-ac37d82a0959".try_into().unwrap(),
             shops_product_id: "bar".into(),
-            payload: ItemEventPayloadData::StateRemoved(ItemEventStateChangedPayloadData { old_state: ProductStateData::Sold, new_state: ProductStateData::Removed }),
+            payload: ProductEventPayloadData::StateRemoved(ProductEventStateChangedPayloadData { old_state: ProductStateData::Sold, new_state: ProductStateData::Removed }),
             timestamp: utc_datetime!(2025 - 05 - 05 2:22).into(),
         }
     )]
     #[case::state_unknown(
-        LocalizedItemEventPayloadView::StateUnknown(LocalizedItemStateChangeEventPayloadView {
+        LocalizedProductEventPayloadView::StateUnknown(LocalizedProductStateChangeEventPayloadView {
             shop_id: "569c809e-b9e0-48c0-8c52-ac37d82a0959".try_into().unwrap(),
             shops_product_id: "bar".into(),
             old_state: ProductState::Removed
         }),
         GetProductEventData {
-            event_type: ItemEventTypeData::StateUnknown,
+            event_type: ProductEventTypeData::StateUnknown,
             product_id: Uuid::max().into(),
             event_id: Uuid::max().into(),
             shop_id: "569c809e-b9e0-48c0-8c52-ac37d82a0959".try_into().unwrap(),
             shops_product_id: "bar".into(),
-            payload: ItemEventPayloadData::StateUnknown(ItemEventStateChangedPayloadData { old_state: ProductStateData::Removed, new_state: ProductStateData::Unknown }),
+            payload: ProductEventPayloadData::StateUnknown(ProductEventStateChangedPayloadData { old_state: ProductStateData::Removed, new_state: ProductStateData::Unknown }),
             timestamp: utc_datetime!(2025 - 05 - 05 2:22).into(),
         }
     )]
     #[case::price_discovered(
-        LocalizedItemEventPayloadView::PriceDiscovered(LocalizedItemPriceDiscoveryEventPayloadView {
+        LocalizedProductEventPayloadView::PriceDiscovered(LocalizedProductPriceDiscoveryEventPayloadView {
             shop_id: "569c809e-b9e0-48c0-8c52-ac37d82a0959".try_into().unwrap(),
             shops_product_id: "bar".into(),
             price: Price::new(500u64.into(), Currency::Eur),
         }),
         GetProductEventData {
-            event_type: ItemEventTypeData::PriceDiscovered,
+            event_type: ProductEventTypeData::PriceDiscovered,
             product_id: Uuid::max().into(),
             event_id: Uuid::max().into(),
             shop_id: "569c809e-b9e0-48c0-8c52-ac37d82a0959".try_into().unwrap(),
             shops_product_id: "bar".into(),
-            payload: ItemEventPayloadData::PriceDiscovered(ItemEventPriceDiscoveredPayloadData {
+            payload: ProductEventPayloadData::PriceDiscovered(ProductEventPriceDiscoveredPayloadData {
                 new_price: PriceData::new(CurrencyData::Eur, 500u64)
             }),
             timestamp: utc_datetime!(2025 - 05 - 05 2:22).into(),
         }
     )]
     #[case::price_dropped(
-        LocalizedItemEventPayloadView::PriceDropped(LocalizedItemPriceChangeEventPayloadView {
+        LocalizedProductEventPayloadView::PriceDropped(LocalizedProductPriceChangeEventPayloadView {
             shop_id: "569c809e-b9e0-48c0-8c52-ac37d82a0959".try_into().unwrap(),
             shops_product_id: "bar".into(),
             new_price: Price::new(500u64.into(), Currency::Eur),
             old_price: Price::new(700u64.into(), Currency::Eur),
         }),
         GetProductEventData {
-            event_type: ItemEventTypeData::PriceDropped,
+            event_type: ProductEventTypeData::PriceDropped,
             product_id: Uuid::max().into(),
             event_id: Uuid::max().into(),
             shop_id: "569c809e-b9e0-48c0-8c52-ac37d82a0959".try_into().unwrap(),
             shops_product_id: "bar".into(),
-            payload: ItemEventPayloadData::PriceDropped(ItemEventPriceChangedPayloadData { old_price: PriceData::new(CurrencyData::Eur, 700u64), new_price: PriceData::new(CurrencyData::Eur, 500u64) }),
+            payload: ProductEventPayloadData::PriceDropped(ProductEventPriceChangedPayloadData { old_price: PriceData::new(CurrencyData::Eur, 700u64), new_price: PriceData::new(CurrencyData::Eur, 500u64) }),
             timestamp: utc_datetime!(2025 - 05 - 05 2:22).into(),
         }
     )]
     #[case::price_increased(
-        LocalizedItemEventPayloadView::PriceIncreased(LocalizedItemPriceChangeEventPayloadView {
+        LocalizedProductEventPayloadView::PriceIncreased(LocalizedProductPriceChangeEventPayloadView {
             shop_id: "569c809e-b9e0-48c0-8c52-ac37d82a0959".try_into().unwrap(),
             shops_product_id: "bar".into(),
             new_price: Price::new(777u64.into(), Currency::Eur),
             old_price: Price::new(500u64.into(), Currency::Eur),
         }),
         GetProductEventData {
-            event_type: ItemEventTypeData::PriceIncreased,
+            event_type: ProductEventTypeData::PriceIncreased,
             product_id: Uuid::max().into(),
             event_id: Uuid::max().into(),
             shop_id: "569c809e-b9e0-48c0-8c52-ac37d82a0959".try_into().unwrap(),
             shops_product_id: "bar".into(),
-            payload: ItemEventPayloadData::PriceIncreased(ItemEventPriceChangedPayloadData { old_price: PriceData::new(CurrencyData::Eur, 500u64), new_price: PriceData::new(CurrencyData::Eur, 777u64) }),
+            payload: ProductEventPayloadData::PriceIncreased(ProductEventPriceChangedPayloadData { old_price: PriceData::new(CurrencyData::Eur, 500u64), new_price: PriceData::new(CurrencyData::Eur, 777u64) }),
             timestamp: utc_datetime!(2025 - 05 - 05 2:22).into(),
         }
     )]

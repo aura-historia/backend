@@ -10,7 +10,7 @@ use fake::{Fake, Faker};
 use lambda_runtime::LambdaEvent;
 use product::{
     core::product_event::{
-        ProductPriceChangeEventPayload, ProductStateChangeEventPayload, ProductEventPayload,
+        ProductEventPayload, ProductPriceChangeEventPayload, ProductStateChangeEventPayload,
     },
     service::personalization_service::ProductPersonalizationServiceImpl,
     watchlist::service::{

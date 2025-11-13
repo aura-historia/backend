@@ -49,13 +49,21 @@ async fn main() -> Result<(), Error> {
 
     let sender_mail_str = std::env::var("SENDER_MAIL")?;
     let sender_mail = Email::try_from(sender_mail_str)?;
-    let product_event_mail_payload_service =
-        ProductEventMailPayloadServiceImpl::new(&watchlist_service, &get_product_service, sender_mail);
+    let product_event_mail_payload_service = ProductEventMailPayloadServiceImpl::new(
+        &watchlist_service,
+        &get_product_service,
+        sender_mail,
+    );
 
     info!("Lambda cold start completed, client initialized.");
 
     run(service_fn(|event: LambdaEvent<SqsEvent>| async {
-        handler(&queue_mail_service, &product_event_mail_payload_service, event).await
+        handler(
+            &queue_mail_service,
+            &product_event_mail_payload_service,
+            event,
+        )
+        .await
     }))
     .await
 }

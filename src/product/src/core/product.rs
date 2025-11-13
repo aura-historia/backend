@@ -1,8 +1,8 @@
 use crate::core::description::Description;
 use crate::core::product_event::{
-    ProductCreatedEventPayload, ProductPriceChangeEventPayload, ProductPriceDiscoveryEventPayload,
-    ProductPriceRemovedEventPayload, ProductStateChangeEventPayload, LocalizedProductEventPayloadView,
-    ProductEvent, ProductEventPayload,
+    LocalizedProductEventPayloadView, ProductCreatedEventPayload, ProductEvent,
+    ProductEventPayload, ProductPriceChangeEventPayload, ProductPriceDiscoveryEventPayload,
+    ProductPriceRemovedEventPayload, ProductStateChangeEventPayload,
 };
 use crate::core::title::Title;
 use common::currency::domain::Currency;
@@ -127,12 +127,14 @@ impl Product {
                     aggregate_id: self.product_id,
                     event_id: EventId::new(),
                     timestamp: OffsetDateTime::now_utc(),
-                    payload: ProductEventPayload::PriceDiscovered(ProductPriceDiscoveryEventPayload {
-                        shop_id: self.shop_id,
-                        shops_product_id: self.shops_product_id.clone(),
-                        native_price: new_native_price,
-                        other_price: new_other_price,
-                    }),
+                    payload: ProductEventPayload::PriceDiscovered(
+                        ProductPriceDiscoveryEventPayload {
+                            shop_id: self.shop_id,
+                            shops_product_id: self.shops_product_id.clone(),
+                            native_price: new_native_price,
+                            other_price: new_other_price,
+                        },
+                    ),
                 };
                 Some(event)
             }

@@ -73,7 +73,7 @@ impl<'a> ProductEventMailPayloadService for ProductEventMailPayloadServiceImpl<'
 
         let item = self
             .get_product_service
-            .find_item(event.payload.shop_id(), event.payload.shops_product_id())
+            .find_product(event.payload.shop_id(), event.payload.shops_product_id())
             .await?;
 
         let mail_payloads = users

@@ -1,7 +1,7 @@
 use crate::core::product_event::{
-    ProductCreatedEventPayload, ProductPriceChangeEventPayload, ProductPriceDiscoveryEventPayload,
-    ProductPriceRemovedEventPayload, ProductStateChangeEventPayload, ProductCommonEventPayload,
-    ProductEvent, ProductEventPayload,
+    ProductCommonEventPayload, ProductCreatedEventPayload, ProductEvent, ProductEventPayload,
+    ProductPriceChangeEventPayload, ProductPriceDiscoveryEventPayload,
+    ProductPriceRemovedEventPayload, ProductStateChangeEventPayload,
 };
 use crate::dynamodb::product_event_type_record::ProductEventTypeRecord;
 use crate::dynamodb::product_state_record::ProductStateRecord;

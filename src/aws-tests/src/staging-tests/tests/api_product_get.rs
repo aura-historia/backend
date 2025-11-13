@@ -10,7 +10,7 @@ use common::{
 use fake::{Fake, Faker};
 use product::{
     core::product_event::{
-        ProductPriceChangeEventPayload, ProductStateChangeEventPayload, ProductEventPayload,
+        ProductEventPayload, ProductPriceChangeEventPayload, ProductStateChangeEventPayload,
     },
     service::get_service::GetProductServiceImpl,
     watchlist::{

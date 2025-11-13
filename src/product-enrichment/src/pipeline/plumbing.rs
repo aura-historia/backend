@@ -40,7 +40,7 @@ impl EnrichmentPlumbing for EnrichmentPlumbingImpl {
         info!(count = count, "Started plumbing.");
 
         // find water
-        let (pipe_items, message_refs): (Vec<PipeProduct>, Vec<MessageRef>) =
+        let (pipe_products, message_refs): (Vec<PipeProduct>, Vec<MessageRef>) =
             self.faucet.pour(count).await.into_iter().unzip();
         let mut message_refs = message_refs
             .into_iter()
@@ -48,31 +48,32 @@ impl EnrichmentPlumbing for EnrichmentPlumbingImpl {
             .collect::<HashMap<_, _>>();
 
         // run water through pipes
-        let (enriched_products, mut failed_items) =
-            self.pipes
-                .iter()
-                .fold((pipe_items, HashSet::new()), |(pipe_in, leak_in), pipe| {
-                    let pipe_res = pipe.enrich(pipe_in);
-                    let pipe_out = pipe_res.successes;
-                    let mut pipe_leak = leak_in;
-                    pipe_leak.extend(&mut pipe_res.failures.into_iter());
+        let (enriched_products, mut failed_items) = self.pipes.iter().fold(
+            (pipe_products, HashSet::new()),
+            |(pipe_in, leak_in), pipe| {
+                let pipe_res = pipe.enrich(pipe_in);
+                let pipe_out = pipe_res.successes;
+                let mut pipe_leak = leak_in;
+                pipe_leak.extend(&mut pipe_res.failures.into_iter());
 
-                    (pipe_out, pipe_leak)
-                });
+                (pipe_out, pipe_leak)
+            },
+        );
 
         // route water to sink
         let (drain_documents, drain_records) = enriched_products.into_iter().fold(
             (HashMap::new(), HashMap::new()),
-            |(mut drain_documents, mut drain_records), pipe_item| {
-                if let Some(document_update) = pipe_item.update.document {
-                    drain_documents.insert(pipe_item.source.product_id, document_update);
+            |(mut drain_documents, mut drain_records), pipe_product| {
+                if let Some(document_update) = pipe_product.update.document {
+                    drain_documents.insert(pipe_product.source.product_id, document_update);
                 };
-                if let Some(record_update) = pipe_item.update.record {
+                if let Some(record_update) = pipe_product.update.record {
                     let product_key = ProductKey {
-                        shop_id: pipe_item.source.payload.shop_id,
-                        shops_product_id: pipe_item.source.payload.shops_product_id,
+                        shop_id: pipe_product.source.payload.shop_id,
+                        shops_product_id: pipe_product.source.payload.shops_product_id,
                     };
-                    drain_records.insert(pipe_item.source.product_id, (product_key, record_update));
+                    drain_records
+                        .insert(pipe_product.source.product_id, (product_key, record_update));
                 };
                 (drain_documents, drain_records)
             },
@@ -233,11 +234,11 @@ mod tests {
             .build();
         let sqs_client = aws_sdk_sqs::Client::new(&sdk_config);
 
-        let faked_poured = fake::vec![(PipeItem, MessageRef); 1000]
+        let faked_poured = fake::vec![(PipeProduct, MessageRef); 1000]
             .into_iter()
-            .map(|(pipe_item, mut msg_ref)| {
-                msg_ref.product_id = pipe_item.source.product_id;
-                (pipe_item, msg_ref)
+            .map(|(pipe_product, mut msg_ref)| {
+                msg_ref.product_id = pipe_product.source.product_id;
+                (pipe_product, msg_ref)
             })
             .collect();
         faucet

@@ -25,11 +25,11 @@ impl EnrichmentPipe for EmbeddingEnrichmentPipeImpl {
         let batches: Vec<Batch<PipeProduct, 64>> = Batch::chunked_from(items.into_iter());
 
         for document_batch in batches {
-            let input_batch_iter = document_batch.iter().map(|pipe_item| {
+            let input_batch_iter = document_batch.iter().map(|pipe_product| {
                 format!(
                     "{} [SEP] {}",
-                    pipe_item.source.payload.native_title.payload.as_ref(),
-                    pipe_item
+                    pipe_product.source.payload.native_title.payload.as_ref(),
+                    pipe_product
                         .source
                         .payload
                         .native_description
@@ -49,13 +49,13 @@ impl EnrichmentPipe for EmbeddingEnrichmentPipeImpl {
                 }
                 Ok(embeddings) => {
                     let mut local_enriched = document_batch.into_iter().zip(embeddings).map(
-                        |(mut pipe_item, embedding)| {
-                            pipe_item
+                        |(mut pipe_product, embedding)| {
+                            pipe_product
                                 .update
                                 .document
                                 .get_or_insert_default()
                                 .text_embedding = Some(embedding);
-                            pipe_item
+                            pipe_product
                         },
                     );
                     successes.extend(&mut local_enriched);
@@ -67,7 +67,7 @@ impl EnrichmentPipe for EmbeddingEnrichmentPipeImpl {
             count = count,
             successes = count - failures.len(),
             failures = failures.len(),
-            "Embedded PipeItems."
+            "Embedded PipeProducts."
         );
 
         PipeResult {
@@ -105,7 +105,7 @@ pub mod tests {
             .return_once(move |_| Ok(expected_clone.try_into().unwrap()));
 
         let embedding_pipe = EmbeddingEnrichmentPipeImpl::new(Arc::new(delegate));
-        let res = embedding_pipe.enrich(fake::vec![PipeItem; 4]);
+        let res = embedding_pipe.enrich(fake::vec![PipeProduct; 4]);
         let actual = res
             .successes
             .into_iter()
@@ -135,7 +135,7 @@ pub mod tests {
             .returning(move |_| Err(PyErr::new::<PyTypeError, _>("Something went wrong")));
 
         let embedding_pipe = EmbeddingEnrichmentPipeImpl::new(Arc::new(delegate));
-        let res = embedding_pipe.enrich(fake::vec![PipeItem; input_count]);
+        let res = embedding_pipe.enrich(fake::vec![PipeProduct; input_count]);
 
         assert!(res.successes.is_empty());
         assert_eq!(input_count, res.failures.len());

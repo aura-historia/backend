@@ -7,7 +7,9 @@ use common::localized::Localized;
 use common::price::domain::Price;
 use lambda_runtime::LambdaEvent;
 use product::data::put_data::PutProductData;
-use product::service::enrichment_service::{EnrichProductCommandError, ItemCommandEnrichmentService};
+use product::service::enrichment_service::{
+    EnrichProductCommandError, ProductCommandEnrichmentService,
+};
 use product::service::product_command::{PipedProductCommand, UpsertProductCommand};
 use product::service::upsert_service::UpsertProductsService;
 use serde::{Deserialize, Serialize};
@@ -87,7 +89,7 @@ pub struct PutProductsResponse {
 pub async fn handler(
     event: LambdaEvent<ApiGatewayV2httpRequest>,
     upsert_service: &impl UpsertProductsService,
-    enrich_service: &(impl ItemCommandEnrichmentService + Sync),
+    enrich_service: &(impl ProductCommandEnrichmentService + Sync),
 ) -> Result<ApiGatewayV2httpResponse, lambda_runtime::Error> {
     match handle(event, upsert_service, enrich_service).await {
         Ok(response) => Ok(response),
@@ -102,7 +104,7 @@ pub async fn handler(
 pub async fn handle(
     event: LambdaEvent<ApiGatewayV2httpRequest>,
     upsert_service: &impl UpsertProductsService,
-    enrich_service: &(impl ItemCommandEnrichmentService + Sync),
+    enrich_service: &(impl ProductCommandEnrichmentService + Sync),
 ) -> Result<ApiGatewayV2httpResponse, ApiError> {
     let body = event
         .payload
@@ -205,7 +207,7 @@ mod tests {
     use lambda_runtime::LambdaEvent;
     use product::data::put_data::PutProductData;
     use product::service::enrichment_service::{
-        EnrichProductCommandsOutput, MockItemCommandEnrichmentService,
+        EnrichProductCommandsOutput, MockProductCommandEnrichmentService,
     };
     use product::service::product_command::UpsertProductCommand;
     use product::service::upsert_service::{MockUpsertProductsService, UpsertProductsOutput};
@@ -231,7 +233,7 @@ mod tests {
         #[case] failures: usize,
         #[case] skipped: usize,
     ) {
-        let mut enrich_service = MockItemCommandEnrichmentService::default();
+        let mut enrich_service = MockProductCommandEnrichmentService::default();
         enrich_service.expect_enrich().return_once(|cmds| {
             Box::pin(async {
                 EnrichProductCommandsOutput {

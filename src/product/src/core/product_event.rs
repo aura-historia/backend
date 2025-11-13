@@ -397,8 +397,8 @@ mod faker {
     #[cfg(test)]
     mod tests {
         use crate::core::product_event::{
-            ProductCreatedEventPayload, ProductPriceRemovedEventPayload, ProductStateChangeEventPayload,
-            ProductEvent, ProductEventPayload,
+            ProductCreatedEventPayload, ProductEvent, ProductEventPayload,
+            ProductPriceRemovedEventPayload, ProductStateChangeEventPayload,
         };
         use fake::{Fake, Faker};
 

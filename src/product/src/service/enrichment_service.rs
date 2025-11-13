@@ -296,7 +296,7 @@ mod tests {
         });
 
         let service = ProductCommandEnrichmentServiceImpl::new(&repository, &fx_rate);
-        let cmds = fake::vec![PipedItemCommand; 1234];
+        let cmds = fake::vec![PipedProductCommand; 1234];
         let actual = service.enrich_shop(cmds.clone()).await;
 
         assert!(actual.failed.is_empty());
@@ -328,7 +328,7 @@ mod tests {
 
         let service = ProductCommandEnrichmentServiceImpl::new(&repository, &fx_rate);
         let actual = service
-            .enrich_shop(fake::vec![PipedItemCommand; 1234])
+            .enrich_shop(fake::vec![PipedProductCommand; 1234])
             .await;
 
         assert!(actual.failed.is_empty());
@@ -347,7 +347,7 @@ mod tests {
 
         let service = ProductCommandEnrichmentServiceImpl::new(&repository, &fx_rate);
         let actual = service
-            .enrich_shop(fake::vec![PipedItemCommand; 1234])
+            .enrich_shop(fake::vec![PipedProductCommand; 1234])
             .await;
 
         assert!(actual.failed.is_empty());
@@ -370,7 +370,7 @@ mod tests {
         });
 
         let service = ProductCommandEnrichmentServiceImpl::new(&repository, &fx_rate);
-        let cmds = fake::vec![PipedItemCommand; 1234];
+        let cmds = fake::vec![PipedProductCommand; 1234];
         let actual = service.enrich_shop(cmds.clone()).await;
 
         assert!(actual.unprocessed.is_empty());

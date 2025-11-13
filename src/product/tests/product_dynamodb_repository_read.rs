@@ -250,7 +250,8 @@ mod query_product_record_and_event_records {
     use common::shops_product_id::ShopsProductId;
     use fake::{Fake, Faker};
     use product::core::product_event::{
-        ProductCreatedEventPayload, ProductStateChangeEventPayload, ProductEvent, ProductEventPayload,
+        ProductCreatedEventPayload, ProductEvent, ProductEventPayload,
+        ProductStateChangeEventPayload,
     };
     use product::dynamodb::product_event_record::ProductEventRecord;
     use product::dynamodb::product_event_type_record::ProductEventTypeRecord;
@@ -612,7 +613,8 @@ mod batch_get_product_records {
     }
 
     #[localstack_test(services = [DynamoDB()])]
-    async fn should_return_product_records_for_batch_get_product_records_when_more_than_100_exist() {
+    async fn should_return_product_records_for_batch_get_product_records_when_more_than_100_exist()
+    {
         let client = get_dynamodb_client().await;
         let shop_id = ShopId::new();
         let mk_expected = |n: i32| {

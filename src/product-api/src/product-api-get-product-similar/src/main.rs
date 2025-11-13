@@ -40,8 +40,10 @@ async fn main() -> Result<(), Error> {
     let product_opensearch_repository = ProductOpenSearchRepositoryImpl::new(&opensearch_client);
     let product_dynamodb_repository =
         ProductDynamoDbRepositoryImpl::new(&dynamodb_client, &table_name);
-    let semantic_search_service =
-        SemanticSearchServiceImpl::new(&product_dynamodb_repository, &product_opensearch_repository);
+    let semantic_search_service = SemanticSearchServiceImpl::new(
+        &product_dynamodb_repository,
+        &product_opensearch_repository,
+    );
 
     let watchlist_repository =
         WatchlistProductDynamoDbRepositoryImpl::new(&dynamodb_client, &table_name);

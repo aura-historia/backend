@@ -54,7 +54,7 @@ pub async fn handler(
     let sqs_batch_response = SqsBatchResponse {
         batch_item_failures: failed_message_ids
             .into_iter()
-            .map(|product_identifier| BatchItemFailure { item_identifier })
+            .map(|item_identifier| BatchItemFailure { item_identifier })
             .collect(),
     };
     Ok(sqs_batch_response)
@@ -225,7 +225,7 @@ mod tests {
                 })
             });
 
-        let records = fake::vec![ItemCreatedEventPayload; record_count]
+        let records = fake::vec![ProductCreatedEventPayload; record_count]
             .into_iter()
             .map(ProductEventPayload::Created)
             .map(|event_payload| Event {
@@ -283,7 +283,7 @@ mod tests {
             .cloned()
             .collect::<Vec<_>>();
         let expected_failures_clone = expected_failures.clone();
-        let records = fake::vec![ItemCreatedEventPayload; record_count]
+        let records = fake::vec![ProductCreatedEventPayload; record_count]
             .into_iter()
             .map(ProductEventPayload::Created)
             .map(|event_payload| Event {
@@ -377,7 +377,7 @@ mod tests {
             .unwrap()
             .batch_item_failures
             .into_iter()
-            .map(|failure| failure.product_identifier)
+            .map(|failure| failure.item_identifier)
             .collect::<Vec<_>>();
         actual_failed_message_ids.sort();
         let mut expected_failed_message_ids = expected_failures

@@ -174,10 +174,12 @@ mod tests {
                     event_id,
                     shop_id,
                     shops_product_id: shops_product_id.clone(),
-                    payload: ProductEventPayloadData::PriceDropped(ProductEventPriceChangedPayloadData {
-                        old_price: PriceData::new(CurrencyData::Eur, 69),
-                        new_price: PriceData::new(CurrencyData::Eur, 42),
-                    }),
+                    payload: ProductEventPayloadData::PriceDropped(
+                        ProductEventPriceChangedPayloadData {
+                            old_price: PriceData::new(CurrencyData::Eur, 69),
+                            new_price: PriceData::new(CurrencyData::Eur, 42),
+                        },
+                    ),
                     timestamp: utc_datetime!(2025 - 05 - 05 0:00).into(),
                 },
             ]),
