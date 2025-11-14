@@ -1,5 +1,5 @@
 AWSTemplateFormatVersion: "2010-09-09"
-Description: Full application stack for the Blitzfilter Backend
+Description: Stack for the Aura-Historia Application-Backend
 
 Parameters:
   Stage:
@@ -60,12 +60,12 @@ Resources:
     Type: AWS::SNS::Topic
     Properties:
       TopicName: !Sub "cloudwatch-alarms-${StageName}"
-      DisplayName: "CloudWatch Alarms for Blitzfilter Backend"
+      DisplayName: !Sub "CloudWatch Alarms for Aura-Historia Backend stage '${StageName}'"
 
-  BlitzfilterUserPool:
+  UserPool:
     Type: AWS::Cognito::UserPool
     Properties:
-      UserPoolName: !Sub "blitzfilter-userpool-${StageName}"
+      UserPoolName: !Sub "userpool-${StageName}"
       UsernameAttributes:
         - email
       AutoVerifiedAttributes:
@@ -95,7 +95,7 @@ Resources:
   PostConfirmationLambdaRole:
     Type: AWS::IAM::Role
     Properties:
-      RoleName: !Sub "blitzfilter-cognito-post-confirmation-role-${StageName}"
+      RoleName: !Sub "cognito-post-confirmation-role-${StageName}"
       AssumeRolePolicyDocument:
         Version: "2012-10-17"
         Statement:
@@ -118,7 +118,7 @@ Resources:
   PostConfirmationLambda:
     Type: AWS::Lambda::Function
     Properties:
-      FunctionName: !Sub "blitzfilter-cognito-post-confirmation-${StageName}"
+      FunctionName: !Sub "cognito-post-confirmation-${StageName}"
       Runtime: provided.al2023
       Handler: lib.handler
       Role: !GetAtt PostConfirmationLambdaRole.Arn
@@ -138,13 +138,13 @@ Resources:
       Action: lambda:InvokeFunction
       FunctionName: !GetAtt PostConfirmationLambda.Arn
       Principal: cognito-idp.amazonaws.com
-      SourceArn: !GetAtt BlitzfilterUserPool.Arn
+      SourceArn: !GetAtt UserPool.Arn
 
-  BlitzfilterUserPoolClientPublic:
+  UserPoolClientPublic:
     Type: AWS::Cognito::UserPoolClient
     Properties:
-      UserPoolId: !Ref BlitzfilterUserPool
-      ClientName: !Sub "blitzfilter-client-${StageName}"
+      UserPoolId: !Ref UserPool
+      ClientName: !Sub "client-${StageName}"
       GenerateSecret: false # PKCE replaces client secret
       PreventUserExistenceErrors: ENABLED
       AllowedOAuthFlowsUserPoolClient: true
@@ -169,11 +169,11 @@ Resources:
       ReadAttributes:
         - email
         - email_verified
-  BlitzfilterUserPoolClientAdmin:
+  UserPoolClientAdmin:
     Type: AWS::Cognito::UserPoolClient
     Properties:
-      UserPoolId: !Ref BlitzfilterUserPool
-      ClientName: !Sub "blitzfilter-admin-${StageName}"
+      UserPoolId: !Ref UserPool
+      ClientName: !Sub "admin-${StageName}"
       GenerateSecret: false
       PreventUserExistenceErrors: ENABLED
       AllowedOAuthFlowsUserPoolClient: false
@@ -187,11 +187,11 @@ Resources:
         - email
       WriteAttributes:
         - email
-  BlitzfilterUserPoolDomain:
+  UserPoolDomain:
     Type: AWS::Cognito::UserPoolDomain
     Properties:
-      Domain: !Sub "blitzfilter-${StageName}" # hosted UI domain
-      UserPoolId: !Ref BlitzfilterUserPool
+      Domain: !Sub "${StageName}" # hosted UI domain
+      UserPoolId: !Ref UserPool
 
   TableOne:
     Type: AWS::DynamoDB::Table
@@ -254,7 +254,7 @@ Resources:
       AlarmActions:
         - !Ref AlarmNotificationTopic
 
-  BlitzfilterOpenSearchDomain:
+  OpenSearchDomain:
     Type: AWS::OpenSearchService::Domain
     Properties:
       DomainName: !Sub "application-${StageName}"
@@ -289,7 +289,7 @@ Resources:
       ComparisonOperator: GreaterThanOrEqualToThreshold
       Dimensions:
         - Name: DomainName
-          Value: !Ref BlitzfilterOpenSearchDomain
+          Value: !Ref OpenSearchDomain
         - Name: ClientId
           Value: !Ref AWS::AccountId
       TreatMissingData: notBreaching
@@ -309,7 +309,7 @@ Resources:
       ComparisonOperator: GreaterThanOrEqualToThreshold
       Dimensions:
         - Name: DomainName
-          Value: !Ref BlitzfilterOpenSearchDomain
+          Value: !Ref OpenSearchDomain
         - Name: ClientId
           Value: !Ref AWS::AccountId
       TreatMissingData: notBreaching
@@ -329,7 +329,7 @@ Resources:
       ComparisonOperator: LessThanOrEqualToThreshold
       Dimensions:
         - Name: DomainName
-          Value: !Ref BlitzfilterOpenSearchDomain
+          Value: !Ref OpenSearchDomain
         - Name: ClientId
           Value: !Ref AWS::AccountId
       TreatMissingData: notBreaching
@@ -349,7 +349,7 @@ Resources:
       ComparisonOperator: GreaterThanOrEqualToThreshold
       Dimensions:
         - Name: DomainName
-          Value: !Ref BlitzfilterOpenSearchDomain
+          Value: !Ref OpenSearchDomain
         - Name: ClientId
           Value: !Ref AWS::AccountId
       TreatMissingData: notBreaching
@@ -369,7 +369,7 @@ Resources:
       ComparisonOperator: GreaterThanOrEqualToThreshold
       Dimensions:
         - Name: DomainName
-          Value: !Ref BlitzfilterOpenSearchDomain
+          Value: !Ref OpenSearchDomain
         - Name: ClientId
           Value: !Ref AWS::AccountId
       TreatMissingData: notBreaching
@@ -462,10 +462,10 @@ Resources:
               - !GetAtt ProductUpdateNotifyUserQ.Arn
               - !GetAtt ProductEnrichmentQ.Arn
 
-  BlitzfilterApi:
+  Api:
     Type: AWS::ApiGatewayV2::Api
     Properties:
-      Name: !Sub "blitzfilter-api-${StageName}"
+      Name: !Sub "api-${StageName}"
       ProtocolType: HTTP
       CorsConfiguration:
         AllowOrigins:
@@ -480,29 +480,29 @@ Resources:
           - OPTIONS
         AllowHeaders:
           - "*"
-  BlitzfilterApiStage:
+  ApiStage:
     Type: AWS::ApiGatewayV2::Stage
     Properties:
       StageName: !Sub "${StageName}"
-      ApiId: !Ref BlitzfilterApi
+      ApiId: !Ref Api
       AutoDeploy: true
       DefaultRouteSettings:
         ThrottlingBurstLimit: 50
         ThrottlingRateLimit: 20
-  BlitzfilterApiCognitoAuthorizer:
+  ApiCognitoAuthorizer:
     Type: AWS::ApiGatewayV2::Authorizer
     Properties:
-      ApiId: !Ref BlitzfilterApi
+      ApiId: !Ref Api
       Name: CognitoJwtAuthorizer
       AuthorizerType: JWT
       IdentitySource:
         - "$request.header.Authorization"
       JwtConfiguration:
-        Issuer: !Sub "https://cognito-idp.${AWS::Region}.amazonaws.com/${BlitzfilterUserPool}"
+        Issuer: !Sub "https://cognito-idp.${AWS::Region}.amazonaws.com/${UserPool}"
         Audience:
-          - !Ref BlitzfilterUserPoolClientPublic
-          - !Ref BlitzfilterUserPoolClientAdmin
-  BlitzfilterApi5XXErrorAlarm:
+          - !Ref UserPoolClientPublic
+          - !Ref UserPoolClientAdmin
+  Api5XXErrorAlarm:
     Type: AWS::CloudWatch::Alarm
     Properties:
       AlarmName: !Sub "${StageName}-api-5xx-errors"
@@ -516,11 +516,11 @@ Resources:
       ComparisonOperator: GreaterThanOrEqualToThreshold
       Dimensions:
         - Name: ApiId
-          Value: !Ref BlitzfilterApi
+          Value: !Ref Api
       TreatMissingData: notBreaching
       AlarmActions:
         - !Ref AlarmNotificationTopic
-  BlitzfilterApi4XXErrorAlarm:
+  Api4XXErrorAlarm:
     Type: AWS::CloudWatch::Alarm
     Properties:
       AlarmName: !Sub "${StageName}-api-4xx-errors"
@@ -534,28 +534,28 @@ Resources:
       ComparisonOperator: GreaterThanOrEqualToThreshold
       Dimensions:
         - Name: ApiId
-          Value: !Ref BlitzfilterApi
+          Value: !Ref Api
       TreatMissingData: notBreaching
       AlarmActions:
         - !Ref AlarmNotificationTopic
 
-  BlitzfilterApiGetProductRoute:
+  ApiGetProductRoute:
     Type: AWS::ApiGatewayV2::Route
     Properties:
-      ApiId: !Ref BlitzfilterApi
+      ApiId: !Ref Api
       RouteKey: "GET /api/v1/products/{shopId}/{shopsProductId}"
-      Target: !Sub "integrations/${BlitzfilterApiGetProductLambdaIntegration}"
-  BlitzfilterApiGetProductLambdaIntegration:
+      Target: !Sub "integrations/${ApiGetProductLambdaIntegration}"
+  ApiGetProductLambdaIntegration:
     Type: AWS::ApiGatewayV2::Integration
     Properties:
-      ApiId: !Ref BlitzfilterApi
+      ApiId: !Ref Api
       IntegrationType: AWS_PROXY
-      IntegrationUri: !Sub "arn:aws:lambda:${AWS::Region}:${AWS::AccountId}:function:${BlitzfilterApiGetProductLambda}"
+      IntegrationUri: !Sub "arn:aws:lambda:${AWS::Region}:${AWS::AccountId}:function:${ApiGetProductLambda}"
       PayloadFormatVersion: "2.0"
-  BlitzfilterApiGetProductRole:
+  ApiGetProductRole:
     Type: AWS::IAM::Role
     Properties:
-      RoleName: !Sub "blitzfilter-api-get-product-role-${StageName}"
+      RoleName: !Sub "api-get-product-role-${StageName}"
       AssumeRolePolicyDocument:
         Version: "2012-10-17"
         Statement:
@@ -576,13 +576,13 @@ Resources:
                   - dynamodb:BatchGetItem
                   - dynamodb:Query
                 Resource: !GetAtt TableOne.Arn
-  BlitzfilterApiGetProductLambda:
+  ApiGetProductLambda:
     Type: AWS::Lambda::Function
     Properties:
-      FunctionName: !Sub "blitzfilter-api-get-product-${StageName}"
+      FunctionName: !Sub "api-get-product-${StageName}"
       Runtime: provided.al2023
       Handler: lib.handler
-      Role: !GetAtt BlitzfilterApiGetProductRole.Arn
+      Role: !GetAtt ApiGetProductRole.Arn
       Code:
         S3Bucket: !Ref ArtifactBucket
         S3Key: !Sub "product-api-get-product-${StageName}-${CommitSHA}.zip"
@@ -593,17 +593,17 @@ Resources:
       Environment:
         Variables:
           DYNAMODB_TABLE_NAME: !Ref TableOne
-          USER_POOL_ID: !Ref BlitzfilterUserPool
-          USER_POOL_PUBLIC_CLIENT_ID: !Ref BlitzfilterUserPoolClientPublic
-          USER_POOL_ADMIN_CLIENT_ID: !Ref BlitzfilterUserPoolClientAdmin
-  BlitzfilterApiGetProductLambdaPermission:
+          USER_POOL_ID: !Ref UserPool
+          USER_POOL_PUBLIC_CLIENT_ID: !Ref UserPoolClientPublic
+          USER_POOL_ADMIN_CLIENT_ID: !Ref UserPoolClientAdmin
+  ApiGetProductLambdaPermission:
     Type: AWS::Lambda::Permission
     Properties:
       Action: lambda:InvokeFunction
-      FunctionName: !Ref BlitzfilterApiGetProductLambda
+      FunctionName: !Ref ApiGetProductLambda
       Principal: apigateway.amazonaws.com
-      SourceArn: !Sub "arn:aws:execute-api:${AWS::Region}:${AWS::AccountId}:${BlitzfilterApi}/*/*/api/v1/products/*/*"
-  BlitzfilterApiGetProductLambdaErrorAlarm:
+      SourceArn: !Sub "arn:aws:execute-api:${AWS::Region}:${AWS::AccountId}:${Api}/*/*/api/v1/products/*/*"
+  ApiGetProductLambdaErrorAlarm:
     Type: AWS::CloudWatch::Alarm
     Properties:
       AlarmName: !Sub "${StageName}-get-product-lambda-errors"
@@ -617,11 +617,11 @@ Resources:
       ComparisonOperator: GreaterThanOrEqualToThreshold
       Dimensions:
         - Name: FunctionName
-          Value: !Ref BlitzfilterApiGetProductLambda
+          Value: !Ref ApiGetProductLambda
       TreatMissingData: notBreaching
       AlarmActions:
         - !Ref AlarmNotificationTopic
-  BlitzfilterApiGetProductLambdaThrottleAlarm:
+  ApiGetProductLambdaThrottleAlarm:
     Type: AWS::CloudWatch::Alarm
     Properties:
       AlarmName: !Sub "${StageName}-get-product-lambda-throttles"
@@ -635,28 +635,28 @@ Resources:
       ComparisonOperator: GreaterThanOrEqualToThreshold
       Dimensions:
         - Name: FunctionName
-          Value: !Ref BlitzfilterApiGetProductLambda
+          Value: !Ref ApiGetProductLambda
       TreatMissingData: notBreaching
       AlarmActions:
         - !Ref AlarmNotificationTopic
 
-  BlitzfilterApiPutProductsRoute:
+  ApiPutProductsRoute:
     Type: AWS::ApiGatewayV2::Route
     Properties:
-      ApiId: !Ref BlitzfilterApi
+      ApiId: !Ref Api
       RouteKey: "PUT /api/v1/products"
-      Target: !Sub "integrations/${BlitzfilterApiPutProductsLambdaIntegration}"
-  BlitzfilterApiPutProductsLambdaIntegration:
+      Target: !Sub "integrations/${ApiPutProductsLambdaIntegration}"
+  ApiPutProductsLambdaIntegration:
     Type: AWS::ApiGatewayV2::Integration
     Properties:
-      ApiId: !Ref BlitzfilterApi
+      ApiId: !Ref Api
       IntegrationType: AWS_PROXY
-      IntegrationUri: !Sub "arn:aws:lambda:${AWS::Region}:${AWS::AccountId}:function:${BlitzfilterApiPutProductsLambda}"
+      IntegrationUri: !Sub "arn:aws:lambda:${AWS::Region}:${AWS::AccountId}:function:${ApiPutProductsLambda}"
       PayloadFormatVersion: "2.0"
-  BlitzfilterApiPutProductsRole:
+  ApiPutProductsRole:
     Type: AWS::IAM::Role
     Properties:
-      RoleName: !Sub "blitzfilter-api-put-products-role-${StageName}"
+      RoleName: !Sub "api-put-products-role-${StageName}"
       AssumeRolePolicyDocument:
         Version: "2012-10-17"
         Statement:
@@ -685,13 +685,13 @@ Resources:
                 Action:
                   - sqs:SendMessage
                 Resource: !GetAtt ProductIngestEventsDynamoDbQ.Arn
-  BlitzfilterApiPutProductsLambda:
+  ApiPutProductsLambda:
     Type: AWS::Lambda::Function
     Properties:
-      FunctionName: !Sub "blitzfilter-api-put-products-${StageName}"
+      FunctionName: !Sub "api-put-products-${StageName}"
       Runtime: provided.al2023
       Handler: lib.handler
-      Role: !GetAtt BlitzfilterApiPutProductsRole.Arn
+      Role: !GetAtt ApiPutProductsRole.Arn
       Code:
         S3Bucket: !Ref ArtifactBucket
         S3Key: !Sub "product-api-put-products-${StageName}-${CommitSHA}.zip"
@@ -703,14 +703,14 @@ Resources:
         Variables:
           DYNAMODB_TABLE_NAME: !Ref TableOne
           INGEST_PRODUCT_EVENTS_QUEUE_URL: !Ref ProductIngestEventsDynamoDbQ
-  BlitzfilterApiPutProductsLambdaPermission:
+  ApiPutProductsLambdaPermission:
     Type: AWS::Lambda::Permission
     Properties:
       Action: lambda:InvokeFunction
-      FunctionName: !Ref BlitzfilterApiPutProductsLambda
+      FunctionName: !Ref ApiPutProductsLambda
       Principal: apigateway.amazonaws.com
-      SourceArn: !Sub "arn:aws:execute-api:${AWS::Region}:${AWS::AccountId}:${BlitzfilterApi}/*/*/api/v1/products"
-  BlitzfilterApiPutProductsLambdaErrorAlarm:
+      SourceArn: !Sub "arn:aws:execute-api:${AWS::Region}:${AWS::AccountId}:${Api}/*/*/api/v1/products"
+  ApiPutProductsLambdaErrorAlarm:
     Type: AWS::CloudWatch::Alarm
     Properties:
       AlarmName: !Sub "${StageName}-put-products-lambda-errors"
@@ -724,11 +724,11 @@ Resources:
       ComparisonOperator: GreaterThanOrEqualToThreshold
       Dimensions:
         - Name: FunctionName
-          Value: !Ref BlitzfilterApiPutProductsLambda
+          Value: !Ref ApiPutProductsLambda
       TreatMissingData: notBreaching
       AlarmActions:
         - !Ref AlarmNotificationTopic
-  BlitzfilterApiPutProductsLambdaThrottleAlarm:
+  ApiPutProductsLambdaThrottleAlarm:
     Type: AWS::CloudWatch::Alarm
     Properties:
       AlarmName: !Sub "${StageName}-put-products-lambda-throttles"
@@ -742,28 +742,28 @@ Resources:
       ComparisonOperator: GreaterThanOrEqualToThreshold
       Dimensions:
         - Name: FunctionName
-          Value: !Ref BlitzfilterApiPutProductsLambda
+          Value: !Ref ApiPutProductsLambda
       TreatMissingData: notBreaching
       AlarmActions:
         - !Ref AlarmNotificationTopic
 
-  BlitzfilterApiProductSearchRoute:
+  ApiProductSearchRoute:
     Type: AWS::ApiGatewayV2::Route
     Properties:
-      ApiId: !Ref BlitzfilterApi
+      ApiId: !Ref Api
       RouteKey: "POST /api/v1/products/search"
-      Target: !Sub "integrations/${BlitzfilterApiProductSearchLambdaIntegration}"
-  BlitzfilterApiProductSearchLambdaIntegration:
+      Target: !Sub "integrations/${ApiProductSearchLambdaIntegration}"
+  ApiProductSearchLambdaIntegration:
     Type: AWS::ApiGatewayV2::Integration
     Properties:
-      ApiId: !Ref BlitzfilterApi
+      ApiId: !Ref Api
       IntegrationType: AWS_PROXY
-      IntegrationUri: !Sub "arn:aws:lambda:${AWS::Region}:${AWS::AccountId}:function:${BlitzfilterApiProductSearchLambda}"
+      IntegrationUri: !Sub "arn:aws:lambda:${AWS::Region}:${AWS::AccountId}:function:${ApiProductSearchLambda}"
       PayloadFormatVersion: "2.0"
-  BlitzfilterApiProductSearchRole:
+  ApiProductSearchRole:
     Type: AWS::IAM::Role
     Properties:
-      RoleName: !Sub "blitzfilter-api-product-search-role-${StageName}"
+      RoleName: !Sub "api-product-search-role-${StageName}"
       AssumeRolePolicyDocument:
         Version: "2012-10-17"
         Statement:
@@ -785,7 +785,7 @@ Resources:
                   - es:ESHttpGet
                   - es:ESHttpHead
                   - es:ESHttpPost
-                Resource: !Sub "${BlitzfilterOpenSearchDomain.Arn}/*"
+                Resource: !Sub "${OpenSearchDomain.Arn}/*"
         - PolicyName: DynamoDBAccess
           PolicyDocument:
             Version: "2012-10-17"
@@ -796,13 +796,13 @@ Resources:
                   - dynamodb:BatchGetItem
                   - dynamodb:Query
                 Resource: !GetAtt TableOne.Arn
-  BlitzfilterApiProductSearchLambda:
+  ApiProductSearchLambda:
     Type: AWS::Lambda::Function
     Properties:
-      FunctionName: !Sub "blitzfilter-api-product-search-${StageName}"
+      FunctionName: !Sub "api-product-search-${StageName}"
       Runtime: provided.al2023
       Handler: lib.handler
-      Role: !GetAtt BlitzfilterApiProductSearchRole.Arn
+      Role: !GetAtt ApiProductSearchRole.Arn
       Code:
         S3Bucket: !Ref ArtifactBucket
         S3Key: !Sub "product-api-search-${StageName}-${CommitSHA}.zip"
@@ -812,19 +812,19 @@ Resources:
         Size: 512
       Environment:
         Variables:
-          OPENSEARCH_DOMAIN_ENDPOINT_URL: !Sub "https://${BlitzfilterOpenSearchDomain.DomainEndpoint}"
+          OPENSEARCH_DOMAIN_ENDPOINT_URL: !Sub "https://${OpenSearchDomain.DomainEndpoint}"
           DYNAMODB_TABLE_NAME: !Ref TableOne
-          USER_POOL_ID: !Ref BlitzfilterUserPool
-          USER_POOL_PUBLIC_CLIENT_ID: !Ref BlitzfilterUserPoolClientPublic
-          USER_POOL_ADMIN_CLIENT_ID: !Ref BlitzfilterUserPoolClientAdmin
-  BlitzfilterApiProductSearchLambdaPermission:
+          USER_POOL_ID: !Ref UserPool
+          USER_POOL_PUBLIC_CLIENT_ID: !Ref UserPoolClientPublic
+          USER_POOL_ADMIN_CLIENT_ID: !Ref UserPoolClientAdmin
+  ApiProductSearchLambdaPermission:
     Type: AWS::Lambda::Permission
     Properties:
       Action: lambda:InvokeFunction
-      FunctionName: !Ref BlitzfilterApiProductSearchLambda
+      FunctionName: !Ref ApiProductSearchLambda
       Principal: apigateway.amazonaws.com
-      SourceArn: !Sub "arn:aws:execute-api:${AWS::Region}:${AWS::AccountId}:${BlitzfilterApi}/*/*/api/v1/products/search*"
-  BlitzfilterApiProductSearchLambdaErrorAlarm:
+      SourceArn: !Sub "arn:aws:execute-api:${AWS::Region}:${AWS::AccountId}:${Api}/*/*/api/v1/products/search*"
+  ApiProductSearchLambdaErrorAlarm:
     Type: AWS::CloudWatch::Alarm
     Properties:
       AlarmName: !Sub "${StageName}-product-search-lambda-errors"
@@ -838,28 +838,28 @@ Resources:
       ComparisonOperator: GreaterThanOrEqualToThreshold
       Dimensions:
         - Name: FunctionName
-          Value: !Ref BlitzfilterApiProductSearchLambda
+          Value: !Ref ApiProductSearchLambda
       TreatMissingData: notBreaching
       AlarmActions:
         - !Ref AlarmNotificationTopic
 
-  BlitzfilterApiProductSimilaritySearchRoute:
+  ApiProductSimilaritySearchRoute:
     Type: AWS::ApiGatewayV2::Route
     Properties:
-      ApiId: !Ref BlitzfilterApi
+      ApiId: !Ref Api
       RouteKey: "GET /api/v1/products/{shopId}/{shopsProductId}/similar"
-      Target: !Sub "integrations/${BlitzfilterApiProductSimilaritySearchLambdaIntegration}"
-  BlitzfilterApiProductSimilaritySearchLambdaIntegration:
+      Target: !Sub "integrations/${ApiProductSimilaritySearchLambdaIntegration}"
+  ApiProductSimilaritySearchLambdaIntegration:
     Type: AWS::ApiGatewayV2::Integration
     Properties:
-      ApiId: !Ref BlitzfilterApi
+      ApiId: !Ref Api
       IntegrationType: AWS_PROXY
-      IntegrationUri: !Sub "arn:aws:lambda:${AWS::Region}:${AWS::AccountId}:function:${BlitzfilterApiProductSimilaritySearchLambda}"
+      IntegrationUri: !Sub "arn:aws:lambda:${AWS::Region}:${AWS::AccountId}:function:${ApiProductSimilaritySearchLambda}"
       PayloadFormatVersion: "2.0"
-  BlitzfilterApiProductSimilaritySearchRole:
+  ApiProductSimilaritySearchRole:
     Type: AWS::IAM::Role
     Properties:
-      RoleName: !Sub "blitzfilter-api-product-similarity-search-role-${StageName}"
+      RoleName: !Sub "api-product-similarity-search-role-${StageName}"
       AssumeRolePolicyDocument:
         Version: "2012-10-17"
         Statement:
@@ -881,7 +881,7 @@ Resources:
                   - es:ESHttpGet
                   - es:ESHttpHead
                   - es:ESHttpPost
-                Resource: !Sub "${BlitzfilterOpenSearchDomain.Arn}/*"
+                Resource: !Sub "${OpenSearchDomain.Arn}/*"
         - PolicyName: DynamoDBAccess
           PolicyDocument:
             Version: "2012-10-17"
@@ -892,13 +892,13 @@ Resources:
                   - dynamodb:BatchGetItem
                   - dynamodb:Query
                 Resource: !GetAtt TableOne.Arn
-  BlitzfilterApiProductSimilaritySearchLambda:
+  ApiProductSimilaritySearchLambda:
     Type: AWS::Lambda::Function
     Properties:
-      FunctionName: !Sub "blitzfilter-api-product-similarity-search-${StageName}"
+      FunctionName: !Sub "api-product-similarity-search-${StageName}"
       Runtime: provided.al2023
       Handler: lib.handler
-      Role: !GetAtt BlitzfilterApiProductSimilaritySearchRole.Arn
+      Role: !GetAtt ApiProductSimilaritySearchRole.Arn
       Code:
         S3Bucket: !Ref ArtifactBucket
         S3Key: !Sub "product-api-get-product-similar-${StageName}-${CommitSHA}.zip"
@@ -908,19 +908,19 @@ Resources:
         Size: 512
       Environment:
         Variables:
-          OPENSEARCH_DOMAIN_ENDPOINT_URL: !Sub "https://${BlitzfilterOpenSearchDomain.DomainEndpoint}"
+          OPENSEARCH_DOMAIN_ENDPOINT_URL: !Sub "https://${OpenSearchDomain.DomainEndpoint}"
           DYNAMODB_TABLE_NAME: !Ref TableOne
-          USER_POOL_ID: !Ref BlitzfilterUserPool
-          USER_POOL_PUBLIC_CLIENT_ID: !Ref BlitzfilterUserPoolClientPublic
-          USER_POOL_ADMIN_CLIENT_ID: !Ref BlitzfilterUserPoolClientAdmin
-  BlitzfilterApiProductSimilaritySearchLambdaPermission:
+          USER_POOL_ID: !Ref UserPool
+          USER_POOL_PUBLIC_CLIENT_ID: !Ref UserPoolClientPublic
+          USER_POOL_ADMIN_CLIENT_ID: !Ref UserPoolClientAdmin
+  ApiProductSimilaritySearchLambdaPermission:
     Type: AWS::Lambda::Permission
     Properties:
       Action: lambda:InvokeFunction
-      FunctionName: !Ref BlitzfilterApiProductSimilaritySearchLambda
+      FunctionName: !Ref ApiProductSimilaritySearchLambda
       Principal: apigateway.amazonaws.com
-      SourceArn: !Sub "arn:aws:execute-api:${AWS::Region}:${AWS::AccountId}:${BlitzfilterApi}/*/*/api/v1/products/*/*/*"
-  BlitzfilterApiProductSimilaritySearchLambdaErrorAlarm:
+      SourceArn: !Sub "arn:aws:execute-api:${AWS::Region}:${AWS::AccountId}:${Api}/*/*/api/v1/products/*/*/*"
+  ApiProductSimilaritySearchLambdaErrorAlarm:
     Type: AWS::CloudWatch::Alarm
     Properties:
       AlarmName: !Sub "${StageName}-product-similarity-search-lambda-errors"
@@ -934,30 +934,30 @@ Resources:
       ComparisonOperator: GreaterThanOrEqualToThreshold
       Dimensions:
         - Name: FunctionName
-          Value: !Ref BlitzfilterApiProductSimilaritySearchLambda
+          Value: !Ref ApiProductSimilaritySearchLambda
       TreatMissingData: notBreaching
       AlarmActions:
         - !Ref AlarmNotificationTopic
 
-  BlitzfilterApiGetWatchlistProductsRoute:
+  ApiGetWatchlistProductsRoute:
     Type: AWS::ApiGatewayV2::Route
     Properties:
-      ApiId: !Ref BlitzfilterApi
+      ApiId: !Ref Api
       RouteKey: "GET /api/v1/me/watchlist"
       AuthorizationType: JWT
-      AuthorizerId: !Ref BlitzfilterApiCognitoAuthorizer
-      Target: !Sub "integrations/${BlitzfilterApiGetWatchlistProductsLambdaIntegration}"
-  BlitzfilterApiGetWatchlistProductsLambdaIntegration:
+      AuthorizerId: !Ref ApiCognitoAuthorizer
+      Target: !Sub "integrations/${ApiGetWatchlistProductsLambdaIntegration}"
+  ApiGetWatchlistProductsLambdaIntegration:
     Type: AWS::ApiGatewayV2::Integration
     Properties:
-      ApiId: !Ref BlitzfilterApi
+      ApiId: !Ref Api
       IntegrationType: AWS_PROXY
-      IntegrationUri: !Sub "arn:aws:lambda:${AWS::Region}:${AWS::AccountId}:function:${BlitzfilterApiGetWatchlistProductsLambda}"
+      IntegrationUri: !Sub "arn:aws:lambda:${AWS::Region}:${AWS::AccountId}:function:${ApiGetWatchlistProductsLambda}"
       PayloadFormatVersion: "2.0"
-  BlitzfilterApiGetWatchlistProductsRole:
+  ApiGetWatchlistProductsRole:
     Type: AWS::IAM::Role
     Properties:
-      RoleName: !Sub "blitzfilter-api-get-watchlist-products-role-${StageName}"
+      RoleName: !Sub "api-get-watchlist-products-role-${StageName}"
       AssumeRolePolicyDocument:
         Version: "2012-10-17"
         Statement:
@@ -980,13 +980,13 @@ Resources:
                 Resource:
                   - !GetAtt TableOne.Arn
                   - !Sub "${TableOne.Arn}/index/*"
-  BlitzfilterApiGetWatchlistProductsLambda:
+  ApiGetWatchlistProductsLambda:
     Type: AWS::Lambda::Function
     Properties:
-      FunctionName: !Sub "blitzfilter-api-get-watchlist-products-${StageName}"
+      FunctionName: !Sub "api-get-watchlist-products-${StageName}"
       Runtime: provided.al2023
       Handler: lib.handler
-      Role: !GetAtt BlitzfilterApiGetWatchlistProductsRole.Arn
+      Role: !GetAtt ApiGetWatchlistProductsRole.Arn
       Code:
         S3Bucket: !Ref ArtifactBucket
         S3Key: !Sub "product-api-watchlist-get-${StageName}-${CommitSHA}.zip"
@@ -997,33 +997,33 @@ Resources:
       Environment:
         Variables:
           DYNAMODB_TABLE_NAME: !Ref TableOne
-  BlitzfilterApiGetWatchlistProductsLambdaPermission:
+  ApiGetWatchlistProductsLambdaPermission:
     Type: AWS::Lambda::Permission
     Properties:
       Action: lambda:InvokeFunction
-      FunctionName: !Ref BlitzfilterApiGetWatchlistProductsLambda
+      FunctionName: !Ref ApiGetWatchlistProductsLambda
       Principal: apigateway.amazonaws.com
-      SourceArn: !Sub "arn:aws:execute-api:${AWS::Region}:${AWS::AccountId}:${BlitzfilterApi}/*/*/api/v1/me/watchlist*"
+      SourceArn: !Sub "arn:aws:execute-api:${AWS::Region}:${AWS::AccountId}:${Api}/*/*/api/v1/me/watchlist*"
 
-  BlitzfilterApiDeleteWatchlistProductRoute:
+  ApiDeleteWatchlistProductRoute:
     Type: AWS::ApiGatewayV2::Route
     Properties:
-      ApiId: !Ref BlitzfilterApi
+      ApiId: !Ref Api
       RouteKey: "DELETE /api/v1/me/watchlist/{shopId}/{shopsProductId}"
       AuthorizationType: JWT
-      AuthorizerId: !Ref BlitzfilterApiCognitoAuthorizer
-      Target: !Sub "integrations/${BlitzfilterApiDeleteWatchlistLambdaIntegration}"
-  BlitzfilterApiDeleteWatchlistLambdaIntegration:
+      AuthorizerId: !Ref ApiCognitoAuthorizer
+      Target: !Sub "integrations/${ApiDeleteWatchlistLambdaIntegration}"
+  ApiDeleteWatchlistLambdaIntegration:
     Type: AWS::ApiGatewayV2::Integration
     Properties:
-      ApiId: !Ref BlitzfilterApi
+      ApiId: !Ref Api
       IntegrationType: AWS_PROXY
-      IntegrationUri: !Sub "arn:aws:lambda:${AWS::Region}:${AWS::AccountId}:function:${BlitzfilterApiDeleteWatchlistLambda}"
+      IntegrationUri: !Sub "arn:aws:lambda:${AWS::Region}:${AWS::AccountId}:function:${ApiDeleteWatchlistLambda}"
       PayloadFormatVersion: "2.0"
-  BlitzfilterApiDeleteWatchlistProductRole:
+  ApiDeleteWatchlistProductRole:
     Type: AWS::IAM::Role
     Properties:
-      RoleName: !Sub "blitzfilter-api-delete-watchlist-product-role-${StageName}"
+      RoleName: !Sub "api-delete-watchlist-product-role-${StageName}"
       AssumeRolePolicyDocument:
         Version: "2012-10-17"
         Statement:
@@ -1045,13 +1045,13 @@ Resources:
                   - dynamodb:Query
                   - dynamodb:DeleteItem
                 Resource: !GetAtt TableOne.Arn
-  BlitzfilterApiDeleteWatchlistLambda:
+  ApiDeleteWatchlistLambda:
     Type: AWS::Lambda::Function
     Properties:
-      FunctionName: !Sub "blitzfilter-api-delete-watchlist-product-${StageName}"
+      FunctionName: !Sub "api-delete-watchlist-product-${StageName}"
       Runtime: provided.al2023
       Handler: lib.handler
-      Role: !GetAtt BlitzfilterApiDeleteWatchlistProductRole.Arn
+      Role: !GetAtt ApiDeleteWatchlistProductRole.Arn
       Code:
         S3Bucket: !Ref ArtifactBucket
         S3Key: !Sub "product-api-watchlist-delete-${StageName}-${CommitSHA}.zip"
@@ -1062,33 +1062,33 @@ Resources:
       Environment:
         Variables:
           DYNAMODB_TABLE_NAME: !Ref TableOne
-  BlitzfilterApiDeleteWatchlistLambdaPermission:
+  ApiDeleteWatchlistLambdaPermission:
     Type: AWS::Lambda::Permission
     Properties:
       Action: lambda:InvokeFunction
-      FunctionName: !Ref BlitzfilterApiDeleteWatchlistLambda
+      FunctionName: !Ref ApiDeleteWatchlistLambda
       Principal: apigateway.amazonaws.com
-      SourceArn: !Sub "arn:aws:execute-api:${AWS::Region}:${AWS::AccountId}:${BlitzfilterApi}/*/*/api/v1/me/watchlist/*/*"
+      SourceArn: !Sub "arn:aws:execute-api:${AWS::Region}:${AWS::AccountId}:${Api}/*/*/api/v1/me/watchlist/*/*"
 
-  BlitzfilterApiPostWatchlistProductRoute:
+  ApiPostWatchlistProductRoute:
     Type: AWS::ApiGatewayV2::Route
     Properties:
-      ApiId: !Ref BlitzfilterApi
+      ApiId: !Ref Api
       RouteKey: "POST /api/v1/me/watchlist"
       AuthorizationType: JWT
-      AuthorizerId: !Ref BlitzfilterApiCognitoAuthorizer
-      Target: !Sub "integrations/${BlitzfilterApiPostWatchlistLambdaIntegration}"
-  BlitzfilterApiPostWatchlistLambdaIntegration:
+      AuthorizerId: !Ref ApiCognitoAuthorizer
+      Target: !Sub "integrations/${ApiPostWatchlistLambdaIntegration}"
+  ApiPostWatchlistLambdaIntegration:
     Type: AWS::ApiGatewayV2::Integration
     Properties:
-      ApiId: !Ref BlitzfilterApi
+      ApiId: !Ref Api
       IntegrationType: AWS_PROXY
-      IntegrationUri: !Sub "arn:aws:lambda:${AWS::Region}:${AWS::AccountId}:function:${BlitzfilterApiPostWatchlistLambda}"
+      IntegrationUri: !Sub "arn:aws:lambda:${AWS::Region}:${AWS::AccountId}:function:${ApiPostWatchlistLambda}"
       PayloadFormatVersion: "2.0"
-  BlitzfilterApiPostWatchlistProductRole:
+  ApiPostWatchlistProductRole:
     Type: AWS::IAM::Role
     Properties:
-      RoleName: !Sub "blitzfilter-api-post-watchlist-product-role-${StageName}"
+      RoleName: !Sub "api-post-watchlist-product-role-${StageName}"
       AssumeRolePolicyDocument:
         Version: "2012-10-17"
         Statement:
@@ -1110,13 +1110,13 @@ Resources:
                   - dynamodb:Query
                   - dynamodb:PutItem
                 Resource: !GetAtt TableOne.Arn
-  BlitzfilterApiPostWatchlistLambda:
+  ApiPostWatchlistLambda:
     Type: AWS::Lambda::Function
     Properties:
-      FunctionName: !Sub "blitzfilter-api-post-watchlist-product-${StageName}"
+      FunctionName: !Sub "api-post-watchlist-product-${StageName}"
       Runtime: provided.al2023
       Handler: lib.handler
-      Role: !GetAtt BlitzfilterApiPostWatchlistProductRole.Arn
+      Role: !GetAtt ApiPostWatchlistProductRole.Arn
       Code:
         S3Bucket: !Ref ArtifactBucket
         S3Key: !Sub "product-api-watchlist-post-${StageName}-${CommitSHA}.zip"
@@ -1127,33 +1127,33 @@ Resources:
       Environment:
         Variables:
           DYNAMODB_TABLE_NAME: !Ref TableOne
-  BlitzfilterApiPostWatchlistLambdaPermission:
+  ApiPostWatchlistLambdaPermission:
     Type: AWS::Lambda::Permission
     Properties:
       Action: lambda:InvokeFunction
-      FunctionName: !Ref BlitzfilterApiPostWatchlistLambda
+      FunctionName: !Ref ApiPostWatchlistLambda
       Principal: apigateway.amazonaws.com
-      SourceArn: !Sub "arn:aws:execute-api:${AWS::Region}:${AWS::AccountId}:${BlitzfilterApi}/*/*/api/v1/me/watchlist"
+      SourceArn: !Sub "arn:aws:execute-api:${AWS::Region}:${AWS::AccountId}:${Api}/*/*/api/v1/me/watchlist"
 
-  BlitzfilterApiPatchWatchlistProductRoute:
+  ApiPatchWatchlistProductRoute:
     Type: AWS::ApiGatewayV2::Route
     Properties:
-      ApiId: !Ref BlitzfilterApi
+      ApiId: !Ref Api
       RouteKey: "PATCH /api/v1/me/watchlist/{shopId}/{shopsProductId}"
       AuthorizationType: JWT
-      AuthorizerId: !Ref BlitzfilterApiCognitoAuthorizer
-      Target: !Sub "integrations/${BlitzfilterApiPatchWatchlistLambdaIntegration}"
-  BlitzfilterApiPatchWatchlistLambdaIntegration:
+      AuthorizerId: !Ref ApiCognitoAuthorizer
+      Target: !Sub "integrations/${ApiPatchWatchlistLambdaIntegration}"
+  ApiPatchWatchlistLambdaIntegration:
     Type: AWS::ApiGatewayV2::Integration
     Properties:
-      ApiId: !Ref BlitzfilterApi
+      ApiId: !Ref Api
       IntegrationType: AWS_PROXY
-      IntegrationUri: !Sub "arn:aws:lambda:${AWS::Region}:${AWS::AccountId}:function:${BlitzfilterApiPatchWatchlistLambda}"
+      IntegrationUri: !Sub "arn:aws:lambda:${AWS::Region}:${AWS::AccountId}:function:${ApiPatchWatchlistLambda}"
       PayloadFormatVersion: "2.0"
-  BlitzfilterApiPatchWatchlistProductRole:
+  ApiPatchWatchlistProductRole:
     Type: AWS::IAM::Role
     Properties:
-      RoleName: !Sub "blitzfilter-api-patch-watchlist-product-role-${StageName}"
+      RoleName: !Sub "api-patch-watchlist-product-role-${StageName}"
       AssumeRolePolicyDocument:
         Version: "2012-10-17"
         Statement:
@@ -1173,13 +1173,13 @@ Resources:
                   - dynamodb:GetItem
                   - dynamodb:UpdateItem
                 Resource: !GetAtt TableOne.Arn
-  BlitzfilterApiPatchWatchlistLambda:
+  ApiPatchWatchlistLambda:
     Type: AWS::Lambda::Function
     Properties:
-      FunctionName: !Sub "blitzfilter-api-patch-watchlist-product-${StageName}"
+      FunctionName: !Sub "api-patch-watchlist-product-${StageName}"
       Runtime: provided.al2023
       Handler: lib.handler
-      Role: !GetAtt BlitzfilterApiPatchWatchlistProductRole.Arn
+      Role: !GetAtt ApiPatchWatchlistProductRole.Arn
       Code:
         S3Bucket: !Ref ArtifactBucket
         S3Key: !Sub "product-api-watchlist-patch-${StageName}-${CommitSHA}.zip"
@@ -1190,31 +1190,31 @@ Resources:
       Environment:
         Variables:
           DYNAMODB_TABLE_NAME: !Ref TableOne
-  BlitzfilterApiPatchWatchlistLambdaPermission:
+  ApiPatchWatchlistLambdaPermission:
     Type: AWS::Lambda::Permission
     Properties:
       Action: lambda:InvokeFunction
-      FunctionName: !Ref BlitzfilterApiPatchWatchlistLambda
+      FunctionName: !Ref ApiPatchWatchlistLambda
       Principal: apigateway.amazonaws.com
-      SourceArn: !Sub "arn:aws:execute-api:${AWS::Region}:${AWS::AccountId}:${BlitzfilterApi}/*/*/api/v1/me/watchlist/*/*"
+      SourceArn: !Sub "arn:aws:execute-api:${AWS::Region}:${AWS::AccountId}:${Api}/*/*/api/v1/me/watchlist/*/*"
 
-  BlitzfilterApiGetShopRoute:
+  ApiGetShopRoute:
     Type: AWS::ApiGatewayV2::Route
     Properties:
-      ApiId: !Ref BlitzfilterApi
+      ApiId: !Ref Api
       RouteKey: "GET /api/v1/shops/{shopId}"
-      Target: !Sub "integrations/${BlitzfilterApiGetShopLambdaIntegration}"
-  BlitzfilterApiGetShopLambdaIntegration:
+      Target: !Sub "integrations/${ApiGetShopLambdaIntegration}"
+  ApiGetShopLambdaIntegration:
     Type: AWS::ApiGatewayV2::Integration
     Properties:
-      ApiId: !Ref BlitzfilterApi
+      ApiId: !Ref Api
       IntegrationType: AWS_PROXY
-      IntegrationUri: !Sub "arn:aws:lambda:${AWS::Region}:${AWS::AccountId}:function:${BlitzfilterApiGetShopLambda}"
+      IntegrationUri: !Sub "arn:aws:lambda:${AWS::Region}:${AWS::AccountId}:function:${ApiGetShopLambda}"
       PayloadFormatVersion: "2.0"
-  BlitzfilterApiGetShopRole:
+  ApiGetShopRole:
     Type: AWS::IAM::Role
     Properties:
-      RoleName: !Sub "blitzfilter-api-get-shop-role-${StageName}"
+      RoleName: !Sub "api-get-shop-role-${StageName}"
       AssumeRolePolicyDocument:
         Version: "2012-10-17"
         Statement:
@@ -1235,13 +1235,13 @@ Resources:
                   - dynamodb:BatchGetItem
                   - dynamodb:Query
                 Resource: !GetAtt TableOne.Arn
-  BlitzfilterApiGetShopLambda:
+  ApiGetShopLambda:
     Type: AWS::Lambda::Function
     Properties:
-      FunctionName: !Sub "blitzfilter-api-get-shop-${StageName}"
+      FunctionName: !Sub "api-get-shop-${StageName}"
       Runtime: provided.al2023
       Handler: lib.handler
-      Role: !GetAtt BlitzfilterApiGetShopRole.Arn
+      Role: !GetAtt ApiGetShopRole.Arn
       Code:
         S3Bucket: !Ref ArtifactBucket
         S3Key: !Sub "shop-api-get-shop-${StageName}-${CommitSHA}.zip"
@@ -1252,31 +1252,31 @@ Resources:
       Environment:
         Variables:
           DYNAMODB_TABLE_NAME: !Ref TableOne
-  BlitzfilterApiGetShopLambdaPermission:
+  ApiGetShopLambdaPermission:
     Type: AWS::Lambda::Permission
     Properties:
       Action: lambda:InvokeFunction
-      FunctionName: !Ref BlitzfilterApiGetShopLambda
+      FunctionName: !Ref ApiGetShopLambda
       Principal: apigateway.amazonaws.com
-      SourceArn: !Sub "arn:aws:execute-api:${AWS::Region}:${AWS::AccountId}:${BlitzfilterApi}/*/*/api/v1/shops/*"
+      SourceArn: !Sub "arn:aws:execute-api:${AWS::Region}:${AWS::AccountId}:${Api}/*/*/api/v1/shops/*"
 
-  BlitzfilterApiShopSearchRoute:
+  ApiShopSearchRoute:
     Type: AWS::ApiGatewayV2::Route
     Properties:
-      ApiId: !Ref BlitzfilterApi
+      ApiId: !Ref Api
       RouteKey: "POST /api/v1/shops/search"
-      Target: !Sub "integrations/${BlitzfilterApiShopSearchLambdaIntegration}"
-  BlitzfilterApiShopSearchLambdaIntegration:
+      Target: !Sub "integrations/${ApiShopSearchLambdaIntegration}"
+  ApiShopSearchLambdaIntegration:
     Type: AWS::ApiGatewayV2::Integration
     Properties:
-      ApiId: !Ref BlitzfilterApi
+      ApiId: !Ref Api
       IntegrationType: AWS_PROXY
-      IntegrationUri: !Sub "arn:aws:lambda:${AWS::Region}:${AWS::AccountId}:function:${BlitzfilterApiShopSearchLambda}"
+      IntegrationUri: !Sub "arn:aws:lambda:${AWS::Region}:${AWS::AccountId}:function:${ApiShopSearchLambda}"
       PayloadFormatVersion: "2.0"
-  BlitzfilterApiShopSearchRole:
+  ApiShopSearchRole:
     Type: AWS::IAM::Role
     Properties:
-      RoleName: !Sub "blitzfilter-api-shop-search-role-${StageName}"
+      RoleName: !Sub "api-shop-search-role-${StageName}"
       AssumeRolePolicyDocument:
         Version: "2012-10-17"
         Statement:
@@ -1298,14 +1298,14 @@ Resources:
                   - es:ESHttpGet
                   - es:ESHttpHead
                   - es:ESHttpPost
-                Resource: !Sub "${BlitzfilterOpenSearchDomain.Arn}/*"
-  BlitzfilterApiShopSearchLambda:
+                Resource: !Sub "${OpenSearchDomain.Arn}/*"
+  ApiShopSearchLambda:
     Type: AWS::Lambda::Function
     Properties:
-      FunctionName: !Sub "blitzfilter-api-shop-search-${StageName}"
+      FunctionName: !Sub "api-shop-search-${StageName}"
       Runtime: provided.al2023
       Handler: lib.handler
-      Role: !GetAtt BlitzfilterApiShopSearchRole.Arn
+      Role: !GetAtt ApiShopSearchRole.Arn
       Code:
         S3Bucket: !Ref ArtifactBucket
         S3Key: !Sub "shop-api-search-${StageName}-${CommitSHA}.zip"
@@ -1315,34 +1315,34 @@ Resources:
         Size: 512
       Environment:
         Variables:
-          OPENSEARCH_DOMAIN_ENDPOINT_URL: !Sub "https://${BlitzfilterOpenSearchDomain.DomainEndpoint}"
-  BlitzfilterApiShopSearchLambdaPermission:
+          OPENSEARCH_DOMAIN_ENDPOINT_URL: !Sub "https://${OpenSearchDomain.DomainEndpoint}"
+  ApiShopSearchLambdaPermission:
     Type: AWS::Lambda::Permission
     Properties:
       Action: lambda:InvokeFunction
-      FunctionName: !Ref BlitzfilterApiShopSearchLambda
+      FunctionName: !Ref ApiShopSearchLambda
       Principal: apigateway.amazonaws.com
-      SourceArn: !Sub "arn:aws:execute-api:${AWS::Region}:${AWS::AccountId}:${BlitzfilterApi}/*/*/api/v1/shops/search*"
+      SourceArn: !Sub "arn:aws:execute-api:${AWS::Region}:${AWS::AccountId}:${Api}/*/*/api/v1/shops/search*"
 
   ApiDeleteSearchFilterRoute:
     Type: AWS::ApiGatewayV2::Route
     Properties:
-      ApiId: !Ref BlitzfilterApi
+      ApiId: !Ref Api
       RouteKey: "DELETE /api/v1/me/search-filters/{userSearchFilterId}"
       AuthorizationType: JWT
-      AuthorizerId: !Ref BlitzfilterApiCognitoAuthorizer
-      Target: !Sub "integrations/${BlitzfilterApiDeleteSearchFilterLambdaIntegration}"
-  BlitzfilterApiDeleteSearchFilterLambdaIntegration:
+      AuthorizerId: !Ref ApiCognitoAuthorizer
+      Target: !Sub "integrations/${ApiDeleteSearchFilterLambdaIntegration}"
+  ApiDeleteSearchFilterLambdaIntegration:
     Type: AWS::ApiGatewayV2::Integration
     Properties:
-      ApiId: !Ref BlitzfilterApi
+      ApiId: !Ref Api
       IntegrationType: AWS_PROXY
-      IntegrationUri: !Sub "arn:aws:lambda:${AWS::Region}:${AWS::AccountId}:function:${BlitzfilterApiDeleteSearchFilterLambda}"
+      IntegrationUri: !Sub "arn:aws:lambda:${AWS::Region}:${AWS::AccountId}:function:${ApiDeleteSearchFilterLambda}"
       PayloadFormatVersion: "2.0"
-  BlitzfilterApiDeleteSearchFilterRole:
+  ApiDeleteSearchFilterRole:
     Type: AWS::IAM::Role
     Properties:
-      RoleName: !Sub "blitzfilter-api-delete-search-filter-role-${StageName}"
+      RoleName: !Sub "api-delete-search-filter-role-${StageName}"
       AssumeRolePolicyDocument:
         Version: "2012-10-17"
         Statement:
@@ -1364,13 +1364,13 @@ Resources:
                   - dynamodb:BatchGetItem
                   - dynamodb:Query
                 Resource: !GetAtt TableOne.Arn
-  BlitzfilterApiDeleteSearchFilterLambda:
+  ApiDeleteSearchFilterLambda:
     Type: AWS::Lambda::Function
     Properties:
-      FunctionName: !Sub "blitzfilter-api-delete-search-filter-${StageName}"
+      FunctionName: !Sub "api-delete-search-filter-${StageName}"
       Runtime: provided.al2023
       Handler: lib.handler
-      Role: !GetAtt BlitzfilterApiDeleteSearchFilterRole.Arn
+      Role: !GetAtt ApiDeleteSearchFilterRole.Arn
       Code:
         S3Bucket: !Ref ArtifactBucket
         S3Key: !Sub "search-filter-api-delete-search-filter-${StageName}-${CommitSHA}.zip"
@@ -1381,33 +1381,33 @@ Resources:
       Environment:
         Variables:
           DYNAMODB_TABLE_NAME: !Ref TableOne
-  BlitzfilterApiDeleteSearchFilterLambdaPermission:
+  ApiDeleteSearchFilterLambdaPermission:
     Type: AWS::Lambda::Permission
     Properties:
       Action: lambda:InvokeFunction
-      FunctionName: !Ref BlitzfilterApiDeleteSearchFilterLambda
+      FunctionName: !Ref ApiDeleteSearchFilterLambda
       Principal: apigateway.amazonaws.com
-      SourceArn: !Sub "arn:aws:execute-api:${AWS::Region}:${AWS::AccountId}:${BlitzfilterApi}/*/*/api/v1/me/search-filters/*"
+      SourceArn: !Sub "arn:aws:execute-api:${AWS::Region}:${AWS::AccountId}:${Api}/*/*/api/v1/me/search-filters/*"
 
   ApiGetSearchFilterRoute:
     Type: AWS::ApiGatewayV2::Route
     Properties:
-      ApiId: !Ref BlitzfilterApi
+      ApiId: !Ref Api
       RouteKey: "GET /api/v1/me/search-filters/{userSearchFilterId}"
       AuthorizationType: JWT
-      AuthorizerId: !Ref BlitzfilterApiCognitoAuthorizer
-      Target: !Sub "integrations/${BlitzfilterApiGetSearchFilterLambdaIntegration}"
-  BlitzfilterApiGetSearchFilterLambdaIntegration:
+      AuthorizerId: !Ref ApiCognitoAuthorizer
+      Target: !Sub "integrations/${ApiGetSearchFilterLambdaIntegration}"
+  ApiGetSearchFilterLambdaIntegration:
     Type: AWS::ApiGatewayV2::Integration
     Properties:
-      ApiId: !Ref BlitzfilterApi
+      ApiId: !Ref Api
       IntegrationType: AWS_PROXY
-      IntegrationUri: !Sub "arn:aws:lambda:${AWS::Region}:${AWS::AccountId}:function:${BlitzfilterApiGetSearchFilterLambda}"
+      IntegrationUri: !Sub "arn:aws:lambda:${AWS::Region}:${AWS::AccountId}:function:${ApiGetSearchFilterLambda}"
       PayloadFormatVersion: "2.0"
-  BlitzfilterApiGetSearchFilterRole:
+  ApiGetSearchFilterRole:
     Type: AWS::IAM::Role
     Properties:
-      RoleName: !Sub "blitzfilter-api-get-search-filter-role-${StageName}"
+      RoleName: !Sub "api-get-search-filter-role-${StageName}"
       AssumeRolePolicyDocument:
         Version: "2012-10-17"
         Statement:
@@ -1428,13 +1428,13 @@ Resources:
                   - dynamodb:BatchGetItem
                   - dynamodb:Query
                 Resource: !GetAtt TableOne.Arn
-  BlitzfilterApiGetSearchFilterLambda:
+  ApiGetSearchFilterLambda:
     Type: AWS::Lambda::Function
     Properties:
-      FunctionName: !Sub "blitzfilter-api-get-search-filter-${StageName}"
+      FunctionName: !Sub "api-get-search-filter-${StageName}"
       Runtime: provided.al2023
       Handler: lib.handler
-      Role: !GetAtt BlitzfilterApiGetSearchFilterRole.Arn
+      Role: !GetAtt ApiGetSearchFilterRole.Arn
       Code:
         S3Bucket: !Ref ArtifactBucket
         S3Key: !Sub "search-filter-api-get-search-filter-${StageName}-${CommitSHA}.zip"
@@ -1445,33 +1445,33 @@ Resources:
       Environment:
         Variables:
           DYNAMODB_TABLE_NAME: !Ref TableOne
-  BlitzfilterApiGetSearchFilterLambdaPermission:
+  ApiGetSearchFilterLambdaPermission:
     Type: AWS::Lambda::Permission
     Properties:
       Action: lambda:InvokeFunction
-      FunctionName: !Ref BlitzfilterApiGetSearchFilterLambda
+      FunctionName: !Ref ApiGetSearchFilterLambda
       Principal: apigateway.amazonaws.com
-      SourceArn: !Sub "arn:aws:execute-api:${AWS::Region}:${AWS::AccountId}:${BlitzfilterApi}/*/*/api/v1/me/search-filters/*"
+      SourceArn: !Sub "arn:aws:execute-api:${AWS::Region}:${AWS::AccountId}:${Api}/*/*/api/v1/me/search-filters/*"
 
   ApiGetSearchFiltersRoute:
     Type: AWS::ApiGatewayV2::Route
     Properties:
-      ApiId: !Ref BlitzfilterApi
+      ApiId: !Ref Api
       RouteKey: "GET /api/v1/me/search-filters"
       AuthorizationType: JWT
-      AuthorizerId: !Ref BlitzfilterApiCognitoAuthorizer
-      Target: !Sub "integrations/${BlitzfilterApiGetSearchFiltersLambdaIntegration}"
-  BlitzfilterApiGetSearchFiltersLambdaIntegration:
+      AuthorizerId: !Ref ApiCognitoAuthorizer
+      Target: !Sub "integrations/${ApiGetSearchFiltersLambdaIntegration}"
+  ApiGetSearchFiltersLambdaIntegration:
     Type: AWS::ApiGatewayV2::Integration
     Properties:
-      ApiId: !Ref BlitzfilterApi
+      ApiId: !Ref Api
       IntegrationType: AWS_PROXY
-      IntegrationUri: !Sub "arn:aws:lambda:${AWS::Region}:${AWS::AccountId}:function:${BlitzfilterApiGetSearchFiltersLambda}"
+      IntegrationUri: !Sub "arn:aws:lambda:${AWS::Region}:${AWS::AccountId}:function:${ApiGetSearchFiltersLambda}"
       PayloadFormatVersion: "2.0"
-  BlitzfilterApiGetSearchFiltersRole:
+  ApiGetSearchFiltersRole:
     Type: AWS::IAM::Role
     Properties:
-      RoleName: !Sub "blitzfilter-api-get-search-filters-role-${StageName}"
+      RoleName: !Sub "api-get-search-filters-role-${StageName}"
       AssumeRolePolicyDocument:
         Version: "2012-10-17"
         Statement:
@@ -1492,13 +1492,13 @@ Resources:
                   - dynamodb:BatchGetItem
                   - dynamodb:Query
                 Resource: !GetAtt TableOne.Arn
-  BlitzfilterApiGetSearchFiltersLambda:
+  ApiGetSearchFiltersLambda:
     Type: AWS::Lambda::Function
     Properties:
-      FunctionName: !Sub "blitzfilter-api-get-search-filters-${StageName}"
+      FunctionName: !Sub "api-get-search-filters-${StageName}"
       Runtime: provided.al2023
       Handler: lib.handler
-      Role: !GetAtt BlitzfilterApiGetSearchFiltersRole.Arn
+      Role: !GetAtt ApiGetSearchFiltersRole.Arn
       Code:
         S3Bucket: !Ref ArtifactBucket
         S3Key: !Sub "search-filter-api-get-search-filters-${StageName}-${CommitSHA}.zip"
@@ -1509,33 +1509,33 @@ Resources:
       Environment:
         Variables:
           DYNAMODB_TABLE_NAME: !Ref TableOne
-  BlitzfilterApiGetSearchFiltersLambdaPermission:
+  ApiGetSearchFiltersLambdaPermission:
     Type: AWS::Lambda::Permission
     Properties:
       Action: lambda:InvokeFunction
-      FunctionName: !Ref BlitzfilterApiGetSearchFiltersLambda
+      FunctionName: !Ref ApiGetSearchFiltersLambda
       Principal: apigateway.amazonaws.com
-      SourceArn: !Sub "arn:aws:execute-api:${AWS::Region}:${AWS::AccountId}:${BlitzfilterApi}/*/*/api/v1/me/search-filters"
+      SourceArn: !Sub "arn:aws:execute-api:${AWS::Region}:${AWS::AccountId}:${Api}/*/*/api/v1/me/search-filters"
 
   ApiPatchSearchFilterRoute:
     Type: AWS::ApiGatewayV2::Route
     Properties:
-      ApiId: !Ref BlitzfilterApi
+      ApiId: !Ref Api
       RouteKey: "PATCH /api/v1/me/search-filters/{userSearchFilterId}"
       AuthorizationType: JWT
-      AuthorizerId: !Ref BlitzfilterApiCognitoAuthorizer
-      Target: !Sub "integrations/${BlitzfilterApiPatchSearchFilterLambdaIntegration}"
-  BlitzfilterApiPatchSearchFilterLambdaIntegration:
+      AuthorizerId: !Ref ApiCognitoAuthorizer
+      Target: !Sub "integrations/${ApiPatchSearchFilterLambdaIntegration}"
+  ApiPatchSearchFilterLambdaIntegration:
     Type: AWS::ApiGatewayV2::Integration
     Properties:
-      ApiId: !Ref BlitzfilterApi
+      ApiId: !Ref Api
       IntegrationType: AWS_PROXY
-      IntegrationUri: !Sub "arn:aws:lambda:${AWS::Region}:${AWS::AccountId}:function:${BlitzfilterApiPatchSearchFilterLambda}"
+      IntegrationUri: !Sub "arn:aws:lambda:${AWS::Region}:${AWS::AccountId}:function:${ApiPatchSearchFilterLambda}"
       PayloadFormatVersion: "2.0"
-  BlitzfilterApiPatchSearchFilterRole:
+  ApiPatchSearchFilterRole:
     Type: AWS::IAM::Role
     Properties:
-      RoleName: !Sub "blitzfilter-api-patch-search-filter-role-${StageName}"
+      RoleName: !Sub "api-patch-search-filter-role-${StageName}"
       AssumeRolePolicyDocument:
         Version: "2012-10-17"
         Statement:
@@ -1556,13 +1556,13 @@ Resources:
                   - dynamodb:GetItem
                   - dynamodb:PutItem
                 Resource: !GetAtt TableOne.Arn
-  BlitzfilterApiPatchSearchFilterLambda:
+  ApiPatchSearchFilterLambda:
     Type: AWS::Lambda::Function
     Properties:
-      FunctionName: !Sub "blitzfilter-api-patch-search-filter-${StageName}"
+      FunctionName: !Sub "api-patch-search-filter-${StageName}"
       Runtime: provided.al2023
       Handler: lib.handler
-      Role: !GetAtt BlitzfilterApiPatchSearchFilterRole.Arn
+      Role: !GetAtt ApiPatchSearchFilterRole.Arn
       Code:
         S3Bucket: !Ref ArtifactBucket
         S3Key: !Sub "search-filter-api-patch-search-filter-${StageName}-${CommitSHA}.zip"
@@ -1573,33 +1573,33 @@ Resources:
       Environment:
         Variables:
           DYNAMODB_TABLE_NAME: !Ref TableOne
-  BlitzfilterApiPatchSearchFilterLambdaPermission:
+  ApiPatchSearchFilterLambdaPermission:
     Type: AWS::Lambda::Permission
     Properties:
       Action: lambda:InvokeFunction
-      FunctionName: !Ref BlitzfilterApiPatchSearchFilterLambda
+      FunctionName: !Ref ApiPatchSearchFilterLambda
       Principal: apigateway.amazonaws.com
-      SourceArn: !Sub "arn:aws:execute-api:${AWS::Region}:${AWS::AccountId}:${BlitzfilterApi}/*/*/api/v1/me/search-filters/*"
+      SourceArn: !Sub "arn:aws:execute-api:${AWS::Region}:${AWS::AccountId}:${Api}/*/*/api/v1/me/search-filters/*"
 
   ApiPostSearchFilterRoute:
     Type: AWS::ApiGatewayV2::Route
     Properties:
-      ApiId: !Ref BlitzfilterApi
+      ApiId: !Ref Api
       RouteKey: "POST /api/v1/me/search-filters"
       AuthorizationType: JWT
-      AuthorizerId: !Ref BlitzfilterApiCognitoAuthorizer
-      Target: !Sub "integrations/${BlitzfilterApiPostSearchFilterLambdaIntegration}"
-  BlitzfilterApiPostSearchFilterLambdaIntegration:
+      AuthorizerId: !Ref ApiCognitoAuthorizer
+      Target: !Sub "integrations/${ApiPostSearchFilterLambdaIntegration}"
+  ApiPostSearchFilterLambdaIntegration:
     Type: AWS::ApiGatewayV2::Integration
     Properties:
-      ApiId: !Ref BlitzfilterApi
+      ApiId: !Ref Api
       IntegrationType: AWS_PROXY
-      IntegrationUri: !Sub "arn:aws:lambda:${AWS::Region}:${AWS::AccountId}:function:${BlitzfilterApiPostSearchFilterLambda}"
+      IntegrationUri: !Sub "arn:aws:lambda:${AWS::Region}:${AWS::AccountId}:function:${ApiPostSearchFilterLambda}"
       PayloadFormatVersion: "2.0"
-  BlitzfilterApiPostSearchFilterRole:
+  ApiPostSearchFilterRole:
     Type: AWS::IAM::Role
     Properties:
-      RoleName: !Sub "blitzfilter-api-post-search-filter-role-${StageName}"
+      RoleName: !Sub "api-post-search-filter-role-${StageName}"
       AssumeRolePolicyDocument:
         Version: "2012-10-17"
         Statement:
@@ -1618,13 +1618,13 @@ Resources:
                 Action:
                   - dynamodb:PutItem
                 Resource: !GetAtt TableOne.Arn
-  BlitzfilterApiPostSearchFilterLambda:
+  ApiPostSearchFilterLambda:
     Type: AWS::Lambda::Function
     Properties:
-      FunctionName: !Sub "blitzfilter-api-post-search-filter-${StageName}"
+      FunctionName: !Sub "api-post-search-filter-${StageName}"
       Runtime: provided.al2023
       Handler: lib.handler
-      Role: !GetAtt BlitzfilterApiPostSearchFilterRole.Arn
+      Role: !GetAtt ApiPostSearchFilterRole.Arn
       Code:
         S3Bucket: !Ref ArtifactBucket
         S3Key: !Sub "search-filter-api-post-search-filter-${StageName}-${CommitSHA}.zip"
@@ -1635,13 +1635,13 @@ Resources:
       Environment:
         Variables:
           DYNAMODB_TABLE_NAME: !Ref TableOne
-  BlitzfilterApiPostSearchFilterLambdaPermission:
+  ApiPostSearchFilterLambdaPermission:
     Type: AWS::Lambda::Permission
     Properties:
       Action: lambda:InvokeFunction
-      FunctionName: !Ref BlitzfilterApiPostSearchFilterLambda
+      FunctionName: !Ref ApiPostSearchFilterLambda
       Principal: apigateway.amazonaws.com
-      SourceArn: !Sub "arn:aws:execute-api:${AWS::Region}:${AWS::AccountId}:${BlitzfilterApi}/*/*/api/v1/me/search-filters"
+      SourceArn: !Sub "arn:aws:execute-api:${AWS::Region}:${AWS::AccountId}:${Api}/*/*/api/v1/me/search-filters"
 
   SendMailDlq:
     Type: AWS::SQS::Queue
@@ -2174,7 +2174,7 @@ Resources:
         Size: 512
       Environment:
         Variables:
-          OPENSEARCH_DOMAIN_ENDPOINT_URL: !Sub "https://${BlitzfilterOpenSearchDomain.DomainEndpoint}"
+          OPENSEARCH_DOMAIN_ENDPOINT_URL: !Sub "https://${OpenSearchDomain.DomainEndpoint}"
   ProductMaterializeOpenSearchDbNewMapping:
     Type: AWS::Lambda::EventSourceMapping
     Properties:
@@ -2289,7 +2289,7 @@ Resources:
         Size: 512
       Environment:
         Variables:
-          OPENSEARCH_DOMAIN_ENDPOINT_URL: !Sub "https://${BlitzfilterOpenSearchDomain.DomainEndpoint}"
+          OPENSEARCH_DOMAIN_ENDPOINT_URL: !Sub "https://${OpenSearchDomain.DomainEndpoint}"
   ProductMaterializeOpenSearchDbUpdateMapping:
     Type: AWS::Lambda::EventSourceMapping
     Properties:
@@ -2804,7 +2804,7 @@ Resources:
             export ARTIFACT_BUCKET="${ArtifactBucket}"
             export ENRICHMENT_QUEUE_URL="${ProductEnrichmentQ}"
             export DYNAMODB_TABLE_NAME="${TableOne}"
-            export OPENSEARCH_DOMAIN_ENDPOINT_URL="https://${BlitzfilterOpenSearchDomain.DomainEndpoint}"
+            export OPENSEARCH_DOMAIN_ENDPOINT_URL="https://${OpenSearchDomain.DomainEndpoint}"
             export BAAI_BGE_M3_MODEL_DEVICE="cuda"
             aws s3 cp "s3://${ResourceBucket}/${StageName}/${CommitSHA}/src/product-enrichment/user-data.sh" /tmp/user_data.sh --region eu-central-1
             source /tmp/user_data.sh
@@ -2937,7 +2937,7 @@ Resources:
       Environment:
         Variables:
           PRODUCT_ENRICHMENT_ASG_NAME: !Ref ProductEnrichmentASG
-          OPENSEARCH_DOMAIN_ENDPOINT_URL: !Sub "https://${BlitzfilterOpenSearchDomain.DomainEndpoint}"
+          OPENSEARCH_DOMAIN_ENDPOINT_URL: !Sub "https://${OpenSearchDomain.DomainEndpoint}"
   ProductEnrichmentScaleDownStartSchedule:
     Type: AWS::Events::Rule
     Properties:
@@ -3024,7 +3024,7 @@ Resources:
       Environment:
         Variables:
           PRODUCT_ENRICHMENT_ASG_NAME: !Ref ProductEnrichmentASG
-          OPENSEARCH_DOMAIN_ENDPOINT_URL: !Sub "https://${BlitzfilterOpenSearchDomain.DomainEndpoint}"
+          OPENSEARCH_DOMAIN_ENDPOINT_URL: !Sub "https://${OpenSearchDomain.DomainEndpoint}"
   ProductEnrichmentScaleUpStartSchedule:
     Type: AWS::Events::Rule
     Properties:
@@ -3065,19 +3065,19 @@ Resources:
 
 Outputs:
   CognitoHostedUIDomain:
-    Value: !Sub "https://${BlitzfilterUserPoolDomain}.auth.${AWS::Region}.amazoncognito.com"
+    Value: !Sub "https://${UserPoolDomain}.auth.${AWS::Region}.amazoncognito.com"
   CognitoUserPoolId:
-    Value: !Ref BlitzfilterUserPool
+    Value: !Ref UserPool
   CognitoUserPoolClientPublicId:
-    Value: !Ref BlitzfilterUserPoolClientPublic
+    Value: !Ref UserPoolClientPublic
   CognitoUserPoolClientAdminId:
-    Value: !Ref BlitzfilterUserPoolClientAdmin
+    Value: !Ref UserPoolClientAdmin
   ApiGatewayEndpointUrl:
-    Value: !Sub "https://${BlitzfilterApi}.execute-api.${AWS::Region}.amazonaws.com/${StageName}"
+    Value: !Sub "https://${Api}.execute-api.${AWS::Region}.amazonaws.com/${StageName}"
   OpensearchDomainEndpointUrl:
-    Value: !Sub "https://${BlitzfilterOpenSearchDomain.DomainEndpoint}"
+    Value: !Sub "https://${OpenSearchDomain.DomainEndpoint}"
   OpensearchDomainName:
-    Value: !Ref BlitzfilterOpenSearchDomain
+    Value: !Ref OpenSearchDomain
   DynamodbTable1Name:
     Value: !Ref TableOne
 
