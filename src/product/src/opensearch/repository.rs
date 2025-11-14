@@ -315,7 +315,7 @@ impl<'a> ProductOpenSearchRepository for ProductOpenSearchRepositoryImpl<'a> {
     ) -> Result<ProductDocument, opensearch::Error> {
         let mut response: serde_json::Value = self
             .client
-            .get(GetParts::IndexId("items", &product_id.to_string()))
+            .get(GetParts::IndexId("products", &product_id.to_string()))
             .send()
             .await?
             .error_for_status_code()?
