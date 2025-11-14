@@ -105,7 +105,7 @@ mod tests {
         assert_eq!(response.items.len(), 1);
 
         let update = response.items[0].clone().unwrap_update();
-        assert_eq!(update.index, "items");
+        assert_eq!(update.index, "products");
         assert_eq!(update.id, "1");
         assert_eq!(update.version, Some(2));
         assert_eq!(update.status, 200);
@@ -228,7 +228,7 @@ mod tests {
             _ => panic!("Expected Create variant"),
         };
 
-        assert_eq!(create.index, "items");
+        assert_eq!(create.index, "products");
         assert_eq!(create.id, "10");
         assert_eq!(create.version, Some(1));
         assert_eq!(create.status, 201);
