@@ -450,7 +450,7 @@ jobs:
           sudo mv opensearch-cli-bin/opensearch-cli /usr/local/bin/opensearch-cli
           sudo chmod +x /usr/local/bin/opensearch-cli
 
-      - name: Setup OpenSearch index 'products'
+      - name: Setup OpenSearch indices
         run: |
           chmod +x ci/setup-opensearch-indices.sh
           ./ci/setup-opensearch-indices.sh
