@@ -165,7 +165,7 @@ mod tests {
             err.reason,
             "[items][3]: version conflict, document already exists"
         );
-        assert_eq!(err.index.as_deref(), Some("items"));
+        assert_eq!(err.index.as_deref(), Some("products"));
         assert_eq!(err.shard.as_deref(), Some("shard-1"));
         assert_eq!(err.index_uuid.as_deref(), Some("uuid123"));
     }
@@ -278,7 +278,7 @@ mod tests {
             err.reason,
             "[items][11]: version conflict, document already exists"
         );
-        assert_eq!(err.index.as_deref(), Some("items"));
+        assert_eq!(err.index.as_deref(), Some("products"));
         assert_eq!(err.shard.as_deref(), Some("shard-2"));
         assert_eq!(err.index_uuid.as_deref(), Some("uuid456"));
     }
@@ -326,7 +326,7 @@ mod tests {
             err.reason,
             "[d5d619d3-676c-eab2-bf31-a3c1c106b4fb]: document missing"
         );
-        assert_eq!(err.index.as_deref(), Some("items"));
+        assert_eq!(err.index.as_deref(), Some("products"));
         assert_eq!(err.shard.as_deref(), Some("1"));
         assert_eq!(err.index_uuid.as_deref(), Some("dcnQL_5lQDaKMdxVpD3E9Q"));
     }
