@@ -1,6 +1,6 @@
-# Blitzfilter AWS Backend
+# Aura-Historia AWS Backend
 
-Blitzfilter AWS Backend is a Rust-based serverless application that provides product management, shop discovery, user management, and notification services for AWS. The system consists of multiple Lambda functions, API Gateway handlers, and supporting services that work with DynamoDB, OpenSearch, SQS, SES, and Cognito.
+Aura-Historia AWS Backend is a Rust-based serverless application that provides product management, shop discovery, user management, and notification services for AWS. The system consists of multiple Lambda functions, API Gateway handlers, and supporting services that work with DynamoDB, OpenSearch, SQS, SES, and Cognito.
 
 Always reference these instructions first and fallback to search or bash commands only when you encounter unexpected information that does not match the info here.
 
