@@ -53,17 +53,27 @@ echo -e "\n es" | opensearch-cli profile create --name "ci" \
   --endpoint "$RAW_ENDPOINT" \
   --auth-type "aws-iam"
 
+# Function to create index if it doesn't exist
+create_index_if_not_exists() {
+  local index_name="$1"
+  local mapping_file="$2"
+  
+  echo "🔍 Checking if index '$index_name' exists..."
+  if opensearch-cli curl head --path "$index_name" --profile ci > /dev/null 2>&1; then
+    echo "✅ Index '$index_name' already exists. Skipping creation."
+  else
+    echo "📦 Creating index '$index_name' with mapping from '$mapping_file'..."
+    opensearch-cli curl put \
+      --path "$index_name" \
+      --data "@$mapping_file" \
+      --profile ci
+    echo "✅ Index '$index_name' created successfully."
+  fi
+}
+
 # Create indices
-echo "📦 Creating index '$PRODUCTS_INDEX_NAME' with mapping from '$PRODUCTS_MAPPING_FILE'..."
-opensearch-cli curl put \
-  --path "$PRODUCTS_INDEX_NAME" \
-  --data "@$PRODUCTS_MAPPING_FILE" \
-  --profile ci
-echo "📦 Creating index '$SHOPS_INDEX_NAME' with mapping from '$SHOPS_MAPPING_FILE'..."
-opensearch-cli curl put \
-  --path "$SHOPS_INDEX_NAME" \
-  --data "@$SHOPS_MAPPING_FILE" \
-  --profile ci
+create_index_if_not_exists "$PRODUCTS_INDEX_NAME" "$PRODUCTS_MAPPING_FILE"
+create_index_if_not_exists "$SHOPS_INDEX_NAME" "$SHOPS_MAPPING_FILE"
 
 # Configure refresh-interval for index
 if [ "$STAGE" = "prod" ]; then
