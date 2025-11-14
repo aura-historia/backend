@@ -89,7 +89,7 @@ impl<'a> QueryProductService for QueryProductServiceImpl<'a> {
                 page = ?page,
                 took = search_response.took,
                 shardStats = ?search_response.shards,
-                "Search-Request to OpenSearch timed out when querying items."
+                "Search-Request to OpenSearch timed out when querying products."
             );
         }
 
@@ -228,7 +228,7 @@ mod tests {
                 hits: product_documents
                     .into_iter()
                     .map(|product_document| SearchHit {
-                        index: "items".to_string(),
+                        index: "products".to_string(),
                         id: product_document.product_id.to_string(),
                         score: None,
                         source: product_document,
@@ -388,14 +388,14 @@ mod tests {
             .return_once(move |_, _, _| {
                 let items = fake::vec![ProductDocument; 369]
                     .into_iter()
-                    .map(|mut item| {
-                        item.price_eur = Some(2);
-                        item.price_gbp = Some(4);
-                        item.price_usd = Some(10);
-                        item.price_aud = Some(1000);
-                        item.price_cad = Some(4000);
-                        item.price_nzd = Some(42);
-                        item
+                    .map(|mut product| {
+                        product.price_eur = Some(2);
+                        product.price_gbp = Some(4);
+                        product.price_usd = Some(10);
+                        product.price_aud = Some(1000);
+                        product.price_cad = Some(4000);
+                        product.price_nzd = Some(42);
+                        product
                     })
                     .collect();
                 Box::pin(async move { Ok(mk_search_response(items)) })
@@ -441,12 +441,12 @@ mod tests {
             .return_once(move |_, _, _| {
                 let items = fake::vec![ProductDocument; 369]
                     .into_iter()
-                    .map(|mut item| {
-                        item.title_de = Some("German".to_string());
-                        item.title_en = Some("English".to_string());
-                        item.description_de = Some("German".to_string());
-                        item.description_en = Some("English".to_string());
-                        item
+                    .map(|mut product| {
+                        product.title_de = Some("German".to_string());
+                        product.title_en = Some("English".to_string());
+                        product.description_de = Some("German".to_string());
+                        product.description_en = Some("English".to_string());
+                        product
                     })
                     .collect();
                 Box::pin(async move { Ok(mk_search_response(items)) })

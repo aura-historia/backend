@@ -93,9 +93,9 @@ pub async fn handle(
                 .try_location(location.as_deref())
                 .build())
         }
-        Some(localized_similar_items) => {
-            let personalized_similar_items = match user_id_opt {
-                None => localized_similar_items
+        Some(localized_similar_products) => {
+            let personalized_similar_products = match user_id_opt {
+                None => localized_similar_products
                     .into_iter()
                     .map(|item| Personalized {
                         item,
@@ -103,7 +103,7 @@ pub async fn handle(
                     })
                     .collect(),
                 Some(user_id) => product_personalization_service
-                    .personalize_all_watchlist(&user_id, localized_similar_items)
+                    .personalize_all_watchlist(&user_id, localized_similar_products)
                     .await?
                     .into_iter()
                     .map(|personalized_item| Personalized {
@@ -116,7 +116,7 @@ pub async fn handle(
             };
 
             let similar_products_data: Vec<PersonalizedData<GetProductData, ProductUserStateData>> =
-                personalized_similar_items
+                personalized_similar_products
                     .into_iter()
                     .map(PersonalizedData::from)
                     .collect();

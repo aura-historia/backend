@@ -264,12 +264,12 @@ pub async fn reset() {
     clear_ddb_table_data()
         .await
         .expect("shouldn't fail clearing table-data");
-    clear_os_index_data("items")
+    clear_os_index_data("products")
         .await
         .expect("shouldn't fail clearing os-index 'products'");
     clear_os_index_data("shops")
         .await
-        .expect("shouldn't fail clearing os-index 'products'");
+        .expect("shouldn't fail clearing os-index 'shops'");
     clear_qs(vec![
         cfn_output.send_mail_queue_url,
         cfn_output.send_mail_dead_letter_queue_url,

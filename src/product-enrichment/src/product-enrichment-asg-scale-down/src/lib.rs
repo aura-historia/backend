@@ -33,7 +33,7 @@ pub async fn scale_down(
     let _ = opensearch_client
         .indices()
         .put_settings(opensearch::indices::IndicesPutSettingsParts::Index(&[
-            "items",
+            "products",
         ]))
         .body(json!({
             "index": {

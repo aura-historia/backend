@@ -1095,7 +1095,7 @@ async fn should_202_when_similar_products_have_not_been_computed_for_anon() {
         .unwrap();
     assert!(!os_insert_res.errors);
 
-    refresh_index("items").await;
+    refresh_index("products").await;
     tokio::time::sleep(Duration::from_secs(10)).await;
 
     let lambda_event = LambdaEvent {
@@ -1163,7 +1163,7 @@ async fn should_200_when_similar_products_have_been_computed_for_anon() {
         .unwrap();
     assert!(!os_insert_res.errors);
 
-    refresh_index("items").await;
+    refresh_index("products").await;
     tokio::time::sleep(Duration::from_secs(10)).await;
 
     let lambda_event = LambdaEvent {
@@ -1288,7 +1288,7 @@ async fn should_200_and_personalize_when_similar_products_have_been_computed_for
         .await
         .unwrap();
     assert!(!os_insert_res.errors);
-    refresh_index("items").await;
+    refresh_index("products").await;
     tokio::time::sleep(Duration::from_secs(10)).await;
 
     let lambda_event = LambdaEvent {

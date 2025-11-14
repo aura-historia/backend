@@ -38,12 +38,12 @@ pub async fn handler(
             .update_product_record(&key.shop_id, &key.shops_product_id, update)
             .await;
         if let Err(err) = update_res {
-            error!(error = ?err, itemKey = %key, "Failed update.");
+            error!(error = ?err, productKey = %key, "Failed update.");
             match message_ids.remove(&key) {
                 Some(message_id) => failed_message_ids.push(message_id),
                 None => {
                     error!(
-                        itemKey = %key,
+                        productKey = %key,
                         "There exists no message_id for failed ProductRecord."
                     );
                 }

@@ -234,9 +234,9 @@ mod tests {
 
     #[tokio::test]
     async fn should_personalize_watchlist_all() {
-        let item1_id = ProductId::new();
-        let item2_id = ProductId::new();
-        let item3_id = ProductId::new();
+        let product1_id = ProductId::new();
+        let product2_id = ProductId::new();
+        let product3_id = ProductId::new();
         let mut watchlist_repository = MockWatchlistProductDynamoDbRepository::default();
         watchlist_repository
             .expect_query_watchlist_records_all()
@@ -247,7 +247,7 @@ mod tests {
                         WatchlistProductRecord {
                             shop_id: Faker.fake(),
                             shops_product_id: Faker.fake(),
-                            product_id: item1_id,
+                            product_id: product1_id,
                             notifications: false,
                             created: OffsetDateTime::now_utc(),
                             updated: OffsetDateTime::now_utc(),
@@ -262,7 +262,7 @@ mod tests {
                         WatchlistProductRecord {
                             shop_id: Faker.fake(),
                             shops_product_id: Faker.fake(),
-                            product_id: item2_id,
+                            product_id: product2_id,
                             notifications: true,
                             created: OffsetDateTime::now_utc(),
                             updated: OffsetDateTime::now_utc(),
@@ -277,7 +277,7 @@ mod tests {
                         WatchlistProductRecord {
                             shop_id: Faker.fake(),
                             shops_product_id: Faker.fake(),
-                            product_id: item3_id,
+                            product_id: product3_id,
                             notifications: true,
                             created: OffsetDateTime::now_utc(),
                             updated: OffsetDateTime::now_utc(),
@@ -297,11 +297,11 @@ mod tests {
         let service = ProductPersonalizationServiceImpl::new(&watchlist_repository);
 
         let mut watched_in1 = Faker.fake::<LocalizedProductView>();
-        watched_in1.product_id = item1_id;
+        watched_in1.product_id = product1_id;
         let mut watched_in2 = Faker.fake::<LocalizedProductView>();
-        watched_in2.product_id = item2_id;
+        watched_in2.product_id = product2_id;
         let mut watched_in3 = Faker.fake::<LocalizedProductView>();
-        watched_in3.product_id = item3_id;
+        watched_in3.product_id = product3_id;
 
         let input = vec![
             watched_in1,

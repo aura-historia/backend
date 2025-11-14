@@ -72,16 +72,16 @@ async fn should_put_products_with_known_url() {
         .await
         .unwrap();
 
-    let mut items = fake::vec![PutProductData; 235];
-    for item in &mut items {
+    let mut products = fake::vec![PutProductData; 235];
+    for product in &mut products {
         let shop_host = shop.urls[0].host_str();
-        item.url.set_host(shop_host).unwrap();
+        product.url.set_host(shop_host).unwrap();
     }
     let lambda_event = LambdaEvent {
         payload: ApiGatewayV2httpRequestProxy::builder()
             .http_method(http::Method::PUT)
             .body_serde(&PutCollectionData {
-                items: items.clone(),
+                items: products.clone(),
             })
             .build(),
         context: Default::default(),

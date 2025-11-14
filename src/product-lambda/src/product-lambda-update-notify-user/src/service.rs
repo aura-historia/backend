@@ -71,14 +71,14 @@ impl<'a> ProductEventMailPayloadService for ProductEventMailPayloadServiceImpl<'
             return Ok(vec![]);
         }
 
-        let item = self
+        let product = self
             .get_product_service
             .find_product(event.payload.shop_id(), event.payload.shops_product_id())
             .await?;
 
         let mail_payloads = users
             .into_iter()
-            .map(|user| self.customize_mail(user, &item, &event))
+            .map(|user| self.customize_mail(user, &product, &event))
             .collect();
         Ok(mail_payloads)
     }

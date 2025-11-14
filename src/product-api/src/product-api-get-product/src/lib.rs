@@ -181,7 +181,7 @@ mod tests {
         let mut get_product_service = MockGetProductService::default();
         get_product_service.expect_view_product().return_once(
             move |shop_id, shops_product_id, _, _, _| {
-                let item = LocalizedProductView {
+                let product = LocalizedProductView {
                     product_id: Default::default(),
                     event_id: EventId::new(),
                     shop_id: *shop_id,
@@ -197,7 +197,7 @@ mod tests {
                     updated: OffsetDateTime::now_utc(),
                     history: None,
                 };
-                Box::pin(async move { Ok(item) })
+                Box::pin(async move { Ok(product) })
             },
         );
 
@@ -232,7 +232,7 @@ mod tests {
         let mut get_product_service = MockGetProductService::default();
         get_product_service.expect_view_product().return_once(
             move |shop_id, shops_product_id, _, _, _| {
-                let item = LocalizedProductView {
+                let product = LocalizedProductView {
                     product_id: Default::default(),
                     event_id,
                     shop_id: *shop_id,
@@ -248,7 +248,7 @@ mod tests {
                     updated: OffsetDateTime::now_utc(),
                     history: None,
                 };
-                Box::pin(async move { Ok(item) })
+                Box::pin(async move { Ok(product) })
             },
         );
         let shop_id = ShopId::new();
@@ -288,7 +288,7 @@ mod tests {
         let mut get_product_service = MockGetProductService::default();
         get_product_service.expect_view_product().return_once(
             move |shop_id, shops_product_id, _, _, _| {
-                let item = LocalizedProductView {
+                let product = LocalizedProductView {
                     product_id: Default::default(),
                     event_id,
                     shop_id: *shop_id,
@@ -304,7 +304,7 @@ mod tests {
                     updated: timestamp,
                     history: None,
                 };
-                Box::pin(async move { Ok(item) })
+                Box::pin(async move { Ok(product) })
             },
         );
         let shop_id = ShopId::new();
@@ -352,7 +352,7 @@ mod tests {
         get_product_service.expect_view_product().return_once(
             move |shop_id, shops_product_id, _, _, history| {
                 assert_eq!(expected_history, history);
-                let item = LocalizedProductView {
+                let product = LocalizedProductView {
                     product_id: Default::default(),
                     event_id,
                     shop_id: *shop_id,
@@ -368,7 +368,7 @@ mod tests {
                     updated: timestamp,
                     history: None,
                 };
-                Box::pin(async move { Ok(item) })
+                Box::pin(async move { Ok(product) })
             },
         );
         let shop_id = ShopId::new();

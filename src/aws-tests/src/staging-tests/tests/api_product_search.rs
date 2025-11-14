@@ -88,7 +88,7 @@ async fn should_respond_200_when_hits_authenticated() {
         .unwrap();
     assert!(!insert_res.errors);
     os_client
-        .index(IndexParts::Index("items"))
+        .index(IndexParts::Index("products"))
         .refresh(Refresh::True)
         .send()
         .await
@@ -233,7 +233,7 @@ async fn should_respond_200_when_hits_anon() {
     let insert_res = repository.create_product_documents(all).await.unwrap();
     assert!(!insert_res.errors);
     os_client
-        .index(IndexParts::Index("items"))
+        .index(IndexParts::Index("products"))
         .refresh(Refresh::True)
         .send()
         .await

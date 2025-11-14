@@ -195,7 +195,7 @@ mod tests {
                                 .take(failure_count)
                                 .map(|product_id| BulkItemResult::Update {
                                     update: BulkOpResult {
-                                        index: "items".to_string(),
+                                        index: "products".to_string(),
                                         id: product_id.to_string(),
                                         version: None,
                                         status: 409,

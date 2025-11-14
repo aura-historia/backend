@@ -229,7 +229,7 @@ async fn should_materialize_product_in_opensearch_for_create_product_command() {
 
     let opensearch_client = get_opensearch_client().await;
     let repository = ProductOpenSearchRepositoryImpl::new(opensearch_client);
-    refresh_index("items").await;
+    refresh_index("products").await;
 
     let deadline = Instant::now() + Duration::from_secs(60);
     loop {
@@ -284,7 +284,7 @@ async fn should_materialize_product_in_opensearch_for_update_product_command() {
     let stack = get_cfn_output();
     let shop = prepare_test_shop().await;
 
-    // we also need to ingest materialized into DynamoDB because item-write-lambda-update performs validity and existence checks in the primary data-store
+    // we also need to ingest materialized into DynamoDB because product-write-lambda-update performs validity and existence checks in the primary data-store
     let dynamodb_client = get_dynamodb_client().await;
     let repository =
         ProductDynamoDbRepositoryImpl::new(dynamodb_client, &stack.dynamodb_table_1_name);
@@ -310,7 +310,7 @@ async fn should_materialize_product_in_opensearch_for_update_product_command() {
         .await
         .unwrap();
     assert!(!insert_res.errors);
-    refresh_index("items").await;
+    refresh_index("products").await;
     tokio::time::sleep(Duration::from_secs(10)).await;
 
     let new_state = match materialized_ddb_old.state {
@@ -340,7 +340,7 @@ async fn should_materialize_product_in_opensearch_for_update_product_command() {
 
     let deadline = Instant::now() + Duration::from_secs(60);
     loop {
-        refresh_index("items").await;
+        refresh_index("products").await;
         let materialized = repository
             .search_product_documents(
                 &ProductSearch {

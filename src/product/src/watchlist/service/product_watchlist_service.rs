@@ -362,7 +362,7 @@ impl<'a> ProductWatchListService for ProductWatchListServiceImpl<'a> {
             .into_iter()
             .map(|record| ProductKey::new(record.shop_id, record.shops_product_id))
             .collect();
-        let mut items = self
+        let mut products = self
                     .get_product_service
                     .view_products(watchlist_record_keys, languages, currency)
                     .await?
@@ -383,7 +383,7 @@ impl<'a> ProductWatchListService for ProductWatchListServiceImpl<'a> {
                     )
                     .collect::<Vec<_>>();
         // BatchGetItem responds with any order, so we need to restore the order from the query manually
-        items.sort_by(|l, r| {
+        products.sort_by(|l, r| {
             if scan_index_forward {
                 l.created.cmp(&r.created)
             } else {
@@ -391,7 +391,7 @@ impl<'a> ProductWatchListService for ProductWatchListServiceImpl<'a> {
             }
         });
 
-        let total = if items.is_empty() {
+        let total = if products.is_empty() {
             0
         } else {
             self.watchlist_repository
@@ -400,10 +400,10 @@ impl<'a> ProductWatchListService for ProductWatchListServiceImpl<'a> {
         };
         Ok(CursoredResult {
             cursor: Cursor {
-                size: items.len() as u64,
+                size: products.len() as u64,
                 search_after: last.map(|last| last.created),
             },
-            items,
+            items: products,
             total: Some(total),
         })
     }

@@ -75,7 +75,7 @@ impl<'a> ProductOpenSearchRepository for ProductOpenSearchRepositoryImpl<'a> {
 
         let response = self
             .client
-            .bulk(BulkParts::Index("items"))
+            .bulk(BulkParts::Index("products"))
             .body(vec![ops])
             .send()
             .await?;
@@ -107,7 +107,7 @@ impl<'a> ProductOpenSearchRepository for ProductOpenSearchRepositoryImpl<'a> {
 
         let response = self
             .client
-            .bulk(BulkParts::Index("items"))
+            .bulk(BulkParts::Index("products"))
             .body(vec![ops])
             .send()
             .await?;
@@ -293,7 +293,7 @@ impl<'a> ProductOpenSearchRepository for ProductOpenSearchRepositoryImpl<'a> {
 
         let response = self
             .client
-            .search(SearchParts::Index(&["items"]))
+            .search(SearchParts::Index(&["products"]))
             .body(body)
             .send()
             .await?;
@@ -343,7 +343,7 @@ impl<'a> ProductOpenSearchRepository for ProductOpenSearchRepositoryImpl<'a> {
         });
         let response = self
             .client
-            .search(SearchParts::Index(&["items"]))
+            .search(SearchParts::Index(&["products"]))
             .body(body)
             .send()
             .await?;

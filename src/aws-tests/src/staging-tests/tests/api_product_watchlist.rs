@@ -61,7 +61,7 @@ async fn should_put_and_get_and_patch_and_delete_watchlist_product_and_verify_no
         .unwrap();
     assert!(put_res.unprocessed_items.unwrap_or_default().is_empty());
 
-    // Add item to watchlist
+    // Add product to watchlist
     let post_url = format!(
         "{}/api/v1/me/watchlist",
         get_cfn_output().api_gateway_endpoint_url,

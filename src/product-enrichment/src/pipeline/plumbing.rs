@@ -48,7 +48,7 @@ impl EnrichmentPlumbing for EnrichmentPlumbingImpl {
             .collect::<HashMap<_, _>>();
 
         // run water through pipes
-        let (enriched_products, mut failed_items) = self.pipes.iter().fold(
+        let (enriched_products, mut failed_products) = self.pipes.iter().fold(
             (pipe_products, HashSet::new()),
             |(pipe_in, leak_in), pipe| {
                 let pipe_res = pipe.enrich(pipe_in);
@@ -78,13 +78,13 @@ impl EnrichmentPlumbing for EnrichmentPlumbingImpl {
                 (drain_documents, drain_records)
             },
         );
-        failed_items.extend(&mut self.sink.drain_documents(drain_documents).await.into_iter());
-        failed_items.extend(&mut self.sink.drain_records(drain_records).await.into_iter());
-        let failed_piped_water = failed_items.len();
+        failed_products.extend(&mut self.sink.drain_documents(drain_documents).await.into_iter());
+        failed_products.extend(&mut self.sink.drain_records(drain_records).await.into_iter());
+        let failed_piped_water = failed_products.len();
 
         // remove leaked water - leaving behind arrived water
-        for failed_item in failed_items {
-            message_refs.remove(&failed_item);
+        for failed_product in failed_products {
+            message_refs.remove(&failed_product);
         }
         let successes_pre_deletion = message_refs.len();
         let failed_deleted_water = self
@@ -244,13 +244,13 @@ mod tests {
         faucet
             .expect_pour()
             .return_once(move |_| Box::pin(async move { faked_poured }));
-        pipe.expect_enrich().return_once(|items| PipeResult {
-            failures: items
+        pipe.expect_enrich().return_once(|products| PipeResult {
+            failures: products
                 .iter()
                 .take(958)
                 .map(|item| item.source.product_id)
                 .collect(),
-            successes: items.into_iter().skip(958).collect(),
+            successes: products.into_iter().skip(958).collect(),
         });
         sink.expect_drain_documents().return_once(|documents| {
             assert!(documents.len() <= 42); // of those succeeding some might not bring any changes

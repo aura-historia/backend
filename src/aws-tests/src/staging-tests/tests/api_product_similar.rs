@@ -1087,7 +1087,7 @@ async fn should_202_when_similar_products_have_not_been_computed_for_anon() {
 
     get_opensearch_client()
         .await
-        .index(IndexParts::Index("items"))
+        .index(IndexParts::Index("products"))
         .refresh(Refresh::True)
         .send()
         .await
@@ -1141,7 +1141,7 @@ async fn should_200_when_similar_products_have_been_computed_for_anon() {
 
     get_opensearch_client()
         .await
-        .index(IndexParts::Index("items"))
+        .index(IndexParts::Index("products"))
         .refresh(Refresh::True)
         .send()
         .await
@@ -1260,7 +1260,7 @@ async fn should_200_and_personalize_when_similar_products_have_been_computed_for
     assert!(!os_insert_res.errors);
     get_opensearch_client()
         .await
-        .index(IndexParts::Index("items"))
+        .index(IndexParts::Index("products"))
         .refresh(Refresh::True)
         .send()
         .await

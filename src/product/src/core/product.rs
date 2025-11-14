@@ -375,7 +375,7 @@ mod tests {
             #[case] from_state: ProductState,
             #[case] to_state: ProductState,
         ) {
-            let mut item = Product {
+            let mut product = Product {
                 product_id: Default::default(),
                 event_id: Default::default(),
                 shop_id: Default::default(),
@@ -397,7 +397,7 @@ mod tests {
                 updated: OffsetDateTime::now_utc(),
             };
 
-            let actual = item.change_state(to_state);
+            let actual = product.change_state(to_state);
 
             assert!(actual.is_none());
         }
@@ -417,7 +417,7 @@ mod tests {
             #[case] from_state: ProductState,
             #[case] to_state: ProductState,
         ) {
-            let mut item = Product {
+            let mut product = Product {
                 product_id: Default::default(),
                 event_id: Default::default(),
                 shop_id: Default::default(),
@@ -439,7 +439,7 @@ mod tests {
                 updated: OffsetDateTime::now_utc(),
             };
 
-            let actual = item.change_state(to_state).unwrap();
+            let actual = product.change_state(to_state).unwrap();
             let payload = actual.payload.as_state_changed().unwrap();
             assert_eq!(from_state, payload.old_state);
         }
@@ -459,7 +459,7 @@ mod tests {
             #[case] from_state: ProductState,
             #[case] to_state: ProductState,
         ) {
-            let mut item = Product {
+            let mut product = Product {
                 product_id: Default::default(),
                 event_id: Default::default(),
                 shop_id: Default::default(),
@@ -481,8 +481,8 @@ mod tests {
                 updated: OffsetDateTime::now_utc(),
             };
 
-            let _ = item.change_state(to_state).unwrap();
-            assert_eq!(to_state, item.state);
+            let _ = product.change_state(to_state).unwrap();
+            assert_eq!(to_state, product.state);
         }
     }
 
@@ -532,7 +532,7 @@ mod tests {
                 monetary_amount,
                 currency,
             };
-            let mut item = Product {
+            let mut product = Product {
                 product_id: Default::default(),
                 event_id: Default::default(),
                 shop_id: Default::default(),
@@ -556,7 +556,7 @@ mod tests {
                 updated: OffsetDateTime::now_utc(),
             };
 
-            let actual = item.new_price(Some(price), &IdentityFxRate);
+            let actual = product.new_price(Some(price), &IdentityFxRate);
 
             assert!(actual.is_none());
         }
@@ -577,7 +577,7 @@ mod tests {
         fn should_discover_price_when_price_changed_from_none_for_new_price(
             #[case] to_price: Price,
         ) {
-            let mut item = Product {
+            let mut product = Product {
                 product_id: Default::default(),
                 event_id: Default::default(),
                 shop_id: Default::default(),
@@ -598,7 +598,7 @@ mod tests {
                 created: OffsetDateTime::now_utc(),
                 updated: OffsetDateTime::now_utc(),
             };
-            let actual = item.new_price(Some(to_price), &IdentityFxRate).unwrap();
+            let actual = product.new_price(Some(to_price), &IdentityFxRate).unwrap();
 
             match actual.payload {
                 ProductEventPayload::PriceDiscovered(payload) => {
@@ -609,9 +609,10 @@ mod tests {
                             .iter()
                             .all(|(_, amount)| &to_price.monetary_amount == amount)
                     );
-                    assert_eq!(item.native_price, Some(to_price));
+                    assert_eq!(product.native_price, Some(to_price));
                     assert!(
-                        item.other_price
+                        product
+                            .other_price
                             .iter()
                             .all(|(_, amount)| &to_price.monetary_amount == amount)
                     );
@@ -628,7 +629,7 @@ mod tests {
         #[case::cad_non_zero(Price::new(460u64.into(), Currency::Cad))]
         #[case::nzd_non_zero(Price::new(477u64.into(), Currency::Nzd))]
         fn should_find_dropped_price_when_price_dropped_for_new_price(#[case] to_price: Price) {
-            let mut item = Product {
+            let mut product = Product {
                 product_id: Default::default(),
                 event_id: Default::default(),
                 shop_id: Default::default(),
@@ -649,7 +650,7 @@ mod tests {
                 created: OffsetDateTime::now_utc(),
                 updated: OffsetDateTime::now_utc(),
             };
-            let actual = item.new_price(Some(to_price), &IdentityFxRate).unwrap();
+            let actual = product.new_price(Some(to_price), &IdentityFxRate).unwrap();
 
             match actual.payload {
                 ProductEventPayload::PriceDropped(payload) => {
@@ -664,9 +665,10 @@ mod tests {
                         Price::new(700u64.into(), Currency::Eur),
                         payload.old_native_price
                     );
-                    assert_eq!(item.native_price, Some(to_price));
+                    assert_eq!(product.native_price, Some(to_price));
                     assert!(
-                        item.other_price
+                        product
+                            .other_price
                             .iter()
                             .all(|(_, amount)| &to_price.monetary_amount == amount)
                     );
@@ -683,7 +685,7 @@ mod tests {
         #[case::cad_non_zero(Price::new(460u64.into(), Currency::Cad))]
         #[case::nzd_non_zero(Price::new(477u64.into(), Currency::Nzd))]
         fn should_find_increased_price_when_price_increased_for_new_price(#[case] to_price: Price) {
-            let mut item = Product {
+            let mut product = Product {
                 product_id: Default::default(),
                 event_id: Default::default(),
                 shop_id: Default::default(),
@@ -704,7 +706,7 @@ mod tests {
                 created: OffsetDateTime::now_utc(),
                 updated: OffsetDateTime::now_utc(),
             };
-            let actual = item.new_price(Some(to_price), &IdentityFxRate).unwrap();
+            let actual = product.new_price(Some(to_price), &IdentityFxRate).unwrap();
 
             match actual.payload {
                 ProductEventPayload::PriceIncreased(payload) => {
@@ -719,7 +721,7 @@ mod tests {
                         Price::new(169u64.into(), Currency::Eur),
                         payload.old_native_price
                     );
-                    assert_eq!(item.native_price, Some(to_price));
+                    assert_eq!(product.native_price, Some(to_price));
                 }
                 _ => panic!("Expected ProductEventPayload::PriceIncreased"),
             }
@@ -741,7 +743,7 @@ mod tests {
         fn should_remove_price_when_price_changed_from_some_to_none_for_new_price(
             #[case] price: Price,
         ) {
-            let mut item = Product {
+            let mut product = Product {
                 product_id: Default::default(),
                 event_id: Default::default(),
                 shop_id: Default::default(),
@@ -762,12 +764,12 @@ mod tests {
                 created: OffsetDateTime::now_utc(),
                 updated: OffsetDateTime::now_utc(),
             };
-            let actual = item.new_price(None, &IdentityFxRate).unwrap();
+            let actual = product.new_price(None, &IdentityFxRate).unwrap();
 
             match actual.payload {
                 ProductEventPayload::PriceRemoved(payload) => {
-                    assert!(item.native_price.is_none());
-                    assert!(item.other_price.is_empty());
+                    assert!(product.native_price.is_none());
+                    assert!(product.other_price.is_empty());
                     assert_eq!(price, payload.old_native_price);
                 }
                 _ => panic!("Expected ProductEventPayload::PriceRemoved"),

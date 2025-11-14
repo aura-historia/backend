@@ -27,7 +27,7 @@
 
 - PK is `UserId` (Cognito-Sub)
 - SK
-  - Composite of `ShopId` and `ShopsProductId` for items on users watchlist
+  - Composite of `ShopId` and `ShopsProductId` for products on users watchlist
   - `SearchFilterId` for saved search-filters
   - Constant `details` for user-data (Cognito only acts as IDP)
 
@@ -53,7 +53,7 @@
 - User
   - PK is `ProductId` 
   - SK is `UserId` 
-  - Uses it to query all users that have notifications for an item on their watchlist activated
-  - SK is sparse locally - it's only set if an item is on the users watchlist **and** notifications are activated
-  - This invariant must always hold - crucial for inserts/updates of watchlist-items
+  - Uses it to query all users that have notifications for a product on their watchlist activated
+  - SK is sparse locally - it's only set if a product is on the users watchlist **and** notifications are activated
+  - This invariant must always hold - crucial for inserts/updates of watchlist-products
 

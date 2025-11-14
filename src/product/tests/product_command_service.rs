@@ -136,7 +136,7 @@ async fn should_push_products_to_queue_when_all_exist_and_actual_changes() {
         assert!(unprocessed.is_empty())
     }
 
-    // actual change to previously (from cmd derived) materialiezd item-record
+    // actual change to previously (from cmd derived) materialized product-record
     // does not imply a change for all because some may already have the "new" state
     let mut expected_skipped = 0;
     for cmd in &mut cmds {

@@ -99,7 +99,7 @@ fn handle_bulk_response(
                 productId = failure.id,
                 status = failure.status,
                 error = ?failure.error,
-                "Failed updating item in OpenSearch."
+                "Failed updating product in OpenSearch."
             );
             match ProductId::try_from(failure.id.as_str()) {
                 Ok(product_id) => match message_ids.remove(&product_id) {
@@ -110,7 +110,7 @@ fn handle_bulk_response(
                         error!(
                             index = failure.index,
                             productId = failure.id,
-                            "Failed re-mapping item-id to message-id. Cannot retry."
+                            "Failed re-mapping product-id to message-id. Cannot retry."
                         );
                     }
                 },

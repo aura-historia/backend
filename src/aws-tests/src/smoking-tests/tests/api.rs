@@ -22,7 +22,7 @@ async fn should_respond_404_for_get_product_when_not_exists() {
 }
 
 #[smoking_test]
-async fn should_respond_200_for_search_items() {
+async fn should_respond_200_for_search_products() {
     let response = reqwest::Client::new()
         .post(format!(
             "{}/api/v1/products/search?sort=price&order=asc&from=0&size=5",

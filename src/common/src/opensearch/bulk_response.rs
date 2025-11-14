@@ -89,7 +89,7 @@ mod tests {
             "items": [
                 {
                     "update": {
-                        "_index": "items",
+                        "_index": "products",
                         "_id": "1",
                         "_version": 2,
                         "status": 200
@@ -120,7 +120,7 @@ mod tests {
             "items": [
                 {
                     "update": {
-                        "_index": "items",
+                        "_index": "products",
                         "_id": "2",
                         "_version": 3,
                         "status": 200
@@ -128,13 +128,13 @@ mod tests {
                 },
                 {
                     "update": {
-                        "_index": "items",
+                        "_index": "products",
                         "_id": "3",
                         "status": 409,
                         "error": {
                             "type": "version_conflict_engine_exception",
                             "reason": "[items][3]: version conflict, document already exists",
-                            "index": "items",
+                            "index": "products",
                             "shard": "shard-1",
                             "index_uuid": "uuid123"
                         }
@@ -208,7 +208,7 @@ mod tests {
             "items": [
                 {
                     "create": {
-                        "_index": "items",
+                        "_index": "products",
                         "_id": "10",
                         "_version": 1,
                         "status": 201
@@ -243,13 +243,13 @@ mod tests {
             "items": [
                 {
                     "create": {
-                        "_index": "items",
+                        "_index": "products",
                         "_id": "11",
                         "status": 409,
                         "error": {
                             "type": "version_conflict_engine_exception",
                             "reason": "[items][11]: version conflict, document already exists",
-                            "index": "items",
+                            "index": "products",
                             "shard": "shard-2",
                             "index_uuid": "uuid456"
                         }
@@ -291,9 +291,9 @@ mod tests {
             {
               "update": {
                 "_id": "d5d619d3-676c-eab2-bf31-a3c1c106b4fb",
-                "_index": "items",
+                "_index": "products",
                 "error": {
-                  "index": "items",
+                  "index": "products",
                   "index_uuid": "dcnQL_5lQDaKMdxVpD3E9Q",
                   "reason": "[d5d619d3-676c-eab2-bf31-a3c1c106b4fb]: document missing",
                   "shard": "1",

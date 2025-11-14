@@ -96,7 +96,7 @@ impl<T: FxRate + Sync> UpsertProductsServiceImpl<'_, T> {
 
             current_chunk = failed
                 .try_into()
-                .expect("shouldn't fail converting failed items back to Batch because they came from a valid Batch");
+                .expect("shouldn't fail converting failed products back to Batch because they came from a valid Batch");
         }
     }
 
@@ -158,7 +158,7 @@ impl<T: FxRate + Sync> UpsertProductsServiceImpl<'_, T> {
                     .extract_update_events(update_chunk, skipped_count)
                     .await;
 
-                // all remaining commands must be for items that don't yet exist - so we create them now
+                // all remaining commands must be for products that don't yet exist - so we create them now
                 let mut create_events = self
                     .extract_create_events(mut_key_cmds.into_values().collect())
                     .await;
@@ -299,14 +299,14 @@ fn determine_update_events(
     fx_rate: &impl FxRate,
 ) -> Vec<ProductEvent> {
     let mut events = Vec::with_capacity(update_chunk.len());
-    for (mut item, update_cmd) in update_chunk {
+    for (mut product, update_cmd) in update_chunk {
         let mut any_changes = false;
 
-        if let Some(price_event) = item.new_price(update_cmd.native_price, fx_rate) {
+        if let Some(price_event) = product.new_price(update_cmd.native_price, fx_rate) {
             events.push(price_event);
             any_changes = true;
         }
-        if let Some(state_event) = item.change_state(update_cmd.state) {
+        if let Some(state_event) = product.change_state(update_cmd.state) {
             events.push(state_event);
             any_changes = true;
         }
@@ -333,18 +333,18 @@ pub mod tests {
 
     #[test]
     fn should_determine_no_update_events_when_only_skipped() {
-        let item1 = Faker.fake::<Product>();
+        let product1 = Faker.fake::<Product>();
         let mut update1 = Faker.fake::<UpsertProductCommand>();
-        update1.native_price = item1.native_price;
-        update1.state = item1.state;
+        update1.native_price = product1.native_price;
+        update1.state = product1.state;
 
-        let item2 = Faker.fake::<Product>();
+        let product2 = Faker.fake::<Product>();
         let mut update2 = Faker.fake::<UpsertProductCommand>();
-        update2.native_price = item2.native_price;
-        update2.state = item2.state;
+        update2.native_price = product2.native_price;
+        update2.state = product2.state;
 
         let mut skipped_count = 0;
-        let update_chunk = vec![(item1, update1), (item2, update2)];
+        let update_chunk = vec![(product1, update1), (product2, update2)];
 
         let actual = determine_update_events(update_chunk, &mut skipped_count, &FixedFxRate());
         assert_eq!(2, skipped_count);
@@ -353,44 +353,44 @@ pub mod tests {
 
     #[test]
     fn should_determine_update_events_when_none_skipped() {
-        let item1 = Faker.fake::<Product>();
+        let product1 = Faker.fake::<Product>();
         let update1 = UpsertProductCommand {
-            shop_id: item1.clone().shop_id,
-            shops_product_id: item1.clone().shops_product_id,
-            shop_name: item1.clone().shop_name,
-            native_title: item1.clone().native_title,
+            shop_id: product1.clone().shop_id,
+            shops_product_id: product1.clone().shops_product_id,
+            shop_name: product1.clone().shop_name,
+            native_title: product1.clone().native_title,
             other_title: Default::default(),
-            native_description: item1.clone().native_description,
+            native_description: product1.clone().native_description,
             other_description: Default::default(),
             native_price: Some(Faker.fake()),
             other_price: Default::default(),
-            state: item1.state,
-            url: item1.clone().url,
-            images: item1.clone().images,
+            state: product1.state,
+            url: product1.clone().url,
+            images: product1.clone().images,
         };
 
-        let item2 = Faker.fake::<Product>();
+        let product2 = Faker.fake::<Product>();
         let update2 = UpsertProductCommand {
-            shop_id: item2.clone().shop_id,
-            shops_product_id: item2.clone().shops_product_id,
-            shop_name: item2.clone().shop_name,
-            native_title: item2.clone().native_title,
+            shop_id: product2.clone().shop_id,
+            shops_product_id: product2.clone().shops_product_id,
+            shop_name: product2.clone().shop_name,
+            native_title: product2.clone().native_title,
             other_title: Default::default(),
-            native_description: item2.clone().native_description,
+            native_description: product2.clone().native_description,
             other_description: Default::default(),
             native_price: Some(Faker.fake()),
             other_price: Default::default(),
-            state: if matches!(item2.state, ProductState::Available) {
+            state: if matches!(product2.state, ProductState::Available) {
                 ProductState::Removed
             } else {
                 ProductState::Available
             },
-            url: item2.clone().url,
-            images: item2.clone().images,
+            url: product2.clone().url,
+            images: product2.clone().images,
         };
 
         let mut skipped_count = 0;
-        let update_chunk = vec![(item1, update1), (item2, update2)];
+        let update_chunk = vec![(product1, update1), (product2, update2)];
 
         let actual = determine_update_events(update_chunk, &mut skipped_count, &FixedFxRate());
         assert_eq!(0, skipped_count);
@@ -399,29 +399,29 @@ pub mod tests {
 
     #[test]
     fn should_determine_update_events_when_some_skipped() {
-        let item1 = Faker.fake::<Product>();
+        let product1 = Faker.fake::<Product>();
         let update1 = UpsertProductCommand {
-            shop_id: item1.clone().shop_id,
-            shops_product_id: item1.clone().shops_product_id,
-            shop_name: item1.clone().shop_name,
-            native_title: item1.clone().native_title,
+            shop_id: product1.clone().shop_id,
+            shops_product_id: product1.clone().shops_product_id,
+            shop_name: product1.clone().shop_name,
+            native_title: product1.clone().native_title,
             other_title: Default::default(),
-            native_description: item1.clone().native_description,
+            native_description: product1.clone().native_description,
             other_description: Default::default(),
             native_price: Some(Faker.fake()),
             other_price: Default::default(),
-            state: item1.state,
-            url: item1.clone().url,
-            images: item1.clone().images,
+            state: product1.state,
+            url: product1.clone().url,
+            images: product1.clone().images,
         };
 
-        let item2 = Faker.fake::<Product>();
+        let product2 = Faker.fake::<Product>();
         let mut update2 = Faker.fake::<UpsertProductCommand>();
-        update2.native_price = item2.native_price;
-        update2.state = item2.state;
+        update2.native_price = product2.native_price;
+        update2.state = product2.state;
 
         let mut skipped_count = 0;
-        let update_chunk = vec![(item1, update1), (item2, update2)];
+        let update_chunk = vec![(product1, update1), (product2, update2)];
 
         let actual = determine_update_events(update_chunk, &mut skipped_count, &FixedFxRate());
         assert_eq!(1, skipped_count);

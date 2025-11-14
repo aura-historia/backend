@@ -111,7 +111,7 @@ async fn should_plumb_messages(#[case] queue_count: usize, #[case] plumbing_coun
             .unwrap();
         assert!(!os_create_res.errors);
     }
-    refresh_index("items").await;
+    refresh_index("products").await;
 
     let faucet = EnrichmentPipeFaucetImpl::new(sqs_client.clone(), enrichment_queue_url.clone());
     let embedding_delegate = EmbeddingDelegateImpl::new().unwrap();

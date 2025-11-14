@@ -80,17 +80,17 @@ async fn should_200_when_following_search_after_from_previous_response_for_sort_
         updated_query: None,
     };
 
-    let mut items = fake::vec![ProductDocument; 1370];
-    for item in &mut items {
-        item.title_de = Some("Der erwartete Titel".to_string());
-        item.price_eur = Some(rand::random_range(1..=10000000));
+    let mut products = fake::vec![ProductDocument; 1370];
+    for product in &mut products {
+        product.title_de = Some("Der erwartete Titel".to_string());
+        product.price_eur = Some(rand::random_range(1..=10000000));
     }
     let create_res = opensearch_repository
-        .create_product_documents(items.clone())
+        .create_product_documents(products.clone())
         .await
         .unwrap();
     assert!(!create_res.errors);
-    refresh_index("items").await;
+    refresh_index("products").await;
     tokio::time::sleep(std::time::Duration::from_secs(10)).await;
 
     let sorter = |l: &ProductDocument, r: &ProductDocument| match l
@@ -101,7 +101,7 @@ async fn should_200_when_following_search_after_from_previous_response_for_sort_
         std::cmp::Ordering::Equal => l.product_id.to_string().cmp(&r.product_id.to_string()),
         ord => ord,
     };
-    items.sort_by(sorter);
+    products.sort_by(sorter);
 
     // first request
     let lambda_event_1 = LambdaEvent {
@@ -130,7 +130,7 @@ async fn should_200_when_following_search_after_from_previous_response_for_sort_
     assert_eq!(50, response_data.size);
     assert_eq!(1370, response_data.total.unwrap());
     assert_eq!(
-        items
+        products
             .clone()
             .into_iter()
             .take(50)
@@ -174,7 +174,7 @@ async fn should_200_when_following_search_after_from_previous_response_for_sort_
     assert_eq!(50, response_data_2.size);
     assert_eq!(1370, response_data_2.total.unwrap());
     assert_eq!(
-        items
+        products
             .clone()
             .into_iter()
             .skip(50)
@@ -213,17 +213,17 @@ async fn should_200_when_following_search_after_from_previous_response_for_sort_
         updated_query: None,
     };
 
-    let mut items = fake::vec![ProductDocument; 1370];
-    for item in &mut items {
-        item.title_de = Some("Der erwartete Titel".to_string());
-        item.price_eur = Some(rand::random_range(1..=10000000));
+    let mut products = fake::vec![ProductDocument; 1370];
+    for product in &mut products {
+        product.title_de = Some("Der erwartete Titel".to_string());
+        product.price_eur = Some(rand::random_range(1..=10000000));
     }
     let create_res = opensearch_repository
-        .create_product_documents(items.clone())
+        .create_product_documents(products.clone())
         .await
         .unwrap();
     assert!(!create_res.errors);
-    refresh_index("items").await;
+    refresh_index("products").await;
     tokio::time::sleep(std::time::Duration::from_secs(10)).await;
 
     let sorter = |l: &ProductDocument, r: &ProductDocument| match l
@@ -239,7 +239,7 @@ async fn should_200_when_following_search_after_from_previous_response_for_sort_
             .reverse(),
         ord => ord,
     };
-    items.sort_by(sorter);
+    products.sort_by(sorter);
 
     // first request
     let lambda_event_1 = LambdaEvent {
@@ -268,7 +268,7 @@ async fn should_200_when_following_search_after_from_previous_response_for_sort_
     assert_eq!(50, response_data.size);
     assert_eq!(1370, response_data.total.unwrap());
     assert_eq!(
-        items
+        products
             .clone()
             .into_iter()
             .take(50)
@@ -312,7 +312,7 @@ async fn should_200_when_following_search_after_from_previous_response_for_sort_
     assert_eq!(50, response_data_2.size);
     assert_eq!(1370, response_data_2.total.unwrap());
     assert_eq!(
-        items
+        products
             .clone()
             .into_iter()
             .skip(50)
@@ -351,16 +351,16 @@ async fn should_200_when_following_search_after_from_previous_response_for_impli
         updated_query: None,
     };
 
-    let mut items = fake::vec![ProductDocument; 1370];
-    for item in &mut items {
-        item.title_de = Some("Der erwartete Titel".to_string());
+    let mut products = fake::vec![ProductDocument; 1370];
+    for product in &mut products {
+        product.title_de = Some("Der erwartete Titel".to_string());
     }
     let create_res = opensearch_repository
-        .create_product_documents(items.clone())
+        .create_product_documents(products.clone())
         .await
         .unwrap();
     assert!(!create_res.errors);
-    refresh_index("items").await;
+    refresh_index("products").await;
     tokio::time::sleep(std::time::Duration::from_secs(10)).await;
 
     // first request
@@ -451,16 +451,16 @@ async fn should_200_when_following_search_after_from_previous_response_for_expli
         updated_query: None,
     };
 
-    let mut items = fake::vec![ProductDocument; 1370];
-    for item in &mut items {
-        item.title_de = Some("Der erwartete Titel".to_string());
+    let mut products = fake::vec![ProductDocument; 1370];
+    for product in &mut products {
+        product.title_de = Some("Der erwartete Titel".to_string());
     }
     let create_res = opensearch_repository
-        .create_product_documents(items.clone())
+        .create_product_documents(products.clone())
         .await
         .unwrap();
     assert!(!create_res.errors);
-    refresh_index("items").await;
+    refresh_index("products").await;
     tokio::time::sleep(std::time::Duration::from_secs(10)).await;
 
     // first request
@@ -572,16 +572,16 @@ async fn should_200_when_created_query(
         context: Default::default(),
     };
 
-    let mut items = fake::vec![ProductDocument; 1370];
-    for item in &mut items {
-        item.title_de = Some("Der erwartete Titel".to_string());
+    let mut products = fake::vec![ProductDocument; 1370];
+    for product in &mut products {
+        product.title_de = Some("Der erwartete Titel".to_string());
     }
     let create_res = opensearch_repository
-        .create_product_documents(items.clone())
+        .create_product_documents(products.clone())
         .await
         .unwrap();
     assert!(!create_res.errors);
-    refresh_index("items").await;
+    refresh_index("products").await;
     tokio::time::sleep(std::time::Duration::from_secs(10)).await;
 
     let response = handler(
@@ -658,16 +658,16 @@ async fn should_200_when_updated_query(
         context: Default::default(),
     };
 
-    let mut items = fake::vec![ProductDocument; 1370];
-    for item in &mut items {
-        item.title_de = Some("Der erwartete Titel".to_string());
+    let mut products = fake::vec![ProductDocument; 1370];
+    for product in &mut products {
+        product.title_de = Some("Der erwartete Titel".to_string());
     }
     let create_res = opensearch_repository
-        .create_product_documents(items.clone())
+        .create_product_documents(products.clone())
         .await
         .unwrap();
     assert!(!create_res.errors);
-    refresh_index("items").await;
+    refresh_index("products").await;
     tokio::time::sleep(std::time::Duration::from_secs(10)).await;
 
     let response = handler(
@@ -734,16 +734,16 @@ async fn should_200_personalized_when_authenticated_and_not_watching() {
         context: Default::default(),
     };
 
-    let mut items = fake::vec![ProductDocument; 1370];
-    for item in &mut items {
-        item.title_de = Some("Der erwartete Titel".to_string());
+    let mut products = fake::vec![ProductDocument; 1370];
+    for product in &mut products {
+        product.title_de = Some("Der erwartete Titel".to_string());
     }
     let create_res = opensearch_repository
-        .create_product_documents(items.clone())
+        .create_product_documents(products.clone())
         .await
         .unwrap();
     assert!(!create_res.errors);
-    refresh_index("items").await;
+    refresh_index("products").await;
     tokio::time::sleep(std::time::Duration::from_secs(10)).await;
 
     let response = handler(

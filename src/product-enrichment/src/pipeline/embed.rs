@@ -18,11 +18,11 @@ impl EmbeddingEnrichmentPipeImpl {
 }
 
 impl EnrichmentPipe for EmbeddingEnrichmentPipeImpl {
-    fn enrich(&self, items: Vec<PipeProduct>) -> PipeResult {
-        let count = items.len();
-        let mut successes = Vec::with_capacity(items.len());
+    fn enrich(&self, products: Vec<PipeProduct>) -> PipeResult {
+        let count = products.len();
+        let mut successes = Vec::with_capacity(products.len());
         let mut failures = HashSet::new();
-        let batches: Vec<Batch<PipeProduct, 64>> = Batch::chunked_from(items.into_iter());
+        let batches: Vec<Batch<PipeProduct, 64>> = Batch::chunked_from(products.into_iter());
 
         for document_batch in batches {
             let input_batch_iter = document_batch.iter().map(|pipe_product| {

@@ -51,7 +51,7 @@ pub async fn handler(
             Some(message_id) => failed_message_ids.push(message_id),
             None => {
                 error!(
-                    itemKey = failed_command_key.to_string(),
+                    productKey = failed_command_key.to_string(),
                     "There exists no message_id for a failed command."
                 );
             }

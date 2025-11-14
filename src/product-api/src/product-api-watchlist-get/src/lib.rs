@@ -83,7 +83,7 @@ pub async fn handle(
     .map(|sort_data| sort_data.map(SortWatchlistProductField::from));
     let cursor = extract_time_cursor_query(&event.payload.query_string_parameters)?;
 
-    let items = service
+    let products = service
         .view_watchlist(
             &user_id,
             &[language.into()],
@@ -95,7 +95,7 @@ pub async fn handle(
         .map_item(WatchlistProductDataView::from);
 
     Ok(ApiGatewayV2HttpResponseBuilder::json(200)
-        .body_serde(TimeCursoredData::from(items))?
+        .body_serde(TimeCursoredData::from(products))?
         .build())
 }
 

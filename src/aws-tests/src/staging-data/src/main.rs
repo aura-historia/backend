@@ -35,9 +35,9 @@ async fn populate_products(shops: Vec<Shop>) {
 
     // create products
     let mut products = fake::vec![PutProductData; 142];
-    for item in &mut products {
+    for product in &mut products {
         let host = shop_urls.choose(&mut fake::rand::rng()).unwrap().clone();
-        item.url.set_host(host.host_str()).unwrap();
+        product.url.set_host(host.host_str()).unwrap();
     }
 
     let mut payload = PutCollectionData { items: products };
@@ -52,12 +52,12 @@ async fn populate_products(shops: Vec<Shop>) {
 
     // put updates
     for i in 0..10 {
-        for item in &mut payload.items {
+        for product in &mut payload.items {
             if rand::random_range(0..3) < 1 {
-                item.state = Faker.fake();
+                product.state = Faker.fake();
             }
             if rand::random_range(0..3) < 2 {
-                item.price = Some(Faker.fake());
+                product.price = Some(Faker.fake());
             }
         }
         let collection = PutCollectionData {

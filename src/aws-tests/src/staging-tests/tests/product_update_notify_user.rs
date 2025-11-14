@@ -46,7 +46,7 @@ async fn should_send_email_to_user_when_watched_product_has_update() {
     let stack = get_cfn_output();
     let shop = prepare_test_shop().await;
 
-    // create item
+    // create product
     let mut put_product_data: PutProductData = Faker.fake();
     put_product_data
         .url
@@ -98,7 +98,7 @@ async fn should_send_email_to_user_when_watched_product_has_update() {
             .is_some()
     );
 
-    // add item to watchlist
+    // add product to watchlist
     let post_url = format!(
         "{}/api/v1/me/watchlist",
         get_cfn_output().api_gateway_endpoint_url,
@@ -149,7 +149,7 @@ async fn should_send_email_to_user_when_watched_product_has_update() {
     assert_eq!(vec![UserId::from(user.sub)], eligible);
     tokio::time::sleep(Duration::from_secs(10)).await;
 
-    // update item
+    // update product
     put_product_data.state = if matches!(put_product_data.state, ProductStateData::Available) {
         ProductStateData::Sold
     } else {

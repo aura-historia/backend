@@ -56,7 +56,7 @@ pub async fn handler(
                 Some(message_id) => Some(message_id),
                 None => {
                     error!(
-                        itemKey = %key,
+                        productKey = %key,
                         "There exists no message_id for failed ProductRecord."
                     );
                     None

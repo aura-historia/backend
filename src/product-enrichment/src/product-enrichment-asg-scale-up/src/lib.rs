@@ -25,7 +25,7 @@ pub async fn handler(
     let _ = opensearch_client
         .indices()
         .put_settings(opensearch::indices::IndicesPutSettingsParts::Index(&[
-            "items",
+            "products",
         ]))
         .body(json!({
             "index": {

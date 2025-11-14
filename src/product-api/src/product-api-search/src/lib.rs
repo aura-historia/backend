@@ -96,7 +96,7 @@ pub async fn handle(
         .await?;
     let cursored_result = match user_id_opt {
         Some(user_id) => {
-            let personalized_items = product_personalization_service
+            let personalized_products = product_personalization_service
                 .personalize_all_watchlist(&user_id, search_result.items)
                 .await?
                 .into_iter()
@@ -108,7 +108,7 @@ pub async fn handle(
                 })
                 .collect();
             CursoredResult {
-                items: personalized_items,
+                items: personalized_products,
                 cursor: search_result.cursor,
                 total: search_result.total,
             }

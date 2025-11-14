@@ -61,8 +61,8 @@ async fn should_create_product_document() {
         .await
         .unwrap();
     assert!(!response.errors);
-    refresh_index("items").await;
-    let actual = read_by_id("items", product_id).await;
+    refresh_index("products").await;
+    let actual = read_by_id("products", product_id).await;
 
     assert_eq!(expected, actual);
 }
@@ -124,9 +124,9 @@ async fn should_create_product_documents() {
         .await
         .unwrap();
     assert!(!response.errors);
-    refresh_index("items").await;
-    let actual1 = read_by_id("items", product_id1).await;
-    let actual2 = read_by_id("items", product_id2).await;
+    refresh_index("products").await;
+    let actual1 = read_by_id("products", product_id1).await;
+    let actual2 = read_by_id("products", product_id2).await;
 
     assert_eq!(expected1, actual1);
     assert_eq!(expected2, actual2);
@@ -165,7 +165,7 @@ async fn should_update_product_document() {
         .await
         .unwrap();
     assert!(!write_response.errors);
-    refresh_index("items").await;
+    refresh_index("products").await;
 
     let updated_event_id = EventId::new();
     let updated_update_ts = OffsetDateTime::now_utc();
@@ -187,14 +187,14 @@ async fn should_update_product_document() {
         .await
         .unwrap();
     assert!(!update_response.errors);
-    refresh_index("items").await;
+    refresh_index("products").await;
 
     let mut expected = initial;
     expected.event_id = updated_event_id;
     expected.state = ProductStateDocument::Sold;
     expected.updated = updated_update_ts;
 
-    let actual = read_by_id("items", product_id).await;
+    let actual = read_by_id("products", product_id).await;
 
     assert_eq!(expected, actual);
 }
@@ -231,7 +231,7 @@ async fn should_search_product_documents() {
         .await
         .unwrap();
     assert!(!response.errors);
-    refresh_index("items").await;
+    refresh_index("products").await;
 
     tokio::time::sleep(Duration::from_millis(3000)).await;
 
@@ -270,15 +270,15 @@ async fn should_search_product_documents() {
 
 #[localstack_test(services = [OpenSearch()])]
 async fn should_search_product_documents_when_all_arguments_are_given() {
-    let items = fake::vec![ProductDocument; 1000];
+    let products = fake::vec![ProductDocument; 1000];
     let client = get_opensearch_client().await;
     let repository = ProductOpenSearchRepositoryImpl::new(client);
     let response = repository
-        .create_product_documents(items.clone())
+        .create_product_documents(products.clone())
         .await
         .unwrap();
     assert!(!response.errors);
-    refresh_index("items").await;
+    refresh_index("products").await;
     tokio::time::sleep(Duration::from_millis(3000)).await;
 
     let search_filter = ProductSearch {
@@ -339,7 +339,7 @@ async fn should_search_product_documents_when_states_are_given(#[case] states: &
         .await
         .unwrap();
     assert!(!response.errors);
-    refresh_index("items").await;
+    refresh_index("products").await;
     tokio::time::sleep(Duration::from_millis(3000)).await;
 
     let search_filter = ProductSearch {
@@ -390,7 +390,7 @@ async fn should_search_product_documents_when_no_states_are_given() {
         .await
         .unwrap();
     assert!(!response.errors);
-    refresh_index("items").await;
+    refresh_index("products").await;
     tokio::time::sleep(Duration::from_millis(3000)).await;
 
     let search_filter = ProductSearch {
@@ -431,15 +431,15 @@ async fn should_search_product_documents_when_no_states_are_given() {
 async fn should_search_product_documents_when_price_range_is_given(
     #[case] price_query: RangeQuery<MonetaryAmount>,
 ) {
-    let cheap_items = fake::vec![ProductDocument; 50]
+    let cheap_products = fake::vec![ProductDocument; 50]
         .into_iter()
-        .map(|mut item| {
-            item.title_de = Some("The same title".into());
-            item.price_eur = Some(rand::random_range(150..=1000));
-            item
+        .map(|mut product| {
+            product.title_de = Some("The same title".into());
+            product.price_eur = Some(rand::random_range(150..=1000));
+            product
         })
         .collect::<Vec<_>>();
-    let expensive_items = fake::vec![ProductDocument; 50]
+    let expensive_products = fake::vec![ProductDocument; 50]
         .into_iter()
         .map(|mut item| {
             item.title_de = Some("The same title".into());
@@ -447,15 +447,15 @@ async fn should_search_product_documents_when_price_range_is_given(
             item
         })
         .collect::<Vec<_>>();
-    let items = [cheap_items, expensive_items].concat();
+    let products = [cheap_products, expensive_products].concat();
     let client = get_opensearch_client().await;
     let repository = ProductOpenSearchRepositoryImpl::new(client);
     let response = repository
-        .create_product_documents(items.clone())
+        .create_product_documents(products.clone())
         .await
         .unwrap();
     assert!(!response.errors);
-    refresh_index("items").await;
+    refresh_index("products").await;
     tokio::time::sleep(Duration::from_millis(3000)).await;
 
     let search_filter = ProductSearch {
@@ -488,25 +488,25 @@ async fn should_search_product_documents_when_price_range_is_given(
         .into_iter()
         .map(|hit| hit.source)
         .collect::<Vec<_>>();
-    let expected_items = items
+    let expected_products = products
         .into_iter()
-        .filter(|item| {
+        .filter(|product| {
             let mut filter = true;
             if let Some(min) = price_query.min {
-                filter = filter && item.price_eur.unwrap() >= *min;
+                filter = filter && product.price_eur.unwrap() >= *min;
             }
             if let Some(max) = price_query.max {
-                filter = filter && item.price_eur.unwrap() <= *max;
+                filter = filter && product.price_eur.unwrap() <= *max;
             }
             filter
         })
         .collect::<Vec<_>>();
 
-    assert_eq!(expected_items.len(), actual_items.len());
+    assert_eq!(expected_products.len(), actual_items.len());
     assert!(
-        expected_items
+        expected_products
             .iter()
-            .all(|item| actual_items.contains(item))
+            .all(|product| actual_items.contains(product))
     );
 }
 
@@ -514,10 +514,10 @@ async fn should_search_product_documents_when_price_range_is_given(
 async fn should_search_product_documents_respecting_paging_when_sorted_by_price() {
     let items = fake::vec![ProductDocument; 1000]
         .into_iter()
-        .map(|mut item| {
-            item.title_en = Some("The same title".into());
-            item.price_usd = Some(rand::random_range(1500..=20000));
-            item
+        .map(|mut product| {
+            product.title_en = Some("The same title".into());
+            product.price_usd = Some(rand::random_range(1500..=20000));
+            product
         })
         .collect::<Vec<_>>();
     let client = get_opensearch_client().await;
@@ -527,7 +527,7 @@ async fn should_search_product_documents_respecting_paging_when_sorted_by_price(
         .await
         .unwrap();
     assert!(!response.errors);
-    refresh_index("items").await;
+    refresh_index("products").await;
     tokio::time::sleep(Duration::from_millis(3000)).await;
 
     let search_filter = ProductSearch {
@@ -570,16 +570,16 @@ async fn should_search_product_documents_respecting_paging_when_sorted_by_price(
     };
     actual_items.sort_by(sorter);
 
-    let mut expected_items = items;
-    expected_items.sort_by(sorter);
-    let expected_items = expected_items.into_iter().take(17).collect::<Vec<_>>();
+    let mut expected_products = items;
+    expected_products.sort_by(sorter);
+    let expected_products = expected_products.into_iter().take(17).collect::<Vec<_>>();
 
-    assert_eq!(expected_items, actual_items);
+    assert_eq!(expected_products, actual_items);
 }
 
 #[localstack_test(services = [OpenSearch()])]
 async fn should_search_product_documents_respecting_search_after_when_sorted_by_price() {
-    let mut expected_items = fake::vec![ProductDocument; 200]
+    let mut expected_products = fake::vec![ProductDocument; 200]
         .into_iter()
         .map(|mut item| {
             item.title_en = Some("The same title".into());
@@ -590,11 +590,11 @@ async fn should_search_product_documents_respecting_search_after_when_sorted_by_
     let client = get_opensearch_client().await;
     let repository = ProductOpenSearchRepositoryImpl::new(client);
     let response = repository
-        .create_product_documents(expected_items.clone())
+        .create_product_documents(expected_products.clone())
         .await
         .unwrap();
     assert!(!response.errors);
-    refresh_index("items").await;
+    refresh_index("products").await;
     tokio::time::sleep(Duration::from_millis(3000)).await;
 
     let sorter = |l: &ProductDocument, r: &ProductDocument| match l
@@ -605,7 +605,7 @@ async fn should_search_product_documents_respecting_search_after_when_sorted_by_
         std::cmp::Ordering::Equal => l.product_id.to_string().cmp(&r.product_id.to_string()),
         ord => ord,
     };
-    expected_items.sort_by(sorter);
+    expected_products.sort_by(sorter);
     let search_filter = ProductSearch {
         language: Language::En,
         currency: Currency::Usd,
@@ -626,8 +626,8 @@ async fn should_search_product_documents_respecting_search_after_when_sorted_by_
             &Some(Cursor {
                 size: 15,
                 search_after: Some(json!([
-                    expected_items[1].price_usd.unwrap(),
-                    expected_items[1].product_id.to_string()
+                    expected_products[1].price_usd.unwrap(),
+                    expected_products[1].product_id.to_string()
                 ])),
             }),
         )
@@ -639,13 +639,13 @@ async fn should_search_product_documents_respecting_search_after_when_sorted_by_
         .into_iter()
         .map(|hit| hit.source)
         .collect::<Vec<_>>();
-    let expected_items = expected_items
+    let expected_products = expected_products
         .into_iter()
         .skip(2)
         .take(15)
         .collect::<Vec<_>>();
 
-    assert_eq!(expected_items, actual_items);
+    assert_eq!(expected_products, actual_items);
 }
 
 #[localstack_test(services = [OpenSearch()])]
@@ -681,7 +681,7 @@ async fn should_get_product_document() {
         .await
         .unwrap();
     assert!(!response.errors);
-    refresh_index("items").await;
+    refresh_index("products").await;
     let actual = repository
         .get_product_document_by_id(&product_id)
         .await
@@ -1732,7 +1732,7 @@ async fn should_return_k_nearest_neighbors() {
             .unwrap();
         assert!(!response.errors);
     }
-    refresh_index("items").await;
+    refresh_index("products").await;
     tokio::time::sleep(Duration::from_secs(10)).await;
 
     let actual = repository.k_nn_text(&EXAMPLE_EMBEDDING, 20).await.unwrap();
