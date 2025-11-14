@@ -35,7 +35,7 @@ pub async fn handler(
         .send()
         .await
         .map(Response::error_for_status_code)??;
-    info!(refreshInterval = "-1", "Updated refresh-interval.");
+    info!(index = "products", refreshInterval = "-1", "Updated refresh-interval.");
 
     Ok(())
 }

@@ -1,5 +1,5 @@
 use lambda_runtime::LambdaEvent;
-use opensearch::http::response::Response;
+use opensearch::{IndexParts, http::response::Response};
 use serde_json::json;
 use tracing::info;
 
@@ -43,7 +43,15 @@ pub async fn scale_down(
         .send()
         .await
         .map(Response::error_for_status_code)??;
-    info!(refreshInterval = "5m", "Updated refresh-interval.");
+    info!(index = "products", refreshInterval = "5m", "Updated refresh-interval.");
+
+    let _ = opensearch_client
+        .index(IndexParts::Index("products"))
+        .refresh(opensearch::params::Refresh::True)
+        .send()
+        .await
+        .map(Response::error_for_status_code)??;
+    info!(index = "products", "Refreshed index.");
 
     Ok(())
 }
