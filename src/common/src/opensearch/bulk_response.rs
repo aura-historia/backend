@@ -89,7 +89,7 @@ mod tests {
             "items": [
                 {
                     "update": {
-                        "_index": "items",
+                        "_index": "products",
                         "_id": "1",
                         "_version": 2,
                         "status": 200
@@ -105,7 +105,7 @@ mod tests {
         assert_eq!(response.items.len(), 1);
 
         let update = response.items[0].clone().unwrap_update();
-        assert_eq!(update.index, "items");
+        assert_eq!(update.index, "products");
         assert_eq!(update.id, "1");
         assert_eq!(update.version, Some(2));
         assert_eq!(update.status, 200);
@@ -113,14 +113,14 @@ mod tests {
     }
 
     #[test]
-    fn should_parse_partial_failure_when_one_item_has_error_for_bulk_response() {
+    fn should_parse_partial_failure_when_one_product_has_error_for_bulk_response() {
         let json = json!({
             "took": 12,
             "errors": true,
             "items": [
                 {
                     "update": {
-                        "_index": "items",
+                        "_index": "products",
                         "_id": "2",
                         "_version": 3,
                         "status": 200
@@ -128,13 +128,13 @@ mod tests {
                 },
                 {
                     "update": {
-                        "_index": "items",
+                        "_index": "products",
                         "_id": "3",
                         "status": 409,
                         "error": {
                             "type": "version_conflict_engine_exception",
                             "reason": "[items][3]: version conflict, document already exists",
-                            "index": "items",
+                            "index": "products",
                             "shard": "shard-1",
                             "index_uuid": "uuid123"
                         }
@@ -165,13 +165,13 @@ mod tests {
             err.reason,
             "[items][3]: version conflict, document already exists"
         );
-        assert_eq!(err.index.as_deref(), Some("items"));
+        assert_eq!(err.index.as_deref(), Some("products"));
         assert_eq!(err.shard.as_deref(), Some("shard-1"));
         assert_eq!(err.index_uuid.as_deref(), Some("uuid123"));
     }
 
     #[test]
-    fn should_default_to_empty_items_when_missing_for_bulk_response() {
+    fn should_default_to_empty_products_when_missing_for_bulk_response() {
         let json = json!({
             "took": 5,
             "errors": false
@@ -208,7 +208,7 @@ mod tests {
             "items": [
                 {
                     "create": {
-                        "_index": "items",
+                        "_index": "products",
                         "_id": "10",
                         "_version": 1,
                         "status": 201
@@ -228,7 +228,7 @@ mod tests {
             _ => panic!("Expected Create variant"),
         };
 
-        assert_eq!(create.index, "items");
+        assert_eq!(create.index, "products");
         assert_eq!(create.id, "10");
         assert_eq!(create.version, Some(1));
         assert_eq!(create.status, 201);
@@ -243,13 +243,13 @@ mod tests {
             "items": [
                 {
                     "create": {
-                        "_index": "items",
+                        "_index": "products",
                         "_id": "11",
                         "status": 409,
                         "error": {
                             "type": "version_conflict_engine_exception",
                             "reason": "[items][11]: version conflict, document already exists",
-                            "index": "items",
+                            "index": "products",
                             "shard": "shard-2",
                             "index_uuid": "uuid456"
                         }
@@ -278,7 +278,7 @@ mod tests {
             err.reason,
             "[items][11]: version conflict, document already exists"
         );
-        assert_eq!(err.index.as_deref(), Some("items"));
+        assert_eq!(err.index.as_deref(), Some("products"));
         assert_eq!(err.shard.as_deref(), Some("shard-2"));
         assert_eq!(err.index_uuid.as_deref(), Some("uuid456"));
     }
@@ -291,9 +291,9 @@ mod tests {
             {
               "update": {
                 "_id": "d5d619d3-676c-eab2-bf31-a3c1c106b4fb",
-                "_index": "items",
+                "_index": "products",
                 "error": {
-                  "index": "items",
+                  "index": "products",
                   "index_uuid": "dcnQL_5lQDaKMdxVpD3E9Q",
                   "reason": "[d5d619d3-676c-eab2-bf31-a3c1c106b4fb]: document missing",
                   "shard": "1",
@@ -326,7 +326,7 @@ mod tests {
             err.reason,
             "[d5d619d3-676c-eab2-bf31-a3c1c106b4fb]: document missing"
         );
-        assert_eq!(err.index.as_deref(), Some("items"));
+        assert_eq!(err.index.as_deref(), Some("products"));
         assert_eq!(err.shard.as_deref(), Some("1"));
         assert_eq!(err.index_uuid.as_deref(), Some("dcnQL_5lQDaKMdxVpD3E9Q"));
     }

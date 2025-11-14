@@ -4,7 +4,7 @@ use fake::{
     Fake, Faker,
     rand::{self, seq::IndexedRandom},
 };
-use item::data::put_data::PutItemData;
+use product::data::put_data::PutProductData;
 use shop::core::shop::Shop;
 use shop::dynamodb::{
     repository::{ShopDynamoDbRepository, ShopDynamoDbRepositoryImpl},
@@ -18,31 +18,31 @@ use std::time::Duration;
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     staging_tests::reset().await;
     let shops = populate_shops().await;
-    populate_items(shops).await;
+    populate_products(shops).await;
 
     Ok(())
 }
 
-async fn populate_items(shops: Vec<Shop>) {
-    println!("Populating items...");
+async fn populate_products(shops: Vec<Shop>) {
+    println!("Populating products...");
     let stack = get_cfn_output();
-    let put_items_url = format!("{}/api/v1/items", stack.api_gateway_endpoint_url);
+    let put_products_url = format!("{}/api/v1/products", stack.api_gateway_endpoint_url);
 
     let shop_urls = shops
         .into_iter()
         .flat_map(|shop| shop.urls)
         .collect::<Vec<_>>();
 
-    // create items
-    let mut items = fake::vec![PutItemData; 142];
-    for item in &mut items {
+    // create products
+    let mut products = fake::vec![PutProductData; 142];
+    for product in &mut products {
         let host = shop_urls.choose(&mut fake::rand::rng()).unwrap().clone();
-        item.url.set_host(host.host_str()).unwrap();
+        product.url.set_host(host.host_str()).unwrap();
     }
 
-    let mut payload = PutCollectionData { items };
+    let mut payload = PutCollectionData { items: products };
     let response = reqwest::Client::new()
-        .put(&put_items_url)
+        .put(&put_products_url)
         .json(&payload)
         .send()
         .await
@@ -52,28 +52,28 @@ async fn populate_items(shops: Vec<Shop>) {
 
     // put updates
     for i in 0..10 {
-        for item in &mut payload.items {
+        for product in &mut payload.items {
             if rand::random_range(0..3) < 1 {
-                item.state = Faker.fake();
+                product.state = Faker.fake();
             }
             if rand::random_range(0..3) < 2 {
-                item.price = Some(Faker.fake());
+                product.price = Some(Faker.fake());
             }
         }
         let collection = PutCollectionData {
             items: payload.items.clone(),
         };
         let response = reqwest::Client::new()
-            .put(&put_items_url)
+            .put(&put_products_url)
             .json(&collection)
             .send()
             .await
             .unwrap();
         assert_eq!(200, response.status());
         tokio::time::sleep(Duration::from_secs(30)).await;
-        println!("Finished items' update-iteration {i}.");
+        println!("Finished products' update-iteration {i}.");
     }
-    println!("Populated items.");
+    println!("Populated products.");
 }
 
 async fn populate_shops() -> Vec<Shop> {

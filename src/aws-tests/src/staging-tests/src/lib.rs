@@ -264,29 +264,29 @@ pub async fn reset() {
     clear_ddb_table_data()
         .await
         .expect("shouldn't fail clearing table-data");
-    clear_os_index_data("items")
+    clear_os_index_data("products")
         .await
-        .expect("shouldn't fail clearing os-index 'items'");
+        .expect("shouldn't fail clearing os-index 'products'");
     clear_os_index_data("shops")
         .await
-        .expect("shouldn't fail clearing os-index 'items'");
+        .expect("shouldn't fail clearing os-index 'shops'");
     clear_qs(vec![
         cfn_output.send_mail_queue_url,
         cfn_output.send_mail_dead_letter_queue_url,
-        cfn_output.item_ingest_events_dynamodb_queue_url,
-        cfn_output.item_ingest_events_dynamodb_dead_letter_queue_url,
-        cfn_output.item_materialize_dynamodb_new_queue_url,
-        cfn_output.item_materialize_dynamodb_new_dead_letter_queue_url,
-        cfn_output.item_materialize_dynamodb_update_queue_url,
-        cfn_output.item_materialize_dynamodb_update_dead_letter_queue_url,
-        cfn_output.item_materialize_opensearch_new_queue_url,
-        cfn_output.item_materialize_opensearch_new_dead_letter_queue_url,
-        cfn_output.item_materialize_opensearch_update_queue_url,
-        cfn_output.item_materialize_opensearch_update_dead_letter_queue_url,
-        cfn_output.item_update_notify_user_queue_url,
-        cfn_output.item_update_notify_user_dead_letter_queue_url,
-        cfn_output.item_enrichment_queue_url,
-        cfn_output.item_enrichment_dead_letter_queue_url,
+        cfn_output.product_ingest_events_dynamodb_queue_url,
+        cfn_output.product_ingest_events_dynamodb_dead_letter_queue_url,
+        cfn_output.product_materialize_dynamodb_new_queue_url,
+        cfn_output.product_materialize_dynamodb_new_dead_letter_queue_url,
+        cfn_output.product_materialize_dynamodb_update_queue_url,
+        cfn_output.product_materialize_dynamodb_update_dead_letter_queue_url,
+        cfn_output.product_materialize_opensearch_new_queue_url,
+        cfn_output.product_materialize_opensearch_new_dead_letter_queue_url,
+        cfn_output.product_materialize_opensearch_update_queue_url,
+        cfn_output.product_materialize_opensearch_update_dead_letter_queue_url,
+        cfn_output.product_update_notify_user_queue_url,
+        cfn_output.product_update_notify_user_dead_letter_queue_url,
+        cfn_output.product_enrichment_queue_url,
+        cfn_output.product_enrichment_dead_letter_queue_url,
     ])
     .await
     .expect("shouldn't fail clearing queues");

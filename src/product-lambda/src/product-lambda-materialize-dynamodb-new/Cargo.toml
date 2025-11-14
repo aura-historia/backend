@@ -1,0 +1,32 @@
+[package]
+name = "product-lambda-materialize-dynamodb-new"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+common = { workspace = true }
+product = { workspace = true, features = ["dynamodb"] }
+product-lambda-common = { workspace = true }
+lambda_runtime = { workspace = true }
+aws-config = { workspace = true }
+aws-sdk-dynamodb = { workspace = true }
+aws_lambda_events = { workspace = true, features = [
+    "sqs",
+    "dynamodb",
+    "eventbridge",
+] }
+serde_json = { workspace = true }
+serde_dynamo = { workspace = true }
+tokio = { workspace = true, features = ["macros"] }
+tracing-subscriber = { workspace = true, features = ["json"] }
+tracing = { workspace = true }
+
+[dev-dependencies]
+product = { workspace = true, features = ["test-data"] }
+test-api = { workspace = true, features = ["dynamodb"] }
+serial_test = { workspace = true }
+rstest = { workspace = true }
+url = { workspace = true }
+fake = { workspace = true }
+time = { workspace = true }
+uuid = { workspace = true }

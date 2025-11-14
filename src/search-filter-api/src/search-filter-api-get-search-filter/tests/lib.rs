@@ -1,7 +1,7 @@
 use common::user_id::UserId;
 use fake::{Fake, Faker};
-use item::core::item_search::ItemSearch;
 use lambda_runtime::LambdaEvent;
+use product::core::product_search::ProductSearch;
 use search_filter::dynamodb::repository::UserSearchFilterDynamoDbRepositoryImpl;
 use search_filter::service::user_search_filter_service::{
     UserSearchFilterService, UserSearchFilterServiceImpl,
@@ -17,7 +17,7 @@ async fn should_return_actual_search_filter() {
 
     let user_id = UserId::new();
     let expected = service
-        .save_user_search_filter(&user_id, Faker.fake(), Faker.fake::<ItemSearch>())
+        .save_user_search_filter(&user_id, Faker.fake(), Faker.fake::<ProductSearch>())
         .await
         .unwrap();
     let lambda_event = LambdaEvent {
@@ -39,7 +39,7 @@ async fn should_return_actual_search_filter() {
         json["userSearchFilterId"]
     );
     assert_eq!(
-        expected.search.item_query.to_string(),
-        json["search"]["itemQuery"]
+        expected.search.product_query.to_string(),
+        json["search"]["productQuery"]
     );
 }

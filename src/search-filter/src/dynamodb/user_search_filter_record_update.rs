@@ -3,7 +3,7 @@ use common::dynamodb_update::DynamoDbUpdate;
 use common::query::range_query::RangeQuery;
 use common::query::text_query::TextQuery;
 use common::{currency::record::CurrencyRecord, language::record::LanguageRecord};
-use item::dynamodb::item_state_record::ItemStateRecord;
+use product::dynamodb::product_state_record::ProductStateRecord;
 use serde::{Deserialize, Serialize};
 use std::collections::HashSet;
 use time::OffsetDateTime;
@@ -14,7 +14,7 @@ pub struct UserSearchFilterRecordUpdate {
     pub name: Option<UserSearchFilterName>,
 
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub item_query: Option<TextQuery>,
+    pub product_query: Option<TextQuery>,
 
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub shop_name_query: Option<TextQuery>,
@@ -23,7 +23,7 @@ pub struct UserSearchFilterRecordUpdate {
     pub price_query: Option<RangeQuery<u64>>,
 
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub state_query: Option<HashSet<ItemStateRecord>>,
+    pub state_query: Option<HashSet<ProductStateRecord>>,
 
     #[serde(
         with = "common::query::range_query::range_rfc3339::option",
@@ -55,14 +55,14 @@ impl DynamoDbUpdate for UserSearchFilterRecordUpdate {}
 mod fake {
     use crate::dynamodb::user_search_filter_record_update::UserSearchFilterRecordUpdate;
     use fake::{Dummy, Fake, Faker};
-    use item::core::item_search::faker::fake_range_query_datetime;
+    use product::core::product_search::faker::fake_range_query_datetime;
     use time::OffsetDateTime;
 
     impl Dummy<Faker> for UserSearchFilterRecordUpdate {
         fn dummy_with_rng<R: fake::Rng + ?Sized>(config: &Faker, rng: &mut R) -> Self {
             UserSearchFilterRecordUpdate {
                 name: config.fake_with_rng(rng),
-                item_query: config.fake_with_rng(rng),
+                product_query: config.fake_with_rng(rng),
                 shop_name_query: config.fake_with_rng(rng),
                 price_query: config.fake_with_rng(rng),
                 state_query: config.fake_with_rng(rng),

@@ -829,12 +829,12 @@ dependencies = [
  "cognito",
  "cognito-post-confirmation",
  "common",
- "item",
- "item-api",
- "item-enrichment",
- "item-lambda",
  "mail",
  "mail-lambda-send",
+ "product",
+ "product-api",
+ "product-enrichment",
+ "product-lambda",
  "search-filter",
  "search-filter-api",
  "shop",
@@ -2198,486 +2198,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "item"
-version = "0.1.0"
-dependencies = [
- "async-trait",
- "aws-config",
- "aws-sdk-dynamodb",
- "aws-sdk-sqs",
- "common",
- "fake",
- "field",
- "item",
- "itertools 0.14.0",
- "mockall",
- "opensearch",
- "rstest",
- "serde",
- "serde_dynamo",
- "serde_json",
- "serial_test",
- "shop",
- "strum",
- "test-api",
- "thiserror",
- "time",
- "tokio",
- "tracing",
- "url",
- "user",
- "uuid",
-]
-
-[[package]]
-name = "item-api"
-version = "0.1.0"
-dependencies = [
- "item-api-get-item",
- "item-api-get-item-similar",
- "item-api-put-items",
- "item-api-search",
- "item-api-watchlist-delete",
- "item-api-watchlist-get",
- "item-api-watchlist-patch",
- "item-api-watchlist-post",
-]
-
-[[package]]
-name = "item-api-get-item"
-version = "0.1.0"
-dependencies = [
- "aws-config",
- "aws-sdk-dynamodb",
- "aws_lambda_events",
- "cognito",
- "common",
- "fake",
- "http 1.3.1",
- "item",
- "lambda_runtime",
- "rstest",
- "serde_json",
- "serial_test",
- "test-api",
- "time",
- "tokio",
- "tracing",
- "tracing-subscriber",
- "url",
- "user",
-]
-
-[[package]]
-name = "item-api-get-item-similar"
-version = "0.1.0"
-dependencies = [
- "aws-config",
- "aws-sdk-dynamodb",
- "aws_lambda_events",
- "cognito",
- "common",
- "fake",
- "http 1.3.1",
- "item",
- "lambda_runtime",
- "opensearch",
- "rstest",
- "serde_json",
- "serial_test",
- "test-api",
- "time",
- "tokio",
- "tracing",
- "tracing-subscriber",
- "user",
-]
-
-[[package]]
-name = "item-api-put-items"
-version = "0.1.0"
-dependencies = [
- "aws-config",
- "aws-sdk-dynamodb",
- "aws-sdk-sqs",
- "aws_lambda_events",
- "common",
- "fake",
- "http 1.3.1",
- "item",
- "lambda_runtime",
- "rstest",
- "serde",
- "serde_json",
- "serial_test",
- "shop",
- "test-api",
- "thiserror",
- "time",
- "tokio",
- "tracing",
- "tracing-subscriber",
- "url",
-]
-
-[[package]]
-name = "item-api-search"
-version = "0.1.0"
-dependencies = [
- "aws-config",
- "aws-sdk-dynamodb",
- "aws_lambda_events",
- "cognito",
- "common",
- "fake",
- "http 1.3.1",
- "item",
- "lambda_runtime",
- "opensearch",
- "rstest",
- "serde_json",
- "serial_test",
- "test-api",
- "time",
- "tokio",
- "tracing",
- "tracing-subscriber",
-]
-
-[[package]]
-name = "item-api-watchlist-delete"
-version = "0.1.0"
-dependencies = [
- "aws-config",
- "aws-sdk-dynamodb",
- "aws_lambda_events",
- "common",
- "fake",
- "http 1.3.1",
- "item",
- "lambda_runtime",
- "rstest",
- "serde",
- "serde_json",
- "serial_test",
- "test-api",
- "time",
- "tokio",
- "tracing",
- "tracing-subscriber",
- "url",
- "user",
-]
-
-[[package]]
-name = "item-api-watchlist-get"
-version = "0.1.0"
-dependencies = [
- "aws-config",
- "aws-sdk-dynamodb",
- "aws_lambda_events",
- "common",
- "fake",
- "http 1.3.1",
- "item",
- "lambda_runtime",
- "rstest",
- "serde",
- "serde_json",
- "serial_test",
- "test-api",
- "time",
- "tokio",
- "tracing",
- "tracing-subscriber",
- "url",
- "user",
-]
-
-[[package]]
-name = "item-api-watchlist-patch"
-version = "0.1.0"
-dependencies = [
- "aws-config",
- "aws-sdk-dynamodb",
- "aws_lambda_events",
- "common",
- "fake",
- "http 1.3.1",
- "item",
- "lambda_runtime",
- "rstest",
- "serde",
- "serde_json",
- "serial_test",
- "test-api",
- "time",
- "tokio",
- "tracing",
- "tracing-subscriber",
- "url",
- "user",
-]
-
-[[package]]
-name = "item-api-watchlist-post"
-version = "0.1.0"
-dependencies = [
- "aws-config",
- "aws-sdk-dynamodb",
- "aws_lambda_events",
- "common",
- "fake",
- "http 1.3.1",
- "item",
- "lambda_runtime",
- "rstest",
- "serde",
- "serde_json",
- "serial_test",
- "test-api",
- "time",
- "tokio",
- "tracing",
- "tracing-subscriber",
- "url",
- "user",
-]
-
-[[package]]
-name = "item-enrichment"
-version = "0.1.0"
-dependencies = [
- "async-trait",
- "aws-config",
- "aws-sdk-autoscaling",
- "aws-sdk-dynamodb",
- "aws-sdk-sqs",
- "aws_lambda_events",
- "common",
- "fake",
- "item",
- "item-enrichment",
- "item-enrichment-asg-scale-down",
- "item-enrichment-asg-scale-up",
- "item-lambda-common",
- "mockall",
- "opensearch",
- "pyo3",
- "pyo3-ffi",
- "rstest",
- "serde_dynamo",
- "serde_json",
- "serial_test",
- "test-api",
- "time",
- "tokio",
- "tracing",
- "tracing-subscriber",
- "uuid",
-]
-
-[[package]]
-name = "item-enrichment-asg-scale-down"
-version = "0.1.0"
-dependencies = [
- "aws-config",
- "aws-sdk-autoscaling",
- "lambda_runtime",
- "opensearch",
- "rstest",
- "serde",
- "serde_json",
- "tokio",
- "tracing",
- "tracing-subscriber",
-]
-
-[[package]]
-name = "item-enrichment-asg-scale-up"
-version = "0.1.0"
-dependencies = [
- "aws-config",
- "aws-sdk-autoscaling",
- "lambda_runtime",
- "opensearch",
- "rstest",
- "serde",
- "serde_json",
- "tokio",
- "tracing",
- "tracing-subscriber",
-]
-
-[[package]]
-name = "item-lambda"
-version = "0.1.0"
-dependencies = [
- "item-lambda-common",
- "item-lambda-ingest-events-dynamodb",
- "item-lambda-materialize-dynamodb-new",
- "item-lambda-materialize-dynamodb-update",
- "item-lambda-materialize-opensearch-new",
- "item-lambda-materialize-opensearch-update",
- "item-lambda-update-notify-user",
-]
-
-[[package]]
-name = "item-lambda-common"
-version = "0.1.0"
-dependencies = [
- "aws-sdk-sqs",
- "aws_lambda_events",
- "fake",
- "item",
- "serde_dynamo",
- "serde_json",
- "tracing",
- "uuid",
-]
-
-[[package]]
-name = "item-lambda-ingest-events-dynamodb"
-version = "0.1.0"
-dependencies = [
- "aws-config",
- "aws-sdk-dynamodb",
- "aws_lambda_events",
- "common",
- "fake",
- "item",
- "lambda_runtime",
- "rstest",
- "serde_dynamo",
- "serde_json",
- "tokio",
- "tracing",
- "tracing-subscriber",
- "uuid",
-]
-
-[[package]]
-name = "item-lambda-materialize-dynamodb-new"
-version = "0.1.0"
-dependencies = [
- "aws-config",
- "aws-sdk-dynamodb",
- "aws_lambda_events",
- "common",
- "fake",
- "item",
- "item-lambda-common",
- "lambda_runtime",
- "rstest",
- "serde_dynamo",
- "serde_json",
- "serial_test",
- "test-api",
- "time",
- "tokio",
- "tracing",
- "tracing-subscriber",
- "url",
- "uuid",
-]
-
-[[package]]
-name = "item-lambda-materialize-dynamodb-update"
-version = "0.1.0"
-dependencies = [
- "aws-config",
- "aws-sdk-dynamodb",
- "aws_lambda_events",
- "common",
- "fake",
- "item",
- "item-lambda-common",
- "lambda_runtime",
- "rstest",
- "serde_dynamo",
- "serde_json",
- "tokio",
- "tracing",
- "tracing-subscriber",
- "url",
- "uuid",
-]
-
-[[package]]
-name = "item-lambda-materialize-opensearch-new"
-version = "0.1.0"
-dependencies = [
- "aws-config",
- "aws_lambda_events",
- "common",
- "fake",
- "item",
- "item-lambda-common",
- "lambda_runtime",
- "opensearch",
- "rstest",
- "serde_dynamo",
- "serde_json",
- "time",
- "tokio",
- "tracing",
- "tracing-subscriber",
- "url",
- "uuid",
-]
-
-[[package]]
-name = "item-lambda-materialize-opensearch-update"
-version = "0.1.0"
-dependencies = [
- "aws-config",
- "aws_lambda_events",
- "common",
- "fake",
- "item",
- "item-lambda-common",
- "lambda_runtime",
- "opensearch",
- "rstest",
- "serde_dynamo",
- "serde_json",
- "time",
- "tokio",
- "tracing",
- "tracing-subscriber",
- "url",
- "uuid",
-]
-
-[[package]]
-name = "item-lambda-update-notify-user"
-version = "0.1.0"
-dependencies = [
- "async-trait",
- "aws-config",
- "aws-sdk-dynamodb",
- "aws-sdk-sqs",
- "aws_lambda_events",
- "common",
- "fake",
- "item",
- "item-lambda-common",
- "lambda_runtime",
- "mail-core",
- "mockall",
- "rstest",
- "serde-email",
- "serde_dynamo",
- "serde_json",
- "thiserror",
- "tokio",
- "tracing",
- "tracing-subscriber",
- "user",
- "uuid",
-]
-
-[[package]]
 name = "itertools"
 version = "0.12.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3455,6 +2975,486 @@ dependencies = [
 ]
 
 [[package]]
+name = "product"
+version = "0.1.0"
+dependencies = [
+ "async-trait",
+ "aws-config",
+ "aws-sdk-dynamodb",
+ "aws-sdk-sqs",
+ "common",
+ "fake",
+ "field",
+ "itertools 0.14.0",
+ "mockall",
+ "opensearch",
+ "product",
+ "rstest",
+ "serde",
+ "serde_dynamo",
+ "serde_json",
+ "serial_test",
+ "shop",
+ "strum",
+ "test-api",
+ "thiserror",
+ "time",
+ "tokio",
+ "tracing",
+ "url",
+ "user",
+ "uuid",
+]
+
+[[package]]
+name = "product-api"
+version = "0.1.0"
+dependencies = [
+ "product-api-get-product",
+ "product-api-get-product-similar",
+ "product-api-put-products",
+ "product-api-search",
+ "product-api-watchlist-delete",
+ "product-api-watchlist-get",
+ "product-api-watchlist-patch",
+ "product-api-watchlist-post",
+]
+
+[[package]]
+name = "product-api-get-product"
+version = "0.1.0"
+dependencies = [
+ "aws-config",
+ "aws-sdk-dynamodb",
+ "aws_lambda_events",
+ "cognito",
+ "common",
+ "fake",
+ "http 1.3.1",
+ "lambda_runtime",
+ "product",
+ "rstest",
+ "serde_json",
+ "serial_test",
+ "test-api",
+ "time",
+ "tokio",
+ "tracing",
+ "tracing-subscriber",
+ "url",
+ "user",
+]
+
+[[package]]
+name = "product-api-get-product-similar"
+version = "0.1.0"
+dependencies = [
+ "aws-config",
+ "aws-sdk-dynamodb",
+ "aws_lambda_events",
+ "cognito",
+ "common",
+ "fake",
+ "http 1.3.1",
+ "lambda_runtime",
+ "opensearch",
+ "product",
+ "rstest",
+ "serde_json",
+ "serial_test",
+ "test-api",
+ "time",
+ "tokio",
+ "tracing",
+ "tracing-subscriber",
+ "user",
+]
+
+[[package]]
+name = "product-api-put-products"
+version = "0.1.0"
+dependencies = [
+ "aws-config",
+ "aws-sdk-dynamodb",
+ "aws-sdk-sqs",
+ "aws_lambda_events",
+ "common",
+ "fake",
+ "http 1.3.1",
+ "lambda_runtime",
+ "product",
+ "rstest",
+ "serde",
+ "serde_json",
+ "serial_test",
+ "shop",
+ "test-api",
+ "thiserror",
+ "time",
+ "tokio",
+ "tracing",
+ "tracing-subscriber",
+ "url",
+]
+
+[[package]]
+name = "product-api-search"
+version = "0.1.0"
+dependencies = [
+ "aws-config",
+ "aws-sdk-dynamodb",
+ "aws_lambda_events",
+ "cognito",
+ "common",
+ "fake",
+ "http 1.3.1",
+ "lambda_runtime",
+ "opensearch",
+ "product",
+ "rstest",
+ "serde_json",
+ "serial_test",
+ "test-api",
+ "time",
+ "tokio",
+ "tracing",
+ "tracing-subscriber",
+]
+
+[[package]]
+name = "product-api-watchlist-delete"
+version = "0.1.0"
+dependencies = [
+ "aws-config",
+ "aws-sdk-dynamodb",
+ "aws_lambda_events",
+ "common",
+ "fake",
+ "http 1.3.1",
+ "lambda_runtime",
+ "product",
+ "rstest",
+ "serde",
+ "serde_json",
+ "serial_test",
+ "test-api",
+ "time",
+ "tokio",
+ "tracing",
+ "tracing-subscriber",
+ "url",
+ "user",
+]
+
+[[package]]
+name = "product-api-watchlist-get"
+version = "0.1.0"
+dependencies = [
+ "aws-config",
+ "aws-sdk-dynamodb",
+ "aws_lambda_events",
+ "common",
+ "fake",
+ "http 1.3.1",
+ "lambda_runtime",
+ "product",
+ "rstest",
+ "serde",
+ "serde_json",
+ "serial_test",
+ "test-api",
+ "time",
+ "tokio",
+ "tracing",
+ "tracing-subscriber",
+ "url",
+ "user",
+]
+
+[[package]]
+name = "product-api-watchlist-patch"
+version = "0.1.0"
+dependencies = [
+ "aws-config",
+ "aws-sdk-dynamodb",
+ "aws_lambda_events",
+ "common",
+ "fake",
+ "http 1.3.1",
+ "lambda_runtime",
+ "product",
+ "rstest",
+ "serde",
+ "serde_json",
+ "serial_test",
+ "test-api",
+ "time",
+ "tokio",
+ "tracing",
+ "tracing-subscriber",
+ "url",
+ "user",
+]
+
+[[package]]
+name = "product-api-watchlist-post"
+version = "0.1.0"
+dependencies = [
+ "aws-config",
+ "aws-sdk-dynamodb",
+ "aws_lambda_events",
+ "common",
+ "fake",
+ "http 1.3.1",
+ "lambda_runtime",
+ "product",
+ "rstest",
+ "serde",
+ "serde_json",
+ "serial_test",
+ "test-api",
+ "time",
+ "tokio",
+ "tracing",
+ "tracing-subscriber",
+ "url",
+ "user",
+]
+
+[[package]]
+name = "product-enrichment"
+version = "0.1.0"
+dependencies = [
+ "async-trait",
+ "aws-config",
+ "aws-sdk-autoscaling",
+ "aws-sdk-dynamodb",
+ "aws-sdk-sqs",
+ "aws_lambda_events",
+ "common",
+ "fake",
+ "mockall",
+ "opensearch",
+ "product",
+ "product-enrichment",
+ "product-enrichment-asg-scale-down",
+ "product-enrichment-asg-scale-up",
+ "product-lambda-common",
+ "pyo3",
+ "pyo3-ffi",
+ "rstest",
+ "serde_dynamo",
+ "serde_json",
+ "serial_test",
+ "test-api",
+ "time",
+ "tokio",
+ "tracing",
+ "tracing-subscriber",
+ "uuid",
+]
+
+[[package]]
+name = "product-enrichment-asg-scale-down"
+version = "0.1.0"
+dependencies = [
+ "aws-config",
+ "aws-sdk-autoscaling",
+ "lambda_runtime",
+ "opensearch",
+ "rstest",
+ "serde",
+ "serde_json",
+ "tokio",
+ "tracing",
+ "tracing-subscriber",
+]
+
+[[package]]
+name = "product-enrichment-asg-scale-up"
+version = "0.1.0"
+dependencies = [
+ "aws-config",
+ "aws-sdk-autoscaling",
+ "lambda_runtime",
+ "opensearch",
+ "rstest",
+ "serde",
+ "serde_json",
+ "tokio",
+ "tracing",
+ "tracing-subscriber",
+]
+
+[[package]]
+name = "product-lambda"
+version = "0.1.0"
+dependencies = [
+ "product-lambda-common",
+ "product-lambda-ingest-events-dynamodb",
+ "product-lambda-materialize-dynamodb-new",
+ "product-lambda-materialize-dynamodb-update",
+ "product-lambda-materialize-opensearch-new",
+ "product-lambda-materialize-opensearch-update",
+ "product-lambda-update-notify-user",
+]
+
+[[package]]
+name = "product-lambda-common"
+version = "0.1.0"
+dependencies = [
+ "aws-sdk-sqs",
+ "aws_lambda_events",
+ "fake",
+ "product",
+ "serde_dynamo",
+ "serde_json",
+ "tracing",
+ "uuid",
+]
+
+[[package]]
+name = "product-lambda-ingest-events-dynamodb"
+version = "0.1.0"
+dependencies = [
+ "aws-config",
+ "aws-sdk-dynamodb",
+ "aws_lambda_events",
+ "common",
+ "fake",
+ "lambda_runtime",
+ "product",
+ "rstest",
+ "serde_dynamo",
+ "serde_json",
+ "tokio",
+ "tracing",
+ "tracing-subscriber",
+ "uuid",
+]
+
+[[package]]
+name = "product-lambda-materialize-dynamodb-new"
+version = "0.1.0"
+dependencies = [
+ "aws-config",
+ "aws-sdk-dynamodb",
+ "aws_lambda_events",
+ "common",
+ "fake",
+ "lambda_runtime",
+ "product",
+ "product-lambda-common",
+ "rstest",
+ "serde_dynamo",
+ "serde_json",
+ "serial_test",
+ "test-api",
+ "time",
+ "tokio",
+ "tracing",
+ "tracing-subscriber",
+ "url",
+ "uuid",
+]
+
+[[package]]
+name = "product-lambda-materialize-dynamodb-update"
+version = "0.1.0"
+dependencies = [
+ "aws-config",
+ "aws-sdk-dynamodb",
+ "aws_lambda_events",
+ "common",
+ "fake",
+ "lambda_runtime",
+ "product",
+ "product-lambda-common",
+ "rstest",
+ "serde_dynamo",
+ "serde_json",
+ "tokio",
+ "tracing",
+ "tracing-subscriber",
+ "url",
+ "uuid",
+]
+
+[[package]]
+name = "product-lambda-materialize-opensearch-new"
+version = "0.1.0"
+dependencies = [
+ "aws-config",
+ "aws_lambda_events",
+ "common",
+ "fake",
+ "lambda_runtime",
+ "opensearch",
+ "product",
+ "product-lambda-common",
+ "rstest",
+ "serde_dynamo",
+ "serde_json",
+ "time",
+ "tokio",
+ "tracing",
+ "tracing-subscriber",
+ "url",
+ "uuid",
+]
+
+[[package]]
+name = "product-lambda-materialize-opensearch-update"
+version = "0.1.0"
+dependencies = [
+ "aws-config",
+ "aws_lambda_events",
+ "common",
+ "fake",
+ "lambda_runtime",
+ "opensearch",
+ "product",
+ "product-lambda-common",
+ "rstest",
+ "serde_dynamo",
+ "serde_json",
+ "time",
+ "tokio",
+ "tracing",
+ "tracing-subscriber",
+ "url",
+ "uuid",
+]
+
+[[package]]
+name = "product-lambda-update-notify-user"
+version = "0.1.0"
+dependencies = [
+ "async-trait",
+ "aws-config",
+ "aws-sdk-dynamodb",
+ "aws-sdk-sqs",
+ "aws_lambda_events",
+ "common",
+ "fake",
+ "lambda_runtime",
+ "mail-core",
+ "mockall",
+ "product",
+ "product-lambda-common",
+ "rstest",
+ "serde-email",
+ "serde_dynamo",
+ "serde_json",
+ "thiserror",
+ "tokio",
+ "tracing",
+ "tracing-subscriber",
+ "user",
+ "uuid",
+]
+
+[[package]]
 name = "pyo3"
 version = "0.27.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -4111,8 +4111,8 @@ dependencies = [
  "common",
  "fake",
  "field",
- "item",
  "mockall",
+ "product",
  "rstest",
  "search-filter",
  "serde",
@@ -4148,8 +4148,8 @@ dependencies = [
  "common",
  "fake",
  "http 1.3.1",
- "item",
  "lambda_runtime",
+ "product",
  "rstest",
  "search-filter",
  "serde_json",
@@ -4172,8 +4172,8 @@ dependencies = [
  "common",
  "fake",
  "http 1.3.1",
- "item",
  "lambda_runtime",
+ "product",
  "rstest",
  "search-filter",
  "serde_json",
@@ -4196,8 +4196,8 @@ dependencies = [
  "common",
  "fake",
  "http 1.3.1",
- "item",
  "lambda_runtime",
+ "product",
  "rstest",
  "search-filter",
  "serde_json",
@@ -4220,8 +4220,8 @@ dependencies = [
  "common",
  "fake",
  "http 1.3.1",
- "item",
  "lambda_runtime",
+ "product",
  "rstest",
  "search-filter",
  "search-filter-api-patch-search-filter",
@@ -4246,8 +4246,8 @@ dependencies = [
  "common",
  "fake",
  "http 1.3.1",
- "item",
  "lambda_runtime",
+ "product",
  "rstest",
  "search-filter",
  "search-filter-api-post-search-filter",
@@ -4644,7 +4644,7 @@ dependencies = [
  "aws-tests-common",
  "fake",
  "futures-util",
- "item",
+ "product",
  "reqwest 0.12.24",
  "serde_json",
  "serial_test",
@@ -4710,7 +4710,7 @@ dependencies = [
  "aws-tests-common",
  "common",
  "fake",
- "item",
+ "product",
  "reqwest 0.12.24",
  "serde",
  "serde_json",
@@ -4732,10 +4732,10 @@ dependencies = [
  "fake",
  "futures-util",
  "http 1.3.1",
- "item",
- "item-api-watchlist-get",
- "item-api-watchlist-patch",
  "opensearch",
+ "product",
+ "product-api-watchlist-get",
+ "product-api-watchlist-patch",
  "reqwest 0.12.24",
  "search-filter",
  "search-filter-api-patch-search-filter",

@@ -21,7 +21,7 @@ async fn should_update_search_filter_record() {
     let updated = OffsetDateTime::now_utc();
     let update = UserSearchFilterRecordUpdate {
         name: Some("my cool name".into()),
-        item_query: Some("boopel boop doop".try_into().unwrap()),
+        product_query: Some("boopel boop doop".try_into().unwrap()),
         shop_name_query: None,
         price_query: None,
         state_query: None,
@@ -38,7 +38,7 @@ async fn should_update_search_filter_record() {
 
     let mut expected = record.clone();
     expected.name = "my cool name".into();
-    expected.item_query = "boopel boop doop".try_into().unwrap();
+    expected.product_query = "boopel boop doop".try_into().unwrap();
     expected.updated = updated;
 
     let actual = repository

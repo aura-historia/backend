@@ -1,7 +1,7 @@
 use common::user_id::UserId;
 use fake::{Fake, Faker};
-use item::core::item_search::ItemSearch;
 use lambda_runtime::LambdaEvent;
+use product::core::product_search::ProductSearch;
 use search_filter::core::user_search_filter_id::UserSearchFilterId;
 use search_filter::dynamodb::repository::UserSearchFilterDynamoDbRepositoryImpl;
 use search_filter::service::user_search_filter_service::{
@@ -18,7 +18,7 @@ async fn should_return_actual_search_filters_sortet_oldest_for_order_asc() {
 
     let user_id = UserId::new();
     let mut expected = vec![];
-    for search_filter in fake::vec![ItemSearch; 81] {
+    for search_filter in fake::vec![ProductSearch; 81] {
         let saved = service
             .save_user_search_filter(&user_id, Faker.fake(), search_filter)
             .await
@@ -68,7 +68,7 @@ async fn should_return_actual_search_filters_sortet_latest_for_order_desc() {
 
     let user_id = UserId::new();
     let mut expected = vec![];
-    for search_filter in fake::vec![ItemSearch; 81] {
+    for search_filter in fake::vec![ProductSearch; 81] {
         let saved = service
             .save_user_search_filter(&user_id, Faker.fake(), search_filter)
             .await

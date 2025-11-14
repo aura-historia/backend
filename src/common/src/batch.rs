@@ -164,7 +164,7 @@ pub mod dynamodb {
         pub unprocessed: Option<Batch<Key, 100>>,
     }
 
-    pub fn handle_dynamodb_batch_write_put_item_output<T>(
+    pub fn handle_dynamodb_batch_write_put_product_output<T>(
         output: BatchWriteItemOutput,
         failures: &mut Vec<T::Key>,
     ) where

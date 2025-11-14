@@ -89,10 +89,10 @@ impl IntegrationTestService for OpenSearch {
 
     async fn tear_down(&self) {
         // Clear all documents from the items index to ensure test isolation
-        clear_index_data("items")
+        clear_index_data("products")
             .await
-            .expect("shouldn't fail clearing OpenSearch index data from 'items'");
-        refresh_index("items").await;
+            .expect("shouldn't fail clearing OpenSearch index data from 'products'");
+        refresh_index("products").await;
         clear_index_data("shops")
             .await
             .expect("shouldn't fail clearing OpenSearch index data from 'shops'");
@@ -179,9 +179,9 @@ async fn wait_until_domain_processed(
     Ok(())
 }
 
-static ITEMS_INDEX_MAPPING_STR: &str = include_str!(concat!(
+static PRODUCTS_INDEX_MAPPING_STR: &str = include_str!(concat!(
     env!("CARGO_WORKSPACE_DIR"),
-    "opensearch/mappings/items.json"
+    "opensearch/mappings/products.json"
 ));
 
 static SHOPS_INDEX_MAPPING_STR: &str = include_str!(concat!(
@@ -192,28 +192,28 @@ static SHOPS_INDEX_MAPPING_STR: &str = include_str!(concat!(
 async fn set_up_indices() -> Result<Response, Error> {
     let client = get_opensearch_client().await;
 
-    // Index 'items'
+    // Index 'products'
     let exists_response = client
         .indices()
-        .exists(IndicesExistsParts::Index(&["items"]))
+        .exists(IndicesExistsParts::Index(&["products"]))
         .send()
         .await?;
 
     if exists_response.status_code().is_success() {
-        debug!("OpenSearch index 'items' already exists, skipping creation");
+        debug!("OpenSearch index 'products' already exists, skipping creation");
         // Return a mock response since index exists
         return Ok(exists_response);
     }
 
-    debug!("OpenSearch index 'items' does not exist, creating it");
+    debug!("OpenSearch index 'products' does not exist, creating it");
 
     get_opensearch_client()
         .await
         .indices()
-        .create(opensearch::indices::IndicesCreateParts::Index("items"))
+        .create(opensearch::indices::IndicesCreateParts::Index("products"))
         .body(
-            serde_json::from_str::<serde_json::Value>(ITEMS_INDEX_MAPPING_STR)
-                .expect("shouldn't fail parsing ITEMS_INDEX_MAPPING_STR as serde_json::Value"),
+            serde_json::from_str::<serde_json::Value>(PRODUCTS_INDEX_MAPPING_STR)
+                .expect("shouldn't fail parsing PRODUCTS_INDEX_MAPPING_STR as serde_json::Value"),
         )
         .send()
         .await?;

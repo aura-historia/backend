@@ -68,7 +68,7 @@
             <mxPoint x="-5" as="offset" />
           </mxGeometry>
         </mxCell>
-        <mxCell id="FnHKu7j-MtbKQt8sr5qL-36" value="create-item-&lt;span style=&quot;background-color: transparent; color: light-dark(rgb(35, 47, 62), rgb(189, 199, 212));&quot;&gt;materialize-dynamodb-queue&lt;/span&gt;" style="sketch=0;points=[[0,0,0],[0.25,0,0],[0.5,0,0],[0.75,0,0],[1,0,0],[0,1,0],[0.25,1,0],[0.5,1,0],[0.75,1,0],[1,1,0],[0,0.25,0],[0,0.5,0],[0,0.75,0],[1,0.25,0],[1,0.5,0],[1,0.75,0]];outlineConnect=0;fontColor=#232F3E;fillColor=#E7157B;strokeColor=#ffffff;dashed=0;verticalLabelPosition=bottom;verticalAlign=top;align=center;html=1;fontSize=12;fontStyle=0;aspect=fixed;shape=mxgraph.aws4.resourceIcon;resIcon=mxgraph.aws4.sqs;textShadow=1;" parent="1" vertex="1">
+        <mxCell id="FnHKu7j-MtbKQt8sr5qL-36" value="create-product-&lt;span style=&quot;background-color: transparent; color: light-dark(rgb(35, 47, 62), rgb(189, 199, 212));&quot;&gt;materialize-dynamodb-queue&lt;/span&gt;" style="sketch=0;points=[[0,0,0],[0.25,0,0],[0.5,0,0],[0.75,0,0],[1,0,0],[0,1,0],[0.25,1,0],[0.5,1,0],[0.75,1,0],[1,1,0],[0,0.25,0],[0,0.5,0],[0,0.75,0],[1,0.25,0],[1,0.5,0],[1,0.75,0]];outlineConnect=0;fontColor=#232F3E;fillColor=#E7157B;strokeColor=#ffffff;dashed=0;verticalLabelPosition=bottom;verticalAlign=top;align=center;html=1;fontSize=12;fontStyle=0;aspect=fixed;shape=mxgraph.aws4.resourceIcon;resIcon=mxgraph.aws4.sqs;textShadow=1;" parent="1" vertex="1">
           <mxGeometry x="1030" y="426" width="78" height="78" as="geometry" />
         </mxCell>
         <mxCell id="FnHKu7j-MtbKQt8sr5qL-43" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;textShadow=1;" parent="1" source="FnHKu7j-MtbKQt8sr5qL-37" target="FnHKu7j-MtbKQt8sr5qL-38" edge="1">
@@ -183,7 +183,7 @@
         <mxCell id="FnHKu7j-MtbKQt8sr5qL-70" value="" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;textShadow=1;" parent="1" source="FnHKu7j-MtbKQt8sr5qL-67" target="FnHKu7j-MtbKQt8sr5qL-68" edge="1">
           <mxGeometry relative="1" as="geometry" />
         </mxCell>
-        <mxCell id="FnHKu7j-MtbKQt8sr5qL-67" value="item-update-notify-user-queue" style="sketch=0;points=[[0,0,0],[0.25,0,0],[0.5,0,0],[0.75,0,0],[1,0,0],[0,1,0],[0.25,1,0],[0.5,1,0],[0.75,1,0],[1,1,0],[0,0.25,0],[0,0.5,0],[0,0.75,0],[1,0.25,0],[1,0.5,0],[1,0.75,0]];outlineConnect=0;fontColor=#232F3E;fillColor=#E7157B;strokeColor=#ffffff;dashed=0;verticalLabelPosition=bottom;verticalAlign=top;align=center;html=1;fontSize=12;fontStyle=0;aspect=fixed;shape=mxgraph.aws4.resourceIcon;resIcon=mxgraph.aws4.sqs;textShadow=1;" parent="1" vertex="1">
+        <mxCell id="FnHKu7j-MtbKQt8sr5qL-67" value="product-update-notify-user-queue" style="sketch=0;points=[[0,0,0],[0.25,0,0],[0.5,0,0],[0.75,0,0],[1,0,0],[0,1,0],[0.25,1,0],[0.5,1,0],[0.75,1,0],[1,1,0],[0,0.25,0],[0,0.5,0],[0,0.75,0],[1,0.25,0],[1,0.5,0],[1,0.75,0]];outlineConnect=0;fontColor=#232F3E;fillColor=#E7157B;strokeColor=#ffffff;dashed=0;verticalLabelPosition=bottom;verticalAlign=top;align=center;html=1;fontSize=12;fontStyle=0;aspect=fixed;shape=mxgraph.aws4.resourceIcon;resIcon=mxgraph.aws4.sqs;textShadow=1;" parent="1" vertex="1">
           <mxGeometry x="710" y="426" width="78" height="78" as="geometry" />
         </mxCell>
         <mxCell id="FnHKu7j-MtbKQt8sr5qL-73" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;textShadow=1;" parent="1" source="FnHKu7j-MtbKQt8sr5qL-68" target="FnHKu7j-MtbKQt8sr5qL-71" edge="1">
@@ -215,28 +215,28 @@
             <mxPoint y="-3" as="offset" />
           </mxGeometry>
         </mxCell>
-        <mxCell id="FnHKu7j-MtbKQt8sr5qL-80" value="&lt;span style=&quot;color: rgb(35, 47, 62); text-wrap-mode: nowrap;&quot;&gt;update-item-&lt;/span&gt;&lt;span style=&quot;color: light-dark(rgb(35, 47, 62), rgb(189, 199, 212)); text-wrap-mode: nowrap; background-color: transparent;&quot;&gt;materialize-&lt;br&gt;dynamodb-&lt;br&gt;queue&lt;/span&gt;" style="text;html=1;align=center;verticalAlign=middle;whiteSpace=wrap;rounded=0;" parent="1" vertex="1">
+        <mxCell id="FnHKu7j-MtbKQt8sr5qL-80" value="&lt;span style=&quot;color: rgb(35, 47, 62); text-wrap-mode: nowrap;&quot;&gt;update-product-&lt;/span&gt;&lt;span style=&quot;color: light-dark(rgb(35, 47, 62), rgb(189, 199, 212)); text-wrap-mode: nowrap; background-color: transparent;&quot;&gt;materialize-&lt;br&gt;dynamodb-&lt;br&gt;queue&lt;/span&gt;" style="text;html=1;align=center;verticalAlign=middle;whiteSpace=wrap;rounded=0;" parent="1" vertex="1">
           <mxGeometry x="1268" y="424" width="80" height="80" as="geometry" />
         </mxCell>
-        <mxCell id="FnHKu7j-MtbKQt8sr5qL-81" value="&lt;span style=&quot;color: rgb(35, 47, 62); text-wrap-mode: nowrap;&quot;&gt;update-item-&lt;/span&gt;&lt;span style=&quot;color: light-dark(rgb(35, 47, 62), rgb(189, 199, 212)); text-wrap-mode: nowrap; background-color: transparent;&quot;&gt;materialize-&lt;br&gt;dynamodb-&lt;br&gt;lambda&lt;/span&gt;" style="text;html=1;align=center;verticalAlign=middle;whiteSpace=wrap;rounded=0;" parent="1" vertex="1">
+        <mxCell id="FnHKu7j-MtbKQt8sr5qL-81" value="&lt;span style=&quot;color: rgb(35, 47, 62); text-wrap-mode: nowrap;&quot;&gt;update-product-&lt;/span&gt;&lt;span style=&quot;color: light-dark(rgb(35, 47, 62), rgb(189, 199, 212)); text-wrap-mode: nowrap; background-color: transparent;&quot;&gt;materialize-&lt;br&gt;dynamodb-&lt;br&gt;lambda&lt;/span&gt;" style="text;html=1;align=center;verticalAlign=middle;whiteSpace=wrap;rounded=0;" parent="1" vertex="1">
           <mxGeometry x="1268" y="268" width="80" height="80" as="geometry" />
         </mxCell>
-        <mxCell id="FnHKu7j-MtbKQt8sr5qL-82" value="&lt;span style=&quot;color: rgb(35, 47, 62); text-wrap-mode: nowrap;&quot;&gt;update-item-&lt;/span&gt;&lt;span style=&quot;color: light-dark(rgb(35, 47, 62), rgb(189, 199, 212)); text-wrap-mode: nowrap; background-color: transparent;&quot;&gt;materialize-dynamodb-lambda&lt;/span&gt;" style="text;html=1;align=center;verticalAlign=middle;whiteSpace=wrap;rounded=0;" parent="1" vertex="1">
+        <mxCell id="FnHKu7j-MtbKQt8sr5qL-82" value="&lt;span style=&quot;color: rgb(35, 47, 62); text-wrap-mode: nowrap;&quot;&gt;update-product-&lt;/span&gt;&lt;span style=&quot;color: light-dark(rgb(35, 47, 62), rgb(189, 199, 212)); text-wrap-mode: nowrap; background-color: transparent;&quot;&gt;materialize-dynamodb-lambda&lt;/span&gt;" style="text;html=1;align=center;verticalAlign=middle;whiteSpace=wrap;rounded=0;" parent="1" vertex="1">
           <mxGeometry x="948" y="248" width="240" height="26" as="geometry" />
         </mxCell>
         <mxCell id="FnHKu7j-MtbKQt8sr5qL-84" value="DynamoDB" style="text;html=1;align=center;verticalAlign=middle;whiteSpace=wrap;rounded=0;" parent="1" vertex="1">
           <mxGeometry x="840" y="246" width="60" height="30" as="geometry" />
         </mxCell>
-        <mxCell id="FnHKu7j-MtbKQt8sr5qL-86" value="&lt;span style=&quot;color: rgb(35, 47, 62); text-wrap-mode: nowrap;&quot;&gt;create-item-&lt;/span&gt;&lt;span style=&quot;color: light-dark(rgb(35, 47, 62), rgb(189, 199, 212)); text-wrap-mode: nowrap; background-color: transparent;&quot;&gt;materialize-opensearch-queue&lt;/span&gt;" style="text;html=1;align=center;verticalAlign=middle;whiteSpace=wrap;rounded=0;textShadow=1;" parent="1" vertex="1">
+        <mxCell id="FnHKu7j-MtbKQt8sr5qL-86" value="&lt;span style=&quot;color: rgb(35, 47, 62); text-wrap-mode: nowrap;&quot;&gt;create-product-&lt;/span&gt;&lt;span style=&quot;color: light-dark(rgb(35, 47, 62), rgb(189, 199, 212)); text-wrap-mode: nowrap; background-color: transparent;&quot;&gt;materialize-opensearch-queue&lt;/span&gt;" style="text;html=1;align=center;verticalAlign=middle;whiteSpace=wrap;rounded=0;textShadow=1;" parent="1" vertex="1">
           <mxGeometry x="949" y="550" width="240" height="26" as="geometry" />
         </mxCell>
-        <mxCell id="FnHKu7j-MtbKQt8sr5qL-87" value="&lt;span style=&quot;color: rgb(35, 47, 62); text-wrap-mode: nowrap;&quot;&gt;create-item-&lt;/span&gt;&lt;span style=&quot;color: light-dark(rgb(35, 47, 62), rgb(189, 199, 212)); text-wrap-mode: nowrap; background-color: transparent;&quot;&gt;materialize-opensearch-lambda&lt;/span&gt;" style="text;html=1;align=center;verticalAlign=middle;whiteSpace=wrap;rounded=0;" parent="1" vertex="1">
+        <mxCell id="FnHKu7j-MtbKQt8sr5qL-87" value="&lt;span style=&quot;color: rgb(35, 47, 62); text-wrap-mode: nowrap;&quot;&gt;create-product-&lt;/span&gt;&lt;span style=&quot;color: light-dark(rgb(35, 47, 62), rgb(189, 199, 212)); text-wrap-mode: nowrap; background-color: transparent;&quot;&gt;materialize-opensearch-lambda&lt;/span&gt;" style="text;html=1;align=center;verticalAlign=middle;whiteSpace=wrap;rounded=0;" parent="1" vertex="1">
           <mxGeometry x="950" y="806" width="240" height="26" as="geometry" />
         </mxCell>
-        <mxCell id="FnHKu7j-MtbKQt8sr5qL-88" value="&lt;span style=&quot;color: rgb(35, 47, 62); text-wrap-mode: nowrap;&quot;&gt;update-item-&lt;/span&gt;&lt;span style=&quot;color: light-dark(rgb(35, 47, 62), rgb(189, 199, 212)); text-wrap-mode: nowrap; background-color: transparent;&quot;&gt;materialize-&lt;br&gt;opensearch-&lt;br&gt;queue&lt;/span&gt;" style="text;html=1;align=center;verticalAlign=middle;whiteSpace=wrap;rounded=0;" parent="1" vertex="1">
+        <mxCell id="FnHKu7j-MtbKQt8sr5qL-88" value="&lt;span style=&quot;color: rgb(35, 47, 62); text-wrap-mode: nowrap;&quot;&gt;update-product-&lt;/span&gt;&lt;span style=&quot;color: light-dark(rgb(35, 47, 62), rgb(189, 199, 212)); text-wrap-mode: nowrap; background-color: transparent;&quot;&gt;materialize-&lt;br&gt;opensearch-&lt;br&gt;queue&lt;/span&gt;" style="text;html=1;align=center;verticalAlign=middle;whiteSpace=wrap;rounded=0;" parent="1" vertex="1">
           <mxGeometry x="1268" y="578" width="80" height="80" as="geometry" />
         </mxCell>
-        <mxCell id="FnHKu7j-MtbKQt8sr5qL-89" value="&lt;span style=&quot;color: rgb(35, 47, 62); text-wrap-mode: nowrap;&quot;&gt;update-item-&lt;/span&gt;&lt;span style=&quot;color: light-dark(rgb(35, 47, 62), rgb(189, 199, 212)); text-wrap-mode: nowrap; background-color: transparent;&quot;&gt;materialize-&lt;br&gt;opensearch-&lt;br&gt;lambda&lt;/span&gt;" style="text;html=1;align=center;verticalAlign=middle;whiteSpace=wrap;rounded=0;" parent="1" vertex="1">
+        <mxCell id="FnHKu7j-MtbKQt8sr5qL-89" value="&lt;span style=&quot;color: rgb(35, 47, 62); text-wrap-mode: nowrap;&quot;&gt;update-product-&lt;/span&gt;&lt;span style=&quot;color: light-dark(rgb(35, 47, 62), rgb(189, 199, 212)); text-wrap-mode: nowrap; background-color: transparent;&quot;&gt;materialize-&lt;br&gt;opensearch-&lt;br&gt;lambda&lt;/span&gt;" style="text;html=1;align=center;verticalAlign=middle;whiteSpace=wrap;rounded=0;" parent="1" vertex="1">
           <mxGeometry x="1268" y="726" width="80" height="80" as="geometry" />
         </mxCell>
         <mxCell id="FnHKu7j-MtbKQt8sr5qL-90" value="OpenSearch Domain" style="text;html=1;align=center;verticalAlign=middle;whiteSpace=wrap;rounded=0;" parent="1" vertex="1">
@@ -245,7 +245,7 @@
         <mxCell id="FnHKu7j-MtbKQt8sr5qL-91" value="EventBridge" style="text;html=1;align=center;verticalAlign=middle;whiteSpace=wrap;rounded=0;" parent="1" vertex="1">
           <mxGeometry x="840" y="399" width="60" height="30" as="geometry" />
         </mxCell>
-        <mxCell id="FnHKu7j-MtbKQt8sr5qL-92" value="&lt;span style=&quot;color: rgb(35, 47, 62); text-wrap-mode: nowrap;&quot;&gt;item-update-notify-user-lambda&lt;/span&gt;" style="text;html=1;align=center;verticalAlign=middle;whiteSpace=wrap;rounded=0;" parent="1" vertex="1">
+        <mxCell id="FnHKu7j-MtbKQt8sr5qL-92" value="&lt;span style=&quot;color: rgb(35, 47, 62); text-wrap-mode: nowrap;&quot;&gt;product-update-notify-user-lambda&lt;/span&gt;" style="text;html=1;align=center;verticalAlign=middle;whiteSpace=wrap;rounded=0;" parent="1" vertex="1">
           <mxGeometry x="555" y="399" width="60" height="30" as="geometry" />
         </mxCell>
         <mxCell id="FnHKu7j-MtbKQt8sr5qL-93" value="&lt;font color=&quot;#232f3e&quot;&gt;&lt;span style=&quot;text-wrap-mode: nowrap;&quot;&gt;send-mail-&lt;br&gt;queue&lt;/span&gt;&lt;/font&gt;" style="text;html=1;align=center;verticalAlign=middle;whiteSpace=wrap;rounded=0;" parent="1" vertex="1">
@@ -267,7 +267,7 @@
         <mxCell id="FnHKu7j-MtbKQt8sr5qL-99" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;entryX=0;entryY=0.5;entryDx=0;entryDy=0;entryPerimeter=0;textShadow=1;" parent="1" source="FnHKu7j-MtbKQt8sr5qL-4" target="FnHKu7j-MtbKQt8sr5qL-1" edge="1">
           <mxGeometry relative="1" as="geometry" />
         </mxCell>
-        <mxCell id="FnHKu7j-MtbKQt8sr5qL-106" value="put items" style="edgeLabel;html=1;align=center;verticalAlign=middle;resizable=0;points=[];" parent="FnHKu7j-MtbKQt8sr5qL-99" vertex="1" connectable="0">
+        <mxCell id="FnHKu7j-MtbKQt8sr5qL-106" value="put products" style="edgeLabel;html=1;align=center;verticalAlign=middle;resizable=0;points=[];" parent="FnHKu7j-MtbKQt8sr5qL-99" vertex="1" connectable="0">
           <mxGeometry x="-0.1036" y="1" relative="1" as="geometry">
             <mxPoint as="offset" />
           </mxGeometry>
@@ -295,7 +295,7 @@
             </Array>
           </mxGeometry>
         </mxCell>
-        <mxCell id="UGvYT_mn196tpMIwlos3-5" value="&lt;span style=&quot;color: rgb(35, 47, 62); text-wrap-mode: nowrap;&quot;&gt;item-enrichment-&lt;br&gt;queue&lt;/span&gt;&lt;br style=&quot;color: rgb(35, 47, 62); text-wrap-mode: nowrap;&quot;&gt;&lt;span style=&quot;color: rgb(35, 47, 62); text-wrap-mode: nowrap;&quot;&gt;(create-events only)&lt;/span&gt;" style="text;html=1;align=center;verticalAlign=middle;whiteSpace=wrap;rounded=0;" vertex="1" parent="1">
+        <mxCell id="UGvYT_mn196tpMIwlos3-5" value="&lt;span style=&quot;color: rgb(35, 47, 62); text-wrap-mode: nowrap;&quot;&gt;product-enrichment-&lt;br&gt;queue&lt;/span&gt;&lt;br style=&quot;color: rgb(35, 47, 62); text-wrap-mode: nowrap;&quot;&gt;&lt;span style=&quot;color: rgb(35, 47, 62); text-wrap-mode: nowrap;&quot;&gt;(create-events only)&lt;/span&gt;" style="text;html=1;align=center;verticalAlign=middle;whiteSpace=wrap;rounded=0;" vertex="1" parent="1">
           <mxGeometry x="270" y="424" width="110" height="80" as="geometry" />
         </mxCell>
         <mxCell id="UGvYT_mn196tpMIwlos3-7" value="" style="sketch=0;points=[[0,0,0],[0.25,0,0],[0.5,0,0],[0.75,0,0],[1,0,0],[0,1,0],[0.25,1,0],[0.5,1,0],[0.75,1,0],[1,1,0],[0,0.25,0],[0,0.5,0],[0,0.75,0],[1,0.25,0],[1,0.5,0],[1,0.75,0]];outlineConnect=0;fontColor=#232F3E;fillColor=#ED7100;strokeColor=#ffffff;dashed=0;verticalLabelPosition=bottom;verticalAlign=top;align=center;html=1;fontSize=12;fontStyle=0;aspect=fixed;shape=mxgraph.aws4.resourceIcon;resIcon=mxgraph.aws4.ec2;" vertex="1" parent="1">
@@ -304,13 +304,13 @@
         <mxCell id="UGvYT_mn196tpMIwlos3-8" value="" style="sketch=0;points=[[0,0,0],[0.25,0,0],[0.5,0,0],[0.75,0,0],[1,0,0],[0,1,0],[0.25,1,0],[0.5,1,0],[0.75,1,0],[1,1,0],[0,0.25,0],[0,0.5,0],[0,0.75,0],[1,0.25,0],[1,0.5,0],[1,0.75,0]];outlineConnect=0;fontColor=#232F3E;fillColor=#ED7100;strokeColor=#ffffff;dashed=0;verticalLabelPosition=bottom;verticalAlign=top;align=center;html=1;fontSize=12;fontStyle=0;aspect=fixed;shape=mxgraph.aws4.resourceIcon;resIcon=mxgraph.aws4.auto_scaling2;" vertex="1" parent="1">
           <mxGeometry x="132" y="550" width="78" height="78" as="geometry" />
         </mxCell>
-        <mxCell id="UGvYT_mn196tpMIwlos3-9" value="&lt;span style=&quot;color: rgb(35, 47, 62); text-wrap-mode: nowrap;&quot;&gt;item-enrichment-&lt;br&gt;auto-scaling-group&lt;/span&gt;" style="text;html=1;align=center;verticalAlign=middle;whiteSpace=wrap;rounded=0;" vertex="1" parent="1">
+        <mxCell id="UGvYT_mn196tpMIwlos3-9" value="&lt;span style=&quot;color: rgb(35, 47, 62); text-wrap-mode: nowrap;&quot;&gt;product-enrichment-&lt;br&gt;auto-scaling-group&lt;/span&gt;" style="text;html=1;align=center;verticalAlign=middle;whiteSpace=wrap;rounded=0;" vertex="1" parent="1">
           <mxGeometry x="22" y="548" width="110" height="80" as="geometry" />
         </mxCell>
         <mxCell id="UGvYT_mn196tpMIwlos3-10" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;entryX=0.5;entryY=0;entryDx=0;entryDy=0;entryPerimeter=0;" edge="1" parent="1" source="UGvYT_mn196tpMIwlos3-1" target="UGvYT_mn196tpMIwlos3-7">
           <mxGeometry relative="1" as="geometry" />
         </mxCell>
-        <mxCell id="UGvYT_mn196tpMIwlos3-11" value="&lt;font color=&quot;#232f3e&quot;&gt;&lt;span style=&quot;text-wrap-mode: nowrap;&quot;&gt;item-enrichment&lt;br&gt;(GPU EC2)&lt;/span&gt;&lt;/font&gt;" style="text;html=1;align=center;verticalAlign=middle;whiteSpace=wrap;rounded=0;" vertex="1" parent="1">
+        <mxCell id="UGvYT_mn196tpMIwlos3-11" value="&lt;font color=&quot;#232f3e&quot;&gt;&lt;span style=&quot;text-wrap-mode: nowrap;&quot;&gt;product-enrichment&lt;br&gt;(GPU EC2)&lt;/span&gt;&lt;/font&gt;" style="text;html=1;align=center;verticalAlign=middle;whiteSpace=wrap;rounded=0;" vertex="1" parent="1">
           <mxGeometry x="268" y="580" width="110" height="80" as="geometry" />
         </mxCell>
         <mxCell id="UGvYT_mn196tpMIwlos3-12" value="&lt;ul&gt;&lt;li&gt;Scaled up via schedule at night&lt;/li&gt;&lt;li&gt;Fetches all new create-events from queue and batch-processes&lt;br&gt;&lt;/li&gt;&lt;ul&gt;&lt;li&gt;Embeds Title+Description&lt;/li&gt;&lt;/ul&gt;&lt;li&gt;Saves changes to DynamoDB and OpenSearch&lt;/li&gt;&lt;li&gt;Attempts to scale down&lt;/li&gt;&lt;li&gt;Fallback: scaled down via schedule 2h offset&lt;/li&gt;&lt;/ul&gt;" style="text;html=1;align=left;verticalAlign=middle;whiteSpace=wrap;rounded=0;" vertex="1" parent="1">

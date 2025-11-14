@@ -7,7 +7,7 @@ edition = "2024"
 staging-tests-macros = { workspace = true }
 aws-tests-common = { workspace = true }
 tokio = { workspace = true, features = ["full"] }
-item = { workspace = true, features = ["full"] }
+product = { workspace = true, features = ["full"] }
 shop = { workspace = true, features = ["full"] }
 user = { workspace = true, features = ["full"] }
 search-filter = { workspace = true, features = ["full"] }
@@ -29,8 +29,8 @@ reqwest = { workspace = true, features = ["default", "json"] }
 common = { workspace = true, features = ["test-data"] }
 serial_test = { workspace = true }
 http = { workspace = true }
-item-api-watchlist-get = { workspace = true }
-item-api-watchlist-patch = { workspace = true }
+product-api-watchlist-get = { workspace = true }
+product-api-watchlist-patch = { workspace = true }
 search-filter-api-patch-search-filter = { workspace = true, features = ["test-data"] }
 search-filter-api-post-search-filter = { workspace = true, features = ["test-data"] }
 url = { workspace = true }

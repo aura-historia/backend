@@ -1,7 +1,7 @@
 use aws_tests_common::get_cfn_output;
 use common::pagination::page::api::PaginatedData;
 use fake::{Fake, Faker};
-use item::core::item_search::ItemSearch;
+use product::core::product_search::ProductSearch;
 use search_filter::core::user_search_filter_name::UserSearchFilterName;
 use search_filter::data::user_search_filter_data::UserSearchFilterData;
 use search_filter::dynamodb::repository::UserSearchFilterDynamoDbRepositoryImpl;
@@ -30,9 +30,9 @@ async fn should_return_actual_search_filters_when_authorized() {
     let service = UserSearchFilterServiceImpl::new(&repository);
 
     let user = create_random_test_user().await;
-    let expected1 = Faker.fake::<ItemSearch>();
+    let expected1 = Faker.fake::<ProductSearch>();
     let expected1_name = Faker.fake::<UserSearchFilterName>();
-    let expected2 = Faker.fake::<ItemSearch>();
+    let expected2 = Faker.fake::<ProductSearch>();
     let expected2_name = Faker.fake::<UserSearchFilterName>();
     service
         .save_user_search_filter(&user.sub.into(), expected1_name.clone(), expected1.clone())
@@ -63,8 +63,8 @@ async fn should_return_actual_search_filters_when_authorized() {
 
     let actual1 = actual.items.first().unwrap().clone();
     let actual2 = actual.items.get(1).unwrap().clone();
-    assert_eq!(expected1, ItemSearch::from(actual1.search));
-    assert_eq!(expected2, ItemSearch::from(actual2.search));
+    assert_eq!(expected1, ProductSearch::from(actual1.search));
+    assert_eq!(expected2, ProductSearch::from(actual2.search));
     assert_eq!(expected1_name, actual1.name);
     assert_eq!(expected2_name, actual2.name);
 }

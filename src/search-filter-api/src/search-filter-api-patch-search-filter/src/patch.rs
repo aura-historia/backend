@@ -2,11 +2,11 @@ use common::query::range_query::RangeQuery;
 use common::query::text_query::TextQuery;
 use common::{
     currency::{data::CurrencyData, domain::Currency},
-    item_state::domain::ItemState,
     language::{data::LanguageData, domain::Language},
     price::domain::MonetaryAmount,
+    product_state::domain::ProductState,
 };
-use item::data::item_state_data::ItemStateData;
+use product::data::product_state_data::ProductStateData;
 use search_filter::core::user_search_filter_name::UserSearchFilterName;
 use search_filter::service::user_search_filter_update::UserSearchFilterUpdate;
 use serde::{Deserialize, Serialize};
@@ -21,20 +21,24 @@ pub struct PatchUserSearchFilterData {
     pub name: Option<UserSearchFilterName>,
 
     #[serde(skip_serializing_if = "Option::is_none", default)]
-    pub search: Option<PatchItemSearchData>,
+    pub search: Option<PatchProductSearchData>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Default)]
 #[serde(rename_all = "camelCase")]
-pub struct PatchItemSearchData {
+pub struct PatchProductSearchData {
     #[serde(skip_serializing_if = "Option::is_none", default)]
     pub language: Option<LanguageData>,
 
     #[serde(skip_serializing_if = "Option::is_none", default)]
     pub currency: Option<CurrencyData>,
 
-    #[serde(rename = "itemQuery", skip_serializing_if = "Option::is_none", default)]
-    pub item_query: Option<TextQuery>,
+    #[serde(
+        rename = "productQuery",
+        skip_serializing_if = "Option::is_none",
+        default
+    )]
+    pub product_query: Option<TextQuery>,
 
     #[serde(
         rename = "shopNameQuery",
@@ -47,7 +51,7 @@ pub struct PatchItemSearchData {
     pub price_query: Option<RangeQuery<u64>>,
 
     #[serde(rename = "state", skip_serializing_if = "Option::is_none", default)]
-    pub state_query: Option<HashSet<ItemStateData>>,
+    pub state_query: Option<HashSet<ProductStateData>>,
 
     #[serde(
         rename = "created",
@@ -78,7 +82,10 @@ impl From<PatchUserSearchFilterData> for UserSearchFilterUpdate {
                 .search
                 .as_ref()
                 .and_then(|sf| sf.currency.map(Currency::from)),
-            item_query: patch.search.as_ref().and_then(|sf| sf.item_query.clone()),
+            product_query: patch
+                .search
+                .as_ref()
+                .and_then(|sf| sf.product_query.clone()),
             shop_name_query: patch
                 .search
                 .as_ref()
@@ -90,7 +97,7 @@ impl From<PatchUserSearchFilterData> for UserSearchFilterUpdate {
             state_query: patch.search.as_ref().and_then(|sf| {
                 sf.state_query
                     .clone()
-                    .map(|states| states.into_iter().map(ItemState::from).collect())
+                    .map(|states| states.into_iter().map(ProductState::from).collect())
             }),
             created_query: patch.search.as_ref().and_then(|sf| sf.created_query),
             updated_query: patch.search.as_ref().and_then(|sf| sf.updated_query),
@@ -103,14 +110,14 @@ impl From<PatchUserSearchFilterData> for UserSearchFilterUpdate {
 mod faker {
     use super::*;
     use fake::{Dummy, Fake, Faker, Rng};
-    use item::core::item_search::faker::fake_range_query_datetime;
+    use product::core::product_search::faker::fake_range_query_datetime;
 
-    impl Dummy<Faker> for PatchItemSearchData {
+    impl Dummy<Faker> for PatchProductSearchData {
         fn dummy_with_rng<R: Rng + ?Sized>(config: &Faker, rng: &mut R) -> Self {
-            PatchItemSearchData {
+            PatchProductSearchData {
                 language: config.fake_with_rng(rng),
                 currency: config.fake_with_rng(rng),
-                item_query: config.fake_with_rng(rng),
+                product_query: config.fake_with_rng(rng),
                 shop_name_query: config.fake_with_rng(rng),
                 price_query: config.fake_with_rng(rng),
                 state_query: config.fake_with_rng(rng),
@@ -123,10 +130,10 @@ mod faker {
 
 #[cfg(test)]
 mod tests {
-    use crate::patch::{PatchItemSearchData, PatchUserSearchFilterData};
+    use crate::patch::{PatchProductSearchData, PatchUserSearchFilterData};
     use common::query::range_query::RangeQuery;
     use common::{currency::data::CurrencyData, language::data::LanguageData};
-    use item::data::item_state_data::ItemStateData;
+    use product::data::product_state_data::ProductStateData;
     use serde_json::json;
     use std::collections::HashSet;
     use time::macros::datetime;
@@ -136,7 +143,7 @@ mod tests {
         let json = json!({
             "language": "de",
             "currency": "EUR",
-            "itemQuery": "Boop",
+            "productQuery": "Boop",
             "shopNameQuery": "Baap",
             "price": {
                 "min": 37,
@@ -152,16 +159,16 @@ mod tests {
                 "max": "2025-05-04T00:00:00Z",
             }
         });
-        let expected = PatchItemSearchData {
+        let expected = PatchProductSearchData {
             language: Some(LanguageData::De),
             currency: Some(CurrencyData::Eur),
-            item_query: Some("Boop".try_into().unwrap()),
+            product_query: Some("Boop".try_into().unwrap()),
             shop_name_query: Some("Baap".try_into().unwrap()),
             price_query: Some(RangeQuery {
                 min: Some(37),
                 max: Some(42),
             }),
-            state_query: Some(HashSet::from_iter([ItemStateData::Available])),
+            state_query: Some(HashSet::from_iter([ProductStateData::Available])),
             created_query: Some(RangeQuery {
                 min: Some(datetime!(2000 - 05 - 04 0:00 UTC)),
                 max: Some(datetime!(2025 - 05 - 04 0:00 UTC)),
@@ -172,7 +179,7 @@ mod tests {
             }),
         };
 
-        let actual: PatchItemSearchData = serde_json::from_value(json).unwrap();
+        let actual: PatchProductSearchData = serde_json::from_value(json).unwrap();
 
         assert_eq!(expected, actual);
     }
@@ -184,7 +191,7 @@ mod tests {
             "search": {
                 "language": "de",
                 "currency": "EUR",
-                "itemQuery": "Boop",
+                "productQuery": "Boop",
                 "shopNameQuery": "Baap",
                 "price": {
                     "min": 37,
@@ -203,16 +210,16 @@ mod tests {
         });
         let expected = PatchUserSearchFilterData {
             name: Some("hugos filter for peppino".into()),
-            search: Some(PatchItemSearchData {
+            search: Some(PatchProductSearchData {
                 language: Some(LanguageData::De),
                 currency: Some(CurrencyData::Eur),
-                item_query: Some("Boop".try_into().unwrap()),
+                product_query: Some("Boop".try_into().unwrap()),
                 shop_name_query: Some("Baap".try_into().unwrap()),
                 price_query: Some(RangeQuery {
                     min: Some(37),
                     max: Some(42),
                 }),
-                state_query: Some(HashSet::from_iter([ItemStateData::Available])),
+                state_query: Some(HashSet::from_iter([ProductStateData::Available])),
                 created_query: Some(RangeQuery {
                     min: Some(datetime!(2000 - 05 - 04 0:00 UTC)),
                     max: Some(datetime!(2025 - 05 - 04 0:00 UTC)),

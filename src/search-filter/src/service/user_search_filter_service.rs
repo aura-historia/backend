@@ -5,7 +5,7 @@ use crate::dynamodb::repository::UserSearchFilterDynamoDbRepository;
 use crate::service::user_search_filter_update::UserSearchFilterUpdate;
 use aws_sdk_dynamodb::{config::http::HttpResponse, error::SdkError};
 use common::{sort::SortOrder, user_id::UserId};
-use item::core::item_search::ItemSearch;
+use product::core::product_search::ProductSearch;
 use time::OffsetDateTime;
 
 #[derive(thiserror::Error, Debug)]
@@ -14,7 +14,7 @@ pub enum UserSearchFilterError {
     UserSearchFilterNotFound(UserId, UserSearchFilterId),
 
     #[error("Encountered DynamoDB SdkError for GetItem: {0}")]
-    SdkGetItemError(
+    SdkGetProductError(
         #[from] SdkError<aws_sdk_dynamodb::operation::get_item::GetItemError, HttpResponse>,
     ),
 
@@ -49,7 +49,7 @@ pub mod api {
                 UserSearchFilterError::UserSearchFilterNotFound(_, _) => {
                     ApiError::not_found(SEARCH_FILTER_NOT_FOUND, Box::new(err))
                 }
-                UserSearchFilterError::SdkGetItemError(err) => err.into(),
+                UserSearchFilterError::SdkGetProductError(err) => err.into(),
                 UserSearchFilterError::SdkQueryError(err) => err.into(),
                 UserSearchFilterError::SdkPutItemError(err) => err.into(),
                 UserSearchFilterError::SdkDeleteItemError(err) => err.into(),
@@ -78,7 +78,7 @@ pub trait UserSearchFilterService {
         &self,
         user_id: &UserId,
         name: UserSearchFilterName,
-        search_filter: ItemSearch,
+        search_filter: ProductSearch,
     ) -> Result<UserSearchFilter, UserSearchFilterError>;
 
     async fn delete_user_search_filter(
@@ -145,7 +145,7 @@ impl<'a> UserSearchFilterService for UserSearchFilterServiceImpl<'a> {
         &self,
         user_id: &UserId,
         name: UserSearchFilterName,
-        search: ItemSearch,
+        search: ProductSearch,
     ) -> Result<UserSearchFilter, UserSearchFilterError> {
         let user_search_filter = UserSearchFilter {
             user_id: *user_id,
@@ -365,8 +365,8 @@ mod tests {
 
             assert!(actual.is_err());
             match actual.unwrap_err() {
-                UserSearchFilterError::SdkGetItemError(_) => {}
-                _ => panic!("expected SearchFilterError::SdkGetItemError"),
+                UserSearchFilterError::SdkGetProductError(_) => {}
+                _ => panic!("expected SearchFilterError::SdkGetProductError"),
             }
         }
     }
@@ -530,8 +530,8 @@ mod tests {
 
             assert!(actual.is_err());
             match actual.unwrap_err() {
-                UserSearchFilterError::SdkGetItemError(_) => {}
-                _ => panic!("expected SearchFilterError::SdkGetItemError"),
+                UserSearchFilterError::SdkGetProductError(_) => {}
+                _ => panic!("expected SearchFilterError::SdkGetProductError"),
             }
         }
 
@@ -668,8 +668,8 @@ mod tests {
 
             assert!(actual.is_err());
             match actual.unwrap_err() {
-                UserSearchFilterError::SdkGetItemError(_) => {}
-                _ => panic!("expected SearchFilterError::SdkGetItemError"),
+                UserSearchFilterError::SdkGetProductError(_) => {}
+                _ => panic!("expected SearchFilterError::SdkGetProductError"),
             }
         }
 

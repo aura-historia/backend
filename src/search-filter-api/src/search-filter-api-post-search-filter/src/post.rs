@@ -1,4 +1,4 @@
-use item::data::item_search_data::ItemSearchData;
+use product::data::product_search_data::ProductSearchData;
 use search_filter::core::user_search_filter_name::UserSearchFilterName;
 use serde::{Deserialize, Serialize};
 
@@ -6,7 +6,7 @@ use serde::{Deserialize, Serialize};
 #[serde(rename_all = "camelCase")]
 pub struct PostUserSearchFilterData {
     pub name: UserSearchFilterName,
-    pub search: ItemSearchData,
+    pub search: ProductSearchData,
 }
 
 #[cfg(feature = "test-data")]
@@ -28,8 +28,8 @@ mod faker {
 mod tests {
     use common::query::range_query::RangeQuery;
     use common::{currency::data::CurrencyData, language::data::LanguageData};
-    use item::data::item_search_data::ItemSearchData;
-    use item::data::item_state_data::ItemStateData;
+    use product::data::product_search_data::ProductSearchData;
+    use product::data::product_state_data::ProductStateData;
     use serde_json::json;
     use std::collections::HashSet;
     use time::macros::datetime;
@@ -43,7 +43,7 @@ mod tests {
             "search": {
                 "language": "de",
                 "currency": "EUR",
-                "itemQuery": "Boop",
+                "productQuery": "Boop",
                 "shopNameQuery": "Baap",
                 "price": {
                     "min": 37,
@@ -62,16 +62,16 @@ mod tests {
         });
         let expected = PostUserSearchFilterData {
             name: "hugos filter for peppino".into(),
-            search: ItemSearchData {
+            search: ProductSearchData {
                 language: LanguageData::De,
                 currency: CurrencyData::Eur,
-                item_query: "Boop".try_into().unwrap(),
+                product_query: "Boop".try_into().unwrap(),
                 shop_name_query: Some("Baap".try_into().unwrap()),
                 price_query: Some(RangeQuery {
                     min: Some(37),
                     max: Some(42),
                 }),
-                state_query: HashSet::from_iter([ItemStateData::Available]),
+                state_query: HashSet::from_iter([ProductStateData::Available]),
                 created_query: Some(RangeQuery {
                     min: Some(datetime!(2000 - 05 - 04 0:00 UTC)),
                     max: Some(datetime!(2025 - 05 - 04 0:00 UTC)),

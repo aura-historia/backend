@@ -5,11 +5,11 @@ use crate::core::{
 use common::query::range_query::RangeQuery;
 use common::query::text_query::TextQuery;
 use common::{
-    currency::record::CurrencyRecord, item_state::domain::ItemState,
-    language::record::LanguageRecord, price::domain::MonetaryAmount, user_id::UserId,
+    currency::record::CurrencyRecord, language::record::LanguageRecord,
+    price::domain::MonetaryAmount, product_state::domain::ProductState, user_id::UserId,
 };
-use item::core::item_search::ItemSearch;
-use item::dynamodb::item_state_record::ItemStateRecord;
+use product::core::product_search::ProductSearch;
+use product::dynamodb::product_state_record::ProductStateRecord;
 use serde::{Deserialize, Serialize};
 use std::collections::HashSet;
 use time::OffsetDateTime;
@@ -21,7 +21,7 @@ pub struct UserSearchFilterRecord {
     pub user_id: UserId,
     pub user_search_filter_id: UserSearchFilterId,
     pub name: UserSearchFilterName,
-    pub item_query: TextQuery,
+    pub product_query: TextQuery,
 
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub shop_name_query: Option<TextQuery>,
@@ -30,7 +30,7 @@ pub struct UserSearchFilterRecord {
     pub price_query: Option<RangeQuery<u64>>,
 
     #[serde(default, skip_serializing_if = "HashSet::is_empty")]
-    pub state_query: HashSet<ItemStateRecord>,
+    pub state_query: HashSet<ProductStateRecord>,
 
     #[serde(
         with = "common::query::range_query::range_rfc3339::option",
@@ -71,10 +71,10 @@ impl From<UserSearchFilterRecord> for UserSearchFilter {
             user_id: record.user_id,
             user_search_filter_id: record.user_search_filter_id,
             name: record.name,
-            search: ItemSearch {
+            search: ProductSearch {
                 language: record.language.into(),
                 currency: record.currency.into(),
-                item_query: record.item_query,
+                product_query: record.product_query,
                 shop_name_query: record.shop_name_query,
                 price_query: record
                     .price_query
@@ -82,7 +82,7 @@ impl From<UserSearchFilterRecord> for UserSearchFilter {
                 state_query: record
                     .state_query
                     .into_iter()
-                    .map(ItemState::from)
+                    .map(ProductState::from)
                     .collect(),
                 created_query: record.created_query,
                 updated_query: record.updated_query,
@@ -101,7 +101,7 @@ impl From<UserSearchFilter> for UserSearchFilterRecord {
             user_id: user_search_filter.user_id,
             user_search_filter_id: user_search_filter.user_search_filter_id,
             name: user_search_filter.name,
-            item_query: user_search_filter.search.item_query,
+            product_query: user_search_filter.search.product_query,
             shop_name_query: user_search_filter.search.shop_name_query,
             price_query: user_search_filter
                 .search
@@ -111,7 +111,7 @@ impl From<UserSearchFilter> for UserSearchFilterRecord {
                 .search
                 .state_query
                 .into_iter()
-                .map(ItemStateRecord::from)
+                .map(ProductStateRecord::from)
                 .collect(),
             created_query: user_search_filter.search.created_query,
             language: user_search_filter.search.language.into(),
@@ -127,7 +127,7 @@ impl From<UserSearchFilter> for UserSearchFilterRecord {
 mod fake {
     use crate::dynamodb::user_search_filter_record::{UserSearchFilterRecord, mk_pk, mk_sk};
     use fake::{Dummy, Fake, Faker};
-    use item::core::item_search::faker::fake_range_query_datetime;
+    use product::core::product_search::faker::fake_range_query_datetime;
     use time::OffsetDateTime;
 
     impl Dummy<Faker> for UserSearchFilterRecord {
@@ -140,7 +140,7 @@ mod fake {
                 user_id,
                 user_search_filter_id: search_filter_id,
                 name: config.fake_with_rng(rng),
-                item_query: config.fake_with_rng(rng),
+                product_query: config.fake_with_rng(rng),
                 shop_name_query: config.fake_with_rng(rng),
                 price_query: config.fake_with_rng(rng),
                 state_query: config.fake_with_rng(rng),

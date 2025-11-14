@@ -1,8 +1,8 @@
 use common::query::range_query::RangeQuery;
 use common::user_id::UserId;
 use fake::{Fake, Faker};
-use item::core::item_search::ItemSearch;
 use lambda_runtime::LambdaEvent;
+use product::core::product_search::ProductSearch;
 use search_filter::data::user_search_filter_data::UserSearchFilterData;
 use search_filter::dynamodb::repository::UserSearchFilterDynamoDbRepositoryImpl;
 use search_filter::service::user_search_filter_service::{
@@ -10,7 +10,7 @@ use search_filter::service::user_search_filter_service::{
 };
 use search_filter_api_patch_search_filter::{
     handler,
-    patch::{PatchItemSearchData, PatchUserSearchFilterData},
+    patch::{PatchProductSearchData, PatchUserSearchFilterData},
 };
 use test_api::*;
 
@@ -22,16 +22,16 @@ async fn should_update_search_filter() {
 
     let user_id = UserId::new();
     let initial = service
-        .save_user_search_filter(&user_id, Faker.fake(), Faker.fake::<ItemSearch>())
+        .save_user_search_filter(&user_id, Faker.fake(), Faker.fake::<ProductSearch>())
         .await
         .unwrap();
 
     let patch = PatchUserSearchFilterData {
         name: Some("thorbens filter".into()),
-        search: Some(PatchItemSearchData {
+        search: Some(PatchProductSearchData {
             language: None,
             currency: None,
-            item_query: None,
+            product_query: None,
             shop_name_query: Some("Whoop boop woah".try_into().unwrap()),
             price_query: Some(RangeQuery {
                 min: Some(37),

@@ -5,20 +5,20 @@ use common::query::range_query::RangeQuery;
 use common::query::text_query::TextQuery;
 use common::{
     currency::{domain::Currency, record::CurrencyRecord},
-    item_state::domain::ItemState,
     language::{domain::Language, record::LanguageRecord},
     price::domain::MonetaryAmount,
+    product_state::domain::ProductState,
 };
-use item::dynamodb::item_state_record::ItemStateRecord;
+use product::dynamodb::product_state_record::ProductStateRecord;
 use time::OffsetDateTime;
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct UserSearchFilterUpdate {
     pub name: Option<UserSearchFilterName>,
-    pub item_query: Option<TextQuery>,
+    pub product_query: Option<TextQuery>,
     pub shop_name_query: Option<TextQuery>,
     pub price_query: Option<RangeQuery<MonetaryAmount>>,
-    pub state_query: Option<AnyOfQuery<ItemState>>,
+    pub state_query: Option<AnyOfQuery<ProductState>>,
     pub created_query: Option<RangeQuery<OffsetDateTime>>,
     pub updated_query: Option<RangeQuery<OffsetDateTime>>,
     pub language: Option<Language>,
@@ -30,7 +30,7 @@ impl UserSearchFilterUpdate {
     pub fn is_empty(&self) -> bool {
         let UserSearchFilterUpdate {
             name: search_filter_name,
-            item_query,
+            product_query,
             shop_name_query,
             price_query,
             state_query,
@@ -42,7 +42,7 @@ impl UserSearchFilterUpdate {
         } = self;
 
         search_filter_name.is_none()
-            && item_query.is_none()
+            && product_query.is_none()
             && shop_name_query.is_none()
             && price_query.is_none()
             && state_query.is_none()
@@ -57,14 +57,14 @@ impl From<UserSearchFilterUpdate> for UserSearchFilterRecordUpdate {
     fn from(update: UserSearchFilterUpdate) -> Self {
         UserSearchFilterRecordUpdate {
             name: update.name,
-            item_query: update.item_query,
+            product_query: update.product_query,
             shop_name_query: update.shop_name_query,
             price_query: update
                 .price_query
                 .map(|range_query| range_query.map(u64::from)),
             state_query: update
                 .state_query
-                .map(|states| states.into_iter().map(ItemStateRecord::from).collect()),
+                .map(|states| states.into_iter().map(ProductStateRecord::from).collect()),
             created_query: update.created_query,
             updated_query: update.updated_query,
             language: update.language.map(LanguageRecord::from),
@@ -78,14 +78,14 @@ impl From<UserSearchFilterUpdate> for UserSearchFilterRecordUpdate {
 mod fake {
     use crate::service::user_search_filter_update::UserSearchFilterUpdate;
     use fake::{Dummy, Fake, Faker};
-    use item::core::item_search::faker::fake_range_query_datetime;
+    use product::core::product_search::faker::fake_range_query_datetime;
     use time::OffsetDateTime;
 
     impl Dummy<Faker> for UserSearchFilterUpdate {
         fn dummy_with_rng<R: fake::Rng + ?Sized>(config: &Faker, rng: &mut R) -> Self {
             UserSearchFilterUpdate {
                 name: config.fake_with_rng(rng),
-                item_query: config.fake_with_rng(rng),
+                product_query: config.fake_with_rng(rng),
                 shop_name_query: config.fake_with_rng(rng),
                 price_query: config.fake_with_rng(rng),
                 state_query: config.fake_with_rng(rng),
