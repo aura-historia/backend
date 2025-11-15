@@ -61,16 +61,23 @@ impl<'a> QueryShopService for QueryShopServiceImpl<'a> {
         sort: &Option<Sort<SortShopField>>,
         cursor: &Option<Cursor<serde_json::Value>>,
     ) -> Result<CursoredResult<Shop, serde_json::Value>, SearchShopsError> {
+        let sort = (*sort).unwrap_or(Sort {
+            sort: SortShopField::Score,
+            order: SortOrder::Desc,
+        });
+        let sort = if search.shop_name_query.is_none() && matches!(sort.sort, SortShopField::Score)
+        {
+            Sort {
+                sort: SortShopField::Name,
+                order: SortOrder::Asc,
+            }
+        } else {
+            sort
+        };
+
         let search_response = self
             .repository
-            .search_shop_documents(
-                search,
-                &sort.unwrap_or(Sort {
-                    sort: SortShopField::Score,
-                    order: SortOrder::Desc,
-                }),
-                cursor,
-            )
+            .search_shop_documents(search, &sort, cursor)
             .await?;
         if search_response.timed_out {
             warn!(
@@ -254,5 +261,85 @@ mod tests {
             .await;
 
         assert!(actual.is_err());
+    }
+
+    #[tokio::test]
+    #[rstest::rstest]
+    #[case(
+        ShopSearch {
+            shop_name_query: None,
+            created: Some(RangeQuery { min: Some(datetime!(2000 - 01 - 01 0:00 UTC)), max: Some(datetime!(3000 - 01 - 01 0:00 UTC)) }),
+            updated: None
+        },
+        Some(Sort { sort: SortShopField::Score, order: SortOrder::Asc }),
+    )]
+    #[case(
+        ShopSearch {
+            shop_name_query: None,
+            created: None,
+            updated: None
+        },
+        Some(Sort { sort: SortShopField::Score, order: SortOrder::Desc }),
+    )]
+    #[case(
+        ShopSearch {
+            shop_name_query: None,
+            created: None,
+            updated: None
+        },
+        None,
+    )]
+    async fn should_default_sort_name_asc_when_empty_query_and_sort_score(
+        #[case] search: ShopSearch,
+        #[case] sort: Option<Sort<SortShopField>>,
+    ) {
+        let mut repository = MockShopOpenSearchRepository::default();
+        repository
+            .expect_search_shop_documents()
+            .return_once(move |_, sort, _| {
+                assert!(sort.sort == SortShopField::Name);
+                assert!(sort.order == SortOrder::Asc);
+                Box::pin(async move { Ok(mk_search_response(fake::vec![ShopDocument; 42])) })
+            });
+        let service = QueryShopServiceImpl::new(&repository);
+
+        let _ = service.search_shops(&search, &sort, &None).await.unwrap();
+    }
+
+    #[tokio::test]
+    #[rstest::rstest]
+    #[case(
+        ShopSearch {
+            shop_name_query: Some("Woaaaah Co. Ltd.".try_into().unwrap()),
+            created: Some(RangeQuery { min: Some(datetime!(2000 - 01 - 01 0:00 UTC)), max: Some(datetime!(3000 - 01 - 01 0:00 UTC)) }),
+            updated: Some(RangeQuery { min: Some(datetime!(1000 - 01 - 01 0:00 UTC)), max: Some(datetime!(4000 - 01 - 01 0:00 UTC)) })
+        },
+        Sort { sort: SortShopField::Created, order: SortOrder::Asc }
+    )]
+    #[case(
+        ShopSearch {
+            shop_name_query: Some("Woaaaah Co. Ltd.".try_into().unwrap()),
+            created: Some(RangeQuery { min: Some(datetime!(2000 - 01 - 01 0:00 UTC)), max: Some(datetime!(3000 - 01 - 01 0:00 UTC)) }),
+            updated: None
+        },
+        Sort { sort: SortShopField::Name, order: SortOrder::Desc }
+    )]
+    async fn should_preserve_sort_when_empty_query_with_non_score(
+        #[case] search: ShopSearch,
+        #[case] in_sort: Sort<SortShopField>,
+    ) {
+        let mut repository = MockShopOpenSearchRepository::default();
+        repository
+            .expect_search_shop_documents()
+            .return_once(move |_, arg_sort, _| {
+                assert_eq!(in_sort, *arg_sort);
+                Box::pin(async move { Ok(mk_search_response(fake::vec![ShopDocument; 42])) })
+            });
+        let service = QueryShopServiceImpl::new(&repository);
+
+        let _ = service
+            .search_shops(&search, &Some(in_sort), &None)
+            .await
+            .unwrap();
     }
 }
