@@ -117,6 +117,10 @@ pub fn localize_product_document(
     currency: &Currency,
 ) -> LocalizedProductView {
     let mut available_titles: HashMap<Language, Title> = HashMap::with_capacity(3);
+    available_titles.insert(
+        product_document.title_native.language.into(),
+        product_document.title_native.text.into(),
+    );
     if let Some(title_de) = product_document.title_de {
         available_titles.insert(Language::De, title_de.into());
     }

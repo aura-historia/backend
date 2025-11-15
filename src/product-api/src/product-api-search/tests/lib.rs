@@ -1,4 +1,9 @@
+use std::time::Duration;
+
 use cognito::access_token_verifier_service::MockAccessTokenVerifierService;
+use common::currency::data::CurrencyData;
+use common::language::data::LanguageData;
+use common::language::document::{LanguageDocument, TextDocument};
 use common::personalized::api::PersonalizedData;
 use common::{pagination::cursor::api::JsonCursoredData, query::range_query::RangeQuery};
 use fake::{Fake, Faker, rand};
@@ -764,4 +769,74 @@ async fn should_200_personalized_when_authenticated_and_not_watching() {
         let user_state = item.user_state.unwrap();
         !user_state.watchlist.notifications && !user_state.watchlist.watching
     }));
+}
+
+#[localstack_test(services = [OpenSearch(), DynamoDB()])]
+async fn should_200_with_native_title_when_no_target_titles_exist_and_hit_due_to_description() {
+    let ddb_client = get_dynamodb_client().await;
+    let watchlist_repository = WatchlistProductDynamoDbRepositoryImpl::new(ddb_client, "table_1");
+    let product_personalization_service =
+        ProductPersonalizationServiceImpl::new(&watchlist_repository);
+    let opensearch_repository = ProductOpenSearchRepositoryImpl::new(get_opensearch_client().await);
+    let query_service = QueryProductServiceImpl::new(&opensearch_repository);
+    let mut access_token_verifier_service = MockAccessTokenVerifierService::default();
+    access_token_verifier_service
+        .expect_verify_extract_user_id()
+        .returning(|_| Box::pin(async { Ok(None) }));
+
+    let mut document = Faker.fake::<ProductDocument>();
+    document.title_native = TextDocument {
+        text: "Non-german title".to_string(),
+        language: LanguageDocument::Es,
+    };
+    document.title_de = None;
+    document.title_en = None;
+    document.description_de = Some("Some german description that will result in a hit".to_string());
+    let create_res = opensearch_repository
+        .create_product_documents(vec![document])
+        .await
+        .unwrap();
+    assert!(!create_res.errors);
+    refresh_index("products").await;
+    tokio::time::sleep(Duration::from_secs(3)).await;
+
+    let lambda_event = LambdaEvent {
+        payload: ApiGatewayV2httpRequestProxy::builder()
+            .http_method(http::Method::POST)
+            .body_serde(&ProductSearchData {
+                language: LanguageData::De,
+                currency: CurrencyData::Eur,
+                product_query: "german description".try_into().unwrap(),
+                shop_name_query: None,
+                price_query: None,
+                state_query: Default::default(),
+                created_query: None,
+                updated_query: None,
+            })
+            .build(),
+        context: Default::default(),
+    };
+
+    let response = handler(
+        lambda_event,
+        &query_service,
+        &access_token_verifier_service,
+        &product_personalization_service,
+    )
+    .await
+    .unwrap();
+    assert_eq!(200, response.status_code);
+
+    let json = extract_apigw_response_json_body!(response);
+    let response_data: JsonCursoredData<PersonalizedData<GetProductData, ProductUserStateData>> =
+        serde_json::from_value(json).unwrap();
+    assert_eq!(1, response_data.total.unwrap());
+    assert_eq!(
+        LanguageData::Es,
+        response_data.items.first().unwrap().item.title.language,
+    );
+    assert_eq!(
+        "Non-german title",
+        response_data.items.first().unwrap().item.title.text,
+    );
 }
