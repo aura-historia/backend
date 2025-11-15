@@ -59,15 +59,21 @@ create_index_if_not_exists() {
   local mapping_file="$2"
   
   echo "🔍 Checking if index '$index_name' exists..."
-  if opensearch-cli curl head --path "$index_name" --profile ci > /dev/null 2>&1; then
-    echo "✅ Index '$index_name' already exists. Skipping creation."
-  else
+  
+  # Try to get the index; if it exists, the command succeeds and returns index info
+  # If it doesn't exist, it returns an error with "index_not_found_exception"
+  local response
+  response=$(opensearch-cli curl get --path "$index_name" --profile ci 2>&1)
+  
+  if echo "$response" | grep -q "index_not_found_exception"; then
     echo "📦 Creating index '$index_name' with mapping from '$mapping_file'..."
     opensearch-cli curl put \
       --path "$index_name" \
       --data "@$mapping_file" \
       --profile ci
     echo "✅ Index '$index_name' created successfully."
+  else
+    echo "✅ Index '$index_name' already exists. Skipping creation."
   fi
 }
 
