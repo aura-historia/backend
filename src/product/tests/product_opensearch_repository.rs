@@ -1,5 +1,6 @@
 use common::currency::domain::Currency;
 use common::event_id::EventId;
+use common::language::document::{LanguageDocument, TextDocument};
 use common::language::domain::Language;
 use common::pagination::cursor::Cursor;
 use common::price::domain::MonetaryAmount;
@@ -37,6 +38,10 @@ async fn should_create_product_document() {
         shop_id: Default::default(),
         shops_product_id: ShopsProductId::from("abcdefgh"),
         shop_name: "Foo".to_string(),
+        title_native: TextDocument {
+            text: "Foo".to_string(),
+            language: LanguageDocument::Fr,
+        },
         title_de: Some("Bar".to_string()),
         title_en: Some("Baz".to_string()),
         description_de: Some("Lorem ipsum dolor sit amet".to_string()),
@@ -76,6 +81,10 @@ async fn should_create_product_documents() {
         shop_id: Default::default(),
         shops_product_id: ShopsProductId::from("abcdefgh"),
         shop_name: "Foo".to_string(),
+        title_native: TextDocument {
+            text: "Foo".to_string(),
+            language: LanguageDocument::Fr,
+        },
         title_de: Some("Bar".to_string()),
         title_en: Some("Baz".to_string()),
         description_de: Some("Lorem ipsum dolor sit amet".to_string()),
@@ -100,6 +109,10 @@ async fn should_create_product_documents() {
         shop_id: Default::default(),
         shops_product_id: ShopsProductId::from("abcdefgh"),
         shop_name: "Foo".to_string(),
+        title_native: TextDocument {
+            text: "Foo".to_string(),
+            language: LanguageDocument::Fr,
+        },
         title_de: Some("Bar".to_string()),
         title_en: Some("Baz".to_string()),
         description_de: Some("Lorem ipsum dolor sit amet".to_string()),
@@ -141,6 +154,10 @@ async fn should_update_product_document() {
         shop_id: Default::default(),
         shops_product_id: ShopsProductId::from("abcdefgh"),
         shop_name: "Foo".to_string(),
+        title_native: TextDocument {
+            text: "Foo".to_string(),
+            language: LanguageDocument::Fr,
+        },
         title_de: Some("Bar".to_string()),
         title_en: Some("Baz".to_string()),
         description_de: Some("Lorem ipsum dolor sit amet".to_string()),
@@ -207,6 +224,10 @@ async fn should_search_product_documents() {
         shop_id: Default::default(),
         shops_product_id: ShopsProductId::from("abcdefgh"),
         shop_name: "Foo".to_string(),
+        title_native: TextDocument {
+            text: "Foo".to_string(),
+            language: LanguageDocument::Fr,
+        },
         title_de: Some("Hallo Welt".to_string()),
         title_en: Some("Baz".to_string()),
         description_de: Some("Lorem ipsum dolor sit amet".to_string()),
@@ -657,6 +678,10 @@ async fn should_get_product_document() {
         shop_id: Default::default(),
         shops_product_id: ShopsProductId::from("abcdefgh"),
         shop_name: "Foo".to_string(),
+        title_native: TextDocument {
+            text: "Foo".to_string(),
+            language: LanguageDocument::Fr,
+        },
         title_de: Some("Bar".to_string()),
         title_en: Some("Baz".to_string()),
         description_de: Some("Lorem ipsum dolor sit amet".to_string()),

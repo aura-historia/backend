@@ -1,5 +1,6 @@
 use aws_tests_common::get_cfn_output;
 use common::currency::record::CurrencyRecord;
+use common::language::document::{LanguageDocument, TextDocument};
 use common::language::record::{LanguageRecord, TextRecord};
 use common::price::record::PriceRecord;
 use common::query::range_query::RangeQuery;
@@ -62,6 +63,10 @@ async fn should_respond_200_when_hits_authenticated() {
         shop_id: ShopId::new(),
         shops_product_id: ShopsProductId::new(),
         shop_name: "Hans Volkers Shop".into(),
+        title_native: TextDocument {
+            text: "Foo".to_string(),
+            language: LanguageDocument::Fr,
+        },
         title_de: Some("Chopin Etudes Op.10 1833".to_string()),
         title_en: None,
         description_de: None,
@@ -210,6 +215,10 @@ async fn should_respond_200_when_hits_anon() {
         shop_id: ShopId::new(),
         shops_product_id: ShopsProductId::new(),
         shop_name: "Hans Volkers Shop".into(),
+        title_native: TextDocument {
+            text: "Foo".to_string(),
+            language: LanguageDocument::Fr,
+        },
         title_de: Some("Chopin Etudes Op.10 1833".to_string()),
         title_en: None,
         description_de: None,

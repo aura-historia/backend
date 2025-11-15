@@ -1,4 +1,5 @@
 use crate::language::data::LanguageData;
+use crate::language::document::LanguageDocument;
 use crate::language::record::LanguageRecord;
 use crate::localized::Localized;
 use std::collections::HashMap;
@@ -42,12 +43,23 @@ impl Language {
 }
 
 impl From<LanguageRecord> for Language {
-    fn from(cmd: LanguageRecord) -> Self {
-        match cmd {
+    fn from(record: LanguageRecord) -> Self {
+        match record {
             LanguageRecord::De => Language::De,
             LanguageRecord::En => Language::En,
             LanguageRecord::Fr => Language::Fr,
             LanguageRecord::Es => Language::Es,
+        }
+    }
+}
+
+impl From<LanguageDocument> for Language {
+    fn from(document: LanguageDocument) -> Self {
+        match document {
+            LanguageDocument::De => Language::De,
+            LanguageDocument::En => Language::En,
+            LanguageDocument::Fr => Language::Fr,
+            LanguageDocument::Es => Language::Es,
         }
     }
 }

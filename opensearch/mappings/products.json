@@ -20,6 +20,17 @@
       "shopName": {
         "type": "text"
       },
+      "titleNative": {
+        "type": "object",
+        "properties": {
+          "text": {
+            "type": "text"
+          },
+          "language": {
+            "type": "keyword"
+          }
+        }
+      },
       "titleDe": {
         "type": "text",
         "analyzer": "german"

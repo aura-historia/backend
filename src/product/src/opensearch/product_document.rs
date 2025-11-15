@@ -3,6 +3,7 @@ use crate::dynamodb::product_record::ProductRecord;
 use crate::opensearch::product_state_document::ProductStateDocument;
 use common::error::mapping_error::PersistenceMappingError;
 use common::error::missing_field::MissingPersistenceField;
+use common::language::document::TextDocument;
 use common::product_id::{ProductId, ProductKey};
 use common::shop_id::ShopId;
 use common::shops_product_id::ShopsProductId;
@@ -24,6 +25,8 @@ pub struct ProductDocument {
     pub shops_product_id: ShopsProductId,
 
     pub shop_name: String,
+
+    pub title_native: TextDocument,
 
     #[serde(skip_serializing_if = "Option::is_none", default)]
     pub title_de: Option<String>,
@@ -106,6 +109,12 @@ impl TryFrom<ProductEventRecord> for ProductDocument {
             shop_name: event_record.shop_name.ok_or_else(|| {
                 MissingPersistenceField::new(field!(shop_name@ProductEventRecord))
             })?,
+            title_native: event_record
+                .title_native
+                .map(TextDocument::from)
+                .ok_or_else(|| {
+                    MissingPersistenceField::new(field!(title_native@ProductEventRecord))
+                })?,
             title_de: event_record.title_de,
             title_en: event_record.title_en,
             description_de: event_record.description_de,
@@ -137,6 +146,7 @@ impl From<ProductRecord> for ProductDocument {
             shop_id: record.shop_id,
             shops_product_id: record.shops_product_id,
             shop_name: record.shop_name,
+            title_native: record.title_native.into(),
             title_de: record.title_de,
             title_en: record.title_en,
             description_de: record.description_de,
@@ -175,6 +185,10 @@ mod faker {
                 shop_id: config.fake_with_rng(rng),
                 shops_product_id: config.fake_with_rng(rng),
                 shop_name: config.fake_with_rng::<ShopName, _>(rng).into(),
+                title_native: TextDocument {
+                    text: config.fake_with_rng::<Title, _>(rng).to_string(),
+                    language: config.fake_with_rng(rng),
+                },
                 title_de: Some(config.fake_with_rng::<Title, _>(rng).to_string()),
                 title_en: Some(config.fake_with_rng::<Title, _>(rng).to_string()),
                 description_de: Some(config.fake_with_rng::<Description, _>(rng).to_string()),
