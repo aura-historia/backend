@@ -30,3 +30,7 @@ coverage.lcov
 
 # Temporary drawio files
 **/*.bkp
+
+## Python
+**/python/models_cache
+**/python/__pycache__
