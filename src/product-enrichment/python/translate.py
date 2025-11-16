@@ -57,6 +57,10 @@ def _load_model(src: str, tgt: str):
     tokenizer = AutoTokenizer.from_pretrained(hf_model_name)
 
     model_dir = CACHE_DIR / hf_model_name.replace("/", "_") / "ct2"
+
+    # Ensure parent directory exists
+    model_dir.parent.mkdir(parents=True, exist_ok=True)
+
     needs_conversion = not (model_dir / "model.bin").exists()
     lock_file = model_dir.parent / (model_dir.name + ".lock")
 
@@ -67,7 +71,7 @@ def _load_model(src: str, tgt: str):
             while lock_file.exists():
                 time.sleep(1)
         else:
-            with open(lock_file, "w") as f:
+            with open(lock_file, "w"):
                 pass
             try:
                 print(f"[translate] Converting {hf_model_name} → CTranslate2...")
@@ -142,3 +146,14 @@ def translate_batch(texts: List[str], src: str, tgt: str) -> List[str]:
         translations.append(decoded)
 
     return translations
+
+
+texts = [
+    "Hallo Welt",
+    "Dies ist ein Test. Wie schneidest in diesem ab?",
+    "Wie geht es dir?",
+]
+
+translations = translate_batch(texts, src="de", tgt="es")
+for t in translations:
+    print(t)
