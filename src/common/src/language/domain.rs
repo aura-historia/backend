@@ -40,6 +40,15 @@ impl Language {
                     .map(|(lang, t)| Localized::new(lang, t))
             })
     }
+
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            Language::De => "de",
+            Language::En => "en",
+            Language::Fr => "fr",
+            Language::Es => "es",
+        }
+    }
 }
 
 impl From<LanguageRecord> for Language {

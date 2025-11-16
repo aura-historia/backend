@@ -146,14 +146,3 @@ def translate_batch(texts: List[str], src: str, tgt: str) -> List[str]:
         translations.append(decoded)
 
     return translations
-
-
-texts = [
-    "Hallo Welt",
-    "Dies ist ein Test. Wie schneidest in diesem ab?",
-    "Wie geht es dir?",
-]
-
-translations = translate_batch(texts, src="de", tgt="es")
-for t in translations:
-    print(t)

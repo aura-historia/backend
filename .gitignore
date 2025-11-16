@@ -32,5 +32,5 @@ coverage.lcov
 **/*.bkp
 
 ## Python
-**/python/models_cache
+**/models_cache
 **/python/__pycache__
