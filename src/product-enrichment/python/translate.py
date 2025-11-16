@@ -1,9 +1,10 @@
 import os
 import pathlib
-from typing import List
+from typing import List, Tuple
 
 import ctranslate2
 import torch
+from cachetools import LRUCache
 from transformers import AutoTokenizer
 
 # ------------------------------------------------------------
@@ -36,10 +37,11 @@ MODEL_REGISTRY = {
 
 
 # ------------------------------------------------------------
-# Model cache
-# We keep loaded tokenizer + ct2 model in memory
+# LRU model cache (max 5 loaded models)
 # ------------------------------------------------------------
-_loaded_models = {}
+_loaded_models: LRUCache[
+    Tuple[str, str], Tuple[AutoTokenizer, ctranslate2.Translator]
+] = LRUCache(maxsize=5)
 
 
 def _load_model(src: str, tgt: str):
@@ -51,33 +53,42 @@ def _load_model(src: str, tgt: str):
         raise ValueError(f"No translation model registered for {src}->{tgt}")
 
     hf_model_name = MODEL_REGISTRY[key]
+
     tokenizer = AutoTokenizer.from_pretrained(hf_model_name)
+
     model_dir = CACHE_DIR / hf_model_name.replace("/", "_") / "ct2"
     needs_conversion = not (model_dir / "model.bin").exists()
+    lock_file = model_dir.parent / (model_dir.name + ".lock")
 
     if needs_conversion:
-        print(f"[translate] Converting {hf_model_name} → CTranslate2...")
+        if lock_file.exists():
+            import time
 
-        # IMPORTANT: ensure parent exists, but don't pre-create the ct2 directory
-        model_dir.parent.mkdir(parents=True, exist_ok=True)
+            while lock_file.exists():
+                time.sleep(1)
+        else:
+            with open(lock_file, "w") as f:
+                pass
+            try:
+                print(f"[translate] Converting {hf_model_name} → CTranslate2...")
+                import subprocess
 
-        import subprocess
+                subprocess.run(
+                    [
+                        "ct2-transformers-converter",
+                        "--model",
+                        hf_model_name,
+                        "--output_dir",
+                        str(model_dir),
+                        "--quantization",
+                        "int8_float16" if DEVICE == "cuda" else "int8",
+                        "--force",
+                    ],
+                    check=True,
+                )
+            finally:
+                lock_file.unlink(missing_ok=True)
 
-        subprocess.run(
-            [
-                "ct2-transformers-converter",
-                "--model",
-                hf_model_name,
-                "--output_dir",
-                str(model_dir),
-                "--quantization",
-                "int8_float16" if DEVICE == "cuda" else "int8",
-                "--force",  # allow existing directory
-            ],
-            check=True,
-        )
-
-    # Load CT2 model
     ct2_model = ctranslate2.Translator(
         str(model_dir),
         device=DEVICE,
@@ -106,17 +117,23 @@ def translate(text: str, src: str, tgt: str) -> str:
 
 
 def translate_batch(texts: List[str], src: str, tgt: str) -> List[str]:
-    """Translate a batch of texts from src -> tgt."""
     tokenizer, ct2_model = _load_model(src, tgt)
 
-    batch_tokens = []
-    for text in texts:
-        input_ids = tokenizer.encode(text, return_tensors=None)
-        tokens = tokenizer.convert_ids_to_tokens(input_ids)
-        batch_tokens.append(tokens)
+    # Batch tokenization using HF tokenizer (Optimization 2)
+    encoding = tokenizer(
+        texts,
+        return_tensors=None,
+        padding=True,
+        truncation=True,
+    )
+    batch_tokens = [
+        tokenizer.convert_ids_to_tokens(ids) for ids in encoding["input_ids"]
+    ]
 
+    # Batch translation
     results = ct2_model.translate_batch(batch_tokens)
 
+    # Decode each result
     translations = []
     for result in results:
         output_tokens = result.hypotheses[0]
