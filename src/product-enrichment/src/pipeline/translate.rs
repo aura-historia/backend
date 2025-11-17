@@ -28,16 +28,17 @@ impl TranslationEnrichmentPipeImpl {
 impl EnrichmentPipe for TranslationEnrichmentPipeImpl {
     fn enrich(&self, products: Vec<PipeProduct>) -> PipeResult {
         let count = products.len();
-        let mut pipe_result = PipeResult {
-            successes: Vec::with_capacity(products.len()),
-            failures: HashSet::new(),
-        };
+        let mut products = products
+            .into_iter()
+            .map(|product| (product.source.product_id, product))
+            .collect::<HashMap<_, _>>();
+        let mut failures = HashSet::new();
 
         let mut all_titles: HashMap<Language, Vec<(ProductId, Title)>> =
             HashMap::with_capacity(products.len());
         let mut all_descriptions: HashMap<Language, Vec<(ProductId, Description)>> =
             HashMap::with_capacity(products.len());
-        for product in products {
+        for product in products.values() {
             all_titles
                 .entry(product.source.payload.native_title.localization)
                 .or_default()
@@ -45,7 +46,7 @@ impl EnrichmentPipe for TranslationEnrichmentPipeImpl {
                     product.source.product_id,
                     product.source.payload.native_title.payload.clone(),
                 ));
-            if let Some(native_description) = product.source.payload.native_description {
+            if let Some(ref native_description) = product.source.payload.native_description {
                 all_descriptions
                     .entry(native_description.localization)
                     .or_default()
@@ -58,34 +59,38 @@ impl EnrichmentPipe for TranslationEnrichmentPipeImpl {
 
         for (lang, product_ids_native_titles) in all_titles {
             let chunks = product_ids_native_titles.into_iter().chunks(64);
-            for product_ids_native_titles_chunk in chunks.into_iter() {
-                self.handle_translation_chunk_titles(
-                    product_ids_native_titles_chunk,
-                    &lang,
-                    &mut pipe_result,
-                );
+            for titles_chunk in chunks.into_iter() {
+                let chunk_failures =
+                    self.handle_translation_chunk_titles(titles_chunk, &lang, &mut products);
+                failures.extend(chunk_failures);
             }
         }
 
         for (lang, product_ids_native_descriptions) in all_descriptions {
-            let chunks = product_ids_native_descriptions.into_iter().chunks(64);
-            for product_ids_native_descriptions_chunk in chunks.into_iter() {
-                self.handle_translation_chunk_descriptions(
-                    product_ids_native_descriptions_chunk,
+            let chunks = product_ids_native_descriptions.into_iter().chunks(32);
+            for descriptions_chunk in chunks.into_iter() {
+                let chunk_failures = self.handle_translation_chunk_descriptions(
+                    descriptions_chunk,
                     &lang,
-                    &mut pipe_result,
+                    &mut products,
                 );
+                failures.extend(chunk_failures);
             }
         }
 
+        products.retain(|product_id, _| !failures.contains(product_id));
+
         info!(
             count = count,
-            successes = count - pipe_result.failures.len(),
-            failures = pipe_result.failures.len(),
+            successes = count - failures.len(),
+            failures = failures.len(),
             "Translated PipeProducts."
         );
 
-        pipe_result
+        PipeResult {
+            successes: products.into_values().collect(),
+            failures,
+        }
     }
 }
 
@@ -94,8 +99,10 @@ impl TranslationEnrichmentPipeImpl {
         &self,
         chunk: Chunk<'_, IntoIter<(ProductId, Title)>>,
         src_lang: &Language,
-        pipe_result: &mut PipeResult,
-    ) {
+        products: &mut HashMap<ProductId, PipeProduct>,
+    ) -> HashSet<ProductId> {
+        let mut failures = HashSet::new();
+
         let (product_ids_chunk, native_titles_chunk): (HashSet<_>, Vec<_>) =
             chunk.into_iter().unzip();
         let title_batch: Batch<String, 64> = Batch::try_from_iter(
@@ -119,7 +126,7 @@ impl TranslationEnrichmentPipeImpl {
                         .zip(translated.into_iter())
                         .collect::<HashMap<_, _>>();
                     for (product_id, translated) in translateds {
-                        if let Some(pipe_product) = pipe_result.get_pipe_product_mut(product_id) {
+                        if let Some(pipe_product) = products.get_mut(product_id) {
                             match tgt_lang {
                                 Language::De => {
                                     pipe_product
@@ -149,19 +156,22 @@ impl TranslationEnrichmentPipeImpl {
                 }
                 Err(err) => {
                     error!(error = %err, srcLang = src_lang.as_str(), tgtLang = tgt_lang.as_str(), "Failed translating titles.");
-                    pipe_result.failures.extend(product_ids_chunk.into_iter());
+                    failures.extend(product_ids_chunk.into_iter());
                     break;
                 }
             }
         }
+        failures
     }
 
     fn handle_translation_chunk_descriptions(
         &self,
         chunk: Chunk<'_, IntoIter<(ProductId, Description)>>,
         src_lang: &Language,
-        pipe_result: &mut PipeResult,
-    ) {
+        products: &mut HashMap<ProductId, PipeProduct>,
+    ) -> HashSet<ProductId> {
+        let mut failures = HashSet::new();
+
         let (product_ids_chunk, native_descriptions_chunk): (HashSet<_>, Vec<_>) =
             chunk.into_iter().unzip();
         let description_batch: Batch<String, 64> = Batch::try_from_iter(
@@ -185,7 +195,7 @@ impl TranslationEnrichmentPipeImpl {
                         .zip(translated.into_iter())
                         .collect::<HashMap<_, _>>();
                     for (product_id, translated) in translateds {
-                        if let Some(pipe_product) = pipe_result.get_pipe_product_mut(product_id) {
+                        if let Some(pipe_product) = products.get_mut(product_id) {
                             match tgt_lang {
                                 Language::De => {
                                     pipe_product
@@ -221,11 +231,12 @@ impl TranslationEnrichmentPipeImpl {
                 }
                 Err(err) => {
                     error!(error = %err, srcLang = src_lang.as_str(), tgtLang = tgt_lang.as_str(), "Failed translating descriptions.");
-                    pipe_result.failures.extend(product_ids_chunk.into_iter());
+                    failures.extend(product_ids_chunk.into_iter());
                     break;
                 }
             }
         }
+        failures
     }
 }
 
