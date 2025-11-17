@@ -25,6 +25,9 @@ impl TranslationEnrichmentPipeImpl {
     }
 }
 
+const TITLE_BATCH_SIZE: usize = 64;
+const DESCRIPTION_BATCH_SIZE: usize = 16;
+
 impl EnrichmentPipe for TranslationEnrichmentPipeImpl {
     fn enrich(&self, products: Vec<PipeProduct>) -> PipeResult {
         let count = products.len();
@@ -58,7 +61,9 @@ impl EnrichmentPipe for TranslationEnrichmentPipeImpl {
         }
 
         for (lang, product_ids_native_titles) in all_titles {
-            let chunks = product_ids_native_titles.into_iter().chunks(64);
+            let chunks = product_ids_native_titles
+                .into_iter()
+                .chunks(TITLE_BATCH_SIZE);
             for titles_chunk in chunks.into_iter() {
                 let chunk_failures =
                     self.handle_translation_chunk_titles(titles_chunk, &lang, &mut products);
@@ -67,7 +72,9 @@ impl EnrichmentPipe for TranslationEnrichmentPipeImpl {
         }
 
         for (lang, product_ids_native_descriptions) in all_descriptions {
-            let chunks = product_ids_native_descriptions.into_iter().chunks(32);
+            let chunks = product_ids_native_descriptions
+                .into_iter()
+                .chunks(DESCRIPTION_BATCH_SIZE);
             for descriptions_chunk in chunks.into_iter() {
                 let chunk_failures = self.handle_translation_chunk_descriptions(
                     descriptions_chunk,
@@ -244,11 +251,15 @@ impl TranslationEnrichmentPipeImpl {
 mod tests {
     use crate::{
         pipeline::{
-            pipe::{EnrichmentPipe, PipeProduct},
-            translate::TranslationEnrichmentPipeImpl,
+            pipe::{EnrichmentPipe, PipeProduct, PipeProductSource, PipeProductUpdate},
+            translate::{DESCRIPTION_BATCH_SIZE, TITLE_BATCH_SIZE, TranslationEnrichmentPipeImpl},
         },
         translate::MockTranslationDelegate,
     };
+    use common::{language::domain::Language, localized::Localized};
+    use fake::{Fake, Faker};
+    use product::core::product_event::ProductCreatedEventPayload;
+    use pyo3::{PyErr, exceptions::PyTypeError};
     use std::sync::Arc;
 
     #[rstest::rstest]
@@ -268,20 +279,333 @@ mod tests {
             .returning(|_, _, _| Ok(fake::vec![String; 64].try_into().unwrap()));
 
         let enrichment_pipe = TranslationEnrichmentPipeImpl::new(Arc::new(translation_delegate));
-        let _ = enrichment_pipe.enrich(fake::vec![PipeProduct; count]);
+        let actual = enrichment_pipe.enrich(fake::vec![PipeProduct; count]);
+
+        assert!(actual.failures.is_empty());
+        assert_eq!(count, actual.successes.len());
     }
 
     #[test]
-    fn should_enrich_title() {
+    fn should_enrich_titles_for_other_langs() {
+        let mut translation_delegate = MockTranslationDelegate::default();
+        translation_delegate
+            .expect_translate_batch()
+            .returning(|_, _, _| Ok(vec!["Foo".to_string()].try_into().unwrap()));
+
+        let enrichment_pipe = TranslationEnrichmentPipeImpl::new(Arc::new(translation_delegate));
+
+        let products = vec![PipeProduct {
+            source: PipeProductSource {
+                product_id: Faker.fake(),
+                payload: ProductCreatedEventPayload {
+                    shop_id: Faker.fake(),
+                    shops_product_id: Faker.fake(),
+                    shop_name: Faker.fake(),
+                    native_title: Localized {
+                        localization: Language::De,
+                        payload: "Meow".into(),
+                    },
+                    other_title: Faker.fake(),
+                    native_description: Faker.fake(),
+                    other_description: Faker.fake(),
+                    native_price: Faker.fake(),
+                    other_price: Faker.fake(),
+                    state: Faker.fake(),
+                    url: Faker.fake(),
+                    images: Faker.fake(),
+                },
+            },
+            update: PipeProductUpdate::default(),
+        }];
+        let actuals = enrichment_pipe.enrich(products);
+
+        assert!(actuals.failures.is_empty());
+        assert_eq!(1, actuals.successes.len());
+
+        let actual_1 = actuals.successes[0].clone().update;
+        assert_eq!("Foo", actual_1.record.clone().unwrap().title_en.unwrap());
+        assert_eq!("Foo", actual_1.document.clone().unwrap().title_en.unwrap());
+    }
+
+    #[test]
+    fn should_not_enrich_title_for_id_lang() {
         let mut translation_delegate = MockTranslationDelegate::default();
         translation_delegate
             .expect_translate_batch()
             .returning(|_, _, _| {
-                Ok(vec!["foo".to_string(), "bar".to_string()]
+                Ok(vec!["Foo".to_string(), "Bar".to_string()]
                     .try_into()
                     .unwrap())
             });
 
         let enrichment_pipe = TranslationEnrichmentPipeImpl::new(Arc::new(translation_delegate));
+
+        let products = vec![
+            PipeProduct {
+                source: PipeProductSource {
+                    product_id: Faker.fake(),
+                    payload: ProductCreatedEventPayload {
+                        shop_id: Faker.fake(),
+                        shops_product_id: Faker.fake(),
+                        shop_name: Faker.fake(),
+                        native_title: Localized {
+                            localization: Language::De,
+                            payload: "Meow".into(),
+                        },
+                        other_title: Faker.fake(),
+                        native_description: Faker.fake(),
+                        other_description: Faker.fake(),
+                        native_price: Faker.fake(),
+                        other_price: Faker.fake(),
+                        state: Faker.fake(),
+                        url: Faker.fake(),
+                        images: Faker.fake(),
+                    },
+                },
+                update: PipeProductUpdate::default(),
+            },
+            PipeProduct {
+                source: PipeProductSource {
+                    product_id: Faker.fake(),
+                    payload: ProductCreatedEventPayload {
+                        shop_id: Faker.fake(),
+                        shops_product_id: Faker.fake(),
+                        shop_name: Faker.fake(),
+                        native_title: Localized {
+                            localization: Language::De,
+                            payload: "Wuff".into(),
+                        },
+                        other_title: Faker.fake(),
+                        native_description: Faker.fake(),
+                        other_description: Faker.fake(),
+                        native_price: Faker.fake(),
+                        other_price: Faker.fake(),
+                        state: Faker.fake(),
+                        url: Faker.fake(),
+                        images: Faker.fake(),
+                    },
+                },
+                update: PipeProductUpdate::default(),
+            },
+        ];
+        let actuals = enrichment_pipe.enrich(products);
+
+        assert!(actuals.failures.is_empty());
+        assert_eq!(2, actuals.successes.len());
+
+        let actual_1 = actuals.successes[0].clone().update;
+        assert!(actual_1.record.clone().unwrap().title_de.is_none());
+        assert!(actual_1.document.clone().unwrap().title_de.is_none());
+
+        let actual_2 = actuals.successes[1].clone().update;
+        assert!(actual_2.record.clone().unwrap().title_de.is_none());
+        assert!(actual_2.document.clone().unwrap().title_de.is_none());
+    }
+
+    #[test]
+    fn should_enrich_description_for_other_langs() {
+        let mut translation_delegate = MockTranslationDelegate::default();
+        translation_delegate
+            .expect_translate_batch()
+            .returning(|_, _, _| {
+                Ok(vec!["Foo".to_string(), "Bar".to_string()]
+                    .try_into()
+                    .unwrap())
+            });
+
+        let enrichment_pipe = TranslationEnrichmentPipeImpl::new(Arc::new(translation_delegate));
+
+        let products = vec![PipeProduct {
+            source: PipeProductSource {
+                product_id: Faker.fake(),
+                payload: ProductCreatedEventPayload {
+                    shop_id: Faker.fake(),
+                    shops_product_id: Faker.fake(),
+                    shop_name: Faker.fake(),
+                    native_title: Localized {
+                        localization: Language::Fr,
+                        payload: "Meh".into(),
+                    },
+                    other_title: Faker.fake(),
+                    native_description: Some(Localized {
+                        localization: Language::En,
+                        payload: "Meow".into(),
+                    }),
+                    other_description: Faker.fake(),
+                    native_price: Faker.fake(),
+                    other_price: Faker.fake(),
+                    state: Faker.fake(),
+                    url: Faker.fake(),
+                    images: Faker.fake(),
+                },
+            },
+            update: PipeProductUpdate::default(),
+        }];
+        let actuals = enrichment_pipe.enrich(products);
+
+        assert!(actuals.failures.is_empty());
+        assert_eq!(1, actuals.successes.len());
+
+        let actual_1 = actuals.successes[0].clone().update;
+        assert_eq!(
+            "Foo",
+            actual_1.record.clone().unwrap().description_de.unwrap()
+        );
+        assert_eq!(
+            "Foo",
+            actual_1.document.clone().unwrap().description_de.unwrap()
+        );
+    }
+
+    #[test]
+    fn should_not_enrich_description_for_id_lang() {
+        let mut translation_delegate = MockTranslationDelegate::default();
+        translation_delegate
+            .expect_translate_batch()
+            .returning(|_, _, _| {
+                Ok(vec!["Foo".to_string(), "Bar".to_string()]
+                    .try_into()
+                    .unwrap())
+            });
+
+        let enrichment_pipe = TranslationEnrichmentPipeImpl::new(Arc::new(translation_delegate));
+
+        let products = vec![
+            PipeProduct {
+                source: PipeProductSource {
+                    product_id: Faker.fake(),
+                    payload: ProductCreatedEventPayload {
+                        shop_id: Faker.fake(),
+                        shops_product_id: Faker.fake(),
+                        shop_name: Faker.fake(),
+                        native_title: Localized {
+                            localization: Language::Fr,
+                            payload: "Meh".into(),
+                        },
+                        other_title: Faker.fake(),
+                        native_description: Some(Localized {
+                            localization: Language::De,
+                            payload: "Meow".into(),
+                        }),
+                        other_description: Faker.fake(),
+                        native_price: Faker.fake(),
+                        other_price: Faker.fake(),
+                        state: Faker.fake(),
+                        url: Faker.fake(),
+                        images: Faker.fake(),
+                    },
+                },
+                update: PipeProductUpdate::default(),
+            },
+            PipeProduct {
+                source: PipeProductSource {
+                    product_id: Faker.fake(),
+                    payload: ProductCreatedEventPayload {
+                        shop_id: Faker.fake(),
+                        shops_product_id: Faker.fake(),
+                        shop_name: Faker.fake(),
+                        native_title: Localized {
+                            localization: Language::De,
+                            payload: "Moh".into(),
+                        },
+                        other_title: Faker.fake(),
+                        native_description: Some(Localized {
+                            localization: Language::De,
+                            payload: "Wuff".into(),
+                        }),
+                        other_description: Faker.fake(),
+                        native_price: Faker.fake(),
+                        other_price: Faker.fake(),
+                        state: Faker.fake(),
+                        url: Faker.fake(),
+                        images: Faker.fake(),
+                    },
+                },
+                update: PipeProductUpdate::default(),
+            },
+        ];
+        let actuals = enrichment_pipe.enrich(products);
+
+        assert!(actuals.failures.is_empty());
+        assert_eq!(2, actuals.successes.len());
+
+        let actual_1 = actuals.successes[0].clone().update;
+        let actual_2 = actuals.successes[1].clone().update;
+
+        assert!(actual_1.record.clone().unwrap().description_de.is_none());
+        assert!(actual_1.document.clone().unwrap().description_de.is_none());
+
+        assert!(actual_2.record.clone().unwrap().description_de.is_none());
+        assert!(actual_2.document.clone().unwrap().description_de.is_none());
+    }
+
+    #[rstest::rstest]
+    #[case(0)]
+    #[case(1)]
+    #[case(2)]
+    #[case(5)]
+    #[case(10)]
+    #[case(42)]
+    #[case(64)]
+    #[case(69)]
+    #[case(128)]
+    #[case(141)]
+    #[case(500)]
+    #[case(1000)]
+    fn should_partially_fail(#[case] count: usize) {
+        let mut translation_delegate = MockTranslationDelegate::default();
+        translation_delegate
+            .expect_translate_batch()
+            .returning(|batch, _, _| {
+                if batch.len() == TITLE_BATCH_SIZE || batch.len() == DESCRIPTION_BATCH_SIZE {
+                    Ok(fake::vec![String; 64].try_into().unwrap())
+                } else {
+                    Err(PyErr::new::<PyTypeError, _>("Something went wrong"))
+                }
+            });
+
+        let enrichment_pipe = TranslationEnrichmentPipeImpl::new(Arc::new(translation_delegate));
+        let mut products = fake::vec![PipeProduct; count];
+
+        // we need to force the values of each title/description to have the same language
+        // due to the grouping into a HashMap<Language, _> which varies bath_len
+        // together with the expectation this now only ever fails the very last non-full batch
+        for product in &mut products {
+            product.source.payload.native_title = Localized {
+                localization: Language::Es,
+                payload: Faker.fake(),
+            };
+            product.source.payload.native_description = Some(Localized {
+                localization: Language::De,
+                payload: Faker.fake(),
+            });
+        }
+
+        let actual = enrichment_pipe.enrich(products);
+
+        assert_eq!(count - (count % 64), actual.successes.len());
+        assert_eq!(count % 64, actual.failures.len());
+    }
+
+    #[rstest::rstest]
+    #[case(0)]
+    #[case(1)]
+    #[case(2)]
+    #[case(5)]
+    #[case(10)]
+    #[case(42)]
+    #[case(500)]
+    #[case(1000)]
+    fn should_partially_fail_all(#[case] count: usize) {
+        let mut translation_delegate = MockTranslationDelegate::default();
+        translation_delegate
+            .expect_translate_batch()
+            .returning(|_, _, _| Err(PyErr::new::<PyTypeError, _>("Something went wrong")));
+
+        let enrichment_pipe = TranslationEnrichmentPipeImpl::new(Arc::new(translation_delegate));
+        let actual = enrichment_pipe.enrich(fake::vec![PipeProduct; count]);
+
+        assert!(actual.successes.is_empty());
+        assert_eq!(count, actual.failures.len());
     }
 }
