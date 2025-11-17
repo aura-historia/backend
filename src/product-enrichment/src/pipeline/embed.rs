@@ -1,10 +1,9 @@
-use std::{collections::HashSet, sync::Arc};
-
 use crate::{
     embed::EmbeddingDelegate,
     pipeline::pipe::{EnrichmentPipe, PipeProduct, PipeResult},
 };
 use common::batch::Batch;
+use std::{collections::HashSet, sync::Arc};
 use tracing::{error, info};
 
 pub struct EmbeddingEnrichmentPipeImpl {

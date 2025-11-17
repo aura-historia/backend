@@ -19,6 +19,9 @@ opensearch = { workspace = true }
 product-lambda-common = { workspace = true }
 tokio = { workspace = true, features = ["time", "macros", "rt-multi-thread"] }
 tracing-subscriber = { workspace = true, features = ["json", "time"] }
+itertools = { workspace = true }
+strum = { workspace = true }
+strum_macros = { workspace = true }
 
 # Optional deps
 fake = { workspace = true, optional = true }

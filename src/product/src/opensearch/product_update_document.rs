@@ -11,24 +11,29 @@ pub struct ProductUpdateDocument {
 
     #[serde(skip_serializing_if = "Option::is_none", default)]
     pub price_eur: Option<u64>,
-
     #[serde(skip_serializing_if = "Option::is_none", default)]
     pub price_usd: Option<u64>,
-
     #[serde(skip_serializing_if = "Option::is_none", default)]
     pub price_gbp: Option<u64>,
-
     #[serde(skip_serializing_if = "Option::is_none", default)]
     pub price_aud: Option<u64>,
-
     #[serde(skip_serializing_if = "Option::is_none", default)]
     pub price_cad: Option<u64>,
-
     #[serde(skip_serializing_if = "Option::is_none", default)]
     pub price_nzd: Option<u64>,
 
-    #[serde(skip_serializing_if = "Option::is_none")]
+    #[serde(skip_serializing_if = "Option::is_none", default)]
     pub state: Option<ProductStateDocument>,
+
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub title_de: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub title_en: Option<String>,
+
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub description_de: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub description_en: Option<String>,
 
     #[serde(skip_serializing_if = "Option::is_none", default)]
     pub text_embedding: Option<Vec<f32>>,
@@ -48,6 +53,10 @@ impl Default for ProductUpdateDocument {
             price_cad: None,
             price_nzd: None,
             state: None,
+            title_de: None,
+            title_en: None,
+            description_de: None,
+            description_en: None,
             text_embedding: None,
             updated: OffsetDateTime::now_utc(),
         }
@@ -65,6 +74,10 @@ impl From<ProductEventRecord> for ProductUpdateDocument {
             price_aud: event_record.new_price_aud,
             price_cad: event_record.new_price_cad,
             price_nzd: event_record.new_price_nzd,
+            title_de: event_record.title_de,
+            title_en: event_record.title_en,
+            description_de: event_record.description_de,
+            description_en: event_record.description_en,
             state,
             text_embedding: None,
             updated: event_record.timestamp,
@@ -75,6 +88,7 @@ impl From<ProductEventRecord> for ProductUpdateDocument {
 #[cfg(feature = "test-data")]
 mod faker {
     use super::*;
+    use crate::core::{description::Description, title::Title};
     use common::price::domain::MonetaryAmount;
     use fake::{Dummy, Fake, Faker, Rng};
 
@@ -89,6 +103,10 @@ mod faker {
                 price_aud: Some(config.fake_with_rng::<MonetaryAmount, _>(rng).into()),
                 price_cad: Some(config.fake_with_rng::<MonetaryAmount, _>(rng).into()),
                 price_nzd: Some(config.fake_with_rng::<MonetaryAmount, _>(rng).into()),
+                title_de: Some(config.fake_with_rng::<Title, _>(rng).into()),
+                title_en: Some(config.fake_with_rng::<Title, _>(rng).into()),
+                description_de: Some(config.fake_with_rng::<Description, _>(rng).into()),
+                description_en: Some(config.fake_with_rng::<Description, _>(rng).into()),
                 state,
                 text_embedding: None,
                 updated: OffsetDateTime::now_utc(),

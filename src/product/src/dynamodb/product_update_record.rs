@@ -12,27 +12,31 @@ pub struct ProductRecordUpdate {
 
     #[serde(skip_serializing_if = "Option::is_none", default)]
     pub price_native: Option<PriceRecord>,
-
     #[serde(skip_serializing_if = "Option::is_none", default)]
     pub price_eur: Option<u64>,
-
     #[serde(skip_serializing_if = "Option::is_none", default)]
     pub price_usd: Option<u64>,
-
     #[serde(skip_serializing_if = "Option::is_none", default)]
     pub price_gbp: Option<u64>,
-
     #[serde(skip_serializing_if = "Option::is_none", default)]
     pub price_aud: Option<u64>,
-
     #[serde(skip_serializing_if = "Option::is_none", default)]
     pub price_cad: Option<u64>,
-
     #[serde(skip_serializing_if = "Option::is_none", default)]
     pub price_nzd: Option<u64>,
 
     #[serde(skip_serializing_if = "Option::is_none", default)]
     pub state: Option<ProductStateRecord>,
+
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub title_de: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub title_en: Option<String>,
+
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub description_de: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub description_en: Option<String>,
 
     #[serde(with = "time::serde::rfc3339")]
     pub updated: OffsetDateTime,
@@ -52,6 +56,10 @@ impl Default for ProductRecordUpdate {
             price_cad: None,
             price_nzd: None,
             state: None,
+            title_de: None,
+            title_en: None,
+            description_de: None,
+            description_en: None,
             updated: OffsetDateTime::now_utc(),
         }
     }
@@ -69,6 +77,10 @@ impl From<ProductEventRecord> for ProductRecordUpdate {
             price_cad: event.new_price_cad,
             price_nzd: event.new_price_nzd,
             state: event.new_state,
+            title_de: event.title_de,
+            title_en: event.title_en,
+            description_de: event.description_de,
+            description_en: event.description_en,
             updated: event.timestamp,
         }
     }
@@ -76,6 +88,8 @@ impl From<ProductEventRecord> for ProductRecordUpdate {
 
 #[cfg(feature = "test-data")]
 mod faker {
+    use crate::core::{description::Description, title::Title};
+
     use super::*;
     use common::price::domain::{MonetaryAmount, Price};
     use fake::{Dummy, Fake, Faker, Rng};
@@ -96,6 +110,10 @@ mod faker {
                 price_cad: Some(config.fake_with_rng::<MonetaryAmount, _>(rng).into()),
                 price_nzd: Some(config.fake_with_rng::<MonetaryAmount, _>(rng).into()),
                 state: Some(state),
+                title_de: Some(config.fake_with_rng::<Title, _>(rng).into()),
+                title_en: Some(config.fake_with_rng::<Title, _>(rng).into()),
+                description_de: Some(config.fake_with_rng::<Description, _>(rng).into()),
+                description_en: Some(config.fake_with_rng::<Description, _>(rng).into()),
                 updated: OffsetDateTime::now_utc(),
             }
         }

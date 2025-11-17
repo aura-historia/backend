@@ -195,6 +195,10 @@ async fn should_update_product_document() {
         price_cad: None,
         price_nzd: None,
         state: Some(ProductStateDocument::Sold),
+        title_de: None,
+        title_en: None,
+        description_de: None,
+        description_en: None,
         text_embedding: None,
         updated: updated_update_ts,
     };

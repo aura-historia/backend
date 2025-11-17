@@ -13,7 +13,9 @@ use product_enrichment::{
         pipe::EnrichmentPipe,
         plumbing::{EnrichmentPlumbing, EnrichmentPlumbingImpl},
         sink::EnrichmentPipeSinkImpl,
+        translate::TranslationEnrichmentPipeImpl,
     },
+    translate::TranslationDelegateImpl,
 };
 use std::sync::Arc;
 use tokio::sync::OnceCell;
@@ -92,9 +94,17 @@ async fn main() {
         ProductOpenSearchRepositoryImpl::new(get_opensearch_client().await);
     let faucet =
         EnrichmentPipeFaucetImpl::new(sqs_client_arc.clone(), enrichment_queue_url.clone());
-    let embedding_delegate = EmbeddingDelegateImpl::new().unwrap();
+
+    let embedding_delegate =
+        EmbeddingDelegateImpl::new().expect("shouldn't fail creating 'EmbeddingDelegateImpl'");
     let embedding_pipe = EmbeddingEnrichmentPipeImpl::new(Arc::new(embedding_delegate));
-    let pipes: Vec<Box<dyn EnrichmentPipe + Send + Sync>> = vec![Box::new(embedding_pipe)];
+
+    let translation_delegate =
+        TranslationDelegateImpl::new().expect("shouldn't fail creating 'TranslationDelegateImpl'");
+    let translation_pipe = TranslationEnrichmentPipeImpl::new(Arc::new(translation_delegate));
+
+    let pipes: Vec<Box<dyn EnrichmentPipe + Send + Sync>> =
+        vec![Box::new(embedding_pipe), Box::new(translation_pipe)];
 
     let sink = EnrichmentPipeSinkImpl::new(
         Arc::new(product_dynamodb_repository),

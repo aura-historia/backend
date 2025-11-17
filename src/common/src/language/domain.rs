@@ -1,3 +1,5 @@
+use strum_macros::EnumIter;
+
 use crate::language::data::LanguageData;
 use crate::language::document::LanguageDocument;
 use crate::language::record::LanguageRecord;
@@ -5,7 +7,7 @@ use crate::localized::Localized;
 use std::collections::HashMap;
 
 #[cfg_attr(feature = "test-data", derive(fake::Dummy))]
-#[derive(Copy, Clone, Eq, PartialEq, Debug, Hash, Default)]
+#[derive(Copy, Clone, Eq, PartialEq, Debug, Hash, Default, EnumIter)]
 pub enum Language {
     #[default]
     De,
