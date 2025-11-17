@@ -41,7 +41,7 @@ MODEL_REGISTRY = {
 # ------------------------------------------------------------
 _loaded_models: LRUCache[
     Tuple[str, str], Tuple[AutoTokenizer, ctranslate2.Translator]
-] = LRUCache(maxsize=5)
+] = LRUCache(maxsize=10)
 
 
 def _load_model(src: str, tgt: str):
