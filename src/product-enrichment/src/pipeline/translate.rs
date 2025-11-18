@@ -25,6 +25,7 @@ impl TranslationEnrichmentPipeImpl {
     }
 }
 
+// Most both be <= 64 to fit into Batch<64,_>
 const TITLE_BATCH_SIZE: usize = 64;
 const DESCRIPTION_BATCH_SIZE: usize = 16;
 
@@ -110,15 +111,15 @@ impl TranslationEnrichmentPipeImpl {
     ) -> HashSet<ProductId> {
         let mut failures = HashSet::new();
 
-        let (product_ids_chunk, native_titles_chunk): (HashSet<_>, Vec<_>) =
-            chunk.into_iter().unzip();
+        // these need to be Vec because we zip later!
+        let (product_ids_chunk, native_titles_chunk): (Vec<_>, Vec<_>) = chunk.into_iter().unzip();
         let title_batch: Batch<String, 64> = Batch::try_from_iter(
             native_titles_chunk
                 .into_iter()
                 .map(|title| title.to_string()),
         )
         .expect(
-            "shouldn't fail creating Batch of size 64 because 'itertools::chunks' and 'Batch'
+            "shouldn't fail creating Batch of size 64 because 'itertools::chunks(64)' and 'Batch'
                 share the same semantics being invoked with same size",
         );
         let tgt_langs = Language::iter().filter(|tgt| tgt != src_lang);
@@ -179,7 +180,8 @@ impl TranslationEnrichmentPipeImpl {
     ) -> HashSet<ProductId> {
         let mut failures = HashSet::new();
 
-        let (product_ids_chunk, native_descriptions_chunk): (HashSet<_>, Vec<_>) =
+        // these need to be Vec because we zip later!
+        let (product_ids_chunk, native_descriptions_chunk): (Vec<_>, Vec<_>) =
             chunk.into_iter().unzip();
         let description_batch: Batch<String, 64> = Batch::try_from_iter(
             native_descriptions_chunk
@@ -187,8 +189,8 @@ impl TranslationEnrichmentPipeImpl {
                 .map(|description| description.to_string()),
         )
         .expect(
-            "shouldn't fail creating Batch of size 64 because 'itertools::chunks' and 'Batch'
-                share the same semantics being invoked with same size",
+            "shouldn't fail creating Batch of size 64 because 'itertools::chunks(16)' and 'Batch'
+                share the same semantics and 16 < 64",
         );
         let tgt_langs = Language::iter().filter(|tgt| tgt != src_lang);
         for tgt_lang in tgt_langs {
