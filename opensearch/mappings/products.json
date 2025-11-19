@@ -39,6 +39,14 @@
         "type": "text",
         "analyzer": "english"
       },
+      "titleFr": {
+        "type": "text",
+        "analyzer": "french"
+      },
+      "titleEs": {
+        "type": "text",
+        "analyzer": "spanish"
+      },
       "descriptionDe": {
         "type": "text",
         "analyzer": "german"
@@ -46,6 +54,14 @@
       "descriptionEn": {
         "type": "text",
         "analyzer": "english"
+      },
+      "descriptionFr": {
+        "type": "text",
+        "analyzer": "french"
+      },
+      "descriptionEs": {
+        "type": "text",
+        "analyzer": "spanish"
       },
       "priceEur": {
         "type": "unsigned_long"
