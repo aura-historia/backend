@@ -23,6 +23,7 @@ use common::product_id::{ProductId, ProductKey};
 use common::shop_id::ShopId;
 use common::shops_product_id::ShopsProductId;
 use std::collections::HashMap;
+use strum::EnumCount;
 use tracing::error;
 
 #[derive(thiserror::Error, Debug)]
@@ -252,7 +253,7 @@ fn localize_product_record(
     currency: &Currency,
     preferred_languages: &[Language],
 ) -> LocalizedProductView {
-    let mut available_titles: HashMap<Language, Title> = HashMap::with_capacity(3);
+    let mut available_titles: HashMap<Language, Title> = HashMap::with_capacity(Language::COUNT);
     available_titles.insert(
         product_record.title_native.language.into(),
         product_record.title_native.text.into(),
@@ -270,7 +271,8 @@ fn localize_product_record(
         available_titles.insert(Language::Es, title_es.into());
     }
 
-    let mut available_descriptions: HashMap<Language, Description> = HashMap::with_capacity(3);
+    let mut available_descriptions: HashMap<Language, Description> =
+        HashMap::with_capacity(Language::COUNT);
     if let Some(description_native) = product_record.description_native {
         available_descriptions.insert(
             description_native.language.into(),

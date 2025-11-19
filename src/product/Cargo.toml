@@ -39,13 +39,7 @@ tokio = { workspace = true, features = ["macros"] }
 [features]
 default = []
 data = ["common/api"]
-dynamodb = [
-    "aws-sdk-dynamodb",
-    "serde_dynamo",
-    "common/dynamodb",
-    "tracing",
-    "field"
-]
+dynamodb = ["aws-sdk-dynamodb", "serde_dynamo", "common/dynamodb", "tracing", "field", "strum"]
 opensearch = ["dynamodb", "dep:opensearch", "tracing", "strum", "common/opensearch"]
 sqs = ["aws-sdk-sqs", "common/sqs"]
 service = ["itertools", "shop", "shop/dynamodb", "tokio", "tokio/time"]

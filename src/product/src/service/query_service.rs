@@ -10,6 +10,7 @@ use common::price::domain::Price;
 use common::sort::{Sort, SortOrder};
 use common::{currency::domain::Currency, localized::Localized};
 use std::collections::HashMap;
+use strum::EnumCount;
 use tracing::{error, warn};
 
 #[derive(thiserror::Error, Debug)]
@@ -116,7 +117,7 @@ pub fn localize_product_document(
     languages: &[Language],
     currency: &Currency,
 ) -> LocalizedProductView {
-    let mut available_titles: HashMap<Language, Title> = HashMap::with_capacity(3);
+    let mut available_titles: HashMap<Language, Title> = HashMap::with_capacity(Language::COUNT);
     available_titles.insert(
         product_document.title_native.language.into(),
         product_document.title_native.text.into(),
@@ -134,7 +135,8 @@ pub fn localize_product_document(
         available_titles.insert(Language::Es, title_es.into());
     }
 
-    let mut available_descriptions: HashMap<Language, Description> = HashMap::with_capacity(3);
+    let mut available_descriptions: HashMap<Language, Description> =
+        HashMap::with_capacity(Language::COUNT);
     if let Some(description_de) = product_document.description_de {
         available_descriptions.insert(Language::De, description_de.into());
     }
