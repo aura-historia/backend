@@ -114,9 +114,13 @@ async fn should_respond_200_when_hits_authenticated() {
         },
         title_de: Some("Chopin Etudes Op.10 1833".to_owned()),
         title_en: None,
+        title_fr: None,
+        title_es: None,
         description_native: None,
         description_de: None,
         description_en: None,
+        description_fr: None,
+        description_es: None,
         price_native: Some(PriceRecord {
             currency: CurrencyRecord::Eur,
             amount: 1400000,

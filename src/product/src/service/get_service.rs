@@ -263,6 +263,12 @@ fn localize_product_record(
     if let Some(title_en) = product_record.title_en {
         available_titles.insert(Language::En, title_en.into());
     }
+    if let Some(title_fr) = product_record.title_fr {
+        available_titles.insert(Language::En, title_fr.into());
+    }
+    if let Some(title_es) = product_record.title_es {
+        available_titles.insert(Language::En, title_es.into());
+    }
 
     let mut available_descriptions: HashMap<Language, Description> = HashMap::with_capacity(3);
     if let Some(description_native) = product_record.description_native {
@@ -276,6 +282,12 @@ fn localize_product_record(
     }
     if let Some(description_en) = product_record.description_en {
         available_descriptions.insert(Language::En, description_en.into());
+    }
+    if let Some(description_fr) = product_record.description_fr {
+        available_descriptions.insert(Language::En, description_fr.into());
+    }
+    if let Some(description_es) = product_record.description_es {
+        available_descriptions.insert(Language::En, description_es.into());
     }
 
     let title = Language::resolve(preferred_languages, available_titles).unwrap_or_else(|| {

@@ -17,49 +17,36 @@ use url::Url;
 #[serde(rename_all = "camelCase")]
 pub struct ProductDocument {
     pub product_id: ProductId,
-
     pub event_id: EventId,
-
     pub shop_id: ShopId,
-
     pub shops_product_id: ShopsProductId,
-
     pub shop_name: String,
 
     pub title_native: TextDocument,
-
     #[serde(skip_serializing_if = "Option::is_none", default)]
     pub title_de: Option<String>,
-
     #[serde(skip_serializing_if = "Option::is_none", default)]
     pub title_en: Option<String>,
 
     #[serde(skip_serializing_if = "Option::is_none", default)]
     pub description_de: Option<String>,
-
     #[serde(skip_serializing_if = "Option::is_none", default)]
     pub description_en: Option<String>,
 
     #[serde(skip_serializing_if = "Option::is_none", default)]
     pub price_eur: Option<u64>,
-
     #[serde(skip_serializing_if = "Option::is_none", default)]
     pub price_usd: Option<u64>,
-
     #[serde(skip_serializing_if = "Option::is_none", default)]
     pub price_gbp: Option<u64>,
-
     #[serde(skip_serializing_if = "Option::is_none", default)]
     pub price_aud: Option<u64>,
-
     #[serde(skip_serializing_if = "Option::is_none", default)]
     pub price_cad: Option<u64>,
-
     #[serde(skip_serializing_if = "Option::is_none", default)]
     pub price_nzd: Option<u64>,
 
     pub state: ProductStateDocument,
-
     pub url: Url,
 
     #[serde(skip_serializing_if = "Vec::is_empty", default)]
@@ -71,7 +58,6 @@ pub struct ProductDocument {
 
     #[serde(with = "time::serde::rfc3339")]
     pub created: OffsetDateTime,
-
     #[serde(with = "time::serde::rfc3339")]
     pub updated: OffsetDateTime,
 }

@@ -154,8 +154,24 @@ impl TranslationEnrichmentPipeImpl {
                                     pipe_product.update.record.get_or_insert_default().title_en =
                                         Some(translated);
                                 }
-                                Language::Es => {}
-                                Language::Fr => {}
+                                Language::Fr => {
+                                    pipe_product
+                                        .update
+                                        .document
+                                        .get_or_insert_default()
+                                        .title_fr = Some(translated.clone());
+                                    pipe_product.update.record.get_or_insert_default().title_fr =
+                                        Some(translated);
+                                }
+                                Language::Es => {
+                                    pipe_product
+                                        .update
+                                        .document
+                                        .get_or_insert_default()
+                                        .title_es = Some(translated.clone());
+                                    pipe_product.update.record.get_or_insert_default().title_es =
+                                        Some(translated);
+                                }
                             }
                         } else {
                             error!(productId = %product_id, "Expected to find PipeProduct but didn't.");
@@ -230,8 +246,30 @@ impl TranslationEnrichmentPipeImpl {
                                         .get_or_insert_default()
                                         .description_en = Some(translated);
                                 }
-                                Language::Es => {}
-                                Language::Fr => {}
+                                Language::Fr => {
+                                    pipe_product
+                                        .update
+                                        .document
+                                        .get_or_insert_default()
+                                        .description_fr = Some(translated.clone());
+                                    pipe_product
+                                        .update
+                                        .record
+                                        .get_or_insert_default()
+                                        .description_fr = Some(translated);
+                                }
+                                Language::Es => {
+                                    pipe_product
+                                        .update
+                                        .document
+                                        .get_or_insert_default()
+                                        .description_es = Some(translated.clone());
+                                    pipe_product
+                                        .update
+                                        .record
+                                        .get_or_insert_default()
+                                        .description_es = Some(translated);
+                                }
                             }
                         } else {
                             error!(productId = %product_id, "Expected to find PipeProduct but didn't.");
