@@ -1,5 +1,6 @@
 use cognito::access_token_verifier_service::MockAccessTokenVerifierService;
 use common::currency::data::CurrencyData;
+use common::language::domain::Language;
 use common::personalized::api::PersonalizedData;
 use fake::{Fake, Faker};
 use http::header::ACCEPT_LANGUAGE;
@@ -1338,5 +1339,346 @@ async fn should_200_and_personalize_when_similar_products_have_been_computed_for
         actual
             .iter()
             .all(|actual| actual.user_state.unwrap().watchlist.watching)
+    );
+}
+
+#[rstest::rstest]
+#[test_attr(apply(test))]
+#[case("de", "German title", Language::De, "German description", Language::De)]
+#[case(
+    "de-DE",
+    "German title",
+    Language::De,
+    "German description",
+    Language::De
+)]
+#[case(
+    "de-AT",
+    "German title",
+    Language::De,
+    "German description",
+    Language::De
+)]
+#[case(
+    "de;q=1.0",
+    "German title",
+    Language::De,
+    "German description",
+    Language::De
+)]
+#[case(
+    "de-DE,de;q=0.9,en;q=0.8",
+    "German title",
+    Language::De,
+    "German description",
+    Language::De
+)]
+#[case(
+    "en;q=0.5,de;q=1.0",
+    "German title",
+    Language::De,
+    "German description",
+    Language::De
+)]
+#[case(
+    "de,*;q=0.1",
+    "German title",
+    Language::De,
+    "German description",
+    Language::De
+)]
+#[case(
+    "en",
+    "English title",
+    Language::En,
+    "English description",
+    Language::En
+)]
+#[case(
+    "en-US",
+    "English title",
+    Language::En,
+    "English description",
+    Language::En
+)]
+#[case(
+    "en-GB",
+    "English title",
+    Language::En,
+    "English description",
+    Language::En
+)]
+#[case(
+    "en;q=0.7",
+    "English title",
+    Language::En,
+    "English description",
+    Language::En
+)]
+#[case(
+    "fr;q=0.3,en;q=0.9",
+    "English title",
+    Language::En,
+    "English description",
+    Language::En
+)]
+#[case(
+    "zh,ko;q=0.5,en;q=0.6",
+    "English title",
+    Language::En,
+    "English description",
+    Language::En
+)]
+#[case(
+    "*,en;q=0.8",
+    "English title",
+    Language::En,
+    "English description",
+    Language::En
+)]
+#[case("fr", "French title", Language::Fr, "French description", Language::Fr)]
+#[case(
+    "fr-FR",
+    "French title",
+    Language::Fr,
+    "French description",
+    Language::Fr
+)]
+#[case(
+    "fr-CA",
+    "French title",
+    Language::Fr,
+    "French description",
+    Language::Fr
+)]
+#[case(
+    "fr;q=1.0",
+    "French title",
+    Language::Fr,
+    "French description",
+    Language::Fr
+)]
+#[case(
+    "fr,en;q=0.4",
+    "French title",
+    Language::Fr,
+    "French description",
+    Language::Fr
+)]
+#[case(
+    "fr-BE,fr;q=0.9",
+    "French title",
+    Language::Fr,
+    "French description",
+    Language::Fr
+)]
+#[case(
+    "es;q=0.2,de;q=0.4,fr;q=0.8",
+    "French title",
+    Language::Fr,
+    "French description",
+    Language::Fr
+)]
+#[case(
+    "*,fr;q=0.7",
+    "French title",
+    Language::Fr,
+    "French description",
+    Language::Fr
+)]
+#[case(
+    "es",
+    "Spanish title",
+    Language::Es,
+    "Spanish description",
+    Language::Es
+)]
+#[case(
+    "es-ES",
+    "Spanish title",
+    Language::Es,
+    "Spanish description",
+    Language::Es
+)]
+#[case(
+    "es-MX",
+    "Spanish title",
+    Language::Es,
+    "Spanish description",
+    Language::Es
+)]
+#[case(
+    "es;q=1.0",
+    "Spanish title",
+    Language::Es,
+    "Spanish description",
+    Language::Es
+)]
+#[case(
+    "es,en;q=0.3",
+    "Spanish title",
+    Language::Es,
+    "Spanish description",
+    Language::Es
+)]
+#[case(
+    "es-AR,es;q=0.9",
+    "Spanish title",
+    Language::Es,
+    "Spanish description",
+    Language::Es
+)]
+#[case(
+    "fr;q=0.1,de;q=0.2,es;q=0.6",
+    "Spanish title",
+    Language::Es,
+    "Spanish description",
+    Language::Es
+)]
+#[case(
+    "*,es;q=0.5",
+    "Spanish title",
+    Language::Es,
+    "Spanish description",
+    Language::Es
+)]
+#[localstack_test(services = [OpenSearch(), DynamoDB()])]
+async fn should_respond_200_and_respect_accept_language_header(
+    #[case] accept_language_header: &str,
+    #[case] expected_title: &str,
+    #[case] expected_title_lang: Language,
+    #[case] expected_description: &str,
+    #[case] expected_description_lang: Language,
+) {
+    let user_record = Faker.fake::<UserRecord>();
+    let user_id = user_record.id;
+    let product_dynamodb_repository =
+        ProductDynamoDbRepositoryImpl::new(get_dynamodb_client().await, "table_1");
+    let watchlist_repository =
+        WatchlistProductDynamoDbRepositoryImpl::new(get_dynamodb_client().await, "table_1");
+    let product_opensearch_repository =
+        ProductOpenSearchRepositoryImpl::new(get_opensearch_client().await);
+    let product_personalization_service =
+        ProductPersonalizationServiceImpl::new(&watchlist_repository);
+    let semantic_search_service = SemanticSearchServiceImpl::new(
+        &product_dynamodb_repository,
+        &product_opensearch_repository,
+    );
+    let mut cognito_service = MockAccessTokenVerifierService::default();
+    cognito_service
+        .expect_verify_extract_user_id()
+        .return_once(move |_| Box::pin(async move { Ok(Some(user_id)) }));
+    let get_product_service = GetProductServiceImpl::new(&product_dynamodb_repository);
+    let user_repository = UserDynamoDbRepositoryImpl::new(get_dynamodb_client().await, "table_1");
+    let watchlist_service = ProductWatchListServiceImpl::new(
+        &watchlist_repository,
+        &user_repository,
+        &product_dynamodb_repository,
+        &get_product_service,
+    );
+
+    let _ = user_repository.put_user_record(user_record).await.unwrap();
+
+    let product_record: ProductRecord = Faker.fake();
+    let product_records = fake::vec![ProductRecord; 12];
+    let ddb_insert_res = product_dynamodb_repository
+        .put_product_records(
+            [vec![product_record.clone()], product_records.clone()]
+                .concat()
+                .try_into()
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert!(
+        ddb_insert_res
+            .unprocessed_items
+            .unwrap_or_default()
+            .is_empty()
+    );
+
+    for product_record in product_records.iter() {
+        let _ = watchlist_service
+            .create_watchlist_product(
+                &user_id,
+                &product_record.shop_id,
+                &product_record.shops_product_id,
+            )
+            .await
+            .unwrap();
+    }
+
+    let mut product_document: ProductDocument = product_record.clone().into();
+    product_document.text_embedding = Some(EXAMPLE_EMBEDDING.into());
+    let mut product_documents = product_records
+        .clone()
+        .into_iter()
+        .map(ProductDocument::from)
+        .collect::<Vec<_>>();
+    for doc in &mut product_documents {
+        doc.text_embedding = Some(EXAMPLE_EMBEDDING.into());
+        doc.title_de = Some("German title".to_string());
+        doc.title_en = Some("English title".to_string());
+        doc.title_fr = Some("French title".to_string());
+        doc.title_es = Some("Spanish title".to_string());
+        doc.description_de = Some("German description".to_string());
+        doc.description_en = Some("English description".to_string());
+        doc.description_fr = Some("French description".to_string());
+        doc.description_es = Some("Spanish description".to_string());
+    }
+    product_documents.push(product_document);
+    let os_insert_res = product_opensearch_repository
+        .create_product_documents(product_documents.clone())
+        .await
+        .unwrap();
+    assert!(!os_insert_res.errors);
+    refresh_index("products").await;
+    tokio::time::sleep(Duration::from_secs(1)).await;
+
+    let lambda_event = LambdaEvent {
+        payload: ApiGatewayV2httpRequestProxy::builder()
+            .http_method(http::Method::GET)
+            .header(ACCEPT_LANGUAGE.as_str(), accept_language_header)
+            .path_parameter("shopId", product_record.shop_id)
+            .path_parameter("shopsProductId", product_record.shops_product_id.clone())
+            .build(),
+        context: Default::default(),
+    };
+
+    let response = handler(
+        lambda_event,
+        &semantic_search_service,
+        &cognito_service,
+        &product_personalization_service,
+    )
+    .await
+    .unwrap();
+    assert_eq!(200, response.status_code);
+    let response_payload = extract_apigw_response_json_body!(response);
+    let actual: Vec<PersonalizedData<GetProductData, ProductUserStateData>> =
+        serde_json::from_value(response_payload).unwrap();
+
+    // tough due to ANN
+    assert!(1 < actual.len());
+    assert!(
+        actual
+            .iter()
+            .all(|actual| actual.item.title.text == expected_title)
+    );
+    assert!(
+        actual
+            .iter()
+            .all(|actual| actual.item.title.language == expected_title_lang.into())
+    );
+    assert!(
+        actual
+            .iter()
+            .all(|actual| actual.item.description.as_ref().unwrap().text == expected_description)
+    );
+    assert!(
+        actual
+            .iter()
+            .all(|actual| actual.item.description.as_ref().unwrap().language
+                == expected_description_lang.into())
     );
 }
