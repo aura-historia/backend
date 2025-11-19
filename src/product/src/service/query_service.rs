@@ -127,6 +127,12 @@ pub fn localize_product_document(
     if let Some(title_en) = product_document.title_en {
         available_titles.insert(Language::En, title_en.into());
     }
+    if let Some(title_fr) = product_document.title_fr {
+        available_titles.insert(Language::Fr, title_fr.into());
+    }
+    if let Some(title_es) = product_document.title_es {
+        available_titles.insert(Language::Es, title_es.into());
+    }
 
     let mut available_descriptions: HashMap<Language, Description> = HashMap::with_capacity(3);
     if let Some(description_de) = product_document.description_de {
@@ -134,6 +140,12 @@ pub fn localize_product_document(
     }
     if let Some(description_en) = product_document.description_en {
         available_descriptions.insert(Language::En, description_en.into());
+    }
+    if let Some(description_fr) = product_document.description_fr {
+        available_descriptions.insert(Language::Fr, description_fr.into());
+    }
+    if let Some(description_es) = product_document.description_es {
+        available_descriptions.insert(Language::Es, description_es.into());
     }
 
     let title = Language::resolve(languages, available_titles).unwrap_or_else(|| {

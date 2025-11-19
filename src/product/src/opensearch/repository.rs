@@ -135,7 +135,8 @@ impl<'a> ProductOpenSearchRepository for ProductOpenSearchRepositoryImpl<'a> {
         let (title_field, description_field) = match search.language {
             Language::De => ("titleDe", "descriptionDe"),
             Language::En => ("titleEn", "descriptionEn"),
-            _ => ("titleDe", "descriptionDe"),
+            Language::Fr => ("titleFr", "descriptionFr"),
+            Language::Es => ("titleEs", "descriptionEs"),
         };
         must.push(json!({
             "multi_match": {

@@ -264,10 +264,10 @@ fn localize_product_record(
         available_titles.insert(Language::En, title_en.into());
     }
     if let Some(title_fr) = product_record.title_fr {
-        available_titles.insert(Language::En, title_fr.into());
+        available_titles.insert(Language::Fr, title_fr.into());
     }
     if let Some(title_es) = product_record.title_es {
-        available_titles.insert(Language::En, title_es.into());
+        available_titles.insert(Language::Es, title_es.into());
     }
 
     let mut available_descriptions: HashMap<Language, Description> = HashMap::with_capacity(3);
@@ -284,10 +284,10 @@ fn localize_product_record(
         available_descriptions.insert(Language::En, description_en.into());
     }
     if let Some(description_fr) = product_record.description_fr {
-        available_descriptions.insert(Language::En, description_fr.into());
+        available_descriptions.insert(Language::Fr, description_fr.into());
     }
     if let Some(description_es) = product_record.description_es {
-        available_descriptions.insert(Language::En, description_es.into());
+        available_descriptions.insert(Language::Es, description_es.into());
     }
 
     let title = Language::resolve(preferred_languages, available_titles).unwrap_or_else(|| {
