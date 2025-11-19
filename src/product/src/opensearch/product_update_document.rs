@@ -29,11 +29,19 @@ pub struct ProductUpdateDocument {
     pub title_de: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none", default)]
     pub title_en: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub title_fr: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub title_es: Option<String>,
 
     #[serde(skip_serializing_if = "Option::is_none", default)]
     pub description_de: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none", default)]
     pub description_en: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub description_fr: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub description_es: Option<String>,
 
     #[serde(skip_serializing_if = "Option::is_none", default)]
     pub text_embedding: Option<Vec<f32>>,
@@ -55,8 +63,12 @@ impl Default for ProductUpdateDocument {
             state: None,
             title_de: None,
             title_en: None,
+            title_fr: None,
+            title_es: None,
             description_de: None,
             description_en: None,
+            description_fr: None,
+            description_es: None,
             text_embedding: None,
             updated: OffsetDateTime::now_utc(),
         }
@@ -76,8 +88,12 @@ impl From<ProductEventRecord> for ProductUpdateDocument {
             price_nzd: event_record.new_price_nzd,
             title_de: event_record.title_de,
             title_en: event_record.title_en,
+            title_fr: event_record.title_fr,
+            title_es: event_record.title_es,
             description_de: event_record.description_de,
             description_en: event_record.description_en,
+            description_fr: event_record.description_fr,
+            description_es: event_record.description_es,
             state,
             text_embedding: None,
             updated: event_record.timestamp,
@@ -105,8 +121,12 @@ mod faker {
                 price_nzd: Some(config.fake_with_rng::<MonetaryAmount, _>(rng).into()),
                 title_de: Some(config.fake_with_rng::<Title, _>(rng).into()),
                 title_en: Some(config.fake_with_rng::<Title, _>(rng).into()),
+                title_fr: Some(config.fake_with_rng::<Title, _>(rng).into()),
+                title_es: Some(config.fake_with_rng::<Title, _>(rng).into()),
                 description_de: Some(config.fake_with_rng::<Description, _>(rng).into()),
                 description_en: Some(config.fake_with_rng::<Description, _>(rng).into()),
+                description_fr: Some(config.fake_with_rng::<Description, _>(rng).into()),
+                description_es: Some(config.fake_with_rng::<Description, _>(rng).into()),
                 state,
                 text_embedding: None,
                 updated: OffsetDateTime::now_utc(),

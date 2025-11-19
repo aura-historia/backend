@@ -46,6 +46,10 @@ pub struct ProductEventRecord {
     pub title_de: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none", default)]
     pub title_en: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub title_fr: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub title_es: Option<String>,
 
     #[serde(skip_serializing_if = "Option::is_none", default)]
     pub description_native: Option<TextRecord>,
@@ -53,6 +57,10 @@ pub struct ProductEventRecord {
     pub description_de: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none", default)]
     pub description_en: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub description_fr: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub description_es: Option<String>,
 
     #[serde(skip_serializing_if = "Option::is_none", default)]
     pub new_price_native: Option<PriceRecord>,
@@ -138,20 +146,64 @@ impl TryFrom<ProductEvent> for ProductEventRecord {
 
         match domain.payload {
             ProductEventPayload::Created(payload) => {
-                let (title_de, title_en) = match payload.native_title.localization {
-                    Language::De => (Some(payload.native_title.payload.to_string()), None),
-                    Language::En => (None, Some(payload.native_title.payload.to_string())),
-                    _ => (None, None),
-                };
+                let (title_de, title_en, title_fr, title_es) =
+                    match payload.native_title.localization {
+                        Language::De => (
+                            Some(payload.native_title.payload.to_string()),
+                            None,
+                            None,
+                            None,
+                        ),
+                        Language::En => (
+                            None,
+                            Some(payload.native_title.payload.to_string()),
+                            None,
+                            None,
+                        ),
+                        Language::Fr => (
+                            None,
+                            None,
+                            Some(payload.native_title.payload.to_string()),
+                            None,
+                        ),
+                        Language::Es => (
+                            None,
+                            None,
+                            None,
+                            Some(payload.native_title.payload.to_string()),
+                        ),
+                    };
 
-                let (description_de, description_en) = match payload.native_description {
-                    Some(ref native_description) => match native_description.localization {
-                        Language::De => (Some(native_description.payload.to_string()), None),
-                        Language::En => (None, Some(native_description.payload.to_string())),
-                        _ => (None, None),
-                    },
-                    None => (None, None),
-                };
+                let (description_de, description_en, description_fr, description_es) =
+                    match payload.native_description {
+                        Some(ref native_description) => match native_description.localization {
+                            Language::De => (
+                                Some(native_description.payload.to_string()),
+                                None,
+                                None,
+                                None,
+                            ),
+                            Language::En => (
+                                None,
+                                Some(native_description.payload.to_string()),
+                                None,
+                                None,
+                            ),
+                            Language::Fr => (
+                                None,
+                                None,
+                                Some(native_description.payload.to_string()),
+                                None,
+                            ),
+                            Language::Es => (
+                                None,
+                                None,
+                                None,
+                                Some(native_description.payload.to_string()),
+                            ),
+                        },
+                        None => (None, None, None, None),
+                    };
 
                 let record = ProductEventRecord {
                     pk,
@@ -166,9 +218,13 @@ impl TryFrom<ProductEvent> for ProductEventRecord {
                     title_native: Some(payload.native_title.into()),
                     title_de,
                     title_en,
+                    title_fr,
+                    title_es,
                     description_native: payload.native_description.map(TextRecord::from),
                     description_de,
                     description_en,
+                    description_fr,
+                    description_es,
                     new_price_native: payload.native_price.map(PriceRecord::from),
                     new_price_eur: payload
                         .other_price
@@ -300,9 +356,13 @@ impl TryFrom<ProductEvent> for ProductEventRecord {
                 title_native: None,
                 title_de: None,
                 title_en: None,
+                title_fr: None,
+                title_es: None,
                 description_native: None,
                 description_de: None,
                 description_en: None,
+                description_fr: None,
+                description_es: None,
                 new_price_native: Some(payload.native_price.into()),
                 new_price_eur: payload
                     .other_price
@@ -382,9 +442,13 @@ impl TryFrom<ProductEvent> for ProductEventRecord {
                 title_native: None,
                 title_de: None,
                 title_en: None,
+                title_fr: None,
+                title_es: None,
                 description_native: None,
                 description_de: None,
                 description_en: None,
+                description_fr: None,
+                description_es: None,
                 new_price_native: None,
                 new_price_eur: None,
                 new_price_usd: None,
@@ -459,9 +523,13 @@ fn mk_state_event_record(
         title_native: None,
         title_de: None,
         title_en: None,
+        title_fr: None,
+        title_es: None,
         description_native: None,
         description_de: None,
         description_en: None,
+        description_fr: None,
+        description_es: None,
         new_price_native: None,
         new_price_eur: None,
         new_price_usd: None,
@@ -509,9 +577,13 @@ fn mk_price_change_event_record(
         title_native: None,
         title_de: None,
         title_en: None,
+        title_fr: None,
+        title_es: None,
         description_native: None,
         description_de: None,
         description_en: None,
+        description_fr: None,
+        description_es: None,
         new_price_native: Some(product_price_change_event_payload.new_native_price.into()),
         new_price_eur: product_price_change_event_payload
             .new_other_price

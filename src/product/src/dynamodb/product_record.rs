@@ -35,6 +35,10 @@ pub struct ProductRecord {
     pub title_de: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none", default)]
     pub title_en: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub title_fr: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub title_es: Option<String>,
 
     #[serde(skip_serializing_if = "Option::is_none", default)]
     pub description_native: Option<TextRecord>,
@@ -42,6 +46,10 @@ pub struct ProductRecord {
     pub description_de: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none", default)]
     pub description_en: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub description_fr: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub description_es: Option<String>,
 
     #[serde(skip_serializing_if = "Option::is_none", default)]
     pub price_native: Option<PriceRecord>,
@@ -173,9 +181,13 @@ impl TryFrom<ProductEventRecord> for ProductRecord {
             })?,
             title_de: event_record.title_de,
             title_en: event_record.title_en,
+            title_fr: event_record.title_fr,
+            title_es: event_record.title_es,
             description_native: event_record.description_native,
             description_de: event_record.description_de,
             description_en: event_record.description_en,
+            description_fr: event_record.description_fr,
+            description_es: event_record.description_es,
             price_native: event_record.new_price_native,
             price_eur: event_record.new_price_eur,
             price_usd: event_record.new_price_usd,
@@ -230,12 +242,16 @@ mod faker {
                 ),
                 title_de: Some(config.fake_with_rng::<Title, _>(rng).to_string()),
                 title_en: Some(config.fake_with_rng::<Title, _>(rng).to_string()),
+                title_fr: Some(config.fake_with_rng::<Title, _>(rng).to_string()),
+                title_es: Some(config.fake_with_rng::<Title, _>(rng).to_string()),
                 description_native: Some(TextRecord::new(
                     config.fake_with_rng::<Description, _>(rng).to_string(),
                     config.fake_with_rng(rng),
                 )),
                 description_de: Some(config.fake_with_rng::<Description, _>(rng).to_string()),
                 description_en: Some(config.fake_with_rng::<Description, _>(rng).to_string()),
+                description_fr: Some(config.fake_with_rng::<Description, _>(rng).to_string()),
+                description_es: Some(config.fake_with_rng::<Description, _>(rng).to_string()),
                 price_native,
                 price_eur: Some(config.fake_with_rng::<MonetaryAmount, _>(rng).into()),
                 price_usd: Some(config.fake_with_rng::<MonetaryAmount, _>(rng).into()),

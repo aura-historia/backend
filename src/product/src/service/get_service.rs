@@ -23,6 +23,7 @@ use common::product_id::{ProductId, ProductKey};
 use common::shop_id::ShopId;
 use common::shops_product_id::ShopsProductId;
 use std::collections::HashMap;
+use strum::EnumCount;
 use tracing::error;
 
 #[derive(thiserror::Error, Debug)]
@@ -252,7 +253,7 @@ fn localize_product_record(
     currency: &Currency,
     preferred_languages: &[Language],
 ) -> LocalizedProductView {
-    let mut available_titles: HashMap<Language, Title> = HashMap::with_capacity(3);
+    let mut available_titles: HashMap<Language, Title> = HashMap::with_capacity(Language::COUNT);
     available_titles.insert(
         product_record.title_native.language.into(),
         product_record.title_native.text.into(),
@@ -263,8 +264,15 @@ fn localize_product_record(
     if let Some(title_en) = product_record.title_en {
         available_titles.insert(Language::En, title_en.into());
     }
+    if let Some(title_fr) = product_record.title_fr {
+        available_titles.insert(Language::Fr, title_fr.into());
+    }
+    if let Some(title_es) = product_record.title_es {
+        available_titles.insert(Language::Es, title_es.into());
+    }
 
-    let mut available_descriptions: HashMap<Language, Description> = HashMap::with_capacity(3);
+    let mut available_descriptions: HashMap<Language, Description> =
+        HashMap::with_capacity(Language::COUNT);
     if let Some(description_native) = product_record.description_native {
         available_descriptions.insert(
             description_native.language.into(),
@@ -276,6 +284,12 @@ fn localize_product_record(
     }
     if let Some(description_en) = product_record.description_en {
         available_descriptions.insert(Language::En, description_en.into());
+    }
+    if let Some(description_fr) = product_record.description_fr {
+        available_descriptions.insert(Language::Fr, description_fr.into());
+    }
+    if let Some(description_es) = product_record.description_es {
+        available_descriptions.insert(Language::Es, description_es.into());
     }
 
     let title = Language::resolve(preferred_languages, available_titles).unwrap_or_else(|| {
@@ -727,7 +741,7 @@ mod tests {
         #[case(&[De], De, "German")]
         #[case(&[De, En], De, "German")]
         #[case(&[De, Fr], De, "German")]
-        #[case(&[Fr, De, En, Es], De, "German")]
+        #[case(&[Fr, De, En, Es], Fr, "French")]
         #[case(&[En], En, "English")]
         #[case(&[En, De, Fr, Es], En, "English")]
         #[case(&[En, De, Es], En, "English")]
@@ -743,6 +757,8 @@ mod tests {
             expected_record.title_native = TextRecord::new("Spanish", LanguageRecord::Es);
             expected_record.title_de = Some("German".to_string());
             expected_record.title_en = Some("English".to_string());
+            expected_record.title_fr = Some("French".to_string());
+            expected_record.title_es = Some("Spanish".to_string());
             repository
                 .expect_get_product_record()
                 .return_once(|_, _| Box::pin(async { Ok(Some(expected_record)) }));
@@ -786,6 +802,8 @@ mod tests {
             expected_record.title_native = TextRecord::new("Spanish", LanguageRecord::Es);
             expected_record.title_de = None;
             expected_record.title_en = None;
+            expected_record.title_fr = None;
+            expected_record.title_es = None;
             repository
                 .expect_get_product_record()
                 .return_once(|_, _| Box::pin(async { Ok(Some(expected_record)) }));
@@ -813,7 +831,7 @@ mod tests {
         #[case(&[De], De, "German")]
         #[case(&[De, En], De, "German")]
         #[case(&[De, Fr], De, "German")]
-        #[case(&[Fr, De, En, Es], De, "German")]
+        #[case(&[Fr, De, En, Es], Fr, "French")]
         #[case(&[En], En, "English")]
         #[case(&[En, De, Fr, Es], En, "English")]
         #[case(&[En, De, Es], En, "English")]
@@ -830,6 +848,8 @@ mod tests {
                 Some(TextRecord::new("Spanish", LanguageRecord::Es));
             expected_record.description_de = Some("German".to_string());
             expected_record.description_en = Some("English".to_string());
+            expected_record.description_fr = Some("French".to_string());
+            expected_record.description_es = Some("Spanish".to_string());
             repository
                 .expect_get_product_record()
                 .return_once(|_, _| Box::pin(async { Ok(Some(expected_record)) }));
@@ -875,6 +895,8 @@ mod tests {
                 Some(TextRecord::new("Spanish", LanguageRecord::Es));
             expected_record.description_de = None;
             expected_record.description_en = None;
+            expected_record.description_fr = None;
+            expected_record.description_es = None;
             repository
                 .expect_get_product_record()
                 .return_once(|_, _| Box::pin(async { Ok(Some(expected_record)) }));
@@ -917,6 +939,8 @@ mod tests {
             expected_record.description_native = None;
             expected_record.description_de = None;
             expected_record.description_en = None;
+            expected_record.description_fr = None;
+            expected_record.description_es = None;
             repository
                 .expect_get_product_record()
                 .return_once(|_, _| Box::pin(async { Ok(Some(expected_record)) }));

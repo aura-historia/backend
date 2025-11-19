@@ -10,6 +10,7 @@ use common::price::domain::Price;
 use common::sort::{Sort, SortOrder};
 use common::{currency::domain::Currency, localized::Localized};
 use std::collections::HashMap;
+use strum::EnumCount;
 use tracing::{error, warn};
 
 #[derive(thiserror::Error, Debug)]
@@ -116,7 +117,7 @@ pub fn localize_product_document(
     languages: &[Language],
     currency: &Currency,
 ) -> LocalizedProductView {
-    let mut available_titles: HashMap<Language, Title> = HashMap::with_capacity(3);
+    let mut available_titles: HashMap<Language, Title> = HashMap::with_capacity(Language::COUNT);
     available_titles.insert(
         product_document.title_native.language.into(),
         product_document.title_native.text.into(),
@@ -127,13 +128,26 @@ pub fn localize_product_document(
     if let Some(title_en) = product_document.title_en {
         available_titles.insert(Language::En, title_en.into());
     }
+    if let Some(title_fr) = product_document.title_fr {
+        available_titles.insert(Language::Fr, title_fr.into());
+    }
+    if let Some(title_es) = product_document.title_es {
+        available_titles.insert(Language::Es, title_es.into());
+    }
 
-    let mut available_descriptions: HashMap<Language, Description> = HashMap::with_capacity(3);
+    let mut available_descriptions: HashMap<Language, Description> =
+        HashMap::with_capacity(Language::COUNT);
     if let Some(description_de) = product_document.description_de {
         available_descriptions.insert(Language::De, description_de.into());
     }
     if let Some(description_en) = product_document.description_en {
         available_descriptions.insert(Language::En, description_en.into());
+    }
+    if let Some(description_fr) = product_document.description_fr {
+        available_descriptions.insert(Language::Fr, description_fr.into());
+    }
+    if let Some(description_es) = product_document.description_es {
+        available_descriptions.insert(Language::Es, description_es.into());
     }
 
     let title = Language::resolve(languages, available_titles).unwrap_or_else(|| {
@@ -438,6 +452,8 @@ mod tests {
     #[rstest::rstest]
     #[case(Language::De, "German")]
     #[case(Language::En, "English")]
+    #[case(Language::Fr, "French")]
+    #[case(Language::Es, "Spanish")]
     async fn should_respect_language(#[case] language: Language, #[case] expected: &str) {
         let mut repository = MockProductOpenSearchRepository::default();
         repository
@@ -448,8 +464,12 @@ mod tests {
                     .map(|mut product| {
                         product.title_de = Some("German".to_string());
                         product.title_en = Some("English".to_string());
+                        product.title_fr = Some("French".to_string());
+                        product.title_es = Some("Spanish".to_string());
                         product.description_de = Some("German".to_string());
                         product.description_en = Some("English".to_string());
+                        product.description_fr = Some("French".to_string());
+                        product.description_es = Some("Spanish".to_string());
                         product
                     })
                     .collect();
