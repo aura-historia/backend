@@ -450,6 +450,8 @@ mod tests {
     #[rstest::rstest]
     #[case(Language::De, "German")]
     #[case(Language::En, "English")]
+    #[case(Language::Fr, "French")]
+    #[case(Language::Es, "Spanish")]
     async fn should_respect_language(#[case] language: Language, #[case] expected: &str) {
         let mut repository = MockProductOpenSearchRepository::default();
         repository
@@ -460,8 +462,12 @@ mod tests {
                     .map(|mut product| {
                         product.title_de = Some("German".to_string());
                         product.title_en = Some("English".to_string());
+                        product.title_fr = Some("French".to_string());
+                        product.title_es = Some("Spanish".to_string());
                         product.description_de = Some("German".to_string());
                         product.description_en = Some("English".to_string());
+                        product.description_fr = Some("French".to_string());
+                        product.description_es = Some("Spanish".to_string());
                         product
                     })
                     .collect();
