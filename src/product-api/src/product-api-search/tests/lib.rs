@@ -791,6 +791,8 @@ async fn should_200_with_native_title_when_no_target_titles_exist_and_hit_due_to
     };
     document.title_de = None;
     document.title_en = None;
+    document.title_fr = None;
+    document.title_es = None;
     document.description_de = Some("Some german description that will result in a hit".to_string());
     let create_res = opensearch_repository
         .create_product_documents(vec![document])
