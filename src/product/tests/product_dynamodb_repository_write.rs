@@ -387,6 +387,10 @@ async fn should_update_product_record() {
         price_aud: None,
         price_cad: None,
         state: Some(ProductStateRecord::Sold),
+        title_de: None,
+        title_en: None,
+        description_de: None,
+        description_en: None,
         updated: now2,
         price_nzd: None,
     };
