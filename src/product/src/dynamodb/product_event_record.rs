@@ -138,29 +138,20 @@ impl TryFrom<ProductEvent> for ProductEventRecord {
 
         match domain.payload {
             ProductEventPayload::Created(payload) => {
-                let mut payload = payload;
-                payload.other_title.insert(
-                    payload.native_title.localization,
-                    payload.native_title.payload.clone(),
-                );
+                let (title_de, title_en) = match payload.native_title.localization {
+                    Language::De => (Some(payload.native_title.payload.to_string()), None),
+                    Language::En => (None, Some(payload.native_title.payload.to_string())),
+                    _ => (None, None),
+                };
 
-                let title_de = payload.other_title.remove(&Language::De).map(String::from);
-                let title_en = payload.other_title.remove(&Language::En).map(String::from);
-
-                if let Some(description_native) = payload.native_description.as_ref() {
-                    payload.other_description.insert(
-                        description_native.localization,
-                        description_native.payload.clone(),
-                    );
-                }
-                let description_de = payload
-                    .other_description
-                    .remove(&Language::De)
-                    .map(String::from);
-                let description_en = payload
-                    .other_description
-                    .remove(&Language::En)
-                    .map(String::from);
+                let (description_de, description_en) = match payload.native_description {
+                    Some(ref native_description) => match native_description.localization {
+                        Language::De => (Some(native_description.payload.to_string()), None),
+                        Language::En => (None, Some(native_description.payload.to_string())),
+                        _ => (None, None),
+                    },
+                    None => (None, None),
+                };
 
                 let record = ProductEventRecord {
                     pk,
@@ -643,22 +634,6 @@ impl TryFrom<ProductEventRecord> for ProductEvent {
             timestamp: record.timestamp,
             payload: match record.event_type {
                 ProductEventTypeRecord::Created => {
-                    let mut other_title = HashMap::with_capacity(2);
-                    if let Some(title_de) = record.title_de {
-                        other_title.insert(Language::De, title_de.into());
-                    }
-                    if let Some(title_en) = record.title_en {
-                        other_title.insert(Language::En, title_en.into());
-                    }
-
-                    let mut other_description = HashMap::with_capacity(2);
-                    if let Some(description_de) = record.description_de {
-                        other_description.insert(Language::De, description_de.into());
-                    }
-                    if let Some(description_en) = record.description_en {
-                        other_description.insert(Language::En, description_en.into());
-                    }
-
                     ProductEventPayload::Created(ProductCreatedEventPayload {
                         shop_id,
                         shops_product_id,
@@ -668,9 +643,7 @@ impl TryFrom<ProductEventRecord> for ProductEvent {
                         native_title: record.title_native.map(Localized::from).ok_or(
                             MissingPersistenceField::new(field!(title_native@ProductEventRecord)),
                         )?,
-                        other_title,
                         native_description: record.description_native.map(Localized::from),
-                        other_description,
                         native_price: record.new_price_native.map(Price::from),
                         other_price: new_other_price,
                         state: record.new_state.map(ProductState::from).ok_or(
