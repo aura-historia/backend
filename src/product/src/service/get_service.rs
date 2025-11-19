@@ -180,7 +180,7 @@ impl<'a> GetProductService for GetProductServiceImpl<'a> {
                     None
                 }
             })
-            .map(|event| localize_product_event(event, preferred_languages, currency))
+            .map(|event| localize_product_event(event, currency))
             .collect();
         product_view.history = if history { Some(event_views) } else { None };
 
@@ -325,41 +325,27 @@ fn localize_product_record(
 
 fn localize_product_event(
     event: ProductEvent,
-    preferred_languages: &[Language],
     currency: &Currency,
 ) -> Event<ProductId, LocalizedProductEventPayloadView> {
     let payload = match event.payload {
         ProductEventPayload::Created(payload) => {
-            let mut titles = payload.other_title;
-            titles.insert(
-                payload.native_title.localization,
-                payload.native_title.payload,
-            );
-            let mut descriptions = payload.other_description;
-            if let Some(native_description) = payload.native_description {
-                descriptions.insert(native_description.localization, native_description.payload);
-            }
             let mut prices = payload.other_price;
             if let Some(native_price) = payload.native_price {
                 prices.insert(native_price.currency, native_price.monetary_amount);
             }
             LocalizedProductEventPayloadView::Created(LocalizedProductCreatedEventPayloadView {
-                    shop_id: payload.shop_id,
-                    shops_product_id: payload.shops_product_id,
-                    shop_name: payload.shop_name,
-                    title: Language::resolve(preferred_languages, titles)
-                        .unwrap_or_else(|| {
-                            error!("Failed resolving title. This SHOULD be impossible because the native title always exists.");
-                            Localized::new(Language::En, "Unknown title".into())
-                        }),
-                    description: Language::resolve(preferred_languages, descriptions),
-                    price: prices
-                        .remove(currency)
-                        .map(|amount| Price::new(amount, *currency)),
-                    state: payload.state,
-                    url: payload.url,
-                    images: payload.images,
-                })
+                shop_id: payload.shop_id,
+                shops_product_id: payload.shops_product_id,
+                shop_name: payload.shop_name,
+                title: payload.native_title,
+                description: payload.native_description,
+                price: prices
+                    .remove(currency)
+                    .map(|amount| Price::new(amount, *currency)),
+                state: payload.state,
+                url: payload.url,
+                images: payload.images,
+            })
         }
         ProductEventPayload::StateListed(payload) => LocalizedProductEventPayloadView::StateListed(
             LocalizedProductStateChangeEventPayloadView {
