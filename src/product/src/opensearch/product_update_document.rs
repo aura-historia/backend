@@ -2,9 +2,10 @@ use crate::dynamodb::product_event_record::ProductEventRecord;
 use crate::opensearch::product_state_document::ProductStateDocument;
 use common::event_id::EventId;
 use serde::Serialize;
+use serde_fields::SerdeField;
 use time::OffsetDateTime;
 
-#[derive(Debug, Clone, PartialEq, Serialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, SerdeField)]
 #[serde(rename_all = "camelCase")]
 pub struct ProductUpdateDocument {
     pub event_id: EventId,
@@ -143,5 +144,21 @@ mod faker {
         fn should_fake_product_update_document() {
             let _ = Faker.fake::<ProductUpdateDocument>();
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::opensearch::{
+        product_document::ProductDocument, product_update_document::ProductUpdateDocument,
+    };
+
+    #[test]
+    fn should_be_subset_of_product_document() {
+        assert!(
+            ProductUpdateDocument::SERDE_FIELDS
+                .iter()
+                .all(|field| ProductDocument::SERDE_FIELDS.contains(field))
+        )
     }
 }

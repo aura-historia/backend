@@ -115,6 +115,7 @@ rstest = "0.26.1"
 serde = "1.0.228"
 serde_dynamo = "4.3.0"
 serde_json = "1.0.145"
+serde_fields = "0.1.0"
 serial_test = "3.2.0"
 sha2 = "0.10.9"
 aws-tests = { path = "src/aws-tests" }
