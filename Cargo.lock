@@ -4557,6 +4557,7 @@ dependencies = [
  "rstest",
  "serde",
  "serde_dynamo",
+ "serde_fields",
  "serde_json",
  "serial_test",
  "shop",

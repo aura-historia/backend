@@ -1,10 +1,11 @@
 use crate::core::shop::Shop;
 use common::{shop_id::ShopId, shop_name::ShopName};
 use serde::{Deserialize, Serialize};
+use serde_fields::SerdeField;
 use time::OffsetDateTime;
 use url::Url;
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, SerdeField)]
 #[serde(rename_all = "camelCase")]
 pub struct ShopDocument {
     pub shop_id: ShopId,
