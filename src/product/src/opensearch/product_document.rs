@@ -170,6 +170,18 @@ impl From<ProductRecord> for ProductDocument {
     }
 }
 
+impl ProductDocumentSerdeField {
+    pub fn description_fields() -> Vec<ProductDocumentSerdeField> {
+        [
+            ProductDocumentSerdeField::DescriptionDe,
+            ProductDocumentSerdeField::DescriptionEn,
+            ProductDocumentSerdeField::DescriptionFr,
+            ProductDocumentSerdeField::DescriptionEs,
+        ]
+        .into()
+    }
+}
+
 #[cfg(feature = "test-data")]
 mod faker {
     use super::*;

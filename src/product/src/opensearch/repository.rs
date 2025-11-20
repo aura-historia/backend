@@ -260,7 +260,13 @@ impl<'a> ProductOpenSearchRepository for ProductOpenSearchRepositoryImpl<'a> {
             }));
         }
 
+        let mut source_excludes = ProductDocumentSerdeField::description_fields();
+        source_excludes.push(ProductDocumentSerdeField::TextEmbedding);
+
         let mut body = json!({
+            "_source": {
+              "excludes": source_excludes
+            },
             "query": {
                 "bool": {
                     "must": must,
@@ -344,6 +350,9 @@ impl<'a> ProductOpenSearchRepository for ProductOpenSearchRepositoryImpl<'a> {
         k: u16,
     ) -> Result<SearchResponse<ProductDocument>, opensearch::Error> {
         let body = json!({
+            "_source": {
+              "excludes": ProductDocumentSerdeField::description_fields()
+            },
             "size": k,
             "query": {
               "knn": {
