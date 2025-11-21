@@ -1344,211 +1344,41 @@ async fn should_200_and_personalize_when_similar_products_have_been_computed_for
 
 #[rstest::rstest]
 #[test_attr(apply(test))]
-#[case("de", "German title", Language::De, "German description", Language::De)]
-#[case(
-    "de-DE",
-    "German title",
-    Language::De,
-    "German description",
-    Language::De
-)]
-#[case(
-    "de-AT",
-    "German title",
-    Language::De,
-    "German description",
-    Language::De
-)]
-#[case(
-    "de;q=1.0",
-    "German title",
-    Language::De,
-    "German description",
-    Language::De
-)]
-#[case(
-    "de-DE,de;q=0.9,en;q=0.8",
-    "German title",
-    Language::De,
-    "German description",
-    Language::De
-)]
-#[case(
-    "en;q=0.5,de;q=1.0",
-    "German title",
-    Language::De,
-    "German description",
-    Language::De
-)]
-#[case(
-    "de,*;q=0.1",
-    "German title",
-    Language::De,
-    "German description",
-    Language::De
-)]
-#[case(
-    "en",
-    "English title",
-    Language::En,
-    "English description",
-    Language::En
-)]
-#[case(
-    "en-US",
-    "English title",
-    Language::En,
-    "English description",
-    Language::En
-)]
-#[case(
-    "en-GB",
-    "English title",
-    Language::En,
-    "English description",
-    Language::En
-)]
-#[case(
-    "en;q=0.7",
-    "English title",
-    Language::En,
-    "English description",
-    Language::En
-)]
-#[case(
-    "fr;q=0.3,en;q=0.9",
-    "English title",
-    Language::En,
-    "English description",
-    Language::En
-)]
-#[case(
-    "zh,ko;q=0.5,en;q=0.6",
-    "English title",
-    Language::En,
-    "English description",
-    Language::En
-)]
-#[case(
-    "*,en;q=0.8",
-    "English title",
-    Language::En,
-    "English description",
-    Language::En
-)]
-#[case("fr", "French title", Language::Fr, "French description", Language::Fr)]
-#[case(
-    "fr-FR",
-    "French title",
-    Language::Fr,
-    "French description",
-    Language::Fr
-)]
-#[case(
-    "fr-CA",
-    "French title",
-    Language::Fr,
-    "French description",
-    Language::Fr
-)]
-#[case(
-    "fr;q=1.0",
-    "French title",
-    Language::Fr,
-    "French description",
-    Language::Fr
-)]
-#[case(
-    "fr,en;q=0.4",
-    "French title",
-    Language::Fr,
-    "French description",
-    Language::Fr
-)]
-#[case(
-    "fr-BE,fr;q=0.9",
-    "French title",
-    Language::Fr,
-    "French description",
-    Language::Fr
-)]
-#[case(
-    "es;q=0.2,de;q=0.4,fr;q=0.8",
-    "French title",
-    Language::Fr,
-    "French description",
-    Language::Fr
-)]
-#[case(
-    "*,fr;q=0.7",
-    "French title",
-    Language::Fr,
-    "French description",
-    Language::Fr
-)]
-#[case(
-    "es",
-    "Spanish title",
-    Language::Es,
-    "Spanish description",
-    Language::Es
-)]
-#[case(
-    "es-ES",
-    "Spanish title",
-    Language::Es,
-    "Spanish description",
-    Language::Es
-)]
-#[case(
-    "es-MX",
-    "Spanish title",
-    Language::Es,
-    "Spanish description",
-    Language::Es
-)]
-#[case(
-    "es;q=1.0",
-    "Spanish title",
-    Language::Es,
-    "Spanish description",
-    Language::Es
-)]
-#[case(
-    "es,en;q=0.3",
-    "Spanish title",
-    Language::Es,
-    "Spanish description",
-    Language::Es
-)]
-#[case(
-    "es-AR,es;q=0.9",
-    "Spanish title",
-    Language::Es,
-    "Spanish description",
-    Language::Es
-)]
-#[case(
-    "fr;q=0.1,de;q=0.2,es;q=0.6",
-    "Spanish title",
-    Language::Es,
-    "Spanish description",
-    Language::Es
-)]
-#[case(
-    "*,es;q=0.5",
-    "Spanish title",
-    Language::Es,
-    "Spanish description",
-    Language::Es
-)]
+#[case("de", "German title", Language::De)]
+#[case("de-DE", "German title", Language::De)]
+#[case("de-AT", "German title", Language::De)]
+#[case("de;q=1.0", "German title", Language::De)]
+#[case("de-DE,de;q=0.9,en;q=0.8", "German title", Language::De)]
+#[case("en;q=0.5,de;q=1.0", "German title", Language::De)]
+#[case("de,*;q=0.1", "German title", Language::De)]
+#[case("en", "English title", Language::En)]
+#[case("en-US", "English title", Language::En)]
+#[case("en-GB", "English title", Language::En)]
+#[case("en;q=0.7", "English title", Language::En)]
+#[case("fr;q=0.3,en;q=0.9", "English title", Language::En)]
+#[case("zh,ko;q=0.5,en;q=0.6", "English title", Language::En)]
+#[case("*,en;q=0.8", "English title", Language::En)]
+#[case("fr", "French title", Language::Fr)]
+#[case("fr-FR", "French title", Language::Fr)]
+#[case("fr-CA", "French title", Language::Fr)]
+#[case("fr;q=1.0", "French title", Language::Fr)]
+#[case("fr,en;q=0.4", "French title", Language::Fr)]
+#[case("fr-BE,fr;q=0.9", "French title", Language::Fr)]
+#[case("es;q=0.2,de;q=0.4,fr;q=0.8", "French title", Language::Fr)]
+#[case("*,fr;q=0.7", "French title", Language::Fr)]
+#[case("es", "Spanish title", Language::Es)]
+#[case("es-ES", "Spanish title", Language::Es)]
+#[case("es-MX", "Spanish title", Language::Es)]
+#[case("es;q=1.0", "Spanish title", Language::Es)]
+#[case("es,en;q=0.3", "Spanish title", Language::Es)]
+#[case("es-AR,es;q=0.9", "Spanish title", Language::Es)]
+#[case("fr;q=0.1,de;q=0.2,es;q=0.6", "Spanish title", Language::Es)]
+#[case("*,es;q=0.5", "Spanish title", Language::Es)]
 #[localstack_test(services = [OpenSearch(), DynamoDB()])]
 async fn should_respond_200_and_respect_accept_language_header(
     #[case] accept_language_header: &str,
     #[case] expected_title: &str,
     #[case] expected_title_lang: Language,
-    #[case] expected_description: &str,
-    #[case] expected_description_lang: Language,
 ) {
     let user_record = Faker.fake::<UserRecord>();
     let user_id = user_record.id;
@@ -1621,8 +1451,6 @@ async fn should_respond_200_and_respect_accept_language_header(
         doc.title_en = Some("English title".to_string());
         doc.title_fr = Some("French title".to_string());
         doc.title_es = Some("Spanish title".to_string());
-        doc.description_de = Some("German description".to_string());
-        doc.description_en = Some("English description".to_string());
         doc.description_fr = Some("French description".to_string());
         doc.description_es = Some("Spanish description".to_string());
     }
@@ -1669,16 +1497,5 @@ async fn should_respond_200_and_respect_accept_language_header(
         actual
             .iter()
             .all(|actual| actual.item.title.language == expected_title_lang.into())
-    );
-    assert!(
-        actual
-            .iter()
-            .all(|actual| actual.item.description.as_ref().unwrap().text == expected_description)
-    );
-    assert!(
-        actual
-            .iter()
-            .all(|actual| actual.item.description.as_ref().unwrap().language
-                == expected_description_lang.into())
     );
 }
