@@ -349,9 +349,12 @@ impl<'a> ProductOpenSearchRepository for ProductOpenSearchRepositoryImpl<'a> {
         text_embedding: &[f32],
         k: u16,
     ) -> Result<SearchResponse<ProductDocument>, opensearch::Error> {
+        let mut source_excludes = ProductDocumentSerdeField::description_fields();
+        source_excludes.push(ProductDocumentSerdeField::TextEmbedding);
+
         let body = json!({
             "_source": {
-              "excludes": ProductDocumentSerdeField::description_fields()
+              "excludes": source_excludes
             },
             "size": k,
             "query": {
