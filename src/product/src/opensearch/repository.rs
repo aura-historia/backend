@@ -1,6 +1,6 @@
 use crate::core::product_search::ProductSearch;
 use crate::core::sort_product_field::SortProductField;
-use crate::opensearch::product_document::ProductDocument;
+use crate::opensearch::product_document::{ProductDocument, ProductDocumentSerdeField};
 use crate::opensearch::product_state_document::ProductStateDocument;
 use crate::opensearch::product_update_document::ProductUpdateDocument;
 use async_trait::async_trait;
@@ -133,10 +133,22 @@ impl<'a> ProductOpenSearchRepository for ProductOpenSearchRepositoryImpl<'a> {
         let mut filter = Vec::with_capacity(10);
 
         let (title_field, description_field) = match search.language {
-            Language::De => ("titleDe", "descriptionDe"),
-            Language::En => ("titleEn", "descriptionEn"),
-            Language::Fr => ("titleFr", "descriptionFr"),
-            Language::Es => ("titleEs", "descriptionEs"),
+            Language::De => (
+                ProductDocumentSerdeField::TitleDe,
+                ProductDocumentSerdeField::DescriptionDe,
+            ),
+            Language::En => (
+                ProductDocumentSerdeField::TitleEn,
+                ProductDocumentSerdeField::DescriptionEn,
+            ),
+            Language::Fr => (
+                ProductDocumentSerdeField::TitleFr,
+                ProductDocumentSerdeField::DescriptionFr,
+            ),
+            Language::Es => (
+                ProductDocumentSerdeField::TitleEs,
+                ProductDocumentSerdeField::DescriptionEs,
+            ),
         };
         must.push(json!({
             "multi_match": {
@@ -178,18 +190,18 @@ impl<'a> ProductOpenSearchRepository for ProductOpenSearchRepositoryImpl<'a> {
                     .collect();
 
                 filter.push(json!({
-                    "terms": { "state": state_values }
+                    "terms": { ProductDocumentSerdeField::State.as_str() : state_values }
                 }));
             }
         }
 
         let price_field = match search.currency {
-            Currency::Eur => "priceEur",
-            Currency::Gbp => "priceGbp",
-            Currency::Usd => "priceUsd",
-            Currency::Aud => "priceAud",
-            Currency::Cad => "priceCad",
-            Currency::Nzd => "priceNzd",
+            Currency::Eur => ProductDocumentSerdeField::PriceEur.as_str(),
+            Currency::Gbp => ProductDocumentSerdeField::PriceGbp.as_str(),
+            Currency::Usd => ProductDocumentSerdeField::PriceUsd.as_str(),
+            Currency::Aud => ProductDocumentSerdeField::PriceAud.as_str(),
+            Currency::Cad => ProductDocumentSerdeField::PriceCad.as_str(),
+            Currency::Nzd => ProductDocumentSerdeField::PriceNzd.as_str(),
         };
         if let Some(min) = search.price_query.and_then(|price_query| price_query.min) {
             filter.push(json!({
@@ -210,7 +222,7 @@ impl<'a> ProductOpenSearchRepository for ProductOpenSearchRepositoryImpl<'a> {
                 .format(&well_known::Rfc3339)
                 .map_err(serde_json::Error::custom)?;
             filter.push(json!({
-                "range": { "created": { "gte": formatted_min } }
+                "range": { ProductDocumentSerdeField::Created.as_str() : { "gte": formatted_min } }
             }));
         }
         if let Some(max) = search
@@ -221,7 +233,7 @@ impl<'a> ProductOpenSearchRepository for ProductOpenSearchRepositoryImpl<'a> {
                 .format(&well_known::Rfc3339)
                 .map_err(serde_json::Error::custom)?;
             filter.push(json!({
-                "range": { "created": { "lte": formatted_max } }
+                "range": { ProductDocumentSerdeField::Created.as_str() : { "lte": formatted_max } }
             }));
         }
 
@@ -233,7 +245,7 @@ impl<'a> ProductOpenSearchRepository for ProductOpenSearchRepositoryImpl<'a> {
                 .format(&well_known::Rfc3339)
                 .map_err(serde_json::Error::custom)?;
             filter.push(json!({
-                "range": { "updated": { "gte": formatted_min } }
+                "range": { ProductDocumentSerdeField::Updated.as_str() : { "gte": formatted_min } }
             }));
         }
         if let Some(max) = search
@@ -244,11 +256,17 @@ impl<'a> ProductOpenSearchRepository for ProductOpenSearchRepositoryImpl<'a> {
                 .format(&well_known::Rfc3339)
                 .map_err(serde_json::Error::custom)?;
             filter.push(json!({
-                "range": { "updated": { "lte": formatted_max } }
+                "range": { ProductDocumentSerdeField::Updated.as_str() : { "lte": formatted_max } }
             }));
         }
 
+        let mut source_excludes = ProductDocumentSerdeField::description_fields();
+        source_excludes.push(ProductDocumentSerdeField::TextEmbedding);
+
         let mut body = json!({
+            "_source": {
+              "excludes": source_excludes
+            },
             "query": {
                 "bool": {
                     "must": must,
@@ -272,8 +290,8 @@ impl<'a> ProductOpenSearchRepository for ProductOpenSearchRepositoryImpl<'a> {
         let sort_field = match sort.sort {
             SortProductField::Score => "_score",
             SortProductField::Price => price_field,
-            SortProductField::Created => "created",
-            SortProductField::Updated => "updated",
+            SortProductField::Created => ProductDocumentSerdeField::Created.as_str(),
+            SortProductField::Updated => ProductDocumentSerdeField::Updated.as_str(),
         };
         let order = match sort.order {
             SortOrder::Asc => "asc",
@@ -288,7 +306,7 @@ impl<'a> ProductOpenSearchRepository for ProductOpenSearchRepositoryImpl<'a> {
             "sort".to_string(),
             json!([
                 primary_sort,
-                { "productId": { "order": "asc" } } // tie-breaker
+                { ProductDocumentSerdeField::ProductId.as_str() : { "order": "asc" } } // tie-breaker
             ]),
         );
 
@@ -331,11 +349,17 @@ impl<'a> ProductOpenSearchRepository for ProductOpenSearchRepositoryImpl<'a> {
         text_embedding: &[f32],
         k: u16,
     ) -> Result<SearchResponse<ProductDocument>, opensearch::Error> {
+        let mut source_excludes = ProductDocumentSerdeField::description_fields();
+        source_excludes.push(ProductDocumentSerdeField::TextEmbedding);
+
         let body = json!({
+            "_source": {
+              "excludes": source_excludes
+            },
             "size": k,
             "query": {
               "knn": {
-                "textEmbedding": {
+                ProductDocumentSerdeField::TextEmbedding.as_str() : {
                   "vector": text_embedding,
                   "k": k,
                 }

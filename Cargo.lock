@@ -1072,6 +1072,15 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "c2459377285ad874054d797f3ccebf984978aa39129f6eafde5cdc8315b612f8"
 
 [[package]]
+name = "convert_case"
+version = "0.9.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "db05ffb6856bf0ecdf6367558a76a0e8a77b1713044eb92845c692100ed50190"
+dependencies = [
+ "unicode-segmentation",
+]
+
+[[package]]
 name = "core-foundation"
 version = "0.9.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2992,6 +3001,7 @@ dependencies = [
  "rstest",
  "serde",
  "serde_dynamo",
+ "serde_fields",
  "serde_json",
  "serial_test",
  "shop",
@@ -4120,6 +4130,7 @@ dependencies = [
  "search-filter",
  "serde",
  "serde_dynamo",
+ "serde_fields",
  "serde_json",
  "serial_test",
  "test-api",
@@ -4374,6 +4385,18 @@ dependencies = [
 ]
 
 [[package]]
+name = "serde_fields"
+version = "0.1.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "e02a470e7382541efccf6be9bde0f528ec07626cc016d7885c91cc8587ff3396"
+dependencies = [
+ "convert_case",
+ "proc-macro2",
+ "quote",
+ "syn",
+]
+
+[[package]]
 name = "serde_json"
 version = "1.0.145"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -4534,6 +4557,7 @@ dependencies = [
  "rstest",
  "serde",
  "serde_dynamo",
+ "serde_fields",
  "serde_json",
  "serial_test",
  "shop",
@@ -5366,6 +5390,12 @@ name = "unicode-ident"
 version = "1.0.18"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "5a5f39404a5da50712a4c1eecf25e90dd62b613502b7e925fd4e4d19b5c96512"
+
+[[package]]
+name = "unicode-segmentation"
+version = "1.12.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "f6ccf251212114b54433ec949fd6a7841275f9ada20dddd2f29e9ceea4501493"
 
 [[package]]
 name = "unindent"

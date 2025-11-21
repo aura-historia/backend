@@ -10,10 +10,11 @@ use common::shops_product_id::ShopsProductId;
 use common::{event_id::EventId, has_key::HasKey};
 use field::field;
 use serde::{Deserialize, Serialize};
+use serde_fields::SerdeField;
 use time::OffsetDateTime;
 use url::Url;
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, SerdeField)]
 #[serde(rename_all = "camelCase")]
 pub struct ProductDocument {
     pub product_id: ProductId,
@@ -166,6 +167,18 @@ impl From<ProductRecord> for ProductDocument {
             created: record.created,
             updated: record.updated,
         }
+    }
+}
+
+impl ProductDocumentSerdeField {
+    pub fn description_fields() -> Vec<ProductDocumentSerdeField> {
+        [
+            ProductDocumentSerdeField::DescriptionDe,
+            ProductDocumentSerdeField::DescriptionEn,
+            ProductDocumentSerdeField::DescriptionFr,
+            ProductDocumentSerdeField::DescriptionEs,
+        ]
+        .into()
     }
 }
 

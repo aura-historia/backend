@@ -11,10 +11,11 @@ use common::{
     user_id::UserId,
 };
 use serde::{Deserialize, Serialize};
+use serde_fields::SerdeField;
 use std::collections::HashMap;
 use time::OffsetDateTime;
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, SerdeField)]
 pub struct WatchlistProductRecordUpdate {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub gsi1_pk: Option<String>,

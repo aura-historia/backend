@@ -8,6 +8,7 @@ common = { workspace = true }
 time = { workspace = true, features = ["local-offset", "macros", "formatting"] }
 thiserror = { workspace = true }
 serde = { workspace = true }
+serde_fields = { workspace = true }
 uuid = { workspace = true, features = ["v7"] }
 mockall = { workspace = true }
 async-trait = { workspace = true }

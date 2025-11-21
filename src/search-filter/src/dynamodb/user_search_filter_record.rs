@@ -11,10 +11,11 @@ use common::{
 use product::core::product_search::ProductSearch;
 use product::dynamodb::product_state_record::ProductStateRecord;
 use serde::{Deserialize, Serialize};
+use serde_fields::SerdeField;
 use std::collections::HashSet;
 use time::OffsetDateTime;
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, SerdeField)]
 pub struct UserSearchFilterRecord {
     pub pk: String,
     pub sk: String,

@@ -5,10 +5,11 @@ use common::query::text_query::TextQuery;
 use common::{currency::record::CurrencyRecord, language::record::LanguageRecord};
 use product::dynamodb::product_state_record::ProductStateRecord;
 use serde::{Deserialize, Serialize};
+use serde_fields::SerdeField;
 use std::collections::HashSet;
 use time::OffsetDateTime;
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, SerdeField)]
 pub struct UserSearchFilterRecordUpdate {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub name: Option<UserSearchFilterName>,
@@ -73,5 +74,22 @@ mod fake {
                 updated: OffsetDateTime::now_utc(),
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::dynamodb::{
+        user_search_filter_record::UserSearchFilterRecord,
+        user_search_filter_record_update::UserSearchFilterRecordUpdate,
+    };
+
+    #[test]
+    fn should_be_subset_of_user_search_filter_record() {
+        assert!(
+            UserSearchFilterRecordUpdate::SERDE_FIELDS
+                .iter()
+                .all(|field| UserSearchFilterRecord::SERDE_FIELDS.contains(field))
+        )
     }
 }

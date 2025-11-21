@@ -4,9 +4,10 @@ use common::dynamodb_update::DynamoDbUpdate;
 use common::event_id::EventId;
 use common::price::record::PriceRecord;
 use serde::Serialize;
+use serde_fields::SerdeField;
 use time::OffsetDateTime;
 
-#[derive(Debug, Clone, PartialEq, Serialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, SerdeField)]
 pub struct ProductRecordUpdate {
     pub event_id: EventId,
 
@@ -148,5 +149,21 @@ mod faker {
         fn should_fake_product_record_update() {
             let _ = Faker.fake::<ProductRecordUpdate>();
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::dynamodb::{
+        product_record::ProductRecord, product_update_record::ProductRecordUpdate,
+    };
+
+    #[test]
+    fn should_be_subset_of_product_record() {
+        assert!(
+            ProductRecordUpdate::SERDE_FIELDS
+                .iter()
+                .all(|field| ProductRecord::SERDE_FIELDS.contains(field))
+        )
     }
 }

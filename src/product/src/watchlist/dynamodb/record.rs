@@ -3,10 +3,11 @@ use common::{
     product_id::ProductId, shop_id::ShopId, shops_product_id::ShopsProductId, user_id::UserId,
 };
 use serde::{Deserialize, Serialize};
+use serde_fields::SerdeField;
 use time::{OffsetDateTime, error::Format, format_description::well_known::Rfc3339};
 use user::dynamodb::user_record::UserRecord;
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, SerdeField)]
 pub struct WatchlistProductRecord {
     pub pk: String,
 
@@ -138,5 +139,21 @@ mod faker {
         fn should_fake_watchlist_product_record() {
             let _ = Faker.fake::<WatchlistProductRecord>();
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::watchlist::dynamodb::{
+        record::WatchlistProductRecord, record_update::WatchlistProductRecordUpdate,
+    };
+
+    #[test]
+    fn should_be_subset_of_watchlist_record() {
+        assert!(
+            WatchlistProductRecordUpdate::SERDE_FIELDS
+                .iter()
+                .all(|field| WatchlistProductRecord::SERDE_FIELDS.contains(field))
+        )
     }
 }

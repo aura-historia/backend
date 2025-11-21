@@ -256,10 +256,10 @@ async fn should_search_product_documents() {
         title_en: Some("Baz".to_string()),
         title_fr: Some("Bat".to_string()),
         title_es: None,
-        description_de: Some("Lorem ipsum dolor sit amet".to_string()),
-        description_en: Some("Lorem ipsum dolor sit amet".to_string()),
-        description_fr: Some("Lorem ipsum dolor sit amet".to_string()),
-        description_es: Some("Lorem ipsum dolor sit amet".to_string()),
+        description_de: None,
+        description_en: None,
+        description_fr: None,
+        description_es: None,
         price_eur: Some(99),
         price_usd: None,
         price_gbp: None,
@@ -305,6 +305,88 @@ async fn should_search_product_documents() {
         )
         .await
         .unwrap();
+
+    assert_eq!(
+        vec![expected],
+        response
+            .hits
+            .hits
+            .into_iter()
+            .map(|hit| hit.source)
+            .collect::<Vec<_>>()
+    )
+}
+
+#[localstack_test(services = [OpenSearch()])]
+async fn should_omit_descriptions_in_response_for_search_product_documents() {
+    let mut expected = ProductDocument {
+        product_id: Default::default(),
+        event_id: Default::default(),
+        shop_id: Default::default(),
+        shops_product_id: ShopsProductId::from("abcdefgh"),
+        shop_name: "Foo".to_string(),
+        title_native: TextDocument {
+            text: "Foo".to_string(),
+            language: LanguageDocument::Fr,
+        },
+        title_de: Some("Hallo Welt".to_string()),
+        title_en: Some("Baz".to_string()),
+        title_fr: Some("Bat".to_string()),
+        title_es: None,
+        description_de: Some("Hallo Welt".to_string()),
+        description_en: Some("Baz".to_string()),
+        description_fr: Some("Bat".to_string()),
+        description_es: None,
+        price_eur: Some(99),
+        price_usd: None,
+        price_gbp: None,
+        price_aud: None,
+        price_cad: None,
+        price_nzd: None,
+        state: ProductStateDocument::Available,
+        url: Url::parse("https://foo.com/bar").unwrap(),
+        images: vec![Url::parse("https://foo.com/bar").unwrap()],
+        text_embedding: None,
+        created: OffsetDateTime::now_utc(),
+        updated: OffsetDateTime::now_utc(),
+    };
+    let client = get_opensearch_client().await;
+    let repository = ProductOpenSearchRepositoryImpl::new(client);
+    let response = repository
+        .create_product_documents(vec![expected.clone()])
+        .await
+        .unwrap();
+    assert!(!response.errors);
+    refresh_index("products").await;
+
+    tokio::time::sleep(Duration::from_millis(3000)).await;
+
+    let search_filter = ProductSearch {
+        language: Language::De,
+        currency: Currency::Eur,
+        product_query: "Hallo Welt".try_into().unwrap(),
+        shop_name_query: None,
+        price_query: None,
+        state_query: Default::default(),
+        created_query: None,
+        updated_query: None,
+    };
+    let response = repository
+        .search_product_documents(
+            &search_filter,
+            &Sort {
+                sort: SortProductField::Score,
+                order: SortOrder::Desc,
+            },
+            &None,
+        )
+        .await
+        .unwrap();
+
+    expected.description_de = None;
+    expected.description_en = None;
+    expected.description_fr = None;
+    expected.description_es = None;
 
     assert_eq!(
         vec![expected],
@@ -374,7 +456,7 @@ async fn should_search_product_documents_when_all_arguments_are_given() {
 #[case(&[ProductState::Reserved, ProductState::Listed, ProductState::Removed])]
 #[localstack_test(services = [OpenSearch()])]
 async fn should_search_product_documents_when_states_are_given(#[case] states: &[ProductState]) {
-    let items = fake::vec![ProductDocument; 3000]
+    let products = fake::vec![ProductDocument; 3000]
         .into_iter()
         .map(|mut item| {
             item.title_de = Some("The same title".into());
@@ -384,7 +466,7 @@ async fn should_search_product_documents_when_states_are_given(#[case] states: &
     let client = get_opensearch_client().await;
     let repository = ProductOpenSearchRepositoryImpl::new(client);
     let response = repository
-        .create_product_documents(items.clone())
+        .create_product_documents(products.clone())
         .await
         .unwrap();
     assert!(!response.errors);
@@ -485,15 +567,23 @@ async fn should_search_product_documents_when_price_range_is_given(
         .map(|mut product| {
             product.title_de = Some("The same title".into());
             product.price_eur = Some(rand::random_range(150..=1000));
+            product.description_de = None;
+            product.description_en = None;
+            product.description_fr = None;
+            product.description_es = None;
             product
         })
         .collect::<Vec<_>>();
     let expensive_products = fake::vec![ProductDocument; 50]
         .into_iter()
-        .map(|mut item| {
-            item.title_de = Some("The same title".into());
-            item.price_eur = Some(rand::random_range(1500..=20000));
-            item
+        .map(|mut product| {
+            product.title_de = Some("The same title".into());
+            product.price_eur = Some(rand::random_range(1500..=20000));
+            product.description_de = None;
+            product.description_en = None;
+            product.description_fr = None;
+            product.description_es = None;
+            product
         })
         .collect::<Vec<_>>();
     let products = [cheap_products, expensive_products].concat();
@@ -561,18 +651,22 @@ async fn should_search_product_documents_when_price_range_is_given(
 
 #[localstack_test(services = [OpenSearch()])]
 async fn should_search_product_documents_respecting_paging_when_sorted_by_price() {
-    let items = fake::vec![ProductDocument; 1000]
+    let products = fake::vec![ProductDocument; 1000]
         .into_iter()
         .map(|mut product| {
             product.title_en = Some("The same title".into());
             product.price_usd = Some(rand::random_range(1500..=20000));
+            product.description_de = None;
+            product.description_en = None;
+            product.description_fr = None;
+            product.description_es = None;
             product
         })
         .collect::<Vec<_>>();
     let client = get_opensearch_client().await;
     let repository = ProductOpenSearchRepositoryImpl::new(client);
     let response = repository
-        .create_product_documents(items.clone())
+        .create_product_documents(products.clone())
         .await
         .unwrap();
     assert!(!response.errors);
@@ -619,7 +713,7 @@ async fn should_search_product_documents_respecting_paging_when_sorted_by_price(
     };
     actual_items.sort_by(sorter);
 
-    let mut expected_products = items;
+    let mut expected_products = products;
     expected_products.sort_by(sorter);
     let expected_products = expected_products.into_iter().take(17).collect::<Vec<_>>();
 
@@ -630,10 +724,14 @@ async fn should_search_product_documents_respecting_paging_when_sorted_by_price(
 async fn should_search_product_documents_respecting_search_after_when_sorted_by_price() {
     let mut expected_products = fake::vec![ProductDocument; 200]
         .into_iter()
-        .map(|mut item| {
-            item.title_en = Some("The same title".into());
-            item.price_usd = Some(rand::random_range(1500..=20000));
-            item
+        .map(|mut product| {
+            product.title_en = Some("The same title".into());
+            product.price_usd = Some(rand::random_range(1500..=20000));
+            product.description_de = None;
+            product.description_en = None;
+            product.description_fr = None;
+            product.description_es = None;
+            product
         })
         .collect::<Vec<_>>();
     let client = get_opensearch_client().await;

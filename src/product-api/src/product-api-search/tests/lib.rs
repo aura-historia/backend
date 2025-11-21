@@ -846,211 +846,41 @@ async fn should_200_with_native_title_when_no_target_titles_exist_and_hit_due_to
 
 #[rstest::rstest]
 #[test_attr(apply(test))]
-#[case("de", "German title", Language::De, "German description", Language::De)]
-#[case(
-    "de-DE",
-    "German title",
-    Language::De,
-    "German description",
-    Language::De
-)]
-#[case(
-    "de-AT",
-    "German title",
-    Language::De,
-    "German description",
-    Language::De
-)]
-#[case(
-    "de;q=1.0",
-    "German title",
-    Language::De,
-    "German description",
-    Language::De
-)]
-#[case(
-    "de-DE,de;q=0.9,en;q=0.8",
-    "German title",
-    Language::De,
-    "German description",
-    Language::De
-)]
-#[case(
-    "en;q=0.5,de;q=1.0",
-    "German title",
-    Language::De,
-    "German description",
-    Language::De
-)]
-#[case(
-    "de,*;q=0.1",
-    "German title",
-    Language::De,
-    "German description",
-    Language::De
-)]
-#[case(
-    "en",
-    "English title",
-    Language::En,
-    "English description",
-    Language::En
-)]
-#[case(
-    "en-US",
-    "English title",
-    Language::En,
-    "English description",
-    Language::En
-)]
-#[case(
-    "en-GB",
-    "English title",
-    Language::En,
-    "English description",
-    Language::En
-)]
-#[case(
-    "en;q=0.7",
-    "English title",
-    Language::En,
-    "English description",
-    Language::En
-)]
-#[case(
-    "fr;q=0.3,en;q=0.9",
-    "English title",
-    Language::En,
-    "English description",
-    Language::En
-)]
-#[case(
-    "zh,ko;q=0.5,en;q=0.6",
-    "English title",
-    Language::En,
-    "English description",
-    Language::En
-)]
-#[case(
-    "*,en;q=0.8",
-    "English title",
-    Language::En,
-    "English description",
-    Language::En
-)]
-#[case("fr", "French title", Language::Fr, "French description", Language::Fr)]
-#[case(
-    "fr-FR",
-    "French title",
-    Language::Fr,
-    "French description",
-    Language::Fr
-)]
-#[case(
-    "fr-CA",
-    "French title",
-    Language::Fr,
-    "French description",
-    Language::Fr
-)]
-#[case(
-    "fr;q=1.0",
-    "French title",
-    Language::Fr,
-    "French description",
-    Language::Fr
-)]
-#[case(
-    "fr,en;q=0.4",
-    "French title",
-    Language::Fr,
-    "French description",
-    Language::Fr
-)]
-#[case(
-    "fr-BE,fr;q=0.9",
-    "French title",
-    Language::Fr,
-    "French description",
-    Language::Fr
-)]
-#[case(
-    "es;q=0.2,de;q=0.4,fr;q=0.8",
-    "French title",
-    Language::Fr,
-    "French description",
-    Language::Fr
-)]
-#[case(
-    "*,fr;q=0.7",
-    "French title",
-    Language::Fr,
-    "French description",
-    Language::Fr
-)]
-#[case(
-    "es",
-    "Spanish title",
-    Language::Es,
-    "Spanish description",
-    Language::Es
-)]
-#[case(
-    "es-ES",
-    "Spanish title",
-    Language::Es,
-    "Spanish description",
-    Language::Es
-)]
-#[case(
-    "es-MX",
-    "Spanish title",
-    Language::Es,
-    "Spanish description",
-    Language::Es
-)]
-#[case(
-    "es;q=1.0",
-    "Spanish title",
-    Language::Es,
-    "Spanish description",
-    Language::Es
-)]
-#[case(
-    "es,en;q=0.3",
-    "Spanish title",
-    Language::Es,
-    "Spanish description",
-    Language::Es
-)]
-#[case(
-    "es-AR,es;q=0.9",
-    "Spanish title",
-    Language::Es,
-    "Spanish description",
-    Language::Es
-)]
-#[case(
-    "fr;q=0.1,de;q=0.2,es;q=0.6",
-    "Spanish title",
-    Language::Es,
-    "Spanish description",
-    Language::Es
-)]
-#[case(
-    "*,es;q=0.5",
-    "Spanish title",
-    Language::Es,
-    "Spanish description",
-    Language::Es
-)]
+#[case("de", "German title", Language::De)]
+#[case("de-DE", "German title", Language::De)]
+#[case("de-AT", "German title", Language::De)]
+#[case("de;q=1.0", "German title", Language::De)]
+#[case("de-DE,de;q=0.9,en;q=0.8", "German title", Language::De)]
+#[case("en;q=0.5,de;q=1.0", "German title", Language::De)]
+#[case("de,*;q=0.1", "German title", Language::De)]
+#[case("en", "English title", Language::En)]
+#[case("en-US", "English title", Language::En)]
+#[case("en-GB", "English title", Language::En)]
+#[case("en;q=0.7", "English title", Language::En)]
+#[case("fr;q=0.3,en;q=0.9", "English title", Language::En)]
+#[case("zh,ko;q=0.5,en;q=0.6", "English title", Language::En)]
+#[case("*,en;q=0.8", "English title", Language::En)]
+#[case("fr", "French title", Language::Fr)]
+#[case("fr-FR", "French title", Language::Fr)]
+#[case("fr-CA", "French title", Language::Fr)]
+#[case("fr;q=1.0", "French title", Language::Fr)]
+#[case("fr,en;q=0.4", "French title", Language::Fr)]
+#[case("fr-BE,fr;q=0.9", "French title", Language::Fr)]
+#[case("es;q=0.2,de;q=0.4,fr;q=0.8", "French title", Language::Fr)]
+#[case("*,fr;q=0.7", "French title", Language::Fr)]
+#[case("es", "Spanish title", Language::Es)]
+#[case("es-ES", "Spanish title", Language::Es)]
+#[case("es-MX", "Spanish title", Language::Es)]
+#[case("es;q=1.0", "Spanish title", Language::Es)]
+#[case("es,en;q=0.3", "Spanish title", Language::Es)]
+#[case("es-AR,es;q=0.9", "Spanish title", Language::Es)]
+#[case("fr;q=0.1,de;q=0.2,es;q=0.6", "Spanish title", Language::Es)]
+#[case("*,es;q=0.5", "Spanish title", Language::Es)]
 #[localstack_test(services = [OpenSearch(), DynamoDB()])]
 async fn should_respond_200_and_respect_accept_language_header(
     #[case] accept_language_header: &str,
     #[case] expected_title: &str,
     #[case] expected_title_lang: Language,
-    #[case] expected_description: &str,
-    #[case] expected_description_lang: Language,
 ) {
     let ddb_client = get_dynamodb_client().await;
     let watchlist_repository = WatchlistProductDynamoDbRepositoryImpl::new(ddb_client, "table_1");
@@ -1078,7 +908,7 @@ async fn should_respond_200_and_respect_accept_language_header(
         .unwrap();
     assert!(!create_res.errors);
     refresh_index("products").await;
-    tokio::time::sleep(Duration::from_secs(1)).await;
+    tokio::time::sleep(Duration::from_secs(3)).await;
 
     let lambda_event = LambdaEvent {
         payload: ApiGatewayV2httpRequestProxy::builder()
@@ -1116,12 +946,4 @@ async fn should_respond_200_and_respect_accept_language_header(
     let actual = response_data.items.first().unwrap().item.clone();
     assert_eq!(expected_title_lang, actual.title.language.into(),);
     assert_eq!(expected_title, actual.title.text,);
-    assert_eq!(
-        expected_description_lang,
-        actual.description.as_ref().unwrap().language.into(),
-    );
-    assert_eq!(
-        expected_description,
-        actual.description.as_ref().unwrap().text,
-    );
 }

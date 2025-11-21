@@ -16,11 +16,12 @@ use common::shop_id::ShopId;
 use common::shops_product_id::ShopsProductId;
 use field::field;
 use serde::{Deserialize, Serialize};
+use serde_fields::SerdeField;
 use std::collections::HashMap;
 use time::OffsetDateTime;
 use url::Url;
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, SerdeField)]
 pub struct ProductRecord {
     pub pk: String,
     pub sk: String,

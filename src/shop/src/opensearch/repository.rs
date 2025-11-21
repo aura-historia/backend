@@ -1,4 +1,5 @@
 use crate::core::sort_shop_field::SortShopField;
+use crate::opensearch::shop_document::ShopDocumentSerdeField;
 use crate::opensearch::{shop_document::ShopDocument, shop_search::ShopSearch};
 use common::{
     opensearch::{index_response::IndexResponse, search_response::SearchResponse},
@@ -87,7 +88,7 @@ impl<'a> ShopOpenSearchRepository for ShopOpenSearchRepositoryImpl<'a> {
                 .format(&well_known::Rfc3339)
                 .map_err(serde_json::Error::custom)?;
             filter.push(json!({
-                "range": { "created": { "gte": formatted_min } }
+                "range": { ShopDocumentSerdeField::Created.as_str() : { "gte": formatted_min } }
             }));
         }
         if let Some(max) = search.created.and_then(|created| created.max) {
@@ -95,7 +96,7 @@ impl<'a> ShopOpenSearchRepository for ShopOpenSearchRepositoryImpl<'a> {
                 .format(&well_known::Rfc3339)
                 .map_err(serde_json::Error::custom)?;
             filter.push(json!({
-                "range": { "created": { "lte": formatted_max } }
+                "range": { ShopDocumentSerdeField::Created.as_str() : { "lte": formatted_max } }
             }));
         }
 
@@ -104,7 +105,7 @@ impl<'a> ShopOpenSearchRepository for ShopOpenSearchRepositoryImpl<'a> {
                 .format(&well_known::Rfc3339)
                 .map_err(serde_json::Error::custom)?;
             filter.push(json!({
-                "range": { "updated": { "gte": formatted_min } }
+                "range": { ShopDocumentSerdeField::Updated.as_str() : { "gte": formatted_min } }
             }));
         }
         if let Some(max) = search.updated.and_then(|updated| updated.max) {
@@ -112,7 +113,7 @@ impl<'a> ShopOpenSearchRepository for ShopOpenSearchRepositoryImpl<'a> {
                 .format(&well_known::Rfc3339)
                 .map_err(serde_json::Error::custom)?;
             filter.push(json!({
-                "range": { "updated": { "lte": formatted_max } }
+                "range": { ShopDocumentSerdeField::Updated.as_str() : { "lte": formatted_max } }
             }));
         }
 
@@ -140,8 +141,8 @@ impl<'a> ShopOpenSearchRepository for ShopOpenSearchRepositoryImpl<'a> {
         let sort_field = match sort.sort {
             SortShopField::Score => "_score",
             SortShopField::Name => "name.keyword",
-            SortShopField::Created => "created",
-            SortShopField::Updated => "updated",
+            SortShopField::Created => ShopDocumentSerdeField::Created.as_str(),
+            SortShopField::Updated => ShopDocumentSerdeField::Updated.as_str(),
         };
         let order = match sort.order {
             SortOrder::Asc => "asc",
@@ -156,7 +157,7 @@ impl<'a> ShopOpenSearchRepository for ShopOpenSearchRepositoryImpl<'a> {
             "sort".to_string(),
             json!([
                 primary_sort,
-                { "shopId": { "order": "asc" } } // tie-breaker
+                { ShopDocumentSerdeField::ShopId.as_str() : { "order": "asc" } } // tie-breaker
             ]),
         );
 
