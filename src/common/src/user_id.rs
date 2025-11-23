@@ -71,14 +71,14 @@ pub mod api {
             .ok_or_else(|| {
                 ApiError::unauthorized(UNAUTHORIZED)
                     .with_header_field("Authorization")
-                    .with_message("Missing authorizer-information in request-context.")
+                    .with_detail("Missing authorizer-information in request-context.")
             })?
             .jwt
             .as_ref()
             .ok_or_else(|| {
                 ApiError::unauthorized(UNAUTHORIZED)
                     .with_header_field("Authorization")
-                    .with_message("Missing JWT.")
+                    .with_detail("Missing JWT.")
             })?
             .claims
             .get("sub")

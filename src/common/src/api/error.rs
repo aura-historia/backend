@@ -9,14 +9,14 @@ use tracing::{error, warn};
 #[derive(Debug, Serialize)]
 pub struct ApiError {
     pub status: u16,
-
+    pub title: &'static str,
     pub error: ApiErrorCode,
 
     #[serde(skip_serializing_if = "Option::is_none")]
     pub source: Option<ApiErrorSource>,
 
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub message: Option<String>,
+    pub detail: Option<String>,
 
     #[serde(skip)]
     pub cause: Option<Box<dyn Error>>,
@@ -25,7 +25,7 @@ pub struct ApiError {
 impl std::fmt::Display for ApiError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "HTTP {} - {}", self.status, self.error)?;
-        if let Some(msg) = &self.message {
+        if let Some(msg) = &self.detail {
             write!(f, ": {msg}")?;
         }
         if let Some(cause) = &self.cause {
@@ -38,12 +38,13 @@ impl std::fmt::Display for ApiError {
 impl Error for ApiError {}
 
 impl ApiError {
-    pub fn new(status: StatusCode, error: ApiErrorCode) -> Self {
+    pub fn new(status: StatusCode, title: &'static str, error: ApiErrorCode) -> Self {
         ApiError {
             status: status.as_u16(),
+            title,
             error,
             source: None,
-            message: None,
+            detail: None,
             cause: None,
         }
     }
@@ -89,45 +90,60 @@ impl ApiError {
         self
     }
 
-    pub fn with_message(mut self, msg: impl Into<String>) -> Self {
-        self.message = Some(msg.into());
+    pub fn with_detail(mut self, msg: impl Into<String>) -> Self {
+        self.detail = Some(msg.into());
         self
     }
 
     pub fn bad_request(error: ApiErrorCode, cause: Box<dyn Error>) -> Self {
-        Self::new(StatusCode::BAD_REQUEST, error).with_cause(cause)
+        Self::new(StatusCode::BAD_REQUEST, "Bad Request", error).with_cause(cause)
     }
 
     pub fn unauthorized(error: ApiErrorCode) -> Self {
-        Self::new(StatusCode::UNAUTHORIZED, error)
+        Self::new(StatusCode::UNAUTHORIZED, "Unauthorized", error)
     }
 
     pub fn forbidden(error: ApiErrorCode) -> Self {
-        Self::new(StatusCode::FORBIDDEN, error)
+        Self::new(StatusCode::FORBIDDEN, "Forbidden", error)
     }
 
     pub fn not_found(error: ApiErrorCode, cause: Box<dyn Error>) -> Self {
-        Self::new(StatusCode::NOT_FOUND, error).with_cause(cause)
+        Self::new(StatusCode::NOT_FOUND, "Not Found", error).with_cause(cause)
     }
 
     pub fn conflict(error: ApiErrorCode, cause: Box<dyn Error>) -> Self {
-        Self::new(StatusCode::CONFLICT, error).with_cause(cause)
+        Self::new(StatusCode::CONFLICT, "Conflict", error).with_cause(cause)
     }
 
     pub fn unprocessable_entity(error: ApiErrorCode, cause: Box<dyn Error>) -> Self {
-        Self::new(StatusCode::UNPROCESSABLE_ENTITY, error).with_cause(cause)
+        Self::new(
+            StatusCode::UNPROCESSABLE_ENTITY,
+            "Unprocessable Content",
+            error,
+        )
+        .with_cause(cause)
     }
 
     pub fn internal_server_error(error: ApiErrorCode, cause: Box<dyn Error>) -> Self {
-        Self::new(StatusCode::INTERNAL_SERVER_ERROR, error).with_cause(cause)
+        Self::new(
+            StatusCode::INTERNAL_SERVER_ERROR,
+            "Internal Server Error",
+            error,
+        )
+        .with_cause(cause)
     }
 
     pub fn service_unavailable(error: ApiErrorCode, cause: Box<dyn Error>) -> Self {
-        Self::new(StatusCode::SERVICE_UNAVAILABLE, error).with_cause(cause)
+        Self::new(
+            StatusCode::SERVICE_UNAVAILABLE,
+            "Service Unavailable",
+            error,
+        )
+        .with_cause(cause)
     }
 
     pub fn gateway_time_out(error: ApiErrorCode, cause: Box<dyn Error>) -> Self {
-        Self::new(StatusCode::GATEWAY_TIMEOUT, error).with_cause(cause)
+        Self::new(StatusCode::GATEWAY_TIMEOUT, "Gateway Timeout", error).with_cause(cause)
     }
 
     pub fn is4xx(&self) -> bool {
@@ -141,7 +157,8 @@ impl ApiError {
 
 impl From<ApiError> for ApiGatewayV2httpResponse {
     fn from(api_error: ApiError) -> Self {
-        ApiGatewayV2HttpResponseBuilder::json(api_error.status.into())
+        ApiGatewayV2HttpResponseBuilder::new(api_error.status.into())
+            .content_type("application/problem+json")
             .body(serde_json::to_string(&api_error).unwrap())
             .build()
     }
@@ -212,20 +229,37 @@ pub mod dynamodb {
 pub mod tests {
     use crate::api::error::{ApiError, ApiErrorSource, ApiErrorSourceType};
     use crate::api::error_code::*;
+    use aws_lambda_events::apigw::ApiGatewayV2httpResponse;
+    use http::header::CONTENT_TYPE;
     use serde::ser::Error;
     use serde_json::{Value, json};
 
+    #[test]
+    fn should_have_content_type_application_problem_json() {
+        let error = ApiError::bad_request(BAD_REQUEST, Box::new(serde_json::Error::custom("foo")));
+        let apigw_response = ApiGatewayV2httpResponse::from(error);
+        assert_eq!(
+            "application/problem+json",
+            apigw_response
+                .headers
+                .get(CONTENT_TYPE)
+                .unwrap()
+                .to_str()
+                .unwrap()
+        );
+    }
+
     #[rstest::rstest]
-    #[case::bad_request(ApiError::bad_request(BAD_REQUEST, Box::new(serde_json::Error::custom("foo"))), json!({ "status": 400, "error": "BAD_REQUEST" }))]
-    #[case::bad_request_msg(ApiError::bad_request(BAD_REQUEST, Box::new(serde_json::Error::custom("foo"))).with_message("foo"), json!({ "status": 400, "error": "BAD_REQUEST", "message": "foo" }))]
-    #[case::unauthorized(ApiError::unauthorized(UNAUTHORIZED), json!({ "status": 401, "error": "UNAUTHORIZED" }))]
-    #[case::forbidden(ApiError::forbidden(FORBIDDEN), json!({ "status": 403, "error": "FORBIDDEN" }))]
-    #[case::not_found(ApiError::not_found(NOT_FOUND, Box::new(serde_json::Error::custom("foo"))), json!({ "status": 404, "error": "NOT_FOUND" }))]
-    #[case::conflict(ApiError::conflict(CONFLICT, Box::new(serde_json::Error::custom("foo"))), json!({ "status": 409, "error": "CONFLICT" }))]
-    #[case::unprocessable_entity(ApiError::unprocessable_entity(UNPROCESSABLE_ENTITY, Box::new(serde_json::Error::custom("foo"))), json!({ "status": 422, "error": "UNPROCESSABLE_ENTITY" }))]
-    #[case::internal_server_error(ApiError::internal_server_error(INTERNAL_SERVER_ERROR, Box::new(serde_json::Error::custom("foo"))), json!({ "status": 500, "error": "INTERNAL_SERVER_ERROR" }))]
-    #[case::service_unavailable(ApiError::service_unavailable(SERVICE_UNAVAILABLE, Box::new(serde_json::Error::custom("foo"))), json!({ "status": 503, "error": "SERVICE_UNAVAILABLE" }))]
-    #[case::gateway_timeout(ApiError::gateway_time_out(GATEWAY_TIMEOUT, Box::new(serde_json::Error::custom("foo"))), json!({ "status": 504, "error": "GATEWAY_TIMEOUT" }))]
+    #[case::bad_request(ApiError::bad_request(BAD_REQUEST, Box::new(serde_json::Error::custom("foo"))), json!({ "status": 400, "title": "Bad Request", "error": "BAD_REQUEST" }))]
+    #[case::bad_request_msg(ApiError::bad_request(BAD_REQUEST, Box::new(serde_json::Error::custom("foo"))).with_detail("foo"), json!({ "status": 400, "error": "BAD_REQUEST", "title": "Bad Request", "detail": "foo" }))]
+    #[case::unauthorized(ApiError::unauthorized(UNAUTHORIZED), json!({ "status": 401, "error": "UNAUTHORIZED", "title": "Unauthorized" }))]
+    #[case::forbidden(ApiError::forbidden(FORBIDDEN), json!({ "status": 403, "title": "Forbidden", "error": "FORBIDDEN" }))]
+    #[case::not_found(ApiError::not_found(NOT_FOUND, Box::new(serde_json::Error::custom("foo"))), json!({ "status": 404, "title": "Not Found", "error": "NOT_FOUND" }))]
+    #[case::conflict(ApiError::conflict(CONFLICT, Box::new(serde_json::Error::custom("foo"))), json!({ "status": 409, "title": "Conflict", "error": "CONFLICT" }))]
+    #[case::unprocessable_entity(ApiError::unprocessable_entity(UNPROCESSABLE_ENTITY, Box::new(serde_json::Error::custom("foo"))), json!({ "status": 422, "title": "Unprocessable Content", "error": "UNPROCESSABLE_ENTITY" }))]
+    #[case::internal_server_error(ApiError::internal_server_error(INTERNAL_SERVER_ERROR, Box::new(serde_json::Error::custom("foo"))), json!({ "status": 500, "title": "Internal Server Error", "error": "INTERNAL_SERVER_ERROR" }))]
+    #[case::service_unavailable(ApiError::service_unavailable(SERVICE_UNAVAILABLE, Box::new(serde_json::Error::custom("foo"))), json!({ "status": 503, "title": "Service Unavailable", "error": "SERVICE_UNAVAILABLE" }))]
+    #[case::gateway_timeout(ApiError::gateway_time_out(GATEWAY_TIMEOUT, Box::new(serde_json::Error::custom("foo"))), json!({ "status": 504, "title": "Gateway Timeout", "error": "GATEWAY_TIMEOUT" }))]
     fn should_serialize_api_error(#[case] error: ApiError, #[case] expected: Value) {
         let actual = serde_json::to_value(error).unwrap();
         assert_eq!(expected, actual);
@@ -240,6 +274,7 @@ pub mod tests {
             json,
             json!({
                 "status": 400,
+                "title": "Bad Request",
                 "error": "BAD_REQUEST",
                 "source": {
                     "field": "limit",
@@ -257,6 +292,7 @@ pub mod tests {
             json,
             json!({
                 "status": 401,
+                "title": "Unauthorized",
                 "error": "UNAUTHORIZED",
                 "source": {
                     "field": "Authorization",
@@ -275,6 +311,7 @@ pub mod tests {
             json,
             json!({
                 "status": 404,
+                "title": "Not Found",
                 "error": "NOT_FOUND",
                 "source": {
                     "field": "user_id",
@@ -295,6 +332,7 @@ pub mod tests {
         assert_eq!(
             json,
             json!({
+                "title": "Unprocessable Content",
                 "status": 422,
                 "error": "UNPROCESSABLE_ENTITY",
                 "source": {
@@ -318,6 +356,7 @@ pub mod tests {
             json,
             json!({
                 "status": 400,
+                "title": "Bad Request",
                 "error": "BAD_REQUEST",
                 "source": {
                     "field": "x-custom-header",
@@ -330,15 +369,16 @@ pub mod tests {
     #[test]
     fn should_serialize_api_error_with_message_and_source() {
         let error = ApiError::bad_request(BAD_REQUEST, Box::new(serde_json::Error::custom("foo")))
-            .with_message("Invalid format")
+            .with_detail("Invalid format")
             .with_body_field("username");
         let json = serde_json::to_value(error).unwrap();
         assert_eq!(
             json,
             json!({
                 "status": 400,
+                "title": "Bad Request",
                 "error": "BAD_REQUEST",
-                "message": "Invalid format",
+                "detail": "Invalid format",
                 "source": {
                     "field": "username",
                     "type": "BODY"

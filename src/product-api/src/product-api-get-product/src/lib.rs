@@ -123,7 +123,7 @@ fn extract_history_query(query: &QueryMap) -> Result<bool, ApiError> {
                 Err(
                     ApiError::bad_request(BAD_QUERY_PARAMETER_VALUE, err_msg.as_str().into())
                         .with_query_field("history")
-                        .with_message(err_msg),
+                        .with_detail(err_msg),
                 )
             }
         })

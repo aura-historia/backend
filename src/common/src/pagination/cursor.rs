@@ -69,7 +69,7 @@ pub mod api {
                 let msg = err.to_string();
                 ApiError::bad_request(INVALID_RFC3339_TIMESTAMP, Box::new(err))
                     .with_query_field("searchAfter")
-                    .with_message(msg)
+                    .with_detail(msg)
             })?;
         let size = query
             .first("size")
@@ -80,7 +80,7 @@ pub mod api {
                 let msg = err.to_string();
                 ApiError::bad_request(BAD_PAGE_SIZE_VALUE, Box::new(err))
                     .with_query_field("size")
-                    .with_message(msg)
+                    .with_detail(msg)
             })?
             .map(|size| size.min(100));
 
@@ -114,7 +114,7 @@ pub mod api {
                         let msg = format!("Failed parsing '{el_str}' as JSON-Value: {err}",);
                         ApiError::bad_request(INVALID_JSON, Box::new(err))
                             .with_query_field("searchAfter")
-                            .with_message(msg)
+                            .with_detail(msg)
                     })?;
                     acc.push(el);
                     Ok(acc)
@@ -128,7 +128,7 @@ pub mod api {
                     let msg = format!("Failed parsing 'searchAfter' as JSON-Array: {err}",);
                     ApiError::bad_request(INVALID_JSON, Box::new(err))
                         .with_query_field("searchAfter")
-                        .with_message(msg)
+                        .with_detail(msg)
                 })?;
                 Some(search_after)
             }
@@ -142,7 +142,7 @@ pub mod api {
                 let msg = err.to_string();
                 ApiError::bad_request(BAD_PAGE_SIZE_VALUE, Box::new(err))
                     .with_query_field("size")
-                    .with_message(msg)
+                    .with_detail(msg)
             })?
             .map(|size| size.min(100));
 

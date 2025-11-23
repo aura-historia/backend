@@ -58,13 +58,13 @@ pub async fn handle(
             let err_msg = "Parameter 'userSearchFilterId' cannot be empty.";
             ApiError::bad_request(BAD_PATH_PARAMETER_VALUE, err_msg.into())
                 .with_path_field("userSearchFilterId")
-                .with_message(err_msg)
+                .with_detail(err_msg)
         })?
         .map_err(|err| {
             let err_msg = err.to_string();
             ApiError::bad_request(INVALID_UUID, Box::new(err))
                 .with_path_field("userSearchFilterId")
-                .with_message(err_msg)
+                .with_detail(err_msg)
         })?;
 
     let user_search_filter_data: UserSearchFilterData = service

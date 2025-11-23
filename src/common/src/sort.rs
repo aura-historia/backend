@@ -74,7 +74,7 @@ pub mod api {
                 let err_msg: String = err.into();
                 ApiError::bad_request(BAD_SORT_VALUE, err_msg.as_str().into())
                     .with_query_field("sort")
-                    .with_message(err_msg)
+                    .with_detail(err_msg)
             })?;
         let order = headers
             .first("order")
@@ -84,7 +84,7 @@ pub mod api {
             .map_err(|err_msg| {
                 ApiError::bad_request(BAD_ORDER_VALUE, err_msg.as_str().into())
                     .with_query_field("order")
-                    .with_message(err_msg)
+                    .with_detail(err_msg)
             })?;
 
         if let Some(sort) = sort

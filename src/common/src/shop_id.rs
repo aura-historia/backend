@@ -116,7 +116,7 @@ pub mod api {
                 let msg = err.to_string();
                 ApiError::bad_request(INVALID_UUID, Box::new(err))
                     .with_path_field("shopId")
-                    .with_message(msg)
+                    .with_detail(msg)
             })?
             .ok_or(
                 ApiError::bad_request(
@@ -124,7 +124,7 @@ pub mod api {
                     Box::new(MissingRequiredField::new("shopId")),
                 )
                 .with_path_field("shopId")
-                .with_message("Missing field 'shopId'."),
+                .with_detail("Missing field 'shopId'."),
             )
     }
 }

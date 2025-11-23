@@ -112,12 +112,12 @@ pub async fn handle(
         .filter(|str| !str.is_empty())
         .ok_or_else(|| {
             let err_msg = "Body cannot be empty";
-            ApiError::bad_request(BAD_BODY_VALUE, err_msg.into()).with_message(err_msg)
+            ApiError::bad_request(BAD_BODY_VALUE, err_msg.into()).with_detail(err_msg)
         })?;
     let products_data: PutCollectionData<PutProductData> =
         serde_json::from_str(&body).map_err(|err| {
             let err_msg = err.to_string();
-            ApiError::bad_request(BAD_BODY_VALUE, Box::new(err)).with_message(err_msg)
+            ApiError::bad_request(BAD_BODY_VALUE, Box::new(err)).with_detail(err_msg)
         })?;
 
     let commands = products_data
