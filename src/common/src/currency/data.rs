@@ -58,7 +58,7 @@ pub mod api {
                     let msg = err.to_string();
                     ApiError::bad_request(BAD_QUERY_PARAMETER_VALUE, Box::new(err))
                         .with_query_field("currency")
-                        .with_message(msg)
+                        .with_detail(msg)
                 })
             })
             .transpose()?

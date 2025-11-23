@@ -115,7 +115,7 @@ pub mod api {
                     let msg = err.to_string();
                     ApiError::bad_request(BAD_HEADER_VALUE, Box::new(err))
                         .with_header_field(ACCEPT_LANGUAGE.as_str())
-                        .with_message(msg)
+                        .with_detail(msg)
                 })
             })
             .transpose()?
@@ -150,7 +150,7 @@ pub mod api {
                     let msg = err.to_string();
                     ApiError::bad_request(BAD_QUERY_PARAMETER_VALUE, Box::new(err))
                         .with_query_field("language")
-                        .with_message(msg)
+                        .with_detail(msg)
                 })
             })
             .transpose()?

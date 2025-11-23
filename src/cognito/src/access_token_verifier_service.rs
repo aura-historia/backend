@@ -41,7 +41,7 @@ impl From<AccessTokenVerifierError> for ApiError {
                 let msg = err.to_string();
                 ApiError::bad_request(BAD_HEADER_VALUE, Box::new(value))
                     .with_header_field(AUTHORIZATION.as_str())
-                    .with_message(msg)
+                    .with_detail(msg)
             }
             AccessTokenVerifierError::JwtCognito(_) => {
                 ApiError::internal_server_error(INTERNAL_SERVER_ERROR, Box::new(value))
@@ -55,10 +55,10 @@ impl From<AccessTokenVerifierError> for ApiError {
             AccessTokenVerifierError::MissingClaim(claim) => {
                 ApiError::bad_request(BAD_HEADER_VALUE, Box::new(value))
                     .with_header_field(AUTHORIZATION.as_str())
-                    .with_message(format!("Missing claim '{claim}'."))
+                    .with_detail(format!("Missing claim '{claim}'."))
             }
             AccessTokenVerifierError::InvalidUuid(claim, _) => {
-                ApiError::bad_request(INVALID_UUID, Box::new(value)).with_message(format!(
+                ApiError::bad_request(INVALID_UUID, Box::new(value)).with_detail(format!(
                     "String-Value for decoded claim '{claim}' is not a valid UUID."
                 ))
             }

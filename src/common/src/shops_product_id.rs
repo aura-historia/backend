@@ -71,7 +71,7 @@ pub mod api {
                     Box::new(MissingRequiredField::new("shopsProductId")),
                 )
                 .with_path_field("shopsProductId")
-                .with_message("Missing field 'shopsProductId'."),
+                .with_detail("Missing field 'shopsProductId'."),
             )
     }
 }

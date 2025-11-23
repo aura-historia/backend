@@ -62,7 +62,7 @@ pub mod api {
                 let msg = err.to_string();
                 ApiError::bad_request(BAD_PAGE_FROM_VALUE, Box::new(err))
                     .with_query_field("from")
-                    .with_message(msg)
+                    .with_detail(msg)
             })?;
         let size = headers
             .first("size")
@@ -73,7 +73,7 @@ pub mod api {
                 let msg = err.to_string();
                 ApiError::bad_request(BAD_PAGE_SIZE_VALUE, Box::new(err))
                     .with_query_field("size")
-                    .with_message(msg)
+                    .with_detail(msg)
             })?
             .map(|size| size.min(100));
 

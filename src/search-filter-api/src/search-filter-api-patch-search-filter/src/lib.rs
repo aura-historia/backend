@@ -62,13 +62,13 @@ pub async fn handle(
             let err_msg = "Parameter 'userSearchFilterId' cannot be empty.";
             ApiError::bad_request(BAD_PATH_PARAMETER_VALUE, err_msg.into())
                 .with_path_field("userSearchFilterId")
-                .with_message(err_msg)
+                .with_detail(err_msg)
         })?
         .map_err(|err| {
             let err_msg = err.to_string();
             ApiError::bad_request(INVALID_UUID, Box::new(err))
                 .with_path_field("userSearchFilterId")
-                .with_message(err_msg)
+                .with_detail(err_msg)
         })?;
     let body = event.payload.body;
 
@@ -76,7 +76,7 @@ pub async fn handle(
         Some(body) if !body.is_empty() => {
             let patch: PatchUserSearchFilterData = serde_json::from_str(&body).map_err(|err| {
                 let err_msg = err.to_string();
-                ApiError::bad_request(BAD_BODY_VALUE, Box::new(err)).with_message(err_msg)
+                ApiError::bad_request(BAD_BODY_VALUE, Box::new(err)).with_detail(err_msg)
             })?;
             let update: UserSearchFilterUpdate = patch.into();
             if update.is_empty() {
