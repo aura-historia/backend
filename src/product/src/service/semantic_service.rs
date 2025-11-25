@@ -22,7 +22,7 @@ pub enum SemanticSearchProductsError {
     OpenSearchError(#[from] opensearch::Error),
 
     #[error("Encountered DynamoDB SdkError for GetItem: {0}")]
-    SdkGetProductError(#[from] SdkError<aws_sdk_dynamodb::operation::get_item::GetItemError>),
+    SdkGetItemError(#[from] SdkError<aws_sdk_dynamodb::operation::get_item::GetItemError>),
 }
 
 #[cfg(feature = "data")]
@@ -40,7 +40,7 @@ pub mod api {
                 SemanticSearchProductsError::OpenSearchError(_) => {
                     ApiError::internal_server_error(INTERNAL_SERVER_ERROR, Box::new(err))
                 }
-                SemanticSearchProductsError::SdkGetProductError(sdk_error) => sdk_error.into(),
+                SemanticSearchProductsError::SdkGetItemError(sdk_error) => sdk_error.into(),
             }
         }
     }
@@ -394,11 +394,9 @@ mod tests {
             .similar_products(&Faker.fake(), &Faker.fake(), &[Faker.fake()], &Faker.fake())
             .await;
         match actual.unwrap_err() {
-            SemanticSearchProductsError::SdkGetProductError(_) => {}
+            SemanticSearchProductsError::SdkGetItemError(_) => {}
             other => {
-                panic!(
-                    "Expected 'SemanticSearchProductsError::SdkGetProductError' but got '{other}'"
-                )
+                panic!("Expected 'SemanticSearchProductsError::SdkGetItemError' but got '{other}'")
             }
         }
     }

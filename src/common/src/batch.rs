@@ -11,7 +11,16 @@ pub enum BatchConstructionError<const N: usize> {
     BatchSizeExceeded(usize),
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Ord, PartialOrd)]
+impl<const N: usize> BatchConstructionError<N> {
+    pub fn erroneous_size(&self) -> usize {
+        match self {
+            BatchConstructionError::BatchEmpty => 0usize,
+            BatchConstructionError::BatchSizeExceeded(size) => *size,
+        }
+    }
+}
+
+#[derive(Error, Debug, Clone, PartialEq, Eq)]
 pub struct Batch<T, const N: usize>(Vec<T>);
 
 impl<T, const N: usize> Batch<T, N> {
@@ -231,6 +240,32 @@ pub mod sqs {
                     }
                 })
                 .collect_vec()
+        }
+    }
+}
+
+#[cfg(feature = "test-data")]
+mod faker {
+    use super::*;
+    use fake::{Dummy, Faker, Rng};
+
+    impl<T: Dummy<Faker>, const N: usize> Dummy<Faker> for Batch<T, N> {
+        fn dummy_with_rng<R: Rng + ?Sized>(_config: &Faker, rng: &mut R) -> Self {
+            let count = rng.random_range(1..=N);
+            Batch(fake::vec![T; count])
+        }
+    }
+
+    #[cfg(test)]
+    mod tests {
+        use crate::batch::Batch;
+        use fake::{Fake, Faker};
+
+        #[test]
+        fn should_fake_batch() {
+            let actual = Faker.fake::<Batch<String, 25>>();
+            assert!(!actual.is_empty());
+            assert!(actual.len() <= 25);
         }
     }
 }

@@ -14,7 +14,7 @@ pub enum UserServiceError {
     UserExistsAlready(UserId),
 
     #[error("Encountered DynamoDB SdkError for GetItem: {0}")]
-    SdkGetProductError(
+    SdkGetItemError(
         #[from] SdkError<aws_sdk_dynamodb::operation::get_item::GetItemError, HttpResponse>,
     ),
 
@@ -139,8 +139,8 @@ mod tests {
 
             assert!(actual.is_err());
             match actual.unwrap_err() {
-                UserServiceError::SdkGetProductError(_) => {}
-                _ => panic!("expected UserServiceError::SdkGetProductError"),
+                UserServiceError::SdkGetItemError(_) => {}
+                _ => panic!("expected UserServiceError::SdkGetItemError"),
             }
         }
     }
@@ -207,8 +207,8 @@ mod tests {
 
             assert!(actual.is_err());
             match actual.unwrap_err() {
-                UserServiceError::SdkGetProductError(_) => {}
-                _ => panic!("expected UserServiceError::SdkGetProductError"),
+                UserServiceError::SdkGetItemError(_) => {}
+                _ => panic!("expected UserServiceError::SdkGetItemError"),
             }
         }
 

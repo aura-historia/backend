@@ -3,6 +3,7 @@ use std::fmt::{self, Display, Formatter};
 use url::Url;
 use uuid::Uuid;
 
+#[cfg_attr(feature = "test-data", derive(fake::Dummy))]
 #[derive(Debug, Clone, PartialEq, PartialOrd, Eq, Ord, Hash)]
 pub enum ShopIdentifier {
     ShopId(ShopId),

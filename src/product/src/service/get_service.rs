@@ -35,12 +35,12 @@ pub enum GetProductError {
     MonetaryAmountOverflowError(#[from] MonetaryAmountOverflowError),
 
     #[error("Encountered DynamoDB SdkError for GetItem: {0}")]
-    SdkGetProductError(
+    SdkGetItemError(
         #[from] SdkError<aws_sdk_dynamodb::operation::get_item::GetItemError, HttpResponse>,
     ),
 
     #[error("Encountered DynamoDB SdkError for BatchGetItem: {0}")]
-    SdkBatchGetProductError(
+    SdkBatchGetItemError(
         #[from]
         SdkError<aws_sdk_dynamodb::operation::batch_get_item::BatchGetItemError, HttpResponse>,
     ),
@@ -69,8 +69,8 @@ pub mod api {
                 GetProductError::MonetaryAmountOverflowError(_) => {
                     ApiError::internal_server_error(MONETARY_AMOUNT_OVERFLOW, Box::new(err))
                 }
-                GetProductError::SdkGetProductError(err) => err.into(),
-                GetProductError::SdkBatchGetProductError(err) => err.into(),
+                GetProductError::SdkGetItemError(err) => err.into(),
+                GetProductError::SdkBatchGetItemError(err) => err.into(),
                 GetProductError::SdkQueryError(err) => err.into(),
                 GetProductError::UnprocessedAfterMaxRetries(_) => {
                     ApiError::service_unavailable(UNPROCESSED_AFTER_MAX_RETRIES, Box::new(err))
@@ -588,7 +588,7 @@ mod tests {
 
             assert!(actual.is_err());
             match actual.unwrap_err() {
-                GetProductError::SdkGetProductError(_) => {}
+                GetProductError::SdkGetItemError(_) => {}
                 _ => panic!("expected GetProductError::ProductNotFound"),
             }
         }
@@ -1020,7 +1020,7 @@ mod tests {
 
             assert!(actual.is_err());
             match actual.unwrap_err() {
-                GetProductError::SdkGetProductError(_) => {}
+                GetProductError::SdkGetItemError(_) => {}
                 _ => panic!("expected GetProductError::ProductNotFound"),
             }
         }
@@ -1123,8 +1123,8 @@ mod tests {
 
             assert!(actual.is_err());
             match actual.unwrap_err() {
-                GetProductError::SdkBatchGetProductError(_) => {}
-                _ => panic!("expected GetProductError::SdkBatchGetProductError"),
+                GetProductError::SdkBatchGetItemError(_) => {}
+                _ => panic!("expected GetProductError::SdkBatchGetItemError"),
             }
         }
     }

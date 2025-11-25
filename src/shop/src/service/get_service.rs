@@ -16,12 +16,12 @@ pub enum GetShopError {
     ShopNotFound(ShopId),
 
     #[error("Encountered DynamoDB SdkError for GetItem: {0}")]
-    SdkGetProductError(
+    SdkGetItemError(
         #[from] SdkError<aws_sdk_dynamodb::operation::get_item::GetItemError, HttpResponse>,
     ),
 
     #[error("Encountered DynamoDB SdkError for BatchGetItem: {0}")]
-    SdkBatchGetProductError(
+    SdkBatchGetItemError(
         #[from]
         SdkError<aws_sdk_dynamodb::operation::batch_get_item::BatchGetItemError, HttpResponse>,
     ),
@@ -40,8 +40,8 @@ pub mod api {
         fn from(err: GetShopError) -> Self {
             match err {
                 GetShopError::ShopNotFound(_) => ApiError::not_found(SHOP_NOT_FOUND, Box::new(err)),
-                GetShopError::SdkGetProductError(err) => err.into(),
-                GetShopError::SdkBatchGetProductError(err) => err.into(),
+                GetShopError::SdkGetItemError(err) => err.into(),
+                GetShopError::SdkBatchGetItemError(err) => err.into(),
                 GetShopError::UnprocessedAfterMaxRetries(_) => {
                     ApiError::service_unavailable(UNPROCESSED_AFTER_MAX_RETRIES, Box::new(err))
                 }
@@ -211,7 +211,7 @@ mod tests {
 
         assert!(actual.is_err());
         match actual.unwrap_err() {
-            GetShopError::SdkGetProductError(_) => {}
+            GetShopError::SdkGetItemError(_) => {}
             _ => panic!("expected GetShopError::ShopNotFound"),
         }
     }

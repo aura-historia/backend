@@ -1,5 +1,8 @@
 use serde::{Deserialize, Serialize};
-use std::ops::Deref;
+use std::{
+    fmt::{Display, Formatter},
+    ops::Deref,
+};
 
 #[cfg_attr(feature = "test-data", derive(fake::Dummy))]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -10,6 +13,12 @@ pub struct ShopName(
     )]
     String,
 );
+
+impl Display for ShopName {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", self.0)
+    }
+}
 
 impl From<&str> for ShopName {
     fn from(s: &str) -> Self {

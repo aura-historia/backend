@@ -130,7 +130,7 @@ async fn should_succeed_transact_write_shop_records_when_none_with_differing_sho
 }
 
 #[localstack_test(services = [DynamoDB()])]
-async fn should_succeed_transact_write_shop_records_when_some_with_differing_shop_id_exist() {
+async fn should_fail_transact_write_shop_records_when_some_with_differing_shop_id_exist() {
     let repository = get_repository().await;
 
     let records =

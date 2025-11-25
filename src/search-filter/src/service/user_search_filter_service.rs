@@ -14,7 +14,7 @@ pub enum UserSearchFilterError {
     UserSearchFilterNotFound(UserId, UserSearchFilterId),
 
     #[error("Encountered DynamoDB SdkError for GetItem: {0}")]
-    SdkGetProductError(
+    SdkGetItemError(
         #[from] SdkError<aws_sdk_dynamodb::operation::get_item::GetItemError, HttpResponse>,
     ),
 
@@ -49,7 +49,7 @@ pub mod api {
                 UserSearchFilterError::UserSearchFilterNotFound(_, _) => {
                     ApiError::not_found(SEARCH_FILTER_NOT_FOUND, Box::new(err))
                 }
-                UserSearchFilterError::SdkGetProductError(err) => err.into(),
+                UserSearchFilterError::SdkGetItemError(err) => err.into(),
                 UserSearchFilterError::SdkQueryError(err) => err.into(),
                 UserSearchFilterError::SdkPutItemError(err) => err.into(),
                 UserSearchFilterError::SdkDeleteItemError(err) => err.into(),
@@ -365,8 +365,8 @@ mod tests {
 
             assert!(actual.is_err());
             match actual.unwrap_err() {
-                UserSearchFilterError::SdkGetProductError(_) => {}
-                _ => panic!("expected SearchFilterError::SdkGetProductError"),
+                UserSearchFilterError::SdkGetItemError(_) => {}
+                _ => panic!("expected SearchFilterError::SdkGetItemError"),
             }
         }
     }
@@ -530,8 +530,8 @@ mod tests {
 
             assert!(actual.is_err());
             match actual.unwrap_err() {
-                UserSearchFilterError::SdkGetProductError(_) => {}
-                _ => panic!("expected SearchFilterError::SdkGetProductError"),
+                UserSearchFilterError::SdkGetItemError(_) => {}
+                _ => panic!("expected SearchFilterError::SdkGetItemError"),
             }
         }
 
@@ -668,8 +668,8 @@ mod tests {
 
             assert!(actual.is_err());
             match actual.unwrap_err() {
-                UserSearchFilterError::SdkGetProductError(_) => {}
-                _ => panic!("expected SearchFilterError::SdkGetProductError"),
+                UserSearchFilterError::SdkGetItemError(_) => {}
+                _ => panic!("expected SearchFilterError::SdkGetItemError"),
             }
         }
 
