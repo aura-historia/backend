@@ -1,3 +1,5 @@
+use std::collections::HashSet;
+
 use common::{shop_id::ShopId, shop_name::ShopName};
 use time::OffsetDateTime;
 use url::Url;
@@ -6,7 +8,7 @@ use url::Url;
 pub struct Shop {
     pub shop_id: ShopId,
     pub name: ShopName,
-    pub urls: Vec<Url>,
+    pub urls: HashSet<Url>,
     pub image: Option<Url>,
     pub created: OffsetDateTime,
     pub updated: OffsetDateTime,
@@ -22,13 +24,12 @@ mod faker {
             Shop {
                 shop_id: config.fake_with_rng(rng),
                 name: config.fake_with_rng(rng),
-                urls: vec![
-                    Url::parse(&format!(
-                        "https://www.{}.com/",
-                        config.fake_with_rng::<String, R>(rng)
-                    ))
-                    .unwrap(),
-                ],
+                urls: [Url::parse(&format!(
+                    "https://www.{}.com/",
+                    config.fake_with_rng::<String, R>(rng)
+                ))
+                .unwrap()]
+                .into(),
                 image: config.fake_with_rng(rng),
                 created: OffsetDateTime::now_utc(),
                 updated: OffsetDateTime::now_utc(),
