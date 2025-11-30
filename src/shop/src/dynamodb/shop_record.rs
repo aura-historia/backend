@@ -81,6 +81,18 @@ impl ShopRecord {
             })
             .collect()
     }
+
+    pub fn shop_identifiers(&self) -> HashSet<ShopIdentifier> {
+        let mut shop_identifiers: HashSet<ShopIdentifier> = self
+            .urls
+            .iter()
+            .cloned()
+            .map(ShopIdentifier::from)
+            .collect();
+        shop_identifiers.insert(ShopIdentifier::from(self.shop_id));
+
+        shop_identifiers
+    }
 }
 
 impl From<ShopRecord> for Shop {

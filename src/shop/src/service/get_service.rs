@@ -12,7 +12,7 @@ use tracing::error;
 #[derive(thiserror::Error, Debug)]
 #[allow(clippy::large_enum_variant)]
 pub enum GetShopError {
-    #[error("Shop with id '{0}'")]
+    #[error("Shop with id '{0}' not found")]
     ShopNotFound(ShopId),
 
     #[error("Encountered DynamoDB SdkError for GetItem: {0}")]
