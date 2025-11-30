@@ -5,4 +5,5 @@ edition = "2024"
 
 [dependencies]
 shop-api-get-shop = { workspace = true }
+shop-api-post-shop = { workspace = true }
 shop-api-search = { workspace = true }
