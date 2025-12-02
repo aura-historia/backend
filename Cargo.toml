@@ -102,7 +102,7 @@ product-lambda-update-notify-user = { path = "src/product-lambda/src/product-lam
 itertools = "0.14.0"
 lambda_runtime = "0.14.4"
 libc = "0.2.177"
-mockall = "0.13.1"
+mockall = "0.14.0"
 opensearch = { version = "2.3.0", default-features = false, features = [
     "aws-auth",
     "rustls-tls",
