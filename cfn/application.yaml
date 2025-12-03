@@ -472,6 +472,7 @@ Resources:
           - "http://localhost:3000"
           - "https://aura-historia.com"
           - "https://dev.aura-historia.com"
+          - "https://*.bitter-frog-5102.workers.dev"
         AllowMethods:
           - GET
           - POST
