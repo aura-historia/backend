@@ -101,7 +101,7 @@ product-lambda-ingest-events-dynamodb = { path = "src/product-lambda/src/product
 product-lambda-update-notify-user = { path = "src/product-lambda/src/product-lambda-update-notify-user" }
 itertools = "0.14.0"
 lambda_runtime = "1.0.1"
-libc = "0.2.177"
+libc = "0.2.178"
 mockall = "0.14.0"
 opensearch = { version = "2.3.0", default-features = false, features = [
     "aws-auth",
