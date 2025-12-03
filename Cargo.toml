@@ -70,6 +70,7 @@ search-filter-api-post-search-filter = { path = "src/search-filter-api/src/searc
 shop = { path = "src/shop" }
 shop-api = { path = "src/shop-api" }
 shop-api-get-shop = { path = "src/shop-api/src/shop-api-get-shop" }
+shop-api-patch-shop = { path = "src/shop-api/src/shop-api-patch-shop" }
 shop-api-post-shop = { path = "src/shop-api/src/shop-api-post-shop" }
 shop-api-search = { path = "src/shop-api/src/shop-api-search" }
 mail = { path = "src/mail" }
