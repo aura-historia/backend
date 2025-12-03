@@ -25,6 +25,25 @@ env:
     || github.ref == 'refs/heads/develop' && 'staging' }}
 
 jobs:
+  cfn-lint:
+    name: Lint CloudFormation
+    permissions:
+      contents: read
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install cfn-lint
+        run: pip install cfn-lint==1.42.0
+
+      - name: Run cfn-lint
+        run: cfn-lint --non-zero-exit-code error cfn/application.yaml
+
   lint:
     name: Lint Workspace
     permissions:
