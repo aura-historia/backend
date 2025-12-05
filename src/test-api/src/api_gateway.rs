@@ -104,20 +104,18 @@ pub struct ApiGatewayV2httpRequestProxy {
                             jwt.claims.insert(key.into(), value.into());
                         },
                         None => {
-                            authorizer.jwt = Some(ApiGatewayRequestAuthorizerJwtDescription {
-                                claims: HashMap::from_iter([(key.into(), value.into())]),
-                                scopes: None
-                            });
+                            let mut jwt = ApiGatewayRequestAuthorizerJwtDescription::default();
+                            jwt.claims = HashMap::from_iter([(key.into(), value.into())]);
+                            authorizer.jwt = Some(jwt);
                         },
                     },
-                    None => self.request_context.authorizer = Some(ApiGatewayRequestAuthorizer {
-                        jwt: Some(ApiGatewayRequestAuthorizerJwtDescription {
-                            claims: HashMap::from_iter([(key.into(), value.into())]),
-                            scopes: None
-                        }),
-                        fields: Default::default(),
-                        iam: None
-                    })
+                    None => {
+                        let mut jwt = ApiGatewayRequestAuthorizerJwtDescription::default();
+                        jwt.claims = HashMap::from_iter([(key.into(), value.into())]);
+                        let mut authorizer = ApiGatewayRequestAuthorizer::default();
+                        authorizer.jwt = Some(jwt);
+                        self.request_context.authorizer = Some(authorizer);
+                    }
                 };
             }
 
@@ -151,25 +149,25 @@ pub struct ApiGatewayV2httpRequestProxy {
 
 impl From<ApiGatewayV2httpRequestProxy> for ApiGatewayV2httpRequest {
     fn from(val: ApiGatewayV2httpRequestProxy) -> Self {
-        ApiGatewayV2httpRequest {
-            kind: val.kind,
-            method_arn: val.method_arn,
-            http_method: val.http_method,
-            identity_source: val.identity_source,
-            authorization_token: val.authorization_token,
-            resource: val.resource,
-            version: val.version,
-            route_key: val.route_key,
-            raw_path: val.raw_path,
-            raw_query_string: val.raw_query_string,
-            cookies: val.cookies,
-            headers: val.headers,
-            query_string_parameters: val.query_string_parameters,
-            path_parameters: val.path_parameters,
-            request_context: val.request_context,
-            stage_variables: val.stage_variables,
-            body: val.body,
-            is_base64_encoded: val.is_base64_encoded,
-        }
+        let mut request = ApiGatewayV2httpRequest::default();
+        request.kind = val.kind;
+        request.method_arn = val.method_arn;
+        request.http_method = val.http_method;
+        request.identity_source = val.identity_source;
+        request.authorization_token = val.authorization_token;
+        request.resource = val.resource;
+        request.version = val.version;
+        request.route_key = val.route_key;
+        request.raw_path = val.raw_path;
+        request.raw_query_string = val.raw_query_string;
+        request.cookies = val.cookies;
+        request.headers = val.headers;
+        request.query_string_parameters = val.query_string_parameters;
+        request.path_parameters = val.path_parameters;
+        request.request_context = val.request_context;
+        request.stage_variables = val.stage_variables;
+        request.body = val.body;
+        request.is_base64_encoded = val.is_base64_encoded;
+        request
     }
 }

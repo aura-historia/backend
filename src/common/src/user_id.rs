@@ -105,30 +105,37 @@ pub mod api {
         use std::collections::HashMap;
         use uuid::Uuid;
 
+        fn create_jwt_description_with_claims(
+            claims: HashMap<String, String>,
+        ) -> ApiGatewayRequestAuthorizerJwtDescription {
+            let mut jwt = ApiGatewayRequestAuthorizerJwtDescription::default();
+            jwt.claims = claims;
+            jwt
+        }
+
+        fn create_authorizer_with_jwt(
+            jwt: Option<ApiGatewayRequestAuthorizerJwtDescription>,
+        ) -> ApiGatewayRequestAuthorizer {
+            let mut authorizer = ApiGatewayRequestAuthorizer::default();
+            authorizer.jwt = jwt;
+            authorizer
+        }
+
+        fn create_request_context_with_authorizer(
+            authorizer: Option<ApiGatewayRequestAuthorizer>,
+        ) -> ApiGatewayV2httpRequestContext {
+            let mut ctx = ApiGatewayV2httpRequestContext::default();
+            ctx.authorizer = authorizer;
+            ctx
+        }
+
         #[test]
         fn should_extract_user_id() {
             let expected = Uuid::new_v4();
-            let request_context = ApiGatewayV2httpRequestContext {
-                route_key: Default::default(),
-                account_id: Default::default(),
-                stage: Default::default(),
-                request_id: Default::default(),
-                authorizer: Some(ApiGatewayRequestAuthorizer {
-                    jwt: Some(ApiGatewayRequestAuthorizerJwtDescription {
-                        claims: HashMap::from([("sub".to_string(), expected.to_string())]),
-                        scopes: None,
-                    }),
-                    fields: Default::default(),
-                    iam: None,
-                }),
-                apiid: Default::default(),
-                domain_name: Default::default(),
-                domain_prefix: Default::default(),
-                time: Default::default(),
-                time_epoch: Default::default(),
-                http: Default::default(),
-                authentication: Default::default(),
-            };
+            let claims = HashMap::from([("sub".to_string(), expected.to_string())]);
+            let jwt = create_jwt_description_with_claims(claims);
+            let authorizer = create_authorizer_with_jwt(Some(jwt));
+            let request_context = create_request_context_with_authorizer(Some(authorizer));
 
             let actual = extract_user_id_request_context(&request_context).unwrap().0;
 
@@ -147,24 +154,8 @@ pub mod api {
 
         #[test]
         fn should_401_when_jwt_missing() {
-            let request_context = ApiGatewayV2httpRequestContext {
-                route_key: Default::default(),
-                account_id: Default::default(),
-                stage: Default::default(),
-                request_id: Default::default(),
-                authorizer: Some(ApiGatewayRequestAuthorizer {
-                    jwt: None,
-                    fields: Default::default(),
-                    iam: None,
-                }),
-                apiid: Default::default(),
-                domain_name: Default::default(),
-                domain_prefix: Default::default(),
-                time: Default::default(),
-                time_epoch: Default::default(),
-                http: Default::default(),
-                authentication: Default::default(),
-            };
+            let authorizer = create_authorizer_with_jwt(None);
+            let request_context = create_request_context_with_authorizer(Some(authorizer));
 
             let actual = extract_user_id_request_context(&request_context).unwrap_err();
 
@@ -174,24 +165,9 @@ pub mod api {
 
         #[test]
         fn should_500_when_claim_sub_missing() {
-            let request_context = ApiGatewayV2httpRequestContext {
-                route_key: Default::default(),
-                account_id: Default::default(),
-                stage: Default::default(),
-                request_id: Default::default(),
-                authorizer: Some(ApiGatewayRequestAuthorizer {
-                    jwt: Some(ApiGatewayRequestAuthorizerJwtDescription::default()),
-                    fields: Default::default(),
-                    iam: None,
-                }),
-                apiid: Default::default(),
-                domain_name: Default::default(),
-                domain_prefix: Default::default(),
-                time: Default::default(),
-                time_epoch: Default::default(),
-                http: Default::default(),
-                authentication: Default::default(),
-            };
+            let jwt = ApiGatewayRequestAuthorizerJwtDescription::default();
+            let authorizer = create_authorizer_with_jwt(Some(jwt));
+            let request_context = create_request_context_with_authorizer(Some(authorizer));
 
             let actual = extract_user_id_request_context(&request_context).unwrap_err();
 
@@ -205,27 +181,10 @@ pub mod api {
         #[case("foo")]
         #[case("4bf40051-84cc-4ebf-898c")]
         fn should_500_when_claim_sub_is_not_valid_uuid(#[case] sub: String) {
-            let request_context = ApiGatewayV2httpRequestContext {
-                route_key: Default::default(),
-                account_id: Default::default(),
-                stage: Default::default(),
-                request_id: Default::default(),
-                authorizer: Some(ApiGatewayRequestAuthorizer {
-                    jwt: Some(ApiGatewayRequestAuthorizerJwtDescription {
-                        claims: HashMap::from_iter([("sub".to_string(), sub)]),
-                        scopes: None,
-                    }),
-                    fields: Default::default(),
-                    iam: None,
-                }),
-                apiid: Default::default(),
-                domain_name: Default::default(),
-                domain_prefix: Default::default(),
-                time: Default::default(),
-                time_epoch: Default::default(),
-                http: Default::default(),
-                authentication: Default::default(),
-            };
+            let claims = HashMap::from_iter([("sub".to_string(), sub)]);
+            let jwt = create_jwt_description_with_claims(claims);
+            let authorizer = create_authorizer_with_jwt(Some(jwt));
+            let request_context = create_request_context_with_authorizer(Some(authorizer));
 
             let actual = extract_user_id_request_context(&request_context).unwrap_err();
 

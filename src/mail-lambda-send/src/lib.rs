@@ -54,12 +54,15 @@ pub async fn handler(
         skipped = skipped_count,
         "Handler finished.",
     );
-    let sqs_batch_response = SqsBatchResponse {
-        batch_item_failures: failed_message_ids
-            .into_iter()
-            .map(|item_identifier| BatchItemFailure { item_identifier })
-            .collect(),
-    };
+    let mut sqs_batch_response = SqsBatchResponse::default();
+    sqs_batch_response.batch_item_failures = failed_message_ids
+        .into_iter()
+        .map(|item_identifier| {
+            let mut failure = BatchItemFailure::default();
+            failure.item_identifier = item_identifier;
+            failure
+        })
+        .collect();
 
     Ok(sqs_batch_response)
 }

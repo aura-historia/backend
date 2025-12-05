@@ -170,14 +170,12 @@ impl ApiGatewayV2HttpResponseBuilder {
     }
 
     pub fn build(self) -> ApiGatewayV2httpResponse {
-        ApiGatewayV2httpResponse {
-            status_code: self.status_code,
-            headers: self.headers,
-            multi_value_headers: Default::default(),
-            body: self.body,
-            is_base64_encoded: self.is_base64_encoded,
-            cookies: vec![],
-        }
+        let mut response = ApiGatewayV2httpResponse::default();
+        response.status_code = self.status_code;
+        response.headers = self.headers;
+        response.body = self.body;
+        response.is_base64_encoded = self.is_base64_encoded;
+        response
     }
 }
 
