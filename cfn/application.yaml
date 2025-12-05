@@ -468,7 +468,8 @@ Resources:
       Name: !Sub "api-${StageName}"
       ProtocolType: HTTP
       CorsConfiguration:
-        AllowOrigins: "*"
+        AllowOrigins:
+          - "*"
         AllowMethods:
           - GET
           - POST
