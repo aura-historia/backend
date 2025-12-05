@@ -128,6 +128,20 @@ mod tests {
     use std::collections::HashMap;
     use uuid::Uuid;
 
+    fn mk_sqs_message(json_payload: String) -> SqsMessage {
+        let mut msg = SqsMessage::default();
+        msg.message_id = Some(Faker.fake());
+        msg.body = Some(json_payload);
+        msg
+    }
+
+    fn mk_sqs_message_with_id(json_payload: String, message_id: String) -> SqsMessage {
+        let mut msg = SqsMessage::default();
+        msg.message_id = Some(message_id);
+        msg.body = Some(json_payload);
+        msg
+    }
+
     #[rstest::rstest]
     #[case(1)]
     #[case(5)]
@@ -146,21 +160,12 @@ mod tests {
             .into_iter()
             .map(|record| serde_json::to_string(&record))
             .map(Result::unwrap)
-            .map(|json_payload| SqsMessage {
-                message_id: Some(Faker.fake()),
-                receipt_handle: None,
-                body: Some(json_payload),
-                md5_of_body: None,
-                md5_of_message_attributes: None,
-                attributes: Default::default(),
-                message_attributes: Default::default(),
-                event_source_arn: None,
-                event_source: None,
-                aws_region: None,
-            })
+            .map(mk_sqs_message)
             .collect();
+        let mut sqs_event = SqsEvent::default();
+        sqs_event.records = records;
         let lambda_event = LambdaEvent {
-            payload: SqsEvent { records },
+            payload: sqs_event,
             context: Context::default(),
         };
 
@@ -196,18 +201,8 @@ mod tests {
             .map(|cmd_data| {
                 let message_id = Uuid::new_v4().to_string();
                 messages_ids.insert(cmd_data.key(), message_id.clone());
-                SqsMessage {
-                    message_id: Some(message_id),
-                    receipt_handle: None,
-                    body: Some(serde_json::to_string(&cmd_data).unwrap()),
-                    md5_of_body: None,
-                    md5_of_message_attributes: None,
-                    attributes: Default::default(),
-                    message_attributes: Default::default(),
-                    event_source_arn: None,
-                    event_source: None,
-                    aws_region: None,
-                }
+                let json_payload = serde_json::to_string(&cmd_data).unwrap();
+                mk_sqs_message_with_id(json_payload, message_id)
             })
             .collect();
         let mut expected_failed_message_ids = expected_failed_keys
@@ -215,8 +210,10 @@ mod tests {
             .map(|key| messages_ids.remove(key).unwrap())
             .collect::<Vec<_>>();
         expected_failed_message_ids.sort();
+        let mut sqs_event = SqsEvent::default();
+        sqs_event.records = records;
         let lambda_event = LambdaEvent {
-            payload: SqsEvent { records },
+            payload: sqs_event,
             context: Context::default(),
         };
 
