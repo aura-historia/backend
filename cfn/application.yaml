@@ -62,10 +62,10 @@ Resources:
       TopicName: !Sub "cloudwatch-alarms-${StageName}"
       DisplayName: !Sub "CloudWatch Alarms for Aura-Historia Backend stage '${StageName}'"
 
-  UserPool:
+  PrimaryUserPool:
     Type: AWS::Cognito::UserPool
     Properties:
-      UserPoolName: !Sub "userpool-${StageName}"
+      UserPoolName: !Sub "primary-userpool-${StageName}"
       UsernameAttributes:
         - email
       AutoVerifiedAttributes:
@@ -90,7 +90,7 @@ Resources:
           Mutable: false
           Required: true
       LambdaConfig:
-        PostConfirmation: !GetAtt PostConfirmationLambda.Arn
+        PostConfirmation: "PrimaryUserPoolPostConfirmationLambda"
 
   PostConfirmationLambdaRole:
     Type: AWS::IAM::Role
@@ -115,7 +115,7 @@ Resources:
                   - dynamodb:PutItem
                   - dynamodb:GetItem
                 Resource: !GetAtt TableOne.Arn
-  PostConfirmationLambda:
+  PrimaryUserPoolPostConfirmationLambda:
     Type: AWS::Lambda::Function
     Properties:
       FunctionName: !Sub "cognito-post-confirmation-${StageName}"
@@ -124,7 +124,7 @@ Resources:
       Role: !GetAtt PostConfirmationLambdaRole.Arn
       Code:
         S3Bucket: !Ref ArtifactBucket
-        S3Key: !Sub "cognito-post-confirmation-${StageName}-${CommitSHA}.zip"
+        S3Key: !Sub "cognito-primary-userpool-post-confirmation-${StageName}-${CommitSHA}.zip"
       MemorySize: 256
       Timeout: 5
       EphemeralStorage:
@@ -132,19 +132,19 @@ Resources:
       Environment:
         Variables:
           DYNAMODB_TABLE_NAME: !Ref TableOne
-  AllowCognitoInvokePostConfirmationLambda:
+  AllowCognitoInvokePrimaryUserPoolPostConfirmationLambda:
     Type: AWS::Lambda::Permission
     Properties:
       Action: lambda:InvokeFunction
-      FunctionName: !GetAtt PostConfirmationLambda.Arn
+      FunctionName: "PrimaryUserPoolPostConfirmationLambda"
       Principal: cognito-idp.amazonaws.com
-      SourceArn: !GetAtt UserPool.Arn
+      SourceArn: "PrimaryUserPool"
 
-  UserPoolClientPublic:
+  PrimaryUserPoolClientPublic:
     Type: AWS::Cognito::UserPoolClient
     Properties:
-      UserPoolId: !Ref UserPool
-      ClientName: !Sub "client-${StageName}"
+      UserPoolId: "PrimaryUserPool"
+      ClientName: !Sub "primary-userpool-client-public-${StageName}"
       GenerateSecret: false # PKCE replaces client secret
       PreventUserExistenceErrors: ENABLED
       AllowedOAuthFlowsUserPoolClient: true
@@ -169,11 +169,11 @@ Resources:
       ReadAttributes:
         - email
         - email_verified
-  UserPoolClientAdmin:
+  PrimaryUserPoolClientAdmin:
     Type: AWS::Cognito::UserPoolClient
     Properties:
-      UserPoolId: !Ref UserPool
-      ClientName: !Sub "admin-${StageName}"
+      UserPoolId: "PrimaryUserPool"
+      ClientName: !Sub "primary-userpool-client-admin-${StageName}"
       GenerateSecret: false
       PreventUserExistenceErrors: ENABLED
       AllowedOAuthFlowsUserPoolClient: false
@@ -187,11 +187,11 @@ Resources:
         - email
       WriteAttributes:
         - email
-  UserPoolDomain:
+  PrimaryUserPoolDomain:
     Type: AWS::Cognito::UserPoolDomain
     Properties:
       Domain: !Sub "${StageName}" # hosted UI domain
-      UserPoolId: !Ref UserPool
+      UserPoolId: "PrimaryUserPool"
 
   TableOne:
     Type: AWS::DynamoDB::Table
@@ -498,8 +498,8 @@ Resources:
       JwtConfiguration:
         Issuer: !Sub "https://cognito-idp.${AWS::Region}.amazonaws.com/${UserPool}"
         Audience:
-          - !Ref UserPoolClientPublic
-          - !Ref UserPoolClientAdmin
+          - "PrimaryUserPoolClientPublic"
+          - "PrimaryUserPoolClientAdmin"
   Api5XXErrorAlarm:
     Type: AWS::CloudWatch::Alarm
     Properties:
@@ -591,9 +591,9 @@ Resources:
       Environment:
         Variables:
           DYNAMODB_TABLE_NAME: !Ref TableOne
-          USER_POOL_ID: !Ref UserPool
-          USER_POOL_PUBLIC_CLIENT_ID: !Ref UserPoolClientPublic
-          USER_POOL_ADMIN_CLIENT_ID: !Ref UserPoolClientAdmin
+          USER_POOL_ID: "PrimaryUserPool"
+          USER_POOL_PUBLIC_CLIENT_ID: "PrimaryUserPoolClientPublic"
+          USER_POOL_ADMIN_CLIENT_ID: "PrimaryUserPoolClientAdmin"
   ApiGetProductLambdaPermission:
     Type: AWS::Lambda::Permission
     Properties:
@@ -812,9 +812,9 @@ Resources:
         Variables:
           OPENSEARCH_DOMAIN_ENDPOINT_URL: !Sub "https://${OpenSearchDomain.DomainEndpoint}"
           DYNAMODB_TABLE_NAME: !Ref TableOne
-          USER_POOL_ID: !Ref UserPool
-          USER_POOL_PUBLIC_CLIENT_ID: !Ref UserPoolClientPublic
-          USER_POOL_ADMIN_CLIENT_ID: !Ref UserPoolClientAdmin
+          USER_POOL_ID: "PrimaryUserPool"
+          USER_POOL_PUBLIC_CLIENT_ID: "PrimaryUserPoolClientPublic"
+          USER_POOL_ADMIN_CLIENT_ID: "PrimaryUserPoolClientAdmin"
   ApiProductSearchLambdaPermission:
     Type: AWS::Lambda::Permission
     Properties:
@@ -908,9 +908,9 @@ Resources:
         Variables:
           OPENSEARCH_DOMAIN_ENDPOINT_URL: !Sub "https://${OpenSearchDomain.DomainEndpoint}"
           DYNAMODB_TABLE_NAME: !Ref TableOne
-          USER_POOL_ID: !Ref UserPool
-          USER_POOL_PUBLIC_CLIENT_ID: !Ref UserPoolClientPublic
-          USER_POOL_ADMIN_CLIENT_ID: !Ref UserPoolClientAdmin
+          USER_POOL_ID: "PrimaryUserPool"
+          USER_POOL_PUBLIC_CLIENT_ID: "PrimaryUserPoolClientPublic"
+          USER_POOL_ADMIN_CLIENT_ID: "PrimaryUserPoolClientAdmin"
   ApiProductSimilaritySearchLambdaPermission:
     Type: AWS::Lambda::Permission
     Properties:
@@ -3272,11 +3272,11 @@ Outputs:
   CognitoHostedUIDomain:
     Value: !Sub "https://${UserPoolDomain}.auth.${AWS::Region}.amazoncognito.com"
   CognitoUserPoolId:
-    Value: !Ref UserPool
+    Value: "PrimaryUserPool"
   CognitoUserPoolClientPublicId:
-    Value: !Ref UserPoolClientPublic
+    Value: "PrimaryUserPoolClientPublic"
   CognitoUserPoolClientAdminId:
-    Value: !Ref UserPoolClientAdmin
+    Value: "PrimaryUserPoolClientAdmin"
   ApiGatewayEndpointUrl:
     Value: !Sub "https://${Api}.execute-api.${AWS::Region}.amazonaws.com/${StageName}"
   OpensearchDomainEndpointUrl:
