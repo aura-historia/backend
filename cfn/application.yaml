@@ -3272,11 +3272,11 @@ Outputs:
   CognitoHostedUIDomain:
     Value: !Sub "https://${PrimaryUserPoolDomain}.auth.${AWS::Region}.amazoncognito.com"
   CognitoUserPoolId:
-    Value: "PrimaryUserPool"
+    Value: !Ref PrimaryUserPool
   CognitoUserPoolClientPublicId:
-    Value: "PrimaryUserPoolClientPublic"
+    Value: !Ref PrimaryUserPoolClientPublic
   CognitoUserPoolClientAdminId:
-    Value: "PrimaryUserPoolClientAdmin"
+    Value: !Ref PrimaryUserPoolClientAdmin
   ApiGatewayEndpointUrl:
     Value: !Sub "https://${Api}.execute-api.${AWS::Region}.amazonaws.com/${StageName}"
   OpensearchDomainEndpointUrl:
