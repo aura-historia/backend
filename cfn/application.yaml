@@ -497,7 +497,7 @@ Resources:
       IdentitySource:
         - "$request.header.Authorization"
       JwtConfiguration:
-        Issuer: !Sub "https://cognito-idp.${AWS::Region}.amazonaws.com/${UserPool}"
+        Issuer: !Sub "https://cognito-idp.${AWS::Region}.amazonaws.com/${PrimaryUserPool}"
         Audience:
           - "PrimaryUserPoolClientPublic"
           - "PrimaryUserPoolClientAdmin"
