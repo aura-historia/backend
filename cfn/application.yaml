@@ -90,12 +90,12 @@ Resources:
           Mutable: false
           Required: true
       LambdaConfig:
-        PostConfirmation: "PostConfirmationLambda"
+        PostConfirmation: "PrimaryUserPoolPostConfirmationLambda"
 
-  PostConfirmationLambdaRole:
+  PrimaryUserPoolPostConfirmationLambdaRole:
     Type: AWS::IAM::Role
     Properties:
-      RoleName: !Sub "cognito-post-confirmation-role-${StageName}"
+      RoleName: !Sub "cognito-primary-userpool-post-confirmation-role-${StageName}"
       AssumeRolePolicyDocument:
         Version: "2012-10-17"
         Statement:
@@ -115,13 +115,13 @@ Resources:
                   - dynamodb:PutItem
                   - dynamodb:GetItem
                 Resource: !GetAtt TableOne.Arn
-  PostConfirmationLambda:
+  PrimaryUserPoolPostConfirmationLambda:
     Type: AWS::Lambda::Function
     Properties:
-      FunctionName: !Sub "cognito-post-confirmation-${StageName}"
+      FunctionName: !Sub "cognito-primary-userpool-post-confirmation-${StageName}"
       Runtime: provided.al2023
       Handler: lib.handler
-      Role: !GetAtt PostConfirmationLambdaRole.Arn
+      Role: "PrimaryUserPoolPostConfirmationLambdaRole"
       Code:
         S3Bucket: !Ref ArtifactBucket
         S3Key: !Sub "cognito-primary-userpool-post-confirmation-${StageName}-${CommitSHA}.zip"
@@ -132,14 +132,13 @@ Resources:
       Environment:
         Variables:
           DYNAMODB_TABLE_NAME: !Ref TableOne
-  AllowCognitoInvokePostConfirmationLambda:
+  AllowCognitoInvokePrimaryUserPoolPostConfirmationLambda:
     Type: AWS::Lambda::Permission
     Properties:
       Action: lambda:InvokeFunction
-      FunctionName: "PostConfirmationLambda"
+      FunctionName: !Ref PrimaryUserPoolPostConfirmationLambda
       Principal: cognito-idp.amazonaws.com
       SourceArn: !GetAtt PrimaryUserPool.Arn
-      SourceAccount: !Ref AWS::AccountId
 
   PrimaryUserPoolClientPublic:
     Type: AWS::Cognito::UserPoolClient
