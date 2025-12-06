@@ -99,7 +99,9 @@ mod tests {
         msg
     }
 
-    fn mk_event_bridge_event(product_event_record: &ProductEventRecord) -> EventBridgeEvent<EventRecord> {
+    fn mk_event_bridge_event(
+        product_event_record: &ProductEventRecord,
+    ) -> EventBridgeEvent<EventRecord> {
         let mut stream_record = StreamRecord::default();
         stream_record.approximate_creation_date_time = SystemTime::now().into();
         stream_record.new_image = serde_dynamo::to_item(product_event_record).unwrap();

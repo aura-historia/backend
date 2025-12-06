@@ -131,7 +131,10 @@ mod tests {
         msg
     }
 
-    fn mk_sqs_message_with_id(product_event_record: &ProductEventRecord, message_id: String) -> SqsMessage {
+    fn mk_sqs_message_with_id(
+        product_event_record: &ProductEventRecord,
+        message_id: String,
+    ) -> SqsMessage {
         let mut msg = SqsMessage::default();
         msg.message_id = Some(message_id);
         msg.body = Some(mk_event_bridge_payload(product_event_record));
