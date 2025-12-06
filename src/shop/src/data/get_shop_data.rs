@@ -1,3 +1,5 @@
+use std::collections::HashSet;
+
 use crate::core::shop::Shop;
 use common::{shop_id::ShopId, shop_name::ShopName};
 use serde::{Deserialize, Serialize};
@@ -9,7 +11,7 @@ use url::Url;
 pub struct GetShopData {
     pub shop_id: ShopId,
     pub name: ShopName,
-    pub urls: Vec<Url>,
+    pub urls: HashSet<Url>,
 
     #[serde(skip_serializing_if = "Option::is_none", default)]
     pub image: Option<Url>,
@@ -47,7 +49,7 @@ mod tests {
         let datum = GetShopData {
             shop_id: ShopId::new(),
             name: "Woaah & Co. Ltd.".into(),
-            urls: vec![Url::parse("https://woaah.co.ltd.com").unwrap()],
+            urls: [Url::parse("https://woaah.co.ltd.com").unwrap()].into(),
             image: Some(Url::parse("https://woaah.co.ltd.com/logo.svg").unwrap()),
             created: datetime!(1976 - 12 - 01 0:00 UTC),
             updated: datetime!(1976 - 12 - 01 0:00 UTC),

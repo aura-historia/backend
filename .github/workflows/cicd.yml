@@ -164,6 +164,8 @@ jobs:
           - src/product-api/src/product-api-watchlist-get
           - src/shop
           - src/shop-api/src/shop-api-search
+          - src/shop-api/src/shop-api-patch-shop
+          - src/shop-api/src/shop-api-post-shop
           - src/test-api
           - src/user
           - src/mail/src/mail-core
@@ -284,6 +286,8 @@ jobs:
           - src/product-lambda/src/product-lambda-update-notify-user
           - src/shop-api/src/shop-api-search
           - src/shop-api/src/shop-api-get-shop
+          - src/shop-api/src/shop-api-patch-shop
+          - src/shop-api/src/shop-api-post-shop
           - src/cognito-post-confirmation
           - src/mail-lambda-send
     steps:

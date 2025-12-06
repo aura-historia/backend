@@ -185,12 +185,12 @@ pub fn log_api_error(err: &ApiError) {
     if err.is4xx() {
         match err.cause {
             None => warn!(status = err.status),
-            Some(ref cause) => warn!(status = err.status, error = %cause),
+            Some(ref cause) => warn!(status = err.status, error = ?cause),
         }
     } else if err.is5xx() {
         match err.cause {
             None => error!(status = err.status),
-            Some(ref cause) => error!(status = err.status, error = %cause),
+            Some(ref cause) => error!(status = err.status, error = ?cause),
         }
     }
 }

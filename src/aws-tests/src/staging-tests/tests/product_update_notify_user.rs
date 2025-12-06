@@ -50,7 +50,7 @@ async fn should_send_email_to_user_when_watched_product_has_update() {
     let mut put_product_data: PutProductData = Faker.fake();
     put_product_data
         .url
-        .set_host(shop.urls.first().unwrap().host_str())
+        .set_host(shop.urls.into_iter().next().unwrap().host_str())
         .unwrap();
     let url = format!("{}/api/v1/products", stack.api_gateway_endpoint_url);
     let response = reqwest::Client::new()

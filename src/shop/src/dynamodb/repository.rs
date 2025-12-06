@@ -1,4 +1,7 @@
-use crate::dynamodb::shop_record::{ShopRecord, mk_pk, mk_pk_as_shop_host, mk_pk_as_shop_id};
+use crate::dynamodb::{
+    shop_record::{ShopRecord, mk_pk, mk_pk_as_shop_host, mk_pk_as_shop_id},
+    shop_record_update::ShopRecordUpdate,
+};
 use aws_sdk_dynamodb::{
     Client,
     config::http::HttpResponse,
@@ -9,10 +12,11 @@ use aws_sdk_dynamodb::{
         put_item::{PutItemError, PutItemOutput},
         transact_write_items::{TransactWriteItemsError, TransactWriteItemsOutput},
     },
-    types::{AttributeValue, KeysAndAttributes, Put, TransactWriteItem},
+    types::{AttributeValue, Delete, KeysAndAttributes, Put, TransactWriteItem, Update},
 };
 use common::{
     batch::{Batch, dynamodb::BatchGetItemResult},
+    dynamodb_update::DynamoDbUpdate,
     shop_id::{ShopId, ShopIdentifier},
 };
 use std::collections::HashMap;
@@ -30,7 +34,10 @@ pub trait ShopDynamoDbRepository {
     async fn put_shop_records_transact(
         &self,
         records: Vec<ShopRecord>,
-    ) -> Result<TransactWriteItemsOutput, SdkError<TransactWriteItemsError, HttpResponse>>;
+    ) -> Result<TransactWriteItemsOutput, SdkError<TransactWriteItemsError, HttpResponse>> {
+        self.transact_write(records, Default::default(), Default::default())
+            .await
+    }
 
     async fn get_shop_record_by_id(
         &self,
@@ -49,6 +56,13 @@ pub trait ShopDynamoDbRepository {
         BatchGetItemResult<ShopRecord, ShopIdentifier>,
         SdkError<BatchGetItemError, HttpResponse>,
     >;
+
+    async fn transact_write(
+        &self,
+        put: Vec<ShopRecord>,
+        update: HashMap<ShopIdentifier, ShopRecordUpdate>,
+        delete: Vec<ShopIdentifier>,
+    ) -> Result<TransactWriteItemsOutput, SdkError<TransactWriteItemsError, HttpResponse>>;
 }
 
 #[derive(Debug, Clone)]
@@ -81,11 +95,13 @@ impl<'a> ShopDynamoDbRepository for ShopDynamoDbRepositoryImpl<'a> {
             .await
     }
 
-    async fn put_shop_records_transact(
+    async fn transact_write(
         &self,
-        records: Vec<ShopRecord>,
+        put: Vec<ShopRecord>,
+        update: HashMap<ShopIdentifier, ShopRecordUpdate>,
+        delete: Vec<ShopIdentifier>,
     ) -> Result<TransactWriteItemsOutput, SdkError<TransactWriteItemsError, HttpResponse>> {
-        let payloads = records
+        let mut payloads: Vec<TransactWriteItem> = put
             .into_iter()
             .map(|record| {
                 let shop_id = record.shop_id;
@@ -111,6 +127,57 @@ impl<'a> ShopDynamoDbRepository for ShopDynamoDbRepositoryImpl<'a> {
                     .build()
             })
             .collect();
+
+        for (shop_identifier, update) in update {
+            let update_expr = update
+                .into_update_expr()
+                .map_err(SdkError::construction_failure)?;
+            let payload =
+                TransactWriteItem::builder()
+                    .update(
+                        Update::builder()
+                            .table_name(&self.table)
+                            .key(
+                                "pk",
+                                AttributeValue::S(mk_pk(&shop_identifier).ok_or(
+                                    SdkError::construction_failure(format!(
+                                        "Failed constructing pk for '{shop_identifier}' in update-operation"
+                                    )),
+                                )?),
+                            )
+                            .key("sk", AttributeValue::S("shop#details".to_owned()))
+                            .update_expression(update_expr.update_expr)
+                            .set_expression_attribute_names(Some(update_expr.expr_attr_names))
+                            .set_expression_attribute_values(Some(update_expr.expr_attr_values))
+                            .build()
+                            .expect("shouldn't fail because 'table_name', 'update_expression' and 'key' have been set"),
+                    )
+                    .build();
+            payloads.push(payload);
+        }
+
+        for shop_identifier in delete {
+            let payload =
+                TransactWriteItem::builder()
+                    .delete(
+                        Delete::builder()
+                            .table_name(&self.table)
+                            .key(
+                                "pk",
+                                AttributeValue::S(mk_pk(&shop_identifier).ok_or(
+                                    SdkError::construction_failure(format!(
+                                        "Failed constructing pk for '{shop_identifier}' in delete-operation"
+                                    )),
+                                )?),
+                            )
+                            .key("sk", AttributeValue::S("shop#details".to_owned()))
+                            .build()
+                            .expect("shouldn't fail because 'table_name' and 'key' have been set"),
+                    )
+                    .build();
+            payloads.push(payload);
+        }
+
         self.client
             .transact_write_items()
             .set_transact_items(Some(payloads))

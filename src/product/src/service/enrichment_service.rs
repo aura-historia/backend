@@ -286,7 +286,7 @@ mod tests {
                                 }
                                 ShopIdentifier::ShopUrl(url) => url,
                             };
-                            shop.urls.push(url);
+                            shop.urls.insert(url);
                             ShopRecord::try_clone_from_shop_as_shop_url_records(&shop).unwrap()
                         })
                         .collect(),

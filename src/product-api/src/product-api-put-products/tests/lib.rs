@@ -74,7 +74,7 @@ async fn should_put_products_with_known_url() {
 
     let mut products = fake::vec![PutProductData; 235];
     for product in &mut products {
-        let shop_host = shop.urls[0].host_str();
+        let shop_host = shop.urls.iter().next().unwrap().host_str();
         product.url.set_host(shop_host).unwrap();
     }
     let lambda_event = LambdaEvent {
