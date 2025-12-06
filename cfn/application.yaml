@@ -190,7 +190,7 @@ Resources:
   PrimaryUserPoolDomain:
     Type: AWS::Cognito::UserPoolDomain
     Properties:
-      Domain: !Sub "${StageName}" # hosted UI domain
+      Domain: !Sub "primary-userpool-${StageName}" # hosted UI domain
       UserPoolId: !Ref PrimaryUserPool
 
   TableOne:
