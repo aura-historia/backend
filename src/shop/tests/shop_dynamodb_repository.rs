@@ -68,7 +68,7 @@ async fn should_return_some_when_shop_record_exists_for_get_by_url() {
         .await
         .unwrap();
     let actual = repository
-        .get_shop_record_by_url(records[0].urls.iter().find(|_| true).unwrap())
+        .get_shop_record_by_url(records[0].urls.iter().next().unwrap())
         .await
         .unwrap()
         .unwrap();
@@ -89,7 +89,7 @@ async fn should_succeed_transact_write_shop_records_when_none_exist() {
 
     for record in records {
         let actual = repository
-            .get_shop_record_by_url(record.urls.iter().find(|_| true).unwrap())
+            .get_shop_record_by_url(record.urls.iter().next().unwrap())
             .await
             .unwrap()
             .unwrap();
@@ -111,7 +111,7 @@ async fn should_succeed_transact_write_shop_records_when_none_with_differing_sho
         .unwrap();
     for record in records.clone() {
         let actual = repository
-            .get_shop_record_by_url(record.urls.iter().find(|_| true).unwrap())
+            .get_shop_record_by_url(record.urls.iter().next().unwrap())
             .await
             .unwrap()
             .unwrap();
@@ -126,7 +126,7 @@ async fn should_succeed_transact_write_shop_records_when_none_with_differing_sho
 
     for record in records {
         let actual = repository
-            .get_shop_record_by_url(record.urls.iter().find(|_| true).unwrap())
+            .get_shop_record_by_url(record.urls.iter().next().unwrap())
             .await
             .unwrap()
             .unwrap();
@@ -148,7 +148,7 @@ async fn should_fail_transact_write_shop_records_when_some_with_differing_shop_i
         .unwrap();
     for record in records.clone() {
         let actual = repository
-            .get_shop_record_by_url(record.urls.iter().find(|_| true).unwrap())
+            .get_shop_record_by_url(record.urls.iter().next().unwrap())
             .await
             .unwrap()
             .unwrap();

@@ -141,7 +141,7 @@ impl<'a> ShopDynamoDbRepository for ShopDynamoDbRepositoryImpl<'a> {
                                 "pk",
                                 AttributeValue::S(mk_pk(&shop_identifier).ok_or(
                                     SdkError::construction_failure(format!(
-                                        "Failed constructing pk for '{shop_identifier}' in delete-operation"
+                                        "Failed constructing pk for '{shop_identifier}' in update-operation"
                                     )),
                                 )?),
                             )

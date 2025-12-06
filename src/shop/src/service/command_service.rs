@@ -63,7 +63,7 @@ pub mod api {
         fn from(err: CommandShopError) -> Self {
             match err {
                 CommandShopError::ShopNotFound(_) => {
-                    ApiError::conflict(SHOP_NOT_FOUND, Box::new(err))
+                    ApiError::not_found(SHOP_NOT_FOUND, Box::new(err))
                 }
                 CommandShopError::ShopExistsAlready(_) => {
                     ApiError::conflict(SHOP_EXISTS_ALREADY, Box::new(err))

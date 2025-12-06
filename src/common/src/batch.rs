@@ -20,7 +20,7 @@ impl<const N: usize> BatchConstructionError<N> {
     }
 }
 
-#[derive(Error, Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Batch<T, const N: usize>(Vec<T>);
 
 impl<T, const N: usize> Batch<T, N> {
