@@ -90,7 +90,7 @@ Resources:
           Mutable: false
           Required: true
       LambdaConfig:
-        PostConfirmation: "PrimaryUserPoolPostConfirmationLambda"
+        PostConfirmation: !GetAtt PrimaryUserPoolPostConfirmationLambda.Arn
 
   PrimaryUserPoolPostConfirmationLambdaRole:
     Type: AWS::IAM::Role
