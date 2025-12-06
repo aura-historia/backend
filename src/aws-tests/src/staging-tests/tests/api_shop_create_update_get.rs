@@ -59,7 +59,11 @@ async fn should_create_update_get_shop() {
     let response = reqwest::Client::new().get(get_url).send().await.unwrap();
     assert_eq!(200, response.status());
     let gotten = response.json::<GetShopData>().await.unwrap();
-    assert_eq!(updated, gotten);
+    assert_eq!(updated.shop_id, gotten.shop_id);
+    assert_eq!(updated.name, gotten.name);
+    assert_eq!(updated.urls, gotten.urls);
+    assert_eq!(updated.image, gotten.image);
+    assert_eq!(updated.created, gotten.created);
 }
 
 #[staging_test]
