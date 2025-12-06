@@ -121,7 +121,7 @@ Resources:
       FunctionName: !Sub "cognito-primary-userpool-post-confirmation-${StageName}"
       Runtime: provided.al2023
       Handler: lib.handler
-      Role: "PrimaryUserPoolPostConfirmationLambdaRole"
+      Role: !GetAtt PrimaryUserPoolPostConfirmationLambdaRole.Arn
       Code:
         S3Bucket: !Ref ArtifactBucket
         S3Key: !Sub "cognito-primary-userpool-post-confirmation-${StageName}-${CommitSHA}.zip"
