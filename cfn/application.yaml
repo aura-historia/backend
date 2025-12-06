@@ -138,12 +138,13 @@ Resources:
       Action: lambda:InvokeFunction
       FunctionName: "PrimaryUserPoolPostConfirmationLambda"
       Principal: cognito-idp.amazonaws.com
-      SourceArn: "PrimaryUserPool"
+      SourceArn: !GetAtt PrimaryUserPool.Arn
+      SourceAccount: !Ref AWS::AccountId
 
   PrimaryUserPoolClientPublic:
     Type: AWS::Cognito::UserPoolClient
     Properties:
-      UserPoolId: "PrimaryUserPool"
+      UserPoolId: !Ref PrimaryUserPool
       ClientName: !Sub "primary-userpool-client-public-${StageName}"
       GenerateSecret: false # PKCE replaces client secret
       PreventUserExistenceErrors: ENABLED
@@ -172,7 +173,7 @@ Resources:
   PrimaryUserPoolClientAdmin:
     Type: AWS::Cognito::UserPoolClient
     Properties:
-      UserPoolId: "PrimaryUserPool"
+      UserPoolId: !Ref PrimaryUserPool
       ClientName: !Sub "primary-userpool-client-admin-${StageName}"
       GenerateSecret: false
       PreventUserExistenceErrors: ENABLED
@@ -191,7 +192,7 @@ Resources:
     Type: AWS::Cognito::UserPoolDomain
     Properties:
       Domain: !Sub "${StageName}" # hosted UI domain
-      UserPoolId: "PrimaryUserPool"
+      UserPoolId: !Ref PrimaryUserPool
 
   TableOne:
     Type: AWS::DynamoDB::Table
@@ -3272,11 +3273,11 @@ Outputs:
   CognitoHostedUIDomain:
     Value: !Sub "https://${UserPoolDomain}.auth.${AWS::Region}.amazoncognito.com"
   CognitoUserPoolId:
-    Value: "PrimaryUserPool"
+    Value: !Ref PrimaryUserPool
   CognitoUserPoolClientPublicId:
-    Value: "PrimaryUserPoolClientPublic"
+    Value: !Ref PrimaryUserPoolClientPublic
   CognitoUserPoolClientAdminId:
-    Value: "PrimaryUserPoolClientAdmin"
+    Value: !Ref PrimaryUserPoolClientAdmin
   ApiGatewayEndpointUrl:
     Value: !Sub "https://${Api}.execute-api.${AWS::Region}.amazonaws.com/${StageName}"
   OpensearchDomainEndpointUrl:
