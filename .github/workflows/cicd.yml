@@ -2,7 +2,7 @@ name: CI/CD
 
 on:
   push:
-    branches: [prod, develop]
+    branches: [ prod, develop ]
   pull_request:
 
 concurrency:
@@ -190,7 +190,7 @@ jobs:
 
   sonar:
     name: SonarQube-Cloud Analysis
-    needs: [unit-test, integration-test]
+    needs: [ unit-test, integration-test ]
     if: github.actor != 'dependabot[bot]'
     permissions:
       contents: read
@@ -255,7 +255,7 @@ jobs:
 
   aws-push-lambda:
     name: Push Lambda to S3 ${{ matrix.crate }}
-    needs: [unit-test, integration-test]
+    needs: [ unit-test, integration-test ]
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -353,7 +353,7 @@ jobs:
 
   aws-push-ec2:
     name: Push EC2 to S3 ${{ matrix.crate }}
-    needs: [unit-test, integration-test]
+    needs: [ unit-test, integration-test ]
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -404,7 +404,7 @@ jobs:
 
   aws-push-resource-artifacts:
     name: Push resource-artifacts to S3 ${{ matrix.resource }}
-    needs: [unit-test, integration-test]
+    needs: [ unit-test, integration-test ]
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -432,7 +432,7 @@ jobs:
 
   aws-cfn-deploy:
     name: Deploy & initialize CFN-Stack
-    needs: [aws-push-lambda, aws-push-ec2, aws-push-resource-artifacts]
+    needs: [ cfn-lint, aws-push-lambda, aws-push-ec2, aws-push-resource-artifacts ]
     environment:
       name: aws
     runs-on: ubuntu-latest
