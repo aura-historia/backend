@@ -92,20 +92,37 @@ mod tests {
     use std::time::SystemTime;
     use uuid::Uuid;
 
+    fn mk_sqs_message(message_id: &str, body: Option<String>) -> SqsMessage {
+        let mut msg = SqsMessage::default();
+        msg.message_id = Some(message_id.to_string());
+        msg.body = body;
+        msg
+    }
+
+    fn mk_event_bridge_event(
+        product_event_record: &ProductEventRecord,
+    ) -> EventBridgeEvent<EventRecord> {
+        let mut stream_record = StreamRecord::default();
+        stream_record.approximate_creation_date_time = SystemTime::now().into();
+        stream_record.new_image = serde_dynamo::to_item(product_event_record).unwrap();
+        stream_record.size_bytes = 42;
+
+        let mut event_record = EventRecord::default();
+        event_record.aws_region = "eu-central-1".to_string();
+        event_record.change = stream_record;
+        event_record.event_id = Uuid::new_v4().to_string();
+        event_record.event_name = "INSERT".to_string();
+
+        let mut event = EventBridgeEvent::<EventRecord>::default();
+        event.detail_type = "foo".to_string();
+        event.source = "bar".to_string();
+        event.detail = event_record;
+        event
+    }
+
     #[test]
     fn should_fail_when_invalid_json() {
-        let msg = SqsMessage {
-            message_id: Some("msg1".to_string()),
-            receipt_handle: None,
-            body: Some("invalid json {".to_string()),
-            md5_of_body: None,
-            md5_of_message_attributes: None,
-            attributes: Default::default(),
-            message_attributes: Default::default(),
-            event_source_arn: None,
-            event_source: None,
-            aws_region: None,
-        };
+        let msg = mk_sqs_message("msg1", Some("invalid json {".to_string()));
 
         let mut failed_message_ids = vec![];
         let mut skipped_count = 0;
@@ -118,18 +135,7 @@ mod tests {
 
     #[test]
     fn should_skip_message_for_empty_message_body() {
-        let msg = SqsMessage {
-            message_id: Some("msg2".to_string()),
-            receipt_handle: None,
-            body: None,
-            md5_of_body: None,
-            md5_of_message_attributes: None,
-            attributes: Default::default(),
-            message_attributes: Default::default(),
-            event_source_arn: None,
-            event_source: None,
-            aws_region: None,
-        };
+        let msg = mk_sqs_message("msg2", None);
 
         let mut failed_message_ids = vec![];
         let mut skipped_count = 0;
@@ -143,18 +149,7 @@ mod tests {
     #[test]
     fn should_fail_when_valid_json_cannot_be_deserialized_to_target_type() {
         let invalid_conversion_json = r#"{"eventType":"Created","shopId":"test","shopsProductId":"test","timestamp":"2023-01-01T00:00:00Z","boop":{"item":null}}"#;
-        let msg = SqsMessage {
-            message_id: Some("test_msg".to_string()),
-            receipt_handle: None,
-            body: Some(invalid_conversion_json.to_string()),
-            md5_of_body: None,
-            md5_of_message_attributes: None,
-            attributes: Default::default(),
-            message_attributes: Default::default(),
-            event_source_arn: None,
-            event_source: None,
-            aws_region: None,
-        };
+        let msg = mk_sqs_message("test_msg", Some(invalid_conversion_json.to_string()));
 
         let mut failed_message_ids = vec![];
         let mut skipped_count = 0;
@@ -168,48 +163,8 @@ mod tests {
     #[test]
     fn should_succeed_extract_message_data_with_valid_data() {
         let expected = Faker.fake::<ProductEventRecord>();
-        let event = EventBridgeEvent {
-            version: None,
-            id: None,
-            detail_type: "foo".to_string(),
-            source: "bar".to_string(),
-            account: None,
-            time: None,
-            region: None,
-            resources: None,
-            detail: EventRecord {
-                aws_region: "eu-central-1".to_string(),
-                change: StreamRecord {
-                    approximate_creation_date_time: SystemTime::now().into(),
-                    keys: Default::default(),
-                    new_image: serde_dynamo::to_item(&expected).unwrap(),
-                    old_image: Default::default(),
-                    sequence_number: None,
-                    size_bytes: 42,
-                    stream_view_type: None,
-                },
-                event_id: Uuid::new_v4().to_string(),
-                event_name: "INSERT".to_string(),
-                event_source: None,
-                event_version: None,
-                event_source_arn: None,
-                user_identity: None,
-                record_format: None,
-                table_name: None,
-            },
-        };
-        let msg = SqsMessage {
-            message_id: Some("test_msg".to_string()),
-            receipt_handle: None,
-            body: Some(serde_json::to_string(&event).unwrap()),
-            md5_of_body: None,
-            md5_of_message_attributes: None,
-            attributes: Default::default(),
-            message_attributes: Default::default(),
-            event_source_arn: None,
-            event_source: None,
-            aws_region: None,
-        };
+        let event = mk_event_bridge_event(&expected);
+        let msg = mk_sqs_message("test_msg", Some(serde_json::to_string(&event).unwrap()));
 
         let mut failed_message_ids = vec![];
         let mut skipped_count = 0;

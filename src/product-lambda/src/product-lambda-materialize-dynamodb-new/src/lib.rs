@@ -72,12 +72,15 @@ pub async fn handler(
         skipped = skipped_count,
         "Handler finished.",
     );
-    let sqs_batch_response = SqsBatchResponse {
-        batch_item_failures: failed_message_ids
-            .into_iter()
-            .map(|item_identifier| BatchItemFailure { item_identifier })
-            .collect(),
-    };
+    let mut sqs_batch_response = SqsBatchResponse::default();
+    sqs_batch_response.batch_item_failures = failed_message_ids
+        .into_iter()
+        .map(|item_identifier| {
+            let mut failure = BatchItemFailure::default();
+            failure.item_identifier = item_identifier;
+            failure
+        })
+        .collect();
     Ok(sqs_batch_response)
 }
 
@@ -135,37 +138,37 @@ mod tests {
     use uuid::Uuid;
 
     fn mk_event_bridge_payload(product_event_record: &ProductEventRecord) -> String {
-        let event = EventBridgeEvent {
-            version: None,
-            id: None,
-            detail_type: "foo".to_string(),
-            source: "bar".to_string(),
-            account: None,
-            time: None,
-            region: None,
-            resources: None,
-            detail: EventRecord {
-                aws_region: "eu-central-1".to_string(),
-                change: StreamRecord {
-                    approximate_creation_date_time: SystemTime::now().into(),
-                    keys: Default::default(),
-                    new_image: serde_dynamo::to_item(product_event_record).unwrap(),
-                    old_image: Default::default(),
-                    sequence_number: None,
-                    size_bytes: 42,
-                    stream_view_type: None,
-                },
-                event_id: Uuid::new_v4().to_string(),
-                event_name: "INSERT".to_string(),
-                event_source: None,
-                event_version: None,
-                event_source_arn: None,
-                user_identity: None,
-                record_format: None,
-                table_name: None,
-            },
-        };
+        let mut stream_record = StreamRecord::default();
+        stream_record.approximate_creation_date_time = SystemTime::now().into();
+        stream_record.new_image = serde_dynamo::to_item(product_event_record).unwrap();
+        stream_record.size_bytes = 42;
+
+        let mut event_record = EventRecord::default();
+        event_record.aws_region = "eu-central-1".to_string();
+        event_record.change = stream_record;
+        event_record.event_id = Uuid::new_v4().to_string();
+        event_record.event_name = "INSERT".to_string();
+
+        let mut event = EventBridgeEvent::<EventRecord>::default();
+        event.detail_type = "foo".to_string();
+        event.source = "bar".to_string();
+        event.detail = event_record;
+
         serde_json::to_string(&event).unwrap()
+    }
+
+    fn mk_sqs_message(record: &ProductEventRecord) -> SqsMessage {
+        let mut msg = SqsMessage::default();
+        msg.message_id = Some(Faker.fake());
+        msg.body = Some(mk_event_bridge_payload(record));
+        msg
+    }
+
+    fn mk_sqs_message_with_id(record: &ProductEventRecord, message_id: String) -> SqsMessage {
+        let mut msg = SqsMessage::default();
+        msg.message_id = Some(message_id);
+        msg.body = Some(mk_event_bridge_payload(record));
+        msg
     }
 
     #[tokio::test]
@@ -193,21 +196,12 @@ mod tests {
             })
             .map(ProductEventRecord::try_from)
             .map(Result::unwrap)
-            .map(|record| SqsMessage {
-                message_id: Some(Faker.fake()),
-                receipt_handle: None,
-                body: Some(mk_event_bridge_payload(&record)),
-                md5_of_body: None,
-                md5_of_message_attributes: None,
-                attributes: Default::default(),
-                message_attributes: Default::default(),
-                event_source_arn: None,
-                event_source: None,
-                aws_region: None,
-            })
+            .map(|record| mk_sqs_message(&record))
             .collect();
+        let mut sqs_event = SqsEvent::default();
+        sqs_event.records = records;
         let lambda_event = LambdaEvent {
-            payload: SqsEvent { records },
+            payload: sqs_event,
             context: Context::default(),
         };
         let mut repository = MockProductDynamoDbRepository::default();
@@ -250,22 +244,13 @@ mod tests {
             .map(|record| {
                 let uuid = Uuid::new_v4().to_string();
                 message_ids.insert(record.key(), uuid.clone());
-                SqsMessage {
-                    message_id: Some(uuid),
-                    receipt_handle: None,
-                    body: Some(mk_event_bridge_payload(&record)),
-                    md5_of_body: None,
-                    md5_of_message_attributes: None,
-                    attributes: Default::default(),
-                    message_attributes: Default::default(),
-                    event_source_arn: None,
-                    event_source: None,
-                    aws_region: None,
-                }
+                mk_sqs_message_with_id(&record, uuid)
             })
             .collect();
+        let mut sqs_event = SqsEvent::default();
+        sqs_event.records = records;
         let lambda_event = LambdaEvent {
-            payload: SqsEvent { records },
+            payload: sqs_event,
             context: Context::default(),
         };
         let failed_keys: Arc<Mutex<Vec<ProductKey>>> = Arc::new(Mutex::new(vec![]));
@@ -345,22 +330,13 @@ mod tests {
             .map(|record| {
                 let uuid = Uuid::new_v4().to_string();
                 message_ids.insert(record.key(), uuid.clone());
-                SqsMessage {
-                    message_id: Some(uuid),
-                    receipt_handle: None,
-                    body: Some(mk_event_bridge_payload(&record)),
-                    md5_of_body: None,
-                    md5_of_message_attributes: None,
-                    attributes: Default::default(),
-                    message_attributes: Default::default(),
-                    event_source_arn: None,
-                    event_source: None,
-                    aws_region: None,
-                }
+                mk_sqs_message_with_id(&record, uuid)
             })
             .collect();
+        let mut sqs_event = SqsEvent::default();
+        sqs_event.records = records;
         let lambda_event = LambdaEvent {
-            payload: SqsEvent { records },
+            payload: sqs_event,
             context: Context::default(),
         };
         let mut repository = MockProductDynamoDbRepository::default();
