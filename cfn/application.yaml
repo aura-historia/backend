@@ -3271,7 +3271,7 @@ Resources:
 
 Outputs:
   CognitoHostedUIDomain:
-    Value: !Sub "https://${UserPoolDomain}.auth.${AWS::Region}.amazoncognito.com"
+    Value: !Sub "https://${PrimaryUserPoolDomain}.auth.${AWS::Region}.amazoncognito.com"
   CognitoUserPoolId:
     Value: !Ref PrimaryUserPool
   CognitoUserPoolClientPublicId:
