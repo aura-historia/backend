@@ -90,7 +90,7 @@ Resources:
           Mutable: false
           Required: true
       LambdaConfig:
-        PostConfirmation: "PrimaryUserPoolPostConfirmationLambda"
+        PostConfirmation: "PostConfirmationLambda"
 
   PostConfirmationLambdaRole:
     Type: AWS::IAM::Role
@@ -115,7 +115,7 @@ Resources:
                   - dynamodb:PutItem
                   - dynamodb:GetItem
                 Resource: !GetAtt TableOne.Arn
-  PrimaryUserPoolPostConfirmationLambda:
+  PostConfirmationLambda:
     Type: AWS::Lambda::Function
     Properties:
       FunctionName: !Sub "cognito-post-confirmation-${StageName}"
@@ -132,11 +132,11 @@ Resources:
       Environment:
         Variables:
           DYNAMODB_TABLE_NAME: !Ref TableOne
-  AllowCognitoInvokePrimaryUserPoolPostConfirmationLambda:
+  AllowCognitoInvokePostConfirmationLambda:
     Type: AWS::Lambda::Permission
     Properties:
       Action: lambda:InvokeFunction
-      FunctionName: "PrimaryUserPoolPostConfirmationLambda"
+      FunctionName: "PostConfirmationLambda"
       Principal: cognito-idp.amazonaws.com
       SourceArn: !GetAtt PrimaryUserPool.Arn
       SourceAccount: !Ref AWS::AccountId
