@@ -45,12 +45,12 @@ pub enum WatchProductError {
     WatchlistProductNotFound(UserId, ShopId, ShopsProductId),
 
     #[error("Encountered DynamoDB SdkError for GetItem: {0}")]
-    SdkGetProductError(
+    SdkGetItemError(
         #[from] SdkError<aws_sdk_dynamodb::operation::get_item::GetItemError, HttpResponse>,
     ),
 
     #[error("Encountered DynamoDB SdkError for BatchGetItem: {0}")]
-    SdkBatchGetProductError(
+    SdkBatchGetItemError(
         #[from]
         SdkError<aws_sdk_dynamodb::operation::batch_get_item::BatchGetItemError, HttpResponse>,
     ),
@@ -86,10 +86,8 @@ impl From<GetProductError> for WatchProductError {
             GetProductError::MonetaryAmountOverflowError(e) => {
                 WatchProductError::MonetaryAmountOverflowError(e)
             }
-            GetProductError::SdkGetProductError(e) => WatchProductError::SdkGetProductError(e),
-            GetProductError::SdkBatchGetProductError(e) => {
-                WatchProductError::SdkBatchGetProductError(e)
-            }
+            GetProductError::SdkGetItemError(e) => WatchProductError::SdkGetItemError(e),
+            GetProductError::SdkBatchGetItemError(e) => WatchProductError::SdkBatchGetItemError(e),
             GetProductError::SdkQueryError(e) => WatchProductError::SdkQueryError(e),
             GetProductError::UnprocessedAfterMaxRetries(e) => {
                 WatchProductError::UnprocessedAfterMaxRetries(e)
@@ -122,8 +120,8 @@ pub mod api {
                 WatchProductError::WatchlistProductNotFound(_, _, _) => {
                     ApiError::not_found(WATCHLIST_ENTRY_NOT_FOUND, Box::new(err))
                 }
-                WatchProductError::SdkGetProductError(err) => err.into(),
-                WatchProductError::SdkBatchGetProductError(err) => err.into(),
+                WatchProductError::SdkGetItemError(err) => err.into(),
+                WatchProductError::SdkBatchGetItemError(err) => err.into(),
                 WatchProductError::SdkQueryError(err) => err.into(),
                 WatchProductError::SdkPutItemError(err) => err.into(),
                 WatchProductError::SdkDeleteItemError(err) => err.into(),
@@ -527,8 +525,8 @@ mod tests {
 
             assert!(actual.is_err());
             match actual.unwrap_err() {
-                WatchProductError::SdkGetProductError(_) => {}
-                err => panic!("Expected 'WatchProductError::SdkGetProductError', got '{err}'"),
+                WatchProductError::SdkGetItemError(_) => {}
+                err => panic!("Expected 'WatchProductError::SdkGetItemError', got '{err}'"),
             }
         }
     }
@@ -654,8 +652,8 @@ mod tests {
 
             assert!(actual.is_err());
             match actual.unwrap_err() {
-                WatchProductError::SdkGetProductError(_) => {}
-                err => panic!("Expected 'WatchProductError::SdkGetProductError', got '{err}'"),
+                WatchProductError::SdkGetItemError(_) => {}
+                err => panic!("Expected 'WatchProductError::SdkGetItemError', got '{err}'"),
             }
         }
 
@@ -703,8 +701,8 @@ mod tests {
 
             assert!(actual.is_err());
             match actual.unwrap_err() {
-                WatchProductError::SdkGetProductError(_) => {}
-                err => panic!("Expected 'WatchProductError::SdkGetProductError', got '{err}'"),
+                WatchProductError::SdkGetItemError(_) => {}
+                err => panic!("Expected 'WatchProductError::SdkGetItemError', got '{err}'"),
             }
         }
 
@@ -887,8 +885,8 @@ mod tests {
 
             assert!(actual.is_err());
             match actual.unwrap_err() {
-                WatchProductError::SdkGetProductError(_) => {}
-                err => panic!("Expected 'WatchProductError::SdkGetProductError', got '{err}'"),
+                WatchProductError::SdkGetItemError(_) => {}
+                err => panic!("Expected 'WatchProductError::SdkGetItemError', got '{err}'"),
             }
         }
 
@@ -1095,8 +1093,8 @@ mod tests {
 
             assert!(actual.is_err());
             match actual.unwrap_err() {
-                WatchProductError::SdkGetProductError(_) => {}
-                err => panic!("Expected 'WatchProductError::SdkGetProductError', got '{err}'"),
+                WatchProductError::SdkGetItemError(_) => {}
+                err => panic!("Expected 'WatchProductError::SdkGetItemError', got '{err}'"),
             }
         }
 

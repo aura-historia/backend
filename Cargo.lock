@@ -4573,6 +4573,8 @@ name = "shop-api"
 version = "0.1.0"
 dependencies = [
  "shop-api-get-shop",
+ "shop-api-patch-shop",
+ "shop-api-post-shop",
  "shop-api-search",
 ]
 
@@ -4588,6 +4590,54 @@ dependencies = [
  "http 1.4.0",
  "lambda_runtime",
  "rstest",
+ "serde_json",
+ "serial_test",
+ "shop",
+ "test-api",
+ "time",
+ "tokio",
+ "tracing",
+ "tracing-subscriber",
+ "url",
+]
+
+[[package]]
+name = "shop-api-patch-shop"
+version = "0.1.0"
+dependencies = [
+ "aws-config",
+ "aws-sdk-dynamodb",
+ "aws_lambda_events",
+ "common",
+ "fake",
+ "http 1.4.0",
+ "lambda_runtime",
+ "rstest",
+ "serde",
+ "serde_json",
+ "serial_test",
+ "shop",
+ "test-api",
+ "time",
+ "tokio",
+ "tracing",
+ "tracing-subscriber",
+ "url",
+]
+
+[[package]]
+name = "shop-api-post-shop"
+version = "0.1.0"
+dependencies = [
+ "aws-config",
+ "aws-sdk-dynamodb",
+ "aws_lambda_events",
+ "common",
+ "fake",
+ "http 1.4.0",
+ "lambda_runtime",
+ "rstest",
+ "serde",
  "serde_json",
  "serial_test",
  "shop",
@@ -4843,9 +4893,9 @@ checksum = "13c2bddecc57b384dee18652358fb23172facb8a2c51ccc10d74c157bdea3292"
 
 [[package]]
 name = "syn"
-version = "2.0.106"
+version = "2.0.111"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "ede7c438028d4436d71104916910f5bb611972c5cfd7f89b8300a8186e6fada6"
+checksum = "390cc9a294ab71bdb1aa2e99d13be9c753cd2d7bd6560c77118597410c4d2e87"
 dependencies = [
  "proc-macro2",
  "quote",

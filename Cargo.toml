@@ -70,6 +70,8 @@ search-filter-api-post-search-filter = { path = "src/search-filter-api/src/searc
 shop = { path = "src/shop" }
 shop-api = { path = "src/shop-api" }
 shop-api-get-shop = { path = "src/shop-api/src/shop-api-get-shop" }
+shop-api-patch-shop = { path = "src/shop-api/src/shop-api-patch-shop" }
+shop-api-post-shop = { path = "src/shop-api/src/shop-api-post-shop" }
 shop-api-search = { path = "src/shop-api/src/shop-api-search" }
 mail = { path = "src/mail" }
 mail-core = { path = "src/mail/src/mail-core" }
@@ -125,7 +127,7 @@ staging-data = { path = "src/aws-tests/src/staging-data" }
 staging-tests = { path = "src/aws-tests/src/staging-tests" }
 strum = "0.27.2"
 strum_macros = "0.27.2"
-syn = "2.0.106"
+syn = "2.0.111"
 test-api = { path = "src/test-api" }
 test-api-macros = { path = "src/test-api/src/test-api-macros" }
 testcontainers = "0.24.0"

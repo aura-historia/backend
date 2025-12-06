@@ -2,6 +2,7 @@ use crate::core::shop::Shop;
 use common::{shop_id::ShopId, shop_name::ShopName};
 use serde::{Deserialize, Serialize};
 use serde_fields::SerdeField;
+use std::collections::HashSet;
 use time::OffsetDateTime;
 use url::Url;
 
@@ -10,7 +11,7 @@ use url::Url;
 pub struct ShopDocument {
     pub shop_id: ShopId,
     pub name: ShopName,
-    pub urls: Vec<Url>,
+    pub urls: HashSet<Url>,
 
     #[serde(skip_serializing_if = "Option::is_none", default)]
     pub image: Option<Url>,

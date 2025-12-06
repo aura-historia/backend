@@ -4,6 +4,7 @@ use common::{
     shop_name::ShopName,
 };
 use serde::{Deserialize, Serialize};
+use std::collections::HashSet;
 use time::OffsetDateTime;
 use url::Url;
 
@@ -14,8 +15,12 @@ pub struct ShopRecord {
     pub shop_id: ShopId,
     pub name: ShopName,
 
-    #[serde(skip_serializing_if = "Vec::is_empty", default)]
-    pub urls: Vec<Url>,
+    // Some if this record is a Shop-Host-Record, None if it is a Shop-Id-Record
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub url: Option<Url>,
+
+    #[serde(skip_serializing_if = "HashSet::is_empty", default)]
+    pub urls: HashSet<Url>,
 
     #[serde(skip_serializing_if = "Option::is_none", default)]
     pub image: Option<Url>,
@@ -48,6 +53,7 @@ impl ShopRecord {
             pk: mk_pk_as_shop_id(&shop.shop_id),
             sk: "shop#details".to_owned(),
             shop_id: shop.shop_id,
+            url: None,
             name: shop.name,
             urls: shop.urls,
             image: shop.image,
@@ -65,6 +71,7 @@ impl ShopRecord {
                     sk: "shop#details".to_owned(),
                     shop_id: shop.shop_id,
                     name: shop.name.clone(),
+                    url: Some(url.clone()),
                     urls: shop.urls.clone(),
                     image: shop.image.clone(),
                     created: shop.created,
@@ -73,6 +80,18 @@ impl ShopRecord {
                 Some(record)
             })
             .collect()
+    }
+
+    pub fn shop_identifiers(&self) -> HashSet<ShopIdentifier> {
+        let mut shop_identifiers: HashSet<ShopIdentifier> = self
+            .urls
+            .iter()
+            .cloned()
+            .map(ShopIdentifier::from)
+            .collect();
+        shop_identifiers.insert(ShopIdentifier::from(self.shop_id));
+
+        shop_identifiers
     }
 }
 
