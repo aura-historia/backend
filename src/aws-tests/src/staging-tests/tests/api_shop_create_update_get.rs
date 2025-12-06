@@ -1,6 +1,5 @@
 use aws_tests_common::get_cfn_output;
 use common::shop_id::ShopId;
-use fake::{Fake, Faker};
 use shop::data::{
     get_shop_data::GetShopData, patch_shop_data::PatchShopData, post_shop_data::PostShopData,
 };
@@ -10,7 +9,11 @@ use url::Url;
 
 #[staging_test]
 async fn should_create_update_get_shop() {
-    let post_shop_data = Faker.fake::<PostShopData>();
+    let post_shop_data = PostShopData {
+        name: "Woobl woop".into(),
+        urls: [Url::parse("https://hans-shopping-nig.com").unwrap()].into(),
+        image: None,
+    };
     let post_url = format!("{}/api/v1/shops", get_cfn_output().api_gateway_endpoint_url);
     let response = reqwest::Client::new()
         .post(post_url)
