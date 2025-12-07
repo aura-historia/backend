@@ -2931,6 +2931,7 @@ Resources:
                   - dynamodb:Query
                   - dynamodb:PutItem
                   - dynamodb:DeleteItem
+                  - dynamodb:UpdateItem
                   - dynamodb:BatchGetItem
                   - dynamodb:BatchWriteItem
                   - dynamodb:TransactGetItems
