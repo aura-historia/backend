@@ -584,6 +584,8 @@ jobs:
     name: AWS Populate Test-Data
     if: github.event_name == 'push'
     needs: aws-cfn-deploy
+    environment:
+      name: aws-staging-data
     permissions:
       contents: read
       id-token: write

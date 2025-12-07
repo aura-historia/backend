@@ -2983,7 +2983,7 @@ Resources:
         IamInstanceProfile:
           Name: !Ref ProductEnrichmentInstanceProfile
         InstanceType: g6.xlarge # Placeholder - ASG overrides this
-        ImageId: ami-047a98bf51dec0963 # custom eu-central-1 AMI with preinstalled deps based on ami-032fa3abdbb7e3a12 (Deep Learning OSS Nvidia Driver AMI GPU PyTorch 2.8 (Ubuntu 24.04))
+        ImageId: ami-028f346ccb9f0f3c9 # custom eu-central-1 AMI with preinstalled deps and models based on ami-032fa3abdbb7e3a12 (Deep Learning OSS Nvidia Driver AMI GPU PyTorch 2.8 (Ubuntu 24.04))
         SecurityGroupIds: [!Ref ProductEnrichmentSecurityGroup]
         BlockDeviceMappings:
           - DeviceName: /dev/sda1
