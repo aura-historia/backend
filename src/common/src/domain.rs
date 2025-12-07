@@ -42,6 +42,40 @@ impl Display for Domain {
     }
 }
 
+#[cfg(feature = "test-data")]
+mod faker {
+    use super::*;
+    use fake::{Dummy, Fake, Faker, Rng, faker::internet::en::DomainSuffix};
+
+    impl Dummy<Faker> for Domain {
+        fn dummy_with_rng<R: Rng + ?Sized>(config: &Faker, rng: &mut R) -> Self {
+            let second_level_domain = config.fake_with_rng::<String, R>(rng);
+            let top_level_domain: String = DomainSuffix().fake_with_rng(rng);
+            let subdomain = if config.fake_with_rng(rng) {
+                format!("{}.", config.fake_with_rng::<String, R>(rng))
+            } else {
+                "".to_owned()
+            };
+
+            Domain(format!(
+                "{subdomain}{second_level_domain}.{top_level_domain}"
+            ))
+        }
+    }
+
+    #[cfg(test)]
+    mod tests {
+        use crate::domain::Domain;
+        use fake::{Fake, Faker};
+
+        #[test]
+        fn should_fake_domain() {
+            let s = Faker.fake::<Domain>();
+            println!("{s}")
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use crate::domain::Domain;
