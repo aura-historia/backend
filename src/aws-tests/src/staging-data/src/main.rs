@@ -28,7 +28,7 @@ async fn populate_products(shops: Vec<Shop>) {
     let stack = get_cfn_output();
     let put_products_url = format!("{}/api/v1/products", stack.api_gateway_endpoint_url);
 
-    let shop_urls = shops
+    let shop_domains = shops
         .into_iter()
         .flat_map(|shop| shop.domains)
         .collect::<Vec<_>>();
@@ -36,7 +36,7 @@ async fn populate_products(shops: Vec<Shop>) {
     // create products
     let mut products = fake::vec![PutProductData; 142];
     for product in &mut products {
-        let host = shop_urls.choose(&mut fake::rand::rng()).unwrap().clone();
+        let host = shop_domains.choose(&mut fake::rand::rng()).unwrap().clone();
         product.url.set_host(Some(host.as_str())).unwrap();
     }
 

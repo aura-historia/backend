@@ -198,9 +198,9 @@ impl<'a> CommandShopService for CommandShopServiceImpl<'a> {
                             // domains don't change => no new/deleted shop-records, just update
                             update.insert(ShopIdentifier::from(url), update_record.clone());
                         }
-                        Some(ref urls) => {
-                            // urls change => possible new/deleted shop-records
-                            if urls.contains(&url) {
+                        Some(ref domains) => {
+                            // domains change => possible new/deleted shop-records
+                            if domains.contains(&url) {
                                 // existing record will exist further
                                 update.insert(ShopIdentifier::from(url), update_record.clone());
                             } else {
@@ -287,7 +287,7 @@ mod tests {
         use std::collections::HashSet;
 
         #[tokio::test]
-        async fn should_err_when_shop_urls_empty() {
+        async fn should_err_when_shop_domains_empty() {
             let shop_repository = MockShopDynamoDbRepository::default();
             let service = CommandShopServiceImpl::new(&shop_repository);
 
@@ -308,7 +308,7 @@ mod tests {
         #[case(169)]
         #[case(1234)]
         #[tokio::test]
-        async fn should_err_when_shop_urls_more_than_100(#[case] count: usize) {
+        async fn should_err_when_shop_domains_more_than_100(#[case] count: usize) {
             let shop_repository = MockShopDynamoDbRepository::default();
             let service = CommandShopServiceImpl::new(&shop_repository);
             let create_cmd = CreateShopCommand {
