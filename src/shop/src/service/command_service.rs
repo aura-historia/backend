@@ -192,10 +192,10 @@ impl<'a> CommandShopService for CommandShopServiceImpl<'a> {
                     );
                 }
                 Some(url) => {
-                    // is a Shop-Url-Record
+                    // is a Shop-Domain-Record
                     match update_record.domains {
                         None => {
-                            // urls don't change => no new/deleted shop-records, just update
+                            // domains don't change => no new/deleted shop-records, just update
                             update.insert(ShopIdentifier::from(url), update_record.clone());
                         }
                         Some(ref urls) => {
@@ -213,7 +213,7 @@ impl<'a> CommandShopService for CommandShopServiceImpl<'a> {
             }
         }
 
-        let new_urls = update_record
+        let new_domains = update_record
             .domains
             .clone()
             .unwrap_or_default()
@@ -226,16 +226,16 @@ impl<'a> CommandShopService for CommandShopServiceImpl<'a> {
                 ShopIdentifier::ShopId(_) => None,
                 ShopIdentifier::ShopDomain(url) => Some(url),
             });
-        for new_url in new_urls {
-            let new_shop_url_record = ShopRecord {
-                pk: mk_pk_as_shop_domain(&new_url),
+        for new_domain in new_domains {
+            let new_shop_domain_record = ShopRecord {
+                pk: mk_pk_as_shop_domain(&new_domain),
                 sk: "shop#details".to_owned(),
                 shop_id: shop_record.shop_id,
                 name: update_record
                     .name
                     .clone()
                     .unwrap_or(shop_record.name.clone()),
-                domain: Some(new_url),
+                domain: Some(new_domain),
                 domains: update_record
                     .domains
                     .clone()
@@ -244,7 +244,7 @@ impl<'a> CommandShopService for CommandShopServiceImpl<'a> {
                 created: OffsetDateTime::now_utc(),
                 updated: OffsetDateTime::now_utc(),
             };
-            put.push(new_shop_url_record);
+            put.push(new_shop_domain_record);
         }
 
         let _ = self.repository.transact_write(put, update, delete).await?;
@@ -512,7 +512,7 @@ mod tests {
         }
 
         #[tokio::test]
-        async fn should_no_op_when_command_is_empty_for_shop_identifier_url() {
+        async fn should_no_op_when_command_is_empty_for_shop_identifier_domain() {
             let mut expected = Faker.fake::<Shop>();
             expected.domains = [Domain::try_from("https://foo.bar").unwrap()].into();
             let shop_record = ShopRecord::clone_from_shop_as_shop_domain_records(&expected)
@@ -600,7 +600,7 @@ mod tests {
             let shop = Faker.fake::<Shop>();
             let shop_record = ShopRecord::from_shop_as_shop_id_record(shop.clone());
             let shop_identifiers = shop_record.shop_identifiers();
-            let mut shop_urls = shop_record.domains.clone();
+            let mut shop_domains = shop_record.domains.clone();
             let mut shop_records = ShopRecord::clone_from_shop_as_shop_domain_records(&shop);
             shop_records.push(ShopRecord::from_shop_as_shop_id_record(shop.clone()));
 
@@ -642,10 +642,10 @@ mod tests {
                     Box::pin(async { Ok(TransactWriteItemsOutput::builder().build()) })
                 });
 
-            shop_urls.insert(Domain::try_from("https://what-da-helly.com/").unwrap());
+            shop_domains.insert(Domain::try_from("https://what-da-helly.com/").unwrap());
             let cmd = UpdateShopCommand {
                 name: None,
-                domains: Some(shop_urls.clone()),
+                domains: Some(shop_domains.clone()),
                 image: None,
             };
             let service = CommandShopServiceImpl::new(&shop_repository);
@@ -654,7 +654,7 @@ mod tests {
                 .await
                 .unwrap();
 
-            assert_eq!(shop_urls, actual.domains);
+            assert_eq!(shop_domains, actual.domains);
         }
 
         #[tokio::test]
@@ -662,7 +662,7 @@ mod tests {
             let shop = Faker.fake::<Shop>();
             let shop_record = ShopRecord::from_shop_as_shop_id_record(shop.clone());
             let shop_identifiers = shop_record.shop_identifiers();
-            let mut shop_urls = shop_record.domains.clone();
+            let mut shop_domains = shop_record.domains.clone();
             let mut shop_records = ShopRecord::clone_from_shop_as_shop_domain_records(&shop);
             shop_records.push(ShopRecord::from_shop_as_shop_id_record(shop.clone()));
 
@@ -689,14 +689,14 @@ mod tests {
                     Box::pin(async { Ok(TransactWriteItemsOutput::builder().build()) })
                 });
 
-            shop_urls = shop_urls
+            shop_domains = shop_domains
                 .clone()
                 .into_iter()
-                .take(shop_urls.len() - 1)
+                .take(shop_domains.len() - 1)
                 .collect::<HashSet<_>>();
             let cmd = UpdateShopCommand {
                 name: None,
-                domains: Some(shop_urls.clone()),
+                domains: Some(shop_domains.clone()),
                 image: None,
             };
             let service = CommandShopServiceImpl::new(&shop_repository);
@@ -705,7 +705,7 @@ mod tests {
                 .await
                 .unwrap();
 
-            assert_eq!(shop_urls, actual.domains);
+            assert_eq!(shop_domains, actual.domains);
         }
     }
 }

@@ -184,7 +184,7 @@ async fn should_get_shop_records() {
     let mut shop_identifiers = record_with_shop_id_pk
         .domains
         .iter()
-        .map(|url| ShopIdentifier::from(url.clone()))
+        .map(|domain| ShopIdentifier::from(domain.clone()))
         .collect::<Vec<_>>();
     shop_identifiers.push(record_with_shop_id_pk.shop_id.into());
 
@@ -226,7 +226,7 @@ async fn should_transact_write() {
     let mut shop_identifiers = record_with_shop_id_pk
         .domains
         .iter()
-        .map(|url| ShopIdentifier::from(url.clone()))
+        .map(|domain| ShopIdentifier::from(domain.clone()))
         .collect::<Vec<_>>();
     shop_identifiers.push(record_with_shop_id_pk.shop_id.into());
 
@@ -283,13 +283,9 @@ async fn should_transact_write() {
         actual_shop_id_record.image.unwrap()
     );
     assert_eq!(2, actual_shop_id_record.domains.len());
-    assert!(
-        actual_shop_id_record
-            .domains
-            .iter()
-            .all(|url| url == &Domain::try_from("https://foo.com").unwrap()
-                || url == &Domain::try_from("https://foo.fr").unwrap())
-    );
+    assert!(actual_shop_id_record.domains.iter().all(|domain| domain
+        == &Domain::try_from("https://foo.com").unwrap()
+        || domain == &Domain::try_from("https://foo.fr").unwrap()));
 
     let actual_shop_url_record_de = repository
         .get_shop_record_by_domain(&Domain::try_from("https://foo.de").unwrap())
@@ -321,8 +317,10 @@ async fn should_transact_write() {
         actual_shop_url_record_com
             .domains
             .iter()
-            .all(|url| url == &Domain::try_from("https://foo.com").unwrap()
-                || url == &Domain::try_from("https://foo.fr").unwrap())
+            .all(
+                |domain| domain == &Domain::try_from("https://foo.com").unwrap()
+                    || domain == &Domain::try_from("https://foo.fr").unwrap()
+            )
     );
 
     let actual_shop_url_record_fr = repository
