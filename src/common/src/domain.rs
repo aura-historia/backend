@@ -91,9 +91,7 @@ mod faker {
                 "".to_owned()
             };
 
-            Domain(format!(
-                "{subdomain}{second_level_domain}.{top_level_domain}"
-            ))
+            Domain(format!("{subdomain}{second_level_domain}.{top_level_domain}").to_lowercase())
         }
     }
 
@@ -104,8 +102,7 @@ mod faker {
 
         #[test]
         fn should_fake_domain() {
-            let s = Faker.fake::<Domain>();
-            println!("{s}")
+            let _ = Faker.fake::<Domain>();
         }
     }
 }
