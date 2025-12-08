@@ -23,12 +23,7 @@ mod faker {
             Shop {
                 shop_id: config.fake_with_rng(rng),
                 name: config.fake_with_rng(rng),
-                domains: [Domain::try_from(format!(
-                    "https://www.{}.com/",
-                    config.fake_with_rng::<String, R>(rng)
-                ))
-                .unwrap()]
-                .into(),
+                domains: [Faker.fake()].into(),
                 image: config.fake_with_rng(rng),
                 created: OffsetDateTime::now_utc(),
                 updated: OffsetDateTime::now_utc(),

@@ -21,7 +21,7 @@ impl TryFrom<&Url> for Domain {
 
     fn try_from(url: &Url) -> Result<Self, Self::Error> {
         match url.domain() {
-            Some(domain) => Ok(Domain(domain.to_owned())),
+            Some(domain) => Ok(Domain(domain.to_lowercase())),
             None => Err(NoDomainError(url.to_string())),
         }
     }
@@ -45,7 +45,8 @@ impl TryFrom<&str> for Domain {
             .trim_start_matches("www.")
             .chars()
             .take_while(|char| char != &':' && char != &'/' && char != &'?' && char != &'#')
-            .collect::<String>();
+            .collect::<String>()
+            .to_lowercase();
 
         if domain.is_empty() || !domain.contains('.') {
             Err(NoDomainError(domain))
