@@ -49,7 +49,7 @@ impl TryFrom<String> for PutProductError {
             "PRODUCT_ENRICHMENT_FAILED" => Ok(PutProductError::EnrichmentError),
             "NO_DOMAIN" => Ok(PutProductError::NoShopDomain),
             other => Err(format!(
-                "Expected any of 'SHOP_NOT_FOUND', 'MONETARY_AMOUNT_OVERFLOW', 'PRODUCT_ENRICHMENT_FAILED. NO_DOMAIN'. Got '{other}'"
+                "Expected any of 'SHOP_NOT_FOUND', 'MONETARY_AMOUNT_OVERFLOW', 'PRODUCT_ENRICHMENT_FAILED', 'NO_DOMAIN'. Got '{other}'"
             )),
         }
     }
