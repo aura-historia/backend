@@ -1,5 +1,6 @@
 use crate::core::shop::Shop;
 use common::{
+    domain::Domain,
     shop_id::{ShopId, ShopIdentifier},
     shop_name::ShopName,
 };
@@ -17,10 +18,10 @@ pub struct ShopRecord {
 
     // Some if this record is a Shop-Host-Record, None if it is a Shop-Id-Record
     #[serde(skip_serializing_if = "Option::is_none", default)]
-    pub url: Option<Url>,
+    pub domain: Option<Domain>,
 
     #[serde(skip_serializing_if = "HashSet::is_empty", default)]
-    pub urls: HashSet<Url>,
+    pub domains: HashSet<Domain>,
 
     #[serde(skip_serializing_if = "Option::is_none", default)]
     pub image: Option<Url>,
@@ -32,10 +33,10 @@ pub struct ShopRecord {
     pub updated: OffsetDateTime,
 }
 
-pub fn mk_pk(shop_identifier: &ShopIdentifier) -> Option<String> {
+pub fn mk_pk(shop_identifier: &ShopIdentifier) -> String {
     match shop_identifier {
-        ShopIdentifier::ShopId(shop_id) => Some(mk_pk_as_shop_id(shop_id)),
-        ShopIdentifier::ShopUrl(url) => mk_pk_as_shop_host(url),
+        ShopIdentifier::ShopId(shop_id) => mk_pk_as_shop_id(shop_id),
+        ShopIdentifier::ShopDomain(domain) => mk_pk_as_shop_domain(domain),
     }
 }
 
@@ -43,8 +44,8 @@ pub fn mk_pk_as_shop_id(shop_id: &ShopId) -> String {
     format!("shop#shop_id#{shop_id}")
 }
 
-pub fn mk_pk_as_shop_host(url: &Url) -> Option<String> {
-    Some(format!("shop#url#{}", url.host_str()?))
+pub fn mk_pk_as_shop_domain(url: &Domain) -> String {
+    format!("shop#domain#{}", url.as_str().to_lowercase())
 }
 
 impl ShopRecord {
@@ -53,38 +54,35 @@ impl ShopRecord {
             pk: mk_pk_as_shop_id(&shop.shop_id),
             sk: "shop#details".to_owned(),
             shop_id: shop.shop_id,
-            url: None,
+            domain: None,
             name: shop.name,
-            urls: shop.urls,
+            domains: shop.domains,
             image: shop.image,
             created: shop.created,
             updated: shop.updated,
         }
     }
 
-    pub fn try_clone_from_shop_as_shop_url_records(shop: &Shop) -> Option<Vec<ShopRecord>> {
-        shop.urls
+    pub fn clone_from_shop_as_shop_domain_records(shop: &Shop) -> Vec<ShopRecord> {
+        shop.domains
             .iter()
-            .map(|url| {
-                let record = ShopRecord {
-                    pk: mk_pk_as_shop_host(url)?,
-                    sk: "shop#details".to_owned(),
-                    shop_id: shop.shop_id,
-                    name: shop.name.clone(),
-                    url: Some(url.clone()),
-                    urls: shop.urls.clone(),
-                    image: shop.image.clone(),
-                    created: shop.created,
-                    updated: shop.updated,
-                };
-                Some(record)
+            .map(|domain| ShopRecord {
+                pk: mk_pk_as_shop_domain(domain),
+                sk: "shop#details".to_owned(),
+                shop_id: shop.shop_id,
+                name: shop.name.clone(),
+                domain: Some(domain.clone()),
+                domains: shop.domains.clone(),
+                image: shop.image.clone(),
+                created: shop.created,
+                updated: shop.updated,
             })
             .collect()
     }
 
     pub fn shop_identifiers(&self) -> HashSet<ShopIdentifier> {
         let mut shop_identifiers: HashSet<ShopIdentifier> = self
-            .urls
+            .domains
             .iter()
             .cloned()
             .map(ShopIdentifier::from)
@@ -100,7 +98,7 @@ impl From<ShopRecord> for Shop {
         Shop {
             shop_id: document.shop_id,
             name: document.name,
-            urls: document.urls,
+            domains: document.domains,
             image: document.image,
             created: document.created,
             updated: document.updated,

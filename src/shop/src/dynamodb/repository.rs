@@ -1,5 +1,5 @@
 use crate::dynamodb::{
-    shop_record::{ShopRecord, mk_pk, mk_pk_as_shop_host, mk_pk_as_shop_id},
+    shop_record::{ShopRecord, mk_pk, mk_pk_as_shop_domain, mk_pk_as_shop_id},
     shop_record_update::ShopRecordUpdate,
 };
 use aws_sdk_dynamodb::{
@@ -16,12 +16,12 @@ use aws_sdk_dynamodb::{
 };
 use common::{
     batch::{Batch, dynamodb::BatchGetItemResult},
+    domain::Domain,
     dynamodb_update::DynamoDbUpdate,
     shop_id::{ShopId, ShopIdentifier},
 };
 use std::collections::HashMap;
 use tracing::error;
-use url::Url;
 
 #[async_trait::async_trait]
 #[mockall::automock]
@@ -44,9 +44,9 @@ pub trait ShopDynamoDbRepository {
         shop_id: &ShopId,
     ) -> Result<Option<ShopRecord>, SdkError<GetItemError, HttpResponse>>;
 
-    async fn get_shop_record_by_url(
+    async fn get_shop_record_by_domain(
         &self,
-        shop_url: &Url,
+        shop_domain: &Domain,
     ) -> Result<Option<ShopRecord>, SdkError<GetItemError, HttpResponse>>;
 
     async fn get_shop_records(
@@ -139,11 +139,7 @@ impl<'a> ShopDynamoDbRepository for ShopDynamoDbRepositoryImpl<'a> {
                             .table_name(&self.table)
                             .key(
                                 "pk",
-                                AttributeValue::S(mk_pk(&shop_identifier).ok_or(
-                                    SdkError::construction_failure(format!(
-                                        "Failed constructing pk for '{shop_identifier}' in update-operation"
-                                    )),
-                                )?),
+                                AttributeValue::S(mk_pk(&shop_identifier)),
                             )
                             .key("sk", AttributeValue::S("shop#details".to_owned()))
                             .update_expression(update_expr.update_expr)
@@ -157,24 +153,16 @@ impl<'a> ShopDynamoDbRepository for ShopDynamoDbRepositoryImpl<'a> {
         }
 
         for shop_identifier in delete {
-            let payload =
-                TransactWriteItem::builder()
-                    .delete(
-                        Delete::builder()
-                            .table_name(&self.table)
-                            .key(
-                                "pk",
-                                AttributeValue::S(mk_pk(&shop_identifier).ok_or(
-                                    SdkError::construction_failure(format!(
-                                        "Failed constructing pk for '{shop_identifier}' in delete-operation"
-                                    )),
-                                )?),
-                            )
-                            .key("sk", AttributeValue::S("shop#details".to_owned()))
-                            .build()
-                            .expect("shouldn't fail because 'table_name' and 'key' have been set"),
-                    )
-                    .build();
+            let payload = TransactWriteItem::builder()
+                .delete(
+                    Delete::builder()
+                        .table_name(&self.table)
+                        .key("pk", AttributeValue::S(mk_pk(&shop_identifier)))
+                        .key("sk", AttributeValue::S("shop#details".to_owned()))
+                        .build()
+                        .expect("shouldn't fail because 'table_name' and 'key' have been set"),
+                )
+                .build();
             payloads.push(payload);
         }
 
@@ -210,15 +198,15 @@ impl<'a> ShopDynamoDbRepository for ShopDynamoDbRepositoryImpl<'a> {
         Ok(rec)
     }
 
-    async fn get_shop_record_by_url(
+    async fn get_shop_record_by_domain(
         &self,
-        shop_url: &Url,
+        shop_domain: &Domain,
     ) -> Result<Option<ShopRecord>, SdkError<GetItemError, HttpResponse>> {
         let rec = self
             .client
             .get_item()
             .table_name(&self.table)
-            .key("pk", AttributeValue::S(mk_pk_as_shop_host(shop_url).ok_or(SdkError::construction_failure("failed constructing partition-key because shops url has no valid host"))?))
+            .key("pk", AttributeValue::S(mk_pk_as_shop_domain(shop_domain)))
             .key("sk", AttributeValue::S("shop#details".to_owned()))
             .send()
             .await?
@@ -245,26 +233,15 @@ impl<'a> ShopDynamoDbRepository for ShopDynamoDbRepositoryImpl<'a> {
         let mut failed = Vec::new();
         let keys = shop_identifiers
             .iter()
-            .filter_map(|shop_identifier| {
+            .map(|shop_identifier| {
                 let mut columns = HashMap::with_capacity(2);
-                match mk_pk(shop_identifier) {
-                    Some(pk) => {
-                        columns.insert("pk".to_owned(), AttributeValue::S(pk));
-                        columns.insert(
-                            "sk".to_owned(),
-                            AttributeValue::S("shop#details".to_owned()),
-                        );
-                        Some(columns)
-                    }
-                    None => {
-                        error!(
-                            shopIdentifier = %shop_identifier,
-                            "Failed constructing partition-key because shops url has no valid host."
-                        );
-                        failed.push(shop_identifier.clone());
-                        None
-                    }
-                }
+                let pk = mk_pk(shop_identifier);
+                columns.insert("pk".to_owned(), AttributeValue::S(pk));
+                columns.insert(
+                    "sk".to_owned(),
+                    AttributeValue::S("shop#details".to_owned()),
+                );
+                columns
             })
             .collect();
         let keys_and_attributes = KeysAndAttributes::builder()
@@ -326,7 +303,7 @@ fn extract_shop_identifier(attr_map: HashMap<String, AttributeValue>) -> Option<
     match attr_map.remove("pk") {
         Some(AttributeValue::S(mut key)) => {
             let shop_id_pat = "shop#shop_id#";
-            let shop_url_pat = "shop#url#";
+            let shop_domain_pat = "shop#domain#";
             if key.starts_with(shop_id_pat) {
                 let shop_id_str = key.split_off(shop_id_pat.len());
                 match ShopId::try_from(&shop_id_str) {
@@ -336,12 +313,12 @@ fn extract_shop_identifier(attr_map: HashMap<String, AttributeValue>) -> Option<
                         None
                     }
                 }
-            } else if key.starts_with(shop_url_pat) {
-                let shop_url_str = key.split_off(shop_url_pat.len());
-                match Url::parse(&shop_url_str) {
-                    Ok(url) => Some(ShopIdentifier::ShopUrl(url)),
+            } else if key.starts_with(shop_domain_pat) {
+                let shop_domain_str = key.split_off(shop_domain_pat.len());
+                match Domain::try_from(shop_domain_str.as_str()) {
+                    Ok(domain) => Some(ShopIdentifier::ShopDomain(domain)),
                     Err(err) => {
-                        error!(error = %err, "Failed parsing extracted ShopUrl '{shop_url_str}'. This is a bug.");
+                        error!(error = %err, "Failed parsing extracted ShopDomain '{shop_domain_str}'. This is a bug.");
                         None
                     }
                 }
@@ -365,17 +342,19 @@ fn extract_shop_identifier(attr_map: HashMap<String, AttributeValue>) -> Option<
 mod tests {
     use crate::dynamodb::repository::extract_shop_identifier;
     use aws_sdk_dynamodb::types::AttributeValue;
-    use common::shop_id::{ShopId, ShopIdentifier};
+    use common::{
+        domain::Domain,
+        shop_id::{ShopId, ShopIdentifier},
+    };
     use std::collections::HashMap;
-    use url::Url;
 
     #[rstest::rstest]
     #[case([].into(), None)]
     #[case([("pk".into(), AttributeValue::S("foo".into()))].into(), None)]
     #[case([("pk".into(), AttributeValue::S("shop#shop_id#bar".into()))].into(), None)]
-    #[case([("pk".into(), AttributeValue::S("shop#url#baz".into()))].into(), None)]
+    #[case([("pk".into(), AttributeValue::S("shop#domain#baz".into()))].into(), None)]
     #[case([("pk".into(), AttributeValue::S("shop#shop_id#2a48a17b-cc4f-4489-83cf-f3f215711047".into()))].into(), Some(ShopId::try_from("2a48a17b-cc4f-4489-83cf-f3f215711047").unwrap().into()))]
-    #[case([("pk".into(), AttributeValue::S("shop#url#https://foo.bar".into()))].into(), Some(Url::parse("https://foo.bar").unwrap().into()))]
+    #[case([("pk".into(), AttributeValue::S("shop#domain#https://foo.bar".into()))].into(), Some(Domain::try_from("https://foo.bar").unwrap().into()))]
     fn should_extract_shop_identifier(
         #[case] attr_map: HashMap<String, AttributeValue>,
         #[case] expected: Option<ShopIdentifier>,

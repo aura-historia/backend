@@ -55,7 +55,7 @@ pub async fn handle(
 
     let update_shop_command = UpdateShopCommand {
         name: patch_shop_data.name,
-        urls: patch_shop_data.urls,
+        domains: patch_shop_data.domains,
         image: patch_shop_data.image,
     };
     let updated_shop = service.update(&shop_id.into(), update_shop_command).await?;

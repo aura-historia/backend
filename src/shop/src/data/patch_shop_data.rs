@@ -1,4 +1,4 @@
-use common::shop_name::ShopName;
+use common::{domain::Domain, shop_name::ShopName};
 use serde::{Deserialize, Serialize};
 use std::collections::HashSet;
 use url::Url;
@@ -10,7 +10,7 @@ pub struct PatchShopData {
     #[serde(skip_serializing_if = "Option::is_none", default)]
     pub name: Option<ShopName>,
     #[serde(skip_serializing_if = "Option::is_none", default)]
-    pub urls: Option<HashSet<Url>>,
+    pub domains: Option<HashSet<Domain>>,
     #[serde(skip_serializing_if = "Option::is_none", default)]
     pub image: Option<Url>,
 }

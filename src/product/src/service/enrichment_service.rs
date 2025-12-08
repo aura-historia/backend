@@ -1,13 +1,14 @@
 use crate::service::product_command::PipedProductCommand;
 use common::{
     batch::Batch,
+    domain::{Domain, NoDomainError},
     price::domain::{FxRate, MonetaryAmountOverflowError},
     shop_id::ShopIdentifier,
 };
 use shop::core::shop::Shop;
 use shop::dynamodb::repository::ShopDynamoDbRepository;
 use std::collections::{HashMap, HashSet};
-use tracing::error;
+use tracing::{error, warn};
 use url::Url;
 
 #[derive(Debug, Clone, PartialEq, Default)]
@@ -22,8 +23,11 @@ pub enum EnrichProductCommandError {
     #[error("MonetaryAmountOverflowError: {0}")]
     MonetaryAmountOverflowError(#[from] MonetaryAmountOverflowError),
 
-    #[error("No Shop with Url '{0}' exists. Cannot enrich shop-information.")]
-    UnknownShopUrl(Url),
+    #[error("No Shop with domain '{0}' exists. Cannot enrich shop-information.")]
+    UnknownShopDomain(Domain),
+
+    #[error("NoShopDomain: {0}")]
+    NoShopDomain(#[from] NoDomainError),
 }
 
 #[async_trait::async_trait]
@@ -72,10 +76,19 @@ impl<'a, T: FxRate + Sync> ProductCommandEnrichmentService
     async fn enrich_shop(&self, commands: Vec<PipedProductCommand>) -> EnrichProductCommandsOutput {
         let shop_identifiers = commands
             .iter()
-            .map(|cmd| normalize_url(cmd.url.clone()))
+            .map(|cmd| cmd.url.clone())
+            .filter_map(|url |{
+                match Domain::try_from(&url) {
+                    Ok(domain) => Some(domain),
+                    Err(err) => {
+                        warn!(error = %err, url = %url, "Cannot extract domain from Product-URL. Skipping product for Shop-Enrichment.");
+                        None
+                    },
+                }
+            })
             .map(ShopIdentifier::from)
             .collect::<HashSet<_>>();
-        let mut shops: HashMap<Url, Shop> = HashMap::with_capacity(shop_identifiers.len());
+        let mut shops: HashMap<Domain, Shop> = HashMap::with_capacity(shop_identifiers.len());
         let mut unprocessed_shops = HashSet::new();
 
         for batch in Batch::chunked_from(shop_identifiers.into_iter()) {
@@ -85,9 +98,8 @@ impl<'a, T: FxRate + Sync> ProductCommandEnrichmentService
                         unprocessed_shops.extend(&mut unprocessed.into_iter());
                     }
                     for record in res.items {
-                        for mut url in record.urls.clone() {
-                            as_normalized_url(&mut url);
-                            shops.insert(url, record.clone().into());
+                        for domain in record.domains.clone() {
+                            shops.insert(domain, record.clone().into());
                         }
                     }
                 }
@@ -100,22 +112,28 @@ impl<'a, T: FxRate + Sync> ProductCommandEnrichmentService
 
         let mut output = EnrichProductCommandsOutput::default();
         for mut cmd in commands {
-            let shop_url = normalize_url(cmd.url.clone());
-            let shop_identifier = ShopIdentifier::ShopUrl(shop_url);
-
-            if unprocessed_shops.contains(&shop_identifier) {
-                output.unprocessed.push(cmd);
-            } else if cmd.shop_id.is_none() || cmd.shop_name.is_none() {
-                let shop_url = normalize_url(cmd.url.clone());
-                match shops.get(&shop_url) {
-                    Some(shop) => {
-                        cmd.shop_id = Some(shop.shop_id);
-                        cmd.shop_name = Some(shop.name.clone());
-                        output.enriched.push(cmd);
+            match Domain::try_from(&cmd.url) {
+                Ok(domain) => {
+                    let shop_identifier = ShopIdentifier::ShopDomain(domain.clone());
+                    if unprocessed_shops.contains(&shop_identifier) {
+                        output.unprocessed.push(cmd);
+                    } else if cmd.shop_id.is_none() || cmd.shop_name.is_none() {
+                        match shops.get(&domain) {
+                            Some(shop) => {
+                                cmd.shop_id = Some(shop.shop_id);
+                                cmd.shop_name = Some(shop.name.clone());
+                                output.enriched.push(cmd);
+                            }
+                            None => output
+                                .failed
+                                .push((cmd, EnrichProductCommandError::UnknownShopDomain(domain))),
+                        }
                     }
-                    None => output
+                }
+                Err(err) => {
+                    output
                         .failed
-                        .push((cmd, EnrichProductCommandError::UnknownShopUrl(shop_url))),
+                        .push((cmd, EnrichProductCommandError::NoShopDomain(err)));
                 }
             }
         }
@@ -150,17 +168,6 @@ impl<'a, T: FxRate + Sync> ProductCommandEnrichmentService
 
         output
     }
-}
-
-fn normalize_url(url: Url) -> Url {
-    let mut url = url;
-    as_normalized_url(&mut url);
-    url
-}
-
-fn as_normalized_url(url: &mut Url) {
-    url.set_query(None);
-    url.set_path("");
 }
 
 #[cfg(feature = "test-data")]
@@ -221,7 +228,6 @@ mod faker {
 mod tests {
     use crate::service::enrichment_service::{
         PipedProductCommand, ProductCommandEnrichmentService, ProductCommandEnrichmentServiceImpl,
-        normalize_url,
     };
     use aws_sdk_sqs::error::SdkError;
     use common::{
@@ -233,23 +239,6 @@ mod tests {
     use shop::dynamodb::{repository::MockShopDynamoDbRepository, shop_record::ShopRecord};
     use std::panic;
     use strum::EnumCount;
-    use url::Url;
-
-    #[rstest::rstest]
-    #[case("https://google.com", "https://google.com/")]
-    #[case("https://google.com/foo", "https://google.com/")]
-    #[case("https://google.com/foo/bar", "https://google.com/")]
-    #[case("https://google.com?baz=bat", "https://google.com/")]
-    #[case("https://google.com?baz=bat&olga=rego", "https://google.com/")]
-    #[case("https://google.com/wau/?baz=bat&olga=rego", "https://google.com/")]
-    #[case("https://google.com/wau/miau/?baz=bat&olg=reg", "https://google.com/")]
-    fn should_normalize_url(#[case] url: &str, #[case] expected: &str) {
-        let url = Url::parse(url).unwrap();
-
-        let actual = normalize_url(url);
-
-        assert_eq!(expected, actual.as_str());
-    }
 
     #[test]
     fn should_enrich_price_when_other_none() {
@@ -284,10 +273,10 @@ mod tests {
                                 ShopIdentifier::ShopId(_) => {
                                     panic!("Expected 'ShopIdentifier::ShopUrl'")
                                 }
-                                ShopIdentifier::ShopUrl(url) => url,
+                                ShopIdentifier::ShopDomain(url) => url,
                             };
-                            shop.urls.insert(url);
-                            ShopRecord::try_clone_from_shop_as_shop_url_records(&shop).unwrap()
+                            shop.domains.insert(url);
+                            ShopRecord::clone_from_shop_as_shop_domain_records(&shop)
                         })
                         .collect(),
                     unprocessed: None,

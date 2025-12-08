@@ -1,11 +1,11 @@
-use common::shop_name::ShopName;
+use common::{domain::Domain, shop_name::ShopName};
 use std::collections::HashSet;
 use url::Url;
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct CreateShopCommand {
     pub name: ShopName,
-    pub urls: HashSet<Url>,
+    pub domains: HashSet<Domain>,
     pub image: Option<Url>,
 }
 
@@ -13,13 +13,13 @@ pub struct CreateShopCommand {
 #[derive(Debug, Clone, PartialEq, Default)]
 pub struct UpdateShopCommand {
     pub name: Option<ShopName>,
-    pub urls: Option<HashSet<Url>>,
+    pub domains: Option<HashSet<Domain>>,
     pub image: Option<Url>,
 }
 
 impl UpdateShopCommand {
     pub fn is_empty(&self) -> bool {
-        self.name.is_none() && self.urls.is_none() && self.image.is_none()
+        self.name.is_none() && self.domains.is_none() && self.image.is_none()
     }
 }
 
@@ -32,7 +32,7 @@ mod faker {
         fn dummy_with_rng<R: Rng + ?Sized>(config: &Faker, rng: &mut R) -> Self {
             CreateShopCommand {
                 name: config.fake_with_rng(rng),
-                urls: [Url::parse(&format!(
+                domains: [Domain::try_from(format!(
                     "https://www.{}.com/",
                     config.fake_with_rng::<String, R>(rng)
                 ))

@@ -23,7 +23,7 @@
           }
         }
       },
-      "urls": {
+      "domains": {
         "type": "keyword"
       },
       "image": {

@@ -1,6 +1,7 @@
 use std::collections::HashMap;
 
 use aws_sdk_dynamodb::error::SdkError;
+use common::domain::Domain;
 use common::shop_id::{ShopId, ShopIdentifier};
 use common::shop_name::ShopName;
 use fake::{Fake, Faker};
@@ -35,7 +36,7 @@ async fn should_return_none_when_shop_record_not_exists_for_get_by_url() {
     let repository = get_repository().await;
 
     let actual = repository
-        .get_shop_record_by_url(&Url::parse("https://google.com").unwrap())
+        .get_shop_record_by_domain(&Domain::try_from("https://google.com").unwrap())
         .await
         .unwrap();
 
@@ -61,14 +62,13 @@ async fn should_return_some_when_shop_record_exists_for_get_by_id() {
 async fn should_return_some_when_shop_record_exists_for_get_by_url() {
     let repository = get_repository().await;
 
-    let records =
-        ShopRecord::try_clone_from_shop_as_shop_url_records(&Faker.fake::<Shop>()).unwrap();
+    let records = ShopRecord::clone_from_shop_as_shop_domain_records(&Faker.fake::<Shop>());
     let _ = repository
         .put_shop_records_transact(records.clone())
         .await
         .unwrap();
     let actual = repository
-        .get_shop_record_by_url(records[0].urls.iter().next().unwrap())
+        .get_shop_record_by_domain(records[0].domains.iter().next().unwrap())
         .await
         .unwrap()
         .unwrap();
@@ -80,8 +80,7 @@ async fn should_return_some_when_shop_record_exists_for_get_by_url() {
 async fn should_succeed_transact_write_shop_records_when_none_exist() {
     let repository = get_repository().await;
 
-    let records =
-        ShopRecord::try_clone_from_shop_as_shop_url_records(&Faker.fake::<Shop>()).unwrap();
+    let records = ShopRecord::clone_from_shop_as_shop_domain_records(&Faker.fake::<Shop>());
     let _ = repository
         .put_shop_records_transact(records.clone())
         .await
@@ -89,7 +88,7 @@ async fn should_succeed_transact_write_shop_records_when_none_exist() {
 
     for record in records {
         let actual = repository
-            .get_shop_record_by_url(record.urls.iter().next().unwrap())
+            .get_shop_record_by_domain(record.domains.iter().next().unwrap())
             .await
             .unwrap()
             .unwrap();
@@ -101,8 +100,7 @@ async fn should_succeed_transact_write_shop_records_when_none_exist() {
 async fn should_succeed_transact_write_shop_records_when_none_with_differing_shop_id_exist() {
     let repository = get_repository().await;
 
-    let records =
-        ShopRecord::try_clone_from_shop_as_shop_url_records(&Faker.fake::<Shop>()).unwrap();
+    let records = ShopRecord::clone_from_shop_as_shop_domain_records(&Faker.fake::<Shop>());
 
     // first write
     let _ = repository
@@ -111,7 +109,7 @@ async fn should_succeed_transact_write_shop_records_when_none_with_differing_sho
         .unwrap();
     for record in records.clone() {
         let actual = repository
-            .get_shop_record_by_url(record.urls.iter().next().unwrap())
+            .get_shop_record_by_domain(record.domains.iter().next().unwrap())
             .await
             .unwrap()
             .unwrap();
@@ -126,7 +124,7 @@ async fn should_succeed_transact_write_shop_records_when_none_with_differing_sho
 
     for record in records {
         let actual = repository
-            .get_shop_record_by_url(record.urls.iter().next().unwrap())
+            .get_shop_record_by_domain(record.domains.iter().next().unwrap())
             .await
             .unwrap()
             .unwrap();
@@ -138,8 +136,7 @@ async fn should_succeed_transact_write_shop_records_when_none_with_differing_sho
 async fn should_fail_transact_write_shop_records_when_some_with_differing_shop_id_exist() {
     let repository = get_repository().await;
 
-    let records =
-        ShopRecord::try_clone_from_shop_as_shop_url_records(&Faker.fake::<Shop>()).unwrap();
+    let records = ShopRecord::clone_from_shop_as_shop_domain_records(&Faker.fake::<Shop>());
 
     // first write
     let _ = repository
@@ -148,7 +145,7 @@ async fn should_fail_transact_write_shop_records_when_some_with_differing_shop_i
         .unwrap();
     for record in records.clone() {
         let actual = repository
-            .get_shop_record_by_url(record.urls.iter().next().unwrap())
+            .get_shop_record_by_domain(record.domains.iter().next().unwrap())
             .await
             .unwrap()
             .unwrap();
@@ -180,14 +177,14 @@ async fn should_get_shop_records() {
     let repository = get_repository().await;
 
     let shop = Faker.fake::<Shop>();
-    let mut expected = ShopRecord::try_clone_from_shop_as_shop_url_records(&shop).unwrap();
+    let mut expected = ShopRecord::clone_from_shop_as_shop_domain_records(&shop);
     let record_with_shop_id_pk = ShopRecord::from_shop_as_shop_id_record(shop);
     expected.push(record_with_shop_id_pk.clone());
 
     let mut shop_identifiers = record_with_shop_id_pk
-        .urls
+        .domains
         .iter()
-        .map(|url| ShopIdentifier::from(url.clone()))
+        .map(|domain| ShopIdentifier::from(domain.clone()))
         .collect::<Vec<_>>();
     shop_identifiers.push(record_with_shop_id_pk.shop_id.into());
 
@@ -212,25 +209,24 @@ async fn should_transact_write() {
     let shop = Shop {
         shop_id: Faker.fake(),
         name: Faker.fake(),
-        urls: [
-            Url::parse("https://foo.de").unwrap(),
-            Url::parse("https://foo.com").unwrap(),
-            Url::parse("https://foo.en").unwrap(),
+        domains: [
+            Domain::try_from("https://foo.de").unwrap(),
+            Domain::try_from("https://foo.com").unwrap(),
+            Domain::try_from("https://foo.en").unwrap(),
         ]
         .into(),
         image: Faker.fake(),
         created: OffsetDateTime::now_utc(),
         updated: OffsetDateTime::now_utc(),
     };
-    let mut existing_shop_records =
-        ShopRecord::try_clone_from_shop_as_shop_url_records(&shop).unwrap();
+    let mut existing_shop_records = ShopRecord::clone_from_shop_as_shop_domain_records(&shop);
     let record_with_shop_id_pk = ShopRecord::from_shop_as_shop_id_record(shop.clone());
     existing_shop_records.push(record_with_shop_id_pk.clone());
 
     let mut shop_identifiers = record_with_shop_id_pk
-        .urls
+        .domains
         .iter()
-        .map(|url| ShopIdentifier::from(url.clone()))
+        .map(|domain| ShopIdentifier::from(domain.clone()))
         .collect::<Vec<_>>();
     shop_identifiers.push(record_with_shop_id_pk.shop_id.into());
 
@@ -241,20 +237,19 @@ async fn should_transact_write() {
 
     let mut new_shop = shop.clone();
     new_shop.name = "Hans' Shop".into();
-    new_shop.urls = [Url::parse("https://foo.fr").unwrap()].into();
+    new_shop.domains = [Domain::try_from("https://foo.fr").unwrap()].into();
     let put = vec![
-        ShopRecord::try_clone_from_shop_as_shop_url_records(&new_shop)
-            .unwrap()
+        ShopRecord::clone_from_shop_as_shop_domain_records(&new_shop)
             .first()
             .unwrap()
             .clone(),
     ];
     let update_record = ShopRecordUpdate {
         name: Some("Hans' Shop".into()),
-        urls: Some(
+        domains: Some(
             [
-                Url::parse("https://foo.com").unwrap(),
-                Url::parse("https://foo.fr").unwrap(),
+                Domain::try_from("https://foo.com").unwrap(),
+                Domain::try_from("https://foo.fr").unwrap(),
             ]
             .into(),
         ),
@@ -263,14 +258,14 @@ async fn should_transact_write() {
     };
     let update = HashMap::from_iter([
         (
-            ShopIdentifier::from(Url::parse("https://foo.com").unwrap()),
+            ShopIdentifier::from(Domain::try_from("https://foo.com").unwrap()),
             update_record.clone(),
         ),
         (ShopIdentifier::from(shop.shop_id), update_record),
     ]);
     let delete = vec![
-        ShopIdentifier::from(Url::parse("https://foo.de").unwrap()),
-        ShopIdentifier::from(Url::parse("https://foo.en").unwrap()),
+        ShopIdentifier::from(Domain::try_from("https://foo.de").unwrap()),
+        ShopIdentifier::from(Domain::try_from("https://foo.en").unwrap()),
     ];
     let _ = repository
         .transact_write(put, update, delete)
@@ -287,29 +282,25 @@ async fn should_transact_write() {
         Url::parse("https://foo.bar").unwrap(),
         actual_shop_id_record.image.unwrap()
     );
-    assert_eq!(2, actual_shop_id_record.urls.len());
-    assert!(
-        actual_shop_id_record
-            .urls
-            .iter()
-            .all(|url| url == &Url::parse("https://foo.com").unwrap()
-                || url == &Url::parse("https://foo.fr").unwrap())
-    );
+    assert_eq!(2, actual_shop_id_record.domains.len());
+    assert!(actual_shop_id_record.domains.iter().all(|domain| domain
+        == &Domain::try_from("https://foo.com").unwrap()
+        || domain == &Domain::try_from("https://foo.fr").unwrap()));
 
     let actual_shop_url_record_de = repository
-        .get_shop_record_by_url(&Url::parse("https://foo.de").unwrap())
+        .get_shop_record_by_domain(&Domain::try_from("https://foo.de").unwrap())
         .await
         .unwrap();
     assert!(actual_shop_url_record_de.is_none());
 
     let actual_shop_url_record_en = repository
-        .get_shop_record_by_url(&Url::parse("https://foo.en").unwrap())
+        .get_shop_record_by_domain(&Domain::try_from("https://foo.en").unwrap())
         .await
         .unwrap();
     assert!(actual_shop_url_record_en.is_none());
 
     let actual_shop_url_record_com = repository
-        .get_shop_record_by_url(&Url::parse("https://foo.com").unwrap())
+        .get_shop_record_by_domain(&Domain::try_from("https://foo.com").unwrap())
         .await
         .unwrap()
         .unwrap();
@@ -321,17 +312,19 @@ async fn should_transact_write() {
         Url::parse("https://foo.bar").unwrap(),
         actual_shop_url_record_com.image.unwrap()
     );
-    assert_eq!(2, actual_shop_url_record_com.urls.len());
+    assert_eq!(2, actual_shop_url_record_com.domains.len());
     assert!(
         actual_shop_url_record_com
-            .urls
+            .domains
             .iter()
-            .all(|url| url == &Url::parse("https://foo.com").unwrap()
-                || url == &Url::parse("https://foo.fr").unwrap())
+            .all(
+                |domain| domain == &Domain::try_from("https://foo.com").unwrap()
+                    || domain == &Domain::try_from("https://foo.fr").unwrap()
+            )
     );
 
     let actual_shop_url_record_fr = repository
-        .get_shop_record_by_url(&Url::parse("https://foo.fr").unwrap())
+        .get_shop_record_by_domain(&Domain::try_from("https://foo.fr").unwrap())
         .await
         .unwrap()
         .unwrap();

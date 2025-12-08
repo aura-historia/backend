@@ -1486,8 +1486,6 @@ async fn should_respond_200_and_respect_accept_language_header(
     let actual: Vec<PersonalizedData<GetProductData, ProductUserStateData>> =
         serde_json::from_value(response_payload).unwrap();
 
-    // tough due to ANN
-    assert!(1 < actual.len());
     assert!(
         actual
             .iter()

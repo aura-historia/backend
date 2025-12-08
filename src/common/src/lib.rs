@@ -6,6 +6,8 @@ pub mod batch;
 
 #[cfg(feature = "dynamodb")]
 pub mod dynamodb_update;
+
+pub mod domain;
 pub mod error;
 pub mod event;
 pub mod event_id;

@@ -498,8 +498,8 @@ Resources:
       JwtConfiguration:
         Issuer: !Sub "https://cognito-idp.${AWS::Region}.amazonaws.com/${PrimaryUserPool}"
         Audience:
-          - "PrimaryUserPoolClientPublic"
-          - "PrimaryUserPoolClientAdmin"
+          - !Ref PrimaryUserPoolClientPublic
+          - !Ref PrimaryUserPoolClientAdmin
   Api5XXErrorAlarm:
     Type: AWS::CloudWatch::Alarm
     Properties:
@@ -591,9 +591,9 @@ Resources:
       Environment:
         Variables:
           DYNAMODB_TABLE_NAME: !Ref TableOne
-          USER_POOL_ID: "PrimaryUserPool"
-          USER_POOL_PUBLIC_CLIENT_ID: "PrimaryUserPoolClientPublic"
-          USER_POOL_ADMIN_CLIENT_ID: "PrimaryUserPoolClientAdmin"
+          USER_POOL_ID: !Ref PrimaryUserPool
+          USER_POOL_PUBLIC_CLIENT_ID: !Ref PrimaryUserPoolClientPublic
+          USER_POOL_ADMIN_CLIENT_ID: !Ref PrimaryUserPoolClientAdmin
   ApiGetProductLambdaPermission:
     Type: AWS::Lambda::Permission
     Properties:
@@ -812,9 +812,9 @@ Resources:
         Variables:
           OPENSEARCH_DOMAIN_ENDPOINT_URL: !Sub "https://${OpenSearchDomain.DomainEndpoint}"
           DYNAMODB_TABLE_NAME: !Ref TableOne
-          USER_POOL_ID: "PrimaryUserPool"
-          USER_POOL_PUBLIC_CLIENT_ID: "PrimaryUserPoolClientPublic"
-          USER_POOL_ADMIN_CLIENT_ID: "PrimaryUserPoolClientAdmin"
+          USER_POOL_ID: !Ref PrimaryUserPool
+          USER_POOL_PUBLIC_CLIENT_ID: !Ref PrimaryUserPoolClientPublic
+          USER_POOL_ADMIN_CLIENT_ID: !Ref PrimaryUserPoolClientAdmin
   ApiProductSearchLambdaPermission:
     Type: AWS::Lambda::Permission
     Properties:
@@ -908,9 +908,9 @@ Resources:
         Variables:
           OPENSEARCH_DOMAIN_ENDPOINT_URL: !Sub "https://${OpenSearchDomain.DomainEndpoint}"
           DYNAMODB_TABLE_NAME: !Ref TableOne
-          USER_POOL_ID: "PrimaryUserPool"
-          USER_POOL_PUBLIC_CLIENT_ID: "PrimaryUserPoolClientPublic"
-          USER_POOL_ADMIN_CLIENT_ID: "PrimaryUserPoolClientAdmin"
+          USER_POOL_ID: !Ref PrimaryUserPool
+          USER_POOL_PUBLIC_CLIENT_ID: !Ref PrimaryUserPoolClientPublic
+          USER_POOL_ADMIN_CLIENT_ID: !Ref PrimaryUserPoolClientAdmin
   ApiProductSimilaritySearchLambdaPermission:
     Type: AWS::Lambda::Permission
     Properties:
@@ -1361,7 +1361,6 @@ Resources:
       TreatMissingData: notBreaching
       AlarmActions:
         - !Ref AlarmNotificationTopic
-
 
   ApiPostShopRoute:
     Type: AWS::ApiGatewayV2::Route
