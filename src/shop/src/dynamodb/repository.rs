@@ -1,5 +1,5 @@
 use crate::dynamodb::{
-    shop_record::{ShopRecord, mk_pk, mk_pk_as_shop_host, mk_pk_as_shop_id},
+    shop_record::{ShopRecord, mk_pk, mk_pk_as_shop_domain, mk_pk_as_shop_id},
     shop_record_update::ShopRecordUpdate,
 };
 use aws_sdk_dynamodb::{
@@ -206,7 +206,7 @@ impl<'a> ShopDynamoDbRepository for ShopDynamoDbRepositoryImpl<'a> {
             .client
             .get_item()
             .table_name(&self.table)
-            .key("pk", AttributeValue::S(mk_pk_as_shop_host(shop_domain)))
+            .key("pk", AttributeValue::S(mk_pk_as_shop_domain(shop_domain)))
             .key("sk", AttributeValue::S("shop#details".to_owned()))
             .send()
             .await?
@@ -303,7 +303,7 @@ fn extract_shop_identifier(attr_map: HashMap<String, AttributeValue>) -> Option<
     match attr_map.remove("pk") {
         Some(AttributeValue::S(mut key)) => {
             let shop_id_pat = "shop#shop_id#";
-            let shop_url_pat = "shop#domain#";
+            let shop_domain_pat = "shop#domain#";
             if key.starts_with(shop_id_pat) {
                 let shop_id_str = key.split_off(shop_id_pat.len());
                 match ShopId::try_from(&shop_id_str) {
@@ -313,12 +313,12 @@ fn extract_shop_identifier(attr_map: HashMap<String, AttributeValue>) -> Option<
                         None
                     }
                 }
-            } else if key.starts_with(shop_url_pat) {
-                let shop_domain_str = key.split_off(shop_url_pat.len());
+            } else if key.starts_with(shop_domain_pat) {
+                let shop_domain_str = key.split_off(shop_domain_pat.len());
                 match Domain::try_from(shop_domain_str.as_str()) {
                     Ok(domain) => Some(ShopIdentifier::ShopDomain(domain)),
                     Err(err) => {
-                        error!(error = %err, "Failed parsing extracted ShopUrl '{shop_domain_str}'. This is a bug.");
+                        error!(error = %err, "Failed parsing extracted ShopDomain '{shop_domain_str}'. This is a bug.");
                         None
                     }
                 }

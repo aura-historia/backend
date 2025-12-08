@@ -62,7 +62,7 @@ async fn should_return_some_when_shop_record_exists_for_get_by_id() {
 async fn should_return_some_when_shop_record_exists_for_get_by_url() {
     let repository = get_repository().await;
 
-    let records = ShopRecord::clone_from_shop_as_shop_url_records(&Faker.fake::<Shop>());
+    let records = ShopRecord::clone_from_shop_as_shop_domain_records(&Faker.fake::<Shop>());
     let _ = repository
         .put_shop_records_transact(records.clone())
         .await
@@ -80,7 +80,7 @@ async fn should_return_some_when_shop_record_exists_for_get_by_url() {
 async fn should_succeed_transact_write_shop_records_when_none_exist() {
     let repository = get_repository().await;
 
-    let records = ShopRecord::clone_from_shop_as_shop_url_records(&Faker.fake::<Shop>());
+    let records = ShopRecord::clone_from_shop_as_shop_domain_records(&Faker.fake::<Shop>());
     let _ = repository
         .put_shop_records_transact(records.clone())
         .await
@@ -100,7 +100,7 @@ async fn should_succeed_transact_write_shop_records_when_none_exist() {
 async fn should_succeed_transact_write_shop_records_when_none_with_differing_shop_id_exist() {
     let repository = get_repository().await;
 
-    let records = ShopRecord::clone_from_shop_as_shop_url_records(&Faker.fake::<Shop>());
+    let records = ShopRecord::clone_from_shop_as_shop_domain_records(&Faker.fake::<Shop>());
 
     // first write
     let _ = repository
@@ -136,7 +136,7 @@ async fn should_succeed_transact_write_shop_records_when_none_with_differing_sho
 async fn should_fail_transact_write_shop_records_when_some_with_differing_shop_id_exist() {
     let repository = get_repository().await;
 
-    let records = ShopRecord::clone_from_shop_as_shop_url_records(&Faker.fake::<Shop>());
+    let records = ShopRecord::clone_from_shop_as_shop_domain_records(&Faker.fake::<Shop>());
 
     // first write
     let _ = repository
@@ -177,7 +177,7 @@ async fn should_get_shop_records() {
     let repository = get_repository().await;
 
     let shop = Faker.fake::<Shop>();
-    let mut expected = ShopRecord::clone_from_shop_as_shop_url_records(&shop);
+    let mut expected = ShopRecord::clone_from_shop_as_shop_domain_records(&shop);
     let record_with_shop_id_pk = ShopRecord::from_shop_as_shop_id_record(shop);
     expected.push(record_with_shop_id_pk.clone());
 
@@ -219,7 +219,7 @@ async fn should_transact_write() {
         created: OffsetDateTime::now_utc(),
         updated: OffsetDateTime::now_utc(),
     };
-    let mut existing_shop_records = ShopRecord::clone_from_shop_as_shop_url_records(&shop);
+    let mut existing_shop_records = ShopRecord::clone_from_shop_as_shop_domain_records(&shop);
     let record_with_shop_id_pk = ShopRecord::from_shop_as_shop_id_record(shop.clone());
     existing_shop_records.push(record_with_shop_id_pk.clone());
 
@@ -239,7 +239,7 @@ async fn should_transact_write() {
     new_shop.name = "Hans' Shop".into();
     new_shop.domains = [Domain::try_from("https://foo.fr").unwrap()].into();
     let put = vec![
-        ShopRecord::clone_from_shop_as_shop_url_records(&new_shop)
+        ShopRecord::clone_from_shop_as_shop_domain_records(&new_shop)
             .first()
             .unwrap()
             .clone(),

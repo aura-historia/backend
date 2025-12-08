@@ -36,7 +36,7 @@ pub struct ShopRecord {
 pub fn mk_pk(shop_identifier: &ShopIdentifier) -> String {
     match shop_identifier {
         ShopIdentifier::ShopId(shop_id) => mk_pk_as_shop_id(shop_id),
-        ShopIdentifier::ShopDomain(domain) => mk_pk_as_shop_host(domain),
+        ShopIdentifier::ShopDomain(domain) => mk_pk_as_shop_domain(domain),
     }
 }
 
@@ -44,7 +44,7 @@ pub fn mk_pk_as_shop_id(shop_id: &ShopId) -> String {
     format!("shop#shop_id#{shop_id}")
 }
 
-pub fn mk_pk_as_shop_host(url: &Domain) -> String {
+pub fn mk_pk_as_shop_domain(url: &Domain) -> String {
     format!("shop#domain#{}", url.as_str())
 }
 
@@ -63,11 +63,11 @@ impl ShopRecord {
         }
     }
 
-    pub fn clone_from_shop_as_shop_url_records(shop: &Shop) -> Vec<ShopRecord> {
+    pub fn clone_from_shop_as_shop_domain_records(shop: &Shop) -> Vec<ShopRecord> {
         shop.domains
             .iter()
             .map(|domain| ShopRecord {
-                pk: mk_pk_as_shop_host(domain),
+                pk: mk_pk_as_shop_domain(domain),
                 sk: "shop#details".to_owned(),
                 shop_id: shop.shop_id,
                 name: shop.name.clone(),

@@ -4,7 +4,7 @@ use crate::{
     core::shop::Shop,
     dynamodb::{
         repository::ShopDynamoDbRepository,
-        shop_record::{ShopRecord, mk_pk_as_shop_host},
+        shop_record::{ShopRecord, mk_pk_as_shop_domain},
         shop_record_update::ShopRecordUpdate,
     },
     service::command::{CreateShopCommand, UpdateShopCommand},
@@ -129,7 +129,7 @@ impl<'a> CommandShopService for CommandShopServiceImpl<'a> {
             created: OffsetDateTime::now_utc(),
             updated: OffsetDateTime::now_utc(),
         };
-        let mut shop_records = ShopRecord::clone_from_shop_as_shop_url_records(&shop);
+        let mut shop_records = ShopRecord::clone_from_shop_as_shop_domain_records(&shop);
         shop_records.push(ShopRecord::from_shop_as_shop_id_record(shop.clone()));
 
         let _ = self
@@ -228,7 +228,7 @@ impl<'a> CommandShopService for CommandShopServiceImpl<'a> {
             });
         for new_url in new_urls {
             let new_shop_url_record = ShopRecord {
-                pk: mk_pk_as_shop_host(&new_url),
+                pk: mk_pk_as_shop_domain(&new_url),
                 sk: "shop#details".to_owned(),
                 shop_id: shop_record.shop_id,
                 name: update_record
@@ -515,7 +515,7 @@ mod tests {
         async fn should_no_op_when_command_is_empty_for_shop_identifier_url() {
             let mut expected = Faker.fake::<Shop>();
             expected.domains = [Domain::try_from("https://foo.bar").unwrap()].into();
-            let shop_record = ShopRecord::clone_from_shop_as_shop_url_records(&expected)
+            let shop_record = ShopRecord::clone_from_shop_as_shop_domain_records(&expected)
                 .first()
                 .unwrap()
                 .clone();
@@ -542,7 +542,7 @@ mod tests {
             let shop = Faker.fake::<Shop>();
             let shop_record = ShopRecord::from_shop_as_shop_id_record(shop.clone());
             let shop_identifiers = shop_record.shop_identifiers();
-            let mut shop_records = ShopRecord::clone_from_shop_as_shop_url_records(&shop);
+            let mut shop_records = ShopRecord::clone_from_shop_as_shop_domain_records(&shop);
             shop_records.push(ShopRecord::from_shop_as_shop_id_record(shop.clone()));
 
             let mut shop_repository = MockShopDynamoDbRepository::default();
@@ -601,7 +601,7 @@ mod tests {
             let shop_record = ShopRecord::from_shop_as_shop_id_record(shop.clone());
             let shop_identifiers = shop_record.shop_identifiers();
             let mut shop_urls = shop_record.domains.clone();
-            let mut shop_records = ShopRecord::clone_from_shop_as_shop_url_records(&shop);
+            let mut shop_records = ShopRecord::clone_from_shop_as_shop_domain_records(&shop);
             shop_records.push(ShopRecord::from_shop_as_shop_id_record(shop.clone()));
 
             let mut shop_repository = MockShopDynamoDbRepository::default();
@@ -663,7 +663,7 @@ mod tests {
             let shop_record = ShopRecord::from_shop_as_shop_id_record(shop.clone());
             let shop_identifiers = shop_record.shop_identifiers();
             let mut shop_urls = shop_record.domains.clone();
-            let mut shop_records = ShopRecord::clone_from_shop_as_shop_url_records(&shop);
+            let mut shop_records = ShopRecord::clone_from_shop_as_shop_domain_records(&shop);
             shop_records.push(ShopRecord::from_shop_as_shop_id_record(shop.clone()));
 
             let mut shop_repository = MockShopDynamoDbRepository::default();

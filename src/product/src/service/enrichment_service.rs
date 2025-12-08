@@ -276,7 +276,7 @@ mod tests {
                                 ShopIdentifier::ShopDomain(url) => url,
                             };
                             shop.domains.insert(url);
-                            ShopRecord::clone_from_shop_as_shop_url_records(&shop)
+                            ShopRecord::clone_from_shop_as_shop_domain_records(&shop)
                         })
                         .collect(),
                     unprocessed: None,

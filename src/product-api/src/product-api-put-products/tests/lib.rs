@@ -65,7 +65,7 @@ async fn should_put_products_with_known_domain() {
         UpsertProductsServiceImpl::new(&product_repository, sqs_client, &queue_url, &fx_rate);
 
     let shop = Faker.fake::<Shop>();
-    let mut shop_records = ShopRecord::clone_from_shop_as_shop_url_records(&shop);
+    let mut shop_records = ShopRecord::clone_from_shop_as_shop_domain_records(&shop);
     shop_records.push(ShopRecord::from_shop_as_shop_id_record(shop.clone()));
     let _ = shop_repository
         .put_shop_records_transact(shop_records)

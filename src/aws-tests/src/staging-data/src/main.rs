@@ -84,7 +84,7 @@ async fn populate_shops() -> Vec<Shop> {
     let dynamodb_repository =
         ShopDynamoDbRepositoryImpl::new(get_dynamodb_client().await, &stack.dynamodb_table_1_name);
     for shop in shops.clone() {
-        let mut shop_records = ShopRecord::clone_from_shop_as_shop_url_records(&shop);
+        let mut shop_records = ShopRecord::clone_from_shop_as_shop_domain_records(&shop);
         shop_records.push(ShopRecord::from_shop_as_shop_id_record(shop));
         let _ = dynamodb_repository
             .put_shop_records_transact(shop_records)
