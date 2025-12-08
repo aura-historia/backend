@@ -23,6 +23,9 @@ pub enum PutProductError {
     #[error("SHOP_NOT_FOUND")]
     ShopNotFound,
 
+    #[error("NO_DOMAIN")]
+    NoShopDomain,
+
     #[error("MONETARY_AMOUNT_OVERFLOW")]
     MonetaryAmountOverflow,
 
@@ -44,8 +47,9 @@ impl TryFrom<String> for PutProductError {
             "SHOP_NOT_FOUND" => Ok(PutProductError::ShopNotFound),
             "MONETARY_AMOUNT_OVERFLOW" => Ok(PutProductError::MonetaryAmountOverflow),
             "PRODUCT_ENRICHMENT_FAILED" => Ok(PutProductError::EnrichmentError),
+            "NO_DOMAIN" => Ok(PutProductError::NoShopDomain),
             other => Err(format!(
-                "Expected any of 'SHOP_NOT_FOUND', 'MONETARY_AMOUNT_OVERFLOW', 'PRODUCT_ENRICHMENT_FAILED'. Got '{other}'"
+                "Expected any of 'SHOP_NOT_FOUND', 'MONETARY_AMOUNT_OVERFLOW', 'PRODUCT_ENRICHMENT_FAILED. NO_DOMAIN'. Got '{other}'"
             )),
         }
     }
@@ -57,7 +61,8 @@ impl From<EnrichProductCommandError> for PutProductError {
             EnrichProductCommandError::MonetaryAmountOverflowError(_) => {
                 PutProductError::MonetaryAmountOverflow
             }
-            EnrichProductCommandError::UnknownShopUrl(_) => PutProductError::ShopNotFound,
+            EnrichProductCommandError::UnknownShopDomain(_) => PutProductError::ShopNotFound,
+            EnrichProductCommandError::NoShopDomain(_) => PutProductError::NoShopDomain,
         }
     }
 }

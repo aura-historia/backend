@@ -1,4 +1,4 @@
-use common::shop_name::ShopName;
+use common::{domain::Domain, shop_name::ShopName};
 use serde::{Deserialize, Serialize};
 use std::collections::HashSet;
 use url::Url;
@@ -8,7 +8,7 @@ use url::Url;
 #[serde(rename_all = "camelCase")]
 pub struct PostShopData {
     pub name: ShopName,
-    pub urls: HashSet<Url>,
+    pub domains: HashSet<Domain>,
     #[serde(skip_serializing_if = "Option::is_none", default)]
     pub image: Option<Url>,
 }

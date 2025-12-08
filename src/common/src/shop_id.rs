@@ -1,20 +1,20 @@
+use crate::domain::Domain;
 use serde::{Deserialize, Serialize};
 use std::fmt::{self, Display, Formatter};
-use url::Url;
 use uuid::Uuid;
 
 #[cfg_attr(feature = "test-data", derive(fake::Dummy))]
-#[derive(Debug, Clone, PartialEq, PartialOrd, Eq, Ord, Hash)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub enum ShopIdentifier {
     ShopId(ShopId),
-    ShopUrl(Url),
+    ShopDomain(Domain),
 }
 
 impl fmt::Display for ShopIdentifier {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             ShopIdentifier::ShopId(id) => write!(f, "{id}"),
-            ShopIdentifier::ShopUrl(url) => write!(f, "{url}"),
+            ShopIdentifier::ShopDomain(domain) => write!(f, "{domain}"),
         }
     }
 }
@@ -25,9 +25,9 @@ impl From<ShopId> for ShopIdentifier {
     }
 }
 
-impl From<Url> for ShopIdentifier {
-    fn from(url: Url) -> Self {
-        Self::ShopUrl(url)
+impl From<Domain> for ShopIdentifier {
+    fn from(domain: Domain) -> Self {
+        Self::ShopDomain(domain)
     }
 }
 
@@ -35,7 +35,7 @@ impl From<ShopIdentifier> for String {
     fn from(value: ShopIdentifier) -> Self {
         match value {
             ShopIdentifier::ShopId(shop_id) => shop_id.to_string(),
-            ShopIdentifier::ShopUrl(url) => url.to_string(),
+            ShopIdentifier::ShopDomain(domain) => domain.to_string(),
         }
     }
 }

@@ -57,7 +57,7 @@ async fn prepare_test_shop() -> Shop {
 
     let dynamodb_repository =
         ShopDynamoDbRepositoryImpl::new(get_dynamodb_client().await, &stack.dynamodb_table_1_name);
-    let mut shop_records = ShopRecord::try_clone_from_shop_as_shop_url_records(&shop).unwrap();
+    let mut shop_records = ShopRecord::clone_from_shop_as_shop_url_records(&shop);
     shop_records.push(ShopRecord::from_shop_as_shop_id_record(shop.clone()));
     let _ = dynamodb_repository
         .put_shop_records_transact(shop_records)
@@ -74,7 +74,7 @@ async fn should_materialize_product_in_dynamodb_when_put_new_item() {
     let mut put_product_data: PutProductData = Faker.fake();
     put_product_data
         .url
-        .set_host(shop.urls.into_iter().next().unwrap().host_str())
+        .set_host(Some(shop.domains.into_iter().next().unwrap().as_str()))
         .unwrap();
 
     let url = format!("{}/api/v1/products", stack.api_gateway_endpoint_url);
@@ -133,7 +133,7 @@ async fn should_materialize_product_in_dynamodb_for_update_product_command() {
     materialized_old.shop_id = shop.shop_id;
     materialized_old
         .url
-        .set_host(shop.urls.into_iter().next().unwrap().host_str())
+        .set_host(Some(shop.domains.into_iter().next().unwrap().as_str()))
         .unwrap();
     let insert_res = repository
         .put_product_records([materialized_old.clone()].into())
@@ -213,7 +213,7 @@ async fn should_materialize_product_in_opensearch_for_create_product_command() {
     };
     put_product_data
         .url
-        .set_host(shop.urls.into_iter().next().unwrap().host_str())
+        .set_host(Some(shop.domains.into_iter().next().unwrap().as_str()))
         .unwrap();
 
     let url = format!("{}/api/v1/products", stack.api_gateway_endpoint_url);
@@ -294,7 +294,7 @@ async fn should_materialize_product_in_opensearch_for_update_product_command() {
     materialized_ddb_old.title_en = Some("Exactly the expected title".to_string());
     materialized_ddb_old
         .url
-        .set_host(shop.urls.into_iter().next().unwrap().host_str())
+        .set_host(Some(shop.domains.into_iter().next().unwrap().as_str()))
         .unwrap();
     let insert_res = repository
         .put_product_records([materialized_ddb_old.clone()].into())

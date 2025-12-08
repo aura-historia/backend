@@ -1,5 +1,6 @@
 use serde::{Deserialize, Serialize};
 use std::fmt::{Display, Formatter};
+use url::Url;
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(into = "String", try_from = "String")]
@@ -9,12 +10,36 @@ pub struct Domain(String);
 #[error("URL '{0}' does not contain a domain")]
 pub struct NoDomainError(String);
 
-impl TryFrom<String> for Domain {
+impl Domain {
+    pub fn as_str(&self) -> &str {
+        &self.0
+    }
+}
+
+impl TryFrom<&Url> for Domain {
     type Error = NoDomainError;
 
-    fn try_from(value: String) -> Result<Self, Self::Error> {
+    fn try_from(url: &Url) -> Result<Self, Self::Error> {
+        match url.domain() {
+            Some(domain) => Ok(Domain(domain.to_owned())),
+            None => Err(NoDomainError(url.to_string())),
+        }
+    }
+}
+
+impl TryFrom<Url> for Domain {
+    type Error = NoDomainError;
+
+    fn try_from(url: Url) -> Result<Self, Self::Error> {
+        Self::try_from(&url)
+    }
+}
+
+impl TryFrom<&str> for Domain {
+    type Error = NoDomainError;
+
+    fn try_from(value: &str) -> Result<Self, Self::Error> {
         let domain = value
-            .as_str()
             .trim_start_matches("http://")
             .trim_start_matches("https://")
             .trim_start_matches("www.")
@@ -27,6 +52,14 @@ impl TryFrom<String> for Domain {
         } else {
             Ok(Domain(domain))
         }
+    }
+}
+
+impl TryFrom<String> for Domain {
+    type Error = NoDomainError;
+
+    fn try_from(value: String) -> Result<Self, Self::Error> {
+        Self::try_from(value.as_str())
     }
 }
 

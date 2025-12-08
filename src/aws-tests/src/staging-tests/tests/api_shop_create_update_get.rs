@@ -1,5 +1,5 @@
 use aws_tests_common::get_cfn_output;
-use common::shop_id::ShopId;
+use common::{domain::Domain, shop_id::ShopId};
 use shop::data::{
     get_shop_data::GetShopData, patch_shop_data::PatchShopData, post_shop_data::PostShopData,
 };
@@ -11,7 +11,7 @@ use url::Url;
 async fn should_create_update_get_shop() {
     let post_shop_data = PostShopData {
         name: "Woobl woop".into(),
-        urls: [Url::parse("https://hans-shopping-nig.com").unwrap()].into(),
+        domains: [Domain::try_from("https://hans-shopping-nig.com").unwrap()].into(),
         image: None,
     };
     let post_url = format!("{}/api/v1/shops", get_cfn_output().api_gateway_endpoint_url);
@@ -27,7 +27,7 @@ async fn should_create_update_get_shop() {
 
     let patch_shop_data = PatchShopData {
         name: Some("hans goes shopping nig".into()),
-        urls: None,
+        domains: None,
         image: Some(Url::parse("https://hans-shopping-nig.co.uk").unwrap()),
     };
     let post_url = format!(
@@ -44,7 +44,7 @@ async fn should_create_update_get_shop() {
     assert_eq!(200, response.status());
     let updated = response.json::<GetShopData>().await.unwrap();
     assert_eq!(patch_shop_data.name.unwrap(), updated.name);
-    assert_eq!(post_shop_data.urls, updated.urls);
+    assert_eq!(post_shop_data.domains, updated.domains);
     assert_eq!(
         patch_shop_data.image.unwrap(),
         updated.image.clone().unwrap()
@@ -61,7 +61,7 @@ async fn should_create_update_get_shop() {
     let gotten = response.json::<GetShopData>().await.unwrap();
     assert_eq!(updated.shop_id, gotten.shop_id);
     assert_eq!(updated.name, gotten.name);
-    assert_eq!(updated.urls, gotten.urls);
+    assert_eq!(updated.domains, gotten.domains);
     assert_eq!(updated.image, gotten.image);
     assert_eq!(updated.created, gotten.created);
 }

@@ -53,7 +53,7 @@ pub async fn handle(
 
     let create_shop_command = CreateShopCommand {
         name: post_shop_data.name,
-        urls: post_shop_data.urls,
+        domains: post_shop_data.domains,
         image: post_shop_data.image,
     };
     let created_shop = service.create(create_shop_command).await?;

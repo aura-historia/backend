@@ -20,7 +20,7 @@ const INGEST_QUEUE: Sqs = Sqs {
 };
 
 #[localstack_test(services = [DynamoDB(), INGEST_QUEUE])]
-async fn should_fail_products_with_unknown_url() {
+async fn should_fail_products_with_unknown_domain() {
     let dynamodb_client = get_dynamodb_client().await;
     let sqs_client = get_sqs_client().await;
     let shop_repository = ShopDynamoDbRepositoryImpl::new(dynamodb_client, "table_1");
@@ -53,7 +53,7 @@ async fn should_fail_products_with_unknown_url() {
 }
 
 #[localstack_test(services = [DynamoDB(), INGEST_QUEUE])]
-async fn should_put_products_with_known_url() {
+async fn should_put_products_with_known_domain() {
     let dynamodb_client = get_dynamodb_client().await;
     let sqs_client = get_sqs_client().await;
     let shop_repository = ShopDynamoDbRepositoryImpl::new(dynamodb_client, "table_1");
@@ -65,7 +65,7 @@ async fn should_put_products_with_known_url() {
         UpsertProductsServiceImpl::new(&product_repository, sqs_client, &queue_url, &fx_rate);
 
     let shop = Faker.fake::<Shop>();
-    let mut shop_records = ShopRecord::try_clone_from_shop_as_shop_url_records(&shop).unwrap();
+    let mut shop_records = ShopRecord::clone_from_shop_as_shop_url_records(&shop);
     shop_records.push(ShopRecord::from_shop_as_shop_id_record(shop.clone()));
     let _ = shop_repository
         .put_shop_records_transact(shop_records)
@@ -74,8 +74,8 @@ async fn should_put_products_with_known_url() {
 
     let mut products = fake::vec![PutProductData; 235];
     for product in &mut products {
-        let shop_host = shop.urls.iter().next().unwrap().host_str();
-        product.url.set_host(shop_host).unwrap();
+        let shop_host = shop.domains.iter().next().unwrap().as_str();
+        product.url.set_host(Some(shop_host)).unwrap();
     }
     let lambda_event = LambdaEvent {
         payload: ApiGatewayV2httpRequestProxy::builder()

@@ -18,7 +18,7 @@ async fn should_update_shop_when_payload_valid() {
 
     let patch_shop_data = PatchShopData {
         name: Some("hans goes shopping nig".into()),
-        urls: None,
+        domains: None,
         image: Some(Url::parse("https://hans-shopping-nig.co.uk").unwrap()),
     };
 
@@ -37,6 +37,6 @@ async fn should_update_shop_when_payload_valid() {
         serde_json::from_value(extract_apigw_response_json_body!(response)).unwrap();
 
     assert_eq!(patch_shop_data.name.unwrap(), actual.name);
-    assert_eq!(existing_shop.urls, actual.urls);
+    assert_eq!(existing_shop.domains, actual.domains);
     assert_eq!(patch_shop_data.image.unwrap(), actual.image.unwrap());
 }

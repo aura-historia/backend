@@ -1,5 +1,5 @@
 use crate::core::shop::Shop;
-use common::{shop_id::ShopId, shop_name::ShopName};
+use common::{domain::Domain, shop_id::ShopId, shop_name::ShopName};
 use serde::{Deserialize, Serialize};
 use serde_fields::SerdeField;
 use std::collections::HashSet;
@@ -11,7 +11,7 @@ use url::Url;
 pub struct ShopDocument {
     pub shop_id: ShopId,
     pub name: ShopName,
-    pub urls: HashSet<Url>,
+    pub domains: HashSet<Domain>,
 
     #[serde(skip_serializing_if = "Option::is_none", default)]
     pub image: Option<Url>,
@@ -34,7 +34,7 @@ impl From<Shop> for ShopDocument {
         ShopDocument {
             shop_id: shop.shop_id,
             name: shop.name,
-            urls: shop.urls,
+            domains: shop.domains,
             image: shop.image,
             created: shop.created,
             updated: shop.updated,
@@ -47,7 +47,7 @@ impl From<ShopDocument> for Shop {
         Shop {
             shop_id: document.shop_id,
             name: document.name,
-            urls: document.urls,
+            domains: document.domains,
             image: document.image,
             created: document.created,
             updated: document.updated,

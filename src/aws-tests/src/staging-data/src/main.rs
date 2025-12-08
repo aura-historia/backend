@@ -30,14 +30,14 @@ async fn populate_products(shops: Vec<Shop>) {
 
     let shop_urls = shops
         .into_iter()
-        .flat_map(|shop| shop.urls)
+        .flat_map(|shop| shop.domains)
         .collect::<Vec<_>>();
 
     // create products
     let mut products = fake::vec![PutProductData; 142];
     for product in &mut products {
         let host = shop_urls.choose(&mut fake::rand::rng()).unwrap().clone();
-        product.url.set_host(host.host_str()).unwrap();
+        product.url.set_host(Some(host.as_str())).unwrap();
     }
 
     let mut payload = PutCollectionData { items: products };
@@ -84,7 +84,7 @@ async fn populate_shops() -> Vec<Shop> {
     let dynamodb_repository =
         ShopDynamoDbRepositoryImpl::new(get_dynamodb_client().await, &stack.dynamodb_table_1_name);
     for shop in shops.clone() {
-        let mut shop_records = ShopRecord::try_clone_from_shop_as_shop_url_records(&shop).unwrap();
+        let mut shop_records = ShopRecord::clone_from_shop_as_shop_url_records(&shop);
         shop_records.push(ShopRecord::from_shop_as_shop_id_record(shop));
         let _ = dynamodb_repository
             .put_shop_records_transact(shop_records)
