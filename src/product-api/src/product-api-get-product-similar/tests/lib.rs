@@ -1461,7 +1461,7 @@ async fn should_respond_200_and_respect_accept_language_header(
         .unwrap();
     assert!(!os_insert_res.errors);
     refresh_index("products").await;
-    tokio::time::sleep(Duration::from_secs(3)).await;
+    tokio::time::sleep(Duration::from_secs(10)).await;
 
     let lambda_event = LambdaEvent {
         payload: ApiGatewayV2httpRequestProxy::builder()
