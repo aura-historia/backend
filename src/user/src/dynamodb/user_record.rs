@@ -6,9 +6,10 @@ use common::{
 };
 use serde::{Deserialize, Serialize};
 use serde_email::Email;
+use serde_fields::SerdeField;
 use time::OffsetDateTime;
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, SerdeField)]
 pub struct UserRecord {
     pub pk: String,
     pub sk: String,

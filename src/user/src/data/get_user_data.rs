@@ -1,12 +1,14 @@
-use crate::core::{first_name::FirstName, last_name::LastName};
-use common::{currency::data::CurrencyData, language::data::LanguageData};
+use crate::core::{first_name::FirstName, last_name::LastName, user::User};
+use common::{currency::data::CurrencyData, language::data::LanguageData, user_id::UserId};
 use serde::{Deserialize, Serialize};
 use serde_email::Email;
+use time::OffsetDateTime;
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-pub struct PatchUserData {
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub email: Option<Email>,
+#[serde(rename_all = "camelCase")]
+pub struct GetUserData {
+    pub user_id: UserId,
+    pub email: Email,
 
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub first_name: Option<FirstName>,
@@ -19,4 +21,38 @@ pub struct PatchUserData {
 
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub currency: Option<CurrencyData>,
+
+    #[serde(with = "time::serde::rfc3339")]
+    pub created: OffsetDateTime,
+
+    #[serde(with = "time::serde::rfc3339")]
+    pub updated: OffsetDateTime,
+}
+
+impl From<User> for GetUserData {
+    fn from(user: User) -> Self {
+        GetUserData {
+            user_id: user.user_id,
+            email: user.email,
+            first_name: user.first_name,
+            last_name: user.last_name,
+            language: user.language.map(LanguageData::from),
+            currency: user.currency.map(CurrencyData::from),
+            created: user.created,
+            updated: user.updated,
+        }
+    }
+}
+
+#[cfg(feature = "test-data")]
+mod fake {
+    use crate::core::user::User;
+    use crate::data::get_user_data::GetUserData;
+    use fake::Fake;
+
+    impl fake::Dummy<fake::Faker> for GetUserData {
+        fn dummy_with_rng<R: fake::rand::Rng + ?Sized>(config: &fake::Faker, rng: &mut R) -> Self {
+            config.fake_with_rng::<User, R>(rng).into()
+        }
+    }
 }

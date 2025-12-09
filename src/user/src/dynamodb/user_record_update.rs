@@ -5,9 +5,10 @@ use common::{
 };
 use serde::{Deserialize, Serialize};
 use serde_email::Email;
+use serde_fields::SerdeField;
 use time::OffsetDateTime;
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, SerdeField)]
 pub struct UserRecordUpdate {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub email: Option<Email>,
@@ -52,5 +53,19 @@ mod fake {
                 updated: OffsetDateTime::now_utc(),
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::dynamodb::{user_record::UserRecord, user_record_update::UserRecordUpdate};
+
+    #[test]
+    fn should_be_subset_of_user_record() {
+        assert!(
+            UserRecordUpdate::SERDE_FIELDS
+                .iter()
+                .all(|field| UserRecord::SERDE_FIELDS.contains(field))
+        )
     }
 }
