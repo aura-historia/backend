@@ -13,7 +13,6 @@ pub enum LanguageData {
         alias = "de-LU",
         alias = "de-LI"
     )]
-    #[default]
     De,
 
     #[serde(
@@ -24,6 +23,7 @@ pub enum LanguageData {
         alias = "en-NZ",
         alias = "en_IE"
     )]
+    #[default]
     En,
 
     #[serde(
@@ -221,19 +221,19 @@ pub mod api {
         #[case("en-GB,en;q=0.7,de;q=0.6", En)]
         #[case("es-ES;q=0.9,en;q=0.8,de;q=0.7", Es)]
         #[case("en,fr;q=0.5,de;q=0.3,es;q=0.2", En)]
-        #[case("pt-BR", De)]
-        #[case("ru", De)]
-        #[case("ja", De)]
-        #[case("zh-CN", De)]
-        #[case("ko-KR", De)]
-        #[case("*", De)]
+        #[case("pt-BR", En)]
+        #[case("ru", En)]
+        #[case("ja", En)]
+        #[case("zh-CN", En)]
+        #[case("ko-KR", En)]
+        #[case("*", En)]
         #[case("fr-FR; q=0", Fr)]
-        #[case("", De)]
-        #[case("null", De)]
-        #[case("undefined", De)]
-        #[case("\"en-US\"", De)]
-        #[case("123", De)]
-        #[case("abcdefg", De)]
+        #[case("", En)]
+        #[case("null", En)]
+        #[case("undefined", En)]
+        #[case("\"en-US\"", En)]
+        #[case("123", En)]
+        #[case("abcdefg", En)]
         fn should_extract_language_from_header(
             #[case] accept_language_header_value: &str,
             #[case] expected: LanguageData,
