@@ -63,6 +63,10 @@ impl<'a> UserService for UserServiceImpl<'a> {
                 let user = User {
                     id: cmd.id,
                     email: cmd.email,
+                    first_name: None,
+                    last_name: None,
+                    language: None,
+                    currency: None,
                     created: now,
                     updated: now,
                 };
