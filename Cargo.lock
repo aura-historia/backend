@@ -2664,7 +2664,7 @@ dependencies = [
  "dyn-clone",
  "lazy_static",
  "percent-encoding",
- "reqwest 0.12.24",
+ "reqwest 0.12.25",
  "rustc_version",
  "serde",
  "serde_json",
@@ -3767,16 +3767,14 @@ dependencies = [
 
 [[package]]
 name = "reqwest"
-version = "0.12.24"
+version = "0.12.25"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "9d0946410b9f7b082a427e4ef5c8ff541a88b357bc6c637c40db3a68ac70a36f"
+checksum = "b6eff9328d40131d43bd911d42d79eb6a47312002a4daefc9e37f17e74a7701a"
 dependencies = [
- "async-compression",
  "base64 0.22.1",
  "bytes",
  "encoding_rs",
  "futures-core",
- "futures-util",
  "h2 0.4.11",
  "http 1.4.0",
  "http-body 1.0.1",
@@ -3801,7 +3799,6 @@ dependencies = [
  "tokio",
  "tokio-native-tls",
  "tokio-rustls 0.26.2",
- "tokio-util",
  "tower",
  "tower-http",
  "tower-service",
@@ -4721,7 +4718,7 @@ dependencies = [
  "fake",
  "futures-util",
  "product",
- "reqwest 0.12.24",
+ "reqwest 0.12.25",
  "serde_json",
  "serial_test",
  "smoking-tests-macros",
@@ -4787,7 +4784,7 @@ dependencies = [
  "common",
  "fake",
  "product",
- "reqwest 0.12.24",
+ "reqwest 0.12.25",
  "serde",
  "serde_json",
  "shop",
@@ -4812,7 +4809,7 @@ dependencies = [
  "product",
  "product-api-watchlist-get",
  "product-api-watchlist-patch",
- "reqwest 0.12.24",
+ "reqwest 0.12.25",
  "search-filter",
  "search-filter-api-patch-search-filter",
  "search-filter-api-post-search-filter",
@@ -5292,17 +5289,22 @@ dependencies = [
 
 [[package]]
 name = "tower-http"
-version = "0.6.6"
+version = "0.6.8"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "adc82fd73de2a9722ac5da747f12383d2bfdb93591ee6c58486e0097890f05f2"
+checksum = "d4e6559d53cc268e5031cd8429d05415bc4cb4aefc4aa5d6cc35fbf5b924a1f8"
 dependencies = [
+ "async-compression",
  "bitflags 2.9.1",
  "bytes",
+ "futures-core",
  "futures-util",
  "http 1.4.0",
  "http-body 1.0.1",
+ "http-body-util",
  "iri-string",
  "pin-project-lite",
+ "tokio",
+ "tokio-util",
  "tower",
  "tower-layer",
  "tower-service",
