@@ -53,7 +53,7 @@ aws-sdk-dynamodb = "1.100.0"
 aws-sdk-lambda = "1.100.0"
 aws-sdk-opensearch = "1.107.0"
 aws-sdk-sqs = "1.90.0"
-aws-sdk-sesv2 = "1.106.0"
+aws-sdk-sesv2 = "1.107.0"
 aws-sdk-s3 = "1.111.0"
 aws_lambda_events = { version = "1.0.1", default-features = false }
 common = { path = "src/common" }
