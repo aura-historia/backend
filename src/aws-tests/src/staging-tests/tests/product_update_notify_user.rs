@@ -144,7 +144,7 @@ async fn should_send_email_to_user_when_watched_product_has_update() {
         .await
         .unwrap()
         .into_iter()
-        .map(|user| user.id)
+        .map(|user| user.user_id)
         .collect::<Vec<_>>();
     assert_eq!(vec![UserId::from(user.sub)], eligible);
     tokio::time::sleep(Duration::from_secs(10)).await;

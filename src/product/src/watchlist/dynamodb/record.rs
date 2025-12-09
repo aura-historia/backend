@@ -116,7 +116,7 @@ mod faker {
                 user_record: UserRecord {
                     pk: user_record::mk_pk(&user_id),
                     sk: user_record::mk_sk().to_owned(),
-                    id: user_id,
+                    user_id,
                     email: SafeEmail()
                         .fake_with_rng::<String, R>(rng)
                         .try_into()

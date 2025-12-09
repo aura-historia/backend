@@ -12,11 +12,19 @@ use time::OffsetDateTime;
 pub struct UserRecord {
     pub pk: String,
     pub sk: String,
-    pub id: UserId,
+    pub user_id: UserId,
     pub email: Email,
+
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub first_name: Option<FirstName>,
+
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub last_name: Option<LastName>,
+
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub language: Option<LanguageRecord>,
+
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub currency: Option<CurrencyRecord>,
 
     #[serde(with = "time::serde::rfc3339")]
@@ -37,9 +45,9 @@ pub fn mk_sk() -> &'static str {
 impl From<User> for UserRecord {
     fn from(user: User) -> Self {
         UserRecord {
-            pk: mk_pk(&user.id),
+            pk: mk_pk(&user.user_id),
             sk: mk_sk().to_owned(),
-            id: user.id,
+            user_id: user.user_id,
             email: user.email,
             first_name: user.first_name,
             last_name: user.last_name,
@@ -54,7 +62,7 @@ impl From<User> for UserRecord {
 impl From<UserRecord> for User {
     fn from(record: UserRecord) -> Self {
         User {
-            id: record.id,
+            user_id: record.user_id,
             email: record.email,
             first_name: record.first_name,
             last_name: record.last_name,

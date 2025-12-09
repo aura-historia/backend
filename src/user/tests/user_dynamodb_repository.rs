@@ -23,7 +23,7 @@ async fn should_return_some_when_exists() {
     let _ = repository.put_user_record(expected.clone()).await.unwrap();
 
     let actual = repository
-        .get_user_record(&expected.id)
+        .get_user_record(&expected.user_id)
         .await
         .unwrap()
         .unwrap();
@@ -51,12 +51,12 @@ async fn should_update_user_record(#[case] user_record_update: UserRecordUpdate)
     let _ = repository.put_user_record(initial.clone()).await.unwrap();
 
     let updated = repository
-        .update_user_record(&initial.id, user_record_update.clone())
+        .update_user_record(&initial.user_id, user_record_update.clone())
         .await
         .unwrap()
         .unwrap();
     let actual = repository
-        .get_user_record(&initial.id)
+        .get_user_record(&initial.user_id)
         .await
         .unwrap()
         .unwrap();

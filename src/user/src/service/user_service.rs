@@ -61,7 +61,7 @@ impl<'a> UserService for UserServiceImpl<'a> {
             None => {
                 let now = OffsetDateTime::now_utc();
                 let user = User {
-                    id: cmd.id,
+                    user_id: cmd.id,
                     email: cmd.email,
                     first_name: None,
                     last_name: None,

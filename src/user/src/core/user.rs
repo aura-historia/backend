@@ -5,7 +5,7 @@ use time::OffsetDateTime;
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct User {
-    pub id: UserId,
+    pub user_id: UserId,
     pub email: Email,
     pub first_name: Option<FirstName>,
     pub last_name: Option<LastName>,
@@ -27,7 +27,7 @@ mod fake {
             let first_name = config.fake_with_rng(rng);
             let last_name = config.fake_with_rng(rng);
             User {
-                id: config.fake_with_rng(rng),
+                user_id: config.fake_with_rng(rng),
                 email: format!("{first_name}.{last_name}@{domain_str}")
                     .try_into()
                     .unwrap(),
