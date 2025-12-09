@@ -8,13 +8,23 @@ pub struct CreateUserCommand {
     pub email: Email,
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Default)]
 pub struct UpdateUserCommand {
     pub email: Option<Email>,
     pub first_name: Option<FirstName>,
     pub last_name: Option<LastName>,
     pub language: Option<Language>,
     pub currency: Option<Currency>,
+}
+
+impl UpdateUserCommand {
+    pub fn is_empty(&self) -> bool {
+        self.email.is_none()
+            && self.first_name.is_none()
+            && self.last_name.is_none()
+            && self.language.is_none()
+            && self.currency.is_none()
+    }
 }
 
 #[cfg(feature = "test-data")]
