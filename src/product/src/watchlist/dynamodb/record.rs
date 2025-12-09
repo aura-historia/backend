@@ -121,6 +121,10 @@ mod faker {
                         .fake_with_rng::<String, R>(rng)
                         .try_into()
                         .unwrap(),
+                    first_name: config.fake_with_rng(rng),
+                    last_name: config.fake_with_rng(rng),
+                    language: config.fake_with_rng(rng),
+                    currency: config.fake_with_rng(rng),
                     created: OffsetDateTime::now_utc(),
                     updated: OffsetDateTime::now_utc(),
                 },

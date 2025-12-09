@@ -1,5 +1,9 @@
-use crate::core::user::User;
-use common::user_id::UserId;
+use crate::core::{first_name::FirstName, last_name::LastName, user::User};
+use common::{
+    currency::{domain::Currency, record::CurrencyRecord},
+    language::{domain::Language, record::LanguageRecord},
+    user_id::UserId,
+};
 use serde::{Deserialize, Serialize};
 use serde_email::Email;
 use time::OffsetDateTime;
@@ -10,6 +14,10 @@ pub struct UserRecord {
     pub sk: String,
     pub id: UserId,
     pub email: Email,
+    pub first_name: Option<FirstName>,
+    pub last_name: Option<LastName>,
+    pub language: Option<LanguageRecord>,
+    pub currency: Option<CurrencyRecord>,
 
     #[serde(with = "time::serde::rfc3339")]
     pub created: OffsetDateTime,
@@ -33,6 +41,10 @@ impl From<User> for UserRecord {
             sk: mk_sk().to_owned(),
             id: user.id,
             email: user.email,
+            first_name: user.first_name,
+            last_name: user.last_name,
+            language: user.language.map(LanguageRecord::from),
+            currency: user.currency.map(CurrencyRecord::from),
             created: user.created,
             updated: user.updated,
         }
@@ -44,6 +56,10 @@ impl From<UserRecord> for User {
         User {
             id: record.id,
             email: record.email,
+            first_name: record.first_name,
+            last_name: record.last_name,
+            language: record.language.map(Language::from),
+            currency: record.currency.map(Currency::from),
             created: record.created,
             updated: record.updated,
         }

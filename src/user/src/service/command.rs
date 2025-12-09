@@ -1,10 +1,20 @@
-use common::user_id::UserId;
+use crate::core::{first_name::FirstName, last_name::LastName};
+use common::{currency::domain::Currency, language::domain::Language, user_id::UserId};
 use serde_email::Email;
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct CreateUserCommand {
     pub id: UserId,
     pub email: Email,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct UpdateUserCommand {
+    pub email: Option<Email>,
+    pub first_name: Option<FirstName>,
+    pub last_name: Option<LastName>,
+    pub language: Option<Language>,
+    pub currency: Option<Currency>,
 }
 
 #[cfg(feature = "test-data")]
