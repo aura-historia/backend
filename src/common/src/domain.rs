@@ -97,6 +97,8 @@ mod faker {
 
     #[cfg(test)]
     mod tests {
+        use rstest;
+
         use crate::domain::Domain;
         use fake::{Fake, Faker};
 
@@ -109,8 +111,11 @@ mod faker {
 
 #[cfg(test)]
 mod tests {
+    use rstest;
+
     use crate::domain::Domain;
 
+    #[trace]
     #[rstest::rstest]
     #[case("foo.bar", "foo.bar")]
     #[case("foo.bar.baz", "foo.bar.baz")]
@@ -153,6 +158,7 @@ mod tests {
         assert_eq!(expected, actual);
     }
 
+    #[trace]
     #[rstest::rstest]
     #[case("https://foo")]
     #[case("https://foo:8080")]

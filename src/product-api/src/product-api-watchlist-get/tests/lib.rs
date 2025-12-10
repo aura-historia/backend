@@ -369,6 +369,7 @@ async fn should_200_when_sort_created_desc_search_after() {
     assert_eq!(7, actual.total.unwrap());
 }
 
+#[trace]
 #[rstest::rstest]
 #[test_attr(apply(test))]
 #[case("de", "German title", Language::De, "German description", Language::De)]

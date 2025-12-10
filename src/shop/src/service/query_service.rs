@@ -117,6 +117,8 @@ impl<'a> QueryShopService for QueryShopServiceImpl<'a> {
 
 #[cfg(test)]
 mod tests {
+    use rstest;
+
     use crate::core::sort_shop_field::SortShopField;
     use crate::opensearch::repository::MockShopOpenSearchRepository;
     use crate::opensearch::shop_document::ShopDocument;
@@ -166,6 +168,7 @@ mod tests {
     }
 
     #[tokio::test]
+    #[trace]
     #[rstest::rstest]
     #[case(
         ShopSearch {
@@ -264,6 +267,7 @@ mod tests {
     }
 
     #[tokio::test]
+    #[trace]
     #[rstest::rstest]
     #[case(
         ShopSearch {
@@ -307,6 +311,7 @@ mod tests {
     }
 
     #[tokio::test]
+    #[trace]
     #[rstest::rstest]
     #[case(
         ShopSearch {

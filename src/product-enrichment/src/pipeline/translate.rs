@@ -289,6 +289,8 @@ impl TranslationEnrichmentPipeImpl {
 
 #[cfg(test)]
 mod tests {
+    use rstest;
+
     use crate::{
         pipeline::{
             pipe::{EnrichmentPipe, PipeProduct, PipeProductSource, PipeProductUpdate},
@@ -302,6 +304,7 @@ mod tests {
     use pyo3::{PyErr, exceptions::PyTypeError};
     use std::sync::Arc;
 
+    #[trace]
     #[rstest::rstest]
     #[case(0)]
     #[case(1)]
@@ -567,6 +570,7 @@ mod tests {
         assert!(actual_2.document.clone().unwrap().description_de.is_none());
     }
 
+    #[trace]
     #[rstest::rstest]
     #[case(0)]
     #[case(1)]
@@ -615,6 +619,7 @@ mod tests {
         assert_eq!(count % 64, actual.failures.len());
     }
 
+    #[trace]
     #[rstest::rstest]
     #[case(0)]
     #[case(1)]

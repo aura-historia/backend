@@ -113,6 +113,8 @@ fn extract_message_data(
 
 #[cfg(test)]
 mod tests {
+    use rstest;
+
     use crate::handler;
     use aws_lambda_events::sqs::{SqsEvent, SqsMessage};
     use aws_sdk_dynamodb::{
@@ -142,6 +144,7 @@ mod tests {
         msg
     }
 
+    #[trace]
     #[rstest::rstest]
     #[case(1)]
     #[case(5)]
@@ -179,6 +182,7 @@ mod tests {
     }
 
     #[tokio::test]
+    #[trace]
     #[rstest::rstest]
     #[case(0, 1)]
     #[case(1, 1)]

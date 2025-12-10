@@ -69,6 +69,8 @@ pub mod api {
 
     #[cfg(test)]
     mod tests {
+        use rstest;
+
         use crate::api::{
             error::{ApiErrorSource, ApiErrorSourceType},
             error_code::BAD_QUERY_PARAMETER_VALUE,
@@ -78,6 +80,7 @@ pub mod api {
         use aws_lambda_events::query_map::QueryMap;
         use std::collections::HashMap;
 
+        #[trace]
         #[rstest::rstest]
         #[case::eur("EUR", CurrencyData::Eur)]
         #[case::gbp("GBP", CurrencyData::Gbp)]
@@ -93,6 +96,7 @@ pub mod api {
             assert_eq!(expected, actual);
         }
 
+        #[trace]
         #[rstest::rstest]
         #[case("invalid-currency")]
         #[case("boop")]

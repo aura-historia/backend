@@ -227,6 +227,8 @@ pub mod dynamodb {
 
 #[cfg(test)]
 pub mod tests {
+    use rstest;
+
     use crate::api::error::{ApiError, ApiErrorSource, ApiErrorSourceType};
     use crate::api::error_code::*;
     use aws_lambda_events::apigw::ApiGatewayV2httpResponse;
@@ -249,6 +251,7 @@ pub mod tests {
         );
     }
 
+    #[trace]
     #[rstest::rstest]
     #[case::bad_request(ApiError::bad_request(BAD_REQUEST, Box::new(serde_json::Error::custom("foo"))), json!({ "status": 400, "title": "Bad Request", "error": "BAD_REQUEST" }))]
     #[case::bad_request_msg(ApiError::bad_request(BAD_REQUEST, Box::new(serde_json::Error::custom("foo"))).with_detail("foo"), json!({ "status": 400, "error": "BAD_REQUEST", "title": "Bad Request", "detail": "foo" }))]

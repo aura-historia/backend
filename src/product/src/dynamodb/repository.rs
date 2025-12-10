@@ -499,11 +499,14 @@ fn extract_product_id(
 
 #[cfg(test)]
 mod tests {
+    use rstest;
+
     use crate::dynamodb::repository::{extract_product_id, extract_product_key};
     use aws_sdk_dynamodb::types::AttributeValue;
     use common::product_id::{ProductId, ProductKey};
     use std::collections::HashMap;
 
+    #[trace]
     #[rstest::rstest]
     #[case::differing("a1caead3-a50d-44a4-b9fb-a15d2397601e", "123456")]
     #[case::containing_separator("a1caead3-a50d-44a4-b9fb-a15d2397601e", "abcdefg#boop")]
@@ -528,6 +531,7 @@ mod tests {
         assert_eq!(expected, actual.unwrap());
     }
 
+    #[trace]
     #[rstest::rstest]
     #[case("a1caead3-a50d-44a4-b9fb-a15d2397601e")]
     #[case("6e3f0c71-8af4-4897-ba75-4a64792c07a6")]

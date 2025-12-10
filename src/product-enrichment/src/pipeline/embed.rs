@@ -78,6 +78,8 @@ impl EnrichmentPipe for EmbeddingEnrichmentPipeImpl {
 
 #[cfg(test)]
 pub mod tests {
+    use rstest;
+
     use std::sync::Arc;
 
     use crate::{
@@ -115,6 +117,7 @@ pub mod tests {
         assert!(res.failures.is_empty());
     }
 
+    #[trace]
     #[rstest::rstest]
     #[case(1)]
     #[case(5)]

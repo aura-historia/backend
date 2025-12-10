@@ -268,6 +268,8 @@ mod faker {
 
 #[cfg(test)]
 mod tests {
+    use rstest;
+
     use crate::currency::domain::Currency;
     use crate::price::domain::{FxRate, MonetaryAmount, MonetaryAmountOverflowError, Price};
 
@@ -308,6 +310,7 @@ mod tests {
         assert_eq!(1000, price.monetary_amount.0);
     }
 
+    #[trace]
     #[rstest::rstest]
     #[case(Price::new(MonetaryAmount(500), Currency::Eur), "5,00 €")]
     #[case(Price::new(MonetaryAmount(542), Currency::Eur), "5,42 €")]

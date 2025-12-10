@@ -42,8 +42,11 @@ impl From<SortWatchlistProductFieldData> for SortWatchlistProductField {
 
 #[cfg(test)]
 mod tests {
+    use rstest;
+
     use crate::watchlist::data::sort_watchlist_product_field_data::SortWatchlistProductFieldData;
 
+    #[trace]
     #[rstest::rstest]
     #[case(SortWatchlistProductFieldData::Created)]
     fn should_match_as_str_serialize(#[case] field: SortWatchlistProductFieldData) {

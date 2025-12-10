@@ -112,6 +112,8 @@ async fn handle_mail_payloads(
 
 #[cfg(test)]
 mod tests {
+    use rstest;
+
     use super::handler;
     use crate::service::{MockProductEventMailPayloadService, ProductEventMailPayloadServiceError};
     use aws_lambda_events::dynamodb::{EventRecord, StreamRecord};
@@ -157,6 +159,7 @@ mod tests {
     }
 
     #[tokio::test]
+    #[trace]
     #[rstest::rstest]
     #[case(1)]
     #[case(5)]
@@ -202,6 +205,7 @@ mod tests {
     }
 
     #[tokio::test]
+    #[trace]
     #[rstest::rstest]
     #[case(0, 1)]
     #[case(1, 1)]

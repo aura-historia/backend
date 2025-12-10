@@ -268,6 +268,8 @@ impl<'a> CommandShopService for CommandShopServiceImpl<'a> {
 
 #[cfg(test)]
 mod tests {
+    use rstest;
+
 
     mod create {
         use crate::{
@@ -301,6 +303,7 @@ mod tests {
             assert!(actual.is_err());
         }
 
+        #[trace]
         #[rstest::rstest]
         #[case(101)]
         #[case(110)]
@@ -398,6 +401,7 @@ mod tests {
         }
 
         #[tokio::test]
+        #[trace]
         #[rstest::rstest]
         #[case::construction_failure(SdkError::construction_failure("Something went wrong"))]
         #[case::timeout(SdkError::timeout_error("Something went wrong"))]
@@ -431,6 +435,7 @@ mod tests {
         }
 
         #[tokio::test]
+        #[trace]
         #[rstest::rstest]
         #[case::construction_failure(SdkError::construction_failure("Something went wrong"))]
         #[case::timeout(SdkError::timeout_error("Something went wrong"))]

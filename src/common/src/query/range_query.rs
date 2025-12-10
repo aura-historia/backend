@@ -115,6 +115,8 @@ pub mod range_rfc3339 {
 
 #[cfg(test)]
 mod tests {
+    use rstest;
+
     use super::*;
     use serde_json::{self, Value, json};
     use time::{OffsetDateTime, macros::datetime};
@@ -187,6 +189,7 @@ mod tests {
         );
     }
 
+    #[trace]
     #[rstest::rstest]
     #[case(RangeQuery { min: None, max: None }, json!({"range": {}}))]
     #[case(RangeQuery { min: Some(datetime!(2021 - 01 - 01 0:00 UTC)), max: None }, json!({"range": { "min":"2021-01-01T00:00:00Z" }}))]
@@ -202,6 +205,7 @@ mod tests {
         assert_eq!(expected, actual);
     }
 
+    #[trace]
     #[rstest::rstest]
     #[case(RangeQuery { min: None, max: None }, json!({"range": {}}))]
     #[case(RangeQuery { min: None, max: None }, json!({"range": {"min": null}}))]
@@ -222,6 +226,7 @@ mod tests {
         assert_eq!(expected, actual);
     }
 
+    #[trace]
     #[rstest::rstest]
     #[case(RangeQuery { min: None, max: None }, json!({"range": {}}))]
     #[case(RangeQuery { min: Some(datetime!(2021 - 01 - 01 0:00 UTC)), max: None }, json!({"range": { "min":"2021-01-01T00:00:00Z" }}))]
@@ -237,6 +242,7 @@ mod tests {
         assert_eq!(expected, actual);
     }
 
+    #[trace]
     #[rstest::rstest]
     #[case(RangeQuery { min: None, max: None }, json!({"range": {}}))]
     #[case(RangeQuery { min: None, max: None }, json!({"range": {"min": null}}))]

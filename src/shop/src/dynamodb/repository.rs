@@ -340,6 +340,8 @@ fn extract_shop_identifier(attr_map: HashMap<String, AttributeValue>) -> Option<
 
 #[cfg(test)]
 mod tests {
+    use rstest;
+
     use crate::dynamodb::repository::extract_shop_identifier;
     use aws_sdk_dynamodb::types::AttributeValue;
     use common::{
@@ -348,6 +350,7 @@ mod tests {
     };
     use std::collections::HashMap;
 
+    #[trace]
     #[rstest::rstest]
     #[case([].into(), None)]
     #[case([("pk".into(), AttributeValue::S("foo".into()))].into(), None)]

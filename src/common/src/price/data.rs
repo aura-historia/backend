@@ -53,9 +53,12 @@ mod faker {
 
 #[cfg(test)]
 mod tests {
+    use rstest;
+
     use crate::currency::data::CurrencyData;
     use crate::price::data::PriceData;
 
+    #[trace]
     #[rstest::rstest]
     #[case(0.0, 0)]
     #[case(0.42, 42)]
@@ -69,6 +72,7 @@ mod tests {
         assert_eq!(expected_amount, price.unwrap().amount);
     }
 
+    #[trace]
     #[rstest::rstest]
     #[case(-0.42)]
     #[case(-6.98)]

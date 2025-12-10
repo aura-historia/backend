@@ -161,6 +161,8 @@ pub mod api {
 
     #[cfg(test)]
     mod tests {
+        use rstest;
+
         use crate::language::data::LanguageData::{self, *};
         use crate::language::data::api::extract_language_query;
         use crate::language::data::api::{extract_language_header, extract_languages_header};
@@ -169,6 +171,7 @@ pub mod api {
         use http::header::ACCEPT_LANGUAGE;
         use std::collections::HashMap;
 
+        #[trace]
         #[rstest::rstest]
         #[case("de", &[De])]
         #[case("de-DE", &[De])]
@@ -209,6 +212,7 @@ pub mod api {
             assert_eq!(expected, actual.as_slice())
         }
 
+        #[trace]
         #[rstest::rstest]
         #[case("de", De)]
         #[case("de-DE", De)]
@@ -249,6 +253,7 @@ pub mod api {
             assert_eq!(expected, actual)
         }
 
+        #[trace]
         #[rstest::rstest]
         #[case("de", LanguageData::De)]
         #[case("de-DE", LanguageData::De)]

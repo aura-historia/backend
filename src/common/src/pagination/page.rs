@@ -109,6 +109,8 @@ pub mod api {
 
     #[cfg(test)]
     mod tests {
+        use rstest;
+
         use crate::api::error::{ApiErrorSource, ApiErrorSourceType};
         use crate::api::error_code::{BAD_PAGE_FROM_VALUE, BAD_PAGE_SIZE_VALUE};
         use crate::pagination::page::Page;
@@ -116,6 +118,7 @@ pub mod api {
         use aws_lambda_events::query_map::QueryMap;
         use std::collections::HashMap;
 
+        #[trace]
         #[rstest::rstest]
         #[case(Some("0"), Some("10"), Some(Page { from: 0, size: 10 }))]
         #[case(Some("10"), Some("10"), Some(Page { from: 10, size: 10 }))]
@@ -148,6 +151,7 @@ pub mod api {
             assert_eq!(expected, actual);
         }
 
+        #[trace]
         #[rstest::rstest]
         #[case("boop")]
         #[case("foo")]
@@ -172,6 +176,7 @@ pub mod api {
             )
         }
 
+        #[trace]
         #[rstest::rstest]
         #[case("boop")]
         #[case("foo")]

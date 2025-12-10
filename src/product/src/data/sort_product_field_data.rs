@@ -57,8 +57,11 @@ impl From<SortProductFieldData> for SortProductField {
 
 #[cfg(test)]
 mod tests {
+    use rstest;
+
     use crate::data::sort_product_field_data::SortProductFieldData;
 
+    #[trace]
     #[rstest::rstest]
     #[case(SortProductFieldData::Score)]
     #[case(SortProductFieldData::Price)]

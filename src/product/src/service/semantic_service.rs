@@ -131,6 +131,8 @@ impl<'a> SemanticSearchService for SemanticSearchServiceImpl<'a> {
 
 #[cfg(test)]
 mod tests {
+    use rstest;
+
     use crate::{
         dynamodb::repository::MockProductDynamoDbRepository,
         opensearch::{
@@ -367,6 +369,7 @@ mod tests {
     }
 
     #[tokio::test]
+    #[trace]
     #[rstest::rstest]
     #[case::construction_failure(SdkError::construction_failure("Something went wrong"))]
     #[case::timeout(SdkError::timeout_error("Something went wrong"))]

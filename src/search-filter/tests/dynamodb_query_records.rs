@@ -11,6 +11,7 @@ async fn get_repository() -> UserSearchFilterDynamoDbRepositoryImpl<'static> {
     UserSearchFilterDynamoDbRepositoryImpl::new(get_dynamodb_client().await, "table_1")
 }
 
+#[trace]
 #[rstest::rstest]
 #[test_attr(apply(test))]
 #[case::scan_index_forward_false(false)]
@@ -26,6 +27,7 @@ async fn should_return_no_records_when_partition_empty(#[case] scan_index_forwar
     assert!(actual.is_empty())
 }
 
+#[trace]
 #[rstest::rstest]
 #[test_attr(apply(test))]
 #[case::scan_index_forward_false(false)]

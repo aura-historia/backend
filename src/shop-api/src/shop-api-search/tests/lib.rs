@@ -7,6 +7,7 @@ use shop::service::query_service::QueryShopServiceImpl;
 use shop_api_search::handler;
 use test_api::*;
 
+#[trace]
 #[rstest::rstest]
 #[test_attr(apply(test))]
 #[case("score", "asc", 5)]

@@ -1342,6 +1342,7 @@ async fn should_200_and_personalize_when_similar_products_have_been_computed_for
     );
 }
 
+#[trace]
 #[rstest::rstest]
 #[test_attr(apply(test))]
 #[case("de", "German title", Language::De)]

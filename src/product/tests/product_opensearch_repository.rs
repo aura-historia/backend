@@ -449,6 +449,7 @@ async fn should_search_product_documents_when_all_arguments_are_given() {
     assert!(response.is_ok());
 }
 
+#[trace]
 #[rstest::rstest]
 #[test_attr(apply(test))]
 #[case(&[ProductState::Available])]
@@ -549,6 +550,7 @@ async fn should_search_product_documents_when_no_states_are_given() {
     assert_eq!(100u64, response.hits.total.value);
 }
 
+#[trace]
 #[rstest::rstest]
 #[test_attr(apply(test))]
 #[case(RangeQuery { min: Some(0u64.into()), max: Some(999999u64.into()) })]

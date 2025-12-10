@@ -424,6 +424,8 @@ impl<'a> ProductWatchListService for ProductWatchListServiceImpl<'a> {
 
 #[cfg(test)]
 mod tests {
+    use rstest;
+
 
     mod find_watchlist_product {
         use crate::dynamodb::repository::MockProductDynamoDbRepository;
@@ -486,6 +488,7 @@ mod tests {
         }
 
         #[tokio::test]
+        #[trace]
         #[rstest::rstest]
         #[case::construction_failure(SdkError::construction_failure("Something went wrong"))]
         #[case::timeout(SdkError::timeout_error("Something went wrong"))]
@@ -612,6 +615,7 @@ mod tests {
         }
 
         #[tokio::test]
+        #[trace]
         #[rstest::rstest]
         #[case::construction_failure(SdkError::construction_failure("Something went wrong"))]
         #[case::timeout(SdkError::timeout_error("Something went wrong"))]
@@ -658,6 +662,7 @@ mod tests {
         }
 
         #[tokio::test]
+        #[trace]
         #[rstest::rstest]
         #[case::construction_failure(SdkError::construction_failure("Something went wrong"))]
         #[case::timeout(SdkError::timeout_error("Something went wrong"))]
@@ -707,6 +712,7 @@ mod tests {
         }
 
         #[tokio::test]
+        #[trace]
         #[rstest::rstest]
         #[case::construction_failure(SdkError::construction_failure("Something went wrong"))]
         #[case::timeout(SdkError::timeout_error("Something went wrong"))]
@@ -846,6 +852,7 @@ mod tests {
         }
 
         #[tokio::test]
+        #[trace]
         #[rstest::rstest]
         #[case::construction_failure(SdkError::construction_failure("Something went wrong"))]
         #[case::timeout(SdkError::timeout_error("Something went wrong"))]
@@ -891,6 +898,7 @@ mod tests {
         }
 
         #[tokio::test]
+        #[trace]
         #[rstest::rstest]
         #[case::construction_failure(SdkError::construction_failure("Something went wrong"))]
         #[case::timeout(SdkError::timeout_error("Something went wrong"))]
@@ -1047,6 +1055,7 @@ mod tests {
         }
 
         #[tokio::test]
+        #[trace]
         #[rstest::rstest]
         #[case::construction_failure(SdkError::construction_failure("Something went wrong"))]
         #[case::timeout(SdkError::timeout_error("Something went wrong"))]
@@ -1099,6 +1108,7 @@ mod tests {
         }
 
         #[tokio::test]
+        #[trace]
         #[rstest::rstest]
         #[case::construction_failure(SdkError::construction_failure("Something went wrong"))]
         #[case::timeout(SdkError::timeout_error("Something went wrong"))]
@@ -1178,6 +1188,7 @@ mod tests {
         use user::dynamodb::repository::MockUserDynamoDbRepository;
 
         #[tokio::test]
+        #[trace]
         #[rstest::rstest]
         #[case::construction_failure(SdkError::construction_failure("Something went wrong"))]
         #[case::timeout(SdkError::timeout_error("Something went wrong"))]

@@ -202,6 +202,8 @@ pub fn localize_product_document(
 
 #[cfg(test)]
 mod tests {
+    use rstest;
+
     use crate::core::product_search::ProductSearch;
     use crate::core::sort_product_field::SortProductField;
     use crate::opensearch::{
@@ -258,6 +260,7 @@ mod tests {
     }
 
     #[tokio::test]
+    #[trace]
     #[rstest::rstest]
     #[case(
         ProductSearch {
@@ -392,6 +395,7 @@ mod tests {
     }
 
     #[tokio::test]
+    #[trace]
     #[rstest::rstest]
     #[case::eur(Currency::Eur, 2)]
     #[case::gbp(Currency::Gbp, 4)]
@@ -449,6 +453,7 @@ mod tests {
     }
 
     #[tokio::test]
+    #[trace]
     #[rstest::rstest]
     #[case(Language::De, "German")]
     #[case(Language::En, "English")]

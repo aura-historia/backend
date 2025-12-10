@@ -132,6 +132,8 @@ fn extract_history_query(query: &QueryMap) -> Result<bool, ApiError> {
 
 #[cfg(test)]
 mod tests {
+    use rstest;
+
     use crate::handler;
     use cognito::access_token_verifier_service::MockAccessTokenVerifierService;
     use common::event_id::EventId;
@@ -152,6 +154,7 @@ mod tests {
     use url::Url;
 
     #[tokio::test]
+    #[trace]
     #[rstest::rstest]
     #[case(LanguageData::De, "de")]
     #[case(LanguageData::En, "en")]
@@ -333,6 +336,7 @@ mod tests {
     }
 
     #[tokio::test]
+    #[trace]
     #[rstest::rstest]
     #[case::default_false(None, false)]
     #[case::accept_true(Some("true"), true)]

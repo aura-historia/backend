@@ -319,6 +319,8 @@ fn determine_update_events(
 
 #[cfg(test)]
 pub mod tests {
+    use rstest;
+
     use crate::core::product::Product;
     use crate::dynamodb::repository::MockProductDynamoDbRepository;
     use crate::service::product_command::UpsertProductCommand;
@@ -427,6 +429,7 @@ pub mod tests {
     }
 
     #[tokio::test]
+    #[trace]
     #[rstest::rstest]
     #[case::construction_failure(SdkError::construction_failure("Something went wrong"))]
     #[case::timeout(SdkError::timeout_error("Something went wrong"))]

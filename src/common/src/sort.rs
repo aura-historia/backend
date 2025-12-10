@@ -98,6 +98,8 @@ pub mod api {
 
     #[cfg(test)]
     mod tests {
+        use rstest;
+
         use crate::api::error::{ApiErrorSource, ApiErrorSourceType};
         use crate::api::error_code::{BAD_ORDER_VALUE, BAD_SORT_VALUE};
         use crate::sort::api::extract_sort_query;
@@ -106,6 +108,7 @@ pub mod api {
         use serde::{Deserialize, Serialize};
         use std::collections::HashMap;
 
+        #[trace]
         #[rstest::rstest]
         #[case(SortOrder::Asc)]
         #[case(SortOrder::Desc)]
@@ -135,6 +138,7 @@ pub mod api {
             }
         }
 
+        #[trace]
         #[rstest::rstest]
         #[case(Some("foo"), Some("asc"), Some(Sort { sort: DummyField::Foo, order: SortOrder::Asc }))]
         #[case(Some("foo"), Some("desc"), Some(Sort { sort: DummyField::Foo, order: SortOrder::Desc }))]
@@ -163,6 +167,7 @@ pub mod api {
             assert_eq!(expected, actual);
         }
 
+        #[trace]
         #[rstest::rstest]
         #[case("boop")]
         #[case("baz")]
@@ -189,6 +194,7 @@ pub mod api {
             )
         }
 
+        #[trace]
         #[rstest::rstest]
         #[case("asci")]
         #[case("descendent")]

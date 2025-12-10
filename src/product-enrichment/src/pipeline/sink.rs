@@ -126,6 +126,8 @@ impl EnrichmentPipeSink for EnrichmentPipeSinkImpl {
 
 #[cfg(test)]
 mod tests {
+    use rstest;
+
     mod drain_documents {
         use crate::pipeline::sink::{EnrichmentPipeSink, EnrichmentPipeSinkImpl};
         use common::{
@@ -166,6 +168,7 @@ mod tests {
             assert!(actual.is_empty());
         }
 
+        #[trace]
         #[rstest::rstest]
         #[case(1)]
         #[case(5)]
@@ -256,6 +259,7 @@ mod tests {
             assert!(actual.is_empty());
         }
 
+        #[trace]
         #[rstest::rstest]
         #[case(1)]
         #[case(5)]

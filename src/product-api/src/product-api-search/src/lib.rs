@@ -130,7 +130,10 @@ pub async fn handle(
 
 #[cfg(test)]
 #[allow(clippy::too_many_arguments)]
+#[allow(clippy::too_many_arguments)]
 mod tests {
+    use rstest;
+
     use crate::handler;
     use cognito::access_token_verifier_service::MockAccessTokenVerifierService;
     use common::pagination::cursor::Cursor;
@@ -146,6 +149,7 @@ mod tests {
     use test_api::ApiGatewayV2httpRequestProxy;
 
     #[tokio::test]
+    #[trace]
     #[rstest::rstest]
     #[case(Some("price"), Some("asc"))]
     #[case(Some("created"), Some("desc"))]

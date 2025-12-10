@@ -537,6 +537,7 @@ async fn should_200_when_following_search_after_from_previous_response_for_expli
     }))
 }
 
+#[trace]
 #[rstest::rstest]
 #[test_attr(apply(test))]
 #[case(None, None)]
@@ -623,6 +624,7 @@ async fn should_200_when_created_query(
     }
 }
 
+#[trace]
 #[rstest::rstest]
 #[test_attr(apply(test))]
 #[case(None, None)]
@@ -844,6 +846,7 @@ async fn should_200_with_native_title_when_no_target_titles_exist_and_hit_due_to
     );
 }
 
+#[trace]
 #[rstest::rstest]
 #[test_attr(apply(test))]
 #[case("de", "German title", Language::De)]

@@ -506,6 +506,8 @@ fn localize_product_event(
 
 #[cfg(test)]
 mod tests {
+    use rstest;
+
     mod find_product {
         use crate::dynamodb::repository::MockProductDynamoDbRepository;
         use crate::service::get_service::{
@@ -557,6 +559,7 @@ mod tests {
         }
 
         #[tokio::test]
+        #[trace]
         #[rstest::rstest]
         #[case::construction_failure(SdkError::construction_failure("Something went wrong"))]
         #[case::timeout(SdkError::timeout_error("Something went wrong"))]
@@ -697,6 +700,7 @@ mod tests {
         }
 
         #[tokio::test]
+        #[trace]
         #[rstest::rstest]
         #[case::eur(Currency::Eur, 2)]
         #[case::gbp(Currency::Gbp, 4)]
@@ -736,6 +740,7 @@ mod tests {
         }
 
         #[tokio::test]
+        #[trace]
         #[rstest::rstest]
         #[case(&[], De, "German")]
         #[case(&[De], De, "German")]
@@ -781,6 +786,7 @@ mod tests {
         }
 
         #[tokio::test]
+        #[trace]
         #[rstest::rstest]
         #[case(&[], Es, "Spanish")]
         #[case(&[De], Es, "Spanish")]
@@ -826,6 +832,7 @@ mod tests {
         }
 
         #[tokio::test]
+        #[trace]
         #[rstest::rstest]
         #[case(&[], De, "German")]
         #[case(&[De], De, "German")]
@@ -873,6 +880,7 @@ mod tests {
         }
 
         #[tokio::test]
+        #[trace]
         #[rstest::rstest]
         #[case(&[], Es, "Spanish")]
         #[case(&[De], Es, "Spanish")]
@@ -920,6 +928,7 @@ mod tests {
         }
 
         #[tokio::test]
+        #[trace]
         #[rstest::rstest]
         #[case(&[])]
         #[case(&[De])]
@@ -987,6 +996,7 @@ mod tests {
         }
 
         #[tokio::test]
+        #[trace]
         #[rstest::rstest]
         #[case::construction_failure(SdkError::construction_failure("Something went wrong"))]
         #[case::timeout(SdkError::timeout_error("Something went wrong"))]
@@ -1092,6 +1102,7 @@ mod tests {
         }
 
         #[tokio::test]
+        #[trace]
         #[rstest::rstest]
         #[case::construction_failure(SdkError::construction_failure("Something went wrong"))]
         #[case::timeout(SdkError::timeout_error("Something went wrong"))]

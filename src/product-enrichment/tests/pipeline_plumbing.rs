@@ -50,6 +50,7 @@ fn mk_event_bridge_payload(product_event_record: &ProductEventRecord) -> String 
     serde_json::to_string(&event).unwrap()
 }
 
+#[trace]
 #[rstest::rstest]
 #[test_attr(apply(test))]
 #[case(0, 0)]

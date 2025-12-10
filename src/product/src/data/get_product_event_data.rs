@@ -204,6 +204,8 @@ impl From<Event<ProductId, LocalizedProductEventPayloadView>> for GetProductEven
 
 #[cfg(test)]
 mod tests {
+    use rstest;
+
     use crate::core::product_event::{
         LocalizedProductCreatedEventPayloadView, LocalizedProductEventPayloadView,
         LocalizedProductPriceChangeEventPayloadView,
@@ -229,6 +231,7 @@ mod tests {
     use url::Url;
     use uuid::Uuid;
 
+    #[trace]
     #[rstest::rstest]
     #[case::created(
         LocalizedProductEventPayloadView::Created(LocalizedProductCreatedEventPayloadView {

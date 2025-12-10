@@ -335,6 +335,8 @@ mod faker {
 
     #[cfg(test)]
     mod tests {
+        use rstest;
+
         use crate::core::product::{LocalizedProductView, Product};
         use fake::{Fake, Faker};
 
@@ -353,6 +355,8 @@ mod faker {
 #[cfg(test)]
 mod tests {
     mod state {
+        use rstest;
+
         use crate::core::product::Product;
         use common::language::domain::Language;
         use common::localized::Localized;
@@ -360,6 +364,7 @@ mod tests {
         use time::OffsetDateTime;
         use url::Url;
 
+        #[trace]
         #[rstest::rstest]
         #[case::listed(ProductState::Listed, ProductState::Listed)]
         #[case::available(ProductState::Available, ProductState::Available)]
@@ -398,6 +403,7 @@ mod tests {
             assert!(actual.is_none());
         }
 
+        #[trace]
         #[rstest::rstest]
         #[case::listed(ProductState::Listed, ProductState::Available)]
         #[case::listed(ProductState::Listed, ProductState::Removed)]
@@ -440,6 +446,7 @@ mod tests {
             assert_eq!(from_state, payload.old_state);
         }
 
+        #[trace]
         #[rstest::rstest]
         #[case::listed(ProductState::Listed, ProductState::Available)]
         #[case::listed(ProductState::Listed, ProductState::Removed)]
@@ -507,6 +514,7 @@ mod tests {
             }
         }
 
+        #[trace]
         #[rstest::rstest]
         #[case::eur_zero(Currency::Eur, 0u64.into())]
         #[case::gbp_zero(Currency::Gbp, 0u64.into())]
@@ -557,6 +565,7 @@ mod tests {
             assert!(actual.is_none());
         }
 
+        #[trace]
         #[rstest::rstest]
         #[case::eur_zero(Price::new(0u64.into(), Currency::Eur))]
         #[case::gbp_zero(Price::new(0u64.into(), Currency::Gbp))]
@@ -617,6 +626,7 @@ mod tests {
             }
         }
 
+        #[trace]
         #[rstest::rstest]
         #[case::eur_non_zero(Price::new(420u64.into(), Currency::Eur))]
         #[case::gbp_non_zero(Price::new(430u64.into(), Currency::Gbp))]
@@ -673,6 +683,7 @@ mod tests {
             }
         }
 
+        #[trace]
         #[rstest::rstest]
         #[case::eur_non_zero(Price::new(420u64.into(), Currency::Eur))]
         #[case::gbp_non_zero(Price::new(430u64.into(), Currency::Gbp))]
@@ -723,6 +734,7 @@ mod tests {
             }
         }
 
+        #[trace]
         #[rstest::rstest]
         #[case::eur_zero(Price::new(0u64.into(), Currency::Eur))]
         #[case::gbp_zero(Price::new(0u64.into(), Currency::Gbp))]

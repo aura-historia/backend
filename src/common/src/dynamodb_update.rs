@@ -52,6 +52,8 @@ pub trait DynamoDbUpdate: Serialize + Sized {
 
 #[cfg(test)]
 mod tests {
+    use rstest;
+
     use crate::dynamodb_update::{DynamoDbUpdate, DynamoDbUpdateExpression};
     use aws_sdk_dynamodb::types::AttributeValue::*;
     use serde::Serialize;
@@ -65,6 +67,7 @@ mod tests {
     }
     impl DynamoDbUpdate for Dummy {}
 
+    #[trace]
     #[rstest::rstest]
     #[case(
         Dummy { f_oo: Some("boop".into()), bar: None },
