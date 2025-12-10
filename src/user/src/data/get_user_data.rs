@@ -6,7 +6,7 @@ use time::OffsetDateTime;
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
-pub struct GetUserData {
+pub struct GetUserAccountData {
     pub user_id: UserId,
     pub email: Email,
 
@@ -29,9 +29,9 @@ pub struct GetUserData {
     pub updated: OffsetDateTime,
 }
 
-impl From<User> for GetUserData {
+impl From<User> for GetUserAccountData {
     fn from(user: User) -> Self {
-        GetUserData {
+        GetUserAccountData {
             user_id: user.user_id,
             email: user.email,
             first_name: user.first_name,
@@ -47,10 +47,10 @@ impl From<User> for GetUserData {
 #[cfg(feature = "test-data")]
 mod fake {
     use crate::core::user::User;
-    use crate::data::get_user_data::GetUserData;
+    use crate::data::get_user_data::GetUserAccountData;
     use fake::Fake;
 
-    impl fake::Dummy<fake::Faker> for GetUserData {
+    impl fake::Dummy<fake::Faker> for GetUserAccountData {
         fn dummy_with_rng<R: fake::rand::Rng + ?Sized>(config: &fake::Faker, rng: &mut R) -> Self {
             config.fake_with_rng::<User, R>(rng).into()
         }

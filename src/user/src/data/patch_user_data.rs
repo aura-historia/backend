@@ -5,7 +5,7 @@ use serde_email::Email;
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
-pub struct PatchUserData {
+pub struct PatchUserAccountData {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub email: Option<Email>,
 
@@ -20,4 +20,23 @@ pub struct PatchUserData {
 
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub currency: Option<CurrencyData>,
+}
+
+#[cfg(feature = "test-data")]
+mod fake {
+    use crate::data::patch_user_data::PatchUserAccountData;
+    use fake::{Fake, faker::internet::en::SafeEmail};
+
+    impl fake::Dummy<fake::Faker> for PatchUserAccountData {
+        fn dummy_with_rng<R: fake::rand::Rng + ?Sized>(config: &fake::Faker, rng: &mut R) -> Self {
+            let email_str: String = SafeEmail().fake_with_rng(rng);
+            PatchUserAccountData {
+                email: Some(email_str.try_into().unwrap()),
+                first_name: config.fake_with_rng(rng),
+                last_name: config.fake_with_rng(rng),
+                language: config.fake_with_rng(rng),
+                currency: config.fake_with_rng(rng),
+            }
+        }
+    }
 }

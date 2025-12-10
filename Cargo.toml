@@ -1,5 +1,5 @@
 [package]
-name = "blitzfilter-parent"
+name = "aura-historia-parent"
 version = "0.1.0"
 edition = "2024"
 
@@ -37,6 +37,7 @@ members = [
     "src/shop",
     "src/shop-api",
     "src/user",
+    "src/user-api",
     "src/mail",
     "src/mail-lambda-send",
     "src/product-enrichment",
@@ -146,6 +147,9 @@ proc-macro2 = "1.0.103"
 smoking-tests-macros = { path = "src/aws-tests/src/smoking-tests/src/smoking-tests-macros" }
 staging-tests-macros = { path = "src/aws-tests/src/staging-tests/src/staging-tests-macros" }
 user = { path = "src/user" }
+user-api = { path = "src/user-api" }
+user-api-get-account = { path = "src/user-api/src/user-api-get-account" }
+user-api-patch-account = { path = "src/user-api/src/user-api-patch-account" }
 cognito = { path = "src/cognito" }
 cognito-post-confirmation = { path = "src/cognito-post-confirmation" }
 serde-email = "3.2.0"
