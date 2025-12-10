@@ -302,6 +302,7 @@ mod tests {
     use rstest::rstest;
 
     #[rstest]
+    #[trace]
     #[case(LanguageData::De, "\"de\"")]
     #[case(LanguageData::En, "\"en\"")]
     #[case(LanguageData::Fr, "\"fr\"")]
@@ -315,6 +316,7 @@ mod tests {
     }
 
     #[rstest]
+    #[trace]
     #[case("\"de\"", LanguageData::De)]
     #[case("\"en\"", LanguageData::En)]
     #[case("\"fr\"", LanguageData::Fr)]

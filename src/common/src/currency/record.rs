@@ -32,6 +32,7 @@ mod tests {
     use rstest::rstest;
 
     #[rstest]
+    #[trace]
     #[case(CurrencyRecord::Eur, "\"EUR\"")]
     #[case(CurrencyRecord::Gbp, "\"GBP\"")]
     #[case(CurrencyRecord::Usd, "\"USD\"")]
@@ -47,6 +48,7 @@ mod tests {
     }
 
     #[rstest]
+    #[trace]
     #[case("\"EUR\"", CurrencyRecord::Eur)]
     #[case("\"GBP\"", CurrencyRecord::Gbp)]
     #[case("\"USD\"", CurrencyRecord::Usd)]
