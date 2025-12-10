@@ -303,8 +303,8 @@ mod tests {
             assert!(actual.is_err());
         }
 
-        #[trace]
         #[rstest::rstest]
+        #[trace]
         #[case(101)]
         #[case(110)]
         #[case(142)]
@@ -401,8 +401,8 @@ mod tests {
         }
 
         #[tokio::test]
-        #[trace]
         #[rstest::rstest]
+        #[trace]
         #[case::construction_failure(SdkError::construction_failure("Something went wrong"))]
         #[case::timeout(SdkError::timeout_error("Something went wrong"))]
         #[case::dispatch_failure(SdkError::dispatch_failure(ConnectorError::user("Something went wrong".into())))]
@@ -435,8 +435,8 @@ mod tests {
         }
 
         #[tokio::test]
-        #[trace]
         #[rstest::rstest]
+        #[trace]
         #[case::construction_failure(SdkError::construction_failure("Something went wrong"))]
         #[case::timeout(SdkError::timeout_error("Something went wrong"))]
         #[case::dispatch_failure(SdkError::dispatch_failure(ConnectorError::user("Something went wrong".into())))]

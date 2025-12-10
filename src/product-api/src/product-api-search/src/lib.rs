@@ -149,8 +149,8 @@ mod tests {
     use test_api::ApiGatewayV2httpRequestProxy;
 
     #[tokio::test]
-    #[trace]
     #[rstest::rstest]
+    #[trace]
     #[case(Some("price"), Some("asc"))]
     #[case(Some("created"), Some("desc"))]
     #[case(None, None)]

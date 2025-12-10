@@ -61,8 +61,8 @@ mod tests {
 
     use crate::data::sort_shop_field_data::SortShopFieldData;
 
-    #[trace]
     #[rstest::rstest]
+    #[trace]
     #[case(SortShopFieldData::Name)]
     #[case(SortShopFieldData::Created)]
     #[case(SortShopFieldData::Updated)]

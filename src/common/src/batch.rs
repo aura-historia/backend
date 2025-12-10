@@ -278,8 +278,8 @@ mod tests {
 
     use crate::batch::{Batch, BatchConstructionError};
 
-    #[trace]
     #[rstest::rstest]
+    #[trace]
     #[case::empty(
         Batch::try_from(vec![]),
         BatchConstructionError::BatchEmpty
@@ -304,8 +304,8 @@ mod tests {
         assert_eq!(batch.unwrap_err(), err);
     }
 
-    #[trace]
     #[rstest::rstest]
+    #[trace]
     #[case::one(1)]
     #[case::two(2)]
     #[case::three(3)]

@@ -231,8 +231,8 @@ mod tests {
     use url::Url;
     use uuid::Uuid;
 
-    #[trace]
     #[rstest::rstest]
+    #[trace]
     #[case::created(
         LocalizedProductEventPayloadView::Created(LocalizedProductCreatedEventPayloadView {
             shop_id: "569c809e-b9e0-48c0-8c52-ac37d82a0959".try_into().unwrap(),

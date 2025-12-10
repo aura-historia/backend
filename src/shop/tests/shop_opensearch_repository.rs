@@ -73,8 +73,8 @@ async fn should_search_shop_documents_when_only_name_query_supplied() {
     assert_eq!(expected, actual.hits.hits[0].source);
 }
 
-#[trace]
 #[rstest::rstest]
+#[trace]
 #[test_attr(apply(test))]
 #[case(
     ShopSearch {

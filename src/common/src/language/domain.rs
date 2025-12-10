@@ -93,8 +93,8 @@ mod tests {
     use crate::language::domain::Language;
     use std::collections::HashMap;
 
-    #[trace]
     #[rstest::rstest]
+    #[trace]
     #[case::empty_defaults_german(&[], Some("German text".into()))]
     #[case::takes_preferred_from_singleton(&[Language::En], Some("English text".into()))]
     #[case::takes_preferred_from_many(&[Language::Es, Language::Fr, Language::En], Some("Spanish text".into()))]
@@ -114,8 +114,8 @@ mod tests {
         assert_eq!(expected, actual);
     }
 
-    #[trace]
     #[rstest::rstest]
+    #[trace]
     #[case::empty_defaults_german(&[], Some("English text".into()))]
     #[case::takes_preferred_from_singleton(&[Language::En], Some("English text".into()))]
     #[case::takes_preferred_from_many(&[Language::Es, Language::Fr, Language::En], Some("French text".into()))]
@@ -133,8 +133,8 @@ mod tests {
         assert_eq!(expected, actual);
     }
 
-    #[trace]
     #[rstest::rstest]
+    #[trace]
     #[case::empty_defaults_german(&[], Some("French text".into()))]
     #[case::takes_preferred_from_singleton(&[Language::En], Some("French text".into()))]
     #[case::takes_preferred_from_many(&[Language::Es, Language::En], Some("French text".into()))]

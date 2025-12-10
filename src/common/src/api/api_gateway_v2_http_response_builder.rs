@@ -189,8 +189,8 @@ pub mod tests {
     };
     use std::time::SystemTime;
 
-    #[trace]
     #[rstest::rstest]
+    #[trace]
     #[case::minimal_100(ApiGatewayV2HttpResponseBuilder::new(100))]
     #[case::minimal_200(ApiGatewayV2HttpResponseBuilder::new(200))]
     #[case::minimal_300(ApiGatewayV2HttpResponseBuilder::new(300))]

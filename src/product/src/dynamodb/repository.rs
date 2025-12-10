@@ -506,8 +506,8 @@ mod tests {
     use common::product_id::{ProductId, ProductKey};
     use std::collections::HashMap;
 
-    #[trace]
     #[rstest::rstest]
+    #[trace]
     #[case::differing("a1caead3-a50d-44a4-b9fb-a15d2397601e", "123456")]
     #[case::containing_separator("a1caead3-a50d-44a4-b9fb-a15d2397601e", "abcdefg#boop")]
     fn should_extract_product_key_from_pk_sk_map_when_pk_exists_and_is_valid_for(
@@ -531,8 +531,8 @@ mod tests {
         assert_eq!(expected, actual.unwrap());
     }
 
-    #[trace]
     #[rstest::rstest]
+    #[trace]
     #[case("a1caead3-a50d-44a4-b9fb-a15d2397601e")]
     #[case("6e3f0c71-8af4-4897-ba75-4a64792c07a6")]
     #[case("f5e5aa19-7d97-4972-af6f-426f1ab8bb8f")]

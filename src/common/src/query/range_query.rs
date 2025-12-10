@@ -189,8 +189,8 @@ mod tests {
         );
     }
 
-    #[trace]
     #[rstest::rstest]
+    #[trace]
     #[case(RangeQuery { min: None, max: None }, json!({"range": {}}))]
     #[case(RangeQuery { min: Some(datetime!(2021 - 01 - 01 0:00 UTC)), max: None }, json!({"range": { "min":"2021-01-01T00:00:00Z" }}))]
     #[case(RangeQuery { min: None, max: Some(datetime!(2021 - 01 - 01 0:00 UTC)) }, json!({"range": { "max":"2021-01-01T00:00:00Z" }}))]
@@ -205,8 +205,8 @@ mod tests {
         assert_eq!(expected, actual);
     }
 
-    #[trace]
     #[rstest::rstest]
+    #[trace]
     #[case(RangeQuery { min: None, max: None }, json!({"range": {}}))]
     #[case(RangeQuery { min: None, max: None }, json!({"range": {"min": null}}))]
     #[case(RangeQuery { min: None, max: None }, json!({"range": {"max": null}}))]
@@ -226,8 +226,8 @@ mod tests {
         assert_eq!(expected, actual);
     }
 
-    #[trace]
     #[rstest::rstest]
+    #[trace]
     #[case(RangeQuery { min: None, max: None }, json!({"range": {}}))]
     #[case(RangeQuery { min: Some(datetime!(2021 - 01 - 01 0:00 UTC)), max: None }, json!({"range": { "min":"2021-01-01T00:00:00Z" }}))]
     #[case(RangeQuery { min: None, max: Some(datetime!(2021 - 01 - 01 0:00 UTC)) }, json!({"range": { "max":"2021-01-01T00:00:00Z" }}))]
@@ -242,8 +242,8 @@ mod tests {
         assert_eq!(expected, actual);
     }
 
-    #[trace]
     #[rstest::rstest]
+    #[trace]
     #[case(RangeQuery { min: None, max: None }, json!({"range": {}}))]
     #[case(RangeQuery { min: None, max: None }, json!({"range": {"min": null}}))]
     #[case(RangeQuery { min: None, max: None }, json!({"range": {"max": null}}))]

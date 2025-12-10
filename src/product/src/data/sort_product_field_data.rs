@@ -61,8 +61,8 @@ mod tests {
 
     use crate::data::sort_product_field_data::SortProductFieldData;
 
-    #[trace]
     #[rstest::rstest]
+    #[trace]
     #[case(SortProductFieldData::Score)]
     #[case(SortProductFieldData::Price)]
     #[case(SortProductFieldData::Created)]

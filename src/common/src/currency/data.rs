@@ -80,8 +80,8 @@ pub mod api {
         use aws_lambda_events::query_map::QueryMap;
         use std::collections::HashMap;
 
-        #[trace]
         #[rstest::rstest]
+        #[trace]
         #[case::eur("EUR", CurrencyData::Eur)]
         #[case::gbp("GBP", CurrencyData::Gbp)]
         #[case::usd("USD", CurrencyData::Usd)]
@@ -96,8 +96,8 @@ pub mod api {
             assert_eq!(expected, actual);
         }
 
-        #[trace]
         #[rstest::rstest]
+        #[trace]
         #[case("invalid-currency")]
         #[case("boop")]
         #[case("euronen")]

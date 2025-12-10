@@ -154,8 +154,8 @@ mod tests {
     use url::Url;
 
     #[tokio::test]
-    #[trace]
     #[rstest::rstest]
+    #[trace]
     #[case(LanguageData::De, "de")]
     #[case(LanguageData::En, "en")]
     #[case(LanguageData::Es, "es")]
@@ -336,8 +336,8 @@ mod tests {
     }
 
     #[tokio::test]
-    #[trace]
     #[rstest::rstest]
+    #[trace]
     #[case::default_false(None, false)]
     #[case::accept_true(Some("true"), true)]
     #[case::accept_false(Some("false"), false)]

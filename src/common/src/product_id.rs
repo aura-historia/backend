@@ -126,8 +126,8 @@ impl TryFrom<&str> for ProductId {
 mod tests {
     use rstest;
 
-    #[trace]
     #[rstest::rstest]
+    #[trace]
     #[case::differing(uuid::Uuid::new_v4().to_string(), "123456")]
     #[case::product_containing_separator(uuid::Uuid::new_v4().to_string(), "1874874#489746152")]
     #[case::product_containing_separator(uuid::Uuid::new_v4().to_string(), "1874874#489746152#49874651#845")]
@@ -145,8 +145,8 @@ mod tests {
         assert_eq!(expected, actual);
     }
 
-    #[trace]
     #[rstest::rstest]
+    #[trace]
     #[case::differing(uuid::Uuid::new_v4().to_string(), "123456")]
     #[case::product_containing_separator(uuid::Uuid::new_v4().to_string(), "1874874#489746152")]
     #[case::product_containing_separator(uuid::Uuid::new_v4().to_string(), "1874874#489746152#49874651#845")]
@@ -164,8 +164,8 @@ mod tests {
         assert_eq!(expected, actual);
     }
 
-    #[trace]
     #[rstest::rstest]
+    #[trace]
     #[case::differing(uuid::Uuid::new_v4().to_string(), "123456")]
     #[case::product_containing_separator(uuid::Uuid::new_v4().to_string(), "1874874#489746152")]
     #[case::product_containing_separator(uuid::Uuid::new_v4().to_string(), "1874874#489746152#49874651#845")]

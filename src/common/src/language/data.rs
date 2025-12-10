@@ -171,8 +171,8 @@ pub mod api {
         use http::header::ACCEPT_LANGUAGE;
         use std::collections::HashMap;
 
-        #[trace]
         #[rstest::rstest]
+        #[trace]
         #[case("de", &[De])]
         #[case("de-DE", &[De])]
         #[case("en", &[En])]
@@ -212,8 +212,8 @@ pub mod api {
             assert_eq!(expected, actual.as_slice())
         }
 
-        #[trace]
         #[rstest::rstest]
+        #[trace]
         #[case("de", De)]
         #[case("de-DE", De)]
         #[case("en", En)]
@@ -253,8 +253,8 @@ pub mod api {
             assert_eq!(expected, actual)
         }
 
-        #[trace]
         #[rstest::rstest]
+        #[trace]
         #[case("de", LanguageData::De)]
         #[case("de-DE", LanguageData::De)]
         #[case("en", LanguageData::En)]

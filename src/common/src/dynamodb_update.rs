@@ -67,8 +67,8 @@ mod tests {
     }
     impl DynamoDbUpdate for Dummy {}
 
-    #[trace]
     #[rstest::rstest]
+    #[trace]
     #[case(
         Dummy { f_oo: Some("boop".into()), bar: None },
         DynamoDbUpdateExpression {

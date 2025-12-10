@@ -108,8 +108,8 @@ pub mod api {
         use serde::{Deserialize, Serialize};
         use std::collections::HashMap;
 
-        #[trace]
         #[rstest::rstest]
+        #[trace]
         #[case(SortOrder::Asc)]
         #[case(SortOrder::Desc)]
         fn should_match_as_str_serialize(#[case] field: SortOrder) {
@@ -138,8 +138,8 @@ pub mod api {
             }
         }
 
-        #[trace]
         #[rstest::rstest]
+        #[trace]
         #[case(Some("foo"), Some("asc"), Some(Sort { sort: DummyField::Foo, order: SortOrder::Asc }))]
         #[case(Some("foo"), Some("desc"), Some(Sort { sort: DummyField::Foo, order: SortOrder::Desc }))]
         #[case(Some("bar"), Some("asc"), Some(Sort { sort: DummyField::Bar, order: SortOrder::Asc }))]
@@ -167,8 +167,8 @@ pub mod api {
             assert_eq!(expected, actual);
         }
 
-        #[trace]
         #[rstest::rstest]
+        #[trace]
         #[case("boop")]
         #[case("baz")]
         #[case("fooo")]
@@ -194,8 +194,8 @@ pub mod api {
             )
         }
 
-        #[trace]
         #[rstest::rstest]
+        #[trace]
         #[case("asci")]
         #[case("descendent")]
         #[case("boop")]

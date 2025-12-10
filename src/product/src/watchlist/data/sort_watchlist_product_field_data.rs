@@ -46,8 +46,8 @@ mod tests {
 
     use crate::watchlist::data::sort_watchlist_product_field_data::SortWatchlistProductFieldData;
 
-    #[trace]
     #[rstest::rstest]
+    #[trace]
     #[case(SortWatchlistProductFieldData::Created)]
     fn should_match_as_str_serialize(#[case] field: SortWatchlistProductFieldData) {
         let serialized = serde_json::to_string(&field).unwrap().replace("\"", "");

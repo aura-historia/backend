@@ -310,8 +310,8 @@ mod tests {
         assert_eq!(1000, price.monetary_amount.0);
     }
 
-    #[trace]
     #[rstest::rstest]
+    #[trace]
     #[case(Price::new(MonetaryAmount(500), Currency::Eur), "5,00 €")]
     #[case(Price::new(MonetaryAmount(542), Currency::Eur), "5,42 €")]
     #[case(Price::new(MonetaryAmount(123456), Currency::Eur), "1234,56 €")]

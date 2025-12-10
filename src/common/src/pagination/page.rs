@@ -118,8 +118,8 @@ pub mod api {
         use aws_lambda_events::query_map::QueryMap;
         use std::collections::HashMap;
 
-        #[trace]
         #[rstest::rstest]
+        #[trace]
         #[case(Some("0"), Some("10"), Some(Page { from: 0, size: 10 }))]
         #[case(Some("10"), Some("10"), Some(Page { from: 10, size: 10 }))]
         #[case(Some("42"), Some("69"), Some(Page { from: 42, size: 69 }))]
@@ -151,8 +151,8 @@ pub mod api {
             assert_eq!(expected, actual);
         }
 
-        #[trace]
         #[rstest::rstest]
+        #[trace]
         #[case("boop")]
         #[case("foo")]
         #[case("bar")]
@@ -176,8 +176,8 @@ pub mod api {
             )
         }
 
-        #[trace]
         #[rstest::rstest]
+        #[trace]
         #[case("boop")]
         #[case("foo")]
         #[case("bar")]

@@ -304,8 +304,8 @@ mod tests {
     use pyo3::{PyErr, exceptions::PyTypeError};
     use std::sync::Arc;
 
-    #[trace]
     #[rstest::rstest]
+    #[trace]
     #[case(0)]
     #[case(1)]
     #[case(2)]
@@ -570,8 +570,8 @@ mod tests {
         assert!(actual_2.document.clone().unwrap().description_de.is_none());
     }
 
-    #[trace]
     #[rstest::rstest]
+    #[trace]
     #[case(0)]
     #[case(1)]
     #[case(2)]
@@ -619,8 +619,8 @@ mod tests {
         assert_eq!(count % 64, actual.failures.len());
     }
 
-    #[trace]
     #[rstest::rstest]
+    #[trace]
     #[case(0)]
     #[case(1)]
     #[case(2)]

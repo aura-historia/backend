@@ -350,8 +350,8 @@ mod tests {
     };
     use std::collections::HashMap;
 
-    #[trace]
     #[rstest::rstest]
+    #[trace]
     #[case([].into(), None)]
     #[case([("pk".into(), AttributeValue::S("foo".into()))].into(), None)]
     #[case([("pk".into(), AttributeValue::S("shop#shop_id#bar".into()))].into(), None)]

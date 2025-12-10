@@ -260,8 +260,8 @@ mod tests {
     }
 
     #[tokio::test]
-    #[trace]
     #[rstest::rstest]
+    #[trace]
     #[case(
         ProductSearch {
             language: Language::De,
@@ -395,8 +395,8 @@ mod tests {
     }
 
     #[tokio::test]
-    #[trace]
     #[rstest::rstest]
+    #[trace]
     #[case::eur(Currency::Eur, 2)]
     #[case::gbp(Currency::Gbp, 4)]
     #[case::usd(Currency::Usd, 10)]
@@ -453,8 +453,8 @@ mod tests {
     }
 
     #[tokio::test]
-    #[trace]
     #[rstest::rstest]
+    #[trace]
     #[case(Language::De, "German")]
     #[case(Language::En, "English")]
     #[case(Language::Fr, "French")]

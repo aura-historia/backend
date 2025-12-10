@@ -168,8 +168,8 @@ mod tests {
     }
 
     #[tokio::test]
-    #[trace]
     #[rstest::rstest]
+    #[trace]
     #[case(
         ShopSearch {
             shop_name_query: Some("Woaaaah Co. Ltd.".try_into().unwrap()),
@@ -267,8 +267,8 @@ mod tests {
     }
 
     #[tokio::test]
-    #[trace]
     #[rstest::rstest]
+    #[trace]
     #[case(
         ShopSearch {
             shop_name_query: None,
@@ -311,8 +311,8 @@ mod tests {
     }
 
     #[tokio::test]
-    #[trace]
     #[rstest::rstest]
+    #[trace]
     #[case(
         ShopSearch {
             shop_name_query: Some("Woaaaah Co. Ltd.".try_into().unwrap()),

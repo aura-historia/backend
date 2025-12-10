@@ -217,8 +217,8 @@ pub mod api {
         use serde_json::{Value, json};
         use std::collections::HashMap;
 
-        #[trace]
         #[rstest::rstest]
+        #[trace]
         #[case([].into(), None)]
         #[case([("size".to_owned(), vec!["10".to_owned()]), ("searchAfter".to_owned(), vec!["5".to_owned()])].into(), Some(Cursor { size: 10, search_after: Some(json!(5)) }))]
         #[case([("size".to_owned(), vec!["10".to_owned()]), ("searchAfter".to_owned(), vec!["6ba7b810-9dad-11d1-80b4-00c04fd430c8".to_owned()])].into(), Some(Cursor { size: 10, search_after: Some(json!("6ba7b810-9dad-11d1-80b4-00c04fd430c8")) }))]

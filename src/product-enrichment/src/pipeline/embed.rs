@@ -117,8 +117,8 @@ pub mod tests {
         assert!(res.failures.is_empty());
     }
 
-    #[trace]
     #[rstest::rstest]
+    #[trace]
     #[case(1)]
     #[case(5)]
     #[case(20)]

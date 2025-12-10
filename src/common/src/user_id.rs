@@ -177,8 +177,8 @@ pub mod api {
             assert_eq!("INTERNAL_SERVER_ERROR", actual.error.as_str());
         }
 
-        #[trace]
         #[rstest::rstest]
+        #[trace]
         #[case("")]
         #[case("boop")]
         #[case("foo")]

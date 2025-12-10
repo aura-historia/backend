@@ -364,8 +364,8 @@ mod tests {
         use time::OffsetDateTime;
         use url::Url;
 
-        #[trace]
         #[rstest::rstest]
+        #[trace]
         #[case::listed(ProductState::Listed, ProductState::Listed)]
         #[case::available(ProductState::Available, ProductState::Available)]
         #[case::reserved(ProductState::Reserved, ProductState::Reserved)]
@@ -403,8 +403,8 @@ mod tests {
             assert!(actual.is_none());
         }
 
-        #[trace]
         #[rstest::rstest]
+        #[trace]
         #[case::listed(ProductState::Listed, ProductState::Available)]
         #[case::listed(ProductState::Listed, ProductState::Removed)]
         #[case::available(ProductState::Available, ProductState::Reserved)]
@@ -446,8 +446,8 @@ mod tests {
             assert_eq!(from_state, payload.old_state);
         }
 
-        #[trace]
         #[rstest::rstest]
+        #[trace]
         #[case::listed(ProductState::Listed, ProductState::Available)]
         #[case::listed(ProductState::Listed, ProductState::Removed)]
         #[case::available(ProductState::Available, ProductState::Reserved)]
@@ -514,8 +514,8 @@ mod tests {
             }
         }
 
-        #[trace]
         #[rstest::rstest]
+        #[trace]
         #[case::eur_zero(Currency::Eur, 0u64.into())]
         #[case::gbp_zero(Currency::Gbp, 0u64.into())]
         #[case::usd_zero(Currency::Usd, 0u64.into())]
@@ -565,8 +565,8 @@ mod tests {
             assert!(actual.is_none());
         }
 
-        #[trace]
         #[rstest::rstest]
+        #[trace]
         #[case::eur_zero(Price::new(0u64.into(), Currency::Eur))]
         #[case::gbp_zero(Price::new(0u64.into(), Currency::Gbp))]
         #[case::usd_zero(Price::new(0u64.into(), Currency::Usd))]
@@ -626,8 +626,8 @@ mod tests {
             }
         }
 
-        #[trace]
         #[rstest::rstest]
+        #[trace]
         #[case::eur_non_zero(Price::new(420u64.into(), Currency::Eur))]
         #[case::gbp_non_zero(Price::new(430u64.into(), Currency::Gbp))]
         #[case::usd_non_zero(Price::new(440u64.into(), Currency::Usd))]
@@ -683,8 +683,8 @@ mod tests {
             }
         }
 
-        #[trace]
         #[rstest::rstest]
+        #[trace]
         #[case::eur_non_zero(Price::new(420u64.into(), Currency::Eur))]
         #[case::gbp_non_zero(Price::new(430u64.into(), Currency::Gbp))]
         #[case::usd_non_zero(Price::new(440u64.into(), Currency::Usd))]
@@ -734,8 +734,8 @@ mod tests {
             }
         }
 
-        #[trace]
         #[rstest::rstest]
+        #[trace]
         #[case::eur_zero(Price::new(0u64.into(), Currency::Eur))]
         #[case::gbp_zero(Price::new(0u64.into(), Currency::Gbp))]
         #[case::usd_zero(Price::new(0u64.into(), Currency::Usd))]

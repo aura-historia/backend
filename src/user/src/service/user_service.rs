@@ -111,8 +111,8 @@ mod tests {
         }
 
         #[tokio::test]
-        #[trace]
         #[rstest::rstest]
+        #[trace]
         #[case::construction_failure(SdkError::construction_failure("Something went wrong"))]
         #[case::timeout(SdkError::timeout_error("Something went wrong"))]
         #[case::dispatch_failure(SdkError::dispatch_failure(ConnectorError::user("Something went wrong".into())))]
@@ -181,8 +181,8 @@ mod tests {
         }
 
         #[tokio::test]
-        #[trace]
         #[rstest::rstest]
+        #[trace]
         #[case::construction_failure(SdkError::construction_failure("Something went wrong"))]
         #[case::timeout(SdkError::timeout_error("Something went wrong"))]
         #[case::dispatch_failure(SdkError::dispatch_failure(ConnectorError::user("Something went wrong".into())))]
@@ -217,8 +217,8 @@ mod tests {
         }
 
         #[tokio::test]
-        #[trace]
         #[rstest::rstest]
+        #[trace]
         #[case::construction_failure(SdkError::construction_failure("Something went wrong"))]
         #[case::timeout(SdkError::timeout_error("Something went wrong"))]
         #[case::dispatch_failure(SdkError::dispatch_failure(ConnectorError::user("Something went wrong".into())))]
