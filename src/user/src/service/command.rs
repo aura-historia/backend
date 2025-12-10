@@ -29,7 +29,7 @@ impl UpdateUserCommand {
 
 #[cfg(feature = "test-data")]
 mod fake {
-    use crate::service::command::CreateUserCommand;
+    use crate::service::command::{CreateUserCommand, UpdateUserCommand};
     use fake::{Fake, faker::internet::de_de::SafeEmail};
 
     impl fake::Dummy<fake::Faker> for CreateUserCommand {
@@ -38,6 +38,19 @@ mod fake {
             CreateUserCommand {
                 id: config.fake_with_rng(rng),
                 email: email_str.try_into().unwrap(),
+            }
+        }
+    }
+
+    impl fake::Dummy<fake::Faker> for UpdateUserCommand {
+        fn dummy_with_rng<R: fake::rand::Rng + ?Sized>(config: &fake::Faker, rng: &mut R) -> Self {
+            let email_str: String = SafeEmail().fake_with_rng(rng);
+            UpdateUserCommand {
+                email: Some(email_str.try_into().unwrap()),
+                first_name: config.fake_with_rng(rng),
+                last_name: config.fake_with_rng(rng),
+                language: config.fake_with_rng(rng),
+                currency: config.fake_with_rng(rng),
             }
         }
     }
