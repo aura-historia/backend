@@ -737,7 +737,7 @@ mod tests {
 
         #[tokio::test]
         #[rstest::rstest]
-        #[case(&[], De, "German")]
+        #[case(&[], En, "English")]
         #[case(&[De], De, "German")]
         #[case(&[De, En], De, "German")]
         #[case(&[De, Fr], De, "German")]
@@ -827,7 +827,7 @@ mod tests {
 
         #[tokio::test]
         #[rstest::rstest]
-        #[case(&[], De, "German")]
+        #[case(&[], En, "English")]
         #[case(&[De], De, "German")]
         #[case(&[De, En], De, "German")]
         #[case(&[De, Fr], De, "German")]
