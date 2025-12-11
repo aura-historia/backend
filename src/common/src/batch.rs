@@ -258,8 +258,6 @@ mod faker {
 
     #[cfg(test)]
     mod tests {
-        use rstest;
-
         use crate::batch::Batch;
         use fake::{Fake, Faker};
 

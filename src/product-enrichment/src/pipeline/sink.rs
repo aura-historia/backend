@@ -126,8 +126,6 @@ impl EnrichmentPipeSink for EnrichmentPipeSinkImpl {
 
 #[cfg(test)]
 mod tests {
-    use rstest;
-
     mod drain_documents {
         use crate::pipeline::sink::{EnrichmentPipeSink, EnrichmentPipeSinkImpl};
         use common::{

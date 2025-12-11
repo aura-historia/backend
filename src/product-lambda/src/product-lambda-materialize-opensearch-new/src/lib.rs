@@ -148,8 +148,6 @@ fn handle_bulk_response(
 
 #[cfg(test)]
 mod tests {
-    use rstest;
-
     use crate::handler;
     use aws_lambda_events::dynamodb::{EventRecord, StreamRecord};
     use aws_lambda_events::eventbridge::EventBridgeEvent;

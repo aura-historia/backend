@@ -335,8 +335,6 @@ mod faker {
 
     #[cfg(test)]
     mod tests {
-        use rstest;
-
         use crate::core::product::{LocalizedProductView, Product};
         use fake::{Fake, Faker};
 

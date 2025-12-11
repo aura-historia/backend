@@ -132,8 +132,6 @@ fn extract_history_query(query: &QueryMap) -> Result<bool, ApiError> {
 
 #[cfg(test)]
 mod tests {
-    use rstest;
-
     use crate::handler;
     use cognito::access_token_verifier_service::MockAccessTokenVerifierService;
     use common::event_id::EventId;

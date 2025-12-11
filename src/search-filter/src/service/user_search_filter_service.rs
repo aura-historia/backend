@@ -206,8 +206,6 @@ impl<'a> UserSearchFilterService for UserSearchFilterServiceImpl<'a> {
 
 #[cfg(test)]
 mod tests {
-    use rstest;
-
     mod find_search_filters {
         use crate::dynamodb::repository::MockUserSearchFilterDynamoDbRepository;
         use crate::dynamodb::user_search_filter_record::UserSearchFilterRecord;

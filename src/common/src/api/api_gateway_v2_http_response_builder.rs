@@ -11,6 +11,7 @@ use std::fmt::Debug;
 use std::time::SystemTime;
 use tracing::error;
 
+#[derive(Debug, Clone, PartialEq)]
 pub struct ApiGatewayV2HttpResponseBuilder {
     status_code: i64,
     headers: HeaderMap,

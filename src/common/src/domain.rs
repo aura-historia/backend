@@ -97,8 +97,6 @@ mod faker {
 
     #[cfg(test)]
     mod tests {
-        use rstest;
-
         use crate::domain::Domain;
         use fake::{Fake, Faker};
 

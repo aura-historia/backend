@@ -1,5 +1,3 @@
-use std::collections::HashMap;
-
 use crate::{
     core::shop::Shop,
     dynamodb::{
@@ -15,6 +13,7 @@ use common::{
     shop_id::{ShopId, ShopIdentifier},
     shop_name::ShopName,
 };
+use std::collections::HashMap;
 use time::OffsetDateTime;
 
 #[derive(Debug, thiserror::Error)]
@@ -268,8 +267,6 @@ impl<'a> CommandShopService for CommandShopServiceImpl<'a> {
 
 #[cfg(test)]
 mod tests {
-    use rstest;
-
     mod create {
         use crate::{
             dynamodb::repository::MockShopDynamoDbRepository,

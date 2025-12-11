@@ -75,8 +75,6 @@ impl<'a> UserService for UserServiceImpl<'a> {
 
 #[cfg(test)]
 mod tests {
-    use rstest;
-
     mod find_user {
         use crate::{
             dynamodb::repository::MockUserDynamoDbRepository,

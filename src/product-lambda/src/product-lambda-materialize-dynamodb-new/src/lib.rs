@@ -116,8 +116,6 @@ fn extract_message_data(
 
 #[cfg(test)]
 mod tests {
-    use rstest;
-
     use super::handler;
     use aws_lambda_events::dynamodb::{EventRecord, StreamRecord};
     use aws_lambda_events::eventbridge::EventBridgeEvent;

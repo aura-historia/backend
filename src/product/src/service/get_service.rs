@@ -506,8 +506,6 @@ fn localize_product_event(
 
 #[cfg(test)]
 mod tests {
-    use rstest;
-
     mod find_product {
         use crate::dynamodb::repository::MockProductDynamoDbRepository;
         use crate::service::get_service::{
