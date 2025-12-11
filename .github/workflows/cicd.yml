@@ -291,6 +291,8 @@ jobs:
           - src/shop-api/src/shop-api-get-shop
           - src/shop-api/src/shop-api-patch-shop
           - src/shop-api/src/shop-api-post-shop
+          - src/user-api/src/user-api-get-account
+          - src/user-api/src/user-api-patch-account
           - src/cognito-post-confirmation
           - src/mail-lambda-send
     steps:
