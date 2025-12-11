@@ -19,10 +19,10 @@ pub enum UserServiceError {
     #[error("Encountered DynamoDB SdkError for GetItem: {0}")]
     SdkGetItemError(#[from] SdkError<aws_sdk_dynamodb::operation::get_item::GetItemError>),
 
-    #[error("Encountered DynamoDB SdkError for PuttItem: {0}")]
+    #[error("Encountered DynamoDB SdkError for PutItem: {0}")]
     SdkPutItemError(#[from] SdkError<aws_sdk_dynamodb::operation::put_item::PutItemError>),
 
-    #[error("Encountered DynamoDB SdkError for GetItem: {0}")]
+    #[error("Encountered DynamoDB SdkError for UpdateItem: {0}")]
     SdkUpdateItemError(#[from] SdkError<aws_sdk_dynamodb::operation::update_item::UpdateItemError>),
 }
 

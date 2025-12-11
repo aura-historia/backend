@@ -82,7 +82,7 @@ async fn should_200_for_get_patch_get() {
         currency: Some(CurrencyData::Nzd),
     };
     let patch_response = reqwest::Client::new()
-        .get(url.clone())
+        .patch(url.clone())
         .bearer_auth(user.access_token.clone())
         .json(&patch_user_account_data)
         .send()

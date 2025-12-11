@@ -113,7 +113,7 @@ impl<'a> UserDynamoDbRepository for UserDynamoDbRepositoryImpl<'a> {
                 attr_opt
                     .map(serde_dynamo::from_item)
                     .and_then(|record_res| match record_res {
-                        Ok(search_filter_record) => Some(search_filter_record),
+                        Ok(user_record) => Some(user_record),
                         Err(err) => {
                             error!(
                                 userId = %user_id,
