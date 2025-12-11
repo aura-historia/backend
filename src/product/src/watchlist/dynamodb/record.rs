@@ -116,11 +116,15 @@ mod faker {
                 user_record: UserRecord {
                     pk: user_record::mk_pk(&user_id),
                     sk: user_record::mk_sk().to_owned(),
-                    id: user_id,
+                    user_id,
                     email: SafeEmail()
                         .fake_with_rng::<String, R>(rng)
                         .try_into()
                         .unwrap(),
+                    first_name: config.fake_with_rng(rng),
+                    last_name: config.fake_with_rng(rng),
+                    language: config.fake_with_rng(rng),
+                    currency: config.fake_with_rng(rng),
                     created: OffsetDateTime::now_utc(),
                     updated: OffsetDateTime::now_utc(),
                 },

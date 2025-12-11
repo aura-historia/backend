@@ -39,6 +39,7 @@ pub const SHOP_TOO_MANY_DOMAINS: ApiErrorCode = ApiErrorCode("SHOP_TOO_MANY_DOMA
 pub const MONETARY_AMOUNT_OVERFLOW: ApiErrorCode = ApiErrorCode("MONETARY_AMOUNT_OVERFLOW");
 pub const TEXT_QUERY_TOO_SHORT: ApiErrorCode = ApiErrorCode("TEXT_QUERY_TOO_SHORT");
 pub const USER_NOT_FOUND: ApiErrorCode = ApiErrorCode("USER_NOT_FOUND");
+pub const USER_EXISTS_ALREADY: ApiErrorCode = ApiErrorCode("USER_EXISTS_ALREADY");
 pub const NO_DOMAIN: ApiErrorCode = ApiErrorCode("NO_DOMAIN");
 
 pub const UNPROCESSED_AFTER_MAX_RETRIES: ApiErrorCode =

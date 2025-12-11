@@ -1215,7 +1215,7 @@ async fn should_200_when_similar_products_have_been_computed_for_anon() {
 #[localstack_test(services = [OpenSearch(), DynamoDB()])]
 async fn should_200_and_personalize_when_similar_products_have_been_computed_for_authenticated() {
     let user_record = Faker.fake::<UserRecord>();
-    let user_id = user_record.id;
+    let user_id = user_record.user_id;
     let product_dynamodb_repository =
         ProductDynamoDbRepositoryImpl::new(get_dynamodb_client().await, "table_1");
     let watchlist_repository =
@@ -1382,7 +1382,7 @@ async fn should_respond_200_and_respect_accept_language_header(
     #[case] expected_title_lang: Language,
 ) {
     let user_record = Faker.fake::<UserRecord>();
-    let user_id = user_record.id;
+    let user_id = user_record.user_id;
     let product_dynamodb_repository =
         ProductDynamoDbRepositoryImpl::new(get_dynamodb_client().await, "table_1");
     let watchlist_repository =
