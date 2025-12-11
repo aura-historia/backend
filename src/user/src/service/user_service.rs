@@ -75,7 +75,6 @@ impl<'a> UserService for UserServiceImpl<'a> {
 
 #[cfg(test)]
 mod tests {
-
     mod find_user {
         use crate::{
             dynamodb::repository::MockUserDynamoDbRepository,
@@ -110,6 +109,7 @@ mod tests {
 
         #[tokio::test]
         #[rstest::rstest]
+        #[trace]
         #[case::construction_failure(SdkError::construction_failure("Something went wrong"))]
         #[case::timeout(SdkError::timeout_error("Something went wrong"))]
         #[case::dispatch_failure(SdkError::dispatch_failure(ConnectorError::user("Something went wrong".into())))]
@@ -179,6 +179,7 @@ mod tests {
 
         #[tokio::test]
         #[rstest::rstest]
+        #[trace]
         #[case::construction_failure(SdkError::construction_failure("Something went wrong"))]
         #[case::timeout(SdkError::timeout_error("Something went wrong"))]
         #[case::dispatch_failure(SdkError::dispatch_failure(ConnectorError::user("Something went wrong".into())))]
@@ -214,6 +215,7 @@ mod tests {
 
         #[tokio::test]
         #[rstest::rstest]
+        #[trace]
         #[case::construction_failure(SdkError::construction_failure("Something went wrong"))]
         #[case::timeout(SdkError::timeout_error("Something went wrong"))]
         #[case::dispatch_failure(SdkError::dispatch_failure(ConnectorError::user("Something went wrong".into())))]

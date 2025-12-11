@@ -98,6 +98,8 @@ pub mod api {
 
     #[cfg(test)]
     mod tests {
+        use rstest;
+
         use crate::api::error::{ApiErrorSource, ApiErrorSourceType};
         use crate::api::error_code::{BAD_ORDER_VALUE, BAD_SORT_VALUE};
         use crate::sort::api::extract_sort_query;
@@ -107,6 +109,7 @@ pub mod api {
         use std::collections::HashMap;
 
         #[rstest::rstest]
+        #[trace]
         #[case(SortOrder::Asc)]
         #[case(SortOrder::Desc)]
         fn should_match_as_str_serialize(#[case] field: SortOrder) {
@@ -136,6 +139,7 @@ pub mod api {
         }
 
         #[rstest::rstest]
+        #[trace]
         #[case(Some("foo"), Some("asc"), Some(Sort { sort: DummyField::Foo, order: SortOrder::Asc }))]
         #[case(Some("foo"), Some("desc"), Some(Sort { sort: DummyField::Foo, order: SortOrder::Desc }))]
         #[case(Some("bar"), Some("asc"), Some(Sort { sort: DummyField::Bar, order: SortOrder::Asc }))]
@@ -164,6 +168,7 @@ pub mod api {
         }
 
         #[rstest::rstest]
+        #[trace]
         #[case("boop")]
         #[case("baz")]
         #[case("fooo")]
@@ -190,6 +195,7 @@ pub mod api {
         }
 
         #[rstest::rstest]
+        #[trace]
         #[case("asci")]
         #[case("descendent")]
         #[case("boop")]

@@ -11,6 +11,7 @@ use std::fmt::Debug;
 use std::time::SystemTime;
 use tracing::error;
 
+#[derive(Debug, Clone, PartialEq)]
 pub struct ApiGatewayV2HttpResponseBuilder {
     status_code: i64,
     headers: HeaderMap,
@@ -181,6 +182,8 @@ impl ApiGatewayV2HttpResponseBuilder {
 
 #[cfg(test)]
 pub mod tests {
+    use rstest;
+
     use crate::{
         api::api_gateway_v2_http_response_builder::ApiGatewayV2HttpResponseBuilder,
         language::data::LanguageData,
@@ -188,6 +191,7 @@ pub mod tests {
     use std::time::SystemTime;
 
     #[rstest::rstest]
+    #[trace]
     #[case::minimal_100(ApiGatewayV2HttpResponseBuilder::new(100))]
     #[case::minimal_200(ApiGatewayV2HttpResponseBuilder::new(200))]
     #[case::minimal_300(ApiGatewayV2HttpResponseBuilder::new(300))]

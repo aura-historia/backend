@@ -97,6 +97,8 @@ pub mod api {
 
     #[cfg(test)]
     mod tests {
+        use rstest;
+
         use crate::user_id::api::extract_user_id_request_context;
         use aws_lambda_events::apigw::{
             ApiGatewayRequestAuthorizer, ApiGatewayRequestAuthorizerJwtDescription,
@@ -176,6 +178,7 @@ pub mod api {
         }
 
         #[rstest::rstest]
+        #[trace]
         #[case("")]
         #[case("boop")]
         #[case("foo")]

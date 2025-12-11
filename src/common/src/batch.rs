@@ -272,9 +272,12 @@ mod faker {
 
 #[cfg(test)]
 mod tests {
+    use rstest;
+
     use crate::batch::{Batch, BatchConstructionError};
 
     #[rstest::rstest]
+    #[trace]
     #[case::empty(
         Batch::try_from(vec![]),
         BatchConstructionError::BatchEmpty
@@ -300,6 +303,7 @@ mod tests {
     }
 
     #[rstest::rstest]
+    #[trace]
     #[case::one(1)]
     #[case::two(2)]
     #[case::three(3)]

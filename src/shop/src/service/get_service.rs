@@ -137,6 +137,8 @@ impl<'a> GetShopServiceImpl<'a> {
 
 #[cfg(test)]
 mod tests {
+    use rstest;
+
     use crate::dynamodb::repository::MockShopDynamoDbRepository;
     use crate::service::get_service::{GetShopError, GetShopService, GetShopServiceImpl};
     use aws_sdk_dynamodb::{
@@ -182,6 +184,7 @@ mod tests {
 
     #[tokio::test]
     #[rstest::rstest]
+    #[trace]
     #[case::construction_failure(SdkError::construction_failure("Something went wrong"))]
     #[case::timeout(SdkError::timeout_error("Something went wrong"))]
     #[case::dispatch_failure(SdkError::dispatch_failure(ConnectorError::user("Something went wrong".into())))]

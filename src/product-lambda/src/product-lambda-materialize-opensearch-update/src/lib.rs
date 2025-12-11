@@ -189,6 +189,7 @@ mod tests {
 
     #[tokio::test]
     #[rstest::rstest]
+    #[trace]
     #[case(1)]
     #[case(5)]
     #[case(10)]
@@ -240,6 +241,7 @@ mod tests {
 
     #[tokio::test]
     #[rstest::rstest]
+    #[trace]
     #[case(0, 1)]
     #[case(1, 1)]
     #[case(2, 5)]

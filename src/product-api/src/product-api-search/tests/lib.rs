@@ -538,6 +538,7 @@ async fn should_200_when_following_search_after_from_previous_response_for_expli
 }
 
 #[rstest::rstest]
+#[trace]
 #[test_attr(apply(test))]
 #[case(None, None)]
 #[case(None, Some(OffsetDateTime::now_utc().checked_add(time::Duration::seconds(60)).unwrap()))]
@@ -624,6 +625,7 @@ async fn should_200_when_created_query(
 }
 
 #[rstest::rstest]
+#[trace]
 #[test_attr(apply(test))]
 #[case(None, None)]
 #[case(None, Some(OffsetDateTime::now_utc().checked_add(time::Duration::seconds(60)).unwrap()))]
@@ -845,6 +847,7 @@ async fn should_200_with_native_title_when_no_target_titles_exist_and_hit_due_to
 }
 
 #[rstest::rstest]
+#[trace]
 #[test_attr(apply(test))]
 #[case("de", "German title", Language::De)]
 #[case("de-DE", "German title", Language::De)]

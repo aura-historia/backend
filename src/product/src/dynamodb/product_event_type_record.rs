@@ -42,6 +42,7 @@ mod tests {
     use rstest::rstest;
 
     #[rstest]
+    #[trace]
     #[case(ProductEventTypeRecord::Created, "\"CREATED\"")]
     #[case(ProductEventTypeRecord::StateListed, "\"STATE_LISTED\"")]
     #[case(ProductEventTypeRecord::StateAvailable, "\"STATE_AVAILABLE\"")]
@@ -61,6 +62,7 @@ mod tests {
     }
 
     #[rstest]
+    #[trace]
     #[case("\"CREATED\"", ProductEventTypeRecord::Created)]
     #[case("\"STATE_LISTED\"", ProductEventTypeRecord::StateListed)]
     #[case("\"STATE_AVAILABLE\"", ProductEventTypeRecord::StateAvailable)]

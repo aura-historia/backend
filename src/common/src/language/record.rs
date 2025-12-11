@@ -53,6 +53,7 @@ mod tests {
     use rstest::rstest;
 
     #[rstest]
+    #[trace]
     #[case(LanguageRecord::De, "\"DE\"")]
     #[case(LanguageRecord::En, "\"EN\"")]
     #[case(LanguageRecord::Fr, "\"FR\"")]
@@ -66,6 +67,7 @@ mod tests {
     }
 
     #[rstest]
+    #[trace]
     #[case("\"DE\"", LanguageRecord::De)]
     #[case("\"EN\"", LanguageRecord::En)]
     #[case("\"FR\"", LanguageRecord::Fr)]
