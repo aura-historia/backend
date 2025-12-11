@@ -116,6 +116,8 @@ fn extract_message_data(
 
 #[cfg(test)]
 mod tests {
+    use rstest;
+
     use super::handler;
     use aws_lambda_events::dynamodb::{EventRecord, StreamRecord};
     use aws_lambda_events::eventbridge::EventBridgeEvent;
@@ -173,6 +175,7 @@ mod tests {
 
     #[tokio::test]
     #[rstest::rstest]
+    #[trace]
     #[case(1)]
     #[case(5)]
     #[case(10)]
@@ -215,6 +218,7 @@ mod tests {
 
     #[tokio::test]
     #[rstest::rstest]
+    #[trace]
     #[case(1)]
     #[case(5)]
     #[case(10)]
@@ -293,6 +297,7 @@ mod tests {
 
     #[tokio::test]
     #[rstest::rstest]
+    #[trace]
     #[case(0, 1)]
     #[case(1, 1)]
     #[case(2, 5)]

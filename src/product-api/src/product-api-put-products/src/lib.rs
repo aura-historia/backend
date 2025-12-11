@@ -205,6 +205,8 @@ fn put_product_data_to_command(data: PutProductData) -> PipedProductCommand {
 
 #[cfg(test)]
 mod tests {
+    use rstest;
+
     use crate::handler;
     use common::api::collection::PutCollectionData;
     use common::shop_id::ShopId;
@@ -220,6 +222,7 @@ mod tests {
     use test_api::extract_apigw_response_json_body;
 
     #[rstest::rstest]
+    #[trace]
     #[case(0, 0)]
     #[case(1, 1)]
     #[case(2, 5)]

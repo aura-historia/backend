@@ -33,9 +33,12 @@ impl<'a> TryFrom<&'a str> for SortUserSearchFilterFieldData {
 
 #[cfg(test)]
 mod tests {
+    use rstest;
+
     use crate::data::sort_user_search_filter_data::SortUserSearchFilterFieldData;
 
     #[rstest::rstest]
+    #[trace]
     #[case(SortUserSearchFilterFieldData::Created)]
     fn should_match_as_str_serialize(#[case] field: SortUserSearchFilterFieldData) {
         let serialized = serde_json::to_string(&field).unwrap().replace("\"", "");

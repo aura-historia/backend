@@ -480,6 +480,7 @@ async fn should_respond_200_personalized_when_authenticated_and_watched() {
 }
 
 #[rstest::rstest]
+#[trace]
 #[test_attr(apply(test))]
 #[case("de", "German title", Language::De, "German description", Language::De)]
 #[case(

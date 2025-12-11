@@ -506,6 +506,8 @@ fn localize_product_event(
 
 #[cfg(test)]
 mod tests {
+    use rstest;
+
     mod find_product {
         use crate::dynamodb::repository::MockProductDynamoDbRepository;
         use crate::service::get_service::{
@@ -558,6 +560,7 @@ mod tests {
 
         #[tokio::test]
         #[rstest::rstest]
+        #[trace]
         #[case::construction_failure(SdkError::construction_failure("Something went wrong"))]
         #[case::timeout(SdkError::timeout_error("Something went wrong"))]
         #[case::dispatch_failure(SdkError::dispatch_failure(ConnectorError::user("Something went wrong".into())))]
@@ -698,6 +701,7 @@ mod tests {
 
         #[tokio::test]
         #[rstest::rstest]
+        #[trace]
         #[case::eur(Currency::Eur, 2)]
         #[case::gbp(Currency::Gbp, 4)]
         #[case::usd(Currency::Usd, 10)]
@@ -737,6 +741,7 @@ mod tests {
 
         #[tokio::test]
         #[rstest::rstest]
+        #[trace]
         #[case(&[], De, "German")]
         #[case(&[De], De, "German")]
         #[case(&[De, En], De, "German")]
@@ -782,6 +787,7 @@ mod tests {
 
         #[tokio::test]
         #[rstest::rstest]
+        #[trace]
         #[case(&[], Es, "Spanish")]
         #[case(&[De], Es, "Spanish")]
         #[case(&[De, En], Es, "Spanish")]
@@ -827,6 +833,7 @@ mod tests {
 
         #[tokio::test]
         #[rstest::rstest]
+        #[trace]
         #[case(&[], De, "German")]
         #[case(&[De], De, "German")]
         #[case(&[De, En], De, "German")]
@@ -874,6 +881,7 @@ mod tests {
 
         #[tokio::test]
         #[rstest::rstest]
+        #[trace]
         #[case(&[], Es, "Spanish")]
         #[case(&[De], Es, "Spanish")]
         #[case(&[De, En], Es, "Spanish")]
@@ -921,6 +929,7 @@ mod tests {
 
         #[tokio::test]
         #[rstest::rstest]
+        #[trace]
         #[case(&[])]
         #[case(&[De])]
         #[case(&[De, En])]
@@ -988,6 +997,7 @@ mod tests {
 
         #[tokio::test]
         #[rstest::rstest]
+        #[trace]
         #[case::construction_failure(SdkError::construction_failure("Something went wrong"))]
         #[case::timeout(SdkError::timeout_error("Something went wrong"))]
         #[case::dispatch_failure(SdkError::dispatch_failure(ConnectorError::user("Something went wrong".into())))]
@@ -1093,6 +1103,7 @@ mod tests {
 
         #[tokio::test]
         #[rstest::rstest]
+        #[trace]
         #[case::construction_failure(SdkError::construction_failure("Something went wrong"))]
         #[case::timeout(SdkError::timeout_error("Something went wrong"))]
         #[case::dispatch_failure(SdkError::dispatch_failure(ConnectorError::user("Something went wrong".into())))]

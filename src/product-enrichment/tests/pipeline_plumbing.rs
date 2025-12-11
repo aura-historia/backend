@@ -51,6 +51,7 @@ fn mk_event_bridge_payload(product_event_record: &ProductEventRecord) -> String 
 }
 
 #[rstest::rstest]
+#[trace]
 #[test_attr(apply(test))]
 #[case(0, 0)]
 #[case(1, 1)]

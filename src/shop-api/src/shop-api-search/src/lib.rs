@@ -88,7 +88,10 @@ pub async fn handle(
 
 #[cfg(test)]
 #[allow(clippy::too_many_arguments)]
+#[allow(clippy::too_many_arguments)]
 mod tests {
+    use rstest;
+
     use crate::handler;
     use common::pagination::cursor::{Cursor, CursoredResult};
     use fake::Fake;
@@ -101,6 +104,7 @@ mod tests {
 
     #[tokio::test]
     #[rstest::rstest]
+    #[trace]
     #[case(Some("name"), Some("asc"))]
     #[case(Some("created"), Some("desc"))]
     #[case(None, None)]

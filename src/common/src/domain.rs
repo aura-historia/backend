@@ -97,6 +97,8 @@ mod faker {
 
     #[cfg(test)]
     mod tests {
+        use rstest;
+
         use crate::domain::Domain;
         use fake::{Fake, Faker};
 
@@ -109,9 +111,12 @@ mod faker {
 
 #[cfg(test)]
 mod tests {
+    use rstest;
+
     use crate::domain::Domain;
 
     #[rstest::rstest]
+    #[trace]
     #[case("foo.bar", "foo.bar")]
     #[case("foo.bar.baz", "foo.bar.baz")]
     #[case("foo.bar.baz.bat", "foo.bar.baz.bat")]
@@ -154,6 +159,7 @@ mod tests {
     }
 
     #[rstest::rstest]
+    #[trace]
     #[case("https://foo")]
     #[case("https://foo:8080")]
     fn should_fail_try_from_url_when_not_contains_domain(#[case] url_str: String) {

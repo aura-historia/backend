@@ -450,6 +450,7 @@ async fn should_search_product_documents_when_all_arguments_are_given() {
 }
 
 #[rstest::rstest]
+#[trace]
 #[test_attr(apply(test))]
 #[case(&[ProductState::Available])]
 #[case(&[ProductState::Listed, ProductState::Available])]
@@ -550,6 +551,7 @@ async fn should_search_product_documents_when_no_states_are_given() {
 }
 
 #[rstest::rstest]
+#[trace]
 #[test_attr(apply(test))]
 #[case(RangeQuery { min: Some(0u64.into()), max: Some(999999u64.into()) })]
 #[case(RangeQuery { min: Some(0u64.into()), max: Some(999999u64.into()) })]

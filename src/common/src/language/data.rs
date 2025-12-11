@@ -161,6 +161,8 @@ pub mod api {
 
     #[cfg(test)]
     mod tests {
+        use rstest;
+
         use crate::language::data::LanguageData::{self, *};
         use crate::language::data::api::extract_language_query;
         use crate::language::data::api::{extract_language_header, extract_languages_header};
@@ -170,6 +172,7 @@ pub mod api {
         use std::collections::HashMap;
 
         #[rstest::rstest]
+        #[trace]
         #[case("de", &[De])]
         #[case("de-DE", &[De])]
         #[case("en", &[En])]
@@ -210,6 +213,7 @@ pub mod api {
         }
 
         #[rstest::rstest]
+        #[trace]
         #[case("de", De)]
         #[case("de-DE", De)]
         #[case("en", En)]
@@ -250,6 +254,7 @@ pub mod api {
         }
 
         #[rstest::rstest]
+        #[trace]
         #[case("de", LanguageData::De)]
         #[case("de-DE", LanguageData::De)]
         #[case("en", LanguageData::En)]
