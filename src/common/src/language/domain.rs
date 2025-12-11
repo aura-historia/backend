@@ -9,8 +9,8 @@ use std::collections::HashMap;
 #[cfg_attr(feature = "test-data", derive(fake::Dummy))]
 #[derive(Copy, Clone, Eq, PartialEq, Debug, Hash, Default, EnumIter, EnumCount)]
 pub enum Language {
-    #[default]
     De,
+    #[default]
     En,
     Fr,
     Es,
@@ -27,13 +27,13 @@ impl Language {
             .find_map(|lang| available.remove(lang).map(|t| Localized::new(*lang, t)))
             .or_else(|| {
                 available
-                    .remove(&Language::De)
-                    .map(|t| Localized::new(Language::De, t))
+                    .remove(&Language::En)
+                    .map(|t| Localized::new(Language::En, t))
             })
             .or_else(|| {
                 available
-                    .remove(&Language::En)
-                    .map(|t| Localized::new(Language::En, t))
+                    .remove(&Language::De)
+                    .map(|t| Localized::new(Language::De, t))
             })
             .or_else(|| {
                 available
@@ -95,7 +95,7 @@ mod tests {
 
     #[rstest::rstest]
     #[trace]
-    #[case::empty_defaults_german(&[], Some("German text".into()))]
+    #[case::empty_defaults_english(&[], Some("English text".into()))]
     #[case::takes_preferred_from_singleton(&[Language::En], Some("English text".into()))]
     #[case::takes_preferred_from_many(&[Language::Es, Language::Fr, Language::En], Some("Spanish text".into()))]
     fn should_respect_language_priority_when_contains_all_for_resolve(
@@ -116,7 +116,7 @@ mod tests {
 
     #[rstest::rstest]
     #[trace]
-    #[case::empty_defaults_german(&[], Some("English text".into()))]
+    #[case::empty_defaults_english(&[], Some("English text".into()))]
     #[case::takes_preferred_from_singleton(&[Language::En], Some("English text".into()))]
     #[case::takes_preferred_from_many(&[Language::Es, Language::Fr, Language::En], Some("French text".into()))]
     fn should_respect_language_priority_when_contains_some_for_resolve(
@@ -135,7 +135,7 @@ mod tests {
 
     #[rstest::rstest]
     #[trace]
-    #[case::empty_defaults_german(&[], Some("French text".into()))]
+    #[case::empty_defaults_english(&[], Some("French text".into()))]
     #[case::takes_preferred_from_singleton(&[Language::En], Some("French text".into()))]
     #[case::takes_preferred_from_many(&[Language::Es, Language::En], Some("French text".into()))]
     fn should_resort_to_next_best_when_contains_no_match_nor_defaults_for_resolve(
