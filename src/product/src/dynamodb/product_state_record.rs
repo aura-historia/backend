@@ -45,6 +45,7 @@ mod tests {
     use rstest::rstest;
 
     #[rstest]
+    #[trace]
     #[case(ProductStateRecord::Listed, "\"LISTED\"")]
     #[case(ProductStateRecord::Available, "\"AVAILABLE\"")]
     #[case(ProductStateRecord::Reserved, "\"RESERVED\"")]
@@ -60,6 +61,7 @@ mod tests {
     }
 
     #[rstest]
+    #[trace]
     #[case("\"LISTED\"", ProductStateRecord::Listed)]
     #[case("\"AVAILABLE\"", ProductStateRecord::Available)]
     #[case("\"RESERVED\"", ProductStateRecord::Reserved)]

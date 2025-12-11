@@ -2,7 +2,7 @@ name: CI/CD
 
 on:
   push:
-    branches: [ prod, develop ]
+    branches: [prod, develop]
   pull_request:
 
 concurrency:
@@ -95,6 +95,7 @@ jobs:
           - src/shop-api
           - src/test-api
           - src/user
+          - src/user-api
           - src/mail
           - src/mail-lambda-send
     steps:
@@ -168,6 +169,8 @@ jobs:
           - src/shop-api/src/shop-api-post-shop
           - src/test-api
           - src/user
+          - src/user-api/src/user-api-get-account
+          - src/user-api/src/user-api-patch-account
           - src/mail/src/mail-core
     steps:
       - uses: actions/checkout@v6
@@ -190,7 +193,7 @@ jobs:
 
   sonar:
     name: SonarQube-Cloud Analysis
-    needs: [ unit-test, integration-test ]
+    needs: [unit-test, integration-test]
     if: github.actor != 'dependabot[bot]'
     permissions:
       contents: read
@@ -255,7 +258,7 @@ jobs:
 
   aws-push-lambda:
     name: Push Lambda to S3 ${{ matrix.crate }}
-    needs: [ unit-test, integration-test ]
+    needs: [unit-test, integration-test]
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -288,6 +291,8 @@ jobs:
           - src/shop-api/src/shop-api-get-shop
           - src/shop-api/src/shop-api-patch-shop
           - src/shop-api/src/shop-api-post-shop
+          - src/user-api/src/user-api-get-account
+          - src/user-api/src/user-api-patch-account
           - src/cognito-post-confirmation
           - src/mail-lambda-send
     steps:
@@ -353,7 +358,7 @@ jobs:
 
   aws-push-ec2:
     name: Push EC2 to S3 ${{ matrix.crate }}
-    needs: [ unit-test, integration-test ]
+    needs: [unit-test, integration-test]
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -404,7 +409,7 @@ jobs:
 
   aws-push-resource-artifacts:
     name: Push resource-artifacts to S3 ${{ matrix.resource }}
-    needs: [ unit-test, integration-test ]
+    needs: [unit-test, integration-test]
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -432,7 +437,8 @@ jobs:
 
   aws-cfn-deploy:
     name: Deploy & initialize CFN-Stack
-    needs: [ cfn-lint, aws-push-lambda, aws-push-ec2, aws-push-resource-artifacts ]
+    needs:
+      [cfn-lint, aws-push-lambda, aws-push-ec2, aws-push-resource-artifacts]
     environment:
       name: aws
     runs-on: ubuntu-latest

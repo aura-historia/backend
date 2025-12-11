@@ -74,6 +74,7 @@ mod tests {
     use rstest::rstest;
 
     #[rstest]
+    #[trace]
     #[case(LanguageDocument::De, "\"DE\"")]
     #[case(LanguageDocument::En, "\"EN\"")]
     #[case(LanguageDocument::Fr, "\"FR\"")]
@@ -87,6 +88,7 @@ mod tests {
     }
 
     #[rstest]
+    #[trace]
     #[case("\"DE\"", LanguageDocument::De)]
     #[case("\"EN\"", LanguageDocument::En)]
     #[case("\"FR\"", LanguageDocument::Fr)]

@@ -22,7 +22,6 @@ use shop::dynamodb::{
 use staging_tests::{
     create_test_user, get_dynamodb_client, get_test_mail, staging_test, wait_for_email,
 };
-use time::macros::date;
 use user::dynamodb::repository::{UserDynamoDbRepository, UserDynamoDbRepositoryImpl};
 
 async fn prepare_test_shop() -> Shop {
@@ -76,17 +75,7 @@ async fn should_send_email_to_user_when_watched_product_has_update() {
     );
 
     // create user
-    let user = create_test_user(
-        &get_test_mail(),
-        "Test",
-        "Mail",
-        &date!(2002 - 04 - 05),
-        "male",
-        &None,
-        &None,
-        &None,
-    )
-    .await;
+    let user = create_test_user(&get_test_mail()).await;
     tokio::time::sleep(Duration::from_secs(10)).await;
     let user_repository =
         UserDynamoDbRepositoryImpl::new(get_dynamodb_client().await, &stack.dynamodb_table_1_name);
@@ -144,7 +133,7 @@ async fn should_send_email_to_user_when_watched_product_has_update() {
         .await
         .unwrap()
         .into_iter()
-        .map(|user| user.id)
+        .map(|user| user.user_id)
         .collect::<Vec<_>>();
     assert_eq!(vec![UserId::from(user.sub)], eligible);
     tokio::time::sleep(Duration::from_secs(10)).await;

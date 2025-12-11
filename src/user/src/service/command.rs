@@ -1,4 +1,5 @@
-use common::user_id::UserId;
+use crate::core::{first_name::FirstName, last_name::LastName};
+use common::{currency::domain::Currency, language::domain::Language, user_id::UserId};
 use serde_email::Email;
 
 #[derive(Debug, Clone, PartialEq)]
@@ -7,9 +8,28 @@ pub struct CreateUserCommand {
     pub email: Email,
 }
 
+#[derive(Debug, Clone, PartialEq, Default)]
+pub struct UpdateUserCommand {
+    pub email: Option<Email>,
+    pub first_name: Option<FirstName>,
+    pub last_name: Option<LastName>,
+    pub language: Option<Language>,
+    pub currency: Option<Currency>,
+}
+
+impl UpdateUserCommand {
+    pub fn is_empty(&self) -> bool {
+        self.email.is_none()
+            && self.first_name.is_none()
+            && self.last_name.is_none()
+            && self.language.is_none()
+            && self.currency.is_none()
+    }
+}
+
 #[cfg(feature = "test-data")]
 mod fake {
-    use crate::service::command::CreateUserCommand;
+    use crate::service::command::{CreateUserCommand, UpdateUserCommand};
     use fake::{Fake, faker::internet::de_de::SafeEmail};
 
     impl fake::Dummy<fake::Faker> for CreateUserCommand {
@@ -18,6 +38,19 @@ mod fake {
             CreateUserCommand {
                 id: config.fake_with_rng(rng),
                 email: email_str.try_into().unwrap(),
+            }
+        }
+    }
+
+    impl fake::Dummy<fake::Faker> for UpdateUserCommand {
+        fn dummy_with_rng<R: fake::rand::Rng + ?Sized>(config: &fake::Faker, rng: &mut R) -> Self {
+            let email_str: String = SafeEmail().fake_with_rng(rng);
+            UpdateUserCommand {
+                email: Some(email_str.try_into().unwrap()),
+                first_name: config.fake_with_rng(rng),
+                last_name: config.fake_with_rng(rng),
+                language: config.fake_with_rng(rng),
+                currency: config.fake_with_rng(rng),
             }
         }
     }

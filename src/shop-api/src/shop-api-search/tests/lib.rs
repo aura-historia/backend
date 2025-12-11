@@ -8,6 +8,7 @@ use shop_api_search::handler;
 use test_api::*;
 
 #[rstest::rstest]
+#[trace]
 #[test_attr(apply(test))]
 #[case("score", "asc", 5)]
 #[case("score", "desc", 10)]

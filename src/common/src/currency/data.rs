@@ -69,6 +69,8 @@ pub mod api {
 
     #[cfg(test)]
     mod tests {
+        use rstest;
+
         use crate::api::{
             error::{ApiErrorSource, ApiErrorSourceType},
             error_code::BAD_QUERY_PARAMETER_VALUE,
@@ -79,6 +81,7 @@ pub mod api {
         use std::collections::HashMap;
 
         #[rstest::rstest]
+        #[trace]
         #[case::eur("EUR", CurrencyData::Eur)]
         #[case::gbp("GBP", CurrencyData::Gbp)]
         #[case::usd("USD", CurrencyData::Usd)]
@@ -94,6 +97,7 @@ pub mod api {
         }
 
         #[rstest::rstest]
+        #[trace]
         #[case("invalid-currency")]
         #[case("boop")]
         #[case("euronen")]
@@ -125,6 +129,7 @@ mod tests {
     use rstest::rstest;
 
     #[rstest]
+    #[trace]
     #[case(CurrencyData::Eur, "\"EUR\"")]
     #[case(CurrencyData::Gbp, "\"GBP\"")]
     #[case(CurrencyData::Usd, "\"USD\"")]
@@ -140,6 +145,7 @@ mod tests {
     }
 
     #[rstest]
+    #[trace]
     #[case("\"EUR\"", CurrencyData::Eur)]
     #[case("\"GBP\"", CurrencyData::Gbp)]
     #[case("\"USD\"", CurrencyData::Usd)]

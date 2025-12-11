@@ -8,7 +8,7 @@ use testcontainers_modules::localstack::LocalStack;
 use tokio::sync::OnceCell;
 use tracing::{debug, error};
 
-const LOCALSTACK_CONTAINER_NAME: &str = "blitzfilter-aws-backend-localstack-test";
+const LOCALSTACK_CONTAINER_NAME: &str = "aura-historia-aws-backend-localstack-test";
 
 /// A lazily-initialized, globally accessible AWS SDK configuration for integration tests.
 ///

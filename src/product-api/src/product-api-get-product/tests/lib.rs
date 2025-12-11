@@ -259,7 +259,7 @@ async fn should_respond_200_personalized_when_authenticated_and_not_watched() {
     let mut access_token_verifier_service = MockAccessTokenVerifierService::default();
     access_token_verifier_service
         .expect_verify_extract_user_id()
-        .return_once(move |_| Box::pin(async move { Ok(Some(user_record.id)) }));
+        .return_once(move |_| Box::pin(async move { Ok(Some(user_record.user_id)) }));
 
     let record = Faker.fake::<ProductRecord>();
     let insert_res = product_repository
@@ -373,7 +373,7 @@ async fn should_respond_200_personalized_when_authenticated_and_watched() {
     let mut access_token_verifier_service = MockAccessTokenVerifierService::default();
     access_token_verifier_service
         .expect_verify_extract_user_id()
-        .return_once(move |_| Box::pin(async move { Ok(Some(user_record.id)) }));
+        .return_once(move |_| Box::pin(async move { Ok(Some(user_record.user_id)) }));
 
     let record = Faker.fake::<ProductRecord>();
     let insert_res = product_repository
@@ -384,12 +384,16 @@ async fn should_respond_200_personalized_when_authenticated_and_watched() {
     tokio::time::sleep(Duration::from_secs(1)).await;
 
     let _ = watchlist_service
-        .create_watchlist_product(&user_record.id, &record.shop_id, &record.shops_product_id)
+        .create_watchlist_product(
+            &user_record.user_id,
+            &record.shop_id,
+            &record.shops_product_id,
+        )
         .await
         .unwrap();
     let _ = watchlist_service
         .update_watchlist_product(
-            &user_record.id,
+            &user_record.user_id,
             &record.shop_id,
             &record.shops_product_id,
             UpdateWatchlistProductCommand {
@@ -480,6 +484,7 @@ async fn should_respond_200_personalized_when_authenticated_and_watched() {
 }
 
 #[rstest::rstest]
+#[trace]
 #[test_attr(apply(test))]
 #[case("de", "German title", Language::De, "German description", Language::De)]
 #[case(
