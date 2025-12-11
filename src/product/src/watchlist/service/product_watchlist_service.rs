@@ -426,7 +426,6 @@ impl<'a> ProductWatchListService for ProductWatchListServiceImpl<'a> {
 mod tests {
     use rstest;
 
-
     mod find_watchlist_product {
         use crate::dynamodb::repository::MockProductDynamoDbRepository;
         use crate::service::get_service::GetProductServiceImpl;

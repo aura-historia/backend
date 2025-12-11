@@ -270,7 +270,6 @@ impl<'a> CommandShopService for CommandShopServiceImpl<'a> {
 mod tests {
     use rstest;
 
-
     mod create {
         use crate::{
             dynamodb::repository::MockShopDynamoDbRepository,
