@@ -1,8 +1,4 @@
-use common::{
-    currency::domain::Currency,
-    language::{data::LanguageData, domain::Language},
-    price::domain::Price,
-};
+use common::{currency::domain::Currency, language::data::LanguageData, price::domain::Price};
 use mail_core::{
     payload::MailPayload,
     template::{MailTemplate, MailTemplateType},
@@ -86,13 +82,12 @@ impl<'a> ProductEventMailPayloadService for ProductEventMailPayloadServiceImpl<'
 
 impl<'a> ProductEventMailPayloadServiceImpl<'a> {
     fn customize_mail(&self, user: User, product: &Product, event: &ProductEvent) -> MailPayload {
-        // Defaulting to English/EUR now due to lack of time for internationalized templates
         let title = product
             .other_title
-            .get(&Language::En)
+            .get(&user.language.unwrap_or_default())
             .unwrap_or(&product.native_title.payload);
 
-        let subject = "There's an update for one of the antiques on your watchlist!".to_owned();
+        let subject = format!("Antiques-Update on: {title}");
         let template = resolve_mail_template(&event.payload, &user);
 
         let mut data = json!({
@@ -143,11 +138,19 @@ impl<'a> ProductEventMailPayloadServiceImpl<'a> {
         if let Some(state_payload) = event.payload.as_state_changed() {
             data_ref.insert(
                 "product.oldState".to_owned(),
-                json!(state_payload.old_state.format_human_readable(&Language::En)),
+                json!(
+                    state_payload
+                        .old_state
+                        .format_human_readable(&user.language.unwrap_or_default())
+                ),
             );
             data_ref.insert(
                 "product.newState".to_owned(),
-                json!(state_payload.old_state.format_human_readable(&Language::En)),
+                json!(
+                    state_payload
+                        .old_state
+                        .format_human_readable(&user.language.unwrap_or_default())
+                ),
             );
         }
 
@@ -162,7 +165,6 @@ impl<'a> ProductEventMailPayloadServiceImpl<'a> {
 }
 
 fn resolve_mail_template(event_payload: &ProductEventPayload, _user: &User) -> MailTemplate {
-    // Defaulting to English/EUR now due to lack of time for internationalized templates
     match event_payload {
         ProductEventPayload::Created(_) => MailTemplate {
             template_type: MailTemplateType::CreatedNotification,
