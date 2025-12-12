@@ -7,7 +7,7 @@ use common::{
     pagination::cursor::{Cursor, CursoredResult},
     sort::{Sort, SortOrder},
 };
-use tracing::{error, warn};
+use tracing::warn;
 
 #[derive(thiserror::Error, Debug)]
 pub enum SearchShopsError {

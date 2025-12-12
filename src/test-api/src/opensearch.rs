@@ -11,7 +11,7 @@ use opensearch::http::response::Response;
 use opensearch::http::transport::{SingleNodeConnectionPool, TransportBuilder};
 use opensearch::indices::IndicesExistsParts;
 use opensearch::params::Refresh;
-use opensearch::{Error, GetParts, IndexParts, OpenSearch as Client};
+use opensearch::{DeleteByQueryParts, Error, GetParts, IndexParts, OpenSearch as Client};
 use serde::de::DeserializeOwned;
 use serde_json::json;
 use std::time::Duration;
@@ -250,9 +250,6 @@ async fn set_up_indices() -> Result<Response, Error> {
 /// This function uses the delete-by-query API to remove all documents while
 /// preserving the index structure and mappings.
 async fn clear_index_data(index: &str) -> Result<Response, Error> {
-    use opensearch::DeleteByQueryParts;
-    use serde_json::json;
-
     let query = json!({
         "query": {
             "match_all": {}

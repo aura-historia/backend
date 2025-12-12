@@ -7,7 +7,6 @@ use common::{
     batch::Batch,
     shop_id::{ShopId, ShopIdentifier},
 };
-use tracing::error;
 
 #[derive(thiserror::Error, Debug)]
 #[allow(clippy::large_enum_variant)]
