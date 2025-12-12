@@ -70,7 +70,7 @@ impl<'a> SendMailServiceImpl<'a> {
             .s3_client
             .get_object()
             .bucket(self.s3_bucket)
-            .key(format!("{}.html", template.as_str()))
+            .key(format!("{}.html", template.as_s3_blob_str()))
             .send()
             .await?;
         let bytes = resp
@@ -150,27 +150,18 @@ mod tests {
         let service = SendMailServiceImpl::new(&ses_client, &s3_client, "foo");
 
         TEMPLATE_CACHE.get_or_init(|| {
-            Arc::new(RwLock::new(HashMap::from_iter([
-                (
-                    MailTemplate {
-                        template_type: MailTemplateType::StateAvailableNotification,
-                        language: LanguageData::De,
-                    },
-                    "bar".to_owned(),
-                ),
-                (
-                    MailTemplate {
-                        template_type: MailTemplateType::PriceIncreasedNotification,
-                        language: LanguageData::De,
-                    },
-                    "baz".to_owned(),
-                ),
-            ])))
+            Arc::new(RwLock::new(HashMap::from_iter([(
+                MailTemplate {
+                    template_type: MailTemplateType::WatchlistUpdate,
+                    language: LanguageData::De,
+                },
+                "bar".to_owned(),
+            )])))
         });
 
         let actual = service
             .resolve_template(MailTemplate {
-                template_type: MailTemplateType::StateAvailableNotification,
+                template_type: MailTemplateType::WatchlistUpdate,
                 language: LanguageData::De,
             })
             .await

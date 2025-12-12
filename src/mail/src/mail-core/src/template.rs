@@ -5,17 +5,7 @@ use serde::{Deserialize, Serialize};
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "SCREAMING_SNAKE_CASE")]
 pub enum MailTemplateType {
-    CreatedNotification,
-    StateListedNotification,
-    StateAvailableNotification,
-    StateReservedNotification,
-    StateSoldNotification,
-    StateRemovedNotification,
-    StateUnknownNotification,
-    PriceDiscoveredNotification,
-    PriceDroppedNotification,
-    PriceIncreasedNotification,
-    PriceRemovedNotification,
+    WatchlistUpdate,
 }
 
 #[cfg_attr(feature = "test-data", derive(fake::Dummy))]
@@ -26,25 +16,19 @@ pub struct MailTemplate {
 }
 
 impl MailTemplateType {
-    pub fn as_str(&self) -> &'static str {
+    pub fn as_s3_dir_str(&self) -> &'static str {
         match self {
-            MailTemplateType::CreatedNotification => "created-notification",
-            MailTemplateType::StateListedNotification => "state-listed-notification",
-            MailTemplateType::StateAvailableNotification => "state-available-notification",
-            MailTemplateType::StateReservedNotification => "state-reserved-notification",
-            MailTemplateType::StateSoldNotification => "state-sold-notification",
-            MailTemplateType::StateRemovedNotification => "state-removed-notification",
-            MailTemplateType::StateUnknownNotification => "state-unknown-notification",
-            MailTemplateType::PriceDiscoveredNotification => "price-discovered-notification",
-            MailTemplateType::PriceDroppedNotification => "price-dropped-notification",
-            MailTemplateType::PriceIncreasedNotification => "price-increased-notification",
-            MailTemplateType::PriceRemovedNotification => "price-removed-notification",
+            MailTemplateType::WatchlistUpdate => "mjml/watchlist/product-update",
         }
     }
 }
 
 impl MailTemplate {
-    pub fn as_str(&self) -> String {
-        format!("{}_{}", self.template_type.as_str(), self.language.as_str())
+    pub fn as_s3_blob_str(&self) -> String {
+        format!(
+            "{}/{}",
+            self.template_type.as_s3_dir_str(),
+            self.language.as_str()
+        )
     }
 }

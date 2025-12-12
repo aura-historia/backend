@@ -1,11 +1,11 @@
-use common::{currency::domain::Currency, language::data::LanguageData, price::domain::Price};
+use common::{currency::domain::Currency, price::domain::Price};
 use mail_core::{
     payload::MailPayload,
     template::{MailTemplate, MailTemplateType},
 };
 use product::core::{
     product::Product,
-    product_event::{ProductCommonEventPayload, ProductEvent, ProductEventPayload},
+    product_event::{ProductCommonEventPayload, ProductEvent},
 };
 use product::service::get_service::{GetProductError, GetProductService};
 use product::watchlist::service::product_watchlist_service::{
@@ -87,8 +87,15 @@ impl<'a> ProductEventMailPayloadServiceImpl<'a> {
             .get(&user.language.unwrap_or_default())
             .unwrap_or(&product.native_title.payload);
 
+        // TODO
+        // - i18n subject!
+        // - i18n mjml template payload
+        // - handle price-removed case inside template
         let subject = format!("Antiques-Update on: {title}");
-        let template = resolve_mail_template(&event.payload, &user);
+        let template = MailTemplate {
+            template_type: MailTemplateType::WatchlistUpdate,
+            language: user.language.unwrap_or_default().into(),
+        };
 
         let mut data = json!({
             "product.auraHistoriaUrl": format!("https://aura-historia.com/product/{}/{}", product.shop_id, product.shops_product_id),
@@ -161,54 +168,5 @@ impl<'a> ProductEventMailPayloadServiceImpl<'a> {
             template,
             data,
         }
-    }
-}
-
-fn resolve_mail_template(event_payload: &ProductEventPayload, _user: &User) -> MailTemplate {
-    match event_payload {
-        ProductEventPayload::Created(_) => MailTemplate {
-            template_type: MailTemplateType::CreatedNotification,
-            language: LanguageData::En,
-        },
-        ProductEventPayload::StateListed(_) => MailTemplate {
-            template_type: MailTemplateType::StateListedNotification,
-            language: LanguageData::En,
-        },
-        ProductEventPayload::StateAvailable(_) => MailTemplate {
-            template_type: MailTemplateType::StateAvailableNotification,
-            language: LanguageData::En,
-        },
-        ProductEventPayload::StateReserved(_) => MailTemplate {
-            template_type: MailTemplateType::StateReservedNotification,
-            language: LanguageData::En,
-        },
-        ProductEventPayload::StateSold(_) => MailTemplate {
-            template_type: MailTemplateType::StateSoldNotification,
-            language: LanguageData::En,
-        },
-        ProductEventPayload::StateRemoved(_) => MailTemplate {
-            template_type: MailTemplateType::StateRemovedNotification,
-            language: LanguageData::En,
-        },
-        ProductEventPayload::StateUnknown(_) => MailTemplate {
-            template_type: MailTemplateType::StateUnknownNotification,
-            language: LanguageData::En,
-        },
-        ProductEventPayload::PriceDiscovered(_) => MailTemplate {
-            template_type: MailTemplateType::PriceDiscoveredNotification,
-            language: LanguageData::En,
-        },
-        ProductEventPayload::PriceDropped(_) => MailTemplate {
-            template_type: MailTemplateType::PriceDroppedNotification,
-            language: LanguageData::En,
-        },
-        ProductEventPayload::PriceIncreased(_) => MailTemplate {
-            template_type: MailTemplateType::PriceIncreasedNotification,
-            language: LanguageData::En,
-        },
-        ProductEventPayload::PriceRemoved(_) => MailTemplate {
-            template_type: MailTemplateType::PriceRemovedNotification,
-            language: LanguageData::En,
-        },
     }
 }
