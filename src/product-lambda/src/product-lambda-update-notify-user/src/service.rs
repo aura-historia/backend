@@ -96,21 +96,20 @@ impl<'a> ProductEventMailPayloadServiceImpl<'a> {
         let template = resolve_mail_template(&event.payload, &user);
 
         let mut data = json!({
-            "productUrl": product.url,
-            "productTitle": title.to_string(),
-            "productShopName": product.shop_name,
-            "productShopId": product.shop_id,
-            "productShopsProductId": product.shops_product_id,
+            "product.auraHistoriaUrl": format!("https://aura-historia.com/product/{}/{}", product.shop_id, product.shops_product_id),
+            "product.shopUrl": product.url,
+            "product.title": title.to_string(),
+            "product.shopName": product.shop_name,
         });
         let data_ref = data.as_object_mut().expect(
             "shouldn't fail because it's initialized above as an object and not modified since",
         );
 
         if let Some(user_first_name) = user.first_name {
-            data_ref.insert("userFirstName".to_owned(), json!(user_first_name));
+            data_ref.insert("user.firstName".to_owned(), json!(user_first_name));
         }
         if let Some(user_last_name) = user.last_name {
-            data_ref.insert("userLastName".to_owned(), json!(user_last_name));
+            data_ref.insert("user.lastName".to_owned(), json!(user_last_name));
         }
 
         if let Some(price_payload) = event.payload.as_price_changed() {
@@ -123,7 +122,7 @@ impl<'a> ProductEventMailPayloadServiceImpl<'a> {
                 ));
             let old_price = Price::new(*old_amount, *old_currency);
             data_ref.insert(
-                "productOldPrice".to_owned(),
+                "product.oldPrice".to_owned(),
                 json!(old_price.format_human_readable()),
             );
 
@@ -136,18 +135,18 @@ impl<'a> ProductEventMailPayloadServiceImpl<'a> {
                 ));
             let new_price = Price::new(*new_amount, *new_currency);
             data_ref.insert(
-                "productNewPrice".to_owned(),
+                "product.newPrice".to_owned(),
                 json!(new_price.format_human_readable()),
             );
         }
 
         if let Some(state_payload) = event.payload.as_state_changed() {
             data_ref.insert(
-                "productOldState".to_owned(),
+                "product.oldState".to_owned(),
                 json!(state_payload.old_state.format_human_readable(&Language::En)),
             );
             data_ref.insert(
-                "productNewState".to_owned(),
+                "product.newState".to_owned(),
                 json!(state_payload.old_state.format_human_readable(&Language::En)),
             );
         }
