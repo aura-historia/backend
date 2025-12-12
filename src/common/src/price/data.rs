@@ -53,10 +53,13 @@ mod faker {
 
 #[cfg(test)]
 mod tests {
+    use rstest;
+
     use crate::currency::data::CurrencyData;
     use crate::price::data::PriceData;
 
     #[rstest::rstest]
+    #[trace]
     #[case(0.0, 0)]
     #[case(0.42, 42)]
     #[case(6.98, 698)]
@@ -70,6 +73,7 @@ mod tests {
     }
 
     #[rstest::rstest]
+    #[trace]
     #[case(-0.42)]
     #[case(-6.98)]
     #[case(-37.69)]

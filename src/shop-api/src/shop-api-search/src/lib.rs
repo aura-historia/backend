@@ -101,6 +101,7 @@ mod tests {
 
     #[tokio::test]
     #[rstest::rstest]
+    #[trace]
     #[case(Some("name"), Some("asc"))]
     #[case(Some("created"), Some("desc"))]
     #[case(None, None)]

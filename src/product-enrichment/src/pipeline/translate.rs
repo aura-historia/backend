@@ -289,6 +289,8 @@ impl TranslationEnrichmentPipeImpl {
 
 #[cfg(test)]
 mod tests {
+    use rstest;
+
     use crate::{
         pipeline::{
             pipe::{EnrichmentPipe, PipeProduct, PipeProductSource, PipeProductUpdate},
@@ -303,6 +305,7 @@ mod tests {
     use std::sync::Arc;
 
     #[rstest::rstest]
+    #[trace]
     #[case(0)]
     #[case(1)]
     #[case(2)]
@@ -568,6 +571,7 @@ mod tests {
     }
 
     #[rstest::rstest]
+    #[trace]
     #[case(0)]
     #[case(1)]
     #[case(2)]
@@ -616,6 +620,7 @@ mod tests {
     }
 
     #[rstest::rstest]
+    #[trace]
     #[case(0)]
     #[case(1)]
     #[case(2)]

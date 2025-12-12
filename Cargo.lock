@@ -112,6 +112,28 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "1505bd5d3d116872e7271a6d4e16d81d0c8570876c8de68093a09ac269d8aac0"
 
 [[package]]
+name = "aura-historia-parent"
+version = "0.1.0"
+dependencies = [
+ "aws-tests",
+ "cognito",
+ "cognito-post-confirmation",
+ "common",
+ "mail",
+ "mail-lambda-send",
+ "product",
+ "product-api",
+ "product-enrichment",
+ "product-lambda",
+ "search-filter",
+ "search-filter-api",
+ "shop",
+ "shop-api",
+ "test-api",
+ "user",
+]
+
+[[package]]
 name = "autocfg"
 version = "1.5.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -298,9 +320,9 @@ dependencies = [
 
 [[package]]
 name = "aws-sdk-opensearch"
-version = "1.108.0"
+version = "1.109.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "bb2f5ed47a441fd5a99b26d9ac01f0b4946fbc39aaee25089e33a19ca721f5d6"
+checksum = "28c1a18c18c502c4bad1149779a0466dc2bc8d8e35e841887c2b4e3629c5b4a7"
 dependencies = [
  "aws-credential-types",
  "aws-runtime",
@@ -819,28 +841,6 @@ name = "bitflags"
 version = "2.9.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "1b8e56985ec62d17e9c1001dc89c88ecd7dc08e47eba5ec7c29c7b5eeecde967"
-
-[[package]]
-name = "blitzfilter-parent"
-version = "0.1.0"
-dependencies = [
- "aws-tests",
- "cognito",
- "cognito-post-confirmation",
- "common",
- "mail",
- "mail-lambda-send",
- "product",
- "product-api",
- "product-enrichment",
- "product-lambda",
- "search-filter",
- "search-filter-api",
- "shop",
- "shop-api",
- "test-api",
- "user",
-]
 
 [[package]]
 name = "block-buffer"
@@ -5467,12 +5467,77 @@ dependencies = [
  "serde",
  "serde-email",
  "serde_dynamo",
+ "serde_fields",
  "serial_test",
  "test-api",
  "thiserror",
  "time",
  "tokio",
  "tracing",
+ "user",
+]
+
+[[package]]
+name = "user-api"
+version = "0.1.0"
+dependencies = [
+ "user-api-get-account",
+ "user-api-patch-account",
+]
+
+[[package]]
+name = "user-api-get-account"
+version = "0.1.0"
+dependencies = [
+ "async-trait",
+ "aws-config",
+ "aws-sdk-dynamodb",
+ "aws_lambda_events",
+ "common",
+ "fake",
+ "http 1.4.0",
+ "lambda_runtime",
+ "mockall",
+ "serde",
+ "serde-email",
+ "serde_dynamo",
+ "serde_fields",
+ "serde_json",
+ "serial_test",
+ "test-api",
+ "thiserror",
+ "time",
+ "tokio",
+ "tracing",
+ "tracing-subscriber",
+ "user",
+]
+
+[[package]]
+name = "user-api-patch-account"
+version = "0.1.0"
+dependencies = [
+ "async-trait",
+ "aws-config",
+ "aws-sdk-dynamodb",
+ "aws_lambda_events",
+ "common",
+ "fake",
+ "http 1.4.0",
+ "lambda_runtime",
+ "mockall",
+ "serde",
+ "serde-email",
+ "serde_dynamo",
+ "serde_fields",
+ "serde_json",
+ "serial_test",
+ "test-api",
+ "thiserror",
+ "time",
+ "tokio",
+ "tracing",
+ "tracing-subscriber",
  "user",
 ]
 

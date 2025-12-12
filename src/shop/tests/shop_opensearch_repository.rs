@@ -74,6 +74,7 @@ async fn should_search_shop_documents_when_only_name_query_supplied() {
 }
 
 #[rstest::rstest]
+#[trace]
 #[test_attr(apply(test))]
 #[case(
     ShopSearch {

@@ -1,5 +1,3 @@
-use std::collections::HashMap;
-
 use crate::{
     core::shop::Shop,
     dynamodb::{
@@ -15,6 +13,7 @@ use common::{
     shop_id::{ShopId, ShopIdentifier},
     shop_name::ShopName,
 };
+use std::collections::HashMap;
 use time::OffsetDateTime;
 
 #[derive(Debug, thiserror::Error)]
@@ -268,7 +267,6 @@ impl<'a> CommandShopService for CommandShopServiceImpl<'a> {
 
 #[cfg(test)]
 mod tests {
-
     mod create {
         use crate::{
             dynamodb::repository::MockShopDynamoDbRepository,
@@ -302,6 +300,7 @@ mod tests {
         }
 
         #[rstest::rstest]
+        #[trace]
         #[case(101)]
         #[case(110)]
         #[case(142)]
@@ -399,6 +398,7 @@ mod tests {
 
         #[tokio::test]
         #[rstest::rstest]
+        #[trace]
         #[case::construction_failure(SdkError::construction_failure("Something went wrong"))]
         #[case::timeout(SdkError::timeout_error("Something went wrong"))]
         #[case::dispatch_failure(SdkError::dispatch_failure(ConnectorError::user("Something went wrong".into())))]
@@ -432,6 +432,7 @@ mod tests {
 
         #[tokio::test]
         #[rstest::rstest]
+        #[trace]
         #[case::construction_failure(SdkError::construction_failure("Something went wrong"))]
         #[case::timeout(SdkError::timeout_error("Something went wrong"))]
         #[case::dispatch_failure(SdkError::dispatch_failure(ConnectorError::user("Something went wrong".into())))]

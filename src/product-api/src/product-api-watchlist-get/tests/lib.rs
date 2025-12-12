@@ -370,6 +370,7 @@ async fn should_200_when_sort_created_desc_search_after() {
 }
 
 #[rstest::rstest]
+#[trace]
 #[test_attr(apply(test))]
 #[case("de", "German title", Language::De, "German description", Language::De)]
 #[case(

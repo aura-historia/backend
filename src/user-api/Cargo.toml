@@ -1,0 +1,8 @@
+[package]
+name = "user-api"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+user-api-get-account = { workspace = true }
+user-api-patch-account = { workspace = true }
