@@ -311,7 +311,6 @@ mod tests {
                     .filter(|&product_document| {
                         expected_failures_clone.contains(&product_document.product_id)
                     })
-                    .cloned()
                     .map(|unprocessed_doc| {
                         let index: String = Faker.fake();
                         BulkOpResult {

@@ -8,7 +8,6 @@ use opensearch::http::Url;
 use opensearch::http::response::Response;
 use opensearch::http::transport::{SingleNodeConnectionPool, TransportBuilder};
 use serde::Deserialize;
-use serde_json::json;
 pub use staging_tests_macros::staging_test;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use std::{collections::HashMap, error::Error};

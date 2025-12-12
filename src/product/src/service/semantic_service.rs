@@ -10,7 +10,7 @@ use common::language::domain::Language;
 use common::shop_id::ShopId;
 use common::shops_product_id::ShopsProductId;
 use time::OffsetDateTime;
-use tracing::{error, warn};
+use tracing::warn;
 
 #[derive(thiserror::Error, Debug)]
 #[allow(clippy::large_enum_variant)]
