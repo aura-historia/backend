@@ -1,4 +1,4 @@
-use common::{currency::domain::Currency, price::domain::Price};
+use common::{currency::domain::Currency, language::domain::Language, price::domain::Price};
 use mail_core::{
     payload::MailPayload,
     template::{MailTemplate, MailTemplateType},
@@ -88,10 +88,15 @@ impl<'a> ProductEventMailPayloadServiceImpl<'a> {
             .unwrap_or(&product.native_title.payload);
 
         // TODO
-        // - i18n subject!
         // - i18n mjml template payload
         // - handle price-removed case inside template
-        let subject = format!("Antiques-Update on: {title}");
+        let subject = match user.language.unwrap_or_default() {
+            Language::De => format!("Antiquitäten-Update für: {title}"),
+            Language::En => format!("Antiques update on: {title}"),
+            Language::Fr => format!("Mise à jour des antiquités : {title}"),
+            Language::Es => format!("Actualización de antigüedades: {title}"),
+        };
+
         let template = MailTemplate {
             template_type: MailTemplateType::WatchlistUpdate,
             language: user.language.unwrap_or_default().into(),
