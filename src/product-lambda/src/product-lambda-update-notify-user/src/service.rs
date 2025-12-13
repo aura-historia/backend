@@ -89,7 +89,6 @@ impl<'a> ProductEventMailPayloadServiceImpl<'a> {
 
         // TODO
         // - i18n mjml template payload
-        // - handle price-removed case inside template
         let subject = match user.language.unwrap_or_default() {
             Language::De => format!("Antiquitäten-Update für: {title}"),
             Language::En => format!("Antiques update on: {title}"),

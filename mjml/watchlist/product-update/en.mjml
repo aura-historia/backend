@@ -70,18 +70,36 @@
 
                 {{#if product.oldPrice}}
                 {{#if product.newPrice}}
+                <!-- old + new -->
                 <mj-text>
                     <span class="detail-label">Price:</span><br/>
-                    <span class="price-old">{{product.oldPrice}}</span> → <span class="price-new">{{product.newPrice}}</span>
+                    <span class="price-old">{{product.oldPrice}}</span>
+                    →
+                    <span class="price-new">{{product.newPrice}}</span>
+                </mj-text>
+                {{else}}
+                <!-- old only -->
+                <mj-text>
+                    <span class="detail-label">Price:</span><br/>
+                    <span class="price-old">{{product.oldPrice}}</span>
                 </mj-text>
                 {{/if}}
+                {{else if product.newPrice}}
+                <!-- new only -->
+                <mj-text>
+                    <span class="detail-label">Price:</span><br/>
+                    <span class="price-new">{{product.newPrice}}</span>
+                </mj-text>
                 {{/if}}
+
 
                 {{#if product.oldState}}
                 {{#if product.newState}}
                 <mj-text padding-top="12px">
-                    <span class="detail-label">Status:</span><br/>
-                    {{product.oldState}} → <span class="state-change">{{product.newState}}</span>
+                    <span class="detail-label">Status:</span>
+                    <br/>
+                    {{product.oldState}} →
+                    <span class="state-change">{{product.newState}}</span>
                 </mj-text>
                 {{/if}}
                 {{/if}}
@@ -90,13 +108,15 @@
 
         <mj-section background-color="#ffffff" padding="0 32px 32px 32px" border-radius="12px">
             <mj-column width="50%">
-                <mj-button href="{{product.auraHistoriaUrl}}"  background-color="#A67C52" color="#ffffff" border-radius="6px" font-size="16px" padding="16px">
+                <mj-button href="{{product.auraHistoriaUrl}}" background-color="#A67C52" color="#ffffff"
+                           border-radius="6px" font-size="16px" padding="16px">
                     View Product on Watchlist
                 </mj-button>
             </mj-column>
 
             <mj-column width="50%">
-                <mj-button href="{{product.shopUrl}}" background-color="#EDEDED" color="#4A4338" border-radius="6px" font-size="16px" padding="16px" border="1px solid #CFCFCF">
+                <mj-button href="{{product.shopUrl}}" background-color="#EDEDED" color="#4A4338" border-radius="6px"
+                           font-size="16px" padding="16px" border="1px solid #CFCFCF">
                     View Product in Shop
                 </mj-button>
             </mj-column>
