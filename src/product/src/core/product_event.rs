@@ -85,6 +85,18 @@ impl ProductEventPayload {
         }
     }
 
+    pub fn as_new_state(&self) -> Option<ProductState> {
+        match self {
+            ProductEventPayload::StateListed(_) => Some(ProductState::Listed),
+            ProductEventPayload::StateAvailable(_) => Some(ProductState::Available),
+            ProductEventPayload::StateReserved(_) => Some(ProductState::Reserved),
+            ProductEventPayload::StateSold(_) => Some(ProductState::Sold),
+            ProductEventPayload::StateRemoved(_) => Some(ProductState::Removed),
+            ProductEventPayload::StateUnknown(_) => Some(ProductState::Unknown),
+            _ => None,
+        }
+    }
+
     pub fn as_price_discovered(&self) -> Option<&ProductPriceDiscoveryEventPayload> {
         match self {
             ProductEventPayload::PriceDiscovered(payload) => Some(payload),

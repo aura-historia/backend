@@ -158,13 +158,11 @@ impl<'a> ProductEventMailPayloadServiceImpl<'a> {
                         .format_human_readable(&user.language.unwrap_or_default())
                 ),
             );
+        }
+        if let Some(new_state) = event.payload.as_new_state() {
             data_ref.insert(
                 "product.newState".to_owned(),
-                json!(
-                    state_payload
-                        .old_state
-                        .format_human_readable(&user.language.unwrap_or_default())
-                ),
+                json!(new_state.format_human_readable(&user.language.unwrap_or_default())),
             );
         }
 
