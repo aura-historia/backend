@@ -43,8 +43,8 @@
                 font-weight: 600;
             }
         </mj-style>
-        <mj-title>Update on {{product.title}}</mj-title>
-        <mj-preview>Update on your watched product: {{product.title}}</mj-preview>
+        <mj-title>Update on {{productTitle}}</mj-title>
+        <mj-preview>Update on your watched product: {{productTitle}}</mj-preview>
     </mj-head>
 
     <mj-body background-color="#F8F4EE">
@@ -54,7 +54,7 @@
                 <mj-text color="#7D7567" font-size="18px">
                     Something on your watchlist has changed
                 </mj-text>
-                <mj-text css-class="subtitle" padding-bottom="8px">{{product.title}}</mj-text>
+                <mj-text css-class="subtitle" padding-bottom="8px">{{productTitle}}</mj-text>
             </mj-column>
         </mj-section>
 
@@ -62,8 +62,8 @@
         <mj-section background-color="#ffffff" padding="32px" border-radius="12px">
             <mj-column>
                 <mj-text font-size="18px" color="#4A4338">
-                    {{#if user.firstName}}
-                    Hello {{user.firstName}},
+                    {{#if userFirstName}}
+                    Hello {{userFirstName}},
                     {{else}}
                     Hello there,
                     {{/if}}
@@ -73,16 +73,16 @@
                 </mj-text>
                 <mj-text>
                     <span class="price-old">
-                        {{#if product.oldPrice}}
-                        {{product.oldPrice}}
+                        {{#if productOldPrice}}
+                        {{productOldPrice}}
                         {{else}}
                         n.a.
                         {{/if}}
                     </span>
                     →
                     <span class="price-new">
-                        {{#if product.newPrice}}
-                        {{product.newPrice}}
+                        {{#if productNewPrice}}
+                        {{productNewPrice}}
                         {{else}}
                         n.a.
                         {{/if}}
@@ -93,14 +93,14 @@
 
         <mj-section background-color="#ffffff" padding="0 32px 32px 32px" border-radius="12px">
             <mj-column width="50%">
-                <mj-button href="{{product.auraHistoriaUrl}}" background-color="#A67C52" color="#ffffff"
+                <mj-button href="{{productAuraHistoriaUrl}}" background-color="#A67C52" color="#ffffff"
                            border-radius="6px" font-size="16px" padding="16px">
                     View Product on Watchlist
                 </mj-button>
             </mj-column>
 
             <mj-column width="50%">
-                <mj-button href="{{product.shopUrl}}" background-color="#EDEDED" color="#4A4338" border-radius="6px"
+                <mj-button href="{{productShopUrl}}" background-color="#EDEDED" color="#4A4338" border-radius="6px"
                            font-size="16px" padding="16px" border="1px solid #CFCFCF">
                     View Product in Shop
                 </mj-button>
