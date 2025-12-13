@@ -20,9 +20,17 @@ async fn main() -> Result<(), Error> {
         .await;
 
     let s3_bucket_name_templates = std::env::var("S3_BUCKET_NAME_TEMPLATES")?;
+    let stage_name = std::env::var("STAGE_NAME")?;
+    let commit_sha = std::env::var("COMMIT_SHA")?;
     let ses_client = aws_sdk_sesv2::Client::new(&aws_config);
     let s3_client = aws_sdk_s3::Client::new(&aws_config);
-    let service = SendMailServiceImpl::new(&ses_client, &s3_client, &s3_bucket_name_templates);
+    let service = SendMailServiceImpl::new(
+        &ses_client,
+        &s3_client,
+        &s3_bucket_name_templates,
+        &stage_name,
+        &commit_sha,
+    );
 
     info!(
         dynamoDbTableName = %s3_bucket_name_templates,

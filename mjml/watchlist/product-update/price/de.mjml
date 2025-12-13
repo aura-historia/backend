@@ -1,0 +1,135 @@
+<mjml>
+    <mj-head>
+        <mj-attributes>
+            <mj-all font-family="Inter, Helvetica, Arial, sans-serif"/>
+            <mj-text color="#4A4338" font-size="16px" line-height="1.5"/>
+            <mj-button background-color="#A67C52" color="#ffffff" border-radius="6px" font-size="16px" padding="16px"/>
+            <mj-section padding="0"/>
+            <mj-column padding="0"/>
+        </mj-attributes>
+        <mj-style>
+            .title {
+                font-family: "Cormorant Garamond", Georgia, serif;
+                font-size: 32px !important;
+                color: #2A261F;
+                font-weight: 500;
+                margin-bottom: 12px;
+            }
+
+            .subtitle {
+                font-family: "Cormorant Garamond", Georgia, serif;
+                font-size: 20px !important;
+                color: #2A261F;
+                margin-bottom: 8px;
+            }
+
+            .detail-label {
+                font-weight: 600;
+                color: #2A261F;
+            }
+
+            .price-old {
+                text-decoration: line-through;
+                color: #7D7567;
+            }
+
+            .price-new {
+                color: #A67C52;
+                font-weight: 600;
+            }
+
+            .state-change {
+                color: #A67C52;
+                font-weight: 600;
+            }
+        </mj-style>
+        <mj-title>Aktualisierung zu {{productTitle}}</mj-title>
+        <mj-preview>Aktualisierung zu Ihrem beobachteten Produkt: {{productTitle}}</mj-preview>
+    </mj-head>
+
+    <mj-body background-color="#F8F4EE">
+
+        <mj-section padding-top="32px" padding-bottom="16px">
+            <mj-column width="100%">
+                <mj-text color="#7D7567" font-size="18px">
+                    Etwas auf Ihrer Merkliste hat sich geändert
+                </mj-text>
+                <mj-text css-class="subtitle" padding-bottom="8px">{{productTitle}}</mj-text>
+            </mj-column>
+        </mj-section>
+
+        <mj-section background-color="#ffffff" padding="32px" border-radius="12px">
+            <mj-column>
+                <mj-text font-size="18px" color="#4A4338">
+                    {{#if userFirstName}}
+                    Hallo {{userFirstName}},
+                    {{else}}
+                    Guten Tag,
+                    {{/if}}
+                </mj-text>
+                <mj-text>
+                    Eine der Antiquitäten, die Sie beobachten, wurde aktualisiert. Der <b>Preis</b> hat sich geändert:
+                </mj-text>
+                <mj-text>
+                    <span class="price-old">
+                        {{#if productOldPrice}}
+                        {{productOldPrice}}
+                        {{else}}
+                        k. A.
+                        {{/if}}
+                    </span>
+                    →
+                    <span class="price-new">
+                        {{#if productNewPrice}}
+                        {{productNewPrice}}
+                        {{else}}
+                        k. A.
+                        {{/if}}
+                    </span>
+                </mj-text>
+            </mj-column>
+        </mj-section>
+
+        <mj-section background-color="#ffffff" padding="0 32px 32px 32px" border-radius="12px">
+            <mj-column width="50%">
+                <mj-button href="{{productAuraHistoriaUrl}}">
+                    Antiquität in der Merkliste ansehen
+                </mj-button>
+            </mj-column>
+
+            <mj-column width="50%">
+                <mj-button href="{{productShopUrl}}" background-color="#EDEDED" color="#4A4338" border="1px solid #CFCFCF">
+                    Antiquität im Shop ansehen
+                </mj-button>
+            </mj-column>
+        </mj-section>
+
+        <mj-section padding="32px 0 0 0">
+            <mj-column>
+                <mj-text color="#7D7567" font-size="14px">
+                    Sie erhalten diese E-Mail, da sich diese Antiquität auf Ihrer Merkliste befindet.
+                    <br/><br/>
+                    © 2026 Aura Historia — Alle Rechte vorbehalten.
+                </mj-text>
+            </mj-column>
+        </mj-section>
+
+        <mj-section>
+            <mj-column>
+                <mj-text color="#7D7567" font-size="13px" line-height="1.6">
+                    <strong>Impressum</strong>
+                    <br/>
+                    Aura Historia
+                    <br/>
+                    Kontakt: support@aura-historia.com
+                    <br/>
+                    Website: https://aura-historia.com
+                    <br/><br/>
+                    Wenn Sie keine Benachrichtigungen mehr zu Antiquitäten auf Ihrer Merkliste erhalten möchten,
+                    können Sie Ihre Einstellungen pro Antiquität in Ihrer Merkliste anpassen.
+                </mj-text>
+            </mj-column>
+        </mj-section>
+
+    </mj-body>
+</mjml>

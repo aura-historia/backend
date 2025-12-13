@@ -34,6 +34,38 @@ pub enum ProductEventPayload {
 }
 
 impl ProductEventPayload {
+    pub fn is_price_event(&self) -> bool {
+        match self {
+            ProductEventPayload::Created(_) => false,
+            ProductEventPayload::StateListed(_) => false,
+            ProductEventPayload::StateAvailable(_) => false,
+            ProductEventPayload::StateReserved(_) => false,
+            ProductEventPayload::StateSold(_) => false,
+            ProductEventPayload::StateRemoved(_) => false,
+            ProductEventPayload::StateUnknown(_) => false,
+            ProductEventPayload::PriceDiscovered(_) => true,
+            ProductEventPayload::PriceDropped(_) => true,
+            ProductEventPayload::PriceIncreased(_) => true,
+            ProductEventPayload::PriceRemoved(_) => true,
+        }
+    }
+
+    pub fn is_state_event(&self) -> bool {
+        match self {
+            ProductEventPayload::Created(_) => false,
+            ProductEventPayload::StateListed(_) => true,
+            ProductEventPayload::StateAvailable(_) => true,
+            ProductEventPayload::StateReserved(_) => true,
+            ProductEventPayload::StateSold(_) => true,
+            ProductEventPayload::StateRemoved(_) => true,
+            ProductEventPayload::StateUnknown(_) => true,
+            ProductEventPayload::PriceDiscovered(_) => false,
+            ProductEventPayload::PriceDropped(_) => false,
+            ProductEventPayload::PriceIncreased(_) => false,
+            ProductEventPayload::PriceRemoved(_) => false,
+        }
+    }
+
     pub fn as_created(&self) -> Option<&ProductCreatedEventPayload> {
         match self {
             ProductEventPayload::Created(payload) => Some(payload),
@@ -49,6 +81,18 @@ impl ProductEventPayload {
             ProductEventPayload::StateSold(payload) => Some(payload),
             ProductEventPayload::StateRemoved(payload) => Some(payload),
             ProductEventPayload::StateUnknown(payload) => Some(payload),
+            _ => None,
+        }
+    }
+
+    pub fn as_new_state(&self) -> Option<ProductState> {
+        match self {
+            ProductEventPayload::StateListed(_) => Some(ProductState::Listed),
+            ProductEventPayload::StateAvailable(_) => Some(ProductState::Available),
+            ProductEventPayload::StateReserved(_) => Some(ProductState::Reserved),
+            ProductEventPayload::StateSold(_) => Some(ProductState::Sold),
+            ProductEventPayload::StateRemoved(_) => Some(ProductState::Removed),
+            ProductEventPayload::StateUnknown(_) => Some(ProductState::Unknown),
             _ => None,
         }
     }

@@ -1,0 +1,142 @@
+<mjml>
+    <mj-head>
+        <mj-attributes>
+            <mj-all font-family="Inter, Helvetica, Arial, sans-serif"/>
+            <mj-text color="#4A4338" font-size="16px" line-height="1.5"/>
+            <mj-button background-color="#A67C52" color="#ffffff" border-radius="6px" font-size="16px" padding="16px"/>
+            <mj-section padding="0"/>
+            <mj-column padding="0"/>
+        </mj-attributes>
+        <mj-style>
+            .title {
+                font-family: "Cormorant Garamond", Georgia, serif;
+                font-size: 32px !important;
+                color: #2A261F;
+                font-weight: 500;
+                margin-bottom: 12px;
+            }
+
+            .subtitle {
+                font-family: "Cormorant Garamond", Georgia, serif;
+                font-size: 20px !important;
+                color: #2A261F;
+                margin-bottom: 8px;
+            }
+
+            .detail-label {
+                font-weight: 600;
+                color: #2A261F;
+            }
+
+            .price-old {
+                text-decoration: line-through;
+                color: #7D7567;
+            }
+
+            .price-new {
+                color: #A67C52;
+                font-weight: 600;
+            }
+
+            .state-change {
+                color: #A67C52;
+                font-weight: 600;
+            }
+        </mj-style>
+        <mj-title>Update on {{productTitle}}</mj-title>
+        <mj-preview>Update on your watched product: {{productTitle}}</mj-preview>
+    </mj-head>
+
+    <mj-body background-color="#F8F4EE">
+
+        <mj-section padding-top="32px" padding-bottom="16px">
+            <mj-column width="100%">
+                <mj-text color="#7D7567" font-size="18px">
+                    Something on your watchlist has changed
+                </mj-text>
+                <mj-text css-class="subtitle" padding-bottom="8px">{{productTitle}}</mj-text>
+            </mj-column>
+        </mj-section>
+
+        <!-- Main content card -->
+        <mj-section background-color="#ffffff" padding="32px" border-radius="12px">
+            <mj-column>
+                <mj-text font-size="18px" color="#4A4338">
+                    {{#if userFirstName}}
+                    Hello {{userFirstName}},
+                    {{else}}
+                    Hello there,
+                    {{/if}}
+                </mj-text>
+                <mj-text>
+                    One of the antiques you're following has been updated. Its <b>availability</b> changed:
+                </mj-text>
+                <mj-text>
+                    <span class="price-old">
+                        {{#if productOldState}}
+                        {{productOldState}}
+                        {{else}}
+                        n.a.
+                        {{/if}}
+                    </span>
+                    →
+                    <span class="price-new">
+                        {{#if productNewState}}
+                        {{productNewState}}
+                        {{else}}
+                        n.a.
+                        {{/if}}
+                    </span>
+                </mj-text>
+            </mj-column>
+        </mj-section>
+
+        <mj-section background-color="#ffffff" padding="0 32px 32px 32px" border-radius="12px">
+            <mj-column width="50%">
+                <mj-button href="{{productAuraHistoriaUrl}}" background-color="#A67C52" color="#ffffff"
+                           border-radius="6px" font-size="16px" padding="16px">
+                    View Product on Watchlist
+                </mj-button>
+            </mj-column>
+
+            <mj-column width="50%">
+                <mj-button href="{{productShopUrl}}" background-color="#EDEDED" color="#4A4338" border-radius="6px"
+                           font-size="16px" padding="16px" border="1px solid #CFCFCF">
+                    View Product in Shop
+                </mj-button>
+            </mj-column>
+        </mj-section>
+
+        <mj-section padding="32px 0 0 0">
+            <mj-column>
+                <mj-text color="#7D7567" font-size="14px">
+                    You are receiving this email because this antique is on your watchlist.
+                    <br/>
+                    <br/>
+                    © 2026 Aura Historia — All rights reserved.
+                </mj-text>
+            </mj-column>
+        </mj-section>
+
+        <mj-section>
+            <mj-column>
+                <mj-text color="#7D7567" font-size="13px" line-height="1.6">
+                    <strong>Imprint</strong>
+                    <br/>
+                    Aura Historia
+                    <br/>
+
+                    Contact: support@aura-historia.com
+                    <br/>
+                    Website: https://aura-historia.com
+                    <br/>
+                    <br/>
+
+                    If you no longer want to receive notifications about antiques on your watchlist,
+                    you can adjust your preferences per antique in your watchlist.
+                </mj-text>
+            </mj-column>
+        </mj-section>
+
+    </mj-body>
+</mjml>

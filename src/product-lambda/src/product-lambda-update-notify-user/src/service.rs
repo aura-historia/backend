@@ -1,15 +1,11 @@
-use common::{
-    currency::domain::Currency,
-    language::{data::LanguageData, domain::Language},
-    price::domain::Price,
-};
+use common::{currency::domain::Currency, language::domain::Language, price::domain::Price};
 use mail_core::{
     payload::MailPayload,
     template::{MailTemplate, MailTemplateType},
 };
 use product::core::{
     product::Product,
-    product_event::{ProductCommonEventPayload, ProductEvent, ProductEventPayload},
+    product_event::{ProductCommonEventPayload, ProductEvent},
 };
 use product::service::get_service::{GetProductError, GetProductService};
 use product::watchlist::service::product_watchlist_service::{
@@ -85,113 +81,89 @@ impl<'a> ProductEventMailPayloadService for ProductEventMailPayloadServiceImpl<'
 }
 
 impl<'a> ProductEventMailPayloadServiceImpl<'a> {
-    fn customize_mail(&self, user: User, item: &Product, event: &ProductEvent) -> MailPayload {
-        // Defaulting to German/EUR now because UserRecord doesn't contain preferences yet
-        let title = item
+    fn customize_mail(&self, user: User, product: &Product, event: &ProductEvent) -> MailPayload {
+        let title = product
             .other_title
-            .get(&Language::De)
-            .unwrap_or(&item.native_title.payload);
+            .get(&user.language.unwrap_or_default())
+            .unwrap_or(&product.native_title.payload);
 
-        let subject = match event.payload {
-            ProductEventPayload::Created(_) => {
-                format!("Neue Antiquität: {}", title)
-            }
-            ProductEventPayload::StateListed(_) => {
-                format!("Antiquität gelistet: {}", title)
-            }
-            ProductEventPayload::StateAvailable(_) => {
-                format!("Antiquität verfügbar: {}", title)
-            }
-            ProductEventPayload::StateReserved(_) => {
-                format!("Antiquität reserviert: {}", title)
-            }
-            ProductEventPayload::StateSold(_) => {
-                format!("Antiquität verkauft: {}", title)
-            }
-            ProductEventPayload::StateRemoved(_) => {
-                format!("Antiquität entfernt: {}", title)
-            }
-            ProductEventPayload::StateUnknown(_) => {
-                format!("Zustand der Antiquität ist jetzt unbekannt: {}", title)
-            }
-            ProductEventPayload::PriceDiscovered(_) => {
-                format!("Antiquität hat jetzt einen Preis: {}", title)
-            }
-            ProductEventPayload::PriceDropped(_) => {
-                format!("Antiquität ist im Preis gefallen: {}", title)
-            }
-            ProductEventPayload::PriceIncreased(_) => {
-                format!("Antiquität ist im Preis gestiegen: {}", title)
-            }
-            ProductEventPayload::PriceRemoved(_) => {
-                format!("Preis beobachteter Antiquität wurde entfernt: {}", title)
-            }
+        let subject = match user.language.unwrap_or_default() {
+            Language::De => format!("Antiquitäten-Update für: {title}"),
+            Language::En => format!("Antiques update on: {title}"),
+            Language::Fr => format!("Mise à jour des antiquités : {title}"),
+            Language::Es => format!("Actualización de antigüedades: {title}"),
         };
 
-        let template = match event.payload {
-            ProductEventPayload::Created(_) => MailTemplate {
-                template_type: MailTemplateType::CreatedNotification,
-                language: LanguageData::De,
-            },
-            ProductEventPayload::StateListed(_) => MailTemplate {
-                template_type: MailTemplateType::StateListedNotification,
-                language: LanguageData::De,
-            },
-            ProductEventPayload::StateAvailable(_) => MailTemplate {
-                template_type: MailTemplateType::StateAvailableNotification,
-                language: LanguageData::De,
-            },
-            ProductEventPayload::StateReserved(_) => MailTemplate {
-                template_type: MailTemplateType::StateReservedNotification,
-                language: LanguageData::De,
-            },
-            ProductEventPayload::StateSold(_) => MailTemplate {
-                template_type: MailTemplateType::StateSoldNotification,
-                language: LanguageData::De,
-            },
-            ProductEventPayload::StateRemoved(_) => MailTemplate {
-                template_type: MailTemplateType::StateRemovedNotification,
-                language: LanguageData::De,
-            },
-            ProductEventPayload::StateUnknown(_) => MailTemplate {
-                template_type: MailTemplateType::StateUnknownNotification,
-                language: LanguageData::De,
-            },
-            ProductEventPayload::PriceDiscovered(_) => MailTemplate {
-                template_type: MailTemplateType::PriceDiscoveredNotification,
-                language: LanguageData::De,
-            },
-            ProductEventPayload::PriceDropped(_) => MailTemplate {
-                template_type: MailTemplateType::PriceDroppedNotification,
-                language: LanguageData::De,
-            },
-            ProductEventPayload::PriceIncreased(_) => MailTemplate {
-                template_type: MailTemplateType::PriceIncreasedNotification,
-                language: LanguageData::De,
-            },
-            ProductEventPayload::PriceRemoved(_) => MailTemplate {
-                template_type: MailTemplateType::PriceRemovedNotification,
-                language: LanguageData::De,
-            },
+        let template_type = if event.payload.is_price_event() {
+            MailTemplateType::WatchlistUpdatePrice
+        } else {
+            MailTemplateType::WatchlistUpdateState
+        };
+        let template = MailTemplate {
+            template_type,
+            language: user.language.unwrap_or_default().into(),
         };
 
         let mut data = json!({
-            "title": title.to_string()
+            "productAuraHistoriaUrl": format!("https://aura-historia.com/product/{}/{}", product.shop_id, product.shops_product_id),
+            "productShopUrl": product.url,
+            "productTitle": title.to_string(),
+            "productShopName": product.shop_name,
         });
         let data_ref = data.as_object_mut().expect(
             "shouldn't fail because it's initialized above as an object and not modified since",
         );
 
+        if let Some(user_first_name) = user.first_name {
+            data_ref.insert("userFirstName".to_owned(), json!(user_first_name));
+        }
+        if let Some(user_last_name) = user.last_name {
+            data_ref.insert("userLastName".to_owned(), json!(user_last_name));
+        }
+
         if let Some(price_payload) = event.payload.as_price_changed() {
-            let (currency, amount) = price_payload
+            let (old_currency, old_amount) = price_payload
+                .old_other_price
+                .get_key_value(user.currency.as_ref().unwrap_or(&Currency::default()))
+                .unwrap_or((
+                    &price_payload.old_native_price.currency,
+                    &price_payload.old_native_price.monetary_amount,
+                ));
+            let old_price = Price::new(*old_amount, *old_currency);
+            data_ref.insert(
+                "productOldPrice".to_owned(),
+                json!(old_price.format_human_readable()),
+            );
+
+            let (new_currency, new_amount) = price_payload
                 .new_other_price
-                .get_key_value(&Currency::Eur)
+                .get_key_value(user.currency.as_ref().unwrap_or(&Currency::default()))
                 .unwrap_or((
                     &price_payload.new_native_price.currency,
                     &price_payload.new_native_price.monetary_amount,
                 ));
-            let price = Price::new(*amount, *currency);
-            data_ref.insert("price".to_owned(), json!(price.format_human_readable()));
+            let new_price = Price::new(*new_amount, *new_currency);
+            data_ref.insert(
+                "productNewPrice".to_owned(),
+                json!(new_price.format_human_readable()),
+            );
+        }
+
+        if let Some(state_payload) = event.payload.as_state_changed() {
+            data_ref.insert(
+                "productOldState".to_owned(),
+                json!(
+                    state_payload
+                        .old_state
+                        .format_human_readable(&user.language.unwrap_or_default())
+                ),
+            );
+        }
+        if let Some(new_state) = event.payload.as_new_state() {
+            data_ref.insert(
+                "productNewState".to_owned(),
+                json!(new_state.format_human_readable(&user.language.unwrap_or_default())),
+            );
         }
 
         MailPayload {

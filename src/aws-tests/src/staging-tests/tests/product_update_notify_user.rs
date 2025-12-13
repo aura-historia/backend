@@ -1,5 +1,3 @@
-use std::{panic, time::Duration};
-
 use aws_tests_common::get_cfn_output;
 use common::{
     api::collection::PutCollectionData, product_id::api::ProductKeyData, user_id::UserId,
@@ -22,7 +20,10 @@ use shop::dynamodb::{
 use staging_tests::{
     create_test_user, get_dynamodb_client, get_test_mail, staging_test, wait_for_email,
 };
+use std::time::Duration;
+use time::OffsetDateTime;
 use user::dynamodb::repository::{UserDynamoDbRepository, UserDynamoDbRepositoryImpl};
+use user::dynamodb::user_record_update::UserRecordUpdate;
 
 async fn prepare_test_shop() -> Shop {
     let stack = get_cfn_output();
@@ -86,6 +87,20 @@ async fn should_send_email_to_user_when_watched_product_has_update() {
             .unwrap()
             .is_some()
     );
+    user_repository
+        .update_user_record(
+            &user.sub.into(),
+            UserRecordUpdate {
+                email: None,
+                first_name: Some("Thomas".into()),
+                last_name: Some("Testperson".into()),
+                language: Some(common::language::record::LanguageRecord::De),
+                currency: Some(common::currency::record::CurrencyRecord::Eur),
+                updated: OffsetDateTime::now_utc(),
+            },
+        )
+        .await
+        .unwrap();
 
     // add product to watchlist
     let post_url = format!(
@@ -156,15 +171,5 @@ async fn should_send_email_to_user_when_watched_product_has_update() {
     assert_eq!(200, response.status());
 
     // verify email with update-notification arrived
-    match put_product_data.state {
-        ProductStateData::Available => {
-            assert!(wait_for_email("Antiquität verfügbar").await)
-        }
-        ProductStateData::Sold => {
-            assert!(wait_for_email("Antiquität verkauft").await)
-        }
-        other => panic!(
-            "shouldn't be this state '{other:?}' because we explicitly set the new state as either 'AVAILABLE' or 'SOLD'",
-        ),
-    }
+    assert!(wait_for_email("Antiquitäten-Update").await)
 }
