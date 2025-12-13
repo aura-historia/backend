@@ -17,9 +17,10 @@ use product_enrichment::{
     },
     translate::TranslationDelegateImpl,
 };
+use product_enrichment_asg_scale_down::reinstantiate_periodic_opensearch_index_products_refresh;
 use std::sync::Arc;
 use tokio::sync::OnceCell;
-use tracing::info;
+use tracing::{error, info};
 
 static AWS_CONFIG: OnceCell<SdkConfig> = OnceCell::const_new();
 pub async fn get_aws_config() -> &'static SdkConfig {
@@ -128,4 +129,8 @@ async fn main() {
             break;
         }
     }
+
+    reinstantiate_periodic_opensearch_index_products_refresh(get_opensearch_client().await).await.unwrap_or_else(|err|
+        error!(error = %err, "Failed reinstantiating periodoc opensearch refresh-index for index 'products'.")
+    );
 }

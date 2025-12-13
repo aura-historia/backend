@@ -30,6 +30,12 @@ pub async fn scale_down(
         "Updated auto-scaling-group."
     );
 
+    reinstantiate_periodic_opensearch_index_products_refresh(opensearch_client).await
+}
+
+pub async fn reinstantiate_periodic_opensearch_index_products_refresh(
+    opensearch_client: &opensearch::OpenSearch,
+) -> Result<(), lambda_runtime::Error> {
     let _ = opensearch_client
         .indices()
         .put_settings(opensearch::indices::IndicesPutSettingsParts::Index(&[
