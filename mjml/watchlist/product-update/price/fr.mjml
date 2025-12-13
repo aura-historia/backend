@@ -44,7 +44,7 @@
             }
         </mj-style>
         <mj-title>Mise à jour concernant {{product.title}}</mj-title>
-        <mj-preview>Mise à jour de votre produit suivi : {{product.title}}</mj-preview>
+        <mj-preview>Mise à jour d’un produit de votre liste de suivi : {{product.title}}</mj-preview>
     </mj-head>
 
     <mj-body background-color="#F8F4EE">
@@ -52,13 +52,12 @@
         <mj-section padding-top="32px" padding-bottom="16px">
             <mj-column width="100%">
                 <mj-text color="#7D7567" font-size="18px">
-                    Un élément de votre liste de suivi a changé
+                    Un élément de votre liste de suivi a été modifié
                 </mj-text>
                 <mj-text css-class="subtitle" padding-bottom="8px">{{product.title}}</mj-text>
             </mj-column>
         </mj-section>
 
-        <!-- Main content card -->
         <mj-section background-color="#ffffff" padding="32px" border-radius="12px">
             <mj-column>
                 <mj-text font-size="18px" color="#4A4338">
@@ -69,62 +68,37 @@
                     {{/if}}
                 </mj-text>
                 <mj-text>
-                    L’une des antiquités que vous suivez a été mise à jour. Voici ce qui a changé :
+                    L’une des antiquités que vous suivez a été mise à jour. Son <b>prix</b> a changé :
                 </mj-text>
-
-                {{#if product.oldPrice}}
-                {{#if product.newPrice}}
-                <!-- old + new -->
                 <mj-text>
-                    <span class="detail-label">Prix :</span>
-                    <br/>
-                    <span class="price-old">{{product.oldPrice}}</span>
+                    <span class="price-old">
+                        {{#if product.oldPrice}}
+                        {{product.oldPrice}}
+                        {{else}}
+                        n. c.
+                        {{/if}}
+                    </span>
                     →
-                    <span class="price-new">{{product.newPrice}}</span>
+                    <span class="price-new">
+                        {{#if product.newPrice}}
+                        {{product.newPrice}}
+                        {{else}}
+                        n. c.
+                        {{/if}}
+                    </span>
                 </mj-text>
-                {{else}}
-                <!-- old only -->
-                <mj-text>
-                    <span class="detail-label">Prix :</span>
-                    <br/>
-                    <span class="price-old">{{product.oldPrice}}</span>
-                </mj-text>
-                {{/if}}
-                {{else}}
-                {{#if product.newPrice}}
-                <!-- new only -->
-                <mj-text>
-                    <span class="detail-label">Prix :</span>
-                    <br/>
-                    <span class="price-new">{{product.newPrice}}</span>
-                </mj-text>
-                {{/if}}
-                {{/if}}
-
-                {{#if product.oldState}}
-                {{#if product.newState}}
-                <mj-text padding-top="12px">
-                    <span class="detail-label">Statut :</span>
-                    <br/>
-                    {{product.oldState}} →
-                    <span class="state-change">{{product.newState}}</span>
-                </mj-text>
-                {{/if}}
-                {{/if}}
             </mj-column>
         </mj-section>
 
         <mj-section background-color="#ffffff" padding="0 32px 32px 32px" border-radius="12px">
             <mj-column width="50%">
-                <mj-button href="{{product.auraHistoriaUrl}}" background-color="#A67C52" color="#ffffff"
-                           border-radius="6px" font-size="16px" padding="16px">
+                <mj-button href="{{product.auraHistoriaUrl}}">
                     Voir le produit dans la liste de suivi
                 </mj-button>
             </mj-column>
 
             <mj-column width="50%">
-                <mj-button href="{{product.shopUrl}}" background-color="#EDEDED" color="#4A4338" border-radius="6px"
-                           font-size="16px" padding="16px" border="1px solid #CFCFCF">
+                <mj-button href="{{product.shopUrl}}" background-color="#EDEDED" color="#4A4338" border="1px solid #CFCFCF">
                     Voir le produit dans la boutique
                 </mj-button>
             </mj-column>
@@ -133,9 +107,8 @@
         <mj-section padding="32px 0 0 0">
             <mj-column>
                 <mj-text color="#7D7567" font-size="14px">
-                    Vous recevez cet e-mail parce que cette antiquité figure dans votre liste de suivi.
-                    <br/>
-                    <br/>
+                    Vous recevez cet e-mail car cette antiquité figure dans votre liste de suivi.
+                    <br/><br/>
                     © 2026 Aura Historia — Tous droits réservés.
                 </mj-text>
             </mj-column>
@@ -151,11 +124,9 @@
                     Contact : support@aura-historia.com
                     <br/>
                     Site web : https://aura-historia.com
-                    <br/>
-                    <br/>
-                    Si vous ne souhaitez plus recevoir de notifications concernant les antiquités de votre liste de
-                    suivi,
-                    vous pouvez ajuster vos préférences pour chaque antiquité dans votre liste de suivi.
+                    <br/><br/>
+                    Si vous ne souhaitez plus recevoir de notifications concernant les antiquités de votre liste de suivi,
+                    vous pouvez ajuster vos préférences pour chaque antiquité directement dans votre liste.
                 </mj-text>
             </mj-column>
         </mj-section>

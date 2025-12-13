@@ -446,10 +446,14 @@ jobs:
     strategy:
       matrix:
         resource:
-          - mjml/watchlist/product-update/de.mjml
-          - mjml/watchlist/product-update/en.mjml
-          - mjml/watchlist/product-update/es.mjml
-          - mjml/watchlist/product-update/fr.mjml
+          - mjml/watchlist/product-update/price/de.mjml
+          - mjml/watchlist/product-update/price/en.mjml
+          - mjml/watchlist/product-update/price/es.mjml
+          - mjml/watchlist/product-update/price/fr.mjml
+          - mjml/watchlist/product-update/state/de.mjml
+          - mjml/watchlist/product-update/state/en.mjml
+          - mjml/watchlist/product-update/state/es.mjml
+          - mjml/watchlist/product-update/state/fr.mjml
 
     steps:
       - uses: actions/checkout@v6

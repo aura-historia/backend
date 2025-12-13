@@ -163,7 +163,7 @@ mod tests {
         TEMPLATE_CACHE.get_or_init(|| {
             Arc::new(RwLock::new(HashMap::from_iter([(
                 MailTemplate {
-                    template_type: MailTemplateType::WatchlistUpdate,
+                    template_type: MailTemplateType::WatchlistUpdatePrice,
                     language: LanguageData::De,
                 },
                 "bar".to_owned(),
@@ -172,7 +172,7 @@ mod tests {
 
         let actual = service
             .resolve_template(MailTemplate {
-                template_type: MailTemplateType::WatchlistUpdate,
+                template_type: MailTemplateType::WatchlistUpdatePrice,
                 language: LanguageData::De,
             })
             .await

@@ -94,8 +94,13 @@ impl<'a> ProductEventMailPayloadServiceImpl<'a> {
             Language::Es => format!("Actualización de antigüedades: {title}"),
         };
 
+        let template_type = if event.payload.is_price_event() {
+            MailTemplateType::WatchlistUpdatePrice
+        } else {
+            MailTemplateType::WatchlistUpdateState
+        };
         let template = MailTemplate {
-            template_type: MailTemplateType::WatchlistUpdate,
+            template_type,
             language: user.language.unwrap_or_default().into(),
         };
 

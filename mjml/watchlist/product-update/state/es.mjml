@@ -43,8 +43,8 @@
                 font-weight: 600;
             }
         </mj-style>
-        <mj-title>Aktualisierung zu {{product.title}}</mj-title>
-        <mj-preview>Aktualisierung zu Ihrem beobachteten Produkt: {{product.title}}</mj-preview>
+        <mj-title>Actualización sobre {{product.title}}</mj-title>
+        <mj-preview>Actualización de un producto de su lista de seguimiento: {{product.title}}</mj-preview>
     </mj-head>
 
     <mj-body background-color="#F8F4EE">
@@ -52,80 +52,54 @@
         <mj-section padding-top="32px" padding-bottom="16px">
             <mj-column width="100%">
                 <mj-text color="#7D7567" font-size="18px">
-                    Etwas auf Ihrer Merkliste hat sich geändert
+                    Se ha producido un cambio en su lista de seguimiento
                 </mj-text>
                 <mj-text css-class="subtitle" padding-bottom="8px">{{product.title}}</mj-text>
             </mj-column>
         </mj-section>
 
-        <!-- Main content card -->
         <mj-section background-color="#ffffff" padding="32px" border-radius="12px">
             <mj-column>
                 <mj-text font-size="18px" color="#4A4338">
                     {{#if user.firstName}}
-                    Hallo {{user.firstName}},
+                    Estimado/a {{user.firstName}},
                     {{else}}
-                    Hallo,
+                    Estimado/a cliente,
                     {{/if}}
                 </mj-text>
                 <mj-text>
-                    Eine der Antiquitäten, denen Sie folgen, wurde aktualisiert. Folgendes hat sich geändert:
+                    Una de las antigüedades que sigue ha sido actualizada. Su <b>disponibilidad</b> ha cambiado:
                 </mj-text>
-
-                {{#if product.oldPrice}}
-                {{#if product.newPrice}}
-                <!-- old + new -->
                 <mj-text>
-                    <span class="detail-label">Preis:</span>
-                    <br/>
-                    <span class="price-old">{{product.oldPrice}}</span>
+                    <span class="price-old">
+                        {{#if product.oldState}}
+                        {{product.oldState}}
+                        {{else}}
+                        n. d.
+                        {{/if}}
+                    </span>
                     →
-                    <span class="price-new">{{product.newPrice}}</span>
+                    <span class="price-new">
+                        {{#if product.newState}}
+                        {{product.newState}}
+                        {{else}}
+                        n. d.
+                        {{/if}}
+                    </span>
                 </mj-text>
-                {{else}}
-                <!-- old only -->
-                <mj-text>
-                    <span class="detail-label">Preis:</span>
-                    <br/>
-                    <span class="price-old">{{product.oldPrice}}</span>
-                </mj-text>
-                {{/if}}
-                {{else}}
-                {{#if product.newPrice}}
-                <!-- new only -->
-                <mj-text>
-                    <span class="detail-label">Preis:</span>
-                    <br/>
-                    <span class="price-new">{{product.newPrice}}</span>
-                </mj-text>
-                {{/if}}
-                {{/if}}
-
-                {{#if product.oldState}}
-                {{#if product.newState}}
-                <mj-text padding-top="12px">
-                    <span class="detail-label">Status:</span>
-                    <br/>
-                    {{product.oldState}} →
-                    <span class="state-change">{{product.newState}}</span>
-                </mj-text>
-                {{/if}}
-                {{/if}}
             </mj-column>
         </mj-section>
 
         <mj-section background-color="#ffffff" padding="0 32px 32px 32px" border-radius="12px">
             <mj-column width="50%">
-                <mj-button href="{{product.auraHistoriaUrl}}" background-color="#A67C52" color="#ffffff"
-                           border-radius="6px" font-size="16px" padding="16px">
-                    Produkt in der Merkliste ansehen
+                <mj-button href="{{product.auraHistoriaUrl}}">
+                    Ver producto en la lista de seguimiento
                 </mj-button>
             </mj-column>
 
             <mj-column width="50%">
-                <mj-button href="{{product.shopUrl}}" background-color="#EDEDED" color="#4A4338" border-radius="6px"
-                           font-size="16px" padding="16px" border="1px solid #CFCFCF">
-                    Produkt im Shop ansehen
+                <mj-button href="{{product.shopUrl}}" background-color="#EDEDED" color="#4A4338" border="1px solid #CFCFCF">
+                    Ver producto en la tienda
                 </mj-button>
             </mj-column>
         </mj-section>
@@ -133,10 +107,9 @@
         <mj-section padding="32px 0 0 0">
             <mj-column>
                 <mj-text color="#7D7567" font-size="14px">
-                    Sie erhalten diese E-Mail, weil sich diese Antiquität auf Ihrer Merkliste befindet.
-                    <br/>
-                    <br/>
-                    © 2026 Aura Historia — Alle Rechte vorbehalten.
+                    Recibe este correo porque esta antigüedad se encuentra en su lista de seguimiento.
+                    <br/><br/>
+                    © 2026 Aura Historia — Todos los derechos reservados.
                 </mj-text>
             </mj-column>
         </mj-section>
@@ -144,17 +117,16 @@
         <mj-section>
             <mj-column>
                 <mj-text color="#7D7567" font-size="13px" line-height="1.6">
-                    <strong>Impressum</strong>
+                    <strong>Aviso legal</strong>
                     <br/>
                     Aura Historia
                     <br/>
-                    Kontakt: support@aura-historia.com
+                    Contacto: support@aura-historia.com
                     <br/>
-                    Website: https://aura-historia.com
-                    <br/>
-                    <br/>
-                    Wenn Sie keine Benachrichtigungen mehr zu Antiquitäten auf Ihrer Merkliste erhalten möchten,
-                    können Sie Ihre Einstellungen pro Antiquität in Ihrer Merkliste anpassen.
+                    Sitio web: https://aura-historia.com
+                    <br/><br/>
+                    Si ya no desea recibir notificaciones sobre antigüedades en su lista de seguimiento,
+                    puede ajustar sus preferencias para cada antigüedad desde su lista.
                 </mj-text>
             </mj-column>
         </mj-section>

@@ -5,7 +5,8 @@ use serde::{Deserialize, Serialize};
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "SCREAMING_SNAKE_CASE")]
 pub enum MailTemplateType {
-    WatchlistUpdate,
+    WatchlistUpdatePrice,
+    WatchlistUpdateState,
 }
 
 #[cfg_attr(feature = "test-data", derive(fake::Dummy))]
@@ -18,7 +19,8 @@ pub struct MailTemplate {
 impl MailTemplateType {
     pub fn as_s3_dir_str(&self) -> &'static str {
         match self {
-            MailTemplateType::WatchlistUpdate => "mjml/watchlist/product-update",
+            MailTemplateType::WatchlistUpdatePrice => "mjml/watchlist/product-update/price",
+            MailTemplateType::WatchlistUpdateState => "mjml/watchlist/product-update/state",
         }
     }
 }
