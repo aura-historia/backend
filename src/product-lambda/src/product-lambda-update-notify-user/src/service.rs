@@ -87,8 +87,6 @@ impl<'a> ProductEventMailPayloadServiceImpl<'a> {
             .get(&user.language.unwrap_or_default())
             .unwrap_or(&product.native_title.payload);
 
-        // TODO
-        // - i18n mjml template payload
         let subject = match user.language.unwrap_or_default() {
             Language::De => format!("Antiquitäten-Update für: {title}"),
             Language::En => format!("Antiques update on: {title}"),

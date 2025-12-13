@@ -1,0 +1,158 @@
+<mjml>
+    <mj-head>
+        <mj-attributes>
+            <mj-all font-family="Inter, Helvetica, Arial, sans-serif"/>
+            <mj-text color="#4A4338" font-size="16px" line-height="1.5"/>
+            <mj-button background-color="#A67C52" color="#ffffff" border-radius="6px" font-size="16px" padding="16px"/>
+            <mj-section padding="0"/>
+            <mj-column padding="0"/>
+        </mj-attributes>
+        <mj-style>
+            .title {
+                font-family: "Cormorant Garamond", Georgia, serif;
+                font-size: 32px !important;
+                color: #2A261F;
+                font-weight: 500;
+                margin-bottom: 12px;
+            }
+
+            .subtitle {
+                font-family: "Cormorant Garamond", Georgia, serif;
+                font-size: 20px !important;
+                color: #2A261F;
+                margin-bottom: 8px;
+            }
+
+            .detail-label {
+                font-weight: 600;
+                color: #2A261F;
+            }
+
+            .price-old {
+                text-decoration: line-through;
+                color: #7D7567;
+            }
+
+            .price-new {
+                color: #A67C52;
+                font-weight: 600;
+            }
+
+            .state-change {
+                color: #A67C52;
+                font-weight: 600;
+            }
+        </mj-style>
+        <mj-title>Actualización sobre {{product.title}}</mj-title>
+        <mj-preview>Actualización de tu producto en seguimiento: {{product.title}}</mj-preview>
+    </mj-head>
+
+    <mj-body background-color="#F8F4EE">
+
+        <mj-section padding-top="32px" padding-bottom="16px">
+            <mj-column width="100%">
+                <mj-text color="#7D7567" font-size="18px">
+                    Algo en tu lista de seguimiento ha cambiado
+                </mj-text>
+                <mj-text css-class="subtitle" padding-bottom="8px">{{product.title}}</mj-text>
+            </mj-column>
+        </mj-section>
+
+        <!-- Main content card -->
+        <mj-section background-color="#ffffff" padding="32px" border-radius="12px">
+            <mj-column>
+                <mj-text font-size="18px" color="#4A4338">
+                    Hola {{user.firstName}},
+                </mj-text>
+                <mj-text>
+                    Una de las antigüedades que sigues ha sido actualizada. Esto es lo que ha cambiado:
+                </mj-text>
+
+                {{#if product.oldPrice}}
+                {{#if product.newPrice}}
+                <!-- old + new -->
+                <mj-text>
+                    <span class="detail-label">Precio:</span><br/>
+                    <span class="price-old">{{product.oldPrice}}</span>
+                    →
+                    <span class="price-new">{{product.newPrice}}</span>
+                </mj-text>
+                {{else}}
+                <!-- old only -->
+                <mj-text>
+                    <span class="detail-label">Precio:</span><br/>
+                    <span class="price-old">{{product.oldPrice}}</span>
+                </mj-text>
+                {{/if}}
+                {{else if product.newPrice}}
+                <!-- new only -->
+                <mj-text>
+                    <span class="detail-label">Precio:</span><br/>
+                    <span class="price-new">{{product.newPrice}}</span>
+                </mj-text>
+                {{/if}}
+
+
+                {{#if product.oldState}}
+                {{#if product.newState}}
+                <mj-text padding-top="12px">
+                    <span class="detail-label">Estado:</span>
+                    <br/>
+                    {{product.oldState}} →
+                    <span class="state-change">{{product.newState}}</span>
+                </mj-text>
+                {{/if}}
+                {{/if}}
+            </mj-column>
+        </mj-section>
+
+        <mj-section background-color="#ffffff" padding="0 32px 32px 32px" border-radius="12px">
+            <mj-column width="50%">
+                <mj-button href="{{product.auraHistoriaUrl}}" background-color="#A67C52" color="#ffffff"
+                           border-radius="6px" font-size="16px" padding="16px">
+                    Ver producto en la lista de seguimiento
+                </mj-button>
+            </mj-column>
+
+            <mj-column width="50%">
+                <mj-button href="{{product.shopUrl}}" background-color="#EDEDED" color="#4A4338" border-radius="6px"
+                           font-size="16px" padding="16px" border="1px solid #CFCFCF">
+                    Ver producto en la tienda
+                </mj-button>
+            </mj-column>
+        </mj-section>
+
+
+        <mj-section padding="32px 0 0 0">
+            <mj-column>
+                <mj-text color="#7D7567" font-size="14px">
+                    Recibes este correo porque esta antigüedad está en tu lista de seguimiento.
+                    <br/>
+                    <br/>
+                    © 2026 Aura Historia — Todos los derechos reservados.
+                </mj-text>
+            </mj-column>
+        </mj-section>
+
+        <mj-section>
+            <mj-column>
+                <mj-text color="#7D7567" font-size="13px" line-height="1.6">
+                    <strong>Aviso legal</strong>
+                    <br/>
+                    Aura Historia
+                    <br/>
+
+                    Contacto: support@aura-historia.com
+                    <br/>
+                    Sitio web: https://aura-historia.com
+                    <br/>
+                    <br/>
+
+                    Si ya no deseas recibir notificaciones sobre antigüedades en tu lista de seguimiento,
+                    puedes ajustar tus preferencias por antigüedad en tu lista de seguimiento.
+                </mj-text>
+            </mj-column>
+        </mj-section>
+
+    </mj-body>
+</mjml>
