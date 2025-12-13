@@ -75,7 +75,6 @@ async fn should_200_for_get_patch_get() {
     assert_eq!(UserId::from(user.sub), gotten1.user_id);
 
     let patch_user_account_data = PatchUserAccountData {
-        email: Some("hansi.hans@hans.hans".try_into().unwrap()),
         first_name: Some("Hansi".into()),
         last_name: Some("Hans".into()),
         language: Some(LanguageData::Fr),
@@ -91,7 +90,6 @@ async fn should_200_for_get_patch_get() {
     assert_eq!(200, patch_response.status());
     let patched = patch_response.json::<GetUserAccountData>().await.unwrap();
     assert_eq!(UserId::from(user.sub), patched.user_id);
-    assert_eq!(patch_user_account_data.email.unwrap(), patched.email);
     assert_eq!(
         &patch_user_account_data.first_name.unwrap(),
         patched.first_name.as_ref().unwrap()

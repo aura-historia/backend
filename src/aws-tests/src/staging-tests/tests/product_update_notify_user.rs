@@ -91,7 +91,6 @@ async fn should_send_email_to_user_when_watched_product_has_update() {
         .update_user_record(
             &user.sub.into(),
             UserRecordUpdate {
-                email: None,
                 first_name: Some("Thomas".into()),
                 last_name: Some("Testperson".into()),
                 language: Some(common::language::record::LanguageRecord::De),

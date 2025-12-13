@@ -61,9 +61,6 @@ async fn should_update_user_record(#[case] user_record_update: UserRecordUpdate)
         .unwrap()
         .unwrap();
 
-    if let Some(email) = user_record_update.email {
-        assert_eq!(email, updated.email);
-    }
     if let Some(ref first_name) = user_record_update.first_name {
         assert_eq!(first_name, updated.first_name.as_ref().unwrap());
     }

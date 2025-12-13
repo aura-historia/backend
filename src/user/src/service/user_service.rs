@@ -119,7 +119,6 @@ impl<'a> UserService for UserServiceImpl<'a> {
             Ok(existing_user)
         } else {
             let user_record_update = UserRecordUpdate {
-                email: cmd.email,
                 first_name: cmd.first_name,
                 last_name: cmd.last_name,
                 language: cmd.language.map(LanguageRecord::from),
