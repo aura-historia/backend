@@ -10,7 +10,6 @@ pub struct CreateUserCommand {
 
 #[derive(Debug, Clone, PartialEq, Default)]
 pub struct UpdateUserCommand {
-    pub email: Option<Email>,
     pub first_name: Option<FirstName>,
     pub last_name: Option<LastName>,
     pub language: Option<Language>,
@@ -19,8 +18,7 @@ pub struct UpdateUserCommand {
 
 impl UpdateUserCommand {
     pub fn is_empty(&self) -> bool {
-        self.email.is_none()
-            && self.first_name.is_none()
+        self.first_name.is_none()
             && self.last_name.is_none()
             && self.language.is_none()
             && self.currency.is_none()
@@ -44,9 +42,7 @@ mod fake {
 
     impl fake::Dummy<fake::Faker> for UpdateUserCommand {
         fn dummy_with_rng<R: fake::rand::Rng + ?Sized>(config: &fake::Faker, rng: &mut R) -> Self {
-            let email_str: String = SafeEmail().fake_with_rng(rng);
             UpdateUserCommand {
-                email: Some(email_str.try_into().unwrap()),
                 first_name: config.fake_with_rng(rng),
                 last_name: config.fake_with_rng(rng),
                 language: config.fake_with_rng(rng),

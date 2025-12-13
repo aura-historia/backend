@@ -17,7 +17,6 @@ async fn should_200_respond_user_when_exists() {
     let user = service.create_user(Faker.fake()).await.unwrap();
 
     let patch_user_account_data = PatchUserAccountData {
-        email: Some("hansi.hans@hans.hans".try_into().unwrap()),
         first_name: Some("Hansi".into()),
         last_name: Some("Hans".into()),
         language: Some(LanguageData::Fr),
@@ -35,7 +34,6 @@ async fn should_200_respond_user_when_exists() {
     let actual: GetUserAccountData =
         serde_json::from_value(extract_apigw_response_json_body!(response)).unwrap();
 
-    assert_eq!(patch_user_account_data.email.unwrap(), actual.email);
     assert_eq!(
         patch_user_account_data.first_name.unwrap(),
         actual.first_name.unwrap()

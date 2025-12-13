@@ -4,15 +4,11 @@ use common::{
     language::record::LanguageRecord,
 };
 use serde::{Deserialize, Serialize};
-use serde_email::Email;
 use serde_fields::SerdeField;
 use time::OffsetDateTime;
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, SerdeField)]
 pub struct UserRecordUpdate {
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub email: Option<Email>,
-
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub first_name: Option<FirstName>,
 
@@ -34,18 +30,12 @@ impl DynamoDbUpdate for UserRecordUpdate {}
 #[cfg(feature = "test-data")]
 mod fake {
     use crate::dynamodb::user_record_update::UserRecordUpdate;
-    use fake::{Fake, faker::internet::en::SafeEmail};
+    use fake::Fake;
     use time::OffsetDateTime;
 
     impl fake::Dummy<fake::Faker> for UserRecordUpdate {
         fn dummy_with_rng<R: fake::rand::Rng + ?Sized>(config: &fake::Faker, rng: &mut R) -> Self {
             UserRecordUpdate {
-                email: Some(
-                    SafeEmail()
-                        .fake_with_rng::<String, R>(rng)
-                        .try_into()
-                        .unwrap(),
-                ),
                 first_name: config.fake_with_rng(rng),
                 last_name: config.fake_with_rng(rng),
                 language: config.fake_with_rng(rng),

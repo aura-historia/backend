@@ -59,7 +59,6 @@ pub async fn handle(
         })?;
 
     let update_user_command = UpdateUserCommand {
-        email: patch_user_account_data.email,
         first_name: patch_user_account_data.first_name,
         last_name: patch_user_account_data.last_name,
         language: patch_user_account_data.language.map(Language::from),
