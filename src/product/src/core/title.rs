@@ -6,8 +6,8 @@ pub struct Title(String);
 
 impl From<&str> for Title {
     fn from(s: &str) -> Self {
-        if s.len() > 255 {
-            match s.split_at_checked(255) {
+        if s.len() > 128 {
+            match s.split_at_checked(128) {
                 Some((truncated, _)) => Self(truncated.into()),
                 None => Self(s.into()),
             }
