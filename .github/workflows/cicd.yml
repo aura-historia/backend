@@ -435,10 +435,66 @@ jobs:
             --body "${{ matrix.resource }}" \
             --tagging "stage=${{ env.STAGE }}"
 
+  aws-push-mail-templates:
+    name: Compile & push Mail-Templates to S3 ${{ matrix.resource }}
+    needs: [unit-test, integration-test]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write
+
+    strategy:
+      matrix:
+        resource:
+          - mjml/watchlist/product-update/de.mjml
+          - mjml/watchlist/product-update/en.mjml
+          - mjml/watchlist/product-update/es.mjml
+          - mjml/watchlist/product-update/fr.mjml
+
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v5.1.1
+        with:
+          role-to-assume: ${{ secrets.CI_DEPLOY_ROLE_ARN }}
+          aws-region: ${{ vars.AWS_REGION }}
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 24
+
+      - name: Install MJML
+        run: npm install -g mjml
+
+      - name: Compile MJML
+        run: |
+          output="dist/emails/${{ matrix.resource }}"
+          output="${output%.mjml}.html"
+          mkdir -p "$(dirname "$output")"
+          mjml "${{ matrix.resource }}" -o "$output"
+
+      - name: Upload compiled template to S3
+        run: |
+          output="dist/emails/${{ matrix.resource }}"
+          output="${output%.mjml}.html"
+          aws s3api put-object \
+            --bucket "${{ vars.S3_MAIL_TEMPLATE_BUCKET_NAME }}" \
+            --key "${{ env.STAGE_NAME }}/${GITHUB_SHA}/${output#dist/emails/}" \
+            --body "$output" \
+            --tagging "stage=${{ env.STAGE }}"
+
   aws-cfn-deploy:
     name: Deploy & initialize CFN-Stack
     needs:
-      [cfn-lint, aws-push-lambda, aws-push-ec2, aws-push-resource-artifacts]
+      [
+        cfn-lint,
+        aws-push-lambda,
+        aws-push-ec2,
+        aws-push-resource-artifacts,
+        aws-push-mail-templates,
+      ]
     environment:
       name: aws
     runs-on: ubuntu-latest
