@@ -33,6 +33,8 @@ pub struct SendMailServiceImpl<'a> {
     ses_client: &'a aws_sdk_sesv2::Client,
     s3_client: &'a aws_sdk_s3::Client,
     s3_bucket: &'a str,
+    stage_name: &'a str,
+    commit_sha: &'a str,
     handlebars: Handlebars<'a>,
 }
 
@@ -43,11 +45,15 @@ impl<'a> SendMailServiceImpl<'a> {
         ses_client: &'a aws_sdk_sesv2::Client,
         s3_client: &'a aws_sdk_s3::Client,
         s3_bucket: &'a str,
+        stage_name: &'a str,
+        commit_sha: &'a str,
     ) -> Self {
         Self {
             ses_client,
             s3_client,
             s3_bucket,
+            stage_name,
+            commit_sha,
             handlebars: Handlebars::new(),
         }
     }
@@ -70,7 +76,12 @@ impl<'a> SendMailServiceImpl<'a> {
             .s3_client
             .get_object()
             .bucket(self.s3_bucket)
-            .key(format!("{}.html", template.as_s3_blob_str()))
+            .key(format!(
+                "{}/{}/{}.html",
+                self.stage_name,
+                self.commit_sha,
+                template.as_s3_blob_str()
+            ))
             .send()
             .await?;
         let bytes = resp
@@ -147,7 +158,7 @@ mod tests {
             .build();
         let ses_client = aws_sdk_sesv2::Client::new(&sdk_config);
         let s3_client = aws_sdk_s3::Client::new(&sdk_config);
-        let service = SendMailServiceImpl::new(&ses_client, &s3_client, "foo");
+        let service = SendMailServiceImpl::new(&ses_client, &s3_client, "foo", "moo", "boo");
 
         TEMPLATE_CACHE.get_or_init(|| {
             Arc::new(RwLock::new(HashMap::from_iter([(
