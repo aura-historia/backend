@@ -62,7 +62,11 @@
         <mj-section background-color="#ffffff" padding="32px" border-radius="12px">
             <mj-column>
                 <mj-text font-size="18px" color="#4A4338">
+                    {{#if user.firstName}}
                     Hello {{user.firstName}},
+                    {{else}}
+                    Hello there,
+                    {{/if}}
                 </mj-text>
                 <mj-text>
                     One of the antiques you're following has been updated. Here’s what changed:
@@ -72,7 +76,8 @@
                 {{#if product.newPrice}}
                 <!-- old + new -->
                 <mj-text>
-                    <span class="detail-label">Price:</span><br/>
+                    <span class="detail-label">Price:</span>
+                    <br/>
                     <span class="price-old">{{product.oldPrice}}</span>
                     →
                     <span class="price-new">{{product.newPrice}}</span>
@@ -80,18 +85,21 @@
                 {{else}}
                 <!-- old only -->
                 <mj-text>
-                    <span class="detail-label">Price:</span><br/>
+                    <span class="detail-label">Price:</span>
+                    <br/>
                     <span class="price-old">{{product.oldPrice}}</span>
                 </mj-text>
                 {{/if}}
-                {{else if product.newPrice}}
+                {{else}}
+                {{#if product.newPrice}}
                 <!-- new only -->
                 <mj-text>
-                    <span class="detail-label">Price:</span><br/>
+                    <span class="detail-label">Price:</span>
+                    <br/>
                     <span class="price-new">{{product.newPrice}}</span>
                 </mj-text>
                 {{/if}}
-
+                {{/if}}
 
                 {{#if product.oldState}}
                 {{#if product.newState}}
@@ -121,7 +129,6 @@
                 </mj-button>
             </mj-column>
         </mj-section>
-
 
         <mj-section padding="32px 0 0 0">
             <mj-column>

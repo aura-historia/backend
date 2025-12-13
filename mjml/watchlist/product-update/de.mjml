@@ -62,17 +62,22 @@
         <mj-section background-color="#ffffff" padding="32px" border-radius="12px">
             <mj-column>
                 <mj-text font-size="18px" color="#4A4338">
+                    {{#if user.firstName}}
                     Hallo {{user.firstName}},
+                    {{else}}
+                    Hallo,
+                    {{/if}}
                 </mj-text>
                 <mj-text>
-                    Eine der Antiquitäten, denen Sie folgen, wurde aktualisiert. Das hat sich geändert:
+                    Eine der Antiquitäten, denen Sie folgen, wurde aktualisiert. Folgendes hat sich geändert:
                 </mj-text>
 
                 {{#if product.oldPrice}}
                 {{#if product.newPrice}}
                 <!-- old + new -->
                 <mj-text>
-                    <span class="detail-label">Preis:</span><br/>
+                    <span class="detail-label">Preis:</span>
+                    <br/>
                     <span class="price-old">{{product.oldPrice}}</span>
                     →
                     <span class="price-new">{{product.newPrice}}</span>
@@ -80,18 +85,21 @@
                 {{else}}
                 <!-- old only -->
                 <mj-text>
-                    <span class="detail-label">Preis:</span><br/>
+                    <span class="detail-label">Preis:</span>
+                    <br/>
                     <span class="price-old">{{product.oldPrice}}</span>
                 </mj-text>
                 {{/if}}
-                {{else if product.newPrice}}
+                {{else}}
+                {{#if product.newPrice}}
                 <!-- new only -->
                 <mj-text>
-                    <span class="detail-label">Preis:</span><br/>
+                    <span class="detail-label">Preis:</span>
+                    <br/>
                     <span class="price-new">{{product.newPrice}}</span>
                 </mj-text>
                 {{/if}}
-
+                {{/if}}
 
                 {{#if product.oldState}}
                 {{#if product.newState}}
@@ -122,7 +130,6 @@
             </mj-column>
         </mj-section>
 
-
         <mj-section padding="32px 0 0 0">
             <mj-column>
                 <mj-text color="#7D7567" font-size="14px">
@@ -141,13 +148,11 @@
                     <br/>
                     Aura Historia
                     <br/>
-
                     Kontakt: support@aura-historia.com
                     <br/>
                     Website: https://aura-historia.com
                     <br/>
                     <br/>
-
                     Wenn Sie keine Benachrichtigungen mehr zu Antiquitäten auf Ihrer Merkliste erhalten möchten,
                     können Sie Ihre Einstellungen pro Antiquität in Ihrer Merkliste anpassen.
                 </mj-text>
