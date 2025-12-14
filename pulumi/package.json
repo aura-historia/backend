@@ -1,0 +1,28 @@
+{
+  "name": "aura-historia-backend-infrastructure",
+  "version": "1.0.0",
+  "description": "Pulumi infrastructure for Aura-Historia AWS Backend",
+  "main": "index.ts",
+  "scripts": {
+    "build": "tsc",
+    "lint": "eslint . --ext .ts",
+    "format": "prettier --write \"**/*.ts\""
+  },
+  "keywords": [
+    "pulumi",
+    "aws",
+    "infrastructure"
+  ],
+  "devDependencies": {
+    "@types/node": "^22.10.2",
+    "@typescript-eslint/eslint-plugin": "^8.18.2",
+    "@typescript-eslint/parser": "^8.18.2",
+    "eslint": "^9.17.0",
+    "prettier": "^3.4.2",
+    "typescript": "^5.7.2"
+  },
+  "dependencies": {
+    "@pulumi/aws": "^6.68.0",
+    "@pulumi/pulumi": "^3.142.0"
+  }
+}

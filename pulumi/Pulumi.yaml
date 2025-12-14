@@ -1,0 +1,3 @@
+name: aura-historia-backend
+runtime: nodejs
+description: Pulumi infrastructure for Aura-Historia AWS Backend
