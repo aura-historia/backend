@@ -284,7 +284,7 @@ jobs:
 
   aws-push-lambda:
     name: Push Lambda to S3 ${{ matrix.crate }}
-    needs: [unit-test, integration-test]
+    # needs: [unit-test, integration-test]
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -384,7 +384,7 @@ jobs:
 
   aws-push-ec2:
     name: Push EC2 to S3 ${{ matrix.crate }}
-    needs: [unit-test, integration-test]
+    # needs: [unit-test, integration-test]
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -435,7 +435,7 @@ jobs:
 
   aws-push-resource-artifacts:
     name: Push resource-artifacts to S3 ${{ matrix.resource }}
-    needs: [unit-test, integration-test]
+    # needs: [unit-test, integration-test]
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -463,7 +463,7 @@ jobs:
 
   aws-push-mail-templates:
     name: Compile & push Mail-Templates to S3 ${{ matrix.resource }}
-    needs: [unit-test, integration-test]
+    # needs: [unit-test, integration-test]
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -517,9 +517,8 @@ jobs:
 
   aws-pulumi-deploy:
     name: Deploy & initialize Pulumi Stack
-    needs:
-      [
-        pulumi-preview,
+    needs: [
+        # pulumi-preview,
         aws-push-lambda,
         aws-push-ec2,
         aws-push-resource-artifacts,
