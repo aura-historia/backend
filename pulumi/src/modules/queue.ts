@@ -33,10 +33,14 @@ export function createQueueWithDlq(config: QueueConfig): QueuePair {
 
   const queue = new aws.sqs.Queue(`${config.name}Q`, {
     name: `${config.name}-queue-${config.stageName}`,
-    redrivePolicy: pulumi.interpolate`{
-      "deadLetterTargetArn": "${dlq.arn}",
-      "maxReceiveCount": ${config.maxReceiveCount ?? 3}
-    }`,
+    redrivePolicy: pulumi
+      .all([dlq.arn, config.maxReceiveCount ?? 3])
+      .apply(([arn, count]) =>
+        JSON.stringify({
+          deadLetterTargetArn: arn,
+          maxReceiveCount: count,
+        })
+      ),
     visibilityTimeout: config.visibilityTimeout ?? 360,
   });
 

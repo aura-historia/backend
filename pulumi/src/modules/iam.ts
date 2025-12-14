@@ -125,11 +125,11 @@ export function openSearchReadPolicy(domainArn: pulumi.Output<string>, region: s
       "Statement": [{
         "Effect": "Allow",
         "Action": [
-          "es:Describe*",
-          "es:List*",
-          "es:ESHttpGet",
-          "es:ESHttpHead",
-          "es:ESHttpPost"
+          "opensearch:Describe*",
+          "opensearch:List*",
+          "opensearch:ESHttpGet",
+          "opensearch:ESHttpHead",
+          "opensearch:ESHttpPost"
         ],
         "Resource": "${domainArn}/*"
       }]
@@ -144,7 +144,7 @@ export function openSearchFullAccessPolicy(domainArn: pulumi.Output<string>, reg
       "Version": "2012-10-17",
       "Statement": [{
         "Effect": "Allow",
-        "Action": ["es:*"],
+        "Action": ["opensearch:*"],
         "Resource": "${domainArn}/*"
       }]
     }`,

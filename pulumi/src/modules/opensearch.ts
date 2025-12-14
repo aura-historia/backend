@@ -41,7 +41,7 @@ export function createOpenSearchDomain(
           "AWS": "arn:aws:iam::${accountId}:root"
         },
         "Action": "es:*",
-        "Resource": "arn:aws:es:${region}:${accountId}:domain/application-${stageName}/*"
+        "Resource": "arn:aws:opensearch:${region}:${accountId}:domain/application-${stageName}/*"
       }]
     }`,
   });
@@ -50,7 +50,7 @@ export function createOpenSearchDomain(
     alarmName: `${stageName}-opensearch-cluster-red`,
     alarmDescription: 'Alarm when OpenSearch cluster status is RED',
     metricName: 'ClusterStatus.red',
-    namespace: 'AWS/ES',
+    namespace: 'AWS/OpenSearch',
     statistic: 'Maximum',
     period: 60,
     evaluationPeriods: 1,
@@ -68,7 +68,7 @@ export function createOpenSearchDomain(
     alarmName: `${stageName}-opensearch-cluster-yellow`,
     alarmDescription: 'Alarm when OpenSearch cluster status is YELLOW',
     metricName: 'ClusterStatus.yellow',
-    namespace: 'AWS/ES',
+    namespace: 'AWS/OpenSearch',
     statistic: 'Maximum',
     period: 300,
     evaluationPeriods: 2,
@@ -86,7 +86,7 @@ export function createOpenSearchDomain(
     alarmName: `${stageName}-opensearch-low-storage`,
     alarmDescription: 'Alarm when OpenSearch has low free storage space',
     metricName: 'FreeStorageSpace',
-    namespace: 'AWS/ES',
+    namespace: 'AWS/OpenSearch',
     statistic: 'Minimum',
     period: 300,
     evaluationPeriods: 1,
@@ -104,7 +104,7 @@ export function createOpenSearchDomain(
     alarmName: `${stageName}-opensearch-high-cpu`,
     alarmDescription: 'Alarm when OpenSearch CPU utilization is high',
     metricName: 'CPUUtilization',
-    namespace: 'AWS/ES',
+    namespace: 'AWS/OpenSearch',
     statistic: 'Average',
     period: 300,
     evaluationPeriods: 2,
@@ -122,7 +122,7 @@ export function createOpenSearchDomain(
     alarmName: `${stageName}-opensearch-high-jvm-memory`,
     alarmDescription: 'Alarm when OpenSearch JVM memory pressure is high',
     metricName: 'JVMMemoryPressure',
-    namespace: 'AWS/ES',
+    namespace: 'AWS/OpenSearch',
     statistic: 'Maximum',
     period: 300,
     evaluationPeriods: 1,
