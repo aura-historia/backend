@@ -34,3 +34,7 @@ coverage.lcov
 ## Python
 **/models_cache
 **/python/__pycache__
+
+## Pulumi
+.pulumi/
+Pulumi.*.yaml
