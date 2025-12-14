@@ -18,7 +18,7 @@ export function createApiGateway(
   userPoolId: pulumi.Output<string>,
   publicClientId: pulumi.Output<string>,
   adminClientId: pulumi.Output<string>,
-  region: string,
+  region: pulumi.Input<string>,
   snsTopicArn: pulumi.Output<string>
 ): ApiGatewayResources {
   const api = new aws.apigatewayv2.Api('Api', {
@@ -32,7 +32,7 @@ export function createApiGateway(
   });
 
   const stage = new aws.apigatewayv2.Stage('ApiStage', {
-    stageName: stageName,
+    name: stageName,
     apiId: api.id,
     autoDeploy: true,
     defaultRouteSettings: {
@@ -53,7 +53,7 @@ export function createApiGateway(
   });
 
   const api5xxErrorAlarm = new aws.cloudwatch.MetricAlarm('Api5XXErrorAlarm', {
-    alarmName: `${stageName}-api-5xx-errors`,
+    name: `${stageName}-api-5xx-errors`,
     alarmDescription: 'Alarm when API Gateway returns 5XX errors',
     metricName: '5XXError',
     namespace: 'AWS/ApiGateway',
@@ -70,7 +70,7 @@ export function createApiGateway(
   });
 
   const api4xxErrorAlarm = new aws.cloudwatch.MetricAlarm('Api4XXErrorAlarm', {
-    alarmName: `${stageName}-api-4xx-errors`,
+    name: `${stageName}-api-4xx-errors`,
     alarmDescription: 'Alarm when API Gateway returns high 4XX errors',
     metricName: '4XXError',
     namespace: 'AWS/ApiGateway',
@@ -94,8 +94,8 @@ export interface ApiRouteConfig {
   routeKey: string;
   lambda: aws.lambda.Function;
   authorizerId?: pulumi.Output<string>;
-  accountId: string;
-  region: string;
+  accountId: pulumi.Output<string>;
+  region: pulumi.Output<string>;
   routePattern: string;
 }
 

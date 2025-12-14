@@ -33,7 +33,7 @@ export function createLambda(lambdaConfig: BaseLambdaConfig): LambdaWithAlarms {
     lambdaConfig;
 
   const lambda = new aws.lambda.Function(name, {
-    functionName: `${name}-${config.stageName}`,
+    name: `${name}-${config.stageName}`,
     runtime: 'provided.al2023',
     handler: 'lib.handler',
     role: role.arn,
@@ -63,7 +63,7 @@ export function createLambda(lambdaConfig: BaseLambdaConfig): LambdaWithAlarms {
     // Override error threshold if specified
     if (errorThreshold !== undefined) {
       errorAlarm = new aws.cloudwatch.MetricAlarm(`${name}ErrorAlarm`, {
-        alarmName: `${config.stageName}-${name}-lambda-errors`,
+        name: `${config.stageName}-${name}-lambda-errors`,
         alarmDescription: `Alarm when ${name} Lambda has errors`,
         metricName: 'Errors',
         namespace: 'AWS/Lambda',

@@ -17,8 +17,8 @@ export interface OpenSearchResources {
 export function createOpenSearchDomain(
   stageName: string,
   snsTopicArn: pulumi.Output<string>,
-  accountId: string,
-  region: string
+  accountId: pulumi.Input<string>,
+  region: pulumi.Input<string>
 ): OpenSearchResources {
   const domain = new aws.opensearch.Domain('OpenSearchDomain', {
     domainName: `application-${stageName}`,
@@ -47,7 +47,7 @@ export function createOpenSearchDomain(
   });
 
   const clusterStatusRedAlarm = new aws.cloudwatch.MetricAlarm('OpenSearchClusterStatusRedAlarm', {
-    alarmName: `${stageName}-opensearch-cluster-red`,
+    name: `${stageName}-opensearch-cluster-red`,
     alarmDescription: 'Alarm when OpenSearch cluster status is RED',
     metricName: 'ClusterStatus.red',
     namespace: 'AWS/OpenSearch',
@@ -65,7 +65,7 @@ export function createOpenSearchDomain(
   });
 
   const clusterStatusYellowAlarm = new aws.cloudwatch.MetricAlarm('OpenSearchClusterStatusYellowAlarm', {
-    alarmName: `${stageName}-opensearch-cluster-yellow`,
+    name: `${stageName}-opensearch-cluster-yellow`,
     alarmDescription: 'Alarm when OpenSearch cluster status is YELLOW',
     metricName: 'ClusterStatus.yellow',
     namespace: 'AWS/OpenSearch',
@@ -83,7 +83,7 @@ export function createOpenSearchDomain(
   });
 
   const freeStorageSpaceAlarm = new aws.cloudwatch.MetricAlarm('OpenSearchFreeStorageSpaceAlarm', {
-    alarmName: `${stageName}-opensearch-low-storage`,
+    name: `${stageName}-opensearch-low-storage`,
     alarmDescription: 'Alarm when OpenSearch has low free storage space',
     metricName: 'FreeStorageSpace',
     namespace: 'AWS/OpenSearch',
@@ -101,7 +101,7 @@ export function createOpenSearchDomain(
   });
 
   const cpuUtilizationAlarm = new aws.cloudwatch.MetricAlarm('OpenSearchCPUUtilizationAlarm', {
-    alarmName: `${stageName}-opensearch-high-cpu`,
+    name: `${stageName}-opensearch-high-cpu`,
     alarmDescription: 'Alarm when OpenSearch CPU utilization is high',
     metricName: 'CPUUtilization',
     namespace: 'AWS/OpenSearch',
@@ -119,7 +119,7 @@ export function createOpenSearchDomain(
   });
 
   const jvmMemoryPressureAlarm = new aws.cloudwatch.MetricAlarm('OpenSearchJVMMemoryPressureAlarm', {
-    alarmName: `${stageName}-opensearch-high-jvm-memory`,
+    name: `${stageName}-opensearch-high-jvm-memory`,
     alarmDescription: 'Alarm when OpenSearch JVM memory pressure is high',
     metricName: 'JVMMemoryPressure',
     namespace: 'AWS/OpenSearch',

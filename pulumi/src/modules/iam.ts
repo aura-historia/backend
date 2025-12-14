@@ -18,10 +18,15 @@ const lambdaAssumeRolePolicy = JSON.stringify({
   ],
 });
 
+export interface RoleInlinePolicy {
+  name: string;
+  policy: pulumi.Input<string>;
+}
+
 export function createLambdaRole(
   name: string,
   stageName: string,
-  additionalPolicies?: aws.iam.RoleInlinePolicy[]
+  additionalPolicies?: RoleInlinePolicy[]
 ): aws.iam.Role {
   return new aws.iam.Role(name, {
     name: `${name}-role-${stageName}`,
@@ -31,7 +36,7 @@ export function createLambdaRole(
   });
 }
 
-export function dynamoDBReadPolicy(tableArn: pulumi.Output<string>): aws.iam.RoleInlinePolicy {
+export function dynamoDBReadPolicy(tableArn: pulumi.Output<string>): RoleInlinePolicy {
   return {
     name: 'DynamoDBAccess',
     policy: pulumi.interpolate`{
@@ -49,7 +54,7 @@ export function dynamoDBReadPolicy(tableArn: pulumi.Output<string>): aws.iam.Rol
   };
 }
 
-export function dynamoDBWritePolicy(tableArn: pulumi.Output<string>): aws.iam.RoleInlinePolicy {
+export function dynamoDBWritePolicy(tableArn: pulumi.Output<string>): RoleInlinePolicy {
   return {
     name: 'DynamoDBAccess',
     policy: pulumi.interpolate`{
@@ -70,7 +75,7 @@ export function dynamoDBWritePolicy(tableArn: pulumi.Output<string>): aws.iam.Ro
   };
 }
 
-export function dynamoDBFullAccessPolicy(tableArn: pulumi.Output<string>): aws.iam.RoleInlinePolicy {
+export function dynamoDBFullAccessPolicy(tableArn: pulumi.Output<string>): RoleInlinePolicy {
   return {
     name: 'DynamoDBAccess',
     policy: pulumi.interpolate`{
@@ -84,7 +89,7 @@ export function dynamoDBFullAccessPolicy(tableArn: pulumi.Output<string>): aws.i
   };
 }
 
-export function sqsPollerPolicy(queueArn: pulumi.Output<string>): aws.iam.RoleInlinePolicy {
+export function sqsPollerPolicy(queueArn: pulumi.Output<string>): RoleInlinePolicy {
   return {
     name: 'SQSPollerAccess',
     policy: pulumi.interpolate`{
@@ -103,7 +108,7 @@ export function sqsPollerPolicy(queueArn: pulumi.Output<string>): aws.iam.RoleIn
   };
 }
 
-export function sqsSendMessagePolicy(queueArn: pulumi.Output<string>): aws.iam.RoleInlinePolicy {
+export function sqsSendMessagePolicy(queueArn: pulumi.Output<string>): RoleInlinePolicy {
   return {
     name: 'SQSSendMessage',
     policy: pulumi.interpolate`{
@@ -117,7 +122,7 @@ export function sqsSendMessagePolicy(queueArn: pulumi.Output<string>): aws.iam.R
   };
 }
 
-export function openSearchReadPolicy(domainArn: pulumi.Output<string>, region: string, stageName: string): aws.iam.RoleInlinePolicy {
+export function openSearchReadPolicy(domainArn: pulumi.Output<string>, region: pulumi.Input<string>, stageName: string): RoleInlinePolicy {
   return {
     name: 'OpenSearchReadOnly',
     policy: pulumi.interpolate`{
@@ -137,7 +142,7 @@ export function openSearchReadPolicy(domainArn: pulumi.Output<string>, region: s
   };
 }
 
-export function openSearchFullAccessPolicy(domainArn: pulumi.Output<string>, region: string, stageName: string): aws.iam.RoleInlinePolicy {
+export function openSearchFullAccessPolicy(domainArn: pulumi.Output<string>, region: pulumi.Input<string>, stageName: string): RoleInlinePolicy {
   return {
     name: 'OpenSearchAccess',
     policy: pulumi.interpolate`{
@@ -151,7 +156,7 @@ export function openSearchFullAccessPolicy(domainArn: pulumi.Output<string>, reg
   };
 }
 
-export function sesSendEmailPolicy(): aws.iam.RoleInlinePolicy {
+export function sesSendEmailPolicy(): RoleInlinePolicy {
   return {
     name: 'SESAccess',
     policy: JSON.stringify({
@@ -167,7 +172,7 @@ export function sesSendEmailPolicy(): aws.iam.RoleInlinePolicy {
   };
 }
 
-export function s3ReadPolicy(bucketName: string): aws.iam.RoleInlinePolicy {
+export function s3ReadPolicy(bucketName: string): RoleInlinePolicy {
   return {
     name: 'S3Access',
     policy: JSON.stringify({
