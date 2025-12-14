@@ -26,7 +26,7 @@ export function createLambdaAlarms(
   name: string,
   config: LambdaAlarmConfig
 ): { errorAlarm: aws.cloudwatch.MetricAlarm; throttleAlarm: aws.cloudwatch.MetricAlarm } {
-  const errorAlarm = new aws.cloudwatch.MetricAlarm(`${name}ErrorAlarm`, {
+  const errorAlarm = new aws.cloudwatch.MetricAlarm(`${name}-error-alarm`, {
     name: `${config.stageName}-${name}-lambda-errors`,
     alarmDescription: `Alarm when ${name} Lambda has errors`,
     metricName: 'Errors',
