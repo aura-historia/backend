@@ -9,9 +9,9 @@ import { createDlqAlarm } from './alarms';
 export interface QueueConfig {
   name: string;
   stageName: string;
-  visibilityTimeout?: number;
+  visibilityTimeoutSeconds?: number;
   maxReceiveCount?: number;
-  messageRetentionPeriod?: number;
+  messageRetentionSeconds?: number;
   snsTopicArn: pulumi.Output<string>;
   createAlarm?: boolean;
 }
@@ -28,7 +28,7 @@ export interface QueuePair {
 export function createQueueWithDlq(config: QueueConfig): QueuePair {
   const dlq = new aws.sqs.Queue(`${config.name}Dlq`, {
     name: `${config.name}-dlq-${config.stageName}`,
-    messageRetentionSeconds: config.messageRetentionPeriod ?? 1209600, // 14 days
+    messageRetentionSeconds: config.messageRetentionSeconds ?? 1209600, // 14 days
   });
 
   const queue = new aws.sqs.Queue(`${config.name}Q`, {
@@ -41,7 +41,7 @@ export function createQueueWithDlq(config: QueueConfig): QueuePair {
           maxReceiveCount: count,
         })
       ),
-    visibilityTimeoutSeconds: config.visibilityTimeout ?? 360,
+    visibilityTimeoutSeconds: config.visibilityTimeoutSeconds ?? 360,
   });
 
   let dlqAlarm: aws.cloudwatch.MetricAlarm | undefined;
