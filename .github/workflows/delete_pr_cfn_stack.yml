@@ -1,4 +1,4 @@
-name: Delete ephemeral CFN Stack on PR-Close
+name: Delete ephemeral Pulumi Stack on PR-Close
 
 on:
   pull_request:
@@ -8,8 +8,8 @@ env:
   STACK_NAME: application-${{ format('pr-{0}', github.event.pull_request.number) }}
 
 jobs:
-  aws-cfn-delete:
-    name: Delete CFN Stack
+  aws-pulumi-delete:
+    name: Delete Pulumi Stack
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -18,20 +18,35 @@ jobs:
     steps:
       - uses: actions/checkout@v6
 
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 24
+
+      - name: Install Pulumi dependencies
+        working-directory: pulumi
+        run: npm ci
+
+      - name: Install Pulumi CLI
+        uses: pulumi/actions@v6
+
       - name: Configure AWS credentials
         uses: aws-actions/configure-aws-credentials@v5.1.1
         with:
           role-to-assume: ${{ secrets.CI_DEPLOY_ROLE_ARN }}
           aws-region: ${{ vars.AWS_REGION }}
 
-      - name: Delete CloudFormation Stack
+      - name: Delete Pulumi Stack
+        working-directory: pulumi
+        env:
+          PULUMI_ACCESS_TOKEN: ${{ secrets.PULUMI_ACCESS_TOKEN }}
         run: |
           echo "Attempting to delete stack: ${{ env.STACK_NAME }}"
-
-          if aws cloudformation describe-stacks --stack-name "${{ env.STACK_NAME }}" >/dev/null 2>&1; then
+          
+          if pulumi stack select ${{ env.STACK_NAME }} 2>/dev/null; then
             echo "Stack exists. Deleting..."
-            aws cloudformation delete-stack --stack-name "${{ env.STACK_NAME }}"
-            aws cloudformation wait stack-delete-complete --stack-name "${{ env.STACK_NAME }}"
+            pulumi destroy --yes --skip-preview
+            pulumi stack rm ${{ env.STACK_NAME }} --yes
             echo "✅ Stack deleted successfully."
           else
             echo "ℹ️ Stack '${{ env.STACK_NAME }}' does not exist. Nothing to delete."

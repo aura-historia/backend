@@ -6,7 +6,7 @@ import * as aws from '@pulumi/aws';
 import * as pulumi from '@pulumi/pulumi';
 
 export interface EventBridgeResources {
-  eventBus: aws.cloudbridge.EventBus;
+  eventBus: aws.cloudwatch.EventBus;
   pipeRole: aws.iam.Role;
   pipe: aws.pipes.Pipe;
 }
@@ -17,7 +17,7 @@ export function createDynamoDBEventBridge(
   tableStreamArn: pulumi.Output<string>,
   eventBusArn: pulumi.Output<string>
 ): EventBridgeResources {
-  const eventBus = new aws.cloudbridge.EventBus('DynamoDbEventBus', {
+  const eventBus = new aws.cloudwatch.EventBus('DynamoDbEventBus', {
     name: `dynamodb-event-bus-${stageName}`,
   });
 

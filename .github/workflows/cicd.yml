@@ -25,24 +25,50 @@ env:
     || github.ref == 'refs/heads/develop' && 'staging' }}
 
 jobs:
-  cfn-lint:
-    name: Lint CloudFormation
+  pulumi-preview:
+    name: Pulumi Preview
     permissions:
       contents: read
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v6
 
-      - name: Set up Python
-        uses: actions/setup-python@v6
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
         with:
-          python-version: "3.12"
+          node-version: 24
 
-      - name: Install cfn-lint
-        run: pip install cfn-lint==1.42.0
+      - name: Install Pulumi dependencies
+        working-directory: pulumi
+        run: npm ci
 
-      - name: Run cfn-lint
-        run: cfn-lint --non-zero-exit-code error cfn/application.yaml
+      - name: Build Pulumi
+        working-directory: pulumi
+        run: npm run build
+
+      - name: Install Pulumi CLI
+        uses: pulumi/actions@v6
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v5.1.1
+        with:
+          role-to-assume: ${{ secrets.CI_DEPLOY_ROLE_ARN }}
+          aws-region: ${{ vars.AWS_REGION }}
+
+      - name: Pulumi Preview
+        working-directory: pulumi
+        env:
+          PULUMI_ACCESS_TOKEN: ${{ secrets.PULUMI_ACCESS_TOKEN }}
+        run: |
+          pulumi stack select ${{ env.STACK_NAME }} --create
+          pulumi config set stage ${{ env.STAGE }}
+          pulumi config set stageName ${{ env.STAGE_NAME }}
+          pulumi config set artifactBucket ${{ vars.S3_BINARY_ARTIFACTS_BUCKET_NAME }}
+          pulumi config set resourceBucket ${{ vars.S3_RESOURCE_ARTIFACTS_BUCKET_NAME }}
+          pulumi config set mailTemplateBucket ${{ vars.S3_MAIL_TEMPLATE_BUCKET_NAME }}
+          pulumi config set commitSHA ${GITHUB_SHA}
+          pulumi config set ec2KeyPairName ${{ vars.EC2_KEY_PAIR_NAME }}
+          pulumi preview
 
   lint:
     name: Lint Workspace
@@ -489,11 +515,11 @@ jobs:
             --body "$output" \
             --tagging "stage=${{ env.STAGE }}"
 
-  aws-cfn-deploy:
-    name: Deploy & initialize CFN-Stack
+  aws-pulumi-deploy:
+    name: Deploy & initialize Pulumi Stack
     needs:
       [
-        cfn-lint,
+        pulumi-preview,
         aws-push-lambda,
         aws-push-ec2,
         aws-push-resource-artifacts,
@@ -508,28 +534,42 @@ jobs:
     steps:
       - uses: actions/checkout@v6
 
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 24
+
+      - name: Install Pulumi dependencies
+        working-directory: pulumi
+        run: npm ci
+
+      - name: Build Pulumi
+        working-directory: pulumi
+        run: npm run build
+
+      - name: Install Pulumi CLI
+        uses: pulumi/actions@v6
+
       - name: Configure AWS credentials
         uses: aws-actions/configure-aws-credentials@v5.1.1
         with:
           role-to-assume: ${{ secrets.CI_DEPLOY_ROLE_ARN }}
           aws-region: ${{ vars.AWS_REGION }}
 
-      - name: Deploy CloudFormation
+      - name: Deploy Pulumi Stack
+        working-directory: pulumi
+        env:
+          PULUMI_ACCESS_TOKEN: ${{ secrets.PULUMI_ACCESS_TOKEN }}
         run: |
-          aws cloudformation deploy \
-            --stack-name ${{ env.STACK_NAME }} \
-            --template-file cfn/application.yaml \
-            --s3-bucket ${{ vars.S3_CFN_ARTIFACTS_BUCKET_NAME }} \
-            --s3-prefix ${{ env.STAGE_NAME }} \
-            --capabilities CAPABILITY_NAMED_IAM \
-            --parameter-overrides \
-                Stage=${{ env.STAGE }} \
-                StageName=${{ env.STAGE_NAME }} \
-                ArtifactBucket=${{ vars.S3_BINARY_ARTIFACTS_BUCKET_NAME }} \
-                ResourceBucket=${{ vars.S3_RESOURCE_ARTIFACTS_BUCKET_NAME }} \
-                MailTemplateBucket=${{ vars.S3_MAIL_TEMPLATE_BUCKET_NAME }} \
-                CommitSHA=${GITHUB_SHA} \
-                Ec2KeyPairName=${{ vars.EC2_KEY_PAIR_NAME }}
+          pulumi stack select ${{ env.STACK_NAME }} --create
+          pulumi config set stage ${{ env.STAGE }}
+          pulumi config set stageName ${{ env.STAGE_NAME }}
+          pulumi config set artifactBucket ${{ vars.S3_BINARY_ARTIFACTS_BUCKET_NAME }}
+          pulumi config set resourceBucket ${{ vars.S3_RESOURCE_ARTIFACTS_BUCKET_NAME }}
+          pulumi config set mailTemplateBucket ${{ vars.S3_MAIL_TEMPLATE_BUCKET_NAME }}
+          pulumi config set commitSHA ${GITHUB_SHA}
+          pulumi config set ec2KeyPairName ${{ vars.EC2_KEY_PAIR_NAME }}
+          pulumi up --yes --skip-preview
 
       - name: Install OpenSearch CLI
         run: |
@@ -547,7 +587,7 @@ jobs:
   aws-staging-test:
     name: AWS Staging-Test
     if: ${{ github.event_name == 'pull_request' }}
-    needs: aws-cfn-deploy
+    needs: aws-pulumi-deploy
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -555,24 +595,30 @@ jobs:
     steps:
       - uses: actions/checkout@v6
 
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 24
+
+      - name: Install Pulumi CLI
+        uses: pulumi/actions@v6
+
       - name: Configure AWS credentials
         uses: aws-actions/configure-aws-credentials@v5.1.1
         with:
           role-to-assume: ${{ secrets.CI_DEPLOY_ROLE_ARN }}
           aws-region: ${{ vars.AWS_REGION }}
 
-      - name: Export CFN Output
-        id: export-cfn-output
+      - name: Export Pulumi Stack Output
+        id: export-pulumi-output
+        working-directory: pulumi
         shell: bash
+        env:
+          PULUMI_ACCESS_TOKEN: ${{ secrets.PULUMI_ACCESS_TOKEN }}
         run: |
           set -euo pipefail
-          JSON=$(
-            aws cloudformation describe-stacks \
-              --stack-name ${{ env.STACK_NAME }} \
-              --query 'Stacks[0].Outputs' \
-              --output json \
-            | jq -c 'map({(.OutputKey): .OutputValue}) | add'
-          )
+          pulumi stack select ${{ env.STACK_NAME }}
+          JSON=$(pulumi stack output --json | jq -c '.')
           echo "outputs_json=$JSON" >> "$GITHUB_OUTPUT"
 
       - name: Set up Rust
@@ -591,7 +637,7 @@ jobs:
       - name: Run Staging-tests
         working-directory: src/aws-tests/src/staging-tests
         env:
-          CFN_OUTPUT: ${{ steps.export-cfn-output.outputs.outputs_json }}
+          CFN_OUTPUT: ${{ steps.export-pulumi-output.outputs.outputs_json }}
           TEST_MAIL_APP_NAMESPACE: ${{ vars.TEST_MAIL_APP_NAMESPACE }}
           TEST_MAIL_APP_API_KEY: ${{ secrets.TEST_MAIL_APP_API_KEY }}
         run: cargo test --test '*' --all-features -- --ignored --nocapture
@@ -599,7 +645,7 @@ jobs:
   aws-smoking-test:
     name: AWS Smoking-Test
     if: github.event_name == 'push'
-    needs: aws-cfn-deploy
+    needs: aws-pulumi-deploy
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -607,24 +653,30 @@ jobs:
     steps:
       - uses: actions/checkout@v6
 
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 24
+
+      - name: Install Pulumi CLI
+        uses: pulumi/actions@v6
+
       - name: Configure AWS credentials
         uses: aws-actions/configure-aws-credentials@v5.1.1
         with:
           role-to-assume: ${{ secrets.CI_DEPLOY_ROLE_ARN }}
           aws-region: ${{ vars.AWS_REGION }}
 
-      - name: Export CFN Output
-        id: export-cfn-output
+      - name: Export Pulumi Stack Output
+        id: export-pulumi-output
+        working-directory: pulumi
         shell: bash
+        env:
+          PULUMI_ACCESS_TOKEN: ${{ secrets.PULUMI_ACCESS_TOKEN }}
         run: |
           set -euo pipefail
-          JSON=$(
-            aws cloudformation describe-stacks \
-              --stack-name ${{ env.STACK_NAME }} \
-              --query 'Stacks[0].Outputs' \
-              --output json \
-            | jq -c 'map({(.OutputKey): .OutputValue}) | add'
-          )
+          pulumi stack select ${{ env.STACK_NAME }}
+          JSON=$(pulumi stack output --json | jq -c '.')
           echo "outputs_json=$JSON" >> "$GITHUB_OUTPUT"
 
       - name: Set up Rust
@@ -643,13 +695,13 @@ jobs:
       - name: Run Smoking-Tests
         working-directory: src/aws-tests/src/smoking-tests
         env:
-          CFN_OUTPUT: ${{ steps.export-cfn-output.outputs.outputs_json }}
+          CFN_OUTPUT: ${{ steps.export-pulumi-output.outputs.outputs_json }}
         run: cargo test --test '*' --all-features -- --ignored --nocapture
 
   aws-put-staging-test-data:
     name: AWS Populate Test-Data
     if: github.event_name == 'push'
-    needs: aws-cfn-deploy
+    needs: aws-pulumi-deploy
     environment:
       name: aws-staging-data
     permissions:
@@ -659,24 +711,30 @@ jobs:
     steps:
       - uses: actions/checkout@v6
 
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 24
+
+      - name: Install Pulumi CLI
+        uses: pulumi/actions@v6
+
       - name: Configure AWS credentials
         uses: aws-actions/configure-aws-credentials@v5.1.1
         with:
           role-to-assume: ${{ secrets.CI_DEPLOY_ROLE_ARN }}
           aws-region: ${{ vars.AWS_REGION }}
 
-      - name: Export CFN Output
-        id: export-cfn-output
+      - name: Export Pulumi Stack Output
+        id: export-pulumi-output
+        working-directory: pulumi
         shell: bash
+        env:
+          PULUMI_ACCESS_TOKEN: ${{ secrets.PULUMI_ACCESS_TOKEN }}
         run: |
           set -euo pipefail
-          JSON=$(
-            aws cloudformation describe-stacks \
-              --stack-name ${{ env.STACK_NAME }} \
-              --query 'Stacks[0].Outputs' \
-              --output json \
-            | jq -c 'map({(.OutputKey): .OutputValue}) | add'
-          )
+          pulumi stack select ${{ env.STACK_NAME }}
+          JSON=$(pulumi stack output --json | jq -c '.')
           echo "outputs_json=$JSON" >> "$GITHUB_OUTPUT"
 
       - name: Set up Rust
@@ -695,5 +753,5 @@ jobs:
       - name: Run src/aws-tests/src/staging-data
         working-directory: src/aws-tests/src/staging-data
         env:
-          CFN_OUTPUT: ${{ steps.export-cfn-output.outputs.outputs_json }}
+          CFN_OUTPUT: ${{ steps.export-pulumi-output.outputs.outputs_json }}
         run: cargo run --all-features -- --nocapture
