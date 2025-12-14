@@ -37,11 +37,8 @@ export function createLambda(lambdaConfig: BaseLambdaConfig): LambdaWithAlarms {
     runtime: 'provided.al2023',
     handler: 'lib.handler',
     role: role.arn,
-    code: new pulumi.asset.AssetArchive({
-      '.': new pulumi.asset.RemoteArchive(
-        `s3://${config.artifactBucket}/${name}-${config.stageName}-${config.commitSHA}.zip`
-      ),
-    }),
+    s3Bucket: config.artifactBucket,
+    s3Key: `${name}-${config.stageName}-${config.commitSHA}.zip`,
     memorySize: memorySize ?? 512,
     timeout: timeout ?? 10,
     ephemeralStorage: { size: 512 },
