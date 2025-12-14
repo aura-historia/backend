@@ -59,7 +59,7 @@ export function createLambda(lambdaConfig: BaseLambdaConfig): LambdaWithAlarms {
 
     // Override error threshold if specified
     if (errorThreshold !== undefined) {
-      errorAlarm = new aws.cloudwatch.MetricAlarm(`${name}ErrorAlarm`, {
+      errorAlarm = new aws.cloudwatch.MetricAlarm(`${config.stageName}-${name}-lambda-errors`, {
         name: `${config.stageName}-${name}-lambda-errors`,
         alarmDescription: `Alarm when ${name} Lambda has errors`,
         metricName: 'Errors',

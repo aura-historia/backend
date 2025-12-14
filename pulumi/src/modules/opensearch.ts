@@ -46,7 +46,7 @@ export function createOpenSearchDomain(
     }`,
   });
 
-  const clusterStatusRedAlarm = new aws.cloudwatch.MetricAlarm('OpenSearchClusterStatusRedAlarm', {
+  const clusterStatusRedAlarm = new aws.cloudwatch.MetricAlarm(`${stageName}-opensearch-cluster-red`, {
     name: `${stageName}-opensearch-cluster-red`,
     alarmDescription: 'Alarm when OpenSearch cluster status is RED',
     metricName: 'ClusterStatus.red',
@@ -64,7 +64,7 @@ export function createOpenSearchDomain(
     alarmActions: [snsTopicArn],
   });
 
-  const clusterStatusYellowAlarm = new aws.cloudwatch.MetricAlarm('OpenSearchClusterStatusYellowAlarm', {
+  const clusterStatusYellowAlarm = new aws.cloudwatch.MetricAlarm(`${stageName}-opensearch-cluster-yellow`, {
     name: `${stageName}-opensearch-cluster-yellow`,
     alarmDescription: 'Alarm when OpenSearch cluster status is YELLOW',
     metricName: 'ClusterStatus.yellow',
@@ -82,7 +82,7 @@ export function createOpenSearchDomain(
     alarmActions: [snsTopicArn],
   });
 
-  const freeStorageSpaceAlarm = new aws.cloudwatch.MetricAlarm('OpenSearchFreeStorageSpaceAlarm', {
+  const freeStorageSpaceAlarm = new aws.cloudwatch.MetricAlarm(`${stageName}-opensearch-low-storage`, {
     name: `${stageName}-opensearch-low-storage`,
     alarmDescription: 'Alarm when OpenSearch has low free storage space',
     metricName: 'FreeStorageSpace',
@@ -100,7 +100,7 @@ export function createOpenSearchDomain(
     alarmActions: [snsTopicArn],
   });
 
-  const cpuUtilizationAlarm = new aws.cloudwatch.MetricAlarm('OpenSearchCPUUtilizationAlarm', {
+  const cpuUtilizationAlarm = new aws.cloudwatch.MetricAlarm(`${stageName}-opensearch-high-cpu`, {
     name: `${stageName}-opensearch-high-cpu`,
     alarmDescription: 'Alarm when OpenSearch CPU utilization is high',
     metricName: 'CPUUtilization',
@@ -118,7 +118,7 @@ export function createOpenSearchDomain(
     alarmActions: [snsTopicArn],
   });
 
-  const jvmMemoryPressureAlarm = new aws.cloudwatch.MetricAlarm('OpenSearchJVMMemoryPressureAlarm', {
+  const jvmMemoryPressureAlarm = new aws.cloudwatch.MetricAlarm(`${stageName}-opensearch-high-jvm-memory`, {
     name: `${stageName}-opensearch-high-jvm-memory`,
     alarmDescription: 'Alarm when OpenSearch JVM memory pressure is high',
     metricName: 'JVMMemoryPressure',

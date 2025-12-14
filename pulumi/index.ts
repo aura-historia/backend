@@ -1,9 +1,9 @@
 /**
  * Main Pulumi program for Aura-Historia AWS Backend Infrastructure
- * 
+ *
  * This replaces the CloudFormation template cfn/application.yaml with a
  * TypeScript-based infrastructure-as-code approach using Pulumi.
- * 
+ *
  * The infrastructure is organized into logical modules for maintainability:
  * - SNS for alarm notifications
  * - Cognito for user authentication
@@ -26,7 +26,18 @@ import { createOpenSearchDomain } from './src/modules/opensearch';
 import { createApiGateway, createApiRoute } from './src/modules/apigateway';
 import { createQueueWithDlq } from './src/modules/queue';
 import { createLambda, createSqsEventSourceMapping } from './src/modules/lambda';
-import { createLambdaRole, dynamoDBReadPolicy, dynamoDBWritePolicy, dynamoDBFullAccessPolicy, sqsPollerPolicy, sqsSendMessagePolicy, openSearchReadPolicy, openSearchFullAccessPolicy, sesSendEmailPolicy, s3ReadPolicy } from './src/modules/iam';
+import {
+  createLambdaRole,
+  dynamoDBReadPolicy,
+  dynamoDBWritePolicy,
+  dynamoDBFullAccessPolicy,
+  sqsPollerPolicy,
+  sqsSendMessagePolicy,
+  openSearchReadPolicy,
+  openSearchFullAccessPolicy,
+  sesSendEmailPolicy,
+  s3ReadPolicy,
+} from './src/modules/iam';
 
 // Get Pulumi configuration
 const pulumiConfig = new pulumi.Config();
@@ -74,23 +85,14 @@ const dynamoDb = createTable(stageName, alarmTopic.arn);
 // ============================================================================
 // OpenSearch Domain
 // ============================================================================
-const openSearch = createOpenSearchDomain(
-  stageName,
-  alarmTopic.arn,
-  accountId,
-  awsRegion
-);
+const openSearch = createOpenSearchDomain(stageName, alarmTopic.arn, accountId, awsRegion);
 
 // ============================================================================
 // Cognito Post-Confirmation Lambda
 // ============================================================================
-const cognitoPostConfirmationRole = createLambdaRole(
-  'cognito-primary-userpool-post-confirmation',
-  stageName,
-  [
-    dynamoDBWritePolicy(dynamoDb.table.arn),
-  ]
-);
+const cognitoPostConfirmationRole = createLambdaRole('cognito-primary-userpool-post-confirmation', stageName, [
+  dynamoDBWritePolicy(dynamoDb.table.arn),
+]);
 
 const cognitoPostConfirmationLambda = createLambda({
   name: 'cognito-post-confirmation',
@@ -211,14 +213,10 @@ const productMaterializeDynamoDbNewQueues = createQueueWithDlq({
   snsTopicArn: alarmTopic.arn,
 });
 
-const productMaterializeDynamoDbNewRole = createLambdaRole(
-  'product-lambda-materialize-dynamodb-new',
-  stageName,
-  [
-    dynamoDBFullAccessPolicy(dynamoDb.table.arn),
-    sqsPollerPolicy(productMaterializeDynamoDbNewQueues.queue.arn),
-  ]
-);
+const productMaterializeDynamoDbNewRole = createLambdaRole('product-lambda-materialize-dynamodb-new', stageName, [
+  dynamoDBFullAccessPolicy(dynamoDb.table.arn),
+  sqsPollerPolicy(productMaterializeDynamoDbNewQueues.queue.arn),
+]);
 
 const productMaterializeDynamoDbNewLambda = createLambda({
   name: 'product-lambda-materialize-dynamodb-new',
@@ -250,14 +248,10 @@ const productMaterializeDynamoDbUpdateQueues = createQueueWithDlq({
   snsTopicArn: alarmTopic.arn,
 });
 
-const productMaterializeDynamoDbUpdateRole = createLambdaRole(
-  'product-lambda-materialize-dynamodb-update',
-  stageName,
-  [
-    dynamoDBFullAccessPolicy(dynamoDb.table.arn),
-    sqsPollerPolicy(productMaterializeDynamoDbUpdateQueues.queue.arn),
-  ]
-);
+const productMaterializeDynamoDbUpdateRole = createLambdaRole('product-lambda-materialize-dynamodb-update', stageName, [
+  dynamoDBFullAccessPolicy(dynamoDb.table.arn),
+  sqsPollerPolicy(productMaterializeDynamoDbUpdateQueues.queue.arn),
+]);
 
 const productMaterializeDynamoDbUpdateLambda = createLambda({
   name: 'product-lambda-materialize-dynamodb-update',
@@ -289,14 +283,10 @@ const productMaterializeOpenSearchNewQueues = createQueueWithDlq({
   snsTopicArn: alarmTopic.arn,
 });
 
-const productMaterializeOpenSearchNewRole = createLambdaRole(
-  'product-lambda-materialize-opensearch-new',
-  stageName,
-  [
-    openSearchFullAccessPolicy(openSearch.domain.arn, awsRegion, stageName),
-    sqsPollerPolicy(productMaterializeOpenSearchNewQueues.queue.arn),
-  ]
-);
+const productMaterializeOpenSearchNewRole = createLambdaRole('product-lambda-materialize-opensearch-new', stageName, [
+  openSearchFullAccessPolicy(openSearch.domain.arn, awsRegion, stageName),
+  sqsPollerPolicy(productMaterializeOpenSearchNewQueues.queue.arn),
+]);
 
 const productMaterializeOpenSearchNewLambda = createLambda({
   name: 'product-lambda-materialize-opensearch-new',
@@ -910,7 +900,15 @@ const productEnrichmentLaunchTemplate = new aws.ec2.LaunchTemplate('ProductEnric
     },
   ],
   userData: pulumi
-    .all([stageName, commitSHA, resourceBucket, artifactBucket, productEnrichmentQueues.queue.url, dynamoDb.table.name, openSearch.domain.endpoint])
+    .all([
+      stageName,
+      commitSHA,
+      resourceBucket,
+      artifactBucket,
+      productEnrichmentQueues.queue.url,
+      dynamoDb.table.name,
+      openSearch.domain.endpoint,
+    ])
     .apply(([sn, sha, resBucket, artBucket, queueUrl, tableName, osEndpoint]) =>
       Buffer.from(
         `#!/bin/bash
@@ -966,37 +964,43 @@ const productEnrichmentASG = new aws.autoscaling.Group('ProductEnrichmentASG', {
 });
 
 // ASG Alarms
-const asgInstanceStatusAlarm = new aws.cloudwatch.MetricAlarm('ProductEnrichmentASGEC2InstanceStatusCheckFailed', {
-  alarmDescription: 'One or more instance status checks are failing.',
-  namespace: 'AWS/EC2',
-  metricName: 'StatusCheckFailed_Instance',
-  dimensions: {
-    AutoScalingGroupName: productEnrichmentASG.name,
-  },
-  statistic: 'Maximum',
-  period: 60,
-  evaluationPeriods: 2,
-  threshold: 1,
-  comparisonOperator: 'GreaterThanOrEqualToThreshold',
-  treatMissingData: 'notBreaching',
-  alarmActions: [alarmTopic.arn],
-});
+const asgInstanceStatusAlarm = new aws.cloudwatch.MetricAlarm(
+  `${config.stageName}-ProductEnrichmentASGEC2InstanceStatusCheckFailed`,
+  {
+    alarmDescription: 'One or more instance status checks are failing.',
+    namespace: 'AWS/EC2',
+    metricName: 'StatusCheckFailed_Instance',
+    dimensions: {
+      AutoScalingGroupName: productEnrichmentASG.name,
+    },
+    statistic: 'Maximum',
+    period: 60,
+    evaluationPeriods: 2,
+    threshold: 1,
+    comparisonOperator: 'GreaterThanOrEqualToThreshold',
+    treatMissingData: 'notBreaching',
+    alarmActions: [alarmTopic.arn],
+  }
+);
 
-const asgSystemStatusAlarm = new aws.cloudwatch.MetricAlarm('ProductEnrichmentASGEC2SystemStatusCheckFailed', {
-  alarmDescription: 'System status check failed (hardware/hypervisor).',
-  namespace: 'AWS/EC2',
-  metricName: 'StatusCheckFailed_System',
-  dimensions: {
-    AutoScalingGroupName: productEnrichmentASG.name,
-  },
-  statistic: 'Maximum',
-  period: 60,
-  evaluationPeriods: 2,
-  threshold: 1,
-  comparisonOperator: 'GreaterThanOrEqualToThreshold',
-  treatMissingData: 'notBreaching',
-  alarmActions: [alarmTopic.arn],
-});
+const asgSystemStatusAlarm = new aws.cloudwatch.MetricAlarm(
+  `${config.stageName}-ProductEnrichmentASGEC2SystemStatusCheckFailed`,
+  {
+    alarmDescription: 'System status check failed (hardware/hypervisor).',
+    namespace: 'AWS/EC2',
+    metricName: 'StatusCheckFailed_System',
+    dimensions: {
+      AutoScalingGroupName: productEnrichmentASG.name,
+    },
+    statistic: 'Maximum',
+    period: 60,
+    evaluationPeriods: 2,
+    threshold: 1,
+    comparisonOperator: 'GreaterThanOrEqualToThreshold',
+    treatMissingData: 'notBreaching',
+    alarmActions: [alarmTopic.arn],
+  }
+);
 
 // Scale Up Lambda
 const productEnrichmentScaleUpRole = createLambdaRole('product-enrichment-asg-scale-up', stageName, [

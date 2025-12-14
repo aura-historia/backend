@@ -43,7 +43,7 @@ export function createTable(stageName: string, snsTopicArn: pulumi.Output<string
     streamViewType: 'NEW_IMAGE',
   });
 
-  const throttledRequestsAlarm = new aws.cloudwatch.MetricAlarm('TableOneThrottledRequestsAlarm', {
+  const throttledRequestsAlarm = new aws.cloudwatch.MetricAlarm(`${stageName}-dynamodb-throttled-requests`, {
     name: `${stageName}-dynamodb-throttled-requests`,
     alarmDescription: 'Alarm when DynamoDB table has throttled requests',
     metricName: 'UserErrors',

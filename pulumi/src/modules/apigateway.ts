@@ -52,7 +52,7 @@ export function createApiGateway(
     },
   });
 
-  const api5xxErrorAlarm = new aws.cloudwatch.MetricAlarm('Api5XXErrorAlarm', {
+  const api5xxErrorAlarm = new aws.cloudwatch.MetricAlarm(`${stageName}-api-5xx-errors`, {
     name: `${stageName}-api-5xx-errors`,
     alarmDescription: 'Alarm when API Gateway returns 5XX errors',
     metricName: '5XXError',
@@ -69,7 +69,7 @@ export function createApiGateway(
     alarmActions: [snsTopicArn],
   });
 
-  const api4xxErrorAlarm = new aws.cloudwatch.MetricAlarm('Api4XXErrorAlarm', {
+  const api4xxErrorAlarm = new aws.cloudwatch.MetricAlarm(`${stageName}-api-4xx-errors`, {
     name: `${stageName}-api-4xx-errors`,
     alarmDescription: 'Alarm when API Gateway returns high 4XX errors',
     metricName: '4XXError',

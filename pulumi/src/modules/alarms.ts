@@ -26,7 +26,7 @@ export function createLambdaAlarms(
   name: string,
   config: LambdaAlarmConfig
 ): { errorAlarm: aws.cloudwatch.MetricAlarm; throttleAlarm: aws.cloudwatch.MetricAlarm } {
-  const errorAlarm = new aws.cloudwatch.MetricAlarm(`${name}-error-alarm`, {
+  const errorAlarm = new aws.cloudwatch.MetricAlarm(`${config.stageName}-${name}-error-alarm`, {
     name: `${config.stageName}-${name}-lambda-errors`,
     alarmDescription: `Alarm when ${name} Lambda has errors`,
     metricName: 'Errors',
@@ -43,7 +43,7 @@ export function createLambdaAlarms(
     alarmActions: [config.snsTopicArn],
   });
 
-  const throttleAlarm = new aws.cloudwatch.MetricAlarm(`${name}ThrottleAlarm`, {
+  const throttleAlarm = new aws.cloudwatch.MetricAlarm(`${config.stageName}-${name}-throttle-alarm`, {
     name: `${config.stageName}-${name}-lambda-throttles`,
     alarmDescription: `Alarm when ${name} Lambda is throttled`,
     metricName: 'Throttles',
@@ -67,7 +67,7 @@ export function createLambdaAlarms(
  * Creates a DLQ alarm for an SQS queue
  */
 export function createDlqAlarm(name: string, config: QueueAlarmConfig): aws.cloudwatch.MetricAlarm {
-  return new aws.cloudwatch.MetricAlarm(`${name}DlqAlarm`, {
+  return new aws.cloudwatch.MetricAlarm(`${config.stageName}-${name}-dlq-alarm`, {
     name: `${config.stageName}-${name}-dlq-messages`,
     alarmDescription: `Alarm when messages appear in ${name} DLQ`,
     metricName: 'ApproximateNumberOfMessagesVisible',
