@@ -249,6 +249,7 @@ fn should_set_notifications_true_for_update() {
                 gsi1_pk: Some(mk_gsi1_pk(&initial.product_id)),
                 gsi1_sk: Some(mk_gsi1_sk(&initial.user_id)),
                 notifications: Some(true),
+                user_record: None,
                 updated,
             },
         )
@@ -291,6 +292,7 @@ fn should_set_notifications_false_for_update() {
                 gsi1_pk: None,
                 gsi1_sk: None,
                 notifications: Some(false),
+                user_record: None,
                 updated,
             },
         )
@@ -310,6 +312,51 @@ fn should_set_notifications_false_for_update() {
     assert!(!actual.notifications);
     assert!(actual.gsi1_pk.is_none());
     assert!(actual.gsi1_sk.is_none());
+}
+
+#[localstack_test(services = [DynamoDB()])]
+fn should_update_user_record() {
+    let repository = get_repository().await;
+
+    let initial = Faker.fake::<WatchlistProductRecord>();
+    let _ = repository
+        .put_watchlist_record(initial.clone())
+        .await
+        .unwrap();
+
+    let updated = OffsetDateTime::now_utc();
+    let mut new_user_record = initial.user_record.clone();
+    new_user_record.first_name = Some("Tommy Tom Tom".into());
+    let _ = repository
+        .update_watchlist_record(
+            &initial.user_id,
+            &initial.shop_id,
+            &initial.shops_product_id,
+            WatchlistProductRecordUpdate {
+                gsi1_pk: None,
+                gsi1_sk: None,
+                notifications: None,
+                user_record: Some(new_user_record),
+                updated,
+            },
+        )
+        .await
+        .unwrap();
+
+    let actual = repository
+        .get_watchlist_record(
+            &initial.user_id,
+            &initial.shop_id,
+            &initial.shops_product_id,
+        )
+        .await
+        .unwrap()
+        .unwrap();
+
+    assert_eq!(
+        "Tommy Tom Tom",
+        actual.user_record.first_name.unwrap().to_string()
+    );
 }
 
 #[localstack_test(services = [DynamoDB()])]
