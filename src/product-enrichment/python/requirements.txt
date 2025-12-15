@@ -5,4 +5,4 @@ transformers==4.57.3
 sentencepiece==0.2.1
 ctranslate2==4.6.2
 sacremoses==0.1.1
-cachetools==6.2.2
+cachetools==6.2.3
