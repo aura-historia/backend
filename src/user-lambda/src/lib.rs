@@ -1,1 +1,1 @@
-pub use user_lambda_fanout_update;
+pub use user_lambda_fanout_update_watchlist;

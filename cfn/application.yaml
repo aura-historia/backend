@@ -464,7 +464,7 @@ Resources:
         - !Ref ProductMaterializeOpenSearchUpdateQ
         - !Ref ProductUpdateNotifyUserQ
         - !Ref ProductEnrichmentQ
-        - !Ref UserLambdaFanoutUpdateQ
+        - !Ref UserLambdaFanoutUpdateWatchlistQ
       PolicyDocument:
         Version: "2012-10-17"
         Statement:
@@ -479,7 +479,7 @@ Resources:
               - !GetAtt ProductMaterializeOpenSearchUpdateQ.Arn
               - !GetAtt ProductUpdateNotifyUserQ.Arn
               - !GetAtt ProductEnrichmentQ.Arn
-              - !GetAtt UserLambdaFanoutUpdateQ.Arn
+              - !GetAtt UserLambdaFanoutUpdateWatchlistQ.Arn
 
   Api:
     Type: AWS::ApiGatewayV2::Api
@@ -2824,23 +2824,23 @@ Resources:
       AlarmActions:
         - !Ref AlarmNotificationTopic
 
-  UserLambdaFanoutUpdateDlq:
+  UserLambdaFanoutUpdateWatchlistDlq:
     Type: AWS::SQS::Queue
     Properties:
-      QueueName: !Sub "user-lambda-fanout-update-dlq-${StageName}"
+      QueueName: !Sub "user-lambda-fanout-update-watchlist-dlq-${StageName}"
       MessageRetentionPeriod: 1209600
-  UserLambdaFanoutUpdateQ:
+  UserLambdaFanoutUpdateWatchlistQ:
     Type: AWS::SQS::Queue
     Properties:
-      QueueName: !Sub "user-lambda-fanout-update-queue-${StageName}"
+      QueueName: !Sub "user-lambda-fanout-update-watchlist-queue-${StageName}"
       RedrivePolicy:
-        deadLetterTargetArn: !GetAtt UserLambdaFanoutUpdateDlq.Arn
+        deadLetterTargetArn: !GetAtt UserLambdaFanoutUpdateWatchlistDlq.Arn
         maxReceiveCount: 5
       VisibilityTimeout: 360
-  UserLambdaFanoutUpdateRole:
+  UserLambdaFanoutUpdateWatchlistRole:
     Type: AWS::IAM::Role
     Properties:
-      RoleName: !Sub "user-lambda-fanout-update-role-${StageName}"
+      RoleName: !Sub "user-lambda-fanout-update-watchlist-role-${StageName}"
       AssumeRolePolicyDocument:
         Version: "2012-10-17"
         Statement:
@@ -2879,25 +2879,17 @@ Resources:
                   - sqs:DeleteMessage
                   - sqs:GetQueueAttributes
                   - sqs:GetQueueUrl
-                Resource: !GetAtt UserLambdaFanoutUpdateQ.Arn
-        - PolicyName: SQSSendMessage
-          PolicyDocument:
-            Version: "2012-10-17"
-            Statement:
-              - Effect: Allow
-                Action:
-                  - sqs:SendMessage
-                Resource: !GetAtt SendMailQ.Arn
-  UserLambdaFanoutUpdateLambda:
+                Resource: !GetAtt UserLambdaFanoutUpdateWatchlistQ.Arn
+  UserLambdaFanoutUpdateWatchlistLambda:
     Type: AWS::Lambda::Function
     Properties:
-      FunctionName: !Sub "user-lambda-fanout-update-${StageName}"
+      FunctionName: !Sub "user-lambda-fanout-update-watchlist-${StageName}"
       Runtime: provided.al2023
       Handler: lib.handler
-      Role: !GetAtt UserLambdaFanoutUpdateRole.Arn
+      Role: !GetAtt UserLambdaFanoutUpdateWatchlistRole.Arn
       Code:
         S3Bucket: !Ref ArtifactBucket
-        S3Key: !Sub "user-lambda-fanout-update-${StageName}-${CommitSHA}.zip"
+        S3Key: !Sub "user-lambda-fanout-update-watchlist-${StageName}-${CommitSHA}.zip"
       MemorySize: 512
       Timeout: 60
       EphemeralStorage:
@@ -2905,21 +2897,21 @@ Resources:
       Environment:
         Variables:
           DYNAMODB_TABLE_NAME: !Ref TableOne
-  UserLambdaFanoutUpdateMapping:
+  UserLambdaFanoutUpdateWatchlistMapping:
     Type: AWS::Lambda::EventSourceMapping
     Properties:
-      FunctionName: !Ref UserLambdaFanoutUpdateLambda
-      EventSourceArn: !GetAtt UserLambdaFanoutUpdateQ.Arn
+      FunctionName: !Ref UserLambdaFanoutUpdateWatchlistLambda
+      EventSourceArn: !GetAtt UserLambdaFanoutUpdateWatchlistQ.Arn
       Enabled: true
       BatchSize: 10
       MaximumBatchingWindowInSeconds: 1
       FunctionResponseTypes:
         - ReportBatchItemFailures
-  UserLambdaFanoutUpdateLambdaErrorAlarm:
+  UserLambdaFanoutUpdateWatchlistLambdaErrorAlarm:
     Type: AWS::CloudWatch::Alarm
     Properties:
-      AlarmName: !Sub "${StageName}-user-lambda-fanout-update-lambda-errors"
-      AlarmDescription: "Alarm when user-lambda-fanout-update Lambda has errors"
+      AlarmName: !Sub "${StageName}-user-lambda-fanout-update-watchlist-lambda-errors"
+      AlarmDescription: "Alarm when user-lambda-fanout-update-watchlist Lambda has errors"
       MetricName: Errors
       Namespace: AWS/Lambda
       Statistic: Sum
@@ -2929,15 +2921,15 @@ Resources:
       ComparisonOperator: GreaterThanOrEqualToThreshold
       Dimensions:
         - Name: FunctionName
-          Value: !Ref UserLambdaFanoutUpdateLambda
+          Value: !Ref UserLambdaFanoutUpdateWatchlistLambda
       TreatMissingData: notBreaching
       AlarmActions:
         - !Ref AlarmNotificationTopic
-  UserLambdaFanoutUpdateDlqAlarm:
+  UserLambdaFanoutUpdateWatchlistDlqAlarm:
     Type: AWS::CloudWatch::Alarm
     Properties:
-      AlarmName: !Sub "${StageName}-user-lambda-fanout-update-dlq-messages"
-      AlarmDescription: "Alarm when messages appear in user-lambda-fanout-update DLQ"
+      AlarmName: !Sub "${StageName}-user-lambda-fanout-update-watchlist-dlq-messages"
+      AlarmDescription: "Alarm when messages appear in user-lambda-fanout-update-watchlist DLQ"
       MetricName: ApproximateNumberOfMessagesVisible
       Namespace: AWS/SQS
       Statistic: Sum
@@ -2947,7 +2939,7 @@ Resources:
       ComparisonOperator: GreaterThanOrEqualToThreshold
       Dimensions:
         - Name: QueueName
-          Value: !GetAtt UserLambdaFanoutUpdateDlq.QueueName
+          Value: !GetAtt UserLambdaFanoutUpdateWatchlistDlq.QueueName
       TreatMissingData: notBreaching
       AlarmActions:
         - !Ref AlarmNotificationTopic

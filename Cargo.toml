@@ -154,7 +154,7 @@ user-api-get-account = { path = "src/user-api/src/user-api-get-account" }
 user-api-patch-account = { path = "src/user-api/src/user-api-patch-account" }
 user-lambda = { path = "src/user-lambda" }
 cognito = { path = "src/cognito" }
-user-lambda-fanout-update = { path = "src/user-lambda/src/user-lambda-fanout-update" }
+user-lambda-fanout-update-watchlist = { path = "src/user-lambda/src/user-lambda-fanout-update-watchlist" }
 cognito-post-confirmation = { path = "src/cognito-post-confirmation" }
 serde-email = "3.2.0"
 handlebars = "6.3.2"
