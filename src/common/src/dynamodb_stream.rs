@@ -1,5 +1,6 @@
 use aws_lambda_events::eventbridge::EventBridgeEvent;
-use product::dynamodb::product_event_record::ProductEventRecord;
+use aws_sdk_sqs::operation::tag_queue::TagQueueInput;
+use serde::de::DeserializeOwned;
 use tracing::{error, info};
 
 #[derive(Debug, Clone)]
@@ -31,11 +32,11 @@ impl From<aws_sdk_sqs::types::Message> for SqsMessage {
 }
 
 #[tracing::instrument(skip(message, failed_message_ids, skipped_count))]
-pub fn extract_product_event_record(
+pub fn extract_sqs_event_bridge_dynamodb_record<T: DeserializeOwned>(
     message: impl Into<SqsMessage>,
     failed_message_ids: &mut Vec<String>,
     skipped_count: &mut usize,
-) -> Option<ProductEventRecord> {
+) -> Option<T> {
     let message: SqsMessage = message.into();
     let message_id = message.message_id;
 
@@ -49,14 +50,14 @@ pub fn extract_product_event_record(
             match serde_json::from_str::<EventBridgeEvent<aws_lambda_events::dynamodb::EventRecord>>(
                 &event_bridge_event_json,
             ) {
-                Ok(event_bridge_event) => match serde_dynamo::from_item::<_, ProductEventRecord>(
+                Ok(event_bridge_event) => match serde_dynamo::from_item::<_, T>(
                     event_bridge_event.detail.change.new_image,
                 ) {
-                    Ok(product_event_record) => Some(product_event_record),
+                    Ok(example_record) => Some(example_record),
                     Err(e) => {
                         error!(
                             error = %e,
-                            type = %std::any::type_name::<ProductEventRecord>(),
+                            type = %std::any::type_name::<TagQueueInput>(),
                             payload = %event_bridge_event_json,
                             "Failed deserializing 'detail.new_image'."
                         );
@@ -81,16 +82,23 @@ pub fn extract_product_event_record(
 
 #[cfg(test)]
 mod tests {
-    use crate::extract_product_event_record;
+    use super::extract_sqs_event_bridge_dynamodb_record;
     use aws_lambda_events::{
         dynamodb::{EventRecord, StreamRecord},
         eventbridge::EventBridgeEvent,
         sqs::SqsMessage,
     };
     use fake::{Fake, Faker};
-    use product::dynamodb::product_event_record::ProductEventRecord;
+    use serde::{Deserialize, Serialize};
     use std::time::SystemTime;
     use uuid::Uuid;
+
+    #[derive(Clone, Debug, PartialEq, Serialize, Deserialize, fake::Dummy)]
+    struct ExampleRecord {
+        pub pk: String,
+        pub sk: String,
+        pub foo: u32,
+    }
 
     fn mk_sqs_message(message_id: &str, body: Option<String>) -> SqsMessage {
         let mut msg = SqsMessage::default();
@@ -99,12 +107,10 @@ mod tests {
         msg
     }
 
-    fn mk_event_bridge_event(
-        product_event_record: &ProductEventRecord,
-    ) -> EventBridgeEvent<EventRecord> {
+    fn mk_event_bridge_event(example_record: &ExampleRecord) -> EventBridgeEvent<EventRecord> {
         let mut stream_record = StreamRecord::default();
         stream_record.approximate_creation_date_time = SystemTime::now().into();
-        stream_record.new_image = serde_dynamo::to_item(product_event_record).unwrap();
+        stream_record.new_image = serde_dynamo::to_item(example_record).unwrap();
         stream_record.size_bytes = 42;
 
         let mut event_record = EventRecord::default();
@@ -126,7 +132,11 @@ mod tests {
 
         let mut failed_message_ids = vec![];
         let mut skipped_count = 0;
-        let actual = extract_product_event_record(msg, &mut failed_message_ids, &mut skipped_count);
+        let actual = extract_sqs_event_bridge_dynamodb_record::<ExampleRecord>(
+            msg,
+            &mut failed_message_ids,
+            &mut skipped_count,
+        );
 
         assert!(actual.is_none());
         assert_eq!(vec!["msg1".to_string()], failed_message_ids);
@@ -139,7 +149,11 @@ mod tests {
 
         let mut failed_message_ids = vec![];
         let mut skipped_count = 0;
-        let actual = extract_product_event_record(msg, &mut failed_message_ids, &mut skipped_count);
+        let actual = extract_sqs_event_bridge_dynamodb_record::<ExampleRecord>(
+            msg,
+            &mut failed_message_ids,
+            &mut skipped_count,
+        );
 
         assert!(actual.is_none());
         assert!(failed_message_ids.is_empty());
@@ -153,7 +167,11 @@ mod tests {
 
         let mut failed_message_ids = vec![];
         let mut skipped_count = 0;
-        let actual = extract_product_event_record(msg, &mut failed_message_ids, &mut skipped_count);
+        let actual = extract_sqs_event_bridge_dynamodb_record::<ExampleRecord>(
+            msg,
+            &mut failed_message_ids,
+            &mut skipped_count,
+        );
 
         assert!(actual.is_none());
         assert_eq!(vec!["test_msg".to_string()], failed_message_ids);
@@ -162,13 +180,17 @@ mod tests {
 
     #[test]
     fn should_succeed_extract_message_data_with_valid_data() {
-        let expected = Faker.fake::<ProductEventRecord>();
+        let expected = Faker.fake::<ExampleRecord>();
         let event = mk_event_bridge_event(&expected);
         let msg = mk_sqs_message("test_msg", Some(serde_json::to_string(&event).unwrap()));
 
         let mut failed_message_ids = vec![];
         let mut skipped_count = 0;
-        let actual = extract_product_event_record(msg, &mut failed_message_ids, &mut skipped_count);
+        let actual = extract_sqs_event_bridge_dynamodb_record::<ExampleRecord>(
+            msg,
+            &mut failed_message_ids,
+            &mut skipped_count,
+        );
 
         assert!(actual.is_some());
         assert_eq!(expected, actual.unwrap());

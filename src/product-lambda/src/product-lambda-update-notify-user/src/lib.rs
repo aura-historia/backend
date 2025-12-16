@@ -2,11 +2,11 @@ pub mod service;
 
 use crate::service::ProductEventMailPayloadService;
 use aws_lambda_events::sqs::{BatchItemFailure, SqsBatchResponse, SqsEvent};
+use common::dynamodb_stream::extract_sqs_event_bridge_dynamodb_record;
 use lambda_runtime::LambdaEvent;
 use mail_core::{payload::MailPayload, queue_service::QueueMailService};
 use product::core::product_event::ProductEvent;
 use product::dynamodb::product_event_record::ProductEventRecord;
-use product_lambda_common::extract_product_event_record;
 use tracing::{error, info};
 
 #[tracing::instrument(skip(queue_mail_service, product_event_mail_payload_service, event), fields(requestId = %event.context.request_id))]
@@ -26,9 +26,11 @@ pub async fn handler(
             .message_id
             .clone()
             .expect("shouldn't receive an SQS-Message without 'message_id' because AWS sets it.");
-        if let Some(product_event_record) =
-            extract_product_event_record(message, &mut failed_message_ids, &mut skipped_count)
-        {
+        if let Some(product_event_record) = extract_sqs_event_bridge_dynamodb_record::<
+            ProductEventRecord,
+        >(
+            message, &mut failed_message_ids, &mut skipped_count
+        ) {
             match ProductEvent::try_from(product_event_record) {
                 Ok(product_event) => {
                     let mail_payloads_res = product_event_mail_payload_service

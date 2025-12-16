@@ -41,6 +41,7 @@ serde_json = { workspace = true }
 [features]
 default = []
 dynamodb = ["serde_dynamo", "aws-sdk-dynamodb"]
+event_bridge = ["aws_lambda_events/eventbridge", "aws_lambda_events/sqs", "aws_lambda_events/dynamodb"]
 opensearch = ["dep:opensearch", "serde_json"]
 sqs = ["aws-sdk-sqs", "serde_json"]
 api = [
