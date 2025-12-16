@@ -1,12 +1,14 @@
 use std::collections::HashMap;
 
 use aws_lambda_events::sqs::{BatchItemFailure, SqsBatchResponse, SqsEvent, SqsMessage};
+use common::dynamodb_stream::extract_sqs_event_bridge_dynamodb_record;
 use common::has_key::HasKey;
 use common::product_id::ProductKey;
 use lambda_runtime::LambdaEvent;
-use product::dynamodb::product_update_record::ProductRecordUpdate;
 use product::dynamodb::repository::ProductDynamoDbRepository;
-use product_lambda_common::extract_product_event_record;
+use product::dynamodb::{
+    product_event_record::ProductEventRecord, product_update_record::ProductRecordUpdate,
+};
 use tracing::{error, info};
 
 #[tracing::instrument(skip(repository, event), fields(requestId = %event.context.request_id))]
@@ -80,8 +82,8 @@ fn extract_message_data(
         .message_id
         .clone()
         .expect("shouldn't receive an SQS-Message without 'message_id' because AWS sets it.");
-    let product_event_record =
-        extract_product_event_record(message, failed_message_ids, skipped_count)?;
+    let product_event_record: ProductEventRecord =
+        extract_sqs_event_bridge_dynamodb_record(message, failed_message_ids, skipped_count)?;
     let key = product_event_record.key();
     let update_record = ProductRecordUpdate::from(product_event_record);
     message_ids.insert(key.clone(), message_id);

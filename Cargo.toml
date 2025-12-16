@@ -17,6 +17,8 @@ product-api = { workspace = true }
 product-lambda = { workspace = true }
 test-api = { workspace = true }
 user = { workspace = true }
+user-api = { workspace = true }
+user-lambda = { workspace = true }
 mail = { workspace = true }
 mail-lambda-send = { workspace = true }
 product-enrichment = { workspace = true }
@@ -38,6 +40,7 @@ members = [
     "src/shop-api",
     "src/user",
     "src/user-api",
+    "src/user-lambda",
     "src/mail",
     "src/mail-lambda-send",
     "src/product-enrichment",
@@ -95,7 +98,6 @@ product-lambda = { path = "src/product-lambda" }
 product-enrichment = { path = "src/product-enrichment" }
 product-enrichment-asg-scale-down = { path = "src/product-enrichment/src/product-enrichment-asg-scale-down" }
 product-enrichment-asg-scale-up = { path = "src/product-enrichment/src/product-enrichment-asg-scale-up" }
-product-lambda-common = { path = "src/product-lambda/src/product-lambda-common" }
 product-lambda-materialize-dynamodb-new = { path = "src/product-lambda/src/product-lambda-materialize-dynamodb-new" }
 product-lambda-materialize-dynamodb-update = { path = "src/product-lambda/src/product-lambda-materialize-dynamodb-update" }
 product-lambda-materialize-opensearch-new = { path = "src/product-lambda/src/product-lambda-materialize-opensearch-new" }
@@ -150,7 +152,9 @@ user = { path = "src/user" }
 user-api = { path = "src/user-api" }
 user-api-get-account = { path = "src/user-api/src/user-api-get-account" }
 user-api-patch-account = { path = "src/user-api/src/user-api-patch-account" }
+user-lambda = { path = "src/user-lambda" }
 cognito = { path = "src/cognito" }
+user-lambda-fanout-update-watchlist = { path = "src/user-lambda/src/user-lambda-fanout-update-watchlist" }
 cognito-post-confirmation = { path = "src/cognito-post-confirmation" }
 serde-email = "3.2.0"
 handlebars = "6.3.2"

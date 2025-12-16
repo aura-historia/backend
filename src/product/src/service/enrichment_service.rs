@@ -9,7 +9,6 @@ use shop::core::shop::Shop;
 use shop::dynamodb::repository::ShopDynamoDbRepository;
 use std::collections::{HashMap, HashSet};
 use tracing::{error, warn};
-use url::Url;
 
 #[derive(Debug, Clone, PartialEq, Default)]
 pub struct EnrichProductCommandsOutput {
@@ -175,6 +174,7 @@ mod faker {
     use super::*;
     use common::price::domain::{FixedFxRate, Price};
     use fake::{Dummy, Fake, Faker, Rng};
+    use url::Url;
 
     impl Dummy<Faker> for PipedProductCommand {
         fn dummy_with_rng<R: Rng + ?Sized>(config: &Faker, rng: &mut R) -> Self {

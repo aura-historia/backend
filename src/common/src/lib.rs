@@ -3,11 +3,14 @@ pub mod currency;
 #[cfg(feature = "api")]
 pub mod api;
 pub mod batch;
+pub mod domain;
 
 #[cfg(feature = "dynamodb")]
 pub mod dynamodb_update;
 
-pub mod domain;
+#[cfg(feature = "event_bridge")]
+pub mod dynamodb_stream;
+
 pub mod error;
 pub mod event;
 pub mod event_id;

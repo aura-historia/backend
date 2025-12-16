@@ -1,4 +1,3 @@
-pub use product_lambda_common;
 pub use product_lambda_ingest_events_dynamodb;
 pub use product_lambda_materialize_dynamodb_new;
 pub use product_lambda_materialize_dynamodb_update;
