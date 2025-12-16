@@ -34,7 +34,7 @@ pub async fn handler(
     }
 }
 
-// PATCH /api/v1/shops/{shopIdentifierentifier}
+// PATCH /api/v1/shops/{shopIdentifier}
 pub async fn handle(
     event: LambdaEvent<ApiGatewayV2httpRequest>,
     service: &impl CommandShopService,
