@@ -318,7 +318,10 @@ mod tests {
     mod update_user {
         use crate::{
             dynamodb::repository::MockUserDynamoDbRepository,
-            service::user_service::{UserService, UserServiceError, UserServiceImpl},
+            service::{
+                command::UpdateUserCommand,
+                user_service::{UserService, UserServiceError, UserServiceImpl},
+            },
         };
         use aws_sdk_dynamodb::{
             config::http::HttpResponse,
@@ -414,7 +417,13 @@ mod tests {
             let service = UserServiceImpl {
                 repository: &repository,
             };
-            let actual = service.update_user(&user_id, Faker.fake()).await;
+            let update = UpdateUserCommand {
+                first_name: Some("foo".into()),
+                last_name: None,
+                language: None,
+                currency: None,
+            };
+            let actual = service.update_user(&user_id, update).await;
 
             assert!(actual.is_err());
             match actual.unwrap_err() {
