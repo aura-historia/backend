@@ -24,7 +24,7 @@ env:
     || github.ref == 'refs/heads/prod' && 'prod'
     || github.ref == 'refs/heads/develop' && 'dev' }}
   CLOUDFORMATION_TEMPLATE_PATH:
-    cfn/${{ github.event_name == 'pull_request' && 'cfn/ephemeral.yaml'
+    ${{ github.event_name == 'pull_request' && 'cfn/ephemeral.yaml'
     || github.ref == 'refs/heads/prod' && 'cfn/prod.yaml'
     || github.ref == 'refs/heads/develop' && 'cfn/dev.yaml' }}
 
