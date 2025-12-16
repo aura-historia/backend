@@ -2,10 +2,10 @@ use aws_lambda_events::apigw::{ApiGatewayV2httpRequest, ApiGatewayV2httpResponse
 use common::api::api_gateway_v2_http_response_builder::ApiGatewayV2HttpResponseBuilder;
 use common::api::error::{ApiError, log_api_error};
 use common::api::error_code::BAD_BODY_VALUE;
-use common::shop_id::api::extract_shop_id_path;
 use lambda_runtime::LambdaEvent;
 use shop::data::get_shop_data::GetShopData;
 use shop::data::patch_shop_data::PatchShopData;
+use shop::data::shop_identifier_data::extract_shop_identifier_data_path;
 use shop::service::command::UpdateShopCommand;
 use shop::service::command_service::CommandShopService;
 
@@ -34,12 +34,12 @@ pub async fn handler(
     }
 }
 
-// PATCH /api/v1/shops/{shopId}
+// PATCH /api/v1/shops/{shopIdentifier}
 pub async fn handle(
     event: LambdaEvent<ApiGatewayV2httpRequest>,
     service: &impl CommandShopService,
 ) -> Result<ApiGatewayV2httpResponse, ApiError> {
-    let shop_id = extract_shop_id_path(&event.payload.path_parameters)?;
+    let shop_identifier = extract_shop_identifier_data_path(&event.payload.path_parameters)?.into();
     let body = event
         .payload
         .body
@@ -58,7 +58,9 @@ pub async fn handle(
         domains: patch_shop_data.domains,
         image: patch_shop_data.image,
     };
-    let updated_shop = service.update(&shop_id.into(), update_shop_command).await?;
+    let updated_shop = service
+        .update(&shop_identifier, update_shop_command)
+        .await?;
     let updated_shop_data = GetShopData::from(updated_shop);
 
     Ok(ApiGatewayV2HttpResponseBuilder::json(200)
@@ -82,7 +84,7 @@ mod tests {
     use time::macros::datetime;
 
     #[tokio::test]
-    async fn should_200_when_success() {
+    async fn should_200_when_success_for_shop_id() {
         let mut service = MockCommandShopService::default();
         service.expect_update().return_once(move |_, _| {
             let shop: Shop = Faker.fake();
@@ -90,7 +92,26 @@ mod tests {
         });
         let lambda_event = LambdaEvent {
             payload: ApiGatewayV2httpRequestProxy::builder()
-                .path_parameter("shopId", ShopId::new())
+                .path_parameter("shopIdentifier", ShopId::new())
+                .http_method(http::Method::PATCH)
+                .body_serde(&Faker.fake::<PatchShopData>())
+                .build(),
+            context: Default::default(),
+        };
+        let response = handler(lambda_event, &service).await.unwrap();
+        assert_eq!(200, response.status_code);
+    }
+
+    #[tokio::test]
+    async fn should_200_when_success_for_shop_domain() {
+        let mut service = MockCommandShopService::default();
+        service.expect_update().return_once(move |_, _| {
+            let shop: Shop = Faker.fake();
+            Box::pin(async move { Ok(shop) })
+        });
+        let lambda_event = LambdaEvent {
+            payload: ApiGatewayV2httpRequestProxy::builder()
+                .path_parameter("shopIdentifier", "boop.com")
                 .http_method(http::Method::PATCH)
                 .body_serde(&Faker.fake::<PatchShopData>())
                 .build(),
@@ -111,7 +132,7 @@ mod tests {
         });
         let lambda_event = LambdaEvent {
             payload: ApiGatewayV2httpRequestProxy::builder()
-                .path_parameter("shopId", ShopId::new())
+                .path_parameter("shopIdentifier", ShopId::new())
                 .http_method(http::Method::PATCH)
                 .body_serde(&Faker.fake::<PatchShopData>())
                 .build(),

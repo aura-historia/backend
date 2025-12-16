@@ -3,16 +3,13 @@ use crate::dynamodb::repository::ShopDynamoDbRepository;
 use async_trait::async_trait;
 use aws_sdk_dynamodb::config::http::HttpResponse;
 use aws_sdk_dynamodb::error::SdkError;
-use common::{
-    batch::Batch,
-    shop_id::{ShopId, ShopIdentifier},
-};
+use common::{batch::Batch, shop_id::ShopIdentifier};
 
 #[derive(thiserror::Error, Debug)]
 #[allow(clippy::large_enum_variant)]
 pub enum GetShopError {
-    #[error("Shop with id '{0}' not found")]
-    ShopNotFound(ShopId),
+    #[error("Shop with identifier '{0}' not found")]
+    ShopNotFound(ShopIdentifier),
 
     #[error("Encountered DynamoDB SdkError for GetItem: {0}")]
     SdkGetItemError(
@@ -52,7 +49,7 @@ pub mod api {
 #[async_trait]
 #[mockall::automock]
 pub trait GetShopService {
-    async fn find_shop(&self, shop_id: &ShopId) -> Result<Shop, GetShopError>;
+    async fn find_shop(&self, shop_identifier: &ShopIdentifier) -> Result<Shop, GetShopError>;
 
     async fn find_shops(
         &self,
@@ -72,12 +69,17 @@ impl<'a> GetShopServiceImpl<'a> {
 
 #[async_trait]
 impl<'a> GetShopService for GetShopServiceImpl<'a> {
-    async fn find_shop(&self, shop_id: &ShopId) -> Result<Shop, GetShopError> {
-        let shop_record = self
-            .repository
-            .get_shop_record_by_id(shop_id)
-            .await?
-            .ok_or(GetShopError::ShopNotFound(*shop_id))?;
+    async fn find_shop(&self, shop_identifier: &ShopIdentifier) -> Result<Shop, GetShopError> {
+        let shop_record_opt = match shop_identifier {
+            ShopIdentifier::ShopId(shop_id) => {
+                self.repository.get_shop_record_by_id(shop_id).await?
+            }
+            ShopIdentifier::ShopDomain(domain) => {
+                self.repository.get_shop_record_by_domain(domain).await?
+            }
+        };
+        let shop_record =
+            shop_record_opt.ok_or(GetShopError::ShopNotFound(shop_identifier.clone()))?;
 
         Ok(shop_record.into())
     }
@@ -156,7 +158,7 @@ mod tests {
         let service = GetShopServiceImpl {
             repository: &repository,
         };
-        let actual = service.find_shop(&ShopId::new()).await;
+        let actual = service.find_shop(&ShopId::new().into()).await;
         assert!(actual.is_ok());
     }
 
@@ -170,12 +172,12 @@ mod tests {
         let service = GetShopServiceImpl {
             repository: &repository,
         };
-        let actual = service.find_shop(&shop_id).await;
+        let actual = service.find_shop(&shop_id.into()).await;
 
         assert!(actual.is_err());
         match actual.unwrap_err() {
             GetShopError::ShopNotFound(err_shop_id) => {
-                assert_eq!(err_shop_id, shop_id);
+                assert_eq!(err_shop_id, shop_id.into());
             }
             _ => panic!("expected GetShopError::ShopNotFound"),
         }
@@ -209,7 +211,7 @@ mod tests {
         let service = GetShopServiceImpl {
             repository: &repository,
         };
-        let actual = service.find_shop(&shop_id).await;
+        let actual = service.find_shop(&shop_id.into()).await;
 
         assert!(actual.is_err());
         match actual.unwrap_err() {
