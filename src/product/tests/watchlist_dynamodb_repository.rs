@@ -357,6 +357,9 @@ fn should_update_user_record() {
         "Tommy Tom Tom",
         actual.user_record.first_name.unwrap().to_string()
     );
+    assert_eq!(initial.gsi1_pk, actual.gsi1_pk);
+    assert_eq!(initial.gsi1_sk, actual.gsi1_sk);
+    assert_eq!(initial.notifications, actual.notifications);
 }
 
 #[localstack_test(services = [DynamoDB()])]

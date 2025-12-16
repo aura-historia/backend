@@ -8,7 +8,7 @@ pub mod domain;
 #[cfg(feature = "dynamodb")]
 pub mod dynamodb_update;
 
-#[cfg(all(feature = "dynamodb", feature = "event_bridge"))]
+#[cfg(feature = "event_bridge")]
 pub mod dynamodb_stream;
 
 pub mod error;

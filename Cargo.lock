@@ -5537,14 +5537,19 @@ dependencies = [
  "aws-sdk-dynamodb",
  "aws_lambda_events",
  "common",
+ "fake",
  "lambda_runtime",
+ "mockall",
  "product",
+ "rstest",
  "serde_dynamo",
  "serde_json",
+ "time",
  "tokio",
  "tracing",
  "tracing-subscriber",
  "user",
+ "uuid",
 ]
 
 [[package]]

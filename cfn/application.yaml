@@ -425,8 +425,25 @@ Resources:
                   "eventName": ["INSERT"],
                   "dynamodb": {
                     "NewImage": {
+                      "pk": {
+                        "S": [{ "prefix": "product#shop_id#" }]
+                      }
                       "sk": {
                         "S": [{ "prefix": "product#event#" }]
+                      }
+                    }
+                  }
+                }
+            - Pattern: |
+                {
+                  "eventName": ["MODIFY"],
+                  "dynamodb": {
+                    "NewImage": {
+                      "pk": {
+                        "S": [{ "prefix": "user#" }]
+                      }
+                      "sk": {
+                        "S": [ "user#details" ]
                       }
                     }
                   }
@@ -447,6 +464,7 @@ Resources:
         - !Ref ProductMaterializeOpenSearchUpdateQ
         - !Ref ProductUpdateNotifyUserQ
         - !Ref ProductEnrichmentQ
+        - !Ref UserLambdaFanoutUpdateQ
       PolicyDocument:
         Version: "2012-10-17"
         Statement:
@@ -461,6 +479,7 @@ Resources:
               - !GetAtt ProductMaterializeOpenSearchUpdateQ.Arn
               - !GetAtt ProductUpdateNotifyUserQ.Arn
               - !GetAtt ProductEnrichmentQ.Arn
+              - !GetAtt UserLambdaFanoutUpdateQ.Arn
 
   Api:
     Type: AWS::ApiGatewayV2::Api
@@ -2680,12 +2699,12 @@ Resources:
   ProductUpdateNotifyUserDlq:
     Type: AWS::SQS::Queue
     Properties:
-      QueueName: !Sub "product-lambda-update-notify-user-dlq-${StageName}"
+      QueueName: !Sub "user-lambda-fanout-update-dlq-${StageName}"
       MessageRetentionPeriod: 1209600
   ProductUpdateNotifyUserQ:
     Type: AWS::SQS::Queue
     Properties:
-      QueueName: !Sub "product-lambda-update-notify-user-queue-${StageName}"
+      QueueName: !Sub "user-lambda-fanout-update-queue-${StageName}"
       RedrivePolicy:
         deadLetterTargetArn: !GetAtt ProductUpdateNotifyUserDlq.Arn
         maxReceiveCount: 5
@@ -2693,7 +2712,7 @@ Resources:
   ProductUpdateNotifyUserRole:
     Type: AWS::IAM::Role
     Properties:
-      RoleName: !Sub "product-lambda-update-notify-user-role-${StageName}"
+      RoleName: !Sub "user-lambda-fanout-update-role-${StageName}"
       AssumeRolePolicyDocument:
         Version: "2012-10-17"
         Statement:
@@ -2737,13 +2756,13 @@ Resources:
   ProductUpdateNotifyUserLambda:
     Type: AWS::Lambda::Function
     Properties:
-      FunctionName: !Sub "product-lambda-update-notify-user-${StageName}"
+      FunctionName: !Sub "user-lambda-fanout-update-${StageName}"
       Runtime: provided.al2023
       Handler: lib.handler
       Role: !GetAtt ProductUpdateNotifyUserRole.Arn
       Code:
         S3Bucket: !Ref ArtifactBucket
-        S3Key: !Sub "product-lambda-update-notify-user-${StageName}-${CommitSHA}.zip"
+        S3Key: !Sub "user-lambda-fanout-update-${StageName}-${CommitSHA}.zip"
       MemorySize: 512
       Timeout: 60
       EphemeralStorage:
@@ -2801,6 +2820,134 @@ Resources:
       Dimensions:
         - Name: QueueName
           Value: !GetAtt ProductUpdateNotifyUserDlq.QueueName
+      TreatMissingData: notBreaching
+      AlarmActions:
+        - !Ref AlarmNotificationTopic
+
+  UserLambdaFanoutUpdateDlq:
+    Type: AWS::SQS::Queue
+    Properties:
+      QueueName: !Sub "user-lambda-fanout-update-dlq-${StageName}"
+      MessageRetentionPeriod: 1209600
+  UserLambdaFanoutUpdateQ:
+    Type: AWS::SQS::Queue
+    Properties:
+      QueueName: !Sub "user-lambda-fanout-update-queue-${StageName}"
+      RedrivePolicy:
+        deadLetterTargetArn: !GetAtt UserLambdaFanoutUpdateDlq.Arn
+        maxReceiveCount: 5
+      VisibilityTimeout: 360
+  UserLambdaFanoutUpdateRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Sub "user-lambda-fanout-update-role-${StageName}"
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: lambda.amazonaws.com
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole
+      Policies:
+        - PolicyName: DynamoDBAccess
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: Allow
+                Action:
+                  - dynamodb:GetItem
+                  - dynamodb:Query
+                  - dynamodb:PutItem
+                  - dynamodb:DeleteItem
+                  - dynamodb:UpdateItem
+                  - dynamodb:BatchGetItem
+                  - dynamodb:BatchWriteItem
+                  - dynamodb:TransactGetItems
+                  - dynamodb:TransactWriteItems
+                Resource:
+                  - !GetAtt TableOne.Arn
+                  - !Sub "${TableOne.Arn}/index/*"
+        - PolicyName: SQSPollerAccess
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: Allow
+                Action:
+                  - sqs:ReceiveMessage
+                  - sqs:DeleteMessage
+                  - sqs:GetQueueAttributes
+                  - sqs:GetQueueUrl
+                Resource: !GetAtt UserLambdaFanoutUpdateQ.Arn
+        - PolicyName: SQSSendMessage
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: Allow
+                Action:
+                  - sqs:SendMessage
+                Resource: !GetAtt SendMailQ.Arn
+  UserLambdaFanoutUpdateLambda:
+    Type: AWS::Lambda::Function
+    Properties:
+      FunctionName: !Sub "user-lambda-fanout-update-${StageName}"
+      Runtime: provided.al2023
+      Handler: lib.handler
+      Role: !GetAtt UserLambdaFanoutUpdateRole.Arn
+      Code:
+        S3Bucket: !Ref ArtifactBucket
+        S3Key: !Sub "user-lambda-fanout-update-${StageName}-${CommitSHA}.zip"
+      MemorySize: 512
+      Timeout: 60
+      EphemeralStorage:
+        Size: 512
+      Environment:
+        Variables:
+          DYNAMODB_TABLE_NAME: !Ref TableOne
+  UserLambdaFanoutUpdateMapping:
+    Type: AWS::Lambda::EventSourceMapping
+    Properties:
+      FunctionName: !Ref UserLambdaFanoutUpdateLambda
+      EventSourceArn: !GetAtt UserLambdaFanoutUpdateQ.Arn
+      Enabled: true
+      BatchSize: 10
+      MaximumBatchingWindowInSeconds: 1
+      FunctionResponseTypes:
+        - ReportBatchItemFailures
+  UserLambdaFanoutUpdateLambdaErrorAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      AlarmName: !Sub "${StageName}-user-lambda-fanout-update-lambda-errors"
+      AlarmDescription: "Alarm when user-lambda-fanout-update Lambda has errors"
+      MetricName: Errors
+      Namespace: AWS/Lambda
+      Statistic: Sum
+      Period: 300
+      EvaluationPeriods: 1
+      Threshold: 5
+      ComparisonOperator: GreaterThanOrEqualToThreshold
+      Dimensions:
+        - Name: FunctionName
+          Value: !Ref UserLambdaFanoutUpdateLambda
+      TreatMissingData: notBreaching
+      AlarmActions:
+        - !Ref AlarmNotificationTopic
+  UserLambdaFanoutUpdateDlqAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      AlarmName: !Sub "${StageName}-user-lambda-fanout-update-dlq-messages"
+      AlarmDescription: "Alarm when messages appear in user-lambda-fanout-update DLQ"
+      MetricName: ApproximateNumberOfMessagesVisible
+      Namespace: AWS/SQS
+      Statistic: Sum
+      Period: 300
+      EvaluationPeriods: 1
+      Threshold: 1
+      ComparisonOperator: GreaterThanOrEqualToThreshold
+      Dimensions:
+        - Name: QueueName
+          Value: !GetAtt UserLambdaFanoutUpdateDlq.QueueName
       TreatMissingData: notBreaching
       AlarmActions:
         - !Ref AlarmNotificationTopic

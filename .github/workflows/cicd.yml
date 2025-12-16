@@ -96,6 +96,7 @@ jobs:
           - src/test-api
           - src/user
           - src/user-api
+          - src/user-lambda
           - src/mail
           - src/mail-lambda-send
     steps:
@@ -171,6 +172,7 @@ jobs:
           - src/user
           - src/user-api/src/user-api-get-account
           - src/user-api/src/user-api-patch-account
+          - src/user-lambda/src/user-lambda-fanout-update
           - src/mail/src/mail-core
     steps:
       - uses: actions/checkout@v6
@@ -293,6 +295,7 @@ jobs:
           - src/shop-api/src/shop-api-post-shop
           - src/user-api/src/user-api-get-account
           - src/user-api/src/user-api-patch-account
+          - src/user-lambda/src/user-lambda-fanout-update
           - src/cognito-post-confirmation
           - src/mail-lambda-send
     steps:
