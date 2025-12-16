@@ -1348,7 +1348,7 @@ Resources:
     Type: AWS::ApiGatewayV2::Route
     Properties:
       ApiId: !Ref Api
-      RouteKey: "GET /api/v1/shops/{shopId}"
+      RouteKey: "GET /api/v1/shops/{shopIdentifier}"
       Target: !Sub "integrations/${ApiGetShopLambdaIntegration}"
   ApiGetShopLambdaIntegration:
     Type: AWS::ApiGatewayV2::Integration
@@ -1410,7 +1410,7 @@ Resources:
     Type: AWS::ApiGatewayV2::Route
     Properties:
       ApiId: !Ref Api
-      RouteKey: "PATCH /api/v1/shops/{shopId}"
+      RouteKey: "PATCH /api/v1/shops/{shopIdentifier}"
       Target: !Sub "integrations/${ApiPatchShopLambdaIntegration}"
   ApiPatchShopLambdaIntegration:
     Type: AWS::ApiGatewayV2::Integration
