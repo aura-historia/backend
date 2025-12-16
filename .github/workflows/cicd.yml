@@ -172,7 +172,6 @@ jobs:
           - src/user
           - src/user-api/src/user-api-get-account
           - src/user-api/src/user-api-patch-account
-          - src/user-lambda/src/user-lambda-fanout-update-watchlist
           - src/mail/src/mail-core
     steps:
       - uses: actions/checkout@v6
