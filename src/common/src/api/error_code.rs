@@ -28,6 +28,7 @@ pub const BAD_ORDER_VALUE: ApiErrorCode = ApiErrorCode("BAD_ORDER_VALUE");
 pub const INVALID_UUID: ApiErrorCode = ApiErrorCode("INVALID_UUID");
 pub const INVALID_RFC3339_TIMESTAMP: ApiErrorCode = ApiErrorCode("INVALID_RFC3339_TIMESTAMP");
 pub const INVALID_JSON: ApiErrorCode = ApiErrorCode("INVALID_JSON");
+pub const INVALID_SHOP_IDENTIFIER: ApiErrorCode = ApiErrorCode("INVALID_SHOP_IDENTIFIER");
 
 pub const PRODUCT_NOT_FOUND: ApiErrorCode = ApiErrorCode("PRODUCT_NOT_FOUND");
 pub const PRODUCT_ENRICHMENT_FAILED: ApiErrorCode = ApiErrorCode("PRODUCT_ENRICHMENT_FAILED");
