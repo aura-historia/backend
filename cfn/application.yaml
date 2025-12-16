@@ -427,7 +427,7 @@ Resources:
                     "NewImage": {
                       "pk": {
                         "S": [{ "prefix": "product#shop_id#" }]
-                      }
+                      },
                       "sk": {
                         "S": [{ "prefix": "product#event#" }]
                       }
@@ -441,7 +441,7 @@ Resources:
                     "NewImage": {
                       "pk": {
                         "S": [{ "prefix": "user#" }]
-                      }
+                      },
                       "sk": {
                         "S": [ "user#details" ]
                       }
