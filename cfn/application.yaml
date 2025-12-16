@@ -2699,12 +2699,12 @@ Resources:
   ProductUpdateNotifyUserDlq:
     Type: AWS::SQS::Queue
     Properties:
-      QueueName: !Sub "user-lambda-fanout-update-dlq-${StageName}"
+      QueueName: !Sub "product-lambda-update-notify-user-dlq-${StageName}"
       MessageRetentionPeriod: 1209600
   ProductUpdateNotifyUserQ:
     Type: AWS::SQS::Queue
     Properties:
-      QueueName: !Sub "user-lambda-fanout-update-queue-${StageName}"
+      QueueName: !Sub "product-lambda-update-notify-user-queue-${StageName}"
       RedrivePolicy:
         deadLetterTargetArn: !GetAtt ProductUpdateNotifyUserDlq.Arn
         maxReceiveCount: 5
@@ -2712,7 +2712,7 @@ Resources:
   ProductUpdateNotifyUserRole:
     Type: AWS::IAM::Role
     Properties:
-      RoleName: !Sub "user-lambda-fanout-update-role-${StageName}"
+      RoleName: !Sub "product-lambda-update-notify-user-role-${StageName}"
       AssumeRolePolicyDocument:
         Version: "2012-10-17"
         Statement:
@@ -2756,13 +2756,13 @@ Resources:
   ProductUpdateNotifyUserLambda:
     Type: AWS::Lambda::Function
     Properties:
-      FunctionName: !Sub "user-lambda-fanout-update-${StageName}"
+      FunctionName: !Sub "product-lambda-update-notify-user-${StageName}"
       Runtime: provided.al2023
       Handler: lib.handler
       Role: !GetAtt ProductUpdateNotifyUserRole.Arn
       Code:
         S3Bucket: !Ref ArtifactBucket
-        S3Key: !Sub "user-lambda-fanout-update-${StageName}-${CommitSHA}.zip"
+        S3Key: !Sub "product-lambda-update-notify-user-${StageName}-${CommitSHA}.zip"
       MemorySize: 512
       Timeout: 60
       EphemeralStorage:
