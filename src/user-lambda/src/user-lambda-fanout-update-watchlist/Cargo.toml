@@ -1,5 +1,5 @@
 [package]
-name = "user-lambda-fanout-update"
+name = "user-lambda-fanout-update-watchlist"
 version = "0.1.0"
 edition = "2024"
 
