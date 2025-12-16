@@ -37,7 +37,7 @@ pub fn extract_shop_identifier_data_path(
                 Box::new(MissingRequiredField::new("shopIdentifier")),
             )
             .with_path_field("shopIdentifier")
-            .with_detail("Missing field 'shopId'."),
+            .with_detail("Missing field 'shopIdentifier'."),
         )
 }
 
