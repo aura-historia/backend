@@ -24,7 +24,7 @@ Resources:
   PrimaryUserPool:
     Type: AWS::Cognito::UserPool
     Properties:
-      UserPoolName: !Sub "primary-userpool-ephemeral-${StageName}"
+      UserPoolName: !Sub "primary-userpool-${StageName}"
       UsernameAttributes:
         - email
       AutoVerifiedAttributes:
@@ -54,7 +54,7 @@ Resources:
   PrimaryUserPoolPostConfirmationLambdaRole:
     Type: AWS::IAM::Role
     Properties:
-      RoleName: !Sub "cognito-primary-userpool-post-confirmation-role-ephemeral-${StageName}"
+      RoleName: !Sub "cognito-primary-userpool-post-confirmation-role-${StageName}"
       AssumeRolePolicyDocument:
         Version: "2012-10-17"
         Statement:
@@ -77,13 +77,13 @@ Resources:
   PrimaryUserPoolPostConfirmationLambda:
     Type: AWS::Lambda::Function
     Properties:
-      FunctionName: !Sub "cognito-primary-userpool-post-confirmation-ephemeral-${StageName}"
+      FunctionName: !Sub "cognito-primary-userpool-post-confirmation-${StageName}"
       Runtime: provided.al2023
       Handler: lib.handler
       Role: !GetAtt PrimaryUserPoolPostConfirmationLambdaRole.Arn
       Code:
         S3Bucket: !Ref ArtifactBucket
-        S3Key: !Sub "cognito-post-confirmation-ephemeral-${StageName}-${CommitSHA}.zip"
+        S3Key: !Sub "cognito-post-confirmation-${StageName}-${CommitSHA}.zip"
       MemorySize: 256
       Timeout: 5
       EphemeralStorage:
@@ -103,7 +103,7 @@ Resources:
     Type: AWS::Cognito::UserPoolClient
     Properties:
       UserPoolId: !Ref PrimaryUserPool
-      ClientName: !Sub "primary-userpool-client-public-ephemeral-${StageName}"
+      ClientName: !Sub "primary-userpool-client-public-${StageName}"
       GenerateSecret: false # PKCE replaces client secret
       PreventUserExistenceErrors: ENABLED
       AllowedOAuthFlowsUserPoolClient: true
@@ -126,7 +126,7 @@ Resources:
     Type: AWS::Cognito::UserPoolClient
     Properties:
       UserPoolId: !Ref PrimaryUserPool
-      ClientName: !Sub "primary-userpool-client-admin-ephemeral-${StageName}"
+      ClientName: !Sub "primary-userpool-client-admin-${StageName}"
       GenerateSecret: false
       PreventUserExistenceErrors: ENABLED
       AllowedOAuthFlowsUserPoolClient: false
@@ -143,13 +143,13 @@ Resources:
   PrimaryUserPoolDomain:
     Type: AWS::Cognito::UserPoolDomain
     Properties:
-      Domain: !Sub "primary-userpool-ephemeral-${StageName}" # hosted UI domain
+      Domain: !Sub "primary-userpool-${StageName}" # hosted UI domain
       UserPoolId: !Ref PrimaryUserPool
 
   TableOne:
     Type: AWS::DynamoDB::Table
     Properties:
-      TableName: !Sub "table_1-ephemeral-${StageName}"
+      TableName: !Sub "table_1-${StageName}"
       AttributeDefinitions:
         - AttributeName: pk
           AttributeType: S
@@ -192,7 +192,7 @@ Resources:
   OpenSearchDomain:
     Type: AWS::OpenSearchService::Domain
     Properties:
-      DomainName: !Sub "application-ephemeral-${StageName}"
+      DomainName: !Sub "application-${StageName}"
       EngineVersion: "OpenSearch_3.1"
       ClusterConfig:
         InstanceType: t3.small.search
@@ -209,16 +209,16 @@ Resources:
             Principal:
               AWS: !Sub "arn:aws:iam::${AWS::AccountId}:root"
             Action: "es:*"
-            Resource: !Sub "arn:aws:es:${AWS::Region}:${AWS::AccountId}:domain/application-ephemeral-${StageName}/*"
+            Resource: !Sub "arn:aws:es:${AWS::Region}:${AWS::AccountId}:domain/application-${StageName}/*"
 
   DynamoDbEventBus:
     Type: AWS::Events::EventBus
     Properties:
-      Name: !Sub "dynamodb-event-bus-ephemeral-${StageName}"
+      Name: !Sub "dynamodb-event-bus-${StageName}"
   PipeRole:
     Type: AWS::IAM::Role
     Properties:
-      RoleName: !Sub "dynamodb-to-eventbridge-pipe-role-ephemeral-${StageName}"
+      RoleName: !Sub "dynamodb-to-eventbridge-pipe-role-${StageName}"
       AssumeRolePolicyDocument:
         Version: "2012-10-17"
         Statement:
@@ -245,7 +245,7 @@ Resources:
   TableOneStreamToEventBusPipe:
     Type: AWS::Pipes::Pipe
     Properties:
-      Name: !Sub "tableone-stream-to-eventbus-ephemeral-${StageName}"
+      Name: !Sub "tableone-stream-to-eventbus-${StageName}"
       RoleArn: !GetAtt PipeRole.Arn
       Source: !GetAtt TableOne.StreamArn
       SourceParameters:
@@ -319,7 +319,7 @@ Resources:
   Api:
     Type: AWS::ApiGatewayV2::Api
     Properties:
-      Name: !Sub "api-ephemeral-${StageName}"
+      Name: !Sub "api-${StageName}"
       ProtocolType: HTTP
       CorsConfiguration:
         AllowOrigins:
@@ -335,7 +335,7 @@ Resources:
   ApiStage:
     Type: AWS::ApiGatewayV2::Stage
     Properties:
-      StageName: !Sub "ephemeral-${StageName}"
+      StageName: !Sub "${StageName}"
       ApiId: !Ref Api
       AutoDeploy: true
       DefaultRouteSettings:
@@ -371,7 +371,7 @@ Resources:
   ApiGetProductRole:
     Type: AWS::IAM::Role
     Properties:
-      RoleName: !Sub "api-get-product-role-ephemeral-${StageName}"
+      RoleName: !Sub "api-get-product-role-${StageName}"
       AssumeRolePolicyDocument:
         Version: "2012-10-17"
         Statement:
@@ -395,13 +395,13 @@ Resources:
   ApiGetProductLambda:
     Type: AWS::Lambda::Function
     Properties:
-      FunctionName: !Sub "api-get-product-ephemeral-${StageName}"
+      FunctionName: !Sub "api-get-product-${StageName}"
       Runtime: provided.al2023
       Handler: lib.handler
       Role: !GetAtt ApiGetProductRole.Arn
       Code:
         S3Bucket: !Ref ArtifactBucket
-        S3Key: !Sub "product-api-get-product-ephemeral-${StageName}-${CommitSHA}.zip"
+        S3Key: !Sub "product-api-get-product-${StageName}-${CommitSHA}.zip"
       MemorySize: 512
       Timeout: 10
       EphemeralStorage:
@@ -436,7 +436,7 @@ Resources:
   ApiPutProductsRole:
     Type: AWS::IAM::Role
     Properties:
-      RoleName: !Sub "api-put-products-role-ephemeral-${StageName}"
+      RoleName: !Sub "api-put-products-role-${StageName}"
       AssumeRolePolicyDocument:
         Version: "2012-10-17"
         Statement:
@@ -468,13 +468,13 @@ Resources:
   ApiPutProductsLambda:
     Type: AWS::Lambda::Function
     Properties:
-      FunctionName: !Sub "api-put-products-ephemeral-${StageName}"
+      FunctionName: !Sub "api-put-products-${StageName}"
       Runtime: provided.al2023
       Handler: lib.handler
       Role: !GetAtt ApiPutProductsRole.Arn
       Code:
         S3Bucket: !Ref ArtifactBucket
-        S3Key: !Sub "product-api-put-products-ephemeral-${StageName}-${CommitSHA}.zip"
+        S3Key: !Sub "product-api-put-products-${StageName}-${CommitSHA}.zip"
       MemorySize: 1024
       Timeout: 60
       EphemeralStorage:
@@ -507,7 +507,7 @@ Resources:
   ApiProductSearchRole:
     Type: AWS::IAM::Role
     Properties:
-      RoleName: !Sub "api-product-search-role-ephemeral-${StageName}"
+      RoleName: !Sub "api-product-search-role-${StageName}"
       AssumeRolePolicyDocument:
         Version: "2012-10-17"
         Statement:
@@ -543,13 +543,13 @@ Resources:
   ApiProductSearchLambda:
     Type: AWS::Lambda::Function
     Properties:
-      FunctionName: !Sub "api-product-search-ephemeral-${StageName}"
+      FunctionName: !Sub "api-product-search-${StageName}"
       Runtime: provided.al2023
       Handler: lib.handler
       Role: !GetAtt ApiProductSearchRole.Arn
       Code:
         S3Bucket: !Ref ArtifactBucket
-        S3Key: !Sub "product-api-search-ephemeral-${StageName}-${CommitSHA}.zip"
+        S3Key: !Sub "product-api-search-${StageName}-${CommitSHA}.zip"
       MemorySize: 512
       Timeout: 10
       EphemeralStorage:
@@ -585,7 +585,7 @@ Resources:
   ApiProductSimilaritySearchRole:
     Type: AWS::IAM::Role
     Properties:
-      RoleName: !Sub "api-product-similarity-search-role-ephemeral-${StageName}"
+      RoleName: !Sub "api-product-similarity-search-role-${StageName}"
       AssumeRolePolicyDocument:
         Version: "2012-10-17"
         Statement:
@@ -621,13 +621,13 @@ Resources:
   ApiProductSimilaritySearchLambda:
     Type: AWS::Lambda::Function
     Properties:
-      FunctionName: !Sub "api-product-similarity-search-ephemeral-${StageName}"
+      FunctionName: !Sub "api-product-similarity-search-${StageName}"
       Runtime: provided.al2023
       Handler: lib.handler
       Role: !GetAtt ApiProductSimilaritySearchRole.Arn
       Code:
         S3Bucket: !Ref ArtifactBucket
-        S3Key: !Sub "product-api-get-product-similar-ephemeral-${StageName}-${CommitSHA}.zip"
+        S3Key: !Sub "product-api-get-product-similar-${StageName}-${CommitSHA}.zip"
       MemorySize: 512
       Timeout: 10
       EphemeralStorage:
@@ -665,7 +665,7 @@ Resources:
   ApiGetWatchlistProductsRole:
     Type: AWS::IAM::Role
     Properties:
-      RoleName: !Sub "api-get-watchlist-products-role-ephemeral-${StageName}"
+      RoleName: !Sub "api-get-watchlist-products-role-${StageName}"
       AssumeRolePolicyDocument:
         Version: "2012-10-17"
         Statement:
@@ -691,13 +691,13 @@ Resources:
   ApiGetWatchlistProductsLambda:
     Type: AWS::Lambda::Function
     Properties:
-      FunctionName: !Sub "api-get-watchlist-products-ephemeral-${StageName}"
+      FunctionName: !Sub "api-get-watchlist-products-${StageName}"
       Runtime: provided.al2023
       Handler: lib.handler
       Role: !GetAtt ApiGetWatchlistProductsRole.Arn
       Code:
         S3Bucket: !Ref ArtifactBucket
-        S3Key: !Sub "product-api-watchlist-get-ephemeral-${StageName}-${CommitSHA}.zip"
+        S3Key: !Sub "product-api-watchlist-get-${StageName}-${CommitSHA}.zip"
       MemorySize: 512
       Timeout: 10
       EphemeralStorage:
@@ -731,7 +731,7 @@ Resources:
   ApiDeleteWatchlistProductRole:
     Type: AWS::IAM::Role
     Properties:
-      RoleName: !Sub "api-delete-watchlist-product-role-ephemeral-${StageName}"
+      RoleName: !Sub "api-delete-watchlist-product-role-${StageName}"
       AssumeRolePolicyDocument:
         Version: "2012-10-17"
         Statement:
@@ -756,13 +756,13 @@ Resources:
   ApiDeleteWatchlistLambda:
     Type: AWS::Lambda::Function
     Properties:
-      FunctionName: !Sub "api-delete-watchlist-product-ephemeral-${StageName}"
+      FunctionName: !Sub "api-delete-watchlist-product-${StageName}"
       Runtime: provided.al2023
       Handler: lib.handler
       Role: !GetAtt ApiDeleteWatchlistProductRole.Arn
       Code:
         S3Bucket: !Ref ArtifactBucket
-        S3Key: !Sub "product-api-watchlist-delete-ephemeral-${StageName}-${CommitSHA}.zip"
+        S3Key: !Sub "product-api-watchlist-delete-${StageName}-${CommitSHA}.zip"
       MemorySize: 512
       Timeout: 10
       EphemeralStorage:
@@ -796,7 +796,7 @@ Resources:
   ApiPostWatchlistProductRole:
     Type: AWS::IAM::Role
     Properties:
-      RoleName: !Sub "api-post-watchlist-product-role-ephemeral-${StageName}"
+      RoleName: !Sub "api-post-watchlist-product-role-${StageName}"
       AssumeRolePolicyDocument:
         Version: "2012-10-17"
         Statement:
@@ -821,13 +821,13 @@ Resources:
   ApiPostWatchlistLambda:
     Type: AWS::Lambda::Function
     Properties:
-      FunctionName: !Sub "api-post-watchlist-product-ephemeral-${StageName}"
+      FunctionName: !Sub "api-post-watchlist-product-${StageName}"
       Runtime: provided.al2023
       Handler: lib.handler
       Role: !GetAtt ApiPostWatchlistProductRole.Arn
       Code:
         S3Bucket: !Ref ArtifactBucket
-        S3Key: !Sub "product-api-watchlist-post-ephemeral-${StageName}-${CommitSHA}.zip"
+        S3Key: !Sub "product-api-watchlist-post-${StageName}-${CommitSHA}.zip"
       MemorySize: 512
       Timeout: 10
       EphemeralStorage:
@@ -861,7 +861,7 @@ Resources:
   ApiPatchWatchlistProductRole:
     Type: AWS::IAM::Role
     Properties:
-      RoleName: !Sub "api-patch-watchlist-product-role-ephemeral-${StageName}"
+      RoleName: !Sub "api-patch-watchlist-product-role-${StageName}"
       AssumeRolePolicyDocument:
         Version: "2012-10-17"
         Statement:
@@ -884,13 +884,13 @@ Resources:
   ApiPatchWatchlistLambda:
     Type: AWS::Lambda::Function
     Properties:
-      FunctionName: !Sub "api-patch-watchlist-product-ephemeral-${StageName}"
+      FunctionName: !Sub "api-patch-watchlist-product-${StageName}"
       Runtime: provided.al2023
       Handler: lib.handler
       Role: !GetAtt ApiPatchWatchlistProductRole.Arn
       Code:
         S3Bucket: !Ref ArtifactBucket
-        S3Key: !Sub "product-api-watchlist-patch-ephemeral-${StageName}-${CommitSHA}.zip"
+        S3Key: !Sub "product-api-watchlist-patch-${StageName}-${CommitSHA}.zip"
       MemorySize: 256
       Timeout: 10
       EphemeralStorage:
@@ -924,7 +924,7 @@ Resources:
   ApiGetUserAccountRole:
     Type: AWS::IAM::Role
     Properties:
-      RoleName: !Sub "api-user-get-account-role-ephemeral-${StageName}"
+      RoleName: !Sub "api-user-get-account-role-${StageName}"
       AssumeRolePolicyDocument:
         Version: "2012-10-17"
         Statement:
@@ -950,13 +950,13 @@ Resources:
   ApiGetUserAccountLambda:
     Type: AWS::Lambda::Function
     Properties:
-      FunctionName: !Sub "api-user-get-account-ephemeral-${StageName}"
+      FunctionName: !Sub "api-user-get-account-${StageName}"
       Runtime: provided.al2023
       Handler: lib.handler
       Role: !GetAtt ApiGetUserAccountRole.Arn
       Code:
         S3Bucket: !Ref ArtifactBucket
-        S3Key: !Sub "user-api-get-account-ephemeral-${StageName}-${CommitSHA}.zip"
+        S3Key: !Sub "user-api-get-account-${StageName}-${CommitSHA}.zip"
       MemorySize: 512
       Timeout: 10
       EphemeralStorage:
@@ -990,7 +990,7 @@ Resources:
   ApiPatchUserAccountRole:
     Type: AWS::IAM::Role
     Properties:
-      RoleName: !Sub "api-patch-user-account-role-ephemeral-${StageName}"
+      RoleName: !Sub "api-patch-user-account-role-${StageName}"
       AssumeRolePolicyDocument:
         Version: "2012-10-17"
         Statement:
@@ -1013,13 +1013,13 @@ Resources:
   ApiPatchUserAccountLambda:
     Type: AWS::Lambda::Function
     Properties:
-      FunctionName: !Sub "api-patch-user-account-ephemeral-${StageName}"
+      FunctionName: !Sub "api-patch-user-account-${StageName}"
       Runtime: provided.al2023
       Handler: lib.handler
       Role: !GetAtt ApiPatchUserAccountRole.Arn
       Code:
         S3Bucket: !Ref ArtifactBucket
-        S3Key: !Sub "user-api-patch-account-ephemeral-${StageName}-${CommitSHA}.zip"
+        S3Key: !Sub "user-api-patch-account-${StageName}-${CommitSHA}.zip"
       MemorySize: 256
       Timeout: 10
       EphemeralStorage:
@@ -1051,7 +1051,7 @@ Resources:
   ApiGetShopRole:
     Type: AWS::IAM::Role
     Properties:
-      RoleName: !Sub "api-get-shop-role-ephemeral-${StageName}"
+      RoleName: !Sub "api-get-shop-role-${StageName}"
       AssumeRolePolicyDocument:
         Version: "2012-10-17"
         Statement:
@@ -1075,13 +1075,13 @@ Resources:
   ApiGetShopLambda:
     Type: AWS::Lambda::Function
     Properties:
-      FunctionName: !Sub "api-get-shop-ephemeral-${StageName}"
+      FunctionName: !Sub "api-get-shop-${StageName}"
       Runtime: provided.al2023
       Handler: lib.handler
       Role: !GetAtt ApiGetShopRole.Arn
       Code:
         S3Bucket: !Ref ArtifactBucket
-        S3Key: !Sub "shop-api-get-shop-ephemeral-${StageName}-${CommitSHA}.zip"
+        S3Key: !Sub "shop-api-get-shop-${StageName}-${CommitSHA}.zip"
       MemorySize: 512
       Timeout: 10
       EphemeralStorage:
@@ -1113,7 +1113,7 @@ Resources:
   ApiPatchShopRole:
     Type: AWS::IAM::Role
     Properties:
-      RoleName: !Sub "api-patch-shop-role-ephemeral-${StageName}"
+      RoleName: !Sub "api-patch-shop-role-${StageName}"
       AssumeRolePolicyDocument:
         Version: "2012-10-17"
         Statement:
@@ -1143,13 +1143,13 @@ Resources:
   ApiPatchShopLambda:
     Type: AWS::Lambda::Function
     Properties:
-      FunctionName: !Sub "api-patch-shop-ephemeral-${StageName}"
+      FunctionName: !Sub "api-patch-shop-${StageName}"
       Runtime: provided.al2023
       Handler: lib.handler
       Role: !GetAtt ApiPatchShopRole.Arn
       Code:
         S3Bucket: !Ref ArtifactBucket
-        S3Key: !Sub "shop-api-patch-shop-ephemeral-${StageName}-${CommitSHA}.zip"
+        S3Key: !Sub "shop-api-patch-shop-${StageName}-${CommitSHA}.zip"
       MemorySize: 512
       Timeout: 10
       EphemeralStorage:
@@ -1181,7 +1181,7 @@ Resources:
   ApiPostShopRole:
     Type: AWS::IAM::Role
     Properties:
-      RoleName: !Sub "api-post-shop-role-ephemeral-${StageName}"
+      RoleName: !Sub "api-post-shop-role-${StageName}"
       AssumeRolePolicyDocument:
         Version: "2012-10-17"
         Statement:
@@ -1209,13 +1209,13 @@ Resources:
   ApiPostShopLambda:
     Type: AWS::Lambda::Function
     Properties:
-      FunctionName: !Sub "api-post-shop-ephemeral-${StageName}"
+      FunctionName: !Sub "api-post-shop-${StageName}"
       Runtime: provided.al2023
       Handler: lib.handler
       Role: !GetAtt ApiPostShopRole.Arn
       Code:
         S3Bucket: !Ref ArtifactBucket
-        S3Key: !Sub "shop-api-post-shop-ephemeral-${StageName}-${CommitSHA}.zip"
+        S3Key: !Sub "shop-api-post-shop-${StageName}-${CommitSHA}.zip"
       MemorySize: 512
       Timeout: 10
       EphemeralStorage:
@@ -1247,7 +1247,7 @@ Resources:
   ApiShopSearchRole:
     Type: AWS::IAM::Role
     Properties:
-      RoleName: !Sub "api-shop-search-role-ephemeral-${StageName}"
+      RoleName: !Sub "api-shop-search-role-${StageName}"
       AssumeRolePolicyDocument:
         Version: "2012-10-17"
         Statement:
@@ -1273,13 +1273,13 @@ Resources:
   ApiShopSearchLambda:
     Type: AWS::Lambda::Function
     Properties:
-      FunctionName: !Sub "api-shop-search-ephemeral-${StageName}"
+      FunctionName: !Sub "api-shop-search-${StageName}"
       Runtime: provided.al2023
       Handler: lib.handler
       Role: !GetAtt ApiShopSearchRole.Arn
       Code:
         S3Bucket: !Ref ArtifactBucket
-        S3Key: !Sub "shop-api-search-ephemeral-${StageName}-${CommitSHA}.zip"
+        S3Key: !Sub "shop-api-search-${StageName}-${CommitSHA}.zip"
       MemorySize: 512
       Timeout: 10
       EphemeralStorage:
@@ -1313,7 +1313,7 @@ Resources:
   ApiDeleteSearchFilterRole:
     Type: AWS::IAM::Role
     Properties:
-      RoleName: !Sub "api-delete-search-filter-role-ephemeral-${StageName}"
+      RoleName: !Sub "api-delete-search-filter-role-${StageName}"
       AssumeRolePolicyDocument:
         Version: "2012-10-17"
         Statement:
@@ -1338,13 +1338,13 @@ Resources:
   ApiDeleteSearchFilterLambda:
     Type: AWS::Lambda::Function
     Properties:
-      FunctionName: !Sub "api-delete-search-filter-ephemeral-${StageName}"
+      FunctionName: !Sub "api-delete-search-filter-${StageName}"
       Runtime: provided.al2023
       Handler: lib.handler
       Role: !GetAtt ApiDeleteSearchFilterRole.Arn
       Code:
         S3Bucket: !Ref ArtifactBucket
-        S3Key: !Sub "search-filter-api-delete-search-filter-ephemeral-${StageName}-${CommitSHA}.zip"
+        S3Key: !Sub "search-filter-api-delete-search-filter-${StageName}-${CommitSHA}.zip"
       MemorySize: 512
       Timeout: 10
       EphemeralStorage:
@@ -1378,7 +1378,7 @@ Resources:
   ApiGetSearchFilterRole:
     Type: AWS::IAM::Role
     Properties:
-      RoleName: !Sub "api-get-search-filter-role-ephemeral-${StageName}"
+      RoleName: !Sub "api-get-search-filter-role-${StageName}"
       AssumeRolePolicyDocument:
         Version: "2012-10-17"
         Statement:
@@ -1402,13 +1402,13 @@ Resources:
   ApiGetSearchFilterLambda:
     Type: AWS::Lambda::Function
     Properties:
-      FunctionName: !Sub "api-get-search-filter-ephemeral-${StageName}"
+      FunctionName: !Sub "api-get-search-filter-${StageName}"
       Runtime: provided.al2023
       Handler: lib.handler
       Role: !GetAtt ApiGetSearchFilterRole.Arn
       Code:
         S3Bucket: !Ref ArtifactBucket
-        S3Key: !Sub "search-filter-api-get-search-filter-ephemeral-${StageName}-${CommitSHA}.zip"
+        S3Key: !Sub "search-filter-api-get-search-filter-${StageName}-${CommitSHA}.zip"
       MemorySize: 512
       Timeout: 10
       EphemeralStorage:
@@ -1442,7 +1442,7 @@ Resources:
   ApiGetSearchFiltersRole:
     Type: AWS::IAM::Role
     Properties:
-      RoleName: !Sub "api-get-search-filters-role-ephemeral-${StageName}"
+      RoleName: !Sub "api-get-search-filters-role-${StageName}"
       AssumeRolePolicyDocument:
         Version: "2012-10-17"
         Statement:
@@ -1466,13 +1466,13 @@ Resources:
   ApiGetSearchFiltersLambda:
     Type: AWS::Lambda::Function
     Properties:
-      FunctionName: !Sub "api-get-search-filters-ephemeral-${StageName}"
+      FunctionName: !Sub "api-get-search-filters-${StageName}"
       Runtime: provided.al2023
       Handler: lib.handler
       Role: !GetAtt ApiGetSearchFiltersRole.Arn
       Code:
         S3Bucket: !Ref ArtifactBucket
-        S3Key: !Sub "search-filter-api-get-search-filters-ephemeral-${StageName}-${CommitSHA}.zip"
+        S3Key: !Sub "search-filter-api-get-search-filters-${StageName}-${CommitSHA}.zip"
       MemorySize: 512
       Timeout: 10
       EphemeralStorage:
@@ -1506,7 +1506,7 @@ Resources:
   ApiPatchSearchFilterRole:
     Type: AWS::IAM::Role
     Properties:
-      RoleName: !Sub "api-patch-search-filter-role-ephemeral-${StageName}"
+      RoleName: !Sub "api-patch-search-filter-role-${StageName}"
       AssumeRolePolicyDocument:
         Version: "2012-10-17"
         Statement:
@@ -1530,13 +1530,13 @@ Resources:
   ApiPatchSearchFilterLambda:
     Type: AWS::Lambda::Function
     Properties:
-      FunctionName: !Sub "api-patch-search-filter-ephemeral-${StageName}"
+      FunctionName: !Sub "api-patch-search-filter-${StageName}"
       Runtime: provided.al2023
       Handler: lib.handler
       Role: !GetAtt ApiPatchSearchFilterRole.Arn
       Code:
         S3Bucket: !Ref ArtifactBucket
-        S3Key: !Sub "search-filter-api-patch-search-filter-ephemeral-${StageName}-${CommitSHA}.zip"
+        S3Key: !Sub "search-filter-api-patch-search-filter-${StageName}-${CommitSHA}.zip"
       MemorySize: 512
       Timeout: 10
       EphemeralStorage:
@@ -1570,7 +1570,7 @@ Resources:
   ApiPostSearchFilterRole:
     Type: AWS::IAM::Role
     Properties:
-      RoleName: !Sub "api-post-search-filter-role-ephemeral-${StageName}"
+      RoleName: !Sub "api-post-search-filter-role-${StageName}"
       AssumeRolePolicyDocument:
         Version: "2012-10-17"
         Statement:
@@ -1592,13 +1592,13 @@ Resources:
   ApiPostSearchFilterLambda:
     Type: AWS::Lambda::Function
     Properties:
-      FunctionName: !Sub "api-post-search-filter-ephemeral-${StageName}"
+      FunctionName: !Sub "api-post-search-filter-${StageName}"
       Runtime: provided.al2023
       Handler: lib.handler
       Role: !GetAtt ApiPostSearchFilterRole.Arn
       Code:
         S3Bucket: !Ref ArtifactBucket
-        S3Key: !Sub "search-filter-api-post-search-filter-ephemeral-${StageName}-${CommitSHA}.zip"
+        S3Key: !Sub "search-filter-api-post-search-filter-${StageName}-${CommitSHA}.zip"
       MemorySize: 512
       Timeout: 10
       EphemeralStorage:
@@ -1617,12 +1617,12 @@ Resources:
   SendMailDlq:
     Type: AWS::SQS::Queue
     Properties:
-      QueueName: !Sub "mail-lambda-send-ephemeral-${StageName}"
+      QueueName: !Sub "mail-lambda-send-${StageName}"
       MessageRetentionPeriod: 1209600
   SendMailQ:
     Type: AWS::SQS::Queue
     Properties:
-      QueueName: !Sub "mail-lambda-send-queue-ephemeral-${StageName}"
+      QueueName: !Sub "mail-lambda-send-queue-${StageName}"
       RedrivePolicy:
         deadLetterTargetArn: !GetAtt SendMailDlq.Arn
         maxReceiveCount: 5
@@ -1630,7 +1630,7 @@ Resources:
   SendMailRole:
     Type: AWS::IAM::Role
     Properties:
-      RoleName: !Sub "mail-lambda-send-role-ephemeral-${StageName}"
+      RoleName: !Sub "mail-lambda-send-role-${StageName}"
       AssumeRolePolicyDocument:
         Version: "2012-10-17"
         Statement:
@@ -1672,13 +1672,13 @@ Resources:
   SendMailLambda:
     Type: AWS::Lambda::Function
     Properties:
-      FunctionName: !Sub "mail-lambda-send-ephemeral-${StageName}"
+      FunctionName: !Sub "mail-lambda-send-${StageName}"
       Runtime: provided.al2023
       Handler: lib.handler
       Role: !GetAtt SendMailRole.Arn
       Code:
         S3Bucket: !Ref ArtifactBucket
-        S3Key: !Sub "mail-lambda-send-ephemeral-${StageName}-${CommitSHA}.zip"
+        S3Key: !Sub "mail-lambda-send-${StageName}-${CommitSHA}.zip"
       MemorySize: 512
       Timeout: 60
       EphemeralStorage:
@@ -1686,7 +1686,7 @@ Resources:
       Environment:
         Variables:
           S3_BUCKET_NAME_TEMPLATES: !Ref MailTemplateBucket
-          STAGE_NAME: !Sub "ephemeral-${StageName}"
+          STAGE_NAME: !Sub "${StageName}"
           COMMIT_SHA: !Sub "${CommitSHA}"
   SendMailMapping:
     Type: AWS::Lambda::EventSourceMapping
@@ -1702,12 +1702,12 @@ Resources:
   ProductIngestEventsDynamoDbDlq:
     Type: AWS::SQS::Queue
     Properties:
-      QueueName: !Sub "product-lambda-ingest-events-dynamodb-dlq-ephemeral-${StageName}"
+      QueueName: !Sub "product-lambda-ingest-events-dynamodb-dlq-${StageName}"
       MessageRetentionPeriod: 1209600
   ProductIngestEventsDynamoDbQ:
     Type: AWS::SQS::Queue
     Properties:
-      QueueName: !Sub "product-lambda-ingest-events-dynamodb-queue-ephemeral-${StageName}"
+      QueueName: !Sub "product-lambda-ingest-events-dynamodb-queue-${StageName}"
       RedrivePolicy:
         deadLetterTargetArn: !GetAtt ProductIngestEventsDynamoDbDlq.Arn
         maxReceiveCount: 3
@@ -1715,7 +1715,7 @@ Resources:
   ProductIngestEventsDynamoDbRole:
     Type: AWS::IAM::Role
     Properties:
-      RoleName: !Sub "product-lambda-ingest-events-dynamodb-role-ephemeral-${StageName}"
+      RoleName: !Sub "product-lambda-ingest-events-dynamodb-role-${StageName}"
       AssumeRolePolicyDocument:
         Version: "2012-10-17"
         Statement:
@@ -1748,13 +1748,13 @@ Resources:
   ProductIngestEventsDynamoDbLambda:
     Type: AWS::Lambda::Function
     Properties:
-      FunctionName: !Sub "product-lambda-ingest-events-dynamodb-ephemeral-${StageName}"
+      FunctionName: !Sub "product-lambda-ingest-events-dynamodb-${StageName}"
       Runtime: provided.al2023
       Handler: lib.handler
       Role: !GetAtt ProductIngestEventsDynamoDbRole.Arn
       Code:
         S3Bucket: !Ref ArtifactBucket
-        S3Key: !Sub "product-lambda-ingest-events-dynamodb-ephemeral-${StageName}-${CommitSHA}.zip"
+        S3Key: !Sub "product-lambda-ingest-events-dynamodb-${StageName}-${CommitSHA}.zip"
       MemorySize: 512
       Timeout: 60
       EphemeralStorage:
@@ -1776,12 +1776,12 @@ Resources:
   ProductMaterializeDynamoDbNewDlq:
     Type: AWS::SQS::Queue
     Properties:
-      QueueName: !Sub "product-lambda-materialize-dynamodb-new-dlq-ephemeral-${StageName}"
+      QueueName: !Sub "product-lambda-materialize-dynamodb-new-dlq-${StageName}"
       MessageRetentionPeriod: 1209600
   ProductMaterializeDynamoDbNewQ:
     Type: AWS::SQS::Queue
     Properties:
-      QueueName: !Sub "product-lambda-materialize-dynamodb-new-queue-ephemeral-${StageName}"
+      QueueName: !Sub "product-lambda-materialize-dynamodb-new-queue-${StageName}"
       RedrivePolicy:
         deadLetterTargetArn: !GetAtt ProductMaterializeDynamoDbNewDlq.Arn
         maxReceiveCount: 5
@@ -1789,7 +1789,7 @@ Resources:
   ProductMaterializeDynamoDbNewRole:
     Type: AWS::IAM::Role
     Properties:
-      RoleName: !Sub "product-lambda-materialize-dynamodb-new-role-ephemeral-${StageName}"
+      RoleName: !Sub "product-lambda-materialize-dynamodb-new-role-${StageName}"
       AssumeRolePolicyDocument:
         Version: "2012-10-17"
         Statement:
@@ -1822,13 +1822,13 @@ Resources:
   ProductMaterializeDynamoDbNewLambda:
     Type: AWS::Lambda::Function
     Properties:
-      FunctionName: !Sub "product-lambda-materialize-dynamodb-new-ephemeral-${StageName}"
+      FunctionName: !Sub "product-lambda-materialize-dynamodb-new-${StageName}"
       Runtime: provided.al2023
       Handler: lib.handler
       Role: !GetAtt ProductMaterializeDynamoDbNewRole.Arn
       Code:
         S3Bucket: !Ref ArtifactBucket
-        S3Key: !Sub "product-lambda-materialize-dynamodb-new-ephemeral-${StageName}-${CommitSHA}.zip"
+        S3Key: !Sub "product-lambda-materialize-dynamodb-new-${StageName}-${CommitSHA}.zip"
       MemorySize: 512
       Timeout: 60
       EphemeralStorage:
@@ -1850,12 +1850,12 @@ Resources:
   ProductMaterializeDynamoDbUpdateDlq:
     Type: AWS::SQS::Queue
     Properties:
-      QueueName: !Sub "product-lambda-materialize-dynamodb-update-dlq-ephemeral-${StageName}"
+      QueueName: !Sub "product-lambda-materialize-dynamodb-update-dlq-${StageName}"
       MessageRetentionPeriod: 1209600
   ProductMaterializeDynamoDbUpdateQ:
     Type: AWS::SQS::Queue
     Properties:
-      QueueName: !Sub "product-lambda-materialize-dynamodb-update-queue-ephemeral-${StageName}"
+      QueueName: !Sub "product-lambda-materialize-dynamodb-update-queue-${StageName}"
       RedrivePolicy:
         deadLetterTargetArn: !GetAtt ProductMaterializeDynamoDbUpdateDlq.Arn
         maxReceiveCount: 5
@@ -1863,7 +1863,7 @@ Resources:
   ProductMaterializeDynamoDbUpdateRole:
     Type: AWS::IAM::Role
     Properties:
-      RoleName: !Sub "product-lambda-materialize-dynamodb-update-role-ephemeral-${StageName}"
+      RoleName: !Sub "product-lambda-materialize-dynamodb-update-role-${StageName}"
       AssumeRolePolicyDocument:
         Version: "2012-10-17"
         Statement:
@@ -1896,13 +1896,13 @@ Resources:
   ProductMaterializeDynamoDbUpdateLambda:
     Type: AWS::Lambda::Function
     Properties:
-      FunctionName: !Sub "product-lambda-materialize-dynamodb-update-ephemeral-${StageName}"
+      FunctionName: !Sub "product-lambda-materialize-dynamodb-update-${StageName}"
       Runtime: provided.al2023
       Handler: lib.handler
       Role: !GetAtt ProductMaterializeDynamoDbUpdateRole.Arn
       Code:
         S3Bucket: !Ref ArtifactBucket
-        S3Key: !Sub "product-lambda-materialize-dynamodb-update-ephemeral-${StageName}-${CommitSHA}.zip"
+        S3Key: !Sub "product-lambda-materialize-dynamodb-update-${StageName}-${CommitSHA}.zip"
       MemorySize: 512
       Timeout: 60
       EphemeralStorage:
@@ -1924,12 +1924,12 @@ Resources:
   ProductMaterializeOpenSearchNewDlq:
     Type: AWS::SQS::Queue
     Properties:
-      QueueName: !Sub "product-lambda-materialize-opensearch-new-dlq-ephemeral-${StageName}"
+      QueueName: !Sub "product-lambda-materialize-opensearch-new-dlq-${StageName}"
       MessageRetentionPeriod: 1209600
   ProductMaterializeOpenSearchNewQ:
     Type: AWS::SQS::Queue
     Properties:
-      QueueName: !Sub "product-lambda-materialize-opensearch-new-queue-ephemeral-${StageName}"
+      QueueName: !Sub "product-lambda-materialize-opensearch-new-queue-${StageName}"
       RedrivePolicy:
         deadLetterTargetArn: !GetAtt ProductMaterializeOpenSearchNewDlq.Arn
         maxReceiveCount: 5
@@ -1937,7 +1937,7 @@ Resources:
   ProductMaterializeOpenSearchNewRole:
     Type: AWS::IAM::Role
     Properties:
-      RoleName: !Sub "product-lambda-materialize-opensearch-new-role-ephemeral-${StageName}"
+      RoleName: !Sub "product-lambda-materialize-opensearch-new-role-${StageName}"
       AssumeRolePolicyDocument:
         Version: "2012-10-17"
         Statement:
@@ -1955,7 +1955,7 @@ Resources:
               - Effect: Allow
                 Action:
                   - es:*
-                Resource: !Sub "arn:aws:es:${AWS::Region}:${AWS::AccountId}:domain/application-ephemeral-${StageName}/*"
+                Resource: !Sub "arn:aws:es:${AWS::Region}:${AWS::AccountId}:domain/application-${StageName}/*"
         - PolicyName: SQSPollerAccess
           PolicyDocument:
             Version: "2012-10-17"
@@ -1970,13 +1970,13 @@ Resources:
   ProductMaterializeOpenSearchNewLambda:
     Type: AWS::Lambda::Function
     Properties:
-      FunctionName: !Sub "product-lambda-materialize-opensearch-new-ephemeral-${StageName}"
+      FunctionName: !Sub "product-lambda-materialize-opensearch-new-${StageName}"
       Runtime: provided.al2023
       Handler: lib.handler
       Role: !GetAtt ProductMaterializeOpenSearchNewRole.Arn
       Code:
         S3Bucket: !Ref ArtifactBucket
-        S3Key: !Sub "product-lambda-materialize-opensearch-new-ephemeral-${StageName}-${CommitSHA}.zip"
+        S3Key: !Sub "product-lambda-materialize-opensearch-new-${StageName}-${CommitSHA}.zip"
       MemorySize: 512
       Timeout: 60
       EphemeralStorage:
@@ -1998,12 +1998,12 @@ Resources:
   ProductMaterializeOpenSearchUpdateDlq:
     Type: AWS::SQS::Queue
     Properties:
-      QueueName: !Sub "product-lambda-materialize-opensearch-update-dlq-ephemeral-${StageName}"
+      QueueName: !Sub "product-lambda-materialize-opensearch-update-dlq-${StageName}"
       MessageRetentionPeriod: 1209600
   ProductMaterializeOpenSearchUpdateQ:
     Type: AWS::SQS::Queue
     Properties:
-      QueueName: !Sub "product-lambda-materialize-opensearch-update-queue-ephemeral-${StageName}"
+      QueueName: !Sub "product-lambda-materialize-opensearch-update-queue-${StageName}"
       RedrivePolicy:
         deadLetterTargetArn: !GetAtt ProductMaterializeOpenSearchUpdateDlq.Arn
         maxReceiveCount: 5
@@ -2011,7 +2011,7 @@ Resources:
   ProductMaterializeOpenSearchUpdateRole:
     Type: AWS::IAM::Role
     Properties:
-      RoleName: !Sub "product-lambda-materialize-opensearch-update-role-ephemeral-${StageName}"
+      RoleName: !Sub "product-lambda-materialize-opensearch-update-role-${StageName}"
       AssumeRolePolicyDocument:
         Version: "2012-10-17"
         Statement:
@@ -2029,7 +2029,7 @@ Resources:
               - Effect: Allow
                 Action:
                   - es:*
-                Resource: !Sub "arn:aws:es:${AWS::Region}:${AWS::AccountId}:domain/application-ephemeral-${StageName}/*"
+                Resource: !Sub "arn:aws:es:${AWS::Region}:${AWS::AccountId}:domain/application-${StageName}/*"
         - PolicyName: SQSPollerAccess
           PolicyDocument:
             Version: "2012-10-17"
@@ -2044,13 +2044,13 @@ Resources:
   ProductMaterializeOpenSearchUpdateLambda:
     Type: AWS::Lambda::Function
     Properties:
-      FunctionName: !Sub "product-lambda-materialize-opensearch-update-ephemeral-${StageName}"
+      FunctionName: !Sub "product-lambda-materialize-opensearch-update-${StageName}"
       Runtime: provided.al2023
       Handler: lib.handler
       Role: !GetAtt ProductMaterializeOpenSearchUpdateRole.Arn
       Code:
         S3Bucket: !Ref ArtifactBucket
-        S3Key: !Sub "product-lambda-materialize-opensearch-update-ephemeral-${StageName}-${CommitSHA}.zip"
+        S3Key: !Sub "product-lambda-materialize-opensearch-update-${StageName}-${CommitSHA}.zip"
       MemorySize: 512
       Timeout: 60
       EphemeralStorage:
@@ -2072,12 +2072,12 @@ Resources:
   ProductUpdateNotifyUserDlq:
     Type: AWS::SQS::Queue
     Properties:
-      QueueName: !Sub "product-lambda-update-notify-user-dlq-ephemeral-${StageName}"
+      QueueName: !Sub "product-lambda-update-notify-user-dlq-${StageName}"
       MessageRetentionPeriod: 1209600
   ProductUpdateNotifyUserQ:
     Type: AWS::SQS::Queue
     Properties:
-      QueueName: !Sub "product-lambda-update-notify-user-queue-ephemeral-${StageName}"
+      QueueName: !Sub "product-lambda-update-notify-user-queue-${StageName}"
       RedrivePolicy:
         deadLetterTargetArn: !GetAtt ProductUpdateNotifyUserDlq.Arn
         maxReceiveCount: 5
@@ -2085,7 +2085,7 @@ Resources:
   ProductUpdateNotifyUserRole:
     Type: AWS::IAM::Role
     Properties:
-      RoleName: !Sub "product-lambda-update-notify-user-role-ephemeral-${StageName}"
+      RoleName: !Sub "product-lambda-update-notify-user-role-${StageName}"
       AssumeRolePolicyDocument:
         Version: "2012-10-17"
         Statement:
@@ -2129,13 +2129,13 @@ Resources:
   ProductUpdateNotifyUserLambda:
     Type: AWS::Lambda::Function
     Properties:
-      FunctionName: !Sub "product-lambda-update-notify-user-ephemeral-${StageName}"
+      FunctionName: !Sub "product-lambda-update-notify-user-${StageName}"
       Runtime: provided.al2023
       Handler: lib.handler
       Role: !GetAtt ProductUpdateNotifyUserRole.Arn
       Code:
         S3Bucket: !Ref ArtifactBucket
-        S3Key: !Sub "product-lambda-update-notify-user-ephemeral-${StageName}-${CommitSHA}.zip"
+        S3Key: !Sub "product-lambda-update-notify-user-${StageName}-${CommitSHA}.zip"
       MemorySize: 512
       Timeout: 60
       EphemeralStorage:
@@ -2159,12 +2159,12 @@ Resources:
   UserLambdaFanoutUpdateWatchlistDlq:
     Type: AWS::SQS::Queue
     Properties:
-      QueueName: !Sub "user-lambda-fanout-update-watchlist-dlq-ephemeral-${StageName}"
+      QueueName: !Sub "user-lambda-fanout-update-watchlist-dlq-${StageName}"
       MessageRetentionPeriod: 1209600
   UserLambdaFanoutUpdateWatchlistQ:
     Type: AWS::SQS::Queue
     Properties:
-      QueueName: !Sub "user-lambda-fanout-update-watchlist-queue-ephemeral-${StageName}"
+      QueueName: !Sub "user-lambda-fanout-update-watchlist-queue-${StageName}"
       RedrivePolicy:
         deadLetterTargetArn: !GetAtt UserLambdaFanoutUpdateWatchlistDlq.Arn
         maxReceiveCount: 5
@@ -2172,7 +2172,7 @@ Resources:
   UserLambdaFanoutUpdateWatchlistRole:
     Type: AWS::IAM::Role
     Properties:
-      RoleName: !Sub "user-lambda-fanout-update-watchlist-role-ephemeral-${StageName}"
+      RoleName: !Sub "user-lambda-fanout-update-watchlist-role-${StageName}"
       AssumeRolePolicyDocument:
         Version: "2012-10-17"
         Statement:
@@ -2215,13 +2215,13 @@ Resources:
   UserLambdaFanoutUpdateWatchlistLambda:
     Type: AWS::Lambda::Function
     Properties:
-      FunctionName: !Sub "user-lambda-fanout-update-watchlist-ephemeral-${StageName}"
+      FunctionName: !Sub "user-lambda-fanout-update-watchlist-${StageName}"
       Runtime: provided.al2023
       Handler: lib.handler
       Role: !GetAtt UserLambdaFanoutUpdateWatchlistRole.Arn
       Code:
         S3Bucket: !Ref ArtifactBucket
-        S3Key: !Sub "user-lambda-fanout-update-watchlist-ephemeral-${StageName}-${CommitSHA}.zip"
+        S3Key: !Sub "user-lambda-fanout-update-watchlist-${StageName}-${CommitSHA}.zip"
       MemorySize: 512
       Timeout: 60
       EphemeralStorage:
@@ -2243,7 +2243,7 @@ Resources:
   DynamoDbProductEventRecordCreatedMaterializeDynamoDbProductRecordEventRule:
     Type: AWS::Events::Rule
     Properties:
-      Name: !Sub "ddb-product-mat-ddb-new-ephemeral-${StageName}"
+      Name: !Sub "ddb-product-mat-ddb-new-${StageName}"
       EventBusName: !Ref DynamoDbEventBus
       EventPattern:
         source:
@@ -2264,7 +2264,7 @@ Resources:
   DynamoDbProductEventRecordUpdatedMaterializeDynamoDbProductRecordEventRule:
     Type: AWS::Events::Rule
     Properties:
-      Name: !Sub "ddb-product-mat-ddb-update-ephemeral-${StageName}"
+      Name: !Sub "ddb-product-mat-ddb-update-${StageName}"
       EventBusName: !Ref DynamoDbEventBus
       EventPattern:
         source:
@@ -2286,7 +2286,7 @@ Resources:
   DynamoDbProductEventRecordCreatedMaterializeOpenSearchProductDocumentEventRule:
     Type: AWS::Events::Rule
     Properties:
-      Name: !Sub "ddb-product-mat-os-new-ephemeral-${StageName}"
+      Name: !Sub "ddb-product-mat-os-new-${StageName}"
       EventBusName: !Ref DynamoDbEventBus
       EventPattern:
         source:
@@ -2307,7 +2307,7 @@ Resources:
   DynamoDbProductEventRecordUpdatedMaterializeOpenSearchProductDocumentEventRule:
     Type: AWS::Events::Rule
     Properties:
-      Name: !Sub "ddb-product-mat-os-update-ephemeral-${StageName}"
+      Name: !Sub "ddb-product-mat-os-update-${StageName}"
       EventBusName: !Ref DynamoDbEventBus
       EventPattern:
         source:
@@ -2329,7 +2329,7 @@ Resources:
   DynamoDbProductEventRecordUpdatedNotifyUserEventRule:
     Type: AWS::Events::Rule
     Properties:
-      Name: !Sub "ddb-product-update-notify-user-ephemeral-${StageName}"
+      Name: !Sub "ddb-product-update-notify-user-${StageName}"
       EventBusName: !Ref DynamoDbEventBus
       EventPattern:
         source:
@@ -2351,7 +2351,7 @@ Resources:
   DynamoDbProductEventRecordCreatedProductEnrichmentEventRule:
     Type: AWS::Events::Rule
     Properties:
-      Name: !Sub "ddb-product-enrichment-ephemeral-${StageName}"
+      Name: !Sub "ddb-product-enrichment-${StageName}"
       EventBusName: !Ref DynamoDbEventBus
       EventPattern:
         source:
@@ -2372,7 +2372,7 @@ Resources:
   DynamoDbUserUpdatedFanoutWatchlistUpdateEventRule:
     Type: AWS::Events::Rule
     Properties:
-      Name: !Sub "ddb-user-update-fanout-watchlist-ephemeral-${StageName}"
+      Name: !Sub "ddb-user-update-fanout-watchlist-${StageName}"
       EventBusName: !Ref DynamoDbEventBus
       EventPattern:
         source:
@@ -2399,13 +2399,13 @@ Resources:
       EnableDnsHostnames: true
       Tags:
         - Key: Name
-          Value: !Sub "product-enrichment-vpc-ephemeral-${StageName}"
+          Value: !Sub "product-enrichment-vpc-${StageName}"
   ProductEnrichmentInternetGateway:
     Type: AWS::EC2::InternetGateway
     Properties:
       Tags:
         - Key: Name
-          Value: !Sub "product-enrichment-igw-ephemeral-${StageName}"
+          Value: !Sub "product-enrichment-igw-${StageName}"
   ProductEnrichmentVpcGatewayAttachment:
     Type: AWS::EC2::VPCGatewayAttachment
     Properties:
@@ -2417,7 +2417,7 @@ Resources:
       VpcId: !Ref ProductEnrichmentVpc
       Tags:
         - Key: Name
-          Value: !Sub "product-enrichment-public-rt-ephemeral-${StageName}"
+          Value: !Sub "product-enrichment-public-rt-${StageName}"
   ProductEnrichmentPublicRoute:
     Type: AWS::EC2::Route
     DependsOn: ProductEnrichmentVpcGatewayAttachment
@@ -2434,7 +2434,7 @@ Resources:
       AvailabilityZone: !Select [0, !GetAZs ""]
       Tags:
         - Key: Name
-          Value: !Sub "product-enrichment-subnet-a-ephemeral-${StageName}"
+          Value: !Sub "product-enrichment-subnet-a-${StageName}"
   ProductEnrichmentSubnetB:
     Type: AWS::EC2::Subnet
     Properties:
@@ -2444,7 +2444,7 @@ Resources:
       AvailabilityZone: !Select [1, !GetAZs ""]
       Tags:
         - Key: Name
-          Value: !Sub "product-enrichment-subnet-b-ephemeral-${StageName}"
+          Value: !Sub "product-enrichment-subnet-b-${StageName}"
   ProductEnrichmentSubnetRouteAssocA:
     Type: AWS::EC2::SubnetRouteTableAssociation
     Properties:
@@ -2465,17 +2465,17 @@ Resources:
           CidrIp: 0.0.0.0/0
       Tags:
         - Key: Name
-          Value: !Sub "product-enrichment-sg-ephemeral-${StageName}"
+          Value: !Sub "product-enrichment-sg-${StageName}"
 
   ProductEnrichmentDlq:
     Type: AWS::SQS::Queue
     Properties:
-      QueueName: !Sub "product-enrichment-dlq-ephemeral-${StageName}"
+      QueueName: !Sub "product-enrichment-dlq-${StageName}"
       MessageRetentionPeriod: 1209600
   ProductEnrichmentQ:
     Type: AWS::SQS::Queue
     Properties:
-      QueueName: !Sub "product-enrichment-queue-ephemeral-${StageName}"
+      QueueName: !Sub "product-enrichment-queue-${StageName}"
       RedrivePolicy:
         deadLetterTargetArn: !GetAtt ProductEnrichmentDlq.Arn
         maxReceiveCount: 3
@@ -2483,7 +2483,7 @@ Resources:
   ProductEnrichmentRole:
     Type: AWS::IAM::Role
     Properties:
-      RoleName: !Sub "product-enrichment-role-ephemeral-${StageName}"
+      RoleName: !Sub "product-enrichment-role-${StageName}"
       AssumeRolePolicyDocument:
         Version: "2012-10-17"
         Statement:
@@ -2532,7 +2532,7 @@ Resources:
               - Effect: Allow
                 Action:
                   - es:*
-                Resource: !Sub "arn:aws:es:${AWS::Region}:${AWS::AccountId}:domain/application-ephemeral-${StageName}/*"
+                Resource: !Sub "arn:aws:es:${AWS::Region}:${AWS::AccountId}:domain/application-${StageName}/*"
         - PolicyName: SQSPollerAccess
           PolicyDocument:
             Version: "2012-10-17"
@@ -2558,13 +2558,13 @@ Resources:
   ProductEnrichmentInstanceProfile:
     Type: AWS::IAM::InstanceProfile
     Properties:
-      InstanceProfileName: !Sub "product-enrichment-profile-ephemeral-${StageName}"
+      InstanceProfileName: !Sub "product-enrichment-profile-${StageName}"
       Roles:
         - !Ref ProductEnrichmentRole
   ProductEnrichmentLaunchTemplate:
     Type: AWS::EC2::LaunchTemplate
     Properties:
-      LaunchTemplateName: !Sub "product-enrichment-template-ephemeral-${StageName}"
+      LaunchTemplateName: !Sub "product-enrichment-template-${StageName}"
       LaunchTemplateData:
         KeyName: !Ref Ec2KeyPairName
         IamInstanceProfile:
@@ -2582,7 +2582,7 @@ Resources:
           - ResourceType: instance
             Tags:
               - Key: Name
-                Value: !Sub "product-enrichment-ephemeral-${StageName}"
+                Value: !Sub "product-enrichment-${StageName}"
               - Key: Fleet
                 Value: product-enrichment
         UserData:
@@ -2590,7 +2590,7 @@ Resources:
             #!/bin/bash
             set -euxo pipefail
             sudo -i
-            export STAGE_NAME="ephemeral-${StageName}"
+            export STAGE_NAME="${StageName}"
             export COMMIT_SHA="${CommitSHA}"
             export RESOURCE_BUCKET="${ResourceBucket}"
             export ARTIFACT_BUCKET="${ArtifactBucket}"
@@ -2598,7 +2598,7 @@ Resources:
             export DYNAMODB_TABLE_NAME="${TableOne}"
             export OPENSEARCH_DOMAIN_ENDPOINT_URL="https://${OpenSearchDomain.DomainEndpoint}"
             export BAAI_BGE_M3_MODEL_DEVICE="cuda"
-            aws s3 cp "s3://${ResourceBucket}/ephemeral-${StageName}/${CommitSHA}/src/product-enrichment/user-data.sh" /tmp/user_data.sh --region eu-central-1
+            aws s3 cp "s3://${ResourceBucket}/${StageName}/${CommitSHA}/src/product-enrichment/user-data.sh" /tmp/user_data.sh --region eu-central-1
             source /tmp/user_data.sh
   ProductEnrichmentASG:
     Type: AWS::AutoScaling::AutoScalingGroup
@@ -2624,7 +2624,7 @@ Resources:
           SpotAllocationStrategy: price-capacity-optimized
       Tags:
         - Key: Name
-          Value: !Sub "product-enrichment-ephemeral-${StageName}"
+          Value: !Sub "product-enrichment-${StageName}"
           PropagateAtLaunch: true
       HealthCheckType: EC2
       HealthCheckGracePeriod: 120
@@ -2632,7 +2632,7 @@ Resources:
   ProductEnrichmentScaleDownRole:
     Type: AWS::IAM::Role
     Properties:
-      RoleName: !Sub "product-enrichment-asg-scale-down-role-ephemeral-${StageName}"
+      RoleName: !Sub "product-enrichment-asg-scale-down-role-${StageName}"
       AssumeRolePolicyDocument:
         Version: "2012-10-17"
         Statement:
@@ -2659,17 +2659,17 @@ Resources:
               - Effect: Allow
                 Action:
                   - es:*
-                Resource: !Sub "arn:aws:es:${AWS::Region}:${AWS::AccountId}:domain/application-ephemeral-${StageName}/*"
+                Resource: !Sub "arn:aws:es:${AWS::Region}:${AWS::AccountId}:domain/application-${StageName}/*"
   ProductEnrichmentScaleDownLambda:
     Type: AWS::Lambda::Function
     Properties:
-      FunctionName: !Sub "product-enrichment-asg-scale-down-ephemeral-${StageName}"
+      FunctionName: !Sub "product-enrichment-asg-scale-down-${StageName}"
       Runtime: provided.al2023
       Handler: lib.handler
       Role: !GetAtt ProductEnrichmentScaleDownRole.Arn
       Code:
         S3Bucket: !Ref ArtifactBucket
-        S3Key: !Sub "product-enrichment-asg-scale-down-ephemeral-${StageName}-${CommitSHA}.zip"
+        S3Key: !Sub "product-enrichment-asg-scale-down-${StageName}-${CommitSHA}.zip"
       MemorySize: 128
       Timeout: 60
       EphemeralStorage:
@@ -2701,7 +2701,7 @@ Resources:
   ProductEnrichmentScaleUpRole:
     Type: AWS::IAM::Role
     Properties:
-      RoleName: !Sub "product-enrichment-asg-scale-up-role-ephemeral-${StageName}"
+      RoleName: !Sub "product-enrichment-asg-scale-up-role-${StageName}"
       AssumeRolePolicyDocument:
         Version: "2012-10-17"
         Statement:
@@ -2728,17 +2728,17 @@ Resources:
               - Effect: Allow
                 Action:
                   - es:*
-                Resource: !Sub "arn:aws:es:${AWS::Region}:${AWS::AccountId}:domain/application-ephemeral-${StageName}/*"
+                Resource: !Sub "arn:aws:es:${AWS::Region}:${AWS::AccountId}:domain/application-${StageName}/*"
   ProductEnrichmentScaleUpLambda:
     Type: AWS::Lambda::Function
     Properties:
-      FunctionName: !Sub "product-enrichment-asg-scale-up-ephemeral-${StageName}"
+      FunctionName: !Sub "product-enrichment-asg-scale-up-${StageName}"
       Runtime: provided.al2023
       Handler: lib.handler
       Role: !GetAtt ProductEnrichmentScaleUpRole.Arn
       Code:
         S3Bucket: !Ref ArtifactBucket
-        S3Key: !Sub "product-enrichment-asg-scale-up-ephemeral-${StageName}-${CommitSHA}.zip"
+        S3Key: !Sub "product-enrichment-asg-scale-up-${StageName}-${CommitSHA}.zip"
       MemorySize: 128
       Timeout: 60
       EphemeralStorage:
@@ -2777,7 +2777,7 @@ Outputs:
   CognitoUserPoolClientAdminId:
     Value: !Ref PrimaryUserPoolClientAdmin
   ApiGatewayEndpointUrl:
-    Value: !Sub "https://${Api}.execute-api.${AWS::Region}.amazonaws.com/ephemeral-${StageName}"
+    Value: !Sub "https://${Api}.execute-api.${AWS::Region}.amazonaws.com/${StageName}"
   OpensearchDomainEndpointUrl:
     Value: !Sub "https://${OpenSearchDomain.DomainEndpoint}"
   OpensearchDomainName:
