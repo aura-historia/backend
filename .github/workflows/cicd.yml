@@ -506,7 +506,7 @@ jobs:
         aws-push-mail-templates,
       ]
     environment:
-      name: ${{ env.STAGE == 'ephemeral' && 'aws-ephemeral' || env.STAGE == 'prod' && 'aws-prod' || env.STAGE == 'dev' && 'aws-dev' }}
+      name: ${{ github.event_name == 'pull_request' && 'aws-ephemeral' || github.ref == 'refs/heads/prod' && 'aws-prod' || github.ref == 'refs/heads/develop' && 'aws-dev' }}
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -557,7 +557,7 @@ jobs:
     if: ${{ github.event_name == 'pull_request' }}
     needs: aws-cfn-deploy
     environment:
-      name: ${{ env.STAGE == 'ephemeral' && 'aws-ephemeral' || env.STAGE == 'dev' && 'aws-dev' }}
+      name: ${{ github.event_name == 'pull_request' && 'aws-ephemeral' || github.ref == 'refs/heads/develop' && 'aws-dev' }}
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -668,7 +668,7 @@ jobs:
       contents: read
       id-token: write
     environment:
-      name: ${{ env.STAGE == 'ephemeral' && 'aws-ephemeral' || env.STAGE == 'dev' && 'aws-dev' }}
+      name: ${{ github.event_name == 'pull_request' && 'aws-ephemeral' || github.ref == 'refs/heads/develop' && 'aws-dev' }}
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v6
