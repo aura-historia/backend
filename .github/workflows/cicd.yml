@@ -61,13 +61,12 @@ jobs:
         with:
           components: clippy, rustfmt
 
-      - name: Cache cargo registry and target
+      - name: Cache cargo registry
         uses: actions/cache@v5
         with:
           path: |
             ~/.cargo/registry
             ~/.cargo/git
-            target
           key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
 
       - name: Format check
@@ -109,13 +108,12 @@ jobs:
       - name: Set up Rust
         uses: dtolnay/rust-toolchain@stable
 
-      - name: Cache cargo registry and target
+      - name: Cache cargo registry
         uses: actions/cache@v5
         with:
           path: |
             ~/.cargo/registry
             ~/.cargo/git
-            target
           key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
 
       - name: Build ${{ matrix.crate }}
@@ -134,14 +132,12 @@ jobs:
       - name: Set up Rust
         uses: dtolnay/rust-toolchain@stable
 
-      - name: Cache cargo registry and target
+      - name: Cache cargo registry
         uses: actions/cache@v5
         with:
           path: |
             ~/.cargo/registry
             ~/.cargo/git
-            ~/.cargo/bin
-            target
           key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
 
       - name: Test Workspace
@@ -183,18 +179,57 @@ jobs:
       - name: Set up Rust
         uses: dtolnay/rust-toolchain@stable
 
-      - name: Cache cargo registry and target
+      - name: Cache cargo registry
         uses: actions/cache@v5
         with:
           path: |
             ~/.cargo/registry
             ~/.cargo/git
-            target
           key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
 
       - name: Test ${{ matrix.crate }}
         working-directory: ${{ matrix.crate }}
         run: cargo test --test '*' --all-features -- --nocapture
+
+      - name: Prune Docker volumes
+        run: docker volume prune -f
+
+  test-product-enrichment:
+    name: Test product-enrichment
+    needs: build
+    permissions:
+      contents: read
+    runs-on: self-hosted
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+
+      - name: Set up Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache cargo registry
+        uses: actions/cache@v5
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+          key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.13.7"
+
+      - name: Install Python deps
+        working-directory: src/product-enrichment/python
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+
+      - name: Test product-enrichment
+        working-directory: src/product-enrichment/python
+        run: cargo test --lib --test '*' --all-features -- --nocapture --include-ignored
 
       - name: Prune Docker volumes
         run: docker volume prune -f
@@ -216,7 +251,7 @@ jobs:
         with:
           components: clippy, rustfmt, llvm-tools
 
-      - name: Cache cargo registry and target
+      - name: Cache cargo registry
         uses: actions/cache@v5
         with:
           path: |
@@ -224,28 +259,8 @@ jobs:
             ~/.cargo/git
           key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
 
-      - name: Cache cargo-lambda
-        uses: actions/cache@v5
-        with:
-          path: |
-            ~/.cargo/bin/cargo-lambda
-            ~/.cargo/registry
-            ~/.cargo/git
-          key: ${{ runner.os }}-cargo-lambda-1.8.6
-
-      - name: Set up Zig
-        uses: mlugg/setup-zig@v2
-        with:
-          version: 0.14.1
-
-      - name: Install cargo-lambda
-        run: |
-          if ! command -v cargo-lambda &> /dev/null; then
-            cargo install cargo-lambda --version 1.8.6
-          fi
-
-         - name: Install grcov
-         run: cargo install grcov
+      - name: Install grcov
+        run: cargo install grcov
 
       - name: Set up Python
         uses: actions/setup-python@v5
@@ -253,10 +268,9 @@ jobs:
           python-version: "3.13.7"
 
       - name: Install Python deps
-        working-directory: src/product-enrichment/python
         run: |
           python -m pip install --upgrade pip
-          pip install -r requirements.txt
+          pip install -r src/product-enrichment/python/requirements.txt
 
       - name: Generate coverage
         env:
@@ -326,13 +340,12 @@ jobs:
       - name: Set up Rust
         uses: dtolnay/rust-toolchain@stable
 
-      - name: Cache cargo registry and target
+      - name: Cache cargo registry
         uses: actions/cache@v5
         with:
           path: |
             ~/.cargo/registry
             ~/.cargo/git
-            target
           key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
 
       - name: Cache cargo-lambda
@@ -398,13 +411,12 @@ jobs:
       - name: Set up Rust
         uses: dtolnay/rust-toolchain@stable
 
-      - name: Cache cargo registry and target
+      - name: Cache cargo registry
         uses: actions/cache@v5
         with:
           path: |
             ~/.cargo/registry
             ~/.cargo/git
-            target
           key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
 
       - name: Build EC2 binary
@@ -607,14 +619,12 @@ jobs:
       - name: Set up Rust
         uses: dtolnay/rust-toolchain@stable
 
-      - name: Cache cargo registry and target
+      - name: Cache cargo registry
         uses: actions/cache@v5
         with:
           path: |
             ~/.cargo/registry
             ~/.cargo/git
-            ~/.cargo/bin
-            target
           key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
 
       - name: Run Staging-tests
@@ -663,14 +673,12 @@ jobs:
       - name: Set up Rust
         uses: dtolnay/rust-toolchain@stable
 
-      - name: Cache cargo registry and target
+      - name: Cache cargo registry
         uses: actions/cache@v5
         with:
           path: |
             ~/.cargo/registry
             ~/.cargo/git
-            ~/.cargo/bin
-            target
           key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
 
       - name: Run Smoking-Tests
@@ -715,14 +723,12 @@ jobs:
       - name: Set up Rust
         uses: dtolnay/rust-toolchain@stable
 
-      - name: Cache cargo registry and target
+      - name: Cache cargo registry
         uses: actions/cache@v5
         with:
           path: |
             ~/.cargo/registry
             ~/.cargo/git
-            ~/.cargo/bin
-            target
           key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
 
       - name: Run src/aws-tests/src/staging-data
