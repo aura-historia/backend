@@ -15,7 +15,7 @@ DOMAIN_NAME=$(aws cloudformation describe-stacks \
 
 RAW_ENDPOINT=$(aws cloudformation describe-stacks \
   --stack-name "$STACK_NAME" \
-  --query "Stacks[0].Outputs[?OutputKey=='OpensearchDomainEndpointUrl'].OutputValue" \
+  --query "Stacks[0].Outputs[?OutputKey=='OpensearchEndpointUrl'].OutputValue" \
   --output text)
 
 if [ -z "$DOMAIN_NAME" ]; then
