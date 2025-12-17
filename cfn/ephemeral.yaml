@@ -115,6 +115,10 @@ Resources:
         - profile
       SupportedIdentityProviders:
         - COGNITO
+      CallbackURLs:
+        - http://localhost:3000
+      LogoutURLs:
+        - http://localhost:3000
       EnableTokenRevocation: true
       AccessTokenValidity: 1 # hours
       IdTokenValidity: 1 # hours
