@@ -52,9 +52,7 @@ jobs:
     name: Lint Workspace
     permissions:
       contents: read
-    runs-on:
-      - self-hosted
-      - ubuntu-latest
+    runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v6
 
