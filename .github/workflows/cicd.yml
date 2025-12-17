@@ -11,7 +11,7 @@ concurrency:
 
 env:
   CARGO_TERM_COLOR: always
-  STAGE: ${{ github.event_name == 'pull_request' && 'dev'
+  STAGE: ${{ github.event_name == 'pull_request' && 'ephemeral'
     || github.ref == 'refs/heads/prod' && 'prod'
     || github.ref == 'refs/heads/develop' && 'dev' }}
   STAGE_NAME:
@@ -506,7 +506,7 @@ jobs:
         aws-push-mail-templates,
       ]
     environment:
-      name: aws
+      name: ${{ env.STAGE == 'ephemeral' && 'aws-ephemeral' || env.STAGE == 'prod' && 'aws-prod' || env.STAGE == 'dev' && 'aws-dev' }}
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -534,7 +534,10 @@ jobs:
                 ResourceBucket=${{ vars.S3_RESOURCE_ARTIFACTS_BUCKET_NAME }} \
                 MailTemplateBucket=${{ vars.S3_MAIL_TEMPLATE_BUCKET_NAME }} \
                 CommitSHA=${GITHUB_SHA} \
-                Ec2KeyPairName=${{ vars.EC2_KEY_PAIR_NAME }}
+                Ec2KeyPairName=${{ vars.EC2_KEY_PAIR_NAME }} \
+                OpenSearchEndpointUrl=${{ vars.OPENSEARCH_ENDPOINT_URL }} \
+                OpenSearchUsername=${{ secrets.OPENSEARCH_USERNAME }} \
+                OpenSearchPassword=${{ secrets.OPENSEARCH_PASSWORD }} 
 
       - name: Install OpenSearch CLI
         run: |
@@ -553,6 +556,8 @@ jobs:
     name: AWS Staging-Test
     if: ${{ github.event_name == 'pull_request' }}
     needs: aws-cfn-deploy
+    environment:
+      name: ${{ env.STAGE == 'ephemeral' && 'aws-ephemeral' || env.STAGE == 'dev' && 'aws-dev' }}
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -599,6 +604,10 @@ jobs:
           CFN_OUTPUT: ${{ steps.export-cfn-output.outputs.outputs_json }}
           TEST_MAIL_APP_NAMESPACE: ${{ vars.TEST_MAIL_APP_NAMESPACE }}
           TEST_MAIL_APP_API_KEY: ${{ secrets.TEST_MAIL_APP_API_KEY }}
+          STAGE: ${{ env.STAGE }}
+          OPENSEARCH_ENDPOINT_URL: ${{ vars.OPENSEARCH_ENDPOINT_URL }}
+          OPENSEARCH_USERNAME: ${{ secrets.OPENSEARCH_USERNAME }}
+          OPENSEARCH_PASSWORD: ${{ secrets.OPENSEARCH_PASSWORD }}
         run: cargo test --test '*' --all-features -- --ignored --nocapture
 
   aws-smoking-test:
@@ -655,11 +664,11 @@ jobs:
     name: AWS Populate Test-Data
     if: github.event_name == 'push'
     needs: aws-cfn-deploy
-    environment:
-      name: aws-staging-data
     permissions:
       contents: read
       id-token: write
+    environment:
+      name: ${{ env.STAGE == 'ephemeral' && 'aws-ephemeral' || env.STAGE == 'dev' && 'aws-dev' }}
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v6
@@ -701,4 +710,8 @@ jobs:
         working-directory: src/aws-tests/src/staging-data
         env:
           CFN_OUTPUT: ${{ steps.export-cfn-output.outputs.outputs_json }}
+          STAGE: ${{ env.STAGE }}
+          OPENSEARCH_ENDPOINT_URL: ${{ vars.OPENSEARCH_ENDPOINT_URL }}
+          OPENSEARCH_USERNAME: ${{ secrets.OPENSEARCH_USERNAME }}
+          OPENSEARCH_PASSWORD: ${{ secrets.OPENSEARCH_PASSWORD }}
         run: cargo run --all-features -- --nocapture

@@ -1,17 +1,15 @@
 use aws_config::BehaviorVersion;
 use aws_lambda_events::apigw::ApiGatewayV2httpRequest;
 use cognito::access_token_verifier_service::AccessTokenVerifierServiceImpl;
+use common::opensearch::client::load_client;
 use lambda_runtime::tracing::info;
 use lambda_runtime::{Error, LambdaEvent, run, service_fn};
-use opensearch::http::Url;
-use opensearch::http::transport::{SingleNodeConnectionPool, TransportBuilder};
 use product::dynamodb::repository::ProductDynamoDbRepositoryImpl;
 use product::opensearch::repository::ProductOpenSearchRepositoryImpl;
 use product::service::personalization_service::ProductPersonalizationServiceImpl;
 use product::service::semantic_service::SemanticSearchServiceImpl;
 use product::watchlist::dynamodb::repository::WatchlistProductDynamoDbRepositoryImpl;
 use product_api_get_product_similar::handler;
-use std::env;
 
 #[tokio::main]
 async fn main() -> Result<(), Error> {
@@ -29,14 +27,7 @@ async fn main() -> Result<(), Error> {
 
     let table_name = std::env::var("DYNAMODB_TABLE_NAME")?;
     let dynamodb_client = aws_sdk_dynamodb::Client::new(&aws_config);
-
-    let domain_endpoint = env::var("OPENSEARCH_DOMAIN_ENDPOINT_URL")?;
-    let domain_endpoint_url = Url::parse(&domain_endpoint)?;
-    let transport = TransportBuilder::new(SingleNodeConnectionPool::new(domain_endpoint_url))
-        .auth(aws_config.clone().try_into()?)
-        .service_name("es")
-        .build()?;
-    let opensearch_client = opensearch::OpenSearch::new(transport);
+    let opensearch_client = load_client().await?;
     let product_opensearch_repository = ProductOpenSearchRepositoryImpl::new(&opensearch_client);
     let product_dynamodb_repository =
         ProductDynamoDbRepositoryImpl::new(&dynamodb_client, &table_name);
@@ -61,10 +52,7 @@ async fn main() -> Result<(), Error> {
         AccessTokenVerifierServiceImpl::new("eu-central-1", &user_pool_id, client_ids.as_slice())
             .expect("shouldn't fail creating 'AccessTokenVerifierServiceImpl'");
 
-    info!(
-        domainEndpointUrl = %domain_endpoint,
-        "Lambda cold start completed, client initialized."
-    );
+    info!("Lambda cold start completed, client initialized.");
 
     run(service_fn(
         |event: LambdaEvent<ApiGatewayV2httpRequest>| async {

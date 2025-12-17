@@ -1,8 +1,4 @@
 use aws_config::{BehaviorVersion, SdkConfig};
-use opensearch::http::{
-    Url,
-    transport::{SingleNodeConnectionPool, TransportBuilder},
-};
 use product::dynamodb::repository::ProductDynamoDbRepositoryImpl;
 use product::opensearch::repository::ProductOpenSearchRepositoryImpl;
 use product_enrichment::{
@@ -51,24 +47,9 @@ static OPENSEARCH_CLIENT: OnceCell<opensearch::OpenSearch> = OnceCell::const_new
 pub async fn get_opensearch_client() -> &'static opensearch::OpenSearch {
     OPENSEARCH_CLIENT
         .get_or_init(|| async {
-            let domain_endpoint = std::env::var("OPENSEARCH_DOMAIN_ENDPOINT_URL")
-                .expect("shouldn't fail reading env-var 'OPENSEARCH_DOMAIN_ENDPOINT_URL'");
-            let domain_endpoint_url = Url::parse(&domain_endpoint).expect(
-                "shouldn't fail parsing value for env-var 'OPENSEARCH_DOMAIN_ENDPOINT_URL' as url",
-            );
-            let transport =
-                TransportBuilder::new(SingleNodeConnectionPool::new(domain_endpoint_url))
-                    .auth(
-                        get_aws_config()
-                            .await
-                            .clone()
-                            .try_into()
-                            .expect("shouldn't fail extracting AWS-Config for OpenSearch"),
-                    )
-                    .service_name("es")
-                    .build()
-                    .expect("shouldn't fail building OpenSearch-Transport");
-            opensearch::OpenSearch::new(transport)
+            common::opensearch::client::load_client()
+                .await
+                .expect("shouldn't fail loading OpenSearch-Client")
         })
         .await
 }

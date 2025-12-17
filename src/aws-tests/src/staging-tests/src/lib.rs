@@ -47,8 +47,8 @@ pub async fn get_opensearch_client() -> &'static opensearch::OpenSearch {
     OPENSEARCH_CLIENT
         .get_or_init(|| async {
             let transport = TransportBuilder::new(SingleNodeConnectionPool::new(
-                Url::parse(&get_cfn_output().opensearch_domain_endpoint_url)
-                    .expect("shouldn't fail parsing 'opensearch_domain_endpoint_url' as URL"),
+                Url::parse(&get_cfn_output().opensearch_endpoint_url)
+                    .expect("shouldn't fail parsing 'opensearch_endpoint_url' as URL"),
             ))
             .auth(
                 get_aws_config()

@@ -3,14 +3,11 @@ use aws_lambda_events::apigw::ApiGatewayV2httpRequest;
 use cognito::access_token_verifier_service::AccessTokenVerifierServiceImpl;
 use lambda_runtime::tracing::info;
 use lambda_runtime::{Error, LambdaEvent, run, service_fn};
-use opensearch::http::Url;
-use opensearch::http::transport::{SingleNodeConnectionPool, TransportBuilder};
 use product::opensearch::repository::ProductOpenSearchRepositoryImpl;
 use product::service::personalization_service::ProductPersonalizationServiceImpl;
 use product::service::query_service::QueryProductServiceImpl;
 use product::watchlist::dynamodb::repository::WatchlistProductDynamoDbRepositoryImpl;
 use product_api_search::handler;
-use std::env;
 
 #[tokio::main]
 async fn main() -> Result<(), Error> {
@@ -26,13 +23,7 @@ async fn main() -> Result<(), Error> {
         .load()
         .await;
 
-    let domain_endpoint = env::var("OPENSEARCH_DOMAIN_ENDPOINT_URL")?;
-    let domain_endpoint_url = Url::parse(&domain_endpoint)?;
-    let transport = TransportBuilder::new(SingleNodeConnectionPool::new(domain_endpoint_url))
-        .auth(aws_config.clone().try_into()?)
-        .service_name("es")
-        .build()?;
-    let opensearch_client = opensearch::OpenSearch::new(transport);
+    let opensearch_client = common::opensearch::client::load_client().await?;
     let product_opensearch_repository = ProductOpenSearchRepositoryImpl::new(&opensearch_client);
     let query_product_service = QueryProductServiceImpl::new(&product_opensearch_repository);
 
@@ -54,10 +45,7 @@ async fn main() -> Result<(), Error> {
         AccessTokenVerifierServiceImpl::new("eu-central-1", &user_pool_id, client_ids.as_slice())
             .expect("shouldn't fail creating 'AccessTokenVerifierServiceImpl'");
 
-    info!(
-        domainEndpointUrl = %domain_endpoint,
-        "Lambda cold start completed, client initialized."
-    );
+    info!("Lambda cold start completed, client initialized.");
 
     run(service_fn(
         |event: LambdaEvent<ApiGatewayV2httpRequest>| async {

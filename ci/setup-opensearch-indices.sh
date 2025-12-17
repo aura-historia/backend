@@ -80,16 +80,3 @@ create_index_if_not_exists() {
 # Create indices
 create_index_if_not_exists "$PRODUCTS_INDEX_NAME" "$PRODUCTS_MAPPING_FILE"
 create_index_if_not_exists "$SHOPS_INDEX_NAME" "$SHOPS_MAPPING_FILE"
-
-# Configure refresh-interval for index
-if [ "$STAGE" = "prod" ]; then
-    echo "Configuring refresh-interval for index '$PRODUCTS_INDEX_NAME'..."
-    opensearch-cli curl put \
-      --path "$PRODUCTS_INDEX_NAME/_settings" \
-      --data '{
-        "index": {
-          "refresh_interval": "5m"
-        }
-      }' \
-      --profile ci
-fi

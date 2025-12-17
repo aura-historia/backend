@@ -16,6 +16,15 @@ Parameters:
   Ec2KeyPairName:
     Type: AWS::EC2::KeyPair::KeyName
     Description: For EC2 SSH-Access
+  OpenSearchEndpointUrl:
+    Type: String
+    Description: "URL for the self-hosted OpenSearch-Cluster"
+  OpenSearchUsername:
+    Type: String
+    Description: "Username for accessing the self-hosted OpenSearch-Cluster"
+  OpenSearchPassword:
+    Type: String
+    Description: "Password for accessing the self-hosted OpenSearch-Cluster"
 
 Resources:
   PrimaryUserPool:
@@ -191,28 +200,6 @@ Resources:
       TableClass: STANDARD
       StreamSpecification:
         StreamViewType: NEW_IMAGE
-
-  OpenSearchDomain:
-    Type: AWS::OpenSearchService::Domain
-    Properties:
-      DomainName: !Sub "application-dev"
-      EngineVersion: "OpenSearch_3.1"
-      ClusterConfig:
-        InstanceType: t3.small.search
-        InstanceCount: 1
-        ZoneAwarenessEnabled: false
-      EBSOptions:
-        EBSEnabled: true
-        VolumeSize: 10
-        VolumeType: gp3
-      AccessPolicies:
-        Version: "2012-10-17"
-        Statement:
-          - Effect: Allow
-            Principal:
-              AWS: !Sub "arn:aws:iam::${AWS::AccountId}:root"
-            Action: "es:*"
-            Resource: !Sub "arn:aws:es:${AWS::Region}:${AWS::AccountId}:domain/application-dev/*"
 
   DynamoDbEventBus:
     Type: AWS::Events::EventBus
@@ -521,18 +508,6 @@ Resources:
       ManagedPolicyArns:
         - arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole
       Policies:
-        - PolicyName: OpenSearchReadOnly
-          PolicyDocument:
-            Version: "2012-10-17"
-            Statement:
-              - Effect: Allow
-                Action:
-                  - es:Describe*
-                  - es:List*
-                  - es:ESHttpGet
-                  - es:ESHttpHead
-                  - es:ESHttpPost
-                Resource: !Sub "${OpenSearchDomain.Arn}/*"
         - PolicyName: DynamoDBAccess
           PolicyDocument:
             Version: "2012-10-17"
@@ -558,8 +533,11 @@ Resources:
       EphemeralStorage:
         Size: 512
       Environment:
+        STAGE: "dev"
         Variables:
-          OPENSEARCH_DOMAIN_ENDPOINT_URL: !Sub "https://${OpenSearchDomain.DomainEndpoint}"
+          OPENSEARCH_ENDPOINT_URL: !Ref OpenSearchEndpointUrl
+          OPENSEARCH_USERNAME: !Ref OpenSearchUsername
+          OPENSEARCH_PASSWORD: !Ref OpenSearchPassword
           DYNAMODB_TABLE_NAME: !Ref TableOne
           USER_POOL_ID: !Ref PrimaryUserPool
           USER_POOL_PUBLIC_CLIENT_ID: !Ref PrimaryUserPoolClientPublic
@@ -599,18 +577,6 @@ Resources:
       ManagedPolicyArns:
         - arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole
       Policies:
-        - PolicyName: OpenSearchReadOnly
-          PolicyDocument:
-            Version: "2012-10-17"
-            Statement:
-              - Effect: Allow
-                Action:
-                  - es:Describe*
-                  - es:List*
-                  - es:ESHttpGet
-                  - es:ESHttpHead
-                  - es:ESHttpPost
-                Resource: !Sub "${OpenSearchDomain.Arn}/*"
         - PolicyName: DynamoDBAccess
           PolicyDocument:
             Version: "2012-10-17"
@@ -636,8 +602,11 @@ Resources:
       EphemeralStorage:
         Size: 512
       Environment:
+        STAGE: "dev"
         Variables:
-          OPENSEARCH_DOMAIN_ENDPOINT_URL: !Sub "https://${OpenSearchDomain.DomainEndpoint}"
+          OPENSEARCH_ENDPOINT_URL: !Ref OpenSearchEndpointUrl
+          OPENSEARCH_USERNAME: !Ref OpenSearchUsername
+          OPENSEARCH_PASSWORD: !Ref OpenSearchPassword
           DYNAMODB_TABLE_NAME: !Ref TableOne
           USER_POOL_ID: !Ref PrimaryUserPool
           USER_POOL_PUBLIC_CLIENT_ID: !Ref PrimaryUserPoolClientPublic
@@ -1260,19 +1229,6 @@ Resources:
             Action: sts:AssumeRole
       ManagedPolicyArns:
         - arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole
-      Policies:
-        - PolicyName: OpenSearchReadOnly
-          PolicyDocument:
-            Version: "2012-10-17"
-            Statement:
-              - Effect: Allow
-                Action:
-                  - es:Describe*
-                  - es:List*
-                  - es:ESHttpGet
-                  - es:ESHttpHead
-                  - es:ESHttpPost
-                Resource: !Sub "${OpenSearchDomain.Arn}/*"
   ApiShopSearchLambda:
     Type: AWS::Lambda::Function
     Properties:
@@ -1288,8 +1244,11 @@ Resources:
       EphemeralStorage:
         Size: 512
       Environment:
+        STAGE: "dev"
         Variables:
-          OPENSEARCH_DOMAIN_ENDPOINT_URL: !Sub "https://${OpenSearchDomain.DomainEndpoint}"
+          OPENSEARCH_ENDPOINT_URL: !Ref OpenSearchEndpointUrl
+          OPENSEARCH_USERNAME: !Ref OpenSearchUsername
+          OPENSEARCH_PASSWORD: !Ref OpenSearchPassword
   ApiShopSearchLambdaPermission:
     Type: AWS::Lambda::Permission
     Properties:
@@ -1985,8 +1944,11 @@ Resources:
       EphemeralStorage:
         Size: 512
       Environment:
+        STAGE: "dev"
         Variables:
-          OPENSEARCH_DOMAIN_ENDPOINT_URL: !Sub "https://${OpenSearchDomain.DomainEndpoint}"
+          OPENSEARCH_ENDPOINT_URL: !Ref OpenSearchEndpointUrl
+          OPENSEARCH_USERNAME: !Ref OpenSearchUsername
+          OPENSEARCH_PASSWORD: !Ref OpenSearchPassword
   ProductMaterializeOpenSearchDbNewMapping:
     Type: AWS::Lambda::EventSourceMapping
     Properties:
@@ -2059,8 +2021,11 @@ Resources:
       EphemeralStorage:
         Size: 512
       Environment:
+        STAGE: "dev"
         Variables:
-          OPENSEARCH_DOMAIN_ENDPOINT_URL: !Sub "https://${OpenSearchDomain.DomainEndpoint}"
+          OPENSEARCH_ENDPOINT_URL: !Ref OpenSearchEndpointUrl
+          OPENSEARCH_USERNAME: !Ref OpenSearchUsername
+          OPENSEARCH_PASSWORD: !Ref OpenSearchPassword
   ProductMaterializeOpenSearchDbUpdateMapping:
     Type: AWS::Lambda::EventSourceMapping
     Properties:
@@ -2593,13 +2558,16 @@ Resources:
             #!/bin/bash
             set -euxo pipefail
             sudo -i
+            export STAGE="dev"
             export STAGE_NAME="dev"
             export COMMIT_SHA="${CommitSHA}"
             export RESOURCE_BUCKET="${ResourceBucket}"
             export ARTIFACT_BUCKET="${ArtifactBucket}"
             export ENRICHMENT_QUEUE_URL="${ProductEnrichmentQ}"
             export DYNAMODB_TABLE_NAME="${TableOne}"
-            export OPENSEARCH_DOMAIN_ENDPOINT_URL="https://${OpenSearchDomain.DomainEndpoint}"
+            export OPENSEARCH_ENDPOINT_URL="${OpensearchEndpointUrl}"
+            export OPENSEARCH_USERNAME="${OpenSearchUsername}"
+            export OPENSEARCH_PASSWORD="${OpenSearchPassword}"
             export BAAI_BGE_M3_MODEL_DEVICE="cuda"
             aws s3 cp "s3://${ResourceBucket}/dev/${CommitSHA}/src/product-enrichment/user-data.sh" /tmp/user_data.sh --region eu-central-1
             source /tmp/user_data.sh
@@ -2679,8 +2647,11 @@ Resources:
         Size: 512
       Environment:
         Variables:
+          STAGE: "dev"
           PRODUCT_ENRICHMENT_ASG_NAME: !Ref ProductEnrichmentASG
-          OPENSEARCH_DOMAIN_ENDPOINT_URL: !Sub "https://${OpenSearchDomain.DomainEndpoint}"
+          OPENSEARCH_ENDPOINT_URL: !Ref OpenSearchEndpointUrl
+          OPENSEARCH_USERNAME: !Ref OpenSearchUsername
+          OPENSEARCH_PASSWORD: !Ref OpenSearchPassword
   ProductEnrichmentScaleDownStartSchedule:
     Type: AWS::Events::Rule
     Properties:
@@ -2748,8 +2719,11 @@ Resources:
         Size: 512
       Environment:
         Variables:
+          STAGE: "dev"
           PRODUCT_ENRICHMENT_ASG_NAME: !Ref ProductEnrichmentASG
-          OPENSEARCH_DOMAIN_ENDPOINT_URL: !Sub "https://${OpenSearchDomain.DomainEndpoint}"
+          OPENSEARCH_ENDPOINT_URL: !Ref OpenSearchEndpointUrl
+          OPENSEARCH_USERNAME: !Ref OpenSearchUsername
+          OPENSEARCH_PASSWORD: !Ref OpenSearchPassword
   ProductEnrichmentScaleUpStartSchedule:
     Type: AWS::Events::Rule
     Properties:
@@ -2781,10 +2755,10 @@ Outputs:
     Value: !Ref PrimaryUserPoolClientAdmin
   ApiGatewayEndpointUrl:
     Value: !Sub "https://${Api}.execute-api.${AWS::Region}.amazonaws.com/dev"
-  OpensearchDomainEndpointUrl:
-    Value: !Sub "https://${OpenSearchDomain.DomainEndpoint}"
+  OpensearchEndpointUrl:
+    Value: !Ref OpenSearchEndpointUrl
   OpensearchDomainName:
-    Value: !Ref OpenSearchDomain
+    Value: "aura-historia-dev"
   DynamodbTable1Name:
     Value: !Ref TableOne
 

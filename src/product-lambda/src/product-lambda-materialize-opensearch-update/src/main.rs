@@ -1,12 +1,8 @@
-use aws_config::BehaviorVersion;
 use aws_lambda_events::sqs::SqsEvent;
 use lambda_runtime::{Error, LambdaEvent, run, service_fn};
-use opensearch::http::transport::{SingleNodeConnectionPool, TransportBuilder};
 use product::opensearch::repository::ProductOpenSearchRepositoryImpl;
 use product_lambda_materialize_opensearch_update::handler;
-use std::env;
 use tracing::info;
-use url::Url;
 
 #[tokio::main]
 async fn main() -> Result<(), Error> {
@@ -18,17 +14,8 @@ async fn main() -> Result<(), Error> {
         .without_time()
         .init();
 
-    let aws_config = aws_config::defaults(BehaviorVersion::v2025_08_07())
-        .load()
-        .await;
-
-    let os_endpoint_url = Url::parse(&env::var("OPENSEARCH_DOMAIN_ENDPOINT_URL")?)?;
-    let transport = TransportBuilder::new(SingleNodeConnectionPool::new(os_endpoint_url))
-        .auth(aws_config.try_into()?)
-        .service_name("es")
-        .build()?;
-    let client = opensearch::OpenSearch::new(transport);
-    let repository = ProductOpenSearchRepositoryImpl::new(&client);
+    let opensearch_client = common::opensearch::client::load_client().await?;
+    let repository = ProductOpenSearchRepositoryImpl::new(&opensearch_client);
 
     info!("Lambda cold start completed, OpenSearch-Client initialized.");
 

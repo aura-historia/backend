@@ -1045,6 +1045,7 @@ name = "common"
 version = "0.1.0"
 dependencies = [
  "accept-language",
+ "aws-config",
  "aws-sdk-dynamodb",
  "aws-sdk-sqs",
  "aws_lambda_events",
@@ -1052,6 +1053,7 @@ dependencies = [
  "http 1.4.0",
  "httpdate",
  "itertools 0.14.0",
+ "lambda_runtime",
  "opensearch",
  "rstest",
  "serde",
@@ -3271,6 +3273,7 @@ version = "0.1.0"
 dependencies = [
  "aws-config",
  "aws-sdk-autoscaling",
+ "common",
  "lambda_runtime",
  "opensearch",
  "rstest",
@@ -3287,6 +3290,7 @@ version = "0.1.0"
 dependencies = [
  "aws-config",
  "aws-sdk-autoscaling",
+ "common",
  "lambda_runtime",
  "opensearch",
  "rstest",

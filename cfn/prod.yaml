@@ -16,6 +16,15 @@ Parameters:
   Ec2KeyPairName:
     Type: AWS::EC2::KeyPair::KeyName
     Description: For EC2 SSH-Access
+  OpenSearchEndpointUrl:
+    Type: String
+    Description: "URL for the self-hosted OpenSearch-Cluster"
+  OpenSearchUsername:
+    Type: String
+    Description: "Username for accessing the self-hosted OpenSearch-Cluster"
+  OpenSearchPassword:
+    Type: String
+    Description: "Password for accessing the self-hosted OpenSearch-Cluster"
 
 Resources:
   # SNS Topic for CloudWatch Alarms
@@ -211,128 +220,6 @@ Resources:
       Dimensions:
         - Name: TableName
           Value: !Ref TableOne
-      TreatMissingData: notBreaching
-      AlarmActions:
-        - !Ref AlarmNotificationTopic
-
-  OpenSearchDomain:
-    Type: AWS::OpenSearchService::Domain
-    Properties:
-      DomainName: !Sub "application-prod"
-      EngineVersion: "OpenSearch_3.1"
-      ClusterConfig:
-        InstanceType: t3.small.search
-        InstanceCount: 1
-        ZoneAwarenessEnabled: false
-      EBSOptions:
-        EBSEnabled: true
-        VolumeSize: 10
-        VolumeType: gp3
-      AccessPolicies:
-        Version: "2012-10-17"
-        Statement:
-          - Effect: Allow
-            Principal:
-              AWS: !Sub "arn:aws:iam::${AWS::AccountId}:root"
-            Action: "es:*"
-            Resource: !Sub "arn:aws:es:${AWS::Region}:${AWS::AccountId}:domain/application-prod/*"
-  OpenSearchClusterStatusRedAlarm:
-    Type: AWS::CloudWatch::Alarm
-    Properties:
-      AlarmName: !Sub "prod-opensearch-cluster-red"
-      AlarmDescription: "Alarm when OpenSearch cluster status is RED"
-      MetricName: ClusterStatus.red
-      Namespace: AWS/ES
-      Statistic: Maximum
-      Period: 60
-      EvaluationPeriods: 1
-      Threshold: 1
-      ComparisonOperator: GreaterThanOrEqualToThreshold
-      Dimensions:
-        - Name: DomainName
-          Value: !Ref OpenSearchDomain
-        - Name: ClientId
-          Value: !Ref AWS::AccountId
-      TreatMissingData: notBreaching
-      AlarmActions:
-        - !Ref AlarmNotificationTopic
-  OpenSearchClusterStatusYellowAlarm:
-    Type: AWS::CloudWatch::Alarm
-    Properties:
-      AlarmName: !Sub "prod-opensearch-cluster-yellow"
-      AlarmDescription: "Alarm when OpenSearch cluster status is YELLOW"
-      MetricName: ClusterStatus.yellow
-      Namespace: AWS/ES
-      Statistic: Maximum
-      Period: 300
-      EvaluationPeriods: 2
-      Threshold: 1
-      ComparisonOperator: GreaterThanOrEqualToThreshold
-      Dimensions:
-        - Name: DomainName
-          Value: !Ref OpenSearchDomain
-        - Name: ClientId
-          Value: !Ref AWS::AccountId
-      TreatMissingData: notBreaching
-      AlarmActions:
-        - !Ref AlarmNotificationTopic
-  OpenSearchFreeStorageSpaceAlarm:
-    Type: AWS::CloudWatch::Alarm
-    Properties:
-      AlarmName: !Sub "prod-opensearch-low-storage"
-      AlarmDescription: "Alarm when OpenSearch has low free storage space"
-      MetricName: FreeStorageSpace
-      Namespace: AWS/ES
-      Statistic: Minimum
-      Period: 300
-      EvaluationPeriods: 1
-      Threshold: 2000
-      ComparisonOperator: LessThanOrEqualToThreshold
-      Dimensions:
-        - Name: DomainName
-          Value: !Ref OpenSearchDomain
-        - Name: ClientId
-          Value: !Ref AWS::AccountId
-      TreatMissingData: notBreaching
-      AlarmActions:
-        - !Ref AlarmNotificationTopic
-  OpenSearchCPUUtilizationAlarm:
-    Type: AWS::CloudWatch::Alarm
-    Properties:
-      AlarmName: !Sub "prod-opensearch-high-cpu"
-      AlarmDescription: "Alarm when OpenSearch CPU utilization is high"
-      MetricName: CPUUtilization
-      Namespace: AWS/ES
-      Statistic: Average
-      Period: 300
-      EvaluationPeriods: 2
-      Threshold: 80
-      ComparisonOperator: GreaterThanOrEqualToThreshold
-      Dimensions:
-        - Name: DomainName
-          Value: !Ref OpenSearchDomain
-        - Name: ClientId
-          Value: !Ref AWS::AccountId
-      TreatMissingData: notBreaching
-      AlarmActions:
-        - !Ref AlarmNotificationTopic
-  OpenSearchJVMMemoryPressureAlarm:
-    Type: AWS::CloudWatch::Alarm
-    Properties:
-      AlarmName: !Sub "prod-opensearch-high-jvm-memory"
-      AlarmDescription: "Alarm when OpenSearch JVM memory pressure is high"
-      MetricName: JVMMemoryPressure
-      Namespace: AWS/ES
-      Statistic: Maximum
-      Period: 300
-      EvaluationPeriods: 1
-      Threshold: 85
-      ComparisonOperator: GreaterThanOrEqualToThreshold
-      Dimensions:
-        - Name: DomainName
-          Value: !Ref OpenSearchDomain
-        - Name: ClientId
-          Value: !Ref AWS::AccountId
       TreatMissingData: notBreaching
       AlarmActions:
         - !Ref AlarmNotificationTopic
@@ -752,18 +639,6 @@ Resources:
       ManagedPolicyArns:
         - arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole
       Policies:
-        - PolicyName: OpenSearchReadOnly
-          PolicyDocument:
-            Version: "2012-10-17"
-            Statement:
-              - Effect: Allow
-                Action:
-                  - es:Describe*
-                  - es:List*
-                  - es:ESHttpGet
-                  - es:ESHttpHead
-                  - es:ESHttpPost
-                Resource: !Sub "${OpenSearchDomain.Arn}/*"
         - PolicyName: DynamoDBAccess
           PolicyDocument:
             Version: "2012-10-17"
@@ -790,7 +665,10 @@ Resources:
         Size: 512
       Environment:
         Variables:
-          OPENSEARCH_DOMAIN_ENDPOINT_URL: !Sub "https://${OpenSearchDomain.DomainEndpoint}"
+          OPENSEARCH_ENDPOINT_URL: !Ref OpenSearchEndpointUrl
+          STAGE: "prod"
+          OPENSEARCH_USERNAME: !Ref OpenSearchUsername
+          OPENSEARCH_PASSWORD: !Ref OpenSearchPassword
           DYNAMODB_TABLE_NAME: !Ref TableOne
           USER_POOL_ID: !Ref PrimaryUserPool
           USER_POOL_PUBLIC_CLIENT_ID: !Ref PrimaryUserPoolClientPublic
@@ -848,18 +726,6 @@ Resources:
       ManagedPolicyArns:
         - arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole
       Policies:
-        - PolicyName: OpenSearchReadOnly
-          PolicyDocument:
-            Version: "2012-10-17"
-            Statement:
-              - Effect: Allow
-                Action:
-                  - es:Describe*
-                  - es:List*
-                  - es:ESHttpGet
-                  - es:ESHttpHead
-                  - es:ESHttpPost
-                Resource: !Sub "${OpenSearchDomain.Arn}/*"
         - PolicyName: DynamoDBAccess
           PolicyDocument:
             Version: "2012-10-17"
@@ -886,7 +752,10 @@ Resources:
         Size: 512
       Environment:
         Variables:
-          OPENSEARCH_DOMAIN_ENDPOINT_URL: !Sub "https://${OpenSearchDomain.DomainEndpoint}"
+          OPENSEARCH_ENDPOINT_URL: !Ref OpenSearchEndpointUrl
+          STAGE: "prod"
+          OPENSEARCH_USERNAME: !Ref OpenSearchUsername
+          OPENSEARCH_PASSWORD: !Ref OpenSearchPassword
           DYNAMODB_TABLE_NAME: !Ref TableOne
           USER_POOL_ID: !Ref PrimaryUserPool
           USER_POOL_PUBLIC_CLIENT_ID: !Ref PrimaryUserPoolClientPublic
@@ -1599,19 +1468,6 @@ Resources:
             Action: sts:AssumeRole
       ManagedPolicyArns:
         - arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole
-      Policies:
-        - PolicyName: OpenSearchReadOnly
-          PolicyDocument:
-            Version: "2012-10-17"
-            Statement:
-              - Effect: Allow
-                Action:
-                  - es:Describe*
-                  - es:List*
-                  - es:ESHttpGet
-                  - es:ESHttpHead
-                  - es:ESHttpPost
-                Resource: !Sub "${OpenSearchDomain.Arn}/*"
   ApiShopSearchLambda:
     Type: AWS::Lambda::Function
     Properties:
@@ -1628,7 +1484,10 @@ Resources:
         Size: 512
       Environment:
         Variables:
-          OPENSEARCH_DOMAIN_ENDPOINT_URL: !Sub "https://${OpenSearchDomain.DomainEndpoint}"
+          OPENSEARCH_ENDPOINT_URL: !Ref OpenSearchEndpointUrl
+          STAGE: "prod"
+          OPENSEARCH_USERNAME: !Ref OpenSearchUsername
+          OPENSEARCH_PASSWORD: !Ref OpenSearchPassword
   ApiShopSearchLambdaPermission:
     Type: AWS::Lambda::Permission
     Properties:
@@ -2469,7 +2328,10 @@ Resources:
         Size: 512
       Environment:
         Variables:
-          OPENSEARCH_DOMAIN_ENDPOINT_URL: !Sub "https://${OpenSearchDomain.DomainEndpoint}"
+          OPENSEARCH_ENDPOINT_URL: !Ref OpenSearchEndpointUrl
+          STAGE: "prod"
+          OPENSEARCH_USERNAME: !Ref OpenSearchUsername
+          OPENSEARCH_PASSWORD: !Ref OpenSearchPassword
   ProductMaterializeOpenSearchDbNewMapping:
     Type: AWS::Lambda::EventSourceMapping
     Properties:
@@ -2579,7 +2441,10 @@ Resources:
         Size: 512
       Environment:
         Variables:
-          OPENSEARCH_DOMAIN_ENDPOINT_URL: !Sub "https://${OpenSearchDomain.DomainEndpoint}"
+          OPENSEARCH_ENDPOINT_URL: !Ref OpenSearchEndpointUrl
+          STAGE: "prod"
+          OPENSEARCH_USERNAME: !Ref OpenSearchUsername
+          OPENSEARCH_PASSWORD: !Ref OpenSearchPassword
   ProductMaterializeOpenSearchDbUpdateMapping:
     Type: AWS::Lambda::EventSourceMapping
     Properties:
@@ -3220,13 +3085,16 @@ Resources:
             #!/bin/bash
             set -euxo pipefail
             sudo -i
+            export STAGE="prod"
             export STAGE_NAME="prod"
             export COMMIT_SHA="${CommitSHA}"
             export RESOURCE_BUCKET="${ResourceBucket}"
             export ARTIFACT_BUCKET="${ArtifactBucket}"
             export ENRICHMENT_QUEUE_URL="${ProductEnrichmentQ}"
             export DYNAMODB_TABLE_NAME="${TableOne}"
-            export OPENSEARCH_DOMAIN_ENDPOINT_URL="https://${OpenSearchDomain.DomainEndpoint}"
+            export OPENSEARCH_ENDPOINT_URL="${OpensearchEndpointUrl}"
+            export OPENSEARCH_USERNAME="${OpenSearchUsername}"
+            export OPENSEARCH_PASSWORD="${OpenSearchPassword}"
             export BAAI_BGE_M3_MODEL_DEVICE="cuda"
             aws s3 cp "s3://${ResourceBucket}/prod/${CommitSHA}/src/product-enrichment/user-data.sh" /tmp/user_data.sh --region eu-central-1
             source /tmp/user_data.sh
@@ -3359,7 +3227,10 @@ Resources:
       Environment:
         Variables:
           PRODUCT_ENRICHMENT_ASG_NAME: !Ref ProductEnrichmentASG
-          OPENSEARCH_DOMAIN_ENDPOINT_URL: !Sub "https://${OpenSearchDomain.DomainEndpoint}"
+          OPENSEARCH_ENDPOINT_URL: !Ref OpenSearchEndpointUrl
+          STAGE: "prod"
+          OPENSEARCH_USERNAME: !Ref OpenSearchUsername
+          OPENSEARCH_PASSWORD: !Ref OpenSearchPassword
   ProductEnrichmentScaleDownStartSchedule:
     Type: AWS::Events::Rule
     Properties:
@@ -3446,7 +3317,10 @@ Resources:
       Environment:
         Variables:
           PRODUCT_ENRICHMENT_ASG_NAME: !Ref ProductEnrichmentASG
-          OPENSEARCH_DOMAIN_ENDPOINT_URL: !Sub "https://${OpenSearchDomain.DomainEndpoint}"
+          OPENSEARCH_ENDPOINT_URL: !Ref OpenSearchEndpointUrl
+          STAGE: "prod"
+          OPENSEARCH_USERNAME: !Ref OpenSearchUsername
+          OPENSEARCH_PASSWORD: !Ref OpenSearchPassword
   ProductEnrichmentScaleUpStartSchedule:
     Type: AWS::Events::Rule
     Properties:
@@ -3496,10 +3370,10 @@ Outputs:
     Value: !Ref PrimaryUserPoolClientAdmin
   ApiGatewayEndpointUrl:
     Value: !Sub "https://${Api}.execute-api.${AWS::Region}.amazonaws.com/prod"
-  OpensearchDomainEndpointUrl:
-    Value: !Sub "https://${OpenSearchDomain.DomainEndpoint}"
+  OpensearchEndpointUrl:
+    Value: !Ref OpenSearchEndpointUrl
   OpensearchDomainName:
-    Value: !Ref OpenSearchDomain
+    Value: "aura-historia-prod"
   DynamodbTable1Name:
     Value: !Ref TableOne
 

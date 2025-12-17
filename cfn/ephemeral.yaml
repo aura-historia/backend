@@ -18,7 +18,7 @@ Parameters:
     Type: String
   Ec2KeyPairName:
     Type: AWS::EC2::KeyPair::KeyName
-    Description: For EC2 SSH-Access
+    Description: "For EC2 SSH-Access"
 
 Resources:
   PrimaryUserPool:
@@ -560,7 +560,8 @@ Resources:
         Size: 512
       Environment:
         Variables:
-          OPENSEARCH_DOMAIN_ENDPOINT_URL: !Sub "https://${OpenSearchDomain.DomainEndpoint}"
+          OPENSEARCH_ENDPOINT_URL: !Sub "https://${OpenSearchDomain.DomainEndpoint}"
+          STAGE: "ephemeral"
           DYNAMODB_TABLE_NAME: !Ref TableOne
           USER_POOL_ID: !Ref PrimaryUserPool
           USER_POOL_PUBLIC_CLIENT_ID: !Ref PrimaryUserPoolClientPublic
@@ -638,7 +639,8 @@ Resources:
         Size: 512
       Environment:
         Variables:
-          OPENSEARCH_DOMAIN_ENDPOINT_URL: !Sub "https://${OpenSearchDomain.DomainEndpoint}"
+          OPENSEARCH_ENDPOINT_URL: !Sub "https://${OpenSearchDomain.DomainEndpoint}"
+          STAGE: "ephemeral"
           DYNAMODB_TABLE_NAME: !Ref TableOne
           USER_POOL_ID: !Ref PrimaryUserPool
           USER_POOL_PUBLIC_CLIENT_ID: !Ref PrimaryUserPoolClientPublic
@@ -1290,7 +1292,8 @@ Resources:
         Size: 512
       Environment:
         Variables:
-          OPENSEARCH_DOMAIN_ENDPOINT_URL: !Sub "https://${OpenSearchDomain.DomainEndpoint}"
+          OPENSEARCH_ENDPOINT_URL: !Sub "https://${OpenSearchDomain.DomainEndpoint}"
+          STAGE: "ephemeral"
   ApiShopSearchLambdaPermission:
     Type: AWS::Lambda::Permission
     Properties:
@@ -1987,7 +1990,8 @@ Resources:
         Size: 512
       Environment:
         Variables:
-          OPENSEARCH_DOMAIN_ENDPOINT_URL: !Sub "https://${OpenSearchDomain.DomainEndpoint}"
+          OPENSEARCH_ENDPOINT_URL: !Sub "https://${OpenSearchDomain.DomainEndpoint}"
+          STAGE: "ephemeral"
   ProductMaterializeOpenSearchDbNewMapping:
     Type: AWS::Lambda::EventSourceMapping
     Properties:
@@ -2061,7 +2065,8 @@ Resources:
         Size: 512
       Environment:
         Variables:
-          OPENSEARCH_DOMAIN_ENDPOINT_URL: !Sub "https://${OpenSearchDomain.DomainEndpoint}"
+          OPENSEARCH_ENDPOINT_URL: !Sub "https://${OpenSearchDomain.DomainEndpoint}"
+          STAGE: "ephemeral"
   ProductMaterializeOpenSearchDbUpdateMapping:
     Type: AWS::Lambda::EventSourceMapping
     Properties:
@@ -2594,13 +2599,14 @@ Resources:
             #!/bin/bash
             set -euxo pipefail
             sudo -i
+            export STAGE="ephemeral"
             export STAGE_NAME="${StageName}"
             export COMMIT_SHA="${CommitSHA}"
             export RESOURCE_BUCKET="${ResourceBucket}"
             export ARTIFACT_BUCKET="${ArtifactBucket}"
             export ENRICHMENT_QUEUE_URL="${ProductEnrichmentQ}"
             export DYNAMODB_TABLE_NAME="${TableOne}"
-            export OPENSEARCH_DOMAIN_ENDPOINT_URL="https://${OpenSearchDomain.DomainEndpoint}"
+            export OPENSEARCH_ENDPOINT_URL="https://${OpenSearchDomain.DomainEndpoint}"
             export BAAI_BGE_M3_MODEL_DEVICE="cuda"
             aws s3 cp "s3://${ResourceBucket}/${StageName}/${CommitSHA}/src/product-enrichment/user-data.sh" /tmp/user_data.sh --region eu-central-1
             source /tmp/user_data.sh
@@ -2681,7 +2687,8 @@ Resources:
       Environment:
         Variables:
           PRODUCT_ENRICHMENT_ASG_NAME: !Ref ProductEnrichmentASG
-          OPENSEARCH_DOMAIN_ENDPOINT_URL: !Sub "https://${OpenSearchDomain.DomainEndpoint}"
+          OPENSEARCH_ENDPOINT_URL: !Sub "https://${OpenSearchDomain.DomainEndpoint}"
+          STAGE: "ephemeral"
   ProductEnrichmentScaleDownStartSchedule:
     Type: AWS::Events::Rule
     Properties:
@@ -2750,7 +2757,8 @@ Resources:
       Environment:
         Variables:
           PRODUCT_ENRICHMENT_ASG_NAME: !Ref ProductEnrichmentASG
-          OPENSEARCH_DOMAIN_ENDPOINT_URL: !Sub "https://${OpenSearchDomain.DomainEndpoint}"
+          OPENSEARCH_ENDPOINT_URL: !Sub "https://${OpenSearchDomain.DomainEndpoint}"
+          STAGE: "ephemeral"
   ProductEnrichmentScaleUpStartSchedule:
     Type: AWS::Events::Rule
     Properties:
@@ -2782,7 +2790,7 @@ Outputs:
     Value: !Ref PrimaryUserPoolClientAdmin
   ApiGatewayEndpointUrl:
     Value: !Sub "https://${Api}.execute-api.${AWS::Region}.amazonaws.com/${StageName}"
-  OpensearchDomainEndpointUrl:
+  OpensearchEndpointUrl:
     Value: !Sub "https://${OpenSearchDomain.DomainEndpoint}"
   OpensearchDomainName:
     Value: !Ref OpenSearchDomain
