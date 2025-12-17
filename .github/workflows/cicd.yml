@@ -196,6 +196,9 @@ jobs:
         working-directory: ${{ matrix.crate }}
         run: cargo test --test '*' --all-features -- --nocapture
 
+      - name: Prune Docker volumes
+        run: docker volume prune -f
+
   sonar:
     name: SonarQube-Cloud Analysis
     needs: [unit-test, integration-test]
@@ -260,6 +263,9 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
+
+      - name: Prune Docker volumes
+        run: docker volume prune -f
 
   aws-push-lambda:
     name: Push Lambda to S3 ${{ matrix.crate }}
