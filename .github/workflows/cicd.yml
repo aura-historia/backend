@@ -236,7 +236,7 @@ jobs:
 
   sonar:
     name: SonarQube-Cloud Analysis
-    needs: [unit-test, integration-test]
+    needs: [unit-test, integration-test, test-product-enrichment]
     if: github.actor != 'dependabot[bot]'
     permissions:
       contents: read
@@ -296,7 +296,7 @@ jobs:
 
   aws-push-lambda:
     name: Push Lambda to S3 ${{ matrix.crate }}
-    needs: [unit-test, integration-test]
+    needs: [unit-test, integration-test, test-product-enrichment]
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -396,7 +396,7 @@ jobs:
 
   aws-push-ec2:
     name: Push EC2 to S3 ${{ matrix.crate }}
-    needs: [unit-test, integration-test]
+    needs: [unit-test, integration-test, test-product-enrichment]
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -446,7 +446,7 @@ jobs:
 
   aws-push-resource-artifacts:
     name: Push resource-artifacts to S3 ${{ matrix.resource }}
-    needs: [unit-test, integration-test]
+    needs: [unit-test, integration-test, test-product-enrichment]
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -474,7 +474,7 @@ jobs:
 
   aws-push-mail-templates:
     name: Compile & push Mail-Templates to S3 ${{ matrix.resource }}
-    needs: [unit-test, integration-test]
+    needs: [unit-test, integration-test, test-product-enrichment]
     runs-on: ubuntu-latest
     permissions:
       contents: read
