@@ -339,7 +339,7 @@ Resources:
   ApiStage:
     Type: AWS::ApiGatewayV2::Stage
     Properties:
-      StageName: !Sub "${StageName}"
+      StageName: !Ref StageName
       ApiId: !Ref Api
       AutoDeploy: true
       DefaultRouteSettings:
