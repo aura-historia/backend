@@ -5,13 +5,7 @@ use fake::{
     rand::{self, seq::IndexedRandom},
 };
 use product::data::put_data::PutProductData;
-use shop::core::shop::Shop;
-use shop::dynamodb::{
-    repository::{ShopDynamoDbRepository, ShopDynamoDbRepositoryImpl},
-    shop_record::ShopRecord,
-};
-use shop::opensearch::repository::{ShopOpenSearchRepository, ShopOpenSearchRepositoryImpl};
-use staging_tests::{get_dynamodb_client, get_opensearch_client};
+use shop::data::{get_shop_data::GetShopData, post_shop_data::PostShopData};
 use std::time::Duration;
 
 #[tokio::main]
@@ -23,7 +17,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     Ok(())
 }
 
-async fn populate_products(shops: Vec<Shop>) {
+async fn populate_products(shops: Vec<GetShopData>) {
     println!("Populating products...");
     let stack = get_cfn_output();
     let put_products_url = format!("{}/api/v1/products", stack.api_gateway_endpoint_url);
@@ -76,29 +70,28 @@ async fn populate_products(shops: Vec<Shop>) {
     println!("Populated products.");
 }
 
-async fn populate_shops() -> Vec<Shop> {
+async fn populate_shops() -> Vec<GetShopData> {
     println!("Populating shops...");
     let stack = get_cfn_output();
-    let shops = fake::vec![Shop; 42];
 
-    let dynamodb_repository =
-        ShopDynamoDbRepositoryImpl::new(get_dynamodb_client().await, &stack.dynamodb_table_1_name);
-    for shop in shops.clone() {
-        let mut shop_records = ShopRecord::clone_from_shop_as_shop_domain_records(&shop);
-        shop_records.push(ShopRecord::from_shop_as_shop_id_record(shop));
-        let _ = dynamodb_repository
-            .put_shop_records_transact(shop_records)
+    let http = reqwest::Client::new();
+    let post_shop_url = format!("{}/api/v1/shops", stack.api_gateway_endpoint_url);
+    let mut shops = vec![];
+    for _ in 0..42 {
+        let shop = http
+            .post(&post_shop_url)
+            .json(&Faker.fake::<PostShopData>())
+            .send()
+            .await
+            .unwrap()
+            .json::<GetShopData>()
             .await
             .unwrap();
+        shops.push(shop);
+        tokio::time::sleep(Duration::from_secs(1)).await;
     }
 
-    let opensearch_repository = ShopOpenSearchRepositoryImpl::new(get_opensearch_client().await);
-    for shop in shops.clone() {
-        let _ = opensearch_repository
-            .create_shop_document(shop.into())
-            .await
-            .unwrap();
-    }
+    tokio::time::sleep(Duration::from_secs(30)).await;
     println!("Populated shops.");
     shops
 }
