@@ -533,8 +533,8 @@ Resources:
       EphemeralStorage:
         Size: 512
       Environment:
-        STAGE: "dev"
         Variables:
+          STAGE: "dev"
           OPENSEARCH_ENDPOINT_URL: !Ref OpenSearchEndpointUrl
           OPENSEARCH_USERNAME: !Ref OpenSearchUsername
           OPENSEARCH_PASSWORD: !Ref OpenSearchPassword
@@ -602,8 +602,8 @@ Resources:
       EphemeralStorage:
         Size: 512
       Environment:
-        STAGE: "dev"
         Variables:
+          STAGE: "dev"
           OPENSEARCH_ENDPOINT_URL: !Ref OpenSearchEndpointUrl
           OPENSEARCH_USERNAME: !Ref OpenSearchUsername
           OPENSEARCH_PASSWORD: !Ref OpenSearchPassword
@@ -1244,8 +1244,8 @@ Resources:
       EphemeralStorage:
         Size: 512
       Environment:
-        STAGE: "dev"
         Variables:
+          STAGE: "dev"
           OPENSEARCH_ENDPOINT_URL: !Ref OpenSearchEndpointUrl
           OPENSEARCH_USERNAME: !Ref OpenSearchUsername
           OPENSEARCH_PASSWORD: !Ref OpenSearchPassword
@@ -1944,8 +1944,8 @@ Resources:
       EphemeralStorage:
         Size: 512
       Environment:
-        STAGE: "dev"
         Variables:
+          STAGE: "dev"
           OPENSEARCH_ENDPOINT_URL: !Ref OpenSearchEndpointUrl
           OPENSEARCH_USERNAME: !Ref OpenSearchUsername
           OPENSEARCH_PASSWORD: !Ref OpenSearchPassword
@@ -2021,8 +2021,8 @@ Resources:
       EphemeralStorage:
         Size: 512
       Environment:
-        STAGE: "dev"
         Variables:
+          STAGE: "dev"
           OPENSEARCH_ENDPOINT_URL: !Ref OpenSearchEndpointUrl
           OPENSEARCH_USERNAME: !Ref OpenSearchUsername
           OPENSEARCH_PASSWORD: !Ref OpenSearchPassword
@@ -2565,7 +2565,7 @@ Resources:
             export ARTIFACT_BUCKET="${ArtifactBucket}"
             export ENRICHMENT_QUEUE_URL="${ProductEnrichmentQ}"
             export DYNAMODB_TABLE_NAME="${TableOne}"
-            export OPENSEARCH_ENDPOINT_URL="${OpensearchEndpointUrl}"
+            export OPENSEARCH_ENDPOINT_URL="${OpenSearchEndpointUrl}"
             export OPENSEARCH_USERNAME="${OpenSearchUsername}"
             export OPENSEARCH_PASSWORD="${OpenSearchPassword}"
             export BAAI_BGE_M3_MODEL_DEVICE="cuda"

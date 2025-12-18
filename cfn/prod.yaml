@@ -3092,7 +3092,7 @@ Resources:
             export ARTIFACT_BUCKET="${ArtifactBucket}"
             export ENRICHMENT_QUEUE_URL="${ProductEnrichmentQ}"
             export DYNAMODB_TABLE_NAME="${TableOne}"
-            export OPENSEARCH_ENDPOINT_URL="${OpensearchEndpointUrl}"
+            export OPENSEARCH_ENDPOINT_URL="${OpenSearchEndpointUrl}"
             export OPENSEARCH_USERNAME="${OpenSearchUsername}"
             export OPENSEARCH_PASSWORD="${OpenSearchPassword}"
             export BAAI_BGE_M3_MODEL_DEVICE="cuda"
