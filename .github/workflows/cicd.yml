@@ -555,6 +555,7 @@ jobs:
                 OpenSearchPassword=${{ secrets.OPENSEARCH_PASSWORD }} 
 
       - name: Install OpenSearch CLI
+        if: ${{ github.event_name == 'pull_request' }}
         run: |
           DOWNLOAD_URL="https://artifacts.opensearch.org/opensearch-clients/opensearch-cli/opensearch-cli-1.2.0-linux-x64.zip"
           curl -L "$DOWNLOAD_URL" -o opensearch-cli.zip
@@ -563,6 +564,7 @@ jobs:
           sudo chmod +x /usr/local/bin/opensearch-cli
 
       - name: Setup OpenSearch indices
+        if: ${{ github.event_name == 'pull_request' }}
         run: |
           chmod +x ci/setup-opensearch-indices.sh
           ./ci/setup-opensearch-indices.sh
