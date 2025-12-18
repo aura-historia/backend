@@ -31,13 +31,13 @@ Resources:
   AlarmNotificationTopic:
     Type: AWS::SNS::Topic
     Properties:
-      TopicName: !Sub "cloudwatch-alarms-prod"
+      TopicName: "cloudwatch-alarms-prod"
       DisplayName: "CloudWatch Alarms for Aura-Historia Backend stage 'prod'"
 
   PrimaryUserPool:
     Type: AWS::Cognito::UserPool
     Properties:
-      UserPoolName: !Sub "primary-userpool-prod"
+      UserPoolName: "primary-userpool-prod"
       UsernameAttributes:
         - email
       AutoVerifiedAttributes:
@@ -67,7 +67,7 @@ Resources:
   PrimaryUserPoolPostConfirmationLambdaRole:
     Type: AWS::IAM::Role
     Properties:
-      RoleName: !Sub "cognito-primary-userpool-post-confirmation-role-prod"
+      RoleName: "cognito-primary-userpool-post-confirmation-role-prod"
       AssumeRolePolicyDocument:
         Version: "2012-10-17"
         Statement:
@@ -90,7 +90,7 @@ Resources:
   PrimaryUserPoolPostConfirmationLambda:
     Type: AWS::Lambda::Function
     Properties:
-      FunctionName: !Sub "cognito-primary-userpool-post-confirmation-prod"
+      FunctionName: "cognito-primary-userpool-post-confirmation-prod"
       Runtime: provided.al2023
       Handler: lib.handler
       Role: !GetAtt PrimaryUserPoolPostConfirmationLambdaRole.Arn
@@ -116,7 +116,7 @@ Resources:
     Type: AWS::Cognito::UserPoolClient
     Properties:
       UserPoolId: !Ref PrimaryUserPool
-      ClientName: !Sub "primary-userpool-client-public-prod"
+      ClientName: "primary-userpool-client-public-prod"
       GenerateSecret: false # PKCE replaces client secret
       PreventUserExistenceErrors: ENABLED
       AllowedOAuthFlowsUserPoolClient: true
@@ -143,7 +143,7 @@ Resources:
     Type: AWS::Cognito::UserPoolClient
     Properties:
       UserPoolId: !Ref PrimaryUserPool
-      ClientName: !Sub "primary-userpool-client-admin-prod"
+      ClientName: "primary-userpool-client-admin-prod"
       GenerateSecret: false
       PreventUserExistenceErrors: ENABLED
       AllowedOAuthFlowsUserPoolClient: false
@@ -160,13 +160,13 @@ Resources:
   PrimaryUserPoolDomain:
     Type: AWS::Cognito::UserPoolDomain
     Properties:
-      Domain: !Sub "primary-userpool-prod" # hosted UI domain
+      Domain: "primary-userpool-prod" # hosted UI domain
       UserPoolId: !Ref PrimaryUserPool
 
   TableOne:
     Type: AWS::DynamoDB::Table
     Properties:
-      TableName: !Sub "table_1-prod"
+      TableName: "table_1-prod"
       AttributeDefinitions:
         - AttributeName: pk
           AttributeType: S
@@ -208,7 +208,7 @@ Resources:
   TableOneThrottledRequestsAlarm:
     Type: AWS::CloudWatch::Alarm
     Properties:
-      AlarmName: !Sub "prod-dynamodb-throttled-requests"
+      AlarmName: "prod-dynamodb-throttled-requests"
       AlarmDescription: "Alarm when DynamoDB table has throttled requests"
       MetricName: UserErrors
       Namespace: AWS/DynamoDB
@@ -227,11 +227,11 @@ Resources:
   DynamoDbEventBus:
     Type: AWS::Events::EventBus
     Properties:
-      Name: !Sub "dynamodb-event-bus-prod"
+      Name: "dynamodb-event-bus-prod"
   PipeRole:
     Type: AWS::IAM::Role
     Properties:
-      RoleName: !Sub "dynamodb-to-eventbridge-pipe-role-prod"
+      RoleName: "dynamodb-to-eventbridge-pipe-role-prod"
       AssumeRolePolicyDocument:
         Version: "2012-10-17"
         Statement:
@@ -258,7 +258,7 @@ Resources:
   TableOneStreamToEventBusPipe:
     Type: AWS::Pipes::Pipe
     Properties:
-      Name: !Sub "tableone-stream-to-eventbus-prod"
+      Name: "tableone-stream-to-eventbus-prod"
       RoleArn: !GetAtt PipeRole.Arn
       Source: !GetAtt TableOne.StreamArn
       SourceParameters:
@@ -332,7 +332,7 @@ Resources:
   Api:
     Type: AWS::ApiGatewayV2::Api
     Properties:
-      Name: !Sub "api-prod"
+      Name: "api-prod"
       ProtocolType: HTTP
       CorsConfiguration:
         AllowOrigins:
@@ -348,7 +348,7 @@ Resources:
   ApiStage:
     Type: AWS::ApiGatewayV2::Stage
     Properties:
-      StageName: !Sub "prod"
+      StageName: "prod"
       ApiId: !Ref Api
       AutoDeploy: true
       DefaultRouteSettings:
@@ -370,7 +370,7 @@ Resources:
   Api5XXErrorAlarm:
     Type: AWS::CloudWatch::Alarm
     Properties:
-      AlarmName: !Sub "prod-api-5xx-errors"
+      AlarmName: "prod-api-5xx-errors"
       AlarmDescription: "Alarm when API Gateway returns 5XX errors"
       MetricName: 5XXError
       Namespace: AWS/ApiGateway
@@ -388,7 +388,7 @@ Resources:
   Api4XXErrorAlarm:
     Type: AWS::CloudWatch::Alarm
     Properties:
-      AlarmName: !Sub "prod-api-4xx-errors"
+      AlarmName: "prod-api-4xx-errors"
       AlarmDescription: "Alarm when API Gateway returns high 4XX errors"
       MetricName: 4XXError
       Namespace: AWS/ApiGateway
@@ -420,7 +420,7 @@ Resources:
   ApiGetProductRole:
     Type: AWS::IAM::Role
     Properties:
-      RoleName: !Sub "api-get-product-role-prod"
+      RoleName: "api-get-product-role-prod"
       AssumeRolePolicyDocument:
         Version: "2012-10-17"
         Statement:
@@ -444,7 +444,7 @@ Resources:
   ApiGetProductLambda:
     Type: AWS::Lambda::Function
     Properties:
-      FunctionName: !Sub "api-get-product-prod"
+      FunctionName: "api-get-product-prod"
       Runtime: provided.al2023
       Handler: lib.handler
       Role: !GetAtt ApiGetProductRole.Arn
@@ -471,7 +471,7 @@ Resources:
   ApiGetProductLambdaErrorAlarm:
     Type: AWS::CloudWatch::Alarm
     Properties:
-      AlarmName: !Sub "prod-get-product-lambda-errors"
+      AlarmName: "prod-get-product-lambda-errors"
       AlarmDescription: "Alarm when get-product Lambda has errors"
       MetricName: Errors
       Namespace: AWS/Lambda
@@ -489,7 +489,7 @@ Resources:
   ApiGetProductLambdaThrottleAlarm:
     Type: AWS::CloudWatch::Alarm
     Properties:
-      AlarmName: !Sub "prod-get-product-lambda-throttles"
+      AlarmName: "prod-get-product-lambda-throttles"
       AlarmDescription: "Alarm when get-product Lambda is throttled"
       MetricName: Throttles
       Namespace: AWS/Lambda
@@ -521,7 +521,7 @@ Resources:
   ApiPutProductsRole:
     Type: AWS::IAM::Role
     Properties:
-      RoleName: !Sub "api-put-products-role-prod"
+      RoleName: "api-put-products-role-prod"
       AssumeRolePolicyDocument:
         Version: "2012-10-17"
         Statement:
@@ -553,7 +553,7 @@ Resources:
   ApiPutProductsLambda:
     Type: AWS::Lambda::Function
     Properties:
-      FunctionName: !Sub "api-put-products-prod"
+      FunctionName: "api-put-products-prod"
       Runtime: provided.al2023
       Handler: lib.handler
       Role: !GetAtt ApiPutProductsRole.Arn
@@ -578,7 +578,7 @@ Resources:
   ApiPutProductsLambdaErrorAlarm:
     Type: AWS::CloudWatch::Alarm
     Properties:
-      AlarmName: !Sub "prod-put-products-lambda-errors"
+      AlarmName: "prod-put-products-lambda-errors"
       AlarmDescription: "Alarm when put-products Lambda has errors"
       MetricName: Errors
       Namespace: AWS/Lambda
@@ -596,7 +596,7 @@ Resources:
   ApiPutProductsLambdaThrottleAlarm:
     Type: AWS::CloudWatch::Alarm
     Properties:
-      AlarmName: !Sub "prod-put-products-lambda-throttles"
+      AlarmName: "prod-put-products-lambda-throttles"
       AlarmDescription: "Alarm when put-products Lambda is throttled"
       MetricName: Throttles
       Namespace: AWS/Lambda
@@ -628,7 +628,7 @@ Resources:
   ApiProductSearchRole:
     Type: AWS::IAM::Role
     Properties:
-      RoleName: !Sub "api-product-search-role-prod"
+      RoleName: "api-product-search-role-prod"
       AssumeRolePolicyDocument:
         Version: "2012-10-17"
         Statement:
@@ -652,7 +652,7 @@ Resources:
   ApiProductSearchLambda:
     Type: AWS::Lambda::Function
     Properties:
-      FunctionName: !Sub "api-product-search-prod"
+      FunctionName: "api-product-search-prod"
       Runtime: provided.al2023
       Handler: lib.handler
       Role: !GetAtt ApiProductSearchRole.Arn
@@ -683,7 +683,7 @@ Resources:
   ApiProductSearchLambdaErrorAlarm:
     Type: AWS::CloudWatch::Alarm
     Properties:
-      AlarmName: !Sub "prod-product-search-lambda-errors"
+      AlarmName: "prod-product-search-lambda-errors"
       AlarmDescription: "Alarm when product-search Lambda has errors"
       MetricName: Errors
       Namespace: AWS/Lambda
@@ -715,7 +715,7 @@ Resources:
   ApiProductSimilaritySearchRole:
     Type: AWS::IAM::Role
     Properties:
-      RoleName: !Sub "api-product-similarity-search-role-prod"
+      RoleName: "api-product-similarity-search-role-prod"
       AssumeRolePolicyDocument:
         Version: "2012-10-17"
         Statement:
@@ -739,7 +739,7 @@ Resources:
   ApiProductSimilaritySearchLambda:
     Type: AWS::Lambda::Function
     Properties:
-      FunctionName: !Sub "api-product-similarity-search-prod"
+      FunctionName: "api-product-similarity-search-prod"
       Runtime: provided.al2023
       Handler: lib.handler
       Role: !GetAtt ApiProductSimilaritySearchRole.Arn
@@ -770,7 +770,7 @@ Resources:
   ApiProductSimilaritySearchLambdaErrorAlarm:
     Type: AWS::CloudWatch::Alarm
     Properties:
-      AlarmName: !Sub "prod-product-similarity-search-lambda-errors"
+      AlarmName: "prod-product-similarity-search-lambda-errors"
       AlarmDescription: "Alarm when product-similarity-search Lambda has errors"
       MetricName: Errors
       Namespace: AWS/Lambda
@@ -804,7 +804,7 @@ Resources:
   ApiGetWatchlistProductsRole:
     Type: AWS::IAM::Role
     Properties:
-      RoleName: !Sub "api-get-watchlist-products-role-prod"
+      RoleName: "api-get-watchlist-products-role-prod"
       AssumeRolePolicyDocument:
         Version: "2012-10-17"
         Statement:
@@ -830,7 +830,7 @@ Resources:
   ApiGetWatchlistProductsLambda:
     Type: AWS::Lambda::Function
     Properties:
-      FunctionName: !Sub "api-get-watchlist-products-prod"
+      FunctionName: "api-get-watchlist-products-prod"
       Runtime: provided.al2023
       Handler: lib.handler
       Role: !GetAtt ApiGetWatchlistProductsRole.Arn
@@ -870,7 +870,7 @@ Resources:
   ApiDeleteWatchlistProductRole:
     Type: AWS::IAM::Role
     Properties:
-      RoleName: !Sub "api-delete-watchlist-product-role-prod"
+      RoleName: "api-delete-watchlist-product-role-prod"
       AssumeRolePolicyDocument:
         Version: "2012-10-17"
         Statement:
@@ -895,7 +895,7 @@ Resources:
   ApiDeleteWatchlistLambda:
     Type: AWS::Lambda::Function
     Properties:
-      FunctionName: !Sub "api-delete-watchlist-product-prod"
+      FunctionName: "api-delete-watchlist-product-prod"
       Runtime: provided.al2023
       Handler: lib.handler
       Role: !GetAtt ApiDeleteWatchlistProductRole.Arn
@@ -935,7 +935,7 @@ Resources:
   ApiPostWatchlistProductRole:
     Type: AWS::IAM::Role
     Properties:
-      RoleName: !Sub "api-post-watchlist-product-role-prod"
+      RoleName: "api-post-watchlist-product-role-prod"
       AssumeRolePolicyDocument:
         Version: "2012-10-17"
         Statement:
@@ -960,7 +960,7 @@ Resources:
   ApiPostWatchlistLambda:
     Type: AWS::Lambda::Function
     Properties:
-      FunctionName: !Sub "api-post-watchlist-product-prod"
+      FunctionName: "api-post-watchlist-product-prod"
       Runtime: provided.al2023
       Handler: lib.handler
       Role: !GetAtt ApiPostWatchlistProductRole.Arn
@@ -1000,7 +1000,7 @@ Resources:
   ApiPatchWatchlistProductRole:
     Type: AWS::IAM::Role
     Properties:
-      RoleName: !Sub "api-patch-watchlist-product-role-prod"
+      RoleName: "api-patch-watchlist-product-role-prod"
       AssumeRolePolicyDocument:
         Version: "2012-10-17"
         Statement:
@@ -1023,7 +1023,7 @@ Resources:
   ApiPatchWatchlistLambda:
     Type: AWS::Lambda::Function
     Properties:
-      FunctionName: !Sub "api-patch-watchlist-product-prod"
+      FunctionName: "api-patch-watchlist-product-prod"
       Runtime: provided.al2023
       Handler: lib.handler
       Role: !GetAtt ApiPatchWatchlistProductRole.Arn
@@ -1063,7 +1063,7 @@ Resources:
   ApiGetUserAccountRole:
     Type: AWS::IAM::Role
     Properties:
-      RoleName: !Sub "api-user-get-account-role-prod"
+      RoleName: "api-user-get-account-role-prod"
       AssumeRolePolicyDocument:
         Version: "2012-10-17"
         Statement:
@@ -1089,7 +1089,7 @@ Resources:
   ApiGetUserAccountLambda:
     Type: AWS::Lambda::Function
     Properties:
-      FunctionName: !Sub "api-user-get-account-prod"
+      FunctionName: "api-user-get-account-prod"
       Runtime: provided.al2023
       Handler: lib.handler
       Role: !GetAtt ApiGetUserAccountRole.Arn
@@ -1129,7 +1129,7 @@ Resources:
   ApiPatchUserAccountRole:
     Type: AWS::IAM::Role
     Properties:
-      RoleName: !Sub "api-patch-user-account-role-prod"
+      RoleName: "api-patch-user-account-role-prod"
       AssumeRolePolicyDocument:
         Version: "2012-10-17"
         Statement:
@@ -1152,7 +1152,7 @@ Resources:
   ApiPatchUserAccountLambda:
     Type: AWS::Lambda::Function
     Properties:
-      FunctionName: !Sub "api-patch-user-account-prod"
+      FunctionName: "api-patch-user-account-prod"
       Runtime: provided.al2023
       Handler: lib.handler
       Role: !GetAtt ApiPatchUserAccountRole.Arn
@@ -1190,7 +1190,7 @@ Resources:
   ApiGetShopRole:
     Type: AWS::IAM::Role
     Properties:
-      RoleName: !Sub "api-get-shop-role-prod"
+      RoleName: "api-get-shop-role-prod"
       AssumeRolePolicyDocument:
         Version: "2012-10-17"
         Statement:
@@ -1214,7 +1214,7 @@ Resources:
   ApiGetShopLambda:
     Type: AWS::Lambda::Function
     Properties:
-      FunctionName: !Sub "api-get-shop-prod"
+      FunctionName: "api-get-shop-prod"
       Runtime: provided.al2023
       Handler: lib.handler
       Role: !GetAtt ApiGetShopRole.Arn
@@ -1252,7 +1252,7 @@ Resources:
   ApiPatchShopRole:
     Type: AWS::IAM::Role
     Properties:
-      RoleName: !Sub "api-patch-shop-role-prod"
+      RoleName: "api-patch-shop-role-prod"
       AssumeRolePolicyDocument:
         Version: "2012-10-17"
         Statement:
@@ -1282,7 +1282,7 @@ Resources:
   ApiPatchShopLambda:
     Type: AWS::Lambda::Function
     Properties:
-      FunctionName: !Sub "api-patch-shop-prod"
+      FunctionName: "api-patch-shop-prod"
       Runtime: provided.al2023
       Handler: lib.handler
       Role: !GetAtt ApiPatchShopRole.Arn
@@ -1306,7 +1306,7 @@ Resources:
   ApiPatchShopLambdaErrorAlarm:
     Type: AWS::CloudWatch::Alarm
     Properties:
-      AlarmName: !Sub "prod-patch-shop-lambda-errors"
+      AlarmName: "prod-patch-shop-lambda-errors"
       AlarmDescription: "Alarm when patch-shop Lambda has errors"
       MetricName: Errors
       Namespace: AWS/Lambda
@@ -1324,7 +1324,7 @@ Resources:
   ApiPatchShopLambdaThrottleAlarm:
     Type: AWS::CloudWatch::Alarm
     Properties:
-      AlarmName: !Sub "prod-patch-shop-lambda-throttles"
+      AlarmName: "prod-patch-shop-lambda-throttles"
       AlarmDescription: "Alarm when patch-shop Lambda is throttled"
       MetricName: Throttles
       Namespace: AWS/Lambda
@@ -1356,7 +1356,7 @@ Resources:
   ApiPostShopRole:
     Type: AWS::IAM::Role
     Properties:
-      RoleName: !Sub "api-post-shop-role-prod"
+      RoleName: "api-post-shop-role-prod"
       AssumeRolePolicyDocument:
         Version: "2012-10-17"
         Statement:
@@ -1384,7 +1384,7 @@ Resources:
   ApiPostShopLambda:
     Type: AWS::Lambda::Function
     Properties:
-      FunctionName: !Sub "api-post-shop-prod"
+      FunctionName: "api-post-shop-prod"
       Runtime: provided.al2023
       Handler: lib.handler
       Role: !GetAtt ApiPostShopRole.Arn
@@ -1408,7 +1408,7 @@ Resources:
   ApiPostShopLambdaErrorAlarm:
     Type: AWS::CloudWatch::Alarm
     Properties:
-      AlarmName: !Sub "prod-post-shop-lambda-errors"
+      AlarmName: "prod-post-shop-lambda-errors"
       AlarmDescription: "Alarm when post-shop Lambda has errors"
       MetricName: Errors
       Namespace: AWS/Lambda
@@ -1426,7 +1426,7 @@ Resources:
   ApiPostShopLambdaThrottleAlarm:
     Type: AWS::CloudWatch::Alarm
     Properties:
-      AlarmName: !Sub "prod-post-shop-lambda-throttles"
+      AlarmName: "prod-post-shop-lambda-throttles"
       AlarmDescription: "Alarm when post-shop Lambda is throttled"
       MetricName: Throttles
       Namespace: AWS/Lambda
@@ -1458,7 +1458,7 @@ Resources:
   ApiShopSearchRole:
     Type: AWS::IAM::Role
     Properties:
-      RoleName: !Sub "api-shop-search-role-prod"
+      RoleName: "api-shop-search-role-prod"
       AssumeRolePolicyDocument:
         Version: "2012-10-17"
         Statement:
@@ -1471,7 +1471,7 @@ Resources:
   ApiShopSearchLambda:
     Type: AWS::Lambda::Function
     Properties:
-      FunctionName: !Sub "api-shop-search-prod"
+      FunctionName: "api-shop-search-prod"
       Runtime: provided.al2023
       Handler: lib.handler
       Role: !GetAtt ApiShopSearchRole.Arn
@@ -1514,7 +1514,7 @@ Resources:
   ApiDeleteSearchFilterRole:
     Type: AWS::IAM::Role
     Properties:
-      RoleName: !Sub "api-delete-search-filter-role-prod"
+      RoleName: "api-delete-search-filter-role-prod"
       AssumeRolePolicyDocument:
         Version: "2012-10-17"
         Statement:
@@ -1539,7 +1539,7 @@ Resources:
   ApiDeleteSearchFilterLambda:
     Type: AWS::Lambda::Function
     Properties:
-      FunctionName: !Sub "api-delete-search-filter-prod"
+      FunctionName: "api-delete-search-filter-prod"
       Runtime: provided.al2023
       Handler: lib.handler
       Role: !GetAtt ApiDeleteSearchFilterRole.Arn
@@ -1579,7 +1579,7 @@ Resources:
   ApiGetSearchFilterRole:
     Type: AWS::IAM::Role
     Properties:
-      RoleName: !Sub "api-get-search-filter-role-prod"
+      RoleName: "api-get-search-filter-role-prod"
       AssumeRolePolicyDocument:
         Version: "2012-10-17"
         Statement:
@@ -1603,7 +1603,7 @@ Resources:
   ApiGetSearchFilterLambda:
     Type: AWS::Lambda::Function
     Properties:
-      FunctionName: !Sub "api-get-search-filter-prod"
+      FunctionName: "api-get-search-filter-prod"
       Runtime: provided.al2023
       Handler: lib.handler
       Role: !GetAtt ApiGetSearchFilterRole.Arn
@@ -1643,7 +1643,7 @@ Resources:
   ApiGetSearchFiltersRole:
     Type: AWS::IAM::Role
     Properties:
-      RoleName: !Sub "api-get-search-filters-role-prod"
+      RoleName: "api-get-search-filters-role-prod"
       AssumeRolePolicyDocument:
         Version: "2012-10-17"
         Statement:
@@ -1667,7 +1667,7 @@ Resources:
   ApiGetSearchFiltersLambda:
     Type: AWS::Lambda::Function
     Properties:
-      FunctionName: !Sub "api-get-search-filters-prod"
+      FunctionName: "api-get-search-filters-prod"
       Runtime: provided.al2023
       Handler: lib.handler
       Role: !GetAtt ApiGetSearchFiltersRole.Arn
@@ -1707,7 +1707,7 @@ Resources:
   ApiPatchSearchFilterRole:
     Type: AWS::IAM::Role
     Properties:
-      RoleName: !Sub "api-patch-search-filter-role-prod"
+      RoleName: "api-patch-search-filter-role-prod"
       AssumeRolePolicyDocument:
         Version: "2012-10-17"
         Statement:
@@ -1731,7 +1731,7 @@ Resources:
   ApiPatchSearchFilterLambda:
     Type: AWS::Lambda::Function
     Properties:
-      FunctionName: !Sub "api-patch-search-filter-prod"
+      FunctionName: "api-patch-search-filter-prod"
       Runtime: provided.al2023
       Handler: lib.handler
       Role: !GetAtt ApiPatchSearchFilterRole.Arn
@@ -1771,7 +1771,7 @@ Resources:
   ApiPostSearchFilterRole:
     Type: AWS::IAM::Role
     Properties:
-      RoleName: !Sub "api-post-search-filter-role-prod"
+      RoleName: "api-post-search-filter-role-prod"
       AssumeRolePolicyDocument:
         Version: "2012-10-17"
         Statement:
@@ -1793,7 +1793,7 @@ Resources:
   ApiPostSearchFilterLambda:
     Type: AWS::Lambda::Function
     Properties:
-      FunctionName: !Sub "api-post-search-filter-prod"
+      FunctionName: "api-post-search-filter-prod"
       Runtime: provided.al2023
       Handler: lib.handler
       Role: !GetAtt ApiPostSearchFilterRole.Arn
@@ -1818,12 +1818,12 @@ Resources:
   SendMailDlq:
     Type: AWS::SQS::Queue
     Properties:
-      QueueName: !Sub "mail-lambda-send-prod"
+      QueueName: "mail-lambda-send-prod"
       MessageRetentionPeriod: 1209600
   SendMailQ:
     Type: AWS::SQS::Queue
     Properties:
-      QueueName: !Sub "mail-lambda-send-queue-prod"
+      QueueName: "mail-lambda-send-queue-prod"
       RedrivePolicy:
         deadLetterTargetArn: !GetAtt SendMailDlq.Arn
         maxReceiveCount: 5
@@ -1831,7 +1831,7 @@ Resources:
   SendMailRole:
     Type: AWS::IAM::Role
     Properties:
-      RoleName: !Sub "mail-lambda-send-role-prod"
+      RoleName: "mail-lambda-send-role-prod"
       AssumeRolePolicyDocument:
         Version: "2012-10-17"
         Statement:
@@ -1873,7 +1873,7 @@ Resources:
   SendMailLambda:
     Type: AWS::Lambda::Function
     Properties:
-      FunctionName: !Sub "mail-lambda-send-prod"
+      FunctionName: "mail-lambda-send-prod"
       Runtime: provided.al2023
       Handler: lib.handler
       Role: !GetAtt SendMailRole.Arn
@@ -1887,7 +1887,7 @@ Resources:
       Environment:
         Variables:
           S3_BUCKET_NAME_TEMPLATES: !Ref MailTemplateBucket
-          STAGE_NAME: !Sub "prod"
+          STAGE_NAME: "prod"
           COMMIT_SHA: !Sub "${CommitSHA}"
   SendMailMapping:
     Type: AWS::Lambda::EventSourceMapping
@@ -1902,7 +1902,7 @@ Resources:
   SendMailLambdaErrorAlarm:
     Type: AWS::CloudWatch::Alarm
     Properties:
-      AlarmName: !Sub "prod-send-mail-lambda-errors"
+      AlarmName: "prod-send-mail-lambda-errors"
       AlarmDescription: "Alarm when send-mail Lambda has errors"
       MetricName: Errors
       Namespace: AWS/Lambda
@@ -1920,7 +1920,7 @@ Resources:
   SendMailDlqAlarm:
     Type: AWS::CloudWatch::Alarm
     Properties:
-      AlarmName: !Sub "prod-send-mail-dlq-messages"
+      AlarmName: "prod-send-mail-dlq-messages"
       AlarmDescription: "Alarm when messages appear in send-mail DLQ"
       MetricName: ApproximateNumberOfMessagesVisible
       Namespace: AWS/SQS
@@ -1939,12 +1939,12 @@ Resources:
   ProductIngestEventsDynamoDbDlq:
     Type: AWS::SQS::Queue
     Properties:
-      QueueName: !Sub "product-lambda-ingest-events-dynamodb-dlq-prod"
+      QueueName: "product-lambda-ingest-events-dynamodb-dlq-prod"
       MessageRetentionPeriod: 1209600
   ProductIngestEventsDynamoDbQ:
     Type: AWS::SQS::Queue
     Properties:
-      QueueName: !Sub "product-lambda-ingest-events-dynamodb-queue-prod"
+      QueueName: "product-lambda-ingest-events-dynamodb-queue-prod"
       RedrivePolicy:
         deadLetterTargetArn: !GetAtt ProductIngestEventsDynamoDbDlq.Arn
         maxReceiveCount: 3
@@ -1952,7 +1952,7 @@ Resources:
   ProductIngestEventsDynamoDbRole:
     Type: AWS::IAM::Role
     Properties:
-      RoleName: !Sub "product-lambda-ingest-events-dynamodb-role-prod"
+      RoleName: "product-lambda-ingest-events-dynamodb-role-prod"
       AssumeRolePolicyDocument:
         Version: "2012-10-17"
         Statement:
@@ -1985,7 +1985,7 @@ Resources:
   ProductIngestEventsDynamoDbLambda:
     Type: AWS::Lambda::Function
     Properties:
-      FunctionName: !Sub "product-lambda-ingest-events-dynamodb-prod"
+      FunctionName: "product-lambda-ingest-events-dynamodb-prod"
       Runtime: provided.al2023
       Handler: lib.handler
       Role: !GetAtt ProductIngestEventsDynamoDbRole.Arn
@@ -2012,7 +2012,7 @@ Resources:
   ProductIngestEventsDynamoDbLambdaErrorAlarm:
     Type: AWS::CloudWatch::Alarm
     Properties:
-      AlarmName: !Sub "prod-ingest-events-lambda-errors"
+      AlarmName: "prod-ingest-events-lambda-errors"
       AlarmDescription: "Alarm when ingest-events Lambda has errors"
       MetricName: Errors
       Namespace: AWS/Lambda
@@ -2030,7 +2030,7 @@ Resources:
   ProductIngestEventsDynamoDbDlqAlarm:
     Type: AWS::CloudWatch::Alarm
     Properties:
-      AlarmName: !Sub "prod-ingest-events-dlq-messages"
+      AlarmName: "prod-ingest-events-dlq-messages"
       AlarmDescription: "Alarm when messages appear in ingest-events DLQ"
       MetricName: ApproximateNumberOfMessagesVisible
       Namespace: AWS/SQS
@@ -2049,12 +2049,12 @@ Resources:
   ProductMaterializeDynamoDbNewDlq:
     Type: AWS::SQS::Queue
     Properties:
-      QueueName: !Sub "product-lambda-materialize-dynamodb-new-dlq-prod"
+      QueueName: "product-lambda-materialize-dynamodb-new-dlq-prod"
       MessageRetentionPeriod: 1209600
   ProductMaterializeDynamoDbNewQ:
     Type: AWS::SQS::Queue
     Properties:
-      QueueName: !Sub "product-lambda-materialize-dynamodb-new-queue-prod"
+      QueueName: "product-lambda-materialize-dynamodb-new-queue-prod"
       RedrivePolicy:
         deadLetterTargetArn: !GetAtt ProductMaterializeDynamoDbNewDlq.Arn
         maxReceiveCount: 5
@@ -2062,7 +2062,7 @@ Resources:
   ProductMaterializeDynamoDbNewRole:
     Type: AWS::IAM::Role
     Properties:
-      RoleName: !Sub "product-lambda-materialize-dynamodb-new-role-prod"
+      RoleName: "product-lambda-materialize-dynamodb-new-role-prod"
       AssumeRolePolicyDocument:
         Version: "2012-10-17"
         Statement:
@@ -2095,7 +2095,7 @@ Resources:
   ProductMaterializeDynamoDbNewLambda:
     Type: AWS::Lambda::Function
     Properties:
-      FunctionName: !Sub "product-lambda-materialize-dynamodb-new-prod"
+      FunctionName: "product-lambda-materialize-dynamodb-new-prod"
       Runtime: provided.al2023
       Handler: lib.handler
       Role: !GetAtt ProductMaterializeDynamoDbNewRole.Arn
@@ -2122,7 +2122,7 @@ Resources:
   ProductMaterializeDynamoDbNewLambdaErrorAlarm:
     Type: AWS::CloudWatch::Alarm
     Properties:
-      AlarmName: !Sub "prod-materialize-ddb-new-lambda-errors"
+      AlarmName: "prod-materialize-ddb-new-lambda-errors"
       AlarmDescription: "Alarm when materialize-ddb-new Lambda has errors"
       MetricName: Errors
       Namespace: AWS/Lambda
@@ -2140,7 +2140,7 @@ Resources:
   ProductMaterializeDynamoDbNewDlqAlarm:
     Type: AWS::CloudWatch::Alarm
     Properties:
-      AlarmName: !Sub "prod-materialize-ddb-new-dlq-messages"
+      AlarmName: "prod-materialize-ddb-new-dlq-messages"
       AlarmDescription: "Alarm when messages appear in materialize-ddb-new DLQ"
       MetricName: ApproximateNumberOfMessagesVisible
       Namespace: AWS/SQS
@@ -2159,12 +2159,12 @@ Resources:
   ProductMaterializeDynamoDbUpdateDlq:
     Type: AWS::SQS::Queue
     Properties:
-      QueueName: !Sub "product-lambda-materialize-dynamodb-update-dlq-prod"
+      QueueName: "product-lambda-materialize-dynamodb-update-dlq-prod"
       MessageRetentionPeriod: 1209600
   ProductMaterializeDynamoDbUpdateQ:
     Type: AWS::SQS::Queue
     Properties:
-      QueueName: !Sub "product-lambda-materialize-dynamodb-update-queue-prod"
+      QueueName: "product-lambda-materialize-dynamodb-update-queue-prod"
       RedrivePolicy:
         deadLetterTargetArn: !GetAtt ProductMaterializeDynamoDbUpdateDlq.Arn
         maxReceiveCount: 5
@@ -2172,7 +2172,7 @@ Resources:
   ProductMaterializeDynamoDbUpdateRole:
     Type: AWS::IAM::Role
     Properties:
-      RoleName: !Sub "product-lambda-materialize-dynamodb-update-role-prod"
+      RoleName: "product-lambda-materialize-dynamodb-update-role-prod"
       AssumeRolePolicyDocument:
         Version: "2012-10-17"
         Statement:
@@ -2205,7 +2205,7 @@ Resources:
   ProductMaterializeDynamoDbUpdateLambda:
     Type: AWS::Lambda::Function
     Properties:
-      FunctionName: !Sub "product-lambda-materialize-dynamodb-update-prod"
+      FunctionName: "product-lambda-materialize-dynamodb-update-prod"
       Runtime: provided.al2023
       Handler: lib.handler
       Role: !GetAtt ProductMaterializeDynamoDbUpdateRole.Arn
@@ -2232,7 +2232,7 @@ Resources:
   ProductMaterializeDynamoDbUpdateLambdaErrorAlarm:
     Type: AWS::CloudWatch::Alarm
     Properties:
-      AlarmName: !Sub "prod-materialize-ddb-update-lambda-errors"
+      AlarmName: "prod-materialize-ddb-update-lambda-errors"
       AlarmDescription: "Alarm when materialize-ddb-update Lambda has errors"
       MetricName: Errors
       Namespace: AWS/Lambda
@@ -2250,7 +2250,7 @@ Resources:
   ProductMaterializeDynamoDbUpdateDlqAlarm:
     Type: AWS::CloudWatch::Alarm
     Properties:
-      AlarmName: !Sub "prod-materialize-ddb-update-dlq-messages"
+      AlarmName: "prod-materialize-ddb-update-dlq-messages"
       AlarmDescription: "Alarm when messages appear in materialize-ddb-update DLQ"
       MetricName: ApproximateNumberOfMessagesVisible
       Namespace: AWS/SQS
@@ -2269,12 +2269,12 @@ Resources:
   ProductMaterializeOpenSearchNewDlq:
     Type: AWS::SQS::Queue
     Properties:
-      QueueName: !Sub "product-lambda-materialize-opensearch-new-dlq-prod"
+      QueueName: "product-lambda-materialize-opensearch-new-dlq-prod"
       MessageRetentionPeriod: 1209600
   ProductMaterializeOpenSearchNewQ:
     Type: AWS::SQS::Queue
     Properties:
-      QueueName: !Sub "product-lambda-materialize-opensearch-new-queue-prod"
+      QueueName: "product-lambda-materialize-opensearch-new-queue-prod"
       RedrivePolicy:
         deadLetterTargetArn: !GetAtt ProductMaterializeOpenSearchNewDlq.Arn
         maxReceiveCount: 5
@@ -2282,7 +2282,7 @@ Resources:
   ProductMaterializeOpenSearchNewRole:
     Type: AWS::IAM::Role
     Properties:
-      RoleName: !Sub "product-lambda-materialize-opensearch-new-role-prod"
+      RoleName: "product-lambda-materialize-opensearch-new-role-prod"
       AssumeRolePolicyDocument:
         Version: "2012-10-17"
         Statement:
@@ -2315,7 +2315,7 @@ Resources:
   ProductMaterializeOpenSearchNewLambda:
     Type: AWS::Lambda::Function
     Properties:
-      FunctionName: !Sub "product-lambda-materialize-opensearch-new-prod"
+      FunctionName: "product-lambda-materialize-opensearch-new-prod"
       Runtime: provided.al2023
       Handler: lib.handler
       Role: !GetAtt ProductMaterializeOpenSearchNewRole.Arn
@@ -2345,7 +2345,7 @@ Resources:
   ProductMaterializeOpenSearchNewLambdaErrorAlarm:
     Type: AWS::CloudWatch::Alarm
     Properties:
-      AlarmName: !Sub "prod-materialize-os-new-lambda-errors"
+      AlarmName: "prod-materialize-os-new-lambda-errors"
       AlarmDescription: "Alarm when materialize-opensearch-new Lambda has errors"
       MetricName: Errors
       Namespace: AWS/Lambda
@@ -2363,7 +2363,7 @@ Resources:
   ProductMaterializeOpenSearchNewDlqAlarm:
     Type: AWS::CloudWatch::Alarm
     Properties:
-      AlarmName: !Sub "prod-materialize-os-new-dlq-messages"
+      AlarmName: "prod-materialize-os-new-dlq-messages"
       AlarmDescription: "Alarm when messages appear in materialize-opensearch-new DLQ"
       MetricName: ApproximateNumberOfMessagesVisible
       Namespace: AWS/SQS
@@ -2382,12 +2382,12 @@ Resources:
   ProductMaterializeOpenSearchUpdateDlq:
     Type: AWS::SQS::Queue
     Properties:
-      QueueName: !Sub "product-lambda-materialize-opensearch-update-dlq-prod"
+      QueueName: "product-lambda-materialize-opensearch-update-dlq-prod"
       MessageRetentionPeriod: 1209600
   ProductMaterializeOpenSearchUpdateQ:
     Type: AWS::SQS::Queue
     Properties:
-      QueueName: !Sub "product-lambda-materialize-opensearch-update-queue-prod"
+      QueueName: "product-lambda-materialize-opensearch-update-queue-prod"
       RedrivePolicy:
         deadLetterTargetArn: !GetAtt ProductMaterializeOpenSearchUpdateDlq.Arn
         maxReceiveCount: 5
@@ -2395,7 +2395,7 @@ Resources:
   ProductMaterializeOpenSearchUpdateRole:
     Type: AWS::IAM::Role
     Properties:
-      RoleName: !Sub "product-lambda-materialize-opensearch-update-role-prod"
+      RoleName: "product-lambda-materialize-opensearch-update-role-prod"
       AssumeRolePolicyDocument:
         Version: "2012-10-17"
         Statement:
@@ -2428,7 +2428,7 @@ Resources:
   ProductMaterializeOpenSearchUpdateLambda:
     Type: AWS::Lambda::Function
     Properties:
-      FunctionName: !Sub "product-lambda-materialize-opensearch-update-prod"
+      FunctionName: "product-lambda-materialize-opensearch-update-prod"
       Runtime: provided.al2023
       Handler: lib.handler
       Role: !GetAtt ProductMaterializeOpenSearchUpdateRole.Arn
@@ -2458,7 +2458,7 @@ Resources:
   ProductMaterializeOpenSearchUpdateLambdaErrorAlarm:
     Type: AWS::CloudWatch::Alarm
     Properties:
-      AlarmName: !Sub "prod-materialize-os-update-lambda-errors"
+      AlarmName: "prod-materialize-os-update-lambda-errors"
       AlarmDescription: "Alarm when materialize-opensearch-update Lambda has errors"
       MetricName: Errors
       Namespace: AWS/Lambda
@@ -2476,7 +2476,7 @@ Resources:
   ProductMaterializeOpenSearchUpdateDlqAlarm:
     Type: AWS::CloudWatch::Alarm
     Properties:
-      AlarmName: !Sub "prod-materialize-os-update-dlq-messages"
+      AlarmName: "prod-materialize-os-update-dlq-messages"
       AlarmDescription: "Alarm when messages appear in materialize-opensearch-update DLQ"
       MetricName: ApproximateNumberOfMessagesVisible
       Namespace: AWS/SQS
@@ -2495,12 +2495,12 @@ Resources:
   ProductUpdateNotifyUserDlq:
     Type: AWS::SQS::Queue
     Properties:
-      QueueName: !Sub "product-lambda-update-notify-user-dlq-prod"
+      QueueName: "product-lambda-update-notify-user-dlq-prod"
       MessageRetentionPeriod: 1209600
   ProductUpdateNotifyUserQ:
     Type: AWS::SQS::Queue
     Properties:
-      QueueName: !Sub "product-lambda-update-notify-user-queue-prod"
+      QueueName: "product-lambda-update-notify-user-queue-prod"
       RedrivePolicy:
         deadLetterTargetArn: !GetAtt ProductUpdateNotifyUserDlq.Arn
         maxReceiveCount: 5
@@ -2508,7 +2508,7 @@ Resources:
   ProductUpdateNotifyUserRole:
     Type: AWS::IAM::Role
     Properties:
-      RoleName: !Sub "product-lambda-update-notify-user-role-prod"
+      RoleName: "product-lambda-update-notify-user-role-prod"
       AssumeRolePolicyDocument:
         Version: "2012-10-17"
         Statement:
@@ -2552,7 +2552,7 @@ Resources:
   ProductUpdateNotifyUserLambda:
     Type: AWS::Lambda::Function
     Properties:
-      FunctionName: !Sub "product-lambda-update-notify-user-prod"
+      FunctionName: "product-lambda-update-notify-user-prod"
       Runtime: provided.al2023
       Handler: lib.handler
       Role: !GetAtt ProductUpdateNotifyUserRole.Arn
@@ -2581,7 +2581,7 @@ Resources:
   ProductUpdateNotifyUserLambdaErrorAlarm:
     Type: AWS::CloudWatch::Alarm
     Properties:
-      AlarmName: !Sub "prod-product-update-notify-user-lambda-errors"
+      AlarmName: "prod-product-update-notify-user-lambda-errors"
       AlarmDescription: "Alarm when product-update-notify-user Lambda has errors"
       MetricName: Errors
       Namespace: AWS/Lambda
@@ -2599,7 +2599,7 @@ Resources:
   ProductUpdateNotifyUserDlqAlarm:
     Type: AWS::CloudWatch::Alarm
     Properties:
-      AlarmName: !Sub "prod-product-update-notify-user-dlq-messages"
+      AlarmName: "prod-product-update-notify-user-dlq-messages"
       AlarmDescription: "Alarm when messages appear in product-update-notify-user DLQ"
       MetricName: ApproximateNumberOfMessagesVisible
       Namespace: AWS/SQS
@@ -2618,12 +2618,12 @@ Resources:
   UserLambdaFanoutUpdateWatchlistDlq:
     Type: AWS::SQS::Queue
     Properties:
-      QueueName: !Sub "user-lambda-fanout-update-watchlist-dlq-prod"
+      QueueName: "user-lambda-fanout-update-watchlist-dlq-prod"
       MessageRetentionPeriod: 1209600
   UserLambdaFanoutUpdateWatchlistQ:
     Type: AWS::SQS::Queue
     Properties:
-      QueueName: !Sub "user-lambda-fanout-update-watchlist-queue-prod"
+      QueueName: "user-lambda-fanout-update-watchlist-queue-prod"
       RedrivePolicy:
         deadLetterTargetArn: !GetAtt UserLambdaFanoutUpdateWatchlistDlq.Arn
         maxReceiveCount: 5
@@ -2631,7 +2631,7 @@ Resources:
   UserLambdaFanoutUpdateWatchlistRole:
     Type: AWS::IAM::Role
     Properties:
-      RoleName: !Sub "user-lambda-fanout-update-watchlist-role-prod"
+      RoleName: "user-lambda-fanout-update-watchlist-role-prod"
       AssumeRolePolicyDocument:
         Version: "2012-10-17"
         Statement:
@@ -2674,7 +2674,7 @@ Resources:
   UserLambdaFanoutUpdateWatchlistLambda:
     Type: AWS::Lambda::Function
     Properties:
-      FunctionName: !Sub "user-lambda-fanout-update-watchlist-prod"
+      FunctionName: "user-lambda-fanout-update-watchlist-prod"
       Runtime: provided.al2023
       Handler: lib.handler
       Role: !GetAtt UserLambdaFanoutUpdateWatchlistRole.Arn
@@ -2701,7 +2701,7 @@ Resources:
   UserLambdaFanoutUpdateWatchlistLambdaErrorAlarm:
     Type: AWS::CloudWatch::Alarm
     Properties:
-      AlarmName: !Sub "prod-user-lambda-fanout-update-watchlist-lambda-errors"
+      AlarmName: "prod-user-lambda-fanout-update-watchlist-lambda-errors"
       AlarmDescription: "Alarm when user-lambda-fanout-update-watchlist Lambda has errors"
       MetricName: Errors
       Namespace: AWS/Lambda
@@ -2719,7 +2719,7 @@ Resources:
   UserLambdaFanoutUpdateWatchlistDlqAlarm:
     Type: AWS::CloudWatch::Alarm
     Properties:
-      AlarmName: !Sub "prod-user-lambda-fanout-update-watchlist-dlq-messages"
+      AlarmName: "prod-user-lambda-fanout-update-watchlist-dlq-messages"
       AlarmDescription: "Alarm when messages appear in user-lambda-fanout-update-watchlist DLQ"
       MetricName: ApproximateNumberOfMessagesVisible
       Namespace: AWS/SQS
@@ -2738,7 +2738,7 @@ Resources:
   DynamoDbProductEventRecordCreatedMaterializeDynamoDbProductRecordEventRule:
     Type: AWS::Events::Rule
     Properties:
-      Name: !Sub "ddb-product-mat-ddb-new-prod"
+      Name: "ddb-product-mat-ddb-new-prod"
       EventBusName: !Ref DynamoDbEventBus
       EventPattern:
         source:
@@ -2759,7 +2759,7 @@ Resources:
   DynamoDbProductEventRecordUpdatedMaterializeDynamoDbProductRecordEventRule:
     Type: AWS::Events::Rule
     Properties:
-      Name: !Sub "ddb-product-mat-ddb-update-prod"
+      Name: "ddb-product-mat-ddb-update-prod"
       EventBusName: !Ref DynamoDbEventBus
       EventPattern:
         source:
@@ -2781,7 +2781,7 @@ Resources:
   DynamoDbProductEventRecordCreatedMaterializeOpenSearchProductDocumentEventRule:
     Type: AWS::Events::Rule
     Properties:
-      Name: !Sub "ddb-product-mat-os-new-prod"
+      Name: "ddb-product-mat-os-new-prod"
       EventBusName: !Ref DynamoDbEventBus
       EventPattern:
         source:
@@ -2802,7 +2802,7 @@ Resources:
   DynamoDbProductEventRecordUpdatedMaterializeOpenSearchProductDocumentEventRule:
     Type: AWS::Events::Rule
     Properties:
-      Name: !Sub "ddb-product-mat-os-update-prod"
+      Name: "ddb-product-mat-os-update-prod"
       EventBusName: !Ref DynamoDbEventBus
       EventPattern:
         source:
@@ -2824,7 +2824,7 @@ Resources:
   DynamoDbProductEventRecordUpdatedNotifyUserEventRule:
     Type: AWS::Events::Rule
     Properties:
-      Name: !Sub "ddb-product-update-notify-user-prod"
+      Name: "ddb-product-update-notify-user-prod"
       EventBusName: !Ref DynamoDbEventBus
       EventPattern:
         source:
@@ -2846,7 +2846,7 @@ Resources:
   DynamoDbProductEventRecordCreatedProductEnrichmentEventRule:
     Type: AWS::Events::Rule
     Properties:
-      Name: !Sub "ddb-product-enrichment-prod"
+      Name: "ddb-product-enrichment-prod"
       EventBusName: !Ref DynamoDbEventBus
       EventPattern:
         source:
@@ -2867,7 +2867,7 @@ Resources:
   DynamoDbUserUpdatedFanoutWatchlistUpdateEventRule:
     Type: AWS::Events::Rule
     Properties:
-      Name: !Sub "ddb-user-update-fanout-watchlist-prod"
+      Name: "ddb-user-update-fanout-watchlist-prod"
       EventBusName: !Ref DynamoDbEventBus
       EventPattern:
         source:
@@ -2894,13 +2894,13 @@ Resources:
       EnableDnsHostnames: true
       Tags:
         - Key: Name
-          Value: !Sub "product-enrichment-vpc-prod"
+          Value: "product-enrichment-vpc-prod"
   ProductEnrichmentInternetGateway:
     Type: AWS::EC2::InternetGateway
     Properties:
       Tags:
         - Key: Name
-          Value: !Sub "product-enrichment-igw-prod"
+          Value: "product-enrichment-igw-prod"
   ProductEnrichmentVpcGatewayAttachment:
     Type: AWS::EC2::VPCGatewayAttachment
     Properties:
@@ -2912,7 +2912,7 @@ Resources:
       VpcId: !Ref ProductEnrichmentVpc
       Tags:
         - Key: Name
-          Value: !Sub "product-enrichment-public-rt-prod"
+          Value: "product-enrichment-public-rt-prod"
   ProductEnrichmentPublicRoute:
     Type: AWS::EC2::Route
     DependsOn: ProductEnrichmentVpcGatewayAttachment
@@ -2929,7 +2929,7 @@ Resources:
       AvailabilityZone: !Select [0, !GetAZs ""]
       Tags:
         - Key: Name
-          Value: !Sub "product-enrichment-subnet-a-prod"
+          Value: "product-enrichment-subnet-a-prod"
   ProductEnrichmentSubnetB:
     Type: AWS::EC2::Subnet
     Properties:
@@ -2939,7 +2939,7 @@ Resources:
       AvailabilityZone: !Select [1, !GetAZs ""]
       Tags:
         - Key: Name
-          Value: !Sub "product-enrichment-subnet-b-prod"
+          Value: "product-enrichment-subnet-b-prod"
   ProductEnrichmentSubnetRouteAssocA:
     Type: AWS::EC2::SubnetRouteTableAssociation
     Properties:
@@ -2960,17 +2960,17 @@ Resources:
           CidrIp: 0.0.0.0/0
       Tags:
         - Key: Name
-          Value: !Sub "product-enrichment-sg-prod"
+          Value: "product-enrichment-sg-prod"
 
   ProductEnrichmentDlq:
     Type: AWS::SQS::Queue
     Properties:
-      QueueName: !Sub "product-enrichment-dlq-prod"
+      QueueName: "product-enrichment-dlq-prod"
       MessageRetentionPeriod: 1209600
   ProductEnrichmentQ:
     Type: AWS::SQS::Queue
     Properties:
-      QueueName: !Sub "product-enrichment-queue-prod"
+      QueueName: "product-enrichment-queue-prod"
       RedrivePolicy:
         deadLetterTargetArn: !GetAtt ProductEnrichmentDlq.Arn
         maxReceiveCount: 3
@@ -2978,7 +2978,7 @@ Resources:
   ProductEnrichmentRole:
     Type: AWS::IAM::Role
     Properties:
-      RoleName: !Sub "product-enrichment-role-prod"
+      RoleName: "product-enrichment-role-prod"
       AssumeRolePolicyDocument:
         Version: "2012-10-17"
         Statement:
@@ -3053,13 +3053,13 @@ Resources:
   ProductEnrichmentInstanceProfile:
     Type: AWS::IAM::InstanceProfile
     Properties:
-      InstanceProfileName: !Sub "product-enrichment-profile-prod"
+      InstanceProfileName: "product-enrichment-profile-prod"
       Roles:
         - !Ref ProductEnrichmentRole
   ProductEnrichmentLaunchTemplate:
     Type: AWS::EC2::LaunchTemplate
     Properties:
-      LaunchTemplateName: !Sub "product-enrichment-template-prod"
+      LaunchTemplateName: "product-enrichment-template-prod"
       LaunchTemplateData:
         KeyName: !Ref Ec2KeyPairName
         IamInstanceProfile:
@@ -3077,7 +3077,7 @@ Resources:
           - ResourceType: instance
             Tags:
               - Key: Name
-                Value: !Sub "product-enrichment-prod"
+                Value: "product-enrichment-prod"
               - Key: Fleet
                 Value: product-enrichment
         UserData:
@@ -3122,14 +3122,14 @@ Resources:
           SpotAllocationStrategy: price-capacity-optimized
       Tags:
         - Key: Name
-          Value: !Sub "product-enrichment-prod"
+          Value: "product-enrichment-prod"
           PropagateAtLaunch: true
       HealthCheckType: EC2
       HealthCheckGracePeriod: 120
   ProductEnrichmentDlqAlarm:
     Type: AWS::CloudWatch::Alarm
     Properties:
-      AlarmName: !Sub "prod-product-enrichment-dlq-messages"
+      AlarmName: "prod-product-enrichment-dlq-messages"
       AlarmDescription: "Alarm when messages appear in product-enrichment DLQ"
       MetricName: ApproximateNumberOfMessagesVisible
       Namespace: AWS/SQS
@@ -3182,7 +3182,7 @@ Resources:
   ProductEnrichmentScaleDownRole:
     Type: AWS::IAM::Role
     Properties:
-      RoleName: !Sub "product-enrichment-asg-scale-down-role-prod"
+      RoleName: "product-enrichment-asg-scale-down-role-prod"
       AssumeRolePolicyDocument:
         Version: "2012-10-17"
         Statement:
@@ -3213,7 +3213,7 @@ Resources:
   ProductEnrichmentScaleDownLambda:
     Type: AWS::Lambda::Function
     Properties:
-      FunctionName: !Sub "product-enrichment-asg-scale-down-prod"
+      FunctionName: "product-enrichment-asg-scale-down-prod"
       Runtime: provided.al2023
       Handler: lib.handler
       Role: !GetAtt ProductEnrichmentScaleDownRole.Arn
@@ -3253,7 +3253,7 @@ Resources:
   ProductEnrichmentScaleDownLambdaErrorAlarm:
     Type: AWS::CloudWatch::Alarm
     Properties:
-      AlarmName: !Sub "prod-product-enrichment-asg-scale-down-lambda-errors"
+      AlarmName: "prod-product-enrichment-asg-scale-down-lambda-errors"
       AlarmDescription: "Alarm when product-enrichment-asg-scale-down Lambda has errors"
       MetricName: Errors
       Namespace: AWS/Lambda
@@ -3272,7 +3272,7 @@ Resources:
   ProductEnrichmentScaleUpRole:
     Type: AWS::IAM::Role
     Properties:
-      RoleName: !Sub "product-enrichment-asg-scale-up-role-prod"
+      RoleName: "product-enrichment-asg-scale-up-role-prod"
       AssumeRolePolicyDocument:
         Version: "2012-10-17"
         Statement:
@@ -3303,7 +3303,7 @@ Resources:
   ProductEnrichmentScaleUpLambda:
     Type: AWS::Lambda::Function
     Properties:
-      FunctionName: !Sub "product-enrichment-asg-scale-up-prod"
+      FunctionName: "product-enrichment-asg-scale-up-prod"
       Runtime: provided.al2023
       Handler: lib.handler
       Role: !GetAtt ProductEnrichmentScaleUpRole.Arn
@@ -3343,7 +3343,7 @@ Resources:
   ProductEnrichmentScaleUpLambdaErrorAlarm:
     Type: AWS::CloudWatch::Alarm
     Properties:
-      AlarmName: !Sub "prod-product-enrichment-asg-scale-up-lambda-errors"
+      AlarmName: "prod-product-enrichment-asg-scale-up-lambda-errors"
       AlarmDescription: "Alarm when product-enrichment-asg-scale-up Lambda has errors"
       MetricName: Errors
       Namespace: AWS/Lambda

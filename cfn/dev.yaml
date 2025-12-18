@@ -30,7 +30,7 @@ Resources:
   PrimaryUserPool:
     Type: AWS::Cognito::UserPool
     Properties:
-      UserPoolName: !Sub "primary-userpool-dev"
+      UserPoolName: "primary-userpool-dev"
       UsernameAttributes:
         - email
       AutoVerifiedAttributes:
@@ -60,7 +60,7 @@ Resources:
   PrimaryUserPoolPostConfirmationLambdaRole:
     Type: AWS::IAM::Role
     Properties:
-      RoleName: !Sub "cognito-primary-userpool-post-confirmation-role-dev"
+      RoleName: "cognito-primary-userpool-post-confirmation-role-dev"
       AssumeRolePolicyDocument:
         Version: "2012-10-17"
         Statement:
@@ -83,7 +83,7 @@ Resources:
   PrimaryUserPoolPostConfirmationLambda:
     Type: AWS::Lambda::Function
     Properties:
-      FunctionName: !Sub "cognito-primary-userpool-post-confirmation-dev"
+      FunctionName: "cognito-primary-userpool-post-confirmation-dev"
       Runtime: provided.al2023
       Handler: lib.handler
       Role: !GetAtt PrimaryUserPoolPostConfirmationLambdaRole.Arn
@@ -109,7 +109,7 @@ Resources:
     Type: AWS::Cognito::UserPoolClient
     Properties:
       UserPoolId: !Ref PrimaryUserPool
-      ClientName: !Sub "primary-userpool-client-public-dev"
+      ClientName: "primary-userpool-client-public-dev"
       GenerateSecret: false # PKCE replaces client secret
       PreventUserExistenceErrors: ENABLED
       AllowedOAuthFlowsUserPoolClient: true
@@ -138,7 +138,7 @@ Resources:
     Type: AWS::Cognito::UserPoolClient
     Properties:
       UserPoolId: !Ref PrimaryUserPool
-      ClientName: !Sub "primary-userpool-client-admin-dev"
+      ClientName: "primary-userpool-client-admin-dev"
       GenerateSecret: false
       PreventUserExistenceErrors: ENABLED
       AllowedOAuthFlowsUserPoolClient: false
@@ -155,13 +155,13 @@ Resources:
   PrimaryUserPoolDomain:
     Type: AWS::Cognito::UserPoolDomain
     Properties:
-      Domain: !Sub "primary-userpool-dev" # hosted UI domain
+      Domain: "primary-userpool-dev" # hosted UI domain
       UserPoolId: !Ref PrimaryUserPool
 
   TableOne:
     Type: AWS::DynamoDB::Table
     Properties:
-      TableName: !Sub "table_1-dev"
+      TableName: "table_1-dev"
       AttributeDefinitions:
         - AttributeName: pk
           AttributeType: S
@@ -204,11 +204,11 @@ Resources:
   DynamoDbEventBus:
     Type: AWS::Events::EventBus
     Properties:
-      Name: !Sub "dynamodb-event-bus-dev"
+      Name: "dynamodb-event-bus-dev"
   PipeRole:
     Type: AWS::IAM::Role
     Properties:
-      RoleName: !Sub "dynamodb-to-eventbridge-pipe-role-dev"
+      RoleName: "dynamodb-to-eventbridge-pipe-role-dev"
       AssumeRolePolicyDocument:
         Version: "2012-10-17"
         Statement:
@@ -235,7 +235,7 @@ Resources:
   TableOneStreamToEventBusPipe:
     Type: AWS::Pipes::Pipe
     Properties:
-      Name: !Sub "tableone-stream-to-eventbus-dev"
+      Name: "tableone-stream-to-eventbus-dev"
       RoleArn: !GetAtt PipeRole.Arn
       Source: !GetAtt TableOne.StreamArn
       SourceParameters:
@@ -309,7 +309,7 @@ Resources:
   Api:
     Type: AWS::ApiGatewayV2::Api
     Properties:
-      Name: !Sub "api-dev"
+      Name: "api-dev"
       ProtocolType: HTTP
       CorsConfiguration:
         AllowOrigins:
@@ -325,7 +325,7 @@ Resources:
   ApiStage:
     Type: AWS::ApiGatewayV2::Stage
     Properties:
-      StageName: !Sub "dev"
+      StageName: "dev"
       ApiId: !Ref Api
       AutoDeploy: true
       DefaultRouteSettings:
@@ -361,7 +361,7 @@ Resources:
   ApiGetProductRole:
     Type: AWS::IAM::Role
     Properties:
-      RoleName: !Sub "api-get-product-role-dev"
+      RoleName: "api-get-product-role-dev"
       AssumeRolePolicyDocument:
         Version: "2012-10-17"
         Statement:
@@ -385,7 +385,7 @@ Resources:
   ApiGetProductLambda:
     Type: AWS::Lambda::Function
     Properties:
-      FunctionName: !Sub "api-get-product-dev"
+      FunctionName: "api-get-product-dev"
       Runtime: provided.al2023
       Handler: lib.handler
       Role: !GetAtt ApiGetProductRole.Arn
@@ -426,7 +426,7 @@ Resources:
   ApiPutProductsRole:
     Type: AWS::IAM::Role
     Properties:
-      RoleName: !Sub "api-put-products-role-dev"
+      RoleName: "api-put-products-role-dev"
       AssumeRolePolicyDocument:
         Version: "2012-10-17"
         Statement:
@@ -458,7 +458,7 @@ Resources:
   ApiPutProductsLambda:
     Type: AWS::Lambda::Function
     Properties:
-      FunctionName: !Sub "api-put-products-dev"
+      FunctionName: "api-put-products-dev"
       Runtime: provided.al2023
       Handler: lib.handler
       Role: !GetAtt ApiPutProductsRole.Arn
@@ -497,7 +497,7 @@ Resources:
   ApiProductSearchRole:
     Type: AWS::IAM::Role
     Properties:
-      RoleName: !Sub "api-product-search-role-dev"
+      RoleName: "api-product-search-role-dev"
       AssumeRolePolicyDocument:
         Version: "2012-10-17"
         Statement:
@@ -521,7 +521,7 @@ Resources:
   ApiProductSearchLambda:
     Type: AWS::Lambda::Function
     Properties:
-      FunctionName: !Sub "api-product-search-dev"
+      FunctionName: "api-product-search-dev"
       Runtime: provided.al2023
       Handler: lib.handler
       Role: !GetAtt ApiProductSearchRole.Arn
@@ -566,7 +566,7 @@ Resources:
   ApiProductSimilaritySearchRole:
     Type: AWS::IAM::Role
     Properties:
-      RoleName: !Sub "api-product-similarity-search-role-dev"
+      RoleName: "api-product-similarity-search-role-dev"
       AssumeRolePolicyDocument:
         Version: "2012-10-17"
         Statement:
@@ -590,7 +590,7 @@ Resources:
   ApiProductSimilaritySearchLambda:
     Type: AWS::Lambda::Function
     Properties:
-      FunctionName: !Sub "api-product-similarity-search-dev"
+      FunctionName: "api-product-similarity-search-dev"
       Runtime: provided.al2023
       Handler: lib.handler
       Role: !GetAtt ApiProductSimilaritySearchRole.Arn
@@ -637,7 +637,7 @@ Resources:
   ApiGetWatchlistProductsRole:
     Type: AWS::IAM::Role
     Properties:
-      RoleName: !Sub "api-get-watchlist-products-role-dev"
+      RoleName: "api-get-watchlist-products-role-dev"
       AssumeRolePolicyDocument:
         Version: "2012-10-17"
         Statement:
@@ -663,7 +663,7 @@ Resources:
   ApiGetWatchlistProductsLambda:
     Type: AWS::Lambda::Function
     Properties:
-      FunctionName: !Sub "api-get-watchlist-products-dev"
+      FunctionName: "api-get-watchlist-products-dev"
       Runtime: provided.al2023
       Handler: lib.handler
       Role: !GetAtt ApiGetWatchlistProductsRole.Arn
@@ -703,7 +703,7 @@ Resources:
   ApiDeleteWatchlistProductRole:
     Type: AWS::IAM::Role
     Properties:
-      RoleName: !Sub "api-delete-watchlist-product-role-dev"
+      RoleName: "api-delete-watchlist-product-role-dev"
       AssumeRolePolicyDocument:
         Version: "2012-10-17"
         Statement:
@@ -728,7 +728,7 @@ Resources:
   ApiDeleteWatchlistLambda:
     Type: AWS::Lambda::Function
     Properties:
-      FunctionName: !Sub "api-delete-watchlist-product-dev"
+      FunctionName: "api-delete-watchlist-product-dev"
       Runtime: provided.al2023
       Handler: lib.handler
       Role: !GetAtt ApiDeleteWatchlistProductRole.Arn
@@ -768,7 +768,7 @@ Resources:
   ApiPostWatchlistProductRole:
     Type: AWS::IAM::Role
     Properties:
-      RoleName: !Sub "api-post-watchlist-product-role-dev"
+      RoleName: "api-post-watchlist-product-role-dev"
       AssumeRolePolicyDocument:
         Version: "2012-10-17"
         Statement:
@@ -793,7 +793,7 @@ Resources:
   ApiPostWatchlistLambda:
     Type: AWS::Lambda::Function
     Properties:
-      FunctionName: !Sub "api-post-watchlist-product-dev"
+      FunctionName: "api-post-watchlist-product-dev"
       Runtime: provided.al2023
       Handler: lib.handler
       Role: !GetAtt ApiPostWatchlistProductRole.Arn
@@ -833,7 +833,7 @@ Resources:
   ApiPatchWatchlistProductRole:
     Type: AWS::IAM::Role
     Properties:
-      RoleName: !Sub "api-patch-watchlist-product-role-dev"
+      RoleName: "api-patch-watchlist-product-role-dev"
       AssumeRolePolicyDocument:
         Version: "2012-10-17"
         Statement:
@@ -856,7 +856,7 @@ Resources:
   ApiPatchWatchlistLambda:
     Type: AWS::Lambda::Function
     Properties:
-      FunctionName: !Sub "api-patch-watchlist-product-dev"
+      FunctionName: "api-patch-watchlist-product-dev"
       Runtime: provided.al2023
       Handler: lib.handler
       Role: !GetAtt ApiPatchWatchlistProductRole.Arn
@@ -896,7 +896,7 @@ Resources:
   ApiGetUserAccountRole:
     Type: AWS::IAM::Role
     Properties:
-      RoleName: !Sub "api-user-get-account-role-dev"
+      RoleName: "api-user-get-account-role-dev"
       AssumeRolePolicyDocument:
         Version: "2012-10-17"
         Statement:
@@ -922,7 +922,7 @@ Resources:
   ApiGetUserAccountLambda:
     Type: AWS::Lambda::Function
     Properties:
-      FunctionName: !Sub "api-user-get-account-dev"
+      FunctionName: "api-user-get-account-dev"
       Runtime: provided.al2023
       Handler: lib.handler
       Role: !GetAtt ApiGetUserAccountRole.Arn
@@ -962,7 +962,7 @@ Resources:
   ApiPatchUserAccountRole:
     Type: AWS::IAM::Role
     Properties:
-      RoleName: !Sub "api-patch-user-account-role-dev"
+      RoleName: "api-patch-user-account-role-dev"
       AssumeRolePolicyDocument:
         Version: "2012-10-17"
         Statement:
@@ -985,7 +985,7 @@ Resources:
   ApiPatchUserAccountLambda:
     Type: AWS::Lambda::Function
     Properties:
-      FunctionName: !Sub "api-patch-user-account-dev"
+      FunctionName: "api-patch-user-account-dev"
       Runtime: provided.al2023
       Handler: lib.handler
       Role: !GetAtt ApiPatchUserAccountRole.Arn
@@ -1023,7 +1023,7 @@ Resources:
   ApiGetShopRole:
     Type: AWS::IAM::Role
     Properties:
-      RoleName: !Sub "api-get-shop-role-dev"
+      RoleName: "api-get-shop-role-dev"
       AssumeRolePolicyDocument:
         Version: "2012-10-17"
         Statement:
@@ -1047,7 +1047,7 @@ Resources:
   ApiGetShopLambda:
     Type: AWS::Lambda::Function
     Properties:
-      FunctionName: !Sub "api-get-shop-dev"
+      FunctionName: "api-get-shop-dev"
       Runtime: provided.al2023
       Handler: lib.handler
       Role: !GetAtt ApiGetShopRole.Arn
@@ -1085,7 +1085,7 @@ Resources:
   ApiPatchShopRole:
     Type: AWS::IAM::Role
     Properties:
-      RoleName: !Sub "api-patch-shop-role-dev"
+      RoleName: "api-patch-shop-role-dev"
       AssumeRolePolicyDocument:
         Version: "2012-10-17"
         Statement:
@@ -1115,7 +1115,7 @@ Resources:
   ApiPatchShopLambda:
     Type: AWS::Lambda::Function
     Properties:
-      FunctionName: !Sub "api-patch-shop-dev"
+      FunctionName: "api-patch-shop-dev"
       Runtime: provided.al2023
       Handler: lib.handler
       Role: !GetAtt ApiPatchShopRole.Arn
@@ -1153,7 +1153,7 @@ Resources:
   ApiPostShopRole:
     Type: AWS::IAM::Role
     Properties:
-      RoleName: !Sub "api-post-shop-role-dev"
+      RoleName: "api-post-shop-role-dev"
       AssumeRolePolicyDocument:
         Version: "2012-10-17"
         Statement:
@@ -1181,7 +1181,7 @@ Resources:
   ApiPostShopLambda:
     Type: AWS::Lambda::Function
     Properties:
-      FunctionName: !Sub "api-post-shop-dev"
+      FunctionName: "api-post-shop-dev"
       Runtime: provided.al2023
       Handler: lib.handler
       Role: !GetAtt ApiPostShopRole.Arn
@@ -1219,7 +1219,7 @@ Resources:
   ApiShopSearchRole:
     Type: AWS::IAM::Role
     Properties:
-      RoleName: !Sub "api-shop-search-role-dev"
+      RoleName: "api-shop-search-role-dev"
       AssumeRolePolicyDocument:
         Version: "2012-10-17"
         Statement:
@@ -1232,7 +1232,7 @@ Resources:
   ApiShopSearchLambda:
     Type: AWS::Lambda::Function
     Properties:
-      FunctionName: !Sub "api-shop-search-dev"
+      FunctionName: "api-shop-search-dev"
       Runtime: provided.al2023
       Handler: lib.handler
       Role: !GetAtt ApiShopSearchRole.Arn
@@ -1275,7 +1275,7 @@ Resources:
   ApiDeleteSearchFilterRole:
     Type: AWS::IAM::Role
     Properties:
-      RoleName: !Sub "api-delete-search-filter-role-dev"
+      RoleName: "api-delete-search-filter-role-dev"
       AssumeRolePolicyDocument:
         Version: "2012-10-17"
         Statement:
@@ -1300,7 +1300,7 @@ Resources:
   ApiDeleteSearchFilterLambda:
     Type: AWS::Lambda::Function
     Properties:
-      FunctionName: !Sub "api-delete-search-filter-dev"
+      FunctionName: "api-delete-search-filter-dev"
       Runtime: provided.al2023
       Handler: lib.handler
       Role: !GetAtt ApiDeleteSearchFilterRole.Arn
@@ -1340,7 +1340,7 @@ Resources:
   ApiGetSearchFilterRole:
     Type: AWS::IAM::Role
     Properties:
-      RoleName: !Sub "api-get-search-filter-role-dev"
+      RoleName: "api-get-search-filter-role-dev"
       AssumeRolePolicyDocument:
         Version: "2012-10-17"
         Statement:
@@ -1364,7 +1364,7 @@ Resources:
   ApiGetSearchFilterLambda:
     Type: AWS::Lambda::Function
     Properties:
-      FunctionName: !Sub "api-get-search-filter-dev"
+      FunctionName: "api-get-search-filter-dev"
       Runtime: provided.al2023
       Handler: lib.handler
       Role: !GetAtt ApiGetSearchFilterRole.Arn
@@ -1404,7 +1404,7 @@ Resources:
   ApiGetSearchFiltersRole:
     Type: AWS::IAM::Role
     Properties:
-      RoleName: !Sub "api-get-search-filters-role-dev"
+      RoleName: "api-get-search-filters-role-dev"
       AssumeRolePolicyDocument:
         Version: "2012-10-17"
         Statement:
@@ -1428,7 +1428,7 @@ Resources:
   ApiGetSearchFiltersLambda:
     Type: AWS::Lambda::Function
     Properties:
-      FunctionName: !Sub "api-get-search-filters-dev"
+      FunctionName: "api-get-search-filters-dev"
       Runtime: provided.al2023
       Handler: lib.handler
       Role: !GetAtt ApiGetSearchFiltersRole.Arn
@@ -1468,7 +1468,7 @@ Resources:
   ApiPatchSearchFilterRole:
     Type: AWS::IAM::Role
     Properties:
-      RoleName: !Sub "api-patch-search-filter-role-dev"
+      RoleName: "api-patch-search-filter-role-dev"
       AssumeRolePolicyDocument:
         Version: "2012-10-17"
         Statement:
@@ -1492,7 +1492,7 @@ Resources:
   ApiPatchSearchFilterLambda:
     Type: AWS::Lambda::Function
     Properties:
-      FunctionName: !Sub "api-patch-search-filter-dev"
+      FunctionName: "api-patch-search-filter-dev"
       Runtime: provided.al2023
       Handler: lib.handler
       Role: !GetAtt ApiPatchSearchFilterRole.Arn
@@ -1532,7 +1532,7 @@ Resources:
   ApiPostSearchFilterRole:
     Type: AWS::IAM::Role
     Properties:
-      RoleName: !Sub "api-post-search-filter-role-dev"
+      RoleName: "api-post-search-filter-role-dev"
       AssumeRolePolicyDocument:
         Version: "2012-10-17"
         Statement:
@@ -1554,7 +1554,7 @@ Resources:
   ApiPostSearchFilterLambda:
     Type: AWS::Lambda::Function
     Properties:
-      FunctionName: !Sub "api-post-search-filter-dev"
+      FunctionName: "api-post-search-filter-dev"
       Runtime: provided.al2023
       Handler: lib.handler
       Role: !GetAtt ApiPostSearchFilterRole.Arn
@@ -1579,12 +1579,12 @@ Resources:
   SendMailDlq:
     Type: AWS::SQS::Queue
     Properties:
-      QueueName: !Sub "mail-lambda-send-dev"
+      QueueName: "mail-lambda-send-dev"
       MessageRetentionPeriod: 1209600
   SendMailQ:
     Type: AWS::SQS::Queue
     Properties:
-      QueueName: !Sub "mail-lambda-send-queue-dev"
+      QueueName: "mail-lambda-send-queue-dev"
       RedrivePolicy:
         deadLetterTargetArn: !GetAtt SendMailDlq.Arn
         maxReceiveCount: 5
@@ -1592,7 +1592,7 @@ Resources:
   SendMailRole:
     Type: AWS::IAM::Role
     Properties:
-      RoleName: !Sub "mail-lambda-send-role-dev"
+      RoleName: "mail-lambda-send-role-dev"
       AssumeRolePolicyDocument:
         Version: "2012-10-17"
         Statement:
@@ -1634,7 +1634,7 @@ Resources:
   SendMailLambda:
     Type: AWS::Lambda::Function
     Properties:
-      FunctionName: !Sub "mail-lambda-send-dev"
+      FunctionName: "mail-lambda-send-dev"
       Runtime: provided.al2023
       Handler: lib.handler
       Role: !GetAtt SendMailRole.Arn
@@ -1648,7 +1648,7 @@ Resources:
       Environment:
         Variables:
           S3_BUCKET_NAME_TEMPLATES: !Ref MailTemplateBucket
-          STAGE_NAME: !Sub "dev"
+          STAGE_NAME: "dev"
           COMMIT_SHA: !Sub "${CommitSHA}"
   SendMailMapping:
     Type: AWS::Lambda::EventSourceMapping
@@ -1664,12 +1664,12 @@ Resources:
   ProductIngestEventsDynamoDbDlq:
     Type: AWS::SQS::Queue
     Properties:
-      QueueName: !Sub "product-lambda-ingest-events-dynamodb-dlq-dev"
+      QueueName: "product-lambda-ingest-events-dynamodb-dlq-dev"
       MessageRetentionPeriod: 1209600
   ProductIngestEventsDynamoDbQ:
     Type: AWS::SQS::Queue
     Properties:
-      QueueName: !Sub "product-lambda-ingest-events-dynamodb-queue-dev"
+      QueueName: "product-lambda-ingest-events-dynamodb-queue-dev"
       RedrivePolicy:
         deadLetterTargetArn: !GetAtt ProductIngestEventsDynamoDbDlq.Arn
         maxReceiveCount: 3
@@ -1677,7 +1677,7 @@ Resources:
   ProductIngestEventsDynamoDbRole:
     Type: AWS::IAM::Role
     Properties:
-      RoleName: !Sub "product-lambda-ingest-events-dynamodb-role-dev"
+      RoleName: "product-lambda-ingest-events-dynamodb-role-dev"
       AssumeRolePolicyDocument:
         Version: "2012-10-17"
         Statement:
@@ -1710,7 +1710,7 @@ Resources:
   ProductIngestEventsDynamoDbLambda:
     Type: AWS::Lambda::Function
     Properties:
-      FunctionName: !Sub "product-lambda-ingest-events-dynamodb-dev"
+      FunctionName: "product-lambda-ingest-events-dynamodb-dev"
       Runtime: provided.al2023
       Handler: lib.handler
       Role: !GetAtt ProductIngestEventsDynamoDbRole.Arn
@@ -1738,12 +1738,12 @@ Resources:
   ProductMaterializeDynamoDbNewDlq:
     Type: AWS::SQS::Queue
     Properties:
-      QueueName: !Sub "product-lambda-materialize-dynamodb-new-dlq-dev"
+      QueueName: "product-lambda-materialize-dynamodb-new-dlq-dev"
       MessageRetentionPeriod: 1209600
   ProductMaterializeDynamoDbNewQ:
     Type: AWS::SQS::Queue
     Properties:
-      QueueName: !Sub "product-lambda-materialize-dynamodb-new-queue-dev"
+      QueueName: "product-lambda-materialize-dynamodb-new-queue-dev"
       RedrivePolicy:
         deadLetterTargetArn: !GetAtt ProductMaterializeDynamoDbNewDlq.Arn
         maxReceiveCount: 5
@@ -1751,7 +1751,7 @@ Resources:
   ProductMaterializeDynamoDbNewRole:
     Type: AWS::IAM::Role
     Properties:
-      RoleName: !Sub "product-lambda-materialize-dynamodb-new-role-dev"
+      RoleName: "product-lambda-materialize-dynamodb-new-role-dev"
       AssumeRolePolicyDocument:
         Version: "2012-10-17"
         Statement:
@@ -1784,7 +1784,7 @@ Resources:
   ProductMaterializeDynamoDbNewLambda:
     Type: AWS::Lambda::Function
     Properties:
-      FunctionName: !Sub "product-lambda-materialize-dynamodb-new-dev"
+      FunctionName: "product-lambda-materialize-dynamodb-new-dev"
       Runtime: provided.al2023
       Handler: lib.handler
       Role: !GetAtt ProductMaterializeDynamoDbNewRole.Arn
@@ -1812,12 +1812,12 @@ Resources:
   ProductMaterializeDynamoDbUpdateDlq:
     Type: AWS::SQS::Queue
     Properties:
-      QueueName: !Sub "product-lambda-materialize-dynamodb-update-dlq-dev"
+      QueueName: "product-lambda-materialize-dynamodb-update-dlq-dev"
       MessageRetentionPeriod: 1209600
   ProductMaterializeDynamoDbUpdateQ:
     Type: AWS::SQS::Queue
     Properties:
-      QueueName: !Sub "product-lambda-materialize-dynamodb-update-queue-dev"
+      QueueName: "product-lambda-materialize-dynamodb-update-queue-dev"
       RedrivePolicy:
         deadLetterTargetArn: !GetAtt ProductMaterializeDynamoDbUpdateDlq.Arn
         maxReceiveCount: 5
@@ -1825,7 +1825,7 @@ Resources:
   ProductMaterializeDynamoDbUpdateRole:
     Type: AWS::IAM::Role
     Properties:
-      RoleName: !Sub "product-lambda-materialize-dynamodb-update-role-dev"
+      RoleName: "product-lambda-materialize-dynamodb-update-role-dev"
       AssumeRolePolicyDocument:
         Version: "2012-10-17"
         Statement:
@@ -1858,7 +1858,7 @@ Resources:
   ProductMaterializeDynamoDbUpdateLambda:
     Type: AWS::Lambda::Function
     Properties:
-      FunctionName: !Sub "product-lambda-materialize-dynamodb-update-dev"
+      FunctionName: "product-lambda-materialize-dynamodb-update-dev"
       Runtime: provided.al2023
       Handler: lib.handler
       Role: !GetAtt ProductMaterializeDynamoDbUpdateRole.Arn
@@ -1886,12 +1886,12 @@ Resources:
   ProductMaterializeOpenSearchNewDlq:
     Type: AWS::SQS::Queue
     Properties:
-      QueueName: !Sub "product-lambda-materialize-opensearch-new-dlq-dev"
+      QueueName: "product-lambda-materialize-opensearch-new-dlq-dev"
       MessageRetentionPeriod: 1209600
   ProductMaterializeOpenSearchNewQ:
     Type: AWS::SQS::Queue
     Properties:
-      QueueName: !Sub "product-lambda-materialize-opensearch-new-queue-dev"
+      QueueName: "product-lambda-materialize-opensearch-new-queue-dev"
       RedrivePolicy:
         deadLetterTargetArn: !GetAtt ProductMaterializeOpenSearchNewDlq.Arn
         maxReceiveCount: 5
@@ -1899,7 +1899,7 @@ Resources:
   ProductMaterializeOpenSearchNewRole:
     Type: AWS::IAM::Role
     Properties:
-      RoleName: !Sub "product-lambda-materialize-opensearch-new-role-dev"
+      RoleName: "product-lambda-materialize-opensearch-new-role-dev"
       AssumeRolePolicyDocument:
         Version: "2012-10-17"
         Statement:
@@ -1932,7 +1932,7 @@ Resources:
   ProductMaterializeOpenSearchNewLambda:
     Type: AWS::Lambda::Function
     Properties:
-      FunctionName: !Sub "product-lambda-materialize-opensearch-new-dev"
+      FunctionName: "product-lambda-materialize-opensearch-new-dev"
       Runtime: provided.al2023
       Handler: lib.handler
       Role: !GetAtt ProductMaterializeOpenSearchNewRole.Arn
@@ -1963,12 +1963,12 @@ Resources:
   ProductMaterializeOpenSearchUpdateDlq:
     Type: AWS::SQS::Queue
     Properties:
-      QueueName: !Sub "product-lambda-materialize-opensearch-update-dlq-dev"
+      QueueName: "product-lambda-materialize-opensearch-update-dlq-dev"
       MessageRetentionPeriod: 1209600
   ProductMaterializeOpenSearchUpdateQ:
     Type: AWS::SQS::Queue
     Properties:
-      QueueName: !Sub "product-lambda-materialize-opensearch-update-queue-dev"
+      QueueName: "product-lambda-materialize-opensearch-update-queue-dev"
       RedrivePolicy:
         deadLetterTargetArn: !GetAtt ProductMaterializeOpenSearchUpdateDlq.Arn
         maxReceiveCount: 5
@@ -1976,7 +1976,7 @@ Resources:
   ProductMaterializeOpenSearchUpdateRole:
     Type: AWS::IAM::Role
     Properties:
-      RoleName: !Sub "product-lambda-materialize-opensearch-update-role-dev"
+      RoleName: "product-lambda-materialize-opensearch-update-role-dev"
       AssumeRolePolicyDocument:
         Version: "2012-10-17"
         Statement:
@@ -2009,7 +2009,7 @@ Resources:
   ProductMaterializeOpenSearchUpdateLambda:
     Type: AWS::Lambda::Function
     Properties:
-      FunctionName: !Sub "product-lambda-materialize-opensearch-update-dev"
+      FunctionName: "product-lambda-materialize-opensearch-update-dev"
       Runtime: provided.al2023
       Handler: lib.handler
       Role: !GetAtt ProductMaterializeOpenSearchUpdateRole.Arn
@@ -2040,12 +2040,12 @@ Resources:
   ProductUpdateNotifyUserDlq:
     Type: AWS::SQS::Queue
     Properties:
-      QueueName: !Sub "product-lambda-update-notify-user-dlq-dev"
+      QueueName: "product-lambda-update-notify-user-dlq-dev"
       MessageRetentionPeriod: 1209600
   ProductUpdateNotifyUserQ:
     Type: AWS::SQS::Queue
     Properties:
-      QueueName: !Sub "product-lambda-update-notify-user-queue-dev"
+      QueueName: "product-lambda-update-notify-user-queue-dev"
       RedrivePolicy:
         deadLetterTargetArn: !GetAtt ProductUpdateNotifyUserDlq.Arn
         maxReceiveCount: 5
@@ -2053,7 +2053,7 @@ Resources:
   ProductUpdateNotifyUserRole:
     Type: AWS::IAM::Role
     Properties:
-      RoleName: !Sub "product-lambda-update-notify-user-role-dev"
+      RoleName: "product-lambda-update-notify-user-role-dev"
       AssumeRolePolicyDocument:
         Version: "2012-10-17"
         Statement:
@@ -2097,7 +2097,7 @@ Resources:
   ProductUpdateNotifyUserLambda:
     Type: AWS::Lambda::Function
     Properties:
-      FunctionName: !Sub "product-lambda-update-notify-user-dev"
+      FunctionName: "product-lambda-update-notify-user-dev"
       Runtime: provided.al2023
       Handler: lib.handler
       Role: !GetAtt ProductUpdateNotifyUserRole.Arn
@@ -2127,12 +2127,12 @@ Resources:
   UserLambdaFanoutUpdateWatchlistDlq:
     Type: AWS::SQS::Queue
     Properties:
-      QueueName: !Sub "user-lambda-fanout-update-watchlist-dlq-dev"
+      QueueName: "user-lambda-fanout-update-watchlist-dlq-dev"
       MessageRetentionPeriod: 1209600
   UserLambdaFanoutUpdateWatchlistQ:
     Type: AWS::SQS::Queue
     Properties:
-      QueueName: !Sub "user-lambda-fanout-update-watchlist-queue-dev"
+      QueueName: "user-lambda-fanout-update-watchlist-queue-dev"
       RedrivePolicy:
         deadLetterTargetArn: !GetAtt UserLambdaFanoutUpdateWatchlistDlq.Arn
         maxReceiveCount: 5
@@ -2140,7 +2140,7 @@ Resources:
   UserLambdaFanoutUpdateWatchlistRole:
     Type: AWS::IAM::Role
     Properties:
-      RoleName: !Sub "user-lambda-fanout-update-watchlist-role-dev"
+      RoleName: "user-lambda-fanout-update-watchlist-role-dev"
       AssumeRolePolicyDocument:
         Version: "2012-10-17"
         Statement:
@@ -2183,7 +2183,7 @@ Resources:
   UserLambdaFanoutUpdateWatchlistLambda:
     Type: AWS::Lambda::Function
     Properties:
-      FunctionName: !Sub "user-lambda-fanout-update-watchlist-dev"
+      FunctionName: "user-lambda-fanout-update-watchlist-dev"
       Runtime: provided.al2023
       Handler: lib.handler
       Role: !GetAtt UserLambdaFanoutUpdateWatchlistRole.Arn
@@ -2211,7 +2211,7 @@ Resources:
   DynamoDbProductEventRecordCreatedMaterializeDynamoDbProductRecordEventRule:
     Type: AWS::Events::Rule
     Properties:
-      Name: !Sub "ddb-product-mat-ddb-new-dev"
+      Name: "ddb-product-mat-ddb-new-dev"
       EventBusName: !Ref DynamoDbEventBus
       EventPattern:
         source:
@@ -2232,7 +2232,7 @@ Resources:
   DynamoDbProductEventRecordUpdatedMaterializeDynamoDbProductRecordEventRule:
     Type: AWS::Events::Rule
     Properties:
-      Name: !Sub "ddb-product-mat-ddb-update-dev"
+      Name: "ddb-product-mat-ddb-update-dev"
       EventBusName: !Ref DynamoDbEventBus
       EventPattern:
         source:
@@ -2254,7 +2254,7 @@ Resources:
   DynamoDbProductEventRecordCreatedMaterializeOpenSearchProductDocumentEventRule:
     Type: AWS::Events::Rule
     Properties:
-      Name: !Sub "ddb-product-mat-os-new-dev"
+      Name: "ddb-product-mat-os-new-dev"
       EventBusName: !Ref DynamoDbEventBus
       EventPattern:
         source:
@@ -2275,7 +2275,7 @@ Resources:
   DynamoDbProductEventRecordUpdatedMaterializeOpenSearchProductDocumentEventRule:
     Type: AWS::Events::Rule
     Properties:
-      Name: !Sub "ddb-product-mat-os-update-dev"
+      Name: "ddb-product-mat-os-update-dev"
       EventBusName: !Ref DynamoDbEventBus
       EventPattern:
         source:
@@ -2297,7 +2297,7 @@ Resources:
   DynamoDbProductEventRecordUpdatedNotifyUserEventRule:
     Type: AWS::Events::Rule
     Properties:
-      Name: !Sub "ddb-product-update-notify-user-dev"
+      Name: "ddb-product-update-notify-user-dev"
       EventBusName: !Ref DynamoDbEventBus
       EventPattern:
         source:
@@ -2319,7 +2319,7 @@ Resources:
   DynamoDbProductEventRecordCreatedProductEnrichmentEventRule:
     Type: AWS::Events::Rule
     Properties:
-      Name: !Sub "ddb-product-enrichment-dev"
+      Name: "ddb-product-enrichment-dev"
       EventBusName: !Ref DynamoDbEventBus
       EventPattern:
         source:
@@ -2340,7 +2340,7 @@ Resources:
   DynamoDbUserUpdatedFanoutWatchlistUpdateEventRule:
     Type: AWS::Events::Rule
     Properties:
-      Name: !Sub "ddb-user-update-fanout-watchlist-dev"
+      Name: "ddb-user-update-fanout-watchlist-dev"
       EventBusName: !Ref DynamoDbEventBus
       EventPattern:
         source:
@@ -2367,13 +2367,13 @@ Resources:
       EnableDnsHostnames: true
       Tags:
         - Key: Name
-          Value: !Sub "product-enrichment-vpc-dev"
+          Value: "product-enrichment-vpc-dev"
   ProductEnrichmentInternetGateway:
     Type: AWS::EC2::InternetGateway
     Properties:
       Tags:
         - Key: Name
-          Value: !Sub "product-enrichment-igw-dev"
+          Value: "product-enrichment-igw-dev"
   ProductEnrichmentVpcGatewayAttachment:
     Type: AWS::EC2::VPCGatewayAttachment
     Properties:
@@ -2385,7 +2385,7 @@ Resources:
       VpcId: !Ref ProductEnrichmentVpc
       Tags:
         - Key: Name
-          Value: !Sub "product-enrichment-public-rt-dev"
+          Value: "product-enrichment-public-rt-dev"
   ProductEnrichmentPublicRoute:
     Type: AWS::EC2::Route
     DependsOn: ProductEnrichmentVpcGatewayAttachment
@@ -2402,7 +2402,7 @@ Resources:
       AvailabilityZone: !Select [0, !GetAZs ""]
       Tags:
         - Key: Name
-          Value: !Sub "product-enrichment-subnet-a-dev"
+          Value: "product-enrichment-subnet-a-dev"
   ProductEnrichmentSubnetB:
     Type: AWS::EC2::Subnet
     Properties:
@@ -2412,7 +2412,7 @@ Resources:
       AvailabilityZone: !Select [1, !GetAZs ""]
       Tags:
         - Key: Name
-          Value: !Sub "product-enrichment-subnet-b-dev"
+          Value: "product-enrichment-subnet-b-dev"
   ProductEnrichmentSubnetRouteAssocA:
     Type: AWS::EC2::SubnetRouteTableAssociation
     Properties:
@@ -2433,17 +2433,17 @@ Resources:
           CidrIp: 0.0.0.0/0
       Tags:
         - Key: Name
-          Value: !Sub "product-enrichment-sg-dev"
+          Value: "product-enrichment-sg-dev"
 
   ProductEnrichmentDlq:
     Type: AWS::SQS::Queue
     Properties:
-      QueueName: !Sub "product-enrichment-dlq-dev"
+      QueueName: "product-enrichment-dlq-dev"
       MessageRetentionPeriod: 1209600
   ProductEnrichmentQ:
     Type: AWS::SQS::Queue
     Properties:
-      QueueName: !Sub "product-enrichment-queue-dev"
+      QueueName: "product-enrichment-queue-dev"
       RedrivePolicy:
         deadLetterTargetArn: !GetAtt ProductEnrichmentDlq.Arn
         maxReceiveCount: 3
@@ -2451,7 +2451,7 @@ Resources:
   ProductEnrichmentRole:
     Type: AWS::IAM::Role
     Properties:
-      RoleName: !Sub "product-enrichment-role-dev"
+      RoleName: "product-enrichment-role-dev"
       AssumeRolePolicyDocument:
         Version: "2012-10-17"
         Statement:
@@ -2526,13 +2526,13 @@ Resources:
   ProductEnrichmentInstanceProfile:
     Type: AWS::IAM::InstanceProfile
     Properties:
-      InstanceProfileName: !Sub "product-enrichment-profile-dev"
+      InstanceProfileName: "product-enrichment-profile-dev"
       Roles:
         - !Ref ProductEnrichmentRole
   ProductEnrichmentLaunchTemplate:
     Type: AWS::EC2::LaunchTemplate
     Properties:
-      LaunchTemplateName: !Sub "product-enrichment-template-dev"
+      LaunchTemplateName: "product-enrichment-template-dev"
       LaunchTemplateData:
         KeyName: !Ref Ec2KeyPairName
         IamInstanceProfile:
@@ -2550,7 +2550,7 @@ Resources:
           - ResourceType: instance
             Tags:
               - Key: Name
-                Value: !Sub "product-enrichment-dev"
+                Value: "product-enrichment-dev"
               - Key: Fleet
                 Value: product-enrichment
         UserData:
@@ -2595,7 +2595,7 @@ Resources:
           SpotAllocationStrategy: price-capacity-optimized
       Tags:
         - Key: Name
-          Value: !Sub "product-enrichment-dev"
+          Value: "product-enrichment-dev"
           PropagateAtLaunch: true
       HealthCheckType: EC2
       HealthCheckGracePeriod: 120
@@ -2603,7 +2603,7 @@ Resources:
   ProductEnrichmentScaleDownRole:
     Type: AWS::IAM::Role
     Properties:
-      RoleName: !Sub "product-enrichment-asg-scale-down-role-dev"
+      RoleName: "product-enrichment-asg-scale-down-role-dev"
       AssumeRolePolicyDocument:
         Version: "2012-10-17"
         Statement:
@@ -2634,7 +2634,7 @@ Resources:
   ProductEnrichmentScaleDownLambda:
     Type: AWS::Lambda::Function
     Properties:
-      FunctionName: !Sub "product-enrichment-asg-scale-down-dev"
+      FunctionName: "product-enrichment-asg-scale-down-dev"
       Runtime: provided.al2023
       Handler: lib.handler
       Role: !GetAtt ProductEnrichmentScaleDownRole.Arn
@@ -2675,7 +2675,7 @@ Resources:
   ProductEnrichmentScaleUpRole:
     Type: AWS::IAM::Role
     Properties:
-      RoleName: !Sub "product-enrichment-asg-scale-up-role-dev"
+      RoleName: "product-enrichment-asg-scale-up-role-dev"
       AssumeRolePolicyDocument:
         Version: "2012-10-17"
         Statement:
@@ -2706,7 +2706,7 @@ Resources:
   ProductEnrichmentScaleUpLambda:
     Type: AWS::Lambda::Function
     Properties:
-      FunctionName: !Sub "product-enrichment-asg-scale-up-dev"
+      FunctionName: "product-enrichment-asg-scale-up-dev"
       Runtime: provided.al2023
       Handler: lib.handler
       Role: !GetAtt ProductEnrichmentScaleUpRole.Arn
