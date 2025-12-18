@@ -78,9 +78,11 @@ async fn populate_shops() -> Vec<GetShopData> {
     let post_shop_url = format!("{}/api/v1/shops", stack.api_gateway_endpoint_url);
     let mut shops = vec![];
     for _ in 0..42 {
+        let mut post_shop_data = Faker.fake::<PostShopData>();
+        post_shop_data.domains.insert(Faker.fake());
         let shop = http
             .post(&post_shop_url)
-            .json(&Faker.fake::<PostShopData>())
+            .json(&post_shop_data)
             .send()
             .await
             .unwrap()
