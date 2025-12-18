@@ -1,0 +1,2838 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Description: Ephemeral Staging-Test Stack for the Aura-Historia Application-Backend
+
+Parameters:
+  StageName:
+    Type: String
+    Description: "Name of the ephemeral stage"
+  ArtifactBucket:
+    Type: String
+    Description: "S3 bucket containing Lambda deployment zips"
+  ResourceBucket:
+    Type: String
+    Description: "S3 bucket containing resources"
+  MailTemplateBucket:
+    Type: String
+    Description: "S3 bucket containing mail-templates"
+  CommitSHA:
+    Type: String
+  Ec2KeyPairName:
+    Type: AWS::EC2::KeyPair::KeyName
+    Description: "For EC2 SSH-Access"
+
+Resources:
+  PrimaryUserPool:
+    Type: AWS::Cognito::UserPool
+    Properties:
+      UserPoolName: !Sub "primary-userpool-${StageName}"
+      UsernameAttributes:
+        - email
+      AutoVerifiedAttributes:
+        - email
+      Policies:
+        PasswordPolicy:
+          MinimumLength: 8
+          RequireUppercase: true
+          RequireLowercase: true
+          RequireNumbers: true
+          RequireSymbols: true
+          TemporaryPasswordValidityDays: 7
+      UserPoolAddOns:
+        AdvancedSecurityMode: ENFORCED
+      VerificationMessageTemplate:
+        DefaultEmailOption: CONFIRM_WITH_CODE
+      EmailVerificationSubject: "Verify your email"
+      EmailVerificationMessage: "Your verification code is {####}"
+      Schema:
+        - Name: email
+          AttributeDataType: String
+          Mutable: false
+          Required: true
+      LambdaConfig:
+        PostConfirmation: !GetAtt PrimaryUserPoolPostConfirmationLambda.Arn
+
+  PrimaryUserPoolPostConfirmationLambdaRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Sub "cognito-primary-userpool-post-confirmation-role-${StageName}"
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: lambda.amazonaws.com
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole
+      Policies:
+        - PolicyName: DynamoDBAccess
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: Allow
+                Action:
+                  - dynamodb:PutItem
+                  - dynamodb:GetItem
+                Resource: !GetAtt TableOne.Arn
+  PrimaryUserPoolPostConfirmationLambda:
+    Type: AWS::Lambda::Function
+    Properties:
+      FunctionName: !Sub "cognito-primary-userpool-post-confirmation-${StageName}"
+      Runtime: provided.al2023
+      Handler: lib.handler
+      Role: !GetAtt PrimaryUserPoolPostConfirmationLambdaRole.Arn
+      Code:
+        S3Bucket: !Ref ArtifactBucket
+        S3Key: !Sub "cognito-post-confirmation-${StageName}-${CommitSHA}.zip"
+      MemorySize: 256
+      Timeout: 5
+      EphemeralStorage:
+        Size: 512
+      Environment:
+        Variables:
+          DYNAMODB_TABLE_NAME: !Ref TableOne
+  AllowCognitoInvokePrimaryUserPoolPostConfirmationLambda:
+    Type: AWS::Lambda::Permission
+    Properties:
+      Action: lambda:InvokeFunction
+      FunctionName: !Ref PrimaryUserPoolPostConfirmationLambda
+      Principal: cognito-idp.amazonaws.com
+      SourceArn: !GetAtt PrimaryUserPool.Arn
+
+  PrimaryUserPoolClientPublic:
+    Type: AWS::Cognito::UserPoolClient
+    Properties:
+      UserPoolId: !Ref PrimaryUserPool
+      ClientName: !Sub "primary-userpool-client-public-${StageName}"
+      GenerateSecret: false # PKCE replaces client secret
+      PreventUserExistenceErrors: ENABLED
+      AllowedOAuthFlowsUserPoolClient: true
+      AllowedOAuthFlows:
+        - code
+      AllowedOAuthScopes:
+        - openid
+        - email
+        - profile
+      SupportedIdentityProviders:
+        - COGNITO
+      CallbackURLs:
+        - http://localhost:3000
+      LogoutURLs:
+        - http://localhost:3000
+      EnableTokenRevocation: true
+      AccessTokenValidity: 1 # hours
+      IdTokenValidity: 1 # hours
+      RefreshTokenValidity: 30 # days
+      ReadAttributes:
+        - email
+        - email_verified
+  PrimaryUserPoolClientAdmin:
+    Type: AWS::Cognito::UserPoolClient
+    Properties:
+      UserPoolId: !Ref PrimaryUserPool
+      ClientName: !Sub "primary-userpool-client-admin-${StageName}"
+      GenerateSecret: false
+      PreventUserExistenceErrors: ENABLED
+      AllowedOAuthFlowsUserPoolClient: false
+      ExplicitAuthFlows:
+        - ALLOW_ADMIN_USER_PASSWORD_AUTH
+      EnableTokenRevocation: true
+      AccessTokenValidity: 1 # hours
+      IdTokenValidity: 1 # hours
+      RefreshTokenValidity: 30 # days
+      ReadAttributes:
+        - email
+      WriteAttributes:
+        - email
+  PrimaryUserPoolDomain:
+    Type: AWS::Cognito::UserPoolDomain
+    Properties:
+      Domain: !Sub "primary-userpool-${StageName}" # hosted UI domain
+      UserPoolId: !Ref PrimaryUserPool
+
+  TableOne:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      TableName: !Sub "table_1-${StageName}"
+      AttributeDefinitions:
+        - AttributeName: pk
+          AttributeType: S
+        - AttributeName: sk
+          AttributeType: S
+        - AttributeName: lsi1_sk
+          AttributeType: S
+        - AttributeName: gsi1_pk
+          AttributeType: S
+        - AttributeName: gsi1_sk
+          AttributeType: S
+      KeySchema:
+        - AttributeName: pk
+          KeyType: HASH
+        - AttributeName: sk
+          KeyType: RANGE
+      LocalSecondaryIndexes:
+        - IndexName: lsi1
+          KeySchema:
+            - AttributeName: pk
+              KeyType: HASH
+            - AttributeName: lsi1_sk
+              KeyType: RANGE
+          Projection:
+            ProjectionType: ALL
+      GlobalSecondaryIndexes:
+        - IndexName: gsi1
+          KeySchema:
+            - AttributeName: gsi1_pk
+              KeyType: HASH
+            - AttributeName: gsi1_sk
+              KeyType: RANGE
+          Projection:
+            ProjectionType: ALL
+      BillingMode: PAY_PER_REQUEST
+      TableClass: STANDARD
+      StreamSpecification:
+        StreamViewType: NEW_IMAGE
+
+  OpenSearchDomain:
+    Type: AWS::OpenSearchService::Domain
+    Properties:
+      DomainName: !Sub "application-${StageName}"
+      EngineVersion: "OpenSearch_3.1"
+      ClusterConfig:
+        InstanceType: t3.small.search
+        InstanceCount: 1
+        ZoneAwarenessEnabled: false
+      EBSOptions:
+        EBSEnabled: true
+        VolumeSize: 10
+        VolumeType: gp3
+      AccessPolicies:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              AWS: !Sub "arn:aws:iam::${AWS::AccountId}:root"
+            Action: "es:*"
+            Resource: !Sub "arn:aws:es:${AWS::Region}:${AWS::AccountId}:domain/application-${StageName}/*"
+
+  DynamoDbEventBus:
+    Type: AWS::Events::EventBus
+    Properties:
+      Name: !Sub "dynamodb-event-bus-${StageName}"
+  PipeRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Sub "dynamodb-to-eventbridge-pipe-role-${StageName}"
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: pipes.amazonaws.com
+            Action: sts:AssumeRole
+      Policies:
+        - PolicyName: PipePolicy
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: Allow
+                Action:
+                  - dynamodb:DescribeStream
+                  - dynamodb:GetRecords
+                  - dynamodb:GetShardIterator
+                  - dynamodb:ListStreams
+                Resource: "*"
+              - Effect: Allow
+                Action:
+                  - events:PutEvents
+                Resource: !GetAtt DynamoDbEventBus.Arn
+  TableOneStreamToEventBusPipe:
+    Type: AWS::Pipes::Pipe
+    Properties:
+      Name: !Sub "tableone-stream-to-eventbus-${StageName}"
+      RoleArn: !GetAtt PipeRole.Arn
+      Source: !GetAtt TableOne.StreamArn
+      SourceParameters:
+        DynamoDBStreamParameters:
+          StartingPosition: LATEST
+          BatchSize: 10
+          MaximumBatchingWindowInSeconds: 1
+        FilterCriteria:
+          Filters:
+            - Pattern: |
+                {
+                  "eventName": ["INSERT"],
+                  "dynamodb": {
+                    "NewImage": {
+                      "pk": {
+                        "S": [{ "prefix": "product#shop_id#" }]
+                      },
+                      "sk": {
+                        "S": [{ "prefix": "product#event#" }]
+                      }
+                    }
+                  }
+                }
+            - Pattern: |
+                {
+                  "eventName": ["MODIFY"],
+                  "dynamodb": {
+                    "NewImage": {
+                      "pk": {
+                        "S": [{ "prefix": "user#" }]
+                      },
+                      "sk": {
+                        "S": [ "user#details" ]
+                      }
+                    }
+                  }
+                }
+      Target: !GetAtt DynamoDbEventBus.Arn
+      TargetParameters:
+        EventBridgeEventBusParameters:
+          DetailType: "DynamoDBStreamRecord"
+          Source: !Ref TableOne
+
+  DynamoDbEventBusQueuePolicy:
+    Type: AWS::SQS::QueuePolicy
+    Properties:
+      Queues:
+        - !Ref ProductMaterializeDynamoDbNewQ
+        - !Ref ProductMaterializeDynamoDbUpdateQ
+        - !Ref ProductMaterializeOpenSearchNewQ
+        - !Ref ProductMaterializeOpenSearchUpdateQ
+        - !Ref ProductUpdateNotifyUserQ
+        - !Ref ProductEnrichmentQ
+        - !Ref UserLambdaFanoutUpdateWatchlistQ
+      PolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: events.amazonaws.com
+            Action: sqs:SendMessage
+            Resource:
+              - !GetAtt ProductMaterializeDynamoDbNewQ.Arn
+              - !GetAtt ProductMaterializeDynamoDbUpdateQ.Arn
+              - !GetAtt ProductMaterializeOpenSearchNewQ.Arn
+              - !GetAtt ProductMaterializeOpenSearchUpdateQ.Arn
+              - !GetAtt ProductUpdateNotifyUserQ.Arn
+              - !GetAtt ProductEnrichmentQ.Arn
+              - !GetAtt UserLambdaFanoutUpdateWatchlistQ.Arn
+
+  Api:
+    Type: AWS::ApiGatewayV2::Api
+    Properties:
+      Name: !Sub "api-${StageName}"
+      ProtocolType: HTTP
+      CorsConfiguration:
+        AllowOrigins:
+          - "*"
+        AllowMethods:
+          - GET
+          - POST
+          - PUT
+          - DELETE
+          - OPTIONS
+        AllowHeaders:
+          - "*"
+  ApiStage:
+    Type: AWS::ApiGatewayV2::Stage
+    Properties:
+      StageName: !Sub "${StageName}"
+      ApiId: !Ref Api
+      AutoDeploy: true
+      DefaultRouteSettings:
+        ThrottlingBurstLimit: 50
+        ThrottlingRateLimit: 20
+  ApiCognitoAuthorizer:
+    Type: AWS::ApiGatewayV2::Authorizer
+    Properties:
+      ApiId: !Ref Api
+      Name: CognitoJwtAuthorizer
+      AuthorizerType: JWT
+      IdentitySource:
+        - "$request.header.Authorization"
+      JwtConfiguration:
+        Issuer: !Sub "https://cognito-idp.${AWS::Region}.amazonaws.com/${PrimaryUserPool}"
+        Audience:
+          - !Ref PrimaryUserPoolClientPublic
+          - !Ref PrimaryUserPoolClientAdmin
+
+  ApiGetProductRoute:
+    Type: AWS::ApiGatewayV2::Route
+    Properties:
+      ApiId: !Ref Api
+      RouteKey: "GET /api/v1/products/{shopId}/{shopsProductId}"
+      Target: !Sub "integrations/${ApiGetProductLambdaIntegration}"
+  ApiGetProductLambdaIntegration:
+    Type: AWS::ApiGatewayV2::Integration
+    Properties:
+      ApiId: !Ref Api
+      IntegrationType: AWS_PROXY
+      IntegrationUri: !Sub "arn:aws:lambda:${AWS::Region}:${AWS::AccountId}:function:${ApiGetProductLambda}"
+      PayloadFormatVersion: "2.0"
+  ApiGetProductRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Sub "api-get-product-role-${StageName}"
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: lambda.amazonaws.com
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole
+      Policies:
+        - PolicyName: DynamoDBAccess
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: Allow
+                Action:
+                  - dynamodb:GetItem
+                  - dynamodb:BatchGetItem
+                  - dynamodb:Query
+                Resource: !GetAtt TableOne.Arn
+  ApiGetProductLambda:
+    Type: AWS::Lambda::Function
+    Properties:
+      FunctionName: !Sub "api-get-product-${StageName}"
+      Runtime: provided.al2023
+      Handler: lib.handler
+      Role: !GetAtt ApiGetProductRole.Arn
+      Code:
+        S3Bucket: !Ref ArtifactBucket
+        S3Key: !Sub "product-api-get-product-${StageName}-${CommitSHA}.zip"
+      MemorySize: 512
+      Timeout: 10
+      EphemeralStorage:
+        Size: 512
+      Environment:
+        Variables:
+          DYNAMODB_TABLE_NAME: !Ref TableOne
+          USER_POOL_ID: !Ref PrimaryUserPool
+          USER_POOL_PUBLIC_CLIENT_ID: !Ref PrimaryUserPoolClientPublic
+          USER_POOL_ADMIN_CLIENT_ID: !Ref PrimaryUserPoolClientAdmin
+  ApiGetProductLambdaPermission:
+    Type: AWS::Lambda::Permission
+    Properties:
+      Action: lambda:InvokeFunction
+      FunctionName: !Ref ApiGetProductLambda
+      Principal: apigateway.amazonaws.com
+      SourceArn: !Sub "arn:aws:execute-api:${AWS::Region}:${AWS::AccountId}:${Api}/*/*/api/v1/products/*/*"
+
+  ApiPutProductsRoute:
+    Type: AWS::ApiGatewayV2::Route
+    Properties:
+      ApiId: !Ref Api
+      RouteKey: "PUT /api/v1/products"
+      Target: !Sub "integrations/${ApiPutProductsLambdaIntegration}"
+  ApiPutProductsLambdaIntegration:
+    Type: AWS::ApiGatewayV2::Integration
+    Properties:
+      ApiId: !Ref Api
+      IntegrationType: AWS_PROXY
+      IntegrationUri: !Sub "arn:aws:lambda:${AWS::Region}:${AWS::AccountId}:function:${ApiPutProductsLambda}"
+      PayloadFormatVersion: "2.0"
+  ApiPutProductsRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Sub "api-put-products-role-${StageName}"
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: lambda.amazonaws.com
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole
+      Policies:
+        - PolicyName: DynamoDBAccess
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: Allow
+                Action:
+                  - dynamodb:GetItem
+                  - dynamodb:BatchGetItem
+                  - dynamodb:Query
+                Resource: !GetAtt TableOne.Arn
+        - PolicyName: SQSSendMessage
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: Allow
+                Action:
+                  - sqs:SendMessage
+                Resource: !GetAtt ProductIngestEventsDynamoDbQ.Arn
+  ApiPutProductsLambda:
+    Type: AWS::Lambda::Function
+    Properties:
+      FunctionName: !Sub "api-put-products-${StageName}"
+      Runtime: provided.al2023
+      Handler: lib.handler
+      Role: !GetAtt ApiPutProductsRole.Arn
+      Code:
+        S3Bucket: !Ref ArtifactBucket
+        S3Key: !Sub "product-api-put-products-${StageName}-${CommitSHA}.zip"
+      MemorySize: 1024
+      Timeout: 60
+      EphemeralStorage:
+        Size: 512
+      Environment:
+        Variables:
+          DYNAMODB_TABLE_NAME: !Ref TableOne
+          INGEST_PRODUCT_EVENTS_QUEUE_URL: !Ref ProductIngestEventsDynamoDbQ
+  ApiPutProductsLambdaPermission:
+    Type: AWS::Lambda::Permission
+    Properties:
+      Action: lambda:InvokeFunction
+      FunctionName: !Ref ApiPutProductsLambda
+      Principal: apigateway.amazonaws.com
+      SourceArn: !Sub "arn:aws:execute-api:${AWS::Region}:${AWS::AccountId}:${Api}/*/*/api/v1/products"
+
+  ApiProductSearchRoute:
+    Type: AWS::ApiGatewayV2::Route
+    Properties:
+      ApiId: !Ref Api
+      RouteKey: "POST /api/v1/products/search"
+      Target: !Sub "integrations/${ApiProductSearchLambdaIntegration}"
+  ApiProductSearchLambdaIntegration:
+    Type: AWS::ApiGatewayV2::Integration
+    Properties:
+      ApiId: !Ref Api
+      IntegrationType: AWS_PROXY
+      IntegrationUri: !Sub "arn:aws:lambda:${AWS::Region}:${AWS::AccountId}:function:${ApiProductSearchLambda}"
+      PayloadFormatVersion: "2.0"
+  ApiProductSearchRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Sub "api-product-search-role-${StageName}"
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: lambda.amazonaws.com
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole
+      Policies:
+        - PolicyName: OpenSearchReadOnly
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: Allow
+                Action:
+                  - es:Describe*
+                  - es:List*
+                  - es:ESHttpGet
+                  - es:ESHttpHead
+                  - es:ESHttpPost
+                Resource: !Sub "${OpenSearchDomain.Arn}/*"
+        - PolicyName: DynamoDBAccess
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: Allow
+                Action:
+                  - dynamodb:GetItem
+                  - dynamodb:BatchGetItem
+                  - dynamodb:Query
+                Resource: !GetAtt TableOne.Arn
+  ApiProductSearchLambda:
+    Type: AWS::Lambda::Function
+    Properties:
+      FunctionName: !Sub "api-product-search-${StageName}"
+      Runtime: provided.al2023
+      Handler: lib.handler
+      Role: !GetAtt ApiProductSearchRole.Arn
+      Code:
+        S3Bucket: !Ref ArtifactBucket
+        S3Key: !Sub "product-api-search-${StageName}-${CommitSHA}.zip"
+      MemorySize: 512
+      Timeout: 10
+      EphemeralStorage:
+        Size: 512
+      Environment:
+        Variables:
+          OPENSEARCH_ENDPOINT_URL: !Sub "https://${OpenSearchDomain.DomainEndpoint}"
+          STAGE: "ephemeral"
+          DYNAMODB_TABLE_NAME: !Ref TableOne
+          USER_POOL_ID: !Ref PrimaryUserPool
+          USER_POOL_PUBLIC_CLIENT_ID: !Ref PrimaryUserPoolClientPublic
+          USER_POOL_ADMIN_CLIENT_ID: !Ref PrimaryUserPoolClientAdmin
+  ApiProductSearchLambdaPermission:
+    Type: AWS::Lambda::Permission
+    Properties:
+      Action: lambda:InvokeFunction
+      FunctionName: !Ref ApiProductSearchLambda
+      Principal: apigateway.amazonaws.com
+      SourceArn: !Sub "arn:aws:execute-api:${AWS::Region}:${AWS::AccountId}:${Api}/*/*/api/v1/products/search*"
+
+  ApiProductSimilaritySearchRoute:
+    Type: AWS::ApiGatewayV2::Route
+    Properties:
+      ApiId: !Ref Api
+      RouteKey: "GET /api/v1/products/{shopId}/{shopsProductId}/similar"
+      Target: !Sub "integrations/${ApiProductSimilaritySearchLambdaIntegration}"
+  ApiProductSimilaritySearchLambdaIntegration:
+    Type: AWS::ApiGatewayV2::Integration
+    Properties:
+      ApiId: !Ref Api
+      IntegrationType: AWS_PROXY
+      IntegrationUri: !Sub "arn:aws:lambda:${AWS::Region}:${AWS::AccountId}:function:${ApiProductSimilaritySearchLambda}"
+      PayloadFormatVersion: "2.0"
+  ApiProductSimilaritySearchRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Sub "api-product-similarity-search-role-${StageName}"
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: lambda.amazonaws.com
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole
+      Policies:
+        - PolicyName: OpenSearchReadOnly
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: Allow
+                Action:
+                  - es:Describe*
+                  - es:List*
+                  - es:ESHttpGet
+                  - es:ESHttpHead
+                  - es:ESHttpPost
+                Resource: !Sub "${OpenSearchDomain.Arn}/*"
+        - PolicyName: DynamoDBAccess
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: Allow
+                Action:
+                  - dynamodb:GetItem
+                  - dynamodb:BatchGetItem
+                  - dynamodb:Query
+                Resource: !GetAtt TableOne.Arn
+  ApiProductSimilaritySearchLambda:
+    Type: AWS::Lambda::Function
+    Properties:
+      FunctionName: !Sub "api-product-similarity-search-${StageName}"
+      Runtime: provided.al2023
+      Handler: lib.handler
+      Role: !GetAtt ApiProductSimilaritySearchRole.Arn
+      Code:
+        S3Bucket: !Ref ArtifactBucket
+        S3Key: !Sub "product-api-get-product-similar-${StageName}-${CommitSHA}.zip"
+      MemorySize: 512
+      Timeout: 10
+      EphemeralStorage:
+        Size: 512
+      Environment:
+        Variables:
+          OPENSEARCH_ENDPOINT_URL: !Sub "https://${OpenSearchDomain.DomainEndpoint}"
+          STAGE: "ephemeral"
+          DYNAMODB_TABLE_NAME: !Ref TableOne
+          USER_POOL_ID: !Ref PrimaryUserPool
+          USER_POOL_PUBLIC_CLIENT_ID: !Ref PrimaryUserPoolClientPublic
+          USER_POOL_ADMIN_CLIENT_ID: !Ref PrimaryUserPoolClientAdmin
+  ApiProductSimilaritySearchLambdaPermission:
+    Type: AWS::Lambda::Permission
+    Properties:
+      Action: lambda:InvokeFunction
+      FunctionName: !Ref ApiProductSimilaritySearchLambda
+      Principal: apigateway.amazonaws.com
+      SourceArn: !Sub "arn:aws:execute-api:${AWS::Region}:${AWS::AccountId}:${Api}/*/*/api/v1/products/*/*/*"
+
+  ApiGetWatchlistProductsRoute:
+    Type: AWS::ApiGatewayV2::Route
+    Properties:
+      ApiId: !Ref Api
+      RouteKey: "GET /api/v1/me/watchlist"
+      AuthorizationType: JWT
+      AuthorizerId: !Ref ApiCognitoAuthorizer
+      Target: !Sub "integrations/${ApiGetWatchlistProductsLambdaIntegration}"
+  ApiGetWatchlistProductsLambdaIntegration:
+    Type: AWS::ApiGatewayV2::Integration
+    Properties:
+      ApiId: !Ref Api
+      IntegrationType: AWS_PROXY
+      IntegrationUri: !Sub "arn:aws:lambda:${AWS::Region}:${AWS::AccountId}:function:${ApiGetWatchlistProductsLambda}"
+      PayloadFormatVersion: "2.0"
+  ApiGetWatchlistProductsRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Sub "api-get-watchlist-products-role-${StageName}"
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: lambda.amazonaws.com
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole
+      Policies:
+        - PolicyName: DynamoDBAccess
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: Allow
+                Action:
+                  - dynamodb:GetItem
+                  - dynamodb:BatchGetItem
+                  - dynamodb:Query
+                Resource:
+                  - !GetAtt TableOne.Arn
+                  - !Sub "${TableOne.Arn}/index/*"
+  ApiGetWatchlistProductsLambda:
+    Type: AWS::Lambda::Function
+    Properties:
+      FunctionName: !Sub "api-get-watchlist-products-${StageName}"
+      Runtime: provided.al2023
+      Handler: lib.handler
+      Role: !GetAtt ApiGetWatchlistProductsRole.Arn
+      Code:
+        S3Bucket: !Ref ArtifactBucket
+        S3Key: !Sub "product-api-watchlist-get-${StageName}-${CommitSHA}.zip"
+      MemorySize: 512
+      Timeout: 10
+      EphemeralStorage:
+        Size: 512
+      Environment:
+        Variables:
+          DYNAMODB_TABLE_NAME: !Ref TableOne
+  ApiGetWatchlistProductsLambdaPermission:
+    Type: AWS::Lambda::Permission
+    Properties:
+      Action: lambda:InvokeFunction
+      FunctionName: !Ref ApiGetWatchlistProductsLambda
+      Principal: apigateway.amazonaws.com
+      SourceArn: !Sub "arn:aws:execute-api:${AWS::Region}:${AWS::AccountId}:${Api}/*/*/api/v1/me/watchlist*"
+
+  ApiDeleteWatchlistProductRoute:
+    Type: AWS::ApiGatewayV2::Route
+    Properties:
+      ApiId: !Ref Api
+      RouteKey: "DELETE /api/v1/me/watchlist/{shopId}/{shopsProductId}"
+      AuthorizationType: JWT
+      AuthorizerId: !Ref ApiCognitoAuthorizer
+      Target: !Sub "integrations/${ApiDeleteWatchlistLambdaIntegration}"
+  ApiDeleteWatchlistLambdaIntegration:
+    Type: AWS::ApiGatewayV2::Integration
+    Properties:
+      ApiId: !Ref Api
+      IntegrationType: AWS_PROXY
+      IntegrationUri: !Sub "arn:aws:lambda:${AWS::Region}:${AWS::AccountId}:function:${ApiDeleteWatchlistLambda}"
+      PayloadFormatVersion: "2.0"
+  ApiDeleteWatchlistProductRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Sub "api-delete-watchlist-product-role-${StageName}"
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: lambda.amazonaws.com
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole
+      Policies:
+        - PolicyName: DynamoDBAccess
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: Allow
+                Action:
+                  - dynamodb:GetItem
+                  - dynamodb:BatchGetItem
+                  - dynamodb:Query
+                  - dynamodb:DeleteItem
+                Resource: !GetAtt TableOne.Arn
+  ApiDeleteWatchlistLambda:
+    Type: AWS::Lambda::Function
+    Properties:
+      FunctionName: !Sub "api-delete-watchlist-product-${StageName}"
+      Runtime: provided.al2023
+      Handler: lib.handler
+      Role: !GetAtt ApiDeleteWatchlistProductRole.Arn
+      Code:
+        S3Bucket: !Ref ArtifactBucket
+        S3Key: !Sub "product-api-watchlist-delete-${StageName}-${CommitSHA}.zip"
+      MemorySize: 512
+      Timeout: 10
+      EphemeralStorage:
+        Size: 512
+      Environment:
+        Variables:
+          DYNAMODB_TABLE_NAME: !Ref TableOne
+  ApiDeleteWatchlistLambdaPermission:
+    Type: AWS::Lambda::Permission
+    Properties:
+      Action: lambda:InvokeFunction
+      FunctionName: !Ref ApiDeleteWatchlistLambda
+      Principal: apigateway.amazonaws.com
+      SourceArn: !Sub "arn:aws:execute-api:${AWS::Region}:${AWS::AccountId}:${Api}/*/*/api/v1/me/watchlist/*/*"
+
+  ApiPostWatchlistProductRoute:
+    Type: AWS::ApiGatewayV2::Route
+    Properties:
+      ApiId: !Ref Api
+      RouteKey: "POST /api/v1/me/watchlist"
+      AuthorizationType: JWT
+      AuthorizerId: !Ref ApiCognitoAuthorizer
+      Target: !Sub "integrations/${ApiPostWatchlistLambdaIntegration}"
+  ApiPostWatchlistLambdaIntegration:
+    Type: AWS::ApiGatewayV2::Integration
+    Properties:
+      ApiId: !Ref Api
+      IntegrationType: AWS_PROXY
+      IntegrationUri: !Sub "arn:aws:lambda:${AWS::Region}:${AWS::AccountId}:function:${ApiPostWatchlistLambda}"
+      PayloadFormatVersion: "2.0"
+  ApiPostWatchlistProductRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Sub "api-post-watchlist-product-role-${StageName}"
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: lambda.amazonaws.com
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole
+      Policies:
+        - PolicyName: DynamoDBAccess
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: Allow
+                Action:
+                  - dynamodb:GetItem
+                  - dynamodb:BatchGetItem
+                  - dynamodb:Query
+                  - dynamodb:PutItem
+                Resource: !GetAtt TableOne.Arn
+  ApiPostWatchlistLambda:
+    Type: AWS::Lambda::Function
+    Properties:
+      FunctionName: !Sub "api-post-watchlist-product-${StageName}"
+      Runtime: provided.al2023
+      Handler: lib.handler
+      Role: !GetAtt ApiPostWatchlistProductRole.Arn
+      Code:
+        S3Bucket: !Ref ArtifactBucket
+        S3Key: !Sub "product-api-watchlist-post-${StageName}-${CommitSHA}.zip"
+      MemorySize: 512
+      Timeout: 10
+      EphemeralStorage:
+        Size: 512
+      Environment:
+        Variables:
+          DYNAMODB_TABLE_NAME: !Ref TableOne
+  ApiPostWatchlistLambdaPermission:
+    Type: AWS::Lambda::Permission
+    Properties:
+      Action: lambda:InvokeFunction
+      FunctionName: !Ref ApiPostWatchlistLambda
+      Principal: apigateway.amazonaws.com
+      SourceArn: !Sub "arn:aws:execute-api:${AWS::Region}:${AWS::AccountId}:${Api}/*/*/api/v1/me/watchlist"
+
+  ApiPatchWatchlistProductRoute:
+    Type: AWS::ApiGatewayV2::Route
+    Properties:
+      ApiId: !Ref Api
+      RouteKey: "PATCH /api/v1/me/watchlist/{shopId}/{shopsProductId}"
+      AuthorizationType: JWT
+      AuthorizerId: !Ref ApiCognitoAuthorizer
+      Target: !Sub "integrations/${ApiPatchWatchlistLambdaIntegration}"
+  ApiPatchWatchlistLambdaIntegration:
+    Type: AWS::ApiGatewayV2::Integration
+    Properties:
+      ApiId: !Ref Api
+      IntegrationType: AWS_PROXY
+      IntegrationUri: !Sub "arn:aws:lambda:${AWS::Region}:${AWS::AccountId}:function:${ApiPatchWatchlistLambda}"
+      PayloadFormatVersion: "2.0"
+  ApiPatchWatchlistProductRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Sub "api-patch-watchlist-product-role-${StageName}"
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: lambda.amazonaws.com
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole
+      Policies:
+        - PolicyName: DynamoDBAccess
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: Allow
+                Action:
+                  - dynamodb:GetItem
+                  - dynamodb:UpdateItem
+                Resource: !GetAtt TableOne.Arn
+  ApiPatchWatchlistLambda:
+    Type: AWS::Lambda::Function
+    Properties:
+      FunctionName: !Sub "api-patch-watchlist-product-${StageName}"
+      Runtime: provided.al2023
+      Handler: lib.handler
+      Role: !GetAtt ApiPatchWatchlistProductRole.Arn
+      Code:
+        S3Bucket: !Ref ArtifactBucket
+        S3Key: !Sub "product-api-watchlist-patch-${StageName}-${CommitSHA}.zip"
+      MemorySize: 256
+      Timeout: 10
+      EphemeralStorage:
+        Size: 512
+      Environment:
+        Variables:
+          DYNAMODB_TABLE_NAME: !Ref TableOne
+  ApiPatchWatchlistLambdaPermission:
+    Type: AWS::Lambda::Permission
+    Properties:
+      Action: lambda:InvokeFunction
+      FunctionName: !Ref ApiPatchWatchlistLambda
+      Principal: apigateway.amazonaws.com
+      SourceArn: !Sub "arn:aws:execute-api:${AWS::Region}:${AWS::AccountId}:${Api}/*/*/api/v1/me/watchlist/*/*"
+
+  ApiGetUserAccountRoute:
+    Type: AWS::ApiGatewayV2::Route
+    Properties:
+      ApiId: !Ref Api
+      RouteKey: "GET /api/v1/me/account"
+      AuthorizationType: JWT
+      AuthorizerId: !Ref ApiCognitoAuthorizer
+      Target: !Sub "integrations/${ApiGetUserAccountLambdaIntegration}"
+  ApiGetUserAccountLambdaIntegration:
+    Type: AWS::ApiGatewayV2::Integration
+    Properties:
+      ApiId: !Ref Api
+      IntegrationType: AWS_PROXY
+      IntegrationUri: !Sub "arn:aws:lambda:${AWS::Region}:${AWS::AccountId}:function:${ApiGetUserAccountLambda}"
+      PayloadFormatVersion: "2.0"
+  ApiGetUserAccountRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Sub "api-user-get-account-role-${StageName}"
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: lambda.amazonaws.com
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole
+      Policies:
+        - PolicyName: DynamoDBAccess
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: Allow
+                Action:
+                  - dynamodb:GetItem
+                  - dynamodb:BatchGetItem
+                  - dynamodb:Query
+                Resource:
+                  - !GetAtt TableOne.Arn
+                  - !Sub "${TableOne.Arn}/index/*"
+  ApiGetUserAccountLambda:
+    Type: AWS::Lambda::Function
+    Properties:
+      FunctionName: !Sub "api-user-get-account-${StageName}"
+      Runtime: provided.al2023
+      Handler: lib.handler
+      Role: !GetAtt ApiGetUserAccountRole.Arn
+      Code:
+        S3Bucket: !Ref ArtifactBucket
+        S3Key: !Sub "user-api-get-account-${StageName}-${CommitSHA}.zip"
+      MemorySize: 512
+      Timeout: 10
+      EphemeralStorage:
+        Size: 512
+      Environment:
+        Variables:
+          DYNAMODB_TABLE_NAME: !Ref TableOne
+  ApiGetUserAccountLambdaPermission:
+    Type: AWS::Lambda::Permission
+    Properties:
+      Action: lambda:InvokeFunction
+      FunctionName: !Ref ApiGetUserAccountLambda
+      Principal: apigateway.amazonaws.com
+      SourceArn: !Sub "arn:aws:execute-api:${AWS::Region}:${AWS::AccountId}:${Api}/*/*/api/v1/me/account*"
+
+  ApiPatchUserAccountRoute:
+    Type: AWS::ApiGatewayV2::Route
+    Properties:
+      ApiId: !Ref Api
+      RouteKey: "PATCH /api/v1/me/account"
+      AuthorizationType: JWT
+      AuthorizerId: !Ref ApiCognitoAuthorizer
+      Target: !Sub "integrations/${ApiPatchUserAccountLambdaIntegration}"
+  ApiPatchUserAccountLambdaIntegration:
+    Type: AWS::ApiGatewayV2::Integration
+    Properties:
+      ApiId: !Ref Api
+      IntegrationType: AWS_PROXY
+      IntegrationUri: !Sub "arn:aws:lambda:${AWS::Region}:${AWS::AccountId}:function:${ApiPatchUserAccountLambda}"
+      PayloadFormatVersion: "2.0"
+  ApiPatchUserAccountRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Sub "api-patch-user-account-role-${StageName}"
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: lambda.amazonaws.com
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole
+      Policies:
+        - PolicyName: DynamoDBAccess
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: Allow
+                Action:
+                  - dynamodb:GetItem
+                  - dynamodb:UpdateItem
+                Resource: !GetAtt TableOne.Arn
+  ApiPatchUserAccountLambda:
+    Type: AWS::Lambda::Function
+    Properties:
+      FunctionName: !Sub "api-patch-user-account-${StageName}"
+      Runtime: provided.al2023
+      Handler: lib.handler
+      Role: !GetAtt ApiPatchUserAccountRole.Arn
+      Code:
+        S3Bucket: !Ref ArtifactBucket
+        S3Key: !Sub "user-api-patch-account-${StageName}-${CommitSHA}.zip"
+      MemorySize: 256
+      Timeout: 10
+      EphemeralStorage:
+        Size: 512
+      Environment:
+        Variables:
+          DYNAMODB_TABLE_NAME: !Ref TableOne
+  ApiPatchUserAccountLambdaPermission:
+    Type: AWS::Lambda::Permission
+    Properties:
+      Action: lambda:InvokeFunction
+      FunctionName: !Ref ApiPatchUserAccountLambda
+      Principal: apigateway.amazonaws.com
+      SourceArn: !Sub "arn:aws:execute-api:${AWS::Region}:${AWS::AccountId}:${Api}/*/*/api/v1/me/account*"
+
+  ApiGetShopRoute:
+    Type: AWS::ApiGatewayV2::Route
+    Properties:
+      ApiId: !Ref Api
+      RouteKey: "GET /api/v1/shops/{shopIdentifier}"
+      Target: !Sub "integrations/${ApiGetShopLambdaIntegration}"
+  ApiGetShopLambdaIntegration:
+    Type: AWS::ApiGatewayV2::Integration
+    Properties:
+      ApiId: !Ref Api
+      IntegrationType: AWS_PROXY
+      IntegrationUri: !Sub "arn:aws:lambda:${AWS::Region}:${AWS::AccountId}:function:${ApiGetShopLambda}"
+      PayloadFormatVersion: "2.0"
+  ApiGetShopRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Sub "api-get-shop-role-${StageName}"
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: lambda.amazonaws.com
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole
+      Policies:
+        - PolicyName: DynamoDBAccess
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: Allow
+                Action:
+                  - dynamodb:GetItem
+                  - dynamodb:BatchGetItem
+                  - dynamodb:Query
+                Resource: !GetAtt TableOne.Arn
+  ApiGetShopLambda:
+    Type: AWS::Lambda::Function
+    Properties:
+      FunctionName: !Sub "api-get-shop-${StageName}"
+      Runtime: provided.al2023
+      Handler: lib.handler
+      Role: !GetAtt ApiGetShopRole.Arn
+      Code:
+        S3Bucket: !Ref ArtifactBucket
+        S3Key: !Sub "shop-api-get-shop-${StageName}-${CommitSHA}.zip"
+      MemorySize: 512
+      Timeout: 10
+      EphemeralStorage:
+        Size: 512
+      Environment:
+        Variables:
+          DYNAMODB_TABLE_NAME: !Ref TableOne
+  ApiGetShopLambdaPermission:
+    Type: AWS::Lambda::Permission
+    Properties:
+      Action: lambda:InvokeFunction
+      FunctionName: !Ref ApiGetShopLambda
+      Principal: apigateway.amazonaws.com
+      SourceArn: !Sub "arn:aws:execute-api:${AWS::Region}:${AWS::AccountId}:${Api}/*/*/api/v1/shops/*"
+
+  ApiPatchShopRoute:
+    Type: AWS::ApiGatewayV2::Route
+    Properties:
+      ApiId: !Ref Api
+      RouteKey: "PATCH /api/v1/shops/{shopIdentifier}"
+      Target: !Sub "integrations/${ApiPatchShopLambdaIntegration}"
+  ApiPatchShopLambdaIntegration:
+    Type: AWS::ApiGatewayV2::Integration
+    Properties:
+      ApiId: !Ref Api
+      IntegrationType: AWS_PROXY
+      IntegrationUri: !Sub "arn:aws:lambda:${AWS::Region}:${AWS::AccountId}:function:${ApiPatchShopLambda}"
+      PayloadFormatVersion: "2.0"
+  ApiPatchShopRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Sub "api-patch-shop-role-${StageName}"
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: lambda.amazonaws.com
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole
+      Policies:
+        - PolicyName: DynamoDBAccess
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: Allow
+                Action:
+                  - dynamodb:Query
+                  - dynamodb:GetItem
+                  - dynamodb:PutItem
+                  - dynamodb:UpdateItem
+                  - dynamodb:DeleteItem
+                  - dynamodb:BatchGetItem
+                  - dynamodb:BatchWriteItem
+                  - dynamodb:TransactGetItems
+                  - dynamodb:TransactWriteItems
+                Resource: !GetAtt TableOne.Arn
+  ApiPatchShopLambda:
+    Type: AWS::Lambda::Function
+    Properties:
+      FunctionName: !Sub "api-patch-shop-${StageName}"
+      Runtime: provided.al2023
+      Handler: lib.handler
+      Role: !GetAtt ApiPatchShopRole.Arn
+      Code:
+        S3Bucket: !Ref ArtifactBucket
+        S3Key: !Sub "shop-api-patch-shop-${StageName}-${CommitSHA}.zip"
+      MemorySize: 512
+      Timeout: 10
+      EphemeralStorage:
+        Size: 512
+      Environment:
+        Variables:
+          DYNAMODB_TABLE_NAME: !Ref TableOne
+  ApiPatchShopLambdaPermission:
+    Type: AWS::Lambda::Permission
+    Properties:
+      Action: lambda:InvokeFunction
+      FunctionName: !Ref ApiPatchShopLambda
+      Principal: apigateway.amazonaws.com
+      SourceArn: !Sub "arn:aws:execute-api:${AWS::Region}:${AWS::AccountId}:${Api}/*/*/api/v1/shops/*"
+
+  ApiPostShopRoute:
+    Type: AWS::ApiGatewayV2::Route
+    Properties:
+      ApiId: !Ref Api
+      RouteKey: "POST /api/v1/shops"
+      Target: !Sub "integrations/${ApiPostShopLambdaIntegration}"
+  ApiPostShopLambdaIntegration:
+    Type: AWS::ApiGatewayV2::Integration
+    Properties:
+      ApiId: !Ref Api
+      IntegrationType: AWS_PROXY
+      IntegrationUri: !Sub "arn:aws:lambda:${AWS::Region}:${AWS::AccountId}:function:${ApiPostShopLambda}"
+      PayloadFormatVersion: "2.0"
+  ApiPostShopRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Sub "api-post-shop-role-${StageName}"
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: lambda.amazonaws.com
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole
+      Policies:
+        - PolicyName: DynamoDBAccess
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: Allow
+                Action:
+                  - dynamodb:Query
+                  - dynamodb:GetItem
+                  - dynamodb:PutItem
+                  - dynamodb:BatchGetItem
+                  - dynamodb:BatchWriteItem
+                  - dynamodb:TransactGetItems
+                  - dynamodb:TransactWriteItems
+                Resource: !GetAtt TableOne.Arn
+  ApiPostShopLambda:
+    Type: AWS::Lambda::Function
+    Properties:
+      FunctionName: !Sub "api-post-shop-${StageName}"
+      Runtime: provided.al2023
+      Handler: lib.handler
+      Role: !GetAtt ApiPostShopRole.Arn
+      Code:
+        S3Bucket: !Ref ArtifactBucket
+        S3Key: !Sub "shop-api-post-shop-${StageName}-${CommitSHA}.zip"
+      MemorySize: 512
+      Timeout: 10
+      EphemeralStorage:
+        Size: 512
+      Environment:
+        Variables:
+          DYNAMODB_TABLE_NAME: !Ref TableOne
+  ApiPostShopLambdaPermission:
+    Type: AWS::Lambda::Permission
+    Properties:
+      Action: lambda:InvokeFunction
+      FunctionName: !Ref ApiPostShopLambda
+      Principal: apigateway.amazonaws.com
+      SourceArn: !Sub "arn:aws:execute-api:${AWS::Region}:${AWS::AccountId}:${Api}/*/*/api/v1/shops"
+
+  ApiShopSearchRoute:
+    Type: AWS::ApiGatewayV2::Route
+    Properties:
+      ApiId: !Ref Api
+      RouteKey: "POST /api/v1/shops/search"
+      Target: !Sub "integrations/${ApiShopSearchLambdaIntegration}"
+  ApiShopSearchLambdaIntegration:
+    Type: AWS::ApiGatewayV2::Integration
+    Properties:
+      ApiId: !Ref Api
+      IntegrationType: AWS_PROXY
+      IntegrationUri: !Sub "arn:aws:lambda:${AWS::Region}:${AWS::AccountId}:function:${ApiShopSearchLambda}"
+      PayloadFormatVersion: "2.0"
+  ApiShopSearchRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Sub "api-shop-search-role-${StageName}"
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: lambda.amazonaws.com
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole
+      Policies:
+        - PolicyName: OpenSearchReadOnly
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: Allow
+                Action:
+                  - es:Describe*
+                  - es:List*
+                  - es:ESHttpGet
+                  - es:ESHttpHead
+                  - es:ESHttpPost
+                Resource: !Sub "${OpenSearchDomain.Arn}/*"
+  ApiShopSearchLambda:
+    Type: AWS::Lambda::Function
+    Properties:
+      FunctionName: !Sub "api-shop-search-${StageName}"
+      Runtime: provided.al2023
+      Handler: lib.handler
+      Role: !GetAtt ApiShopSearchRole.Arn
+      Code:
+        S3Bucket: !Ref ArtifactBucket
+        S3Key: !Sub "shop-api-search-${StageName}-${CommitSHA}.zip"
+      MemorySize: 512
+      Timeout: 10
+      EphemeralStorage:
+        Size: 512
+      Environment:
+        Variables:
+          OPENSEARCH_ENDPOINT_URL: !Sub "https://${OpenSearchDomain.DomainEndpoint}"
+          STAGE: "ephemeral"
+  ApiShopSearchLambdaPermission:
+    Type: AWS::Lambda::Permission
+    Properties:
+      Action: lambda:InvokeFunction
+      FunctionName: !Ref ApiShopSearchLambda
+      Principal: apigateway.amazonaws.com
+      SourceArn: !Sub "arn:aws:execute-api:${AWS::Region}:${AWS::AccountId}:${Api}/*/*/api/v1/shops/search*"
+
+  ApiDeleteSearchFilterRoute:
+    Type: AWS::ApiGatewayV2::Route
+    Properties:
+      ApiId: !Ref Api
+      RouteKey: "DELETE /api/v1/me/search-filters/{userSearchFilterId}"
+      AuthorizationType: JWT
+      AuthorizerId: !Ref ApiCognitoAuthorizer
+      Target: !Sub "integrations/${ApiDeleteSearchFilterLambdaIntegration}"
+  ApiDeleteSearchFilterLambdaIntegration:
+    Type: AWS::ApiGatewayV2::Integration
+    Properties:
+      ApiId: !Ref Api
+      IntegrationType: AWS_PROXY
+      IntegrationUri: !Sub "arn:aws:lambda:${AWS::Region}:${AWS::AccountId}:function:${ApiDeleteSearchFilterLambda}"
+      PayloadFormatVersion: "2.0"
+  ApiDeleteSearchFilterRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Sub "api-delete-search-filter-role-${StageName}"
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: lambda.amazonaws.com
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole
+      Policies:
+        - PolicyName: DynamoDBAccess
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: Allow
+                Action:
+                  - dynamodb:GetItem
+                  - dynamodb:DeleteItem
+                  - dynamodb:BatchGetItem
+                  - dynamodb:Query
+                Resource: !GetAtt TableOne.Arn
+  ApiDeleteSearchFilterLambda:
+    Type: AWS::Lambda::Function
+    Properties:
+      FunctionName: !Sub "api-delete-search-filter-${StageName}"
+      Runtime: provided.al2023
+      Handler: lib.handler
+      Role: !GetAtt ApiDeleteSearchFilterRole.Arn
+      Code:
+        S3Bucket: !Ref ArtifactBucket
+        S3Key: !Sub "search-filter-api-delete-search-filter-${StageName}-${CommitSHA}.zip"
+      MemorySize: 512
+      Timeout: 10
+      EphemeralStorage:
+        Size: 512
+      Environment:
+        Variables:
+          DYNAMODB_TABLE_NAME: !Ref TableOne
+  ApiDeleteSearchFilterLambdaPermission:
+    Type: AWS::Lambda::Permission
+    Properties:
+      Action: lambda:InvokeFunction
+      FunctionName: !Ref ApiDeleteSearchFilterLambda
+      Principal: apigateway.amazonaws.com
+      SourceArn: !Sub "arn:aws:execute-api:${AWS::Region}:${AWS::AccountId}:${Api}/*/*/api/v1/me/search-filters/*"
+
+  ApiGetSearchFilterRoute:
+    Type: AWS::ApiGatewayV2::Route
+    Properties:
+      ApiId: !Ref Api
+      RouteKey: "GET /api/v1/me/search-filters/{userSearchFilterId}"
+      AuthorizationType: JWT
+      AuthorizerId: !Ref ApiCognitoAuthorizer
+      Target: !Sub "integrations/${ApiGetSearchFilterLambdaIntegration}"
+  ApiGetSearchFilterLambdaIntegration:
+    Type: AWS::ApiGatewayV2::Integration
+    Properties:
+      ApiId: !Ref Api
+      IntegrationType: AWS_PROXY
+      IntegrationUri: !Sub "arn:aws:lambda:${AWS::Region}:${AWS::AccountId}:function:${ApiGetSearchFilterLambda}"
+      PayloadFormatVersion: "2.0"
+  ApiGetSearchFilterRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Sub "api-get-search-filter-role-${StageName}"
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: lambda.amazonaws.com
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole
+      Policies:
+        - PolicyName: DynamoDBAccess
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: Allow
+                Action:
+                  - dynamodb:GetItem
+                  - dynamodb:BatchGetItem
+                  - dynamodb:Query
+                Resource: !GetAtt TableOne.Arn
+  ApiGetSearchFilterLambda:
+    Type: AWS::Lambda::Function
+    Properties:
+      FunctionName: !Sub "api-get-search-filter-${StageName}"
+      Runtime: provided.al2023
+      Handler: lib.handler
+      Role: !GetAtt ApiGetSearchFilterRole.Arn
+      Code:
+        S3Bucket: !Ref ArtifactBucket
+        S3Key: !Sub "search-filter-api-get-search-filter-${StageName}-${CommitSHA}.zip"
+      MemorySize: 512
+      Timeout: 10
+      EphemeralStorage:
+        Size: 512
+      Environment:
+        Variables:
+          DYNAMODB_TABLE_NAME: !Ref TableOne
+  ApiGetSearchFilterLambdaPermission:
+    Type: AWS::Lambda::Permission
+    Properties:
+      Action: lambda:InvokeFunction
+      FunctionName: !Ref ApiGetSearchFilterLambda
+      Principal: apigateway.amazonaws.com
+      SourceArn: !Sub "arn:aws:execute-api:${AWS::Region}:${AWS::AccountId}:${Api}/*/*/api/v1/me/search-filters/*"
+
+  ApiGetSearchFiltersRoute:
+    Type: AWS::ApiGatewayV2::Route
+    Properties:
+      ApiId: !Ref Api
+      RouteKey: "GET /api/v1/me/search-filters"
+      AuthorizationType: JWT
+      AuthorizerId: !Ref ApiCognitoAuthorizer
+      Target: !Sub "integrations/${ApiGetSearchFiltersLambdaIntegration}"
+  ApiGetSearchFiltersLambdaIntegration:
+    Type: AWS::ApiGatewayV2::Integration
+    Properties:
+      ApiId: !Ref Api
+      IntegrationType: AWS_PROXY
+      IntegrationUri: !Sub "arn:aws:lambda:${AWS::Region}:${AWS::AccountId}:function:${ApiGetSearchFiltersLambda}"
+      PayloadFormatVersion: "2.0"
+  ApiGetSearchFiltersRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Sub "api-get-search-filters-role-${StageName}"
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: lambda.amazonaws.com
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole
+      Policies:
+        - PolicyName: DynamoDBAccess
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: Allow
+                Action:
+                  - dynamodb:GetItem
+                  - dynamodb:BatchGetItem
+                  - dynamodb:Query
+                Resource: !GetAtt TableOne.Arn
+  ApiGetSearchFiltersLambda:
+    Type: AWS::Lambda::Function
+    Properties:
+      FunctionName: !Sub "api-get-search-filters-${StageName}"
+      Runtime: provided.al2023
+      Handler: lib.handler
+      Role: !GetAtt ApiGetSearchFiltersRole.Arn
+      Code:
+        S3Bucket: !Ref ArtifactBucket
+        S3Key: !Sub "search-filter-api-get-search-filters-${StageName}-${CommitSHA}.zip"
+      MemorySize: 512
+      Timeout: 10
+      EphemeralStorage:
+        Size: 512
+      Environment:
+        Variables:
+          DYNAMODB_TABLE_NAME: !Ref TableOne
+  ApiGetSearchFiltersLambdaPermission:
+    Type: AWS::Lambda::Permission
+    Properties:
+      Action: lambda:InvokeFunction
+      FunctionName: !Ref ApiGetSearchFiltersLambda
+      Principal: apigateway.amazonaws.com
+      SourceArn: !Sub "arn:aws:execute-api:${AWS::Region}:${AWS::AccountId}:${Api}/*/*/api/v1/me/search-filters"
+
+  ApiPatchSearchFilterRoute:
+    Type: AWS::ApiGatewayV2::Route
+    Properties:
+      ApiId: !Ref Api
+      RouteKey: "PATCH /api/v1/me/search-filters/{userSearchFilterId}"
+      AuthorizationType: JWT
+      AuthorizerId: !Ref ApiCognitoAuthorizer
+      Target: !Sub "integrations/${ApiPatchSearchFilterLambdaIntegration}"
+  ApiPatchSearchFilterLambdaIntegration:
+    Type: AWS::ApiGatewayV2::Integration
+    Properties:
+      ApiId: !Ref Api
+      IntegrationType: AWS_PROXY
+      IntegrationUri: !Sub "arn:aws:lambda:${AWS::Region}:${AWS::AccountId}:function:${ApiPatchSearchFilterLambda}"
+      PayloadFormatVersion: "2.0"
+  ApiPatchSearchFilterRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Sub "api-patch-search-filter-role-${StageName}"
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: lambda.amazonaws.com
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole
+      Policies:
+        - PolicyName: DynamoDBAccess
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: Allow
+                Action:
+                  - dynamodb:UpdateItem
+                  - dynamodb:GetItem
+                  - dynamodb:PutItem
+                Resource: !GetAtt TableOne.Arn
+  ApiPatchSearchFilterLambda:
+    Type: AWS::Lambda::Function
+    Properties:
+      FunctionName: !Sub "api-patch-search-filter-${StageName}"
+      Runtime: provided.al2023
+      Handler: lib.handler
+      Role: !GetAtt ApiPatchSearchFilterRole.Arn
+      Code:
+        S3Bucket: !Ref ArtifactBucket
+        S3Key: !Sub "search-filter-api-patch-search-filter-${StageName}-${CommitSHA}.zip"
+      MemorySize: 512
+      Timeout: 10
+      EphemeralStorage:
+        Size: 512
+      Environment:
+        Variables:
+          DYNAMODB_TABLE_NAME: !Ref TableOne
+  ApiPatchSearchFilterLambdaPermission:
+    Type: AWS::Lambda::Permission
+    Properties:
+      Action: lambda:InvokeFunction
+      FunctionName: !Ref ApiPatchSearchFilterLambda
+      Principal: apigateway.amazonaws.com
+      SourceArn: !Sub "arn:aws:execute-api:${AWS::Region}:${AWS::AccountId}:${Api}/*/*/api/v1/me/search-filters/*"
+
+  ApiPostSearchFilterRoute:
+    Type: AWS::ApiGatewayV2::Route
+    Properties:
+      ApiId: !Ref Api
+      RouteKey: "POST /api/v1/me/search-filters"
+      AuthorizationType: JWT
+      AuthorizerId: !Ref ApiCognitoAuthorizer
+      Target: !Sub "integrations/${ApiPostSearchFilterLambdaIntegration}"
+  ApiPostSearchFilterLambdaIntegration:
+    Type: AWS::ApiGatewayV2::Integration
+    Properties:
+      ApiId: !Ref Api
+      IntegrationType: AWS_PROXY
+      IntegrationUri: !Sub "arn:aws:lambda:${AWS::Region}:${AWS::AccountId}:function:${ApiPostSearchFilterLambda}"
+      PayloadFormatVersion: "2.0"
+  ApiPostSearchFilterRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Sub "api-post-search-filter-role-${StageName}"
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: lambda.amazonaws.com
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole
+      Policies:
+        - PolicyName: DynamoDBAccess
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: Allow
+                Action:
+                  - dynamodb:PutItem
+                Resource: !GetAtt TableOne.Arn
+  ApiPostSearchFilterLambda:
+    Type: AWS::Lambda::Function
+    Properties:
+      FunctionName: !Sub "api-post-search-filter-${StageName}"
+      Runtime: provided.al2023
+      Handler: lib.handler
+      Role: !GetAtt ApiPostSearchFilterRole.Arn
+      Code:
+        S3Bucket: !Ref ArtifactBucket
+        S3Key: !Sub "search-filter-api-post-search-filter-${StageName}-${CommitSHA}.zip"
+      MemorySize: 512
+      Timeout: 10
+      EphemeralStorage:
+        Size: 512
+      Environment:
+        Variables:
+          DYNAMODB_TABLE_NAME: !Ref TableOne
+  ApiPostSearchFilterLambdaPermission:
+    Type: AWS::Lambda::Permission
+    Properties:
+      Action: lambda:InvokeFunction
+      FunctionName: !Ref ApiPostSearchFilterLambda
+      Principal: apigateway.amazonaws.com
+      SourceArn: !Sub "arn:aws:execute-api:${AWS::Region}:${AWS::AccountId}:${Api}/*/*/api/v1/me/search-filters"
+
+  SendMailDlq:
+    Type: AWS::SQS::Queue
+    Properties:
+      QueueName: !Sub "mail-lambda-send-${StageName}"
+      MessageRetentionPeriod: 1209600
+  SendMailQ:
+    Type: AWS::SQS::Queue
+    Properties:
+      QueueName: !Sub "mail-lambda-send-queue-${StageName}"
+      RedrivePolicy:
+        deadLetterTargetArn: !GetAtt SendMailDlq.Arn
+        maxReceiveCount: 5
+      VisibilityTimeout: 360
+  SendMailRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Sub "mail-lambda-send-role-${StageName}"
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: lambda.amazonaws.com
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole
+      Policies:
+        - PolicyName: SQSPollerAccess
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: Allow
+                Action:
+                  - sqs:ReceiveMessage
+                  - sqs:DeleteMessage
+                  - sqs:GetQueueAttributes
+                  - sqs:GetQueueUrl
+                Resource: !GetAtt SendMailQ.Arn
+        - PolicyName: SESSendMailAccess
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: Allow
+                Action:
+                  - ses:SendEmail
+                  - ses:SendRawEmail
+                Resource: "*"
+        - PolicyName: S3Access
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: Allow
+                Action:
+                  - s3:GetObject
+                Resource: !Sub "arn:aws:s3:::${MailTemplateBucket}/*"
+  SendMailLambda:
+    Type: AWS::Lambda::Function
+    Properties:
+      FunctionName: !Sub "mail-lambda-send-${StageName}"
+      Runtime: provided.al2023
+      Handler: lib.handler
+      Role: !GetAtt SendMailRole.Arn
+      Code:
+        S3Bucket: !Ref ArtifactBucket
+        S3Key: !Sub "mail-lambda-send-${StageName}-${CommitSHA}.zip"
+      MemorySize: 512
+      Timeout: 60
+      EphemeralStorage:
+        Size: 512
+      Environment:
+        Variables:
+          S3_BUCKET_NAME_TEMPLATES: !Ref MailTemplateBucket
+          STAGE_NAME: !Sub "${StageName}"
+          COMMIT_SHA: !Sub "${CommitSHA}"
+  SendMailMapping:
+    Type: AWS::Lambda::EventSourceMapping
+    Properties:
+      FunctionName: !Ref SendMailLambda
+      EventSourceArn: !GetAtt SendMailQ.Arn
+      Enabled: true
+      BatchSize: 200
+      MaximumBatchingWindowInSeconds: 1
+      FunctionResponseTypes:
+        - ReportBatchItemFailures
+
+  ProductIngestEventsDynamoDbDlq:
+    Type: AWS::SQS::Queue
+    Properties:
+      QueueName: !Sub "product-lambda-ingest-events-dynamodb-dlq-${StageName}"
+      MessageRetentionPeriod: 1209600
+  ProductIngestEventsDynamoDbQ:
+    Type: AWS::SQS::Queue
+    Properties:
+      QueueName: !Sub "product-lambda-ingest-events-dynamodb-queue-${StageName}"
+      RedrivePolicy:
+        deadLetterTargetArn: !GetAtt ProductIngestEventsDynamoDbDlq.Arn
+        maxReceiveCount: 3
+      VisibilityTimeout: 360
+  ProductIngestEventsDynamoDbRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Sub "product-lambda-ingest-events-dynamodb-role-${StageName}"
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: lambda.amazonaws.com
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole
+      Policies:
+        - PolicyName: DynamoDBAccess
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: Allow
+                Action:
+                  - dynamodb:*
+                Resource: !GetAtt TableOne.Arn
+        - PolicyName: SQSPollerAccess
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: Allow
+                Action:
+                  - sqs:ReceiveMessage
+                  - sqs:DeleteMessage
+                  - sqs:GetQueueAttributes
+                  - sqs:GetQueueUrl
+                Resource: !GetAtt ProductIngestEventsDynamoDbQ.Arn
+  ProductIngestEventsDynamoDbLambda:
+    Type: AWS::Lambda::Function
+    Properties:
+      FunctionName: !Sub "product-lambda-ingest-events-dynamodb-${StageName}"
+      Runtime: provided.al2023
+      Handler: lib.handler
+      Role: !GetAtt ProductIngestEventsDynamoDbRole.Arn
+      Code:
+        S3Bucket: !Ref ArtifactBucket
+        S3Key: !Sub "product-lambda-ingest-events-dynamodb-${StageName}-${CommitSHA}.zip"
+      MemorySize: 512
+      Timeout: 60
+      EphemeralStorage:
+        Size: 512
+      Environment:
+        Variables:
+          DYNAMODB_TABLE_NAME: !Ref TableOne
+  ProductIngestEventsDynamoDbMapping:
+    Type: AWS::Lambda::EventSourceMapping
+    Properties:
+      FunctionName: !Ref ProductIngestEventsDynamoDbLambda
+      EventSourceArn: !GetAtt ProductIngestEventsDynamoDbQ.Arn
+      Enabled: true
+      BatchSize: 200
+      MaximumBatchingWindowInSeconds: 1
+      FunctionResponseTypes:
+        - ReportBatchItemFailures
+
+  ProductMaterializeDynamoDbNewDlq:
+    Type: AWS::SQS::Queue
+    Properties:
+      QueueName: !Sub "product-lambda-materialize-dynamodb-new-dlq-${StageName}"
+      MessageRetentionPeriod: 1209600
+  ProductMaterializeDynamoDbNewQ:
+    Type: AWS::SQS::Queue
+    Properties:
+      QueueName: !Sub "product-lambda-materialize-dynamodb-new-queue-${StageName}"
+      RedrivePolicy:
+        deadLetterTargetArn: !GetAtt ProductMaterializeDynamoDbNewDlq.Arn
+        maxReceiveCount: 5
+      VisibilityTimeout: 360
+  ProductMaterializeDynamoDbNewRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Sub "product-lambda-materialize-dynamodb-new-role-${StageName}"
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: lambda.amazonaws.com
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole
+      Policies:
+        - PolicyName: DynamoDBAccess
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: Allow
+                Action:
+                  - dynamodb:*
+                Resource: !GetAtt TableOne.Arn
+        - PolicyName: SQSPollerAccess
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: Allow
+                Action:
+                  - sqs:ReceiveMessage
+                  - sqs:DeleteMessage
+                  - sqs:GetQueueAttributes
+                  - sqs:GetQueueUrl
+                Resource: !GetAtt ProductMaterializeDynamoDbNewQ.Arn
+  ProductMaterializeDynamoDbNewLambda:
+    Type: AWS::Lambda::Function
+    Properties:
+      FunctionName: !Sub "product-lambda-materialize-dynamodb-new-${StageName}"
+      Runtime: provided.al2023
+      Handler: lib.handler
+      Role: !GetAtt ProductMaterializeDynamoDbNewRole.Arn
+      Code:
+        S3Bucket: !Ref ArtifactBucket
+        S3Key: !Sub "product-lambda-materialize-dynamodb-new-${StageName}-${CommitSHA}.zip"
+      MemorySize: 512
+      Timeout: 60
+      EphemeralStorage:
+        Size: 512
+      Environment:
+        Variables:
+          DYNAMODB_TABLE_NAME: !Ref TableOne
+  ProductMaterializeDynamoDbNewMapping:
+    Type: AWS::Lambda::EventSourceMapping
+    Properties:
+      FunctionName: !Ref ProductMaterializeDynamoDbNewLambda
+      EventSourceArn: !GetAtt ProductMaterializeDynamoDbNewQ.Arn
+      Enabled: true
+      BatchSize: 200
+      MaximumBatchingWindowInSeconds: 1
+      FunctionResponseTypes:
+        - ReportBatchItemFailures
+
+  ProductMaterializeDynamoDbUpdateDlq:
+    Type: AWS::SQS::Queue
+    Properties:
+      QueueName: !Sub "product-lambda-materialize-dynamodb-update-dlq-${StageName}"
+      MessageRetentionPeriod: 1209600
+  ProductMaterializeDynamoDbUpdateQ:
+    Type: AWS::SQS::Queue
+    Properties:
+      QueueName: !Sub "product-lambda-materialize-dynamodb-update-queue-${StageName}"
+      RedrivePolicy:
+        deadLetterTargetArn: !GetAtt ProductMaterializeDynamoDbUpdateDlq.Arn
+        maxReceiveCount: 5
+      VisibilityTimeout: 360
+  ProductMaterializeDynamoDbUpdateRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Sub "product-lambda-materialize-dynamodb-update-role-${StageName}"
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: lambda.amazonaws.com
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole
+      Policies:
+        - PolicyName: DynamoDBAccess
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: Allow
+                Action:
+                  - dynamodb:*
+                Resource: !GetAtt TableOne.Arn
+        - PolicyName: SQSPollerAccess
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: Allow
+                Action:
+                  - sqs:ReceiveMessage
+                  - sqs:DeleteMessage
+                  - sqs:GetQueueAttributes
+                  - sqs:GetQueueUrl
+                Resource: !GetAtt ProductMaterializeDynamoDbUpdateQ.Arn
+  ProductMaterializeDynamoDbUpdateLambda:
+    Type: AWS::Lambda::Function
+    Properties:
+      FunctionName: !Sub "product-lambda-materialize-dynamodb-update-${StageName}"
+      Runtime: provided.al2023
+      Handler: lib.handler
+      Role: !GetAtt ProductMaterializeDynamoDbUpdateRole.Arn
+      Code:
+        S3Bucket: !Ref ArtifactBucket
+        S3Key: !Sub "product-lambda-materialize-dynamodb-update-${StageName}-${CommitSHA}.zip"
+      MemorySize: 512
+      Timeout: 60
+      EphemeralStorage:
+        Size: 512
+      Environment:
+        Variables:
+          DYNAMODB_TABLE_NAME: !Ref TableOne
+  ProductMaterializeDynamoDbUpdateMapping:
+    Type: AWS::Lambda::EventSourceMapping
+    Properties:
+      FunctionName: !Ref ProductMaterializeDynamoDbUpdateLambda
+      EventSourceArn: !GetAtt ProductMaterializeDynamoDbUpdateQ.Arn
+      Enabled: true
+      BatchSize: 200
+      MaximumBatchingWindowInSeconds: 1
+      FunctionResponseTypes:
+        - ReportBatchItemFailures
+
+  ProductMaterializeOpenSearchNewDlq:
+    Type: AWS::SQS::Queue
+    Properties:
+      QueueName: !Sub "product-lambda-materialize-opensearch-new-dlq-${StageName}"
+      MessageRetentionPeriod: 1209600
+  ProductMaterializeOpenSearchNewQ:
+    Type: AWS::SQS::Queue
+    Properties:
+      QueueName: !Sub "product-lambda-materialize-opensearch-new-queue-${StageName}"
+      RedrivePolicy:
+        deadLetterTargetArn: !GetAtt ProductMaterializeOpenSearchNewDlq.Arn
+        maxReceiveCount: 5
+      VisibilityTimeout: 360
+  ProductMaterializeOpenSearchNewRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Sub "product-lambda-materialize-opensearch-new-role-${StageName}"
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: lambda.amazonaws.com
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole
+      Policies:
+        - PolicyName: OpenSearchAccess
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: Allow
+                Action:
+                  - es:*
+                Resource: !Sub "arn:aws:es:${AWS::Region}:${AWS::AccountId}:domain/application-${StageName}/*"
+        - PolicyName: SQSPollerAccess
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: Allow
+                Action:
+                  - sqs:ReceiveMessage
+                  - sqs:DeleteMessage
+                  - sqs:GetQueueAttributes
+                  - sqs:GetQueueUrl
+                Resource: !GetAtt ProductMaterializeOpenSearchNewQ.Arn
+  ProductMaterializeOpenSearchNewLambda:
+    Type: AWS::Lambda::Function
+    Properties:
+      FunctionName: !Sub "product-lambda-materialize-opensearch-new-${StageName}"
+      Runtime: provided.al2023
+      Handler: lib.handler
+      Role: !GetAtt ProductMaterializeOpenSearchNewRole.Arn
+      Code:
+        S3Bucket: !Ref ArtifactBucket
+        S3Key: !Sub "product-lambda-materialize-opensearch-new-${StageName}-${CommitSHA}.zip"
+      MemorySize: 512
+      Timeout: 60
+      EphemeralStorage:
+        Size: 512
+      Environment:
+        Variables:
+          OPENSEARCH_ENDPOINT_URL: !Sub "https://${OpenSearchDomain.DomainEndpoint}"
+          STAGE: "ephemeral"
+  ProductMaterializeOpenSearchDbNewMapping:
+    Type: AWS::Lambda::EventSourceMapping
+    Properties:
+      FunctionName: !Ref ProductMaterializeOpenSearchNewLambda
+      EventSourceArn: !GetAtt ProductMaterializeOpenSearchNewQ.Arn
+      Enabled: true
+      BatchSize: 200
+      MaximumBatchingWindowInSeconds: 1
+      FunctionResponseTypes:
+        - ReportBatchItemFailures
+
+  ProductMaterializeOpenSearchUpdateDlq:
+    Type: AWS::SQS::Queue
+    Properties:
+      QueueName: !Sub "product-lambda-materialize-opensearch-update-dlq-${StageName}"
+      MessageRetentionPeriod: 1209600
+  ProductMaterializeOpenSearchUpdateQ:
+    Type: AWS::SQS::Queue
+    Properties:
+      QueueName: !Sub "product-lambda-materialize-opensearch-update-queue-${StageName}"
+      RedrivePolicy:
+        deadLetterTargetArn: !GetAtt ProductMaterializeOpenSearchUpdateDlq.Arn
+        maxReceiveCount: 5
+      VisibilityTimeout: 360
+  ProductMaterializeOpenSearchUpdateRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Sub "product-lambda-materialize-opensearch-update-role-${StageName}"
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: lambda.amazonaws.com
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole
+      Policies:
+        - PolicyName: OpenSearchAccess
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: Allow
+                Action:
+                  - es:*
+                Resource: !Sub "arn:aws:es:${AWS::Region}:${AWS::AccountId}:domain/application-${StageName}/*"
+        - PolicyName: SQSPollerAccess
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: Allow
+                Action:
+                  - sqs:ReceiveMessage
+                  - sqs:DeleteMessage
+                  - sqs:GetQueueAttributes
+                  - sqs:GetQueueUrl
+                Resource: !GetAtt ProductMaterializeOpenSearchUpdateQ.Arn
+  ProductMaterializeOpenSearchUpdateLambda:
+    Type: AWS::Lambda::Function
+    Properties:
+      FunctionName: !Sub "product-lambda-materialize-opensearch-update-${StageName}"
+      Runtime: provided.al2023
+      Handler: lib.handler
+      Role: !GetAtt ProductMaterializeOpenSearchUpdateRole.Arn
+      Code:
+        S3Bucket: !Ref ArtifactBucket
+        S3Key: !Sub "product-lambda-materialize-opensearch-update-${StageName}-${CommitSHA}.zip"
+      MemorySize: 512
+      Timeout: 60
+      EphemeralStorage:
+        Size: 512
+      Environment:
+        Variables:
+          OPENSEARCH_ENDPOINT_URL: !Sub "https://${OpenSearchDomain.DomainEndpoint}"
+          STAGE: "ephemeral"
+  ProductMaterializeOpenSearchDbUpdateMapping:
+    Type: AWS::Lambda::EventSourceMapping
+    Properties:
+      FunctionName: !Ref ProductMaterializeOpenSearchUpdateLambda
+      EventSourceArn: !GetAtt ProductMaterializeOpenSearchUpdateQ.Arn
+      Enabled: true
+      BatchSize: 2500
+      MaximumBatchingWindowInSeconds: 1
+      FunctionResponseTypes:
+        - ReportBatchItemFailures
+
+  ProductUpdateNotifyUserDlq:
+    Type: AWS::SQS::Queue
+    Properties:
+      QueueName: !Sub "product-lambda-update-notify-user-dlq-${StageName}"
+      MessageRetentionPeriod: 1209600
+  ProductUpdateNotifyUserQ:
+    Type: AWS::SQS::Queue
+    Properties:
+      QueueName: !Sub "product-lambda-update-notify-user-queue-${StageName}"
+      RedrivePolicy:
+        deadLetterTargetArn: !GetAtt ProductUpdateNotifyUserDlq.Arn
+        maxReceiveCount: 5
+      VisibilityTimeout: 360
+  ProductUpdateNotifyUserRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Sub "product-lambda-update-notify-user-role-${StageName}"
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: lambda.amazonaws.com
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole
+      Policies:
+        - PolicyName: DynamoDBAccess
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: Allow
+                Action:
+                  - dynamodb:GetItem
+                  - dynamodb:Query
+                Resource:
+                  - !GetAtt TableOne.Arn
+                  - !Sub "${TableOne.Arn}/index/*"
+        - PolicyName: SQSPollerAccess
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: Allow
+                Action:
+                  - sqs:ReceiveMessage
+                  - sqs:DeleteMessage
+                  - sqs:GetQueueAttributes
+                  - sqs:GetQueueUrl
+                Resource: !GetAtt ProductUpdateNotifyUserQ.Arn
+        - PolicyName: SQSSendMessage
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: Allow
+                Action:
+                  - sqs:SendMessage
+                Resource: !GetAtt SendMailQ.Arn
+  ProductUpdateNotifyUserLambda:
+    Type: AWS::Lambda::Function
+    Properties:
+      FunctionName: !Sub "product-lambda-update-notify-user-${StageName}"
+      Runtime: provided.al2023
+      Handler: lib.handler
+      Role: !GetAtt ProductUpdateNotifyUserRole.Arn
+      Code:
+        S3Bucket: !Ref ArtifactBucket
+        S3Key: !Sub "product-lambda-update-notify-user-${StageName}-${CommitSHA}.zip"
+      MemorySize: 512
+      Timeout: 60
+      EphemeralStorage:
+        Size: 512
+      Environment:
+        Variables:
+          DYNAMODB_TABLE_NAME: !Ref TableOne
+          MAIL_QUEUE_URL: !Ref SendMailQ
+          SENDER_MAIL: "no-reply@aura-historia.com"
+  ProductUpdateNotifyUserMapping:
+    Type: AWS::Lambda::EventSourceMapping
+    Properties:
+      FunctionName: !Ref ProductUpdateNotifyUserLambda
+      EventSourceArn: !GetAtt ProductUpdateNotifyUserQ.Arn
+      Enabled: true
+      BatchSize: 10
+      MaximumBatchingWindowInSeconds: 1
+      FunctionResponseTypes:
+        - ReportBatchItemFailures
+
+  UserLambdaFanoutUpdateWatchlistDlq:
+    Type: AWS::SQS::Queue
+    Properties:
+      QueueName: !Sub "user-lambda-fanout-update-watchlist-dlq-${StageName}"
+      MessageRetentionPeriod: 1209600
+  UserLambdaFanoutUpdateWatchlistQ:
+    Type: AWS::SQS::Queue
+    Properties:
+      QueueName: !Sub "user-lambda-fanout-update-watchlist-queue-${StageName}"
+      RedrivePolicy:
+        deadLetterTargetArn: !GetAtt UserLambdaFanoutUpdateWatchlistDlq.Arn
+        maxReceiveCount: 5
+      VisibilityTimeout: 360
+  UserLambdaFanoutUpdateWatchlistRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Sub "user-lambda-fanout-update-watchlist-role-${StageName}"
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: lambda.amazonaws.com
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole
+      Policies:
+        - PolicyName: DynamoDBAccess
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: Allow
+                Action:
+                  - dynamodb:GetItem
+                  - dynamodb:Query
+                  - dynamodb:PutItem
+                  - dynamodb:DeleteItem
+                  - dynamodb:UpdateItem
+                  - dynamodb:BatchGetItem
+                  - dynamodb:BatchWriteItem
+                  - dynamodb:TransactGetItems
+                  - dynamodb:TransactWriteItems
+                Resource:
+                  - !GetAtt TableOne.Arn
+                  - !Sub "${TableOne.Arn}/index/*"
+        - PolicyName: SQSPollerAccess
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: Allow
+                Action:
+                  - sqs:ReceiveMessage
+                  - sqs:DeleteMessage
+                  - sqs:GetQueueAttributes
+                  - sqs:GetQueueUrl
+                Resource: !GetAtt UserLambdaFanoutUpdateWatchlistQ.Arn
+  UserLambdaFanoutUpdateWatchlistLambda:
+    Type: AWS::Lambda::Function
+    Properties:
+      FunctionName: !Sub "user-lambda-fanout-update-watchlist-${StageName}"
+      Runtime: provided.al2023
+      Handler: lib.handler
+      Role: !GetAtt UserLambdaFanoutUpdateWatchlistRole.Arn
+      Code:
+        S3Bucket: !Ref ArtifactBucket
+        S3Key: !Sub "user-lambda-fanout-update-watchlist-${StageName}-${CommitSHA}.zip"
+      MemorySize: 512
+      Timeout: 60
+      EphemeralStorage:
+        Size: 512
+      Environment:
+        Variables:
+          DYNAMODB_TABLE_NAME: !Ref TableOne
+  UserLambdaFanoutUpdateWatchlistMapping:
+    Type: AWS::Lambda::EventSourceMapping
+    Properties:
+      FunctionName: !Ref UserLambdaFanoutUpdateWatchlistLambda
+      EventSourceArn: !GetAtt UserLambdaFanoutUpdateWatchlistQ.Arn
+      Enabled: true
+      BatchSize: 10
+      MaximumBatchingWindowInSeconds: 1
+      FunctionResponseTypes:
+        - ReportBatchItemFailures
+
+  DynamoDbProductEventRecordCreatedMaterializeDynamoDbProductRecordEventRule:
+    Type: AWS::Events::Rule
+    Properties:
+      Name: !Sub "ddb-product-mat-ddb-new-${StageName}"
+      EventBusName: !Ref DynamoDbEventBus
+      EventPattern:
+        source:
+          - !Ref TableOne
+        detail-type:
+          - "DynamoDBStreamRecord"
+        detail:
+          eventName:
+            - "INSERT"
+          dynamodb:
+            NewImage:
+              event_type:
+                S:
+                  - "CREATED"
+      Targets:
+        - Id: ProductMaterializeDynamoDbNewQ
+          Arn: !GetAtt ProductMaterializeDynamoDbNewQ.Arn
+  DynamoDbProductEventRecordUpdatedMaterializeDynamoDbProductRecordEventRule:
+    Type: AWS::Events::Rule
+    Properties:
+      Name: !Sub "ddb-product-mat-ddb-update-${StageName}"
+      EventBusName: !Ref DynamoDbEventBus
+      EventPattern:
+        source:
+          - !Ref TableOne
+        detail-type:
+          - "DynamoDBStreamRecord"
+        detail:
+          eventName:
+            - "INSERT"
+          dynamodb:
+            NewImage:
+              event_type:
+                S:
+                  - prefix: "PRICE_"
+                  - prefix: "STATE_"
+      Targets:
+        - Id: ProductMaterializeDynamoDbUpdateQ
+          Arn: !GetAtt ProductMaterializeDynamoDbUpdateQ.Arn
+  DynamoDbProductEventRecordCreatedMaterializeOpenSearchProductDocumentEventRule:
+    Type: AWS::Events::Rule
+    Properties:
+      Name: !Sub "ddb-product-mat-os-new-${StageName}"
+      EventBusName: !Ref DynamoDbEventBus
+      EventPattern:
+        source:
+          - !Ref TableOne
+        detail-type:
+          - "DynamoDBStreamRecord"
+        detail:
+          eventName:
+            - "INSERT"
+          dynamodb:
+            NewImage:
+              event_type:
+                S:
+                  - "CREATED"
+      Targets:
+        - Id: ProductMaterializeOpenSearchNewQ
+          Arn: !GetAtt ProductMaterializeOpenSearchNewQ.Arn
+  DynamoDbProductEventRecordUpdatedMaterializeOpenSearchProductDocumentEventRule:
+    Type: AWS::Events::Rule
+    Properties:
+      Name: !Sub "ddb-product-mat-os-update-${StageName}"
+      EventBusName: !Ref DynamoDbEventBus
+      EventPattern:
+        source:
+          - !Ref TableOne
+        detail-type:
+          - "DynamoDBStreamRecord"
+        detail:
+          eventName:
+            - "INSERT"
+          dynamodb:
+            NewImage:
+              event_type:
+                S:
+                  - prefix: "PRICE_"
+                  - prefix: "STATE_"
+      Targets:
+        - Id: ProductMaterializeOpenSearchUpdateQ
+          Arn: !GetAtt ProductMaterializeOpenSearchUpdateQ.Arn
+  DynamoDbProductEventRecordUpdatedNotifyUserEventRule:
+    Type: AWS::Events::Rule
+    Properties:
+      Name: !Sub "ddb-product-update-notify-user-${StageName}"
+      EventBusName: !Ref DynamoDbEventBus
+      EventPattern:
+        source:
+          - !Ref TableOne
+        detail-type:
+          - "DynamoDBStreamRecord"
+        detail:
+          eventName:
+            - "INSERT"
+          dynamodb:
+            NewImage:
+              event_type:
+                S:
+                  - prefix: "PRICE_"
+                  - prefix: "STATE_"
+      Targets:
+        - Id: ProductUpdateNotifyUserQ
+          Arn: !GetAtt ProductUpdateNotifyUserQ.Arn
+  DynamoDbProductEventRecordCreatedProductEnrichmentEventRule:
+    Type: AWS::Events::Rule
+    Properties:
+      Name: !Sub "ddb-product-enrichment-${StageName}"
+      EventBusName: !Ref DynamoDbEventBus
+      EventPattern:
+        source:
+          - !Ref TableOne
+        detail-type:
+          - "DynamoDBStreamRecord"
+        detail:
+          eventName:
+            - "INSERT"
+          dynamodb:
+            NewImage:
+              event_type:
+                S:
+                  - "CREATED"
+      Targets:
+        - Id: ProductEnrichmentQ
+          Arn: !GetAtt ProductEnrichmentQ.Arn
+  DynamoDbUserUpdatedFanoutWatchlistUpdateEventRule:
+    Type: AWS::Events::Rule
+    Properties:
+      Name: !Sub "ddb-user-update-fanout-watchlist-${StageName}"
+      EventBusName: !Ref DynamoDbEventBus
+      EventPattern:
+        source:
+          - !Ref TableOne
+        detail-type:
+          - "DynamoDBStreamRecord"
+        detail:
+          eventName:
+            - "MODIFY"
+          dynamodb:
+            NewImage:
+              sk:
+                S:
+                  - "user#details"
+      Targets:
+        - Id: UserLambdaFanoutUpdateWatchlistQ
+          Arn: !GetAtt UserLambdaFanoutUpdateWatchlistQ.Arn
+
+  ProductEnrichmentVpc:
+    Type: AWS::EC2::VPC
+    Properties:
+      CidrBlock: 10.0.0.0/16
+      EnableDnsSupport: true
+      EnableDnsHostnames: true
+      Tags:
+        - Key: Name
+          Value: !Sub "product-enrichment-vpc-${StageName}"
+  ProductEnrichmentInternetGateway:
+    Type: AWS::EC2::InternetGateway
+    Properties:
+      Tags:
+        - Key: Name
+          Value: !Sub "product-enrichment-igw-${StageName}"
+  ProductEnrichmentVpcGatewayAttachment:
+    Type: AWS::EC2::VPCGatewayAttachment
+    Properties:
+      InternetGatewayId: !Ref ProductEnrichmentInternetGateway
+      VpcId: !Ref ProductEnrichmentVpc
+  ProductEnrichmentPublicRouteTable:
+    Type: AWS::EC2::RouteTable
+    Properties:
+      VpcId: !Ref ProductEnrichmentVpc
+      Tags:
+        - Key: Name
+          Value: !Sub "product-enrichment-public-rt-${StageName}"
+  ProductEnrichmentPublicRoute:
+    Type: AWS::EC2::Route
+    DependsOn: ProductEnrichmentVpcGatewayAttachment
+    Properties:
+      RouteTableId: !Ref ProductEnrichmentPublicRouteTable
+      DestinationCidrBlock: 0.0.0.0/0
+      GatewayId: !Ref ProductEnrichmentInternetGateway
+  ProductEnrichmentSubnetA:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref ProductEnrichmentVpc
+      CidrBlock: 10.0.1.0/24
+      MapPublicIpOnLaunch: true
+      AvailabilityZone: !Select [0, !GetAZs ""]
+      Tags:
+        - Key: Name
+          Value: !Sub "product-enrichment-subnet-a-${StageName}"
+  ProductEnrichmentSubnetB:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref ProductEnrichmentVpc
+      CidrBlock: 10.0.2.0/24
+      MapPublicIpOnLaunch: true
+      AvailabilityZone: !Select [1, !GetAZs ""]
+      Tags:
+        - Key: Name
+          Value: !Sub "product-enrichment-subnet-b-${StageName}"
+  ProductEnrichmentSubnetRouteAssocA:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      SubnetId: !Ref ProductEnrichmentSubnetA
+      RouteTableId: !Ref ProductEnrichmentPublicRouteTable
+  ProductEnrichmentSubnetRouteAssocB:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      SubnetId: !Ref ProductEnrichmentSubnetB
+      RouteTableId: !Ref ProductEnrichmentPublicRouteTable
+  ProductEnrichmentSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: Allow SSH and internal comms
+      VpcId: !Ref ProductEnrichmentVpc
+      SecurityGroupEgress:
+        - IpProtocol: -1
+          CidrIp: 0.0.0.0/0
+      Tags:
+        - Key: Name
+          Value: !Sub "product-enrichment-sg-${StageName}"
+
+  ProductEnrichmentDlq:
+    Type: AWS::SQS::Queue
+    Properties:
+      QueueName: !Sub "product-enrichment-dlq-${StageName}"
+      MessageRetentionPeriod: 1209600
+  ProductEnrichmentQ:
+    Type: AWS::SQS::Queue
+    Properties:
+      QueueName: !Sub "product-enrichment-queue-${StageName}"
+      RedrivePolicy:
+        deadLetterTargetArn: !GetAtt ProductEnrichmentDlq.Arn
+        maxReceiveCount: 3
+      VisibilityTimeout: 360
+  ProductEnrichmentRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Sub "product-enrichment-role-${StageName}"
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: ec2.amazonaws.com
+            Action: sts:AssumeRole
+          - Effect: Allow
+            Principal:
+              Service: spot.amazonaws.com
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/CloudWatchAgentServerPolicy
+        - arn:aws:iam::aws:policy/AmazonS3ReadOnlyAccess
+        - arn:aws:iam::aws:policy/AmazonSSMManagedInstanceCore
+      Policies:
+        - PolicyName: AllowTerminateInASG
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: Allow
+                Action: autoscaling:TerminateInstanceInAutoScalingGroup
+                Resource: "*"
+        - PolicyName: DynamoDBAccess
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: Allow
+                Action:
+                  - dynamodb:GetItem
+                  - dynamodb:Query
+                  - dynamodb:PutItem
+                  - dynamodb:DeleteItem
+                  - dynamodb:UpdateItem
+                  - dynamodb:BatchGetItem
+                  - dynamodb:BatchWriteItem
+                  - dynamodb:TransactGetItems
+                  - dynamodb:TransactWriteItems
+                Resource:
+                  - !GetAtt TableOne.Arn
+                  - !Sub "${TableOne.Arn}/index/*"
+        - PolicyName: OpenSearchAccess
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: Allow
+                Action:
+                  - es:*
+                Resource: !Sub "arn:aws:es:${AWS::Region}:${AWS::AccountId}:domain/application-${StageName}/*"
+        - PolicyName: SQSPollerAccess
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: Allow
+                Action:
+                  - sqs:ReceiveMessage
+                  - sqs:DeleteMessage
+                  - sqs:DeleteMessageBatch
+                  - sqs:GetQueueAttributes
+                  - sqs:GetQueueUrl
+                Resource: !GetAtt ProductEnrichmentQ.Arn
+        - PolicyName: CloudWatchLogsCreate
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: Allow
+                Action:
+                  - logs:CreateLogGroup
+                  - logs:CreateLogStream
+                  - logs:PutLogEvents
+                Resource: "*"
+  ProductEnrichmentInstanceProfile:
+    Type: AWS::IAM::InstanceProfile
+    Properties:
+      InstanceProfileName: !Sub "product-enrichment-profile-${StageName}"
+      Roles:
+        - !Ref ProductEnrichmentRole
+  ProductEnrichmentLaunchTemplate:
+    Type: AWS::EC2::LaunchTemplate
+    Properties:
+      LaunchTemplateName: !Sub "product-enrichment-template-${StageName}"
+      LaunchTemplateData:
+        KeyName: !Ref Ec2KeyPairName
+        IamInstanceProfile:
+          Name: !Ref ProductEnrichmentInstanceProfile
+        InstanceType: g6.xlarge # Placeholder - ASG overrides this
+        ImageId: ami-028f346ccb9f0f3c9 # custom eu-central-1 AMI with preinstalled deps and models based on ami-032fa3abdbb7e3a12 (Deep Learning OSS Nvidia Driver AMI GPU PyTorch 2.8 (Ubuntu 24.04))
+        SecurityGroupIds: [!Ref ProductEnrichmentSecurityGroup]
+        BlockDeviceMappings:
+          - DeviceName: /dev/sda1
+            Ebs:
+              VolumeSize: 100
+              VolumeType: gp3
+              DeleteOnTermination: true
+        TagSpecifications:
+          - ResourceType: instance
+            Tags:
+              - Key: Name
+                Value: !Sub "product-enrichment-${StageName}"
+              - Key: Fleet
+                Value: product-enrichment
+        UserData:
+          Fn::Base64: !Sub |
+            #!/bin/bash
+            set -euxo pipefail
+            sudo -i
+            export STAGE="ephemeral"
+            export STAGE_NAME="${StageName}"
+            export COMMIT_SHA="${CommitSHA}"
+            export RESOURCE_BUCKET="${ResourceBucket}"
+            export ARTIFACT_BUCKET="${ArtifactBucket}"
+            export ENRICHMENT_QUEUE_URL="${ProductEnrichmentQ}"
+            export DYNAMODB_TABLE_NAME="${TableOne}"
+            export OPENSEARCH_ENDPOINT_URL="https://${OpenSearchDomain.DomainEndpoint}"
+            export BAAI_BGE_M3_MODEL_DEVICE="cuda"
+            aws s3 cp "s3://${ResourceBucket}/${StageName}/${CommitSHA}/src/product-enrichment/user-data.sh" /tmp/user_data.sh --region eu-central-1
+            source /tmp/user_data.sh
+  ProductEnrichmentASG:
+    Type: AWS::AutoScaling::AutoScalingGroup
+    Properties:
+      VPCZoneIdentifier:
+        - !Ref ProductEnrichmentSubnetA
+        - !Ref ProductEnrichmentSubnetB
+      MinSize: 0
+      MaxSize: 3
+      DesiredCapacity: 0 # Default zero, scale via EventBridge
+      MixedInstancesPolicy:
+        LaunchTemplate:
+          LaunchTemplateSpecification:
+            LaunchTemplateId: !Ref ProductEnrichmentLaunchTemplate
+            Version: !GetAtt ProductEnrichmentLaunchTemplate.LatestVersionNumber
+          Overrides:
+            - InstanceType: g6.xlarge
+            - InstanceType: g6.2xlarge
+            - InstanceType: g5.xlarge
+            - InstanceType: g5.2xlarge
+        InstancesDistribution:
+          OnDemandPercentageAboveBaseCapacity: 0
+          SpotAllocationStrategy: price-capacity-optimized
+      Tags:
+        - Key: Name
+          Value: !Sub "product-enrichment-${StageName}"
+          PropagateAtLaunch: true
+      HealthCheckType: EC2
+      HealthCheckGracePeriod: 120
+
+  ProductEnrichmentScaleDownRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Sub "product-enrichment-asg-scale-down-role-${StageName}"
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: lambda.amazonaws.com
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole
+      Policies:
+        - PolicyName: ScaleDownASG
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: Allow
+                Action:
+                  - autoscaling:UpdateAutoScalingGroup
+                  - autoscaling:DescribeAutoScalingGroups
+                Resource: !Sub "arn:aws:autoscaling:${AWS::Region}:${AWS::AccountId}:autoScalingGroup:*:autoScalingGroupName/${ProductEnrichmentASG}"
+        - PolicyName: OpenSearchAccess
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: Allow
+                Action:
+                  - es:*
+                Resource: !Sub "arn:aws:es:${AWS::Region}:${AWS::AccountId}:domain/application-${StageName}/*"
+  ProductEnrichmentScaleDownLambda:
+    Type: AWS::Lambda::Function
+    Properties:
+      FunctionName: !Sub "product-enrichment-asg-scale-down-${StageName}"
+      Runtime: provided.al2023
+      Handler: lib.handler
+      Role: !GetAtt ProductEnrichmentScaleDownRole.Arn
+      Code:
+        S3Bucket: !Ref ArtifactBucket
+        S3Key: !Sub "product-enrichment-asg-scale-down-${StageName}-${CommitSHA}.zip"
+      MemorySize: 128
+      Timeout: 60
+      EphemeralStorage:
+        Size: 512
+      Environment:
+        Variables:
+          PRODUCT_ENRICHMENT_ASG_NAME: !Ref ProductEnrichmentASG
+          OPENSEARCH_ENDPOINT_URL: !Sub "https://${OpenSearchDomain.DomainEndpoint}"
+          STAGE: "ephemeral"
+  ProductEnrichmentScaleDownStartSchedule:
+    Type: AWS::Events::Rule
+    Properties:
+      ScheduleExpression: "cron(0 3 * * ? *)" # every day at 03:00 UTC
+      Targets:
+        - Arn: !GetAtt ProductEnrichmentScaleDownLambda.Arn
+          Id: "ProductEnrichmentScaleDownStartSchedule"
+          RetryPolicy:
+            MaximumRetryAttempts: 5
+            MaximumEventAgeInSeconds: 3600
+          DeadLetterConfig:
+            Arn: !GetAtt ProductEnrichmentDlq.Arn
+  ProductEnrichmentScaleDownStartSchedulePermission:
+    Type: AWS::Lambda::Permission
+    Properties:
+      FunctionName: !Ref ProductEnrichmentScaleDownLambda
+      Action: "lambda:InvokeFunction"
+      Principal: "events.amazonaws.com"
+      SourceArn: !GetAtt ProductEnrichmentScaleDownStartSchedule.Arn
+
+  ProductEnrichmentScaleUpRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Sub "product-enrichment-asg-scale-up-role-${StageName}"
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: lambda.amazonaws.com
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole
+      Policies:
+        - PolicyName: ScaleUpASG
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: Allow
+                Action:
+                  - autoscaling:UpdateAutoScalingGroup
+                  - autoscaling:DescribeAutoScalingGroups
+                Resource: !Sub "arn:aws:autoscaling:${AWS::Region}:${AWS::AccountId}:autoScalingGroup:*:autoScalingGroupName/${ProductEnrichmentASG}"
+        - PolicyName: OpenSearchAccess
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: Allow
+                Action:
+                  - es:*
+                Resource: !Sub "arn:aws:es:${AWS::Region}:${AWS::AccountId}:domain/application-${StageName}/*"
+  ProductEnrichmentScaleUpLambda:
+    Type: AWS::Lambda::Function
+    Properties:
+      FunctionName: !Sub "product-enrichment-asg-scale-up-${StageName}"
+      Runtime: provided.al2023
+      Handler: lib.handler
+      Role: !GetAtt ProductEnrichmentScaleUpRole.Arn
+      Code:
+        S3Bucket: !Ref ArtifactBucket
+        S3Key: !Sub "product-enrichment-asg-scale-up-${StageName}-${CommitSHA}.zip"
+      MemorySize: 128
+      Timeout: 60
+      EphemeralStorage:
+        Size: 512
+      Environment:
+        Variables:
+          PRODUCT_ENRICHMENT_ASG_NAME: !Ref ProductEnrichmentASG
+          OPENSEARCH_ENDPOINT_URL: !Sub "https://${OpenSearchDomain.DomainEndpoint}"
+          STAGE: "ephemeral"
+  ProductEnrichmentScaleUpStartSchedule:
+    Type: AWS::Events::Rule
+    Properties:
+      ScheduleExpression: "cron(0 1 * * ? *)" # every day at 01:00 UTC
+      Targets:
+        - Arn: !GetAtt ProductEnrichmentScaleUpLambda.Arn
+          Id: "ProductEnrichmentScaleUpStartSchedule"
+          RetryPolicy:
+            MaximumRetryAttempts: 5
+            MaximumEventAgeInSeconds: 3600
+          DeadLetterConfig:
+            Arn: !GetAtt ProductEnrichmentDlq.Arn
+  ProductEnrichmentScaleUpStartSchedulePermission:
+    Type: AWS::Lambda::Permission
+    Properties:
+      FunctionName: !Ref ProductEnrichmentScaleUpLambda
+      Action: "lambda:InvokeFunction"
+      Principal: "events.amazonaws.com"
+      SourceArn: !GetAtt ProductEnrichmentScaleUpStartSchedule.Arn
+
+Outputs:
+  CognitoHostedUIDomain:
+    Value: !Sub "https://${PrimaryUserPoolDomain}.auth.${AWS::Region}.amazoncognito.com"
+  CognitoUserPoolId:
+    Value: !Ref PrimaryUserPool
+  CognitoUserPoolClientPublicId:
+    Value: !Ref PrimaryUserPoolClientPublic
+  CognitoUserPoolClientAdminId:
+    Value: !Ref PrimaryUserPoolClientAdmin
+  ApiGatewayEndpointUrl:
+    Value: !Sub "https://${Api}.execute-api.${AWS::Region}.amazonaws.com/${StageName}"
+  OpensearchEndpointUrl:
+    Value: !Sub "https://${OpenSearchDomain.DomainEndpoint}"
+  OpensearchDomainName:
+    Value: !Ref OpenSearchDomain
+  DynamodbTable1Name:
+    Value: !Ref TableOne
+
+  SendMailQueueUrl:
+    Value: !Ref SendMailQ
+  SendMailDeadLetterQueueUrl:
+    Value: !Ref SendMailDlq
+
+  ProductIngestEventsDynamodbQueueUrl:
+    Value: !Ref ProductIngestEventsDynamoDbQ
+  ProductIngestEventsDynamodbDeadLetterQueueUrl:
+    Value: !Ref ProductIngestEventsDynamoDbDlq
+
+  ProductMaterializeDynamodbNewQueueUrl:
+    Value: !Ref ProductMaterializeDynamoDbNewQ
+  ProductMaterializeDynamodbNewDeadLetterQueueUrl:
+    Value: !Ref ProductMaterializeDynamoDbNewDlq
+
+  ProductMaterializeDynamodbUpdateQueueUrl:
+    Value: !Ref ProductMaterializeDynamoDbUpdateQ
+  ProductMaterializeDynamodbUpdateDeadLetterQueueUrl:
+    Value: !Ref ProductMaterializeDynamoDbUpdateDlq
+
+  ProductMaterializeOpensearchNewQueueUrl:
+    Value: !Ref ProductMaterializeOpenSearchNewQ
+  ProductMaterializeOpensearchNewDeadLetterQueueUrl:
+    Value: !Ref ProductMaterializeOpenSearchNewDlq
+
+  ProductMaterializeOpensearchUpdateQueueUrl:
+    Value: !Ref ProductMaterializeOpenSearchUpdateQ
+  ProductMaterializeOpensearchUpdateDeadLetterQueueUrl:
+    Value: !Ref ProductMaterializeOpenSearchUpdateDlq
+
+  ProductUpdateNotifyUserQueueUrl:
+    Value: !Ref ProductUpdateNotifyUserQ
+  ProductUpdateNotifyUserDeadLetterQueueUrl:
+    Value: !Ref ProductUpdateNotifyUserDlq
+
+  ProductEnrichmentQueueUrl:
+    Value: !Ref ProductEnrichmentQ
+  ProductEnrichmentDeadLetterQueueUrl:
+    Value: !Ref ProductEnrichmentDlq

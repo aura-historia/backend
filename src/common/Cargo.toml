@@ -20,6 +20,7 @@ strum = { workspace = true }
 strum_macros = { workspace = true }
 
 # Optional dependencies via feature-flags
+aws-config = { workspace = true, optional = true }
 aws-sdk-dynamodb = { workspace = true, optional = true }
 aws-sdk-sqs = { workspace = true, optional = true }
 serde_dynamo = { workspace = true, features = [
@@ -27,6 +28,7 @@ serde_dynamo = { workspace = true, features = [
 ], optional = true }
 accept-language = { workspace = true, optional = true }
 aws_lambda_events = { workspace = true, optional = true }
+lambda_runtime = { workspace = true, optional = true }
 http = { workspace = true, optional = true }
 serde_json = { workspace = true, optional = true }
 httpdate = { workspace = true, optional = true }
@@ -42,7 +44,7 @@ serde_json = { workspace = true }
 default = []
 dynamodb = ["serde_dynamo", "aws-sdk-dynamodb"]
 event_bridge = ["aws_lambda_events/eventbridge", "aws_lambda_events/sqs", "aws_lambda_events/dynamodb", "sqs", "dynamodb"]
-opensearch = ["dep:opensearch", "serde_json"]
+opensearch = ["dep:opensearch", "serde_json", "aws-config"]
 sqs = ["aws-sdk-sqs", "serde_json"]
 api = [
     "aws_lambda_events/apigw",
@@ -50,5 +52,6 @@ api = [
     "serde_json",
     "httpdate",
     "accept-language",
+    "lambda_runtime"
 ]
 test-data = ["fake"]

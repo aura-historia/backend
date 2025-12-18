@@ -1,17 +1,7 @@
 AWSTemplateFormatVersion: "2010-09-09"
-Description: Stack for the Aura-Historia Application-Backend
+Description: Production Stack for the Aura-Historia Application-Backend
 
 Parameters:
-  Stage:
-    Type: String
-    Description: "Type of the stage"
-    AllowedValues:
-      - dev
-      - staging
-      - prod
-  StageName:
-    Type: String
-    Description: "Unique name of the stage"
   ArtifactBucket:
     Type: String
     Description: "S3 bucket containing Lambda deployment zips"
@@ -26,46 +16,28 @@ Parameters:
   Ec2KeyPairName:
     Type: AWS::EC2::KeyPair::KeyName
     Description: For EC2 SSH-Access
-
-Mappings:
-  SendMailQueueMap:
-    MaximumBatchingWindowInSeconds:
-      dev: 1
-      staging: 1
-      prod: 5
-  ProductIngestEventsDynamoDbQueueMap:
-    MaximumBatchingWindowInSeconds:
-      dev: 1
-      staging: 1
-      prod: 10
-  ProductMaterializeDynamoDbQueuesMap:
-    MaximumBatchingWindowInSeconds:
-      dev: 1
-      staging: 1
-      prod: 10
-  ProductMaterializeOpenSearchQueuesMap:
-    MaximumBatchingWindowInSeconds:
-      dev: 1
-      staging: 1
-      prod: 300
-  ProductUpdateNotifyUserQueueMap:
-    MaximumBatchingWindowInSeconds:
-      dev: 1
-      staging: 1
-      prod: 5
+  OpenSearchEndpointUrl:
+    Type: String
+    Description: "URL for the self-hosted OpenSearch-Cluster"
+  OpenSearchUsername:
+    Type: String
+    Description: "Username for accessing the self-hosted OpenSearch-Cluster"
+  OpenSearchPassword:
+    Type: String
+    Description: "Password for accessing the self-hosted OpenSearch-Cluster"
 
 Resources:
   # SNS Topic for CloudWatch Alarms
   AlarmNotificationTopic:
     Type: AWS::SNS::Topic
     Properties:
-      TopicName: !Sub "cloudwatch-alarms-${StageName}"
-      DisplayName: !Sub "CloudWatch Alarms for Aura-Historia Backend stage '${StageName}'"
+      TopicName: !Sub "cloudwatch-alarms-prod"
+      DisplayName: "CloudWatch Alarms for Aura-Historia Backend stage 'prod'"
 
   PrimaryUserPool:
     Type: AWS::Cognito::UserPool
     Properties:
-      UserPoolName: !Sub "primary-userpool-${StageName}"
+      UserPoolName: !Sub "primary-userpool-prod"
       UsernameAttributes:
         - email
       AutoVerifiedAttributes:
@@ -95,7 +67,7 @@ Resources:
   PrimaryUserPoolPostConfirmationLambdaRole:
     Type: AWS::IAM::Role
     Properties:
-      RoleName: !Sub "cognito-primary-userpool-post-confirmation-role-${StageName}"
+      RoleName: !Sub "cognito-primary-userpool-post-confirmation-role-prod"
       AssumeRolePolicyDocument:
         Version: "2012-10-17"
         Statement:
@@ -118,13 +90,13 @@ Resources:
   PrimaryUserPoolPostConfirmationLambda:
     Type: AWS::Lambda::Function
     Properties:
-      FunctionName: !Sub "cognito-primary-userpool-post-confirmation-${StageName}"
+      FunctionName: !Sub "cognito-primary-userpool-post-confirmation-prod"
       Runtime: provided.al2023
       Handler: lib.handler
       Role: !GetAtt PrimaryUserPoolPostConfirmationLambdaRole.Arn
       Code:
         S3Bucket: !Ref ArtifactBucket
-        S3Key: !Sub "cognito-post-confirmation-${StageName}-${CommitSHA}.zip"
+        S3Key: !Sub "cognito-post-confirmation-prod-${CommitSHA}.zip"
       MemorySize: 256
       Timeout: 5
       EphemeralStorage:
@@ -144,7 +116,7 @@ Resources:
     Type: AWS::Cognito::UserPoolClient
     Properties:
       UserPoolId: !Ref PrimaryUserPool
-      ClientName: !Sub "primary-userpool-client-public-${StageName}"
+      ClientName: !Sub "primary-userpool-client-public-prod"
       GenerateSecret: false # PKCE replaces client secret
       PreventUserExistenceErrors: ENABLED
       AllowedOAuthFlowsUserPoolClient: true
@@ -157,10 +129,8 @@ Resources:
       SupportedIdentityProviders:
         - COGNITO
       CallbackURLs:
-        - http://localhost:3000/
         - https://aura-historia.com/
       LogoutURLs:
-        - http://localhost:3000/
         - https://aura-historia.com/
       EnableTokenRevocation: true
       AccessTokenValidity: 1 # hours
@@ -173,7 +143,7 @@ Resources:
     Type: AWS::Cognito::UserPoolClient
     Properties:
       UserPoolId: !Ref PrimaryUserPool
-      ClientName: !Sub "primary-userpool-client-admin-${StageName}"
+      ClientName: !Sub "primary-userpool-client-admin-prod"
       GenerateSecret: false
       PreventUserExistenceErrors: ENABLED
       AllowedOAuthFlowsUserPoolClient: false
@@ -190,13 +160,13 @@ Resources:
   PrimaryUserPoolDomain:
     Type: AWS::Cognito::UserPoolDomain
     Properties:
-      Domain: !Sub "primary-userpool-${StageName}" # hosted UI domain
+      Domain: !Sub "primary-userpool-prod" # hosted UI domain
       UserPoolId: !Ref PrimaryUserPool
 
   TableOne:
     Type: AWS::DynamoDB::Table
     Properties:
-      TableName: !Sub "table_1-${StageName}"
+      TableName: !Sub "table_1-prod"
       AttributeDefinitions:
         - AttributeName: pk
           AttributeType: S
@@ -238,7 +208,7 @@ Resources:
   TableOneThrottledRequestsAlarm:
     Type: AWS::CloudWatch::Alarm
     Properties:
-      AlarmName: !Sub "${StageName}-dynamodb-throttled-requests"
+      AlarmName: !Sub "prod-dynamodb-throttled-requests"
       AlarmDescription: "Alarm when DynamoDB table has throttled requests"
       MetricName: UserErrors
       Namespace: AWS/DynamoDB
@@ -254,136 +224,14 @@ Resources:
       AlarmActions:
         - !Ref AlarmNotificationTopic
 
-  OpenSearchDomain:
-    Type: AWS::OpenSearchService::Domain
-    Properties:
-      DomainName: !Sub "application-${StageName}"
-      EngineVersion: "OpenSearch_3.1"
-      ClusterConfig:
-        InstanceType: t3.small.search
-        InstanceCount: 1
-        ZoneAwarenessEnabled: false
-      EBSOptions:
-        EBSEnabled: true
-        VolumeSize: 10
-        VolumeType: gp3
-      AccessPolicies:
-        Version: "2012-10-17"
-        Statement:
-          - Effect: Allow
-            Principal:
-              AWS: !Sub "arn:aws:iam::${AWS::AccountId}:root"
-            Action: "es:*"
-            Resource: !Sub "arn:aws:es:${AWS::Region}:${AWS::AccountId}:domain/application-${StageName}/*"
-  OpenSearchClusterStatusRedAlarm:
-    Type: AWS::CloudWatch::Alarm
-    Properties:
-      AlarmName: !Sub "${StageName}-opensearch-cluster-red"
-      AlarmDescription: "Alarm when OpenSearch cluster status is RED"
-      MetricName: ClusterStatus.red
-      Namespace: AWS/ES
-      Statistic: Maximum
-      Period: 60
-      EvaluationPeriods: 1
-      Threshold: 1
-      ComparisonOperator: GreaterThanOrEqualToThreshold
-      Dimensions:
-        - Name: DomainName
-          Value: !Ref OpenSearchDomain
-        - Name: ClientId
-          Value: !Ref AWS::AccountId
-      TreatMissingData: notBreaching
-      AlarmActions:
-        - !Ref AlarmNotificationTopic
-  OpenSearchClusterStatusYellowAlarm:
-    Type: AWS::CloudWatch::Alarm
-    Properties:
-      AlarmName: !Sub "${StageName}-opensearch-cluster-yellow"
-      AlarmDescription: "Alarm when OpenSearch cluster status is YELLOW"
-      MetricName: ClusterStatus.yellow
-      Namespace: AWS/ES
-      Statistic: Maximum
-      Period: 300
-      EvaluationPeriods: 2
-      Threshold: 1
-      ComparisonOperator: GreaterThanOrEqualToThreshold
-      Dimensions:
-        - Name: DomainName
-          Value: !Ref OpenSearchDomain
-        - Name: ClientId
-          Value: !Ref AWS::AccountId
-      TreatMissingData: notBreaching
-      AlarmActions:
-        - !Ref AlarmNotificationTopic
-  OpenSearchFreeStorageSpaceAlarm:
-    Type: AWS::CloudWatch::Alarm
-    Properties:
-      AlarmName: !Sub "${StageName}-opensearch-low-storage"
-      AlarmDescription: "Alarm when OpenSearch has low free storage space"
-      MetricName: FreeStorageSpace
-      Namespace: AWS/ES
-      Statistic: Minimum
-      Period: 300
-      EvaluationPeriods: 1
-      Threshold: 2000
-      ComparisonOperator: LessThanOrEqualToThreshold
-      Dimensions:
-        - Name: DomainName
-          Value: !Ref OpenSearchDomain
-        - Name: ClientId
-          Value: !Ref AWS::AccountId
-      TreatMissingData: notBreaching
-      AlarmActions:
-        - !Ref AlarmNotificationTopic
-  OpenSearchCPUUtilizationAlarm:
-    Type: AWS::CloudWatch::Alarm
-    Properties:
-      AlarmName: !Sub "${StageName}-opensearch-high-cpu"
-      AlarmDescription: "Alarm when OpenSearch CPU utilization is high"
-      MetricName: CPUUtilization
-      Namespace: AWS/ES
-      Statistic: Average
-      Period: 300
-      EvaluationPeriods: 2
-      Threshold: 80
-      ComparisonOperator: GreaterThanOrEqualToThreshold
-      Dimensions:
-        - Name: DomainName
-          Value: !Ref OpenSearchDomain
-        - Name: ClientId
-          Value: !Ref AWS::AccountId
-      TreatMissingData: notBreaching
-      AlarmActions:
-        - !Ref AlarmNotificationTopic
-  OpenSearchJVMMemoryPressureAlarm:
-    Type: AWS::CloudWatch::Alarm
-    Properties:
-      AlarmName: !Sub "${StageName}-opensearch-high-jvm-memory"
-      AlarmDescription: "Alarm when OpenSearch JVM memory pressure is high"
-      MetricName: JVMMemoryPressure
-      Namespace: AWS/ES
-      Statistic: Maximum
-      Period: 300
-      EvaluationPeriods: 1
-      Threshold: 85
-      ComparisonOperator: GreaterThanOrEqualToThreshold
-      Dimensions:
-        - Name: DomainName
-          Value: !Ref OpenSearchDomain
-        - Name: ClientId
-          Value: !Ref AWS::AccountId
-      TreatMissingData: notBreaching
-      AlarmActions:
-        - !Ref AlarmNotificationTopic
-
   DynamoDbEventBus:
     Type: AWS::Events::EventBus
     Properties:
-      Name: !Sub "dynamodb-event-bus-${StageName}"
+      Name: !Sub "dynamodb-event-bus-prod"
   PipeRole:
     Type: AWS::IAM::Role
     Properties:
-      RoleName: !Sub "dynamodb-to-eventbridge-pipe-role-${StageName}"
+      RoleName: !Sub "dynamodb-to-eventbridge-pipe-role-prod"
       AssumeRolePolicyDocument:
         Version: "2012-10-17"
         Statement:
@@ -410,7 +258,7 @@ Resources:
   TableOneStreamToEventBusPipe:
     Type: AWS::Pipes::Pipe
     Properties:
-      Name: !Sub "tableone-stream-to-eventbus-${StageName}"
+      Name: !Sub "tableone-stream-to-eventbus-prod"
       RoleArn: !GetAtt PipeRole.Arn
       Source: !GetAtt TableOne.StreamArn
       SourceParameters:
@@ -484,7 +332,7 @@ Resources:
   Api:
     Type: AWS::ApiGatewayV2::Api
     Properties:
-      Name: !Sub "api-${StageName}"
+      Name: !Sub "api-prod"
       ProtocolType: HTTP
       CorsConfiguration:
         AllowOrigins:
@@ -500,12 +348,12 @@ Resources:
   ApiStage:
     Type: AWS::ApiGatewayV2::Stage
     Properties:
-      StageName: !Sub "${StageName}"
+      StageName: !Sub "prod"
       ApiId: !Ref Api
       AutoDeploy: true
       DefaultRouteSettings:
-        ThrottlingBurstLimit: 50
-        ThrottlingRateLimit: 20
+        ThrottlingBurstLimit: 5000
+        ThrottlingRateLimit: 2000
   ApiCognitoAuthorizer:
     Type: AWS::ApiGatewayV2::Authorizer
     Properties:
@@ -522,7 +370,7 @@ Resources:
   Api5XXErrorAlarm:
     Type: AWS::CloudWatch::Alarm
     Properties:
-      AlarmName: !Sub "${StageName}-api-5xx-errors"
+      AlarmName: !Sub "prod-api-5xx-errors"
       AlarmDescription: "Alarm when API Gateway returns 5XX errors"
       MetricName: 5XXError
       Namespace: AWS/ApiGateway
@@ -540,7 +388,7 @@ Resources:
   Api4XXErrorAlarm:
     Type: AWS::CloudWatch::Alarm
     Properties:
-      AlarmName: !Sub "${StageName}-api-4xx-errors"
+      AlarmName: !Sub "prod-api-4xx-errors"
       AlarmDescription: "Alarm when API Gateway returns high 4XX errors"
       MetricName: 4XXError
       Namespace: AWS/ApiGateway
@@ -572,7 +420,7 @@ Resources:
   ApiGetProductRole:
     Type: AWS::IAM::Role
     Properties:
-      RoleName: !Sub "api-get-product-role-${StageName}"
+      RoleName: !Sub "api-get-product-role-prod"
       AssumeRolePolicyDocument:
         Version: "2012-10-17"
         Statement:
@@ -596,13 +444,13 @@ Resources:
   ApiGetProductLambda:
     Type: AWS::Lambda::Function
     Properties:
-      FunctionName: !Sub "api-get-product-${StageName}"
+      FunctionName: !Sub "api-get-product-prod"
       Runtime: provided.al2023
       Handler: lib.handler
       Role: !GetAtt ApiGetProductRole.Arn
       Code:
         S3Bucket: !Ref ArtifactBucket
-        S3Key: !Sub "product-api-get-product-${StageName}-${CommitSHA}.zip"
+        S3Key: !Sub "product-api-get-product-prod-${CommitSHA}.zip"
       MemorySize: 512
       Timeout: 10
       EphemeralStorage:
@@ -623,7 +471,7 @@ Resources:
   ApiGetProductLambdaErrorAlarm:
     Type: AWS::CloudWatch::Alarm
     Properties:
-      AlarmName: !Sub "${StageName}-get-product-lambda-errors"
+      AlarmName: !Sub "prod-get-product-lambda-errors"
       AlarmDescription: "Alarm when get-product Lambda has errors"
       MetricName: Errors
       Namespace: AWS/Lambda
@@ -641,7 +489,7 @@ Resources:
   ApiGetProductLambdaThrottleAlarm:
     Type: AWS::CloudWatch::Alarm
     Properties:
-      AlarmName: !Sub "${StageName}-get-product-lambda-throttles"
+      AlarmName: !Sub "prod-get-product-lambda-throttles"
       AlarmDescription: "Alarm when get-product Lambda is throttled"
       MetricName: Throttles
       Namespace: AWS/Lambda
@@ -673,7 +521,7 @@ Resources:
   ApiPutProductsRole:
     Type: AWS::IAM::Role
     Properties:
-      RoleName: !Sub "api-put-products-role-${StageName}"
+      RoleName: !Sub "api-put-products-role-prod"
       AssumeRolePolicyDocument:
         Version: "2012-10-17"
         Statement:
@@ -705,13 +553,13 @@ Resources:
   ApiPutProductsLambda:
     Type: AWS::Lambda::Function
     Properties:
-      FunctionName: !Sub "api-put-products-${StageName}"
+      FunctionName: !Sub "api-put-products-prod"
       Runtime: provided.al2023
       Handler: lib.handler
       Role: !GetAtt ApiPutProductsRole.Arn
       Code:
         S3Bucket: !Ref ArtifactBucket
-        S3Key: !Sub "product-api-put-products-${StageName}-${CommitSHA}.zip"
+        S3Key: !Sub "product-api-put-products-prod-${CommitSHA}.zip"
       MemorySize: 1024
       Timeout: 60
       EphemeralStorage:
@@ -730,7 +578,7 @@ Resources:
   ApiPutProductsLambdaErrorAlarm:
     Type: AWS::CloudWatch::Alarm
     Properties:
-      AlarmName: !Sub "${StageName}-put-products-lambda-errors"
+      AlarmName: !Sub "prod-put-products-lambda-errors"
       AlarmDescription: "Alarm when put-products Lambda has errors"
       MetricName: Errors
       Namespace: AWS/Lambda
@@ -748,7 +596,7 @@ Resources:
   ApiPutProductsLambdaThrottleAlarm:
     Type: AWS::CloudWatch::Alarm
     Properties:
-      AlarmName: !Sub "${StageName}-put-products-lambda-throttles"
+      AlarmName: !Sub "prod-put-products-lambda-throttles"
       AlarmDescription: "Alarm when put-products Lambda is throttled"
       MetricName: Throttles
       Namespace: AWS/Lambda
@@ -780,7 +628,7 @@ Resources:
   ApiProductSearchRole:
     Type: AWS::IAM::Role
     Properties:
-      RoleName: !Sub "api-product-search-role-${StageName}"
+      RoleName: !Sub "api-product-search-role-prod"
       AssumeRolePolicyDocument:
         Version: "2012-10-17"
         Statement:
@@ -791,18 +639,6 @@ Resources:
       ManagedPolicyArns:
         - arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole
       Policies:
-        - PolicyName: OpenSearchReadOnly
-          PolicyDocument:
-            Version: "2012-10-17"
-            Statement:
-              - Effect: Allow
-                Action:
-                  - es:Describe*
-                  - es:List*
-                  - es:ESHttpGet
-                  - es:ESHttpHead
-                  - es:ESHttpPost
-                Resource: !Sub "${OpenSearchDomain.Arn}/*"
         - PolicyName: DynamoDBAccess
           PolicyDocument:
             Version: "2012-10-17"
@@ -816,20 +652,23 @@ Resources:
   ApiProductSearchLambda:
     Type: AWS::Lambda::Function
     Properties:
-      FunctionName: !Sub "api-product-search-${StageName}"
+      FunctionName: !Sub "api-product-search-prod"
       Runtime: provided.al2023
       Handler: lib.handler
       Role: !GetAtt ApiProductSearchRole.Arn
       Code:
         S3Bucket: !Ref ArtifactBucket
-        S3Key: !Sub "product-api-search-${StageName}-${CommitSHA}.zip"
+        S3Key: !Sub "product-api-search-prod-${CommitSHA}.zip"
       MemorySize: 512
       Timeout: 10
       EphemeralStorage:
         Size: 512
       Environment:
         Variables:
-          OPENSEARCH_DOMAIN_ENDPOINT_URL: !Sub "https://${OpenSearchDomain.DomainEndpoint}"
+          OPENSEARCH_ENDPOINT_URL: !Ref OpenSearchEndpointUrl
+          STAGE: "prod"
+          OPENSEARCH_USERNAME: !Ref OpenSearchUsername
+          OPENSEARCH_PASSWORD: !Ref OpenSearchPassword
           DYNAMODB_TABLE_NAME: !Ref TableOne
           USER_POOL_ID: !Ref PrimaryUserPool
           USER_POOL_PUBLIC_CLIENT_ID: !Ref PrimaryUserPoolClientPublic
@@ -844,7 +683,7 @@ Resources:
   ApiProductSearchLambdaErrorAlarm:
     Type: AWS::CloudWatch::Alarm
     Properties:
-      AlarmName: !Sub "${StageName}-product-search-lambda-errors"
+      AlarmName: !Sub "prod-product-search-lambda-errors"
       AlarmDescription: "Alarm when product-search Lambda has errors"
       MetricName: Errors
       Namespace: AWS/Lambda
@@ -876,7 +715,7 @@ Resources:
   ApiProductSimilaritySearchRole:
     Type: AWS::IAM::Role
     Properties:
-      RoleName: !Sub "api-product-similarity-search-role-${StageName}"
+      RoleName: !Sub "api-product-similarity-search-role-prod"
       AssumeRolePolicyDocument:
         Version: "2012-10-17"
         Statement:
@@ -887,18 +726,6 @@ Resources:
       ManagedPolicyArns:
         - arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole
       Policies:
-        - PolicyName: OpenSearchReadOnly
-          PolicyDocument:
-            Version: "2012-10-17"
-            Statement:
-              - Effect: Allow
-                Action:
-                  - es:Describe*
-                  - es:List*
-                  - es:ESHttpGet
-                  - es:ESHttpHead
-                  - es:ESHttpPost
-                Resource: !Sub "${OpenSearchDomain.Arn}/*"
         - PolicyName: DynamoDBAccess
           PolicyDocument:
             Version: "2012-10-17"
@@ -912,20 +739,23 @@ Resources:
   ApiProductSimilaritySearchLambda:
     Type: AWS::Lambda::Function
     Properties:
-      FunctionName: !Sub "api-product-similarity-search-${StageName}"
+      FunctionName: !Sub "api-product-similarity-search-prod"
       Runtime: provided.al2023
       Handler: lib.handler
       Role: !GetAtt ApiProductSimilaritySearchRole.Arn
       Code:
         S3Bucket: !Ref ArtifactBucket
-        S3Key: !Sub "product-api-get-product-similar-${StageName}-${CommitSHA}.zip"
+        S3Key: !Sub "product-api-get-product-similar-prod-${CommitSHA}.zip"
       MemorySize: 512
       Timeout: 10
       EphemeralStorage:
         Size: 512
       Environment:
         Variables:
-          OPENSEARCH_DOMAIN_ENDPOINT_URL: !Sub "https://${OpenSearchDomain.DomainEndpoint}"
+          OPENSEARCH_ENDPOINT_URL: !Ref OpenSearchEndpointUrl
+          STAGE: "prod"
+          OPENSEARCH_USERNAME: !Ref OpenSearchUsername
+          OPENSEARCH_PASSWORD: !Ref OpenSearchPassword
           DYNAMODB_TABLE_NAME: !Ref TableOne
           USER_POOL_ID: !Ref PrimaryUserPool
           USER_POOL_PUBLIC_CLIENT_ID: !Ref PrimaryUserPoolClientPublic
@@ -940,7 +770,7 @@ Resources:
   ApiProductSimilaritySearchLambdaErrorAlarm:
     Type: AWS::CloudWatch::Alarm
     Properties:
-      AlarmName: !Sub "${StageName}-product-similarity-search-lambda-errors"
+      AlarmName: !Sub "prod-product-similarity-search-lambda-errors"
       AlarmDescription: "Alarm when product-similarity-search Lambda has errors"
       MetricName: Errors
       Namespace: AWS/Lambda
@@ -974,7 +804,7 @@ Resources:
   ApiGetWatchlistProductsRole:
     Type: AWS::IAM::Role
     Properties:
-      RoleName: !Sub "api-get-watchlist-products-role-${StageName}"
+      RoleName: !Sub "api-get-watchlist-products-role-prod"
       AssumeRolePolicyDocument:
         Version: "2012-10-17"
         Statement:
@@ -1000,13 +830,13 @@ Resources:
   ApiGetWatchlistProductsLambda:
     Type: AWS::Lambda::Function
     Properties:
-      FunctionName: !Sub "api-get-watchlist-products-${StageName}"
+      FunctionName: !Sub "api-get-watchlist-products-prod"
       Runtime: provided.al2023
       Handler: lib.handler
       Role: !GetAtt ApiGetWatchlistProductsRole.Arn
       Code:
         S3Bucket: !Ref ArtifactBucket
-        S3Key: !Sub "product-api-watchlist-get-${StageName}-${CommitSHA}.zip"
+        S3Key: !Sub "product-api-watchlist-get-prod-${CommitSHA}.zip"
       MemorySize: 512
       Timeout: 10
       EphemeralStorage:
@@ -1040,7 +870,7 @@ Resources:
   ApiDeleteWatchlistProductRole:
     Type: AWS::IAM::Role
     Properties:
-      RoleName: !Sub "api-delete-watchlist-product-role-${StageName}"
+      RoleName: !Sub "api-delete-watchlist-product-role-prod"
       AssumeRolePolicyDocument:
         Version: "2012-10-17"
         Statement:
@@ -1065,13 +895,13 @@ Resources:
   ApiDeleteWatchlistLambda:
     Type: AWS::Lambda::Function
     Properties:
-      FunctionName: !Sub "api-delete-watchlist-product-${StageName}"
+      FunctionName: !Sub "api-delete-watchlist-product-prod"
       Runtime: provided.al2023
       Handler: lib.handler
       Role: !GetAtt ApiDeleteWatchlistProductRole.Arn
       Code:
         S3Bucket: !Ref ArtifactBucket
-        S3Key: !Sub "product-api-watchlist-delete-${StageName}-${CommitSHA}.zip"
+        S3Key: !Sub "product-api-watchlist-delete-prod-${CommitSHA}.zip"
       MemorySize: 512
       Timeout: 10
       EphemeralStorage:
@@ -1105,7 +935,7 @@ Resources:
   ApiPostWatchlistProductRole:
     Type: AWS::IAM::Role
     Properties:
-      RoleName: !Sub "api-post-watchlist-product-role-${StageName}"
+      RoleName: !Sub "api-post-watchlist-product-role-prod"
       AssumeRolePolicyDocument:
         Version: "2012-10-17"
         Statement:
@@ -1130,13 +960,13 @@ Resources:
   ApiPostWatchlistLambda:
     Type: AWS::Lambda::Function
     Properties:
-      FunctionName: !Sub "api-post-watchlist-product-${StageName}"
+      FunctionName: !Sub "api-post-watchlist-product-prod"
       Runtime: provided.al2023
       Handler: lib.handler
       Role: !GetAtt ApiPostWatchlistProductRole.Arn
       Code:
         S3Bucket: !Ref ArtifactBucket
-        S3Key: !Sub "product-api-watchlist-post-${StageName}-${CommitSHA}.zip"
+        S3Key: !Sub "product-api-watchlist-post-prod-${CommitSHA}.zip"
       MemorySize: 512
       Timeout: 10
       EphemeralStorage:
@@ -1170,7 +1000,7 @@ Resources:
   ApiPatchWatchlistProductRole:
     Type: AWS::IAM::Role
     Properties:
-      RoleName: !Sub "api-patch-watchlist-product-role-${StageName}"
+      RoleName: !Sub "api-patch-watchlist-product-role-prod"
       AssumeRolePolicyDocument:
         Version: "2012-10-17"
         Statement:
@@ -1193,13 +1023,13 @@ Resources:
   ApiPatchWatchlistLambda:
     Type: AWS::Lambda::Function
     Properties:
-      FunctionName: !Sub "api-patch-watchlist-product-${StageName}"
+      FunctionName: !Sub "api-patch-watchlist-product-prod"
       Runtime: provided.al2023
       Handler: lib.handler
       Role: !GetAtt ApiPatchWatchlistProductRole.Arn
       Code:
         S3Bucket: !Ref ArtifactBucket
-        S3Key: !Sub "product-api-watchlist-patch-${StageName}-${CommitSHA}.zip"
+        S3Key: !Sub "product-api-watchlist-patch-prod-${CommitSHA}.zip"
       MemorySize: 256
       Timeout: 10
       EphemeralStorage:
@@ -1233,7 +1063,7 @@ Resources:
   ApiGetUserAccountRole:
     Type: AWS::IAM::Role
     Properties:
-      RoleName: !Sub "api-user-get-account-role-${StageName}"
+      RoleName: !Sub "api-user-get-account-role-prod"
       AssumeRolePolicyDocument:
         Version: "2012-10-17"
         Statement:
@@ -1259,13 +1089,13 @@ Resources:
   ApiGetUserAccountLambda:
     Type: AWS::Lambda::Function
     Properties:
-      FunctionName: !Sub "api-user-get-account-${StageName}"
+      FunctionName: !Sub "api-user-get-account-prod"
       Runtime: provided.al2023
       Handler: lib.handler
       Role: !GetAtt ApiGetUserAccountRole.Arn
       Code:
         S3Bucket: !Ref ArtifactBucket
-        S3Key: !Sub "user-api-get-account-${StageName}-${CommitSHA}.zip"
+        S3Key: !Sub "user-api-get-account-prod-${CommitSHA}.zip"
       MemorySize: 512
       Timeout: 10
       EphemeralStorage:
@@ -1299,7 +1129,7 @@ Resources:
   ApiPatchUserAccountRole:
     Type: AWS::IAM::Role
     Properties:
-      RoleName: !Sub "api-patch-user-account-role-${StageName}"
+      RoleName: !Sub "api-patch-user-account-role-prod"
       AssumeRolePolicyDocument:
         Version: "2012-10-17"
         Statement:
@@ -1322,13 +1152,13 @@ Resources:
   ApiPatchUserAccountLambda:
     Type: AWS::Lambda::Function
     Properties:
-      FunctionName: !Sub "api-patch-user-account-${StageName}"
+      FunctionName: !Sub "api-patch-user-account-prod"
       Runtime: provided.al2023
       Handler: lib.handler
       Role: !GetAtt ApiPatchUserAccountRole.Arn
       Code:
         S3Bucket: !Ref ArtifactBucket
-        S3Key: !Sub "user-api-patch-account-${StageName}-${CommitSHA}.zip"
+        S3Key: !Sub "user-api-patch-account-prod-${CommitSHA}.zip"
       MemorySize: 256
       Timeout: 10
       EphemeralStorage:
@@ -1360,7 +1190,7 @@ Resources:
   ApiGetShopRole:
     Type: AWS::IAM::Role
     Properties:
-      RoleName: !Sub "api-get-shop-role-${StageName}"
+      RoleName: !Sub "api-get-shop-role-prod"
       AssumeRolePolicyDocument:
         Version: "2012-10-17"
         Statement:
@@ -1384,13 +1214,13 @@ Resources:
   ApiGetShopLambda:
     Type: AWS::Lambda::Function
     Properties:
-      FunctionName: !Sub "api-get-shop-${StageName}"
+      FunctionName: !Sub "api-get-shop-prod"
       Runtime: provided.al2023
       Handler: lib.handler
       Role: !GetAtt ApiGetShopRole.Arn
       Code:
         S3Bucket: !Ref ArtifactBucket
-        S3Key: !Sub "shop-api-get-shop-${StageName}-${CommitSHA}.zip"
+        S3Key: !Sub "shop-api-get-shop-prod-${CommitSHA}.zip"
       MemorySize: 512
       Timeout: 10
       EphemeralStorage:
@@ -1422,7 +1252,7 @@ Resources:
   ApiPatchShopRole:
     Type: AWS::IAM::Role
     Properties:
-      RoleName: !Sub "api-patch-shop-role-${StageName}"
+      RoleName: !Sub "api-patch-shop-role-prod"
       AssumeRolePolicyDocument:
         Version: "2012-10-17"
         Statement:
@@ -1452,13 +1282,13 @@ Resources:
   ApiPatchShopLambda:
     Type: AWS::Lambda::Function
     Properties:
-      FunctionName: !Sub "api-patch-shop-${StageName}"
+      FunctionName: !Sub "api-patch-shop-prod"
       Runtime: provided.al2023
       Handler: lib.handler
       Role: !GetAtt ApiPatchShopRole.Arn
       Code:
         S3Bucket: !Ref ArtifactBucket
-        S3Key: !Sub "shop-api-patch-shop-${StageName}-${CommitSHA}.zip"
+        S3Key: !Sub "shop-api-patch-shop-prod-${CommitSHA}.zip"
       MemorySize: 512
       Timeout: 10
       EphemeralStorage:
@@ -1476,7 +1306,7 @@ Resources:
   ApiPatchShopLambdaErrorAlarm:
     Type: AWS::CloudWatch::Alarm
     Properties:
-      AlarmName: !Sub "${StageName}-patch-shop-lambda-errors"
+      AlarmName: !Sub "prod-patch-shop-lambda-errors"
       AlarmDescription: "Alarm when patch-shop Lambda has errors"
       MetricName: Errors
       Namespace: AWS/Lambda
@@ -1494,7 +1324,7 @@ Resources:
   ApiPatchShopLambdaThrottleAlarm:
     Type: AWS::CloudWatch::Alarm
     Properties:
-      AlarmName: !Sub "${StageName}-patch-shop-lambda-throttles"
+      AlarmName: !Sub "prod-patch-shop-lambda-throttles"
       AlarmDescription: "Alarm when patch-shop Lambda is throttled"
       MetricName: Throttles
       Namespace: AWS/Lambda
@@ -1526,7 +1356,7 @@ Resources:
   ApiPostShopRole:
     Type: AWS::IAM::Role
     Properties:
-      RoleName: !Sub "api-post-shop-role-${StageName}"
+      RoleName: !Sub "api-post-shop-role-prod"
       AssumeRolePolicyDocument:
         Version: "2012-10-17"
         Statement:
@@ -1554,13 +1384,13 @@ Resources:
   ApiPostShopLambda:
     Type: AWS::Lambda::Function
     Properties:
-      FunctionName: !Sub "api-post-shop-${StageName}"
+      FunctionName: !Sub "api-post-shop-prod"
       Runtime: provided.al2023
       Handler: lib.handler
       Role: !GetAtt ApiPostShopRole.Arn
       Code:
         S3Bucket: !Ref ArtifactBucket
-        S3Key: !Sub "shop-api-post-shop-${StageName}-${CommitSHA}.zip"
+        S3Key: !Sub "shop-api-post-shop-prod-${CommitSHA}.zip"
       MemorySize: 512
       Timeout: 10
       EphemeralStorage:
@@ -1578,7 +1408,7 @@ Resources:
   ApiPostShopLambdaErrorAlarm:
     Type: AWS::CloudWatch::Alarm
     Properties:
-      AlarmName: !Sub "${StageName}-post-shop-lambda-errors"
+      AlarmName: !Sub "prod-post-shop-lambda-errors"
       AlarmDescription: "Alarm when post-shop Lambda has errors"
       MetricName: Errors
       Namespace: AWS/Lambda
@@ -1596,7 +1426,7 @@ Resources:
   ApiPostShopLambdaThrottleAlarm:
     Type: AWS::CloudWatch::Alarm
     Properties:
-      AlarmName: !Sub "${StageName}-post-shop-lambda-throttles"
+      AlarmName: !Sub "prod-post-shop-lambda-throttles"
       AlarmDescription: "Alarm when post-shop Lambda is throttled"
       MetricName: Throttles
       Namespace: AWS/Lambda
@@ -1628,7 +1458,7 @@ Resources:
   ApiShopSearchRole:
     Type: AWS::IAM::Role
     Properties:
-      RoleName: !Sub "api-shop-search-role-${StageName}"
+      RoleName: !Sub "api-shop-search-role-prod"
       AssumeRolePolicyDocument:
         Version: "2012-10-17"
         Statement:
@@ -1638,36 +1468,26 @@ Resources:
             Action: sts:AssumeRole
       ManagedPolicyArns:
         - arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole
-      Policies:
-        - PolicyName: OpenSearchReadOnly
-          PolicyDocument:
-            Version: "2012-10-17"
-            Statement:
-              - Effect: Allow
-                Action:
-                  - es:Describe*
-                  - es:List*
-                  - es:ESHttpGet
-                  - es:ESHttpHead
-                  - es:ESHttpPost
-                Resource: !Sub "${OpenSearchDomain.Arn}/*"
   ApiShopSearchLambda:
     Type: AWS::Lambda::Function
     Properties:
-      FunctionName: !Sub "api-shop-search-${StageName}"
+      FunctionName: !Sub "api-shop-search-prod"
       Runtime: provided.al2023
       Handler: lib.handler
       Role: !GetAtt ApiShopSearchRole.Arn
       Code:
         S3Bucket: !Ref ArtifactBucket
-        S3Key: !Sub "shop-api-search-${StageName}-${CommitSHA}.zip"
+        S3Key: !Sub "shop-api-search-prod-${CommitSHA}.zip"
       MemorySize: 512
       Timeout: 10
       EphemeralStorage:
         Size: 512
       Environment:
         Variables:
-          OPENSEARCH_DOMAIN_ENDPOINT_URL: !Sub "https://${OpenSearchDomain.DomainEndpoint}"
+          OPENSEARCH_ENDPOINT_URL: !Ref OpenSearchEndpointUrl
+          STAGE: "prod"
+          OPENSEARCH_USERNAME: !Ref OpenSearchUsername
+          OPENSEARCH_PASSWORD: !Ref OpenSearchPassword
   ApiShopSearchLambdaPermission:
     Type: AWS::Lambda::Permission
     Properties:
@@ -1694,7 +1514,7 @@ Resources:
   ApiDeleteSearchFilterRole:
     Type: AWS::IAM::Role
     Properties:
-      RoleName: !Sub "api-delete-search-filter-role-${StageName}"
+      RoleName: !Sub "api-delete-search-filter-role-prod"
       AssumeRolePolicyDocument:
         Version: "2012-10-17"
         Statement:
@@ -1719,13 +1539,13 @@ Resources:
   ApiDeleteSearchFilterLambda:
     Type: AWS::Lambda::Function
     Properties:
-      FunctionName: !Sub "api-delete-search-filter-${StageName}"
+      FunctionName: !Sub "api-delete-search-filter-prod"
       Runtime: provided.al2023
       Handler: lib.handler
       Role: !GetAtt ApiDeleteSearchFilterRole.Arn
       Code:
         S3Bucket: !Ref ArtifactBucket
-        S3Key: !Sub "search-filter-api-delete-search-filter-${StageName}-${CommitSHA}.zip"
+        S3Key: !Sub "search-filter-api-delete-search-filter-prod-${CommitSHA}.zip"
       MemorySize: 512
       Timeout: 10
       EphemeralStorage:
@@ -1759,7 +1579,7 @@ Resources:
   ApiGetSearchFilterRole:
     Type: AWS::IAM::Role
     Properties:
-      RoleName: !Sub "api-get-search-filter-role-${StageName}"
+      RoleName: !Sub "api-get-search-filter-role-prod"
       AssumeRolePolicyDocument:
         Version: "2012-10-17"
         Statement:
@@ -1783,13 +1603,13 @@ Resources:
   ApiGetSearchFilterLambda:
     Type: AWS::Lambda::Function
     Properties:
-      FunctionName: !Sub "api-get-search-filter-${StageName}"
+      FunctionName: !Sub "api-get-search-filter-prod"
       Runtime: provided.al2023
       Handler: lib.handler
       Role: !GetAtt ApiGetSearchFilterRole.Arn
       Code:
         S3Bucket: !Ref ArtifactBucket
-        S3Key: !Sub "search-filter-api-get-search-filter-${StageName}-${CommitSHA}.zip"
+        S3Key: !Sub "search-filter-api-get-search-filter-prod-${CommitSHA}.zip"
       MemorySize: 512
       Timeout: 10
       EphemeralStorage:
@@ -1823,7 +1643,7 @@ Resources:
   ApiGetSearchFiltersRole:
     Type: AWS::IAM::Role
     Properties:
-      RoleName: !Sub "api-get-search-filters-role-${StageName}"
+      RoleName: !Sub "api-get-search-filters-role-prod"
       AssumeRolePolicyDocument:
         Version: "2012-10-17"
         Statement:
@@ -1847,13 +1667,13 @@ Resources:
   ApiGetSearchFiltersLambda:
     Type: AWS::Lambda::Function
     Properties:
-      FunctionName: !Sub "api-get-search-filters-${StageName}"
+      FunctionName: !Sub "api-get-search-filters-prod"
       Runtime: provided.al2023
       Handler: lib.handler
       Role: !GetAtt ApiGetSearchFiltersRole.Arn
       Code:
         S3Bucket: !Ref ArtifactBucket
-        S3Key: !Sub "search-filter-api-get-search-filters-${StageName}-${CommitSHA}.zip"
+        S3Key: !Sub "search-filter-api-get-search-filters-prod-${CommitSHA}.zip"
       MemorySize: 512
       Timeout: 10
       EphemeralStorage:
@@ -1887,7 +1707,7 @@ Resources:
   ApiPatchSearchFilterRole:
     Type: AWS::IAM::Role
     Properties:
-      RoleName: !Sub "api-patch-search-filter-role-${StageName}"
+      RoleName: !Sub "api-patch-search-filter-role-prod"
       AssumeRolePolicyDocument:
         Version: "2012-10-17"
         Statement:
@@ -1911,13 +1731,13 @@ Resources:
   ApiPatchSearchFilterLambda:
     Type: AWS::Lambda::Function
     Properties:
-      FunctionName: !Sub "api-patch-search-filter-${StageName}"
+      FunctionName: !Sub "api-patch-search-filter-prod"
       Runtime: provided.al2023
       Handler: lib.handler
       Role: !GetAtt ApiPatchSearchFilterRole.Arn
       Code:
         S3Bucket: !Ref ArtifactBucket
-        S3Key: !Sub "search-filter-api-patch-search-filter-${StageName}-${CommitSHA}.zip"
+        S3Key: !Sub "search-filter-api-patch-search-filter-prod-${CommitSHA}.zip"
       MemorySize: 512
       Timeout: 10
       EphemeralStorage:
@@ -1951,7 +1771,7 @@ Resources:
   ApiPostSearchFilterRole:
     Type: AWS::IAM::Role
     Properties:
-      RoleName: !Sub "api-post-search-filter-role-${StageName}"
+      RoleName: !Sub "api-post-search-filter-role-prod"
       AssumeRolePolicyDocument:
         Version: "2012-10-17"
         Statement:
@@ -1973,13 +1793,13 @@ Resources:
   ApiPostSearchFilterLambda:
     Type: AWS::Lambda::Function
     Properties:
-      FunctionName: !Sub "api-post-search-filter-${StageName}"
+      FunctionName: !Sub "api-post-search-filter-prod"
       Runtime: provided.al2023
       Handler: lib.handler
       Role: !GetAtt ApiPostSearchFilterRole.Arn
       Code:
         S3Bucket: !Ref ArtifactBucket
-        S3Key: !Sub "search-filter-api-post-search-filter-${StageName}-${CommitSHA}.zip"
+        S3Key: !Sub "search-filter-api-post-search-filter-prod-${CommitSHA}.zip"
       MemorySize: 512
       Timeout: 10
       EphemeralStorage:
@@ -1998,12 +1818,12 @@ Resources:
   SendMailDlq:
     Type: AWS::SQS::Queue
     Properties:
-      QueueName: !Sub "mail-lambda-send-${StageName}"
+      QueueName: !Sub "mail-lambda-send-prod"
       MessageRetentionPeriod: 1209600
   SendMailQ:
     Type: AWS::SQS::Queue
     Properties:
-      QueueName: !Sub "mail-lambda-send-queue-${StageName}"
+      QueueName: !Sub "mail-lambda-send-queue-prod"
       RedrivePolicy:
         deadLetterTargetArn: !GetAtt SendMailDlq.Arn
         maxReceiveCount: 5
@@ -2011,7 +1831,7 @@ Resources:
   SendMailRole:
     Type: AWS::IAM::Role
     Properties:
-      RoleName: !Sub "mail-lambda-send-role-${StageName}"
+      RoleName: !Sub "mail-lambda-send-role-prod"
       AssumeRolePolicyDocument:
         Version: "2012-10-17"
         Statement:
@@ -2053,13 +1873,13 @@ Resources:
   SendMailLambda:
     Type: AWS::Lambda::Function
     Properties:
-      FunctionName: !Sub "mail-lambda-send-${StageName}"
+      FunctionName: !Sub "mail-lambda-send-prod"
       Runtime: provided.al2023
       Handler: lib.handler
       Role: !GetAtt SendMailRole.Arn
       Code:
         S3Bucket: !Ref ArtifactBucket
-        S3Key: !Sub "mail-lambda-send-${StageName}-${CommitSHA}.zip"
+        S3Key: !Sub "mail-lambda-send-prod-${CommitSHA}.zip"
       MemorySize: 512
       Timeout: 60
       EphemeralStorage:
@@ -2067,7 +1887,7 @@ Resources:
       Environment:
         Variables:
           S3_BUCKET_NAME_TEMPLATES: !Ref MailTemplateBucket
-          STAGE_NAME: !Sub "${StageName}"
+          STAGE_NAME: !Sub "prod"
           COMMIT_SHA: !Sub "${CommitSHA}"
   SendMailMapping:
     Type: AWS::Lambda::EventSourceMapping
@@ -2076,18 +1896,13 @@ Resources:
       EventSourceArn: !GetAtt SendMailQ.Arn
       Enabled: true
       BatchSize: 200
-      MaximumBatchingWindowInSeconds:
-        !FindInMap [
-          SendMailQueueMap,
-          MaximumBatchingWindowInSeconds,
-          !Ref Stage,
-        ]
+      MaximumBatchingWindowInSeconds: 5
       FunctionResponseTypes:
         - ReportBatchItemFailures
   SendMailLambdaErrorAlarm:
     Type: AWS::CloudWatch::Alarm
     Properties:
-      AlarmName: !Sub "${StageName}-send-mail-lambda-errors"
+      AlarmName: !Sub "prod-send-mail-lambda-errors"
       AlarmDescription: "Alarm when send-mail Lambda has errors"
       MetricName: Errors
       Namespace: AWS/Lambda
@@ -2105,7 +1920,7 @@ Resources:
   SendMailDlqAlarm:
     Type: AWS::CloudWatch::Alarm
     Properties:
-      AlarmName: !Sub "${StageName}-send-mail-dlq-messages"
+      AlarmName: !Sub "prod-send-mail-dlq-messages"
       AlarmDescription: "Alarm when messages appear in send-mail DLQ"
       MetricName: ApproximateNumberOfMessagesVisible
       Namespace: AWS/SQS
@@ -2124,12 +1939,12 @@ Resources:
   ProductIngestEventsDynamoDbDlq:
     Type: AWS::SQS::Queue
     Properties:
-      QueueName: !Sub "product-lambda-ingest-events-dynamodb-dlq-${StageName}"
+      QueueName: !Sub "product-lambda-ingest-events-dynamodb-dlq-prod"
       MessageRetentionPeriod: 1209600
   ProductIngestEventsDynamoDbQ:
     Type: AWS::SQS::Queue
     Properties:
-      QueueName: !Sub "product-lambda-ingest-events-dynamodb-queue-${StageName}"
+      QueueName: !Sub "product-lambda-ingest-events-dynamodb-queue-prod"
       RedrivePolicy:
         deadLetterTargetArn: !GetAtt ProductIngestEventsDynamoDbDlq.Arn
         maxReceiveCount: 3
@@ -2137,7 +1952,7 @@ Resources:
   ProductIngestEventsDynamoDbRole:
     Type: AWS::IAM::Role
     Properties:
-      RoleName: !Sub "product-lambda-ingest-events-dynamodb-role-${StageName}"
+      RoleName: !Sub "product-lambda-ingest-events-dynamodb-role-prod"
       AssumeRolePolicyDocument:
         Version: "2012-10-17"
         Statement:
@@ -2170,13 +1985,13 @@ Resources:
   ProductIngestEventsDynamoDbLambda:
     Type: AWS::Lambda::Function
     Properties:
-      FunctionName: !Sub "product-lambda-ingest-events-dynamodb-${StageName}"
+      FunctionName: !Sub "product-lambda-ingest-events-dynamodb-prod"
       Runtime: provided.al2023
       Handler: lib.handler
       Role: !GetAtt ProductIngestEventsDynamoDbRole.Arn
       Code:
         S3Bucket: !Ref ArtifactBucket
-        S3Key: !Sub "product-lambda-ingest-events-dynamodb-${StageName}-${CommitSHA}.zip"
+        S3Key: !Sub "product-lambda-ingest-events-dynamodb-prod-${CommitSHA}.zip"
       MemorySize: 512
       Timeout: 60
       EphemeralStorage:
@@ -2191,18 +2006,13 @@ Resources:
       EventSourceArn: !GetAtt ProductIngestEventsDynamoDbQ.Arn
       Enabled: true
       BatchSize: 200
-      MaximumBatchingWindowInSeconds:
-        !FindInMap [
-          ProductIngestEventsDynamoDbQueueMap,
-          MaximumBatchingWindowInSeconds,
-          !Ref Stage,
-        ]
+      MaximumBatchingWindowInSeconds: 5
       FunctionResponseTypes:
         - ReportBatchItemFailures
   ProductIngestEventsDynamoDbLambdaErrorAlarm:
     Type: AWS::CloudWatch::Alarm
     Properties:
-      AlarmName: !Sub "${StageName}-ingest-events-lambda-errors"
+      AlarmName: !Sub "prod-ingest-events-lambda-errors"
       AlarmDescription: "Alarm when ingest-events Lambda has errors"
       MetricName: Errors
       Namespace: AWS/Lambda
@@ -2220,7 +2030,7 @@ Resources:
   ProductIngestEventsDynamoDbDlqAlarm:
     Type: AWS::CloudWatch::Alarm
     Properties:
-      AlarmName: !Sub "${StageName}-ingest-events-dlq-messages"
+      AlarmName: !Sub "prod-ingest-events-dlq-messages"
       AlarmDescription: "Alarm when messages appear in ingest-events DLQ"
       MetricName: ApproximateNumberOfMessagesVisible
       Namespace: AWS/SQS
@@ -2239,12 +2049,12 @@ Resources:
   ProductMaterializeDynamoDbNewDlq:
     Type: AWS::SQS::Queue
     Properties:
-      QueueName: !Sub "product-lambda-materialize-dynamodb-new-dlq-${StageName}"
+      QueueName: !Sub "product-lambda-materialize-dynamodb-new-dlq-prod"
       MessageRetentionPeriod: 1209600
   ProductMaterializeDynamoDbNewQ:
     Type: AWS::SQS::Queue
     Properties:
-      QueueName: !Sub "product-lambda-materialize-dynamodb-new-queue-${StageName}"
+      QueueName: !Sub "product-lambda-materialize-dynamodb-new-queue-prod"
       RedrivePolicy:
         deadLetterTargetArn: !GetAtt ProductMaterializeDynamoDbNewDlq.Arn
         maxReceiveCount: 5
@@ -2252,7 +2062,7 @@ Resources:
   ProductMaterializeDynamoDbNewRole:
     Type: AWS::IAM::Role
     Properties:
-      RoleName: !Sub "product-lambda-materialize-dynamodb-new-role-${StageName}"
+      RoleName: !Sub "product-lambda-materialize-dynamodb-new-role-prod"
       AssumeRolePolicyDocument:
         Version: "2012-10-17"
         Statement:
@@ -2285,13 +2095,13 @@ Resources:
   ProductMaterializeDynamoDbNewLambda:
     Type: AWS::Lambda::Function
     Properties:
-      FunctionName: !Sub "product-lambda-materialize-dynamodb-new-${StageName}"
+      FunctionName: !Sub "product-lambda-materialize-dynamodb-new-prod"
       Runtime: provided.al2023
       Handler: lib.handler
       Role: !GetAtt ProductMaterializeDynamoDbNewRole.Arn
       Code:
         S3Bucket: !Ref ArtifactBucket
-        S3Key: !Sub "product-lambda-materialize-dynamodb-new-${StageName}-${CommitSHA}.zip"
+        S3Key: !Sub "product-lambda-materialize-dynamodb-new-prod-${CommitSHA}.zip"
       MemorySize: 512
       Timeout: 60
       EphemeralStorage:
@@ -2306,18 +2116,13 @@ Resources:
       EventSourceArn: !GetAtt ProductMaterializeDynamoDbNewQ.Arn
       Enabled: true
       BatchSize: 200
-      MaximumBatchingWindowInSeconds:
-        !FindInMap [
-          ProductMaterializeDynamoDbQueuesMap,
-          MaximumBatchingWindowInSeconds,
-          !Ref Stage,
-        ]
+      MaximumBatchingWindowInSeconds: 5
       FunctionResponseTypes:
         - ReportBatchItemFailures
   ProductMaterializeDynamoDbNewLambdaErrorAlarm:
     Type: AWS::CloudWatch::Alarm
     Properties:
-      AlarmName: !Sub "${StageName}-materialize-ddb-new-lambda-errors"
+      AlarmName: !Sub "prod-materialize-ddb-new-lambda-errors"
       AlarmDescription: "Alarm when materialize-ddb-new Lambda has errors"
       MetricName: Errors
       Namespace: AWS/Lambda
@@ -2335,7 +2140,7 @@ Resources:
   ProductMaterializeDynamoDbNewDlqAlarm:
     Type: AWS::CloudWatch::Alarm
     Properties:
-      AlarmName: !Sub "${StageName}-materialize-ddb-new-dlq-messages"
+      AlarmName: !Sub "prod-materialize-ddb-new-dlq-messages"
       AlarmDescription: "Alarm when messages appear in materialize-ddb-new DLQ"
       MetricName: ApproximateNumberOfMessagesVisible
       Namespace: AWS/SQS
@@ -2354,12 +2159,12 @@ Resources:
   ProductMaterializeDynamoDbUpdateDlq:
     Type: AWS::SQS::Queue
     Properties:
-      QueueName: !Sub "product-lambda-materialize-dynamodb-update-dlq-${StageName}"
+      QueueName: !Sub "product-lambda-materialize-dynamodb-update-dlq-prod"
       MessageRetentionPeriod: 1209600
   ProductMaterializeDynamoDbUpdateQ:
     Type: AWS::SQS::Queue
     Properties:
-      QueueName: !Sub "product-lambda-materialize-dynamodb-update-queue-${StageName}"
+      QueueName: !Sub "product-lambda-materialize-dynamodb-update-queue-prod"
       RedrivePolicy:
         deadLetterTargetArn: !GetAtt ProductMaterializeDynamoDbUpdateDlq.Arn
         maxReceiveCount: 5
@@ -2367,7 +2172,7 @@ Resources:
   ProductMaterializeDynamoDbUpdateRole:
     Type: AWS::IAM::Role
     Properties:
-      RoleName: !Sub "product-lambda-materialize-dynamodb-update-role-${StageName}"
+      RoleName: !Sub "product-lambda-materialize-dynamodb-update-role-prod"
       AssumeRolePolicyDocument:
         Version: "2012-10-17"
         Statement:
@@ -2400,13 +2205,13 @@ Resources:
   ProductMaterializeDynamoDbUpdateLambda:
     Type: AWS::Lambda::Function
     Properties:
-      FunctionName: !Sub "product-lambda-materialize-dynamodb-update-${StageName}"
+      FunctionName: !Sub "product-lambda-materialize-dynamodb-update-prod"
       Runtime: provided.al2023
       Handler: lib.handler
       Role: !GetAtt ProductMaterializeDynamoDbUpdateRole.Arn
       Code:
         S3Bucket: !Ref ArtifactBucket
-        S3Key: !Sub "product-lambda-materialize-dynamodb-update-${StageName}-${CommitSHA}.zip"
+        S3Key: !Sub "product-lambda-materialize-dynamodb-update-prod-${CommitSHA}.zip"
       MemorySize: 512
       Timeout: 60
       EphemeralStorage:
@@ -2421,18 +2226,13 @@ Resources:
       EventSourceArn: !GetAtt ProductMaterializeDynamoDbUpdateQ.Arn
       Enabled: true
       BatchSize: 200
-      MaximumBatchingWindowInSeconds:
-        !FindInMap [
-          ProductMaterializeDynamoDbQueuesMap,
-          MaximumBatchingWindowInSeconds,
-          !Ref Stage,
-        ]
+      MaximumBatchingWindowInSeconds: 5
       FunctionResponseTypes:
         - ReportBatchItemFailures
   ProductMaterializeDynamoDbUpdateLambdaErrorAlarm:
     Type: AWS::CloudWatch::Alarm
     Properties:
-      AlarmName: !Sub "${StageName}-materialize-ddb-update-lambda-errors"
+      AlarmName: !Sub "prod-materialize-ddb-update-lambda-errors"
       AlarmDescription: "Alarm when materialize-ddb-update Lambda has errors"
       MetricName: Errors
       Namespace: AWS/Lambda
@@ -2450,7 +2250,7 @@ Resources:
   ProductMaterializeDynamoDbUpdateDlqAlarm:
     Type: AWS::CloudWatch::Alarm
     Properties:
-      AlarmName: !Sub "${StageName}-materialize-ddb-update-dlq-messages"
+      AlarmName: !Sub "prod-materialize-ddb-update-dlq-messages"
       AlarmDescription: "Alarm when messages appear in materialize-ddb-update DLQ"
       MetricName: ApproximateNumberOfMessagesVisible
       Namespace: AWS/SQS
@@ -2469,12 +2269,12 @@ Resources:
   ProductMaterializeOpenSearchNewDlq:
     Type: AWS::SQS::Queue
     Properties:
-      QueueName: !Sub "product-lambda-materialize-opensearch-new-dlq-${StageName}"
+      QueueName: !Sub "product-lambda-materialize-opensearch-new-dlq-prod"
       MessageRetentionPeriod: 1209600
   ProductMaterializeOpenSearchNewQ:
     Type: AWS::SQS::Queue
     Properties:
-      QueueName: !Sub "product-lambda-materialize-opensearch-new-queue-${StageName}"
+      QueueName: !Sub "product-lambda-materialize-opensearch-new-queue-prod"
       RedrivePolicy:
         deadLetterTargetArn: !GetAtt ProductMaterializeOpenSearchNewDlq.Arn
         maxReceiveCount: 5
@@ -2482,7 +2282,7 @@ Resources:
   ProductMaterializeOpenSearchNewRole:
     Type: AWS::IAM::Role
     Properties:
-      RoleName: !Sub "product-lambda-materialize-opensearch-new-role-${StageName}"
+      RoleName: !Sub "product-lambda-materialize-opensearch-new-role-prod"
       AssumeRolePolicyDocument:
         Version: "2012-10-17"
         Statement:
@@ -2500,7 +2300,7 @@ Resources:
               - Effect: Allow
                 Action:
                   - es:*
-                Resource: !Sub "arn:aws:es:${AWS::Region}:${AWS::AccountId}:domain/application-${StageName}/*"
+                Resource: !Sub "arn:aws:es:${AWS::Region}:${AWS::AccountId}:domain/application-prod/*"
         - PolicyName: SQSPollerAccess
           PolicyDocument:
             Version: "2012-10-17"
@@ -2515,20 +2315,23 @@ Resources:
   ProductMaterializeOpenSearchNewLambda:
     Type: AWS::Lambda::Function
     Properties:
-      FunctionName: !Sub "product-lambda-materialize-opensearch-new-${StageName}"
+      FunctionName: !Sub "product-lambda-materialize-opensearch-new-prod"
       Runtime: provided.al2023
       Handler: lib.handler
       Role: !GetAtt ProductMaterializeOpenSearchNewRole.Arn
       Code:
         S3Bucket: !Ref ArtifactBucket
-        S3Key: !Sub "product-lambda-materialize-opensearch-new-${StageName}-${CommitSHA}.zip"
+        S3Key: !Sub "product-lambda-materialize-opensearch-new-prod-${CommitSHA}.zip"
       MemorySize: 512
       Timeout: 60
       EphemeralStorage:
         Size: 512
       Environment:
         Variables:
-          OPENSEARCH_DOMAIN_ENDPOINT_URL: !Sub "https://${OpenSearchDomain.DomainEndpoint}"
+          OPENSEARCH_ENDPOINT_URL: !Ref OpenSearchEndpointUrl
+          STAGE: "prod"
+          OPENSEARCH_USERNAME: !Ref OpenSearchUsername
+          OPENSEARCH_PASSWORD: !Ref OpenSearchPassword
   ProductMaterializeOpenSearchDbNewMapping:
     Type: AWS::Lambda::EventSourceMapping
     Properties:
@@ -2536,18 +2339,13 @@ Resources:
       EventSourceArn: !GetAtt ProductMaterializeOpenSearchNewQ.Arn
       Enabled: true
       BatchSize: 200
-      MaximumBatchingWindowInSeconds:
-        !FindInMap [
-          ProductMaterializeOpenSearchQueuesMap,
-          MaximumBatchingWindowInSeconds,
-          !Ref Stage,
-        ]
+      MaximumBatchingWindowInSeconds: 60
       FunctionResponseTypes:
         - ReportBatchItemFailures
   ProductMaterializeOpenSearchNewLambdaErrorAlarm:
     Type: AWS::CloudWatch::Alarm
     Properties:
-      AlarmName: !Sub "${StageName}-materialize-os-new-lambda-errors"
+      AlarmName: !Sub "prod-materialize-os-new-lambda-errors"
       AlarmDescription: "Alarm when materialize-opensearch-new Lambda has errors"
       MetricName: Errors
       Namespace: AWS/Lambda
@@ -2565,7 +2363,7 @@ Resources:
   ProductMaterializeOpenSearchNewDlqAlarm:
     Type: AWS::CloudWatch::Alarm
     Properties:
-      AlarmName: !Sub "${StageName}-materialize-os-new-dlq-messages"
+      AlarmName: !Sub "prod-materialize-os-new-dlq-messages"
       AlarmDescription: "Alarm when messages appear in materialize-opensearch-new DLQ"
       MetricName: ApproximateNumberOfMessagesVisible
       Namespace: AWS/SQS
@@ -2584,12 +2382,12 @@ Resources:
   ProductMaterializeOpenSearchUpdateDlq:
     Type: AWS::SQS::Queue
     Properties:
-      QueueName: !Sub "product-lambda-materialize-opensearch-update-dlq-${StageName}"
+      QueueName: !Sub "product-lambda-materialize-opensearch-update-dlq-prod"
       MessageRetentionPeriod: 1209600
   ProductMaterializeOpenSearchUpdateQ:
     Type: AWS::SQS::Queue
     Properties:
-      QueueName: !Sub "product-lambda-materialize-opensearch-update-queue-${StageName}"
+      QueueName: !Sub "product-lambda-materialize-opensearch-update-queue-prod"
       RedrivePolicy:
         deadLetterTargetArn: !GetAtt ProductMaterializeOpenSearchUpdateDlq.Arn
         maxReceiveCount: 5
@@ -2597,7 +2395,7 @@ Resources:
   ProductMaterializeOpenSearchUpdateRole:
     Type: AWS::IAM::Role
     Properties:
-      RoleName: !Sub "product-lambda-materialize-opensearch-update-role-${StageName}"
+      RoleName: !Sub "product-lambda-materialize-opensearch-update-role-prod"
       AssumeRolePolicyDocument:
         Version: "2012-10-17"
         Statement:
@@ -2615,7 +2413,7 @@ Resources:
               - Effect: Allow
                 Action:
                   - es:*
-                Resource: !Sub "arn:aws:es:${AWS::Region}:${AWS::AccountId}:domain/application-${StageName}/*"
+                Resource: !Sub "arn:aws:es:${AWS::Region}:${AWS::AccountId}:domain/application-prod/*"
         - PolicyName: SQSPollerAccess
           PolicyDocument:
             Version: "2012-10-17"
@@ -2630,20 +2428,23 @@ Resources:
   ProductMaterializeOpenSearchUpdateLambda:
     Type: AWS::Lambda::Function
     Properties:
-      FunctionName: !Sub "product-lambda-materialize-opensearch-update-${StageName}"
+      FunctionName: !Sub "product-lambda-materialize-opensearch-update-prod"
       Runtime: provided.al2023
       Handler: lib.handler
       Role: !GetAtt ProductMaterializeOpenSearchUpdateRole.Arn
       Code:
         S3Bucket: !Ref ArtifactBucket
-        S3Key: !Sub "product-lambda-materialize-opensearch-update-${StageName}-${CommitSHA}.zip"
+        S3Key: !Sub "product-lambda-materialize-opensearch-update-prod-${CommitSHA}.zip"
       MemorySize: 512
       Timeout: 60
       EphemeralStorage:
         Size: 512
       Environment:
         Variables:
-          OPENSEARCH_DOMAIN_ENDPOINT_URL: !Sub "https://${OpenSearchDomain.DomainEndpoint}"
+          OPENSEARCH_ENDPOINT_URL: !Ref OpenSearchEndpointUrl
+          STAGE: "prod"
+          OPENSEARCH_USERNAME: !Ref OpenSearchUsername
+          OPENSEARCH_PASSWORD: !Ref OpenSearchPassword
   ProductMaterializeOpenSearchDbUpdateMapping:
     Type: AWS::Lambda::EventSourceMapping
     Properties:
@@ -2651,18 +2452,13 @@ Resources:
       EventSourceArn: !GetAtt ProductMaterializeOpenSearchUpdateQ.Arn
       Enabled: true
       BatchSize: 2500
-      MaximumBatchingWindowInSeconds:
-        !FindInMap [
-          ProductMaterializeOpenSearchQueuesMap,
-          MaximumBatchingWindowInSeconds,
-          !Ref Stage,
-        ]
+      MaximumBatchingWindowInSeconds: 60
       FunctionResponseTypes:
         - ReportBatchItemFailures
   ProductMaterializeOpenSearchUpdateLambdaErrorAlarm:
     Type: AWS::CloudWatch::Alarm
     Properties:
-      AlarmName: !Sub "${StageName}-materialize-os-update-lambda-errors"
+      AlarmName: !Sub "prod-materialize-os-update-lambda-errors"
       AlarmDescription: "Alarm when materialize-opensearch-update Lambda has errors"
       MetricName: Errors
       Namespace: AWS/Lambda
@@ -2680,7 +2476,7 @@ Resources:
   ProductMaterializeOpenSearchUpdateDlqAlarm:
     Type: AWS::CloudWatch::Alarm
     Properties:
-      AlarmName: !Sub "${StageName}-materialize-os-update-dlq-messages"
+      AlarmName: !Sub "prod-materialize-os-update-dlq-messages"
       AlarmDescription: "Alarm when messages appear in materialize-opensearch-update DLQ"
       MetricName: ApproximateNumberOfMessagesVisible
       Namespace: AWS/SQS
@@ -2699,12 +2495,12 @@ Resources:
   ProductUpdateNotifyUserDlq:
     Type: AWS::SQS::Queue
     Properties:
-      QueueName: !Sub "product-lambda-update-notify-user-dlq-${StageName}"
+      QueueName: !Sub "product-lambda-update-notify-user-dlq-prod"
       MessageRetentionPeriod: 1209600
   ProductUpdateNotifyUserQ:
     Type: AWS::SQS::Queue
     Properties:
-      QueueName: !Sub "product-lambda-update-notify-user-queue-${StageName}"
+      QueueName: !Sub "product-lambda-update-notify-user-queue-prod"
       RedrivePolicy:
         deadLetterTargetArn: !GetAtt ProductUpdateNotifyUserDlq.Arn
         maxReceiveCount: 5
@@ -2712,7 +2508,7 @@ Resources:
   ProductUpdateNotifyUserRole:
     Type: AWS::IAM::Role
     Properties:
-      RoleName: !Sub "product-lambda-update-notify-user-role-${StageName}"
+      RoleName: !Sub "product-lambda-update-notify-user-role-prod"
       AssumeRolePolicyDocument:
         Version: "2012-10-17"
         Statement:
@@ -2756,13 +2552,13 @@ Resources:
   ProductUpdateNotifyUserLambda:
     Type: AWS::Lambda::Function
     Properties:
-      FunctionName: !Sub "product-lambda-update-notify-user-${StageName}"
+      FunctionName: !Sub "product-lambda-update-notify-user-prod"
       Runtime: provided.al2023
       Handler: lib.handler
       Role: !GetAtt ProductUpdateNotifyUserRole.Arn
       Code:
         S3Bucket: !Ref ArtifactBucket
-        S3Key: !Sub "product-lambda-update-notify-user-${StageName}-${CommitSHA}.zip"
+        S3Key: !Sub "product-lambda-update-notify-user-prod-${CommitSHA}.zip"
       MemorySize: 512
       Timeout: 60
       EphemeralStorage:
@@ -2779,18 +2575,13 @@ Resources:
       EventSourceArn: !GetAtt ProductUpdateNotifyUserQ.Arn
       Enabled: true
       BatchSize: 10
-      MaximumBatchingWindowInSeconds:
-        !FindInMap [
-          ProductUpdateNotifyUserQueueMap,
-          MaximumBatchingWindowInSeconds,
-          !Ref Stage,
-        ]
+      MaximumBatchingWindowInSeconds: 5
       FunctionResponseTypes:
         - ReportBatchItemFailures
   ProductUpdateNotifyUserLambdaErrorAlarm:
     Type: AWS::CloudWatch::Alarm
     Properties:
-      AlarmName: !Sub "${StageName}-product-update-notify-user-lambda-errors"
+      AlarmName: !Sub "prod-product-update-notify-user-lambda-errors"
       AlarmDescription: "Alarm when product-update-notify-user Lambda has errors"
       MetricName: Errors
       Namespace: AWS/Lambda
@@ -2808,7 +2599,7 @@ Resources:
   ProductUpdateNotifyUserDlqAlarm:
     Type: AWS::CloudWatch::Alarm
     Properties:
-      AlarmName: !Sub "${StageName}-product-update-notify-user-dlq-messages"
+      AlarmName: !Sub "prod-product-update-notify-user-dlq-messages"
       AlarmDescription: "Alarm when messages appear in product-update-notify-user DLQ"
       MetricName: ApproximateNumberOfMessagesVisible
       Namespace: AWS/SQS
@@ -2827,12 +2618,12 @@ Resources:
   UserLambdaFanoutUpdateWatchlistDlq:
     Type: AWS::SQS::Queue
     Properties:
-      QueueName: !Sub "user-lambda-fanout-update-watchlist-dlq-${StageName}"
+      QueueName: !Sub "user-lambda-fanout-update-watchlist-dlq-prod"
       MessageRetentionPeriod: 1209600
   UserLambdaFanoutUpdateWatchlistQ:
     Type: AWS::SQS::Queue
     Properties:
-      QueueName: !Sub "user-lambda-fanout-update-watchlist-queue-${StageName}"
+      QueueName: !Sub "user-lambda-fanout-update-watchlist-queue-prod"
       RedrivePolicy:
         deadLetterTargetArn: !GetAtt UserLambdaFanoutUpdateWatchlistDlq.Arn
         maxReceiveCount: 5
@@ -2840,7 +2631,7 @@ Resources:
   UserLambdaFanoutUpdateWatchlistRole:
     Type: AWS::IAM::Role
     Properties:
-      RoleName: !Sub "user-lambda-fanout-update-watchlist-role-${StageName}"
+      RoleName: !Sub "user-lambda-fanout-update-watchlist-role-prod"
       AssumeRolePolicyDocument:
         Version: "2012-10-17"
         Statement:
@@ -2883,13 +2674,13 @@ Resources:
   UserLambdaFanoutUpdateWatchlistLambda:
     Type: AWS::Lambda::Function
     Properties:
-      FunctionName: !Sub "user-lambda-fanout-update-watchlist-${StageName}"
+      FunctionName: !Sub "user-lambda-fanout-update-watchlist-prod"
       Runtime: provided.al2023
       Handler: lib.handler
       Role: !GetAtt UserLambdaFanoutUpdateWatchlistRole.Arn
       Code:
         S3Bucket: !Ref ArtifactBucket
-        S3Key: !Sub "user-lambda-fanout-update-watchlist-${StageName}-${CommitSHA}.zip"
+        S3Key: !Sub "user-lambda-fanout-update-watchlist-prod-${CommitSHA}.zip"
       MemorySize: 512
       Timeout: 60
       EphemeralStorage:
@@ -2910,7 +2701,7 @@ Resources:
   UserLambdaFanoutUpdateWatchlistLambdaErrorAlarm:
     Type: AWS::CloudWatch::Alarm
     Properties:
-      AlarmName: !Sub "${StageName}-user-lambda-fanout-update-watchlist-lambda-errors"
+      AlarmName: !Sub "prod-user-lambda-fanout-update-watchlist-lambda-errors"
       AlarmDescription: "Alarm when user-lambda-fanout-update-watchlist Lambda has errors"
       MetricName: Errors
       Namespace: AWS/Lambda
@@ -2928,7 +2719,7 @@ Resources:
   UserLambdaFanoutUpdateWatchlistDlqAlarm:
     Type: AWS::CloudWatch::Alarm
     Properties:
-      AlarmName: !Sub "${StageName}-user-lambda-fanout-update-watchlist-dlq-messages"
+      AlarmName: !Sub "prod-user-lambda-fanout-update-watchlist-dlq-messages"
       AlarmDescription: "Alarm when messages appear in user-lambda-fanout-update-watchlist DLQ"
       MetricName: ApproximateNumberOfMessagesVisible
       Namespace: AWS/SQS
@@ -2947,7 +2738,7 @@ Resources:
   DynamoDbProductEventRecordCreatedMaterializeDynamoDbProductRecordEventRule:
     Type: AWS::Events::Rule
     Properties:
-      Name: !Sub "ddb-product-mat-ddb-new-${StageName}"
+      Name: !Sub "ddb-product-mat-ddb-new-prod"
       EventBusName: !Ref DynamoDbEventBus
       EventPattern:
         source:
@@ -2968,7 +2759,7 @@ Resources:
   DynamoDbProductEventRecordUpdatedMaterializeDynamoDbProductRecordEventRule:
     Type: AWS::Events::Rule
     Properties:
-      Name: !Sub "ddb-product-mat-ddb-update-${StageName}"
+      Name: !Sub "ddb-product-mat-ddb-update-prod"
       EventBusName: !Ref DynamoDbEventBus
       EventPattern:
         source:
@@ -2990,7 +2781,7 @@ Resources:
   DynamoDbProductEventRecordCreatedMaterializeOpenSearchProductDocumentEventRule:
     Type: AWS::Events::Rule
     Properties:
-      Name: !Sub "ddb-product-mat-os-new-${StageName}"
+      Name: !Sub "ddb-product-mat-os-new-prod"
       EventBusName: !Ref DynamoDbEventBus
       EventPattern:
         source:
@@ -3011,7 +2802,7 @@ Resources:
   DynamoDbProductEventRecordUpdatedMaterializeOpenSearchProductDocumentEventRule:
     Type: AWS::Events::Rule
     Properties:
-      Name: !Sub "ddb-product-mat-os-update-${StageName}"
+      Name: !Sub "ddb-product-mat-os-update-prod"
       EventBusName: !Ref DynamoDbEventBus
       EventPattern:
         source:
@@ -3033,7 +2824,7 @@ Resources:
   DynamoDbProductEventRecordUpdatedNotifyUserEventRule:
     Type: AWS::Events::Rule
     Properties:
-      Name: !Sub "ddb-product-update-notify-user-${StageName}"
+      Name: !Sub "ddb-product-update-notify-user-prod"
       EventBusName: !Ref DynamoDbEventBus
       EventPattern:
         source:
@@ -3055,7 +2846,7 @@ Resources:
   DynamoDbProductEventRecordCreatedProductEnrichmentEventRule:
     Type: AWS::Events::Rule
     Properties:
-      Name: !Sub "ddb-product-enrichment-${StageName}"
+      Name: !Sub "ddb-product-enrichment-prod"
       EventBusName: !Ref DynamoDbEventBus
       EventPattern:
         source:
@@ -3076,7 +2867,7 @@ Resources:
   DynamoDbUserUpdatedFanoutWatchlistUpdateEventRule:
     Type: AWS::Events::Rule
     Properties:
-      Name: !Sub "ddb-user-update-fanout-watchlist-${StageName}"
+      Name: !Sub "ddb-user-update-fanout-watchlist-prod"
       EventBusName: !Ref DynamoDbEventBus
       EventPattern:
         source:
@@ -3103,13 +2894,13 @@ Resources:
       EnableDnsHostnames: true
       Tags:
         - Key: Name
-          Value: !Sub "product-enrichment-vpc-${StageName}"
+          Value: !Sub "product-enrichment-vpc-prod"
   ProductEnrichmentInternetGateway:
     Type: AWS::EC2::InternetGateway
     Properties:
       Tags:
         - Key: Name
-          Value: !Sub "product-enrichment-igw-${StageName}"
+          Value: !Sub "product-enrichment-igw-prod"
   ProductEnrichmentVpcGatewayAttachment:
     Type: AWS::EC2::VPCGatewayAttachment
     Properties:
@@ -3121,7 +2912,7 @@ Resources:
       VpcId: !Ref ProductEnrichmentVpc
       Tags:
         - Key: Name
-          Value: !Sub "product-enrichment-public-rt-${StageName}"
+          Value: !Sub "product-enrichment-public-rt-prod"
   ProductEnrichmentPublicRoute:
     Type: AWS::EC2::Route
     DependsOn: ProductEnrichmentVpcGatewayAttachment
@@ -3138,7 +2929,7 @@ Resources:
       AvailabilityZone: !Select [0, !GetAZs ""]
       Tags:
         - Key: Name
-          Value: !Sub "product-enrichment-subnet-a-${StageName}"
+          Value: !Sub "product-enrichment-subnet-a-prod"
   ProductEnrichmentSubnetB:
     Type: AWS::EC2::Subnet
     Properties:
@@ -3148,7 +2939,7 @@ Resources:
       AvailabilityZone: !Select [1, !GetAZs ""]
       Tags:
         - Key: Name
-          Value: !Sub "product-enrichment-subnet-b-${StageName}"
+          Value: !Sub "product-enrichment-subnet-b-prod"
   ProductEnrichmentSubnetRouteAssocA:
     Type: AWS::EC2::SubnetRouteTableAssociation
     Properties:
@@ -3169,17 +2960,17 @@ Resources:
           CidrIp: 0.0.0.0/0
       Tags:
         - Key: Name
-          Value: !Sub "product-enrichment-sg-${StageName}"
+          Value: !Sub "product-enrichment-sg-prod"
 
   ProductEnrichmentDlq:
     Type: AWS::SQS::Queue
     Properties:
-      QueueName: !Sub "product-enrichment-dlq-${StageName}"
+      QueueName: !Sub "product-enrichment-dlq-prod"
       MessageRetentionPeriod: 1209600
   ProductEnrichmentQ:
     Type: AWS::SQS::Queue
     Properties:
-      QueueName: !Sub "product-enrichment-queue-${StageName}"
+      QueueName: !Sub "product-enrichment-queue-prod"
       RedrivePolicy:
         deadLetterTargetArn: !GetAtt ProductEnrichmentDlq.Arn
         maxReceiveCount: 3
@@ -3187,7 +2978,7 @@ Resources:
   ProductEnrichmentRole:
     Type: AWS::IAM::Role
     Properties:
-      RoleName: !Sub "product-enrichment-role-${StageName}"
+      RoleName: !Sub "product-enrichment-role-prod"
       AssumeRolePolicyDocument:
         Version: "2012-10-17"
         Statement:
@@ -3236,7 +3027,7 @@ Resources:
               - Effect: Allow
                 Action:
                   - es:*
-                Resource: !Sub "arn:aws:es:${AWS::Region}:${AWS::AccountId}:domain/application-${StageName}/*"
+                Resource: !Sub "arn:aws:es:${AWS::Region}:${AWS::AccountId}:domain/application-prod/*"
         - PolicyName: SQSPollerAccess
           PolicyDocument:
             Version: "2012-10-17"
@@ -3262,13 +3053,13 @@ Resources:
   ProductEnrichmentInstanceProfile:
     Type: AWS::IAM::InstanceProfile
     Properties:
-      InstanceProfileName: !Sub "product-enrichment-profile-${StageName}"
+      InstanceProfileName: !Sub "product-enrichment-profile-prod"
       Roles:
         - !Ref ProductEnrichmentRole
   ProductEnrichmentLaunchTemplate:
     Type: AWS::EC2::LaunchTemplate
     Properties:
-      LaunchTemplateName: !Sub "product-enrichment-template-${StageName}"
+      LaunchTemplateName: !Sub "product-enrichment-template-prod"
       LaunchTemplateData:
         KeyName: !Ref Ec2KeyPairName
         IamInstanceProfile:
@@ -3286,7 +3077,7 @@ Resources:
           - ResourceType: instance
             Tags:
               - Key: Name
-                Value: !Sub "product-enrichment-${StageName}"
+                Value: !Sub "product-enrichment-prod"
               - Key: Fleet
                 Value: product-enrichment
         UserData:
@@ -3294,15 +3085,18 @@ Resources:
             #!/bin/bash
             set -euxo pipefail
             sudo -i
-            export STAGE_NAME="${StageName}"
+            export STAGE="prod"
+            export STAGE_NAME="prod"
             export COMMIT_SHA="${CommitSHA}"
             export RESOURCE_BUCKET="${ResourceBucket}"
             export ARTIFACT_BUCKET="${ArtifactBucket}"
             export ENRICHMENT_QUEUE_URL="${ProductEnrichmentQ}"
             export DYNAMODB_TABLE_NAME="${TableOne}"
-            export OPENSEARCH_DOMAIN_ENDPOINT_URL="https://${OpenSearchDomain.DomainEndpoint}"
+            export OPENSEARCH_ENDPOINT_URL="${OpensearchEndpointUrl}"
+            export OPENSEARCH_USERNAME="${OpenSearchUsername}"
+            export OPENSEARCH_PASSWORD="${OpenSearchPassword}"
             export BAAI_BGE_M3_MODEL_DEVICE="cuda"
-            aws s3 cp "s3://${ResourceBucket}/${StageName}/${CommitSHA}/src/product-enrichment/user-data.sh" /tmp/user_data.sh --region eu-central-1
+            aws s3 cp "s3://${ResourceBucket}/prod/${CommitSHA}/src/product-enrichment/user-data.sh" /tmp/user_data.sh --region eu-central-1
             source /tmp/user_data.sh
   ProductEnrichmentASG:
     Type: AWS::AutoScaling::AutoScalingGroup
@@ -3328,14 +3122,14 @@ Resources:
           SpotAllocationStrategy: price-capacity-optimized
       Tags:
         - Key: Name
-          Value: !Sub "product-enrichment-${StageName}"
+          Value: !Sub "product-enrichment-prod"
           PropagateAtLaunch: true
       HealthCheckType: EC2
       HealthCheckGracePeriod: 120
   ProductEnrichmentDlqAlarm:
     Type: AWS::CloudWatch::Alarm
     Properties:
-      AlarmName: !Sub "${StageName}-product-enrichment-dlq-messages"
+      AlarmName: !Sub "prod-product-enrichment-dlq-messages"
       AlarmDescription: "Alarm when messages appear in product-enrichment DLQ"
       MetricName: ApproximateNumberOfMessagesVisible
       Namespace: AWS/SQS
@@ -3388,7 +3182,7 @@ Resources:
   ProductEnrichmentScaleDownRole:
     Type: AWS::IAM::Role
     Properties:
-      RoleName: !Sub "product-enrichment-asg-scale-down-role-${StageName}"
+      RoleName: !Sub "product-enrichment-asg-scale-down-role-prod"
       AssumeRolePolicyDocument:
         Version: "2012-10-17"
         Statement:
@@ -3415,17 +3209,17 @@ Resources:
               - Effect: Allow
                 Action:
                   - es:*
-                Resource: !Sub "arn:aws:es:${AWS::Region}:${AWS::AccountId}:domain/application-${StageName}/*"
+                Resource: !Sub "arn:aws:es:${AWS::Region}:${AWS::AccountId}:domain/application-prod/*"
   ProductEnrichmentScaleDownLambda:
     Type: AWS::Lambda::Function
     Properties:
-      FunctionName: !Sub "product-enrichment-asg-scale-down-${StageName}"
+      FunctionName: !Sub "product-enrichment-asg-scale-down-prod"
       Runtime: provided.al2023
       Handler: lib.handler
       Role: !GetAtt ProductEnrichmentScaleDownRole.Arn
       Code:
         S3Bucket: !Ref ArtifactBucket
-        S3Key: !Sub "product-enrichment-asg-scale-down-${StageName}-${CommitSHA}.zip"
+        S3Key: !Sub "product-enrichment-asg-scale-down-prod-${CommitSHA}.zip"
       MemorySize: 128
       Timeout: 60
       EphemeralStorage:
@@ -3433,7 +3227,10 @@ Resources:
       Environment:
         Variables:
           PRODUCT_ENRICHMENT_ASG_NAME: !Ref ProductEnrichmentASG
-          OPENSEARCH_DOMAIN_ENDPOINT_URL: !Sub "https://${OpenSearchDomain.DomainEndpoint}"
+          OPENSEARCH_ENDPOINT_URL: !Ref OpenSearchEndpointUrl
+          STAGE: "prod"
+          OPENSEARCH_USERNAME: !Ref OpenSearchUsername
+          OPENSEARCH_PASSWORD: !Ref OpenSearchPassword
   ProductEnrichmentScaleDownStartSchedule:
     Type: AWS::Events::Rule
     Properties:
@@ -3456,7 +3253,7 @@ Resources:
   ProductEnrichmentScaleDownLambdaErrorAlarm:
     Type: AWS::CloudWatch::Alarm
     Properties:
-      AlarmName: !Sub "${StageName}-product-enrichment-asg-scale-down-lambda-errors"
+      AlarmName: !Sub "prod-product-enrichment-asg-scale-down-lambda-errors"
       AlarmDescription: "Alarm when product-enrichment-asg-scale-down Lambda has errors"
       MetricName: Errors
       Namespace: AWS/Lambda
@@ -3475,7 +3272,7 @@ Resources:
   ProductEnrichmentScaleUpRole:
     Type: AWS::IAM::Role
     Properties:
-      RoleName: !Sub "product-enrichment-asg-scale-up-role-${StageName}"
+      RoleName: !Sub "product-enrichment-asg-scale-up-role-prod"
       AssumeRolePolicyDocument:
         Version: "2012-10-17"
         Statement:
@@ -3502,17 +3299,17 @@ Resources:
               - Effect: Allow
                 Action:
                   - es:*
-                Resource: !Sub "arn:aws:es:${AWS::Region}:${AWS::AccountId}:domain/application-${StageName}/*"
+                Resource: !Sub "arn:aws:es:${AWS::Region}:${AWS::AccountId}:domain/application-prod/*"
   ProductEnrichmentScaleUpLambda:
     Type: AWS::Lambda::Function
     Properties:
-      FunctionName: !Sub "product-enrichment-asg-scale-up-${StageName}"
+      FunctionName: !Sub "product-enrichment-asg-scale-up-prod"
       Runtime: provided.al2023
       Handler: lib.handler
       Role: !GetAtt ProductEnrichmentScaleUpRole.Arn
       Code:
         S3Bucket: !Ref ArtifactBucket
-        S3Key: !Sub "product-enrichment-asg-scale-up-${StageName}-${CommitSHA}.zip"
+        S3Key: !Sub "product-enrichment-asg-scale-up-prod-${CommitSHA}.zip"
       MemorySize: 128
       Timeout: 60
       EphemeralStorage:
@@ -3520,7 +3317,10 @@ Resources:
       Environment:
         Variables:
           PRODUCT_ENRICHMENT_ASG_NAME: !Ref ProductEnrichmentASG
-          OPENSEARCH_DOMAIN_ENDPOINT_URL: !Sub "https://${OpenSearchDomain.DomainEndpoint}"
+          OPENSEARCH_ENDPOINT_URL: !Ref OpenSearchEndpointUrl
+          STAGE: "prod"
+          OPENSEARCH_USERNAME: !Ref OpenSearchUsername
+          OPENSEARCH_PASSWORD: !Ref OpenSearchPassword
   ProductEnrichmentScaleUpStartSchedule:
     Type: AWS::Events::Rule
     Properties:
@@ -3543,7 +3343,7 @@ Resources:
   ProductEnrichmentScaleUpLambdaErrorAlarm:
     Type: AWS::CloudWatch::Alarm
     Properties:
-      AlarmName: !Sub "${StageName}-product-enrichment-asg-scale-up-lambda-errors"
+      AlarmName: !Sub "prod-product-enrichment-asg-scale-up-lambda-errors"
       AlarmDescription: "Alarm when product-enrichment-asg-scale-up Lambda has errors"
       MetricName: Errors
       Namespace: AWS/Lambda
@@ -3569,11 +3369,11 @@ Outputs:
   CognitoUserPoolClientAdminId:
     Value: !Ref PrimaryUserPoolClientAdmin
   ApiGatewayEndpointUrl:
-    Value: !Sub "https://${Api}.execute-api.${AWS::Region}.amazonaws.com/${StageName}"
-  OpensearchDomainEndpointUrl:
-    Value: !Sub "https://${OpenSearchDomain.DomainEndpoint}"
+    Value: !Sub "https://${Api}.execute-api.${AWS::Region}.amazonaws.com/prod"
+  OpensearchEndpointUrl:
+    Value: !Ref OpenSearchEndpointUrl
   OpensearchDomainName:
-    Value: !Ref OpenSearchDomain
+    Value: "aura-historia-prod"
   DynamodbTable1Name:
     Value: !Ref TableOne
 

@@ -11,18 +11,22 @@ concurrency:
 
 env:
   CARGO_TERM_COLOR: always
-  STAGE: ${{ github.event_name == 'pull_request' && 'dev'
+  STAGE: ${{ github.event_name == 'pull_request' && 'ephemeral'
     || github.ref == 'refs/heads/prod' && 'prod'
-    || github.ref == 'refs/heads/develop' && 'staging' }}
+    || github.ref == 'refs/heads/develop' && 'dev' }}
   STAGE_NAME:
     ${{ github.event_name == 'pull_request' && format('pr-{0}', github.event.pull_request.number)
     || github.ref == 'refs/heads/prod' && 'prod'
-    || github.ref == 'refs/heads/develop' && 'staging' }}
+    || github.ref == 'refs/heads/develop' && 'dev' }}
   STACK: application
   STACK_NAME:
     application-${{ github.event_name == 'pull_request' && format('pr-{0}', github.event.pull_request.number)
     || github.ref == 'refs/heads/prod' && 'prod'
-    || github.ref == 'refs/heads/develop' && 'staging' }}
+    || github.ref == 'refs/heads/develop' && 'dev' }}
+  CLOUDFORMATION_TEMPLATE_PATH:
+    ${{ github.event_name == 'pull_request' && 'cfn/ephemeral.yaml'
+    || github.ref == 'refs/heads/prod' && 'cfn/prod.yaml'
+    || github.ref == 'refs/heads/develop' && 'cfn/dev.yaml' }}
 
 jobs:
   cfn-lint:
@@ -41,8 +45,8 @@ jobs:
       - name: Install cfn-lint
         run: pip install cfn-lint==1.42.0
 
-      - name: Run cfn-lint
-        run: cfn-lint --non-zero-exit-code error cfn/application.yaml
+      - name: Run cfn-lint for '${{ env.CLOUDFORMATION_TEMPLATE_PATH }}'
+        run: cfn-lint --non-zero-exit-code error ${{ env.CLOUDFORMATION_TEMPLATE_PATH }}
 
   lint:
     name: Lint Workspace
@@ -57,13 +61,12 @@ jobs:
         with:
           components: clippy, rustfmt
 
-      - name: Cache cargo registry and target
+      - name: Cache cargo registry
         uses: actions/cache@v5
         with:
           path: |
             ~/.cargo/registry
             ~/.cargo/git
-            target
           key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
 
       - name: Format check
@@ -105,13 +108,12 @@ jobs:
       - name: Set up Rust
         uses: dtolnay/rust-toolchain@stable
 
-      - name: Cache cargo registry and target
+      - name: Cache cargo registry
         uses: actions/cache@v5
         with:
           path: |
             ~/.cargo/registry
             ~/.cargo/git
-            target
           key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
 
       - name: Build ${{ matrix.crate }}
@@ -130,14 +132,12 @@ jobs:
       - name: Set up Rust
         uses: dtolnay/rust-toolchain@stable
 
-      - name: Cache cargo registry and target
+      - name: Cache cargo registry
         uses: actions/cache@v5
         with:
           path: |
             ~/.cargo/registry
             ~/.cargo/git
-            ~/.cargo/bin
-            target
           key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
 
       - name: Test Workspace
@@ -179,26 +179,60 @@ jobs:
       - name: Set up Rust
         uses: dtolnay/rust-toolchain@stable
 
-      - name: Cache cargo registry and target
+      - name: Cache cargo registry
         uses: actions/cache@v5
         with:
           path: |
             ~/.cargo/registry
             ~/.cargo/git
-            target
           key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
 
       - name: Test ${{ matrix.crate }}
         working-directory: ${{ matrix.crate }}
         run: cargo test --test '*' --all-features -- --nocapture
 
+      - name: Prune Docker volumes
+        run: docker volume prune -f
+
+  test-product-enrichment:
+    name: Test product-enrichment
+    needs: build
+    permissions:
+      contents: read
+    runs-on: self-hosted
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+
+      - name: Set up Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install Python deps
+        working-directory: src/product-enrichment/python
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+
+      - name: Test product-enrichment
+        working-directory: src/product-enrichment/python
+        run: cargo test --lib --test '*' --all-features -- --nocapture --include-ignored
+
+      - name: Prune Docker volumes
+        run: docker volume prune -f
+
   sonar:
     name: SonarQube-Cloud Analysis
-    needs: [unit-test, integration-test]
+    needs: [unit-test, integration-test, test-product-enrichment]
     if: github.actor != 'dependabot[bot]'
     permissions:
       contents: read
-    runs-on: ubuntu-latest
+    runs-on: self-hosted
     steps:
       - uses: actions/checkout@v6
         with:
@@ -209,47 +243,26 @@ jobs:
         with:
           components: clippy, rustfmt, llvm-tools
 
-      - name: Clean cargo
-        run: cargo clean
+      - name: Install grcov
+        run: cargo install grcov
 
-      - name: Cache cargo registry and target
-        uses: actions/cache@v5
+      - name: Set up Python
+        uses: actions/setup-python@v5
         with:
-          path: |
-            ~/.cargo/registry
-            ~/.cargo/git
-          key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
+          python-version: "3.12"
 
-      - name: Cache cargo-lambda
-        uses: actions/cache@v5
-        with:
-          path: |
-            ~/.cargo/bin/cargo-lambda
-            ~/.cargo/registry
-            ~/.cargo/git
-          key: ${{ runner.os }}-cargo-lambda-1.8.6
-
-      - name: Set up Zig
-        uses: mlugg/setup-zig@v2
-        with:
-          version: 0.14.1
-
-      - name: Install cargo-lambda
+      - name: Install Python deps
         run: |
-          if ! command -v cargo-lambda &> /dev/null; then
-            cargo install cargo-lambda --version 1.8.6
-          fi
+          python -m pip install --upgrade pip
+          pip install -r src/product-enrichment/python/requirements.txt
 
-        # - name: Install grcov
-        # run: cargo install grcov
-
-        # - name: Generate coverage
-        # env:
-        # RUSTFLAGS: "-C instrument-coverage"
-        # LLVM_PROFILE_FILE: "coverage-%p-%m.profraw"
-        # run: |
-        # cargo test --workspace --all-features -- --nocapture
-        # grcov . --binary-path ./target/debug/deps/ -s . -t lcov --branch --ignore-not-existing --ignore "/*" --ignore "*/target/*" --ignore "*/.cargo/*" -o coverage.lcov
+      - name: Generate coverage
+        env:
+           RUSTFLAGS: "-C instrument-coverage"
+           LLVM_PROFILE_FILE: "coverage-%p-%m.profraw"
+        run: |
+          cargo test --workspace --all-features --exclude smoking-tests --exclude staging-tests -- --nocapture --include-ignored
+          grcov . --binary-path ./target/debug/deps/ -s . -t lcov --branch --ignore-not-existing --ignore "/*" --ignore "*/target/*" --ignore "*/.cargo/*" -o coverage.lcov
 
       - name: SonarCloud Scan
         uses: SonarSource/sonarqube-scan-action@master
@@ -257,9 +270,17 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
 
+      - name: Clean LLVM coverage artifacts
+        run: |
+          find . -name "*.profraw" -delete
+          rm -f coverage.lcov
+
+      - name: Prune Docker volumes
+        run: docker volume prune -f
+
   aws-push-lambda:
     name: Push Lambda to S3 ${{ matrix.crate }}
-    needs: [unit-test, integration-test]
+    needs: [unit-test, integration-test, test-product-enrichment]
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -303,13 +324,12 @@ jobs:
       - name: Set up Rust
         uses: dtolnay/rust-toolchain@stable
 
-      - name: Cache cargo registry and target
+      - name: Cache cargo registry
         uses: actions/cache@v5
         with:
           path: |
             ~/.cargo/registry
             ~/.cargo/git
-            target
           key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
 
       - name: Cache cargo-lambda
@@ -360,7 +380,7 @@ jobs:
 
   aws-push-ec2:
     name: Push EC2 to S3 ${{ matrix.crate }}
-    needs: [unit-test, integration-test]
+    needs: [unit-test, integration-test, test-product-enrichment]
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -375,13 +395,12 @@ jobs:
       - name: Set up Rust
         uses: dtolnay/rust-toolchain@stable
 
-      - name: Cache cargo registry and target
+      - name: Cache cargo registry
         uses: actions/cache@v5
         with:
           path: |
             ~/.cargo/registry
             ~/.cargo/git
-            target
           key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
 
       - name: Build EC2 binary
@@ -411,7 +430,7 @@ jobs:
 
   aws-push-resource-artifacts:
     name: Push resource-artifacts to S3 ${{ matrix.resource }}
-    needs: [unit-test, integration-test]
+    needs: [unit-test, integration-test, test-product-enrichment]
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -439,7 +458,7 @@ jobs:
 
   aws-push-mail-templates:
     name: Compile & push Mail-Templates to S3 ${{ matrix.resource }}
-    needs: [unit-test, integration-test]
+    needs: [unit-test, integration-test, test-product-enrichment]
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -502,7 +521,7 @@ jobs:
         aws-push-mail-templates,
       ]
     environment:
-      name: aws
+      name: ${{ github.event_name == 'pull_request' && 'aws-ephemeral' || github.ref == 'refs/heads/prod' && 'aws-prod' || github.ref == 'refs/heads/develop' && 'aws-dev' }}
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -520,18 +539,20 @@ jobs:
         run: |
           aws cloudformation deploy \
             --stack-name ${{ env.STACK_NAME }} \
-            --template-file cfn/application.yaml \
+            --template-file ${{ env.CLOUDFORMATION_TEMPLATE_PATH }} \
             --s3-bucket ${{ vars.S3_CFN_ARTIFACTS_BUCKET_NAME }} \
             --s3-prefix ${{ env.STAGE_NAME }} \
             --capabilities CAPABILITY_NAMED_IAM \
             --parameter-overrides \
-                Stage=${{ env.STAGE }} \
                 StageName=${{ env.STAGE_NAME }} \
                 ArtifactBucket=${{ vars.S3_BINARY_ARTIFACTS_BUCKET_NAME }} \
                 ResourceBucket=${{ vars.S3_RESOURCE_ARTIFACTS_BUCKET_NAME }} \
                 MailTemplateBucket=${{ vars.S3_MAIL_TEMPLATE_BUCKET_NAME }} \
                 CommitSHA=${GITHUB_SHA} \
-                Ec2KeyPairName=${{ vars.EC2_KEY_PAIR_NAME }}
+                Ec2KeyPairName=${{ vars.EC2_KEY_PAIR_NAME }} \
+                OpenSearchEndpointUrl=${{ vars.OPENSEARCH_ENDPOINT_URL }} \
+                OpenSearchUsername=${{ secrets.OPENSEARCH_USERNAME }} \
+                OpenSearchPassword=${{ secrets.OPENSEARCH_PASSWORD }} 
 
       - name: Install OpenSearch CLI
         run: |
@@ -550,6 +571,8 @@ jobs:
     name: AWS Staging-Test
     if: ${{ github.event_name == 'pull_request' }}
     needs: aws-cfn-deploy
+    environment:
+      name: ${{ github.event_name == 'pull_request' && 'aws-ephemeral' || github.ref == 'refs/heads/develop' && 'aws-dev' }}
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -580,14 +603,12 @@ jobs:
       - name: Set up Rust
         uses: dtolnay/rust-toolchain@stable
 
-      - name: Cache cargo registry and target
+      - name: Cache cargo registry
         uses: actions/cache@v5
         with:
           path: |
             ~/.cargo/registry
             ~/.cargo/git
-            ~/.cargo/bin
-            target
           key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
 
       - name: Run Staging-tests
@@ -596,6 +617,10 @@ jobs:
           CFN_OUTPUT: ${{ steps.export-cfn-output.outputs.outputs_json }}
           TEST_MAIL_APP_NAMESPACE: ${{ vars.TEST_MAIL_APP_NAMESPACE }}
           TEST_MAIL_APP_API_KEY: ${{ secrets.TEST_MAIL_APP_API_KEY }}
+          STAGE: ${{ env.STAGE }}
+          OPENSEARCH_ENDPOINT_URL: ${{ vars.OPENSEARCH_ENDPOINT_URL }}
+          OPENSEARCH_USERNAME: ${{ secrets.OPENSEARCH_USERNAME }}
+          OPENSEARCH_PASSWORD: ${{ secrets.OPENSEARCH_PASSWORD }}
         run: cargo test --test '*' --all-features -- --ignored --nocapture
 
   aws-smoking-test:
@@ -632,14 +657,12 @@ jobs:
       - name: Set up Rust
         uses: dtolnay/rust-toolchain@stable
 
-      - name: Cache cargo registry and target
+      - name: Cache cargo registry
         uses: actions/cache@v5
         with:
           path: |
             ~/.cargo/registry
             ~/.cargo/git
-            ~/.cargo/bin
-            target
           key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
 
       - name: Run Smoking-Tests
@@ -652,11 +675,11 @@ jobs:
     name: AWS Populate Test-Data
     if: github.event_name == 'push'
     needs: aws-cfn-deploy
-    environment:
-      name: aws-staging-data
     permissions:
       contents: read
       id-token: write
+    environment:
+      name: ${{ github.event_name == 'pull_request' && 'aws-ephemeral' || github.ref == 'refs/heads/develop' && 'aws-dev' }}
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v6
@@ -684,18 +707,20 @@ jobs:
       - name: Set up Rust
         uses: dtolnay/rust-toolchain@stable
 
-      - name: Cache cargo registry and target
+      - name: Cache cargo registry
         uses: actions/cache@v5
         with:
           path: |
             ~/.cargo/registry
             ~/.cargo/git
-            ~/.cargo/bin
-            target
           key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
 
       - name: Run src/aws-tests/src/staging-data
         working-directory: src/aws-tests/src/staging-data
         env:
           CFN_OUTPUT: ${{ steps.export-cfn-output.outputs.outputs_json }}
+          STAGE: ${{ env.STAGE }}
+          OPENSEARCH_ENDPOINT_URL: ${{ vars.OPENSEARCH_ENDPOINT_URL }}
+          OPENSEARCH_USERNAME: ${{ secrets.OPENSEARCH_USERNAME }}
+          OPENSEARCH_PASSWORD: ${{ secrets.OPENSEARCH_PASSWORD }}
         run: cargo run --all-features -- --nocapture

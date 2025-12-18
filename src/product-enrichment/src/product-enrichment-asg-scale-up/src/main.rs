@@ -1,9 +1,5 @@
 use aws_config::BehaviorVersion;
 use lambda_runtime::{Error, LambdaEvent, run, service_fn};
-use opensearch::http::{
-    Url,
-    transport::{SingleNodeConnectionPool, TransportBuilder},
-};
 use product_enrichment_asg_scale_up::handler;
 use tracing::info;
 
@@ -24,12 +20,7 @@ async fn main() -> Result<(), Error> {
     let autoscaling_client = aws_sdk_autoscaling::Client::new(&aws_config);
     let asg_name = std::env::var("PRODUCT_ENRICHMENT_ASG_NAME")?;
 
-    let os_endpoint_url = Url::parse(&std::env::var("OPENSEARCH_DOMAIN_ENDPOINT_URL")?)?;
-    let transport = TransportBuilder::new(SingleNodeConnectionPool::new(os_endpoint_url))
-        .auth(aws_config.try_into()?)
-        .service_name("es")
-        .build()?;
-    let opensearch_client = opensearch::OpenSearch::new(transport);
+    let opensearch_client = common::opensearch::client::load_client().await?;
 
     info!(
         asgName = asg_name,
