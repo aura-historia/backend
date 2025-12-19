@@ -18,35 +18,33 @@ static RE_SPACES: Lazy<Regex> = Lazy::new(|| Regex::new(r"[ \t]+").unwrap());
 static RE_NEWLINE_SPACES: Lazy<Regex> = Lazy::new(|| Regex::new(r" *\n *").unwrap());
 
 pub fn sanitize(input: &str) -> String {
-    let mut text = decode_html_entities(input).into_owned();
+    let text = decode_html_entities(input);
 
     // Remove lingering "&nbsp;" explicitly
-    text = text.replace("&nbsp;", "\n");
+    let text = text.replace("&nbsp;", "\n");
 
     // Strip HTML tags
-    text = RE_HTML_TAG.replace_all(&text, "").into_owned();
+    let text = RE_HTML_TAG.replace_all(&text, "");
 
     // Normalize newlines
-    text = text.replace("\r\n", "\n").replace('\r', "\n");
-    text = RE_MULTIPLE_NEWLINES.replace_all(&text, "\n\n").into_owned();
+    let text = text.replace("\r\n", "\n").replace('\r', "\n");
+    let text = RE_MULTIPLE_NEWLINES.replace_all(&text, "\n\n");
 
     // Fix punctuation spacing early
-    text = RE_PUNCT_SPACE.replace_all(&text, "$1 $2").into_owned();
+    let text = RE_PUNCT_SPACE.replace_all(&text, "$1 $2");
 
     // Split inline numbered lists (KEEP numbers)
-    text = RE_INLINE_NUMBERED
-        .replace_all(&text, "$1\n$2 $3")
-        .into_owned();
+    let text = RE_INLINE_NUMBERED.replace_all(&text, "$1\n$2 $3");
 
     // Split CamelCase list items
-    text = RE_CAMEL_LIST.replace_all(&text, "$1\n$2").into_owned();
+    let text = RE_CAMEL_LIST.replace_all(&text, "$1\n$2");
 
     // Normalize units (preserve decimals)
-    text = RE_UNITS.replace_all(&text, "$1 $2").into_owned();
+    let text = RE_UNITS.replace_all(&text, "$1 $2");
 
     // Whitespace cleanup (newline-safe)
-    text = RE_SPACES.replace_all(&text, " ").into_owned();
-    text = RE_NEWLINE_SPACES.replace_all(&text, "\n").into_owned();
+    let text = RE_SPACES.replace_all(&text, " ");
+    let text = RE_NEWLINE_SPACES.replace_all(&text, "\n");
 
     text.trim().to_string()
 }

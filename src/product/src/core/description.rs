@@ -9,7 +9,7 @@ impl From<&str> for Description {
     fn from(s: &str) -> Self {
         if s.len() > 2000 {
             match s.split_at_checked(2000) {
-                Some((truncated, _)) => Self(truncated.into()),
+                Some((truncated, _)) => Self(sanitize(truncated)),
                 None => Self(sanitize(s)),
             }
         } else {
