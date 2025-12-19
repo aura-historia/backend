@@ -20,7 +20,7 @@ opensearch = { workspace = true }
 uuid = { workspace = true, features = ["v4"] }
 tracing-subscriber = { workspace = true, features = ["json"] }
 tracing = { workspace = true }
-aws-sdk-cognitoidentityprovider = "1.97.0"
+aws-sdk-cognitoidentityprovider = { workspace = true }
 fake = { workspace = true }
 time = { workspace = true }
 reqwest = { workspace = true, features = ["default", "json"] }

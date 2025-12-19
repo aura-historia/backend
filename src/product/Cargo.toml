@@ -15,8 +15,8 @@ thiserror = { workspace = true }
 url = { workspace = true, features = ["serde"] }
 uuid = { workspace = true }
 once_cell = { workspace = true }
-html-escape = { version = "0.2.13" }
-regex = { version = "1.12.2" }
+html-escape = { workspace = true }
+regex = { workspace = true }
 
 # Optional
 field = { workspace = true, optional = true }
