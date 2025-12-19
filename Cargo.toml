@@ -55,9 +55,9 @@ aws-sdk-account = "1.94.0"
 aws-sdk-autoscaling = "1.104.0"
 aws-sdk-dynamodb = "1.101.0"
 aws-sdk-lambda = "1.100.0"
-aws-sdk-opensearch = "1.109.0"
+aws-sdk-opensearch = "1.110.0"
 aws-sdk-sqs = "1.91.0"
-aws-sdk-sesv2 = "1.109.0"
+aws-sdk-sesv2 = "1.110.0"
 aws-sdk-s3 = "1.118.0"
 aws_lambda_events = { version = "1.0.1", default-features = false }
 common = { path = "src/common" }
