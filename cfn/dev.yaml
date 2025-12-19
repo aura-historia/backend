@@ -315,11 +315,7 @@ Resources:
         AllowOrigins:
           - "*"
         AllowMethods:
-          - GET
-          - POST
-          - PUT
-          - DELETE
-          - OPTIONS
+          - "*"
         AllowHeaders:
           - "*"
   ApiStage:
