@@ -106,4 +106,23 @@ mod tests {
         let expected = vec!["Hello world!".to_string(), "How are you?".to_string()];
         assert_eq!(expected, Vec::from(translations));
     }
+
+    #[test]
+    #[ignore]
+    fn should_foo() {
+        let delegate = TranslationDelegateImpl::new().unwrap();
+
+        let batch = vec![
+            "Restaurierte Anrichte aus massiv Kiefer (gewachst) im Gründerzeitstil. Der mit einer Schublade mit Glasfront verzierte Schrank befindet sich in einem sehr guten Zustand und weist nur minimale Gebrauchsspuren auf.&amp;nbsp;1 Schublade mit Glasfront2 RegalbodenMassivholzGründerzeitstil&amp;nbsp;Maße:&amp;nbsp;Breite 1,09 mHöhe 0,94 mTiefe 0,54 m&amp;nbsp;Bitte beachten Sie, dass es sich bei dem zweiten Foto um ein KI-generiertes Beispielfoto handelt, das lediglich der Veranschaulichung dient.".to_owned()
+        ]
+            .try_into()
+            .unwrap();
+        let translations = delegate
+            .translate_batch(&batch, &Language::De, &Language::En)
+            .unwrap();
+
+        for foo in translations {
+            println!("{foo}");
+        }
+    }
 }

@@ -1,3 +1,4 @@
+use crate::core::sanitize::sanitize;
 use std::fmt::Display;
 use std::ops::Deref;
 
@@ -9,10 +10,10 @@ impl From<&str> for Description {
         if s.len() > 2000 {
             match s.split_at_checked(2000) {
                 Some((truncated, _)) => Self(truncated.into()),
-                None => Self(s.into()),
+                None => Self(sanitize(s)),
             }
         } else {
-            Description(s.into())
+            Description(sanitize(s))
         }
     }
 }
