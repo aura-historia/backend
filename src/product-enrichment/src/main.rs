@@ -112,6 +112,6 @@ async fn main() {
     }
 
     reinstantiate_periodic_opensearch_index_products_refresh(get_opensearch_client().await).await.unwrap_or_else(|err|
-        error!(error = %err, "Failed reinstantiating periodoc opensearch refresh-index for index 'products'.")
+        error!(error = ?err, "Failed reinstantiating periodic opensearch refresh-index for index 'products'.")
     );
 }
