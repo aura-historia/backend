@@ -3264,6 +3264,7 @@ dependencies = [
  "product-enrichment",
  "product-enrichment-asg-scale-down",
  "product-enrichment-asg-scale-up",
+ "product-pipeline-common",
  "pyo3",
  "pyo3-ffi",
  "rstest",
@@ -3460,6 +3461,22 @@ dependencies = [
  "tracing-subscriber",
  "user",
  "uuid",
+]
+
+[[package]]
+name = "product-pipeline-common"
+version = "0.1.0"
+dependencies = [
+ "async-trait",
+ "aws-config",
+ "aws-sdk-sqs",
+ "common",
+ "mockall",
+ "product",
+ "serde",
+ "serde_json",
+ "tokio",
+ "tracing",
 ]
 
 [[package]]

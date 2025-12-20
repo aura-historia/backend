@@ -95,6 +95,7 @@ product-api-watchlist-patch = { path = "src/product-api/src/product-api-watchlis
 product-api-watchlist-post = { path = "src/product-api/src/product-api-watchlist-post" }
 product-api-watchlist-delete = { path = "src/product-api/src/product-api-watchlist-delete" }
 product-lambda = { path = "src/product-lambda" }
+product-pipeline-common = { path = "src/product-enrichment/src/product-pipeline-common" }
 product-enrichment = { path = "src/product-enrichment" }
 product-enrichment-asg-scale-down = { path = "src/product-enrichment/src/product-enrichment-asg-scale-down" }
 product-enrichment-asg-scale-up = { path = "src/product-enrichment/src/product-enrichment-asg-scale-up" }

@@ -4,6 +4,8 @@ version = "0.1.0"
 edition = "2024"
 
 [dependencies]
+product-pipeline-common = { workspace = true }
+
 product = { workspace = true, features = ["service", "opensearch", "dynamodb"] }
 common = { workspace = true, features = ["dynamodb", "event_bridge"] }
 pyo3 = { workspace = true, features = ["auto-initialize"] }
