@@ -48,21 +48,19 @@ impl PipeProcessor<TranslatedPipeProduct, TextEmbeddedPipeProduct>
                     failures.extend(&mut local_failed);
                 }
                 Ok(embeddings) => {
-                    let mut local_enriched =
-                        in_batch
-                            .into_iter()
-                            .zip(embeddings)
-                            .map(|(in_product, embedding)| TextEmbeddedPipeProduct {
-                                product_id: in_product.product_id,
-                                shop_id: in_product.shop_id,
-                                shops_product_id: in_product.shops_product_id,
-                                shop_name: in_product.shop_name,
-                                native_title: in_product.native_title,
-                                other_title: in_product.other_title,
-                                native_description: in_product.native_description,
-                                other_description: in_product.other_description,
-                                text_embedding: embedding,
-                            });
+                    let mut local_enriched = in_batch.into_iter().zip(embeddings.into_iter()).map(
+                        |(in_product, embedding)| TextEmbeddedPipeProduct {
+                            product_id: in_product.product_id,
+                            shop_id: in_product.shop_id,
+                            shops_product_id: in_product.shops_product_id,
+                            shop_name: in_product.shop_name,
+                            native_title: in_product.native_title,
+                            other_title: in_product.other_title,
+                            native_description: in_product.native_description,
+                            other_description: in_product.other_description,
+                            text_embedding: embedding,
+                        },
+                    );
                     successes.extend(&mut local_enriched);
                 }
             }
