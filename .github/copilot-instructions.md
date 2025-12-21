@@ -71,7 +71,7 @@ Since this is a serverless backend, manual testing involves:
   - `watchlist`: User product watchlist functionality
 - **src/product-api**: API Gateway handlers for product operations (8 handlers)
 - **src/product-lambda**: Lambda function implementations for product event processing (6 lambdas)
-- **src/product-enrichment**: Product data enrichment pipeline and auto-scaling
+- **src/product-pipeline**: Product data pipeline and auto-scaling
 - **src/shop**: Shop/store management system:
   - `core`: Shop domain models and business logic
   - `data`: Shop data models
@@ -112,9 +112,9 @@ Located in various directories:
 - `product-lambda-materialize-opensearch-update`: Materialize product updates to OpenSearch
 - `product-lambda-update-notify-user`: Notify users about product updates
 
-**Product Enrichment Lambda Functions** (`src/product-enrichment/src/`):
-- `product-enrichment-asg-scale-up`: Scale up Auto Scaling Group for enrichment
-- `product-enrichment-asg-scale-down`: Scale down Auto Scaling Group after enrichment
+**Product Pipeline Lambda Functions** (`src/product-pipeline/src/`):
+- `product-pipeline-asg-scale-up`: Scale up Auto Scaling Group for pipeline
+- `product-pipeline-asg-scale-down`: Scale down Auto Scaling Group after pipeline
 
 **Cognito Lambda Functions**:
 - `cognito-post-confirmation`: Handle Cognito user post-confirmation trigger (`src/cognito-post-confirmation`)
@@ -189,8 +189,8 @@ src/
 │   └── src/         # Individual API handler crates
 ├── product-lambda/  # Lambda function implementations (6 lambdas)
 │   └── src/         # Individual lambda crates
-├── product-enrichment/  # Product enrichment pipeline
-│   ├── python/      # Python enrichment scripts
+├── product-pipeline/  # Product pipeline
+│   ├── python/      # Python pipeline scripts
 │   └── src/         # Lambda functions for auto-scaling
 ├── shop/           # Shop/store management system
 │   ├── src/core/           # Shop domain models

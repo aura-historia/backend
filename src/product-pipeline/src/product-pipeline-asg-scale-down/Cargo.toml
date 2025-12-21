@@ -1,5 +1,5 @@
 [package]
-name = "product-enrichment-asg-scale-up"
+name = "product-pipeline-asg-scale-down"
 version = "0.1.0"
 edition = "2024"
 

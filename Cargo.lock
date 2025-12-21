@@ -123,8 +123,8 @@ dependencies = [
  "mail-lambda-send",
  "product",
  "product-api",
- "product-enrichment",
  "product-lambda",
+ "product-pipeline",
  "search-filter",
  "search-filter-api",
  "shop",
@@ -3223,15 +3223,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "product-enrichment"
-version = "0.1.0"
-dependencies = [
- "product-pipeline-common",
- "product-pipeline-embed-text",
- "product-pipeline-translate",
-]
-
-[[package]]
 name = "product-lambda"
 version = "0.1.0"
 dependencies = [
@@ -3377,6 +3368,15 @@ dependencies = [
  "tracing-subscriber",
  "user",
  "uuid",
+]
+
+[[package]]
+name = "product-pipeline"
+version = "0.1.0"
+dependencies = [
+ "product-pipeline-common",
+ "product-pipeline-embed-text",
+ "product-pipeline-translate",
 ]
 
 [[package]]

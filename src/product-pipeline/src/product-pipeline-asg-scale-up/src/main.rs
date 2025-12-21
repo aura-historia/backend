@@ -1,6 +1,6 @@
 use aws_config::BehaviorVersion;
 use lambda_runtime::{Error, LambdaEvent, run, service_fn};
-use product_enrichment_asg_scale_down::handler;
+use product_pipeline_asg_scale_up::handler;
 use tracing::info;
 
 #[tokio::main]
@@ -22,7 +22,10 @@ async fn main() -> Result<(), Error> {
 
     let opensearch_client = common::opensearch::client::load_client().await?;
 
-    info!("Lambda cold start completed, client initialized.");
+    info!(
+        asgName = asg_name,
+        "Lambda cold start completed, client initialized."
+    );
 
     run(service_fn(|event: LambdaEvent<serde_json::Value>| async {
         handler(&autoscaling_client, &opensearch_client, &asg_name, event).await

@@ -27,7 +27,9 @@ updates:
           - "serde*"
 
   - package-ecosystem: pip
-    directory: "src/product-enrichment/python"
+    directories:
+      - "src/product-pipeline/src/product-pipeline-embed-text/python"
+      - "src/product-pipeline/src/product-pipeline-translate/python"
     schedule:
       interval: daily
       time: "06:00"

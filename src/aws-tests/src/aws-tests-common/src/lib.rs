@@ -26,8 +26,8 @@ pub struct CloudFormationOutput {
     pub product_materialize_opensearch_update_dead_letter_queue_url: String,
     pub product_update_notify_user_queue_url: String,
     pub product_update_notify_user_dead_letter_queue_url: String,
-    pub product_enrichment_queue_url: String,
-    pub product_enrichment_dead_letter_queue_url: String,
+    pub product_pipeline_queue_url: String,
+    pub product_pipeline_dead_letter_queue_url: String,
 }
 
 static CFN_OUTPUT: OnceLock<CloudFormationOutput> = OnceLock::new();

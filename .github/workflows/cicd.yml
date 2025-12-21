@@ -92,7 +92,7 @@ jobs:
           - src/aws-tests
           - src/product
           - src/product-api
-          - src/product-enrichment
+          - src/product-pipeline
           - src/product-lambda
           - src/shop
           - src/shop-api
@@ -194,8 +194,8 @@ jobs:
       - name: Prune Docker volumes
         run: docker volume prune -f
 
-  test-product-enrichment:
-    name: Test product-enrichment
+  test-product-pipeline:
+    name: Test product-pipeline
     needs: build
     permissions:
       contents: read
@@ -214,13 +214,13 @@ jobs:
           python-version: "3.12"
 
       - name: Install Python deps
-        working-directory: src/product-enrichment/python
+        working-directory: src/product-pipeline/python
         run: |
           python -m pip install --upgrade pip
           pip install -r requirements.txt
 
-      - name: Test product-enrichment
-        working-directory: src/product-enrichment/python
+      - name: Test product-pipeline
+        working-directory: src/product-pipeline/python
         run: cargo test --lib --test '*' --all-features -- --nocapture --include-ignored
 
       - name: Prune Docker volumes
@@ -228,7 +228,7 @@ jobs:
 
   sonar:
     name: SonarQube-Cloud Analysis
-    needs: [unit-test, integration-test, test-product-enrichment]
+    needs: [unit-test, integration-test, test-product-pipeline]
     if: github.actor != 'dependabot[bot]'
     permissions:
       contents: read
@@ -254,12 +254,12 @@ jobs:
       - name: Install Python deps
         run: |
           python -m pip install --upgrade pip
-          pip install -r src/product-enrichment/python/requirements.txt
+          pip install -r src/product-pipeline/python/requirements.txt
 
       - name: Generate coverage
         env:
-           RUSTFLAGS: "-C instrument-coverage"
-           LLVM_PROFILE_FILE: "coverage-%p-%m.profraw"
+          RUSTFLAGS: "-C instrument-coverage"
+          LLVM_PROFILE_FILE: "coverage-%p-%m.profraw"
         run: |
           cargo test --workspace --all-features --exclude smoking-tests --exclude staging-tests -- --nocapture --include-ignored
           grcov . --binary-path ./target/debug/deps/ -s . -t lcov --branch --ignore-not-existing --ignore "/*" --ignore "*/target/*" --ignore "*/.cargo/*" -o coverage.lcov
@@ -280,7 +280,7 @@ jobs:
 
   aws-push-lambda:
     name: Push Lambda to S3 ${{ matrix.crate }}
-    needs: [unit-test, integration-test, test-product-enrichment]
+    needs: [unit-test, integration-test, test-product-pipeline]
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -301,8 +301,8 @@ jobs:
           - src/product-api/src/product-api-watchlist-get
           - src/product-api/src/product-api-watchlist-post
           - src/product-api/src/product-api-watchlist-patch
-          - src/product-enrichment/src/product-enrichment-asg-scale-down
-          - src/product-enrichment/src/product-enrichment-asg-scale-up
+          - src/product-pipeline/src/product-pipeline-asg-scale-down
+          - src/product-pipeline/src/product-pipeline-asg-scale-up
           - src/product-lambda/src/product-lambda-ingest-events-dynamodb
           - src/product-lambda/src/product-lambda-materialize-dynamodb-new
           - src/product-lambda/src/product-lambda-materialize-dynamodb-update
@@ -380,7 +380,7 @@ jobs:
 
   aws-push-ec2:
     name: Push EC2 to S3 ${{ matrix.crate }}
-    needs: [unit-test, integration-test, test-product-enrichment]
+    needs: [unit-test, integration-test, test-product-pipeline]
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -388,7 +388,7 @@ jobs:
     strategy:
       matrix:
         crate:
-          - src/product-enrichment
+          - src/product-pipeline
     steps:
       - uses: actions/checkout@v6
 
@@ -430,7 +430,7 @@ jobs:
 
   aws-push-resource-artifacts:
     name: Push resource-artifacts to S3 ${{ matrix.resource }}
-    needs: [unit-test, integration-test, test-product-enrichment]
+    needs: [unit-test, integration-test, test-product-pipeline]
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -438,7 +438,7 @@ jobs:
     strategy:
       matrix:
         resource:
-          - src/product-enrichment/user-data.sh
+          - src/product-pipeline/user-data.sh
     steps:
       - uses: actions/checkout@v6
 
@@ -458,7 +458,7 @@ jobs:
 
   aws-push-mail-templates:
     name: Compile & push Mail-Templates to S3 ${{ matrix.resource }}
-    needs: [unit-test, integration-test, test-product-enrichment]
+    needs: [unit-test, integration-test, test-product-pipeline]
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -552,7 +552,7 @@ jobs:
                 Ec2KeyPairName=${{ vars.EC2_KEY_PAIR_NAME }} \
                 OpenSearchEndpointUrl=${{ vars.OPENSEARCH_ENDPOINT_URL }} \
                 OpenSearchUsername=${{ secrets.OPENSEARCH_USERNAME }} \
-                OpenSearchPassword=${{ secrets.OPENSEARCH_PASSWORD }} 
+                OpenSearchPassword=${{ secrets.OPENSEARCH_PASSWORD }}
 
       - name: Install OpenSearch CLI
         if: ${{ github.event_name == 'pull_request' }}
