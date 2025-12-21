@@ -2,6 +2,7 @@ use common::{
     language::record::{LanguageRecord, TextRecord},
     product_id::ProductId,
 };
+use fake::rand::seq::SliceRandom;
 use fake::{Fake, Faker};
 use product_pipeline_common::{process::PipeProcessor, types::CleansedPipeProduct};
 use product_pipeline_translate::{
@@ -46,6 +47,7 @@ fn should_process_text_embedding(#[case] count: usize) {
         }),
     };
     products.push(product);
+    products.shuffle(&mut fake::rand::rng());
 
     let actual = translation_pipe_processor.process(products);
     assert!(actual.failures.is_empty());

@@ -269,7 +269,9 @@ mod tests {
         let translation_pipe_processor =
             TranslationPipeProcesserImpl::new(Arc::new(translation_delegate));
 
-        let in_products = fake::vec![CleansedPipeProduct; 1];
+        let mut in_product: CleansedPipeProduct = Faker.fake();
+        in_product.native_description = Some(Faker.fake());
+        let in_products = vec![in_product];
         let actuals = translation_pipe_processor.process(in_products);
 
         assert!(actuals.failures.is_empty());
