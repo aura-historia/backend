@@ -24,7 +24,7 @@ pub struct PipeImpl<'a, InData, In, Out, OutData> {
     visibility_timeout: u16,
     flow_in: &'a (dyn PipeFlowIn<InData> + Send + Sync),
     pipe: &'a (dyn PipeProcessor<In, Out> + Send + Sync),
-    flow_out: &'a (dyn PipeFlowOut<OutData> + Send + Sync),
+    flow_out: &'a (dyn PipeFlowOut<'a, OutData> + Send + Sync),
 }
 
 #[async_trait::async_trait]

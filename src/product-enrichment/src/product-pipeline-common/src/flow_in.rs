@@ -1,9 +1,8 @@
-use std::collections::HashMap;
-
 use crate::types::HasProductId;
 use aws_sdk_sqs::Client;
 use common::product_id::ProductId;
 use serde::de::DeserializeOwned;
+use std::collections::HashMap;
 use tracing::{error, warn};
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
