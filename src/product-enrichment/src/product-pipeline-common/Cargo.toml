@@ -14,3 +14,10 @@ aws-sdk-sqs = { workspace = true }
 tokio = { workspace = true, features = ["time", "macros", "rt-multi-thread"] }
 serde = { workspace = true }
 serde_json = { workspace = true }
+
+[dev-dependencies]
+product = { workspace = true, features = ["test-data"] }
+fake = { workspace = true }
+rstest = { workspace = true }
+serial_test = { workspace = true }
+test-api = { workspace = true, features = ["sqs"] }

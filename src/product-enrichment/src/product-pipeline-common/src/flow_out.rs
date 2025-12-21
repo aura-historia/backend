@@ -22,6 +22,15 @@ pub struct PipeFlowOutImpl<'a> {
     target_queue: String,
 }
 
+impl<'a> PipeFlowOutImpl<'a> {
+    pub fn new(sqs: &'a Client, target_queue: impl Into<String>) -> PipeFlowOutImpl<'a> {
+        Self {
+            sqs,
+            target_queue: target_queue.into(),
+        }
+    }
+}
+
 #[async_trait::async_trait]
 impl<'a, OutData: 'a + Serialize + HasProductId + Clone + Send + Sync> PipeFlowOut<'a, OutData>
     for PipeFlowOutImpl<'a>

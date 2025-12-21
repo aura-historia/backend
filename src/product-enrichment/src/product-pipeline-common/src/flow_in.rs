@@ -30,6 +30,15 @@ pub struct PipeFlowInImpl<'a> {
     source_queue: String,
 }
 
+impl<'a> PipeFlowInImpl<'a> {
+    pub fn new(sqs: &'a Client, source_queue: impl Into<String>) -> PipeFlowInImpl<'a> {
+        Self {
+            sqs,
+            source_queue: source_queue.into(),
+        }
+    }
+}
+
 #[async_trait::async_trait]
 impl<'a, InData: DeserializeOwned + HasProductId> PipeFlowIn<InData> for PipeFlowInImpl<'a> {
     async fn flow_in(&self, batch_in_count: u16, visibility_timeout: u16) -> FlowInResult<InData> {
