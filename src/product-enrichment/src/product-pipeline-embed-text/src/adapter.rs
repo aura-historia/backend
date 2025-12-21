@@ -5,17 +5,17 @@ use pyo3_ffi::c_str;
 use std::sync::Arc;
 
 #[mockall::automock]
-pub trait EmbeddingDelegate {
+pub trait EmbeddingAdapter {
     fn embed(&self, batch: &Batch<String, 64>) -> PyResult<Batch<Vec<f32>, 64>>;
 }
 
-/// Delegates to a persistent Python embedding session.
+/// Adapter to a persistent Python embedding session.
 #[derive(Clone)]
-pub struct EmbeddingDelegateImpl {
+pub struct EmbeddingAdapterImpl {
     module: Arc<Py<PyAny>>, // Keep module alive across GIL scopes
 }
 
-impl EmbeddingDelegateImpl {
+impl EmbeddingAdapterImpl {
     /// Initialize the session once
     pub fn new() -> PyResult<Self> {
         Python::attach(|py| -> PyResult<_> {
@@ -25,14 +25,14 @@ impl EmbeddingDelegateImpl {
             )));
             let embed_module =
                 PyModule::from_code(py, py_embed, c_str!("embed.py"), c_str!("embed"))?;
-            Ok(EmbeddingDelegateImpl {
+            Ok(EmbeddingAdapterImpl {
                 module: Arc::new(embed_module.into()),
             })
         })
     }
 }
 
-impl EmbeddingDelegate for EmbeddingDelegateImpl {
+impl EmbeddingAdapter for EmbeddingAdapterImpl {
     fn embed(&self, batch: &Batch<String, 64>) -> PyResult<Batch<Vec<f32>, 64>> {
         Python::attach(|py| -> PyResult<_> {
             let embed_module = self.module.as_ref();
@@ -53,12 +53,12 @@ impl EmbeddingDelegate for EmbeddingDelegateImpl {
 
 #[cfg(test)]
 mod tests {
-    use crate::embed::{EmbeddingDelegate, EmbeddingDelegateImpl};
+    use crate::adapter::{EmbeddingAdapter, EmbeddingAdapterImpl};
 
     #[test]
     #[ignore]
     fn should_embed_dim_1024() {
-        let delegate = EmbeddingDelegateImpl::new().unwrap();
+        let delegate = EmbeddingAdapterImpl::new().unwrap();
 
         let batch = vec![
             "foo".to_owned(),

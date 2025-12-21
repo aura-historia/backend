@@ -3265,6 +3265,8 @@ dependencies = [
  "product-enrichment-asg-scale-down",
  "product-enrichment-asg-scale-up",
  "product-pipeline-common",
+ "product-pipeline-embed-text",
+ "product-pipeline-translate",
  "pyo3",
  "pyo3-ffi",
  "rstest",
@@ -3474,11 +3476,57 @@ dependencies = [
  "fake",
  "mockall",
  "product",
+ "product-pipeline-common",
  "rstest",
  "serde",
  "serde_json",
  "serial_test",
  "test-api",
+ "tokio",
+ "tracing",
+]
+
+[[package]]
+name = "product-pipeline-embed-text"
+version = "0.1.0"
+dependencies = [
+ "async-trait",
+ "aws-config",
+ "aws-sdk-sqs",
+ "common",
+ "fake",
+ "mockall",
+ "product",
+ "product-pipeline-common",
+ "pyo3",
+ "pyo3-ffi",
+ "rstest",
+ "serde",
+ "serde_json",
+ "tokio",
+ "tracing",
+]
+
+[[package]]
+name = "product-pipeline-translate"
+version = "0.1.0"
+dependencies = [
+ "async-trait",
+ "aws-config",
+ "aws-sdk-sqs",
+ "common",
+ "fake",
+ "itertools 0.14.0",
+ "mockall",
+ "product",
+ "product-pipeline-common",
+ "pyo3",
+ "pyo3-ffi",
+ "rstest",
+ "serde",
+ "serde_json",
+ "strum",
+ "strum_macros",
  "tokio",
  "tracing",
 ]

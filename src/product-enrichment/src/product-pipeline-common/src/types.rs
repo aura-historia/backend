@@ -12,8 +12,10 @@ pub trait HasProductId {
     fn product_id(&self) -> ProductId;
 }
 
+#[cfg_attr(feature = "test-data", derive(fake::Dummy))]
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct CleansedPipeProduct {
+    pub product_id: ProductId,
     pub shop_id: ShopId,
     pub shops_product_id: ShopsProductId,
     pub shop_name: ShopName,
@@ -21,8 +23,10 @@ pub struct CleansedPipeProduct {
     pub native_description: Option<TextRecord>,
 }
 
+#[cfg_attr(feature = "test-data", derive(fake::Dummy))]
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct TranslatedPipeProduct {
+    pub product_id: ProductId,
     pub shop_id: ShopId,
     pub shops_product_id: ShopsProductId,
     pub shop_name: ShopName,
@@ -32,8 +36,10 @@ pub struct TranslatedPipeProduct {
     pub other_description: HashMap<LanguageRecord, String>,
 }
 
+#[cfg_attr(feature = "test-data", derive(fake::Dummy))]
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct TextEmbeddedPipeProduct {
+    pub product_id: ProductId,
     pub shop_id: ShopId,
     pub shops_product_id: ShopsProductId,
     pub shop_name: ShopName,
@@ -44,8 +50,10 @@ pub struct TextEmbeddedPipeProduct {
     pub text_embedding: Vec<f32>,
 }
 
+#[cfg_attr(feature = "test-data", derive(fake::Dummy))]
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct CompletedPipeProduct {
+    pub product_id: ProductId,
     pub shop_id: ShopId,
     pub shops_product_id: ShopsProductId,
     pub shop_name: ShopName,

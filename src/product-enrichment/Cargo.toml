@@ -5,6 +5,8 @@ edition = "2024"
 
 [dependencies]
 product-pipeline-common = { workspace = true }
+product-pipeline-embed-text = { workspace = true }
+product-pipeline-translate = { workspace = true }
 
 product = { workspace = true, features = ["service", "opensearch", "dynamodb"] }
 common = { workspace = true, features = ["dynamodb", "event_bridge"] }

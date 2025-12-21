@@ -6,7 +6,7 @@ use pyo3_ffi::c_str;
 use std::sync::Arc;
 
 #[mockall::automock]
-pub trait TranslationDelegate {
+pub trait TranslationAdapter {
     fn translate(&self, text: &str, src: &Language, tgt: &Language) -> PyResult<String>;
     fn translate_batch(
         &self,
@@ -17,11 +17,11 @@ pub trait TranslationDelegate {
 }
 
 #[derive(Clone)]
-pub struct TranslationDelegateImpl {
+pub struct TranslationAdapterImpl {
     module: Arc<Py<PyAny>>,
 }
 
-impl TranslationDelegateImpl {
+impl TranslationAdapterImpl {
     pub fn new() -> PyResult<Self> {
         Python::attach(|py| -> PyResult<_> {
             let py_embed = c_str!(include_str!(concat!(
@@ -30,14 +30,14 @@ impl TranslationDelegateImpl {
             )));
             let translate_module =
                 PyModule::from_code(py, py_embed, c_str!("translate.py"), c_str!("translate"))?;
-            Ok(TranslationDelegateImpl {
+            Ok(TranslationAdapterImpl {
                 module: Arc::new(translate_module.into()),
             })
         })
     }
 }
 
-impl TranslationDelegate for TranslationDelegateImpl {
+impl TranslationAdapter for TranslationAdapterImpl {
     fn translate(&self, text: &str, src: &Language, tgt: &Language) -> PyResult<String> {
         Python::attach(|py| -> PyResult<_> {
             let translate_module = self.module.as_ref();
@@ -76,13 +76,13 @@ impl TranslationDelegate for TranslationDelegateImpl {
 
 #[cfg(test)]
 mod tests {
-    use crate::translate::{TranslationDelegate, TranslationDelegateImpl};
+    use crate::adapter::{TranslationAdapter, TranslationAdapterImpl};
     use common::language::domain::Language;
 
     #[test]
     #[ignore]
     fn should_translate_en_de() {
-        let delegate = TranslationDelegateImpl::new().unwrap();
+        let delegate = TranslationAdapterImpl::new().unwrap();
 
         let translation = delegate
             .translate("Hello world!", &Language::En, &Language::De)
@@ -94,7 +94,7 @@ mod tests {
     #[test]
     #[ignore]
     fn should_translate_batch_de_en() {
-        let delegate = TranslationDelegateImpl::new().unwrap();
+        let delegate = TranslationAdapterImpl::new().unwrap();
 
         let batch = vec!["Hallo Welt!".to_string(), "Wie geht es dir?".to_string()]
             .try_into()
@@ -110,7 +110,7 @@ mod tests {
     #[test]
     #[ignore]
     fn should_translate_batch_es_fr() {
-        let delegate = TranslationDelegateImpl::new().unwrap();
+        let delegate = TranslationAdapterImpl::new().unwrap();
 
         let batch = vec![
             "Este original reloj de pared es un modelo muy especial por su curioso diseño, muy actual y sorprendente en una pieza tan antigua. Es un reloj fabricado en Norteamérica en los años 20-30 del siglo XX, con caja de madera maciza y preciosos detalles decorativos en taracea. El reloj está muy bien conservado y se ha restaurado para mostrarse en todo su esplendor. La maquinaria también ha sido puesta a punto para garantizar un funcionamiento perfecto, de manera que el reloj da las horas y las medias con total precisión. La esfera es una pieza de cartón que sustituye a la original, actualmente desaparecida. Este detalle, sin embargo, no interfiere con la belleza del diseño o el magnífico funcionamiento del reloj. La caja es de un atractivo muy singular. Su parte superior, correspondiente a la esfera, tiene forma circular y no lleva adornos tallados ni torneados. Es un diseño muy limpio que adelanta las líneas a seguir por las artes decorativas modernas. La base es de madera de caoba maciza, adornada por un marco frontal compuesto por ocho piezas idénticas de madera de nogal con un filete de taracea en el centro. Los filetes de taracea se unen formando un delicado hexágono. Este adorno se repite en la parte inferior del reloj, tanto en la puerta del péndulo como en el detalle decorativo inferior. La puerta del péndulo es más pequeña y de forma rectangular, formando un conjunto muy equilibrado con el gran círculo superior. Lleva panel de cristal que deja ver el bonito péndulo, de latón grabado, y cuenta con un pomo en su parte inferior que sirve para abrirla. A los lados podemos ver sendas tallas simétricas realizadas en la caja de madera de caoba, que embellecen y equilibran el conjunto. En su parte inferior, el reloj está rematado por una pieza de caoba adornada con los mismos filetes de taracea y por una moldura que la separa visualmente de la puerta de acceso al péndulo. Este reloj es una pieza muy original. Su estilo contemporáneo lo convierte en el detalle perfecto para una casa con clase. Medidas: Ancho: 43 cm. Alto: 69 cm.".to_owned(),

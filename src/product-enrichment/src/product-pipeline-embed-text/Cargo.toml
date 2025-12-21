@@ -1,10 +1,11 @@
 [package]
-name = "product-pipeline-common"
+name = "product-pipeline-embed-text"
 version = "0.1.0"
 edition = "2024"
 
 [dependencies]
-product = { workspace = true, features = ["service", "opensearch", "dynamodb"] }
+product-pipeline-common = { workspace = true }
+product = { workspace = true, features = ["dynamodb"] }
 common = { workspace = true, features = ["dynamodb", "event_bridge"] }
 async-trait = { workspace = true }
 tracing = { workspace = true }
@@ -14,17 +15,10 @@ aws-sdk-sqs = { workspace = true }
 tokio = { workspace = true, features = ["time", "macros", "rt-multi-thread"] }
 serde = { workspace = true }
 serde_json = { workspace = true }
-
-# Optional
-fake = { workspace = true, optional = true }
+pyo3 = { workspace = true, features = ["auto-initialize"] }
+pyo3-ffi = { workspace = true }
 
 [dev-dependencies]
 product-pipeline-common = { workspace = true, features = ["test-data"] }
-product = { workspace = true, features = ["test-data"] }
+fake = { workspace = true }
 rstest = { workspace = true }
-serial_test = { workspace = true }
-test-api = { workspace = true, features = ["sqs"] }
-
-[features]
-default = []
-test-data = ["fake", "common/test-data", "product/test-data"]

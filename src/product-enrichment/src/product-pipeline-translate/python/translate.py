@@ -1,4 +1,3 @@
-import os
 import pathlib
 from typing import List, Tuple
 
@@ -10,9 +9,7 @@ from transformers import AutoTokenizer
 # ------------------------------------------------------------
 # Configuration
 # ------------------------------------------------------------
-DEVICE = os.getenv(
-    "HELSINKI_NLP_OPUS_MT_MODEL_DEVICE", "cuda" if torch.cuda.is_available() else "cpu"
-)
+DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
 DTYPE = "float16" if DEVICE == "cuda" else "float32"
 
 CACHE_DIR = pathlib.Path("./models_cache")

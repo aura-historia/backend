@@ -20,6 +20,8 @@ impl<const N: usize> BatchConstructionError<N> {
     }
 }
 
+/// Length-constrained newtype over non-empty Vec.
+/// Respects internal order.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Batch<T, const N: usize>(Vec<T>);
 
