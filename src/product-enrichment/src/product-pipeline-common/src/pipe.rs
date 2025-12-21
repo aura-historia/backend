@@ -23,8 +23,30 @@ pub struct PipeImpl<'a, InData, In, Out, OutData> {
     batch_in_count: u16,
     visibility_timeout: u16,
     flow_in: &'a (dyn PipeFlowIn<InData> + Send + Sync),
-    pipe: &'a (dyn PipeProcessor<In, Out> + Send + Sync),
+    processor: &'a (dyn PipeProcessor<In, Out> + Send + Sync),
     flow_out: &'a (dyn PipeFlowOut<'a, OutData> + Send + Sync),
+}
+
+impl<'a, InData, In, Out, OutData> PipeImpl<'a, InData, In, Out, OutData> {
+    pub fn new(
+        sqs: &'a Client,
+        source_queue: String,
+        batch_in_count: u16,
+        visibility_timeout: u16,
+        flow_in: &'a (dyn PipeFlowIn<InData> + Send + Sync),
+        processor: &'a (dyn PipeProcessor<In, Out> + Send + Sync),
+        flow_out: &'a (dyn PipeFlowOut<'a, OutData> + Send + Sync),
+    ) -> Self {
+        Self {
+            sqs,
+            source_queue,
+            batch_in_count,
+            visibility_timeout,
+            flow_in,
+            processor,
+            flow_out,
+        }
+    }
 }
 
 #[async_trait::async_trait]
@@ -66,7 +88,7 @@ where
                 .map(|message_ref| (message_ref.product_id, message_ref))
                 .collect::<HashMap<_, _>>();
             let ins = in_res.data.into_values().map(In::from).collect();
-            let processed = self.pipe.process(ins);
+            let processed = self.processor.process(ins);
             info!(
                 successes = processed.successes.len(),
                 failures = processed.failures.len(),
