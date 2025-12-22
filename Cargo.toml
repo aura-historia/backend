@@ -105,7 +105,7 @@ product-lambda-materialize-opensearch-update = { path = "src/product-lambda/src/
 product-lambda-ingest-events-dynamodb = { path = "src/product-lambda/src/product-lambda-ingest-events-dynamodb" }
 product-lambda-update-notify-user = { path = "src/product-lambda/src/product-lambda-update-notify-user" }
 itertools = "0.14.0"
-lambda_runtime = "1.0.1"
+lambda_runtime = "1.0.2"
 libc = "0.2.178"
 mockall = "0.14.0"
 opensearch = { version = "2.3.0", default-features = false, features = [
