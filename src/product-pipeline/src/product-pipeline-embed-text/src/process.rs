@@ -53,7 +53,6 @@ impl PipeProcessor<TranslatedPipeProduct, TextEmbeddedPipeProduct>
                             product_id: in_product.product_id,
                             shop_id: in_product.shop_id,
                             shops_product_id: in_product.shops_product_id,
-                            shop_name: in_product.shop_name,
                             native_title: in_product.native_title,
                             other_title: in_product.other_title,
                             native_description: in_product.native_description,

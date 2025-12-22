@@ -3377,6 +3377,7 @@ dependencies = [
  "product-pipeline-common",
  "product-pipeline-complete",
  "product-pipeline-embed-text",
+ "product-pipeline-init",
  "product-pipeline-translate",
 ]
 
@@ -3442,6 +3443,25 @@ dependencies = [
  "serde",
  "serde_json",
  "serial_test",
+ "tokio",
+ "tracing",
+]
+
+[[package]]
+name = "product-pipeline-init"
+version = "0.1.0"
+dependencies = [
+ "async-trait",
+ "aws-config",
+ "aws-sdk-sqs",
+ "common",
+ "fake",
+ "mockall",
+ "product",
+ "product-pipeline-common",
+ "rstest",
+ "serde",
+ "serde_json",
  "tokio",
  "tracing",
 ]

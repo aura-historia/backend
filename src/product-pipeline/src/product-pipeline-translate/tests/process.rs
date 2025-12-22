@@ -36,7 +36,6 @@ fn should_process_text_embedding(#[case] count: usize) {
         product_id,
         shop_id: Faker.fake(),
         shops_product_id: Faker.fake(),
-        shop_name: Faker.fake(),
         native_title: TextRecord {
             text: "blue".to_owned(),
             language: LanguageRecord::En,

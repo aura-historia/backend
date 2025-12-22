@@ -43,7 +43,6 @@ impl PipeProcessor<CleansedPipeProduct, TranslatedPipeProduct> for TranslationPi
                     product_id: in_product.product_id,
                     shop_id: in_product.shop_id,
                     shops_product_id: in_product.shops_product_id,
-                    shop_name: in_product.shop_name,
                     native_title: in_product.native_title,
                     other_title: HashMap::with_capacity(Language::COUNT),
                     native_description: in_product.native_description,
