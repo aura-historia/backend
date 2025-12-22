@@ -203,7 +203,7 @@ async fn should_update_product_document() {
     let updated_event_id = EventId::new();
     let updated_update_ts = OffsetDateTime::now_utc();
     let update = ProductUpdateDocument {
-        event_id: updated_event_id,
+        event_id: Some(updated_event_id),
         price_eur: None,
         price_usd: None,
         price_gbp: None,

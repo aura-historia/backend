@@ -8,7 +8,7 @@ use time::OffsetDateTime;
 #[derive(Debug, Clone, PartialEq, Serialize, SerdeField)]
 #[serde(rename_all = "camelCase")]
 pub struct ProductUpdateDocument {
-    pub event_id: EventId,
+    pub event_id: Option<EventId>,
 
     #[serde(skip_serializing_if = "Option::is_none", default)]
     pub price_eur: Option<u64>,
@@ -54,7 +54,7 @@ pub struct ProductUpdateDocument {
 impl Default for ProductUpdateDocument {
     fn default() -> Self {
         Self {
-            event_id: EventId::new(),
+            event_id: Some(EventId::new()),
             price_eur: None,
             price_usd: None,
             price_gbp: None,
@@ -80,7 +80,7 @@ impl From<ProductEventRecord> for ProductUpdateDocument {
     fn from(event_record: ProductEventRecord) -> Self {
         let state = event_record.new_state.map(ProductStateDocument::from);
         ProductUpdateDocument {
-            event_id: event_record.event_id,
+            event_id: Some(event_record.event_id),
             price_eur: event_record.new_price_eur,
             price_usd: event_record.new_price_usd,
             price_gbp: event_record.new_price_gbp,

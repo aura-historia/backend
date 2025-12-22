@@ -3375,6 +3375,7 @@ name = "product-pipeline"
 version = "0.1.0"
 dependencies = [
  "product-pipeline-common",
+ "product-pipeline-complete",
  "product-pipeline-embed-text",
  "product-pipeline-translate",
 ]
@@ -3389,6 +3390,29 @@ dependencies = [
  "common",
  "fake",
  "mockall",
+ "product",
+ "product-pipeline-common",
+ "rstest",
+ "serde",
+ "serde_json",
+ "serial_test",
+ "test-api",
+ "time",
+ "tokio",
+ "tracing",
+]
+
+[[package]]
+name = "product-pipeline-complete"
+version = "0.1.0"
+dependencies = [
+ "async-trait",
+ "aws-config",
+ "aws-sdk-dynamodb",
+ "common",
+ "fake",
+ "mockall",
+ "opensearch",
  "product",
  "product-pipeline-common",
  "rstest",

@@ -1,31 +1,26 @@
 [package]
-name = "product-pipeline-common"
+name = "product-pipeline-complete"
 version = "0.1.0"
 edition = "2024"
 
 [dependencies]
-product = { workspace = true, features = ["service", "dynamodb", "opensearch"] }
+product-pipeline-common = { workspace = true }
+product = { workspace = true, features = ["service", "opensearch", "dynamodb"] }
 common = { workspace = true, features = ["dynamodb", "event_bridge"] }
 async-trait = { workspace = true }
-time = { workspace = true }
+opensearch = { workspace = true }
 tracing = { workspace = true }
 mockall = { workspace = true }
 aws-config = { workspace = true }
-aws-sdk-sqs = { workspace = true }
+aws-sdk-dynamodb = { workspace = true }
 tokio = { workspace = true, features = ["time", "macros", "rt-multi-thread"] }
 serde = { workspace = true }
 serde_json = { workspace = true }
 
-# Optional
-fake = { workspace = true, optional = true }
-
 [dev-dependencies]
+fake = { workspace = true }
 product-pipeline-common = { workspace = true, features = ["test-data"] }
 product = { workspace = true, features = ["test-data"] }
 rstest = { workspace = true }
 serial_test = { workspace = true }
 test-api = { workspace = true, features = ["sqs"] }
-
-[features]
-default = []
-test-data = ["fake", "common/test-data", "product/test-data"]
