@@ -59,7 +59,7 @@ aws-sdk-opensearch = "1.110.0"
 aws-sdk-sqs = "1.91.0"
 aws-sdk-sesv2 = "1.110.0"
 aws-sdk-s3 = "1.118.0"
-aws_lambda_events = { version = "1.0.1", default-features = false }
+aws_lambda_events = { version = "1.0.2", default-features = false }
 common = { path = "src/common" }
 derive_builder = "0.20.2"
 fake = { version = "4.4.0", features = ["derive", "time", "uuid", "url"] }
@@ -162,7 +162,7 @@ once_cell = "1.21.3"
 openssl = { version = "0.10.75", default-features = false }
 jsonwebtokens = "1.2.0"
 jsonwebtokens-cognito = "0.1.1"
-aws-sdk-cognitoidentityprovider = "1.97.0"
+aws-sdk-cognitoidentityprovider = "1.105.0"
 html-escape = "0.2.13"
 pyo3 = "0.27.2"
 pyo3-ffi = "0.27.0"
