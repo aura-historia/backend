@@ -2,33 +2,30 @@ AWSTemplateFormatVersion: "2010-09-09"
 Description: >
     EC2 Image Builder pipeline for baking golden AMIs.
     This stack defines the Image Builder infrastructure only.
-    Builds are triggered externally (CI/CD).
 
 Parameters:
     StageName:
         Type: String
         Description: "Name of the stage"
+    ImageName:
+        Type: String
+        Description: "Name of the image (e.g. product-pipeline-embed-text)"
+    ImageBuilderComponentS3BlobUrl:
+        Type: String
+        Description: "S3 URL of the YAML describing the image-builder component being run"
+    ParentAmi:
+        Type: AWS::EC2::Image::Id
+        Description: "(Resolvable) Parent Ami being built on top of by image-builder"
 
 Resources:
-    AppComponent:
+    Component:
         Type: AWS::ImageBuilder::Component
         Properties:
-            Name: !Sub "${StageName}-app-component-product-pipeline-embed-text"
+            Name: !Sub "${StageName}-component-${ImageName}"
             Platform: Linux
             Version: 0.0.1
-            Description: Install application dependencies
-            Data: |
-                name: app-install
-                schemaVersion: 1.0
-                phases:
-                  - name: build
-                    steps:
-                      - name: InstallApp
-                        action: ExecuteBash
-                        inputs:
-                          commands:
-                            - echo "Installing foo"
-                            - mkdir -p /opt/foo
+            Description: Set up application environment
+            Uri: !Ref ${ImageBuilderComponentS3BlobUrl}
 
     ImageBuilderInstanceRole:
         Type: AWS::IAM::Role
@@ -39,12 +36,14 @@ Resources:
                     - Effect: Allow
                       Principal:
                           Service:
-                              [ec2.amazonaws.com, imagebuilder.amazonaws.com]
+                              - ec2.amazonaws.com
+                              - imagebuilder.amazonaws.com
                       Action: sts:AssumeRole
             ManagedPolicyArns:
                 - arn:aws:iam::aws:policy/service-role/AmazonEC2RoleforSSM
                 - arn:aws:iam::aws:policy/AmazonSSMManagedInstanceCore
                 - arn:aws:iam::aws:policy/EC2InstanceProfileForImageBuilder
+                - arn:aws:iam::aws:policy/AmazonS3ReadOnlyAccess
     ImageBuilderInstanceProfile:
         Type: AWS::IAM::InstanceProfile
         Properties:
@@ -54,11 +53,11 @@ Resources:
     GoldenAmiRecipe:
         Type: AWS::ImageBuilder::ImageRecipe
         Properties:
-            Name: !Sub "${StageName}-golden-ami-product-pipeline-embed-text"
+            Name: !Sub "${StageName}-golden-ami-${ImageName}"
             Version: 0.0.1
-            ParentImage: !Sub "{{resolve:ssm:/aws/service/deeplearning/ami/x86_64/oss-nvidia-driver-gpu-pytorch-2.9-ubuntu-24.04/latest/ami-id}}"
+            ParentImage: !Ref ParentAmi
             Components:
-                - ComponentArn: !Ref AppComponent
+                - ComponentArn: !Ref Component
             BlockDeviceMappings:
                 - DeviceName: /dev/xvda
                   Ebs:
@@ -69,7 +68,7 @@ Resources:
     ImageBuilderInfrastructure:
         Type: AWS::ImageBuilder::InfrastructureConfiguration
         Properties:
-            Name: !Sub "${StageName}-image-builder-infra-product-pipeline-embed-text"
+            Name: !Sub "${StageName}-image-builder-infra-${ImageName}"
             InstanceProfileName: !Ref ImageBuilderInstanceProfile
             InstanceTypes:
                 - t3.medium
@@ -81,22 +80,22 @@ Resources:
     ImageDistribution:
         Type: AWS::ImageBuilder::DistributionConfiguration
         Properties:
-            Name: !Sub "${StageName}-distribution-config-product-pipeline-embed-text"
+            Name: !Sub "${StageName}-distribution-config-${ImageName}"
             Distributions:
                 - Region: !Ref AWS::Region
                   AmiDistributionConfiguration:
-                      Name: !Sub "${StageName}-product-pipeline-embed-text-{{imagebuilder:buildDate}}"
-                      Description: !Sub "Golden AMI for product-pipeline-embed-text (${StageName})"
+                      Name: !Sub "${StageName}-${ImageName}-{{imagebuilder:buildDate}}"
+                      Description: !Sub "Golden AMI for ${ImageName} (${StageName})"
                       AmiTags:
-                          Name: !Sub "${StageName}-product-pipeline-embed-text-golden-ami"
+                          Name: !Sub "${StageName}-${ImageName}-golden-ami"
                           StageName: !Ref StageName
                           ManagedBy: ImageBuilder
 
     ImagePipeline:
         Type: AWS::ImageBuilder::ImagePipeline
         Properties:
-            Name: !Sub "${StageName}-product-pipeline-embed-text-image-pipeline"
-            Description: !Sub "Golden AMI pipeline for product-pipeline-embed-text"
+            Name: !Sub "${StageName}-${ImageName}-image-pipeline"
+            Description: !Sub "Golden AMI pipeline for ${ImageName}"
             ImageRecipeArn: !Ref GoldenAmiRecipe
             InfrastructureConfigurationArn: !Ref ImageBuilderInfrastructure
             DistributionConfigurationArn: !Ref ImageDistribution
