@@ -32,6 +32,7 @@ jobs:
         permissions:
             contents: read
             id-token: write
+
         steps:
             - name: Checkout code
               uses: actions/checkout@v6
@@ -42,7 +43,8 @@ jobs:
                   role-to-assume: ${{ secrets.CI_DEPLOY_ROLE_ARN }}
                   aws-region: ${{ vars.AWS_REGION }}
 
-            - name: Deploy CloudFormation
+            # 1️⃣ Deploy / update Image Builder stack
+            - name: Deploy Image Builder CloudFormation
               run: |
                   aws cloudformation deploy \
                     --stack-name ${{ env.STAGE_NAME }}-imagebuilder \
@@ -52,6 +54,7 @@ jobs:
                     --capabilities CAPABILITY_NAMED_IAM \
                     --parameter-overrides StageName=${{ env.STAGE_NAME }}
 
+            # 2️⃣ Get pipeline ARN
             - name: Get Image Pipeline ARN
               id: get_pipeline_arn
               run: |
@@ -59,53 +62,64 @@ jobs:
                     --stack-name ${{ env.STAGE_NAME }}-imagebuilder \
                     --query "Stacks[0].Outputs[?OutputKey=='ImagePipelineArn'].OutputValue" \
                     --output text)
+
                   echo "pipeline_arn=$PIPELINE_ARN" >> $GITHUB_OUTPUT
 
-            # 4️⃣ Trigger Image Builder pipeline
+            # 3️⃣ Start Image Builder execution (IMPORTANT)
             - name: Start Image Builder Pipeline
               id: start_pipeline
               run: |
-                  EXECUTION_ID=$(aws imagebuilder start-image-pipeline-execution \
+                  EXECUTION_ARN=$(aws imagebuilder start-image-pipeline-execution \
                     --image-pipeline-arn ${{ steps.get_pipeline_arn.outputs.pipeline_arn }} \
                     --query 'imageBuildVersionArn' \
                     --output text)
-                  echo "execution_id=$EXECUTION_ID" >> $GITHUB_OUTPUT
 
-            # 5️⃣ Wait for AMI build to complete
+                  echo "execution_arn=$EXECUTION_ARN" >> $GITHUB_OUTPUT
+                  echo "Started Image Builder execution:"
+                  echo "$EXECUTION_ARN"
+
+            # 4️⃣ Wait for *this exact build*
             - name: Wait for Image Builder AMI
-              id: wait_pipeline
               run: |
-                  PIPELINE_ARN="${{ steps.get_pipeline_arn.outputs.pipeline_arn }}"
-                  echo "Waiting for AMI build..."
+                  EXECUTION_ARN="${{ steps.start_pipeline.outputs.execution_arn }}"
+                  echo "Waiting for Image Builder execution: $EXECUTION_ARN"
+
                   while true; do
-                    STATUS=$(aws imagebuilder list-image-pipeline-images \
-                      --image-pipeline-arn $PIPELINE_ARN \
-                      --query "imageSummaryList[0].state.status" \
+                    STATUS=$(aws imagebuilder get-image \
+                      --image-build-version-arn "$EXECUTION_ARN" \
+                      --query 'image.state.status' \
                       --output text)
+
                     echo "Current status: $STATUS"
+
                     if [[ "$STATUS" == "AVAILABLE" ]]; then
+                      echo "AMI build completed successfully"
                       break
                     elif [[ "$STATUS" == "FAILED" ]]; then
-                      echo "Image Builder failed"
+                      echo "AMI build failed"
+                      aws imagebuilder get-image \
+                        --image-build-version-arn "$EXECUTION_ARN"
                       exit 1
                     else
                       sleep 30
                     fi
                   done
 
-            # 6️⃣ Get resulting AMI ID
+            # 5️⃣ Fetch AMI ID from the same execution
             - name: Get AMI ID
               id: get_ami
               run: |
-                  PIPELINE_ARN="${{ steps.get_pipeline_arn.outputs.pipeline_arn }}"
-                  AMI_ID=$(aws imagebuilder list-image-pipeline-images \
-                    --image-pipeline-arn $PIPELINE_ARN \
-                    --query "imageSummaryList[0].outputResources.amis[0].image" \
+                  EXECUTION_ARN="${{ steps.start_pipeline.outputs.execution_arn }}"
+
+                  AMI_ID=$(aws imagebuilder get-image \
+                    --image-build-version-arn "$EXECUTION_ARN" \
+                    --query 'image.outputResources.amis[0].image' \
                     --output text)
+
                   echo "ami_id=$AMI_ID" >> $GITHUB_OUTPUT
                   echo "Built AMI ID: $AMI_ID"
 
-            # 7️⃣ Store AMI ID in SSM for CloudFormation
+            # 6️⃣ Store AMI ID in SSM
             - name: Store AMI ID in SSM Parameter Store
               run: |
                   aws ssm put-parameter \
