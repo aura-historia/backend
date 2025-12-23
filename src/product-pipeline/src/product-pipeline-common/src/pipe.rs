@@ -58,7 +58,13 @@ where
     OutData: From<Out> + Serialize + Send + Sync,
 {
     async fn pipe(&self) {
-        info!("Start piping...");
+        info!(
+            inDataType = %std::any::type_name::<InData>(),
+            inType = %std::any::type_name::<In>(),
+            outType = %std::any::type_name::<Out>(),
+            outDataType = %std::any::type_name::<OutData>(),
+            "Start piping..."
+        );
         loop {
             info!("Start piping iteration...");
             let in_res = self
@@ -157,7 +163,7 @@ where
                 );
             }
         }
-        info!("Finished piping products.");
+        info!("Finished piping.");
     }
 }
 

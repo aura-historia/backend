@@ -26,6 +26,12 @@ pub struct InitialPipeProduct {
     pub native_description: Option<TextRecord>,
 }
 
+impl HasProductId for InitialPipeProduct {
+    fn product_id(&self) -> ProductId {
+        self.product_id
+    }
+}
+
 #[cfg_attr(feature = "test-data", derive(fake::Dummy))]
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct CleansedPipeProduct {
@@ -34,6 +40,12 @@ pub struct CleansedPipeProduct {
     pub shops_product_id: ShopsProductId,
     pub native_title: TextRecord,
     pub native_description: Option<TextRecord>,
+}
+
+impl HasProductId for CleansedPipeProduct {
+    fn product_id(&self) -> ProductId {
+        self.product_id
+    }
 }
 
 #[cfg_attr(feature = "test-data", derive(fake::Dummy))]
@@ -46,6 +58,12 @@ pub struct TranslatedPipeProduct {
     pub other_title: HashMap<LanguageRecord, String>,
     pub native_description: Option<TextRecord>,
     pub other_description: HashMap<LanguageRecord, String>,
+}
+
+impl HasProductId for TranslatedPipeProduct {
+    fn product_id(&self) -> ProductId {
+        self.product_id
+    }
 }
 
 #[cfg_attr(feature = "test-data", derive(fake::Dummy))]
@@ -61,6 +79,12 @@ pub struct TextEmbeddedPipeProduct {
     pub text_embedding: Vec<f32>,
 }
 
+impl HasProductId for TextEmbeddedPipeProduct {
+    fn product_id(&self) -> ProductId {
+        self.product_id
+    }
+}
+
 #[cfg_attr(feature = "test-data", derive(fake::Dummy))]
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct CompletedPipeProduct {
@@ -72,6 +96,12 @@ pub struct CompletedPipeProduct {
     pub native_description: Option<TextRecord>,
     pub other_description: HashMap<LanguageRecord, String>,
     pub text_embedding: Vec<f32>,
+}
+
+impl HasProductId for CompletedPipeProduct {
+    fn product_id(&self) -> ProductId {
+        self.product_id
+    }
 }
 
 impl From<CompletedPipeProduct> for ProductRecordUpdate {

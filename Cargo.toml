@@ -100,6 +100,7 @@ product-pipeline-init = { path = "src/product-pipeline/src/product-pipeline-init
 product-pipeline-translate = { path = "src/product-pipeline/src/product-pipeline-translate" }
 product-pipeline-embed-text = { path = "src/product-pipeline/src/product-pipeline-embed-text" }
 product-pipeline-complete = { path = "src/product-pipeline/src/product-pipeline-complete" }
+product-pipeline-test = { path = "src/product-pipeline/src/product-pipeline-test" }
 product-pipeline = { path = "src/product-pipeline" }
 product-pipeline-asg-scale-down = { path = "src/product-pipeline/src/product-pipeline-asg-scale-down" }
 product-pipeline-asg-scale-up = { path = "src/product-pipeline/src/product-pipeline-asg-scale-up" }

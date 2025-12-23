@@ -9,3 +9,4 @@ product-pipeline-init = { workspace = true }
 product-pipeline-translate = { workspace = true }
 product-pipeline-embed-text = { workspace = true }
 product-pipeline-complete = { workspace = true }
+product-pipeline-test = { workspace = true }
