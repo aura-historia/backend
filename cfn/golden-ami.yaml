@@ -14,8 +14,8 @@ Parameters:
         Type: String
         Description: "S3 URL of the YAML describing the image-builder component being run"
     ParentAmi:
-        Type: AWS::EC2::Image::Id
-        Description: "(Resolvable) Parent Ami being built on top of by image-builder"
+        Type: String
+        Description: "Parent AMI (AMI ID or SSM dynamic reference)"
 
 Resources:
     Component:
