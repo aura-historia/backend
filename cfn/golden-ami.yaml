@@ -25,7 +25,7 @@ Resources:
             Platform: Linux
             Version: 0.0.1
             Description: Set up application environment
-            Uri: !Ref ${ImageBuilderComponentS3BlobUrl}
+            Uri: !Ref ImageBuilderComponentS3BlobUrl
 
     ImageBuilderInstanceRole:
         Type: AWS::IAM::Role
