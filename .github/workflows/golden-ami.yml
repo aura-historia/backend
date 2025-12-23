@@ -1,20 +1,30 @@
 name: Build Golden AMI
 
 on:
-    push:
-    workflow_dispatch:
-        inputs:
-            StageName:
-                description: "Environment/Stage name (dev, prod)"
-                required: true
-                default: dev
-            ParentAmi:
-                description: "Parent AMI ID (SSM Parameter or explicit)"
-                required: false
-            CommitSHA:
-                description: "Commit SHA for tagging"
-                required: true
-                default: 2aeaf7cb3e34c68dcdb224a6af6dfaf229e02e55
+    pull_request:
+
+concurrency:
+    group: ${{ github.workflow }}-${{ github.ref }}
+    cancel-in-progress: true
+
+env:
+    CARGO_TERM_COLOR: always
+    STAGE: ${{ github.event_name == 'pull_request' && 'ephemeral'
+        || github.ref == 'refs/heads/prod' && 'prod'
+        || github.ref == 'refs/heads/develop' && 'dev' }}
+    STAGE_NAME:
+        ${{ github.event_name == 'pull_request' && format('pr-{0}', github.event.pull_request.number)
+        || github.ref == 'refs/heads/prod' && 'prod'
+        || github.ref == 'refs/heads/develop' && 'dev' }}
+    STACK: application
+    STACK_NAME:
+        application-${{ github.event_name == 'pull_request' && format('pr-{0}', github.event.pull_request.number)
+        || github.ref == 'refs/heads/prod' && 'prod'
+        || github.ref == 'refs/heads/develop' && 'dev' }}
+    CLOUDFORMATION_TEMPLATE_PATH:
+        ${{ github.event_name == 'pull_request' && 'cfn/ephemeral.yaml'
+        || github.ref == 'refs/heads/prod' && 'cfn/prod.yaml'
+        || github.ref == 'refs/heads/develop' && 'cfn/dev.yaml' }}
 
 jobs:
     build-ami:
@@ -35,18 +45,18 @@ jobs:
             - name: Deploy CloudFormation
               run: |
                   aws cloudformation deploy \
-                    --stack-name ${{ github.event.inputs.StageName }}-imagebuilder \
+                    --stack-name ${{ env.STAGE_NAME }}-imagebuilder \
                     --template-file cfn/product-pipeline-embed-text.yaml \
                     --s3-bucket ${{ vars.S3_CFN_ARTIFACTS_BUCKET_NAME }} \
-                    --s3-prefix ${{ github.event.inputs.StageName }} \
+                    --s3-prefix ${{ env.STAGE_NAME }} \
                     --capabilities CAPABILITY_NAMED_IAM \
-                    --parameter-overrides StageName=${{ github.event.inputs.StageName }}
+                    --parameter-overrides StageName=${{ env.STAGE_NAME }}
 
             - name: Get Image Pipeline ARN
               id: get_pipeline_arn
               run: |
                   PIPELINE_ARN=$(aws cloudformation describe-stacks \
-                    --stack-name ${{ github.event.inputs.StageName }}-imagebuilder \
+                    --stack-name ${{ env.STAGE_NAME }}-imagebuilder \
                     --query "Stacks[0].Outputs[?OutputKey=='ImagePipelineArn'].OutputValue" \
                     --output text)
                   echo "pipeline_arn=$PIPELINE_ARN" >> $GITHUB_OUTPUT
@@ -99,7 +109,7 @@ jobs:
             - name: Store AMI ID in SSM Parameter Store
               run: |
                   aws ssm put-parameter \
-                    --name /amis/product-pipeline-embed-text/${{ github.event.inputs.StageName }}/latest \
+                    --name /amis/product-pipeline-embed-text/${{ env.STAGE_NAME }}/latest \
                     --value ${{ steps.get_ami.outputs.ami_id }} \
                     --type String \
                     --overwrite
@@ -109,7 +119,7 @@ jobs:
 #               run: |
 #                   AMI_ID=${{ steps.get_ami.outputs.ami_id }}
 #                   aws cloudformation deploy \
-#                     --stack-name app-${{ github.event.inputs.StageName }} \
+#                     --stack-name app-${{ env.STAGE_NAME }} \
 #                     --template-file cloudformation/app-stack.yaml \
-#                     --parameter-overrides StageName=${{ github.event.inputs.StageName }} GoldenAmiId=$AMI_ID \
+#                     --parameter-overrides StageName=${{ env.STAGE_NAME }} GoldenAmiId=$AMI_ID \
 #                     --capabilities CAPABILITY_NAMED_IAM
