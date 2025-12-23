@@ -1,0 +1,113 @@
+name: Build Golden AMI
+
+on:
+    workflow_dispatch:
+        inputs:
+            StageName:
+                description: "Environment/Stage name (dev, prod)"
+                required: true
+                default: dev
+            ParentAmi:
+                description: "Parent AMI ID (SSM Parameter or explicit)"
+                required: false
+            CommitSHA:
+                description: "Commit SHA for tagging"
+                required: true
+
+jobs:
+    build-ami:
+        runs-on: ubuntu-latest
+        permissions:
+            contents: read
+            id-token: write
+        steps:
+            - name: Checkout code
+              uses: actions/checkout@v6
+
+            - name: Configure AWS credentials
+              uses: aws-actions/configure-aws-credentials@v5.1.1
+              with:
+                  role-to-assume: ${{ secrets.CI_DEPLOY_ROLE_ARN }}
+                  aws-region: ${{ vars.AWS_REGION }}
+
+            - name: Deploy CloudFormation
+              run: |
+                  aws cloudformation deploy \
+                    --stack-name ${{ github.event.inputs.StageName }}-imagebuilder \
+                    --template-file cfn/product-pipeline-embed-text.yaml \
+                    --s3-bucket ${{ vars.S3_CFN_ARTIFACTS_BUCKET_NAME }} \
+                    --s3-prefix ${{ github.event.inputs.StageName }} \
+                    --capabilities CAPABILITY_NAMED_IAM \
+                    --parameter-overrides StageName=${{ github.event.inputs.StageName }}
+
+            - name: Get Image Pipeline ARN
+              id: get_pipeline_arn
+              run: |
+                  PIPELINE_ARN=$(aws cloudformation describe-stacks \
+                    --stack-name ${{ github.event.inputs.StageName }}-imagebuilder \
+                    --query "Stacks[0].Outputs[?OutputKey=='ImagePipelineArn'].OutputValue" \
+                    --output text)
+                  echo "pipeline_arn=$PIPELINE_ARN" >> $GITHUB_OUTPUT
+
+            # 4️⃣ Trigger Image Builder pipeline
+            - name: Start Image Builder Pipeline
+              id: start_pipeline
+              run: |
+                  EXECUTION_ID=$(aws imagebuilder start-image-pipeline-execution \
+                    --image-pipeline-arn ${{ steps.get_pipeline_arn.outputs.pipeline_arn }} \
+                    --query 'imageBuildVersionArn' \
+                    --output text)
+                  echo "execution_id=$EXECUTION_ID" >> $GITHUB_OUTPUT
+
+            # 5️⃣ Wait for AMI build to complete
+            - name: Wait for Image Builder AMI
+              id: wait_pipeline
+              run: |
+                  PIPELINE_ARN="${{ steps.get_pipeline_arn.outputs.pipeline_arn }}"
+                  echo "Waiting for AMI build..."
+                  while true; do
+                    STATUS=$(aws imagebuilder list-image-pipeline-images \
+                      --image-pipeline-arn $PIPELINE_ARN \
+                      --query "imageSummaryList[0].state.status" \
+                      --output text)
+                    echo "Current status: $STATUS"
+                    if [[ "$STATUS" == "AVAILABLE" ]]; then
+                      break
+                    elif [[ "$STATUS" == "FAILED" ]]; then
+                      echo "Image Builder failed"
+                      exit 1
+                    else
+                      sleep 30
+                    fi
+                  done
+
+            # 6️⃣ Get resulting AMI ID
+            - name: Get AMI ID
+              id: get_ami
+              run: |
+                  PIPELINE_ARN="${{ steps.get_pipeline_arn.outputs.pipeline_arn }}"
+                  AMI_ID=$(aws imagebuilder list-image-pipeline-images \
+                    --image-pipeline-arn $PIPELINE_ARN \
+                    --query "imageSummaryList[0].outputResources.amis[0].image" \
+                    --output text)
+                  echo "ami_id=$AMI_ID" >> $GITHUB_OUTPUT
+                  echo "Built AMI ID: $AMI_ID"
+
+            # 7️⃣ Store AMI ID in SSM for CloudFormation
+            - name: Store AMI ID in SSM Parameter Store
+              run: |
+                  aws ssm put-parameter \
+                    --name /amis/product-pipeline-embed-text/${{ github.event.inputs.StageName }}/latest \
+                    --value ${{ steps.get_ami.outputs.ami_id }} \
+                    --type String \
+                    --overwrite
+
+#             # 8️⃣ (Optional) Deploy CloudFormation stack with new AMI
+#             - name: Deploy App CloudFormation (optional)
+#               run: |
+#                   AMI_ID=${{ steps.get_ami.outputs.ami_id }}
+#                   aws cloudformation deploy \
+#                     --stack-name app-${{ github.event.inputs.StageName }} \
+#                     --template-file cloudformation/app-stack.yaml \
+#                     --parameter-overrides StageName=${{ github.event.inputs.StageName }} GoldenAmiId=$AMI_ID \
+#                     --capabilities CAPABILITY_NAMED_IAM
