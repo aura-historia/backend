@@ -8,9 +8,6 @@ Parameters:
     StageName:
         Type: String
         Description: "Name of the stage"
-    ParentAmi:
-        Type: AWS::EC2::Image::Id
-        Default: "{{resolve:ssm:/aws/service/deeplearning/ami/x86_64/oss-nvidia-driver-gpu-pytorch-2.9-ubuntu-24.04/latest/ami-id}}"
 
 Resources:
     AppComponent:
@@ -58,7 +55,7 @@ Resources:
         Properties:
             Name: !Sub "${StageName}-golden-ami-product-pipeline-embed-text"
             Version: 0.0.1
-            ParentImage: !Ref ParentAmi
+            ParentImage: /aws/service/deeplearning/ami/x86_64/oss-nvidia-driver-gpu-pytorch-2.9-ubuntu-24.04/latest/ami-id
             Components:
                 - ComponentArn: !Ref AppComponent
             BlockDeviceMappings:
