@@ -1,6 +1,8 @@
-name: Build Golden AMI
+name: Build Golden AMI for product-pipeline-embed-text
 
 on:
+    push:
+        branches: [prod, develop]
     pull_request:
 
 concurrency:
@@ -27,7 +29,39 @@ env:
         || github.ref == 'refs/heads/develop' && 'cfn/dev.yaml' }}
 
 jobs:
+    aws-push-resource-artifacts:
+        name: Push resource-artifacts to S3 ${{ matrix.resource }}
+        runs-on: ubuntu-latest
+        permissions:
+            contents: read
+            id-token: write
+        strategy:
+            matrix:
+                resource:
+                    - src/product-pipeline/src/product-pipeline-embed-text/python/requirements.txt
+                    - ami/product-pipeline-embed-text.yml
+        steps:
+            - uses: actions/checkout@v6
+
+            - name: Configure AWS credentials
+              uses: aws-actions/configure-aws-credentials@v5.1.1
+              with:
+                  role-to-assume: ${{ secrets.CI_DEPLOY_ROLE_ARN }}
+                  aws-region: ${{ vars.AWS_REGION }}
+
+            - name: Upload resource-artifacts to S3
+              run: |
+                  aws s3api put-object \
+                    --bucket "${{ vars.S3_RESOURCE_ARTIFACTS_BUCKET_NAME }}" \
+                    --key "${{ env.STAGE_NAME }}/${GITHUB_SHA}/${{ matrix.resource }}" \
+                    --body "${{ matrix.resource }}" \
+                    --tagging "stage=${{ env.STAGE }}"
+
     build-ami:
+        name: Build & deploy AMI
+        needs: [aws-push-resource-artifacts]
+        environment:
+            name: ${{ github.event_name == 'pull_request' && 'aws-ephemeral' || github.ref == 'refs/heads/prod' && 'aws-prod' || github.ref == 'refs/heads/develop' && 'aws-dev' }}
         runs-on: ubuntu-latest
         permissions:
             contents: read
@@ -43,29 +77,30 @@ jobs:
                   role-to-assume: ${{ secrets.CI_DEPLOY_ROLE_ARN }}
                   aws-region: ${{ vars.AWS_REGION }}
 
-            # 1️⃣ Deploy / update Image Builder stack
             - name: Deploy Image Builder CloudFormation
               run: |
                   aws cloudformation deploy \
-                    --stack-name ${{ env.STAGE_NAME }}-imagebuilder \
-                    --template-file cfn/product-pipeline-embed-text.yaml \
+                    --stack-name ${{ env.STAGE_NAME }}-imagebuilder-product-pipeline-embed-text \
+                    --template-file cfn/golden-ami.yaml \
                     --s3-bucket ${{ vars.S3_CFN_ARTIFACTS_BUCKET_NAME }} \
                     --s3-prefix ${{ env.STAGE_NAME }} \
                     --capabilities CAPABILITY_NAMED_IAM \
-                    --parameter-overrides StageName=${{ env.STAGE_NAME }}
+                    --parameter-overrides \
+                        StageName=${{ env.STAGE_NAME }} \
+                        ImageName=product-pipeline-embed-text \
+                        ImageBuilderComponentS3BlobUrl=${{ env.STAGE_NAME }}/${GITHUB_SHA}/ami/product-pipeline-embed-text.yml \
+                        ParentAmi={{resolve:ssm:/aws/service/deeplearning/ami/x86_64/oss-nvidia-driver-gpu-pytorch-2.9-ubuntu-24.04/latest/ami-id}}
 
-            # 2️⃣ Get pipeline ARN
             - name: Get Image Pipeline ARN
               id: get_pipeline_arn
               run: |
                   PIPELINE_ARN=$(aws cloudformation describe-stacks \
-                    --stack-name ${{ env.STAGE_NAME }}-imagebuilder \
+                    --stack-name ${{ env.STAGE_NAME }}-imagebuilder-product-pipeline-embed-text \
                     --query "Stacks[0].Outputs[?OutputKey=='ImagePipelineArn'].OutputValue" \
                     --output text)
 
                   echo "pipeline_arn=$PIPELINE_ARN" >> $GITHUB_OUTPUT
 
-            # 3️⃣ Start Image Builder execution (IMPORTANT)
             - name: Start Image Builder Pipeline
               id: start_pipeline
               run: |
@@ -78,7 +113,6 @@ jobs:
                   echo "Started Image Builder execution:"
                   echo "$EXECUTION_ARN"
 
-            # 4️⃣ Wait for *this exact build*
             - name: Wait for Image Builder AMI
               run: |
                   EXECUTION_ARN="${{ steps.start_pipeline.outputs.execution_arn }}"
@@ -105,7 +139,6 @@ jobs:
                     fi
                   done
 
-            # 5️⃣ Fetch AMI ID from the same execution
             - name: Get AMI ID
               id: get_ami
               run: |
@@ -119,21 +152,10 @@ jobs:
                   echo "ami_id=$AMI_ID" >> $GITHUB_OUTPUT
                   echo "Built AMI ID: $AMI_ID"
 
-            # 6️⃣ Store AMI ID in SSM
             - name: Store AMI ID in SSM Parameter Store
               run: |
                   aws ssm put-parameter \
-                    --name /amis/product-pipeline-embed-text/${{ env.STAGE_NAME }}/latest \
+                    --name /amis/${{ env.STAGE_NAME }}/product-pipeline-embed-text/latest \
                     --value ${{ steps.get_ami.outputs.ami_id }} \
                     --type String \
                     --overwrite
-
-#             # 8️⃣ (Optional) Deploy CloudFormation stack with new AMI
-#             - name: Deploy App CloudFormation (optional)
-#               run: |
-#                   AMI_ID=${{ steps.get_ami.outputs.ami_id }}
-#                   aws cloudformation deploy \
-#                     --stack-name app-${{ env.STAGE_NAME }} \
-#                     --template-file cloudformation/app-stack.yaml \
-#                     --parameter-overrides StageName=${{ env.STAGE_NAME }} GoldenAmiId=$AMI_ID \
-#                     --capabilities CAPABILITY_NAMED_IAM
