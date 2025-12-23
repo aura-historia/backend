@@ -1,6 +1,7 @@
 name: Build Golden AMI
 
 on:
+    push:
     workflow_dispatch:
         inputs:
             StageName:
@@ -13,6 +14,7 @@ on:
             CommitSHA:
                 description: "Commit SHA for tagging"
                 required: true
+                default: 2aeaf7cb3e34c68dcdb224a6af6dfaf229e02e55
 
 jobs:
     build-ami:
