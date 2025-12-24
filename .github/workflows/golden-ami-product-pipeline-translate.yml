@@ -1,161 +1,148 @@
 name: Build Golden AMI for product-pipeline-translate
 
 on:
-    push:
-        branches: [prod, develop]
-    pull_request:
+  push:
+    branches: [ prod, develop ]
+  pull_request:
 
 concurrency:
-    group: ${{ github.workflow }}-${{ github.ref }}
-    cancel-in-progress: true
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
 
 env:
-    CARGO_TERM_COLOR: always
-    STAGE: ${{ github.event_name == 'pull_request' && 'ephemeral'
-        || github.ref == 'refs/heads/prod' && 'prod'
-        || github.ref == 'refs/heads/develop' && 'dev' }}
-    STAGE_NAME:
-        ${{ github.event_name == 'pull_request' && format('pr-{0}', github.event.pull_request.number)
-        || github.ref == 'refs/heads/prod' && 'prod'
-        || github.ref == 'refs/heads/develop' && 'dev' }}
-    STACK: application
-    STACK_NAME:
-        application-${{ github.event_name == 'pull_request' && format('pr-{0}', github.event.pull_request.number)
-        || github.ref == 'refs/heads/prod' && 'prod'
-        || github.ref == 'refs/heads/develop' && 'dev' }}
-    CLOUDFORMATION_TEMPLATE_PATH:
-        ${{ github.event_name == 'pull_request' && 'cfn/ephemeral.yaml'
-        || github.ref == 'refs/heads/prod' && 'cfn/prod.yaml'
-        || github.ref == 'refs/heads/develop' && 'cfn/dev.yaml' }}
+  CARGO_TERM_COLOR: always
+  STAGE: ${{ github.event_name == 'pull_request' && 'ephemeral'
+    || github.ref == 'refs/heads/prod' && 'prod'
+    || github.ref == 'refs/heads/develop' && 'dev' }}
 
 jobs:
-    aws-push-resource-artifacts:
-        name: Push resource-artifacts to S3 ${{ matrix.resource }}
-        environment:
-            name: ${{ github.event_name == 'pull_request' && 'aws-ephemeral' || github.ref == 'refs/heads/prod' && 'aws-prod' || github.ref == 'refs/heads/develop' && 'aws-dev' }}
-        runs-on: ubuntu-latest
-        permissions:
-            contents: read
-            id-token: write
-        strategy:
-            matrix:
-                resource:
-                    - src/product-pipeline/src/product-pipeline-translate/python/requirements.txt
-                    - ami/product-pipeline-translate.yml
-        steps:
-            - uses: actions/checkout@v6
+  aws-push-resource-artifacts:
+    name: Push resource-artifacts to S3 ${{ matrix.resource }}
+    environment:
+      name: ${{ github.event_name == 'pull_request' && 'aws-ephemeral' || github.ref == 'refs/heads/prod' && 'aws-prod' || github.ref == 'refs/heads/develop' && 'aws-dev' }}
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write
+    strategy:
+      matrix:
+        resource:
+          - src/product-pipeline/src/product-pipeline-translate/python/requirements.txt
+          - ami/product-pipeline-translate.yml
+    steps:
+      - uses: actions/checkout@v6
 
-            - name: Configure AWS credentials
-              uses: aws-actions/configure-aws-credentials@v5.1.1
-              with:
-                  role-to-assume: ${{ secrets.CI_DEPLOY_ROLE_ARN }}
-                  aws-region: ${{ vars.AWS_REGION }}
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v5.1.1
+        with:
+          role-to-assume: ${{ secrets.CI_DEPLOY_ROLE_ARN }}
+          aws-region: ${{ vars.AWS_REGION }}
 
-            - name: Upload resource-artifacts to S3
-              run: |
-                  aws s3api put-object \
-                    --bucket "${{ vars.S3_RESOURCE_ARTIFACTS_BUCKET_NAME }}" \
-                    --key "${{ env.STAGE_NAME }}/${GITHUB_SHA}/${{ matrix.resource }}" \
-                    --body "${{ matrix.resource }}" \
-                    --tagging "stage=${{ env.STAGE }}"
+      - name: Upload resource-artifacts to S3
+        run: |
+          aws s3api put-object \
+            --bucket "${{ vars.S3_RESOURCE_ARTIFACTS_BUCKET_NAME }}" \
+            --key "${{ env.STAGE }}/${{ matrix.resource }}" \
+            --body "${{ matrix.resource }}" \
+            --tagging "stage=${{ env.STAGE }}"
 
-    build-ami:
-        name: Build & deploy AMI
-        needs: [aws-push-resource-artifacts]
-        runs-on: ubuntu-latest
-        permissions:
-            contents: read
-            id-token: write
+  build-ami:
+    name: Build & deploy AMI
+    needs: [ aws-push-resource-artifacts ]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write
 
-        steps:
-            - name: Checkout code
-              uses: actions/checkout@v6
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v6
 
-            - name: Configure AWS credentials
-              uses: aws-actions/configure-aws-credentials@v5.1.1
-              with:
-                  role-to-assume: ${{ secrets.CI_DEPLOY_ROLE_ARN }}
-                  aws-region: ${{ vars.AWS_REGION }}
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v5.1.1
+        with:
+          role-to-assume: ${{ secrets.CI_DEPLOY_ROLE_ARN }}
+          aws-region: ${{ vars.AWS_REGION }}
 
-            - name: Deploy Image Builder CloudFormation
-              run: |
-                  aws cloudformation deploy \
-                    --stack-name ${{ env.STAGE_NAME }}-imagebuilder-product-pipeline-translate \
-                    --template-file cfn/golden-ami.yaml \
-                    --s3-bucket ${{ vars.S3_CFN_ARTIFACTS_BUCKET_NAME }} \
-                    --s3-prefix ${{ env.STAGE_NAME }} \
-                    --capabilities CAPABILITY_NAMED_IAM \
-                    --parameter-overrides \
-                        StageName=${{ env.STAGE_NAME }} \
-                        ImageName="product-pipeline-translate" \
-                        ImageBuilderComponentS3BlobUrl="s3://${{ vars.S3_RESOURCE_ARTIFACTS_BUCKET_NAME }}/${{ env.STAGE_NAME }}/${GITHUB_SHA}/ami/product-pipeline-translate.yml" \
-                        ParentAmi="{{resolve:ssm:/aws/service/deeplearning/ami/x86_64/oss-nvidia-driver-gpu-pytorch-2.9-ubuntu-24.04/latest/ami-id}}"
+      - name: Deploy Image Builder CloudFormation
+        run: |
+          aws cloudformation deploy \
+            --stack-name ${{ env.STAGE }}-imagebuilder-product-pipeline-translate \
+            --template-file cfn/golden-ami.yaml \
+            --s3-bucket ${{ vars.S3_CFN_ARTIFACTS_BUCKET_NAME }} \
+            --s3-prefix ${{ env.STAGE }} \
+            --capabilities CAPABILITY_NAMED_IAM \
+            --parameter-overrides \
+                Stage=${{ env.STAGE }} \
+                ImageName="product-pipeline-translate" \
+                ImageBuilderComponentS3BlobUrl="s3://${{ vars.S3_RESOURCE_ARTIFACTS_BUCKET_NAME }}/${{ env.STAGE }}/ami/product-pipeline-translate.yml" \
+                ParentAmi="{{resolve:ssm:/aws/service/deeplearning/ami/x86_64/oss-nvidia-driver-gpu-pytorch-2.9-ubuntu-24.04/latest/ami-id}}"
 
-            - name: Get Image Pipeline ARN
-              id: get_pipeline_arn
-              run: |
-                  PIPELINE_ARN=$(aws cloudformation describe-stacks \
-                    --stack-name ${{ env.STAGE_NAME }}-imagebuilder-product-pipeline-translate \
-                    --query "Stacks[0].Outputs[?OutputKey=='ImagePipelineArn'].OutputValue" \
-                    --output text)
+      - name: Get Image Pipeline ARN
+        id: get_pipeline_arn
+        run: |
+          PIPELINE_ARN=$(aws cloudformation describe-stacks \
+            --stack-name ${{ env.STAGE }}-imagebuilder-product-pipeline-translate \
+            --query "Stacks[0].Outputs[?OutputKey=='ImagePipelineArn'].OutputValue" \
+            --output text)
+          
+          echo "pipeline_arn=$PIPELINE_ARN" >> $GITHUB_OUTPUT
 
-                  echo "pipeline_arn=$PIPELINE_ARN" >> $GITHUB_OUTPUT
+      - name: Start Image Builder Pipeline
+        id: start_pipeline
+        run: |
+          EXECUTION_ARN=$(aws imagebuilder start-image-pipeline-execution \
+            --image-pipeline-arn ${{ steps.get_pipeline_arn.outputs.pipeline_arn }} \
+            --query 'imageBuildVersionArn' \
+            --output text)
+          
+          echo "execution_arn=$EXECUTION_ARN" >> $GITHUB_OUTPUT
+          echo "Started Image Builder execution:"
+          echo "$EXECUTION_ARN"
 
-            - name: Start Image Builder Pipeline
-              id: start_pipeline
-              run: |
-                  EXECUTION_ARN=$(aws imagebuilder start-image-pipeline-execution \
-                    --image-pipeline-arn ${{ steps.get_pipeline_arn.outputs.pipeline_arn }} \
-                    --query 'imageBuildVersionArn' \
-                    --output text)
+      - name: Wait for Image Builder AMI
+        run: |
+          EXECUTION_ARN="${{ steps.start_pipeline.outputs.execution_arn }}"
+          echo "Waiting for Image Builder execution: $EXECUTION_ARN"
+          
+          while true; do
+            STATUS=$(aws imagebuilder get-image \
+              --image-build-version-arn "$EXECUTION_ARN" \
+              --query 'image.state.status' \
+              --output text)
+          
+            echo "Current status: $STATUS"
+          
+            if [[ "$STATUS" == "AVAILABLE" ]]; then
+              echo "AMI build completed successfully"
+              break
+            elif [[ "$STATUS" == "FAILED" ]]; then
+              echo "AMI build failed"
+              aws imagebuilder get-image \
+                --image-build-version-arn "$EXECUTION_ARN"
+              exit 1
+            else
+              sleep 30
+            fi
+          done
 
-                  echo "execution_arn=$EXECUTION_ARN" >> $GITHUB_OUTPUT
-                  echo "Started Image Builder execution:"
-                  echo "$EXECUTION_ARN"
+      - name: Get AMI ID
+        id: get_ami
+        run: |
+          EXECUTION_ARN="${{ steps.start_pipeline.outputs.execution_arn }}"
+          
+          AMI_ID=$(aws imagebuilder get-image \
+            --image-build-version-arn "$EXECUTION_ARN" \
+            --query 'image.outputResources.amis[0].image' \
+            --output text)
+          
+          echo "ami_id=$AMI_ID" >> $GITHUB_OUTPUT
+          echo "Built AMI ID: $AMI_ID"
 
-            - name: Wait for Image Builder AMI
-              run: |
-                  EXECUTION_ARN="${{ steps.start_pipeline.outputs.execution_arn }}"
-                  echo "Waiting for Image Builder execution: $EXECUTION_ARN"
-
-                  while true; do
-                    STATUS=$(aws imagebuilder get-image \
-                      --image-build-version-arn "$EXECUTION_ARN" \
-                      --query 'image.state.status' \
-                      --output text)
-
-                    echo "Current status: $STATUS"
-
-                    if [[ "$STATUS" == "AVAILABLE" ]]; then
-                      echo "AMI build completed successfully"
-                      break
-                    elif [[ "$STATUS" == "FAILED" ]]; then
-                      echo "AMI build failed"
-                      aws imagebuilder get-image \
-                        --image-build-version-arn "$EXECUTION_ARN"
-                      exit 1
-                    else
-                      sleep 30
-                    fi
-                  done
-
-            - name: Get AMI ID
-              id: get_ami
-              run: |
-                  EXECUTION_ARN="${{ steps.start_pipeline.outputs.execution_arn }}"
-
-                  AMI_ID=$(aws imagebuilder get-image \
-                    --image-build-version-arn "$EXECUTION_ARN" \
-                    --query 'image.outputResources.amis[0].image' \
-                    --output text)
-
-                  echo "ami_id=$AMI_ID" >> $GITHUB_OUTPUT
-                  echo "Built AMI ID: $AMI_ID"
-
-            - name: Store AMI ID in SSM Parameter Store
-              run: |
-                  aws ssm put-parameter \
-                    --name /amis/${{ env.STAGE_NAME }}/product-pipeline-translate/latest \
-                    --value ${{ steps.get_ami.outputs.ami_id }} \
-                    --type String \
-                    --overwrite
+      - name: Store AMI ID in SSM Parameter Store
+        run: |
+          aws ssm put-parameter \
+            --name /amis/${{ env.STAGE }}/product-pipeline-translate/latest \
+            --value ${{ steps.get_ami.outputs.ami_id }} \
+            --type String \
+            --overwrite

@@ -1,116 +1,123 @@
 AWSTemplateFormatVersion: "2010-09-09"
 Description: >
-    EC2 Image Builder pipeline for baking golden AMIs.
-    This stack defines the Image Builder infrastructure only.
+  EC2 Image Builder pipeline for baking golden AMIs.
+  This stack defines the Image Builder infrastructure only.
 
 Parameters:
-    StageName:
-        Type: String
-        Description: "Name of the stage"
-    ImageName:
-        Type: String
-        Description: "Name of the image (e.g. product-pipeline-embed-text)"
-    ImageBuilderComponentS3BlobUrl:
-        Type: String
-        Description: "S3 URL of the YAML describing the image-builder component being run"
-    ParentAmi:
-        Type: String
-        Description: "Parent AMI (AMI ID or SSM dynamic reference)"
+  Stage:
+    Type: String
+    Description: "Name of the stage"
+    AllowedValues:
+      - prod
+      - dev
+      - ephemeral
+  ImageName:
+    Type: String
+    Description: "Name of the image (e.g. product-pipeline-embed-text)"
+  ImageBuilderComponentS3BlobUrl:
+    Type: String
+    Description: "S3 URL of the YAML describing the image-builder component being run"
+  ParentAmi:
+    Type: String
+    Description: "Parent AMI (AMI ID or SSM dynamic reference)"
 
 Resources:
-    Component:
-        Type: AWS::ImageBuilder::Component
-        Properties:
-            Name: !Sub "${StageName}-component-${ImageName}"
-            Platform: Linux
-            Version: 0.0.1
-            Description: Set up application environment
-            Uri: !Ref ImageBuilderComponentS3BlobUrl
+  Component:
+    Type: AWS::ImageBuilder::Component
+    Properties:
+      Name: !Sub "${Stage}-component-${ImageName}"
+      Platform: Linux
+      Version: 0.0.1
+      Description: Set up application environment
+      Uri: !Ref ImageBuilderComponentS3BlobUrl
 
-    ImageBuilderInstanceRole:
-        Type: AWS::IAM::Role
-        Properties:
-            AssumeRolePolicyDocument:
-                Version: "2012-10-17"
-                Statement:
-                    - Effect: Allow
-                      Principal:
-                          Service:
-                              - ec2.amazonaws.com
-                              - imagebuilder.amazonaws.com
-                      Action: sts:AssumeRole
-            ManagedPolicyArns:
-                - arn:aws:iam::aws:policy/service-role/AmazonEC2RoleforSSM
-                - arn:aws:iam::aws:policy/AmazonSSMManagedInstanceCore
-                - arn:aws:iam::aws:policy/EC2InstanceProfileForImageBuilder
-                - arn:aws:iam::aws:policy/AmazonS3ReadOnlyAccess
-    ImageBuilderInstanceProfile:
-        Type: AWS::IAM::InstanceProfile
-        Properties:
-            Roles:
-                - !Ref ImageBuilderInstanceRole
+  ImageBuilderInstanceRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service:
+                - ec2.amazonaws.com
+                - imagebuilder.amazonaws.com
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/service-role/AmazonEC2RoleforSSM
+        - arn:aws:iam::aws:policy/AmazonSSMManagedInstanceCore
+        - arn:aws:iam::aws:policy/EC2InstanceProfileForImageBuilder
+        - arn:aws:iam::aws:policy/AmazonS3ReadOnlyAccess
+  ImageBuilderInstanceProfile:
+    Type: AWS::IAM::InstanceProfile
+    Properties:
+      Roles:
+        - !Ref ImageBuilderInstanceRole
 
-    GoldenAmiRecipe:
-        Type: AWS::ImageBuilder::ImageRecipe
-        Properties:
-            Name: !Sub "${StageName}-golden-ami-${ImageName}"
-            Version: 0.0.1
-            ParentImage: !Ref ParentAmi
-            Components:
-                - ComponentArn: !Ref Component
-            BlockDeviceMappings:
-                - DeviceName: /dev/xvda
-                  Ebs:
-                      VolumeSize: 60
-                      VolumeType: gp3
-                      DeleteOnTermination: true
+  GoldenAmiRecipe:
+    Type: AWS::ImageBuilder::ImageRecipe
+    Properties:
+      Name: !Sub "${Stage}-golden-ami-${ImageName}"
+      Version: 0.0.1
+      ParentImage: !Ref ParentAmi
+      Components:
+        - ComponentArn: !Ref Component
+          Parameters:
+            - Name: Stage
+              Value: !Ref Stage
+      BlockDeviceMappings:
+        - DeviceName: /dev/xvda
+          Ebs:
+            VolumeSize: 60
+            VolumeType: gp3
+            DeleteOnTermination: true
 
-    ImageBuilderInfrastructure:
-        Type: AWS::ImageBuilder::InfrastructureConfiguration
-        Properties:
-            Name: !Sub "${StageName}-image-builder-infra-${ImageName}"
-            InstanceProfileName: !Ref ImageBuilderInstanceProfile
-            InstanceTypes:
-                - t3.medium
-            TerminateInstanceOnFailure: true
-            Tags:
-                StageName: !Ref StageName
-                ManagedBy: ImageBuilder
+  ImageBuilderInfrastructure:
+    Type: AWS::ImageBuilder::InfrastructureConfiguration
+    Properties:
+      Name: !Sub "${Stage}-image-builder-infra-${ImageName}"
+      InstanceProfileName: !Ref ImageBuilderInstanceProfile
+      InstanceTypes:
+        - t3.medium
+      TerminateInstanceOnFailure: true
+      Tags:
+        Stage: !Ref Stage
+        ManagedBy: ImageBuilder
 
-    ImageDistribution:
-        Type: AWS::ImageBuilder::DistributionConfiguration
-        Properties:
-            Name: !Sub "${StageName}-distribution-config-${ImageName}"
-            Distributions:
-                - Region: !Ref AWS::Region
-                  AmiDistributionConfiguration:
-                      Name: !Sub "${StageName}-${ImageName}-{{imagebuilder:buildDate}}"
-                      Description: !Sub "Golden AMI for ${ImageName} (${StageName})"
-                      AmiTags:
-                          Name: !Sub "${StageName}-${ImageName}-golden-ami"
-                          StageName: !Ref StageName
-                          ManagedBy: ImageBuilder
+  ImageDistribution:
+    Type: AWS::ImageBuilder::DistributionConfiguration
+    Properties:
+      Name: !Sub "${Stage}-distribution-config-${ImageName}"
+      Distributions:
+        - Region: !Ref AWS::Region
+          AmiDistributionConfiguration:
+            Name: !Sub "${Stage}-${ImageName}-{{imagebuilder:buildDate}}"
+            Description: !Sub "Golden AMI for ${ImageName} (${Stage})"
+            AmiTags:
+              Name: !Sub "${Stage}-${ImageName}-golden-ami"
+              Stage: !Ref Stage
+              ManagedBy: ImageBuilder
 
-    ImagePipeline:
-        Type: AWS::ImageBuilder::ImagePipeline
-        Properties:
-            Name: !Sub "${StageName}-${ImageName}-image-pipeline"
-            Description: !Sub "Golden AMI pipeline for ${ImageName}"
-            ImageRecipeArn: !Ref GoldenAmiRecipe
-            InfrastructureConfigurationArn: !Ref ImageBuilderInfrastructure
-            DistributionConfigurationArn: !Ref ImageDistribution
-            Status: ENABLED
-            ImageTestsConfiguration:
-                ImageTestsEnabled: true
-                TimeoutMinutes: 60
-            Tags:
-                StageName: !Ref StageName
+  ImagePipeline:
+    Type: AWS::ImageBuilder::ImagePipeline
+    Properties:
+      Name: !Sub "${Stage}-${ImageName}-image-pipeline"
+      Description: !Sub "Golden AMI pipeline for ${ImageName}"
+      ImageRecipeArn: !Ref GoldenAmiRecipe
+      InfrastructureConfigurationArn: !Ref ImageBuilderInfrastructure
+      DistributionConfigurationArn: !Ref ImageDistribution
+      Status: ENABLED
+      ImageTestsConfiguration:
+        ImageTestsEnabled: true
+        TimeoutMinutes: 60
+      Tags:
+        Stage: !Ref Stage
 
 Outputs:
-    ImagePipelineArn:
-        Description: ARN of the Image Builder pipeline
-        Value: !Ref ImagePipeline
+  ImagePipelineArn:
+    Description: ARN of the Image Builder pipeline
+    Value: !Ref ImagePipeline
 
-    ImageRecipeArn:
-        Description: ARN of the Image Recipe
-        Value: !Ref GoldenAmiRecipe
+  ImageRecipeArn:
+    Description: ARN of the Image Recipe
+    Value: !Ref GoldenAmiRecipe

@@ -1,11 +1,14 @@
 name: setup-env-product-pipeline-translate
 schemaVersion: 1.0
+parameter:
+  - Stage:
+      type: string
 phases:
-    - name: build
-      steps:
-          - name: InstallApp
-            action: ExecuteBash
-            inputs:
-                commands:
-                    - echo "Installing foo"
-                    - mkdir -p /opt/foo
+  - name: build
+    steps:
+      - name: InstallApp
+        action: ExecuteBash
+        inputs:
+          commands:
+            - echo "Installing foo"
+            - mkdir -p /opt/foo
