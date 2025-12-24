@@ -28,6 +28,7 @@ updates:
 
     - package-ecosystem: pip
       directories:
+          - "cfn/lint"
           - "src/product-pipeline/src/product-pipeline-embed-text/python"
           - "src/product-pipeline/src/product-pipeline-translate/python"
           - "src/product-pipeline/src/product-pipeline-test/python"

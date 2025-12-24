@@ -43,7 +43,7 @@ jobs:
                   python-version: "3.12"
 
             - name: Install cfn-lint
-              run: pip install cfn-lint==1.42.0
+              run: pip install -r cfn/lint/requirements.txt
 
             - name: Run cfn-lint for '${{ env.CLOUDFORMATION_TEMPLATE_PATH }}'
               run: cfn-lint --non-zero-exit-code error ${{ env.CLOUDFORMATION_TEMPLATE_PATH }}
