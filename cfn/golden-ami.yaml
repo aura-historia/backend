@@ -64,7 +64,8 @@ Resources:
         - ComponentArn: !Ref Component
           Parameters:
             - Name: Stage
-              Value: !Ref Stage
+              Value:
+                - !Ref Stage
       BlockDeviceMappings:
         - DeviceName: /dev/xvda
           Ebs:
