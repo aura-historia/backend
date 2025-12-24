@@ -2476,8 +2476,8 @@ Resources:
         KeyName: !Ref Ec2KeyPairName
         IamInstanceProfile:
           Name: !Ref ProductPipelineInitInstanceProfile
-        InstanceType: c8.large
-        ImageId: !Sub "{{resolve:ssm:/aws/service/ami-amazon-linux-2023-latest/arm64/standard/image_id}}"
+        InstanceType: c8g.large
+        ImageId: "{{resolve:ssm:/aws/service/ami-amazon-linux-2023-latest/arm64/standard/image_id}}"
         SecurityGroupIds: [ !Ref ProductPipelineSecurityGroup ]
         BlockDeviceMappings:
           - DeviceName: /dev/sda1
@@ -2610,7 +2610,7 @@ Resources:
         IamInstanceProfile:
           Name: !Ref ProductPipelineTranslateInstanceProfile
         InstanceType: g6.xlarge # Placeholder - ASG overrides this
-        ImageId: !Sub "{{resolve:ssm:/amis/${STAGE_NAME}/product-pipeline-translate/latest}}"
+        ImageId: "{{resolve:ssm:/amis/${STAGE_NAME}/product-pipeline-translate/latest}}"
         SecurityGroupIds: [ !Ref ProductPipelineSecurityGroup ]
         BlockDeviceMappings:
           - DeviceName: /dev/sda1
@@ -2757,7 +2757,7 @@ Resources:
         IamInstanceProfile:
           Name: !Ref ProductPipelineEmbedTextInstanceProfile
         InstanceType: g6.xlarge # Placeholder - ASG overrides this
-        ImageId: !Sub "{{resolve:ssm:/amis/${STAGE_NAME}/product-pipeline-embed-text/latest}}"
+        ImageId: "{{resolve:ssm:/amis/${STAGE_NAME}/product-pipeline-embed-text/latest}}"
         SecurityGroupIds: [ !Ref ProductPipelineSecurityGroup ]
         BlockDeviceMappings:
           - DeviceName: /dev/sda1
@@ -2921,8 +2921,8 @@ Resources:
         KeyName: !Ref Ec2KeyPairName
         IamInstanceProfile:
           Name: !Ref ProductPipelineCompleteInstanceProfile
-        InstanceType: c8.large
-        ImageId: !Sub "{{resolve:ssm:/aws/service/ami-amazon-linux-2023-latest/arm64/standard/image_id}}"
+        InstanceType: c8g.large
+        ImageId: "{{resolve:ssm:/aws/service/ami-amazon-linux-2023-latest/arm64/standard/image_id}}"
         SecurityGroupIds: [ !Ref ProductPipelineSecurityGroup ]
         BlockDeviceMappings:
           - DeviceName: /dev/sda1
