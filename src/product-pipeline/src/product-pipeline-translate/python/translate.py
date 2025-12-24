@@ -135,7 +135,7 @@ def translate_batch(texts: List[str], src: str, tgt: str) -> List[str]:
     results = ct2_model.translate_batch(
         batch_tokens,
         beam_size=4,
-        max_decoding_length=2000,
+        max_decoding_length=512,
         repetition_penalty=1.2,
         no_repeat_ngram_size=5,
     )

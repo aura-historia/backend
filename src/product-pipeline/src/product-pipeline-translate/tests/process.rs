@@ -26,7 +26,7 @@ use std::sync::Arc;
 #[case(65)]
 #[case(69)]
 #[case(144)]
-fn should_process_text_embedding(#[case] count: usize) {
+fn should_process_translation(#[case] count: usize) {
     let adapter = TranslationAdapterImpl::new().unwrap();
     let translation_pipe_processor = TranslationPipeProcesserImpl::new(Arc::new(adapter));
 
