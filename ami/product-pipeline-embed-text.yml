@@ -1,6 +1,6 @@
 name: setup-env-product-pipeline-embed-text
 schemaVersion: 1.0
-parameter:
+parameters:
   - Stage:
       type: string
 phases:
