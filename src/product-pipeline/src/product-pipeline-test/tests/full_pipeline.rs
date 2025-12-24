@@ -94,10 +94,7 @@ async fn should_flow_through_entire_pipeline(#[case] count: usize) {
     let event_records = fake::vec![ProductCreatedEventPayload; count]
         .into_iter()
         .map(|mut event_payload| {
-            event_payload.native_description = Some(Localized {
-                localization: Faker.fake(),
-                payload: Faker.fake::<Title>().to_string().into(),
-            });
+            event_payload.native_description = Some(Faker.fake());
             event_payload
         })
         .map(|payload| Event {
