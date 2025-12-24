@@ -30,7 +30,7 @@ jobs:
           python-version: "3.12"
 
       - name: Install cfn-lint
-        run: pip install cfn/lint/requirements.txt
+        run: pip install -r cfn/lint/requirements.txt
 
       - name: Run cfn-lint for 'cfn/golden-ami.yaml'
         run: cfn-lint --non-zero-exit-code error cfn/golden-ami.yaml
