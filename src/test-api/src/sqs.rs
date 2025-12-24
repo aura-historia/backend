@@ -2,6 +2,7 @@ use crate::IntegrationTestService;
 use crate::localstack::get_aws_config;
 use async_trait::async_trait;
 use aws_sdk_sqs::Client;
+use aws_sdk_sqs::types::QueueAttributeName;
 use derive_builder::Builder;
 use tokio::sync::OnceCell;
 use tracing::debug;
@@ -44,6 +45,13 @@ impl Sqs {
             self.name
         )
     }
+
+    pub fn dead_letter_queue_url(&self) -> String {
+        format!(
+            "http://sqs.eu-central-1.localhost.localstack.cloud:4566/000000000000/dead-letter-{}",
+            self.name
+        )
+    }
 }
 
 #[async_trait]
@@ -54,19 +62,45 @@ impl IntegrationTestService for Sqs {
 
     async fn set_up(&self) {
         let sqs_client = get_sqs_client().await;
+
+        let dead_letter_queue_url = sqs_client
+            .create_queue()
+            .queue_name(format!("dead-letter-{}", self.name))
+            .send()
+            .await
+            .unwrap_or_else(|e| panic!("Failed creating DLQ '{}': {e}", self.name))
+            .queue_url()
+            .expect("Dead-letter queue URL not returned")
+            .to_string();
+
+        let dead_letter_queue_arn = sqs_client
+            .get_queue_attributes()
+            .queue_url(&dead_letter_queue_url)
+            .attribute_names(QueueAttributeName::QueueArn)
+            .send()
+            .await
+            .unwrap()
+            .attributes
+            .unwrap()
+            .get(&QueueAttributeName::QueueArn)
+            .unwrap()
+            .to_string();
+
+        let redrive_policy = serde_json::json!({
+            "deadLetterTargetArn": dead_letter_queue_arn,
+            "maxReceiveCount": 3
+        })
+        .to_string();
+
         let queue_url = sqs_client
             .create_queue()
             .queue_name(self.name)
+            .attributes(QueueAttributeName::RedrivePolicy, redrive_policy)
             .send()
             .await
-            .unwrap_or_else(|e| {
-                panic!(
-                    "shouldn't fail creating SQS with name '{}'.: {e}",
-                    self.name
-                )
-            })
+            .unwrap_or_else(|e| panic!("Failed creating SQS queue '{}': {e}", self.name))
             .queue_url()
-            .expect("queue URL not returned")
+            .expect("Queue URL not returned")
             .to_string();
 
         assert_eq!(
@@ -74,6 +108,13 @@ impl IntegrationTestService for Sqs {
             queue_url,
             "Expected Queue-URL '{}' and actual differ '{queue_url}'.",
             self.queue_url()
+        );
+
+        assert_eq!(
+            self.dead_letter_queue_url(),
+            dead_letter_queue_url,
+            "Expected Dead-Letter-Queue-URL '{}' and actual differ '{dead_letter_queue_url}'.",
+            self.dead_letter_queue_url()
         );
     }
 
