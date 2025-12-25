@@ -438,34 +438,6 @@ jobs:
                     --body "$GITHUB_WORKSPACE/artifacts/$BIN_NAME-${{ env.STAGE_NAME }}-${GITHUB_SHA}" \
                     --tagging "stage=${{ env.STAGE }}"
 
-    aws-push-resource-artifacts:
-        name: Push resource-artifacts to S3 ${{ matrix.resource }}
-        needs: [unit-test, integration-test, test-product-pipeline]
-        runs-on: ubuntu-latest
-        permissions:
-            contents: read
-            id-token: write
-        strategy:
-            matrix:
-                resource:
-                    - src/product-pipeline/user-data.sh
-        steps:
-            - uses: actions/checkout@v6
-
-            - name: Configure AWS credentials
-              uses: aws-actions/configure-aws-credentials@v5.1.1
-              with:
-                  role-to-assume: ${{ secrets.CI_DEPLOY_ROLE_ARN }}
-                  aws-region: ${{ vars.AWS_REGION }}
-
-            - name: Upload resource-artifacts to S3
-              run: |
-                  aws s3api put-object \
-                    --bucket "${{ vars.S3_RESOURCE_ARTIFACTS_BUCKET_NAME }}" \
-                    --key "${{ env.STAGE_NAME }}/${GITHUB_SHA}/${{ matrix.resource }}" \
-                    --body "${{ matrix.resource }}" \
-                    --tagging "stage=${{ env.STAGE }}"
-
     aws-push-mail-templates:
         name: Compile & push Mail-Templates to S3 ${{ matrix.resource }}
         needs: [unit-test, integration-test, test-product-pipeline]
@@ -527,7 +499,6 @@ jobs:
                 cfn-lint,
                 aws-push-lambda,
                 aws-push-ec2,
-                aws-push-resource-artifacts,
                 aws-push-mail-templates,
             ]
         environment:

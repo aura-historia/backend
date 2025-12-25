@@ -2404,13 +2404,13 @@ Resources:
       EnableDnsHostnames: true
       Tags:
         - Key: Name
-          Value: "product-pipeline-vpc-dev"
+          Value: "product-pipeline-vpc-ephemeral"
   ProductPipelineInternetGateway:
     Type: AWS::EC2::InternetGateway
     Properties:
       Tags:
         - Key: Name
-          Value: "product-pipeline-igw-dev"
+          Value: "product-pipeline-igw-ephemeral"
   ProductPipelineVpcGatewayAttachment:
     Type: AWS::EC2::VPCGatewayAttachment
     Properties:
@@ -2422,7 +2422,7 @@ Resources:
       VpcId: !Ref ProductPipelineVpc
       Tags:
         - Key: Name
-          Value: "product-pipeline-public-rt-dev"
+          Value: "product-pipeline-public-rt-ephemeral"
   ProductPipelinePublicRoute:
     Type: AWS::EC2::Route
     DependsOn: ProductPipelineVpcGatewayAttachment
@@ -2439,7 +2439,7 @@ Resources:
       AvailabilityZone: !Select [ 0, !GetAZs "" ]
       Tags:
         - Key: Name
-          Value: "product-pipeline-subnet-a-dev"
+          Value: "product-pipeline-subnet-a-ephemeral"
   ProductPipelineSubnetRouteAssocA:
     Type: AWS::EC2::SubnetRouteTableAssociation
     Properties:
@@ -2455,17 +2455,17 @@ Resources:
           CidrIp: 0.0.0.0/0
       Tags:
         - Key: Name
-          Value: "product-pipeline-sg-dev"
+          Value: "product-pipeline-sg-ephemeral"
 
   ProductPipelineInitDlq:
     Type: AWS::SQS::Queue
     Properties:
-      QueueName: "product-pipeline-init-dlq-dev"
+      QueueName: "product-pipeline-init-dlq-ephemeral"
       MessageRetentionPeriod: 1209600
   ProductPipelineInitQ:
     Type: AWS::SQS::Queue
     Properties:
-      QueueName: "product-pipeline-init-queue-dev"
+      QueueName: "product-pipeline-init-queue-ephemeral"
       RedrivePolicy:
         deadLetterTargetArn: !GetAtt ProductPipelineInitDlq.Arn
         maxReceiveCount: 5
@@ -2473,7 +2473,7 @@ Resources:
   ProductPipelineInitRole:
     Type: AWS::IAM::Role
     Properties:
-      RoleName: "product-pipeline-init-role-dev"
+      RoleName: "product-pipeline-init-role-ephemeral"
       AssumeRolePolicyDocument:
         Version: "2012-10-17"
         Statement:
@@ -2522,13 +2522,13 @@ Resources:
   ProductPipelineInitInstanceProfile:
     Type: AWS::IAM::InstanceProfile
     Properties:
-      InstanceProfileName: "product-pipeline-init-profile-dev"
+      InstanceProfileName: "product-pipeline-init-profile-ephemeral"
       Roles:
         - !Ref ProductPipelineInitRole
   ProductPipelineInitLaunchTemplate:
     Type: AWS::EC2::LaunchTemplate
     Properties:
-      LaunchTemplateName: "product-pipeline-init-template-dev"
+      LaunchTemplateName: "product-pipeline-init-template-ephemeral"
       LaunchTemplateData:
         KeyName: !Ref Ec2KeyPairName
         IamInstanceProfile:
@@ -2546,22 +2546,33 @@ Resources:
           - ResourceType: instance
             Tags:
               - Key: Name
-                Value: "product-pipeline-init-dev"
+                Value: "product-pipeline-init-ephemeral"
               - Key: Fleet
-                Value: product-pipeline
+                Value: product-pipeline-init
         UserData:
           Fn::Base64: !Sub |
             #!/bin/bash
             set -euxo pipefail
             sudo -i
-            export STAGE="dev"
-            export STAGE_NAME="dev"
+            export STAGE="ephemeral"
+            export STAGE_NAME=${STAGE_NAME}
             export COMMIT_SHA="${CommitSHA}"
-            export RESOURCE_BUCKET="${ResourceBucket}"
             export ARTIFACT_BUCKET="${ArtifactBucket}"
-            export ENRICHMENT_QUEUE_URL="${ProductPipelineInitQ}"
-            aws s3 cp "s3://${ResourceBucket}/dev/${CommitSHA}/src/product-pipeline/user-data.sh" /tmp/user_data.sh --region eu-central-1
-            source /tmp/user_data.sh
+            export SOURCE_QUEUE="${ProductPipelineInitQ}"
+            export TARGET_QUEUE="${ProductPipelineTranslateQ}"
+            # Download and install binary
+            sudo aws s3 cp "s3://${ARTIFACT_BUCKET}/${STAGE_NAME}/${COMMIT_SHA}/product-pipeline-init" /opt/product-pipeline-init --region eu-central-1
+            sudo chmod +x /opt/product-pipeline-init
+            # Run binary
+            echo "[$(date)] Running product-pipeline-init..." | tee -a "$LOG_PATH"
+            /opt/product-pipeline-init >> "$LOG_PATH" 2>&1
+            EXIT_CODE=$?
+            echo "[$(date)] Job finished with code $EXIT_CODE" | tee -a "$LOG_PATH"
+            sleep 5
+            aws autoscaling terminate-instance-in-auto-scaling-group \
+              --instance-id $(ec2metadata --instance-id) \
+              --should-decrement-desired-capacity
+            exit $EXIT_CODE
   ProductPipelineInitASG:
     Type: AWS::AutoScaling::AutoScalingGroup
     Properties:
@@ -2585,7 +2596,7 @@ Resources:
           SpotAllocationStrategy: price-capacity-optimized
       Tags:
         - Key: Name
-          Value: "product-pipeline-init-dev"
+          Value: "product-pipeline-init-ephemeral"
           PropagateAtLaunch: true
       HealthCheckType: EC2
       HealthCheckGracePeriod: 120
@@ -2593,12 +2604,12 @@ Resources:
   ProductPipelineTranslateDlq:
     Type: AWS::SQS::Queue
     Properties:
-      QueueName: "product-pipeline-translate-dlq-dev"
+      QueueName: "product-pipeline-translate-dlq-ephemeral"
       MessageRetentionPeriod: 1209600
   ProductPipelineTranslateQ:
     Type: AWS::SQS::Queue
     Properties:
-      QueueName: "product-pipeline-translate-queue-dev"
+      QueueName: "product-pipeline-translate-queue-ephemeral"
       RedrivePolicy:
         deadLetterTargetArn: !GetAtt ProductPipelineTranslateDlq.Arn
         maxReceiveCount: 3
@@ -2606,7 +2617,7 @@ Resources:
   ProductPipelineTranslateRole:
     Type: AWS::IAM::Role
     Properties:
-      RoleName: "product-pipeline-translate-role-dev"
+      RoleName: "product-pipeline-translate-role-ephemeral"
       AssumeRolePolicyDocument:
         Version: "2012-10-17"
         Statement:
@@ -2655,13 +2666,13 @@ Resources:
   ProductPipelineTranslateInstanceProfile:
     Type: AWS::IAM::InstanceProfile
     Properties:
-      InstanceProfileName: "product-pipeline-translate-profile-dev"
+      InstanceProfileName: "product-pipeline-translate-profile-ephemeral"
       Roles:
         - !Ref ProductPipelineTranslateRole
   ProductPipelineTranslateLaunchTemplate:
     Type: AWS::EC2::LaunchTemplate
     Properties:
-      LaunchTemplateName: "product-pipeline-translate-template-dev"
+      LaunchTemplateName: "product-pipeline-translate-template-ephemeral"
       LaunchTemplateData:
         KeyName: !Ref Ec2KeyPairName
         IamInstanceProfile:
@@ -2679,22 +2690,36 @@ Resources:
           - ResourceType: instance
             Tags:
               - Key: Name
-                Value: "product-pipeline-translate-dev"
+                Value: "product-pipeline-translate-ephemeral"
               - Key: Fleet
-                Value: product-pipeline
+                Value: product-pipeline-translate
         UserData:
           Fn::Base64: !Sub |
             #!/bin/bash
             set -euxo pipefail
             sudo -i
-            export STAGE="dev"
-            export STAGE_NAME="dev"
+            export STAGE="ephemeral"
+            export STAGE_NAME=${STAGE_NAME}
             export COMMIT_SHA="${CommitSHA}"
-            export RESOURCE_BUCKET="${ResourceBucket}"
             export ARTIFACT_BUCKET="${ArtifactBucket}"
-            export ENRICHMENT_QUEUE_URL="${ProductPipelineTranslateQ}"
-            aws s3 cp "s3://${ResourceBucket}/dev/${CommitSHA}/src/product-pipeline/user-data.sh" /tmp/user_data.sh --region eu-central-1
-            source /tmp/user_data.sh
+            export SOURCE_QUEUE="${ProductPipelineTranslateQ}"
+            export TARGET_QUEUE="${ProductPipelineEmbedTextQ}"
+            # Download and install binary
+            sudo aws s3 cp "s3://${ARTIFACT_BUCKET}/${STAGE_NAME}/${COMMIT_SHA}/product-pipeline-embed-text" /opt/product-pipeline-embed-text --region eu-central-1
+            sudo chmod +x /opt/product-pipeline-embed-text
+            # Prepare (preconfigured via custom ami) python venv
+            cd /opt/product-pipeline-embed-text
+            source .venv/bin/activate
+            # Run binary
+            echo "[$(date)] Running product-pipeline-embed-text..." | tee -a "$LOG_PATH"
+            /opt/product-pipeline-embed-text >> "$LOG_PATH" 2>&1
+            EXIT_CODE=$?
+            echo "[$(date)] Job finished with code $EXIT_CODE" | tee -a "$LOG_PATH"
+            sleep 5
+            aws autoscaling terminate-instance-in-auto-scaling-group \
+            --instance-id $(ec2metadata --instance-id) \
+            --should-decrement-desired-capacity
+            exit $EXIT_CODE
   ProductPipelineTranslateASG:
     Type: AWS::AutoScaling::AutoScalingGroup
     Properties:
@@ -2718,7 +2743,7 @@ Resources:
           SpotAllocationStrategy: price-capacity-optimized
       Tags:
         - Key: Name
-          Value: "product-pipeline-translate-dev"
+          Value: "product-pipeline-translate-ephemeral"
           PropagateAtLaunch: true
       HealthCheckType: EC2
       HealthCheckGracePeriod: 120
@@ -2740,12 +2765,12 @@ Resources:
   ProductPipelineEmbedTextDlq:
     Type: AWS::SQS::Queue
     Properties:
-      QueueName: "product-pipeline-embed-text-dlq-dev"
+      QueueName: "product-pipeline-embed-text-dlq-ephemeral"
       MessageRetentionPeriod: 1209600
   ProductPipelineEmbedTextQ:
     Type: AWS::SQS::Queue
     Properties:
-      QueueName: "product-pipeline-embed-text-queue-dev"
+      QueueName: "product-pipeline-embed-text-queue-ephemeral"
       RedrivePolicy:
         deadLetterTargetArn: !GetAtt ProductPipelineEmbedTextDlq.Arn
         maxReceiveCount: 3
@@ -2753,7 +2778,7 @@ Resources:
   ProductPipelineEmbedTextRole:
     Type: AWS::IAM::Role
     Properties:
-      RoleName: "product-pipeline-embed-text-role-dev"
+      RoleName: "product-pipeline-embed-text-role-ephemeral"
       AssumeRolePolicyDocument:
         Version: "2012-10-17"
         Statement:
@@ -2802,13 +2827,13 @@ Resources:
   ProductPipelineEmbedTextInstanceProfile:
     Type: AWS::IAM::InstanceProfile
     Properties:
-      InstanceProfileName: "product-pipeline-embed-text-profile-dev"
+      InstanceProfileName: "product-pipeline-embed-text-profile-ephemeral"
       Roles:
         - !Ref ProductPipelineEmbedTextRole
   ProductPipelineEmbedTextLaunchTemplate:
     Type: AWS::EC2::LaunchTemplate
     Properties:
-      LaunchTemplateName: "product-pipeline-embed-text-template-dev"
+      LaunchTemplateName: "product-pipeline-embed-text-template-ephemeral"
       LaunchTemplateData:
         KeyName: !Ref Ec2KeyPairName
         IamInstanceProfile:
@@ -2826,22 +2851,36 @@ Resources:
           - ResourceType: instance
             Tags:
               - Key: Name
-                Value: "product-pipeline-embed-text-dev"
+                Value: "product-pipeline-embed-text-ephemeral"
               - Key: Fleet
-                Value: product-pipeline
+                Value: product-pipeline-embed-text
         UserData:
           Fn::Base64: !Sub |
             #!/bin/bash
             set -euxo pipefail
             sudo -i
-            export STAGE="dev"
-            export STAGE_NAME="dev"
+            export STAGE="ephemeral"
+            export STAGE_NAME=${STAGE_NAME}
             export COMMIT_SHA="${CommitSHA}"
-            export RESOURCE_BUCKET="${ResourceBucket}"
             export ARTIFACT_BUCKET="${ArtifactBucket}"
-            export ENRICHMENT_QUEUE_URL="${ProductPipelineEmbedTextQ}"
-            aws s3 cp "s3://${ResourceBucket}/dev/${CommitSHA}/src/product-pipeline/user-data.sh" /tmp/user_data.sh --region eu-central-1
-            source /tmp/user_data.sh
+            export SOURCE_QUEUE="${ProductPipelineEmbedTextQ}"
+            export TARGET_QUEUE="${ProductPipelineCompleteQ}"
+            # Download and install binary
+            sudo aws s3 cp "s3://${ARTIFACT_BUCKET}/${STAGE_NAME}/${COMMIT_SHA}/product-pipeline-embed-text" /opt/product-pipeline-embed-text --region eu-central-1
+            sudo chmod +x /opt/product-pipeline-embed-text
+            # Prepare (preconfigured via custom ami) python venv
+            cd /opt/product-pipeline-embed-text
+            source .venv/bin/activate
+            # Run binary
+            echo "[$(date)] Running product-pipeline-embed-text..." | tee -a "$LOG_PATH"
+            /opt/product-pipeline-embed-text >> "$LOG_PATH" 2>&1
+            EXIT_CODE=$?
+            echo "[$(date)] Job finished with code $EXIT_CODE" | tee -a "$LOG_PATH"
+            sleep 5
+            aws autoscaling terminate-instance-in-auto-scaling-group \
+              --instance-id $(ec2metadata --instance-id) \
+              --should-decrement-desired-capacity
+            exit $EXIT_CODE
   ProductPipelineEmbedTextASG:
     Type: AWS::AutoScaling::AutoScalingGroup
     Properties:
@@ -2865,7 +2904,7 @@ Resources:
           SpotAllocationStrategy: price-capacity-optimized
       Tags:
         - Key: Name
-          Value: "product-pipeline-embed-text-dev"
+          Value: "product-pipeline-embed-text-ephemeral"
           PropagateAtLaunch: true
       HealthCheckType: EC2
       HealthCheckGracePeriod: 120
@@ -2887,12 +2926,12 @@ Resources:
   ProductPipelineCompleteDlq:
     Type: AWS::SQS::Queue
     Properties:
-      QueueName: "product-pipeline-complete-dlq-dev"
+      QueueName: "product-pipeline-complete-dlq-ephemeral"
       MessageRetentionPeriod: 1209600
   ProductPipelineCompleteQ:
     Type: AWS::SQS::Queue
     Properties:
-      QueueName: "product-pipeline-complete-queue-dev"
+      QueueName: "product-pipeline-complete-queue-ephemeral"
       RedrivePolicy:
         deadLetterTargetArn: !GetAtt ProductPipelineCompleteDlq.Arn
         maxReceiveCount: 5
@@ -2900,7 +2939,7 @@ Resources:
   ProductPipelineCompleteRole:
     Type: AWS::IAM::Role
     Properties:
-      RoleName: "product-pipeline-complete-role-dev"
+      RoleName: "product-pipeline-complete-role-ephemeral"
       AssumeRolePolicyDocument:
         Version: "2012-10-17"
         Statement:
@@ -2975,13 +3014,13 @@ Resources:
   ProductPipelineCompleteInstanceProfile:
     Type: AWS::IAM::InstanceProfile
     Properties:
-      InstanceProfileName: "product-pipeline-complete-profile-dev"
+      InstanceProfileName: "product-pipeline-complete-profile-ephemeral"
       Roles:
         - !Ref ProductPipelineCompleteRole
   ProductPipelineCompleteLaunchTemplate:
     Type: AWS::EC2::LaunchTemplate
     Properties:
-      LaunchTemplateName: "product-pipeline-complete-template-dev"
+      LaunchTemplateName: "product-pipeline-complete-template-ephemeral"
       LaunchTemplateData:
         KeyName: !Ref Ec2KeyPairName
         IamInstanceProfile:
@@ -2999,22 +3038,35 @@ Resources:
           - ResourceType: instance
             Tags:
               - Key: Name
-                Value: "product-pipeline-complete-dev"
+                Value: "product-pipeline-complete-ephemeral"
               - Key: Fleet
-                Value: product-pipeline
+                Value: product-pipeline-complete
         UserData:
           Fn::Base64: !Sub |
             #!/bin/bash
             set -euxo pipefail
             sudo -i
-            export STAGE="dev"
-            export STAGE_NAME="dev"
+            export STAGE="ephemeral"
+            export STAGE_NAME=${STAGE_NAME}
             export COMMIT_SHA="${CommitSHA}"
-            export RESOURCE_BUCKET="${ResourceBucket}"
             export ARTIFACT_BUCKET="${ArtifactBucket}"
-            export ENRICHMENT_QUEUE_URL="${ProductPipelineCompleteQ}"
-            aws s3 cp "s3://${ResourceBucket}/dev/${CommitSHA}/src/product-pipeline/user-data.sh" /tmp/user_data.sh --region eu-central-1
-            source /tmp/user_data.sh
+            export SOURCE_QUEUE="${ProductPipelineCompleteQ}"
+            # Download and install binary
+            sudo aws s3 cp "s3://${ARTIFACT_BUCKET}/${STAGE_NAME}/${COMMIT_SHA}/product-pipeline-embed-text" /opt/product-pipeline-embed-text --region eu-central-1
+            sudo chmod +x /opt/product-pipeline-embed-text
+            # Prepare (preconfigured via custom ami) python venv
+            cd /opt/product-pipeline-embed-text
+            source .venv/bin/activate
+            # Run binary
+            echo "[$(date)] Running product-pipeline-embed-text..." | tee -a "$LOG_PATH"
+            /opt/product-pipeline-embed-text >> "$LOG_PATH" 2>&1
+            EXIT_CODE=$?
+            echo "[$(date)] Job finished with code $EXIT_CODE" | tee -a "$LOG_PATH"
+            sleep 5
+            aws autoscaling terminate-instance-in-auto-scaling-group \
+            --instance-id $(ec2metadata --instance-id) \
+            --should-decrement-desired-capacity
+            exit $EXIT_CODE
   ProductPipelineCompleteASG:
     Type: AWS::AutoScaling::AutoScalingGroup
     Properties:
@@ -3038,7 +3090,7 @@ Resources:
           SpotAllocationStrategy: price-capacity-optimized
       Tags:
         - Key: Name
-          Value: "product-pipeline-complete-dev"
+          Value: "product-pipeline-complete-ephemeral"
           PropagateAtLaunch: true
       HealthCheckType: EC2
       HealthCheckGracePeriod: 120
@@ -3061,7 +3113,7 @@ Resources:
   ProductPipelineScaleUpRole:
     Type: AWS::IAM::Role
     Properties:
-      RoleName: "product-pipeline-asg-scale-up-role-dev"
+      RoleName: "product-pipeline-asg-scale-up-role-ephemeral"
       AssumeRolePolicyDocument:
         Version: "2012-10-17"
         Statement:
@@ -3088,17 +3140,17 @@ Resources:
               - Effect: Allow
                 Action:
                   - es:*
-                Resource: !Sub "arn:aws:es:${AWS::Region}:${AWS::AccountId}:domain/application-dev/*"
+                Resource: !Sub "arn:aws:es:${AWS::Region}:${AWS::AccountId}:domain/application-ephemeral/*"
   ProductPipelineInitScaleUpLambda:
     Type: AWS::Lambda::Function
     Properties:
-      FunctionName: "product-pipeline-asg-scale-up-dev"
+      FunctionName: "product-pipeline-asg-scale-up-ephemeral"
       Runtime: provided.al2023
       Handler: lib.handler
       Role: !GetAtt ProductPipelineScaleUpRole.Arn
       Code:
         S3Bucket: !Ref ArtifactBucket
-        S3Key: !Sub "product-pipeline-asg-scale-up-dev-${CommitSHA}.zip"
+        S3Key: !Sub "product-pipeline-asg-scale-up-ephemeral-${CommitSHA}.zip"
       MemorySize: 128
       Timeout: 60
       EphemeralStorage:
