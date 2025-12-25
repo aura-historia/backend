@@ -434,7 +434,7 @@ jobs:
                   BIN_NAME=$(basename ${{ matrix.crate }})
                   aws s3api put-object \
                     --bucket "${{ vars.S3_BINARY_ARTIFACTS_BUCKET_NAME }}" \
-                    --key "$BIN_NAME-${{ env.STAGE_NAME }}-${GITHUB_SHA}" \
+                    --key "${{ env.STAGE_NAME }}/${GITHUB_SHA}/$BIN_NAME" \
                     --body "$GITHUB_WORKSPACE/artifacts/$BIN_NAME-${{ env.STAGE_NAME }}-${GITHUB_SHA}" \
                     --tagging "stage=${{ env.STAGE }}"
 
