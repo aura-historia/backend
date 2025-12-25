@@ -2563,6 +2563,31 @@ Resources:
             # Download and install binary
             sudo aws s3 cp "s3://${ARTIFACT_BUCKET}/${STAGE_NAME}/${COMMIT_SHA}/product-pipeline-init" /opt/product-pipeline-init --region eu-central-1
             sudo chmod +x /opt/product-pipeline-init
+            # Configure CloudWatchAgent
+            cat << EOF | sudo tee /opt/aws/amazon-cloudwatch-agent.json > /dev/null
+            {
+              "logs": {
+                "logs_collected": {
+                  "files": {
+                    "collect_list": [
+                      {
+                        "file_path": "/var/log/product-pipeline-init.log",
+                        "log_group_name": "/aws/ec2/$STAGE-product-pipeline-init",
+                        "log_stream_name": "{instance_id}",
+                        "timestamp_format": "%Y-%m-%dT%H:%M:%S.%f%z",
+                        "timezone": "UTC", 
+                        "multi_line_start_pattern": "^{"
+                      }
+                    ]
+                  }
+                }
+              }
+            }
+            EOF
+            - amazon-cloudwatch-agent-ctl -a fetch-config -m ec2 -c file:/opt/aws/amazon-cloudwatch-agent.json -s
+            - LOG_PATH="/var/log/product-pipeline-init.log"
+            - sudo touch "$LOG_PATH"
+            - sudo chmod 666 "$LOG_PATH"
             # Run binary
             echo "[$(date)] Running product-pipeline-init..." | tee -a "$LOG_PATH"
             /opt/product-pipeline-init >> "$LOG_PATH" 2>&1
@@ -2705,14 +2730,14 @@ Resources:
             export SOURCE_QUEUE="${ProductPipelineTranslateQ}"
             export TARGET_QUEUE="${ProductPipelineEmbedTextQ}"
             # Download and install binary
-            sudo aws s3 cp "s3://${ARTIFACT_BUCKET}/${STAGE_NAME}/${COMMIT_SHA}/product-pipeline-embed-text" /opt/product-pipeline-embed-text --region eu-central-1
-            sudo chmod +x /opt/product-pipeline-embed-text
+            sudo aws s3 cp "s3://${ARTIFACT_BUCKET}/${STAGE_NAME}/${COMMIT_SHA}/product-pipeline-translate" /opt/product-pipeline-translate --region eu-central-1
+            sudo chmod +x /opt/product-pipeline-translate
             # Prepare (preconfigured via custom ami) python venv
-            cd /opt/product-pipeline-embed-text
+            cd /opt/product-pipeline-translate
             source .venv/bin/activate
             # Run binary
-            echo "[$(date)] Running product-pipeline-embed-text..." | tee -a "$LOG_PATH"
-            /opt/product-pipeline-embed-text >> "$LOG_PATH" 2>&1
+            echo "[$(date)] Running product-pipeline-translate..." | tee -a "$LOG_PATH"
+            /opt/product-pipeline-translate >> "$LOG_PATH" 2>&1
             EXIT_CODE=$?
             echo "[$(date)] Job finished with code $EXIT_CODE" | tee -a "$LOG_PATH"
             sleep 5
@@ -2760,7 +2785,7 @@ Resources:
             - Name: QueueName
               Value: !GetAtt ProductPipelineTranslateQ.QueueName
           Statistic: Average
-        TargetValue: 1
+        TargetValue: 0
 
   ProductPipelineEmbedTextDlq:
     Type: AWS::SQS::Queue
@@ -2921,7 +2946,7 @@ Resources:
             - Name: QueueName
               Value: !GetAtt ProductPipelineEmbedTextQ.QueueName
           Statistic: Average
-        TargetValue: 1
+        TargetValue: 0
 
   ProductPipelineCompleteDlq:
     Type: AWS::SQS::Queue
@@ -3052,14 +3077,36 @@ Resources:
             export ARTIFACT_BUCKET="${ArtifactBucket}"
             export SOURCE_QUEUE="${ProductPipelineCompleteQ}"
             # Download and install binary
-            sudo aws s3 cp "s3://${ARTIFACT_BUCKET}/${STAGE_NAME}/${COMMIT_SHA}/product-pipeline-embed-text" /opt/product-pipeline-embed-text --region eu-central-1
-            sudo chmod +x /opt/product-pipeline-embed-text
-            # Prepare (preconfigured via custom ami) python venv
-            cd /opt/product-pipeline-embed-text
-            source .venv/bin/activate
+            sudo aws s3 cp "s3://${ARTIFACT_BUCKET}/${STAGE_NAME}/${COMMIT_SHA}/product-pipeline-complete" /opt/product-pipeline-complete --region eu-central-1
+            sudo chmod +x /opt/product-pipeline-complete
+            # Configure CloudWatchAgent
+            cat << EOF | sudo tee /opt/aws/amazon-cloudwatch-agent.json > /dev/null
+            {
+              "logs": {
+                "logs_collected": {
+                  "files": {
+                    "collect_list": [
+                      {
+                        "file_path": "/var/log/product-pipeline-complete.log",
+                        "log_group_name": "/aws/ec2/$STAGE-product-pipeline-complete",
+                        "log_stream_name": "{instance_id}",
+                        "timestamp_format": "%Y-%m-%dT%H:%M:%S.%f%z",
+                        "timezone": "UTC", 
+                        "multi_line_start_pattern": "^{"
+                      }
+                    ]
+                  }
+                }
+              }
+            }
+            EOF
+            - amazon-cloudwatch-agent-ctl -a fetch-config -m ec2 -c file:/opt/aws/amazon-cloudwatch-agent.json -s
+            - LOG_PATH="/var/log/product-pipeline-complete.log"
+            - sudo touch "$LOG_PATH"
+            - sudo chmod 666 "$LOG_PATH"
             # Run binary
-            echo "[$(date)] Running product-pipeline-embed-text..." | tee -a "$LOG_PATH"
-            /opt/product-pipeline-embed-text >> "$LOG_PATH" 2>&1
+            echo "[$(date)] Running product-pipeline-complete..." | tee -a "$LOG_PATH"
+            /opt/product-pipeline-complete >> "$LOG_PATH" 2>&1
             EXIT_CODE=$?
             echo "[$(date)] Job finished with code $EXIT_CODE" | tee -a "$LOG_PATH"
             sleep 5
@@ -3107,7 +3154,7 @@ Resources:
             - Name: QueueName
               Value: !GetAtt ProductPipelineCompleteQ.QueueName
           Statistic: Average
-        TargetValue: 1
+        TargetValue: 0
 
 
   ProductPipelineScaleUpRole:
