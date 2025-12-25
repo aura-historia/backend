@@ -23,7 +23,7 @@ Parameters:
   ResourceBucket:
     Type: String
     Description: "S3 bucket containing resources"
-  ComponentVersion:
+  Version:
     Type: String
     Description: "Version of the Image-Builder-Component to deploy"
     Default: "0.0.1"
@@ -34,7 +34,7 @@ Resources:
     Properties:
       Name: !Sub "${Stage}-component-${ImageName}"
       Platform: Linux
-      Version: 0.0.1
+      Version: !Ref Version
       Description: Set up application environment
       Uri: !Ref ImageBuilderComponentS3BlobUrl
 
@@ -65,7 +65,7 @@ Resources:
     Type: AWS::ImageBuilder::ImageRecipe
     Properties:
       Name: !Sub "${Stage}-golden-ami-${ImageName}"
-      Version: !Ref ComponentVersion
+      Version: !Ref Version
       ParentImage: !Ref ParentAmi
       Components:
         - ComponentArn: !Ref Component
