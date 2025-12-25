@@ -130,10 +130,6 @@ phases:
         inputs:
           commands:
             - set -euxo pipefail
-            - LOG_PATH="/var/log/product-pipeline-embed-text.log"
-            - sudo touch "$LOG_PATH"
-            - sudo chmod 666 "$LOG_PATH"
-            - amazon-cloudwatch-agent-ctl -a fetch-config -m ec2 -c file:/opt/aws/amazon-cloudwatch-agent.json -s
             - export STAGE="{{ Stage }}"
             - |
               cat << EOF | sudo tee /opt/aws/amazon-cloudwatch-agent.json > /dev/null
@@ -156,6 +152,10 @@ phases:
                 }
               }
               EOF
+            - amazon-cloudwatch-agent-ctl -a fetch-config -m ec2 -c file:/opt/aws/amazon-cloudwatch-agent.json -s
+            - LOG_PATH="/var/log/product-pipeline-embed-text.log"
+            - sudo touch "$LOG_PATH"
+            - sudo chmod 666 "$LOG_PATH"
 
   - name: validate
     steps:
