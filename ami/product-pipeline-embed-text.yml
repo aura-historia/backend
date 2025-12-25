@@ -8,15 +8,22 @@ parameters:
 phases:
   - name: build
     steps:
-      - name: GrowRootFilesystem
+      - name: SetupBuildVolume
         action: ExecuteBash
         inputs:
           commands:
             - set -euxo pipefail
             - lsblk
             - df -h
-            - growpart /dev/nvme0n1 1
-            - resize2fs /dev/nvme0n1p1
+            - |
+              if ! blkid /dev/nvme1n1; then
+                mkfs.ext4 /dev/nvme1n1
+              fi
+            - mkdir -p /opt
+            - mount /dev/nvme1n1 /opt
+            - |
+              grep -q nvme1n1 /etc/fstab || echo \
+              "/dev/nvme1n1 /opt ext4 defaults,nofail 0 2" >> /etc/fstab
             - df -h
 
       - name: InstallSystemDeps
