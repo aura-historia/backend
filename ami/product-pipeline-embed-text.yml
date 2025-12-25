@@ -25,6 +25,10 @@ phases:
               grep -q nvme1n1 /etc/fstab || echo \
               "/dev/nvme1n1 /opt ext4 defaults,nofail 0 2" >> /etc/fstab
             - df -h
+            - cat <<EOF >/etc/profile.d/pip-opt.sh
+              export PIP_CACHE_DIR=/opt/pip-cache
+              export TMPDIR=/opt/tmp
+              EOF
 
       - name: InstallSystemDeps
         action: ExecuteBash
@@ -56,13 +60,15 @@ phases:
             - mkdir -p /opt/product-pipeline-embed-text
             - chmod 755 /opt/product-pipeline-embed-text
             - cd /opt/product-pipeline-embed-text
+            - export PIP_CACHE_DIR=/opt/pip-cache
+            - export TMPDIR=/opt/tmp
             - export RESOURCE_BUCKET="{{ ResourceBucket }}"
             - export STAGE="{{ Stage }}"
             - aws s3 cp "s3://$RESOURCE_BUCKET/$STAGE/src/product-pipeline/src/product-pipeline-embed-text/python/requirements.txt" requirements.txt --region eu-central-1
             - python3 -m venv .venv
             - source .venv/bin/activate
             - python3 -m pip install --upgrade pip
-            - pip install -r requirements.txt
+            - pip install --no-cache-dir -r requirements.txt
 
       - name: PreloadModels
         action: ExecuteBash
