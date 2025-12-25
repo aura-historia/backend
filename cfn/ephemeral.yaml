@@ -3183,5 +3183,20 @@ Outputs:
 
   ProductPipelineInitQueueUrl:
     Value: !Ref ProductPipelineInitQ
-  ProductEnrichmentDeadLetterQueueUrl:
+  ProductPipelineInitDeadLetterQueueUrl:
     Value: !Ref ProductPipelineInitDlq
+
+  ProductPipelineTranslateQueueUrl:
+    Value: !Ref ProductPipelineTranslateQ
+  ProductPipelineTranslateDeadLetterQueueUrl:
+    Value: !Ref ProductPipelineTranslateDlq
+
+  ProductPipelineEmbedTextQueueUrl:
+    Value: !Ref ProductPipelineEmbedTextQ
+  ProductPipelineEmbedTextDeadLetterQueueUrl:
+    Value: !Ref ProductPipelineEmbedTextDlq
+
+  ProductPipelineCompleteQueueUrl:
+    Value: !Ref ProductPipelineCompleteQ
+  ProductPipelineCompleteDeadLetterQueueUrl:
+    Value: !Ref ProductPipelineCompleteDlq
