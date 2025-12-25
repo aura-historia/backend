@@ -8,6 +8,17 @@ parameters:
 phases:
   - name: build
     steps:
+      - name: GrowRootFilesystem
+        action: ExecuteBash
+        inputs:
+          commands:
+            - set -euxo pipefail
+            - lsblk
+            - df -h
+            - growpart /dev/nvme0n1 1
+            - resize2fs /dev/nvme0n1p1
+            - df -h
+
       - name: InstallSystemDeps
         action: ExecuteBash
         inputs:
