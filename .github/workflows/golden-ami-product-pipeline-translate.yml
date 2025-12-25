@@ -3,7 +3,17 @@ name: Build Golden AMI for product-pipeline-translate
 on:
   push:
     branches: [ prod, develop ]
+    paths:
+      - ".github/workflows/golden-ami-product-pipeline-translate.yml"
+      - "cfn/golden-ami.yaml"
+      - "ami/product-pipeline-translate.yml"
+      - "src/product-pipeline/src/product-pipeline-translate/python/**"
   pull_request:
+    paths:
+      - ".github/workflows/golden-ami-product-pipeline-translate.yml"
+      - "cfn/golden-ami.yaml"
+      - "ami/product-pipeline-translate.yml"
+      - "src/product-pipeline/src/product-pipeline-translate/python/**"
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
@@ -86,6 +96,7 @@ jobs:
 
       - name: Deploy Image Builder CloudFormation
         run: |
+          VERSION="$(date -u +'%Y.%m%d.%H%M%S')"
           aws cloudformation deploy \
             --stack-name ${{ env.STAGE }}-imagebuilder-product-pipeline-translate \
             --template-file cfn/golden-ami.yaml \
@@ -93,9 +104,10 @@ jobs:
             --s3-prefix ${{ env.STAGE }} \
             --capabilities CAPABILITY_NAMED_IAM \
             --parameter-overrides \
+                Version=$VERSION \
                 Stage=${{ env.STAGE }} \
                 ImageName="product-pipeline-translate" \
-                ResourceBucket="${{ vars.S3_RESOURCE_ARTIFACTS_BUCKET_NAME }}" \
+                ResourceBucket=${{ vars.S3_RESOURCE_ARTIFACTS_BUCKET_NAME }} \
                 ImageBuilderComponentS3BlobUrl="s3://${{ vars.S3_RESOURCE_ARTIFACTS_BUCKET_NAME }}/${{ env.STAGE }}/ami/product-pipeline-translate.yml" \
                 ParentAmi="{{resolve:ssm:/aws/service/deeplearning/ami/x86_64/oss-nvidia-driver-gpu-pytorch-2.9-ubuntu-24.04/latest/ami-id}}"
 
