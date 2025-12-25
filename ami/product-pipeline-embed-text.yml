@@ -14,7 +14,7 @@ phases:
           commands:
             - set -euxo pipefail
             - apt-get update
-            - apt-get install -y python3 python-pip python-venv awscli
+            - apt-get install -y python3 python3-pip python-venv
 
       - name: ConfigureHFCache
         action: ExecuteBash
