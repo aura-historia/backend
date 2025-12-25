@@ -3,7 +3,17 @@ name: Build Golden AMI for product-pipeline-embed-text
 on:
   push:
     branches: [ prod, develop ]
+    paths:
+      - ".github/workflows/golden-ami-product-pipeline-embed-text.yml"
+      - "cfn/golden-ami.yaml"
+      - "ami/product-pipeline-embed-text.yml"
+      - "src/product-pipeline/src/product-pipeline-embed-text/python/**"
   pull_request:
+    paths:
+      - ".github/workflows/golden-ami-product-pipeline-embed-text.yml"
+      - "cfn/golden-ami.yaml"
+      - "ami/product-pipeline-embed-text.yml"
+      - "src/product-pipeline/src/product-pipeline-embed-text/python/**"
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
