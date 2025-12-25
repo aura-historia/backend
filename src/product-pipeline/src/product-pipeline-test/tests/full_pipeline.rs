@@ -4,7 +4,7 @@ use aws_lambda_events::{
 };
 use fake::{Fake, Faker};
 use product::{
-    core::{product_event::ProductCreatedEventPayload, title::Title},
+    core::product_event::ProductCreatedEventPayload,
     dynamodb::{
         product_event_record::ProductEventRecord, repository::ProductDynamoDbRepositoryImpl,
     },
@@ -50,7 +50,7 @@ const TRANSLATED_Q: Sqs = Sqs {
 const TEXT_EMBEDDED_Q: Sqs = Sqs {
     name: "text-embedded-queue",
 };
-use common::{event::Event, event_id::EventId, localized::Localized, product_id::ProductId};
+use common::{event::Event, event_id::EventId, product_id::ProductId};
 use product::core::product_event::ProductEventPayload;
 use time::OffsetDateTime;
 
