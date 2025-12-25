@@ -3411,6 +3411,7 @@ dependencies = [
  "async-trait",
  "aws-config",
  "aws-sdk-dynamodb",
+ "aws-sdk-sqs",
  "common",
  "fake",
  "mockall",
@@ -3424,6 +3425,7 @@ dependencies = [
  "test-api",
  "tokio",
  "tracing",
+ "tracing-subscriber",
 ]
 
 [[package]]
@@ -3446,6 +3448,7 @@ dependencies = [
  "serial_test",
  "tokio",
  "tracing",
+ "tracing-subscriber",
 ]
 
 [[package]]
@@ -3465,6 +3468,7 @@ dependencies = [
  "serde_json",
  "tokio",
  "tracing",
+ "tracing-subscriber",
 ]
 
 [[package]]
@@ -3523,6 +3527,7 @@ dependencies = [
  "strum_macros",
  "tokio",
  "tracing",
+ "tracing-subscriber",
 ]
 
 [[package]]

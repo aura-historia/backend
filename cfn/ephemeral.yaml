@@ -2436,7 +2436,7 @@ Resources:
       VpcId: !Ref ProductPipelineVpc
       CidrBlock: 10.0.1.0/24
       MapPublicIpOnLaunch: true
-      AvailabilityZone: !Select [ 0, !GetAZs "" ]
+      AvailabilityZone: !Select [0, !GetAZs ""]
       Tags:
         - Key: Name
           Value: "product-pipeline-subnet-a-ephemeral"
@@ -2535,7 +2535,7 @@ Resources:
           Name: !Ref ProductPipelineInitInstanceProfile
         InstanceType: c8g.large
         ImageId: "{{resolve:ssm:/aws/service/ami-amazon-linux-2023-latest/arm64/standard/image_id}}"
-        SecurityGroupIds: [ !Ref ProductPipelineSecurityGroup ]
+        SecurityGroupIds: [!Ref ProductPipelineSecurityGroup]
         BlockDeviceMappings:
           - DeviceName: /dev/sda1
             Ebs:
@@ -2558,8 +2558,8 @@ Resources:
             export STAGE_NAME=${STAGE_NAME}
             export COMMIT_SHA="${CommitSHA}"
             export ARTIFACT_BUCKET="${ArtifactBucket}"
-            export SOURCE_QUEUE="${ProductPipelineInitQ}"
-            export TARGET_QUEUE="${ProductPipelineTranslateQ}"
+            export SOURCE_QUEUE_URL="${ProductPipelineInitQ}"
+            export TARGET_QUEUE_URL="${ProductPipelineTranslateQ}"
             # Download and install binary
             sudo aws s3 cp "s3://${ARTIFACT_BUCKET}/${STAGE_NAME}/${COMMIT_SHA}/product-pipeline-init" /opt/product-pipeline-init --region eu-central-1
             sudo chmod +x /opt/product-pipeline-init
@@ -2575,7 +2575,7 @@ Resources:
                         "log_group_name": "/aws/ec2/$STAGE-product-pipeline-init",
                         "log_stream_name": "{instance_id}",
                         "timestamp_format": "%Y-%m-%dT%H:%M:%S.%f%z",
-                        "timezone": "UTC", 
+                        "timezone": "UTC",
                         "multi_line_start_pattern": "^{"
                       }
                     ]
@@ -2704,7 +2704,7 @@ Resources:
           Name: !Ref ProductPipelineTranslateInstanceProfile
         InstanceType: g6.xlarge # Placeholder - ASG overrides this
         ImageId: "{{resolve:ssm:/amis/${STAGE_NAME}/product-pipeline-translate/latest}}"
-        SecurityGroupIds: [ !Ref ProductPipelineSecurityGroup ]
+        SecurityGroupIds: [!Ref ProductPipelineSecurityGroup]
         BlockDeviceMappings:
           - DeviceName: /dev/sda1
             Ebs:
@@ -2727,8 +2727,8 @@ Resources:
             export STAGE_NAME=${STAGE_NAME}
             export COMMIT_SHA="${CommitSHA}"
             export ARTIFACT_BUCKET="${ArtifactBucket}"
-            export SOURCE_QUEUE="${ProductPipelineTranslateQ}"
-            export TARGET_QUEUE="${ProductPipelineEmbedTextQ}"
+            export SOURCE_QUEUE_URL="${ProductPipelineTranslateQ}"
+            export TARGET_QUEUE_URL="${ProductPipelineEmbedTextQ}"
             # Download and install binary
             sudo aws s3 cp "s3://${ARTIFACT_BUCKET}/${STAGE_NAME}/${COMMIT_SHA}/product-pipeline-translate" /opt/product-pipeline-translate --region eu-central-1
             sudo chmod +x /opt/product-pipeline-translate
@@ -2865,7 +2865,7 @@ Resources:
           Name: !Ref ProductPipelineEmbedTextInstanceProfile
         InstanceType: g6.xlarge # Placeholder - ASG overrides this
         ImageId: "{{resolve:ssm:/amis/${STAGE_NAME}/product-pipeline-embed-text/latest}}"
-        SecurityGroupIds: [ !Ref ProductPipelineSecurityGroup ]
+        SecurityGroupIds: [!Ref ProductPipelineSecurityGroup]
         BlockDeviceMappings:
           - DeviceName: /dev/sda1
             Ebs:
@@ -2888,8 +2888,8 @@ Resources:
             export STAGE_NAME=${STAGE_NAME}
             export COMMIT_SHA="${CommitSHA}"
             export ARTIFACT_BUCKET="${ArtifactBucket}"
-            export SOURCE_QUEUE="${ProductPipelineEmbedTextQ}"
-            export TARGET_QUEUE="${ProductPipelineCompleteQ}"
+            export SOURCE_QUEUE_URL="${ProductPipelineEmbedTextQ}"
+            export TARGET_QUEUE_URL="${ProductPipelineCompleteQ}"
             # Download and install binary
             sudo aws s3 cp "s3://${ARTIFACT_BUCKET}/${STAGE_NAME}/${COMMIT_SHA}/product-pipeline-embed-text" /opt/product-pipeline-embed-text --region eu-central-1
             sudo chmod +x /opt/product-pipeline-embed-text
@@ -3052,7 +3052,7 @@ Resources:
           Name: !Ref ProductPipelineCompleteInstanceProfile
         InstanceType: c8g.large
         ImageId: "{{resolve:ssm:/aws/service/ami-amazon-linux-2023-latest/arm64/standard/image_id}}"
-        SecurityGroupIds: [ !Ref ProductPipelineSecurityGroup ]
+        SecurityGroupIds: [!Ref ProductPipelineSecurityGroup]
         BlockDeviceMappings:
           - DeviceName: /dev/sda1
             Ebs:
@@ -3075,7 +3075,9 @@ Resources:
             export STAGE_NAME=${STAGE_NAME}
             export COMMIT_SHA="${CommitSHA}"
             export ARTIFACT_BUCKET="${ArtifactBucket}"
-            export SOURCE_QUEUE="${ProductPipelineCompleteQ}"
+            export SOURCE_QUEUE_URL="${ProductPipelineCompleteQ}"
+            export DYNAMODB_TABLE_NAME="${TableOne}"
+            export OPENSEARCH_ENDPOINT_URL="https://${OpenSearchDomain.DomainEndpoint}"
             # Download and install binary
             sudo aws s3 cp "s3://${ARTIFACT_BUCKET}/${STAGE_NAME}/${COMMIT_SHA}/product-pipeline-complete" /opt/product-pipeline-complete --region eu-central-1
             sudo chmod +x /opt/product-pipeline-complete
@@ -3091,7 +3093,7 @@ Resources:
                         "log_group_name": "/aws/ec2/$STAGE-product-pipeline-complete",
                         "log_stream_name": "{instance_id}",
                         "timestamp_format": "%Y-%m-%dT%H:%M:%S.%f%z",
-                        "timezone": "UTC", 
+                        "timezone": "UTC",
                         "multi_line_start_pattern": "^{"
                       }
                     ]
@@ -3155,7 +3157,6 @@ Resources:
               Value: !GetAtt ProductPipelineCompleteQ.QueueName
           Statistic: Average
         TargetValue: 0
-
 
   ProductPipelineScaleUpRole:
     Type: AWS::IAM::Role
