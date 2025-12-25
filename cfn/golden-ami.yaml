@@ -20,6 +20,9 @@ Parameters:
   ParentAmi:
     Type: String
     Description: "Parent AMI (AMI ID or SSM dynamic reference)"
+  ResourceBucket:
+    Type: String
+    Description: "S3 bucket containing resources"
 
 Resources:
   Component:
@@ -66,6 +69,9 @@ Resources:
             - Name: Stage
               Value:
                 - !Ref Stage
+            - Name: ResourceBucket
+              Value:
+                - !Ref ResourceBucket
       BlockDeviceMappings:
         - DeviceName: /dev/xvda
           Ebs:

@@ -95,6 +95,7 @@ jobs:
             --parameter-overrides \
                 Stage=${{ env.STAGE }} \
                 ImageName="product-pipeline-embed-text" \
+                ResourceBucket="${{ vars.S3_RESOURCE_ARTIFACTS_BUCKET_NAME }}" \
                 ImageBuilderComponentS3BlobUrl="s3://${{ vars.S3_RESOURCE_ARTIFACTS_BUCKET_NAME }}/${{ env.STAGE }}/ami/product-pipeline-embed-text.yml" \
                 ParentAmi="{{resolve:ssm:/aws/service/deeplearning/ami/x86_64/oss-nvidia-driver-gpu-pytorch-2.9-ubuntu-24.04/latest/ami-id}}"
 

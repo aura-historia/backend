@@ -3,12 +3,141 @@ schemaVersion: 1.0
 parameters:
   - Stage:
       type: string
+  - ResourceBucket:
+      type: string
 phases:
   - name: build
     steps:
-      - name: InstallApp
+      - name: InstallSystemDeps
         action: ExecuteBash
         inputs:
           commands:
-            - echo "Installing foo"
-            - mkdir -p /opt/foo
+            - set -euxo pipefail
+            - apt-get update
+            - apt-get install -y python3 python-pip python-venv awscli
+
+      - name: ConfigureHFCache
+        action: ExecuteBash
+        inputs:
+          commands:
+            - set -euxo pipefail
+            - mkdir -p /opt/huggingface
+            - chmod -R 755 /opt/huggingface
+            - |
+              cat << 'EOF' > /etc/profile.d/huggingface.sh
+              export HF_HOME=/opt/huggingface
+              export TRANSFORMERS_CACHE=/opt/huggingface
+              export SENTENCE_TRANSFORMERS_HOME=/opt/huggingface
+              export HF_HUB_DISABLE_TELEMETRY=1
+              EOF
+
+      - name: InstallPythonDeps
+        action: ExecuteBash
+        inputs:
+          commands:
+            - mkdir -p /opt/product-pipeline-embed-text
+            - chmod 755 /opt/product-pipeline-embed-text
+            - cd /opt/product-pipeline-embed-text
+            - export RESOURCE_BUCKET="{{ ResourceBucket }}"
+            - export STAGE="{{ Stage }}"
+            - aws s3 cp "s3://$RESOURCE_BUCKET/$STAGE/src/product-pipeline/src/product-pipeline-embed-text/python/requirements.txt" requirements.txt --region eu-central-1
+            - python -m venv .venv
+            - source .venv/bin/activate
+            - python -m pip install --upgrade pip
+            - pip install -r requirements.txt
+
+      - name: PreloadModels
+        action: ExecuteBash
+        inputs:
+          commands:
+            - set -euxo pipefail
+            - |
+              export HF_HOME=/opt/huggingface
+              export TRANSFORMERS_CACHE=/opt/huggingface
+              export SENTENCE_TRANSFORMERS_HOME=/opt/huggingface
+              
+              cd /opt/product-pipeline-embed-text
+              source .venv/bin/activate
+              python - << 'EOF'
+              import torch
+              from sentence_transformers import SentenceTransformer
+              SentenceTransformer("BAAI/bge-m3", device="cpu")
+              print("[build] Model preloaded")
+              EOF
+
+      - name: ConfigureSystemdHFEnv
+        action: ExecuteBash
+        inputs:
+          commands:
+            - set -euxo pipefail
+            - mkdir -p /etc/systemd/system.conf.d
+            - |
+              cat << 'EOF' > /etc/systemd/system.conf.d/huggingface.conf
+              [Manager]
+              DefaultEnvironment=HF_HOME=/opt/huggingface
+              DefaultEnvironment=TRANSFORMERS_CACHE=/opt/huggingface
+              DefaultEnvironment=SENTENCE_TRANSFORMERS_HOME=/opt/huggingface
+              DefaultEnvironment=HF_HUB_OFFLINE=1
+              EOF
+
+      - name: SetUpCloudWatchAgentLogging
+        action: ExecuteBash
+        inputs:
+          commands:
+            - set -euxo pipefail
+            - LOG_PATH="/var/log/product-pipeline-embed-text.log"
+            - sudo touch "$LOG_PATH"
+            - sudo chmod 666 "$LOG_PATH"
+            - amazon-cloudwatch-agent-ctl -a fetch-config -m ec2 -c file:/opt/aws/amazon-cloudwatch-agent.json -s
+            - export STAGE="{{ Stage }}"
+            - |
+              cat << EOF | sudo tee /opt/aws/amazon-cloudwatch-agent.json > /dev/null
+              {
+                "logs": {
+                  "logs_collected": {
+                    "files": {
+                      "collect_list": [
+                        {
+                          "file_path": "/var/log/product-pipeline-embed-text.log",
+                          "log_group_name": "/aws/ec2/$STAGE-product-pipeline-embed-text",
+                          "log_stream_name": "{instance_id}",
+                          "timestamp_format": "%Y-%m-%dT%H:%M:%S.%f%z",
+                          "timezone": "UTC", 
+                          "multi_line_start_pattern": "^{"
+                        }
+                      ]
+                    }
+                  }
+                }
+              }
+              EOF
+
+  - name: validate
+    steps:
+      - name: VerifyHFCache
+        action: ExecuteBash
+        inputs:
+          commands:
+            - set -euxo pipefail
+            - echo "Validating Hugging Face cache:"
+            - test -d /opt/huggingface
+            - du -sh /opt/huggingface
+            - find /opt/huggingface -maxdepth 3 -type d
+
+      - name: VerifyModelLoadsOffline
+        action: ExecuteBash
+        inputs:
+          commands:
+            - set -euxo pipefail
+            - |
+              export HF_HOME=/opt/huggingface
+              export TRANSFORMERS_CACHE=/opt/huggingface
+              export SENTENCE_TRANSFORMERS_HOME=/opt/huggingface
+              export HF_HUB_OFFLINE=1
+              cd /opt/product-pipeline-embed-text
+              source .venv/bin/activate
+              python - << 'EOF'
+              from sentence_transformers import SentenceTransformer
+              SentenceTransformer("BAAI/bge-m3")
+              print("[validate] Model loads offline")
+              EOF
