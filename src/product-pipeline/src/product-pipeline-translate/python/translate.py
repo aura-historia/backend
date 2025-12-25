@@ -149,3 +149,18 @@ def translate_batch(texts: List[str], src: str, tgt: str) -> List[str]:
         translations.append(decoded)
 
     return translations
+
+if __name__ == '__main__':
+    print('Dummy-translate from all source languages to all target languages to preload and build ctranslate2-models')
+    translate("foo", "de", "en")
+    translate("foo", "de", "fr")
+    translate("foo", "de", "es")
+    translate("foo", "en", "de")
+    translate("foo", "en", "fr")
+    translate("foo", "en", "es")
+    translate("foo", "fr", "de")
+    translate("foo", "fr", "en")
+    translate("foo", "fr", "es")
+    translate("foo", "es", "de")
+    translate("foo", "es", "en")
+    translate("foo", "es", "fr")

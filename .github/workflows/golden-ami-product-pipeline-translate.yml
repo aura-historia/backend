@@ -58,6 +58,7 @@ jobs:
       matrix:
         resource:
           - src/product-pipeline/src/product-pipeline-translate/python/requirements.txt
+          - src/product-pipeline/src/product-pipeline-translate/python/translate.py
           - ami/product-pipeline-translate.yml
     steps:
       - uses: actions/checkout@v6
