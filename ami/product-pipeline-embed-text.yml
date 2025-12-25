@@ -14,7 +14,7 @@ phases:
           commands:
             - set -euxo pipefail
             - apt-get update
-            - apt-get install -y python3 python3-pip python-venv
+            - apt-get install -y python3 python3-pip python3-venv
 
       - name: ConfigureHFCache
         action: ExecuteBash
@@ -41,9 +41,9 @@ phases:
             - export RESOURCE_BUCKET="{{ ResourceBucket }}"
             - export STAGE="{{ Stage }}"
             - aws s3 cp "s3://$RESOURCE_BUCKET/$STAGE/src/product-pipeline/src/product-pipeline-embed-text/python/requirements.txt" requirements.txt --region eu-central-1
-            - python -m venv .venv
+            - python3 -m venv .venv
             - source .venv/bin/activate
-            - python -m pip install --upgrade pip
+            - python3 -m pip install --upgrade pip
             - pip install -r requirements.txt
 
       - name: PreloadModels
@@ -58,7 +58,7 @@ phases:
               
               cd /opt/product-pipeline-embed-text
               source .venv/bin/activate
-              python - << 'EOF'
+              python3 - << 'EOF'
               import torch
               from sentence_transformers import SentenceTransformer
               SentenceTransformer("BAAI/bge-m3", device="cpu")
@@ -136,7 +136,7 @@ phases:
               export HF_HUB_OFFLINE=1
               cd /opt/product-pipeline-embed-text
               source .venv/bin/activate
-              python - << 'EOF'
+              python3 - << 'EOF'
               from sentence_transformers import SentenceTransformer
               SentenceTransformer("BAAI/bge-m3")
               print("[validate] Model loads offline")
