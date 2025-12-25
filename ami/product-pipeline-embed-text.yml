@@ -8,27 +8,50 @@ parameters:
 phases:
   - name: build
     steps:
-      - name: SetupBuildVolume
+      - name: ExpandAndBindHeavyDirs
         action: ExecuteBash
         inputs:
           commands:
             - set -euxo pipefail
             - lsblk
             - df -h
+            # Format new volume if needed
             - |
               if ! blkid /dev/nvme1n1; then
                 mkfs.ext4 /dev/nvme1n1
               fi
-            - mkdir -p /opt
-            - mount /dev/nvme1n1 /opt
+            - mkdir -p /mnt/data
+            - mount /dev/nvme1n1 /mnt/data
             - |
               grep -q nvme1n1 /etc/fstab || echo \
-              "/dev/nvme1n1 /opt ext4 defaults,nofail 0 2" >> /etc/fstab
-            - df -h
-            - cat <<EOF >/etc/profile.d/pip-opt.sh
-              export PIP_CACHE_DIR=/opt/pip-cache
-              export TMPDIR=/opt/tmp
+              "/dev/nvme1n1 /mnt/data ext4 defaults,nofail 0 2" >> /etc/fstab
+            - |
+              # Create heavy directories on new volume
+              for d in opt usr/local var/tmp tmp root/.cache; do
+                mkdir -p /mnt/data/$d
+              done
+            # Move existing content to new volume
+            - |
+              rsync -aXS /opt/        /mnt/data/opt/
+              rsync -aXS /usr/local/  /mnt/data/usr/local/
+              rsync -aXS /var/tmp/    /mnt/data/var/tmp/
+              rsync -aXS /tmp/        /mnt/data/tmp/
+              rsync -aXS /root/.cache /mnt/data/root/.cache/
+            # Bind-mount them back
+            - |
+              for d in opt usr/local var/tmp tmp root/.cache; do
+                mount --bind /mnt/data/$d /$d
+              done
+            # Persist bind mounts
+            - |
+              cat << 'EOF' >> /etc/fstab
+              /mnt/data/opt         /opt         none bind 0 0
+              /mnt/data/usr/local   /usr/local   none bind 0 0
+              /mnt/data/var/tmp     /var/tmp     none bind 0 0
+              /mnt/data/tmp         /tmp         none bind 0 0
+              /mnt/data/root/.cache /root/.cache none bind 0 0
               EOF
+            - df -h
 
       - name: InstallSystemDeps
         action: ExecuteBash
@@ -36,7 +59,7 @@ phases:
           commands:
             - set -euxo pipefail
             - apt-get update
-            - apt-get install -y python3 python3-pip python3-venv
+            - apt-get install -y python3 python3-pip python3-venv build-essential
 
       - name: ConfigureHFCache
         action: ExecuteBash
@@ -60,8 +83,6 @@ phases:
             - mkdir -p /opt/product-pipeline-embed-text
             - chmod 755 /opt/product-pipeline-embed-text
             - cd /opt/product-pipeline-embed-text
-            - export PIP_CACHE_DIR=/opt/pip-cache
-            - export TMPDIR=/opt/tmp
             - export RESOURCE_BUCKET="{{ ResourceBucket }}"
             - export STAGE="{{ Stage }}"
             - aws s3 cp "s3://$RESOURCE_BUCKET/$STAGE/src/product-pipeline/src/product-pipeline-embed-text/python/requirements.txt" requirements.txt --region eu-central-1
