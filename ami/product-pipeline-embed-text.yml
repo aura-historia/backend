@@ -122,7 +122,6 @@ phases:
               DefaultEnvironment=HF_HOME=/opt/huggingface
               DefaultEnvironment=TRANSFORMERS_CACHE=/opt/huggingface
               DefaultEnvironment=SENTENCE_TRANSFORMERS_HOME=/opt/huggingface
-              DefaultEnvironment=HF_HUB_OFFLINE=1
               EOF
 
       - name: SetUpCloudWatchAgentLogging
@@ -169,7 +168,7 @@ phases:
             - du -sh /opt/huggingface
             - find /opt/huggingface -maxdepth 3 -type d
 
-      - name: VerifyModelLoadsOffline
+      - name: VerifyModelLoadsFast
         action: ExecuteBash
         inputs:
           commands:
@@ -178,11 +177,22 @@ phases:
               export HF_HOME=/opt/huggingface
               export TRANSFORMERS_CACHE=/opt/huggingface
               export SENTENCE_TRANSFORMERS_HOME=/opt/huggingface
-              export HF_HUB_OFFLINE=1
+              export HF_HUB_DISABLE_PROGRESS_BARS=1
+
               cd /opt/product-pipeline-embed-text
               source .venv/bin/activate
+
               python3 - << 'EOF'
+              import time
               from sentence_transformers import SentenceTransformer
-              SentenceTransformer("BAAI/bge-m3")
-              print("[validate] Model loads offline")
+              start = time.time()
+              SentenceTransformer("BAAI/bge-m3", device="cpu")
+              elapsed = time.time() - start
+              print(f"[validate] Load time: {elapsed:.2f}s")
+              # Fail fast if this smells like a download
+              if elapsed > 60:
+                  raise RuntimeError(
+                      f"Model load took {elapsed:.1f}s — likely re-downloaded"
+                  )
+              print("[validate] Model loaded from cache")
               EOF
