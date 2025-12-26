@@ -1,4 +1,5 @@
 use aws_config::BehaviorVersion;
+use opensearch::http::response::Response;
 use product::{
     dynamodb::repository::ProductDynamoDbRepositoryImpl,
     opensearch::repository::ProductOpenSearchRepositoryImpl,
@@ -11,6 +12,8 @@ use product_pipeline_common::{
 use product_pipeline_complete::{
     flow_out::PersistDynamoDbOpenSearchPipeFlowOutImpl, process::CompleterPipeProcessorImpl,
 };
+use serde_json::json;
+use tracing::info;
 
 #[tokio::main]
 async fn main() {
@@ -38,6 +41,27 @@ async fn main() {
         ProductDynamoDbRepositoryImpl::new(&dynamodb, &dynamodb_table_name);
     let product_opensearch_repository = ProductOpenSearchRepositoryImpl::new(&opensearch);
 
+    let _ = opensearch
+        .indices()
+        .put_settings(opensearch::indices::IndicesPutSettingsParts::Index(&[
+            "products",
+        ]))
+        .body(json!({
+            "index": {
+                "refresh_interval": "-1"
+            }
+        }))
+        .send()
+        .await
+        .map(Response::error_for_status_code)
+        .expect("shouldn't fail setting refresh-interval to '-1'")
+        .expect("shouldn't convert status-code to error as response is expected to be 2xx");
+    info!(
+        index = "products",
+        refreshInterval = "-1",
+        "Updated refresh-interval."
+    );
+
     let complete_flow_in = PipeFlowInImpl::new(&sqs, &source_queue_url);
     let complete_processor = CompleterPipeProcessorImpl();
     let complete_flow_out = PersistDynamoDbOpenSearchPipeFlowOutImpl::new(
@@ -60,4 +84,25 @@ async fn main() {
         &complete_flow_out,
     );
     complete_pipe.pipe().await;
+
+    let _ = opensearch
+        .indices()
+        .put_settings(opensearch::indices::IndicesPutSettingsParts::Index(&[
+            "products",
+        ]))
+        .body(json!({
+            "index": {
+                "refresh_interval": "5m"
+            }
+        }))
+        .send()
+        .await
+        .map(Response::error_for_status_code)
+        .expect("shouldn't fail setting refresh-interval to '5m'")
+        .expect("shouldn't convert status-code to error as response is expected to be 2xx");
+    info!(
+        index = "products",
+        refreshInterval = "5m",
+        "Updated refresh-interval."
+    );
 }

@@ -114,7 +114,6 @@ Located in various directories:
 
 **Product Pipeline Lambda Functions** (`src/product-pipeline/src/`):
 - `product-pipeline-asg-scale-up`: Scale up Auto Scaling Group for pipeline
-- `product-pipeline-asg-scale-down`: Scale down Auto Scaling Group after pipeline
 
 **Cognito Lambda Functions**:
 - `cognito-post-confirmation`: Handle Cognito user post-confirmation trigger (`src/cognito-post-confirmation`)

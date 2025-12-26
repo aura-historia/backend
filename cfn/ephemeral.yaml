@@ -3181,14 +3181,6 @@ Resources:
                   - autoscaling:UpdateAutoScalingGroup
                   - autoscaling:DescribeAutoScalingGroups
                 Resource: !Sub "arn:aws:autoscaling:${AWS::Region}:${AWS::AccountId}:autoScalingGroup:*:autoScalingGroupName/${ProductPipelineInitASG}"
-        - PolicyName: OpenSearchAccess
-          PolicyDocument:
-            Version: "2012-10-17"
-            Statement:
-              - Effect: Allow
-                Action:
-                  - es:*
-                Resource: !Sub "arn:aws:es:${AWS::Region}:${AWS::AccountId}:domain/application-ephemeral/*"
   ProductPipelineInitScaleUpLambda:
     Type: AWS::Lambda::Function
     Properties:
@@ -3207,7 +3199,6 @@ Resources:
         Variables:
           STAGE: "dev"
           PRODUCT_ENRICHMENT_ASG_NAME: !Ref ProductPipelineInitASG
-          OPENSEARCH_ENDPOINT_URL: !Sub "https://${OpenSearchDomain.DomainEndpoint}"
   ProductPipelineInitScaleUpStartSchedule:
     Type: AWS::Events::Rule
     Properties:

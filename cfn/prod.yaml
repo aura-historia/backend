@@ -2289,14 +2289,6 @@ Resources:
       ManagedPolicyArns:
         - arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole
       Policies:
-        - PolicyName: OpenSearchAccess
-          PolicyDocument:
-            Version: "2012-10-17"
-            Statement:
-              - Effect: Allow
-                Action:
-                  - es:*
-                Resource: !Sub "arn:aws:es:${AWS::Region}:${AWS::AccountId}:domain/application-prod/*"
         - PolicyName: SQSPollerAccess
           PolicyDocument:
             Version: "2012-10-17"
@@ -2402,14 +2394,6 @@ Resources:
       ManagedPolicyArns:
         - arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole
       Policies:
-        - PolicyName: OpenSearchAccess
-          PolicyDocument:
-            Version: "2012-10-17"
-            Statement:
-              - Effect: Allow
-                Action:
-                  - es:*
-                Resource: !Sub "arn:aws:es:${AWS::Region}:${AWS::AccountId}:domain/application-prod/*"
         - PolicyName: SQSPollerAccess
           PolicyDocument:
             Version: "2012-10-17"
@@ -3016,14 +3000,6 @@ Resources:
                 Resource:
                   - !GetAtt TableOne.Arn
                   - !Sub "${TableOne.Arn}/index/*"
-        - PolicyName: OpenSearchAccess
-          PolicyDocument:
-            Version: "2012-10-17"
-            Statement:
-              - Effect: Allow
-                Action:
-                  - es:*
-                Resource: !Sub "arn:aws:es:${AWS::Region}:${AWS::AccountId}:domain/application-prod/*"
         - PolicyName: SQSPollerAccess
           PolicyDocument:
             Version: "2012-10-17"
@@ -3175,96 +3151,6 @@ Resources:
       AlarmActions:
         - !Ref AlarmNotificationTopic
 
-  ProductEnrichmentScaleDownRole:
-    Type: AWS::IAM::Role
-    Properties:
-      RoleName: "product-enrichment-asg-scale-down-role-prod"
-      AssumeRolePolicyDocument:
-        Version: "2012-10-17"
-        Statement:
-          - Effect: Allow
-            Principal:
-              Service: lambda.amazonaws.com
-            Action: sts:AssumeRole
-      ManagedPolicyArns:
-        - arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole
-      Policies:
-        - PolicyName: ScaleDownASG
-          PolicyDocument:
-            Version: "2012-10-17"
-            Statement:
-              - Effect: Allow
-                Action:
-                  - autoscaling:UpdateAutoScalingGroup
-                  - autoscaling:DescribeAutoScalingGroups
-                Resource: !Sub "arn:aws:autoscaling:${AWS::Region}:${AWS::AccountId}:autoScalingGroup:*:autoScalingGroupName/${ProductEnrichmentASG}"
-        - PolicyName: OpenSearchAccess
-          PolicyDocument:
-            Version: "2012-10-17"
-            Statement:
-              - Effect: Allow
-                Action:
-                  - es:*
-                Resource: !Sub "arn:aws:es:${AWS::Region}:${AWS::AccountId}:domain/application-prod/*"
-  ProductEnrichmentScaleDownLambda:
-    Type: AWS::Lambda::Function
-    Properties:
-      FunctionName: "product-enrichment-asg-scale-down-prod"
-      Runtime: provided.al2023
-      Handler: lib.handler
-      Role: !GetAtt ProductEnrichmentScaleDownRole.Arn
-      Code:
-        S3Bucket: !Ref ArtifactBucket
-        S3Key: !Sub "product-enrichment-asg-scale-down-prod-${CommitSHA}.zip"
-      MemorySize: 128
-      Timeout: 60
-      EphemeralStorage:
-        Size: 512
-      Environment:
-        Variables:
-          PRODUCT_ENRICHMENT_ASG_NAME: !Ref ProductEnrichmentASG
-          OPENSEARCH_ENDPOINT_URL: !Ref OpenSearchEndpointUrl
-          STAGE: "prod"
-          OPENSEARCH_USERNAME: !Ref OpenSearchUsername
-          OPENSEARCH_PASSWORD: !Ref OpenSearchPassword
-  ProductEnrichmentScaleDownStartSchedule:
-    Type: AWS::Events::Rule
-    Properties:
-      ScheduleExpression: "cron(0 3 * * ? *)" # every day at 03:00 UTC
-      Targets:
-        - Arn: !GetAtt ProductEnrichmentScaleDownLambda.Arn
-          Id: "ProductEnrichmentScaleDownStartSchedule"
-          RetryPolicy:
-            MaximumRetryAttempts: 5
-            MaximumEventAgeInSeconds: 3600
-          DeadLetterConfig:
-            Arn: !GetAtt ProductEnrichmentDlq.Arn
-  ProductEnrichmentScaleDownStartSchedulePermission:
-    Type: AWS::Lambda::Permission
-    Properties:
-      FunctionName: !Ref ProductEnrichmentScaleDownLambda
-      Action: "lambda:InvokeFunction"
-      Principal: "events.amazonaws.com"
-      SourceArn: !GetAtt ProductEnrichmentScaleDownStartSchedule.Arn
-  ProductEnrichmentScaleDownLambdaErrorAlarm:
-    Type: AWS::CloudWatch::Alarm
-    Properties:
-      AlarmName: "prod-product-enrichment-asg-scale-down-lambda-errors"
-      AlarmDescription: "Alarm when product-enrichment-asg-scale-down Lambda has errors"
-      MetricName: Errors
-      Namespace: AWS/Lambda
-      Statistic: Sum
-      Period: 300
-      EvaluationPeriods: 1
-      Threshold: 1
-      ComparisonOperator: GreaterThanOrEqualToThreshold
-      Dimensions:
-        - Name: FunctionName
-          Value: !Ref ProductEnrichmentScaleDownLambda
-      TreatMissingData: notBreaching
-      AlarmActions:
-        - !Ref AlarmNotificationTopic
-
   ProductEnrichmentScaleUpRole:
     Type: AWS::IAM::Role
     Properties:
@@ -3288,14 +3174,6 @@ Resources:
                   - autoscaling:UpdateAutoScalingGroup
                   - autoscaling:DescribeAutoScalingGroups
                 Resource: !Sub "arn:aws:autoscaling:${AWS::Region}:${AWS::AccountId}:autoScalingGroup:*:autoScalingGroupName/${ProductEnrichmentASG}"
-        - PolicyName: OpenSearchAccess
-          PolicyDocument:
-            Version: "2012-10-17"
-            Statement:
-              - Effect: Allow
-                Action:
-                  - es:*
-                Resource: !Sub "arn:aws:es:${AWS::Region}:${AWS::AccountId}:domain/application-prod/*"
   ProductEnrichmentScaleUpLambda:
     Type: AWS::Lambda::Function
     Properties:
@@ -3313,10 +3191,7 @@ Resources:
       Environment:
         Variables:
           PRODUCT_ENRICHMENT_ASG_NAME: !Ref ProductEnrichmentASG
-          OPENSEARCH_ENDPOINT_URL: !Ref OpenSearchEndpointUrl
           STAGE: "prod"
-          OPENSEARCH_USERNAME: !Ref OpenSearchUsername
-          OPENSEARCH_PASSWORD: !Ref OpenSearchPassword
   ProductEnrichmentScaleUpStartSchedule:
     Type: AWS::Events::Rule
     Properties:

@@ -2,7 +2,7 @@ name: CI/CD
 
 on:
   push:
-    branches: [ prod, develop ]
+    branches: [prod, develop]
   pull_request:
 
 concurrency:
@@ -235,7 +235,7 @@ jobs:
 
   sonar:
     name: SonarQube-Cloud Analysis
-    needs: [ unit-test, integration-test, test-product-pipeline ]
+    needs: [unit-test, integration-test, test-product-pipeline]
     if: github.actor != 'dependabot[bot]'
     permissions:
       contents: read
@@ -287,7 +287,7 @@ jobs:
 
   aws-push-lambda:
     name: Push Lambda to S3 ${{ matrix.crate }}
-    needs: [ unit-test, integration-test, test-product-pipeline ]
+    needs: [unit-test, integration-test, test-product-pipeline]
     environment:
       name: ${{ github.event_name == 'pull_request' && 'aws-ephemeral' || github.ref == 'refs/heads/prod' && 'aws-prod' || github.ref == 'refs/heads/develop' && 'aws-dev' }}
     runs-on: ubuntu-latest
@@ -310,7 +310,6 @@ jobs:
           - src/product-api/src/product-api-watchlist-get
           - src/product-api/src/product-api-watchlist-post
           - src/product-api/src/product-api-watchlist-patch
-          - src/product-pipeline/src/product-pipeline-asg-scale-down
           - src/product-pipeline/src/product-pipeline-asg-scale-up
           - src/product-lambda/src/product-lambda-ingest-events-dynamodb
           - src/product-lambda/src/product-lambda-materialize-dynamodb-new
@@ -386,11 +385,10 @@ jobs:
             --key "$BIN_NAME-${{ env.STAGE_NAME }}-${GITHUB_SHA}.zip" \
             --body "$GITHUB_WORKSPACE/artifacts/$BIN_NAME-${{ env.STAGE_NAME }}-${GITHUB_SHA}.zip" \
             --tagging "stage=${{ env.STAGE }}"
-  
 
   aws-push-ec2-x86:
     name: Push EC2 to S3 ${{ matrix.crate }}
-    needs: [ unit-test, integration-test, test-product-pipeline ]
+    needs: [unit-test, integration-test, test-product-pipeline]
     environment:
       name: ${{ github.event_name == 'pull_request' && 'aws-ephemeral' || github.ref == 'refs/heads/prod' && 'aws-prod' || github.ref == 'refs/heads/develop' && 'aws-dev' }}
     runs-on: ubuntu-24.04
@@ -440,11 +438,10 @@ jobs:
             --key "${{ env.STAGE_NAME }}/${GITHUB_SHA}/$BIN_NAME" \
             --body "$GITHUB_WORKSPACE/artifacts/$BIN_NAME-${{ env.STAGE_NAME }}-${GITHUB_SHA}" \
             --tagging "stage=${{ env.STAGE }}"
-  
 
   aws-push-ec2-arm64:
     name: Push EC2 to S3 ${{ matrix.crate }}
-    needs: [ unit-test, integration-test, test-product-pipeline ]
+    needs: [unit-test, integration-test, test-product-pipeline]
     environment:
       name: ${{ github.event_name == 'pull_request' && 'aws-ephemeral' || github.ref == 'refs/heads/prod' && 'aws-prod' || github.ref == 'refs/heads/develop' && 'aws-dev' }}
     runs-on: ubuntu-24.04-arm
@@ -494,11 +491,10 @@ jobs:
             --key "${{ env.STAGE_NAME }}/${GITHUB_SHA}/$BIN_NAME" \
             --body "$GITHUB_WORKSPACE/artifacts/$BIN_NAME-${{ env.STAGE_NAME }}-${GITHUB_SHA}" \
             --tagging "stage=${{ env.STAGE }}"
-  
 
   aws-push-mail-templates:
     name: Compile & push Mail-Templates to S3 ${{ matrix.resource }}
-    needs: [ unit-test, integration-test, test-product-pipeline ]
+    needs: [unit-test, integration-test, test-product-pipeline]
     environment:
       name: ${{ github.event_name == 'pull_request' && 'aws-ephemeral' || github.ref == 'refs/heads/prod' && 'aws-prod' || github.ref == 'refs/heads/develop' && 'aws-dev' }}
     runs-on: ubuntu-latest
@@ -555,12 +551,7 @@ jobs:
   aws-cfn-deploy:
     name: Deploy & initialize CFN-Stack
     needs:
-      [
-        cfn-lint,
-        aws-push-lambda,
-        aws-push-ec2-x86,
-        aws-push-mail-templates,
-      ]
+      [cfn-lint, aws-push-lambda, aws-push-ec2-x86, aws-push-mail-templates]
     environment:
       name: ${{ github.event_name == 'pull_request' && 'aws-ephemeral' || github.ref == 'refs/heads/prod' && 'aws-prod' || github.ref == 'refs/heads/develop' && 'aws-dev' }}
     runs-on: ubuntu-latest

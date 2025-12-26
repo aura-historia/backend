@@ -254,6 +254,29 @@ dependencies = [
 ]
 
 [[package]]
+name = "aws-sdk-autoscaling"
+version = "1.104.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "d57f8e968bf6420e6e9fe3a3792bb551d907c4dc4c6447d3fc627c0f33d09d05"
+dependencies = [
+ "aws-credential-types",
+ "aws-runtime",
+ "aws-smithy-async",
+ "aws-smithy-http",
+ "aws-smithy-json",
+ "aws-smithy-query",
+ "aws-smithy-runtime",
+ "aws-smithy-runtime-api",
+ "aws-smithy-types",
+ "aws-smithy-xml",
+ "aws-types",
+ "fastrand",
+ "http 0.2.12",
+ "regex-lite",
+ "tracing",
+]
+
+[[package]]
 name = "aws-sdk-cognitoidentityprovider"
 version = "1.97.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3374,12 +3397,30 @@ dependencies = [
 name = "product-pipeline"
 version = "0.1.0"
 dependencies = [
+ "product-pipeline-asg-scale-up",
  "product-pipeline-common",
  "product-pipeline-complete",
  "product-pipeline-embed-text",
  "product-pipeline-init",
  "product-pipeline-test",
  "product-pipeline-translate",
+]
+
+[[package]]
+name = "product-pipeline-asg-scale-up"
+version = "0.1.0"
+dependencies = [
+ "aws-config",
+ "aws-sdk-autoscaling",
+ "common",
+ "lambda_runtime",
+ "opensearch",
+ "rstest",
+ "serde",
+ "serde_json",
+ "tokio",
+ "tracing",
+ "tracing-subscriber",
 ]
 
 [[package]]

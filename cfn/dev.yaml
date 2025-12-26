@@ -2379,7 +2379,7 @@ Resources:
       VpcId: !Ref ProductPipelineVpc
       CidrBlock: 10.0.1.0/24
       MapPublicIpOnLaunch: true
-      AvailabilityZone: !Select [ 0, !GetAZs "" ]
+      AvailabilityZone: !Select [0, !GetAZs ""]
       Tags:
         - Key: Name
           Value: "product-pipeline-subnet-a-dev"
@@ -2478,7 +2478,7 @@ Resources:
           Name: !Ref ProductPipelineInitInstanceProfile
         InstanceType: c8g.large
         ImageId: "{{resolve:ssm:/aws/service/ami-amazon-linux-2023-latest/arm64/standard/image_id}}"
-        SecurityGroupIds: [ !Ref ProductPipelineSecurityGroup ]
+        SecurityGroupIds: [!Ref ProductPipelineSecurityGroup]
         BlockDeviceMappings:
           - DeviceName: /dev/sda1
             Ebs:
@@ -2611,7 +2611,7 @@ Resources:
           Name: !Ref ProductPipelineTranslateInstanceProfile
         InstanceType: g6.xlarge # Placeholder - ASG overrides this
         ImageId: "{{resolve:ssm:/amis/${STAGE_NAME}/product-pipeline-translate/latest}}"
-        SecurityGroupIds: [ !Ref ProductPipelineSecurityGroup ]
+        SecurityGroupIds: [!Ref ProductPipelineSecurityGroup]
         BlockDeviceMappings:
           - DeviceName: /dev/sda1
             Ebs:
@@ -2758,7 +2758,7 @@ Resources:
           Name: !Ref ProductPipelineEmbedTextInstanceProfile
         InstanceType: g6.xlarge # Placeholder - ASG overrides this
         ImageId: "{{resolve:ssm:/amis/${STAGE_NAME}/product-pipeline-embed-text/latest}}"
-        SecurityGroupIds: [ !Ref ProductPipelineSecurityGroup ]
+        SecurityGroupIds: [!Ref ProductPipelineSecurityGroup]
         BlockDeviceMappings:
           - DeviceName: /dev/sda1
             Ebs:
@@ -2813,19 +2813,19 @@ Resources:
       HealthCheckType: EC2
       HealthCheckGracePeriod: 120
   ProductPipelineEmbedTextQueueDepthScalingPolicy:
-      Type: AWS::AutoScaling::ScalingPolicy
-      Properties:
-          AutoScalingGroupName: !Ref ProductPipelineEmbedTextASG
-          PolicyType: TargetTrackingScaling
-          TargetTrackingConfiguration:
-              CustomizedMetricSpecification:
-                  Namespace: AWS/SQS
-                  MetricName: ApproximateNumberOfMessagesVisible
-                  Dimensions:
-                      - Name: QueueName
-                        Value: !GetAtt ProductPipelineEmbedTextQ.QueueName
-                  Statistic: Average
-              TargetValue: 1
+    Type: AWS::AutoScaling::ScalingPolicy
+    Properties:
+      AutoScalingGroupName: !Ref ProductPipelineEmbedTextASG
+      PolicyType: TargetTrackingScaling
+      TargetTrackingConfiguration:
+        CustomizedMetricSpecification:
+          Namespace: AWS/SQS
+          MetricName: ApproximateNumberOfMessagesVisible
+          Dimensions:
+            - Name: QueueName
+              Value: !GetAtt ProductPipelineEmbedTextQ.QueueName
+          Statistic: Average
+        TargetValue: 1
 
   ProductPipelineCompleteDlq:
     Type: AWS::SQS::Queue
@@ -2923,7 +2923,7 @@ Resources:
           Name: !Ref ProductPipelineCompleteInstanceProfile
         InstanceType: c8g.large
         ImageId: "{{resolve:ssm:/aws/service/ami-amazon-linux-2023-latest/arm64/standard/image_id}}"
-        SecurityGroupIds: [ !Ref ProductPipelineSecurityGroup ]
+        SecurityGroupIds: [!Ref ProductPipelineSecurityGroup]
         BlockDeviceMappings:
           - DeviceName: /dev/sda1
             Ebs:
@@ -2992,7 +2992,6 @@ Resources:
           Statistic: Average
         TargetValue: 1
 
-
   ProductPipelineScaleUpRole:
     Type: AWS::IAM::Role
     Properties:
@@ -3034,9 +3033,6 @@ Resources:
         Variables:
           STAGE: "dev"
           PRODUCT_ENRICHMENT_ASG_NAME: !Ref ProductPipelineInitASG
-          OPENSEARCH_ENDPOINT_URL: !Ref OpenSearchEndpointUrl
-          OPENSEARCH_USERNAME: !Ref OpenSearchUsername
-          OPENSEARCH_PASSWORD: !Ref OpenSearchPassword
   ProductPipelineInitScaleUpStartSchedule:
     Type: AWS::Events::Rule
     Properties:

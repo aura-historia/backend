@@ -20,15 +20,13 @@ async fn main() -> Result<(), Error> {
     let autoscaling_client = aws_sdk_autoscaling::Client::new(&aws_config);
     let asg_name = std::env::var("PRODUCT_ENRICHMENT_ASG_NAME")?;
 
-    let opensearch_client = common::opensearch::client::load_client().await?;
-
     info!(
         asgName = asg_name,
         "Lambda cold start completed, client initialized."
     );
 
     run(service_fn(|event: LambdaEvent<serde_json::Value>| async {
-        handler(&autoscaling_client, &opensearch_client, &asg_name, event).await
+        handler(&autoscaling_client, &asg_name, event).await
     }))
     .await
 }
