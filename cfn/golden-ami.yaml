@@ -89,7 +89,7 @@ Resources:
       Name: !Sub "${Stage}-image-builder-infra-${ImageName}"
       InstanceProfileName: !Ref ImageBuilderInstanceProfile
       InstanceTypes:
-        - t3.medium
+        - c6i.large
       TerminateInstanceOnFailure: true
       Tags:
         Stage: !Ref Stage
