@@ -48,13 +48,26 @@ Resources:
             Principal:
               Service:
                 - ec2.amazonaws.com
-                - imagebuilder.amazonaws.com
             Action: sts:AssumeRole
       ManagedPolicyArns:
-        - arn:aws:iam::aws:policy/service-role/AmazonEC2RoleforSSM
         - arn:aws:iam::aws:policy/AmazonSSMManagedInstanceCore
         - arn:aws:iam::aws:policy/EC2InstanceProfileForImageBuilder
         - arn:aws:iam::aws:policy/AmazonS3ReadOnlyAccess
+      Policies:
+        - PolicyName: ImageBuilderSSMRegistration
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: Allow
+                Action:
+                  - ssm:RegisterManagedInstance
+                  - ssm:UpdateInstanceInformation
+                  - ssm:DescribeInstanceInformation
+                  - ssm:CreateActivation
+                  - ssm:PutInventory
+                  - ssm:PutComplianceItems
+                  - ssm:UpdateInstanceAssociationStatus
+                Resource: "*"
   ImageBuilderInstanceProfile:
     Type: AWS::IAM::InstanceProfile
     Properties:
