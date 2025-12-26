@@ -2703,7 +2703,7 @@ Resources:
         IamInstanceProfile:
           Name: !Ref ProductPipelineTranslateInstanceProfile
         InstanceType: g6.xlarge # Placeholder - ASG overrides this
-        ImageId: "{{resolve:ssm:/amis/${StageName}/product-pipeline-translate/latest}}"
+        ImageId: !Sub "{{resolve:ssm:/amis/${StageName}/product-pipeline-translate/latest}}"
         SecurityGroupIds: [!Ref ProductPipelineSecurityGroup]
         BlockDeviceMappings:
           - DeviceName: /dev/sda1
@@ -2864,7 +2864,7 @@ Resources:
         IamInstanceProfile:
           Name: !Ref ProductPipelineEmbedTextInstanceProfile
         InstanceType: g6.xlarge # Placeholder - ASG overrides this
-        ImageId: "{{resolve:ssm:/amis/${StageName}/product-pipeline-embed-text/latest}}"
+        ImageId: !Sub "{{resolve:ssm:/amis/${StageName}/product-pipeline-embed-text/latest}}"
         SecurityGroupIds: [!Ref ProductPipelineSecurityGroup]
         BlockDeviceMappings:
           - DeviceName: /dev/sda1
