@@ -2534,7 +2534,7 @@ Resources:
         IamInstanceProfile:
           Name: !Ref ProductPipelineInitInstanceProfile
         InstanceType: c8g.large
-        ImageId: !Sub "{{resolve:ssm:/aws/service/ami-amazon-linux-2023-latest/arm64/standard/image_id}}"
+        ImageId: "{{resolve:ssm:/aws/service/ami-amazon-linux-2023-latest/arm64/standard/image_id}}"
         SecurityGroupIds: [!Ref ProductPipelineSecurityGroup]
         BlockDeviceMappings:
           - DeviceName: /dev/sda1
@@ -2703,7 +2703,7 @@ Resources:
         IamInstanceProfile:
           Name: !Ref ProductPipelineTranslateInstanceProfile
         InstanceType: g6.xlarge # Placeholder - ASG overrides this
-        ImageId: !Sub "{{resolve:ssm:/amis/${StageName}/product-pipeline-translate/latest}}"
+        ImageId: "{{resolve:ssm:/amis/${StageName}/product-pipeline-translate/latest}}"
         SecurityGroupIds: [!Ref ProductPipelineSecurityGroup]
         BlockDeviceMappings:
           - DeviceName: /dev/sda1
@@ -2864,7 +2864,7 @@ Resources:
         IamInstanceProfile:
           Name: !Ref ProductPipelineEmbedTextInstanceProfile
         InstanceType: g6.xlarge # Placeholder - ASG overrides this
-        ImageId: !Sub "{{resolve:ssm:/amis/${StageName}/product-pipeline-embed-text/latest}}"
+        ImageId: "{{resolve:ssm:/amis/${StageName}/product-pipeline-embed-text/latest}}"
         SecurityGroupIds: [!Ref ProductPipelineSecurityGroup]
         BlockDeviceMappings:
           - DeviceName: /dev/sda1
@@ -3051,7 +3051,7 @@ Resources:
         IamInstanceProfile:
           Name: !Ref ProductPipelineCompleteInstanceProfile
         InstanceType: c8g.large
-        ImageId: !Sub "{{resolve:ssm:/aws/service/ami-amazon-linux-2023-latest/arm64/standard/image_id}}"
+        ImageId: "{{resolve:ssm:/aws/service/ami-amazon-linux-2023-latest/arm64/standard/image_id}}"
         SecurityGroupIds: [!Ref ProductPipelineSecurityGroup]
         BlockDeviceMappings:
           - DeviceName: /dev/sda1
@@ -3181,7 +3181,7 @@ Resources:
                   - autoscaling:UpdateAutoScalingGroup
                   - autoscaling:DescribeAutoScalingGroups
                 Resource: !Sub "arn:aws:autoscaling:${AWS::Region}:${AWS::AccountId}:autoScalingGroup:*:autoScalingGroupName/${ProductPipelineInitASG}"
-  ProductPipelineInitScaleUpLambda:
+  ProductPipelineScaleUpLambda:
     Type: AWS::Lambda::Function
     Properties:
       FunctionName: "product-pipeline-asg-scale-up-ephemeral"
@@ -3199,25 +3199,25 @@ Resources:
         Variables:
           STAGE: "dev"
           PRODUCT_ENRICHMENT_ASG_NAME: !Ref ProductPipelineInitASG
-  ProductPipelineInitScaleUpStartSchedule:
+  ProductPipelineScaleUpStartSchedule:
     Type: AWS::Events::Rule
     Properties:
       ScheduleExpression: "cron(0 1 * * ? *)" # every day at 01:00 UTC
       Targets:
-        - Arn: !GetAtt ProductPipelineInitScaleUpLambda.Arn
-          Id: "ProductPipelineInitScaleUpStartSchedule"
+        - Arn: !GetAtt ProductPipelineScaleUpLambda.Arn
+          Id: "ProductPipelineScaleUpStartSchedule"
           RetryPolicy:
             MaximumRetryAttempts: 5
             MaximumEventAgeInSeconds: 3600
           DeadLetterConfig:
             Arn: !GetAtt ProductPipelineInitDlq.Arn
-  ProductPipelineInitScaleUpStartSchedulePermission:
+  ProductPipelineScaleUpStartSchedulePermission:
     Type: AWS::Lambda::Permission
     Properties:
-      FunctionName: !Ref ProductPipelineInitScaleUpLambda
+      FunctionName: !Ref ProductPipelineScaleUpLambda
       Action: "lambda:InvokeFunction"
       Principal: "events.amazonaws.com"
-      SourceArn: !GetAtt ProductPipelineInitScaleUpStartSchedule.Arn
+      SourceArn: !GetAtt ProductPipelineScaleUpStartSchedule.Arn
 
 Outputs:
   CognitoHostedUIDomain:
