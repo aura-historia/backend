@@ -82,7 +82,7 @@ def _load_model(src: str, tgt: str):
                         "--output_dir",
                         str(model_dir),
                         "--quantization",
-                        "int8_float16" if DEVICE == "cuda" else "int8",
+                        "int8_float16",
                         "--force",
                     ],
                     check=True,
