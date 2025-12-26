@@ -41,13 +41,13 @@ use test_api::*;
 use uuid::Uuid;
 
 const INIT_Q: Sqs = Sqs { name: "init-queue" };
-const CLEANSED_Q: Sqs = Sqs {
+const TRANSLATE_Q: Sqs = Sqs {
     name: "cleansed-queue",
 };
-const TRANSLATED_Q: Sqs = Sqs {
+const EMBED_TEXT_Q: Sqs = Sqs {
     name: "translated-queue",
 };
-const TEXT_EMBEDDED_Q: Sqs = Sqs {
+const COMPLETE_Q: Sqs = Sqs {
     name: "text-embedded-queue",
 };
 use common::{event::Event, event_id::EventId, product_id::ProductId};
@@ -79,10 +79,10 @@ fn mk_event_bridge_payload(product_event_record: &ProductEventRecord) -> String 
 #[test_attr(apply(test))]
 #[case(1)]
 #[case(10)]
-#[case(64)]
-#[case(301)]
+#[case(16)]
+#[case(21)]
 #[trace]
-#[localstack_test(services = [INIT_Q, CLEANSED_Q, TRANSLATED_Q, TEXT_EMBEDDED_Q, DynamoDB(), OpenSearch()])]
+#[localstack_test(services = [INIT_Q, TRANSLATE_Q, EMBED_TEXT_Q, COMPLETE_Q, DynamoDB(), OpenSearch()])]
 async fn should_flow_through_entire_pipeline(#[case] count: usize) {
     let sqs = get_sqs_client().await;
     let dynamodb = get_dynamodb_client().await;
@@ -133,7 +133,7 @@ async fn should_flow_through_entire_pipeline(#[case] count: usize) {
     let init_flow_in =
         EventBridgeSqsDynamoDbStreamProductEventRecordPipeFlowInImpl::new(sqs, INIT_Q.queue_url());
     let init_processor = InitPipeProcessorImpl();
-    let init_flow_out = PipeFlowOutImpl::new(sqs, CLEANSED_Q.queue_url());
+    let init_flow_out = PipeFlowOutImpl::new(sqs, TRANSLATE_Q.queue_url());
     let init_pipe: PipeImpl<
         '_,
         ProductEventRecord,
@@ -143,7 +143,7 @@ async fn should_flow_through_entire_pipeline(#[case] count: usize) {
     > = PipeImpl::new(
         sqs,
         INIT_Q.queue_url(),
-        256,
+        16,
         300,
         &init_flow_in,
         &init_processor,
@@ -152,10 +152,10 @@ async fn should_flow_through_entire_pipeline(#[case] count: usize) {
     init_pipe.pipe().await;
 
     // Translate-Pipe
-    let translate_flow_in = PipeFlowInImpl::new(sqs, CLEANSED_Q.queue_url());
+    let translate_flow_in = PipeFlowInImpl::new(sqs, TRANSLATE_Q.queue_url());
     let translate_processor =
         TranslationPipeProcesserImpl::new(Arc::new(TranslationAdapterImpl::new().unwrap()));
-    let translate_flow_out = PipeFlowOutImpl::new(sqs, TRANSLATED_Q.queue_url());
+    let translate_flow_out = PipeFlowOutImpl::new(sqs, EMBED_TEXT_Q.queue_url());
     let translate_pipe: PipeImpl<
         '_,
         CleansedPipeProduct,
@@ -164,8 +164,8 @@ async fn should_flow_through_entire_pipeline(#[case] count: usize) {
         TranslatedPipeProduct,
     > = PipeImpl::new(
         sqs,
-        CLEANSED_Q.queue_url(),
-        256,
+        TRANSLATE_Q.queue_url(),
+        16,
         300,
         &translate_flow_in,
         &translate_processor,
@@ -174,10 +174,10 @@ async fn should_flow_through_entire_pipeline(#[case] count: usize) {
     translate_pipe.pipe().await;
 
     // Embed-Text-Pipe
-    let embed_text_flow_in = PipeFlowInImpl::new(sqs, TRANSLATED_Q.queue_url());
+    let embed_text_flow_in = PipeFlowInImpl::new(sqs, EMBED_TEXT_Q.queue_url());
     let embed_text_processor =
         TextEmbeddingPipeProcesserImpl::new(Arc::new(EmbeddingAdapterImpl::new().unwrap()));
-    let embed_text_flow_out = PipeFlowOutImpl::new(sqs, TEXT_EMBEDDED_Q.queue_url());
+    let embed_text_flow_out = PipeFlowOutImpl::new(sqs, COMPLETE_Q.queue_url());
     let embed_text_pipe: PipeImpl<
         '_,
         TranslatedPipeProduct,
@@ -186,8 +186,8 @@ async fn should_flow_through_entire_pipeline(#[case] count: usize) {
         TextEmbeddedPipeProduct,
     > = PipeImpl::new(
         sqs,
-        TRANSLATED_Q.queue_url(),
-        256,
+        EMBED_TEXT_Q.queue_url(),
+        16,
         300,
         &embed_text_flow_in,
         &embed_text_processor,
@@ -196,7 +196,7 @@ async fn should_flow_through_entire_pipeline(#[case] count: usize) {
     embed_text_pipe.pipe().await;
 
     // Complete-Pipe
-    let complete_flow_in = PipeFlowInImpl::new(sqs, TEXT_EMBEDDED_Q.queue_url());
+    let complete_flow_in = PipeFlowInImpl::new(sqs, COMPLETE_Q.queue_url());
     let complete_processor = CompleterPipeProcessorImpl();
     let complete_flow_out = PersistDynamoDbOpenSearchPipeFlowOutImpl::new(
         &product_dynamodb_repository,
@@ -210,8 +210,8 @@ async fn should_flow_through_entire_pipeline(#[case] count: usize) {
         CompletedPipeProduct,
     > = PipeImpl::new(
         sqs,
-        TEXT_EMBEDDED_Q.queue_url(),
-        256,
+        COMPLETE_Q.queue_url(),
+        16,
         300,
         &complete_flow_in,
         &complete_processor,
