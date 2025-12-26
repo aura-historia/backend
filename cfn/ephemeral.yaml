@@ -19,6 +19,9 @@ Parameters:
   Ec2KeyPairName:
     Type: AWS::EC2::KeyPair::KeyName
     Description: "For EC2 SSH-Access"
+  Al2023AmiId:
+    Type: 'AWS::SSM::Parameter::Value<AWS::EC2::Image::Id>'
+    Default: '/aws/service/ami-amazon-linux-latest/al2023-ami-kernel-default-arm64'
 
 Resources:
   PrimaryUserPool:
@@ -2534,7 +2537,7 @@ Resources:
         IamInstanceProfile:
           Name: !Ref ProductPipelineInitInstanceProfile
         InstanceType: c8g.large
-        ImageId: "{{resolve:ssm:/aws/service/ami-amazon-linux-latest/al2023-ami-kernel-default-arm64/image_id}}"
+        ImageId: !Ref Al2023AmiId
         SecurityGroupIds: [!Ref ProductPipelineSecurityGroup]
         BlockDeviceMappings:
           - DeviceName: /dev/sda1
@@ -3051,7 +3054,7 @@ Resources:
         IamInstanceProfile:
           Name: !Ref ProductPipelineCompleteInstanceProfile
         InstanceType: c8g.large
-        ImageId: "{{resolve:ssm:/aws/service/ami-amazon-linux-latest/al2023-ami-kernel-default-arm64/image_id}"
+        ImageId: !Ref Al2023AmiId
         SecurityGroupIds: [!Ref ProductPipelineSecurityGroup]
         BlockDeviceMappings:
           - DeviceName: /dev/sda1
