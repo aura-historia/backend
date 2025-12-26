@@ -27,6 +27,9 @@ Parameters:
     Type: String
     NoEcho: true
     Description: "Password for accessing the self-hosted OpenSearch-Cluster"
+  Al2023AmiId:
+    Type: 'AWS::SSM::Parameter::Value<AWS::EC2::Image::Id>'
+    Default: '/aws/service/ami-amazon-linux-latest/al2023-ami-kernel-default-arm64'
 
 Resources:
   PrimaryUserPool:
@@ -2479,7 +2482,7 @@ Resources:
         IamInstanceProfile:
           Name: !Ref ProductPipelineInitInstanceProfile
         InstanceType: c8g.large
-        ImageId: !Sub "{{resolve:ssm:/aws/service/ami-amazon-linux-2023-latest/arm64/standard/image_id}}"
+        ImageId: !Ref Al2023AmiId
         SecurityGroupIds: [!Ref ProductPipelineSecurityGroup]
         BlockDeviceMappings:
           - DeviceName: /dev/sda1
@@ -2648,7 +2651,7 @@ Resources:
         IamInstanceProfile:
           Name: !Ref ProductPipelineTranslateInstanceProfile
         InstanceType: g6.xlarge # Placeholder - ASG overrides this
-        ImageId: !Sub "{{resolve:ssm:/amis/${StageName}/product-pipeline-translate/latest}}"
+        ImageId: "{{resolve:ssm:/amis/dev/product-pipeline-translate/latest}}"
         SecurityGroupIds: [!Ref ProductPipelineSecurityGroup]
         BlockDeviceMappings:
           - DeviceName: /dev/sda1
@@ -2730,7 +2733,7 @@ Resources:
             - Name: QueueName
               Value: !GetAtt ProductPipelineTranslateQ.QueueName
           Statistic: Average
-        TargetValue: 0
+        TargetValue: 1
 
   ProductPipelineEmbedTextDlq:
     Type: AWS::SQS::Queue
@@ -2809,7 +2812,7 @@ Resources:
         IamInstanceProfile:
           Name: !Ref ProductPipelineEmbedTextInstanceProfile
         InstanceType: g6.xlarge # Placeholder - ASG overrides this
-        ImageId: !Sub "{{resolve:ssm:/amis/${StageName}/product-pipeline-embed-text/latest}}"
+        ImageId: "{{resolve:ssm:/amis/dev/product-pipeline-embed-text/latest}}"
         SecurityGroupIds: [!Ref ProductPipelineSecurityGroup]
         BlockDeviceMappings:
           - DeviceName: /dev/sda1
@@ -2891,7 +2894,7 @@ Resources:
             - Name: QueueName
               Value: !GetAtt ProductPipelineEmbedTextQ.QueueName
           Statistic: Average
-        TargetValue: 0
+        TargetValue: 1
 
   ProductPipelineCompleteDlq:
     Type: AWS::SQS::Queue
@@ -2996,7 +2999,7 @@ Resources:
         IamInstanceProfile:
           Name: !Ref ProductPipelineCompleteInstanceProfile
         InstanceType: c8g.large
-        ImageId: !Sub "{{resolve:ssm:/aws/service/ami-amazon-linux-2023-latest/arm64/standard/image_id}}"
+        ImageId: !Ref Al2023AmiId
         SecurityGroupIds: [!Ref ProductPipelineSecurityGroup]
         BlockDeviceMappings:
           - DeviceName: /dev/sda1
@@ -3103,7 +3106,7 @@ Resources:
             - Name: QueueName
               Value: !GetAtt ProductPipelineCompleteQ.QueueName
           Statistic: Average
-        TargetValue: 0
+        TargetValue: 1
 
   ProductPipelineScaleUpRole:
     Type: AWS::IAM::Role

@@ -2788,7 +2788,7 @@ Resources:
             - Name: QueueName
               Value: !GetAtt ProductPipelineTranslateQ.QueueName
           Statistic: Average
-        TargetValue: 0
+        TargetValue: 1
 
   ProductPipelineEmbedTextDlq:
     Type: AWS::SQS::Queue
@@ -2949,7 +2949,7 @@ Resources:
             - Name: QueueName
               Value: !GetAtt ProductPipelineEmbedTextQ.QueueName
           Statistic: Average
-        TargetValue: 0
+        TargetValue: 1
 
   ProductPipelineCompleteDlq:
     Type: AWS::SQS::Queue
@@ -3159,7 +3159,7 @@ Resources:
             - Name: QueueName
               Value: !GetAtt ProductPipelineCompleteQ.QueueName
           Statistic: Average
-        TargetValue: 0
+        TargetValue: 1
 
   ProductPipelineScaleUpRole:
     Type: AWS::IAM::Role
