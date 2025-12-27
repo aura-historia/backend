@@ -50,6 +50,7 @@ impl<'a, InData: DeserializeOwned + HasProductId> PipeFlowIn<InData> for PipeFlo
                 .receive_message()
                 .queue_url(&self.source_queue)
                 .max_number_of_messages(10.min((batch_in_count - messages.len() as u16) as i32))
+                .wait_time_seconds(60)
                 .visibility_timeout(visibility_timeout as i32)
                 .send()
                 .await;
