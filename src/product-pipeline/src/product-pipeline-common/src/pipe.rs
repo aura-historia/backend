@@ -71,21 +71,14 @@ where
                 .flow_in
                 .flow_in(self.batch_in_count, self.visibility_timeout)
                 .await;
-            if in_res.aborted {
-                warn!(
-                    batchInCount = self.batch_in_count,
-                    count = in_res.data.len(),
-                    "Aborted products flowing in."
-                );
-            }
-            if in_res.data.is_empty() && !in_res.aborted {
-                break;
-            }
             info!(
                 batchInCount = self.batch_in_count,
                 count = in_res.data.len(),
                 "Products have flown in."
             );
+            if in_res.data.is_empty() {
+                break;
+            }
 
             let mut message_refs = in_res
                 .data
