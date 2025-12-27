@@ -3059,10 +3059,10 @@ Resources:
               }
             }
             EOF
-            - amazon-cloudwatch-agent-ctl -a fetch-config -m ec2 -c file:/opt/aws/amazon-cloudwatch-agent.json -s
-            - LOG_PATH="/var/log/product-pipeline-init.log"
-            - sudo touch "$LOG_PATH"
-            - sudo chmod 666 "$LOG_PATH"
+            amazon-cloudwatch-agent-ctl -a fetch-config -m ec2 -c file:/opt/aws/amazon-cloudwatch-agent.json -s
+            LOG_PATH="/var/log/product-pipeline-init.log"
+            sudo touch "$LOG_PATH"
+            sudo chmod 666 "$LOG_PATH"
             # Run binary
             echo "[$(date)] Running product-pipeline-init..." | tee -a "$LOG_PATH"
             /opt/product-pipeline-init >> "$LOG_PATH" 2>&1
@@ -3217,8 +3217,8 @@ Resources:
             echo "[$(date)] Job finished with code $EXIT_CODE" | tee -a "$LOG_PATH"
             sleep 5
             aws autoscaling terminate-instance-in-auto-scaling-group \
-            --instance-id $(ec2metadata --instance-id) \
-            --should-decrement-desired-capacity
+              --instance-id $(ec2metadata --instance-id) \
+              --should-decrement-desired-capacity
             exit $EXIT_CODE
   ProductPipelineTranslateASG:
     Type: AWS::AutoScaling::AutoScalingGroup
@@ -3579,10 +3579,10 @@ Resources:
               }
             }
             EOF
-            - amazon-cloudwatch-agent-ctl -a fetch-config -m ec2 -c file:/opt/aws/amazon-cloudwatch-agent.json -s
-            - LOG_PATH="/var/log/product-pipeline-complete.log"
-            - sudo touch "$LOG_PATH"
-            - sudo chmod 666 "$LOG_PATH"
+            amazon-cloudwatch-agent-ctl -a fetch-config -m ec2 -c file:/opt/aws/amazon-cloudwatch-agent.json -s
+            LOG_PATH="/var/log/product-pipeline-complete.log"
+            sudo touch "$LOG_PATH"
+            sudo chmod 666 "$LOG_PATH"
             # Run binary
             echo "[$(date)] Running product-pipeline-complete..." | tee -a "$LOG_PATH"
             /opt/product-pipeline-complete >> "$LOG_PATH" 2>&1
@@ -3590,8 +3590,8 @@ Resources:
             echo "[$(date)] Job finished with code $EXIT_CODE" | tee -a "$LOG_PATH"
             sleep 5
             aws autoscaling terminate-instance-in-auto-scaling-group \
-            --instance-id $(ec2metadata --instance-id) \
-            --should-decrement-desired-capacity
+              --instance-id $(ec2metadata --instance-id) \
+              --should-decrement-desired-capacity
             exit $EXIT_CODE
   ProductPipelineCompleteASG:
     Type: AWS::AutoScaling::AutoScalingGroup
