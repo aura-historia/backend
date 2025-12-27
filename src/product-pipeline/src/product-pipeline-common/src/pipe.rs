@@ -3,10 +3,7 @@ use crate::{
     flow_out::PipeFlowOut,
     process::PipeProcessor,
 };
-use aws_sdk_sqs::{
-    Client,
-    types::{ChangeMessageVisibilityBatchRequestEntry, DeleteMessageBatchRequestEntry},
-};
+use aws_sdk_sqs::{Client, types::DeleteMessageBatchRequestEntry};
 use common::{batch::Batch, product_id::ProductId};
 use serde::{Serialize, de::DeserializeOwned};
 use std::collections::{HashMap, HashSet};
@@ -139,21 +136,13 @@ where
                     }
                 }
             }
-
-            // Set visibilityTimeout=0 for all failures
-            let unrecoverable_failures = self
-                .handle_reset_messages_with_retry(failed_message_refs)
-                .await;
-            if !unrecoverable_failures.is_empty() {
+            if !failed_message_refs.is_empty() {
                 warn!(
-                    unrecoverable = unrecoverable_failures.len(),
-                    "Finished piping iteration with unrecoverable failures."
+                    failures = failed_message_refs.len(),
+                    "Finished piping iteration with failures."
                 )
             } else {
-                info!(
-                    unrecoverable = unrecoverable_failures.len(),
-                    "Finished piping iteration without any failures."
-                );
+                info!("Finished piping iteration without any failures.");
             }
         }
         info!("Finished piping.");
@@ -161,96 +150,6 @@ where
 }
 
 impl<'a, InData, In, Out, OutData> PipeImpl<'a, InData, In, Out, OutData> {
-    async fn handle_reset_messages_with_retry(
-        &self,
-        resets: HashSet<MessageRef>,
-    ) -> HashSet<ProductId> {
-        const MAX_RETRIES: u32 = 3;
-        const BASE_DELAY_MS: u64 = 100;
-
-        let mut message_refs = resets;
-        let mut retry_count = 0;
-        loop {
-            let failed = self.handle_reset_messages(message_refs).await;
-            if failed.is_empty() {
-                return HashSet::default();
-            }
-            if retry_count >= MAX_RETRIES {
-                warn!(
-                    messageCount = failed.len(),
-                    "Failed setting message-visibility to 0 after '{MAX_RETRIES}' retries."
-                );
-                return failed
-                    .into_iter()
-                    .map(|message_ref| message_ref.product_id)
-                    .collect();
-            }
-
-            retry_count += 1;
-            let delay_ms = BASE_DELAY_MS * 2_u64.pow(retry_count - 1);
-            tokio::time::sleep(tokio::time::Duration::from_millis(delay_ms)).await;
-
-            message_refs = failed;
-        }
-    }
-
-    async fn handle_reset_messages(&self, successes: HashSet<MessageRef>) -> HashSet<MessageRef> {
-        let mut failed_resets = HashSet::new();
-        for batch in Batch::chunked_from(successes.into_iter()) {
-            failed_resets.extend(self.handle_reset_messages_batch(batch).await);
-        }
-
-        failed_resets
-    }
-
-    async fn handle_reset_messages_batch(
-        &self,
-        batch: Batch<MessageRef, 10>,
-    ) -> HashSet<MessageRef> {
-        let mut message_ids_message_refs: HashMap<String, MessageRef> = batch
-            .iter()
-            .map(|message_ref| (message_ref.message_id.clone(), message_ref.clone()))
-            .collect();
-
-        let delete_message_batch_entries = batch
-            .into_iter()
-            .map(|message_ref| {
-                ChangeMessageVisibilityBatchRequestEntry::builder()
-                    .id(message_ref.message_id)
-                    .receipt_handle(message_ref.receipt_handle)
-                    .visibility_timeout(0)
-                    .build()
-                    .expect("shouldn't fail because we explicitly set 'id' and 'receipt_handle'")
-            })
-            .collect();
-        let res = self
-            .sqs
-            .change_message_visibility_batch()
-            .queue_url(&self.source_queue)
-            .set_entries(Some(delete_message_batch_entries))
-            .send()
-            .await;
-
-        match res {
-            Ok(output) => {
-                output.failed.into_iter().map(|failure| failure.id).filter_map(|message_id| {
-                    match message_ids_message_refs.remove(&message_id) {
-                        Some(message_ref) => Some(message_ref),
-                        None => {
-                            error!(messageId = message_id, "Failed re-collecting ProductId belonging to a failed messageId. This is a bug.");
-                            None
-                        },
-                    }
-                })
-                .collect()
-            }
-            Err(err) => {
-                error!(error = ?err, "Failed changing visibility to 0 for entire MessageBatch.");
-                message_ids_message_refs.into_values().collect()
-            }
-        }
-    }
-
     async fn handle_delete_messages_with_retry(
         &self,
         deletes: HashSet<MessageRef>,
