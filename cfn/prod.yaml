@@ -2975,6 +2975,8 @@ Resources:
             Statement:
               - Effect: Allow
                 Action:
+                  - sqs:SendMessage
+                  - sqs:SendMessageBatch
                   - sqs:ReceiveMessage
                   - sqs:DeleteMessage
                   - sqs:DeleteMessageBatch
@@ -3153,6 +3155,8 @@ Resources:
             Statement:
               - Effect: Allow
                 Action:
+                  - sqs:SendMessage
+                  - sqs:SendMessageBatch
                   - sqs:ReceiveMessage
                   - sqs:DeleteMessage
                   - sqs:DeleteMessageBatch
@@ -3317,6 +3321,8 @@ Resources:
             Statement:
               - Effect: Allow
                 Action:
+                  - sqs:SendMessage
+                  - sqs:SendMessageBatch
                   - sqs:ReceiveMessage
                   - sqs:DeleteMessage
                   - sqs:DeleteMessageBatch
@@ -3499,6 +3505,8 @@ Resources:
             Statement:
               - Effect: Allow
                 Action:
+                  - sqs:SendMessage
+                  - sqs:SendMessageBatch
                   - sqs:ReceiveMessage
                   - sqs:DeleteMessage
                   - sqs:DeleteMessageBatch
