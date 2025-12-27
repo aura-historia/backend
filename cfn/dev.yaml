@@ -2699,7 +2699,7 @@ Resources:
             # Run binary
             LOG_PATH="/var/log/product-pipeline-translate.log"
             echo "[$(date)] Running product-pipeline-translate..." | tee -a "$LOG_PATH"
-            product-pipeline-translate >> "$LOG_PATH" 2>&1
+            ./product-pipeline-translate >> "$LOG_PATH" 2>&1
             EXIT_CODE=$?
             echo "[$(date)] Job finished with code $EXIT_CODE" | tee -a "$LOG_PATH"
             sleep 5
@@ -2866,7 +2866,7 @@ Resources:
             # Run binary
             LOG_PATH="/var/log/product-pipeline-embed-text.log"
             echo "[$(date)] Running product-pipeline-embed-text..." | tee -a "$LOG_PATH"
-            product-pipeline-embed-text >> "$LOG_PATH" 2>&1
+            ./product-pipeline-embed-text >> "$LOG_PATH" 2>&1
             EXIT_CODE=$?
             echo "[$(date)] Job finished with code $EXIT_CODE" | tee -a "$LOG_PATH"
             sleep 5
