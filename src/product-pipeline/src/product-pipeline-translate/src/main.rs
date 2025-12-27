@@ -44,7 +44,7 @@ async fn main() {
         &sqs,
         source_queue_url,
         256,
-        300,
+        600,
         &translate_flow_in,
         &translate_processor,
         &translate_flow_out,
