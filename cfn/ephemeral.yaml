@@ -2747,14 +2747,15 @@ Resources:
             export SOURCE_QUEUE_URL="${ProductPipelineTranslateQ}"
             export TARGET_QUEUE_URL="${ProductPipelineEmbedTextQ}"
             # Download and install binary
-            sudo aws s3 cp "s3://${ArtifactBucket}/${StageName}/${CommitSHA}/product-pipeline-translate" /opt/product-pipeline-translate --region eu-central-1
-            sudo chmod +x /opt/product-pipeline-translate
+            sudo aws s3 cp "s3://${ArtifactBucket}/${StageName}/${CommitSHA}/product-pipeline-translate" /opt/product-pipeline-translate/product-pipeline-translate --region eu-central-1
+            sudo chmod +x /opt/product-pipeline-translate/product-pipeline-translate
             # Prepare (preconfigured via custom ami) python venv
             cd /opt/product-pipeline-translate
             source .venv/bin/activate
             # Run binary
+            LOG_PATH="/var/log/product-pipeline-translate.log"
             echo "[$(date)] Running product-pipeline-translate..." | tee -a "$LOG_PATH"
-            /opt/product-pipeline-translate >> "$LOG_PATH" 2>&1
+            product-pipeline-translate >> "$LOG_PATH" 2>&1
             EXIT_CODE=$?
             echo "[$(date)] Job finished with code $EXIT_CODE" | tee -a "$LOG_PATH"
             sleep 5
@@ -2921,14 +2922,15 @@ Resources:
             sudo wget https://s3.amazonaws.com/amazoncloudwatch-agent/debian/amd64/latest/amazon-cloudwatch-agent.deb
             sudo dpkg -i -E ./amazon-cloudwatch-agent.deb
             # Download and install binary
-            sudo aws s3 cp "s3://${ArtifactBucket}/${StageName}/${CommitSHA}/product-pipeline-embed-text" /opt/product-pipeline-embed-text --region eu-central-1
-            sudo chmod +x /opt/product-pipeline-embed-text
+            sudo aws s3 cp "s3://${ArtifactBucket}/${StageName}/${CommitSHA}/product-pipeline-embed-text" /opt/product-pipeline-embed-text/product-pipeline-embed-text --region eu-central-1
+            sudo chmod +x /opt/product-pipeline-embed-text/product-pipeline-embed-text
             # Prepare (preconfigured via custom ami) python venv
             cd /opt/product-pipeline-embed-text
             source .venv/bin/activate
             # Run binary
+            LOG_PATH="/var/log/product-pipeline-embed-text.log"
             echo "[$(date)] Running product-pipeline-embed-text..." | tee -a "$LOG_PATH"
-            /opt/product-pipeline-embed-text >> "$LOG_PATH" 2>&1
+            product-pipeline-embed-text >> "$LOG_PATH" 2>&1
             EXIT_CODE=$?
             echo "[$(date)] Job finished with code $EXIT_CODE" | tee -a "$LOG_PATH"
             sleep 5
