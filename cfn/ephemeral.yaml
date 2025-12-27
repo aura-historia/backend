@@ -3164,7 +3164,7 @@ Resources:
   ProductPipelineScaleUpRole:
     Type: AWS::IAM::Role
     Properties:
-      RoleName: "product-pipeline-asg-scale-up-role-ephemeral"
+      RoleName: !Sub "product-pipeline-asg-scale-up-role-${StageName}"
       AssumeRolePolicyDocument:
         Version: "2012-10-17"
         Statement:
@@ -3193,7 +3193,7 @@ Resources:
       Role: !GetAtt ProductPipelineScaleUpRole.Arn
       Code:
         S3Bucket: !Ref ArtifactBucket
-        S3Key: !Sub "product-pipeline-asg-scale-up-ephemeral-${CommitSHA}.zip"
+        S3Key: !Sub "product-pipeline-asg-scale-up-${StageName}-${CommitSHA}.zip"
       MemorySize: 128
       Timeout: 60
       EphemeralStorage:
