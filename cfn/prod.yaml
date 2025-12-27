@@ -2980,7 +2980,10 @@ Resources:
                   - sqs:DeleteMessageBatch
                   - sqs:GetQueueAttributes
                   - sqs:GetQueueUrl
-                Resource: !GetAtt ProductPipelineInitQ.Arn
+                  - sqs:ChangeMessageVisibility
+                Resource:
+                  - !GetAtt ProductPipelineInitQ.Arn
+                  - !GetAtt ProductPipelineTranslateQ.Arn
         - PolicyName: CloudWatchLogsCreate
           PolicyDocument:
             Version: "2012-10-17"
@@ -3155,7 +3158,10 @@ Resources:
                   - sqs:DeleteMessageBatch
                   - sqs:GetQueueAttributes
                   - sqs:GetQueueUrl
-                Resource: !GetAtt ProductPipelineTranslateQ.Arn
+                  - sqs:ChangeMessageVisibility
+                Resource:
+                  - !GetAtt ProductPipelineTranslateQ.Arn
+                  - !GetAtt ProductPipelineEmbedTextQ.Arn
         - PolicyName: CloudWatchLogsCreate
           PolicyDocument:
             Version: "2012-10-17"
@@ -3316,7 +3322,10 @@ Resources:
                   - sqs:DeleteMessageBatch
                   - sqs:GetQueueAttributes
                   - sqs:GetQueueUrl
-                Resource: !GetAtt ProductPipelineEmbedTextQ.Arn
+                  - sqs:ChangeMessageVisibility
+                Resource:
+                  - !GetAtt ProductPipelineEmbedTextQ.Arn
+                  - !GetAtt ProductPipelineCompleteQ.Arn
         - PolicyName: CloudWatchLogsCreate
           PolicyDocument:
             Version: "2012-10-17"
@@ -3484,14 +3493,6 @@ Resources:
                 Resource:
                   - !GetAtt TableOne.Arn
                   - !Sub "${TableOne.Arn}/index/*"
-        - PolicyName: OpenSearchAccess
-          PolicyDocument:
-            Version: "2012-10-17"
-            Statement:
-              - Effect: Allow
-                Action:
-                  - es:*
-                Resource: !Sub "arn:aws:es:${AWS::Region}:${AWS::AccountId}:domain/application-prod/*"
         - PolicyName: SQSPollerAccess
           PolicyDocument:
             Version: "2012-10-17"
@@ -3503,6 +3504,7 @@ Resources:
                   - sqs:DeleteMessageBatch
                   - sqs:GetQueueAttributes
                   - sqs:GetQueueUrl
+                  - sqs:ChangeMessageVisibility
                 Resource: !GetAtt ProductPipelineCompleteQ.Arn
         - PolicyName: CloudWatchLogsCreate
           PolicyDocument:
