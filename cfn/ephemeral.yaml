@@ -2913,14 +2913,6 @@ Resources:
             export ARTIFACT_BUCKET="${ArtifactBucket}"
             export SOURCE_QUEUE_URL="${ProductPipelineEmbedTextQ}"
             export TARGET_QUEUE_URL="${ProductPipelineCompleteQ}"
-            # Install awscli
-            apt -y install unzip
-            curl "https://awscli.amazonaws.com/awscli-exe-linux-x86_64.zip" -o "awscliv2.zip"
-            unzip awscliv2.zip
-            sudo ./aws/install
-            # Install cloudwatch-agent
-            sudo wget https://s3.amazonaws.com/amazoncloudwatch-agent/debian/amd64/latest/amazon-cloudwatch-agent.deb
-            sudo dpkg -i -E ./amazon-cloudwatch-agent.deb
             # Download and install binary
             sudo aws s3 cp "s3://${ArtifactBucket}/${StageName}/${CommitSHA}/product-pipeline-embed-text" /opt/product-pipeline-embed-text/product-pipeline-embed-text --region eu-central-1
             sudo chmod +x /opt/product-pipeline-embed-text/product-pipeline-embed-text
@@ -3113,6 +3105,14 @@ Resources:
             export SOURCE_QUEUE_URL="${ProductPipelineCompleteQ}"
             export DYNAMODB_TABLE_NAME="${TableOne}"
             export OPENSEARCH_ENDPOINT_URL="https://${OpenSearchDomain.DomainEndpoint}"
+            # Install awscli
+            apt -y install unzip
+            curl "https://awscli.amazonaws.com/awscli-exe-linux-x86_64.zip" -o "awscliv2.zip"
+            unzip awscliv2.zip
+            sudo ./aws/install
+            # Install cloudwatch-agent
+            sudo wget https://s3.amazonaws.com/amazoncloudwatch-agent/debian/amd64/latest/amazon-cloudwatch-agent.deb
+            sudo dpkg -i -E ./amazon-cloudwatch-agent.deb
             # Download and install binary
             sudo aws s3 cp "s3://${ArtifactBucket}/${StageName}/${CommitSHA}/product-pipeline-complete" /opt/product-pipeline-complete --region eu-central-1
             sudo chmod +x /opt/product-pipeline-complete
