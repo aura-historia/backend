@@ -394,58 +394,9 @@ jobs:
     strategy:
       matrix:
         crate:
+          - src/product-pipeline/src/product-pipeline-init
           - src/product-pipeline/src/product-pipeline-translate
           - src/product-pipeline/src/product-pipeline-embed-text
-    steps:
-      - uses: actions/checkout@v6
-
-      - name: Set up Rust
-        uses: dtolnay/rust-toolchain@stable
-
-      - name: Cache cargo registry
-        uses: actions/cache@v5
-        with:
-          path: |
-            ~/.cargo/registry
-            ~/.cargo/git
-          key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
-
-      - name: Build EC2 binary
-        working-directory: ${{ matrix.crate }}
-        run: cargo build --release
-
-      - name: Copy EC2 binary to artifacts
-        run: |
-          BIN_NAME=$(basename ${{ matrix.crate }})
-          mkdir -p $GITHUB_WORKSPACE/artifacts
-          cp target/release/$BIN_NAME $GITHUB_WORKSPACE/artifacts/$BIN_NAME-${{ env.STAGE_NAME }}-${GITHUB_SHA}
-
-      - name: Configure AWS credentials
-        uses: aws-actions/configure-aws-credentials@v5.1.1
-        with:
-          role-to-assume: ${{ secrets.CI_DEPLOY_ROLE_ARN }}
-          aws-region: ${{ vars.AWS_REGION }}
-
-      - name: Upload EC2 binary to S3
-        run: |
-          BIN_NAME=$(basename ${{ matrix.crate }})
-          aws s3api put-object \
-            --bucket "${{ vars.S3_BINARY_ARTIFACTS_BUCKET_NAME }}" \
-            --key "${{ env.STAGE_NAME }}/${GITHUB_SHA}/$BIN_NAME" \
-            --body "$GITHUB_WORKSPACE/artifacts/$BIN_NAME-${{ env.STAGE_NAME }}-${GITHUB_SHA}" \
-            --tagging "stage=${{ env.STAGE }}"
-
-  aws-push-ec2-arm64:
-    name: Push EC2 to S3 ${{ matrix.crate }}
-#    needs: [unit-test, integration-test, test-product-pipeline]
-    runs-on: ubuntu-24.04-arm
-    permissions:
-      contents: read
-      id-token: write
-    strategy:
-      matrix:
-        crate:
-          - src/product-pipeline/src/product-pipeline-init
           - src/product-pipeline/src/product-pipeline-complete
     steps:
       - uses: actions/checkout@v6
@@ -547,7 +498,6 @@ jobs:
         cfn-lint,
         aws-push-lambda,
         aws-push-ec2-x86,
-        aws-push-ec2-arm64,
         aws-push-mail-templates,
       ]
     environment:

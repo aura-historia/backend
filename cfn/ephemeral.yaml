@@ -19,9 +19,6 @@ Parameters:
   Ec2KeyPairName:
     Type: AWS::EC2::KeyPair::KeyName
     Description: "For EC2 SSH-Access"
-  Al2023AmiId:
-    Type: 'AWS::SSM::Parameter::Value<AWS::EC2::Image::Id>'
-    Default: '/aws/service/ami-amazon-linux-latest/al2023-ami-kernel-default-arm64'
 
 Resources:
   PrimaryUserPool:
@@ -2536,8 +2533,8 @@ Resources:
         KeyName: !Ref Ec2KeyPairName
         IamInstanceProfile:
           Name: !Ref ProductPipelineInitInstanceProfile
-        InstanceType: c8g.large
-        ImageId: !Ref Al2023AmiId
+        InstanceType: c7i.large
+        ImageId: ami-004e960cde33f9146
         SecurityGroupIds: [!Ref ProductPipelineSecurityGroup]
         BlockDeviceMappings:
           - DeviceName: /dev/sda1
@@ -2557,12 +2554,21 @@ Resources:
             #!/bin/bash
             set -euxo pipefail
             sudo -i
+            # Export required vars for binary
             export STAGE="ephemeral"
             export STAGE_NAME=${StageName}
             export CommitSHA="${CommitSHA}"
             export ARTIFACT_BUCKET="${ArtifactBucket}"
             export SOURCE_QUEUE_URL="${ProductPipelineInitQ}"
             export TARGET_QUEUE_URL="${ProductPipelineTranslateQ}"
+            # Install awscli
+            apt -y install unzip
+            curl "https://awscli.amazonaws.com/awscli-exe-linux-x86_64.zip" -o "awscliv2.zip"
+            unzip awscliv2.zip
+            sudo ./aws/install
+            # Install cloudwatch-agent
+            sudo wget https://s3.amazonaws.com/amazoncloudwatch-agent/debian/amd64/latest/amazon-cloudwatch-agent.deb
+            sudo dpkg -i -E ./amazon-cloudwatch-agent.deb
             # Download and install binary
             sudo aws s3 cp "s3://${ArtifactBucket}/${StageName}/${CommitSHA}/product-pipeline-init" /opt/product-pipeline-init --region eu-central-1
             sudo chmod +x /opt/product-pipeline-init
@@ -2615,10 +2621,8 @@ Resources:
             LaunchTemplateId: !Ref ProductPipelineInitLaunchTemplate
             Version: !GetAtt ProductPipelineInitLaunchTemplate.LatestVersionNumber
           Overrides:
-            - InstanceType: c8g.large
-            - InstanceType: c7g.large
-            - InstanceType: c6g.large
-            - InstanceType: t4g.large
+            - InstanceType: c7i.large
+            - InstanceType: c6i.large
         InstancesDistribution:
           OnDemandPercentageAboveBaseCapacity: 0
           SpotAllocationStrategy: price-capacity-optimized
@@ -2893,6 +2897,14 @@ Resources:
             export ARTIFACT_BUCKET="${ArtifactBucket}"
             export SOURCE_QUEUE_URL="${ProductPipelineEmbedTextQ}"
             export TARGET_QUEUE_URL="${ProductPipelineCompleteQ}"
+            # Install awscli
+            apt -y install unzip
+            curl "https://awscli.amazonaws.com/awscli-exe-linux-x86_64.zip" -o "awscliv2.zip"
+            unzip awscliv2.zip
+            sudo ./aws/install
+            # Install cloudwatch-agent
+            sudo wget https://s3.amazonaws.com/amazoncloudwatch-agent/debian/amd64/latest/amazon-cloudwatch-agent.deb
+            sudo dpkg -i -E ./amazon-cloudwatch-agent.deb
             # Download and install binary
             sudo aws s3 cp "s3://${ArtifactBucket}/${StageName}/${CommitSHA}/product-pipeline-embed-text" /opt/product-pipeline-embed-text --region eu-central-1
             sudo chmod +x /opt/product-pipeline-embed-text
@@ -3053,8 +3065,8 @@ Resources:
         KeyName: !Ref Ec2KeyPairName
         IamInstanceProfile:
           Name: !Ref ProductPipelineCompleteInstanceProfile
-        InstanceType: c8g.large
-        ImageId: !Ref Al2023AmiId
+        InstanceType: c7i.large
+        ImageId: ami-004e960cde33f9146
         SecurityGroupIds: [!Ref ProductPipelineSecurityGroup]
         BlockDeviceMappings:
           - DeviceName: /dev/sda1
@@ -3133,10 +3145,8 @@ Resources:
             LaunchTemplateId: !Ref ProductPipelineCompleteLaunchTemplate
             Version: !GetAtt ProductPipelineCompleteLaunchTemplate.LatestVersionNumber
           Overrides:
-            - InstanceType: c8g.large
-            - InstanceType: c7g.large
-            - InstanceType: c6g.large
-            - InstanceType: t4g.large
+            - InstanceType: c7i.large
+            - InstanceType: c6i.large
         InstancesDistribution:
           OnDemandPercentageAboveBaseCapacity: 0
           SpotAllocationStrategy: price-capacity-optimized
