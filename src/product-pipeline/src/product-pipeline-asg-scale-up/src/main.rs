@@ -18,7 +18,7 @@ async fn main() -> Result<(), Error> {
         .await;
 
     let autoscaling_client = aws_sdk_autoscaling::Client::new(&aws_config);
-    let asg_name = std::env::var("PRODUCT_ENRICHMENT_ASG_NAME")?;
+    let asg_name = std::env::var("PRODUCT_PIPELINE_COMPLETE_ASG_NAME")?;
 
     info!(
         asgName = asg_name,

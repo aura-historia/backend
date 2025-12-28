@@ -2790,20 +2790,6 @@ Resources:
           PropagateAtLaunch: true
       HealthCheckType: EC2
       HealthCheckGracePeriod: 120
-  ProductPipelineTranslateQueueDepthScalingPolicy:
-    Type: AWS::AutoScaling::ScalingPolicy
-    Properties:
-      AutoScalingGroupName: !Ref ProductPipelineTranslateASG
-      PolicyType: TargetTrackingScaling
-      TargetTrackingConfiguration:
-        CustomizedMetricSpecification:
-          Namespace: AWS/SQS
-          MetricName: ApproximateNumberOfMessagesVisible
-          Dimensions:
-            - Name: QueueName
-              Value: !GetAtt ProductPipelineTranslateQ.QueueName
-          Statistic: Average
-        TargetValue: 1
 
   ProductPipelineEmbedTextDlq:
     Type: AWS::SQS::Queue
@@ -2957,20 +2943,6 @@ Resources:
           PropagateAtLaunch: true
       HealthCheckType: EC2
       HealthCheckGracePeriod: 120
-  ProductPipelineEmbedTextQueueDepthScalingPolicy:
-    Type: AWS::AutoScaling::ScalingPolicy
-    Properties:
-      AutoScalingGroupName: !Ref ProductPipelineEmbedTextASG
-      PolicyType: TargetTrackingScaling
-      TargetTrackingConfiguration:
-        CustomizedMetricSpecification:
-          Namespace: AWS/SQS
-          MetricName: ApproximateNumberOfMessagesVisible
-          Dimensions:
-            - Name: QueueName
-              Value: !GetAtt ProductPipelineEmbedTextQ.QueueName
-          Statistic: Average
-        TargetValue: 1
 
   ProductPipelineCompleteDlq:
     Type: AWS::SQS::Queue
@@ -3176,20 +3148,80 @@ Resources:
           PropagateAtLaunch: true
       HealthCheckType: EC2
       HealthCheckGracePeriod: 120
-  ProductPipelineCompleteQueueDepthScalingPolicy:
-    Type: AWS::AutoScaling::ScalingPolicy
+
+  ProductPipelineScaleControlRole:
+    Type: AWS::IAM::Role
     Properties:
-      AutoScalingGroupName: !Ref ProductPipelineCompleteASG
-      PolicyType: TargetTrackingScaling
-      TargetTrackingConfiguration:
-        CustomizedMetricSpecification:
-          Namespace: AWS/SQS
-          MetricName: ApproximateNumberOfMessagesVisible
-          Dimensions:
-            - Name: QueueName
-              Value: !GetAtt ProductPipelineCompleteQ.QueueName
-          Statistic: Average
-        TargetValue: 1
+      RoleName: !Sub "product-pipeline-asg-scale-control-role-${StageName}"
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: lambda.amazonaws.com
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole
+      Policies:
+        - PolicyName: SqsGetQueueAttributes
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: Allow
+                Action:
+                  - sqs:GetQueueAttributes
+                  - sqs:GetQueueUrl
+                Resource: "*"
+        - PolicyName: ScaleUpASG
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: Allow
+                Action:
+                  - autoscaling:UpdateAutoScalingGroup
+                  - autoscaling:DescribeAutoScalingGroups
+                Resource: "*"
+  ProductPipelineScaleControlLambda:
+    Type: AWS::Lambda::Function
+    Properties:
+      FunctionName: "product-pipeline-asg-scale-control-ephemeral"
+      Runtime: provided.al2023
+      Handler: lib.handler
+      Role: !GetAtt ProductPipelineScaleControlRole.Arn
+      Code:
+        S3Bucket: !Ref ArtifactBucket
+        S3Key: !Sub "product-pipeline-asg-scale-control-${StageName}-${CommitSHA}.zip"
+      MemorySize: 128
+      Timeout: 60
+      EphemeralStorage:
+        Size: 512
+      Environment:
+        Variables:
+          PRODUCT_PIPELINE_INIT_SQS_URL: !Ref ProductPipelineInitQ
+          PRODUCT_PIPELINE_INIT_ASG_NAME: !Ref ProductPipelineInitASG
+          PRODUCT_PIPELINE_TRANSLATE_SQS_URL: !Ref ProductPipelineTranslateQ
+          PRODUCT_PIPELINE_TRANSLATE_ASG_NAME: !Ref ProductPipelineTranslateASG
+          PRODUCT_PIPELINE_EMBED_TEXT_SQS_URL: !Ref ProductPipelineEmbedTextQ
+          PRODUCT_PIPELINE_EMBED_TEXT_ASG_NAME: !Ref ProductPipelineEmbedTextASG
+  ProductPipelineScaleControlStartSchedule:
+    Type: AWS::Events::Rule
+    Properties:
+      ScheduleExpression: "cron(*/15 * * * ? *)" # every 15min
+      Targets:
+        - Arn: !GetAtt ProductPipelineScaleControlLambda.Arn
+          Id: "ProductPipelineScaleControlStartSchedule"
+          RetryPolicy:
+            MaximumRetryAttempts: 5
+            MaximumEventAgeInSeconds: 3600
+          DeadLetterConfig:
+            Arn: !GetAtt ProductPipelineInitDlq.Arn
+  ProductPipelineScaleControlStartSchedulePermission:
+    Type: AWS::Lambda::Permission
+    Properties:
+      FunctionName: !Ref ProductPipelineScaleControlLambda
+      Action: "lambda:InvokeFunction"
+      Principal: "events.amazonaws.com"
+      SourceArn: !GetAtt ProductPipelineScaleControlStartSchedule.Arn
 
   ProductPipelineScaleUpRole:
     Type: AWS::IAM::Role
@@ -3213,7 +3245,7 @@ Resources:
                 Action:
                   - autoscaling:UpdateAutoScalingGroup
                   - autoscaling:DescribeAutoScalingGroups
-                Resource: !Sub "arn:aws:autoscaling:${AWS::Region}:${AWS::AccountId}:autoScalingGroup:*:autoScalingGroupName/${ProductPipelineInitASG}"
+                Resource: !Sub "arn:aws:autoscaling:${AWS::Region}:${AWS::AccountId}:autoScalingGroup:*:autoScalingGroupName/${ProductPipelineCompleteASG}"
   ProductPipelineScaleUpLambda:
     Type: AWS::Lambda::Function
     Properties:
@@ -3230,8 +3262,7 @@ Resources:
         Size: 512
       Environment:
         Variables:
-          STAGE: "dev"
-          PRODUCT_ENRICHMENT_ASG_NAME: !Ref ProductPipelineInitASG
+          PRODUCT_PIPELINE_COMPLETE_ASG_NAME: !Ref ProductPipelineCompleteASG
   ProductPipelineScaleUpStartSchedule:
     Type: AWS::Events::Rule
     Properties:
@@ -3243,7 +3274,7 @@ Resources:
             MaximumRetryAttempts: 5
             MaximumEventAgeInSeconds: 3600
           DeadLetterConfig:
-            Arn: !GetAtt ProductPipelineInitDlq.Arn
+            Arn: !GetAtt ProductPipelineCompleteDlq.Arn
   ProductPipelineScaleUpStartSchedulePermission:
     Type: AWS::Lambda::Permission
     Properties:

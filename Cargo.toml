@@ -103,6 +103,7 @@ product-pipeline-complete = { path = "src/product-pipeline/src/product-pipeline-
 product-pipeline-test = { path = "src/product-pipeline/src/product-pipeline-test" }
 product-pipeline = { path = "src/product-pipeline" }
 product-pipeline-asg-scale-up = { path = "src/product-pipeline/src/product-pipeline-asg-scale-up" }
+product-pipeline-asg-scale-control = { path = "src/product-pipeline/src/product-pipeline-asg-scale-control" }
 product-lambda-materialize-dynamodb-new = { path = "src/product-lambda/src/product-lambda-materialize-dynamodb-new" }
 product-lambda-materialize-dynamodb-update = { path = "src/product-lambda/src/product-lambda-materialize-dynamodb-update" }
 product-lambda-materialize-opensearch-new = { path = "src/product-lambda/src/product-lambda-materialize-opensearch-new" }

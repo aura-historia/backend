@@ -3695,8 +3695,7 @@ Resources:
         Size: 512
       Environment:
         Variables:
-          STAGE: "dev"
-          PRODUCT_ENRICHMENT_ASG_NAME: !Ref ProductPipelineInitASG
+          PRODUCT_PIPELINE_COMPLETE_ASG_NAME: !Ref ProductPipelineCompleteASG
   ProductPipelineScaleUpStartSchedule:
     Type: AWS::Events::Rule
     Properties:

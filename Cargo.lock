@@ -3397,6 +3397,7 @@ dependencies = [
 name = "product-pipeline"
 version = "0.1.0"
 dependencies = [
+ "product-pipeline-asg-scale-control",
  "product-pipeline-asg-scale-up",
  "product-pipeline-common",
  "product-pipeline-complete",
@@ -3407,16 +3408,27 @@ dependencies = [
 ]
 
 [[package]]
+name = "product-pipeline-asg-scale-control"
+version = "0.1.0"
+dependencies = [
+ "aws-config",
+ "aws-sdk-autoscaling",
+ "aws-sdk-sqs",
+ "lambda_runtime",
+ "rstest",
+ "serde_json",
+ "tokio",
+ "tracing",
+ "tracing-subscriber",
+]
+
+[[package]]
 name = "product-pipeline-asg-scale-up"
 version = "0.1.0"
 dependencies = [
  "aws-config",
  "aws-sdk-autoscaling",
- "common",
  "lambda_runtime",
- "opensearch",
- "rstest",
- "serde",
  "serde_json",
  "tokio",
  "tracing",
