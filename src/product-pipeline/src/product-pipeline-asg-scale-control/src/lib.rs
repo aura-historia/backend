@@ -1,9 +1,12 @@
+use aws_sdk_cloudwatch::types::Dimension;
 use lambda_runtime::LambdaEvent;
+use std::time::{Duration, SystemTime};
 use tracing::{error, info, warn};
 
 #[derive(Debug, Clone)]
 pub struct SqsAsgComponent {
     pub sqs_url: String,
+    pub queue_name: String,
     pub asg_name: String,
 }
 
@@ -11,11 +14,12 @@ pub struct SqsAsgComponent {
 pub async fn handler(
     autoscaling: &aws_sdk_autoscaling::Client,
     sqs: &aws_sdk_sqs::Client,
+    cloudwatch: &aws_sdk_cloudwatch::Client,
     components: &[SqsAsgComponent],
     event: LambdaEvent<serde_json::Value>,
 ) -> Result<(), lambda_runtime::Error> {
     for component in components {
-        let handle_res = handle_sqs_asg_component(autoscaling, sqs, component).await;
+        let handle_res = handle_sqs_asg_component(autoscaling, sqs, cloudwatch, component).await;
         if let Err(err) = handle_res {
             error!(error = ?err, "Failed handling SQS-ASG-Component.");
         }
@@ -26,6 +30,7 @@ pub async fn handler(
 async fn handle_sqs_asg_component(
     autoscaling: &aws_sdk_autoscaling::Client,
     sqs: &aws_sdk_sqs::Client,
+    cloudwatch: &aws_sdk_cloudwatch::Client,
     component: &SqsAsgComponent,
 ) -> Result<(), lambda_runtime::Error> {
     let queue_attributes = sqs
@@ -40,16 +45,35 @@ async fn handle_sqs_asg_component(
         .get(&aws_sdk_sqs::types::QueueAttributeName::ApproximateNumberOfMessages)
         .ok_or("Get-Queue-Attributes response did not contain 'ApproximateNumberOfMessages'.")?
         .parse::<u32>()?;
-    let queue_oldest_message = queue_attributes
-        .get(&aws_sdk_sqs::types::QueueAttributeName::from(
-            "ApproximateAgeOfOldestMessage",
-        ))
-        .cloned()
-        .unwrap_or_else(|| {
-            warn!("Get-Queue-Attributes response did not contain 'ApproximateAgeOfOldestMessage'. Defaulting to '0'.");
-            "0".to_owned()
-        })
-        .parse::<u32>()?;
+
+    let end_time = SystemTime::now();
+    let start_time = end_time
+        .checked_sub(Duration::from_secs(5))
+        .expect("shouldn't fail subtracting 5 seconds from now");
+    let queue_oldest_message = cloudwatch
+        .get_metric_statistics()
+        .namespace("AWS/SQS")
+        .metric_name("ApproximateAgeOfOldestMessage")
+        .dimensions(
+            Dimension::builder()
+                .name("QueueName")
+                .value(&component.queue_name)
+                .build(),
+        )
+        .start_time(start_time.into())
+        .end_time(end_time.into())
+        .period(60)
+        .statistics(aws_sdk_cloudwatch::types::Statistic::Maximum)
+        .send()
+        .await?
+        .datapoints
+        .unwrap_or_default()
+        .iter()
+        .max_by_key(|datapoint| datapoint.timestamp())
+        .ok_or("Missing 'datapoint' in CloudWatch-Response for maximum 'ApproximateAgeOfOldestMessage'")?.maximum().unwrap_or_else(|| {
+            warn!("CloudWatch-Get;etricStatistics response did not contain 'maximum' 'ApproximateAgeOfOldestMessage'. Defaulting to '0'.");
+            0f64
+        }) as u32;
 
     let current_desired_asg_capacity = autoscaling
         .describe_auto_scaling_groups()

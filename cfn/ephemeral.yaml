@@ -3198,10 +3198,13 @@ Resources:
       Environment:
         Variables:
           PRODUCT_PIPELINE_INIT_SQS_URL: !Ref ProductPipelineInitQ
+          PRODUCT_PIPELINE_INIT_SQS_NAME: !GetAtt ProductPipelineInitQ.QueueName
           PRODUCT_PIPELINE_INIT_ASG_NAME: !Ref ProductPipelineInitASG
           PRODUCT_PIPELINE_TRANSLATE_SQS_URL: !Ref ProductPipelineTranslateQ
+          PRODUCT_PIPELINE_TRANSLATE_SQS_NAME: !GetAtt ProductPipelineTranslateQ.QueueName
           PRODUCT_PIPELINE_TRANSLATE_ASG_NAME: !Ref ProductPipelineTranslateASG
           PRODUCT_PIPELINE_EMBED_TEXT_SQS_URL: !Ref ProductPipelineEmbedTextQ
+          PRODUCT_PIPELINE_EMBED_TEXT_SQS_NAME: !GetAtt ProductPipelineEmbedTextQ.QueueName
           PRODUCT_PIPELINE_EMBED_TEXT_ASG_NAME: !Ref ProductPipelineEmbedTextASG
   ProductPipelineScaleControlStartSchedule:
     Type: AWS::Events::Rule
