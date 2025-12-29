@@ -1,6 +1,7 @@
 use aws_sdk_cloudwatch::types::Dimension;
 use lambda_runtime::LambdaEvent;
-use std::time::{Duration, SystemTime};
+use std::time::SystemTime;
+use time::{OffsetDateTime, ext::NumericalDuration};
 use tracing::{error, info, warn};
 
 #[derive(Debug, Clone)]
@@ -10,7 +11,7 @@ pub struct SqsAsgComponent {
     pub asg_name: String,
 }
 
-#[tracing::instrument(skip(autoscaling, sqs, cloudwatch, event), fields(requestId = %event.context.request_id))]
+#[tracing::instrument(skip(autoscaling, sqs, cloudwatch, components, event), fields(requestId = %event.context.request_id))]
 pub async fn handler(
     autoscaling: &aws_sdk_autoscaling::Client,
     sqs: &aws_sdk_sqs::Client,
@@ -21,7 +22,12 @@ pub async fn handler(
     for component in components {
         let handle_res = handle_sqs_asg_component(autoscaling, sqs, cloudwatch, component).await;
         if let Err(err) = handle_res {
-            error!(error = ?err, "Failed handling SQS-ASG-Component.");
+            error!(
+                error = ?err,
+                queue = component.queue_name,
+                asg = component.asg_name,
+                "Failed handling SQS-ASG-Component.",
+            );
         }
     }
     Ok(())
@@ -46,10 +52,13 @@ async fn handle_sqs_asg_component(
         .ok_or("Get-Queue-Attributes response did not contain 'ApproximateNumberOfMessages'.")?
         .parse::<u32>()?;
 
-    let end_time = SystemTime::now();
-    let start_time = end_time
-        .checked_sub(Duration::from_secs(5))
+    // CloudWatch-Metrics are eventual consistent
+    let end_time = OffsetDateTime::now_utc()
+        .checked_sub(5.seconds())
         .expect("shouldn't fail subtracting 5 seconds from now");
+    let start_time = end_time
+        .checked_sub(30.seconds())
+        .expect("shouldn't fail subtracting 30 seconds from now-5sec");
     let queue_oldest_message = cloudwatch
         .get_metric_statistics()
         .namespace("AWS/SQS")
@@ -60,8 +69,8 @@ async fn handle_sqs_asg_component(
                 .value(&component.queue_name)
                 .build(),
         )
-        .start_time(start_time.into())
-        .end_time(end_time.into())
+        .start_time(SystemTime::from(start_time).into())
+        .end_time(SystemTime::from(end_time).into())
         .period(60)
         .statistics(aws_sdk_cloudwatch::types::Statistic::Maximum)
         .send()
@@ -70,8 +79,10 @@ async fn handle_sqs_asg_component(
         .unwrap_or_default()
         .iter()
         .max_by_key(|datapoint| datapoint.timestamp())
-        .ok_or("Missing 'datapoint' in CloudWatch-Response for maximum 'ApproximateAgeOfOldestMessage'")?.maximum().unwrap_or_else(|| {
-            warn!("CloudWatch-Get;etricStatistics response did not contain 'maximum' 'ApproximateAgeOfOldestMessage'. Defaulting to '0'.");
+        .ok_or("Missing 'datapoint' in CloudWatch-Response for maximum 'ApproximateAgeOfOldestMessage'")?
+        .maximum()
+        .unwrap_or_else(|| {
+            warn!("CloudWatch-GetMetricStatistics response did not contain 'maximum' 'ApproximateAgeOfOldestMessage'. Defaulting to '0'.");
             0f64
         }) as u32;
 

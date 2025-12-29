@@ -3508,6 +3508,7 @@ dependencies = [
  "lambda_runtime",
  "rstest",
  "serde_json",
+ "time",
  "tokio",
  "tracing",
  "tracing-subscriber",
