@@ -2,7 +2,7 @@ name: Build Golden AMI for product-pipeline-translate
 
 on:
   push:
-    branches: [ prod, develop ]
+    branches: [prod, develop]
     paths:
       - ".github/workflows/golden-ami-product-pipeline-translate.yml"
       - "cfn/golden-ami.yaml"
@@ -28,6 +28,8 @@ env:
 jobs:
   cfn-lint:
     name: Lint CloudFormation
+    environment:
+      name: ${{ github.event_name == 'pull_request' && 'aws-ephemeral' || github.ref == 'refs/heads/prod' && 'aws-prod' || github.ref == 'refs/heads/develop' && 'aws-dev' }}
     permissions:
       contents: read
     runs-on: ubuntu-latest
@@ -48,8 +50,6 @@ jobs:
   aws-push-resource-artifacts:
     name: Push resource-artifacts to S3 ${{ matrix.resource }}
     needs: cfn-lint
-    environment:
-      name: ${{ github.event_name == 'pull_request' && 'aws-ephemeral' || github.ref == 'refs/heads/prod' && 'aws-prod' || github.ref == 'refs/heads/develop' && 'aws-dev' }}
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -79,7 +79,7 @@ jobs:
 
   build-ami:
     name: Build & deploy AMI
-    needs: [ aws-push-resource-artifacts ]
+    needs: [aws-push-resource-artifacts]
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -119,7 +119,7 @@ jobs:
             --stack-name ${{ env.STAGE }}-imagebuilder-product-pipeline-translate \
             --query "Stacks[0].Outputs[?OutputKey=='ImagePipelineArn'].OutputValue" \
             --output text)
-          
+
           echo "pipeline_arn=$PIPELINE_ARN" >> $GITHUB_OUTPUT
 
       - name: Start Image Builder Pipeline
@@ -129,7 +129,7 @@ jobs:
             --image-pipeline-arn ${{ steps.get_pipeline_arn.outputs.pipeline_arn }} \
             --query 'imageBuildVersionArn' \
             --output text)
-          
+
           echo "execution_arn=$EXECUTION_ARN" >> $GITHUB_OUTPUT
           echo "Started Image Builder execution:"
           echo "$EXECUTION_ARN"
@@ -138,15 +138,15 @@ jobs:
         run: |
           EXECUTION_ARN="${{ steps.start_pipeline.outputs.execution_arn }}"
           echo "Waiting for Image Builder execution: $EXECUTION_ARN"
-          
+
           while true; do
             STATUS=$(aws imagebuilder get-image \
               --image-build-version-arn "$EXECUTION_ARN" \
               --query 'image.state.status' \
               --output text)
-          
+
             echo "Current status: $STATUS"
-          
+
             if [[ "$STATUS" == "AVAILABLE" ]]; then
               echo "AMI build completed successfully"
               break
@@ -164,12 +164,12 @@ jobs:
         id: get_ami
         run: |
           EXECUTION_ARN="${{ steps.start_pipeline.outputs.execution_arn }}"
-          
+
           AMI_ID=$(aws imagebuilder get-image \
             --image-build-version-arn "$EXECUTION_ARN" \
             --query 'image.outputResources.amis[0].image' \
             --output text)
-          
+
           echo "ami_id=$AMI_ID" >> $GITHUB_OUTPUT
           echo "Built AMI ID: $AMI_ID"
 
