@@ -1,4 +1,4 @@
-use aws_sdk_cloudwatch::types::Dimension;
+use aws_sdk_cloudwatch::types::{Datapoint, Dimension};
 use lambda_runtime::LambdaEvent;
 use std::time::SystemTime;
 use time::{OffsetDateTime, ext::NumericalDuration};
@@ -76,14 +76,15 @@ async fn handle_sqs_asg_component(
         .send()
         .await?;
 
-    info!(response = ?queue_oldest_message_response);
-
     let queue_oldest_message = queue_oldest_message_response
         .datapoints
         .unwrap_or_default()
-        .iter()
-        .max_by_key(|datapoint| datapoint.timestamp())
-        .ok_or("Missing 'datapoint' in CloudWatch-Response for maximum 'ApproximateAgeOfOldestMessage'")?
+        .into_iter()
+        .max_by_key(|datapoint| datapoint.timestamp().cloned())
+        .unwrap_or_else(|| {
+            warn!("CloudWatch-GetMetricStatistics response did not contain any data-points for 'ApproximateAgeOfOldestMessage'. Defaulting to an empty datapoint.");
+            Datapoint::builder().build()
+        })
         .maximum()
         .unwrap_or_else(|| {
             warn!("CloudWatch-GetMetricStatistics response did not contain 'maximum' 'ApproximateAgeOfOldestMessage'. Defaulting to '0'.");
