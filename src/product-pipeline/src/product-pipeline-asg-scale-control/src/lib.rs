@@ -59,7 +59,7 @@ async fn handle_sqs_asg_component(
     let start_time = end_time
         .checked_sub(30.seconds())
         .expect("shouldn't fail subtracting 30 seconds from now-5sec");
-    let queue_oldest_message = cloudwatch
+    let queue_oldest_message_response = cloudwatch
         .get_metric_statistics()
         .namespace("AWS/SQS")
         .metric_name("ApproximateAgeOfOldestMessage")
@@ -74,7 +74,11 @@ async fn handle_sqs_asg_component(
         .period(60)
         .statistics(aws_sdk_cloudwatch::types::Statistic::Maximum)
         .send()
-        .await?
+        .await?;
+
+    info!(response = ?queue_oldest_message_response);
+
+    let queue_oldest_message = queue_oldest_message_response
         .datapoints
         .unwrap_or_default()
         .iter()
