@@ -172,7 +172,6 @@ pub mod api {
         use std::collections::HashMap;
 
         #[rstest::rstest]
-        #[trace]
         #[case("de", &[De])]
         #[case("de-DE", &[De])]
         #[case("en", &[En])]
@@ -197,6 +196,7 @@ pub mod api {
         #[case("\"en-US\"", &[])]
         #[case("123", &[])]
         #[case("abcdefg", &[])]
+        #[trace]
         fn should_extract_languages_from_header(
             #[case] accept_language_header_value: &str,
             #[case] expected: &[LanguageData],
@@ -213,7 +213,6 @@ pub mod api {
         }
 
         #[rstest::rstest]
-        #[trace]
         #[case("de", De)]
         #[case("de-DE", De)]
         #[case("en", En)]
@@ -238,6 +237,7 @@ pub mod api {
         #[case("\"en-US\"", En)]
         #[case("123", En)]
         #[case("abcdefg", En)]
+        #[trace]
         fn should_extract_language_from_header(
             #[case] accept_language_header_value: &str,
             #[case] expected: LanguageData,
@@ -254,7 +254,6 @@ pub mod api {
         }
 
         #[rstest::rstest]
-        #[trace]
         #[case("de", LanguageData::De)]
         #[case("de-DE", LanguageData::De)]
         #[case("en", LanguageData::En)]
@@ -262,6 +261,7 @@ pub mod api {
         #[case("en-US", LanguageData::En)]
         #[case("fr", LanguageData::Fr)]
         #[case("es", LanguageData::Es)]
+        #[trace]
         fn should_extract_language_query(
             #[case] query_value: String,
             #[case] expected: LanguageData,
@@ -307,11 +307,11 @@ mod tests {
     use rstest::rstest;
 
     #[rstest]
-    #[trace]
     #[case(LanguageData::De, "\"de\"")]
     #[case(LanguageData::En, "\"en\"")]
     #[case(LanguageData::Fr, "\"fr\"")]
     #[case(LanguageData::Es, "\"es\"")]
+    #[trace]
     fn should_serialize_language_according_to_iso_639_1(
         #[case] language: LanguageData,
         #[case] expected: &str,
@@ -321,11 +321,11 @@ mod tests {
     }
 
     #[rstest]
-    #[trace]
     #[case("\"de\"", LanguageData::De)]
     #[case("\"en\"", LanguageData::En)]
     #[case("\"fr\"", LanguageData::Fr)]
     #[case("\"es\"", LanguageData::Es)]
+    #[trace]
     fn should_deserialize_language_according_to_iso_639_1(
         #[case] language: &str,
         #[case] expected: LanguageData,

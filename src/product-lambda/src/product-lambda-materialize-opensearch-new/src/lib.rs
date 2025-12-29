@@ -203,7 +203,6 @@ mod tests {
 
     #[tokio::test]
     #[rstest::rstest]
-    #[trace]
     #[case(1)]
     #[case(5)]
     #[case(10)]
@@ -215,6 +214,7 @@ mod tests {
     #[case(900)]
     #[case(2874)]
     #[case(10874)]
+    #[trace]
     async fn should_handle_message(#[case] record_count: usize) {
         let mut repository = MockProductOpenSearchRepository::default();
         repository
@@ -255,7 +255,6 @@ mod tests {
 
     #[tokio::test]
     #[rstest::rstest]
-    #[trace]
     #[case(0, 1)]
     #[case(1, 1)]
     #[case(2, 5)]
@@ -268,6 +267,7 @@ mod tests {
     #[case(773, 900)]
     #[case(299, 2874)]
     #[case(77, 10874)]
+    #[trace]
     async fn should_respond_with_partial_failures_when_opensearch_partial_bulk_failure(
         #[case] failure_count: usize,
         #[case] record_count: usize,

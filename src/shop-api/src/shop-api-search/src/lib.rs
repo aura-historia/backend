@@ -101,11 +101,11 @@ mod tests {
 
     #[tokio::test]
     #[rstest::rstest]
-    #[trace]
     #[case(Some("name"), Some("asc"))]
     #[case(Some("created"), Some("desc"))]
     #[case(None, None)]
     #[case(None, None)]
+    #[trace]
     async fn should_handle_request(#[case] sort: Option<&str>, #[case] order: Option<&str>) {
         let lambda_event = LambdaEvent {
             payload: ApiGatewayV2httpRequestProxy::builder()

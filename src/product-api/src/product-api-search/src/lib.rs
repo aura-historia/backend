@@ -147,12 +147,12 @@ mod tests {
 
     #[tokio::test]
     #[rstest::rstest]
-    #[trace]
     #[case(Some("price"), Some("asc"))]
     #[case(Some("created"), Some("desc"))]
     #[case(None, None)]
     #[case(Some("updated"), Some("desc"))]
     #[case(None, None)]
+    #[trace]
     async fn should_handle_request_when_anon(
         #[case] sort: Option<&str>,
         #[case] order: Option<&str>,

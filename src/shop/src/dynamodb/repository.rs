@@ -351,13 +351,13 @@ mod tests {
     use std::collections::HashMap;
 
     #[rstest::rstest]
-    #[trace]
     #[case([].into(), None)]
     #[case([("pk".into(), AttributeValue::S("foo".into()))].into(), None)]
     #[case([("pk".into(), AttributeValue::S("shop#shop_id#bar".into()))].into(), None)]
     #[case([("pk".into(), AttributeValue::S("shop#domain#baz".into()))].into(), None)]
     #[case([("pk".into(), AttributeValue::S("shop#shop_id#2a48a17b-cc4f-4489-83cf-f3f215711047".into()))].into(), Some(ShopId::try_from("2a48a17b-cc4f-4489-83cf-f3f215711047").unwrap().into()))]
     #[case([("pk".into(), AttributeValue::S("shop#domain#https://foo.bar".into()))].into(), Some(Domain::try_from("https://foo.bar").unwrap().into()))]
+    #[trace]
     fn should_extract_shop_identifier(
         #[case] attr_map: HashMap<String, AttributeValue>,
         #[case] expected: Option<ShopIdentifier>,

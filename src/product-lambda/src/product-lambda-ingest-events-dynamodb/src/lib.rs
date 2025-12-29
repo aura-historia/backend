@@ -143,7 +143,6 @@ mod tests {
     }
 
     #[rstest::rstest]
-    #[trace]
     #[case(1)]
     #[case(5)]
     #[case(10)]
@@ -156,6 +155,7 @@ mod tests {
     #[case(2874)]
     #[case(10874)]
     #[tokio::test]
+    #[trace]
     async fn should_handle_message(#[case] record_count: usize) {
         let records = fake::vec![ProductEventRecord; record_count]
             .into_iter()
@@ -181,12 +181,12 @@ mod tests {
 
     #[tokio::test]
     #[rstest::rstest]
-    #[trace]
     #[case(0, 1)]
     #[case(1, 1)]
     #[case(2, 5)]
     #[case(9, 10)]
     #[case(0, 25)]
+    #[trace]
     async fn should_respond_with_partial_failures(
         #[case] failure_count: usize,
         #[case] record_count: usize,

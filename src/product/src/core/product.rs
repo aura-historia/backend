@@ -363,13 +363,13 @@ mod tests {
         use url::Url;
 
         #[rstest::rstest]
-        #[trace]
         #[case::listed(ProductState::Listed, ProductState::Listed)]
         #[case::available(ProductState::Available, ProductState::Available)]
         #[case::reserved(ProductState::Reserved, ProductState::Reserved)]
         #[case::sold(ProductState::Sold, ProductState::Sold)]
         #[case::removed(ProductState::Removed, ProductState::Removed)]
         #[case::unknown(ProductState::Unknown, ProductState::Unknown)]
+        #[trace]
         fn should_return_none_when_state_did_not_change_for_change_state(
             #[case] from_state: ProductState,
             #[case] to_state: ProductState,
@@ -402,7 +402,6 @@ mod tests {
         }
 
         #[rstest::rstest]
-        #[trace]
         #[case::listed(ProductState::Listed, ProductState::Available)]
         #[case::listed(ProductState::Listed, ProductState::Removed)]
         #[case::available(ProductState::Available, ProductState::Reserved)]
@@ -413,6 +412,7 @@ mod tests {
         #[case::sold(ProductState::Sold, ProductState::Removed)]
         #[case::sold(ProductState::Sold, ProductState::Unknown)]
         #[case::sold(ProductState::Unknown, ProductState::Available)]
+        #[trace]
         fn should_return_state_change_when_state_changed_for_change_state(
             #[case] from_state: ProductState,
             #[case] to_state: ProductState,
@@ -445,7 +445,6 @@ mod tests {
         }
 
         #[rstest::rstest]
-        #[trace]
         #[case::listed(ProductState::Listed, ProductState::Available)]
         #[case::listed(ProductState::Listed, ProductState::Removed)]
         #[case::available(ProductState::Available, ProductState::Reserved)]
@@ -456,6 +455,7 @@ mod tests {
         #[case::sold(ProductState::Sold, ProductState::Removed)]
         #[case::sold(ProductState::Sold, ProductState::Unknown)]
         #[case::sold(ProductState::Unknown, ProductState::Available)]
+        #[trace]
         fn should_change_state_when_state_changed_for_change_state(
             #[case] from_state: ProductState,
             #[case] to_state: ProductState,
@@ -513,7 +513,6 @@ mod tests {
         }
 
         #[rstest::rstest]
-        #[trace]
         #[case::eur_zero(Currency::Eur, 0u64.into())]
         #[case::gbp_zero(Currency::Gbp, 0u64.into())]
         #[case::usd_zero(Currency::Usd, 0u64.into())]
@@ -526,6 +525,7 @@ mod tests {
         #[case::aud_non_zero(Currency::Aud, 42u64.into())]
         #[case::cad_non_zero(Currency::Cad, 42u64.into())]
         #[case::nzd_non_zero(Currency::Nzd, 42u64.into())]
+        #[trace]
         fn should_return_none_when_price_and_currency_did_not_change_for_new_price(
             #[case] currency: Currency,
             #[case] monetary_amount: MonetaryAmount,
@@ -564,7 +564,6 @@ mod tests {
         }
 
         #[rstest::rstest]
-        #[trace]
         #[case::eur_zero(Price::new(0u64.into(), Currency::Eur))]
         #[case::gbp_zero(Price::new(0u64.into(), Currency::Gbp))]
         #[case::usd_zero(Price::new(0u64.into(), Currency::Usd))]
@@ -577,6 +576,7 @@ mod tests {
         #[case::aud_non_zero(Price::new(42u64.into(), Currency::Aud))]
         #[case::cad_non_zero(Price::new(42u64.into(), Currency::Cad))]
         #[case::nzd_non_zero(Price::new(42u64.into(), Currency::Nzd))]
+        #[trace]
         fn should_discover_price_when_price_changed_from_none_for_new_price(
             #[case] to_price: Price,
         ) {
@@ -625,13 +625,13 @@ mod tests {
         }
 
         #[rstest::rstest]
-        #[trace]
         #[case::eur_non_zero(Price::new(420u64.into(), Currency::Eur))]
         #[case::gbp_non_zero(Price::new(430u64.into(), Currency::Gbp))]
         #[case::usd_non_zero(Price::new(440u64.into(), Currency::Usd))]
         #[case::aud_non_zero(Price::new(450u64.into(), Currency::Aud))]
         #[case::cad_non_zero(Price::new(460u64.into(), Currency::Cad))]
         #[case::nzd_non_zero(Price::new(477u64.into(), Currency::Nzd))]
+        #[trace]
         fn should_find_dropped_price_when_price_dropped_for_new_price(#[case] to_price: Price) {
             let mut product = Product {
                 product_id: Default::default(),
@@ -682,13 +682,13 @@ mod tests {
         }
 
         #[rstest::rstest]
-        #[trace]
         #[case::eur_non_zero(Price::new(420u64.into(), Currency::Eur))]
         #[case::gbp_non_zero(Price::new(430u64.into(), Currency::Gbp))]
         #[case::usd_non_zero(Price::new(440u64.into(), Currency::Usd))]
         #[case::aud_non_zero(Price::new(450u64.into(), Currency::Aud))]
         #[case::cad_non_zero(Price::new(460u64.into(), Currency::Cad))]
         #[case::nzd_non_zero(Price::new(477u64.into(), Currency::Nzd))]
+        #[trace]
         fn should_find_increased_price_when_price_increased_for_new_price(#[case] to_price: Price) {
             let mut product = Product {
                 product_id: Default::default(),
@@ -733,7 +733,6 @@ mod tests {
         }
 
         #[rstest::rstest]
-        #[trace]
         #[case::eur_zero(Price::new(0u64.into(), Currency::Eur))]
         #[case::gbp_zero(Price::new(0u64.into(), Currency::Gbp))]
         #[case::usd_zero(Price::new(0u64.into(), Currency::Usd))]
@@ -746,6 +745,7 @@ mod tests {
         #[case::aud_non_zero(Price::new(42u64.into(), Currency::Aud))]
         #[case::cad_non_zero(Price::new(42u64.into(), Currency::Cad))]
         #[case::nzd_non_zero(Price::new(42u64.into(), Currency::Nzd))]
+        #[trace]
         fn should_remove_price_when_price_changed_from_some_to_none_for_new_price(
             #[case] price: Price,
         ) {

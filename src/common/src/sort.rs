@@ -109,9 +109,9 @@ pub mod api {
         use std::collections::HashMap;
 
         #[rstest::rstest]
-        #[trace]
         #[case(SortOrder::Asc)]
         #[case(SortOrder::Desc)]
+        #[trace]
         fn should_match_as_str_serialize(#[case] field: SortOrder) {
             let serialized = serde_json::to_string(&field).unwrap().replace("\"", "");
             let as_str = field.as_str();
@@ -139,7 +139,6 @@ pub mod api {
         }
 
         #[rstest::rstest]
-        #[trace]
         #[case(Some("foo"), Some("asc"), Some(Sort { sort: DummyField::Foo, order: SortOrder::Asc }))]
         #[case(Some("foo"), Some("desc"), Some(Sort { sort: DummyField::Foo, order: SortOrder::Desc }))]
         #[case(Some("bar"), Some("asc"), Some(Sort { sort: DummyField::Bar, order: SortOrder::Asc }))]
@@ -148,6 +147,7 @@ pub mod api {
         #[case(None, Some("desc"), None)]
         #[case(Some("foo"), None, None)]
         #[case(None, None, None)]
+        #[trace]
         fn should_extract_sort(
             #[case] sort_value: Option<&str>,
             #[case] order_value: Option<&str>,
@@ -168,7 +168,6 @@ pub mod api {
         }
 
         #[rstest::rstest]
-        #[trace]
         #[case("boop")]
         #[case("baz")]
         #[case("fooo")]
@@ -176,6 +175,7 @@ pub mod api {
         #[case("1x")]
         #[case("07g")]
         #[case("65536")]
+        #[trace]
         fn should_400_when_sort_is_invalid(#[case] value: &str) {
             let mut map = HashMap::new();
             map.insert("sort".to_string(), value.to_string());
@@ -195,7 +195,6 @@ pub mod api {
         }
 
         #[rstest::rstest]
-        #[trace]
         #[case("asci")]
         #[case("descendent")]
         #[case("boop")]
@@ -205,6 +204,7 @@ pub mod api {
         #[case("1x")]
         #[case("07g")]
         #[case("65536")]
+        #[trace]
         fn should_400_when_order_is_invalid(#[case] value: &str) {
             let mut map = HashMap::new();
             map.insert("order".to_string(), value.to_string());

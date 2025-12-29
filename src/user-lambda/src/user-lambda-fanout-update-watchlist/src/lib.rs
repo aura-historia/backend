@@ -136,7 +136,6 @@ mod tests {
 
     #[tokio::test]
     #[rstest::rstest]
-    #[trace]
     #[case(1)]
     #[case(5)]
     #[case(10)]
@@ -148,6 +147,7 @@ mod tests {
     #[case(900)]
     #[case(2874)]
     #[case(10874)]
+    #[trace]
     async fn should_succeed_all_when_all_query_and_update_succeed(#[case] record_count: usize) {
         let records = fake::vec![UserRecord; record_count]
             .into_iter()
@@ -173,7 +173,6 @@ mod tests {
 
     #[tokio::test]
     #[rstest::rstest]
-    #[trace]
     #[case(1)]
     #[case(5)]
     #[case(10)]
@@ -185,6 +184,7 @@ mod tests {
     #[case(900)]
     #[case(2874)]
     #[case(10874)]
+    #[trace]
     async fn should_partially_fail_when_query_fails(#[case] record_count: usize) {
         let records = fake::vec![UserRecord; record_count]
             .into_iter()
@@ -210,7 +210,6 @@ mod tests {
 
     #[tokio::test]
     #[rstest::rstest]
-    #[trace]
     #[case(1)]
     #[case(5)]
     #[case(10)]
@@ -222,6 +221,7 @@ mod tests {
     #[case(900)]
     #[case(2874)]
     #[case(10874)]
+    #[trace]
     async fn should_partially_fail_when_any_update_fails(#[case] record_count: usize) {
         let records = fake::vec![UserRecord; record_count]
             .into_iter()

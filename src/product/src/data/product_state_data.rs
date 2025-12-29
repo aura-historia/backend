@@ -45,13 +45,13 @@ mod tests {
     use rstest::rstest;
 
     #[rstest]
-    #[trace]
     #[case(ProductStateData::Listed, "\"LISTED\"")]
     #[case(ProductStateData::Available, "\"AVAILABLE\"")]
     #[case(ProductStateData::Reserved, "\"RESERVED\"")]
     #[case(ProductStateData::Sold, "\"SOLD\"")]
     #[case(ProductStateData::Removed, "\"REMOVED\"")]
     #[case(ProductStateData::Unknown, "\"UNKNOWN\"")]
+    #[trace]
     fn should_serialize_product_state_data_in_screaming_snake_case(
         #[case] product_state_record: ProductStateData,
         #[case] expected: &str,
@@ -61,13 +61,13 @@ mod tests {
     }
 
     #[rstest]
-    #[trace]
     #[case("\"LISTED\"", ProductStateData::Listed)]
     #[case("\"AVAILABLE\"", ProductStateData::Available)]
     #[case("\"RESERVED\"", ProductStateData::Reserved)]
     #[case("\"SOLD\"", ProductStateData::Sold)]
     #[case("\"REMOVED\"", ProductStateData::Removed)]
     #[case("\"UNKNOWN\"", ProductStateData::Unknown)]
+    #[trace]
     fn should_deserialize_product_state_data_in_screaming_snake_case(
         #[case] currency: &str,
         #[case] expected: ProductStateData,
