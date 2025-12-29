@@ -3171,6 +3171,7 @@ Resources:
                 Action:
                   - sqs:GetQueueAttributes
                   - sqs:GetQueueUrl
+                  - cloudwatch:GetMetricStatistics
                 Resource: "*"
         - PolicyName: ScaleUpASG
           PolicyDocument:
