@@ -69,7 +69,7 @@ impl PipeProcessor<TranslatedPipeProduct, TextEmbeddedPipeProduct>
             count = count,
             successes = count - failures.len(),
             failures = failures.len(),
-            "Tetx-embedded translated products."
+            "Text-embedded translated products."
         );
 
         ProcessResult {
