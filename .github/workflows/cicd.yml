@@ -287,7 +287,7 @@ jobs:
 
   aws-push-lambda:
     name: Push Lambda to S3 ${{ matrix.crate }}
-#    needs: [unit-test, integration-test, test-product-pipeline]
+    needs: [unit-test, integration-test, test-product-pipeline]
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -387,7 +387,7 @@ jobs:
 
   aws-push-ec2-x86:
     name: Push EC2 to S3 ${{ matrix.crate }}
-#    needs: [unit-test, integration-test, test-product-pipeline]
+    needs: [unit-test, integration-test, test-product-pipeline]
     runs-on: ubuntu-24.04
     permissions:
       contents: read
@@ -440,7 +440,7 @@ jobs:
 
   aws-push-mail-templates:
     name: Compile & push Mail-Templates to S3 ${{ matrix.resource }}
-#    needs: [unit-test, integration-test, test-product-pipeline]
+    needs: [unit-test, integration-test, test-product-pipeline]
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -495,12 +495,7 @@ jobs:
   aws-cfn-deploy:
     name: Deploy & initialize CFN-Stack
     needs:
-      [
-        cfn-lint,
-        aws-push-lambda,
-        aws-push-ec2-x86,
-        aws-push-mail-templates,
-      ]
+      [cfn-lint, aws-push-lambda, aws-push-ec2-x86, aws-push-mail-templates]
     environment:
       name: ${{ github.event_name == 'pull_request' && 'aws-ephemeral' || github.ref == 'refs/heads/prod' && 'aws-prod' || github.ref == 'refs/heads/develop' && 'aws-dev' }}
     runs-on: ubuntu-latest
