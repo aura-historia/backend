@@ -21,7 +21,7 @@ user-api = { workspace = true }
 user-lambda = { workspace = true }
 mail = { workspace = true }
 mail-lambda-send = { workspace = true }
-product-enrichment = { workspace = true }
+product-pipeline = { workspace = true }
 
 [workspace]
 members = [
@@ -43,7 +43,7 @@ members = [
     "src/user-lambda",
     "src/mail",
     "src/mail-lambda-send",
-    "src/product-enrichment",
+    "src/product-pipeline",
 ]
 
 [workspace.dependencies]
@@ -59,6 +59,7 @@ aws-sdk-opensearch = "1.110.0"
 aws-sdk-sqs = "1.91.0"
 aws-sdk-sesv2 = "1.110.0"
 aws-sdk-s3 = "1.119.0"
+aws-sdk-cloudwatch = "1.100.0"
 aws_lambda_events = { version = "1.0.2", default-features = false }
 common = { path = "src/common" }
 derive_builder = "0.20.2"
@@ -95,9 +96,15 @@ product-api-watchlist-patch = { path = "src/product-api/src/product-api-watchlis
 product-api-watchlist-post = { path = "src/product-api/src/product-api-watchlist-post" }
 product-api-watchlist-delete = { path = "src/product-api/src/product-api-watchlist-delete" }
 product-lambda = { path = "src/product-lambda" }
-product-enrichment = { path = "src/product-enrichment" }
-product-enrichment-asg-scale-down = { path = "src/product-enrichment/src/product-enrichment-asg-scale-down" }
-product-enrichment-asg-scale-up = { path = "src/product-enrichment/src/product-enrichment-asg-scale-up" }
+product-pipeline-common = { path = "src/product-pipeline/src/product-pipeline-common" }
+product-pipeline-init = { path = "src/product-pipeline/src/product-pipeline-init" }
+product-pipeline-translate = { path = "src/product-pipeline/src/product-pipeline-translate" }
+product-pipeline-embed-text = { path = "src/product-pipeline/src/product-pipeline-embed-text" }
+product-pipeline-complete = { path = "src/product-pipeline/src/product-pipeline-complete" }
+product-pipeline-test = { path = "src/product-pipeline/src/product-pipeline-test" }
+product-pipeline = { path = "src/product-pipeline" }
+product-pipeline-asg-scale-persist-up = { path = "src/product-pipeline/src/product-pipeline-asg-scale-persist-up" }
+product-pipeline-asg-scale-control = { path = "src/product-pipeline/src/product-pipeline-asg-scale-control" }
 product-lambda-materialize-dynamodb-new = { path = "src/product-lambda/src/product-lambda-materialize-dynamodb-new" }
 product-lambda-materialize-dynamodb-update = { path = "src/product-lambda/src/product-lambda-materialize-dynamodb-update" }
 product-lambda-materialize-opensearch-new = { path = "src/product-lambda/src/product-lambda-materialize-opensearch-new" }

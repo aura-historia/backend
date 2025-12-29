@@ -407,7 +407,7 @@ async fn should_update_product_record() {
     let now2 = OffsetDateTime::now_utc();
     let event_id2 = EventId::new();
     let update = ProductRecordUpdate {
-        event_id: event_id2,
+        event_id: Some(event_id2),
         price_native: None,
         price_eur: None,
         price_usd: None,

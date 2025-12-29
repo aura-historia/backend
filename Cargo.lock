@@ -123,8 +123,8 @@ dependencies = [
  "mail-lambda-send",
  "product",
  "product-api",
- "product-enrichment",
  "product-lambda",
+ "product-pipeline",
  "search-filter",
  "search-filter-api",
  "shop",
@@ -272,6 +272,31 @@ dependencies = [
  "aws-types",
  "fastrand",
  "http 0.2.12",
+ "regex-lite",
+ "tracing",
+]
+
+[[package]]
+name = "aws-sdk-cloudwatch"
+version = "1.100.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "44bb2d1e7d5e9ec6134722763a972436ec6f811eed9203b0d2c7fda795b5926e"
+dependencies = [
+ "aws-credential-types",
+ "aws-runtime",
+ "aws-smithy-async",
+ "aws-smithy-cbor",
+ "aws-smithy-compression",
+ "aws-smithy-http",
+ "aws-smithy-json",
+ "aws-smithy-runtime",
+ "aws-smithy-runtime-api",
+ "aws-smithy-types",
+ "aws-types",
+ "fastrand",
+ "flate2",
+ "http 0.2.12",
+ "http-body 0.4.6",
  "regex-lite",
  "tracing",
 ]
@@ -527,6 +552,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "aws-smithy-cbor"
+version = "0.61.4"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "67cd5aeb90eebe363c34f2aff926f999ec09dc52d5b90123e6f82763cc6370f9"
+dependencies = [
+ "aws-smithy-types",
+ "minicbor",
+]
+
+[[package]]
 name = "aws-smithy-checksums"
 version = "0.63.12"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -543,6 +578,23 @@ dependencies = [
  "pin-project-lite",
  "sha1",
  "sha2",
+ "tracing",
+]
+
+[[package]]
+name = "aws-smithy-compression"
+version = "0.0.7"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "2fb5fbc503e6836e96a22c4dd1bb23b7058d64bd30fd67f344f273b8fc85bb9c"
+dependencies = [
+ "aws-smithy-runtime-api",
+ "aws-smithy-types",
+ "bytes",
+ "flate2",
+ "futures-util",
+ "http 0.2.12",
+ "http-body 0.4.6",
+ "pin-project-lite",
  "tracing",
 ]
 
@@ -1157,6 +1209,12 @@ dependencies = [
 ]
 
 [[package]]
+name = "crunchy"
+version = "0.2.4"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "460fbee9c2c2f33933d720630a6a0bac33ba7053db5344fac858d4b8952d77d5"
+
+[[package]]
 name = "crypto-bigint"
 version = "0.4.9"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1719,6 +1777,17 @@ dependencies = [
  "tokio",
  "tokio-util",
  "tracing",
+]
+
+[[package]]
+name = "half"
+version = "2.7.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "6ea2d84b969582b4b1864a92dc5d27cd2b77b622a8d79306834f1be5ba20d84b"
+dependencies = [
+ "cfg-if",
+ "crunchy",
+ "zerocopy",
 ]
 
 [[package]]
@@ -2510,6 +2579,27 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "6877bb514081ee2a7ff5ef9de3281f14a4dd4bceac4c09388074a6b5df8a139a"
 
 [[package]]
+name = "minicbor"
+version = "0.24.4"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "29be4f60e41fde478b36998b88821946aafac540e53591e76db53921a0cc225b"
+dependencies = [
+ "half",
+ "minicbor-derive",
+]
+
+[[package]]
+name = "minicbor-derive"
+version = "0.15.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "bd2209fff77f705b00c737016a48e73733d7fbccb8b007194db148f03561fb70"
+dependencies = [
+ "proc-macro2",
+ "quote",
+ "syn",
+]
+
+[[package]]
 name = "minimal-lexical"
 version = "0.2.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3246,75 +3336,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "product-enrichment"
-version = "0.1.0"
-dependencies = [
- "async-trait",
- "aws-config",
- "aws-sdk-autoscaling",
- "aws-sdk-dynamodb",
- "aws-sdk-sqs",
- "aws_lambda_events",
- "common",
- "fake",
- "itertools 0.14.0",
- "mockall",
- "opensearch",
- "product",
- "product-enrichment",
- "product-enrichment-asg-scale-down",
- "product-enrichment-asg-scale-up",
- "pyo3",
- "pyo3-ffi",
- "rstest",
- "serde_dynamo",
- "serde_json",
- "serial_test",
- "strum",
- "strum_macros",
- "test-api",
- "time",
- "tokio",
- "tracing",
- "tracing-subscriber",
- "uuid",
-]
-
-[[package]]
-name = "product-enrichment-asg-scale-down"
-version = "0.1.0"
-dependencies = [
- "aws-config",
- "aws-sdk-autoscaling",
- "common",
- "lambda_runtime",
- "opensearch",
- "rstest",
- "serde",
- "serde_json",
- "tokio",
- "tracing",
- "tracing-subscriber",
-]
-
-[[package]]
-name = "product-enrichment-asg-scale-up"
-version = "0.1.0"
-dependencies = [
- "aws-config",
- "aws-sdk-autoscaling",
- "common",
- "lambda_runtime",
- "opensearch",
- "rstest",
- "serde",
- "serde_json",
- "tokio",
- "tracing",
- "tracing-subscriber",
-]
-
-[[package]]
 name = "product-lambda"
 version = "0.1.0"
 dependencies = [
@@ -3460,6 +3481,198 @@ dependencies = [
  "tracing-subscriber",
  "user",
  "uuid",
+]
+
+[[package]]
+name = "product-pipeline"
+version = "0.1.0"
+dependencies = [
+ "product-pipeline-asg-scale-control",
+ "product-pipeline-asg-scale-persist-up",
+ "product-pipeline-common",
+ "product-pipeline-complete",
+ "product-pipeline-embed-text",
+ "product-pipeline-init",
+ "product-pipeline-test",
+ "product-pipeline-translate",
+]
+
+[[package]]
+name = "product-pipeline-asg-scale-control"
+version = "0.1.0"
+dependencies = [
+ "aws-config",
+ "aws-sdk-autoscaling",
+ "aws-sdk-cloudwatch",
+ "aws-sdk-sqs",
+ "lambda_runtime",
+ "rstest",
+ "serde_json",
+ "time",
+ "tokio",
+ "tracing",
+ "tracing-subscriber",
+]
+
+[[package]]
+name = "product-pipeline-asg-scale-persist-up"
+version = "0.1.0"
+dependencies = [
+ "aws-config",
+ "aws-sdk-autoscaling",
+ "lambda_runtime",
+ "serde_json",
+ "tokio",
+ "tracing",
+ "tracing-subscriber",
+]
+
+[[package]]
+name = "product-pipeline-common"
+version = "0.1.0"
+dependencies = [
+ "async-trait",
+ "aws-config",
+ "aws-sdk-sqs",
+ "common",
+ "fake",
+ "mockall",
+ "product",
+ "product-pipeline-common",
+ "rstest",
+ "serde",
+ "serde_json",
+ "serial_test",
+ "test-api",
+ "time",
+ "tokio",
+ "tracing",
+]
+
+[[package]]
+name = "product-pipeline-complete"
+version = "0.1.0"
+dependencies = [
+ "async-trait",
+ "aws-config",
+ "aws-sdk-dynamodb",
+ "aws-sdk-sqs",
+ "common",
+ "fake",
+ "mockall",
+ "opensearch",
+ "product",
+ "product-pipeline-common",
+ "rstest",
+ "serde",
+ "serde_json",
+ "serial_test",
+ "test-api",
+ "tokio",
+ "tracing",
+ "tracing-subscriber",
+]
+
+[[package]]
+name = "product-pipeline-embed-text"
+version = "0.1.0"
+dependencies = [
+ "async-trait",
+ "aws-config",
+ "aws-sdk-sqs",
+ "common",
+ "fake",
+ "mockall",
+ "product",
+ "product-pipeline-common",
+ "pyo3",
+ "pyo3-ffi",
+ "rstest",
+ "serde",
+ "serde_json",
+ "serial_test",
+ "tokio",
+ "tracing",
+ "tracing-subscriber",
+]
+
+[[package]]
+name = "product-pipeline-init"
+version = "0.1.0"
+dependencies = [
+ "async-trait",
+ "aws-config",
+ "aws-sdk-sqs",
+ "common",
+ "fake",
+ "mockall",
+ "product",
+ "product-pipeline-common",
+ "rstest",
+ "serde",
+ "serde_json",
+ "tokio",
+ "tracing",
+ "tracing-subscriber",
+]
+
+[[package]]
+name = "product-pipeline-test"
+version = "0.1.0"
+dependencies = [
+ "async-trait",
+ "aws-config",
+ "aws-sdk-sqs",
+ "aws_lambda_events",
+ "common",
+ "fake",
+ "itertools 0.14.0",
+ "mockall",
+ "product",
+ "product-pipeline-common",
+ "product-pipeline-complete",
+ "product-pipeline-embed-text",
+ "product-pipeline-init",
+ "product-pipeline-translate",
+ "pyo3",
+ "pyo3-ffi",
+ "rstest",
+ "serde",
+ "serde_dynamo",
+ "serde_json",
+ "serial_test",
+ "strum",
+ "strum_macros",
+ "test-api",
+ "time",
+ "tokio",
+ "tracing",
+ "uuid",
+]
+
+[[package]]
+name = "product-pipeline-translate"
+version = "0.1.0"
+dependencies = [
+ "async-trait",
+ "aws-config",
+ "aws-sdk-sqs",
+ "common",
+ "fake",
+ "itertools 0.14.0",
+ "mockall",
+ "product",
+ "product-pipeline-common",
+ "pyo3",
+ "pyo3-ffi",
+ "rstest",
+ "serde",
+ "serde_json",
+ "strum",
+ "strum_macros",
+ "tokio",
+ "tracing",
+ "tracing-subscriber",
 ]
 
 [[package]]
@@ -5375,7 +5588,6 @@ dependencies = [
  "sharded-slab",
  "smallvec",
  "thread_local",
- "time",
  "tracing",
  "tracing-core",
  "tracing-log",

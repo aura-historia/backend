@@ -43,7 +43,7 @@ jobs:
           python-version: "3.12"
 
       - name: Install cfn-lint
-        run: pip install cfn-lint==1.42.0
+        run: pip install -r cfn/lint/requirements.txt
 
       - name: Run cfn-lint for '${{ env.CLOUDFORMATION_TEMPLATE_PATH }}'
         run: cfn-lint --non-zero-exit-code error ${{ env.CLOUDFORMATION_TEMPLATE_PATH }}
@@ -92,7 +92,7 @@ jobs:
           - src/aws-tests
           - src/product
           - src/product-api
-          - src/product-enrichment
+          - src/product-pipeline
           - src/product-lambda
           - src/shop
           - src/shop-api
@@ -159,6 +159,7 @@ jobs:
           - src/search-filter-api/src/search-filter-api-patch-search-filter
           - src/search-filter-api/src/search-filter-api-post-search-filter
           - src/product
+          - src/product-pipeline/src/product-pipeline-common
           - src/product-api/src/product-api-get-product
           - src/product-api/src/product-api-get-product-similar
           - src/product-api/src/product-api-put-products
@@ -194,12 +195,18 @@ jobs:
       - name: Prune Docker volumes
         run: docker volume prune -f
 
-  test-product-enrichment:
-    name: Test product-enrichment
+  test-product-pipeline:
+    name: Test product-pipeline
     needs: build
     permissions:
       contents: read
     runs-on: self-hosted
+    strategy:
+      matrix:
+        crate:
+          - src/product-pipeline/src/product-pipeline-translate
+          - src/product-pipeline/src/product-pipeline-embed-text
+          - src/product-pipeline/src/product-pipeline-test
     steps:
       - uses: actions/checkout@v6
         with:
@@ -214,13 +221,13 @@ jobs:
           python-version: "3.12"
 
       - name: Install Python deps
-        working-directory: src/product-enrichment/python
+        working-directory: ${{ matrix.crate }}
         run: |
           python -m pip install --upgrade pip
-          pip install -r requirements.txt
+          pip install -r python/requirements.txt
 
-      - name: Test product-enrichment
-        working-directory: src/product-enrichment/python
+      - name: Test ${{ matrix.crate }}
+        working-directory: ${{ matrix.crate }}
         run: cargo test --lib --test '*' --all-features -- --nocapture --include-ignored
 
       - name: Prune Docker volumes
@@ -228,7 +235,7 @@ jobs:
 
   sonar:
     name: SonarQube-Cloud Analysis
-    needs: [unit-test, integration-test, test-product-enrichment]
+    needs: [unit-test, integration-test, test-product-pipeline]
     if: github.actor != 'dependabot[bot]'
     permissions:
       contents: read
@@ -254,12 +261,12 @@ jobs:
       - name: Install Python deps
         run: |
           python -m pip install --upgrade pip
-          pip install -r src/product-enrichment/python/requirements.txt
+          pip install -r src/product-pipeline/src/product-pipeline-test/python/requirements.txt
 
       - name: Generate coverage
         env:
-           RUSTFLAGS: "-C instrument-coverage"
-           LLVM_PROFILE_FILE: "coverage-%p-%m.profraw"
+          RUSTFLAGS: "-C instrument-coverage"
+          LLVM_PROFILE_FILE: "coverage-%p-%m.profraw"
         run: |
           cargo test --workspace --all-features --exclude smoking-tests --exclude staging-tests -- --nocapture --include-ignored
           grcov . --binary-path ./target/debug/deps/ -s . -t lcov --branch --ignore-not-existing --ignore "/*" --ignore "*/target/*" --ignore "*/.cargo/*" -o coverage.lcov
@@ -280,7 +287,7 @@ jobs:
 
   aws-push-lambda:
     name: Push Lambda to S3 ${{ matrix.crate }}
-    needs: [unit-test, integration-test, test-product-enrichment]
+    needs: [unit-test, integration-test, test-product-pipeline]
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -301,8 +308,8 @@ jobs:
           - src/product-api/src/product-api-watchlist-get
           - src/product-api/src/product-api-watchlist-post
           - src/product-api/src/product-api-watchlist-patch
-          - src/product-enrichment/src/product-enrichment-asg-scale-down
-          - src/product-enrichment/src/product-enrichment-asg-scale-up
+          - src/product-pipeline/src/product-pipeline-asg-scale-persist-up
+          - src/product-pipeline/src/product-pipeline-asg-scale-control
           - src/product-lambda/src/product-lambda-ingest-events-dynamodb
           - src/product-lambda/src/product-lambda-materialize-dynamodb-new
           - src/product-lambda/src/product-lambda-materialize-dynamodb-update
@@ -378,17 +385,20 @@ jobs:
             --body "$GITHUB_WORKSPACE/artifacts/$BIN_NAME-${{ env.STAGE_NAME }}-${GITHUB_SHA}.zip" \
             --tagging "stage=${{ env.STAGE }}"
 
-  aws-push-ec2:
+  aws-push-ec2-x86:
     name: Push EC2 to S3 ${{ matrix.crate }}
-    needs: [unit-test, integration-test, test-product-enrichment]
-    runs-on: ubuntu-latest
+    needs: [unit-test, integration-test, test-product-pipeline]
+    runs-on: ubuntu-24.04
     permissions:
       contents: read
       id-token: write
     strategy:
       matrix:
         crate:
-          - src/product-enrichment
+          - src/product-pipeline/src/product-pipeline-init
+          - src/product-pipeline/src/product-pipeline-translate
+          - src/product-pipeline/src/product-pipeline-embed-text
+          - src/product-pipeline/src/product-pipeline-complete
     steps:
       - uses: actions/checkout@v6
 
@@ -424,41 +434,13 @@ jobs:
           BIN_NAME=$(basename ${{ matrix.crate }})
           aws s3api put-object \
             --bucket "${{ vars.S3_BINARY_ARTIFACTS_BUCKET_NAME }}" \
-            --key "$BIN_NAME-${{ env.STAGE_NAME }}-${GITHUB_SHA}" \
+            --key "${{ env.STAGE_NAME }}/${GITHUB_SHA}/$BIN_NAME" \
             --body "$GITHUB_WORKSPACE/artifacts/$BIN_NAME-${{ env.STAGE_NAME }}-${GITHUB_SHA}" \
-            --tagging "stage=${{ env.STAGE }}"
-
-  aws-push-resource-artifacts:
-    name: Push resource-artifacts to S3 ${{ matrix.resource }}
-    needs: [unit-test, integration-test, test-product-enrichment]
-    runs-on: ubuntu-latest
-    permissions:
-      contents: read
-      id-token: write
-    strategy:
-      matrix:
-        resource:
-          - src/product-enrichment/user-data.sh
-    steps:
-      - uses: actions/checkout@v6
-
-      - name: Configure AWS credentials
-        uses: aws-actions/configure-aws-credentials@v5.1.1
-        with:
-          role-to-assume: ${{ secrets.CI_DEPLOY_ROLE_ARN }}
-          aws-region: ${{ vars.AWS_REGION }}
-
-      - name: Upload resource-artifacts to S3
-        run: |
-          aws s3api put-object \
-            --bucket "${{ vars.S3_RESOURCE_ARTIFACTS_BUCKET_NAME }}" \
-            --key "${{ env.STAGE_NAME }}/${GITHUB_SHA}/${{ matrix.resource }}" \
-            --body "${{ matrix.resource }}" \
             --tagging "stage=${{ env.STAGE }}"
 
   aws-push-mail-templates:
     name: Compile & push Mail-Templates to S3 ${{ matrix.resource }}
-    needs: [unit-test, integration-test, test-product-enrichment]
+    needs: [unit-test, integration-test, test-product-pipeline]
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -513,13 +495,7 @@ jobs:
   aws-cfn-deploy:
     name: Deploy & initialize CFN-Stack
     needs:
-      [
-        cfn-lint,
-        aws-push-lambda,
-        aws-push-ec2,
-        aws-push-resource-artifacts,
-        aws-push-mail-templates,
-      ]
+      [cfn-lint, aws-push-lambda, aws-push-ec2-x86, aws-push-mail-templates]
     environment:
       name: ${{ github.event_name == 'pull_request' && 'aws-ephemeral' || github.ref == 'refs/heads/prod' && 'aws-prod' || github.ref == 'refs/heads/develop' && 'aws-dev' }}
     runs-on: ubuntu-latest
@@ -552,7 +528,7 @@ jobs:
                 Ec2KeyPairName=${{ vars.EC2_KEY_PAIR_NAME }} \
                 OpenSearchEndpointUrl=${{ vars.OPENSEARCH_ENDPOINT_URL }} \
                 OpenSearchUsername=${{ secrets.OPENSEARCH_USERNAME }} \
-                OpenSearchPassword=${{ secrets.OPENSEARCH_PASSWORD }} 
+                OpenSearchPassword=${{ secrets.OPENSEARCH_PASSWORD }}
 
       - name: Install OpenSearch CLI
         if: ${{ github.event_name == 'pull_request' }}

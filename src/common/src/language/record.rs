@@ -12,6 +12,17 @@ pub enum LanguageRecord {
     Es,
 }
 
+impl LanguageRecord {
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            LanguageRecord::De => "de",
+            LanguageRecord::En => "en",
+            LanguageRecord::Fr => "fr",
+            LanguageRecord::Es => "es",
+        }
+    }
+}
+
 impl From<Language> for LanguageRecord {
     fn from(domain: Language) -> Self {
         match domain {
@@ -23,6 +34,7 @@ impl From<Language> for LanguageRecord {
     }
 }
 
+#[cfg_attr(feature = "test-data", derive(fake::Dummy))]
 #[derive(Serialize, Deserialize, Clone, Eq, PartialEq, Debug)]
 pub struct TextRecord {
     pub text: String,

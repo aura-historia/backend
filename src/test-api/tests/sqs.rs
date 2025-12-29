@@ -35,5 +35,6 @@ async fn should_create_multiple_sqs() {
 
     let list_qs = client.list_queues().max_results(1000).send().await.unwrap();
 
-    assert_eq!(2, list_qs.queue_urls.unwrap().len())
+    // 2 Q + 2 DLQ
+    assert_eq!(4, list_qs.queue_urls.unwrap().len())
 }

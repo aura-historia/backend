@@ -9,7 +9,7 @@ use time::OffsetDateTime;
 
 #[derive(Debug, Clone, PartialEq, Serialize, SerdeField)]
 pub struct ProductRecordUpdate {
-    pub event_id: EventId,
+    pub event_id: Option<EventId>,
 
     #[serde(skip_serializing_if = "Option::is_none", default)]
     pub price_native: Option<PriceRecord>,
@@ -56,7 +56,7 @@ impl DynamoDbUpdate for ProductRecordUpdate {}
 impl Default for ProductRecordUpdate {
     fn default() -> Self {
         Self {
-            event_id: EventId::new(),
+            event_id: Some(EventId::new()),
             price_native: None,
             price_eur: None,
             price_usd: None,
@@ -81,7 +81,7 @@ impl Default for ProductRecordUpdate {
 impl From<ProductEventRecord> for ProductRecordUpdate {
     fn from(event: ProductEventRecord) -> Self {
         ProductRecordUpdate {
-            event_id: event.event_id,
+            event_id: Some(event.event_id),
             price_native: event.new_price_native,
             price_eur: event.new_price_eur,
             price_usd: event.new_price_usd,

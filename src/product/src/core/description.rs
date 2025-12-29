@@ -55,7 +55,7 @@ impl fake::Dummy<fake::Faker> for Description {
         use fake::Fake;
 
         let paragraphs: Vec<String> = fake::faker::lorem::en::Paragraphs(1..7).fake_with_rng(rng);
-        Self(paragraphs.join("\n\n"))
+        Self::from(paragraphs.join("\n\n"))
     }
 }
 

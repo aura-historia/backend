@@ -71,7 +71,7 @@ Since this is a serverless backend, manual testing involves:
   - `watchlist`: User product watchlist functionality
 - **src/product-api**: API Gateway handlers for product operations (8 handlers)
 - **src/product-lambda**: Lambda function implementations for product event processing (6 lambdas)
-- **src/product-enrichment**: Product data enrichment pipeline and auto-scaling
+- **src/product-pipeline**: Product data pipeline and auto-scaling
 - **src/shop**: Shop/store management system:
   - `core`: Shop domain models and business logic
   - `data`: Shop data models
@@ -112,9 +112,8 @@ Located in various directories:
 - `product-lambda-materialize-opensearch-update`: Materialize product updates to OpenSearch
 - `product-lambda-update-notify-user`: Notify users about product updates
 
-**Product Enrichment Lambda Functions** (`src/product-enrichment/src/`):
-- `product-enrichment-asg-scale-up`: Scale up Auto Scaling Group for enrichment
-- `product-enrichment-asg-scale-down`: Scale down Auto Scaling Group after enrichment
+**Product Pipeline Lambda Functions** (`src/product-pipeline/src/`):
+- `product-pipeline-asg-scale-up`: Scale up Auto Scaling Group for pipeline
 
 **Cognito Lambda Functions**:
 - `cognito-post-confirmation`: Handle Cognito user post-confirmation trigger (`src/cognito-post-confirmation`)
@@ -189,8 +188,8 @@ src/
 │   └── src/         # Individual API handler crates
 ├── product-lambda/  # Lambda function implementations (6 lambdas)
 │   └── src/         # Individual lambda crates
-├── product-enrichment/  # Product enrichment pipeline
-│   ├── python/      # Python enrichment scripts
+├── product-pipeline/  # Product pipeline
+│   ├── python/      # Python pipeline scripts
 │   └── src/         # Lambda functions for auto-scaling
 ├── shop/           # Shop/store management system
 │   ├── src/core/           # Shop domain models
@@ -246,3 +245,50 @@ src/
 - **First build is slow**: Expected - downloads all dependencies (~4-5 minutes)
 - **Subsequent builds are faster**: Rust incremental compilation works well
 - **Integration tests are slow**: LocalStack container startup adds overhead
+
+## Reviewing Pull-Requests
+
+### Review Philosophy
+
+* Only comment when you have HIGH CONFIDENCE (>80%) that an issue exists
+* Be concise: one sentence per comment when possible
+* Focus on actionable feedback, not observations
+* When reviewing text, only comment on clarity issues if the text is genuinely 
+
+#### Priority Areas (Review These)
+
+#### Security & Safety
+
+* Unsafe code blocks without justification
+* Command injection risks (shell commands, user input)
+* Path traversal vulnerabilities
+* Credential exposure or hardcoded secrets
+* Missing input validation on external data
+* Improper error handling that could leak sensitive info
+
+#### Correctness Issues
+
+* Logic errors that could cause panics or incorrect behavior
+* Race conditions in async code
+* Resource leaks (files, connections, memory)
+* Off-by-one errors or boundary conditions
+* Incorrect error propagation (using `unwrap()` inappropriately)
+* Optional types that don’t need to be optional
+* Booleans that should default to false but are set as optional
+* Error context that doesn’t add useful information
+* Overly defensive code with unnecessary checks
+* Unnecessary comments that restate obvious code behavior
+
+#### Architecture & Patterns
+
+* Code that violates existing patterns in the codebase
+* Missing error handling
+* Async/await misuse or blocking operations in async contexts
+* Improper trait implementations
+
+### Project-Specific Context
+
+* We use AWS Cloudformation to declare the Cloud-Stack for each of the stages: prod, dev, ephemeral (per Pull-Request). 
+* Whenever a Pull-Request changes any of the Cloudformation-Code, make sure it is done for ALL stages as long as relevant. 
+* Stage ephemeral uses a manged AWS OpenSearch-Instance while dev and prod use a self-hosted variant. 
+* Cloudwatch Alarms are only used in prod.

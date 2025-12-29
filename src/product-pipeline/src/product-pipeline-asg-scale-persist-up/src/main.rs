@@ -1,0 +1,32 @@
+use aws_config::BehaviorVersion;
+use lambda_runtime::{Error, LambdaEvent, run, service_fn};
+use product_pipeline_asg_scale_persist_up::handler;
+use tracing::info;
+
+#[tokio::main]
+async fn main() -> Result<(), Error> {
+    tracing_subscriber::fmt()
+        .json()
+        .with_max_level(tracing::Level::INFO)
+        .with_current_span(true)
+        .with_ansi(false)
+        .without_time()
+        .init();
+
+    let aws_config = aws_config::defaults(BehaviorVersion::v2025_08_07())
+        .load()
+        .await;
+
+    let autoscaling_client = aws_sdk_autoscaling::Client::new(&aws_config);
+    let asg_name = std::env::var("PRODUCT_PIPELINE_COMPLETE_ASG_NAME")?;
+
+    info!(
+        asgName = asg_name,
+        "Lambda cold start completed, client initialized."
+    );
+
+    run(service_fn(|event: LambdaEvent<serde_json::Value>| async {
+        handler(&autoscaling_client, &asg_name, event).await
+    }))
+    .await
+}

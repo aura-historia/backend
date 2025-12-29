@@ -21,9 +21,11 @@ Parameters:
     Description: "URL for the self-hosted OpenSearch-Cluster"
   OpenSearchUsername:
     Type: String
+    NoEcho: true
     Description: "Username for accessing the self-hosted OpenSearch-Cluster"
   OpenSearchPassword:
     Type: String
+    NoEcho: true
     Description: "Password for accessing the self-hosted OpenSearch-Cluster"
 
 Resources:
@@ -288,7 +290,7 @@ Resources:
         - !Ref ProductMaterializeOpenSearchNewQ
         - !Ref ProductMaterializeOpenSearchUpdateQ
         - !Ref ProductUpdateNotifyUserQ
-        - !Ref ProductEnrichmentQ
+        - !Ref ProductPipelineInitQ
         - !Ref UserLambdaFanoutUpdateWatchlistQ
       PolicyDocument:
         Version: "2012-10-17"
@@ -303,7 +305,7 @@ Resources:
               - !GetAtt ProductMaterializeOpenSearchNewQ.Arn
               - !GetAtt ProductMaterializeOpenSearchUpdateQ.Arn
               - !GetAtt ProductUpdateNotifyUserQ.Arn
-              - !GetAtt ProductEnrichmentQ.Arn
+              - !GetAtt ProductPipelineInitQ.Arn
               - !GetAtt UserLambdaFanoutUpdateWatchlistQ.Arn
 
   Api:
@@ -1906,14 +1908,6 @@ Resources:
       ManagedPolicyArns:
         - arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole
       Policies:
-        - PolicyName: OpenSearchAccess
-          PolicyDocument:
-            Version: "2012-10-17"
-            Statement:
-              - Effect: Allow
-                Action:
-                  - es:*
-                Resource: !Sub "arn:aws:es:${AWS::Region}:${AWS::AccountId}:domain/application-dev/*"
         - PolicyName: SQSPollerAccess
           PolicyDocument:
             Version: "2012-10-17"
@@ -1983,14 +1977,6 @@ Resources:
       ManagedPolicyArns:
         - arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole
       Policies:
-        - PolicyName: OpenSearchAccess
-          PolicyDocument:
-            Version: "2012-10-17"
-            Statement:
-              - Effect: Allow
-                Action:
-                  - es:*
-                Resource: !Sub "arn:aws:es:${AWS::Region}:${AWS::AccountId}:domain/application-dev/*"
         - PolicyName: SQSPollerAccess
           PolicyDocument:
             Version: "2012-10-17"
@@ -2312,10 +2298,10 @@ Resources:
       Targets:
         - Id: ProductUpdateNotifyUserQ
           Arn: !GetAtt ProductUpdateNotifyUserQ.Arn
-  DynamoDbProductEventRecordCreatedProductEnrichmentEventRule:
+  DynamoDbProductEventRecordCreatedProductPipelineInitEventRule:
     Type: AWS::Events::Rule
     Properties:
-      Name: "ddb-product-enrichment-dev"
+      Name: "ddb-product-pipeline-dev"
       EventBusName: !Ref DynamoDbEventBus
       EventPattern:
         source:
@@ -2331,8 +2317,8 @@ Resources:
                 S:
                   - "CREATED"
       Targets:
-        - Id: ProductEnrichmentQ
-          Arn: !GetAtt ProductEnrichmentQ.Arn
+        - Id: ProductPipelineInitQ
+          Arn: !GetAtt ProductPipelineInitQ.Arn
   DynamoDbUserUpdatedFanoutWatchlistUpdateEventRule:
     Type: AWS::Events::Rule
     Properties:
@@ -2355,7 +2341,7 @@ Resources:
         - Id: UserLambdaFanoutUpdateWatchlistQ
           Arn: !GetAtt UserLambdaFanoutUpdateWatchlistQ.Arn
 
-  ProductEnrichmentVpc:
+  ProductPipelineVpc:
     Type: AWS::EC2::VPC
     Properties:
       CidrBlock: 10.0.0.0/16
@@ -2363,91 +2349,562 @@ Resources:
       EnableDnsHostnames: true
       Tags:
         - Key: Name
-          Value: "product-enrichment-vpc-dev"
-  ProductEnrichmentInternetGateway:
+          Value: "product-pipeline-vpc-dev"
+  ProductPipelineInternetGateway:
     Type: AWS::EC2::InternetGateway
     Properties:
       Tags:
         - Key: Name
-          Value: "product-enrichment-igw-dev"
-  ProductEnrichmentVpcGatewayAttachment:
+          Value: "product-pipeline-igw-dev"
+  ProductPipelineVpcGatewayAttachment:
     Type: AWS::EC2::VPCGatewayAttachment
     Properties:
-      InternetGatewayId: !Ref ProductEnrichmentInternetGateway
-      VpcId: !Ref ProductEnrichmentVpc
-  ProductEnrichmentPublicRouteTable:
+      InternetGatewayId: !Ref ProductPipelineInternetGateway
+      VpcId: !Ref ProductPipelineVpc
+  ProductPipelinePublicRouteTable:
     Type: AWS::EC2::RouteTable
     Properties:
-      VpcId: !Ref ProductEnrichmentVpc
+      VpcId: !Ref ProductPipelineVpc
       Tags:
         - Key: Name
-          Value: "product-enrichment-public-rt-dev"
-  ProductEnrichmentPublicRoute:
+          Value: "product-pipeline-public-rt-dev"
+  ProductPipelinePublicRoute:
     Type: AWS::EC2::Route
-    DependsOn: ProductEnrichmentVpcGatewayAttachment
+    DependsOn: ProductPipelineVpcGatewayAttachment
     Properties:
-      RouteTableId: !Ref ProductEnrichmentPublicRouteTable
+      RouteTableId: !Ref ProductPipelinePublicRouteTable
       DestinationCidrBlock: 0.0.0.0/0
-      GatewayId: !Ref ProductEnrichmentInternetGateway
-  ProductEnrichmentSubnetA:
+      GatewayId: !Ref ProductPipelineInternetGateway
+  ProductPipelineSubnetA:
     Type: AWS::EC2::Subnet
     Properties:
-      VpcId: !Ref ProductEnrichmentVpc
+      VpcId: !Ref ProductPipelineVpc
       CidrBlock: 10.0.1.0/24
       MapPublicIpOnLaunch: true
       AvailabilityZone: !Select [0, !GetAZs ""]
       Tags:
         - Key: Name
-          Value: "product-enrichment-subnet-a-dev"
-  ProductEnrichmentSubnetB:
-    Type: AWS::EC2::Subnet
-    Properties:
-      VpcId: !Ref ProductEnrichmentVpc
-      CidrBlock: 10.0.2.0/24
-      MapPublicIpOnLaunch: true
-      AvailabilityZone: !Select [1, !GetAZs ""]
-      Tags:
-        - Key: Name
-          Value: "product-enrichment-subnet-b-dev"
-  ProductEnrichmentSubnetRouteAssocA:
+          Value: "product-pipeline-subnet-a-dev"
+  ProductPipelineSubnetRouteAssocA:
     Type: AWS::EC2::SubnetRouteTableAssociation
     Properties:
-      SubnetId: !Ref ProductEnrichmentSubnetA
-      RouteTableId: !Ref ProductEnrichmentPublicRouteTable
-  ProductEnrichmentSubnetRouteAssocB:
-    Type: AWS::EC2::SubnetRouteTableAssociation
-    Properties:
-      SubnetId: !Ref ProductEnrichmentSubnetB
-      RouteTableId: !Ref ProductEnrichmentPublicRouteTable
-  ProductEnrichmentSecurityGroup:
+      SubnetId: !Ref ProductPipelineSubnetA
+      RouteTableId: !Ref ProductPipelinePublicRouteTable
+  ProductPipelineSecurityGroup:
     Type: AWS::EC2::SecurityGroup
     Properties:
       GroupDescription: Allow SSH and internal comms
-      VpcId: !Ref ProductEnrichmentVpc
+      VpcId: !Ref ProductPipelineVpc
       SecurityGroupEgress:
         - IpProtocol: -1
           CidrIp: 0.0.0.0/0
       Tags:
         - Key: Name
-          Value: "product-enrichment-sg-dev"
+          Value: "product-pipeline-sg-dev"
 
-  ProductEnrichmentDlq:
+  ProductPipelineInitDlq:
     Type: AWS::SQS::Queue
     Properties:
-      QueueName: "product-enrichment-dlq-dev"
+      QueueName: "product-pipeline-init-dlq-dev"
       MessageRetentionPeriod: 1209600
-  ProductEnrichmentQ:
+  ProductPipelineInitQ:
     Type: AWS::SQS::Queue
     Properties:
-      QueueName: "product-enrichment-queue-dev"
+      QueueName: "product-pipeline-init-queue-dev"
       RedrivePolicy:
-        deadLetterTargetArn: !GetAtt ProductEnrichmentDlq.Arn
-        maxReceiveCount: 3
-      VisibilityTimeout: 360
-  ProductEnrichmentRole:
+        deadLetterTargetArn: !GetAtt ProductPipelineInitDlq.Arn
+        maxReceiveCount: 5
+      VisibilityTimeout: 60
+  ProductPipelineInitRole:
     Type: AWS::IAM::Role
     Properties:
-      RoleName: "product-enrichment-role-dev"
+      RoleName: "product-pipeline-init-role-dev"
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: ec2.amazonaws.com
+            Action: sts:AssumeRole
+          - Effect: Allow
+            Principal:
+              Service: spot.amazonaws.com
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/CloudWatchAgentServerPolicy
+        - arn:aws:iam::aws:policy/AmazonS3ReadOnlyAccess
+        - arn:aws:iam::aws:policy/AmazonSSMManagedInstanceCore
+      Policies:
+        - PolicyName: AllowTerminateInASG
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: Allow
+                Action: autoscaling:TerminateInstanceInAutoScalingGroup
+                Resource: "*"
+        - PolicyName: SQSPollerAccess
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: Allow
+                Action:
+                  - sqs:SendMessage
+                  - sqs:SendMessageBatch
+                  - sqs:ReceiveMessage
+                  - sqs:DeleteMessage
+                  - sqs:DeleteMessageBatch
+                  - sqs:GetQueueAttributes
+                  - sqs:GetQueueUrl
+                  - sqs:ChangeMessageVisibility
+                Resource:
+                  - !GetAtt ProductPipelineInitQ.Arn
+                  - !GetAtt ProductPipelineTranslateQ.Arn
+        - PolicyName: CloudWatchLogsCreate
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: Allow
+                Action:
+                  - logs:CreateLogGroup
+                  - logs:CreateLogStream
+                  - logs:PutLogEvents
+                Resource: "*"
+  ProductPipelineInitInstanceProfile:
+    Type: AWS::IAM::InstanceProfile
+    Properties:
+      InstanceProfileName: "product-pipeline-init-profile-dev"
+      Roles:
+        - !Ref ProductPipelineInitRole
+  ProductPipelineInitLaunchTemplate:
+    Type: AWS::EC2::LaunchTemplate
+    Properties:
+      LaunchTemplateName: "product-pipeline-init-template-dev"
+      LaunchTemplateData:
+        KeyName: !Ref Ec2KeyPairName
+        IamInstanceProfile:
+          Name: !Ref ProductPipelineInitInstanceProfile
+        InstanceType: c7i.large
+        ImageId: ami-004e960cde33f9146
+        SecurityGroupIds: [!Ref ProductPipelineSecurityGroup]
+        BlockDeviceMappings:
+          - DeviceName: /dev/sda1
+            Ebs:
+              VolumeSize: 50
+              VolumeType: gp3
+              DeleteOnTermination: true
+        TagSpecifications:
+          - ResourceType: instance
+            Tags:
+              - Key: Name
+                Value: "product-pipeline-init-dev"
+              - Key: Fleet
+                Value: product-pipeline-init
+        UserData:
+          Fn::Base64: !Sub |
+            #!/bin/bash
+            set -euxo pipefail
+            sudo -i
+            export STAGE="dev"
+            export STAGE_NAME=${StageName}
+            export CommitSHA="${CommitSHA}"
+            export ARTIFACT_BUCKET="${ArtifactBucket}"
+            export SOURCE_QUEUE_URL="${ProductPipelineInitQ}"
+            export TARGET_QUEUE_URL="${ProductPipelineTranslateQ}"
+            # Install awscli
+            apt -y install unzip
+            curl "https://awscli.amazonaws.com/awscli-exe-linux-x86_64.zip" -o "awscliv2.zip"
+            unzip awscliv2.zip
+            sudo ./aws/install
+            # Install cloudwatch-agent
+            sudo wget https://s3.amazonaws.com/amazoncloudwatch-agent/debian/amd64/latest/amazon-cloudwatch-agent.deb
+            sudo dpkg -i -E ./amazon-cloudwatch-agent.deb
+            # Download and install binary
+            sudo aws s3 cp "s3://${ArtifactBucket}/${StageName}/${CommitSHA}/product-pipeline-init" /opt/product-pipeline-init --region eu-central-1
+            sudo chmod +x /opt/product-pipeline-init
+            # Configure CloudWatchAgent
+            cat << EOF | sudo tee /opt/aws/amazon-cloudwatch-agent.json > /dev/null
+            {
+              "logs": {
+                "logs_collected": {
+                  "files": {
+                    "collect_list": [
+                      {
+                        "file_path": "/var/log/product-pipeline-init.log",
+                        "log_group_name": "/aws/ec2/$STAGE-product-pipeline-init",
+                        "log_stream_name": "{instance_id}",
+                        "timestamp_format": "%Y-%m-%dT%H:%M:%S.%f%z",
+                        "timezone": "UTC",
+                        "multi_line_start_pattern": "^{"
+                      }
+                    ]
+                  }
+                }
+              }
+            }
+            EOF
+            amazon-cloudwatch-agent-ctl -a fetch-config -m ec2 -c file:/opt/aws/amazon-cloudwatch-agent.json -s
+            LOG_PATH="/var/log/product-pipeline-init.log"
+            sudo touch "$LOG_PATH"
+            sudo chmod 666 "$LOG_PATH"
+            # Run binary
+            echo "[$(date)] Running product-pipeline-init..." | tee -a "$LOG_PATH"
+            /opt/product-pipeline-init >> "$LOG_PATH" 2>&1
+            EXIT_CODE=$?
+            echo "[$(date)] Job finished with code $EXIT_CODE" | tee -a "$LOG_PATH"
+            sleep 5
+            aws autoscaling terminate-instance-in-auto-scaling-group \
+              --instance-id $(ec2metadata --instance-id) \
+              --should-decrement-desired-capacity
+            exit $EXIT_CODE
+  ProductPipelineInitASG:
+    Type: AWS::AutoScaling::AutoScalingGroup
+    Properties:
+      VPCZoneIdentifier:
+        - !Ref ProductPipelineSubnetA
+      MinSize: 0
+      MaxSize: 1
+      DesiredCapacity: 0
+      MixedInstancesPolicy:
+        LaunchTemplate:
+          LaunchTemplateSpecification:
+            LaunchTemplateId: !Ref ProductPipelineInitLaunchTemplate
+            Version: !GetAtt ProductPipelineInitLaunchTemplate.LatestVersionNumber
+          Overrides:
+            - InstanceType: c7i.large
+            - InstanceType: c6i.large
+        InstancesDistribution:
+          OnDemandPercentageAboveBaseCapacity: 0
+          SpotAllocationStrategy: price-capacity-optimized
+      Tags:
+        - Key: Name
+          Value: "product-pipeline-init-dev"
+          PropagateAtLaunch: true
+      HealthCheckType: EC2
+      HealthCheckGracePeriod: 120
+
+  ProductPipelineTranslateDlq:
+    Type: AWS::SQS::Queue
+    Properties:
+      QueueName: "product-pipeline-translate-dlq-dev"
+      MessageRetentionPeriod: 1209600
+  ProductPipelineTranslateQ:
+    Type: AWS::SQS::Queue
+    Properties:
+      QueueName: "product-pipeline-translate-queue-dev"
+      RedrivePolicy:
+        deadLetterTargetArn: !GetAtt ProductPipelineTranslateDlq.Arn
+        maxReceiveCount: 3
+      VisibilityTimeout: 300
+  ProductPipelineTranslateRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: "product-pipeline-translate-role-dev"
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: ec2.amazonaws.com
+            Action: sts:AssumeRole
+          - Effect: Allow
+            Principal:
+              Service: spot.amazonaws.com
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/CloudWatchAgentServerPolicy
+        - arn:aws:iam::aws:policy/AmazonS3ReadOnlyAccess
+        - arn:aws:iam::aws:policy/AmazonSSMManagedInstanceCore
+      Policies:
+        - PolicyName: AllowTerminateInASG
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: Allow
+                Action: autoscaling:TerminateInstanceInAutoScalingGroup
+                Resource: "*"
+        - PolicyName: SQSPollerAccess
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: Allow
+                Action:
+                  - sqs:SendMessage
+                  - sqs:SendMessageBatch
+                  - sqs:ReceiveMessage
+                  - sqs:DeleteMessage
+                  - sqs:DeleteMessageBatch
+                  - sqs:GetQueueAttributes
+                  - sqs:GetQueueUrl
+                  - sqs:ChangeMessageVisibility
+                Resource:
+                  - !GetAtt ProductPipelineTranslateQ.Arn
+                  - !GetAtt ProductPipelineEmbedTextQ.Arn
+        - PolicyName: CloudWatchLogsCreate
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: Allow
+                Action:
+                  - logs:CreateLogGroup
+                  - logs:CreateLogStream
+                  - logs:PutLogEvents
+                Resource: "*"
+  ProductPipelineTranslateInstanceProfile:
+    Type: AWS::IAM::InstanceProfile
+    Properties:
+      InstanceProfileName: "product-pipeline-translate-profile-dev"
+      Roles:
+        - !Ref ProductPipelineTranslateRole
+  ProductPipelineTranslateLaunchTemplate:
+    Type: AWS::EC2::LaunchTemplate
+    Properties:
+      LaunchTemplateName: "product-pipeline-translate-template-dev"
+      LaunchTemplateData:
+        KeyName: !Ref Ec2KeyPairName
+        IamInstanceProfile:
+          Name: !Ref ProductPipelineTranslateInstanceProfile
+        InstanceType: g6.xlarge # Placeholder - ASG overrides this
+        ImageId: "{{resolve:ssm:/amis/dev/product-pipeline-translate/latest}}"
+        SecurityGroupIds: [!Ref ProductPipelineSecurityGroup]
+        BlockDeviceMappings:
+          - DeviceName: /dev/sda1
+            Ebs:
+              VolumeSize: 80
+              VolumeType: gp3
+              DeleteOnTermination: true
+        TagSpecifications:
+          - ResourceType: instance
+            Tags:
+              - Key: Name
+                Value: "product-pipeline-translate-dev"
+              - Key: Fleet
+                Value: product-pipeline-translate
+        UserData:
+          Fn::Base64: !Sub |
+            #!/bin/bash
+            set -euxo pipefail
+            sudo -i
+            export STAGE="dev"
+            export STAGE_NAME=${StageName}
+            export CommitSHA="${CommitSHA}"
+            export ARTIFACT_BUCKET="${ArtifactBucket}"
+            export SOURCE_QUEUE_URL="${ProductPipelineTranslateQ}"
+            export TARGET_QUEUE_URL="${ProductPipelineEmbedTextQ}"
+            # Download and install binary
+            sudo aws s3 cp "s3://${ArtifactBucket}/${StageName}/${CommitSHA}/product-pipeline-translate" /opt/product-pipeline-translate/product-pipeline-translate --region eu-central-1
+            sudo chmod +x /opt/product-pipeline-translate/product-pipeline-translate
+            # Prepare (preconfigured via custom ami) python venv
+            cd /opt/product-pipeline-translate
+            source .venv/bin/activate
+            # Run binary
+            LOG_PATH="/var/log/product-pipeline-translate.log"
+            echo "[$(date)] Running product-pipeline-translate..." | tee -a "$LOG_PATH"
+            ./product-pipeline-translate >> "$LOG_PATH" 2>&1
+            EXIT_CODE=$?
+            echo "[$(date)] Job finished with code $EXIT_CODE" | tee -a "$LOG_PATH"
+            sleep 5
+            aws autoscaling terminate-instance-in-auto-scaling-group \
+              --instance-id $(ec2metadata --instance-id) \
+              --should-decrement-desired-capacity
+            exit $EXIT_CODE
+  ProductPipelineTranslateASG:
+    Type: AWS::AutoScaling::AutoScalingGroup
+    Properties:
+      VPCZoneIdentifier:
+        - !Ref ProductPipelineSubnetA
+      MinSize: 0
+      MaxSize: 1
+      DesiredCapacity: 0
+      MixedInstancesPolicy:
+        LaunchTemplate:
+          LaunchTemplateSpecification:
+            LaunchTemplateId: !Ref ProductPipelineTranslateLaunchTemplate
+            Version: !GetAtt ProductPipelineTranslateLaunchTemplate.LatestVersionNumber
+          Overrides:
+            - InstanceType: g6.xlarge
+            - InstanceType: g6.2xlarge
+            - InstanceType: g5.xlarge
+            - InstanceType: g5.2xlarge
+        InstancesDistribution:
+          OnDemandPercentageAboveBaseCapacity: 0
+          SpotAllocationStrategy: price-capacity-optimized
+      Tags:
+        - Key: Name
+          Value: "product-pipeline-translate-dev"
+          PropagateAtLaunch: true
+      HealthCheckType: EC2
+      HealthCheckGracePeriod: 120
+
+  ProductPipelineEmbedTextDlq:
+    Type: AWS::SQS::Queue
+    Properties:
+      QueueName: "product-pipeline-embed-text-dlq-dev"
+      MessageRetentionPeriod: 1209600
+  ProductPipelineEmbedTextQ:
+    Type: AWS::SQS::Queue
+    Properties:
+      QueueName: "product-pipeline-embed-text-queue-dev"
+      RedrivePolicy:
+        deadLetterTargetArn: !GetAtt ProductPipelineEmbedTextDlq.Arn
+        maxReceiveCount: 3
+      VisibilityTimeout: 300
+  ProductPipelineEmbedTextRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: "product-pipeline-embed-text-role-dev"
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: ec2.amazonaws.com
+            Action: sts:AssumeRole
+          - Effect: Allow
+            Principal:
+              Service: spot.amazonaws.com
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/CloudWatchAgentServerPolicy
+        - arn:aws:iam::aws:policy/AmazonS3ReadOnlyAccess
+        - arn:aws:iam::aws:policy/AmazonSSMManagedInstanceCore
+      Policies:
+        - PolicyName: AllowTerminateInASG
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: Allow
+                Action: autoscaling:TerminateInstanceInAutoScalingGroup
+                Resource: "*"
+        - PolicyName: SQSPollerAccess
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: Allow
+                Action:
+                  - sqs:SendMessage
+                  - sqs:SendMessageBatch
+                  - sqs:ReceiveMessage
+                  - sqs:DeleteMessage
+                  - sqs:DeleteMessageBatch
+                  - sqs:GetQueueAttributes
+                  - sqs:GetQueueUrl
+                  - sqs:ChangeMessageVisibility
+                Resource:
+                  - !GetAtt ProductPipelineEmbedTextQ.Arn
+                  - !GetAtt ProductPipelineCompleteQ.Arn
+        - PolicyName: CloudWatchLogsCreate
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: Allow
+                Action:
+                  - logs:CreateLogGroup
+                  - logs:CreateLogStream
+                  - logs:PutLogEvents
+                Resource: "*"
+  ProductPipelineEmbedTextInstanceProfile:
+    Type: AWS::IAM::InstanceProfile
+    Properties:
+      InstanceProfileName: "product-pipeline-embed-text-profile-dev"
+      Roles:
+        - !Ref ProductPipelineEmbedTextRole
+  ProductPipelineEmbedTextLaunchTemplate:
+    Type: AWS::EC2::LaunchTemplate
+    Properties:
+      LaunchTemplateName: "product-pipeline-embed-text-template-dev"
+      LaunchTemplateData:
+        KeyName: !Ref Ec2KeyPairName
+        IamInstanceProfile:
+          Name: !Ref ProductPipelineEmbedTextInstanceProfile
+        InstanceType: g6.xlarge # Placeholder - ASG overrides this
+        ImageId: "{{resolve:ssm:/amis/dev/product-pipeline-embed-text/latest}}"
+        SecurityGroupIds: [!Ref ProductPipelineSecurityGroup]
+        BlockDeviceMappings:
+          - DeviceName: /dev/sda1
+            Ebs:
+              VolumeSize: 80
+              VolumeType: gp3
+              DeleteOnTermination: true
+        TagSpecifications:
+          - ResourceType: instance
+            Tags:
+              - Key: Name
+                Value: "product-pipeline-embed-text-dev"
+              - Key: Fleet
+                Value: product-pipeline-embed-text
+        UserData:
+          Fn::Base64: !Sub |
+            #!/bin/bash
+            set -euxo pipefail
+            sudo -i
+            export STAGE="dev"
+            export STAGE_NAME=${StageName}
+            export CommitSHA="${CommitSHA}"
+            export ARTIFACT_BUCKET="${ArtifactBucket}"
+            export SOURCE_QUEUE_URL="${ProductPipelineEmbedTextQ}"
+            export TARGET_QUEUE_URL="${ProductPipelineCompleteQ}"
+            # Download and install binary
+            sudo aws s3 cp "s3://${ArtifactBucket}/${StageName}/${CommitSHA}/product-pipeline-embed-text" /opt/product-pipeline-embed-text/product-pipeline-embed-text --region eu-central-1
+            sudo chmod +x /opt/product-pipeline-embed-text/product-pipeline-embed-text
+            # Prepare (preconfigured via custom ami) python venv
+            cd /opt/product-pipeline-embed-text
+            source .venv/bin/activate
+            # Run binary
+            LOG_PATH="/var/log/product-pipeline-embed-text.log"
+            echo "[$(date)] Running product-pipeline-embed-text..." | tee -a "$LOG_PATH"
+            ./product-pipeline-embed-text >> "$LOG_PATH" 2>&1
+            EXIT_CODE=$?
+            echo "[$(date)] Job finished with code $EXIT_CODE" | tee -a "$LOG_PATH"
+            sleep 5
+            aws autoscaling terminate-instance-in-auto-scaling-group \
+              --instance-id $(ec2metadata --instance-id) \
+              --should-decrement-desired-capacity
+            exit $EXIT_CODE
+  ProductPipelineEmbedTextASG:
+    Type: AWS::AutoScaling::AutoScalingGroup
+    Properties:
+      VPCZoneIdentifier:
+        - !Ref ProductPipelineSubnetA
+      MinSize: 0
+      MaxSize: 1
+      DesiredCapacity: 0
+      MixedInstancesPolicy:
+        LaunchTemplate:
+          LaunchTemplateSpecification:
+            LaunchTemplateId: !Ref ProductPipelineEmbedTextLaunchTemplate
+            Version: !GetAtt ProductPipelineEmbedTextLaunchTemplate.LatestVersionNumber
+          Overrides:
+            - InstanceType: g6.xlarge
+            - InstanceType: g6.2xlarge
+            - InstanceType: g5.xlarge
+            - InstanceType: g5.2xlarge
+        InstancesDistribution:
+          OnDemandPercentageAboveBaseCapacity: 0
+          SpotAllocationStrategy: price-capacity-optimized
+      Tags:
+        - Key: Name
+          Value: "product-pipeline-embed-text-dev"
+          PropagateAtLaunch: true
+      HealthCheckType: EC2
+      HealthCheckGracePeriod: 120
+
+  ProductPipelineCompleteDlq:
+    Type: AWS::SQS::Queue
+    Properties:
+      QueueName: "product-pipeline-complete-dlq-dev"
+      MessageRetentionPeriod: 1209600
+  ProductPipelineCompleteQ:
+    Type: AWS::SQS::Queue
+    Properties:
+      QueueName: "product-pipeline-complete-queue-dev"
+      RedrivePolicy:
+        deadLetterTargetArn: !GetAtt ProductPipelineCompleteDlq.Arn
+        maxReceiveCount: 5
+      VisibilityTimeout: 60
+  ProductPipelineCompleteRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: "product-pipeline-complete-role-dev"
       AssumeRolePolicyDocument:
         Version: "2012-10-17"
         Statement:
@@ -2489,26 +2946,21 @@ Resources:
                 Resource:
                   - !GetAtt TableOne.Arn
                   - !Sub "${TableOne.Arn}/index/*"
-        - PolicyName: OpenSearchAccess
-          PolicyDocument:
-            Version: "2012-10-17"
-            Statement:
-              - Effect: Allow
-                Action:
-                  - es:*
-                Resource: !Sub "arn:aws:es:${AWS::Region}:${AWS::AccountId}:domain/application-dev/*"
         - PolicyName: SQSPollerAccess
           PolicyDocument:
             Version: "2012-10-17"
             Statement:
               - Effect: Allow
                 Action:
+                  - sqs:SendMessage
+                  - sqs:SendMessageBatch
                   - sqs:ReceiveMessage
                   - sqs:DeleteMessage
                   - sqs:DeleteMessageBatch
                   - sqs:GetQueueAttributes
                   - sqs:GetQueueUrl
-                Resource: !GetAtt ProductEnrichmentQ.Arn
+                  - sqs:ChangeMessageVisibility
+                Resource: !GetAtt ProductPipelineCompleteQ.Arn
         - PolicyName: CloudWatchLogsCreate
           PolicyDocument:
             Version: "2012-10-17"
@@ -2519,87 +2971,126 @@ Resources:
                   - logs:CreateLogStream
                   - logs:PutLogEvents
                 Resource: "*"
-  ProductEnrichmentInstanceProfile:
+  ProductPipelineCompleteInstanceProfile:
     Type: AWS::IAM::InstanceProfile
     Properties:
-      InstanceProfileName: "product-enrichment-profile-dev"
+      InstanceProfileName: "product-pipeline-complete-profile-dev"
       Roles:
-        - !Ref ProductEnrichmentRole
-  ProductEnrichmentLaunchTemplate:
+        - !Ref ProductPipelineCompleteRole
+  ProductPipelineCompleteLaunchTemplate:
     Type: AWS::EC2::LaunchTemplate
     Properties:
-      LaunchTemplateName: "product-enrichment-template-dev"
+      LaunchTemplateName: "product-pipeline-complete-template-dev"
       LaunchTemplateData:
         KeyName: !Ref Ec2KeyPairName
         IamInstanceProfile:
-          Name: !Ref ProductEnrichmentInstanceProfile
-        InstanceType: g6.xlarge # Placeholder - ASG overrides this
-        ImageId: ami-028f346ccb9f0f3c9 # custom eu-central-1 AMI with preinstalled deps and models based on ami-032fa3abdbb7e3a12 (Deep Learning OSS Nvidia Driver AMI GPU PyTorch 2.8 (Ubuntu 24.04))
-        SecurityGroupIds: [!Ref ProductEnrichmentSecurityGroup]
+          Name: !Ref ProductPipelineCompleteInstanceProfile
+        InstanceType: c7i.large
+        ImageId: ami-004e960cde33f9146
+        SecurityGroupIds: [!Ref ProductPipelineSecurityGroup]
         BlockDeviceMappings:
           - DeviceName: /dev/sda1
             Ebs:
-              VolumeSize: 100
+              VolumeSize: 50
               VolumeType: gp3
               DeleteOnTermination: true
         TagSpecifications:
           - ResourceType: instance
             Tags:
               - Key: Name
-                Value: "product-enrichment-dev"
+                Value: "product-pipeline-complete-dev"
               - Key: Fleet
-                Value: product-enrichment
+                Value: product-pipeline-complete
         UserData:
           Fn::Base64: !Sub |
             #!/bin/bash
             set -euxo pipefail
             sudo -i
             export STAGE="dev"
-            export STAGE_NAME="dev"
-            export COMMIT_SHA="${CommitSHA}"
-            export RESOURCE_BUCKET="${ResourceBucket}"
+            export STAGE_NAME=${StageName}
+            export CommitSHA="${CommitSHA}"
             export ARTIFACT_BUCKET="${ArtifactBucket}"
-            export ENRICHMENT_QUEUE_URL="${ProductEnrichmentQ}"
+            export SOURCE_QUEUE_URL="${ProductPipelineCompleteQ}"
             export DYNAMODB_TABLE_NAME="${TableOne}"
             export OPENSEARCH_ENDPOINT_URL="${OpenSearchEndpointUrl}"
             export OPENSEARCH_USERNAME="${OpenSearchUsername}"
             export OPENSEARCH_PASSWORD="${OpenSearchPassword}"
-            export BAAI_BGE_M3_MODEL_DEVICE="cuda"
-            aws s3 cp "s3://${ResourceBucket}/dev/${CommitSHA}/src/product-enrichment/user-data.sh" /tmp/user_data.sh --region eu-central-1
-            source /tmp/user_data.sh
-  ProductEnrichmentASG:
+            # Install awscli
+            apt -y install unzip
+            curl "https://awscli.amazonaws.com/awscli-exe-linux-x86_64.zip" -o "awscliv2.zip"
+            unzip awscliv2.zip
+            sudo ./aws/install
+            # Install cloudwatch-agent
+            sudo wget https://s3.amazonaws.com/amazoncloudwatch-agent/debian/amd64/latest/amazon-cloudwatch-agent.deb
+            sudo dpkg -i -E ./amazon-cloudwatch-agent.deb
+            # Download and install binary
+            sudo aws s3 cp "s3://${ArtifactBucket}/${StageName}/${CommitSHA}/product-pipeline-complete" /opt/product-pipeline-complete --region eu-central-1
+            sudo chmod +x /opt/product-pipeline-complete
+            # Configure CloudWatchAgent
+            cat << EOF | sudo tee /opt/aws/amazon-cloudwatch-agent.json > /dev/null
+            {
+              "logs": {
+                "logs_collected": {
+                  "files": {
+                    "collect_list": [
+                      {
+                        "file_path": "/var/log/product-pipeline-complete.log",
+                        "log_group_name": "/aws/ec2/$STAGE-product-pipeline-complete",
+                        "log_stream_name": "{instance_id}",
+                        "timestamp_format": "%Y-%m-%dT%H:%M:%S.%f%z",
+                        "timezone": "UTC",
+                        "multi_line_start_pattern": "^{"
+                      }
+                    ]
+                  }
+                }
+              }
+            }
+            EOF
+            amazon-cloudwatch-agent-ctl -a fetch-config -m ec2 -c file:/opt/aws/amazon-cloudwatch-agent.json -s
+            LOG_PATH="/var/log/product-pipeline-complete.log"
+            sudo touch "$LOG_PATH"
+            sudo chmod 666 "$LOG_PATH"
+            # Run binary
+            echo "[$(date)] Running product-pipeline-complete..." | tee -a "$LOG_PATH"
+            /opt/product-pipeline-complete >> "$LOG_PATH" 2>&1
+            EXIT_CODE=$?
+            echo "[$(date)] Job finished with code $EXIT_CODE" | tee -a "$LOG_PATH"
+            sleep 5
+            aws autoscaling terminate-instance-in-auto-scaling-group \
+              --instance-id $(ec2metadata --instance-id) \
+              --should-decrement-desired-capacity
+            exit $EXIT_CODE
+  ProductPipelineCompleteASG:
     Type: AWS::AutoScaling::AutoScalingGroup
     Properties:
       VPCZoneIdentifier:
-        - !Ref ProductEnrichmentSubnetA
-        - !Ref ProductEnrichmentSubnetB
+        - !Ref ProductPipelineSubnetA
       MinSize: 0
-      MaxSize: 3
-      DesiredCapacity: 0 # Default zero, scale via EventBridge
+      MaxSize: 1
+      DesiredCapacity: 0
       MixedInstancesPolicy:
         LaunchTemplate:
           LaunchTemplateSpecification:
-            LaunchTemplateId: !Ref ProductEnrichmentLaunchTemplate
-            Version: !GetAtt ProductEnrichmentLaunchTemplate.LatestVersionNumber
+            LaunchTemplateId: !Ref ProductPipelineCompleteLaunchTemplate
+            Version: !GetAtt ProductPipelineCompleteLaunchTemplate.LatestVersionNumber
           Overrides:
-            - InstanceType: g6.xlarge
-            - InstanceType: g6.2xlarge
-            - InstanceType: g5.xlarge
-            - InstanceType: g5.2xlarge
+            - InstanceType: c7i.large
+            - InstanceType: c6i.large
         InstancesDistribution:
           OnDemandPercentageAboveBaseCapacity: 0
           SpotAllocationStrategy: price-capacity-optimized
       Tags:
         - Key: Name
-          Value: "product-enrichment-dev"
+          Value: "product-pipeline-complete-dev"
           PropagateAtLaunch: true
       HealthCheckType: EC2
       HealthCheckGracePeriod: 120
 
-  ProductEnrichmentScaleDownRole:
+  ProductPipelineScaleControlRole:
     Type: AWS::IAM::Role
     Properties:
-      RoleName: "product-enrichment-asg-scale-down-role-dev"
+      RoleName: !Sub "product-pipeline-asg-scale-control-role-dev"
       AssumeRolePolicyDocument:
         Version: "2012-10-17"
         Statement:
@@ -2610,7 +3101,17 @@ Resources:
       ManagedPolicyArns:
         - arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole
       Policies:
-        - PolicyName: ScaleDownASG
+        - PolicyName: SqsGetQueueAttributes
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: Allow
+                Action:
+                  - sqs:GetQueueAttributes
+                  - sqs:GetQueueUrl
+                  - cloudwatch:GetMetricStatistics
+                Resource: "*"
+        - PolicyName: ScaleASG
           PolicyDocument:
             Version: "2012-10-17"
             Statement:
@@ -2618,60 +3119,56 @@ Resources:
                 Action:
                   - autoscaling:UpdateAutoScalingGroup
                   - autoscaling:DescribeAutoScalingGroups
-                Resource: !Sub "arn:aws:autoscaling:${AWS::Region}:${AWS::AccountId}:autoScalingGroup:*:autoScalingGroupName/${ProductEnrichmentASG}"
-        - PolicyName: OpenSearchAccess
-          PolicyDocument:
-            Version: "2012-10-17"
-            Statement:
-              - Effect: Allow
-                Action:
-                  - es:*
-                Resource: !Sub "arn:aws:es:${AWS::Region}:${AWS::AccountId}:domain/application-dev/*"
-  ProductEnrichmentScaleDownLambda:
+                Resource: "*"
+  ProductPipelineScaleControlLambda:
     Type: AWS::Lambda::Function
     Properties:
-      FunctionName: "product-enrichment-asg-scale-down-dev"
+      FunctionName: "product-pipeline-asg-scale-control-dev"
       Runtime: provided.al2023
       Handler: lib.handler
-      Role: !GetAtt ProductEnrichmentScaleDownRole.Arn
+      Role: !GetAtt ProductPipelineScaleControlRole.Arn
       Code:
         S3Bucket: !Ref ArtifactBucket
-        S3Key: !Sub "product-enrichment-asg-scale-down-dev-${CommitSHA}.zip"
+        S3Key: !Sub "product-pipeline-asg-scale-control-dev-${CommitSHA}.zip"
       MemorySize: 128
       Timeout: 60
       EphemeralStorage:
         Size: 512
       Environment:
         Variables:
-          STAGE: "dev"
-          PRODUCT_ENRICHMENT_ASG_NAME: !Ref ProductEnrichmentASG
-          OPENSEARCH_ENDPOINT_URL: !Ref OpenSearchEndpointUrl
-          OPENSEARCH_USERNAME: !Ref OpenSearchUsername
-          OPENSEARCH_PASSWORD: !Ref OpenSearchPassword
-  ProductEnrichmentScaleDownStartSchedule:
+          PRODUCT_PIPELINE_INIT_SQS_URL: !Ref ProductPipelineInitQ
+          PRODUCT_PIPELINE_INIT_SQS_NAME: !GetAtt ProductPipelineInitQ.QueueName
+          PRODUCT_PIPELINE_INIT_ASG_NAME: !Ref ProductPipelineInitASG
+          PRODUCT_PIPELINE_TRANSLATE_SQS_URL: !Ref ProductPipelineTranslateQ
+          PRODUCT_PIPELINE_TRANSLATE_SQS_NAME: !GetAtt ProductPipelineTranslateQ.QueueName
+          PRODUCT_PIPELINE_TRANSLATE_ASG_NAME: !Ref ProductPipelineTranslateASG
+          PRODUCT_PIPELINE_EMBED_TEXT_SQS_URL: !Ref ProductPipelineEmbedTextQ
+          PRODUCT_PIPELINE_EMBED_TEXT_SQS_NAME: !GetAtt ProductPipelineEmbedTextQ.QueueName
+          PRODUCT_PIPELINE_EMBED_TEXT_ASG_NAME: !Ref ProductPipelineEmbedTextASG
+  ProductPipelineScaleControlStartSchedule:
     Type: AWS::Events::Rule
     Properties:
-      ScheduleExpression: "cron(0 3 * * ? *)" # every day at 03:00 UTC
+      ScheduleExpression: "cron(*/15 * * * ? *)" # every 15min
       Targets:
-        - Arn: !GetAtt ProductEnrichmentScaleDownLambda.Arn
-          Id: "ProductEnrichmentScaleDownStartSchedule"
+        - Arn: !GetAtt ProductPipelineScaleControlLambda.Arn
+          Id: "ProductPipelineScaleControlStartSchedule"
           RetryPolicy:
             MaximumRetryAttempts: 5
             MaximumEventAgeInSeconds: 3600
           DeadLetterConfig:
-            Arn: !GetAtt ProductEnrichmentDlq.Arn
-  ProductEnrichmentScaleDownStartSchedulePermission:
+            Arn: !GetAtt ProductPipelineInitDlq.Arn
+  ProductPipelineScaleControlStartSchedulePermission:
     Type: AWS::Lambda::Permission
     Properties:
-      FunctionName: !Ref ProductEnrichmentScaleDownLambda
+      FunctionName: !Ref ProductPipelineScaleControlLambda
       Action: "lambda:InvokeFunction"
       Principal: "events.amazonaws.com"
-      SourceArn: !GetAtt ProductEnrichmentScaleDownStartSchedule.Arn
+      SourceArn: !GetAtt ProductPipelineScaleControlStartSchedule.Arn
 
-  ProductEnrichmentScaleUpRole:
+  ProductPipelineScalePersistUpRole:
     Type: AWS::IAM::Role
     Properties:
-      RoleName: "product-enrichment-asg-scale-up-role-dev"
+      RoleName: !Sub "product-pipeline-asg-scale-persist-up-role-dev"
       AssumeRolePolicyDocument:
         Version: "2012-10-17"
         Statement:
@@ -2682,7 +3179,7 @@ Resources:
       ManagedPolicyArns:
         - arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole
       Policies:
-        - PolicyName: ScaleUpASG
+        - PolicyName: ScalePersistUpASG
           PolicyDocument:
             Version: "2012-10-17"
             Statement:
@@ -2690,55 +3187,43 @@ Resources:
                 Action:
                   - autoscaling:UpdateAutoScalingGroup
                   - autoscaling:DescribeAutoScalingGroups
-                Resource: !Sub "arn:aws:autoscaling:${AWS::Region}:${AWS::AccountId}:autoScalingGroup:*:autoScalingGroupName/${ProductEnrichmentASG}"
-        - PolicyName: OpenSearchAccess
-          PolicyDocument:
-            Version: "2012-10-17"
-            Statement:
-              - Effect: Allow
-                Action:
-                  - es:*
-                Resource: !Sub "arn:aws:es:${AWS::Region}:${AWS::AccountId}:domain/application-dev/*"
-  ProductEnrichmentScaleUpLambda:
+                Resource: !Sub "arn:aws:autoscaling:${AWS::Region}:${AWS::AccountId}:autoScalingGroup:*:autoScalingGroupName/${ProductPipelineCompleteASG}"
+  ProductPipelineScalePersistUpLambda:
     Type: AWS::Lambda::Function
     Properties:
-      FunctionName: "product-enrichment-asg-scale-up-dev"
+      FunctionName: "product-pipeline-asg-scale-persist-up-dev"
       Runtime: provided.al2023
       Handler: lib.handler
-      Role: !GetAtt ProductEnrichmentScaleUpRole.Arn
+      Role: !GetAtt ProductPipelineScalePersistUpRole.Arn
       Code:
         S3Bucket: !Ref ArtifactBucket
-        S3Key: !Sub "product-enrichment-asg-scale-up-dev-${CommitSHA}.zip"
+        S3Key: !Sub "product-pipeline-asg-scale-persist-up-dev-${CommitSHA}.zip"
       MemorySize: 128
       Timeout: 60
       EphemeralStorage:
         Size: 512
       Environment:
         Variables:
-          STAGE: "dev"
-          PRODUCT_ENRICHMENT_ASG_NAME: !Ref ProductEnrichmentASG
-          OPENSEARCH_ENDPOINT_URL: !Ref OpenSearchEndpointUrl
-          OPENSEARCH_USERNAME: !Ref OpenSearchUsername
-          OPENSEARCH_PASSWORD: !Ref OpenSearchPassword
-  ProductEnrichmentScaleUpStartSchedule:
+          PRODUCT_PIPELINE_COMPLETE_ASG_NAME: !Ref ProductPipelineCompleteASG
+  ProductPipelineScalePersistUpStartSchedule:
     Type: AWS::Events::Rule
     Properties:
       ScheduleExpression: "cron(0 1 * * ? *)" # every day at 01:00 UTC
       Targets:
-        - Arn: !GetAtt ProductEnrichmentScaleUpLambda.Arn
-          Id: "ProductEnrichmentScaleUpStartSchedule"
+        - Arn: !GetAtt ProductPipelineScalePersistUpLambda.Arn
+          Id: "ProductPipelineScalePersistUpStartSchedule"
           RetryPolicy:
             MaximumRetryAttempts: 5
             MaximumEventAgeInSeconds: 3600
           DeadLetterConfig:
-            Arn: !GetAtt ProductEnrichmentDlq.Arn
-  ProductEnrichmentScaleUpStartSchedulePermission:
+            Arn: !GetAtt ProductPipelineCompleteDlq.Arn
+  ProductPipelineScalePersistUpStartSchedulePermission:
     Type: AWS::Lambda::Permission
     Properties:
-      FunctionName: !Ref ProductEnrichmentScaleUpLambda
+      FunctionName: !Ref ProductPipelineScalePersistUpLambda
       Action: "lambda:InvokeFunction"
       Principal: "events.amazonaws.com"
-      SourceArn: !GetAtt ProductEnrichmentScaleUpStartSchedule.Arn
+      SourceArn: !GetAtt ProductPipelineScalePersistUpStartSchedule.Arn
 
 Outputs:
   CognitoHostedUIDomain:
@@ -2793,7 +3278,22 @@ Outputs:
   ProductUpdateNotifyUserDeadLetterQueueUrl:
     Value: !Ref ProductUpdateNotifyUserDlq
 
-  ProductEnrichmentQueueUrl:
-    Value: !Ref ProductEnrichmentQ
-  ProductEnrichmentDeadLetterQueueUrl:
-    Value: !Ref ProductEnrichmentDlq
+  ProductPipelineInitQueueUrl:
+    Value: !Ref ProductPipelineInitQ
+  ProductPipelineInitDeadLetterQueueUrl:
+    Value: !Ref ProductPipelineInitDlq
+
+  ProductPipelineTranslateQueueUrl:
+    Value: !Ref ProductPipelineTranslateQ
+  ProductPipelineTranslateDeadLetterQueueUrl:
+    Value: !Ref ProductPipelineTranslateDlq
+
+  ProductPipelineEmbedTextQueueUrl:
+    Value: !Ref ProductPipelineEmbedTextQ
+  ProductPipelineEmbedTextDeadLetterQueueUrl:
+    Value: !Ref ProductPipelineEmbedTextDlq
+
+  ProductPipelineCompleteQueueUrl:
+    Value: !Ref ProductPipelineCompleteQ
+  ProductPipelineCompleteDeadLetterQueueUrl:
+    Value: !Ref ProductPipelineCompleteDlq
