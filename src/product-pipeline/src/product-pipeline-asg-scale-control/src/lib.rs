@@ -10,7 +10,7 @@ pub struct SqsAsgComponent {
     pub asg_name: String,
 }
 
-#[tracing::instrument(skip(autoscaling, sqs, event), fields(requestId = %event.context.request_id))]
+#[tracing::instrument(skip(autoscaling, sqs, cloudwatch, event), fields(requestId = %event.context.request_id))]
 pub async fn handler(
     autoscaling: &aws_sdk_autoscaling::Client,
     sqs: &aws_sdk_sqs::Client,
