@@ -3549,7 +3549,7 @@ Resources:
             sudo ./aws/install
             # Install cloudwatch-agent
             sudo wget https://s3.amazonaws.com/amazoncloudwatch-agent/debian/amd64/latest/amazon-cloudwatch-agent.deb
-            sudo dpkg -i -E ./amazon-cloudwatch-agent.deb            
+            sudo dpkg -i -E ./amazon-cloudwatch-agent.deb
             # Download and install binary
             sudo aws s3 cp "s3://${ArtifactBucket}/${StageName}/${CommitSHA}/product-pipeline-complete" /opt/product-pipeline-complete --region eu-central-1
             sudo chmod +x /opt/product-pipeline-complete
@@ -3617,7 +3617,7 @@ Resources:
   ProductPipelineScaleControlRole:
     Type: AWS::IAM::Role
     Properties:
-      RoleName: !Sub "product-pipeline-asg-scale-control-role-prod"
+      RoleName: "product-pipeline-asg-scale-control-role-prod"
       AssumeRolePolicyDocument:
         Version: "2012-10-17"
         Statement:
@@ -3695,7 +3695,7 @@ Resources:
   ProductPipelineScalePersistUpRole:
     Type: AWS::IAM::Role
     Properties:
-      RoleName: !Sub "product-pipeline-asg-scale-persist-up-role-prod"
+      RoleName: "product-pipeline-asg-scale-persist-up-role-prod"
       AssumeRolePolicyDocument:
         Version: "2012-10-17"
         Statement:

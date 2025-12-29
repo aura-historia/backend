@@ -3090,7 +3090,7 @@ Resources:
   ProductPipelineScaleControlRole:
     Type: AWS::IAM::Role
     Properties:
-      RoleName: !Sub "product-pipeline-asg-scale-control-role-dev"
+      RoleName: "product-pipeline-asg-scale-control-role-dev"
       AssumeRolePolicyDocument:
         Version: "2012-10-17"
         Statement:
@@ -3168,7 +3168,7 @@ Resources:
   ProductPipelineScalePersistUpRole:
     Type: AWS::IAM::Role
     Properties:
-      RoleName: !Sub "product-pipeline-asg-scale-persist-up-role-dev"
+      RoleName: "product-pipeline-asg-scale-persist-up-role-dev"
       AssumeRolePolicyDocument:
         Version: "2012-10-17"
         Statement:
