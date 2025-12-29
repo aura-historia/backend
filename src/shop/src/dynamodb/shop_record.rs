@@ -44,8 +44,8 @@ pub fn mk_pk_as_shop_id(shop_id: &ShopId) -> String {
     format!("shop#shop_id#{shop_id}")
 }
 
-pub fn mk_pk_as_shop_domain(url: &Domain) -> String {
-    format!("shop#domain#{}", url.as_str().to_lowercase())
+pub fn mk_pk_as_shop_domain(domain: &Domain) -> String {
+    format!("shop#domain#{}", domain.as_str().to_lowercase())
 }
 
 impl ShopRecord {

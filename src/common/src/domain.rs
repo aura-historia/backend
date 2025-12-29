@@ -20,10 +20,7 @@ impl TryFrom<&Url> for Domain {
     type Error = NoDomainError;
 
     fn try_from(url: &Url) -> Result<Self, Self::Error> {
-        match url.domain() {
-            Some(domain) => Ok(Domain(domain.to_lowercase())),
-            None => Err(NoDomainError(url.to_string())),
-        }
+        Self::try_from(url.as_str())
     }
 }
 
@@ -109,9 +106,9 @@ mod faker {
 
 #[cfg(test)]
 mod tests {
-    use rstest;
-
     use crate::domain::Domain;
+    use rstest;
+    use url::Url;
 
     #[rstest::rstest]
     #[trace]
@@ -121,6 +118,7 @@ mod tests {
     #[case("www.foo.bar", "foo.bar")]
     #[case("www.foo.bar.baz", "foo.bar.baz")]
     #[case("www.foo.bar.baz.bat", "foo.bar.baz.bat")]
+    #[case("https://www.foo.bar", "foo.bar")]
     #[case("http://foo.bar", "foo.bar")]
     #[case("http://foo.bar.baz", "foo.bar.baz")]
     #[case("http://foo.bar.baz.bat", "foo.bar.baz.bat")]
@@ -145,13 +143,66 @@ mod tests {
         "https://foo.bar.baz.bat/boop?meep=maap&moop=moop#nig",
         "foo.bar.baz.bat"
     )]
-    fn should_succeed_try_from_url_when_contains_domain(
-        #[case] url_str: String,
+    #[case(
+        "https://www.antiquitaeten-tuebingen.de/ysoafOPOTzcCCy5TIM7",
+        "antiquitaeten-tuebingen.de"
+    )]
+    fn should_succeed_try_from_str_when_contains_domain(
+        #[case] str: String,
         #[case] expected_str: String,
     ) {
         let expected = Domain(expected_str);
 
-        let actual = Domain::try_from(url_str).unwrap();
+        let actual = Domain::try_from(str).unwrap();
+
+        assert_eq!(expected, actual);
+    }
+
+    #[rstest::rstest]
+    #[trace]
+    #[case("http://foo.bar", "foo.bar")]
+    #[case("http://foo.bar.baz", "foo.bar.baz")]
+    #[case("http://foo.bar.baz.bat", "foo.bar.baz.bat")]
+    #[case("https://www.foo.bar", "foo.bar")]
+    #[case("https://www.foo.bar.baz", "foo.bar.baz")]
+    #[case("https://www.foo.bar.baz.bat", "foo.bar.baz.bat")]
+    #[case("https://www.foo.bar", "foo.bar")]
+    #[case("http://foo.bar", "foo.bar")]
+    #[case("http://foo.bar.baz", "foo.bar.baz")]
+    #[case("http://foo.bar.baz.bat", "foo.bar.baz.bat")]
+    #[case("https://foo.bar", "foo.bar")]
+    #[case("https://foo.bar.baz", "foo.bar.baz")]
+    #[case("https://foo.bar.baz.bat", "foo.bar.baz.bat")]
+    #[case("https://foo.bar/boop", "foo.bar")]
+    #[case("https://foo.bar.baz/boop", "foo.bar.baz")]
+    #[case("https://foo.bar.baz.bat/boop", "foo.bar.baz.bat")]
+    #[case("https://foo.bar/boop/beep", "foo.bar")]
+    #[case("https://foo.bar.baz/boop/beep", "foo.bar.baz")]
+    #[case("https://foo.bar.baz.bat/boop/beep", "foo.bar.baz.bat")]
+    #[case("https://foo.bar/boop?meep=maap", "foo.bar")]
+    #[case("https://foo.bar.baz/boop?meep=maap", "foo.bar.baz")]
+    #[case("https://foo.bar.baz.bat/boop?meep=maap", "foo.bar.baz.bat")]
+    #[case("https://foo.bar/boop?meep=maap&moop=moop", "foo.bar")]
+    #[case("https://foo.bar.baz/boop?meep=maap&moop=moop", "foo.bar.baz")]
+    #[case("https://foo.bar.baz.bat/boop?meep=maap&moop=moop", "foo.bar.baz.bat")]
+    #[case("https://foo.bar/boop?meep=maap&moop=moop#nig", "foo.bar")]
+    #[case("https://foo.bar.baz/boop?meep=maap&moop=moop#nig", "foo.bar.baz")]
+    #[case(
+        "https://foo.bar.baz.bat/boop?meep=maap&moop=moop#nig",
+        "foo.bar.baz.bat"
+    )]
+    #[case(
+        "https://www.antiquitaeten-tuebingen.de/ysoafOPOTzcCCy5TIM7",
+        "antiquitaeten-tuebingen.de"
+    )]
+    fn should_succeed_try_from_url_when_contains_domain(
+        #[case] url_str: &str,
+        #[case] expected_str: String,
+    ) {
+        let expected = Domain(expected_str);
+
+        let url = Url::parse(url_str).unwrap();
+        let actual = Domain::try_from(url).unwrap();
 
         assert_eq!(expected, actual);
     }
