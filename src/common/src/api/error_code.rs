@@ -12,6 +12,7 @@ pub const NOT_FOUND: ApiErrorCode = ApiErrorCode("NOT_FOUND");
 pub const CONFLICT: ApiErrorCode = ApiErrorCode("CONFLICT");
 pub const UNPROCESSABLE_ENTITY: ApiErrorCode = ApiErrorCode("UNPROCESSABLE_ENTITY");
 pub const INTERNAL_SERVER_ERROR: ApiErrorCode = ApiErrorCode("INTERNAL_SERVER_ERROR");
+pub const BAD_GATEWAY: ApiErrorCode = ApiErrorCode("BAD_GATEWAY");
 pub const SERVICE_UNAVAILABLE: ApiErrorCode = ApiErrorCode("SERVICE_UNAVAILABLE");
 pub const GATEWAY_TIMEOUT: ApiErrorCode = ApiErrorCode("GATEWAY_TIMEOUT");
 

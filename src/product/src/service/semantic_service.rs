@@ -29,7 +29,7 @@ pub enum SemanticSearchProductsError {
 pub mod api {
     use crate::service::semantic_service::SemanticSearchProductsError;
     use common::api::error::ApiError;
-    use common::api::error_code::{INTERNAL_SERVER_ERROR, PRODUCT_NOT_FOUND};
+    use common::api::error_code::PRODUCT_NOT_FOUND;
 
     impl From<SemanticSearchProductsError> for ApiError {
         fn from(err: SemanticSearchProductsError) -> Self {
@@ -37,8 +37,8 @@ pub mod api {
                 SemanticSearchProductsError::ProductNotFound(_, _) => {
                     ApiError::not_found(PRODUCT_NOT_FOUND, Box::new(err))
                 }
-                SemanticSearchProductsError::OpenSearchError(_) => {
-                    ApiError::internal_server_error(INTERNAL_SERVER_ERROR, Box::new(err))
+                SemanticSearchProductsError::OpenSearchError(opensearch_err) => {
+                    opensearch_err.into()
                 }
                 SemanticSearchProductsError::SdkGetItemError(sdk_error) => sdk_error.into(),
             }
