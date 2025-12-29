@@ -303,9 +303,9 @@ dependencies = [
 
 [[package]]
 name = "aws-sdk-cognitoidentityprovider"
-version = "1.97.0"
+version = "1.105.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "9a9d86aa8b4b0c5d46e693416cefef271f43f023fc7afffd526b0e2dd27428cd"
+checksum = "49eea31b3ac21eac06cf0d39d316c5382034db1a64e997914e9bd0e662dcd842"
 dependencies = [
  "aws-credential-types",
  "aws-runtime",
@@ -2359,9 +2359,9 @@ dependencies = [
 
 [[package]]
 name = "lambda_runtime"
-version = "1.0.1"
+version = "1.0.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "46e566d19773ae483b0d32cc6045c5420d7b3eec6192ecb1c26ffa4e0091388a"
+checksum = "dc0b4409eea054e4c06f0101fed547b2cf208e8eca9dc6d41dead4114577852b"
 dependencies = [
  "async-stream",
  "base64 0.22.1",
@@ -2766,7 +2766,7 @@ dependencies = [
  "dyn-clone",
  "lazy_static",
  "percent-encoding",
- "reqwest 0.12.26",
+ "reqwest 0.12.28",
  "rustc_version",
  "serde",
  "serde_json",
@@ -3077,9 +3077,9 @@ dependencies = [
 
 [[package]]
 name = "proc-macro2"
-version = "1.0.103"
+version = "1.0.104"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "5ee95bc4ef87b8d5ba32e8b7714ccc834865276eab0aed5c9958d00ec45f49e8"
+checksum = "9695f8df41bb4f3d222c95a67532365f569318332d03d5f3f67f37b20e6ebdf0"
 dependencies = [
  "unicode-ident",
 ]
@@ -3975,9 +3975,9 @@ dependencies = [
 
 [[package]]
 name = "reqwest"
-version = "0.12.26"
+version = "0.12.28"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "3b4c14b2d9afca6a60277086b0cc6a6ae0b568f6f7916c943a8cdc79f8be240f"
+checksum = "eddd3ca559203180a307f12d114c268abf583f59b03cb906fd0b3ff8646c1147"
 dependencies = [
  "base64 0.22.1",
  "bytes",
@@ -4590,15 +4590,15 @@ dependencies = [
 
 [[package]]
 name = "serde_json"
-version = "1.0.145"
+version = "1.0.148"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "402a6f66d8c709116cf22f558eab210f5a50187f702eb4d7e5ef38d9a7f1c79c"
+checksum = "3084b546a1dd6289475996f182a22aba973866ea8e8b02c51d9f46b1336a22da"
 dependencies = [
  "itoa",
  "memchr",
- "ryu",
  "serde",
  "serde_core",
+ "zmij",
 ]
 
 [[package]]
@@ -4914,7 +4914,7 @@ dependencies = [
  "fake",
  "futures-util",
  "product",
- "reqwest 0.12.26",
+ "reqwest 0.12.28",
  "serde_json",
  "serial_test",
  "smoking-tests-macros",
@@ -4980,7 +4980,7 @@ dependencies = [
  "common",
  "fake",
  "product",
- "reqwest 0.12.26",
+ "reqwest 0.12.28",
  "serde",
  "serde_json",
  "shop",
@@ -5005,7 +5005,7 @@ dependencies = [
  "product",
  "product-api-watchlist-get",
  "product-api-watchlist-patch",
- "reqwest 0.12.26",
+ "reqwest 0.12.28",
  "search-filter",
  "search-filter-api-patch-search-filter",
  "search-filter-api-post-search-filter",
@@ -6488,3 +6488,9 @@ dependencies = [
  "quote",
  "syn",
 ]
+
+[[package]]
+name = "zmij"
+version = "1.0.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "0f4a4e8e9dc5c62d159f04fcdbe07f4c3fb710415aab4754bf11505501e3251d"
