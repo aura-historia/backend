@@ -38,8 +38,8 @@ mod tests {
     use crate::data::sort_user_search_filter_data::SortUserSearchFilterFieldData;
 
     #[rstest::rstest]
-    #[trace]
     #[case(SortUserSearchFilterFieldData::Created)]
+    #[trace]
     fn should_match_as_str_serialize(#[case] field: SortUserSearchFilterFieldData) {
         let serialized = serde_json::to_string(&field).unwrap().replace("\"", "");
         let as_str = field.as_str();

@@ -81,13 +81,13 @@ pub mod api {
         use std::collections::HashMap;
 
         #[rstest::rstest]
-        #[trace]
         #[case::eur("EUR", CurrencyData::Eur)]
         #[case::gbp("GBP", CurrencyData::Gbp)]
         #[case::usd("USD", CurrencyData::Usd)]
         #[case::aud("AUD", CurrencyData::Aud)]
         #[case::cad("CAD", CurrencyData::Cad)]
         #[case::nzd("NZD", CurrencyData::Nzd)]
+        #[trace]
         fn should_extract_currency(#[case] query_value: String, #[case] expected: CurrencyData) {
             let query = QueryMap::from(HashMap::from_iter([("currency".to_string(), query_value)]));
 
@@ -97,7 +97,6 @@ pub mod api {
         }
 
         #[rstest::rstest]
-        #[trace]
         #[case("invalid-currency")]
         #[case("boop")]
         #[case("euronen")]
@@ -105,6 +104,7 @@ pub mod api {
         #[case("moneten")]
         #[case("knete")]
         #[case("knöpfe")]
+        #[trace]
         fn should_400_when_currency_query_param_is_invalid(#[case] query_value: String) {
             let query = QueryMap::from(HashMap::from_iter([("currency".to_string(), query_value)]));
 
@@ -129,13 +129,13 @@ mod tests {
     use rstest::rstest;
 
     #[rstest]
-    #[trace]
     #[case(CurrencyData::Eur, "\"EUR\"")]
     #[case(CurrencyData::Gbp, "\"GBP\"")]
     #[case(CurrencyData::Usd, "\"USD\"")]
     #[case(CurrencyData::Aud, "\"AUD\"")]
     #[case(CurrencyData::Cad, "\"CAD\"")]
     #[case(CurrencyData::Nzd, "\"NZD\"")]
+    #[trace]
     fn should_serialize_currency_according_to_iso_4217(
         #[case] currency: CurrencyData,
         #[case] expected: &str,
@@ -145,13 +145,13 @@ mod tests {
     }
 
     #[rstest]
-    #[trace]
     #[case("\"EUR\"", CurrencyData::Eur)]
     #[case("\"GBP\"", CurrencyData::Gbp)]
     #[case("\"USD\"", CurrencyData::Usd)]
     #[case("\"AUD\"", CurrencyData::Aud)]
     #[case("\"CAD\"", CurrencyData::Cad)]
     #[case("\"NZD\"", CurrencyData::Nzd)]
+    #[trace]
     fn should_deserialize_currency_according_to_iso_4217(
         #[case] currency: &str,
         #[case] expected: CurrencyData,

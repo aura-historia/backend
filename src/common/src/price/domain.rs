@@ -311,7 +311,6 @@ mod tests {
     }
 
     #[rstest::rstest]
-    #[trace]
     #[case(Price::new(MonetaryAmount(500), Currency::Eur), "5,00 €")]
     #[case(Price::new(MonetaryAmount(542), Currency::Eur), "5,42 €")]
     #[case(Price::new(MonetaryAmount(123456), Currency::Eur), "1234,56 €")]
@@ -330,6 +329,7 @@ mod tests {
     #[case(Price::new(MonetaryAmount(500), Currency::Nzd), "NZ$5.00")]
     #[case(Price::new(MonetaryAmount(542), Currency::Nzd), "NZ$5.42")]
     #[case(Price::new(MonetaryAmount(123456), Currency::Nzd), "NZ$1234.56")]
+    #[trace]
     fn should_format_price_human_readable(#[case] price: Price, #[case] expected: &str) {
         let actual = price.format_human_readable();
 

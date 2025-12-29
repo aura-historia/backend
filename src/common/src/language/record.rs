@@ -65,11 +65,11 @@ mod tests {
     use rstest::rstest;
 
     #[rstest]
-    #[trace]
     #[case(LanguageRecord::De, "\"DE\"")]
     #[case(LanguageRecord::En, "\"EN\"")]
     #[case(LanguageRecord::Fr, "\"FR\"")]
     #[case(LanguageRecord::Es, "\"ES\"")]
+    #[trace]
     fn should_serialize_language_in_screaming_snake_case(
         #[case] language: LanguageRecord,
         #[case] expected: &str,
@@ -79,11 +79,11 @@ mod tests {
     }
 
     #[rstest]
-    #[trace]
     #[case("\"DE\"", LanguageRecord::De)]
     #[case("\"EN\"", LanguageRecord::En)]
     #[case("\"FR\"", LanguageRecord::Fr)]
     #[case("\"ES\"", LanguageRecord::Es)]
+    #[trace]
     fn should_deserialize_language_in_screaming_snake_case(
         #[case] language: &str,
         #[case] expected: LanguageRecord,

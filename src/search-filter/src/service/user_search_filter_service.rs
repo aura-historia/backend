@@ -220,10 +220,10 @@ mod tests {
         use common::user_id::UserId;
 
         #[rstest::rstest]
-        #[trace]
         #[case::empty(0)]
         #[case::non_empty(42)]
         #[tokio::test]
+        #[trace]
         async fn should_return_search_filters(#[case] count: usize) {
             let mut repository = MockUserSearchFilterDynamoDbRepository::default();
             repository
@@ -242,7 +242,6 @@ mod tests {
 
         #[tokio::test]
         #[rstest::rstest]
-        #[trace]
         #[case::construction_failure(SdkError::construction_failure("Something went wrong"))]
         #[case::timeout(SdkError::timeout_error("Something went wrong"))]
         #[case::dispatch_failure(SdkError::dispatch_failure(ConnectorError::user("Something went wrong".into())))]
@@ -254,6 +253,7 @@ mod tests {
             aws_sdk_dynamodb::operation::query::QueryError::unhandled("Something went wrong"),
             HttpResponse::new(500u16.try_into().unwrap(), "{}".into())
         ))]
+        #[trace]
         async fn should_propagate_sdk_error(
             #[case] expected: SdkError<
                 aws_sdk_dynamodb::operation::query::QueryError,
@@ -337,7 +337,6 @@ mod tests {
 
         #[tokio::test]
         #[rstest::rstest]
-        #[trace]
         #[case::construction_failure(SdkError::construction_failure("Something went wrong"))]
         #[case::timeout(SdkError::timeout_error("Something went wrong"))]
         #[case::dispatch_failure(SdkError::dispatch_failure(ConnectorError::user("Something went wrong".into())))]
@@ -349,6 +348,7 @@ mod tests {
             aws_sdk_dynamodb::operation::get_item::GetItemError::unhandled("Something went wrong"),
             HttpResponse::new(500u16.try_into().unwrap(), "{}".into())
         ))]
+        #[trace]
         async fn should_propagate_sdk_error(
             #[case] expected: SdkError<
                 aws_sdk_dynamodb::operation::get_item::GetItemError,
@@ -404,7 +404,6 @@ mod tests {
 
         #[tokio::test]
         #[rstest::rstest]
-        #[trace]
         #[case::construction_failure(SdkError::construction_failure("Something went wrong"))]
         #[case::timeout(SdkError::timeout_error("Something went wrong"))]
         #[case::dispatch_failure(SdkError::dispatch_failure(ConnectorError::user("Something went wrong".into())))]
@@ -416,6 +415,7 @@ mod tests {
             aws_sdk_dynamodb::operation::put_item::PutItemError::unhandled("Something went wrong"),
             HttpResponse::new(500u16.try_into().unwrap(), "{}".into())
         ))]
+        #[trace]
         async fn should_propagate_sdk_error(
             #[case] expected: SdkError<
                 aws_sdk_dynamodb::operation::put_item::PutItemError,
@@ -504,7 +504,6 @@ mod tests {
 
         #[tokio::test]
         #[rstest::rstest]
-        #[trace]
         #[case::construction_failure(SdkError::construction_failure("Something went wrong"))]
         #[case::timeout(SdkError::timeout_error("Something went wrong"))]
         #[case::dispatch_failure(SdkError::dispatch_failure(ConnectorError::user("Something went wrong".into())))]
@@ -516,6 +515,7 @@ mod tests {
             aws_sdk_dynamodb::operation::get_item::GetItemError::unhandled("Something went wrong"),
             HttpResponse::new(500u16.try_into().unwrap(), "{}".into())
         ))]
+        #[trace]
         async fn should_propagate_sdk_error_for_find(
             #[case] expected: SdkError<
                 aws_sdk_dynamodb::operation::get_item::GetItemError,
@@ -542,7 +542,6 @@ mod tests {
 
         #[tokio::test]
         #[rstest::rstest]
-        #[trace]
         #[case::construction_failure(SdkError::construction_failure("Something went wrong"))]
         #[case::timeout(SdkError::timeout_error("Something went wrong"))]
         #[case::dispatch_failure(SdkError::dispatch_failure(ConnectorError::user("Something went wrong".into())))]
@@ -554,6 +553,7 @@ mod tests {
             aws_sdk_dynamodb::operation::delete_item::DeleteItemError::unhandled("Something went wrong"),
             HttpResponse::new(500u16.try_into().unwrap(), "{}".into())
         ))]
+        #[trace]
         async fn should_propagate_sdk_error_for_delete(
             #[case] expected: SdkError<
                 aws_sdk_dynamodb::operation::delete_item::DeleteItemError,
@@ -644,7 +644,6 @@ mod tests {
 
         #[tokio::test]
         #[rstest::rstest]
-        #[trace]
         #[case::construction_failure(SdkError::construction_failure("Something went wrong"))]
         #[case::timeout(SdkError::timeout_error("Something went wrong"))]
         #[case::dispatch_failure(SdkError::dispatch_failure(ConnectorError::user("Something went wrong".into())))]
@@ -656,6 +655,7 @@ mod tests {
             aws_sdk_dynamodb::operation::get_item::GetItemError::unhandled("Something went wrong"),
             HttpResponse::new(500u16.try_into().unwrap(), "{}".into())
         ))]
+        #[trace]
         async fn should_propagate_sdk_error_for_find(
             #[case] expected: SdkError<
                 aws_sdk_dynamodb::operation::get_item::GetItemError,
@@ -682,7 +682,6 @@ mod tests {
 
         #[tokio::test]
         #[rstest::rstest]
-        #[trace]
         #[case::construction_failure(SdkError::construction_failure("Something went wrong"))]
         #[case::timeout(SdkError::timeout_error("Something went wrong"))]
         #[case::dispatch_failure(SdkError::dispatch_failure(ConnectorError::user("Something went wrong".into())))]
@@ -694,6 +693,7 @@ mod tests {
             aws_sdk_dynamodb::operation::update_item::UpdateItemError::unhandled("Something went wrong"),
             HttpResponse::new(500u16.try_into().unwrap(), "{}".into())
         ))]
+        #[trace]
         async fn should_propagate_sdk_error_for_update(
             #[case] expected: SdkError<
                 aws_sdk_dynamodb::operation::update_item::UpdateItemError,

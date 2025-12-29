@@ -232,7 +232,6 @@ mod tests {
     use uuid::Uuid;
 
     #[rstest::rstest]
-    #[trace]
     #[case::created(
         LocalizedProductEventPayloadView::Created(LocalizedProductCreatedEventPayloadView {
             shop_id: "569c809e-b9e0-48c0-8c52-ac37d82a0959".try_into().unwrap(),
@@ -403,6 +402,7 @@ mod tests {
             timestamp: utc_datetime!(2025 - 05 - 05 2:22).into(),
         }
     )]
+    #[trace]
     fn should_from_event_localized_product_event_payload_for_get_product_event_data(
         #[case] payload_view: LocalizedProductEventPayloadView,
         #[case] expected: GetProductEventData,

@@ -32,13 +32,13 @@ mod tests {
     use rstest::rstest;
 
     #[rstest]
-    #[trace]
     #[case(CurrencyRecord::Eur, "\"EUR\"")]
     #[case(CurrencyRecord::Gbp, "\"GBP\"")]
     #[case(CurrencyRecord::Usd, "\"USD\"")]
     #[case(CurrencyRecord::Aud, "\"AUD\"")]
     #[case(CurrencyRecord::Cad, "\"CAD\"")]
     #[case(CurrencyRecord::Nzd, "\"NZD\"")]
+    #[trace]
     fn should_serialize_currency_in_screaming_snake_case(
         #[case] currency: CurrencyRecord,
         #[case] expected: &str,
@@ -48,13 +48,13 @@ mod tests {
     }
 
     #[rstest]
-    #[trace]
     #[case("\"EUR\"", CurrencyRecord::Eur)]
     #[case("\"GBP\"", CurrencyRecord::Gbp)]
     #[case("\"USD\"", CurrencyRecord::Usd)]
     #[case("\"AUD\"", CurrencyRecord::Aud)]
     #[case("\"CAD\"", CurrencyRecord::Cad)]
     #[case("\"NZD\"", CurrencyRecord::Nzd)]
+    #[trace]
     fn should_deserialize_currency_in_screaming_snake_case(
         #[case] currency: &str,
         #[case] expected: CurrencyRecord,

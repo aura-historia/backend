@@ -261,7 +261,6 @@ mod tests {
 
     #[tokio::test]
     #[rstest::rstest]
-    #[trace]
     #[case(
         ProductSearch {
             language: Language::De,
@@ -337,6 +336,7 @@ mod tests {
         None,
         1234
     )]
+    #[trace]
     async fn should_search_items(
         #[case] search: ProductSearch,
         #[case] sort: Option<Sort<SortProductField>>,
@@ -396,13 +396,13 @@ mod tests {
 
     #[tokio::test]
     #[rstest::rstest]
-    #[trace]
     #[case::eur(Currency::Eur, 2)]
     #[case::gbp(Currency::Gbp, 4)]
     #[case::usd(Currency::Usd, 10)]
     #[case::aud(Currency::Aud, 1000)]
     #[case::cad(Currency::Cad, 4000)]
     #[case::nzd(Currency::Nzd, 42)]
+    #[trace]
     async fn should_respect_currency(#[case] currency: Currency, #[case] expected_amount: u64) {
         let mut repository = MockProductOpenSearchRepository::default();
         repository
@@ -454,11 +454,11 @@ mod tests {
 
     #[tokio::test]
     #[rstest::rstest]
-    #[trace]
     #[case(Language::De, "German")]
     #[case(Language::En, "English")]
     #[case(Language::Fr, "French")]
     #[case(Language::Es, "Spanish")]
+    #[trace]
     async fn should_respect_language(#[case] language: Language, #[case] expected: &str) {
         let mut repository = MockProductOpenSearchRepository::default();
         repository

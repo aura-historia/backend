@@ -558,7 +558,6 @@ mod tests {
 
         #[tokio::test]
         #[rstest::rstest]
-        #[trace]
         #[case::construction_failure(SdkError::construction_failure("Something went wrong"))]
         #[case::timeout(SdkError::timeout_error("Something went wrong"))]
         #[case::dispatch_failure(SdkError::dispatch_failure(ConnectorError::user("Something went wrong".into())))]
@@ -570,6 +569,7 @@ mod tests {
             aws_sdk_dynamodb::operation::get_item::GetItemError::unhandled("Something went wrong"),
             HttpResponse::new(500u16.try_into().unwrap(), "{}".into())
         ))]
+        #[trace]
         async fn should_propagate_sdk_error(
             #[case] expected: SdkError<
                 aws_sdk_dynamodb::operation::get_item::GetItemError,
@@ -699,13 +699,13 @@ mod tests {
 
         #[tokio::test]
         #[rstest::rstest]
-        #[trace]
         #[case::eur(Currency::Eur, 2)]
         #[case::gbp(Currency::Gbp, 4)]
         #[case::usd(Currency::Usd, 10)]
         #[case::aud(Currency::Aud, 1000)]
         #[case::cad(Currency::Cad, 4000)]
         #[case::nzd(Currency::Nzd, 42)]
+        #[trace]
         async fn should_respect_currency(#[case] currency: Currency, #[case] expected_amount: u64) {
             let mut repository = MockProductDynamoDbRepository::default();
             let mut expected_record: ProductRecord = Faker.fake();
@@ -739,7 +739,6 @@ mod tests {
 
         #[tokio::test]
         #[rstest::rstest]
-        #[trace]
         #[case(&[], En, "English")]
         #[case(&[De], De, "German")]
         #[case(&[De, En], De, "German")]
@@ -750,6 +749,7 @@ mod tests {
         #[case(&[En, De, Es], En, "English")]
         #[case(&[Es, De, En], Es, "Spanish")]
         #[case(&[Es, En, De], Es, "Spanish")]
+        #[trace]
         async fn should_respect_language_for_title(
             #[case] languages: &[Language],
             #[case] expected_language: Language,
@@ -785,7 +785,6 @@ mod tests {
 
         #[tokio::test]
         #[rstest::rstest]
-        #[trace]
         #[case(&[], Es, "Spanish")]
         #[case(&[De], Es, "Spanish")]
         #[case(&[De, En], Es, "Spanish")]
@@ -796,6 +795,7 @@ mod tests {
         #[case(&[En, De, Es], Es, "Spanish")]
         #[case(&[Es, De, En], Es, "Spanish")]
         #[case(&[Es, En, De], Es, "Spanish")]
+        #[trace]
         async fn should_fallback_to_native_when_only_native_exists_for_title(
             #[case] languages: &[Language],
             #[case] expected_language: Language,
@@ -831,7 +831,6 @@ mod tests {
 
         #[tokio::test]
         #[rstest::rstest]
-        #[trace]
         #[case(&[], En, "English")]
         #[case(&[De], De, "German")]
         #[case(&[De, En], De, "German")]
@@ -842,6 +841,7 @@ mod tests {
         #[case(&[En, De, Es], En, "English")]
         #[case(&[Es, De, En], Es, "Spanish")]
         #[case(&[Es, En, De], Es, "Spanish")]
+        #[trace]
         async fn should_respect_language_for_description(
             #[case] languages: &[Language],
             #[case] expected_language: Language,
@@ -879,7 +879,6 @@ mod tests {
 
         #[tokio::test]
         #[rstest::rstest]
-        #[trace]
         #[case(&[], Es, "Spanish")]
         #[case(&[De], Es, "Spanish")]
         #[case(&[De, En], Es, "Spanish")]
@@ -890,6 +889,7 @@ mod tests {
         #[case(&[En, De, Es], Es, "Spanish")]
         #[case(&[Es, De, En], Es, "Spanish")]
         #[case(&[Es, En, De], Es, "Spanish")]
+        #[trace]
         async fn should_fallback_to_native_when_only_native_exists_for_description(
             #[case] languages: &[Language],
             #[case] expected_language: Language,
@@ -927,7 +927,6 @@ mod tests {
 
         #[tokio::test]
         #[rstest::rstest]
-        #[trace]
         #[case(&[])]
         #[case(&[De])]
         #[case(&[De, En])]
@@ -938,6 +937,7 @@ mod tests {
         #[case(&[En, De, Es])]
         #[case(&[Es, De, En])]
         #[case(&[Es, En, De])]
+        #[trace]
         async fn should_return_product_without_description_when_none_exists(
             #[case] languages: &[Language],
         ) {
@@ -995,7 +995,6 @@ mod tests {
 
         #[tokio::test]
         #[rstest::rstest]
-        #[trace]
         #[case::construction_failure(SdkError::construction_failure("Something went wrong"))]
         #[case::timeout(SdkError::timeout_error("Something went wrong"))]
         #[case::dispatch_failure(SdkError::dispatch_failure(ConnectorError::user("Something went wrong".into())))]
@@ -1007,6 +1006,7 @@ mod tests {
             aws_sdk_dynamodb::operation::get_item::GetItemError::unhandled("Something went wrong"),
             HttpResponse::new(500u16.try_into().unwrap(), "{}".into())
         ))]
+        #[trace]
         async fn should_propagate_sdk_error(
             #[case] expected: SdkError<
                 aws_sdk_dynamodb::operation::get_item::GetItemError,
@@ -1101,7 +1101,6 @@ mod tests {
 
         #[tokio::test]
         #[rstest::rstest]
-        #[trace]
         #[case::construction_failure(SdkError::construction_failure("Something went wrong"))]
         #[case::timeout(SdkError::timeout_error("Something went wrong"))]
         #[case::dispatch_failure(SdkError::dispatch_failure(ConnectorError::user("Something went wrong".into())))]
@@ -1113,6 +1112,7 @@ mod tests {
             aws_sdk_dynamodb::operation::batch_get_item::BatchGetItemError::unhandled("Something went wrong"),
             HttpResponse::new(500u16.try_into().unwrap(), "{}".into())
         ))]
+        #[trace]
         async fn should_fail_entire_operation_and_propagate_sdk_error_when_batch_operation_fails(
             #[case] expected: SdkError<
                 aws_sdk_dynamodb::operation::batch_get_item::BatchGetItemError,

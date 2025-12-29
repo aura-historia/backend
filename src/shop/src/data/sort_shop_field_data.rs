@@ -62,10 +62,10 @@ mod tests {
     use crate::data::sort_shop_field_data::SortShopFieldData;
 
     #[rstest::rstest]
-    #[trace]
     #[case(SortShopFieldData::Name)]
     #[case(SortShopFieldData::Created)]
     #[case(SortShopFieldData::Updated)]
+    #[trace]
     fn should_match_as_str_serialize(#[case] field: SortShopFieldData) {
         let serialized = serde_json::to_string(&field).unwrap().replace("\"", "");
         let as_str = field.as_str();

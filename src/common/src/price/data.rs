@@ -59,13 +59,13 @@ mod tests {
     use crate::price::data::PriceData;
 
     #[rstest::rstest]
-    #[trace]
     #[case(0.0, 0)]
     #[case(0.42, 42)]
     #[case(6.98, 698)]
     #[case(37.69, 3769)]
     #[case(37.1, 3710)]
     #[case(100.0, 10000)]
+    #[trace]
     fn should_succeed_from_f64_when_non_negative(#[case] value: f64, #[case] expected_amount: u64) {
         let price = PriceData::new_f64(CurrencyData::Eur, value);
         assert!(price.is_ok());
@@ -73,12 +73,12 @@ mod tests {
     }
 
     #[rstest::rstest]
-    #[trace]
     #[case(-0.42)]
     #[case(-6.98)]
     #[case(-37.69)]
     #[case(-37.1)]
     #[case(-100.0)]
+    #[trace]
     fn should_fail_from_f64_when_negative(#[case] value: f64) {
         let price = PriceData::new_f64(CurrencyData::Eur, value);
         assert!(price.is_err());

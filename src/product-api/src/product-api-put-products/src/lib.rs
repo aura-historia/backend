@@ -220,7 +220,6 @@ mod tests {
     use test_api::extract_apigw_response_json_body;
 
     #[rstest::rstest]
-    #[trace]
     #[case(0, 0)]
     #[case(1, 1)]
     #[case(2, 5)]
@@ -235,6 +234,7 @@ mod tests {
     #[case(874, 10874)]
     #[case(10874, 874)]
     #[tokio::test]
+    #[trace]
     async fn should_forward_failures_and_skipped_from_service(
         #[case] failures: usize,
         #[case] skipped: usize,

@@ -94,10 +94,10 @@ mod tests {
     use std::collections::HashMap;
 
     #[rstest::rstest]
-    #[trace]
     #[case::empty_defaults_english(&[], Some("English text".into()))]
     #[case::takes_preferred_from_singleton(&[Language::En], Some("English text".into()))]
     #[case::takes_preferred_from_many(&[Language::Es, Language::Fr, Language::En], Some("Spanish text".into()))]
+    #[trace]
     fn should_respect_language_priority_when_contains_all_for_resolve(
         #[case] preferred: &[Language],
         #[case] expected: Option<String>,
@@ -115,10 +115,10 @@ mod tests {
     }
 
     #[rstest::rstest]
-    #[trace]
     #[case::empty_defaults_english(&[], Some("English text".into()))]
     #[case::takes_preferred_from_singleton(&[Language::En], Some("English text".into()))]
     #[case::takes_preferred_from_many(&[Language::Es, Language::Fr, Language::En], Some("French text".into()))]
+    #[trace]
     fn should_respect_language_priority_when_contains_some_for_resolve(
         #[case] languages: &[Language],
         #[case] expected: Option<String>,
@@ -134,10 +134,10 @@ mod tests {
     }
 
     #[rstest::rstest]
-    #[trace]
     #[case::empty_defaults_english(&[], Some("French text".into()))]
     #[case::takes_preferred_from_singleton(&[Language::En], Some("French text".into()))]
     #[case::takes_preferred_from_many(&[Language::Es, Language::En], Some("French text".into()))]
+    #[trace]
     fn should_resort_to_next_best_when_contains_no_match_nor_defaults_for_resolve(
         #[case] languages: &[Language],
         #[case] expected: Option<String>,

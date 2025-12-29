@@ -191,7 +191,6 @@ pub mod tests {
     use std::time::SystemTime;
 
     #[rstest::rstest]
-    #[trace]
     #[case::minimal_100(ApiGatewayV2HttpResponseBuilder::new(100))]
     #[case::minimal_200(ApiGatewayV2HttpResponseBuilder::new(200))]
     #[case::minimal_300(ApiGatewayV2HttpResponseBuilder::new(300))]
@@ -203,6 +202,7 @@ pub mod tests {
     #[case::try_content_language(ApiGatewayV2HttpResponseBuilder::new(200).try_content_language(Some(LanguageData::En)))]
     #[case::e_tag(ApiGatewayV2HttpResponseBuilder::new(200).e_tag("123456"))]
     #[case::last_modified(ApiGatewayV2HttpResponseBuilder::new(200).last_modified(SystemTime::now()))]
+    #[trace]
     fn should_build_api_gateway_proxy_response(#[case] builder: ApiGatewayV2HttpResponseBuilder) {
         let _ = builder.build();
     }

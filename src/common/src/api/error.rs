@@ -252,7 +252,6 @@ pub mod tests {
     }
 
     #[rstest::rstest]
-    #[trace]
     #[case::bad_request(ApiError::bad_request(BAD_REQUEST, Box::new(serde_json::Error::custom("foo"))), json!({ "status": 400, "title": "Bad Request", "error": "BAD_REQUEST" }))]
     #[case::bad_request_msg(ApiError::bad_request(BAD_REQUEST, Box::new(serde_json::Error::custom("foo"))).with_detail("foo"), json!({ "status": 400, "error": "BAD_REQUEST", "title": "Bad Request", "detail": "foo" }))]
     #[case::unauthorized(ApiError::unauthorized(UNAUTHORIZED), json!({ "status": 401, "error": "UNAUTHORIZED", "title": "Unauthorized" }))]
@@ -263,6 +262,7 @@ pub mod tests {
     #[case::internal_server_error(ApiError::internal_server_error(INTERNAL_SERVER_ERROR, Box::new(serde_json::Error::custom("foo"))), json!({ "status": 500, "title": "Internal Server Error", "error": "INTERNAL_SERVER_ERROR" }))]
     #[case::service_unavailable(ApiError::service_unavailable(SERVICE_UNAVAILABLE, Box::new(serde_json::Error::custom("foo"))), json!({ "status": 503, "title": "Service Unavailable", "error": "SERVICE_UNAVAILABLE" }))]
     #[case::gateway_timeout(ApiError::gateway_time_out(GATEWAY_TIMEOUT, Box::new(serde_json::Error::custom("foo"))), json!({ "status": 504, "title": "Gateway Timeout", "error": "GATEWAY_TIMEOUT" }))]
+    #[trace]
     fn should_serialize_api_error(#[case] error: ApiError, #[case] expected: Value) {
         let actual = serde_json::to_value(error).unwrap();
         assert_eq!(expected, actual);

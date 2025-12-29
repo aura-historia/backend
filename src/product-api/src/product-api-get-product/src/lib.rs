@@ -153,11 +153,11 @@ mod tests {
 
     #[tokio::test]
     #[rstest::rstest]
-    #[trace]
     #[case(LanguageData::De, "de")]
     #[case(LanguageData::En, "en")]
     #[case(LanguageData::Es, "es")]
     #[case(LanguageData::Fr, "fr")]
+    #[trace]
     async fn should_include_actual_language_as_header_content_language(
         #[case] language: LanguageData,
         #[case] expected_content_language: &str,
@@ -335,10 +335,10 @@ mod tests {
 
     #[tokio::test]
     #[rstest::rstest]
-    #[trace]
     #[case::default_false(None, false)]
     #[case::accept_true(Some("true"), true)]
     #[case::accept_false(Some("false"), false)]
+    #[trace]
     async fn should_respect_history_query_param(
         #[case] history_query_value: Option<&'static str>,
         #[case] expected_history: bool,

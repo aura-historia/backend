@@ -169,7 +169,6 @@ mod tests {
 
     #[tokio::test]
     #[rstest::rstest]
-    #[trace]
     #[case(
         ShopSearch {
             shop_name_query: Some("Woaaaah Co. Ltd.".try_into().unwrap()),
@@ -217,6 +216,7 @@ mod tests {
         Some(Cursor { size: 10, search_after: None }),
         222
     )]
+    #[trace]
     async fn should_search_shops(
         #[case] search: ShopSearch,
         #[case] sort: Option<Sort<SortShopField>>,
@@ -268,7 +268,6 @@ mod tests {
 
     #[tokio::test]
     #[rstest::rstest]
-    #[trace]
     #[case(
         ShopSearch {
             shop_name_query: None,
@@ -293,6 +292,7 @@ mod tests {
         },
         None,
     )]
+    #[trace]
     async fn should_default_sort_name_asc_when_empty_query_and_sort_score(
         #[case] search: ShopSearch,
         #[case] sort: Option<Sort<SortShopField>>,
@@ -312,7 +312,6 @@ mod tests {
 
     #[tokio::test]
     #[rstest::rstest]
-    #[trace]
     #[case(
         ShopSearch {
             shop_name_query: Some("Woaaaah Co. Ltd.".try_into().unwrap()),
@@ -329,6 +328,7 @@ mod tests {
         },
         Sort { sort: SortShopField::Name, order: SortOrder::Desc }
     )]
+    #[trace]
     async fn should_preserve_sort_when_empty_query_with_non_score(
         #[case] search: ShopSearch,
         #[case] in_sort: Sort<SortShopField>,

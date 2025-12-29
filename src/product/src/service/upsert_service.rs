@@ -430,7 +430,6 @@ pub mod tests {
 
     #[tokio::test]
     #[rstest::rstest]
-    #[trace]
     #[case::construction_failure(SdkError::construction_failure("Something went wrong"))]
     #[case::timeout(SdkError::timeout_error("Something went wrong"))]
     #[case::dispatch_failure(SdkError::dispatch_failure(aws_sdk_dynamodb::error::ConnectorError::user("Something went wrong".into())))]
@@ -442,6 +441,7 @@ pub mod tests {
         aws_sdk_dynamodb::operation::batch_get_item::BatchGetItemError::unhandled("Something went wrong"),
         aws_sdk_dynamodb::config::http::HttpResponse::new(500u16.try_into().unwrap(), "{}".into())
     ))]
+    #[trace]
     async fn should_fail_entire_chunk_when_batch_get_product_entirely_fails(
         #[case] expected: SdkError<
             aws_sdk_dynamodb::operation::batch_get_item::BatchGetItemError,
