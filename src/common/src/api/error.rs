@@ -353,6 +353,50 @@ pub mod dynamodb {
     }
 }
 
+#[cfg(feature = "opensearch")]
+pub mod opensearch {
+    use crate::api::error::ApiError;
+    use crate::api::error_code::{
+        BAD_GATEWAY, GATEWAY_TIMEOUT, INTERNAL_SERVER_ERROR, SERVICE_UNAVAILABLE,
+    };
+    use opensearch::Error as OpenSearchError;
+
+    impl From<OpenSearchError> for ApiError {
+        fn from(e: OpenSearchError) -> Self {
+            // Check if the error contains an HTTP response with a specific status code
+            // The opensearch crate's Error has a status_code() method for server errors
+            if let Some(status_code) = e.status_code() {
+                match status_code.as_u16() {
+                    502 => return ApiError::bad_gateway(BAD_GATEWAY, Box::new(e)),
+                    503 => return ApiError::service_unavailable(SERVICE_UNAVAILABLE, Box::new(e)),
+                    504 => return ApiError::gateway_time_out(GATEWAY_TIMEOUT, Box::new(e)),
+                    _ => {} // Continue to default error handling
+                }
+            }
+
+            // Default to internal server error for all other cases
+            ApiError::internal_server_error(INTERNAL_SERVER_ERROR, Box::new(e))
+        }
+    }
+
+    #[cfg(test)]
+    mod tests {
+        use super::*;
+        use serde::ser::Error;
+
+        #[test]
+        fn should_convert_opensearch_error_to_internal_server_error_by_default() {
+            // Create a basic opensearch error from serde_json error
+            let json_error = serde_json::Error::custom("test error");
+            let opensearch_error = OpenSearchError::from(json_error);
+            let api_error: ApiError = opensearch_error.into();
+
+            assert_eq!(api_error.status, 500);
+            assert_eq!(api_error.error.as_str(), "INTERNAL_SERVER_ERROR");
+        }
+    }
+}
+
 #[cfg(test)]
 pub mod tests {
     use rstest;

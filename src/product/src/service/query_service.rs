@@ -23,13 +23,10 @@ pub enum SearchProductsError {
 pub mod api {
     use crate::service::query_service::SearchProductsError;
     use common::api::error::ApiError;
-    use common::api::error_code::INTERNAL_SERVER_ERROR;
     impl From<SearchProductsError> for ApiError {
         fn from(err: SearchProductsError) -> Self {
             match err {
-                SearchProductsError::OpenSearchError(_) => {
-                    ApiError::internal_server_error(INTERNAL_SERVER_ERROR, Box::new(err))
-                }
+                SearchProductsError::OpenSearchError(opensearch_err) => opensearch_err.into(),
             }
         }
     }
