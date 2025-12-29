@@ -3488,7 +3488,7 @@ name = "product-pipeline"
 version = "0.1.0"
 dependencies = [
  "product-pipeline-asg-scale-control",
- "product-pipeline-asg-scale-up",
+ "product-pipeline-asg-scale-persist-up",
  "product-pipeline-common",
  "product-pipeline-complete",
  "product-pipeline-embed-text",
@@ -3515,7 +3515,7 @@ dependencies = [
 ]
 
 [[package]]
-name = "product-pipeline-asg-scale-up"
+name = "product-pipeline-asg-scale-persist-up"
 version = "0.1.0"
 dependencies = [
  "aws-config",

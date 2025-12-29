@@ -1,6 +1,6 @@
 use aws_config::BehaviorVersion;
 use lambda_runtime::{Error, LambdaEvent, run, service_fn};
-use product_pipeline_asg_scale_up::handler;
+use product_pipeline_asg_scale_persist_up::handler;
 use tracing::info;
 
 #[tokio::main]

@@ -2404,13 +2404,13 @@ Resources:
       EnableDnsHostnames: true
       Tags:
         - Key: Name
-          Value: "product-pipeline-vpc-ephemeral"
+          Value: !Sub "product-pipeline-vpc-${StageName}"
   ProductPipelineInternetGateway:
     Type: AWS::EC2::InternetGateway
     Properties:
       Tags:
         - Key: Name
-          Value: "product-pipeline-igw-ephemeral"
+          Value: !Sub "product-pipeline-igw-${StageName}"
   ProductPipelineVpcGatewayAttachment:
     Type: AWS::EC2::VPCGatewayAttachment
     Properties:
@@ -2422,7 +2422,7 @@ Resources:
       VpcId: !Ref ProductPipelineVpc
       Tags:
         - Key: Name
-          Value: "product-pipeline-public-rt-ephemeral"
+          Value: !Sub "product-pipeline-public-rt-${StageName}"
   ProductPipelinePublicRoute:
     Type: AWS::EC2::Route
     DependsOn: ProductPipelineVpcGatewayAttachment
@@ -2439,7 +2439,7 @@ Resources:
       AvailabilityZone: !Select [0, !GetAZs ""]
       Tags:
         - Key: Name
-          Value: "product-pipeline-subnet-a-ephemeral"
+          Value: !Sub "product-pipeline-subnet-a-${StageName}"
   ProductPipelineSubnetRouteAssocA:
     Type: AWS::EC2::SubnetRouteTableAssociation
     Properties:
@@ -2455,17 +2455,17 @@ Resources:
           CidrIp: 0.0.0.0/0
       Tags:
         - Key: Name
-          Value: "product-pipeline-sg-ephemeral"
+          Value: !Sub "product-pipeline-sg-${StageName}"
 
   ProductPipelineInitDlq:
     Type: AWS::SQS::Queue
     Properties:
-      QueueName: "product-pipeline-init-dlq-ephemeral"
+      QueueName: !Sub "product-pipeline-init-dlq-${StageName}"
       MessageRetentionPeriod: 1209600
   ProductPipelineInitQ:
     Type: AWS::SQS::Queue
     Properties:
-      QueueName: "product-pipeline-init-queue-ephemeral"
+      QueueName: !Sub "product-pipeline-init-queue-${StageName}"
       RedrivePolicy:
         deadLetterTargetArn: !GetAtt ProductPipelineInitDlq.Arn
         maxReceiveCount: 5
@@ -2473,7 +2473,7 @@ Resources:
   ProductPipelineInitRole:
     Type: AWS::IAM::Role
     Properties:
-      RoleName: "product-pipeline-init-role-ephemeral"
+      RoleName: !Sub "product-pipeline-init-role-${StageName}"
       AssumeRolePolicyDocument:
         Version: "2012-10-17"
         Statement:
@@ -2527,13 +2527,13 @@ Resources:
   ProductPipelineInitInstanceProfile:
     Type: AWS::IAM::InstanceProfile
     Properties:
-      InstanceProfileName: "product-pipeline-init-profile-ephemeral"
+      InstanceProfileName: !Sub "product-pipeline-init-profile-${StageName}"
       Roles:
         - !Ref ProductPipelineInitRole
   ProductPipelineInitLaunchTemplate:
     Type: AWS::EC2::LaunchTemplate
     Properties:
-      LaunchTemplateName: "product-pipeline-init-template-ephemeral"
+      LaunchTemplateName: !Sub "product-pipeline-init-template-${StageName}"
       LaunchTemplateData:
         KeyName: !Ref Ec2KeyPairName
         IamInstanceProfile:
@@ -2551,7 +2551,7 @@ Resources:
           - ResourceType: instance
             Tags:
               - Key: Name
-                Value: "product-pipeline-init-ephemeral"
+                Value: !Sub "product-pipeline-init-${StageName}"
               - Key: Fleet
                 Value: product-pipeline-init
         UserData:
@@ -2633,7 +2633,7 @@ Resources:
           SpotAllocationStrategy: price-capacity-optimized
       Tags:
         - Key: Name
-          Value: "product-pipeline-init-ephemeral"
+          Value: !Sub "product-pipeline-init-${StageName}"
           PropagateAtLaunch: true
       HealthCheckType: EC2
       HealthCheckGracePeriod: 120
@@ -2641,12 +2641,12 @@ Resources:
   ProductPipelineTranslateDlq:
     Type: AWS::SQS::Queue
     Properties:
-      QueueName: "product-pipeline-translate-dlq-ephemeral"
+      QueueName: !Sub "product-pipeline-translate-dlq-${StageName}"
       MessageRetentionPeriod: 1209600
   ProductPipelineTranslateQ:
     Type: AWS::SQS::Queue
     Properties:
-      QueueName: "product-pipeline-translate-queue-ephemeral"
+      QueueName: !Sub "product-pipeline-translate-queue-${StageName}"
       RedrivePolicy:
         deadLetterTargetArn: !GetAtt ProductPipelineTranslateDlq.Arn
         maxReceiveCount: 3
@@ -2654,7 +2654,7 @@ Resources:
   ProductPipelineTranslateRole:
     Type: AWS::IAM::Role
     Properties:
-      RoleName: "product-pipeline-translate-role-ephemeral"
+      RoleName: !Sub "product-pipeline-translate-role-${StageName}"
       AssumeRolePolicyDocument:
         Version: "2012-10-17"
         Statement:
@@ -2708,13 +2708,13 @@ Resources:
   ProductPipelineTranslateInstanceProfile:
     Type: AWS::IAM::InstanceProfile
     Properties:
-      InstanceProfileName: "product-pipeline-translate-profile-ephemeral"
+      InstanceProfileName: !Sub "product-pipeline-translate-profile-${StageName}"
       Roles:
         - !Ref ProductPipelineTranslateRole
   ProductPipelineTranslateLaunchTemplate:
     Type: AWS::EC2::LaunchTemplate
     Properties:
-      LaunchTemplateName: "product-pipeline-translate-template-ephemeral"
+      LaunchTemplateName: !Sub "product-pipeline-translate-template-${StageName}"
       LaunchTemplateData:
         KeyName: !Ref Ec2KeyPairName
         IamInstanceProfile:
@@ -2732,7 +2732,7 @@ Resources:
           - ResourceType: instance
             Tags:
               - Key: Name
-                Value: "product-pipeline-translate-ephemeral"
+                Value: !Sub "product-pipeline-translate-${StageName}"
               - Key: Fleet
                 Value: product-pipeline-translate
         UserData:
@@ -2786,7 +2786,7 @@ Resources:
           SpotAllocationStrategy: price-capacity-optimized
       Tags:
         - Key: Name
-          Value: "product-pipeline-translate-ephemeral"
+          Value: !Sub "product-pipeline-translate-${StageName}"
           PropagateAtLaunch: true
       HealthCheckType: EC2
       HealthCheckGracePeriod: 120
@@ -2794,12 +2794,12 @@ Resources:
   ProductPipelineEmbedTextDlq:
     Type: AWS::SQS::Queue
     Properties:
-      QueueName: "product-pipeline-embed-text-dlq-ephemeral"
+      QueueName: !Sub "product-pipeline-embed-text-dlq-${StageName}"
       MessageRetentionPeriod: 1209600
   ProductPipelineEmbedTextQ:
     Type: AWS::SQS::Queue
     Properties:
-      QueueName: "product-pipeline-embed-text-queue-ephemeral"
+      QueueName: !Sub "product-pipeline-embed-text-queue-${StageName}"
       RedrivePolicy:
         deadLetterTargetArn: !GetAtt ProductPipelineEmbedTextDlq.Arn
         maxReceiveCount: 3
@@ -2807,7 +2807,7 @@ Resources:
   ProductPipelineEmbedTextRole:
     Type: AWS::IAM::Role
     Properties:
-      RoleName: "product-pipeline-embed-text-role-ephemeral"
+      RoleName: !Sub "product-pipeline-embed-text-role-${StageName}"
       AssumeRolePolicyDocument:
         Version: "2012-10-17"
         Statement:
@@ -2861,13 +2861,13 @@ Resources:
   ProductPipelineEmbedTextInstanceProfile:
     Type: AWS::IAM::InstanceProfile
     Properties:
-      InstanceProfileName: "product-pipeline-embed-text-profile-ephemeral"
+      InstanceProfileName: !Sub "product-pipeline-embed-text-profile-${StageName}"
       Roles:
         - !Ref ProductPipelineEmbedTextRole
   ProductPipelineEmbedTextLaunchTemplate:
     Type: AWS::EC2::LaunchTemplate
     Properties:
-      LaunchTemplateName: "product-pipeline-embed-text-template-ephemeral"
+      LaunchTemplateName: !Sub "product-pipeline-embed-text-template-${StageName}"
       LaunchTemplateData:
         KeyName: !Ref Ec2KeyPairName
         IamInstanceProfile:
@@ -2885,7 +2885,7 @@ Resources:
           - ResourceType: instance
             Tags:
               - Key: Name
-                Value: "product-pipeline-embed-text-ephemeral"
+                Value: !Sub "product-pipeline-embed-text-${StageName}"
               - Key: Fleet
                 Value: product-pipeline-embed-text
         UserData:
@@ -2939,7 +2939,7 @@ Resources:
           SpotAllocationStrategy: price-capacity-optimized
       Tags:
         - Key: Name
-          Value: "product-pipeline-embed-text-ephemeral"
+          Value: !Sub "product-pipeline-embed-text-${StageName}"
           PropagateAtLaunch: true
       HealthCheckType: EC2
       HealthCheckGracePeriod: 120
@@ -2947,12 +2947,12 @@ Resources:
   ProductPipelineCompleteDlq:
     Type: AWS::SQS::Queue
     Properties:
-      QueueName: "product-pipeline-complete-dlq-ephemeral"
+      QueueName: !Sub "product-pipeline-complete-dlq-${StageName}"
       MessageRetentionPeriod: 1209600
   ProductPipelineCompleteQ:
     Type: AWS::SQS::Queue
     Properties:
-      QueueName: "product-pipeline-complete-queue-ephemeral"
+      QueueName: !Sub "product-pipeline-complete-queue-${StageName}"
       RedrivePolicy:
         deadLetterTargetArn: !GetAtt ProductPipelineCompleteDlq.Arn
         maxReceiveCount: 5
@@ -2960,7 +2960,7 @@ Resources:
   ProductPipelineCompleteRole:
     Type: AWS::IAM::Role
     Properties:
-      RoleName: "product-pipeline-complete-role-ephemeral"
+      RoleName: !Sub "product-pipeline-complete-role-${StageName}"
       AssumeRolePolicyDocument:
         Version: "2012-10-17"
         Statement:
@@ -3038,13 +3038,13 @@ Resources:
   ProductPipelineCompleteInstanceProfile:
     Type: AWS::IAM::InstanceProfile
     Properties:
-      InstanceProfileName: "product-pipeline-complete-profile-ephemeral"
+      InstanceProfileName: !Sub "product-pipeline-complete-profile-${StageName}"
       Roles:
         - !Ref ProductPipelineCompleteRole
   ProductPipelineCompleteLaunchTemplate:
     Type: AWS::EC2::LaunchTemplate
     Properties:
-      LaunchTemplateName: "product-pipeline-complete-template-ephemeral"
+      LaunchTemplateName: !Sub "product-pipeline-complete-template-${StageName}"
       LaunchTemplateData:
         KeyName: !Ref Ec2KeyPairName
         IamInstanceProfile:
@@ -3062,7 +3062,7 @@ Resources:
           - ResourceType: instance
             Tags:
               - Key: Name
-                Value: "product-pipeline-complete-ephemeral"
+                Value: !Sub "product-pipeline-complete-${StageName}"
               - Key: Fleet
                 Value: product-pipeline-complete
         UserData:
@@ -3144,7 +3144,7 @@ Resources:
           SpotAllocationStrategy: price-capacity-optimized
       Tags:
         - Key: Name
-          Value: "product-pipeline-complete-ephemeral"
+          Value: !Sub "product-pipeline-complete-${StageName}"
           PropagateAtLaunch: true
       HealthCheckType: EC2
       HealthCheckGracePeriod: 120
@@ -3173,7 +3173,7 @@ Resources:
                   - sqs:GetQueueUrl
                   - cloudwatch:GetMetricStatistics
                 Resource: "*"
-        - PolicyName: ScaleUpASG
+        - PolicyName: ScaleASG
           PolicyDocument:
             Version: "2012-10-17"
             Statement:
@@ -3185,7 +3185,7 @@ Resources:
   ProductPipelineScaleControlLambda:
     Type: AWS::Lambda::Function
     Properties:
-      FunctionName: "product-pipeline-asg-scale-control-ephemeral"
+      FunctionName: !Sub "product-pipeline-asg-scale-control-${StageName}"
       Runtime: provided.al2023
       Handler: lib.handler
       Role: !GetAtt ProductPipelineScaleControlRole.Arn
@@ -3227,10 +3227,10 @@ Resources:
       Principal: "events.amazonaws.com"
       SourceArn: !GetAtt ProductPipelineScaleControlStartSchedule.Arn
 
-  ProductPipelineScaleUpRole:
+  ProductPipelineScalePersistUpRole:
     Type: AWS::IAM::Role
     Properties:
-      RoleName: !Sub "product-pipeline-asg-scale-up-role-${StageName}"
+      RoleName: !Sub "product-pipeline-asg-scale-persist-up-role-${StageName}"
       AssumeRolePolicyDocument:
         Version: "2012-10-17"
         Statement:
@@ -3241,7 +3241,7 @@ Resources:
       ManagedPolicyArns:
         - arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole
       Policies:
-        - PolicyName: ScaleUpASG
+        - PolicyName: ScalePersistUpASG
           PolicyDocument:
             Version: "2012-10-17"
             Statement:
@@ -3250,16 +3250,16 @@ Resources:
                   - autoscaling:UpdateAutoScalingGroup
                   - autoscaling:DescribeAutoScalingGroups
                 Resource: !Sub "arn:aws:autoscaling:${AWS::Region}:${AWS::AccountId}:autoScalingGroup:*:autoScalingGroupName/${ProductPipelineCompleteASG}"
-  ProductPipelineScaleUpLambda:
+  ProductPipelineScalePersistUpLambda:
     Type: AWS::Lambda::Function
     Properties:
-      FunctionName: "product-pipeline-asg-scale-up-ephemeral"
+      FunctionName: !Sub "product-pipeline-asg-scale-persist-up-${StageName}"
       Runtime: provided.al2023
       Handler: lib.handler
-      Role: !GetAtt ProductPipelineScaleUpRole.Arn
+      Role: !GetAtt ProductPipelineScalePersistUpRole.Arn
       Code:
         S3Bucket: !Ref ArtifactBucket
-        S3Key: !Sub "product-pipeline-asg-scale-up-${StageName}-${CommitSHA}.zip"
+        S3Key: !Sub "product-pipeline-asg-scale-persist-up-${StageName}-${CommitSHA}.zip"
       MemorySize: 128
       Timeout: 60
       EphemeralStorage:
@@ -3267,25 +3267,25 @@ Resources:
       Environment:
         Variables:
           PRODUCT_PIPELINE_COMPLETE_ASG_NAME: !Ref ProductPipelineCompleteASG
-  ProductPipelineScaleUpStartSchedule:
+  ProductPipelineScalePersistUpStartSchedule:
     Type: AWS::Events::Rule
     Properties:
       ScheduleExpression: "cron(0 1 * * ? *)" # every day at 01:00 UTC
       Targets:
-        - Arn: !GetAtt ProductPipelineScaleUpLambda.Arn
-          Id: "ProductPipelineScaleUpStartSchedule"
+        - Arn: !GetAtt ProductPipelineScalePersistUpLambda.Arn
+          Id: "ProductPipelineScalePersistUpStartSchedule"
           RetryPolicy:
             MaximumRetryAttempts: 5
             MaximumEventAgeInSeconds: 3600
           DeadLetterConfig:
             Arn: !GetAtt ProductPipelineCompleteDlq.Arn
-  ProductPipelineScaleUpStartSchedulePermission:
+  ProductPipelineScalePersistUpStartSchedulePermission:
     Type: AWS::Lambda::Permission
     Properties:
-      FunctionName: !Ref ProductPipelineScaleUpLambda
+      FunctionName: !Ref ProductPipelineScalePersistUpLambda
       Action: "lambda:InvokeFunction"
       Principal: "events.amazonaws.com"
-      SourceArn: !GetAtt ProductPipelineScaleUpStartSchedule.Arn
+      SourceArn: !GetAtt ProductPipelineScalePersistUpStartSchedule.Arn
 
 Outputs:
   CognitoHostedUIDomain:
