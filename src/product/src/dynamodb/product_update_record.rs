@@ -9,6 +9,7 @@ use time::OffsetDateTime;
 
 #[derive(Debug, Clone, PartialEq, Serialize, SerdeField)]
 pub struct ProductRecordUpdate {
+    #[serde(skip_serializing_if = "Option::is_none", default)]
     pub event_id: Option<EventId>,
 
     #[serde(skip_serializing_if = "Option::is_none", default)]
