@@ -82,12 +82,20 @@ async fn handle_sqs_asg_component(
         .into_iter()
         .max_by_key(|datapoint| datapoint.timestamp().cloned())
         .unwrap_or_else(|| {
-            warn!("CloudWatch-GetMetricStatistics response did not contain any data-points for 'ApproximateAgeOfOldestMessage'. Defaulting to an empty datapoint.");
+            warn!(
+                queue = component.queue_name,
+                asg = component.asg_name,
+                "CloudWatch-GetMetricStatistics response did not contain any data-points for 'ApproximateAgeOfOldestMessage'. Defaulting to an empty datapoint."
+            );
             Datapoint::builder().build()
         })
         .maximum()
         .unwrap_or_else(|| {
-            warn!("CloudWatch-GetMetricStatistics response did not contain 'maximum' 'ApproximateAgeOfOldestMessage'. Defaulting to '0'.");
+            warn!(
+                queue = component.queue_name,
+                asg = component.asg_name,
+                "CloudWatch-GetMetricStatistics response did not contain 'maximum' 'ApproximateAgeOfOldestMessage'. Defaulting to '0'."
+            );
             0f64
         }) as u32;
 
