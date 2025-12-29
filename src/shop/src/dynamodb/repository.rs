@@ -230,6 +230,8 @@ impl<'a> ShopDynamoDbRepository for ShopDynamoDbRepositoryImpl<'a> {
         BatchGetItemResult<ShopRecord, ShopIdentifier>,
         SdkError<BatchGetItemError, HttpResponse>,
     > {
+        println!("{shop_identifiers:?}");
+
         let mut failed = Vec::new();
         let keys = shop_identifiers
             .iter()
