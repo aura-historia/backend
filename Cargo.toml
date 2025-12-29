@@ -58,9 +58,9 @@ aws-sdk-lambda = "1.100.0"
 aws-sdk-opensearch = "1.110.0"
 aws-sdk-sqs = "1.91.0"
 aws-sdk-sesv2 = "1.110.0"
-aws-sdk-s3 = "1.118.0"
+aws-sdk-s3 = "1.119.0"
 aws-sdk-cloudwatch = "1.100.0"
-aws_lambda_events = { version = "1.0.1", default-features = false }
+aws_lambda_events = { version = "1.0.2", default-features = false }
 common = { path = "src/common" }
 derive_builder = "0.20.2"
 fake = { version = "4.4.0", features = ["derive", "time", "uuid", "url"] }
