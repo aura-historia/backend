@@ -16,9 +16,10 @@ model = AutoModelForCausalLM.from_pretrained(
     dtype=torch.float16,
     quantization_config=quant_config,
 )
+model = torch.compile(model)
 
 
-def process_products(descriptions, batch_size=4):
+def process_products(descriptions, batch_size=8):
     results = []
 
     for i in range(0, len(descriptions), batch_size):
@@ -28,20 +29,32 @@ def process_products(descriptions, batch_size=4):
         for desc in batch:
             messages = [
                 {
+                    "role": "system",
+                    "content": (
+                        "You are a structured information extraction system. "
+                        "You extract product attributes from text. "
+                        "You will be given a JSON-Schema to extract."
+                        "You must respond with valid JSON only. "
+                        "Do not include explanations or extra text."
+                        "If values for any of the target schemas fields are missing, use null."
+                    ),
+                },
+                {
                     "role": "user",
                     "content": f"""
-Extract the following attributes from the product description:
-- Brand
-- Material
-- Color
-- Size
+                    Schema:
+                    {{
+                        "brand": string | null,
+                        "material": string | null,
+                        "color": string | null,
+                        "size": float | null,
+                        "price": float | null
+                    }}
 
-Product Description:
-\"\"\"{desc}\"\"\"
-
-Return strict JSON only.
-""",
-                }
+                    Product Description:
+                    \"\"\"{desc}\"\"\"
+                    """,
+                },
             ]
 
             prompt = tokenizer.apply_chat_template(
@@ -66,7 +79,7 @@ Return strict JSON only.
         with torch.inference_mode():
             outputs = model.generate(
                 **inputs,
-                max_new_tokens=150,
+                max_new_tokens=100,
                 do_sample=False,
             )
 
@@ -82,7 +95,6 @@ Return strict JSON only.
     return results
 
 
-# === 3. Example usage ===
 if __name__ == "__main__":
     sample_descriptions = [
         "Nike Air Max 270, black color, size 10, made of synthetic leather.",
