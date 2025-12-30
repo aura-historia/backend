@@ -1,3 +1,5 @@
+from typing import List
+
 import torch
 from transformers import AutoModelForCausalLM, AutoTokenizer, BitsAndBytesConfig
 
@@ -19,14 +21,14 @@ model = AutoModelForCausalLM.from_pretrained(
 model = torch.compile(model)
 
 
-def process_products(descriptions, batch_size=8):
-    results = []
+def extract(schema: str, texts: List[str], batch_size=8) -> List[str]:
+    results: List[str] = []
 
-    for i in range(0, len(descriptions), batch_size):
-        batch = descriptions[i : i + batch_size]
+    for i in range(0, len(texts), batch_size):
+        batch = texts[i : i + batch_size]
 
         prompts = []
-        for desc in batch:
+        for text in batch:
             messages = [
                 {
                     "role": "system",
@@ -43,16 +45,10 @@ def process_products(descriptions, batch_size=8):
                     "role": "user",
                     "content": f"""
                     Schema:
-                    {{
-                        "brand": string | null,
-                        "material": string | null,
-                        "color": string | null,
-                        "size": float | null,
-                        "price": float | null
-                    }}
+                    \"\"\"{schema}\"\"\"
 
-                    Product Description:
-                    \"\"\"{desc}\"\"\"
+                    Text:
+                    \"\"\"{text}\"\"\"
                     """,
                 },
             ]
@@ -96,10 +92,19 @@ def process_products(descriptions, batch_size=8):
 
 
 if __name__ == "__main__":
+    schema = """
+    {{
+        "brand": string | null,
+        "material": string | null,
+        "color": string | null,
+        "size": float | null,
+        "price": float | null
+    }}
+    """
     sample_descriptions = [
         "Nike Air Max 270, black color, size 10, made of synthetic leather.",
     ]
 
-    responses = process_products(sample_descriptions, batch_size=2)
+    responses = extract(schema, sample_descriptions)
     for r in responses:
         print(r)
