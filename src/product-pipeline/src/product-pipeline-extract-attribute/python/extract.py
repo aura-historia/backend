@@ -102,7 +102,7 @@ if __name__ == "__main__":
     }}
     """
     sample_descriptions = [
-        "Nike Air Max 270, black color, size 10, made of synthetic leather.",
+        "Nike Air Max 270, black color, size 10.5, made of leather.",
     ]
 
     responses = extract(schema, sample_descriptions)
