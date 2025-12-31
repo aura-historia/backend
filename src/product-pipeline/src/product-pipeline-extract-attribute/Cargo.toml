@@ -18,3 +18,8 @@ serde = { workspace = true }
 serde_json = { workspace = true }
 pyo3 = { workspace = true, features = ["auto-initialize"] }
 pyo3-ffi = { workspace = true }
+
+[dev-dependencies]
+product-pipeline-common = { workspace = true, features = ["test-data"] }
+rstest = { workspace = true }
+fake = { workspace = true }

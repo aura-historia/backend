@@ -108,10 +108,16 @@ pub struct AttributeExtractedPipeProduct {
     pub origin_year_min: Option<Year>,
     pub origin_year: Option<Year>,
     pub origin_year_max: Option<Year>,
-    pub authenticity: Option<AuthenticityRecord>,
-    pub condition: Option<ConditionRecord>,
-    pub provenance: Option<ProvenanceRecord>,
-    pub restoration: Option<RestorationRecord>,
+    pub authenticity: AuthenticityRecord,
+    pub condition: ConditionRecord,
+    pub provenance: ProvenanceRecord,
+    pub restoration: RestorationRecord,
+}
+
+impl HasProductId for AttributeExtractedPipeProduct {
+    fn product_id(&self) -> ProductId {
+        self.product_id
+    }
 }
 
 #[cfg_attr(feature = "test-data", derive(fake::Dummy))]

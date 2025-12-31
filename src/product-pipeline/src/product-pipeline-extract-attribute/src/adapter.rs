@@ -4,6 +4,7 @@ use pyo3::{intern, prelude::*};
 use pyo3_ffi::c_str;
 use std::sync::Arc;
 
+#[async_trait::async_trait]
 #[mockall::automock]
 pub trait ExtractionAdapter {
     fn extract(&self, schema: &str, batch: &Batch<String, 8>) -> PyResult<Batch<String, 8>>;
