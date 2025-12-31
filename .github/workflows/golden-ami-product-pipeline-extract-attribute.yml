@@ -58,7 +58,7 @@ jobs:
       matrix:
         resource:
           - src/product-pipeline/src/product-pipeline-extract-attribute/python/requirements.txt
-          - src/product-pipeline/src/product-pipeline-extract-attribute/python/extract.txt
+          - src/product-pipeline/src/product-pipeline-extract-attribute/python/extract.py
           - ami/product-pipeline-extract-attribute.yml
     steps:
       - uses: actions/checkout@v6
