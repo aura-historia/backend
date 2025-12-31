@@ -225,7 +225,7 @@ async fn should_flow_through_entire_pipeline(#[case] count: usize) {
         AttributeExtractedPipeProduct,
     > = PipeImpl::new(
         sqs,
-        EMBED_TEXT_Q.queue_url(),
+        EXTRACT_ATTRIBUTE_Q.queue_url(),
         16,
         300,
         &extract_attribute_flow_in,
