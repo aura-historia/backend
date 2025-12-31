@@ -89,22 +89,3 @@ def extract(schema: str, texts: List[str], batch_size=8) -> List[str]:
         results.extend(decoded)
 
     return results
-
-
-if __name__ == "__main__":
-    schema = """
-    {{
-        "brand": string | null,
-        "material": string | null,
-        "color": string | null,
-        "size": float | null,
-        "price": float | null
-    }}
-    """
-    sample_descriptions = [
-        "Nike Air Max 270, black color, size 10.5, made of leather.",
-    ]
-
-    responses = extract(schema, sample_descriptions)
-    for r in responses:
-        print(r)
