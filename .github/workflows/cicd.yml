@@ -229,7 +229,7 @@ jobs:
 
       - name: Test ${{ matrix.crate }}
         working-directory: ${{ matrix.crate }}
-        run: cargo test --lib --test '*' --all-features -- --nocapture --include-ignored
+        run: cargo test --all-features -- --nocapture --include-ignored
 
       - name: Prune Docker volumes
         run: docker volume prune -f
