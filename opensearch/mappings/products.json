@@ -111,13 +111,13 @@
                 }
             },
             "originYearMin": {
-                "type": "unsigned_long"
+                "type": "integer"
             },
             "originYear": {
-                "type": "unsigned_long"
+                "type": "integer"
             },
             "originYearMax": {
-                "type": "unsigned_long"
+                "type": "integer"
             },
             "authenticity": {
                 "type": "keyword"
