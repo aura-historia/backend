@@ -26,4 +26,3 @@ impl From<AuthenticityRecord> for Authenticity {
         }
     }
 }
-

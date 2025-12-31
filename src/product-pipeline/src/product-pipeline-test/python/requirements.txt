@@ -6,3 +6,5 @@ sentencepiece==0.2.1
 ctranslate2==4.6.2
 sacremoses==0.1.1
 cachetools==6.2.4
+accelerate==1.12.0
+bitsandbytes==0.49.0

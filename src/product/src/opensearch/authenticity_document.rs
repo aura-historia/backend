@@ -37,4 +37,3 @@ impl From<AuthenticityDocument> for Authenticity {
         }
     }
 }
-

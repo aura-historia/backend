@@ -3655,6 +3655,7 @@ dependencies = [
  "product-pipeline-common",
  "product-pipeline-complete",
  "product-pipeline-embed-text",
+ "product-pipeline-extract-attribute",
  "product-pipeline-init",
  "product-pipeline-translate",
  "pyo3",

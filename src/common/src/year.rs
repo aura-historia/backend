@@ -19,4 +19,3 @@ impl From<i32> for Year {
         Year(value)
     }
 }
-

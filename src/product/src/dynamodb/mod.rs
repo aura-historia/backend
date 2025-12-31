@@ -8,4 +8,3 @@ pub mod product_update_record;
 pub mod provenance_record;
 pub mod repository;
 pub mod restoration_record;
-
