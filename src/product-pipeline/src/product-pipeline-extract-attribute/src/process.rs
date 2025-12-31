@@ -123,7 +123,7 @@ impl PipeProcessor<TextEmbeddedPipeProduct, AttributeExtractedPipeProduct>
             count = count,
             successes = count - failures.len(),
             failures = failures.len(),
-            "Text-embedded translated products."
+            "Extracted attributes."
         );
 
         ProcessResult {
