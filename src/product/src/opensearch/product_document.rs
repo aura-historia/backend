@@ -1,12 +1,17 @@
 use crate::dynamodb::product_event_record::ProductEventRecord;
 use crate::dynamodb::product_record::ProductRecord;
+use crate::opensearch::authenticity_document::AuthenticityDocument;
+use crate::opensearch::condition_document::ConditionDocument;
 use crate::opensearch::product_state_document::ProductStateDocument;
+use crate::opensearch::provenance_document::ProvenanceDocument;
+use crate::opensearch::restoration_document::RestorationDocument;
 use common::error::mapping_error::PersistenceMappingError;
 use common::error::missing_field::MissingPersistenceField;
 use common::language::document::TextDocument;
 use common::product_id::{ProductId, ProductKey};
 use common::shop_id::ShopId;
 use common::shops_product_id::ShopsProductId;
+use common::year::Year;
 use common::{event_id::EventId, has_key::HasKey};
 use field::field;
 use serde::{Deserialize, Serialize};
@@ -57,13 +62,27 @@ pub struct ProductDocument {
 
     pub state: ProductStateDocument,
     pub url: Url,
-
     #[serde(skip_serializing_if = "Vec::is_empty", default)]
     pub images: Vec<Url>,
 
     // title [SEP] description, dim=1024 via baai/bge-m3
     #[serde(skip_serializing_if = "Option::is_none", default)]
     pub text_embedding: Option<Vec<f32>>,
+
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub origin_year_min: Option<Year>,
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub origin_year: Option<Year>,
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub origin_year_max: Option<Year>,
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub authenticity: Option<AuthenticityDocument>,
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub condition: Option<ConditionDocument>,
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub provenance: Option<ProvenanceDocument>,
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub restoration: Option<RestorationDocument>,
 
     #[serde(with = "time::serde::rfc3339")]
     pub created: OffsetDateTime,
@@ -130,6 +149,13 @@ impl TryFrom<ProductEventRecord> for ProductDocument {
                 .ok_or_else(|| MissingPersistenceField::new(field!(url@ProductEventRecord)))?,
             images: event_record.images.unwrap_or_default(),
             text_embedding: None,
+            origin_year_min: None,
+            origin_year: None,
+            origin_year_max: None,
+            authenticity: None,
+            condition: None,
+            provenance: None,
+            restoration: None,
             created: event_record.timestamp,
             updated: event_record.timestamp,
         };
@@ -164,6 +190,13 @@ impl From<ProductRecord> for ProductDocument {
             url: record.url,
             images: record.images,
             text_embedding: None,
+            origin_year_min: record.origin_year_min,
+            origin_year: record.origin_year,
+            origin_year_max: record.origin_year_max,
+            authenticity: record.authenticity.map(AuthenticityDocument::from),
+            condition: record.condition.map(ConditionDocument::from),
+            provenance: record.provenance.map(ProvenanceDocument::from),
+            restoration: record.restoration.map(RestorationDocument::from),
             created: record.created,
             updated: record.updated,
         }
@@ -242,6 +275,13 @@ mod faker {
                     .unwrap(),
                 ],
                 text_embedding: None,
+                origin_year_min: config.fake_with_rng(rng),
+                origin_year: config.fake_with_rng(rng),
+                origin_year_max: config.fake_with_rng(rng),
+                authenticity: config.fake_with_rng(rng),
+                condition: config.fake_with_rng(rng),
+                provenance: config.fake_with_rng(rng),
+                restoration: config.fake_with_rng(rng),
                 created: OffsetDateTime::now_utc(),
                 updated: OffsetDateTime::now_utc(),
             }

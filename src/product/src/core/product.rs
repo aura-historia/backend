@@ -1,9 +1,14 @@
+use crate::core::authenticity::Authenticity;
+use crate::core::condition::Condition;
 use crate::core::description::Description;
+use crate::core::origin_year::OriginYear;
 use crate::core::product_event::{
     LocalizedProductEventPayloadView, ProductCreatedEventPayload, ProductEvent,
     ProductEventPayload, ProductPriceChangeEventPayload, ProductPriceDiscoveryEventPayload,
     ProductPriceRemovedEventPayload, ProductStateChangeEventPayload,
 };
+use crate::core::provenance::Provenance;
+use crate::core::restoration::Restoration;
 use crate::core::title::Title;
 use common::currency::domain::Currency;
 use common::event::Event;
@@ -37,6 +42,11 @@ pub struct Product {
     pub state: ProductState,
     pub url: Url,
     pub images: Vec<Url>,
+    pub origin_year: Option<OriginYear>,
+    pub authenticity: Option<Authenticity>,
+    pub condition: Option<Condition>,
+    pub provenance: Option<Provenance>,
+    pub restoration: Option<Restoration>,
     pub created: OffsetDateTime,
     pub updated: OffsetDateTime,
 }
@@ -230,6 +240,11 @@ pub struct LocalizedProductView {
     pub state: ProductState,
     pub url: Url,
     pub images: Vec<Url>,
+    pub origin_year: Option<OriginYear>,
+    pub authenticity: Option<Authenticity>,
+    pub condition: Option<Condition>,
+    pub provenance: Option<Provenance>,
+    pub restoration: Option<Restoration>,
     pub created: OffsetDateTime,
     pub updated: OffsetDateTime,
     pub history: Option<Vec<Event<ProductId, LocalizedProductEventPayloadView>>>,
@@ -286,6 +301,11 @@ mod faker {
                     ))
                     .unwrap(),
                 ],
+                origin_year: config.fake_with_rng(rng),
+                authenticity: config.fake_with_rng(rng),
+                condition: config.fake_with_rng(rng),
+                provenance: config.fake_with_rng(rng),
+                restoration: config.fake_with_rng(rng),
                 created: OffsetDateTime::now_utc(),
                 updated: OffsetDateTime::now_utc(),
             }
@@ -326,6 +346,11 @@ mod faker {
                     ))
                     .unwrap(),
                 ],
+                origin_year: config.fake_with_rng(rng),
+                authenticity: config.fake_with_rng(rng),
+                condition: config.fake_with_rng(rng),
+                provenance: config.fake_with_rng(rng),
+                restoration: config.fake_with_rng(rng),
                 created: OffsetDateTime::now_utc(),
                 updated: OffsetDateTime::now_utc(),
                 history: None,
@@ -392,6 +417,11 @@ mod tests {
                 state: from_state,
                 url: Url::parse("https://example.com").unwrap(),
                 images: vec![],
+                origin_year: None,
+                authenticity: None,
+                condition: None,
+                provenance: None,
+                restoration: None,
                 created: OffsetDateTime::now_utc(),
                 updated: OffsetDateTime::now_utc(),
             };
@@ -435,6 +465,11 @@ mod tests {
                 state: from_state,
                 url: Url::parse("https://example.com").unwrap(),
                 images: vec![],
+                origin_year: None,
+                authenticity: None,
+                condition: None,
+                provenance: None,
+                restoration: None,
                 created: OffsetDateTime::now_utc(),
                 updated: OffsetDateTime::now_utc(),
             };
@@ -478,6 +513,11 @@ mod tests {
                 state: from_state,
                 url: Url::parse("https://example.com").unwrap(),
                 images: vec![],
+                origin_year: None,
+                authenticity: None,
+                condition: None,
+                provenance: None,
+                restoration: None,
                 created: OffsetDateTime::now_utc(),
                 updated: OffsetDateTime::now_utc(),
             };
@@ -554,6 +594,11 @@ mod tests {
                 state: ProductState::Listed,
                 url: Url::parse("https://example.com").unwrap(),
                 images: vec![],
+                origin_year: None,
+                authenticity: None,
+                condition: None,
+                provenance: None,
+                restoration: None,
                 created: OffsetDateTime::now_utc(),
                 updated: OffsetDateTime::now_utc(),
             };
@@ -598,6 +643,11 @@ mod tests {
                 state: ProductState::Listed,
                 url: Url::parse("https://example.com").unwrap(),
                 images: vec![],
+                origin_year: None,
+                authenticity: None,
+                condition: None,
+                provenance: None,
+                restoration: None,
                 created: OffsetDateTime::now_utc(),
                 updated: OffsetDateTime::now_utc(),
             };
@@ -651,6 +701,11 @@ mod tests {
                 state: ProductState::Listed,
                 url: Url::parse("https://example.com").unwrap(),
                 images: vec![],
+                origin_year: None,
+                authenticity: None,
+                condition: None,
+                provenance: None,
+                restoration: None,
                 created: OffsetDateTime::now_utc(),
                 updated: OffsetDateTime::now_utc(),
             };
@@ -708,6 +763,11 @@ mod tests {
                 state: ProductState::Listed,
                 url: Url::parse("https://example.com").unwrap(),
                 images: vec![],
+                origin_year: None,
+                authenticity: None,
+                condition: None,
+                provenance: None,
+                restoration: None,
                 created: OffsetDateTime::now_utc(),
                 updated: OffsetDateTime::now_utc(),
             };
@@ -767,6 +827,11 @@ mod tests {
                 state: ProductState::Listed,
                 url: Url::parse("https://example.com").unwrap(),
                 images: vec![],
+                origin_year: None,
+                authenticity: None,
+                condition: None,
+                provenance: None,
+                restoration: None,
                 created: OffsetDateTime::now_utc(),
                 updated: OffsetDateTime::now_utc(),
             };

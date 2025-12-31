@@ -13,3 +13,10 @@ pub struct YearRange {
     #[serde(skip_serializing_if = "Option::is_none", default)]
     pub max: Option<Year>,
 }
+
+impl From<i32> for Year {
+    fn from(value: i32) -> Self {
+        Year(value)
+    }
+}
+

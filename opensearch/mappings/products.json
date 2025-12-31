@@ -1,123 +1,144 @@
 {
-  "settings": {
-    "index.knn": true,
-    "knn.algo_param.ef_search": 128
-  },
-  "mappings": {
-    "properties": {
-      "productId": {
-        "type": "keyword"
-      },
-      "eventId": {
-        "type": "keyword"
-      },
-      "shopId": {
-        "type": "keyword"
-      },
-      "shopsProductId": {
-        "type": "keyword"
-      },
-      "shopName": {
-        "type": "text"
-      },
-      "titleNative": {
-        "type": "object",
+    "settings": {
+        "index.knn": true,
+        "knn.algo_param.ef_search": 128
+    },
+    "mappings": {
         "properties": {
-          "text": {
-            "type": "text"
-          },
-          "language": {
-            "type": "keyword"
-          }
-        }
-      },
-      "titleDe": {
-        "type": "text",
-        "analyzer": "german"
-      },
-      "titleEn": {
-        "type": "text",
-        "analyzer": "english"
-      },
-      "titleFr": {
-        "type": "text",
-        "analyzer": "french"
-      },
-      "titleEs": {
-        "type": "text",
-        "analyzer": "spanish"
-      },
-      "descriptionDe": {
-        "type": "text",
-        "analyzer": "german"
-      },
-      "descriptionEn": {
-        "type": "text",
-        "analyzer": "english"
-      },
-      "descriptionFr": {
-        "type": "text",
-        "analyzer": "french"
-      },
-      "descriptionEs": {
-        "type": "text",
-        "analyzer": "spanish"
-      },
-      "priceEur": {
-        "type": "unsigned_long"
-      },
-      "priceUsd": {
-        "type": "unsigned_long"
-      },
-      "priceBbp": {
-        "type": "unsigned_long"
-      },
-      "priceAud": {
-        "type": "unsigned_long"
-      },
-      "priceCad": {
-        "type": "unsigned_long"
-      },
-      "priceNze": {
-        "type": "unsigned_long"
-      },
-      "state": {
-        "type": "keyword"
-      },
-      "url": {
-        "type": "keyword"
-      },
-      "images": {
-        "type": "keyword"
-      },
-      "textEmbedding": {
-        "type": "knn_vector",
-        "dimension": 1024,
-        "method": {
-          "engine": "faiss",
-          "space_type": "cosinesimil",
-          "name": "hnsw",
-          "parameters": {
-            "m": 32,
-            "ef_construction": 1024,
-            "encoder": {
-              "name": "sq",
-              "parameters": {
-                "type": "fp16",
-                "clip": false
-              }
+            "productId": {
+                "type": "keyword"
+            },
+            "eventId": {
+                "type": "keyword"
+            },
+            "shopId": {
+                "type": "keyword"
+            },
+            "shopsProductId": {
+                "type": "keyword"
+            },
+            "shopName": {
+                "type": "text"
+            },
+            "titleNative": {
+                "type": "object",
+                "properties": {
+                    "text": {
+                        "type": "text"
+                    },
+                    "language": {
+                        "type": "keyword"
+                    }
+                }
+            },
+            "titleDe": {
+                "type": "text",
+                "analyzer": "german"
+            },
+            "titleEn": {
+                "type": "text",
+                "analyzer": "english"
+            },
+            "titleFr": {
+                "type": "text",
+                "analyzer": "french"
+            },
+            "titleEs": {
+                "type": "text",
+                "analyzer": "spanish"
+            },
+            "descriptionDe": {
+                "type": "text",
+                "analyzer": "german"
+            },
+            "descriptionEn": {
+                "type": "text",
+                "analyzer": "english"
+            },
+            "descriptionFr": {
+                "type": "text",
+                "analyzer": "french"
+            },
+            "descriptionEs": {
+                "type": "text",
+                "analyzer": "spanish"
+            },
+            "priceEur": {
+                "type": "unsigned_long"
+            },
+            "priceUsd": {
+                "type": "unsigned_long"
+            },
+            "priceBbp": {
+                "type": "unsigned_long"
+            },
+            "priceAud": {
+                "type": "unsigned_long"
+            },
+            "priceCad": {
+                "type": "unsigned_long"
+            },
+            "priceNze": {
+                "type": "unsigned_long"
+            },
+            "state": {
+                "type": "keyword"
+            },
+            "url": {
+                "type": "keyword"
+            },
+            "images": {
+                "type": "keyword"
+            },
+            "textEmbedding": {
+                "type": "knn_vector",
+                "dimension": 1024,
+                "method": {
+                    "engine": "faiss",
+                    "space_type": "cosinesimil",
+                    "name": "hnsw",
+                    "parameters": {
+                        "m": 32,
+                        "ef_construction": 1024,
+                        "encoder": {
+                            "name": "sq",
+                            "parameters": {
+                                "type": "fp16",
+                                "clip": false
+                            }
+                        }
+                    }
+                }
+            },
+            "originYearMin": {
+                "type": "unsigned_long"
+            },
+            "originYear": {
+                "type": "unsigned_long"
+            },
+            "originYearMax": {
+                "type": "unsigned_long"
+            },
+            "authenticity": {
+                "type": "keyword"
+            },
+            "condition": {
+                "type": "keyword"
+            },
+            "provenance": {
+                "type": "keyword"
+            },
+            "restoration": {
+                "type": "keyword"
+            },
+            "created": {
+                "type": "date",
+                "format": "strict_date_time"
+            },
+            "updated": {
+                "type": "date",
+                "format": "strict_date_time"
             }
-          }
         }
-      },
-      "created": {
-        "type": "date",
-        "format": "strict_date_time"
-      },
-      "updated": {
-        "type": "date",
-        "format": "strict_date_time"
-      }
     }
-  }
 }

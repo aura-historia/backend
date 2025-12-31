@@ -1,4 +1,7 @@
+use crate::core::authenticity::Authenticity;
+use crate::core::condition::Condition;
 use crate::core::description::Description;
+use crate::core::origin_year::OriginYear;
 use crate::core::product::{LocalizedProductView, Product};
 use crate::core::product_event::{
     LocalizedProductCreatedEventPayloadView, LocalizedProductEventPayloadView,
@@ -6,6 +9,8 @@ use crate::core::product_event::{
     LocalizedProductPriceRemovedEventPayloadView, LocalizedProductStateChangeEventPayloadView,
     ProductEvent, ProductEventPayload,
 };
+use crate::core::provenance::Provenance;
+use crate::core::restoration::Restoration;
 use crate::core::title::Title;
 use crate::dynamodb::product_event_record::ProductEventRecord;
 use crate::dynamodb::product_record::ProductRecord;
@@ -22,6 +27,7 @@ use common::price::domain::{MonetaryAmountOverflowError, Price};
 use common::product_id::{ProductId, ProductKey};
 use common::shop_id::ShopId;
 use common::shops_product_id::ShopsProductId;
+use common::year::YearRange;
 use std::collections::HashMap;
 use strum::EnumCount;
 use tracing::error;
@@ -331,6 +337,19 @@ fn localize_product_record(
         state: product_record.state.into(),
         url: product_record.url,
         images: product_record.images,
+        origin_year: match (
+            product_record.origin_year,
+            product_record.origin_year_min,
+            product_record.origin_year_max,
+        ) {
+            (None, None, None) => None,
+            (Some(exact_year), None, None) => Some(OriginYear::ExactYear(exact_year)),
+            (_, min, max) => Some(OriginYear::EstimatedRange(YearRange { min, max })),
+        },
+        authenticity: product_record.authenticity.map(Authenticity::from),
+        condition: product_record.condition.map(Condition::from),
+        provenance: product_record.provenance.map(Provenance::from),
+        restoration: product_record.restoration.map(Restoration::from),
         created: product_record.created,
         updated: product_record.updated,
         history: None,

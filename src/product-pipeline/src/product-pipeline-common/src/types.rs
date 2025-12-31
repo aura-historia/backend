@@ -3,10 +3,19 @@ use common::{
     product_id::ProductId,
     shop_id::ShopId,
     shops_product_id::ShopsProductId,
+    year::Year,
 };
 use product::{
-    dynamodb::product_update_record::ProductRecordUpdate,
-    opensearch::product_update_document::ProductUpdateDocument,
+    dynamodb::{
+        authenticity_record::AuthenticityRecord, condition_record::ConditionRecord,
+        product_update_record::ProductRecordUpdate, provenance_record::ProvenanceRecord,
+        restoration_record::RestorationRecord,
+    },
+    opensearch::{
+        authenticity_document::AuthenticityDocument, condition_document::ConditionDocument,
+        product_update_document::ProductUpdateDocument, provenance_document::ProvenanceDocument,
+        restoration_document::RestorationDocument,
+    },
 };
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
@@ -87,6 +96,26 @@ impl HasProductId for TextEmbeddedPipeProduct {
 
 #[cfg_attr(feature = "test-data", derive(fake::Dummy))]
 #[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct AttributeExtractedPipeProduct {
+    pub product_id: ProductId,
+    pub shop_id: ShopId,
+    pub shops_product_id: ShopsProductId,
+    pub native_title: TextRecord,
+    pub other_title: HashMap<LanguageRecord, String>,
+    pub native_description: Option<TextRecord>,
+    pub other_description: HashMap<LanguageRecord, String>,
+    pub text_embedding: Vec<f32>,
+    pub origin_year_min: Option<Year>,
+    pub origin_year: Option<Year>,
+    pub origin_year_max: Option<Year>,
+    pub authenticity: Option<AuthenticityRecord>,
+    pub condition: Option<ConditionRecord>,
+    pub provenance: Option<ProvenanceRecord>,
+    pub restoration: Option<RestorationRecord>,
+}
+
+#[cfg_attr(feature = "test-data", derive(fake::Dummy))]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct CompletedPipeProduct {
     pub product_id: ProductId,
     pub shop_id: ShopId,
@@ -96,6 +125,13 @@ pub struct CompletedPipeProduct {
     pub native_description: Option<TextRecord>,
     pub other_description: HashMap<LanguageRecord, String>,
     pub text_embedding: Vec<f32>,
+    pub origin_year_min: Option<Year>,
+    pub origin_year: Option<Year>,
+    pub origin_year_max: Option<Year>,
+    pub authenticity: Option<AuthenticityRecord>,
+    pub condition: Option<ConditionRecord>,
+    pub provenance: Option<ProvenanceRecord>,
+    pub restoration: Option<RestorationRecord>,
 }
 
 impl HasProductId for CompletedPipeProduct {
@@ -134,6 +170,13 @@ impl From<CompletedPipeProduct> for ProductRecordUpdate {
             description_en: descriptions.remove(&LanguageRecord::En),
             description_fr: descriptions.remove(&LanguageRecord::Fr),
             description_es: descriptions.remove(&LanguageRecord::Es),
+            origin_year_min: completed_pipe_product.origin_year_min,
+            origin_year: completed_pipe_product.origin_year,
+            origin_year_max: completed_pipe_product.origin_year_max,
+            authenticity: completed_pipe_product.authenticity,
+            condition: completed_pipe_product.condition,
+            provenance: completed_pipe_product.provenance,
+            restoration: completed_pipe_product.restoration,
             updated: OffsetDateTime::now_utc(),
         }
     }
@@ -169,6 +212,21 @@ impl From<CompletedPipeProduct> for ProductUpdateDocument {
             description_fr: descriptions.remove(&LanguageRecord::Fr),
             description_es: descriptions.remove(&LanguageRecord::Es),
             text_embedding: Some(completed_pipe_product.text_embedding),
+            origin_year_min: completed_pipe_product.origin_year_min,
+            origin_year: completed_pipe_product.origin_year,
+            origin_year_max: completed_pipe_product.origin_year_max,
+            authenticity: completed_pipe_product
+                .authenticity
+                .map(AuthenticityDocument::from),
+            condition: completed_pipe_product
+                .condition
+                .map(ConditionDocument::from),
+            provenance: completed_pipe_product
+                .provenance
+                .map(ProvenanceDocument::from),
+            restoration: completed_pipe_product
+                .restoration
+                .map(RestorationDocument::from),
             updated: OffsetDateTime::now_utc(),
         }
     }
