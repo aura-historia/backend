@@ -1,6 +1,11 @@
 use crate::dynamodb::product_event_record::ProductEventRecord;
+use crate::opensearch::authenticity_document::AuthenticityDocument;
+use crate::opensearch::condition_document::ConditionDocument;
 use crate::opensearch::product_state_document::ProductStateDocument;
+use crate::opensearch::provenance_document::ProvenanceDocument;
+use crate::opensearch::restoration_document::RestorationDocument;
 use common::event_id::EventId;
+use common::year::Year;
 use serde::Serialize;
 use serde_fields::SerdeField;
 use time::OffsetDateTime;
@@ -48,6 +53,21 @@ pub struct ProductUpdateDocument {
     #[serde(skip_serializing_if = "Option::is_none", default)]
     pub text_embedding: Option<Vec<f32>>,
 
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub origin_year_min: Option<Year>,
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub origin_year: Option<Year>,
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub origin_year_max: Option<Year>,
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub authenticity: Option<AuthenticityDocument>,
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub condition: Option<ConditionDocument>,
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub provenance: Option<ProvenanceDocument>,
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub restoration: Option<RestorationDocument>,
+
     #[serde(with = "time::serde::rfc3339")]
     pub updated: OffsetDateTime,
 }
@@ -72,6 +92,13 @@ impl Default for ProductUpdateDocument {
             description_fr: None,
             description_es: None,
             text_embedding: None,
+            origin_year_min: None,
+            origin_year: None,
+            origin_year_max: None,
+            authenticity: None,
+            condition: None,
+            provenance: None,
+            restoration: None,
             updated: OffsetDateTime::now_utc(),
         }
     }
@@ -98,6 +125,13 @@ impl From<ProductEventRecord> for ProductUpdateDocument {
             description_es: event_record.description_es,
             state,
             text_embedding: None,
+            origin_year_min: None,
+            origin_year: None,
+            origin_year_max: None,
+            authenticity: None,
+            condition: None,
+            provenance: None,
+            restoration: None,
             updated: event_record.timestamp,
         }
     }
@@ -131,6 +165,13 @@ mod faker {
                 description_es: Some(config.fake_with_rng::<Description, _>(rng).into()),
                 state,
                 text_embedding: None,
+                origin_year_min: config.fake_with_rng(rng),
+                origin_year: config.fake_with_rng(rng),
+                origin_year_max: config.fake_with_rng(rng),
+                authenticity: config.fake_with_rng(rng),
+                condition: config.fake_with_rng(rng),
+                provenance: config.fake_with_rng(rng),
+                restoration: config.fake_with_rng(rng),
                 updated: OffsetDateTime::now_utc(),
             }
         }

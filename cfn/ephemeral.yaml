@@ -2847,7 +2847,7 @@ Resources:
                   - sqs:ChangeMessageVisibility
                 Resource:
                   - !GetAtt ProductPipelineEmbedTextQ.Arn
-                  - !GetAtt ProductPipelineCompleteQ.Arn
+                  - !GetAtt ProductPipelineExtractAttributeQ.Arn
         - PolicyName: CloudWatchLogsCreate
           PolicyDocument:
             Version: "2012-10-17"
@@ -2898,7 +2898,7 @@ Resources:
             export CommitSHA="${CommitSHA}"
             export ARTIFACT_BUCKET="${ArtifactBucket}"
             export SOURCE_QUEUE_URL="${ProductPipelineEmbedTextQ}"
-            export TARGET_QUEUE_URL="${ProductPipelineCompleteQ}"
+            export TARGET_QUEUE_URL="${ProductPipelineExtractAttributeQ}"
             # Download and install binary
             sudo aws s3 cp "s3://${ArtifactBucket}/${StageName}/${CommitSHA}/product-pipeline-embed-text" /opt/product-pipeline-embed-text/product-pipeline-embed-text --region eu-central-1
             sudo chmod +x /opt/product-pipeline-embed-text/product-pipeline-embed-text
@@ -2940,6 +2940,159 @@ Resources:
       Tags:
         - Key: Name
           Value: !Sub "product-pipeline-embed-text-${StageName}"
+          PropagateAtLaunch: true
+      HealthCheckType: EC2
+      HealthCheckGracePeriod: 120
+
+  ProductPipelineExtractAttributeDlq:
+    Type: AWS::SQS::Queue
+    Properties:
+      QueueName: !Sub "product-pipeline-extract-attribute-dlq-${StageName}"
+      MessageRetentionPeriod: 1209600
+  ProductPipelineExtractAttributeQ:
+    Type: AWS::SQS::Queue
+    Properties:
+      QueueName: !Sub "product-pipeline-extract-attribute-queue-${StageName}"
+      RedrivePolicy:
+        deadLetterTargetArn: !GetAtt ProductPipelineExtractAttributeDlq.Arn
+        maxReceiveCount: 3
+      VisibilityTimeout: 300
+  ProductPipelineExtractAttributeRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Sub "product-pipeline-extract-attribute-role-${StageName}"
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: ec2.amazonaws.com
+            Action: sts:AssumeRole
+          - Effect: Allow
+            Principal:
+              Service: spot.amazonaws.com
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/CloudWatchAgentServerPolicy
+        - arn:aws:iam::aws:policy/AmazonS3ReadOnlyAccess
+        - arn:aws:iam::aws:policy/AmazonSSMManagedInstanceCore
+      Policies:
+        - PolicyName: AllowTerminateInASG
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: Allow
+                Action: autoscaling:TerminateInstanceInAutoScalingGroup
+                Resource: "*"
+        - PolicyName: SQSPollerAccess
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: Allow
+                Action:
+                  - sqs:SendMessage
+                  - sqs:SendMessageBatch
+                  - sqs:ReceiveMessage
+                  - sqs:DeleteMessage
+                  - sqs:DeleteMessageBatch
+                  - sqs:GetQueueAttributes
+                  - sqs:GetQueueUrl
+                  - sqs:ChangeMessageVisibility
+                Resource:
+                  - !GetAtt ProductPipelineExtractAttributeQ.Arn
+                  - !GetAtt ProductPipelineCompleteQ.Arn
+        - PolicyName: CloudWatchLogsCreate
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: Allow
+                Action:
+                  - logs:CreateLogGroup
+                  - logs:CreateLogStream
+                  - logs:PutLogEvents
+                Resource: "*"
+  ProductPipelineExtractAttributeInstanceProfile:
+    Type: AWS::IAM::InstanceProfile
+    Properties:
+      InstanceProfileName: !Sub "product-pipeline-extract-attribute-profile-${StageName}"
+      Roles:
+        - !Ref ProductPipelineExtractAttributeRole
+  ProductPipelineExtractAttributeLaunchTemplate:
+    Type: AWS::EC2::LaunchTemplate
+    Properties:
+      LaunchTemplateName: !Sub "product-pipeline-extract-attribute-template-${StageName}"
+      LaunchTemplateData:
+        KeyName: !Ref Ec2KeyPairName
+        IamInstanceProfile:
+          Name: !Ref ProductPipelineExtractAttributeInstanceProfile
+        InstanceType: g6.xlarge # Placeholder - ASG overrides this
+        ImageId: "{{resolve:ssm:/amis/ephemeral/product-pipeline-extract-attribute/latest}}"
+        SecurityGroupIds: [!Ref ProductPipelineSecurityGroup]
+        BlockDeviceMappings:
+          - DeviceName: /dev/sda1
+            Ebs:
+              VolumeSize: 80
+              VolumeType: gp3
+              DeleteOnTermination: true
+        TagSpecifications:
+          - ResourceType: instance
+            Tags:
+              - Key: Name
+                Value: !Sub "product-pipeline-extract-attribute-${StageName}"
+              - Key: Fleet
+                Value: product-pipeline-extract-attribute
+        UserData:
+          Fn::Base64: !Sub |
+            #!/bin/bash
+            set -euxo pipefail
+            sudo -i
+            export STAGE="ephemeral"
+            export STAGE_NAME=${StageName}
+            export CommitSHA="${CommitSHA}"
+            export ARTIFACT_BUCKET="${ArtifactBucket}"
+            export SOURCE_QUEUE_URL="${ProductPipelineExtractAttributeQ}"
+            export TARGET_QUEUE_URL="${ProductPipelineCompleteQ}"
+            # Download and install binary
+            sudo aws s3 cp "s3://${ArtifactBucket}/${StageName}/${CommitSHA}/product-pipeline-extract-attribute" /opt/product-pipeline-extract-attribute/product-pipeline-extract-attribute --region eu-central-1
+            sudo chmod +x /opt/product-pipeline-extract-attribute/product-pipeline-extract-attribute
+            # Prepare (preconfigured via custom ami) python venv
+            cd /opt/product-pipeline-extract-attribute
+            source .venv/bin/activate
+            # Run binary
+            LOG_PATH="/var/log/product-pipeline-extract-attribute.log"
+            echo "[$(date)] Running product-pipeline-extract-attribute..." | tee -a "$LOG_PATH"
+            ./product-pipeline-extract-attribute >> "$LOG_PATH" 2>&1
+            EXIT_CODE=$?
+            echo "[$(date)] Job finished with code $EXIT_CODE" | tee -a "$LOG_PATH"
+            sleep 5
+            aws autoscaling terminate-instance-in-auto-scaling-group \
+              --instance-id $(ec2metadata --instance-id) \
+              --should-decrement-desired-capacity
+            exit $EXIT_CODE
+  ProductPipelineExtractAttributeASG:
+    Type: AWS::AutoScaling::AutoScalingGroup
+    Properties:
+      VPCZoneIdentifier:
+        - !Ref ProductPipelineSubnetA
+      MinSize: 0
+      MaxSize: 1
+      DesiredCapacity: 0
+      MixedInstancesPolicy:
+        LaunchTemplate:
+          LaunchTemplateSpecification:
+            LaunchTemplateId: !Ref ProductPipelineExtractAttributeLaunchTemplate
+            Version: !GetAtt ProductPipelineExtractAttributeLaunchTemplate.LatestVersionNumber
+          Overrides:
+            - InstanceType: g6.xlarge
+            - InstanceType: g6.2xlarge
+            - InstanceType: g5.xlarge
+            - InstanceType: g5.2xlarge
+        InstancesDistribution:
+          OnDemandPercentageAboveBaseCapacity: 0
+          SpotAllocationStrategy: price-capacity-optimized
+      Tags:
+        - Key: Name
+          Value: !Sub "product-pipeline-extract-attribute-${StageName}"
           PropagateAtLaunch: true
       HealthCheckType: EC2
       HealthCheckGracePeriod: 120

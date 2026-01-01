@@ -7,7 +7,7 @@ use product::{
 use product_pipeline_common::{
     flow_in::PipeFlowInImpl,
     pipe::{Pipe, PipeImpl},
-    types::{CompletedPipeProduct, TextEmbeddedPipeProduct},
+    types::{AttributeExtractedPipeProduct, CompletedPipeProduct},
 };
 use product_pipeline_complete::{
     flow_out::PersistDynamoDbOpenSearchPipeFlowOutImpl, process::CompleterPipeProcessorImpl,
@@ -70,8 +70,8 @@ async fn main() {
     );
     let complete_pipe: PipeImpl<
         '_,
-        TextEmbeddedPipeProduct,
-        TextEmbeddedPipeProduct,
+        AttributeExtractedPipeProduct,
+        AttributeExtractedPipeProduct,
         CompletedPipeProduct,
         CompletedPipeProduct,
     > = PipeImpl::new(

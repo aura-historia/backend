@@ -206,6 +206,7 @@ jobs:
         crate:
           - src/product-pipeline/src/product-pipeline-translate
           - src/product-pipeline/src/product-pipeline-embed-text
+          - src/product-pipeline/src/product-pipeline-extract-attribute
           - src/product-pipeline/src/product-pipeline-test
     steps:
       - uses: actions/checkout@v6
@@ -228,7 +229,7 @@ jobs:
 
       - name: Test ${{ matrix.crate }}
         working-directory: ${{ matrix.crate }}
-        run: cargo test --lib --test '*' --all-features -- --nocapture --include-ignored
+        run: cargo test --all-features -- --nocapture --include-ignored
 
       - name: Prune Docker volumes
         run: docker volume prune -f
@@ -398,6 +399,7 @@ jobs:
           - src/product-pipeline/src/product-pipeline-init
           - src/product-pipeline/src/product-pipeline-translate
           - src/product-pipeline/src/product-pipeline-embed-text
+          - src/product-pipeline/src/product-pipeline-extract-attribute
           - src/product-pipeline/src/product-pipeline-complete
     steps:
       - uses: actions/checkout@v6

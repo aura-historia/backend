@@ -1,4 +1,9 @@
+use crate::core::authenticity::Authenticity;
+use crate::core::condition::Condition;
+use crate::core::origin_year::OriginYear;
 use crate::core::product_search::ProductSearch;
+use crate::core::provenance::Provenance;
+use crate::core::restoration::Restoration;
 use crate::core::sort_product_field::SortProductField;
 use crate::core::{description::Description, product::LocalizedProductView, title::Title};
 use crate::opensearch::product_document::ProductDocument;
@@ -8,6 +13,7 @@ use common::language::domain::Language;
 use common::pagination::cursor::{Cursor, CursoredResult};
 use common::price::domain::Price;
 use common::sort::{Sort, SortOrder};
+use common::year::YearRange;
 use common::{currency::domain::Currency, localized::Localized};
 use std::collections::HashMap;
 use strum::EnumCount;
@@ -191,6 +197,19 @@ pub fn localize_product_document(
         state,
         url: product_document.url,
         images: product_document.images,
+        origin_year: match (
+            product_document.origin_year,
+            product_document.origin_year_min,
+            product_document.origin_year_max,
+        ) {
+            (None, None, None) => None,
+            (Some(exact_year), None, None) => Some(OriginYear::ExactYear(exact_year)),
+            (_, min, max) => Some(OriginYear::EstimatedRange(YearRange { min, max })),
+        },
+        authenticity: product_document.authenticity.map(Authenticity::from),
+        condition: product_document.condition.map(Condition::from),
+        provenance: product_document.provenance.map(Provenance::from),
+        restoration: product_document.restoration.map(Restoration::from),
         created: product_document.created,
         updated: product_document.updated,
         history: None,

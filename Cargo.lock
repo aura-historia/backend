@@ -3492,6 +3492,7 @@ dependencies = [
  "product-pipeline-common",
  "product-pipeline-complete",
  "product-pipeline-embed-text",
+ "product-pipeline-extract-attribute",
  "product-pipeline-init",
  "product-pipeline-test",
  "product-pipeline-translate",
@@ -3597,6 +3598,28 @@ dependencies = [
 ]
 
 [[package]]
+name = "product-pipeline-extract-attribute"
+version = "0.1.0"
+dependencies = [
+ "async-trait",
+ "aws-config",
+ "aws-sdk-sqs",
+ "common",
+ "fake",
+ "mockall",
+ "product",
+ "product-pipeline-common",
+ "pyo3",
+ "pyo3-ffi",
+ "rstest",
+ "serde",
+ "serde_json",
+ "tokio",
+ "tracing",
+ "tracing-subscriber",
+]
+
+[[package]]
 name = "product-pipeline-init"
 version = "0.1.0"
 dependencies = [
@@ -3632,6 +3655,7 @@ dependencies = [
  "product-pipeline-common",
  "product-pipeline-complete",
  "product-pipeline-embed-text",
+ "product-pipeline-extract-attribute",
  "product-pipeline-init",
  "product-pipeline-translate",
  "pyo3",

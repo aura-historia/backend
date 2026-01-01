@@ -1,8 +1,13 @@
+use crate::dynamodb::authenticity_record::AuthenticityRecord;
+use crate::dynamodb::condition_record::ConditionRecord;
 use crate::dynamodb::product_event_record::ProductEventRecord;
 use crate::dynamodb::product_state_record::ProductStateRecord;
+use crate::dynamodb::provenance_record::ProvenanceRecord;
+use crate::dynamodb::restoration_record::RestorationRecord;
 use common::dynamodb_update::DynamoDbUpdate;
 use common::event_id::EventId;
 use common::price::record::PriceRecord;
+use common::year::Year;
 use serde::Serialize;
 use serde_fields::SerdeField;
 use time::OffsetDateTime;
@@ -48,6 +53,21 @@ pub struct ProductRecordUpdate {
     #[serde(skip_serializing_if = "Option::is_none", default)]
     pub description_es: Option<String>,
 
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub origin_year_min: Option<Year>,
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub origin_year: Option<Year>,
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub origin_year_max: Option<Year>,
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub authenticity: Option<AuthenticityRecord>,
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub condition: Option<ConditionRecord>,
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub provenance: Option<ProvenanceRecord>,
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub restoration: Option<RestorationRecord>,
+
     #[serde(with = "time::serde::rfc3339")]
     pub updated: OffsetDateTime,
 }
@@ -74,6 +94,13 @@ impl Default for ProductRecordUpdate {
             description_en: None,
             description_fr: None,
             description_es: None,
+            origin_year_min: None,
+            origin_year: None,
+            origin_year_max: None,
+            authenticity: None,
+            condition: None,
+            provenance: None,
+            restoration: None,
             updated: OffsetDateTime::now_utc(),
         }
     }
@@ -99,6 +126,13 @@ impl From<ProductEventRecord> for ProductRecordUpdate {
             description_en: event.description_en,
             description_fr: event.description_fr,
             description_es: event.description_es,
+            origin_year_min: None,
+            origin_year: None,
+            origin_year_max: None,
+            authenticity: None,
+            condition: None,
+            provenance: None,
+            restoration: None,
             updated: event.timestamp,
         }
     }
@@ -136,6 +170,13 @@ mod faker {
                 description_en: Some(config.fake_with_rng::<Description, _>(rng).into()),
                 description_fr: Some(config.fake_with_rng::<Description, _>(rng).into()),
                 description_es: Some(config.fake_with_rng::<Description, _>(rng).into()),
+                origin_year_min: config.fake_with_rng(rng),
+                origin_year: config.fake_with_rng(rng),
+                origin_year_max: config.fake_with_rng(rng),
+                authenticity: config.fake_with_rng(rng),
+                condition: config.fake_with_rng(rng),
+                provenance: config.fake_with_rng(rng),
+                restoration: config.fake_with_rng(rng),
                 updated: OffsetDateTime::now_utc(),
             }
         }

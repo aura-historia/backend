@@ -1,6 +1,15 @@
+use crate::core::authenticity::Authenticity;
+use crate::core::condition::Condition;
+use crate::core::origin_year::OriginYear;
 use crate::core::product::Product;
+use crate::core::provenance::Provenance;
+use crate::core::restoration::Restoration;
+use crate::dynamodb::authenticity_record::AuthenticityRecord;
+use crate::dynamodb::condition_record::ConditionRecord;
 use crate::dynamodb::product_event_record::ProductEventRecord;
 use crate::dynamodb::product_state_record::ProductStateRecord;
+use crate::dynamodb::provenance_record::ProvenanceRecord;
+use crate::dynamodb::restoration_record::RestorationRecord;
 use common::currency::domain::Currency;
 use common::error::mapping_error::PersistenceMappingError;
 use common::error::missing_field::MissingPersistenceField;
@@ -14,6 +23,7 @@ use common::price::record::PriceRecord;
 use common::product_id::{ProductId, ProductKey};
 use common::shop_id::ShopId;
 use common::shops_product_id::ShopsProductId;
+use common::year::{Year, YearRange};
 use field::field;
 use serde::{Deserialize, Serialize};
 use serde_fields::SerdeField;
@@ -69,13 +79,26 @@ pub struct ProductRecord {
 
     pub state: ProductStateRecord,
     pub url: Url,
-
     #[serde(skip_serializing_if = "Vec::is_empty", default)]
     pub images: Vec<Url>,
 
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub origin_year_min: Option<Year>,
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub origin_year: Option<Year>,
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub origin_year_max: Option<Year>,
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub authenticity: Option<AuthenticityRecord>,
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub condition: Option<ConditionRecord>,
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub provenance: Option<ProvenanceRecord>,
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub restoration: Option<RestorationRecord>,
+
     #[serde(with = "time::serde::rfc3339")]
     pub created: OffsetDateTime,
-
     #[serde(with = "time::serde::rfc3339")]
     pub updated: OffsetDateTime,
 }
@@ -157,6 +180,17 @@ impl From<ProductRecord> for Product {
             state: record.state.into(),
             url: record.url,
             images: record.images,
+            origin_year: match record.origin_year {
+                Some(exact_year) => Some(OriginYear::ExactYear(exact_year)),
+                None => match (record.origin_year_min, record.origin_year_max) {
+                    (None, None) => None,
+                    (min, max) => Some(OriginYear::EstimatedRange(YearRange { min, max })),
+                },
+            },
+            authenticity: record.authenticity.map(Authenticity::from),
+            condition: record.condition.map(Condition::from),
+            provenance: record.provenance.map(Provenance::from),
+            restoration: record.restoration.map(Restoration::from),
             created: record.created,
             updated: record.updated,
         }
@@ -203,6 +237,13 @@ impl TryFrom<ProductEventRecord> for ProductRecord {
                 .url
                 .ok_or_else(|| MissingPersistenceField::new(field!(url@ProductEventRecord)))?,
             images: event_record.images.unwrap_or_default(),
+            origin_year_min: None,
+            origin_year: None,
+            origin_year_max: None,
+            authenticity: None,
+            condition: None,
+            provenance: None,
+            restoration: None,
             created: event_record.timestamp,
             updated: event_record.timestamp,
         };
@@ -283,6 +324,13 @@ mod faker {
                     ))
                     .unwrap(),
                 ],
+                origin_year_min: config.fake_with_rng(rng),
+                origin_year: config.fake_with_rng(rng),
+                origin_year_max: config.fake_with_rng(rng),
+                authenticity: config.fake_with_rng(rng),
+                condition: config.fake_with_rng(rng),
+                provenance: config.fake_with_rng(rng),
+                restoration: config.fake_with_rng(rng),
                 created: now,
                 updated: now,
             }

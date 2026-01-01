@@ -35,3 +35,4 @@ pub mod shop_name;
 pub mod shops_product_id;
 pub mod sort;
 pub mod user_id;
+pub mod year;

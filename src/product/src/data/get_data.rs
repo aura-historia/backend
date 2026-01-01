@@ -1,6 +1,10 @@
 use crate::core::product::LocalizedProductView;
+use crate::data::authenticity_data::AuthenticityData;
+use crate::data::condition_data::ConditionData;
 use crate::data::get_product_event_data::GetProductEventData;
 use crate::data::product_state_data::ProductStateData;
+use crate::data::provenance_data::ProvenanceData;
+use crate::data::restoration_data::RestorationData;
 use common::event_id::EventId;
 use common::has_key::HasKey;
 use common::language::data::LocalizedTextData;
@@ -8,6 +12,7 @@ use common::price::data::PriceData;
 use common::product_id::{ProductId, ProductKey};
 use common::shop_id::ShopId;
 use common::shops_product_id::ShopsProductId;
+use common::year::Year;
 use serde::{Deserialize, Serialize};
 use time::OffsetDateTime;
 use url::Url;
@@ -39,6 +44,21 @@ pub struct GetProductData {
 
     #[serde(default)]
     pub images: Vec<Url>,
+
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub origin_year_min: Option<Year>,
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub origin_year: Option<Year>,
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub origin_year_max: Option<Year>,
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub authenticity: Option<AuthenticityData>,
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub condition: Option<ConditionData>,
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub provenance: Option<ProvenanceData>,
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub restoration: Option<RestorationData>,
 
     #[serde(with = "time::serde::rfc3339")]
     pub created: OffsetDateTime,
@@ -75,6 +95,13 @@ impl From<LocalizedProductView> for GetProductData {
             state: product_view.state.into(),
             url: product_view.url,
             images: product_view.images,
+            origin_year_min: product_view.origin_year.and_then(|oy| oy.min()),
+            origin_year: product_view.origin_year.and_then(|oy| oy.exact()),
+            origin_year_max: product_view.origin_year.and_then(|oy| oy.max()),
+            authenticity: product_view.authenticity.map(AuthenticityData::from),
+            condition: product_view.condition.map(ConditionData::from),
+            provenance: product_view.provenance.map(ProvenanceData::from),
+            restoration: product_view.restoration.map(RestorationData::from),
             created: product_view.created,
             updated: product_view.updated,
             history: product_view
@@ -109,13 +136,17 @@ mod faker {
 
 #[cfg(test)]
 mod tests {
-    use crate::{
-        data::get_data::GetProductData,
-        data::get_product_event_data::{
+    use crate::data::{
+        authenticity_data::AuthenticityData,
+        condition_data::ConditionData,
+        get_data::GetProductData,
+        get_product_event_data::{
             GetProductEventData, ProductEventPayloadData, ProductEventPriceChangedPayloadData,
             ProductEventStateChangedPayloadData, ProductEventTypeData,
         },
-        data::product_state_data::ProductStateData,
+        product_state_data::ProductStateData,
+        provenance_data::ProvenanceData,
+        restoration_data::RestorationData,
     };
     use common::{
         currency::data::CurrencyData,
@@ -151,6 +182,13 @@ mod tests {
                 Url::parse("https://my-shop.de/item/images/1").unwrap(),
                 Url::parse("https://my-shop.de/item/images/2").unwrap(),
             ],
+            origin_year_min: Some(1900.into()),
+            origin_year: Some(1900.into()),
+            origin_year_max: Some(1903.into()),
+            authenticity: Some(AuthenticityData::Original),
+            condition: Some(ConditionData::Excellent),
+            provenance: Some(ProvenanceData::Partial),
+            restoration: Some(RestorationData::None),
             created: utc_datetime!(2025 - 05 - 05 0:00).into(),
             updated: utc_datetime!(2025 - 05 - 05 0:00).into(),
             history: Some(vec![
@@ -206,6 +244,13 @@ mod tests {
             "state": "RESERVED",
             "url": "https://my-shop.de/item",
             "images": ["https://my-shop.de/item/images/1", "https://my-shop.de/item/images/2"],
+            "originYearMin": 1900,
+            "originYear": 1900,
+            "originYearMax": 1903,
+            "authenticity": "ORIGINAL",
+            "condition": "EXCELLENT",
+            "provenance": "PARTIAL",
+            "restoration": "NONE",
             "created": "2025-05-05T00:00:00Z",
             "updated": "2025-05-05T00:00:00Z",
             "history": [

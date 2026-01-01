@@ -2,6 +2,7 @@ use aws_lambda_events::{
     dynamodb::{EventRecord, StreamRecord},
     eventbridge::EventBridgeEvent,
 };
+use common::year::Year;
 use fake::{Fake, Faker};
 use product::{
     core::product_event::ProductCreatedEventPayload,
@@ -19,8 +20,8 @@ use product_pipeline_common::{
     flow_out::PipeFlowOutImpl,
     pipe::{Pipe, PipeImpl},
     types::{
-        CleansedPipeProduct, CompletedPipeProduct, InitialPipeProduct, TextEmbeddedPipeProduct,
-        TranslatedPipeProduct,
+        AttributeExtractedPipeProduct, CleansedPipeProduct, CompletedPipeProduct,
+        InitialPipeProduct, TextEmbeddedPipeProduct, TranslatedPipeProduct,
     },
 };
 use product_pipeline_complete::{
@@ -28,6 +29,9 @@ use product_pipeline_complete::{
 };
 use product_pipeline_embed_text::{
     adapter::EmbeddingAdapterImpl, process::TextEmbeddingPipeProcesserImpl,
+};
+use product_pipeline_extract_attribute::{
+    adapter::MockExtractionAdapter, process::AttributeExtractionPipeProcesserImpl,
 };
 use product_pipeline_init::{
     flow_in::EventBridgeSqsDynamoDbStreamProductEventRecordPipeFlowInImpl,
@@ -42,13 +46,16 @@ use uuid::Uuid;
 
 const INIT_Q: Sqs = Sqs { name: "init-queue" };
 const TRANSLATE_Q: Sqs = Sqs {
-    name: "cleansed-queue",
+    name: "translate-queue",
 };
 const EMBED_TEXT_Q: Sqs = Sqs {
-    name: "translated-queue",
+    name: "embed-text-queue",
+};
+const EXTRACT_ATTRIBUTE_Q: Sqs = Sqs {
+    name: "extract-attribute-queue",
 };
 const COMPLETE_Q: Sqs = Sqs {
-    name: "text-embedded-queue",
+    name: "complete-queue",
 };
 use common::{event::Event, event_id::EventId, product_id::ProductId};
 use product::core::product_event::ProductEventPayload;
@@ -82,7 +89,7 @@ fn mk_event_bridge_payload(product_event_record: &ProductEventRecord) -> String 
 #[case(16)]
 #[case(21)]
 #[trace]
-#[localstack_test(services = [INIT_Q, TRANSLATE_Q, EMBED_TEXT_Q, COMPLETE_Q, DynamoDB(), OpenSearch()])]
+#[localstack_test(services = [INIT_Q, TRANSLATE_Q, EMBED_TEXT_Q, EXTRACT_ATTRIBUTE_Q, COMPLETE_Q, DynamoDB(), OpenSearch()])]
 async fn should_flow_through_entire_pipeline(#[case] count: usize) {
     let sqs = get_sqs_client().await;
     let dynamodb = get_dynamodb_client().await;
@@ -177,7 +184,7 @@ async fn should_flow_through_entire_pipeline(#[case] count: usize) {
     let embed_text_flow_in = PipeFlowInImpl::new(sqs, EMBED_TEXT_Q.queue_url());
     let embed_text_processor =
         TextEmbeddingPipeProcesserImpl::new(Arc::new(EmbeddingAdapterImpl::new().unwrap()));
-    let embed_text_flow_out = PipeFlowOutImpl::new(sqs, COMPLETE_Q.queue_url());
+    let embed_text_flow_out = PipeFlowOutImpl::new(sqs, EXTRACT_ATTRIBUTE_Q.queue_url());
     let embed_text_pipe: PipeImpl<
         '_,
         TranslatedPipeProduct,
@@ -195,6 +202,38 @@ async fn should_flow_through_entire_pipeline(#[case] count: usize) {
     );
     embed_text_pipe.pipe().await;
 
+    // Extract-Attribute-Pipe
+    let extract_attribute_flow_in = PipeFlowInImpl::new(sqs, EXTRACT_ATTRIBUTE_Q.queue_url());
+    let mut extract_attribute_adapter_mock = MockExtractionAdapter::default();
+    extract_attribute_adapter_mock
+        .expect_extract()
+        .returning(|_, batch| {
+            Ok((0..batch.len())
+                .map(|_| r#"{"originYear":1837}"#.to_owned())
+                .collect::<Vec<_>>()
+                .try_into()
+                .unwrap())
+        });
+    let extract_attribute_processor =
+        AttributeExtractionPipeProcesserImpl::new(Arc::new(extract_attribute_adapter_mock));
+    let extract_attribute_flow_out = PipeFlowOutImpl::new(sqs, COMPLETE_Q.queue_url());
+    let extract_attribute_pipe: PipeImpl<
+        '_,
+        TextEmbeddedPipeProduct,
+        TextEmbeddedPipeProduct,
+        AttributeExtractedPipeProduct,
+        AttributeExtractedPipeProduct,
+    > = PipeImpl::new(
+        sqs,
+        EXTRACT_ATTRIBUTE_Q.queue_url(),
+        16,
+        300,
+        &extract_attribute_flow_in,
+        &extract_attribute_processor,
+        &extract_attribute_flow_out,
+    );
+    extract_attribute_pipe.pipe().await;
+
     // Complete-Pipe
     let complete_flow_in = PipeFlowInImpl::new(sqs, COMPLETE_Q.queue_url());
     let complete_processor = CompleterPipeProcessorImpl();
@@ -204,8 +243,8 @@ async fn should_flow_through_entire_pipeline(#[case] count: usize) {
     );
     let complete_pipe: PipeImpl<
         '_,
-        TextEmbeddedPipeProduct,
-        TextEmbeddedPipeProduct,
+        AttributeExtractedPipeProduct,
+        AttributeExtractedPipeProduct,
         CompletedPipeProduct,
         CompletedPipeProduct,
     > = PipeImpl::new(
@@ -235,5 +274,9 @@ async fn should_flow_through_entire_pipeline(#[case] count: usize) {
             assert!(materialized_record_dynamodb.description_fr.is_some());
             assert!(materialized_record_dynamodb.description_es.is_some());
         }
+        assert_eq!(
+            Year::from(1837),
+            materialized_record_dynamodb.origin_year.unwrap()
+        );
     }
 }
