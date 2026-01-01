@@ -78,7 +78,7 @@ impl PipeProcessor<TextEmbeddedPipeProduct, AttributeExtractedPipeProduct>
                     "authenticity": enum-string | null (The authenticity of the antique. Either of: ORIGINAL, LATER_COPY (antique copy), REPRODUCTION (modern copy), QUESTIONABLE, UNKNOWN),\n
                     "condition": enum-string | null (The condition of the antique. Either of: EXCELLENT, GREAT, GOOD, FAIR, POOR, UNKNOWN),\n
                     "provenance": enum-string | null (The documentation (trail) of the antique. Either of: COMPLETE, PARTIAL, CLAIMED (assumed, but no proof), NONE, UNKNOWN),\n
-                    "restoration": enum-string | null (Restoration done ti the antique. Either of: MAJOR, MINOR, NONE, UNKNOWN)\n
+                    "restoration": enum-string | null (Restoration done to the antique. Either of: MAJOR, MINOR, NONE, UNKNOWN)\n
                 }
             "#;
 
