@@ -2580,6 +2580,90 @@ Resources:
             # Configure CloudWatchAgent
             cat << EOF | sudo tee /opt/aws/amazon-cloudwatch-agent.json > /dev/null
             {
+              "metrics": {
+                "namespace": "CWAgent",
+                "metrics_collected": {
+                  "cpu": {
+                    "measurement": [
+                      {
+                        "name": "cpu_usage_idle",
+                        "rename": "CPU_IDLE",
+                        "unit": "Percent"
+                      },
+                      {
+                        "name": "cpu_usage_iowait",
+                        "rename": "CPU_IOWAIT",
+                        "unit": "Percent"
+                      },
+                      "cpu_time_guest"
+                    ],
+                    "metrics_collection_interval": 60,
+                    "resources": {
+                      "*": "*"
+                    },
+                    "totalcpu": false
+                  },
+                  "disk": {
+                    "measurement": [
+                      {
+                        "name": "used_percent",
+                        "rename": "DISK_USED_PERCENT",
+                        "unit": "Percent"
+                      },
+                      "used",
+                      "free"
+                    ],
+                    "metrics_collection_interval": 60,
+                    "resources": {
+                      "*": "*"
+                    }
+                  },
+                  "diskio": {
+                    "measurement": [
+                      "io_time",
+                      "read_bytes",
+                      "write_bytes",
+                      "reads",
+                      "writes"
+                    ],
+                    "metrics_collection_interval": 60,
+                    "resources": {
+                      "*": "*"
+                    }
+                  },
+                  "mem": {
+                    "measurement": [
+                      {
+                        "name": "mem_used_percent",
+                        "rename": "MEM_USED_PERCENT",
+                        "unit": "Percent"
+                      },
+                      "mem_used",
+                      "mem_available"
+                    ],
+                    "metrics_collection_interval": 60
+                  },
+                  "netstat": {
+                    "measurement": [
+                      "tcp_established",
+                      "tcp_time_wait"
+                    ],
+                    "metrics_collection_interval": 60
+                  },
+                  "net": {
+                    "measurement": [
+                      "bytes_sent",
+                      "bytes_recv",
+                      "packets_sent",
+                      "packets_recv"
+                    ],
+                    "metrics_collection_interval": 60,
+                    "resources": {
+                      "*": "*"
+                    }
+                  }
+                }
+              },
               "logs": {
                 "logs_collected": {
                   "files": {
@@ -3244,6 +3328,90 @@ Resources:
             # Configure CloudWatchAgent
             cat << EOF | sudo tee /opt/aws/amazon-cloudwatch-agent.json > /dev/null
             {
+              "metrics": {
+                "namespace": "CWAgent",
+                "metrics_collected": {
+                  "cpu": {
+                    "measurement": [
+                      {
+                        "name": "cpu_usage_idle",
+                        "rename": "CPU_IDLE",
+                        "unit": "Percent"
+                      },
+                      {
+                        "name": "cpu_usage_iowait",
+                        "rename": "CPU_IOWAIT",
+                        "unit": "Percent"
+                      },
+                      "cpu_time_guest"
+                    ],
+                    "metrics_collection_interval": 60,
+                    "resources": {
+                      "*": "*"
+                    },
+                    "totalcpu": false
+                  },
+                  "disk": {
+                    "measurement": [
+                      {
+                        "name": "used_percent",
+                        "rename": "DISK_USED_PERCENT",
+                        "unit": "Percent"
+                      },
+                      "used",
+                      "free"
+                    ],
+                    "metrics_collection_interval": 60,
+                    "resources": {
+                      "*": "*"
+                    }
+                  },
+                  "diskio": {
+                    "measurement": [
+                      "io_time",
+                      "read_bytes",
+                      "write_bytes",
+                      "reads",
+                      "writes"
+                    ],
+                    "metrics_collection_interval": 60,
+                    "resources": {
+                      "*": "*"
+                    }
+                  },
+                  "mem": {
+                    "measurement": [
+                      {
+                        "name": "mem_used_percent",
+                        "rename": "MEM_USED_PERCENT",
+                        "unit": "Percent"
+                      },
+                      "mem_used",
+                      "mem_available"
+                    ],
+                    "metrics_collection_interval": 60
+                  },
+                  "netstat": {
+                    "measurement": [
+                      "tcp_established",
+                      "tcp_time_wait"
+                    ],
+                    "metrics_collection_interval": 60
+                  },
+                  "net": {
+                    "measurement": [
+                      "bytes_sent",
+                      "bytes_recv",
+                      "packets_sent",
+                      "packets_recv"
+                    ],
+                    "metrics_collection_interval": 60,
+                    "resources": {
+                      "*": "*"
+                    }
+                  }
+                }
+              },
               "logs": {
                 "logs_collected": {
                   "files": {
