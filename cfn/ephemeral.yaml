@@ -3016,7 +3016,7 @@ Resources:
     Properties:
       InstanceProfileName: !Sub "product-pipeline-extract-attribute-profile-${StageName}"
       Roles:
-        - !Ref ProductPipelineTranslateRole
+        - !Ref ProductPipelineExtractAttributeRole
   ProductPipelineExtractAttributeLaunchTemplate:
     Type: AWS::EC2::LaunchTemplate
     Properties:
