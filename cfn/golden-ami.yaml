@@ -102,7 +102,7 @@ Resources:
       Name: !Sub "${Stage}-image-builder-infra-${ImageName}"
       InstanceProfileName: !Ref ImageBuilderInstanceProfile
       InstanceTypes:
-        - c6i.4xlarge
+        - c6i.2xlarge
       TerminateInstanceOnFailure: true
       Tags:
         Stage: !Ref Stage
