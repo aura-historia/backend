@@ -10,7 +10,6 @@ pub trait ExtractionAdapter {
     fn extract(&self, schema: &str, batch: &Batch<String, 8>) -> PyResult<Batch<String, 8>>;
 }
 
-/// Adapter to a persistent Python extractding session.
 #[derive(Clone)]
 pub struct ExtractionAdapterImpl {
     module: Arc<Py<PyAny>>, // Keep module alive across GIL scopes
