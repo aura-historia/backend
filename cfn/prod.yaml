@@ -3517,7 +3517,7 @@ Resources:
             #!/bin/bash
             set -euxo pipefail
             sudo -i
-            export STAGE="ephemeral"
+            export STAGE="prod"
             export STAGE_NAME=prod
             export CommitSHA="${CommitSHA}"
             export ARTIFACT_BUCKET="${ArtifactBucket}"
