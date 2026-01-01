@@ -74,7 +74,7 @@ impl PipeProcessor<TextEmbeddedPipeProduct, AttributeExtractedPipeProduct>
                 {\n
                     "originYearMin": int | null (Lower end of the year-range, the antique is estimated to have originated from),\n
                     "originYearMax": int | null (Higher end of the year-range, the antique is estimated to have originated from),\n
-                    "originYear": int | null (Exact year the antique is estimated to have originated from. If this value can be found, then both 'originYearMin' and 'originYearMax' must be returned null.),\n
+                    "originYear": int | null (Exact year the antique is estimated to have originated from),\n
                     "authenticity": enum-string | null (The authenticity of the antique. Either of: ORIGINAL, LATER_COPY (antique copy), REPRODUCTION (modern copy), QUESTIONABLE, UNKNOWN),\n
                     "condition": enum-string | null (The condition of the antique. Either of: EXCELLENT, GREAT, GOOD, FAIR, POOR, UNKNOWN),\n
                     "provenance": enum-string | null (The documentation (trail) of the antique. Either of: COMPLETE, PARTIAL, CLAIMED (assumed, but no proof), NONE, UNKNOWN),\n
@@ -91,10 +91,17 @@ impl PipeProcessor<TextEmbeddedPipeProduct, AttributeExtractedPipeProduct>
                 Ok(extractions) => {
                     let mut local_enriched = in_batch.into_iter().zip(extractions.into_iter()).map(
                         |(in_product, extraction_str)| {
-                            let extracted_attributes = serde_json::from_str(&extraction_str).unwrap_or_else(|err| {
+                            let mut extracted_attributes = serde_json::from_str(&extraction_str).unwrap_or_else(|err| {
                                 error!(error = %err, adapterResponse = extraction_str, "Failed extracting attributes.");
                                 ExtractedAttributes::default()
                             });
+                            if let Some(origin_year_min) = extracted_attributes.origin_year_min && extracted_attributes.origin_year_min == extracted_attributes.origin_year_max {
+                                extracted_attributes.origin_year = Some(origin_year_min);
+                            }
+                            if let Some(origin_year) = extracted_attributes.origin_year {
+                                extracted_attributes.origin_year_min = Some(origin_year);
+                                extracted_attributes.origin_year_max = Some(origin_year);
+                            }
                             AttributeExtractedPipeProduct {
                                 product_id: in_product.product_id,
                                 shop_id: in_product.shop_id,
