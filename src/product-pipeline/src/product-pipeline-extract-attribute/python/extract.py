@@ -18,7 +18,6 @@ model = AutoModelForCausalLM.from_pretrained(
     dtype=torch.float16,
     quantization_config=quant_config,
 )
-model = torch.compile(model)
 
 
 def extract(schema: str, texts: List[str], batch_size=8) -> List[str]:
