@@ -50,10 +50,6 @@ def extract(schema: str, texts: List[str], batch_size=8) -> List[str]:
                 tokenize=False,
                 add_generation_prompt=True,
                 enable_thinking=False,
-                Temperature=0.7,
-                TopP=0.8,
-                TopK=20,
-                MinP=0,
             )
             prompts.append(prompt)
 
