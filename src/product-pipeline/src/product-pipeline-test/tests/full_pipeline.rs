@@ -207,8 +207,8 @@ async fn should_flow_through_entire_pipeline(#[case] count: usize) {
     let mut extract_attribute_adapter_mock = MockExtractionAdapter::default();
     extract_attribute_adapter_mock
         .expect_extract()
-        .returning(|_, _| {
-            Ok((0..7)
+        .returning(|_, batch| {
+            Ok((0..batch.len())
                 .map(|_| r#"{"originYear":1837}"#.to_owned())
                 .collect::<Vec<_>>()
                 .try_into()
