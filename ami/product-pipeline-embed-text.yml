@@ -214,6 +214,34 @@ phases:
                       "resources": {
                         "*": "*"
                       }
+                    },
+                    "nvidia_gpu": {
+                      "measurement": [
+                        {
+                          "name": "utilization_gpu",
+                          "rename": "GPU_UTILIZATION",
+                          "unit": "Percent"
+                        },
+                        {
+                          "name": "utilization_memory",
+                          "rename": "GPU_MEMORY_UTILIZATION",
+                          "unit": "Percent"
+                        },
+                        {
+                          "name": "temperature_gpu",
+                          "rename": "GPU_TEMPERATURE",
+                          "unit": "None"
+                        },
+                        {
+                          "name": "power_draw",
+                          "rename": "GPU_POWER_DRAW",
+                          "unit": "None"
+                        },
+                        "memory_total",
+                        "memory_used",
+                        "memory_free"
+                      ],
+                      "metrics_collection_interval": 60
                     }
                   }
                 },
