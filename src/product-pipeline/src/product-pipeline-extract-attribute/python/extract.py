@@ -1,24 +1,17 @@
 from typing import List
 
 import torch
-from transformers import AutoModelForCausalLM, AutoTokenizer, BitsAndBytesConfig
+from transformers import AutoModelForCausalLM, AutoTokenizer
 
-MODEL_NAME = "Qwen/Qwen3-14B"
+MODEL_NAME = "Qwen/Qwen3-8B"
 DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
 
 tokenizer = AutoTokenizer.from_pretrained(MODEL_NAME)
-quant_config = BitsAndBytesConfig(
-    load_in_8bit=True,
-    llm_int8_threshold=6.0,
-    llm_int8_has_fp16_weight=True,
-)
 model = AutoModelForCausalLM.from_pretrained(
     MODEL_NAME,
     device_map=DEVICE,
     dtype=torch.float16,
-    quantization_config=quant_config,
 )
-
 
 def extract(schema: str, texts: List[str], batch_size=8) -> List[str]:
     results: List[str] = []
