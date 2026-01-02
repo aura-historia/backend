@@ -3083,9 +3083,7 @@ Resources:
                       "free"
                     ],
                     "metrics_collection_interval": 60,
-                    "resources": {
-                      "*": "*"
-                    }
+                    "resources": ["*"]
                   },
                   "diskio": {
                     "measurement": [
@@ -3096,9 +3094,7 @@ Resources:
                       "writes"
                     ],
                     "metrics_collection_interval": 60,
-                    "resources": {
-                      "*": "*"
-                    }
+                    "resources": ["*"]
                   },
                   "mem": {
                     "measurement": [
@@ -3127,9 +3123,7 @@ Resources:
                       "packets_recv"
                     ],
                     "metrics_collection_interval": 60,
-                    "resources": {
-                      "*": "*"
-                    }
+                    "resources": ["*"]
                   }
                 }
               },
@@ -3823,9 +3817,7 @@ Resources:
                       "free"
                     ],
                     "metrics_collection_interval": 60,
-                    "resources": {
-                      "*": "*"
-                    }
+                    "resources": ["*"]
                   },
                   "diskio": {
                     "measurement": [
@@ -3836,9 +3828,7 @@ Resources:
                       "writes"
                     ],
                     "metrics_collection_interval": 60,
-                    "resources": {
-                      "*": "*"
-                    }
+                    "resources": ["*"]
                   },
                   "mem": {
                     "measurement": [
@@ -3867,9 +3857,7 @@ Resources:
                       "packets_recv"
                     ],
                     "metrics_collection_interval": 60,
-                    "resources": {
-                      "*": "*"
-                    }
+                    "resources": ["*"]
                   }
                 }
               },
