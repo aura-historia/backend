@@ -225,16 +225,6 @@ phases:
                           "rename": "GPU_MEMORY_UTILIZATION",
                           "unit": "Percent"
                         },
-                        {
-                          "name": "temperature_gpu",
-                          "rename": "GPU_TEMPERATURE",
-                          "unit": "None"
-                        },
-                        {
-                          "name": "power_draw",
-                          "rename": "GPU_POWER_DRAW",
-                          "unit": "None"
-                        },
                         "memory_total",
                         "memory_used",
                         "memory_free"
