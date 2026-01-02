@@ -151,9 +151,7 @@ phases:
                         "cpu_time_guest"
                       ],
                       "metrics_collection_interval": 60,
-                      "resources": {
-                        "*": "*"
-                      },
+                      "resources": ["*"],
                       "totalcpu": false
                     },
                     "disk": {
@@ -167,9 +165,7 @@ phases:
                         "free"
                       ],
                       "metrics_collection_interval": 60,
-                      "resources": {
-                        "*": "*"
-                      }
+                      "resources": ["*"]
                     },
                     "diskio": {
                       "measurement": [
@@ -180,9 +176,7 @@ phases:
                         "writes"
                       ],
                       "metrics_collection_interval": 60,
-                      "resources": {
-                        "*": "*"
-                      }
+                      "resources": ["*"]
                     },
                     "mem": {
                       "measurement": [
@@ -211,9 +205,7 @@ phases:
                         "packets_recv"
                       ],
                       "metrics_collection_interval": 60,
-                      "resources": {
-                        "*": "*"
-                      }
+                      "resources": ["*"]
                     },
                     "nvidia_gpu": {
                       "measurement": [

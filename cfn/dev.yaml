@@ -2542,9 +2542,7 @@ Resources:
                       "cpu_time_guest"
                     ],
                     "metrics_collection_interval": 60,
-                    "resources": {
-                      "*": "*"
-                    },
+                    "resources": ["*"],
                     "totalcpu": false
                   },
                   "disk": {
@@ -3284,9 +3282,7 @@ Resources:
                       "cpu_time_guest"
                     ],
                     "metrics_collection_interval": 60,
-                    "resources": {
-                      "*": "*"
-                    },
+                    "resources": ["*"],
                     "totalcpu": false
                   },
                   "disk": {
