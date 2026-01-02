@@ -3,13 +3,22 @@ use crate::dynamodb::user_search_filter_record_update::UserSearchFilterRecordUpd
 use common::query::any_of_query::AnyOfQuery;
 use common::query::range_query::RangeQuery;
 use common::query::text_query::TextQuery;
+use common::year::Year;
 use common::{
     currency::{domain::Currency, record::CurrencyRecord},
     language::{domain::Language, record::LanguageRecord},
     price::domain::MonetaryAmount,
     product_state::domain::ProductState,
 };
+use product::core::authenticity::Authenticity;
+use product::core::condition::Condition;
+use product::core::provenance::Provenance;
+use product::core::restoration::Restoration;
+use product::dynamodb::authenticity_record::AuthenticityRecord;
+use product::dynamodb::condition_record::ConditionRecord;
 use product::dynamodb::product_state_record::ProductStateRecord;
+use product::dynamodb::provenance_record::ProvenanceRecord;
+use product::dynamodb::restoration_record::RestorationRecord;
 use time::OffsetDateTime;
 
 #[derive(Debug, Clone, PartialEq)]
@@ -21,6 +30,11 @@ pub struct UserSearchFilterUpdate {
     pub state_query: Option<AnyOfQuery<ProductState>>,
     pub created_query: Option<RangeQuery<OffsetDateTime>>,
     pub updated_query: Option<RangeQuery<OffsetDateTime>>,
+    pub origin_year_query: Option<RangeQuery<Year>>,
+    pub authenticity_query: Option<AnyOfQuery<Authenticity>>,
+    pub condition_query: Option<AnyOfQuery<Condition>>,
+    pub provenance_query: Option<AnyOfQuery<Provenance>>,
+    pub restoration_query: Option<AnyOfQuery<Restoration>>,
     pub language: Option<Language>,
     pub currency: Option<Currency>,
     pub updated: OffsetDateTime,
@@ -36,6 +50,11 @@ impl UserSearchFilterUpdate {
             state_query,
             created_query,
             updated_query,
+            origin_year_query,
+            authenticity_query,
+            condition_query,
+            provenance_query,
+            restoration_query,
             language,
             currency,
             updated: _,
@@ -48,6 +67,11 @@ impl UserSearchFilterUpdate {
             && state_query.is_none()
             && created_query.is_none()
             && updated_query.is_none()
+            && origin_year_query.is_none()
+            && authenticity_query.is_none()
+            && condition_query.is_none()
+            && provenance_query.is_none()
+            && restoration_query.is_none()
             && language.is_none()
             && currency.is_none()
     }
@@ -67,6 +91,19 @@ impl From<UserSearchFilterUpdate> for UserSearchFilterRecordUpdate {
                 .map(|states| states.into_iter().map(ProductStateRecord::from).collect()),
             created_query: update.created_query,
             updated_query: update.updated_query,
+            origin_year_query: update.origin_year_query,
+            authenticity_query: update
+                .authenticity_query
+                .map(|values| values.into_iter().map(AuthenticityRecord::from).collect()),
+            condition_query: update
+                .condition_query
+                .map(|values| values.into_iter().map(ConditionRecord::from).collect()),
+            provenance_query: update
+                .provenance_query
+                .map(|values| values.into_iter().map(ProvenanceRecord::from).collect()),
+            restoration_query: update
+                .restoration_query
+                .map(|values| values.into_iter().map(RestorationRecord::from).collect()),
             language: update.language.map(LanguageRecord::from),
             currency: update.currency.map(CurrencyRecord::from),
             updated: update.updated,
@@ -91,6 +128,11 @@ mod fake {
                 state_query: config.fake_with_rng(rng),
                 created_query: fake_range_query_datetime(config, rng),
                 updated_query: fake_range_query_datetime(config, rng),
+                origin_year_query: config.fake_with_rng(rng),
+                authenticity_query: config.fake_with_rng(rng),
+                condition_query: config.fake_with_rng(rng),
+                provenance_query: config.fake_with_rng(rng),
+                restoration_query: config.fake_with_rng(rng),
                 language: config.fake_with_rng(rng),
                 currency: config.fake_with_rng(rng),
                 updated: OffsetDateTime::now_utc(),

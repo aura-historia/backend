@@ -12,7 +12,11 @@ use common::shops_product_id::ShopsProductId;
 use common::sort::{Sort, SortOrder};
 use fake::rand;
 use opensearch::http::Url;
+use product::core::authenticity::Authenticity;
+use product::core::condition::Condition;
 use product::core::product_search::ProductSearch;
+use product::core::provenance::Provenance;
+use product::core::restoration::Restoration;
 use product::core::sort_product_field::SortProductField;
 use product::opensearch::product_document::ProductDocument;
 use product::opensearch::product_state_document::ProductStateDocument;
@@ -333,6 +337,11 @@ async fn should_search_product_documents() {
         shop_name_query: None,
         price_query: None,
         state_query: Default::default(),
+        origin_year_query: None,
+        authenticity_query: Default::default(),
+        condition_query: Default::default(),
+        provenance_query: Default::default(),
+        restoration_query: Default::default(),
         created_query: None,
         updated_query: None,
     };
@@ -417,6 +426,11 @@ async fn should_omit_descriptions_in_response_for_search_product_documents() {
         shop_name_query: None,
         price_query: None,
         state_query: Default::default(),
+        origin_year_query: None,
+        authenticity_query: Default::default(),
+        condition_query: Default::default(),
+        provenance_query: Default::default(),
+        restoration_query: Default::default(),
         created_query: None,
         updated_query: None,
     };
@@ -474,6 +488,21 @@ async fn should_search_product_documents_when_all_arguments_are_given() {
             ProductState::Available,
             ProductState::Listed,
         ])),
+        origin_year_query: Some(RangeQuery {
+            min: Some((-753).into()),
+            max: Some(2100.into()),
+        }),
+        authenticity_query: AnyOfQuery::from(HashSet::from_iter([
+            Authenticity::Questionable,
+            Authenticity::Reproduction,
+            Authenticity::LaterCopy,
+        ])),
+        condition_query: AnyOfQuery::from(HashSet::from_iter([Condition::Fair, Condition::Poor])),
+        provenance_query: AnyOfQuery::from(HashSet::from_iter([
+            Provenance::Unknown,
+            Provenance::Partial,
+        ])),
+        restoration_query: AnyOfQuery::from(HashSet::from_iter([Restoration::None])),
         created_query: Some(RangeQuery {
             min: Some(datetime!(1000-01-01 0:00 UTC)),
             max: Some(datetime!(3000-01-01 0:00 UTC)),
@@ -530,6 +559,11 @@ async fn should_search_product_documents_when_states_are_given(#[case] states: &
         shop_name_query: None,
         price_query: None,
         state_query: AnyOfQuery::from(HashSet::from_iter(states.iter().copied())),
+        origin_year_query: None,
+        authenticity_query: Default::default(),
+        condition_query: Default::default(),
+        provenance_query: Default::default(),
+        restoration_query: Default::default(),
         created_query: None,
         updated_query: None,
     };
@@ -581,6 +615,11 @@ async fn should_search_product_documents_when_no_states_are_given() {
         shop_name_query: None,
         price_query: None,
         state_query: AnyOfQuery::from(HashSet::new()),
+        origin_year_query: None,
+        authenticity_query: Default::default(),
+        condition_query: Default::default(),
+        provenance_query: Default::default(),
+        restoration_query: Default::default(),
         created_query: None,
         updated_query: None,
     };
@@ -655,6 +694,11 @@ async fn should_search_product_documents_when_price_range_is_given(
         shop_name_query: None,
         price_query: Some(price_query),
         state_query: Default::default(),
+        origin_year_query: None,
+        authenticity_query: Default::default(),
+        condition_query: Default::default(),
+        provenance_query: Default::default(),
+        restoration_query: Default::default(),
         created_query: None,
         updated_query: None,
     };
@@ -731,6 +775,11 @@ async fn should_search_product_documents_respecting_paging_when_sorted_by_price(
         shop_name_query: None,
         price_query: None,
         state_query: Default::default(),
+        origin_year_query: None,
+        authenticity_query: Default::default(),
+        condition_query: Default::default(),
+        provenance_query: Default::default(),
+        restoration_query: Default::default(),
         created_query: None,
         updated_query: None,
     };
@@ -811,6 +860,11 @@ async fn should_search_product_documents_respecting_search_after_when_sorted_by_
         shop_name_query: None,
         price_query: None,
         state_query: Default::default(),
+        origin_year_query: None,
+        authenticity_query: Default::default(),
+        condition_query: Default::default(),
+        provenance_query: Default::default(),
+        restoration_query: Default::default(),
         created_query: None,
         updated_query: None,
     };

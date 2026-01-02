@@ -25,3 +25,16 @@ impl From<Authenticity> for AuthenticityData {
         }
     }
 }
+
+impl From<AuthenticityData> for Authenticity {
+    fn from(value: AuthenticityData) -> Self {
+        match value {
+            AuthenticityData::Original => Authenticity::Original,
+            AuthenticityData::LaterCopy => Authenticity::LaterCopy,
+            AuthenticityData::Reproduction => Authenticity::Reproduction,
+            AuthenticityData::Questionable => Authenticity::Questionable,
+            AuthenticityData::Unknown => Authenticity::Unknown,
+        }
+    }
+}
+

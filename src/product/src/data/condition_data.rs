@@ -27,3 +27,17 @@ impl From<Condition> for ConditionData {
         }
     }
 }
+
+impl From<ConditionData> for Condition {
+    fn from(value: ConditionData) -> Self {
+        match value {
+            ConditionData::Excellent => Condition::Excellent,
+            ConditionData::Great => Condition::Great,
+            ConditionData::Good => Condition::Good,
+            ConditionData::Fair => Condition::Fair,
+            ConditionData::Poor => Condition::Poor,
+            ConditionData::Unknown => Condition::Unknown,
+        }
+    }
+}
+

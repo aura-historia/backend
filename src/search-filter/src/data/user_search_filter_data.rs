@@ -61,8 +61,12 @@ mod tests {
     use crate::data::user_search_filter_data::UserSearchFilterData;
     use common::query::range_query::RangeQuery;
     use common::{currency::data::CurrencyData, language::data::LanguageData, user_id::UserId};
+    use product::data::authenticity_data::AuthenticityData;
+    use product::data::condition_data::ConditionData;
     use product::data::product_search_data::ProductSearchData;
     use product::data::product_state_data::ProductStateData;
+    use product::data::provenance_data::ProvenanceData;
+    use product::data::restoration_data::RestorationData;
     use serde_json::json;
     use std::collections::HashSet;
     use time::macros::datetime;
@@ -93,6 +97,14 @@ mod tests {
                     min: Some(datetime!(2000 - 05 - 04 0:00 UTC)),
                     max: Some(datetime!(2025 - 05 - 04 0:00 UTC)),
                 }),
+                origin_year_query: Some(RangeQuery {
+                    min: Some(1742.into()),
+                    max: Some(1953.into()),
+                }),
+                authenticity_query: HashSet::from_iter([AuthenticityData::Original]),
+                condition_query: HashSet::from_iter([ConditionData::Excellent]),
+                provenance_query: HashSet::from_iter([ProvenanceData::Partial]),
+                restoration_query: HashSet::from_iter([RestorationData::Unknown]),
             },
             created: datetime!(2025 - 01 - 01 0:00 UTC),
             updated: datetime!(2025 - 01 - 01 0:00 UTC),
@@ -119,6 +131,14 @@ mod tests {
                     "min": "2000-05-04T00:00:00Z",
                     "max": "2025-05-04T00:00:00Z",
                 },
+                "originYear": {
+                    "min": 1742,
+                    "max": 1953
+                },
+                "authenticity": ["ORIGINAL"],
+                "condition": ["EXCELLENT"],
+                "provenance": ["PARTIAL"],
+                "restoration": ["UNKNOWN"],
             },
             "created": "2025-01-01T00:00:00Z",
             "updated": "2025-01-01T00:00:00Z"
@@ -155,6 +175,14 @@ mod tests {
                     "min": "2000-05-04T00:00:00Z",
                     "max": "2025-05-04T00:00:00Z",
                 },
+                "originYear": {
+                    "min": 1742,
+                    "max": 1953
+                },
+                "authenticity": ["ORIGINAL"],
+                "condition": ["EXCELLENT"],
+                "provenance": ["PARTIAL"],
+                "restoration": ["UNKNOWN"],
             },
             "created": "2025-01-01T00:00:00Z",
             "updated": "2025-01-01T00:00:00Z"
@@ -181,6 +209,14 @@ mod tests {
                     min: Some(datetime!(2000 - 05 - 04 0:00 UTC)),
                     max: Some(datetime!(2025 - 05 - 04 0:00 UTC)),
                 }),
+                origin_year_query: Some(RangeQuery {
+                    min: Some(1742.into()),
+                    max: Some(1953.into()),
+                }),
+                authenticity_query: HashSet::from_iter([AuthenticityData::Original]),
+                condition_query: HashSet::from_iter([ConditionData::Excellent]),
+                provenance_query: HashSet::from_iter([ProvenanceData::Partial]),
+                restoration_query: HashSet::from_iter([RestorationData::Unknown]),
             },
             created: datetime!(2025 - 01 - 01 0:00 UTC),
             updated: datetime!(2025 - 01 - 01 0:00 UTC),

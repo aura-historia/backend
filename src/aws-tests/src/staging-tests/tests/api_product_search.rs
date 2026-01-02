@@ -186,9 +186,14 @@ async fn should_respond_200_when_hits_authenticated() {
             max: Some(99999999),
         }),
         state_query: [ProductStateData::Available, ProductStateData::Listed].into(),
+        origin_year_query: None,
+        authenticity_query: Default::default(),
+        condition_query: Default::default(),
+        provenance_query: Default::default(),
+        restoration_query: Default::default(),
         created_query: Some(RangeQuery {
             min: None,
-            max: Some(datetime!(2999 - 01 - 02 0:00 UTC)),
+            max: Some(datetime!(2999-01-02 0:00 UTC)),
         }),
         updated_query: None,
     };
@@ -292,6 +297,11 @@ async fn should_respond_200_when_hits_anon() {
             max: Some(99999999),
         }),
         state_query: [ProductStateData::Available, ProductStateData::Listed].into(),
+        origin_year_query: None,
+        authenticity_query: Default::default(),
+        condition_query: Default::default(),
+        provenance_query: Default::default(),
+        restoration_query: Default::default(),
         created_query: Some(RangeQuery {
             min: None,
             max: Some(datetime!(2999 - 01 - 02 0:00 UTC)),

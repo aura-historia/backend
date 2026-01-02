@@ -23,3 +23,14 @@ impl From<Restoration> for RestorationData {
         }
     }
 }
+
+impl From<RestorationData> for Restoration {
+    fn from(value: RestorationData) -> Self {
+        match value {
+            RestorationData::None => Restoration::None,
+            RestorationData::Minor => Restoration::Minor,
+            RestorationData::Major => Restoration::Major,
+            RestorationData::Unknown => Restoration::Unknown,
+        }
+    }
+}

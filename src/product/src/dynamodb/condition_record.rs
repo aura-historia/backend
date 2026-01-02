@@ -27,3 +27,16 @@ impl From<ConditionRecord> for Condition {
         }
     }
 }
+
+impl From<Condition> for ConditionRecord {
+    fn from(value: Condition) -> Self {
+        match value {
+            Condition::Excellent => ConditionRecord::Excellent,
+            Condition::Great => ConditionRecord::Great,
+            Condition::Good => ConditionRecord::Good,
+            Condition::Fair => ConditionRecord::Fair,
+            Condition::Poor => ConditionRecord::Poor,
+            Condition::Unknown => ConditionRecord::Unknown,
+        }
+    }
+}
