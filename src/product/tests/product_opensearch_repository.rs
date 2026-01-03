@@ -10,6 +10,7 @@ use common::query::any_of_query::AnyOfQuery;
 use common::query::range_query::RangeQuery;
 use common::shops_product_id::ShopsProductId;
 use common::sort::{Sort, SortOrder};
+use common::year::Year;
 use fake::rand;
 use opensearch::http::Url;
 use product::core::authenticity::Authenticity;
@@ -2005,4 +2006,637 @@ async fn should_return_k_nearest_neighbors() {
     let actual = repository.k_nn_text(&EXAMPLE_EMBEDDING, 20).await.unwrap();
 
     assert!(actual.hits.hits.len() > 1);
+}
+
+#[localstack_test(services = [OpenSearch()])]
+async fn should_search_product_documents_when_exact_year_is_given_for_stored_exact_year() {
+    let civilians = fake::vec![ProductDocument; 50]
+        .into_iter()
+        .map(|mut product| {
+            let year = rand::random_range(1830..=1835).into();
+            product.title_de = Some("The same title".into());
+            product.origin_year = Some(year);
+            product.origin_year_min = Some(year);
+            product.origin_year_max = Some(year);
+            product.description_de = None;
+            product.description_en = None;
+            product.description_fr = None;
+            product.description_es = None;
+            product
+        })
+        .collect::<Vec<_>>();
+    let expected = fake::vec![ProductDocument; 42]
+        .into_iter()
+        .map(|mut product| {
+            let year = 1836.into();
+            product.title_de = Some("The same title".into());
+            product.origin_year = Some(year);
+            product.origin_year_min = Some(year);
+            product.origin_year_max = Some(year);
+            product.description_de = None;
+            product.description_en = None;
+            product.description_fr = None;
+            product.description_es = None;
+            product
+        })
+        .collect::<Vec<_>>();
+    let products = [civilians, expected.clone()].concat();
+    let client = get_opensearch_client().await;
+    let repository = ProductOpenSearchRepositoryImpl::new(client);
+    let response = repository
+        .create_product_documents(products.clone())
+        .await
+        .unwrap();
+    assert!(!response.errors);
+    refresh_index("products").await;
+    tokio::time::sleep(Duration::from_millis(5000)).await;
+
+    let search_filter = ProductSearch {
+        language: Language::De,
+        currency: Currency::Eur,
+        product_query: "The same title".try_into().unwrap(),
+        shop_name_query: None,
+        price_query: None,
+        state_query: Default::default(),
+        origin_year_query: Some(RangeQuery {
+            min: Some(1836.into()),
+            max: Some(1836.into()),
+        }),
+        authenticity_query: Default::default(),
+        condition_query: Default::default(),
+        provenance_query: Default::default(),
+        restoration_query: Default::default(),
+        created_query: None,
+        updated_query: None,
+    };
+    let response = repository
+        .search_product_documents(
+            &search_filter,
+            &Sort {
+                sort: SortProductField::Score,
+                order: SortOrder::Desc,
+            },
+            &Some(Cursor {
+                size: 100,
+                search_after: None,
+            }),
+        )
+        .await
+        .unwrap();
+    let actual_products = response
+        .hits
+        .hits
+        .into_iter()
+        .map(|hit| hit.source)
+        .collect::<Vec<_>>();
+
+    assert_eq!(expected.len(), actual_products.len());
+    assert!(
+        actual_products
+            .iter()
+            .all(|product| product.origin_year.unwrap() == Year::from(1836))
+    );
+}
+
+#[localstack_test(services = [OpenSearch()])]
+async fn should_search_product_documents_when_only_min_year_is_given_for_stored_exact_year() {
+    let civilians = fake::vec![ProductDocument; 50]
+        .into_iter()
+        .map(|mut product| {
+            let year = rand::random_range(1830..=1835).into();
+            product.title_de = Some("The same title".into());
+            product.origin_year = Some(year);
+            product.origin_year_min = Some(year);
+            product.origin_year_max = Some(year);
+            product.description_de = None;
+            product.description_en = None;
+            product.description_fr = None;
+            product.description_es = None;
+            product
+        })
+        .collect::<Vec<_>>();
+    let expected = fake::vec![ProductDocument; 42]
+        .into_iter()
+        .map(|mut product| {
+            let year = 1836.into();
+            product.title_de = Some("The same title".into());
+            product.origin_year = Some(year);
+            product.origin_year_min = Some(year);
+            product.origin_year_max = Some(year);
+            product.description_de = None;
+            product.description_en = None;
+            product.description_fr = None;
+            product.description_es = None;
+            product
+        })
+        .collect::<Vec<_>>();
+    let products = [civilians, expected.clone()].concat();
+    let client = get_opensearch_client().await;
+    let repository = ProductOpenSearchRepositoryImpl::new(client);
+    let response = repository
+        .create_product_documents(products.clone())
+        .await
+        .unwrap();
+    assert!(!response.errors);
+    refresh_index("products").await;
+    tokio::time::sleep(Duration::from_millis(5000)).await;
+
+    let search_filter = ProductSearch {
+        language: Language::De,
+        currency: Currency::Eur,
+        product_query: "The same title".try_into().unwrap(),
+        shop_name_query: None,
+        price_query: None,
+        state_query: Default::default(),
+        origin_year_query: Some(RangeQuery {
+            min: Some(1836.into()),
+            max: None,
+        }),
+        authenticity_query: Default::default(),
+        condition_query: Default::default(),
+        provenance_query: Default::default(),
+        restoration_query: Default::default(),
+        created_query: None,
+        updated_query: None,
+    };
+    let response = repository
+        .search_product_documents(
+            &search_filter,
+            &Sort {
+                sort: SortProductField::Score,
+                order: SortOrder::Desc,
+            },
+            &Some(Cursor {
+                size: 100,
+                search_after: None,
+            }),
+        )
+        .await
+        .unwrap();
+    let actual_products = response
+        .hits
+        .hits
+        .into_iter()
+        .map(|hit| hit.source)
+        .collect::<Vec<_>>();
+
+    assert_eq!(expected.len(), actual_products.len());
+    assert!(
+        actual_products
+            .iter()
+            .all(|product| product.origin_year.unwrap() >= Year::from(1836))
+    );
+}
+
+#[localstack_test(services = [OpenSearch()])]
+async fn should_search_product_documents_when_only_max_year_is_given_for_stored_exact_year() {
+    let civilians = fake::vec![ProductDocument; 50]
+        .into_iter()
+        .map(|mut product| {
+            let year = rand::random_range(1836..=1840).into();
+            product.title_de = Some("The same title".into());
+            product.origin_year = Some(year);
+            product.origin_year_min = Some(year);
+            product.origin_year_max = Some(year);
+            product.description_de = None;
+            product.description_en = None;
+            product.description_fr = None;
+            product.description_es = None;
+            product
+        })
+        .collect::<Vec<_>>();
+    let expected = fake::vec![ProductDocument; 42]
+        .into_iter()
+        .map(|mut product| {
+            let year = rand::random_range(1830..=1835).into();
+            product.title_de = Some("The same title".into());
+            product.origin_year = Some(year);
+            product.origin_year_min = Some(year);
+            product.origin_year_max = Some(year);
+            product.description_de = None;
+            product.description_en = None;
+            product.description_fr = None;
+            product.description_es = None;
+            product
+        })
+        .collect::<Vec<_>>();
+    let products = [civilians, expected.clone()].concat();
+    let client = get_opensearch_client().await;
+    let repository = ProductOpenSearchRepositoryImpl::new(client);
+    let response = repository
+        .create_product_documents(products.clone())
+        .await
+        .unwrap();
+    assert!(!response.errors);
+    refresh_index("products").await;
+    tokio::time::sleep(Duration::from_millis(5000)).await;
+
+    let search_filter = ProductSearch {
+        language: Language::De,
+        currency: Currency::Eur,
+        product_query: "The same title".try_into().unwrap(),
+        shop_name_query: None,
+        price_query: None,
+        state_query: Default::default(),
+        origin_year_query: Some(RangeQuery {
+            min: None,
+            max: Some(1835.into()),
+        }),
+        authenticity_query: Default::default(),
+        condition_query: Default::default(),
+        provenance_query: Default::default(),
+        restoration_query: Default::default(),
+        created_query: None,
+        updated_query: None,
+    };
+    let response = repository
+        .search_product_documents(
+            &search_filter,
+            &Sort {
+                sort: SortProductField::Score,
+                order: SortOrder::Desc,
+            },
+            &Some(Cursor {
+                size: 100,
+                search_after: None,
+            }),
+        )
+        .await
+        .unwrap();
+    let actual_products = response
+        .hits
+        .hits
+        .into_iter()
+        .map(|hit| hit.source)
+        .collect::<Vec<_>>();
+
+    assert_eq!(expected.len(), actual_products.len());
+    assert!(
+        actual_products
+            .iter()
+            .all(|product| product.origin_year.unwrap() <= Year::from(1835))
+    );
+}
+
+#[localstack_test(services = [OpenSearch()])]
+async fn should_search_product_documents_when_min_and_max_year_is_given_for_stored_exact_year() {
+    let civilians = fake::vec![ProductDocument; 50]
+        .into_iter()
+        .map(|mut product| {
+            let year = rand::random_range(1830..=1833).into();
+            product.title_de = Some("The same title".into());
+            product.origin_year = Some(year);
+            product.origin_year_min = Some(year);
+            product.origin_year_max = Some(year);
+            product.description_de = None;
+            product.description_en = None;
+            product.description_fr = None;
+            product.description_es = None;
+            product
+        })
+        .collect::<Vec<_>>();
+    let expected = fake::vec![ProductDocument; 42]
+        .into_iter()
+        .map(|mut product| {
+            let year = rand::random_range(1836..=1840).into();
+            product.title_de = Some("The same title".into());
+            product.origin_year = Some(year);
+            product.origin_year_min = Some(year);
+            product.origin_year_max = Some(year);
+            product.description_de = None;
+            product.description_en = None;
+            product.description_fr = None;
+            product.description_es = None;
+            product
+        })
+        .collect::<Vec<_>>();
+    let products = [civilians, expected.clone()].concat();
+    let client = get_opensearch_client().await;
+    let repository = ProductOpenSearchRepositoryImpl::new(client);
+    let response = repository
+        .create_product_documents(products.clone())
+        .await
+        .unwrap();
+    assert!(!response.errors);
+    refresh_index("products").await;
+    tokio::time::sleep(Duration::from_millis(5000)).await;
+
+    let search_filter = ProductSearch {
+        language: Language::De,
+        currency: Currency::Eur,
+        product_query: "The same title".try_into().unwrap(),
+        shop_name_query: None,
+        price_query: None,
+        state_query: Default::default(),
+        origin_year_query: Some(RangeQuery {
+            min: Some(1834.into()),
+            max: Some(1843.into()),
+        }),
+        authenticity_query: Default::default(),
+        condition_query: Default::default(),
+        provenance_query: Default::default(),
+        restoration_query: Default::default(),
+        created_query: None,
+        updated_query: None,
+    };
+    let response = repository
+        .search_product_documents(
+            &search_filter,
+            &Sort {
+                sort: SortProductField::Score,
+                order: SortOrder::Desc,
+            },
+            &Some(Cursor {
+                size: 100,
+                search_after: None,
+            }),
+        )
+        .await
+        .unwrap();
+    let actual_products = response
+        .hits
+        .hits
+        .into_iter()
+        .map(|hit| hit.source)
+        .collect::<Vec<_>>();
+
+    assert_eq!(expected.len(), actual_products.len());
+    assert!(
+        actual_products
+            .iter()
+            .all(|product| product.origin_year.unwrap() >= Year::from(1834)
+                && product.origin_year.unwrap() <= Year::from(1843))
+    );
+}
+
+// ------------------------
+#[localstack_test(services = [OpenSearch()])]
+async fn should_search_product_documents_when_only_min_year_is_given_for_stored_year_range() {
+    let civilians = fake::vec![ProductDocument; 50]
+        .into_iter()
+        .map(|mut product| {
+            let year1 = rand::random_range(1830..=1832).into();
+            let year2 = rand::random_range(1833..=1835).into();
+            product.title_de = Some("The same title".into());
+            product.origin_year_min = Some(year1);
+            product.origin_year_max = Some(year2);
+            product.description_de = None;
+            product.description_en = None;
+            product.description_fr = None;
+            product.description_es = None;
+            product
+        })
+        .collect::<Vec<_>>();
+    let expected = fake::vec![ProductDocument; 42]
+        .into_iter()
+        .map(|mut product| {
+            let year1 = rand::random_range(1836..=1840).into();
+            let year2 = rand::random_range(1841..=1847).into();
+            product.title_de = Some("The same title".into());
+            product.origin_year_min = Some(year1);
+            product.origin_year_max = Some(year2);
+            product.description_de = None;
+            product.description_en = None;
+            product.description_fr = None;
+            product.description_es = None;
+            product
+        })
+        .collect::<Vec<_>>();
+    let products = [civilians, expected.clone()].concat();
+    let client = get_opensearch_client().await;
+    let repository = ProductOpenSearchRepositoryImpl::new(client);
+    let response = repository
+        .create_product_documents(products.clone())
+        .await
+        .unwrap();
+    assert!(!response.errors);
+    refresh_index("products").await;
+    tokio::time::sleep(Duration::from_millis(5000)).await;
+
+    let search_filter = ProductSearch {
+        language: Language::De,
+        currency: Currency::Eur,
+        product_query: "The same title".try_into().unwrap(),
+        shop_name_query: None,
+        price_query: None,
+        state_query: Default::default(),
+        origin_year_query: Some(RangeQuery {
+            min: Some(1836.into()),
+            max: None,
+        }),
+        authenticity_query: Default::default(),
+        condition_query: Default::default(),
+        provenance_query: Default::default(),
+        restoration_query: Default::default(),
+        created_query: None,
+        updated_query: None,
+    };
+    let response = repository
+        .search_product_documents(
+            &search_filter,
+            &Sort {
+                sort: SortProductField::Score,
+                order: SortOrder::Desc,
+            },
+            &Some(Cursor {
+                size: 100,
+                search_after: None,
+            }),
+        )
+        .await
+        .unwrap();
+    let actual_products = response
+        .hits
+        .hits
+        .into_iter()
+        .map(|hit| hit.source)
+        .collect::<Vec<_>>();
+
+    assert_eq!(expected.len(), actual_products.len());
+    assert!(
+        actual_products
+            .iter()
+            .all(|product| product.origin_year_min.unwrap() >= Year::from(1836))
+    );
+}
+
+#[localstack_test(services = [OpenSearch()])]
+async fn should_search_product_documents_when_only_max_year_is_given_for_stored_year_range() {
+    let civilians = fake::vec![ProductDocument; 50]
+        .into_iter()
+        .map(|mut product| {
+            let year1 = rand::random_range(1836..=1837).into();
+            let year2 = rand::random_range(1838..=1840).into();
+            product.title_de = Some("The same title".into());
+            product.origin_year_min = Some(year1);
+            product.origin_year_max = Some(year2);
+            product.description_de = None;
+            product.description_en = None;
+            product.description_fr = None;
+            product.description_es = None;
+            product
+        })
+        .collect::<Vec<_>>();
+    let expected = fake::vec![ProductDocument; 42]
+        .into_iter()
+        .map(|mut product| {
+            let year1 = rand::random_range(1830..=1833).into();
+            let year2 = rand::random_range(1834..=1835).into();
+            product.title_de = Some("The same title".into());
+            product.origin_year_min = Some(year1);
+            product.origin_year_max = Some(year2);
+            product.description_de = None;
+            product.description_en = None;
+            product.description_fr = None;
+            product.description_es = None;
+            product
+        })
+        .collect::<Vec<_>>();
+    let products = [civilians, expected.clone()].concat();
+    let client = get_opensearch_client().await;
+    let repository = ProductOpenSearchRepositoryImpl::new(client);
+    let response = repository
+        .create_product_documents(products.clone())
+        .await
+        .unwrap();
+    assert!(!response.errors);
+    refresh_index("products").await;
+    tokio::time::sleep(Duration::from_millis(5000)).await;
+
+    let search_filter = ProductSearch {
+        language: Language::De,
+        currency: Currency::Eur,
+        product_query: "The same title".try_into().unwrap(),
+        shop_name_query: None,
+        price_query: None,
+        state_query: Default::default(),
+        origin_year_query: Some(RangeQuery {
+            min: None,
+            max: Some(1835.into()),
+        }),
+        authenticity_query: Default::default(),
+        condition_query: Default::default(),
+        provenance_query: Default::default(),
+        restoration_query: Default::default(),
+        created_query: None,
+        updated_query: None,
+    };
+    let response = repository
+        .search_product_documents(
+            &search_filter,
+            &Sort {
+                sort: SortProductField::Score,
+                order: SortOrder::Desc,
+            },
+            &Some(Cursor {
+                size: 100,
+                search_after: None,
+            }),
+        )
+        .await
+        .unwrap();
+    let actual_products = response
+        .hits
+        .hits
+        .into_iter()
+        .map(|hit| hit.source)
+        .collect::<Vec<_>>();
+
+    assert_eq!(expected.len(), actual_products.len());
+    assert!(
+        actual_products
+            .iter()
+            .all(|product| product.origin_year_max.unwrap() <= Year::from(1835))
+    );
+}
+
+#[localstack_test(services = [OpenSearch()])]
+async fn should_search_product_documents_when_min_and_max_year_is_given_for_stored_year_range() {
+    let civilians = fake::vec![ProductDocument; 50]
+        .into_iter()
+        .map(|mut product| {
+            let year1 = rand::random_range(1830..=1831).into();
+            let year2 = rand::random_range(1832..=1833).into();
+            product.title_de = Some("The same title".into());
+            product.origin_year_min = Some(year1);
+            product.origin_year_max = Some(year2);
+            product.description_de = None;
+            product.description_en = None;
+            product.description_fr = None;
+            product.description_es = None;
+            product
+        })
+        .collect::<Vec<_>>();
+    let expected = fake::vec![ProductDocument; 42]
+        .into_iter()
+        .map(|mut product| {
+            let year1 = rand::random_range(1836..=1838).into();
+            let year2 = rand::random_range(1839..=1840).into();
+            product.title_de = Some("The same title".into());
+            product.origin_year_min = Some(year1);
+            product.origin_year_max = Some(year2);
+            product.description_de = None;
+            product.description_en = None;
+            product.description_fr = None;
+            product.description_es = None;
+            product
+        })
+        .collect::<Vec<_>>();
+    let products = [civilians, expected.clone()].concat();
+    let client = get_opensearch_client().await;
+    let repository = ProductOpenSearchRepositoryImpl::new(client);
+    let response = repository
+        .create_product_documents(products.clone())
+        .await
+        .unwrap();
+    assert!(!response.errors);
+    refresh_index("products").await;
+    tokio::time::sleep(Duration::from_millis(5000)).await;
+
+    let search_filter = ProductSearch {
+        language: Language::De,
+        currency: Currency::Eur,
+        product_query: "The same title".try_into().unwrap(),
+        shop_name_query: None,
+        price_query: None,
+        state_query: Default::default(),
+        origin_year_query: Some(RangeQuery {
+            min: Some(1835.into()),
+            max: Some(1845.into()),
+        }),
+        authenticity_query: Default::default(),
+        condition_query: Default::default(),
+        provenance_query: Default::default(),
+        restoration_query: Default::default(),
+        created_query: None,
+        updated_query: None,
+    };
+    let response = repository
+        .search_product_documents(
+            &search_filter,
+            &Sort {
+                sort: SortProductField::Score,
+                order: SortOrder::Desc,
+            },
+            &Some(Cursor {
+                size: 100,
+                search_after: None,
+            }),
+        )
+        .await
+        .unwrap();
+    let actual_products = response
+        .hits
+        .hits
+        .into_iter()
+        .map(|hit| hit.source)
+        .collect::<Vec<_>>();
+
+    assert_eq!(expected.len(), actual_products.len());
+    assert!(
+        actual_products.iter().all(
+            |product| product.origin_year_min.unwrap() >= Year::from(1834)
+                && product.origin_year_max.unwrap() <= Year::from(1843)
+        )
+    );
 }

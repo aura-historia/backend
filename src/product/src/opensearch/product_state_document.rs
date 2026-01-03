@@ -3,7 +3,9 @@ use common::product_state::domain::ProductState;
 use serde::{Deserialize, Serialize};
 
 #[cfg_attr(feature = "test-data", derive(fake::Dummy))]
-#[derive(Copy, Clone, Eq, PartialEq, Debug, Serialize, Deserialize)]
+#[derive(
+    Copy, Clone, Eq, PartialEq, Debug, Hash, Serialize, Deserialize, strum_macros::EnumCount,
+)]
 #[serde(rename_all = "SCREAMING_SNAKE_CASE")]
 pub enum ProductStateDocument {
     Listed,

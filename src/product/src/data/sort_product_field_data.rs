@@ -7,6 +7,7 @@ pub enum SortProductFieldData {
     #[default]
     Score,
     Price,
+    OriginYear,
     Updated,
     Created,
 }
@@ -16,6 +17,7 @@ impl SortProductFieldData {
         match self {
             SortProductFieldData::Score => "score",
             SortProductFieldData::Price => "price",
+            SortProductFieldData::OriginYear => "originYear",
             SortProductFieldData::Updated => "updated",
             SortProductFieldData::Created => "created",
         }
@@ -38,7 +40,7 @@ impl<'a> TryFrom<&'a str> for SortProductFieldData {
             "updated" => Ok(SortProductFieldData::Updated),
             "created" => Ok(SortProductFieldData::Created),
             invalid => Err(format!(
-                "Expected any of: 'score', 'price', 'updated', 'created'. Got: '{invalid}'"
+                "Expected any of: 'score', 'price', 'originYear, 'updated', 'created'. Got: '{invalid}'"
             )),
         }
     }
@@ -49,6 +51,7 @@ impl From<SortProductFieldData> for SortProductField {
         match value {
             SortProductFieldData::Score => SortProductField::Score,
             SortProductFieldData::Price => SortProductField::Price,
+            SortProductFieldData::OriginYear => SortProductField::OriginYear,
             SortProductFieldData::Updated => SortProductField::Updated,
             SortProductFieldData::Created => SortProductField::Created,
         }
@@ -57,13 +60,13 @@ impl From<SortProductFieldData> for SortProductField {
 
 #[cfg(test)]
 mod tests {
-    use rstest;
-
     use crate::data::sort_product_field_data::SortProductFieldData;
+    use rstest;
 
     #[rstest::rstest]
     #[case(SortProductFieldData::Score)]
     #[case(SortProductFieldData::Price)]
+    #[case(SortProductFieldData::OriginYear)]
     #[case(SortProductFieldData::Created)]
     #[case(SortProductFieldData::Updated)]
     #[trace]

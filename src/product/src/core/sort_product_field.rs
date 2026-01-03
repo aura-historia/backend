@@ -3,6 +3,7 @@ pub enum SortProductField {
     #[default]
     Score,
     Price,
+    OriginYear,
     Updated,
     Created,
 }
