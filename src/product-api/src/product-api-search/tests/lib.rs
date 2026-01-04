@@ -994,7 +994,7 @@ async fn should_200_when_updated_query(
 #[test_attr(apply(test))]
 #[case(None, None)]
 #[case(Some(1813.into()), None)]
-#[case(Some(1837.into()), None)]
+#[case(Some(1808.into()), None)]
 #[case(None, Some(1813.into()))]
 #[case(None, Some(1905.into()))]
 #[case(Some(1800.into()), Some(1900.into()))]
