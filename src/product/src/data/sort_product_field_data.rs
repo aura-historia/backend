@@ -2,7 +2,7 @@ use crate::core::sort_product_field::SortProductField;
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
-#[serde(rename_all = "lowercase")]
+#[serde(rename_all = "camelCase")]
 pub enum SortProductFieldData {
     #[default]
     Score,
@@ -37,10 +37,11 @@ impl<'a> TryFrom<&'a str> for SortProductFieldData {
         match value {
             "score" => Ok(SortProductFieldData::Score),
             "price" => Ok(SortProductFieldData::Price),
+            "originYear" => Ok(SortProductFieldData::OriginYear),
             "updated" => Ok(SortProductFieldData::Updated),
             "created" => Ok(SortProductFieldData::Created),
             invalid => Err(format!(
-                "Expected any of: 'score', 'price', 'originYear, 'updated', 'created'. Got: '{invalid}'"
+                "Expected any of: 'score', 'price', 'originYear', 'updated', 'created'. Got: '{invalid}'"
             )),
         }
     }

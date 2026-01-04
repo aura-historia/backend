@@ -563,6 +563,249 @@ async fn should_200_when_following_search_after_from_previous_response_for_expli
     }))
 }
 
+#[localstack_test(services = [OpenSearch(), DynamoDB()])]
+async fn should_200_when_following_search_after_from_previous_response_for_sort_year_asc() {
+    let ddb_client = get_dynamodb_client().await;
+    let watchlist_repository = WatchlistProductDynamoDbRepositoryImpl::new(ddb_client, "table_1");
+    let product_personalization_service =
+        ProductPersonalizationServiceImpl::new(&watchlist_repository);
+    let opensearch_repository = ProductOpenSearchRepositoryImpl::new(get_opensearch_client().await);
+    let query_service = QueryProductServiceImpl::new(&opensearch_repository);
+    let mut access_token_verifier_service = MockAccessTokenVerifierService::default();
+    access_token_verifier_service
+        .expect_verify_extract_user_id()
+        .returning(|_| Box::pin(async { Ok(None) }));
+
+    let search = ProductSearchData {
+        language: common::language::data::LanguageData::De,
+        currency: common::currency::data::CurrencyData::Usd,
+        product_query: "Der erwartete Titel".try_into().unwrap(),
+        shop_name_query: None,
+        price_query: None,
+        state_query: Default::default(),
+        origin_year_query: None,
+        authenticity_query: Default::default(),
+        condition_query: Default::default(),
+        provenance_query: Default::default(),
+        restoration_query: Default::default(),
+        created_query: None,
+        updated_query: None,
+    };
+
+    let mut products = fake::vec![ProductDocument; 1370];
+    for product in &mut products {
+        product.title_de = Some("Der erwartete Titel".to_string());
+        product.origin_year = Some(rand::random_range(1300..=1925).into());
+    }
+    let create_res = opensearch_repository
+        .create_product_documents(products.clone())
+        .await
+        .unwrap();
+    assert!(!create_res.errors);
+    refresh_index("products").await;
+    tokio::time::sleep(std::time::Duration::from_secs(10)).await;
+
+    // first request
+    let lambda_event_1 = LambdaEvent {
+        payload: ApiGatewayV2httpRequestProxy::builder()
+            .http_method(http::Method::POST)
+            .query_string_parameter("size", "50")
+            .query_string_parameter("sort", "originYear")
+            .query_string_parameter("order", "asc")
+            .body_serde(&search)
+            .build(),
+        context: Default::default(),
+    };
+
+    let response_1 = handler(
+        lambda_event_1,
+        &query_service,
+        &access_token_verifier_service,
+        &product_personalization_service,
+    )
+    .await
+    .unwrap();
+    assert_eq!(200, response_1.status_code);
+    let json = extract_apigw_response_json_body!(response_1);
+    let response_data: JsonCursoredData<PersonalizedData<GetProductData, ProductUserStateData>> =
+        serde_json::from_value(json).unwrap();
+    assert_eq!(50, response_data.size);
+    assert_eq!(1370, response_data.total.unwrap());
+    assert!(
+        response_data
+            .items
+            .windows(2)
+            .all(|prods| prods[0].item.origin_year <= prods[1].item.origin_year)
+    );
+
+    // second request following up on first
+    let lambda_event_2 = LambdaEvent {
+        payload: ApiGatewayV2httpRequestProxy::builder()
+            .http_method(http::Method::POST)
+            .query_string_parameter("size", "50")
+            .query_string_parameter("sort", "originYear")
+            .query_string_parameter("order", "asc")
+            .query_string_parameter(
+                "searchAfter",
+                serde_json::to_string(&response_data.search_after.unwrap()).unwrap(),
+            )
+            .body_serde(&search)
+            .build(),
+        context: Default::default(),
+    };
+
+    let response_2 = handler(
+        lambda_event_2,
+        &query_service,
+        &access_token_verifier_service,
+        &product_personalization_service,
+    )
+    .await
+    .unwrap();
+    assert_eq!(200, response_2.status_code);
+    let json_2 = extract_apigw_response_json_body!(response_2);
+    let response_data_2: JsonCursoredData<PersonalizedData<GetProductData, ProductUserStateData>> =
+        serde_json::from_value(json_2).unwrap();
+    assert_eq!(50, response_data_2.size);
+    assert_eq!(1370, response_data_2.total.unwrap());
+
+    assert!(response_data_2.items.iter().all(|item| {
+        !response_data
+            .items
+            .iter()
+            .map(|item| item.item.product_id)
+            .collect::<Vec<_>>()
+            .contains(&item.item.product_id)
+    }));
+    assert!(
+        response_data_2
+            .items
+            .windows(2)
+            .all(|prods| prods[0].item.origin_year <= prods[1].item.origin_year)
+    );
+}
+
+#[localstack_test(services = [OpenSearch(), DynamoDB()])]
+async fn should_200_when_following_search_after_from_previous_response_for_sort_year_desc() {
+    let ddb_client = get_dynamodb_client().await;
+    let watchlist_repository = WatchlistProductDynamoDbRepositoryImpl::new(ddb_client, "table_1");
+    let product_personalization_service =
+        ProductPersonalizationServiceImpl::new(&watchlist_repository);
+    let opensearch_repository = ProductOpenSearchRepositoryImpl::new(get_opensearch_client().await);
+    let query_service = QueryProductServiceImpl::new(&opensearch_repository);
+    let mut access_token_verifier_service = MockAccessTokenVerifierService::default();
+    access_token_verifier_service
+        .expect_verify_extract_user_id()
+        .returning(|_| Box::pin(async { Ok(None) }));
+
+    let search = ProductSearchData {
+        language: common::language::data::LanguageData::De,
+        currency: common::currency::data::CurrencyData::Usd,
+        product_query: "Der erwartete Titel".try_into().unwrap(),
+        shop_name_query: None,
+        price_query: None,
+        state_query: Default::default(),
+        origin_year_query: None,
+        authenticity_query: Default::default(),
+        condition_query: Default::default(),
+        provenance_query: Default::default(),
+        restoration_query: Default::default(),
+        created_query: None,
+        updated_query: None,
+    };
+
+    let mut products = fake::vec![ProductDocument; 1370];
+    for product in &mut products {
+        product.title_de = Some("Der erwartete Titel".to_string());
+    }
+    let create_res = opensearch_repository
+        .create_product_documents(products.clone())
+        .await
+        .unwrap();
+    assert!(!create_res.errors);
+    refresh_index("products").await;
+    tokio::time::sleep(std::time::Duration::from_secs(10)).await;
+
+    // first request
+    let lambda_event_1 = LambdaEvent {
+        payload: ApiGatewayV2httpRequestProxy::builder()
+            .http_method(http::Method::POST)
+            .query_string_parameter("size", "5")
+            .query_string_parameter("sort", "originYear")
+            .query_string_parameter("order", "desc")
+            .body_serde(&search)
+            .build(),
+        context: Default::default(),
+    };
+
+    let response_1 = handler(
+        lambda_event_1,
+        &query_service,
+        &access_token_verifier_service,
+        &product_personalization_service,
+    )
+    .await
+    .unwrap();
+    assert_eq!(200, response_1.status_code);
+    let json = extract_apigw_response_json_body!(response_1);
+    let response_data: JsonCursoredData<PersonalizedData<GetProductData, ProductUserStateData>> =
+        serde_json::from_value(json).unwrap();
+    assert_eq!(5, response_data.size);
+    assert_eq!(1370, response_data.total.unwrap());
+    assert!(
+        response_data
+            .items
+            .windows(2)
+            .all(|prods| prods[0].item.origin_year >= prods[1].item.origin_year)
+    );
+
+    // second request following up on first
+    let lambda_event_2 = LambdaEvent {
+        payload: ApiGatewayV2httpRequestProxy::builder()
+            .http_method(http::Method::POST)
+            .query_string_parameter("size", "5")
+            .query_string_parameter("sort", "originYear")
+            .query_string_parameter("order", "desc")
+            .query_string_parameter(
+                "searchAfter",
+                serde_json::to_string(&response_data.search_after.unwrap()).unwrap(),
+            )
+            .body_serde(&search)
+            .build(),
+        context: Default::default(),
+    };
+
+    let response_2 = handler(
+        lambda_event_2,
+        &query_service,
+        &access_token_verifier_service,
+        &product_personalization_service,
+    )
+    .await
+    .unwrap();
+    assert_eq!(200, response_2.status_code);
+    let json_2 = extract_apigw_response_json_body!(response_2);
+    let response_data_2: JsonCursoredData<PersonalizedData<GetProductData, ProductUserStateData>> =
+        serde_json::from_value(json_2).unwrap();
+    assert_eq!(5, response_data_2.size);
+    assert_eq!(1370, response_data_2.total.unwrap());
+
+    assert!(response_data_2.items.iter().all(|item| {
+        !response_data
+            .items
+            .iter()
+            .map(|item| item.item.product_id)
+            .collect::<Vec<_>>()
+            .contains(&item.item.product_id)
+    }));
+    assert!(
+        response_data_2
+            .items
+            .windows(2)
+            .all(|prods| prods[0].item.origin_year >= prods[1].item.origin_year)
+    );
+}
+
 #[rstest::rstest]
 #[test_attr(apply(test))]
 #[case(None, None)]
