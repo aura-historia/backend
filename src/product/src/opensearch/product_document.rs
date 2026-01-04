@@ -227,6 +227,13 @@ mod faker {
     impl Dummy<Faker> for ProductDocument {
         fn dummy_with_rng<R: Rng + ?Sized>(config: &Faker, rng: &mut R) -> Self {
             let state: ProductStateDocument = config.fake_with_rng(rng);
+            let origin_year_min = fake::rand::random_range(1807..=1815).into();
+            let origin_year_max = fake::rand::random_range(1815..=1819).into();
+            let origin_year = if origin_year_min == origin_year_max {
+                Some(origin_year_min)
+            } else {
+                None
+            };
             ProductDocument {
                 product_id: config.fake_with_rng(rng),
                 event_id: config.fake_with_rng(rng),
@@ -275,9 +282,9 @@ mod faker {
                     .unwrap(),
                 ],
                 text_embedding: None,
-                origin_year_min: config.fake_with_rng(rng),
-                origin_year: config.fake_with_rng(rng),
-                origin_year_max: config.fake_with_rng(rng),
+                origin_year_min: Some(origin_year_min),
+                origin_year,
+                origin_year_max: Some(origin_year_max),
                 authenticity: config.fake_with_rng(rng),
                 condition: config.fake_with_rng(rng),
                 provenance: config.fake_with_rng(rng),

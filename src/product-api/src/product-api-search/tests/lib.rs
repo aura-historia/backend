@@ -4,12 +4,17 @@ use common::language::data::LanguageData;
 use common::language::document::{LanguageDocument, TextDocument};
 use common::language::domain::Language;
 use common::personalized::api::PersonalizedData;
+use common::year::Year;
 use common::{pagination::cursor::api::JsonCursoredData, query::range_query::RangeQuery};
 use fake::{Fake, Faker, rand};
 use http::header::ACCEPT_LANGUAGE;
 use lambda_runtime::LambdaEvent;
+use product::data::authenticity_data::AuthenticityData;
+use product::data::condition_data::ConditionData;
 use product::data::get_data::GetProductData;
 use product::data::product_search_data::ProductSearchData;
+use product::data::provenance_data::ProvenanceData;
+use product::data::restoration_data::RestorationData;
 use product::data::user_state_data::ProductUserStateData;
 use product::opensearch::{
     product_document::ProductDocument,
@@ -19,6 +24,7 @@ use product::service::personalization_service::ProductPersonalizationServiceImpl
 use product::service::query_service::QueryProductServiceImpl;
 use product::watchlist::dynamodb::repository::WatchlistProductDynamoDbRepositoryImpl;
 use product_api_search::handler;
+use std::collections::HashSet;
 use std::time::Duration;
 use test_api::*;
 use time::OffsetDateTime;
@@ -558,12 +564,12 @@ async fn should_200_when_following_search_after_from_previous_response_for_expli
 }
 
 #[rstest::rstest]
-#[trace]
 #[test_attr(apply(test))]
 #[case(None, None)]
 #[case(None, Some(OffsetDateTime::now_utc().checked_add(time::Duration::seconds(60)).unwrap()))]
 #[case(Some(datetime!(2000 - 01 - 05 0:00 UTC)), None)]
 #[case(Some(datetime!(2025 - 01 - 05 0:00 UTC)), Some(OffsetDateTime::now_utc().checked_add(time::Duration::seconds(30)).unwrap()))]
+#[trace]
 #[localstack_test(services = [OpenSearch(), DynamoDB()])]
 async fn should_200_when_created_query(
     #[case] min: Option<OffsetDateTime>,
@@ -650,12 +656,12 @@ async fn should_200_when_created_query(
 }
 
 #[rstest::rstest]
-#[trace]
 #[test_attr(apply(test))]
 #[case(None, None)]
 #[case(None, Some(OffsetDateTime::now_utc().checked_add(time::Duration::seconds(60)).unwrap()))]
 #[case(Some(datetime!(2000 - 01 - 05 0:00 UTC)), None)]
 #[case(Some(datetime!(2025 - 01 - 05 0:00 UTC)), Some(OffsetDateTime::now_utc().checked_add(time::Duration::seconds(30)).unwrap()))]
+#[trace]
 #[localstack_test(services = [OpenSearch(), DynamoDB()])]
 async fn should_200_when_updated_query(
     #[case] min: Option<OffsetDateTime>,
@@ -739,6 +745,429 @@ async fn should_200_when_updated_query(
                 .all(|item| item.item.updated <= max)
         );
     }
+}
+
+#[rstest::rstest]
+#[test_attr(apply(test))]
+#[case(None, None)]
+#[case(Some(1813.into()), None)]
+#[case(Some(1837.into()), None)]
+#[case(None, Some(1813.into()))]
+#[case(None, Some(1905.into()))]
+#[case(Some(1800.into()), Some(1900.into()))]
+#[case(Some(1809.into()), Some(1811.into()))]
+#[case(Some(1807.into()), Some(1848.into()))]
+#[trace]
+#[localstack_test(services = [OpenSearch(), DynamoDB()])]
+async fn should_200_when_year_query(#[case] min: Option<Year>, #[case] max: Option<Year>) {
+    let ddb_client = get_dynamodb_client().await;
+    let watchlist_repository = WatchlistProductDynamoDbRepositoryImpl::new(ddb_client, "table_1");
+    let product_personalization_service =
+        ProductPersonalizationServiceImpl::new(&watchlist_repository);
+    let opensearch_repository = ProductOpenSearchRepositoryImpl::new(get_opensearch_client().await);
+    let query_service = QueryProductServiceImpl::new(&opensearch_repository);
+    let mut access_token_verifier_service = MockAccessTokenVerifierService::default();
+    access_token_verifier_service
+        .expect_verify_extract_user_id()
+        .returning(|_| Box::pin(async { Ok(None) }));
+
+    let search = ProductSearchData {
+        language: common::language::data::LanguageData::De,
+        currency: common::currency::data::CurrencyData::Eur,
+        product_query: "Der erwartete Titel".try_into().unwrap(),
+        shop_name_query: None,
+        price_query: None,
+        state_query: Default::default(),
+        origin_year_query: Some(RangeQuery { min, max }),
+        authenticity_query: Default::default(),
+        condition_query: Default::default(),
+        provenance_query: Default::default(),
+        restoration_query: Default::default(),
+        created_query: None,
+        updated_query: None,
+    };
+    let lambda_event = LambdaEvent {
+        payload: ApiGatewayV2httpRequestProxy::builder()
+            .http_method(http::Method::POST)
+            .body_serde(&search)
+            .build(),
+        context: Default::default(),
+    };
+
+    let mut products = fake::vec![ProductDocument; 1370];
+    for product in &mut products {
+        product.title_de = Some("Der erwartete Titel".to_string());
+    }
+    let create_res = opensearch_repository
+        .create_product_documents(products.clone())
+        .await
+        .unwrap();
+    assert!(!create_res.errors);
+    refresh_index("products").await;
+    tokio::time::sleep(std::time::Duration::from_secs(10)).await;
+
+    let response = handler(
+        lambda_event,
+        &query_service,
+        &access_token_verifier_service,
+        &product_personalization_service,
+    )
+    .await
+    .unwrap();
+    assert_eq!(200, response.status_code);
+
+    let json = extract_apigw_response_json_body!(response);
+    let response_data: JsonCursoredData<PersonalizedData<GetProductData, ProductUserStateData>> =
+        serde_json::from_value(json).unwrap();
+    assert!(!response_data.items.is_empty());
+
+    if let Some(min) = min {
+        assert!(
+            response_data
+                .items
+                .iter()
+                .filter_map(|item| item.item.origin_year)
+                .all(|actual| actual >= min)
+        );
+    }
+    if let Some(max) = max {
+        assert!(
+            response_data
+                .items
+                .iter()
+                .filter_map(|item| item.item.origin_year)
+                .all(|actual| actual <= max)
+        );
+    }
+}
+
+#[rstest::rstest]
+#[test_attr(apply(test))]
+#[case([AuthenticityData::Original].into())]
+#[case([AuthenticityData::Original, AuthenticityData::Questionable].into())]
+#[case([AuthenticityData::LaterCopy, AuthenticityData::Reproduction].into())]
+#[case([AuthenticityData::Original, AuthenticityData::LaterCopy, AuthenticityData::Reproduction].into())]
+#[case([AuthenticityData::Original, AuthenticityData::LaterCopy, AuthenticityData::Reproduction, AuthenticityData::Questionable].into())]
+#[case([AuthenticityData::Original, AuthenticityData::Reproduction, AuthenticityData::Questionable].into())]
+#[case([AuthenticityData::Original, AuthenticityData::LaterCopy, AuthenticityData::Reproduction, AuthenticityData::Questionable, AuthenticityData::Unknown].into())]
+#[trace]
+#[localstack_test(services = [OpenSearch(), DynamoDB()])]
+async fn should_200_when_authenticity_query(#[case] query: HashSet<AuthenticityData>) {
+    let ddb_client = get_dynamodb_client().await;
+    let watchlist_repository = WatchlistProductDynamoDbRepositoryImpl::new(ddb_client, "table_1");
+    let product_personalization_service =
+        ProductPersonalizationServiceImpl::new(&watchlist_repository);
+    let opensearch_repository = ProductOpenSearchRepositoryImpl::new(get_opensearch_client().await);
+    let query_service = QueryProductServiceImpl::new(&opensearch_repository);
+    let mut access_token_verifier_service = MockAccessTokenVerifierService::default();
+    access_token_verifier_service
+        .expect_verify_extract_user_id()
+        .returning(|_| Box::pin(async { Ok(None) }));
+
+    let search = ProductSearchData {
+        language: common::language::data::LanguageData::De,
+        currency: common::currency::data::CurrencyData::Eur,
+        product_query: "Der erwartete Titel".try_into().unwrap(),
+        shop_name_query: None,
+        price_query: None,
+        state_query: Default::default(),
+        origin_year_query: None,
+        authenticity_query: query.clone(),
+        condition_query: Default::default(),
+        provenance_query: Default::default(),
+        restoration_query: Default::default(),
+        created_query: None,
+        updated_query: None,
+    };
+    let lambda_event = LambdaEvent {
+        payload: ApiGatewayV2httpRequestProxy::builder()
+            .http_method(http::Method::POST)
+            .body_serde(&search)
+            .build(),
+        context: Default::default(),
+    };
+
+    let mut products = fake::vec![ProductDocument; 1370];
+    for product in &mut products {
+        product.title_de = Some("Der erwartete Titel".to_string());
+    }
+    let create_res = opensearch_repository
+        .create_product_documents(products.clone())
+        .await
+        .unwrap();
+    assert!(!create_res.errors);
+    refresh_index("products").await;
+    tokio::time::sleep(std::time::Duration::from_secs(10)).await;
+
+    let response = handler(
+        lambda_event,
+        &query_service,
+        &access_token_verifier_service,
+        &product_personalization_service,
+    )
+    .await
+    .unwrap();
+    assert_eq!(200, response.status_code);
+
+    let json = extract_apigw_response_json_body!(response);
+    let response_data: JsonCursoredData<PersonalizedData<GetProductData, ProductUserStateData>> =
+        serde_json::from_value(json).unwrap();
+    assert!(!response_data.items.is_empty());
+    assert!(
+        response_data
+            .items
+            .iter()
+            .filter_map(|item| item.item.authenticity)
+            .all(|actual| query.contains(&actual))
+    );
+}
+
+#[rstest::rstest]
+#[test_attr(apply(test))]
+#[case([ConditionData::Excellent].into())]
+#[case([ConditionData::Excellent, ConditionData::Great].into())]
+#[case([ConditionData::Excellent, ConditionData::Poor].into())]
+#[case([ConditionData::Excellent, ConditionData::Great, ConditionData::Good].into())]
+#[case([ConditionData::Excellent, ConditionData::Fair, ConditionData::Good].into())]
+#[case([ConditionData::Excellent, ConditionData::Great, ConditionData::Good, ConditionData::Fair].into())]
+#[case([ConditionData::Excellent, ConditionData::Unknown, ConditionData::Good, ConditionData::Poor].into())]
+#[case([ConditionData::Excellent, ConditionData::Great, ConditionData::Good, ConditionData::Fair].into())]
+#[case([ConditionData::Excellent, ConditionData::Great, ConditionData::Good, ConditionData::Fair, ConditionData::Poor].into())]
+#[case([ConditionData::Excellent, ConditionData::Great, ConditionData::Good, ConditionData::Fair, ConditionData::Poor, ConditionData::Unknown].into())]
+#[trace]
+#[localstack_test(services = [OpenSearch(), DynamoDB()])]
+async fn should_200_when_condition_query(#[case] query: HashSet<ConditionData>) {
+    let ddb_client = get_dynamodb_client().await;
+    let watchlist_repository = WatchlistProductDynamoDbRepositoryImpl::new(ddb_client, "table_1");
+    let product_personalization_service =
+        ProductPersonalizationServiceImpl::new(&watchlist_repository);
+    let opensearch_repository = ProductOpenSearchRepositoryImpl::new(get_opensearch_client().await);
+    let query_service = QueryProductServiceImpl::new(&opensearch_repository);
+    let mut access_token_verifier_service = MockAccessTokenVerifierService::default();
+    access_token_verifier_service
+        .expect_verify_extract_user_id()
+        .returning(|_| Box::pin(async { Ok(None) }));
+
+    let search = ProductSearchData {
+        language: common::language::data::LanguageData::De,
+        currency: common::currency::data::CurrencyData::Eur,
+        product_query: "Der erwartete Titel".try_into().unwrap(),
+        shop_name_query: None,
+        price_query: None,
+        state_query: Default::default(),
+        origin_year_query: None,
+        authenticity_query: Default::default(),
+        condition_query: query.clone(),
+        provenance_query: Default::default(),
+        restoration_query: Default::default(),
+        created_query: None,
+        updated_query: None,
+    };
+    let lambda_event = LambdaEvent {
+        payload: ApiGatewayV2httpRequestProxy::builder()
+            .http_method(http::Method::POST)
+            .body_serde(&search)
+            .build(),
+        context: Default::default(),
+    };
+
+    let mut products = fake::vec![ProductDocument; 1370];
+    for product in &mut products {
+        product.title_de = Some("Der erwartete Titel".to_string());
+    }
+    let create_res = opensearch_repository
+        .create_product_documents(products.clone())
+        .await
+        .unwrap();
+    assert!(!create_res.errors);
+    refresh_index("products").await;
+    tokio::time::sleep(std::time::Duration::from_secs(10)).await;
+
+    let response = handler(
+        lambda_event,
+        &query_service,
+        &access_token_verifier_service,
+        &product_personalization_service,
+    )
+    .await
+    .unwrap();
+    assert_eq!(200, response.status_code);
+
+    let json = extract_apigw_response_json_body!(response);
+    let response_data: JsonCursoredData<PersonalizedData<GetProductData, ProductUserStateData>> =
+        serde_json::from_value(json).unwrap();
+    assert!(!response_data.items.is_empty());
+    assert!(
+        response_data
+            .items
+            .iter()
+            .filter_map(|item| item.item.condition)
+            .all(|actual| query.contains(&actual))
+    );
+}
+
+#[rstest::rstest]
+#[test_attr(apply(test))]
+#[case([ProvenanceData::Complete].into())]
+#[case([ProvenanceData::Unknown].into())]
+#[case([ProvenanceData::Complete, ProvenanceData::Partial].into())]
+#[case([ProvenanceData::Unknown, ProvenanceData::None].into())]
+#[case([ProvenanceData::Complete, ProvenanceData::Partial, ProvenanceData::Claimed].into())]
+#[case([ProvenanceData::Complete, ProvenanceData::Unknown, ProvenanceData::Claimed].into())]
+#[case([ProvenanceData::Complete, ProvenanceData::Partial, ProvenanceData::Claimed, ProvenanceData::None].into())]
+#[case([ProvenanceData::Complete, ProvenanceData::Partial, ProvenanceData::Claimed, ProvenanceData::None, ProvenanceData::Unknown].into())]
+#[trace]
+#[localstack_test(services = [OpenSearch(), DynamoDB()])]
+async fn should_200_when_provenance_query(#[case] query: HashSet<ProvenanceData>) {
+    let ddb_client = get_dynamodb_client().await;
+    let watchlist_repository = WatchlistProductDynamoDbRepositoryImpl::new(ddb_client, "table_1");
+    let product_personalization_service =
+        ProductPersonalizationServiceImpl::new(&watchlist_repository);
+    let opensearch_repository = ProductOpenSearchRepositoryImpl::new(get_opensearch_client().await);
+    let query_service = QueryProductServiceImpl::new(&opensearch_repository);
+    let mut access_token_verifier_service = MockAccessTokenVerifierService::default();
+    access_token_verifier_service
+        .expect_verify_extract_user_id()
+        .returning(|_| Box::pin(async { Ok(None) }));
+
+    let search = ProductSearchData {
+        language: common::language::data::LanguageData::De,
+        currency: common::currency::data::CurrencyData::Eur,
+        product_query: "Der erwartete Titel".try_into().unwrap(),
+        shop_name_query: None,
+        price_query: None,
+        state_query: Default::default(),
+        origin_year_query: None,
+        authenticity_query: Default::default(),
+        condition_query: Default::default(),
+        provenance_query: query.clone(),
+        restoration_query: Default::default(),
+        created_query: None,
+        updated_query: None,
+    };
+    let lambda_event = LambdaEvent {
+        payload: ApiGatewayV2httpRequestProxy::builder()
+            .http_method(http::Method::POST)
+            .body_serde(&search)
+            .build(),
+        context: Default::default(),
+    };
+
+    let mut products = fake::vec![ProductDocument; 1370];
+    for product in &mut products {
+        product.title_de = Some("Der erwartete Titel".to_string());
+    }
+    let create_res = opensearch_repository
+        .create_product_documents(products.clone())
+        .await
+        .unwrap();
+    assert!(!create_res.errors);
+    refresh_index("products").await;
+    tokio::time::sleep(std::time::Duration::from_secs(10)).await;
+
+    let response = handler(
+        lambda_event,
+        &query_service,
+        &access_token_verifier_service,
+        &product_personalization_service,
+    )
+    .await
+    .unwrap();
+    assert_eq!(200, response.status_code);
+
+    let json = extract_apigw_response_json_body!(response);
+    let response_data: JsonCursoredData<PersonalizedData<GetProductData, ProductUserStateData>> =
+        serde_json::from_value(json).unwrap();
+    assert!(!response_data.items.is_empty());
+    assert!(
+        response_data
+            .items
+            .iter()
+            .filter_map(|item| item.item.provenance)
+            .all(|actual| query.contains(&actual))
+    );
+}
+
+#[rstest::rstest]
+#[test_attr(apply(test))]
+#[case([RestorationData::Major].into())]
+#[case([RestorationData::Minor].into())]
+#[case([RestorationData::None].into())]
+#[case([RestorationData::Major, RestorationData::Minor].into())]
+#[case([RestorationData::None, RestorationData::Minor].into())]
+#[case([RestorationData::None, RestorationData::Unknown].into())]
+#[case([RestorationData::Major, RestorationData::Minor, RestorationData::None].into())]
+#[case([RestorationData::Major, RestorationData::Minor, RestorationData::None, RestorationData::Unknown].into())]
+#[trace]
+#[localstack_test(services = [OpenSearch(), DynamoDB()])]
+async fn should_200_when_restoration_query(#[case] query: HashSet<RestorationData>) {
+    let ddb_client = get_dynamodb_client().await;
+    let watchlist_repository = WatchlistProductDynamoDbRepositoryImpl::new(ddb_client, "table_1");
+    let product_personalization_service =
+        ProductPersonalizationServiceImpl::new(&watchlist_repository);
+    let opensearch_repository = ProductOpenSearchRepositoryImpl::new(get_opensearch_client().await);
+    let query_service = QueryProductServiceImpl::new(&opensearch_repository);
+    let mut access_token_verifier_service = MockAccessTokenVerifierService::default();
+    access_token_verifier_service
+        .expect_verify_extract_user_id()
+        .returning(|_| Box::pin(async { Ok(None) }));
+
+    let search = ProductSearchData {
+        language: common::language::data::LanguageData::De,
+        currency: common::currency::data::CurrencyData::Eur,
+        product_query: "Der erwartete Titel".try_into().unwrap(),
+        shop_name_query: None,
+        price_query: None,
+        state_query: Default::default(),
+        origin_year_query: None,
+        authenticity_query: Default::default(),
+        condition_query: Default::default(),
+        provenance_query: Default::default(),
+        restoration_query: query.clone(),
+        created_query: None,
+        updated_query: None,
+    };
+    let lambda_event = LambdaEvent {
+        payload: ApiGatewayV2httpRequestProxy::builder()
+            .http_method(http::Method::POST)
+            .body_serde(&search)
+            .build(),
+        context: Default::default(),
+    };
+
+    let mut products = fake::vec![ProductDocument; 1370];
+    for product in &mut products {
+        product.title_de = Some("Der erwartete Titel".to_string());
+    }
+    let create_res = opensearch_repository
+        .create_product_documents(products.clone())
+        .await
+        .unwrap();
+    assert!(!create_res.errors);
+    refresh_index("products").await;
+    tokio::time::sleep(std::time::Duration::from_secs(10)).await;
+
+    let response = handler(
+        lambda_event,
+        &query_service,
+        &access_token_verifier_service,
+        &product_personalization_service,
+    )
+    .await
+    .unwrap();
+    assert_eq!(200, response.status_code);
+
+    let json = extract_apigw_response_json_body!(response);
+    let response_data: JsonCursoredData<PersonalizedData<GetProductData, ProductUserStateData>> =
+        serde_json::from_value(json).unwrap();
+    assert!(!response_data.items.is_empty());
+    assert!(
+        response_data
+            .items
+            .iter()
+            .filter_map(|item| item.item.restoration)
+            .all(|actual| query.contains(&actual))
+    );
 }
 
 #[localstack_test(services = [OpenSearch(), DynamoDB()])]
@@ -887,7 +1316,6 @@ async fn should_200_with_native_title_when_no_target_titles_exist_and_hit_due_to
 }
 
 #[rstest::rstest]
-#[trace]
 #[test_attr(apply(test))]
 #[case("de", "German title", Language::De)]
 #[case("de-DE", "German title", Language::De)]
@@ -919,6 +1347,7 @@ async fn should_200_with_native_title_when_no_target_titles_exist_and_hit_due_to
 #[case("es-AR,es;q=0.9", "Spanish title", Language::Es)]
 #[case("fr;q=0.1,de;q=0.2,es;q=0.6", "Spanish title", Language::Es)]
 #[case("*,es;q=0.5", "Spanish title", Language::Es)]
+#[trace]
 #[localstack_test(services = [OpenSearch(), DynamoDB()])]
 async fn should_respond_200_and_respect_accept_language_header(
     #[case] accept_language_header: &str,
