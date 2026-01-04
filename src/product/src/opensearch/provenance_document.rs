@@ -2,7 +2,18 @@ use crate::{core::provenance::Provenance, dynamodb::provenance_record::Provenanc
 use serde::{Deserialize, Serialize};
 
 #[cfg_attr(feature = "test-data", derive(fake::Dummy))]
-#[derive(Copy, Clone, Eq, PartialEq, Debug, Hash, Default, Serialize, Deserialize)]
+#[derive(
+    Copy,
+    Clone,
+    Eq,
+    PartialEq,
+    Debug,
+    Hash,
+    Default,
+    Serialize,
+    Deserialize,
+    strum_macros::EnumCount,
+)]
 #[serde(rename_all = "SCREAMING_SNAKE_CASE")]
 pub enum ProvenanceDocument {
     Complete,
@@ -12,6 +23,18 @@ pub enum ProvenanceDocument {
 
     #[default]
     Unknown,
+}
+
+impl ProvenanceDocument {
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            ProvenanceDocument::Complete => "COMPLETE",
+            ProvenanceDocument::Partial => "PARTIAL",
+            ProvenanceDocument::Claimed => "CLAIMED",
+            ProvenanceDocument::None => "NONE",
+            ProvenanceDocument::Unknown => "UNKNOWN",
+        }
+    }
 }
 
 impl From<ProvenanceRecord> for ProvenanceDocument {
@@ -34,6 +57,18 @@ impl From<ProvenanceDocument> for Provenance {
             ProvenanceDocument::Claimed => Provenance::Claimed,
             ProvenanceDocument::None => Provenance::None,
             ProvenanceDocument::Unknown => Provenance::Unknown,
+        }
+    }
+}
+
+impl From<Provenance> for ProvenanceDocument {
+    fn from(value: Provenance) -> Self {
+        match value {
+            Provenance::Complete => ProvenanceDocument::Complete,
+            Provenance::Partial => ProvenanceDocument::Partial,
+            Provenance::Claimed => ProvenanceDocument::Claimed,
+            Provenance::None => ProvenanceDocument::None,
+            Provenance::Unknown => ProvenanceDocument::Unknown,
         }
     }
 }

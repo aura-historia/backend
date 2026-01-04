@@ -1,12 +1,21 @@
 use common::query::range_query::RangeQuery;
 use common::query::text_query::TextQuery;
+use common::year::Year;
 use common::{
     currency::{data::CurrencyData, domain::Currency},
     language::{data::LanguageData, domain::Language},
     price::domain::MonetaryAmount,
     product_state::domain::ProductState,
 };
+use product::core::authenticity::Authenticity;
+use product::core::condition::Condition;
+use product::core::provenance::Provenance;
+use product::core::restoration::Restoration;
+use product::data::authenticity_data::AuthenticityData;
+use product::data::condition_data::ConditionData;
 use product::data::product_state_data::ProductStateData;
+use product::data::provenance_data::ProvenanceData;
+use product::data::restoration_data::RestorationData;
 use search_filter::core::user_search_filter_name::UserSearchFilterName;
 use search_filter::service::user_search_filter_update::UserSearchFilterUpdate;
 use serde::{Deserialize, Serialize};
@@ -54,6 +63,33 @@ pub struct PatchProductSearchData {
     pub state_query: Option<HashSet<ProductStateData>>,
 
     #[serde(
+        rename = "originYear",
+        skip_serializing_if = "Option::is_none",
+        default
+    )]
+    pub origin_year_query: Option<RangeQuery<Year>>,
+    #[serde(
+        rename = "authenticity",
+        skip_serializing_if = "Option::is_none",
+        default
+    )]
+    pub authenticity_query: Option<HashSet<AuthenticityData>>,
+    #[serde(rename = "condition", skip_serializing_if = "Option::is_none", default)]
+    pub condition_query: Option<HashSet<ConditionData>>,
+    #[serde(
+        rename = "provenance",
+        skip_serializing_if = "Option::is_none",
+        default
+    )]
+    pub provenance_query: Option<HashSet<ProvenanceData>>,
+    #[serde(
+        rename = "restoration",
+        skip_serializing_if = "Option::is_none",
+        default
+    )]
+    pub restoration_query: Option<HashSet<RestorationData>>,
+
+    #[serde(
         rename = "created",
         with = "common::query::range_query::range_rfc3339::option",
         default,
@@ -99,6 +135,27 @@ impl From<PatchUserSearchFilterData> for UserSearchFilterUpdate {
                     .clone()
                     .map(|states| states.into_iter().map(ProductState::from).collect())
             }),
+            origin_year_query: patch.search.as_ref().and_then(|sf| sf.origin_year_query),
+            authenticity_query: patch.search.as_ref().and_then(|sf| {
+                sf.authenticity_query
+                    .clone()
+                    .map(|values| values.into_iter().map(Authenticity::from).collect())
+            }),
+            condition_query: patch.search.as_ref().and_then(|sf| {
+                sf.condition_query
+                    .clone()
+                    .map(|values| values.into_iter().map(Condition::from).collect())
+            }),
+            provenance_query: patch.search.as_ref().and_then(|sf| {
+                sf.provenance_query
+                    .clone()
+                    .map(|values| values.into_iter().map(Provenance::from).collect())
+            }),
+            restoration_query: patch.search.as_ref().and_then(|sf| {
+                sf.restoration_query
+                    .clone()
+                    .map(|values| values.into_iter().map(Restoration::from).collect())
+            }),
             created_query: patch.search.as_ref().and_then(|sf| sf.created_query),
             updated_query: patch.search.as_ref().and_then(|sf| sf.updated_query),
             updated: OffsetDateTime::now_utc(),
@@ -121,6 +178,11 @@ mod faker {
                 shop_name_query: config.fake_with_rng(rng),
                 price_query: config.fake_with_rng(rng),
                 state_query: config.fake_with_rng(rng),
+                origin_year_query: config.fake_with_rng(rng),
+                authenticity_query: config.fake_with_rng(rng),
+                condition_query: config.fake_with_rng(rng),
+                provenance_query: config.fake_with_rng(rng),
+                restoration_query: config.fake_with_rng(rng),
                 created_query: fake_range_query_datetime(config, rng),
                 updated_query: fake_range_query_datetime(config, rng),
             }
@@ -133,7 +195,11 @@ mod tests {
     use crate::patch::{PatchProductSearchData, PatchUserSearchFilterData};
     use common::query::range_query::RangeQuery;
     use common::{currency::data::CurrencyData, language::data::LanguageData};
+    use product::data::authenticity_data::AuthenticityData;
+    use product::data::condition_data::ConditionData;
     use product::data::product_state_data::ProductStateData;
+    use product::data::provenance_data::ProvenanceData;
+    use product::data::restoration_data::RestorationData;
     use serde_json::json;
     use std::collections::HashSet;
     use time::macros::datetime;
@@ -150,6 +216,14 @@ mod tests {
                 "max": 42
             },
             "state": ["AVAILABLE"],
+            "originYear": {
+                "min": 1742,
+                "max": 1953
+            },
+            "authenticity": ["ORIGINAL"],
+            "condition": ["EXCELLENT"],
+            "provenance": ["PARTIAL"],
+            "restoration": ["UNKNOWN"],
             "created": {
                 "min": "2000-05-04T00:00:00Z",
                 "max": "2025-05-04T00:00:00Z",
@@ -169,6 +243,14 @@ mod tests {
                 max: Some(42),
             }),
             state_query: Some(HashSet::from_iter([ProductStateData::Available])),
+            origin_year_query: Some(RangeQuery {
+                min: Some(1742.into()),
+                max: Some(1953.into()),
+            }),
+            authenticity_query: Some(HashSet::from_iter([AuthenticityData::Original])),
+            condition_query: Some(HashSet::from_iter([ConditionData::Excellent])),
+            provenance_query: Some(HashSet::from_iter([ProvenanceData::Partial])),
+            restoration_query: Some(HashSet::from_iter([RestorationData::Unknown])),
             created_query: Some(RangeQuery {
                 min: Some(datetime!(2000 - 05 - 04 0:00 UTC)),
                 max: Some(datetime!(2025 - 05 - 04 0:00 UTC)),
@@ -198,6 +280,14 @@ mod tests {
                     "max": 42
                 },
                 "state": ["AVAILABLE"],
+                "originYear": {
+                    "min": 1742,
+                    "max": 1953
+                },
+                "authenticity": ["ORIGINAL"],
+                "condition": ["EXCELLENT"],
+                "provenance": ["PARTIAL"],
+                "restoration": ["UNKNOWN"],
                 "created": {
                     "min": "2000-05-04T00:00:00Z",
                     "max": "2025-05-04T00:00:00Z",
@@ -220,6 +310,14 @@ mod tests {
                     max: Some(42),
                 }),
                 state_query: Some(HashSet::from_iter([ProductStateData::Available])),
+                origin_year_query: Some(RangeQuery {
+                    min: Some(1742.into()),
+                    max: Some(1953.into()),
+                }),
+                authenticity_query: Some(HashSet::from_iter([AuthenticityData::Original])),
+                condition_query: Some(HashSet::from_iter([ConditionData::Excellent])),
+                provenance_query: Some(HashSet::from_iter([ProvenanceData::Partial])),
+                restoration_query: Some(HashSet::from_iter([RestorationData::Unknown])),
                 created_query: Some(RangeQuery {
                     min: Some(datetime!(2000 - 05 - 04 0:00 UTC)),
                     max: Some(datetime!(2025 - 05 - 04 0:00 UTC)),

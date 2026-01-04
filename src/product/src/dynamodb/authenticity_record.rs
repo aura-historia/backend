@@ -1,6 +1,5 @@
-use serde::{Deserialize, Serialize};
-
 use crate::core::authenticity::Authenticity;
+use serde::{Deserialize, Serialize};
 
 #[cfg_attr(feature = "test-data", derive(fake::Dummy))]
 #[derive(Copy, Clone, Eq, PartialEq, Debug, Hash, Default, Serialize, Deserialize)]
@@ -23,6 +22,18 @@ impl From<AuthenticityRecord> for Authenticity {
             AuthenticityRecord::Reproduction => Authenticity::Reproduction,
             AuthenticityRecord::Questionable => Authenticity::Questionable,
             AuthenticityRecord::Unknown => Authenticity::Unknown,
+        }
+    }
+}
+
+impl From<Authenticity> for AuthenticityRecord {
+    fn from(value: Authenticity) -> Self {
+        match value {
+            Authenticity::Original => AuthenticityRecord::Original,
+            Authenticity::LaterCopy => AuthenticityRecord::LaterCopy,
+            Authenticity::Reproduction => AuthenticityRecord::Reproduction,
+            Authenticity::Questionable => AuthenticityRecord::Questionable,
+            Authenticity::Unknown => AuthenticityRecord::Unknown,
         }
     }
 }

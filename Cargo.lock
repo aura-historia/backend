@@ -3110,6 +3110,7 @@ dependencies = [
  "serial_test",
  "shop",
  "strum",
+ "strum_macros",
  "test-api",
  "thiserror",
  "time",

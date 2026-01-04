@@ -1,3 +1,7 @@
+use crate::core::authenticity::Authenticity;
+use crate::core::condition::Condition;
+use crate::core::provenance::Provenance;
+use crate::core::restoration::Restoration;
 use common::currency::domain::Currency;
 use common::language::domain::Language;
 use common::price::domain::MonetaryAmount;
@@ -5,6 +9,7 @@ use common::product_state::domain::ProductState;
 use common::query::any_of_query::AnyOfQuery;
 use common::query::range_query::RangeQuery;
 use common::query::text_query::TextQuery;
+use common::year::Year;
 use time::OffsetDateTime;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -15,6 +20,11 @@ pub struct ProductSearch {
     pub shop_name_query: Option<TextQuery>,
     pub price_query: Option<RangeQuery<MonetaryAmount>>,
     pub state_query: AnyOfQuery<ProductState>,
+    pub origin_year_query: Option<RangeQuery<Year>>,
+    pub authenticity_query: AnyOfQuery<Authenticity>,
+    pub condition_query: AnyOfQuery<Condition>,
+    pub provenance_query: AnyOfQuery<Provenance>,
+    pub restoration_query: AnyOfQuery<Restoration>,
     pub created_query: Option<RangeQuery<OffsetDateTime>>,
     pub updated_query: Option<RangeQuery<OffsetDateTime>>,
 }
@@ -33,6 +43,11 @@ pub mod faker {
                 shop_name_query: config.fake_with_rng(rng),
                 price_query: config.fake_with_rng(rng),
                 state_query: config.fake_with_rng(rng),
+                origin_year_query: config.fake_with_rng(rng),
+                authenticity_query: config.fake_with_rng(rng),
+                condition_query: config.fake_with_rng(rng),
+                provenance_query: config.fake_with_rng(rng),
+                restoration_query: config.fake_with_rng(rng),
                 created_query: fake_range_query_datetime(config, rng),
                 updated_query: fake_range_query_datetime(config, rng),
             }

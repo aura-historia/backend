@@ -2,7 +2,18 @@ use crate::{core::authenticity::Authenticity, dynamodb::authenticity_record::Aut
 use serde::{Deserialize, Serialize};
 
 #[cfg_attr(feature = "test-data", derive(fake::Dummy))]
-#[derive(Copy, Clone, Eq, PartialEq, Debug, Hash, Default, Serialize, Deserialize)]
+#[derive(
+    Copy,
+    Clone,
+    Eq,
+    PartialEq,
+    Debug,
+    Hash,
+    Default,
+    Serialize,
+    Deserialize,
+    strum_macros::EnumCount,
+)]
 #[serde(rename_all = "SCREAMING_SNAKE_CASE")]
 pub enum AuthenticityDocument {
     Original,
@@ -12,6 +23,18 @@ pub enum AuthenticityDocument {
 
     #[default]
     Unknown,
+}
+
+impl AuthenticityDocument {
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            AuthenticityDocument::Original => "ORIGINAL",
+            AuthenticityDocument::LaterCopy => "LATER_COPY",
+            AuthenticityDocument::Reproduction => "REPRODUCTION",
+            AuthenticityDocument::Questionable => "QUESTIONABLE",
+            AuthenticityDocument::Unknown => "UNKNOWN",
+        }
+    }
 }
 
 impl From<AuthenticityRecord> for AuthenticityDocument {
@@ -34,6 +57,18 @@ impl From<AuthenticityDocument> for Authenticity {
             AuthenticityDocument::Reproduction => Authenticity::Reproduction,
             AuthenticityDocument::Questionable => Authenticity::Questionable,
             AuthenticityDocument::Unknown => Authenticity::Unknown,
+        }
+    }
+}
+
+impl From<Authenticity> for AuthenticityDocument {
+    fn from(value: Authenticity) -> Self {
+        match value {
+            Authenticity::Original => AuthenticityDocument::Original,
+            Authenticity::LaterCopy => AuthenticityDocument::LaterCopy,
+            Authenticity::Reproduction => AuthenticityDocument::Reproduction,
+            Authenticity::Questionable => AuthenticityDocument::Questionable,
+            Authenticity::Unknown => AuthenticityDocument::Unknown,
         }
     }
 }

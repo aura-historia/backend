@@ -30,6 +30,7 @@ itertools = { workspace = true, optional = true }
 user = { workspace = true, optional = true, features = ["dynamodb"] }
 shop = { workspace = true, optional = true }
 strum = { workspace = true, optional = true }
+strum_macros = { workspace = true, optional = true }
 tokio = { workspace = true, optional = true }
 
 [dev-dependencies]
@@ -44,7 +45,7 @@ tokio = { workspace = true, features = ["macros"] }
 default = []
 data = ["common/api"]
 dynamodb = ["aws-sdk-dynamodb", "serde_dynamo", "common/dynamodb", "tracing", "field", "strum"]
-opensearch = ["dynamodb", "dep:opensearch", "tracing", "strum", "common/opensearch"]
+opensearch = ["dynamodb", "dep:opensearch", "tracing", "strum", "strum_macros", "common/opensearch"]
 sqs = ["aws-sdk-sqs", "common/sqs"]
 service = ["itertools", "shop", "shop/dynamodb", "tokio", "tokio/time"]
 watchlist = ["dynamodb", "service", "user", "user/dynamodb"]

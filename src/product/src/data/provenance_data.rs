@@ -25,3 +25,15 @@ impl From<Provenance> for ProvenanceData {
         }
     }
 }
+
+impl From<ProvenanceData> for Provenance {
+    fn from(value: ProvenanceData) -> Self {
+        match value {
+            ProvenanceData::Complete => Provenance::Complete,
+            ProvenanceData::Partial => Provenance::Partial,
+            ProvenanceData::Claimed => Provenance::Claimed,
+            ProvenanceData::None => Provenance::None,
+            ProvenanceData::Unknown => Provenance::Unknown,
+        }
+    }
+}

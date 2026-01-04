@@ -2,7 +2,18 @@ use crate::{core::condition::Condition, dynamodb::condition_record::ConditionRec
 use serde::{Deserialize, Serialize};
 
 #[cfg_attr(feature = "test-data", derive(fake::Dummy))]
-#[derive(Copy, Clone, Eq, PartialEq, Debug, Hash, Default, Serialize, Deserialize)]
+#[derive(
+    Copy,
+    Clone,
+    Eq,
+    PartialEq,
+    Debug,
+    Hash,
+    Default,
+    Serialize,
+    Deserialize,
+    strum_macros::EnumCount,
+)]
 #[serde(rename_all = "SCREAMING_SNAKE_CASE")]
 pub enum ConditionDocument {
     Excellent,
@@ -13,6 +24,19 @@ pub enum ConditionDocument {
 
     #[default]
     Unknown,
+}
+
+impl ConditionDocument {
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            ConditionDocument::Excellent => "EXCELLENT",
+            ConditionDocument::Great => "GREAT",
+            ConditionDocument::Good => "GOOD",
+            ConditionDocument::Fair => "FAIR",
+            ConditionDocument::Poor => "POOR",
+            ConditionDocument::Unknown => "UNKNOWN",
+        }
+    }
 }
 
 impl From<ConditionRecord> for ConditionDocument {
@@ -37,6 +61,19 @@ impl From<ConditionDocument> for Condition {
             ConditionDocument::Fair => Condition::Fair,
             ConditionDocument::Poor => Condition::Poor,
             ConditionDocument::Unknown => Condition::Unknown,
+        }
+    }
+}
+
+impl From<Condition> for ConditionDocument {
+    fn from(value: Condition) -> Self {
+        match value {
+            Condition::Excellent => ConditionDocument::Excellent,
+            Condition::Great => ConditionDocument::Great,
+            Condition::Good => ConditionDocument::Good,
+            Condition::Fair => ConditionDocument::Fair,
+            Condition::Poor => ConditionDocument::Poor,
+            Condition::Unknown => ConditionDocument::Unknown,
         }
     }
 }
