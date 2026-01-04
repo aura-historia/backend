@@ -203,7 +203,7 @@ pub fn localize_product_document(
             product_document.origin_year_max,
         ) {
             (None, None, None) => None,
-            (Some(exact_year), None, None) => Some(OriginYear::ExactYear(exact_year)),
+            (Some(exact_year), _, _) => Some(OriginYear::ExactYear(exact_year)),
             (_, min, max) => Some(OriginYear::EstimatedRange(YearRange { min, max })),
         },
         authenticity: product_document.authenticity.map(Authenticity::from),
