@@ -2640,3 +2640,271 @@ async fn should_search_product_documents_when_min_and_max_year_is_given_for_stor
         )
     );
 }
+
+#[rstest::rstest]
+#[trace]
+#[test_attr(apply(test))]
+#[case(&[Authenticity::Original])]
+#[case(&[Authenticity::LaterCopy])]
+#[case(&[Authenticity::Reproduction])]
+#[case(&[Authenticity::Questionable])]
+#[case(&[Authenticity::Unknown])]
+#[case(&[Authenticity::Original, Authenticity::LaterCopy])]
+#[case(&[Authenticity::Reproduction, Authenticity::Questionable, Authenticity::Unknown])]
+#[localstack_test(services = [OpenSearch()])]
+async fn should_search_product_documents_when_authenticity_filter_is_given(
+    #[case] authenticities: &[Authenticity],
+) {
+    let products = fake::vec![ProductDocument; 3000]
+        .into_iter()
+        .map(|mut item| {
+            item.title_de = Some("The same title".into());
+            item
+        })
+        .collect::<Vec<_>>();
+    let client = get_opensearch_client().await;
+    let repository = ProductOpenSearchRepositoryImpl::new(client);
+    let response = repository
+        .create_product_documents(products.clone())
+        .await
+        .unwrap();
+    assert!(!response.errors);
+    refresh_index("products").await;
+    tokio::time::sleep(Duration::from_millis(3000)).await;
+
+    let search_filter = ProductSearch {
+        language: Language::De,
+        currency: Currency::Eur,
+        product_query: "The same title".try_into().unwrap(),
+        shop_name_query: None,
+        price_query: None,
+        state_query: Default::default(),
+        origin_year_query: None,
+        authenticity_query: AnyOfQuery::from(HashSet::from_iter(authenticities.iter().copied())),
+        condition_query: Default::default(),
+        provenance_query: Default::default(),
+        restoration_query: Default::default(),
+        created_query: None,
+        updated_query: None,
+    };
+    let response = repository
+        .search_product_documents(
+            &search_filter,
+            &Sort {
+                sort: SortProductField::Score,
+                order: SortOrder::Desc,
+            },
+            &None,
+        )
+        .await
+        .unwrap();
+
+    assert!(response.hits.total.value > 0);
+    assert!(response.hits.hits.iter().all(|hit| {
+        hit.source
+            .authenticity
+            .map(|a| authenticities.contains(&Authenticity::from(a)))
+            .unwrap_or(false)
+    }));
+}
+
+#[rstest::rstest]
+#[trace]
+#[test_attr(apply(test))]
+#[case(&[Condition::Excellent])]
+#[case(&[Condition::Great])]
+#[case(&[Condition::Good])]
+#[case(&[Condition::Fair])]
+#[case(&[Condition::Poor])]
+#[case(&[Condition::Unknown])]
+#[case(&[Condition::Excellent, Condition::Great])]
+#[case(&[Condition::Good, Condition::Fair, Condition::Poor])]
+#[localstack_test(services = [OpenSearch()])]
+async fn should_search_product_documents_when_condition_filter_is_given(
+    #[case] conditions: &[Condition],
+) {
+    let products = fake::vec![ProductDocument; 3000]
+        .into_iter()
+        .map(|mut item| {
+            item.title_de = Some("The same title".into());
+            item
+        })
+        .collect::<Vec<_>>();
+    let client = get_opensearch_client().await;
+    let repository = ProductOpenSearchRepositoryImpl::new(client);
+    let response = repository
+        .create_product_documents(products.clone())
+        .await
+        .unwrap();
+    assert!(!response.errors);
+    refresh_index("products").await;
+    tokio::time::sleep(Duration::from_millis(3000)).await;
+
+    let search_filter = ProductSearch {
+        language: Language::De,
+        currency: Currency::Eur,
+        product_query: "The same title".try_into().unwrap(),
+        shop_name_query: None,
+        price_query: None,
+        state_query: Default::default(),
+        origin_year_query: None,
+        authenticity_query: Default::default(),
+        condition_query: AnyOfQuery::from(HashSet::from_iter(conditions.iter().copied())),
+        provenance_query: Default::default(),
+        restoration_query: Default::default(),
+        created_query: None,
+        updated_query: None,
+    };
+    let response = repository
+        .search_product_documents(
+            &search_filter,
+            &Sort {
+                sort: SortProductField::Score,
+                order: SortOrder::Desc,
+            },
+            &None,
+        )
+        .await
+        .unwrap();
+
+    assert!(response.hits.total.value > 0);
+    assert!(response.hits.hits.iter().all(|hit| {
+        hit.source
+            .condition
+            .map(|c| conditions.contains(&Condition::from(c)))
+            .unwrap_or(false)
+    }));
+}
+
+#[rstest::rstest]
+#[trace]
+#[test_attr(apply(test))]
+#[case(&[Provenance::Complete])]
+#[case(&[Provenance::Partial])]
+#[case(&[Provenance::Claimed])]
+#[case(&[Provenance::None])]
+#[case(&[Provenance::Unknown])]
+#[case(&[Provenance::Complete, Provenance::Partial])]
+#[case(&[Provenance::Claimed, Provenance::None, Provenance::Unknown])]
+#[localstack_test(services = [OpenSearch()])]
+async fn should_search_product_documents_when_provenance_filter_is_given(
+    #[case] provenances: &[Provenance],
+) {
+    let products = fake::vec![ProductDocument; 3000]
+        .into_iter()
+        .map(|mut item| {
+            item.title_de = Some("The same title".into());
+            item
+        })
+        .collect::<Vec<_>>();
+    let client = get_opensearch_client().await;
+    let repository = ProductOpenSearchRepositoryImpl::new(client);
+    let response = repository
+        .create_product_documents(products.clone())
+        .await
+        .unwrap();
+    assert!(!response.errors);
+    refresh_index("products").await;
+    tokio::time::sleep(Duration::from_millis(3000)).await;
+
+    let search_filter = ProductSearch {
+        language: Language::De,
+        currency: Currency::Eur,
+        product_query: "The same title".try_into().unwrap(),
+        shop_name_query: None,
+        price_query: None,
+        state_query: Default::default(),
+        origin_year_query: None,
+        authenticity_query: Default::default(),
+        condition_query: Default::default(),
+        provenance_query: AnyOfQuery::from(HashSet::from_iter(provenances.iter().copied())),
+        restoration_query: Default::default(),
+        created_query: None,
+        updated_query: None,
+    };
+    let response = repository
+        .search_product_documents(
+            &search_filter,
+            &Sort {
+                sort: SortProductField::Score,
+                order: SortOrder::Desc,
+            },
+            &None,
+        )
+        .await
+        .unwrap();
+
+    assert!(response.hits.total.value > 0);
+    assert!(response.hits.hits.iter().all(|hit| {
+        hit.source
+            .provenance
+            .map(|p| provenances.contains(&Provenance::from(p)))
+            .unwrap_or(false)
+    }));
+}
+
+#[rstest::rstest]
+#[trace]
+#[test_attr(apply(test))]
+#[case(&[Restoration::None])]
+#[case(&[Restoration::Minor])]
+#[case(&[Restoration::Major])]
+#[case(&[Restoration::Unknown])]
+#[case(&[Restoration::None, Restoration::Minor])]
+#[case(&[Restoration::Major, Restoration::Unknown])]
+#[localstack_test(services = [OpenSearch()])]
+async fn should_search_product_documents_when_restoration_filter_is_given(
+    #[case] restorations: &[Restoration],
+) {
+    let products = fake::vec![ProductDocument; 3000]
+        .into_iter()
+        .map(|mut item| {
+            item.title_de = Some("The same title".into());
+            item
+        })
+        .collect::<Vec<_>>();
+    let client = get_opensearch_client().await;
+    let repository = ProductOpenSearchRepositoryImpl::new(client);
+    let response = repository
+        .create_product_documents(products.clone())
+        .await
+        .unwrap();
+    assert!(!response.errors);
+    refresh_index("products").await;
+    tokio::time::sleep(Duration::from_millis(3000)).await;
+
+    let search_filter = ProductSearch {
+        language: Language::De,
+        currency: Currency::Eur,
+        product_query: "The same title".try_into().unwrap(),
+        shop_name_query: None,
+        price_query: None,
+        state_query: Default::default(),
+        origin_year_query: None,
+        authenticity_query: Default::default(),
+        condition_query: Default::default(),
+        provenance_query: Default::default(),
+        restoration_query: AnyOfQuery::from(HashSet::from_iter(restorations.iter().copied())),
+        created_query: None,
+        updated_query: None,
+    };
+    let response = repository
+        .search_product_documents(
+            &search_filter,
+            &Sort {
+                sort: SortProductField::Score,
+                order: SortOrder::Desc,
+            },
+            &None,
+        )
+        .await
+        .unwrap();
+
+    assert!(response.hits.total.value > 0);
+    assert!(response.hits.hits.iter().all(|hit| {
+        hit.source
+            .restoration
+            .map(|r| restorations.contains(&Restoration::from(r)))
+            .unwrap_or(false)
+    }));
+}
