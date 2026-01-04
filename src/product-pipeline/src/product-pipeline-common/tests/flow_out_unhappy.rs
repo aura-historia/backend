@@ -2,7 +2,6 @@ use common::product_id::ProductId;
 use product_pipeline_common::flow_out::{FlowOutResult, PipeFlowOut};
 use product_pipeline_common::{flow_out::PipeFlowOutImpl, types::HasProductId};
 use serde::{Deserialize, Serialize};
-use std::collections::HashSet;
 use test_api::*;
 
 const TARGET_QUEUE: Sqs = Sqs {
@@ -75,18 +74,20 @@ async fn should_handle_empty_batch_gracefully() {
 #[test_attr(apply(test))]
 #[localstack_test(services = [TARGET_QUEUE])]
 async fn should_track_failures_separately_from_successes() {
+    use std::collections::HashSet;
+
     let sqs = get_sqs_client().await;
-    
+
     // Use valid queue for testing retry logic
     let pipe_flow_out = PipeFlowOutImpl::new(sqs, TARGET_QUEUE.queue_url());
     let data = fake::vec![Dummy; 100];
-    
+
     let actual: FlowOutResult = pipe_flow_out.flow_out(data.clone()).await;
 
     // With a valid queue, all should succeed
     assert_eq!(100, actual.successes.len());
     assert!(actual.failures.is_empty());
-    
+
     // Verify no overlap between successes and failures
     let success_set: HashSet<ProductId> = actual.successes.iter().copied().collect();
     let failure_set: HashSet<ProductId> = actual.failures.iter().copied().collect();

@@ -70,7 +70,7 @@ async fn should_handle_empty_queue_gracefully() {
 #[localstack_test(services = [SOURCE_QUEUE])]
 async fn should_handle_messages_with_invalid_json() {
     let sqs = get_sqs_client().await;
-    
+
     // Send invalid JSON messages
     for _i in 0..5 {
         sqs.send_message()
@@ -81,7 +81,7 @@ async fn should_handle_messages_with_invalid_json() {
             .await
             .unwrap();
     }
-    
+
     let pipe_flow_in = PipeFlowInImpl::new(sqs, SOURCE_QUEUE.queue_url());
     let actual: FlowInResult<Dummy> = pipe_flow_in.flow_in(50, 100).await;
 
@@ -96,9 +96,9 @@ async fn should_handle_messages_with_invalid_json() {
 #[localstack_test(services = [SOURCE_QUEUE])]
 async fn should_handle_mixed_valid_and_invalid_messages() {
     prepare_messages(3).await;
-    
+
     let sqs = get_sqs_client().await;
-    
+
     // Add some invalid messages
     for _i in 0..2 {
         sqs.send_message()
@@ -109,7 +109,7 @@ async fn should_handle_mixed_valid_and_invalid_messages() {
             .await
             .unwrap();
     }
-    
+
     let pipe_flow_in = PipeFlowInImpl::new(sqs, SOURCE_QUEUE.queue_url());
     let actual: FlowInResult<Dummy> = pipe_flow_in.flow_in(50, 100).await;
 
@@ -124,7 +124,7 @@ async fn should_handle_mixed_valid_and_invalid_messages() {
 #[localstack_test(services = [SOURCE_QUEUE])]
 async fn should_respect_batch_limit() {
     prepare_messages(100).await;
-    
+
     let sqs = get_sqs_client().await;
     let pipe_flow_in = PipeFlowInImpl::new(sqs, SOURCE_QUEUE.queue_url());
 
@@ -140,7 +140,7 @@ async fn should_respect_batch_limit() {
 #[localstack_test(services = [SOURCE_QUEUE])]
 async fn should_handle_very_small_visibility_timeout() {
     prepare_messages(5).await;
-    
+
     let sqs = get_sqs_client().await;
     let pipe_flow_in = PipeFlowInImpl::new(sqs, SOURCE_QUEUE.queue_url());
 

@@ -87,7 +87,7 @@ async fn prepare_messages(count: u16) {
 async fn should_handle_partial_processing_failures() {
     let products = fake::vec![Dummy; 10];
     let fail_ids: HashSet<ProductId> = products.iter().take(3).map(|p| p.product_id).collect();
-    
+
     let sqs = get_sqs_client().await;
     for val in &products {
         sqs.send_message()
