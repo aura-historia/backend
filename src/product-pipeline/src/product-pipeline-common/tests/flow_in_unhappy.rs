@@ -103,7 +103,7 @@ async fn should_handle_mixed_valid_and_invalid_messages() {
     for _i in 0..2 {
         sqs.send_message()
             .queue_url(SOURCE_QUEUE.queue_url())
-            .message_body("{not valid json at all}")
+            .message_body("{invalid json}")
             .delay_seconds(0)
             .send()
             .await
