@@ -72,3 +72,54 @@ impl From<Authenticity> for AuthenticityDocument {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::AuthenticityDocument;
+    use rstest::rstest;
+
+    #[rstest]
+    #[trace]
+    #[case(AuthenticityDocument::Original, "\"ORIGINAL\"")]
+    #[case(AuthenticityDocument::LaterCopy, "\"LATER_COPY\"")]
+    #[case(AuthenticityDocument::Reproduction, "\"REPRODUCTION\"")]
+    #[case(AuthenticityDocument::Questionable, "\"QUESTIONABLE\"")]
+    #[case(AuthenticityDocument::Unknown, "\"UNKNOWN\"")]
+    fn should_serialize_authenticity_document_in_screaming_snake_case(
+        #[case] authenticity: AuthenticityDocument,
+        #[case] expected: &str,
+    ) {
+        let actual = serde_json::to_string(&authenticity).unwrap();
+        assert_eq!(actual, expected);
+    }
+
+    #[rstest]
+    #[trace]
+    #[case("\"ORIGINAL\"", AuthenticityDocument::Original)]
+    #[case("\"LATER_COPY\"", AuthenticityDocument::LaterCopy)]
+    #[case("\"REPRODUCTION\"", AuthenticityDocument::Reproduction)]
+    #[case("\"QUESTIONABLE\"", AuthenticityDocument::Questionable)]
+    #[case("\"UNKNOWN\"", AuthenticityDocument::Unknown)]
+    fn should_deserialize_authenticity_document_in_screaming_snake_case(
+        #[case] authenticity: &str,
+        #[case] expected: AuthenticityDocument,
+    ) {
+        let actual = serde_json::from_str::<AuthenticityDocument>(authenticity).unwrap();
+        assert_eq!(actual, expected);
+    }
+
+    #[rstest]
+    #[trace]
+    #[case(AuthenticityDocument::Original)]
+    #[case(AuthenticityDocument::LaterCopy)]
+    #[case(AuthenticityDocument::Reproduction)]
+    #[case(AuthenticityDocument::Questionable)]
+    #[case(AuthenticityDocument::Unknown)]
+    fn should_as_str_match_serialized(#[case] authenticity: AuthenticityDocument) {
+        let serialized = serde_json::to_string::<AuthenticityDocument>(&authenticity)
+            .unwrap()
+            .replace("\"", "");
+        let as_str = authenticity.as_str();
+        assert_eq!(serialized, as_str);
+    }
+}

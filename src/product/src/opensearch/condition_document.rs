@@ -77,3 +77,57 @@ impl From<Condition> for ConditionDocument {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::ConditionDocument;
+    use rstest::rstest;
+
+    #[rstest]
+    #[trace]
+    #[case(ConditionDocument::Excellent, "\"EXCELLENT\"")]
+    #[case(ConditionDocument::Great, "\"GREAT\"")]
+    #[case(ConditionDocument::Good, "\"GOOD\"")]
+    #[case(ConditionDocument::Fair, "\"FAIR\"")]
+    #[case(ConditionDocument::Poor, "\"POOR\"")]
+    #[case(ConditionDocument::Unknown, "\"UNKNOWN\"")]
+    fn should_serialize_condition_document_in_screaming_snake_case(
+        #[case] condition: ConditionDocument,
+        #[case] expected: &str,
+    ) {
+        let actual = serde_json::to_string(&condition).unwrap();
+        assert_eq!(actual, expected);
+    }
+
+    #[rstest]
+    #[trace]
+    #[case("\"EXCELLENT\"", ConditionDocument::Excellent)]
+    #[case("\"GREAT\"", ConditionDocument::Great)]
+    #[case("\"GOOD\"", ConditionDocument::Good)]
+    #[case("\"FAIR\"", ConditionDocument::Fair)]
+    #[case("\"POOR\"", ConditionDocument::Poor)]
+    #[case("\"UNKNOWN\"", ConditionDocument::Unknown)]
+    fn should_deserialize_condition_document_in_screaming_snake_case(
+        #[case] condition: &str,
+        #[case] expected: ConditionDocument,
+    ) {
+        let actual = serde_json::from_str::<ConditionDocument>(condition).unwrap();
+        assert_eq!(actual, expected);
+    }
+
+    #[rstest]
+    #[trace]
+    #[case(ConditionDocument::Excellent)]
+    #[case(ConditionDocument::Great)]
+    #[case(ConditionDocument::Good)]
+    #[case(ConditionDocument::Fair)]
+    #[case(ConditionDocument::Poor)]
+    #[case(ConditionDocument::Unknown)]
+    fn should_as_str_match_serialized(#[case] condition: ConditionDocument) {
+        let serialized = serde_json::to_string::<ConditionDocument>(&condition)
+            .unwrap()
+            .replace("\"", "");
+        let as_str = condition.as_str();
+        assert_eq!(serialized, as_str);
+    }
+}

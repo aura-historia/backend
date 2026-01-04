@@ -67,3 +67,51 @@ impl From<Restoration> for RestorationDocument {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::RestorationDocument;
+    use rstest::rstest;
+
+    #[rstest]
+    #[trace]
+    #[case(RestorationDocument::None, "\"NONE\"")]
+    #[case(RestorationDocument::Minor, "\"MINOR\"")]
+    #[case(RestorationDocument::Major, "\"MAJOR\"")]
+    #[case(RestorationDocument::Unknown, "\"UNKNOWN\"")]
+    fn should_serialize_restoration_document_in_screaming_snake_case(
+        #[case] restoration: RestorationDocument,
+        #[case] expected: &str,
+    ) {
+        let actual = serde_json::to_string(&restoration).unwrap();
+        assert_eq!(actual, expected);
+    }
+
+    #[rstest]
+    #[trace]
+    #[case("\"NONE\"", RestorationDocument::None)]
+    #[case("\"MINOR\"", RestorationDocument::Minor)]
+    #[case("\"MAJOR\"", RestorationDocument::Major)]
+    #[case("\"UNKNOWN\"", RestorationDocument::Unknown)]
+    fn should_deserialize_restoration_document_in_screaming_snake_case(
+        #[case] restoration: &str,
+        #[case] expected: RestorationDocument,
+    ) {
+        let actual = serde_json::from_str::<RestorationDocument>(restoration).unwrap();
+        assert_eq!(actual, expected);
+    }
+
+    #[rstest]
+    #[trace]
+    #[case(RestorationDocument::None)]
+    #[case(RestorationDocument::Minor)]
+    #[case(RestorationDocument::Major)]
+    #[case(RestorationDocument::Unknown)]
+    fn should_as_str_match_serialized(#[case] restoration: RestorationDocument) {
+        let serialized = serde_json::to_string::<RestorationDocument>(&restoration)
+            .unwrap()
+            .replace("\"", "");
+        let as_str = restoration.as_str();
+        assert_eq!(serialized, as_str);
+    }
+}
