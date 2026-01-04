@@ -67,4 +67,3 @@ impl From<Restoration> for RestorationDocument {
         }
     }
 }
-

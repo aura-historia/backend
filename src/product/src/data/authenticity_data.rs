@@ -37,4 +37,3 @@ impl From<AuthenticityData> for Authenticity {
         }
     }
 }
-

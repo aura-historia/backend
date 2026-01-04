@@ -72,4 +72,3 @@ impl From<Provenance> for ProvenanceDocument {
         }
     }
 }
-

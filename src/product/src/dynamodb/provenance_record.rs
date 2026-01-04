@@ -37,4 +37,3 @@ impl From<Provenance> for ProvenanceRecord {
         }
     }
 }
-

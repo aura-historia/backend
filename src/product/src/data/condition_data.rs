@@ -40,4 +40,3 @@ impl From<ConditionData> for Condition {
         }
     }
 }
-

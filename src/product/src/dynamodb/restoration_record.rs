@@ -34,4 +34,3 @@ impl From<Restoration> for RestorationRecord {
         }
     }
 }
-

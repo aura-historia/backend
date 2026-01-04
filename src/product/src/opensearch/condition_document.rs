@@ -77,4 +77,3 @@ impl From<Condition> for ConditionDocument {
         }
     }
 }
-
