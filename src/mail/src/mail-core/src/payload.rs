@@ -41,9 +41,7 @@ mod faker {
 
         #[test]
         fn should_fake_mail_payload() {
-            let actual = Faker.fake::<MailPayload>();
-
-            println!("{actual:?}");
+            let _ = Faker.fake::<MailPayload>();
         }
     }
 }

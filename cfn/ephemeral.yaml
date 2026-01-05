@@ -453,18 +453,16 @@ Resources:
             Statement:
               - Effect: Allow
                 Action:
-                  - dynamodb:GetItem
-                  - dynamodb:BatchGetItem
                   - dynamodb:Query
+                  - dynamodb:GetItem
+                  - dynamodb:PutItem
+                  - dynamodb:UpdateItem
+                  - dynamodb:DeleteItem
+                  - dynamodb:BatchGetItem
+                  - dynamodb:BatchWriteItem
+                  - dynamodb:TransactGetItems
+                  - dynamodb:TransactWriteItems
                 Resource: !GetAtt TableOne.Arn
-        - PolicyName: SQSSendMessage
-          PolicyDocument:
-            Version: "2012-10-17"
-            Statement:
-              - Effect: Allow
-                Action:
-                  - sqs:SendMessage
-                Resource: !GetAtt ProductIngestEventsDynamoDbQ.Arn
   ApiPutProductsLambda:
     Type: AWS::Lambda::Function
     Properties:
@@ -482,7 +480,6 @@ Resources:
       Environment:
         Variables:
           DYNAMODB_TABLE_NAME: !Ref TableOne
-          INGEST_PRODUCT_EVENTS_QUEUE_URL: !Ref ProductIngestEventsDynamoDbQ
   ApiPutProductsLambdaPermission:
     Type: AWS::Lambda::Permission
     Properties:
@@ -1690,86 +1687,12 @@ Resources:
         Variables:
           S3_BUCKET_NAME_TEMPLATES: !Ref MailTemplateBucket
           STAGE_NAME: !Sub "${StageName}"
-          CommitSHA: !Sub "${CommitSHA}"
+          COMMIT_SHA: !Sub "${CommitSHA}"
   SendMailMapping:
     Type: AWS::Lambda::EventSourceMapping
     Properties:
       FunctionName: !Ref SendMailLambda
       EventSourceArn: !GetAtt SendMailQ.Arn
-      Enabled: true
-      BatchSize: 200
-      MaximumBatchingWindowInSeconds: 1
-      FunctionResponseTypes:
-        - ReportBatchItemFailures
-
-  ProductIngestEventsDynamoDbDlq:
-    Type: AWS::SQS::Queue
-    Properties:
-      QueueName: !Sub "product-lambda-ingest-events-dynamodb-dlq-${StageName}"
-      MessageRetentionPeriod: 1209600
-  ProductIngestEventsDynamoDbQ:
-    Type: AWS::SQS::Queue
-    Properties:
-      QueueName: !Sub "product-lambda-ingest-events-dynamodb-queue-${StageName}"
-      RedrivePolicy:
-        deadLetterTargetArn: !GetAtt ProductIngestEventsDynamoDbDlq.Arn
-        maxReceiveCount: 3
-      VisibilityTimeout: 360
-  ProductIngestEventsDynamoDbRole:
-    Type: AWS::IAM::Role
-    Properties:
-      RoleName: !Sub "product-lambda-ingest-events-dynamodb-role-${StageName}"
-      AssumeRolePolicyDocument:
-        Version: "2012-10-17"
-        Statement:
-          - Effect: Allow
-            Principal:
-              Service: lambda.amazonaws.com
-            Action: sts:AssumeRole
-      ManagedPolicyArns:
-        - arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole
-      Policies:
-        - PolicyName: DynamoDBAccess
-          PolicyDocument:
-            Version: "2012-10-17"
-            Statement:
-              - Effect: Allow
-                Action:
-                  - dynamodb:*
-                Resource: !GetAtt TableOne.Arn
-        - PolicyName: SQSPollerAccess
-          PolicyDocument:
-            Version: "2012-10-17"
-            Statement:
-              - Effect: Allow
-                Action:
-                  - sqs:ReceiveMessage
-                  - sqs:DeleteMessage
-                  - sqs:GetQueueAttributes
-                  - sqs:GetQueueUrl
-                Resource: !GetAtt ProductIngestEventsDynamoDbQ.Arn
-  ProductIngestEventsDynamoDbLambda:
-    Type: AWS::Lambda::Function
-    Properties:
-      FunctionName: !Sub "product-lambda-ingest-events-dynamodb-${StageName}"
-      Runtime: provided.al2023
-      Handler: lib.handler
-      Role: !GetAtt ProductIngestEventsDynamoDbRole.Arn
-      Code:
-        S3Bucket: !Ref ArtifactBucket
-        S3Key: !Sub "product-lambda-ingest-events-dynamodb-${StageName}-${CommitSHA}.zip"
-      MemorySize: 512
-      Timeout: 60
-      EphemeralStorage:
-        Size: 512
-      Environment:
-        Variables:
-          DYNAMODB_TABLE_NAME: !Ref TableOne
-  ProductIngestEventsDynamoDbMapping:
-    Type: AWS::Lambda::EventSourceMapping
-    Properties:
-      FunctionName: !Ref ProductIngestEventsDynamoDbLambda
-      EventSourceArn: !GetAtt ProductIngestEventsDynamoDbQ.Arn
       Enabled: true
       BatchSize: 200
       MaximumBatchingWindowInSeconds: 1
@@ -3614,11 +3537,6 @@ Outputs:
     Value: !Ref SendMailQ
   SendMailDeadLetterQueueUrl:
     Value: !Ref SendMailDlq
-
-  ProductIngestEventsDynamodbQueueUrl:
-    Value: !Ref ProductIngestEventsDynamoDbQ
-  ProductIngestEventsDynamodbDeadLetterQueueUrl:
-    Value: !Ref ProductIngestEventsDynamoDbDlq
 
   ProductMaterializeDynamodbNewQueueUrl:
     Value: !Ref ProductMaterializeDynamoDbNewQ

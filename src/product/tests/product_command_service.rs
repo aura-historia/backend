@@ -1,8 +1,8 @@
 use common::{price::domain::FixedFxRate, product_state::domain::ProductState};
 use product::core::product::Product;
+use product::dynamodb::product_event_record::ProductEventRecordSerdeField;
 use product::dynamodb::{
     product_event_record::ProductEventRecord,
-    product_event_type_record::ProductEventTypeRecord,
     product_record::ProductRecord,
     repository::{ProductDynamoDbRepository, ProductDynamoDbRepositoryImpl},
 };
@@ -12,50 +12,41 @@ use product::service::{
 };
 use test_api::*;
 
-const INGEST_PRODUCT_QUEUE: Sqs = Sqs {
-    name: "ingest-product-queue",
-};
-
-#[localstack_test(services = [DynamoDB(), INGEST_PRODUCT_QUEUE])]
-async fn should_push_all_products_to_queue_as_created_when_none_exist() {
+#[localstack_test(services = [DynamoDB()])]
+async fn should_write_all_products_to_dynamodb_as_created_when_none_exist() {
     let repository = ProductDynamoDbRepositoryImpl::new(get_dynamodb_client().await, "table_1");
-    let sqs_client = get_sqs_client().await;
-    let q_url = INGEST_PRODUCT_QUEUE.queue_url();
-    let service = UpsertProductsServiceImpl::new(&repository, sqs_client, &q_url, &FixedFxRate());
+    let service = UpsertProductsServiceImpl::new(&repository, &FixedFxRate());
 
-    let output = service.upsert(fake::vec![UpsertProductCommand; 543]).await;
+    let commands = fake::vec![UpsertProductCommand; 543];
+    let output = service.upsert(commands.clone()).await;
     assert!(output.unprocessed.is_empty());
     assert_eq!(0, output.skipped);
 
-    loop {
-        let received = sqs_client
-            .receive_message()
-            .queue_url(&q_url)
-            .max_number_of_messages(10)
-            .visibility_timeout(600)
-            .send()
-            .await
-            .unwrap();
-
-        match received.messages.unwrap_or_default().as_slice() {
-            &[] => break,
-            msgs => {
-                for msg in msgs {
-                    let event_record: ProductEventRecord =
-                        serde_json::from_str(msg.body().unwrap()).unwrap();
-                    assert_eq!(ProductEventTypeRecord::Created, event_record.event_type);
-                }
-            }
-        }
-    }
+    let all_event_records_created = get_dynamodb_client()
+        .await
+        .scan()
+        .table_name("table_1")
+        .send()
+        .await
+        .unwrap()
+        .items
+        .unwrap()
+        .iter()
+        .all(|record| {
+            record
+                .get(ProductEventRecordSerdeField::EventType.as_str())
+                .unwrap()
+                .as_s()
+                .unwrap()
+                == "CREATED"
+        });
+    assert!(all_event_records_created);
 }
 
-#[localstack_test(services = [DynamoDB(), INGEST_PRODUCT_QUEUE])]
-async fn should_push_no_products_to_queue_when_all_exist_and_no_changes() {
+#[localstack_test(services = [DynamoDB()])]
+async fn should_write_no_product_events_when_all_exist_and_no_changes() {
     let repository = ProductDynamoDbRepositoryImpl::new(get_dynamodb_client().await, "table_1");
-    let sqs_client = get_sqs_client().await;
-    let q_url = INGEST_PRODUCT_QUEUE.queue_url();
-    let service = UpsertProductsServiceImpl::new(&repository, sqs_client, &q_url, &FixedFxRate());
+    let service = UpsertProductsServiceImpl::new(&repository, &FixedFxRate());
 
     let cmds = fake::vec![UpsertProductCommand; 400];
     for cmd in cmds.clone() {
@@ -86,25 +77,23 @@ async fn should_push_no_products_to_queue_when_all_exist_and_no_changes() {
     let output = service.upsert(cmds).await;
     assert!(output.unprocessed.is_empty());
     assert_eq!(400, output.skipped);
-
-    let received = sqs_client
-        .receive_message()
-        .queue_url(&q_url)
-        .max_number_of_messages(10)
-        .visibility_timeout(600)
+    let actual_records = get_dynamodb_client()
+        .await
+        .scan()
+        .table_name("table_1")
         .send()
         .await
-        .unwrap();
-
-    assert!(received.messages().is_empty());
+        .unwrap()
+        .items
+        .unwrap_or_default()
+        .len();
+    assert_eq!(400, actual_records); // just the existing materialized ones
 }
 
-#[localstack_test(services = [DynamoDB(), INGEST_PRODUCT_QUEUE])]
-async fn should_push_products_to_queue_when_all_exist_and_actual_changes() {
+#[localstack_test(services = [DynamoDB()])]
+async fn should_write_product_updates_when_all_exist_and_actual_changes() {
     let repository = ProductDynamoDbRepositoryImpl::new(get_dynamodb_client().await, "table_1");
-    let sqs_client = get_sqs_client().await;
-    let q_url = INGEST_PRODUCT_QUEUE.queue_url();
-    let service = UpsertProductsServiceImpl::new(&repository, sqs_client, &q_url, &FixedFxRate());
+    let service = UpsertProductsServiceImpl::new(&repository, &FixedFxRate());
 
     let mut cmds = fake::vec![UpsertProductCommand; 400];
     for cmd in cmds.clone() {
@@ -147,28 +136,17 @@ async fn should_push_products_to_queue_when_all_exist_and_actual_changes() {
     assert!(output.unprocessed.is_empty());
     assert_eq!(expected_skipped, output.skipped);
 
-    loop {
-        let received = sqs_client
-            .receive_message()
-            .queue_url(&q_url)
-            .max_number_of_messages(10)
-            .visibility_timeout(600)
-            .send()
-            .await
-            .unwrap();
-
-        match received.messages.unwrap_or_default().as_slice() {
-            &[] => break,
-            msgs => {
-                for msg in msgs {
-                    let event_record: ProductEventRecord =
-                        serde_json::from_str(msg.body().unwrap()).unwrap();
-                    assert_eq!(
-                        ProductEventTypeRecord::StateAvailable,
-                        event_record.event_type
-                    );
-                }
-            }
-        }
-    }
+    let all_event_records_update_state_available = get_dynamodb_client()
+        .await
+        .scan()
+        .table_name("table_1")
+        .send()
+        .await
+        .unwrap()
+        .items
+        .unwrap()
+        .iter()
+        .filter_map(|record| record.get(ProductEventRecordSerdeField::EventType.as_str()))
+        .all(|val| val.as_s().unwrap() == "STATE_AVAILABLE");
+    assert!(all_event_records_update_state_available);
 }
