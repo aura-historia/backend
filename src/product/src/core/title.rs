@@ -1,4 +1,3 @@
-use crate::core::sanitize::sanitize;
 use std::fmt::{Debug, Display};
 use std::ops::Deref;
 
@@ -9,11 +8,11 @@ impl From<&str> for Title {
     fn from(s: &str) -> Self {
         if s.len() > 128 {
             match s.split_at_checked(128) {
-                Some((truncated, _)) => Self(sanitize(truncated)),
-                None => Self(sanitize(s)),
+                Some((truncated, _)) => Self(truncated.to_owned()),
+                None => Self(s.to_owned()),
             }
         } else {
-            Title(sanitize(s))
+            Title(s.to_owned())
         }
     }
 }
