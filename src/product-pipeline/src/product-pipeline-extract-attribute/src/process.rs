@@ -71,10 +71,15 @@ impl PipeProcessor<TextEmbeddedPipeProduct, AttributeExtractedPipeProduct>
             let input_batch = Batch::try_from_iter(input_batch_iter)
                 .expect("shouldn't fail re-collecting former batch of same size");
             let schema = r#"
+                A note on centuries below.
+                If noted early, e.g. early 18th century, then extract min=1800 and max=1833.
+                If noted mid, e.g. mid 16th century, then extract min=1634 and max=1666.
+                If noted late, e.g. late 17th century, then extract min=1767 and max=1799.
+                If an exact year can be extracted, leave min and max null.
                 {\n
-                    "originYearMin": int | null (Lower end of the year-range, the antique is estimated to have originated from),\n
-                    "originYearMax": int | null (Higher end of the year-range, the antique is estimated to have originated from),\n
-                    "originYear": int | null (Exact year the antique is estimated to have originated from),\n
+                    "originYearMin": int | null (Lower end of the year-range, the antique is from),\n
+                    "originYearMax": int | null (Higher end of the year-range, the antique is from),\n
+                    "originYear": int | null (Exact year the antique is from),\n
                     "authenticity": enum-string | null (The authenticity of the antique. Either of: ORIGINAL, LATER_COPY (antique copy), REPRODUCTION (modern copy), QUESTIONABLE, UNKNOWN),\n
                     "condition": enum-string | null (The condition of the antique. Either of: EXCELLENT, GREAT, GOOD, FAIR, POOR, UNKNOWN),\n
                     "provenance": enum-string | null (The documentation (trail) of the antique. Either of: COMPLETE, PARTIAL, CLAIMED (assumed, but no proof), NONE, UNKNOWN),\n
