@@ -96,7 +96,8 @@ impl PipeProcessor<TextEmbeddedPipeProduct, AttributeExtractedPipeProduct>
                 Ok(extractions) => {
                     let mut local_enriched = in_batch.into_iter().zip(extractions.into_iter()).map(
                         |(in_product, extraction_str)| {
-                            let mut extracted_attributes = serde_json::from_str(&extraction_str).unwrap_or_else(|err| {
+                            let cleaned_extraction_str = extraction_str.chars().skip_while(|c| c != &'{').collect::<String>();
+                            let mut extracted_attributes = serde_json::from_str(&cleaned_extraction_str).unwrap_or_else(|err| {
                                 error!(error = %err, adapterResponse = extraction_str, "Failed extracting attributes.");
                                 ExtractedAttributes::default()
                             });
@@ -182,6 +183,42 @@ pub mod tests {
             ConditionRecord::Fair,
             ConditionRecord::Great,
         ];
+        assert_eq!(expected, actual);
+        assert!(res.failures.is_empty());
+    }
+
+    #[rstest::rstest]
+    #[case("")]
+    #[case("</think>")]
+    #[case("</think>\n")]
+    #[case("</think>\n\n")]
+    #[case("<think></think>")]
+    #[case("<think></think>\n")]
+    #[case("<think></think>\n\n")]
+    #[case("<think>foo</think>")]
+    #[case("<think>foo</think>\n")]
+    #[case("<think>foo</think>\n\n")]
+    #[case("Whatever bro might be yapping here. I don't care.")]
+    #[case("Whatever bro might be yapping here. I don't care.\n")]
+    #[case("Whatever bro might be yapping here. I don't care.\n\n")]
+    fn should_extract_when_model_response_contains_anything_before_actual_json(
+        #[case] prefix: String,
+    ) {
+        let mock_res = vec![format!("{prefix}{}", r#"{"condition": "EXCELLENT"}"#)];
+        let mut delegate = MockExtractionAdapter::default();
+        delegate
+            .expect_extract()
+            .return_once(move |_, _| Ok(mock_res.try_into().unwrap()));
+
+        let embedding_pipe = AttributeExtractionPipeProcesserImpl::new(Arc::new(delegate));
+        let res = embedding_pipe.process(fake::vec![TextEmbeddedPipeProduct; 1]);
+        let actual = res
+            .successes
+            .into_iter()
+            .map(|out_product| out_product.condition)
+            .collect::<Vec<_>>();
+
+        let expected = vec![ConditionRecord::Excellent];
         assert_eq!(expected, actual);
         assert!(res.failures.is_empty());
     }
