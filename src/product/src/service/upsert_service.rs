@@ -206,7 +206,7 @@ impl<T: FxRate + Sync> UpsertProductsServiceImpl<'_, T> {
                                             error!(
                                                 shopId = %failed_product_key.shop_id,
                                                 shopsProductId = %failed_product_key.shops_product_id,
-                                                "Couldn't find PutItemCommand for unproccesed message. This is a bug. Not retrying."
+                                                "Couldn't find PutItemCommand for unprocessed message. This is a bug. Not retrying."
                                             );
                                         }
                                     }
@@ -222,7 +222,7 @@ impl<T: FxRate + Sync> UpsertProductsServiceImpl<'_, T> {
                                         error!(
                                             shopId = %product_key.shop_id,
                                             shopsProductId = %product_key.shops_product_id,
-                                            "Couldn't find PutItemCommand for unproccesed message. This is a bug. Not retrying."
+                                            "Couldn't find PutItemCommand for unprocessed message. This is a bug. Not retrying."
                                         );
                                     }
                                 }
