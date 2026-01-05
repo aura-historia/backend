@@ -138,7 +138,7 @@ staging-data = { path = "src/aws-tests/src/staging-data" }
 staging-tests = { path = "src/aws-tests/src/staging-tests" }
 strum = "0.27.2"
 strum_macros = "0.27.2"
-syn = "2.0.112"
+syn = "2.0.113"
 test-api = { path = "src/test-api" }
 test-api-macros = { path = "src/test-api/src/test-api-macros" }
 testcontainers = "0.24.0"
