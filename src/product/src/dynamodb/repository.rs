@@ -451,7 +451,7 @@ impl<'a> ProductDynamoDbRepository for ProductDynamoDbRepositoryImpl<'a> {
     }
 }
 
-fn extract_product_key(map: HashMap<String, AttributeValue>) -> Result<ProductKey, String> {
+pub fn extract_product_key(map: HashMap<String, AttributeValue>) -> Result<ProductKey, String> {
     let mut map = map;
 
     // ugly af but much more efficient due to slices than using iterators in functional-style here

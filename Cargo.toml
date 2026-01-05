@@ -110,7 +110,6 @@ product-lambda-materialize-dynamodb-new = { path = "src/product-lambda/src/produ
 product-lambda-materialize-dynamodb-update = { path = "src/product-lambda/src/product-lambda-materialize-dynamodb-update" }
 product-lambda-materialize-opensearch-new = { path = "src/product-lambda/src/product-lambda-materialize-opensearch-new" }
 product-lambda-materialize-opensearch-update = { path = "src/product-lambda/src/product-lambda-materialize-opensearch-update" }
-product-lambda-ingest-events-dynamodb = { path = "src/product-lambda/src/product-lambda-ingest-events-dynamodb" }
 product-lambda-update-notify-user = { path = "src/product-lambda/src/product-lambda-update-notify-user" }
 itertools = "0.14.0"
 lambda_runtime = "1.0.2"

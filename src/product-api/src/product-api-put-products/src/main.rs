@@ -24,18 +24,11 @@ async fn main() -> Result<(), Error> {
         .await;
 
     let table_name = std::env::var("DYNAMODB_TABLE_NAME")?;
-    let ingest_product_events_queue_url = std::env::var("INGEST_PRODUCT_EVENTS_QUEUE_URL")?;
     let dynamodb_client = aws_sdk_dynamodb::Client::new(&aws_config);
     let product_repository = ProductDynamoDbRepositoryImpl::new(&dynamodb_client, &table_name);
     let shop_repository = ShopDynamoDbRepositoryImpl::new(&dynamodb_client, &table_name);
-    let sqs_client = aws_sdk_sqs::Client::new(&aws_config);
     let fx_rate = FixedFxRate();
-    let upsert_service = UpsertProductsServiceImpl::new(
-        &product_repository,
-        &sqs_client,
-        &ingest_product_events_queue_url,
-        &fx_rate,
-    );
+    let upsert_service = UpsertProductsServiceImpl::new(&product_repository, &fx_rate);
     let enrichment_service = ProductCommandEnrichmentServiceImpl::new(&shop_repository, &fx_rate);
 
     info!(

@@ -51,7 +51,6 @@ mod tests {
 
     #[test]
     fn should_fake_image_url() {
-        let faked = Faker.fake::<ImageUrl>();
-        println!("{}", faked.0);
+        let _ = Faker.fake::<ImageUrl>();
     }
 }

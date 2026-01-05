@@ -105,7 +105,6 @@ Since this is a serverless backend, manual testing involves:
 Located in various directories:
 
 **Product Lambda Functions** (`src/product-lambda/src/`):
-- `product-lambda-ingest-events-dynamodb`: Ingest product events from DynamoDB streams
 - `product-lambda-materialize-dynamodb-new`: Materialize new products to DynamoDB
 - `product-lambda-materialize-dynamodb-update`: Materialize product updates to DynamoDB
 - `product-lambda-materialize-opensearch-new`: Materialize new products to OpenSearch
@@ -253,7 +252,7 @@ src/
 * Only comment when you have HIGH CONFIDENCE (>80%) that an issue exists
 * Be concise: one sentence per comment when possible
 * Focus on actionable feedback, not observations
-* When reviewing text, only comment on clarity issues if the text is genuinely 
+* When reviewing text, only comment on clarity issues if the text is genuinely
 
 #### Priority Areas (Review These)
 
@@ -288,7 +287,7 @@ src/
 
 ### Project-Specific Context
 
-* We use AWS Cloudformation to declare the Cloud-Stack for each of the stages: prod, dev, ephemeral (per Pull-Request). 
-* Whenever a Pull-Request changes any of the Cloudformation-Code, make sure it is done for ALL stages as long as relevant. 
-* Stage ephemeral uses a manged AWS OpenSearch-Instance while dev and prod use a self-hosted variant. 
+* We use AWS Cloudformation to declare the Cloud-Stack for each of the stages: prod, dev, ephemeral (per Pull-Request).
+* Whenever a Pull-Request changes any of the Cloudformation-Code, make sure it is done for ALL stages as long as relevant.
+* Stage ephemeral uses a manged AWS OpenSearch-Instance while dev and prod use a self-hosted variant.
 * Cloudwatch Alarms are only used in prod.

@@ -1,12 +1,13 @@
 use crate::core::product::Product;
 use crate::core::product_event::ProductEvent;
 use crate::dynamodb::product_event_record::ProductEventRecord;
-use crate::dynamodb::repository::ProductDynamoDbRepository;
+use crate::dynamodb::repository::{ProductDynamoDbRepository, extract_product_key};
 use crate::service::product_command::UpsertProductCommand;
 use async_trait::async_trait;
 use common::batch::Batch;
 use common::has_key::HasKey;
 use common::price::domain::FxRate;
+use common::product_id::ProductKey;
 use itertools::Itertools;
 use std::collections::HashMap;
 use tracing::error;
@@ -25,22 +26,16 @@ pub trait UpsertProductsService {
 
 pub struct UpsertProductsServiceImpl<'a, T: FxRate + Sync> {
     dynamodb_repository: &'a (dyn ProductDynamoDbRepository + Sync),
-    sqs_client: &'a aws_sdk_sqs::Client,
-    product_ingest_events_dynamodb_queue_url: &'a str,
     fx_rate: &'a T,
 }
 
 impl<'a, T: FxRate + Sync> UpsertProductsServiceImpl<'a, T> {
     pub fn new(
         dynamodb_repository: &'a (dyn ProductDynamoDbRepository + Sync),
-        sqs_client: &'a aws_sdk_sqs::Client,
-        product_ingest_events_dynamodb_queue: &'a str,
         fx_rate: &'a T,
     ) -> Self {
         Self {
             dynamodb_repository,
-            sqs_client,
-            product_ingest_events_dynamodb_queue_url: product_ingest_events_dynamodb_queue,
             fx_rate,
         }
     }
@@ -166,50 +161,67 @@ impl<T: FxRate + Sync> UpsertProductsServiceImpl<'_, T> {
                 let mut events = update_events;
                 events.append(&mut create_events);
 
-                let batches = Batch::<_, 10>::chunked_from(events.into_iter());
+                let batches = Batch::<_, 25>::chunked_from(events.into_iter());
                 for batch in batches {
-                    let msg_key = batch
+                    let product_keys = batch
                         .iter()
-                        .enumerate()
-                        .map(|(i, record)| (i.to_string(), record.key()))
-                        .collect::<HashMap<_, _>>();
+                        .map(|event| ProductKey {
+                            shop_id: event.shop_id,
+                            shops_product_id: event.shops_product_id.clone(),
+                        })
+                        .collect::<Vec<_>>();
                     let res = self
-                        .sqs_client
-                        .send_message_batch()
-                        .queue_url(self.product_ingest_events_dynamodb_queue_url)
-                        .set_entries(Some(batch.into_sqs_message_entries()))
-                        .send()
+                        .dynamodb_repository
+                        .put_product_event_records(batch)
                         .await;
                     match res {
                         Ok(output) => {
-                            for failed in output.failed {
-                                match msg_key.get(failed.id()) {
-                                    Some(failed_key) => match key_cmds.remove(failed_key) {
-                                        Some(cmd) => unprocessed_failures.push(cmd),
-                                        None => {
+                            let failed_product_keys = output
+                                .unprocessed_items
+                                .unwrap_or_default()
+                                .into_iter()
+                                .flat_map(|(_table, reqs)| reqs)
+                                .map(|req| req.put_request.expect("shouldn't be any other request than 'PutRequest' because events are append-only").item)
+                                .map(extract_product_key)
+                                .filter_map(|result| match result {
+                                    Ok(event) => Some(event),
+                                    Err(err) => {
+                                        error!(error = %err, "Failed extracting ProductKey.");
+                                        None
+                                    }
+                                });
+                            for failed_product_key in failed_product_keys {
+                                match key_cmds.remove(&failed_product_key) {
+                                    Some(cmd) => unprocessed_failures.push(cmd.clone()),
+                                    None => {
+                                        let already_failed_command = unprocessed_failures
+                                            .iter()
+                                            .any(|unprocessed_failure| {
+                                                unprocessed_failure.shop_id
+                                                    == failed_product_key.shop_id
+                                                    && unprocessed_failure.shops_product_id
+                                                        == failed_product_key.shops_product_id
+                                            });
+                                        if !already_failed_command {
                                             error!(
-                                                shopId = %failed_key.shop_id,
-                                                shopsProductId = %failed_key.shops_product_id,
+                                                shopId = %failed_product_key.shop_id,
+                                                shopsProductId = %failed_product_key.shops_product_id,
                                                 "Couldn't find PutItemCommand for unproccesed message. This is a bug. Not retrying."
                                             );
                                         }
-                                    },
-                                    None => error!(
-                                        payload = ?failed,
-                                        "Couldn't find ProductKey for unproccesed message. This is a bug. Not retrying."
-                                    ),
+                                    }
                                 }
                             }
                         }
                         Err(err) => {
                             error!(error = ?err, "Failed writing entire ProductEventRecord-Batch due to SdkError.");
-                            for key in msg_key.into_values() {
-                                match key_cmds.remove(&key) {
+                            for product_key in product_keys {
+                                match key_cmds.remove(&product_key) {
                                     Some(cmd) => unprocessed_failures.push(cmd),
                                     None => {
                                         error!(
-                                            shopId = %key.shop_id,
-                                            shopsProductId = %key.shops_product_id,
+                                            shopId = %product_key.shop_id,
+                                            shopsProductId = %product_key.shops_product_id,
                                             "Couldn't find PutItemCommand for unproccesed message. This is a bug. Not retrying."
                                         );
                                     }
@@ -319,17 +331,15 @@ fn determine_update_events(
 
 #[cfg(test)]
 pub mod tests {
-    use rstest;
-
     use crate::core::product::Product;
     use crate::dynamodb::repository::MockProductDynamoDbRepository;
     use crate::service::product_command::UpsertProductCommand;
     use crate::service::upsert_service::{UpsertProductsServiceImpl, determine_update_events};
-    use aws_config::BehaviorVersion;
     use aws_sdk_dynamodb::error::SdkError;
     use common::has_key::HasKey;
     use common::{price::domain::FixedFxRate, product_state::domain::ProductState};
     use fake::{Fake, Faker};
+    use rstest;
 
     #[test]
     fn should_determine_no_update_events_when_only_skipped() {
@@ -453,14 +463,7 @@ pub mod tests {
             .expect_get_product_records()
             .return_once(|_| Box::pin(async { Err(expected) }));
 
-        let sqs_client =
-            aws_sdk_sqs::Client::new(&aws_config::defaults(BehaviorVersion::latest()).load().await);
-        let service = UpsertProductsServiceImpl::new(
-            &repository,
-            &sqs_client,
-            "ingest-q-url",
-            &FixedFxRate(),
-        );
+        let service = UpsertProductsServiceImpl::new(&repository, &FixedFxRate());
 
         let mut skipped_count = 0;
         let mut expected = fake::vec![UpsertProductCommand; 89];
@@ -497,14 +500,7 @@ pub mod tests {
                 })
             });
 
-        let sqs_client =
-            aws_sdk_sqs::Client::new(&aws_config::defaults(BehaviorVersion::latest()).load().await);
-        let service = UpsertProductsServiceImpl::new(
-            &repository,
-            &sqs_client,
-            "ingest-q-url",
-            &FixedFxRate(),
-        );
+        let service = UpsertProductsServiceImpl::new(&repository, &FixedFxRate());
 
         let mut skipped_count = 0;
 

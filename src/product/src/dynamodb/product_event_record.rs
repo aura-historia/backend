@@ -22,12 +22,13 @@ use common::shop_name::ShopName;
 use common::shops_product_id::ShopsProductId;
 use field::field;
 use serde::{Deserialize, Serialize};
+use serde_fields::SerdeField;
 use std::collections::HashMap;
 use time::format_description::well_known::Rfc3339;
 use time::{OffsetDateTime, error};
 use url::Url;
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, SerdeField)]
 pub struct ProductEventRecord {
     pub pk: String,
     pub sk: String,
