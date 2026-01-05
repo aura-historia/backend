@@ -1687,7 +1687,7 @@ Resources:
         Variables:
           S3_BUCKET_NAME_TEMPLATES: !Ref MailTemplateBucket
           STAGE_NAME: !Sub "${StageName}"
-          CommitSHA: !Sub "${CommitSHA}"
+          COMMIT_SHA: !Sub "${CommitSHA}"
   SendMailMapping:
     Type: AWS::Lambda::EventSourceMapping
     Properties:
