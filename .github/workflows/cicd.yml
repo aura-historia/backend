@@ -165,6 +165,7 @@ jobs:
           - src/product-api/src/product-api-put-products
           - src/product-api/src/product-api-search
           - src/product-api/src/product-api-watchlist-get
+          - src/product-api/src/product-api-watchlist-post
           - src/shop
           - src/shop-api/src/shop-api-search
           - src/shop-api/src/shop-api-patch-shop
