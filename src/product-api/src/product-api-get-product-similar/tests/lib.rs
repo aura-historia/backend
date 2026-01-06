@@ -1243,7 +1243,7 @@ async fn should_200_and_personalize_when_similar_products_have_been_computed_for
     let _ = user_repository.put_user_record(user_record).await.unwrap();
 
     let product_record: ProductRecord = Faker.fake();
-    let product_records = fake::vec![ProductRecord; 12];
+    let product_records = fake::vec![ProductRecord; 5];
     let ddb_insert_res = product_dynamodb_repository
         .put_product_records(
             [vec![product_record.clone()], product_records.clone()]
@@ -1397,14 +1397,7 @@ async fn should_respond_200_and_respect_accept_language_header(
     cognito_service
         .expect_verify_extract_user_id()
         .return_once(move |_| Box::pin(async move { Ok(Some(user_id)) }));
-    let get_product_service = GetProductServiceImpl::new(&product_dynamodb_repository);
     let user_repository = UserDynamoDbRepositoryImpl::new(get_dynamodb_client().await, "table_1");
-    let watchlist_service = ProductWatchListServiceImpl::new(
-        &watchlist_repository,
-        &user_repository,
-        &product_dynamodb_repository,
-        &get_product_service,
-    );
 
     let _ = user_repository.put_user_record(user_record).await.unwrap();
 
@@ -1425,17 +1418,6 @@ async fn should_respond_200_and_respect_accept_language_header(
             .unwrap_or_default()
             .is_empty()
     );
-
-    for product_record in product_records.iter() {
-        let _ = watchlist_service
-            .create_watchlist_product(
-                &user_id,
-                &product_record.shop_id,
-                &product_record.shops_product_id,
-            )
-            .await
-            .unwrap();
-    }
 
     let mut product_document: ProductDocument = product_record.clone().into();
     product_document.text_embedding = Some(EXAMPLE_EMBEDDING.into());
