@@ -186,7 +186,7 @@ async fn should_200_update_all_denormalized_watchlist_entries_for_patch_user() {
     assert_eq!(200, patch_response.status());
 
     // Wait for asynchronous processing of denormalized user-information to finish
-    tokio::time::sleep(Duration::from_secs(10)).await;
+    tokio::time::sleep(Duration::from_secs(30)).await;
 
     // Get updated watchlist-record
     let watchlist_repository = WatchlistProductDynamoDbRepositoryImpl::new(

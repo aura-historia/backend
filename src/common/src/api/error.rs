@@ -124,6 +124,10 @@ impl ApiError {
         .with_cause(cause)
     }
 
+    pub fn too_many_requests(error: ApiErrorCode, cause: Box<dyn Error>) -> Self {
+        Self::new(StatusCode::TOO_MANY_REQUESTS, "Too Many Requests", error).with_cause(cause)
+    }
+
     pub fn internal_server_error(error: ApiErrorCode, cause: Box<dyn Error>) -> Self {
         Self::new(
             StatusCode::INTERNAL_SERVER_ERROR,

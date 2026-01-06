@@ -27,6 +27,8 @@ use time::OffsetDateTime;
 use user::core::user::User;
 use user::dynamodb::repository::UserDynamoDbRepository;
 
+pub const MAX_WATCHLIST_QUOTA: usize = 5;
+
 #[derive(thiserror::Error, Debug)]
 #[allow(clippy::large_enum_variant)]
 pub enum WatchProductError {
@@ -75,6 +77,11 @@ pub enum WatchProductError {
 
     #[error("Unable to resolve unprocessed items after '{0}' retries. Failing entire operation.")]
     UnprocessedAfterMaxRetries(u32),
+
+    #[error(
+        "Exceeded the maximum amount of watchlist entries. There are already {0}/{MAX_WATCHLIST_QUOTA} watchlist entries occupied."
+    )]
+    WatchlistEntryCountExceeded(u32),
 }
 
 impl From<GetProductError> for WatchProductError {
@@ -102,7 +109,7 @@ pub mod api {
     use common::api::error::ApiError;
     use common::api::error_code::{
         MONETARY_AMOUNT_OVERFLOW, PRODUCT_NOT_FOUND, UNPROCESSED_AFTER_MAX_RETRIES, USER_NOT_FOUND,
-        WATCHLIST_ENTRY_NOT_FOUND,
+        WATCHLIST_ENTRY_NOT_FOUND, WATCHLIST_QUOTA_EXCEEDED,
     };
 
     impl From<WatchProductError> for ApiError {
@@ -128,6 +135,9 @@ pub mod api {
                 WatchProductError::SdkUpdateItemError(err) => err.into(),
                 WatchProductError::UnprocessedAfterMaxRetries(_) => {
                     ApiError::service_unavailable(UNPROCESSED_AFTER_MAX_RETRIES, Box::new(err))
+                }
+                WatchProductError::WatchlistEntryCountExceeded(_) => {
+                    ApiError::unprocessable_entity(WATCHLIST_QUOTA_EXCEEDED, Box::new(err))
                 }
             }
         }
@@ -246,6 +256,17 @@ impl<'a> ProductWatchListService for ProductWatchListServiceImpl<'a> {
             .get_user_record(user_id)
             .await?
             .ok_or(WatchProductError::UserNotFound(*user_id))?;
+
+        let watchlist_count = self
+            .watchlist_repository
+            .count_watchlist_records(user_id, &Default::default(), true)
+            .await?;
+        if watchlist_count as usize >= MAX_WATCHLIST_QUOTA {
+            return Err(WatchProductError::WatchlistEntryCountExceeded(
+                watchlist_count as u32,
+            ));
+        }
+
         let watchlist_record = WatchlistProductRecord {
             pk: mk_pk(user_id),
             sk: mk_sk(shop_id, shops_product_id),
@@ -534,6 +555,7 @@ mod tests {
     mod create_watchlist_product {
         use crate::dynamodb::repository::MockProductDynamoDbRepository;
         use crate::service::get_service::GetProductServiceImpl;
+        use crate::watchlist::service::product_watchlist_service::MAX_WATCHLIST_QUOTA;
         use crate::{
             watchlist::dynamodb::repository::MockWatchlistProductDynamoDbRepository,
             watchlist::service::product_watchlist_service::{
@@ -561,6 +583,9 @@ mod tests {
                 .return_once(|_, _| Box::pin(async { Ok(Some(Faker.fake())) }));
 
             let mut watchlist_repository = MockWatchlistProductDynamoDbRepository::default();
+            watchlist_repository
+                .expect_count_watchlist_records()
+                .return_once(|_, _, _| Box::pin(async { Ok(MAX_WATCHLIST_QUOTA as u64 - 1) }));
             watchlist_repository
                 .expect_put_watchlist_record()
                 .return_once(|_| Box::pin(async { Ok(PutItemOutput::builder().build()) }));
@@ -608,6 +633,47 @@ mod tests {
                     assert_eq!(shops_product_id, err_shops_product_id);
                 }
                 err => panic!("Expected 'WatchProductError::ProductNotFound' but got '{err}'"),
+            }
+        }
+
+        #[tokio::test]
+        async fn should_err_watchlist_quota_exceeded_when_exceeded() {
+            let mut user_repository = MockUserDynamoDbRepository::default();
+            user_repository
+                .expect_get_user_record()
+                .return_once(|_| Box::pin(async { Ok(Some(Faker.fake())) }));
+            let mut product_repository = MockProductDynamoDbRepository::default();
+            product_repository
+                .expect_get_product_record()
+                .return_once(|_, _| Box::pin(async { Ok(Some(Faker.fake())) }));
+
+            let mut watchlist_repository = MockWatchlistProductDynamoDbRepository::default();
+            watchlist_repository
+                .expect_count_watchlist_records()
+                .return_once(|_, _, _| Box::pin(async { Ok(MAX_WATCHLIST_QUOTA as u64) }));
+
+            let get_product_service = GetProductServiceImpl::new(&product_repository);
+
+            let service = ProductWatchListServiceImpl::new(
+                &watchlist_repository,
+                &user_repository,
+                &product_repository,
+                &get_product_service,
+            );
+            let shop_id = ShopId::new();
+            let shops_product_id = ShopsProductId::new();
+            let actual = service
+                .create_watchlist_product(&Faker.fake(), &shop_id, &shops_product_id)
+                .await
+                .unwrap_err();
+
+            match actual {
+                WatchProductError::WatchlistEntryCountExceeded(actual_count) => {
+                    assert_eq!(MAX_WATCHLIST_QUOTA, actual_count as usize);
+                }
+                err => panic!(
+                    "Expected 'WatchProductError::WatchlistEntryCountExceeded' but got '{err}'"
+                ),
             }
         }
 
@@ -738,6 +804,11 @@ mod tests {
                 .return_once(|_, _| Box::pin(async { Ok(Some(Faker.fake())) }));
 
             let mut watchlist_repository = MockWatchlistProductDynamoDbRepository::default();
+            watchlist_repository
+                .expect_count_watchlist_records()
+                .return_once(|_, _, _| {
+                    Box::pin(async { Ok(fake::rand::random_range(0..MAX_WATCHLIST_QUOTA as u64)) })
+                });
             watchlist_repository
                 .expect_put_watchlist_record()
                 .return_once(|_| Box::pin(async { Err(expected) }));
