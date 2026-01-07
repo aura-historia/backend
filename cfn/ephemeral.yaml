@@ -1626,7 +1626,7 @@ Resources:
       RedrivePolicy:
         deadLetterTargetArn: !GetAtt SendMailDlq.Arn
         maxReceiveCount: 5
-      VisibilityTimeout: 120
+      VisibilityTimeout: 180
   SendMailRole:
     Type: AWS::IAM::Role
     Properties:

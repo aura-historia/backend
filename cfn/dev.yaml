@@ -1583,7 +1583,7 @@ Resources:
       RedrivePolicy:
         deadLetterTargetArn: !GetAtt SendMailDlq.Arn
         maxReceiveCount: 5
-      VisibilityTimeout: 360
+      VisibilityTimeout: 180
   SendMailRole:
     Type: AWS::IAM::Role
     Properties:
@@ -1598,6 +1598,20 @@ Resources:
       ManagedPolicyArns:
         - arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole
       Policies:
+        - PolicyName: DynamoDBAccess
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: Allow
+                Action:
+                  - dynamodb:GetItem
+                  - dynamodb:PutItem
+                  - dynamodb:BatchGetItem
+                  - dynamodb:BatchWriteItem
+                  - dynamodb:TransactGetItems
+                  - dynamodb:TransactWriteItems
+                Resource:
+                  - !GetAtt TableOne.Arn
         - PolicyName: SQSPollerAccess
           PolicyDocument:
             Version: "2012-10-17"
@@ -1642,6 +1656,7 @@ Resources:
         Size: 512
       Environment:
         Variables:
+          DYNAMODB_TABLE_NAME: !Ref TableOne
           S3_BUCKET_NAME_TEMPLATES: !Ref MailTemplateBucket
           STAGE_NAME: "dev"
           COMMIT_SHA: !Sub "${CommitSHA}"
@@ -1651,7 +1666,7 @@ Resources:
       FunctionName: !Ref SendMailLambda
       EventSourceArn: !GetAtt SendMailQ.Arn
       Enabled: true
-      BatchSize: 200
+      BatchSize: 25
       MaximumBatchingWindowInSeconds: 1
       FunctionResponseTypes:
         - ReportBatchItemFailures
