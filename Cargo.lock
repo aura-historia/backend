@@ -2503,6 +2503,7 @@ version = "0.1.0"
 dependencies = [
  "async-trait",
  "aws-config",
+ "aws-sdk-dynamodb",
  "aws-sdk-s3",
  "aws-sdk-sesv2",
  "aws-sdk-sqs",
@@ -2514,12 +2515,15 @@ dependencies = [
  "once_cell",
  "serde",
  "serde-email",
+ "serde_dynamo",
  "serde_json",
  "serial_test",
  "test-api",
  "thiserror",
+ "time",
  "tokio",
  "tracing",
+ "uuid",
 ]
 
 [[package]]
@@ -2527,6 +2531,7 @@ name = "mail-lambda-send"
 version = "0.1.0"
 dependencies = [
  "aws-config",
+ "aws-sdk-dynamodb",
  "aws-sdk-s3",
  "aws-sdk-sesv2",
  "aws_lambda_events",

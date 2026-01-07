@@ -1,5 +1,6 @@
 use common::{currency::domain::Currency, language::domain::Language, price::domain::Price};
 use mail_core::{
+    mail_id::MailId,
     payload::MailPayload,
     template::{MailTemplate, MailTemplateType},
 };
@@ -167,6 +168,8 @@ impl<'a> ProductEventMailPayloadServiceImpl<'a> {
         }
 
         MailPayload {
+            user_id: user.user_id,
+            mail_id: MailId::new(),
             sender: self.sender_email.clone(),
             recipient: user.email,
             subject,
