@@ -1,3 +1,5 @@
+pub mod mail_id;
+
 pub mod payload;
 
 #[cfg(feature = "send")]

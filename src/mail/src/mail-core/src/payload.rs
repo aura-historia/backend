@@ -1,9 +1,12 @@
-use crate::template::MailTemplate;
+use crate::{mail_id::MailId, template::MailTemplate};
+use common::user_id::UserId;
 use serde::{Deserialize, Serialize};
 use serde_email::Email;
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct MailPayload {
+    pub user_id: UserId,
+    pub mail_id: MailId,
     pub sender: Email,
     pub recipient: Email,
     pub subject: String,
@@ -19,6 +22,8 @@ mod faker {
     impl Dummy<Faker> for MailPayload {
         fn dummy_with_rng<R: Rng + ?Sized>(config: &Faker, rng: &mut R) -> Self {
             MailPayload {
+                user_id: config.fake_with_rng(rng),
+                mail_id: config.fake_with_rng(rng),
                 sender: SafeEmail()
                     .fake_with_rng::<String, R>(rng)
                     .try_into()
