@@ -124,7 +124,7 @@ impl<'a> SendMailService for SendMailServiceImpl<'a> {
                 userId = %payload.user_id,
                 mailId = %payload.mail_id,
                 previouslySentTimestamp = %mail_record_opt.created,
-                "Mail was has already been sent. Skipping."
+                "Mail has already been sent. Skipping."
             );
             return Ok(());
         }
