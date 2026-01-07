@@ -9,12 +9,15 @@ serde = { workspace = true }
 serde_json = { workspace = true }
 common = { workspace = true }
 uuid = { workspace = true }
+time = { workspace = true }
 
 # Optional
 tokio = { workspace = true, optional = true, features = ["sync"] }
 aws-sdk-sesv2 = { workspace = true, optional = true }
 aws-sdk-s3 = { workspace = true, optional = true }
 aws-sdk-sqs = { workspace = true, optional = true }
+aws-sdk-dynamodb = { workspace = true, optional = true }
+serde_dynamo = { workspace = true, optional = true }
 handlebars = { workspace = true, optional = true }
 once_cell = { workspace = true, optional = true }
 thiserror = { workspace = true, optional = true }
@@ -27,11 +30,11 @@ fake = { workspace = true, optional = true, features = ["serde_json"] }
 aws-config = { workspace = true }
 tokio = { workspace = true, features = ["macros"] }
 mail-core = { workspace = true, features = ["queue", "send", "test-data"] }
-test-api = { workspace = true, features = ["sqs"] }
+test-api = { workspace = true, features = ["sqs", "dynamodb"] }
 serial_test = { workspace = true }
 
 [features]
 default = []
 queue = ["common/sqs", "aws-sdk-sqs", "thiserror", "mockall", "async-trait", "tracing"]
-send = ["tokio", "tokio/sync", "aws-sdk-sesv2", "aws-sdk-s3", "handlebars", "once_cell", "thiserror", "mockall", "async-trait"]
+send = ["tokio", "tokio/sync", "aws-sdk-sesv2", "aws-sdk-s3", "handlebars", "once_cell", "thiserror", "mockall", "async-trait", "aws-sdk-dynamodb", "serde_dynamo"]
 test-data = ["fake", "common/test-data", "fake/serde_json"]

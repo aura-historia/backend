@@ -1,4 +1,4 @@
-use crate::{payload::MailPayload, template::MailTemplate};
+use crate::{payload::MailPayload, repository::MailDynamoDbRepository, template::MailTemplate};
 use aws_sdk_s3::operation::get_object::GetObjectError;
 use aws_sdk_sesv2::{
     error::SdkError,
@@ -9,6 +9,7 @@ use handlebars::Handlebars;
 use once_cell::sync::OnceCell;
 use std::{collections::HashMap, sync::Arc};
 use tokio::sync::RwLock;
+use tracing::error;
 
 #[derive(thiserror::Error, Debug)]
 pub enum MailServiceError {
@@ -28,8 +29,9 @@ pub trait SendMailService {
     async fn send_mail(&self, payload: MailPayload) -> Result<(), MailServiceError>;
 }
 
-#[derive(Debug, Clone)]
+#[derive(Clone)]
 pub struct SendMailServiceImpl<'a> {
+    mail_repository: &'a (dyn MailDynamoDbRepository + Send + Sync),
     ses_client: &'a aws_sdk_sesv2::Client,
     s3_client: &'a aws_sdk_s3::Client,
     s3_bucket: &'a str,
@@ -42,6 +44,7 @@ static TEMPLATE_CACHE: OnceCell<Arc<RwLock<HashMap<MailTemplate, String>>>> = On
 
 impl<'a> SendMailServiceImpl<'a> {
     pub fn new(
+        mail_repository: &'a (dyn MailDynamoDbRepository + Send + Sync),
         ses_client: &'a aws_sdk_sesv2::Client,
         s3_client: &'a aws_sdk_s3::Client,
         s3_bucket: &'a str,
@@ -49,6 +52,7 @@ impl<'a> SendMailServiceImpl<'a> {
         commit_sha: &'a str,
     ) -> Self {
         Self {
+            mail_repository,
             ses_client,
             s3_client,
             s3_bucket,
@@ -109,7 +113,7 @@ impl<'a> SendMailService for SendMailServiceImpl<'a> {
             .handlebars
             .render_template(&template_html, &payload.data)?;
         let subject = Content::builder()
-            .data(payload.subject)
+            .data(payload.subject.clone())
             .build()
             .expect("shouldn't fail because 'data' was set explicitly");
         let body = Body::builder()
@@ -125,15 +129,21 @@ impl<'a> SendMailService for SendMailServiceImpl<'a> {
 
         self.ses_client
             .send_email()
-            .from_email_address(payload.sender)
+            .from_email_address(payload.sender.clone())
             .destination(
                 Destination::builder()
-                    .to_addresses(payload.recipient)
+                    .to_addresses(payload.recipient.clone())
                     .build(),
             )
             .content(content)
             .send()
             .await?;
+
+        let user_id = payload.user_id;
+        let put_res = self.mail_repository.put_mail_record(payload.into()).await;
+        if let Err(err) = put_res {
+            error!(error = %err, userId = %user_id, "Failed persisting sent email to DynamoDB.");
+        }
 
         Ok(())
     }
@@ -142,10 +152,12 @@ impl<'a> SendMailService for SendMailServiceImpl<'a> {
 #[cfg(test)]
 mod tests {
     use crate::{
+        repository::MockMailDynamoDbRepository,
         send_service::{SendMailServiceImpl, TEMPLATE_CACHE},
         template::{MailTemplate, MailTemplateType},
     };
     use aws_config::{BehaviorVersion, SdkConfig};
+    use aws_sdk_dynamodb::operation::put_item::PutItemOutput;
     use common::language::data::LanguageData;
     use std::{collections::HashMap, sync::Arc};
     use tokio::sync::RwLock;
@@ -158,7 +170,18 @@ mod tests {
             .build();
         let ses_client = aws_sdk_sesv2::Client::new(&sdk_config);
         let s3_client = aws_sdk_s3::Client::new(&sdk_config);
-        let service = SendMailServiceImpl::new(&ses_client, &s3_client, "foo", "moo", "boo");
+        let mut mail_repository = MockMailDynamoDbRepository::default();
+        mail_repository
+            .expect_put_mail_record()
+            .returning(|_| Box::pin(async { Ok(PutItemOutput::builder().build()) }));
+        let service = SendMailServiceImpl::new(
+            &mail_repository,
+            &ses_client,
+            &s3_client,
+            "foo",
+            "moo",
+            "boo",
+        );
 
         TEMPLATE_CACHE.get_or_init(|| {
             Arc::new(RwLock::new(HashMap::from_iter([(

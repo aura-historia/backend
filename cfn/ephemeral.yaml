@@ -1645,6 +1645,20 @@ Resources:
       ManagedPolicyArns:
         - arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole
       Policies:
+        - PolicyName: DynamoDBAccess
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: Allow
+                Action:
+                  - dynamodb:GetItem
+                  - dynamodb:PutItem
+                  - dynamodb:BatchGetItem
+                  - dynamodb:BatchWriteItem
+                  - dynamodb:TransactGetItems
+                  - dynamodb:TransactWriteItems
+                Resource:
+                  - !GetAtt TableOne.Arn
         - PolicyName: SQSPollerAccess
           PolicyDocument:
             Version: "2012-10-17"
@@ -1689,6 +1703,7 @@ Resources:
         Size: 512
       Environment:
         Variables:
+          DYNAMODB_TABLE_NAME: !Ref TableOne
           S3_BUCKET_NAME_TEMPLATES: !Ref MailTemplateBucket
           STAGE_NAME: !Sub "${StageName}"
           COMMIT_SHA: !Sub "${CommitSHA}"
