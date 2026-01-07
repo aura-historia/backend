@@ -15,4 +15,3 @@ pub mod s3_adapter;
 pub mod send_service;
 #[cfg(feature = "send")]
 pub mod ses_adapter;
-
