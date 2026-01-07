@@ -1,13 +1,13 @@
 use crate::{
     payload::MailPayload, record::MailRecord, repository::MailDynamoDbRepository,
-    template::MailTemplate,
+    s3_adapter::S3Adapter, ses_adapter::SesAdapter, template::MailTemplate,
 };
 use aws_sdk_dynamodb::operation::get_item::GetItemError;
 use aws_sdk_s3::operation::get_object::GetObjectError;
 use aws_sdk_sesv2::{
     error::SdkError,
     operation::send_email::SendEmailError,
-    types::{Body, Content, Destination, EmailContent, Message},
+    types::{Body, Content, EmailContent, Message},
 };
 use handlebars::Handlebars;
 use once_cell::sync::OnceCell;
@@ -39,8 +39,8 @@ pub trait SendMailService {
 #[derive(Clone)]
 pub struct SendMailServiceImpl<'a> {
     mail_repository: &'a (dyn MailDynamoDbRepository + Send + Sync),
-    ses_client: &'a aws_sdk_sesv2::Client,
-    s3_client: &'a aws_sdk_s3::Client,
+    ses_adapter: &'a (dyn SesAdapter + Send + Sync),
+    s3_adapter: &'a (dyn S3Adapter + Send + Sync),
     s3_bucket: &'a str,
     stage_name: &'a str,
     commit_sha: &'a str,
@@ -52,16 +52,16 @@ static TEMPLATE_CACHE: OnceCell<Arc<RwLock<HashMap<MailTemplate, String>>>> = On
 impl<'a> SendMailServiceImpl<'a> {
     pub fn new(
         mail_repository: &'a (dyn MailDynamoDbRepository + Send + Sync),
-        ses_client: &'a aws_sdk_sesv2::Client,
-        s3_client: &'a aws_sdk_s3::Client,
+        ses_adapter: &'a (dyn SesAdapter + Send + Sync),
+        s3_adapter: &'a (dyn S3Adapter + Send + Sync),
         s3_bucket: &'a str,
         stage_name: &'a str,
         commit_sha: &'a str,
     ) -> Self {
         Self {
             mail_repository,
-            ses_client,
-            s3_client,
+            ses_adapter,
+            s3_adapter,
             s3_bucket,
             stage_name,
             commit_sha,
@@ -83,18 +83,13 @@ impl<'a> SendMailServiceImpl<'a> {
             }
         }
 
-        let resp = self
-            .s3_client
-            .get_object()
-            .bucket(self.s3_bucket)
-            .key(format!(
-                "{}/{}/{}.html",
-                self.stage_name,
-                self.commit_sha,
-                template.as_s3_blob_str()
-            ))
-            .send()
-            .await?;
+        let s3_key = format!(
+            "{}/{}/{}.html",
+            self.stage_name,
+            self.commit_sha,
+            template.as_s3_blob_str()
+        );
+        let resp = self.s3_adapter.get_object(self.s3_bucket, &s3_key).await?;
         let bytes = resp
             .body
             .collect()
@@ -148,16 +143,9 @@ impl<'a> SendMailService for SendMailServiceImpl<'a> {
         let message = Message::builder().subject(subject).body(body).build();
         let content = EmailContent::builder().simple(message).build();
 
-        self.ses_client
-            .send_email()
-            .from_email_address(payload.sender.clone())
-            .destination(
-                Destination::builder()
-                    .to_addresses(payload.recipient.clone())
-                    .build(),
-            )
-            .content(content)
-            .send()
+        let _ = self
+            .ses_adapter
+            .send_email(payload.sender.clone(), payload.recipient.clone(), content)
             .await?;
 
         let user_id = payload.user_id;
@@ -201,10 +189,11 @@ impl<'a> SendMailService for SendMailServiceImpl<'a> {
 mod tests {
     use crate::{
         repository::MockMailDynamoDbRepository,
+        s3_adapter::MockS3Adapter,
         send_service::{SendMailServiceImpl, TEMPLATE_CACHE},
+        ses_adapter::MockSesAdapter,
         template::{MailTemplate, MailTemplateType},
     };
-    use aws_config::{BehaviorVersion, SdkConfig};
     use aws_sdk_dynamodb::operation::put_item::PutItemOutput;
     use common::language::data::LanguageData;
     use std::{collections::HashMap, sync::Arc};
@@ -212,12 +201,10 @@ mod tests {
 
     #[tokio::test]
     async fn should_reuse_template_when_in_cache() {
-        // Dummy-Config - test would use dummy-clients and therefore err if we didn't use cache
-        let sdk_config = SdkConfig::builder()
-            .behavior_version(BehaviorVersion::latest())
-            .build();
-        let ses_client = aws_sdk_sesv2::Client::new(&sdk_config);
-        let s3_client = aws_sdk_s3::Client::new(&sdk_config);
+        let mut ses_adapter = MockSesAdapter::default();
+        ses_adapter.expect_send_email().never();
+        let mut s3_adapter = MockS3Adapter::default();
+        s3_adapter.expect_get_object().never();
         let mut mail_repository = MockMailDynamoDbRepository::default();
         mail_repository
             .expect_get_mail_record()
@@ -227,8 +214,8 @@ mod tests {
             .returning(|_| Box::pin(async { Ok(PutItemOutput::builder().build()) }));
         let service = SendMailServiceImpl::new(
             &mail_repository,
-            &ses_client,
-            &s3_client,
+            &ses_adapter,
+            &s3_adapter,
             "foo",
             "moo",
             "boo",

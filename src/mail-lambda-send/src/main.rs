@@ -1,7 +1,10 @@
 use aws_config::BehaviorVersion;
 use aws_lambda_events::sqs::SqsEvent;
 use lambda_runtime::{Error, LambdaEvent, run, service_fn};
-use mail_core::{repository::MailDynamoDbRepositoryImpl, send_service::SendMailServiceImpl};
+use mail_core::{
+    repository::MailDynamoDbRepositoryImpl, s3_adapter::S3AdapterImpl,
+    send_service::SendMailServiceImpl, ses_adapter::SesAdapterImpl,
+};
 use mail_lambda_send::handler;
 use tracing::info;
 
@@ -27,10 +30,12 @@ async fn main() -> Result<(), Error> {
     let dynamodb_client = aws_sdk_dynamodb::Client::new(&aws_config);
     let table_name = std::env::var("DYNAMODB_TABLE_NAME")?;
     let mail_repository = MailDynamoDbRepositoryImpl::new(&dynamodb_client, table_name);
+    let s3_adapter = S3AdapterImpl::new(&s3_client);
+    let ses_adapter = SesAdapterImpl::new(&ses_client);
     let service = SendMailServiceImpl::new(
         &mail_repository,
-        &ses_client,
-        &s3_client,
+        &ses_adapter,
+        &s3_adapter,
         &s3_bucket_name_templates,
         &stage_name,
         &commit_sha,
