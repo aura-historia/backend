@@ -1,5 +1,4 @@
 use crate::payload::MailPayload;
-use aws_sdk_sqs::types::SendMessageBatchRequestEntry;
 use common::batch::Batch;
 use std::collections::HashMap;
 use tracing::error;
@@ -37,36 +36,11 @@ impl<'a> QueueMailService for QueueMailServiceImpl<'a> {
                 .enumerate()
                 .map(|(i, payload)| (i.to_string(), payload.clone()))
                 .collect::<HashMap<_, _>>();
-            let message_entries = batch
-                .into_iter()
-                .enumerate()
-                .filter_map(|(i, m)| match serde_json::to_string(&m) {
-                    Ok(payload) => Some(
-                        SendMessageBatchRequestEntry::builder()
-                            .message_body(payload)
-                            .id(i.to_string())
-                            .message_deduplication_id(m.mail_id)
-                            .message_group_id(m.user_id)
-                            .build()
-                            .expect("shouldn't fail because 'id' and 'message_body' have been set"),
-                    ),
-                    Err(err) => {
-                        error!(
-                            error = %err,
-                            userId= %m.user_id,
-                            mailId= %m.mail_id,
-                            type = %std::any::type_name::<MailPayload>(),
-                            "Failed to serialize message."
-                        );
-                        None
-                    }
-                })
-                .collect();
             let res = self
                 .sqs_client
                 .send_message_batch()
                 .queue_url(self.mail_queue_url)
-                .set_entries(Some(message_entries))
+                .set_entries(Some(batch.into_sqs_message_entries()))
                 .send()
                 .await;
             match res {

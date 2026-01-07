@@ -61,7 +61,7 @@ impl<'a> MailDynamoDbRepository for MailDynamoDbRepositoryImpl<'a> {
             .await?
             .item
             .map(serde_dynamo::from_item::<_, MailRecord>)
-            .and_then(|user_record_res| match user_record_res {
+            .and_then(|mail_record_res| match mail_record_res {
                 Ok(product_record) => Some(product_record),
                 Err(err) => {
                     error!(error = %err, type = %std::any::type_name::<MailRecord>(), "Failed deserializing.");

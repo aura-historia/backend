@@ -1,4 +1,8 @@
-use crate::{payload::MailPayload, repository::MailDynamoDbRepository, template::MailTemplate};
+use crate::{
+    payload::MailPayload, record::MailRecord, repository::MailDynamoDbRepository,
+    template::MailTemplate,
+};
+use aws_sdk_dynamodb::operation::get_item::GetItemError;
 use aws_sdk_s3::operation::get_object::GetObjectError;
 use aws_sdk_sesv2::{
     error::SdkError,
@@ -9,10 +13,13 @@ use handlebars::Handlebars;
 use once_cell::sync::OnceCell;
 use std::{collections::HashMap, sync::Arc};
 use tokio::sync::RwLock;
-use tracing::error;
+use tracing::{info, warn};
 
 #[derive(thiserror::Error, Debug)]
 pub enum MailServiceError {
+    #[error("Encountered DynamoDB SdkError for GetItem: {0:?}")]
+    SdkDynamoDbGetItemError(#[from] SdkError<GetItemError>),
+
     #[error("Encountered S3 SdkError for GetObject: {0:?}")]
     SdkS3GetObjectError(#[from] SdkError<GetObjectError>),
 
@@ -108,6 +115,20 @@ impl<'a> SendMailServiceImpl<'a> {
 #[async_trait::async_trait]
 impl<'a> SendMailService for SendMailServiceImpl<'a> {
     async fn send_mail(&self, payload: MailPayload) -> Result<(), MailServiceError> {
+        let mail_record_opt = self
+            .mail_repository
+            .get_mail_record(&payload.user_id, &payload.mail_id)
+            .await?;
+        if let Some(mail_record_opt) = mail_record_opt {
+            info!(
+                userId = %payload.user_id,
+                mailId = %payload.mail_id,
+                previouslySentTimestamp = %mail_record_opt.created,
+                "Mail was has already been sent. Skipping."
+            );
+            return Ok(());
+        }
+
         let template_html = self.resolve_template(payload.template).await?;
         let rendered_html = self
             .handlebars
@@ -140,9 +161,36 @@ impl<'a> SendMailService for SendMailServiceImpl<'a> {
             .await?;
 
         let user_id = payload.user_id;
-        let put_res = self.mail_repository.put_mail_record(payload.into()).await;
-        if let Err(err) = put_res {
-            error!(error = %err, userId = %user_id, "Failed persisting sent email to DynamoDB.");
+        let mail_record = MailRecord::from(payload);
+        const MAX_RETRIES: u32 = 5;
+        const BASE_DELAY_MS: u64 = 100;
+        let mut retry_count = 0;
+        loop {
+            let put_res = self
+                .mail_repository
+                .put_mail_record(mail_record.clone())
+                .await;
+            match put_res {
+                Ok(_) => {
+                    break;
+                }
+                Err(err) => {
+                    warn!(error = ?err, userId = %user_id, "Failed persisting sent email to DynamoDB.");
+                }
+            }
+            if retry_count >= MAX_RETRIES {
+                warn!(
+                    userId = %user_id,
+                    "Failed persisting sent email to DynamoDB after '{MAX_RETRIES}' retries.
+                     This will lead to another email being sent to the user."
+                );
+                // Shouldn't happen all too often, rare ALO-Delivery acceptable here, mostly EO
+                break;
+            }
+
+            retry_count += 1;
+            let delay_ms = BASE_DELAY_MS * 2_u64.pow(retry_count - 1);
+            tokio::time::sleep(tokio::time::Duration::from_millis(delay_ms)).await;
         }
 
         Ok(())
@@ -171,6 +219,9 @@ mod tests {
         let ses_client = aws_sdk_sesv2::Client::new(&sdk_config);
         let s3_client = aws_sdk_s3::Client::new(&sdk_config);
         let mut mail_repository = MockMailDynamoDbRepository::default();
+        mail_repository
+            .expect_get_mail_record()
+            .returning(|_, _| Box::pin(async { Ok(None) }));
         mail_repository
             .expect_put_mail_record()
             .returning(|_| Box::pin(async { Ok(PutItemOutput::builder().build()) }));

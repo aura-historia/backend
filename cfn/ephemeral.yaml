@@ -1617,16 +1617,12 @@ Resources:
   SendMailDlq:
     Type: AWS::SQS::Queue
     Properties:
-      QueueName: !Sub "mail-lambda-send-${StageName}.fifo"
-      FifoQueue: true
-      ContentBasedDeduplication: false
+      QueueName: !Sub "mail-lambda-send-${StageName}"
       MessageRetentionPeriod: 1209600
   SendMailQ:
     Type: AWS::SQS::Queue
     Properties:
-      QueueName: !Sub "mail-lambda-send-queue-${StageName}.fifo"
-      FifoQueue: true
-      ContentBasedDeduplication: false
+      QueueName: !Sub "mail-lambda-send-queue-${StageName}"
       RedrivePolicy:
         deadLetterTargetArn: !GetAtt SendMailDlq.Arn
         maxReceiveCount: 5
@@ -1713,8 +1709,8 @@ Resources:
       FunctionName: !Ref SendMailLambda
       EventSourceArn: !GetAtt SendMailQ.Arn
       Enabled: true
-      BatchSize: 1
-      MaximumBatchingWindowInSeconds: 0
+      BatchSize: 25
+      MaximumBatchingWindowInSeconds: 1
       FunctionResponseTypes:
         - ReportBatchItemFailures
 
