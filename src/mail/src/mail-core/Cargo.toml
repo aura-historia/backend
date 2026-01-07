@@ -10,6 +10,7 @@ serde_json = { workspace = true }
 common = { workspace = true }
 uuid = { workspace = true }
 time = { workspace = true }
+tracing = { workspace = true }
 
 # Optional
 tokio = { workspace = true, optional = true, features = ["sync"] }
@@ -23,7 +24,6 @@ once_cell = { workspace = true, optional = true }
 thiserror = { workspace = true, optional = true }
 mockall = { workspace = true, optional = true }
 async-trait = { workspace = true, optional = true }
-tracing = { workspace = true, optional = true }
 fake = { workspace = true, optional = true, features = ["serde_json"] }
 
 [dev-dependencies]
@@ -35,6 +35,6 @@ serial_test = { workspace = true }
 
 [features]
 default = []
-queue = ["common/sqs", "aws-sdk-sqs", "thiserror", "mockall", "async-trait", "tracing"]
+queue = ["common/sqs", "aws-sdk-sqs", "thiserror", "mockall", "async-trait"]
 send = ["tokio", "tokio/sync", "aws-sdk-sesv2", "aws-sdk-s3", "handlebars", "once_cell", "thiserror", "mockall", "async-trait", "aws-sdk-dynamodb", "serde_dynamo"]
 test-data = ["fake", "common/test-data", "fake/serde_json"]
