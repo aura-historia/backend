@@ -18,6 +18,7 @@ pub struct MailPayload {
 mod faker {
     use super::*;
     use fake::{Dummy, Fake, Faker, Rng, faker::internet::de_de::SafeEmail};
+    use serde_json::json;
 
     impl Dummy<Faker> for MailPayload {
         fn dummy_with_rng<R: Rng + ?Sized>(config: &Faker, rng: &mut R) -> Self {
@@ -34,7 +35,11 @@ mod faker {
                     .unwrap(),
                 subject: config.fake_with_rng(rng),
                 template: config.fake_with_rng(rng),
-                data: config.fake_with_rng(rng),
+                data: json!({
+                    "foo": config.fake_with_rng::<String, _>(rng),
+                    "bar": config.fake_with_rng::<String, _>(rng),
+                    "baz": config.fake_with_rng::<bool, _>(rng)
+                }),
             }
         }
     }
