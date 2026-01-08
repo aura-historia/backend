@@ -59,9 +59,7 @@ phases:
           commands:
             - set -euxo pipefail
             - apt-get update
-            - apt-get install -y python3 python3-pip python3-venv build-essential
-            - curl -LsSf https://hf.co/cli/install.sh | bash
-            - echo 'export PATH="$HOME/.local/bin:$PATH"' > /etc/profile.d/hf.sh
+            - apt-get install -y python3 python3-pip python3-venv build-essential python3-huggingface-hub
 
       - name: ConfigureHFCache
         action: ExecuteBash
@@ -101,7 +99,7 @@ phases:
             - |
               export HF_HOME=/opt/huggingface
               export TRANSFORMERS_CACHE=/opt/huggingface
-              hf download unsloth/Qwen3-14B-unsloth-bnb-4bit
+              huggingface-cli download unsloth/Qwen3-14B-unsloth-bnb-4bit
 
       - name: ConfigureSystemdHFEnv
         action: ExecuteBash
