@@ -373,14 +373,14 @@ mod tests {
     #[case(128)]
     #[case(141)]
     #[case(500)]
-    #[case(1000)]
+    #[case(10001)]
     fn should_partially_fail(#[case] count: usize) {
         let mut translation_delegate = MockTranslationAdapter::default();
         translation_delegate
             .expect_translate_batch()
             .returning(|batch, _, _| {
                 if batch.len() == TITLE_BATCH_SIZE || batch.len() == DESCRIPTION_BATCH_SIZE {
-                    Ok(fake::vec![String; 64].try_into().unwrap())
+                    Ok(fake::vec![String; 32].try_into().unwrap())
                 } else {
                     Err(PyErr::new::<PyTypeError, _>("Something went wrong"))
                 }
@@ -406,8 +406,8 @@ mod tests {
 
         let actual = translation_pipe_processor.process(products);
 
-        assert_eq!(count - (count % 64), actual.successes.len());
-        assert_eq!(count % 64, actual.failures.len());
+        assert_eq!(count - (count % 32), actual.successes.len());
+        assert_eq!(count % 32, actual.failures.len());
     }
 
     #[rstest::rstest]
