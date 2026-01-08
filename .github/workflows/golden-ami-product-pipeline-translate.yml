@@ -7,13 +7,13 @@ on:
       - ".github/workflows/golden-ami-product-pipeline-translate.yml"
       - "cfn/golden-ami.yaml"
       - "ami/product-pipeline-translate.yml"
-      - "src/product-pipeline/src/product-pipeline-translate/python/**"
+      - "src/product-pipeline/src/product-pipeline-translate/python/requirements.txt"
   pull_request:
     paths:
       - ".github/workflows/golden-ami-product-pipeline-translate.yml"
       - "cfn/golden-ami.yaml"
       - "ami/product-pipeline-translate.yml"
-      - "src/product-pipeline/src/product-pipeline-translate/python/**"
+      - "src/product-pipeline/src/product-pipeline-translate/python/requirements.txt"
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}

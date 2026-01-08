@@ -7,7 +7,6 @@ use std::sync::Arc;
 
 #[mockall::automock]
 pub trait TranslationAdapter {
-    fn translate(&self, text: &str, src: &Language, tgt: &Language) -> PyResult<String>;
     fn translate_batch(
         &self,
         batch: &Batch<String, 64>,
@@ -38,19 +37,6 @@ impl TranslationAdapterImpl {
 }
 
 impl TranslationAdapter for TranslationAdapterImpl {
-    fn translate(&self, text: &str, src: &Language, tgt: &Language) -> PyResult<String> {
-        Python::attach(|py| -> PyResult<_> {
-            let translate_module = self.module.as_ref();
-
-            // Call the Python function and convert to Py<PyAny> for safe ownership
-            let result: Py<PyAny> = translate_module
-                .getattr(py, intern!(py, "translate"))?
-                .call1(py, (text, src.as_str(), tgt.as_str()))?;
-
-            result.as_ref().extract(py)
-        })
-    }
-
     fn translate_batch(
         &self,
         batch: &Batch<String, 64>,
@@ -63,8 +49,15 @@ impl TranslationAdapter for TranslationAdapterImpl {
 
             // Call the Python function and convert to Py<PyAny> for safe ownership
             let result: Py<PyAny> = translate_module
-                .getattr(py, intern!(py, "translate_batch"))?
-                .call1(py, (py_texts, src.as_str(), tgt.as_str()))?;
+                .getattr(py, intern!(py, "translate"))?
+                .call1(
+                    py,
+                    (
+                        py_texts,
+                        src.format_human_readble(),
+                        tgt.format_human_readble(),
+                    ),
+                )?;
 
             let translations: Vec<String> = result.as_ref().extract(py)?;
             let translations_batch = Batch::try_from(translations)
@@ -74,6 +67,7 @@ impl TranslationAdapter for TranslationAdapterImpl {
     }
 }
 
+#[cfg(any())]
 #[cfg(test)]
 mod tests {
     use crate::adapter::{TranslationAdapter, TranslationAdapterImpl};

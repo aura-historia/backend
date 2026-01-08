@@ -30,8 +30,8 @@ impl TranslationPipeProcesserImpl {
 }
 
 // Must both be <= 64 to fit into Batch<64,_>
-const TITLE_BATCH_SIZE: usize = 64;
-const DESCRIPTION_BATCH_SIZE: usize = 16;
+const TITLE_BATCH_SIZE: usize = 32;
+const DESCRIPTION_BATCH_SIZE: usize = 8;
 
 impl PipeProcessor<CleansedPipeProduct, TranslatedPipeProduct> for TranslationPipeProcesserImpl {
     fn process(&self, ins: Vec<CleansedPipeProduct>) -> ProcessResult<TranslatedPipeProduct> {
@@ -179,37 +179,14 @@ mod tests {
     use crate::process::{DESCRIPTION_BATCH_SIZE, TITLE_BATCH_SIZE};
     use crate::{adapter::MockTranslationAdapter, process::TranslationPipeProcesserImpl};
     use common::language::record::{LanguageRecord, TextRecord};
+    use common::product_id::ProductId;
+    use fake::rand::seq::SliceRandom;
     use fake::{Fake, Faker};
     use product_pipeline_common::process::PipeProcessor;
     use product_pipeline_common::types::CleansedPipeProduct;
     use pyo3::{PyErr, exceptions::PyTypeError};
     use rstest;
     use std::sync::Arc;
-
-    #[rstest::rstest]
-    #[trace]
-    #[case(0)]
-    #[case(1)]
-    #[case(2)]
-    #[case(5)]
-    #[case(10)]
-    #[case(42)]
-    #[case(500)]
-    #[case(1000)]
-    fn should_never_use_single_translate(#[case] count: usize) {
-        let mut translation_delegate = MockTranslationAdapter::default();
-        translation_delegate.expect_translate().never();
-        translation_delegate
-            .expect_translate_batch()
-            .returning(|_, _, _| Ok(fake::vec![String; 64].try_into().unwrap()));
-
-        let translation_pipe_processor =
-            TranslationPipeProcesserImpl::new(Arc::new(translation_delegate));
-        let actual = translation_pipe_processor.process(fake::vec![CleansedPipeProduct; count]);
-
-        assert!(actual.failures.is_empty());
-        assert_eq!(count, actual.successes.len());
-    }
 
     #[test]
     fn should_enrich_titles_for_other_langs() {
@@ -312,6 +289,75 @@ mod tests {
                 .any(|(other_lang, _)| other_lang
                     == &in_product.native_description.clone().unwrap().language)
         );
+    }
+
+    #[rstest::rstest]
+    #[trace]
+    #[case(0)]
+    #[case(1)]
+    #[case(7)]
+    #[case(15)]
+    #[case(16)]
+    #[case(17)]
+    #[case(21)]
+    #[case(31)]
+    #[case(42)]
+    #[case(63)]
+    #[case(64)]
+    #[case(65)]
+    #[case(69)]
+    #[case(144)]
+    fn should_process_translation(#[case] count: usize) {
+        let mut adapter = MockTranslationAdapter::default();
+        adapter
+            .expect_translate_batch()
+            .returning(|batch, _, _| Ok(batch.clone()));
+        let translation_pipe_processor = TranslationPipeProcesserImpl::new(Arc::new(adapter));
+
+        let product_id = ProductId::new();
+        let mut products = fake::vec![CleansedPipeProduct; count];
+        let product = CleansedPipeProduct {
+            product_id,
+            shop_id: Faker.fake(),
+            shops_product_id: Faker.fake(),
+            native_title: TextRecord {
+                text: "blue".to_owned(),
+                language: LanguageRecord::En,
+            },
+            native_description: Some(TextRecord {
+                text: "Hallo Welt!".to_owned(),
+                language: LanguageRecord::De,
+            }),
+        };
+        products.push(product);
+        products.shuffle(&mut fake::rand::rng());
+
+        let actual = translation_pipe_processor.process(products);
+        assert!(actual.failures.is_empty());
+        assert_eq!(count + 1, actual.successes.len());
+
+        let expected = actual
+            .successes
+            .into_iter()
+            .find(|out_product| out_product.product_id == product_id)
+            .unwrap();
+
+        assert_eq!(LanguageRecord::En, expected.native_title.language);
+        assert_eq!("blue", &expected.native_title.text);
+        assert!(expected.other_title.contains_key(&LanguageRecord::De));
+        assert!(expected.other_title.contains_key(&LanguageRecord::Fr));
+        assert!(expected.other_title.contains_key(&LanguageRecord::Es));
+        assert_eq!(
+            LanguageRecord::De,
+            expected.native_description.as_ref().unwrap().language
+        );
+        assert_eq!(
+            "Hallo Welt!",
+            expected.native_description.as_ref().unwrap().text
+        );
+        assert!(expected.other_description.contains_key(&LanguageRecord::En));
+        assert!(expected.other_description.contains_key(&LanguageRecord::Fr));
+        assert!(expected.other_description.contains_key(&LanguageRecord::Es));
     }
 
     #[rstest::rstest]
