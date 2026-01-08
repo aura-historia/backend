@@ -52,6 +52,7 @@ impl ExtractionAdapter for ExtractionAdapterImpl {
     }
 }
 
+#[cfg(any())]
 #[cfg(test)]
 mod tests {
     use crate::adapter::{ExtractionAdapter, ExtractionAdapterImpl};

@@ -7,13 +7,13 @@ on:
       - ".github/workflows/golden-ami-product-pipeline-embed-text.yml"
       - "cfn/golden-ami.yaml"
       - "ami/product-pipeline-embed-text.yml"
-      - "src/product-pipeline/src/product-pipeline-embed-text/python/**"
+      - "src/product-pipeline/src/product-pipeline-embed-text/python/requirements.txt"
   pull_request:
     paths:
       - ".github/workflows/golden-ami-product-pipeline-embed-text.yml"
       - "cfn/golden-ami.yaml"
       - "ami/product-pipeline-embed-text.yml"
-      - "src/product-pipeline/src/product-pipeline-embed-text/python/**"
+      - "src/product-pipeline/src/product-pipeline-embed-text/python/requirements.txt"
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}

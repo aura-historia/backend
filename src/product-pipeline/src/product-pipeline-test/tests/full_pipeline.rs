@@ -4,6 +4,7 @@ use aws_lambda_events::{
 };
 use common::year::Year;
 use fake::{Fake, Faker};
+use itertools::Itertools;
 use product::{
     core::product_event::ProductCreatedEventPayload,
     dynamodb::{
@@ -27,9 +28,7 @@ use product_pipeline_common::{
 use product_pipeline_complete::{
     flow_out::PersistDynamoDbOpenSearchPipeFlowOutImpl, process::CompleterPipeProcessorImpl,
 };
-use product_pipeline_embed_text::{
-    adapter::EmbeddingAdapterImpl, process::TextEmbeddingPipeProcesserImpl,
-};
+use product_pipeline_embed_text::process::TextEmbeddingPipeProcesserImpl;
 use product_pipeline_extract_attribute::{
     adapter::MockExtractionAdapter, process::AttributeExtractionPipeProcesserImpl,
 };
@@ -38,7 +37,7 @@ use product_pipeline_init::{
     process::InitPipeProcessorImpl,
 };
 use product_pipeline_translate::{
-    adapter::TranslationAdapterImpl, process::TranslationPipeProcesserImpl,
+    adapter::MockTranslationAdapter, process::TranslationPipeProcesserImpl,
 };
 use std::{sync::Arc, time::SystemTime};
 use test_api::*;
@@ -91,6 +90,8 @@ fn mk_event_bridge_payload(product_event_record: &ProductEventRecord) -> String 
 #[trace]
 #[localstack_test(services = [INIT_Q, TRANSLATE_Q, EMBED_TEXT_Q, EXTRACT_ATTRIBUTE_Q, COMPLETE_Q, DynamoDB(), OpenSearch()])]
 async fn should_flow_through_entire_pipeline(#[case] count: usize) {
+    use product_pipeline_embed_text::adapter::MockEmbeddingAdapter;
+
     let sqs = get_sqs_client().await;
     let dynamodb = get_dynamodb_client().await;
     let opensearch = get_opensearch_client().await;
@@ -160,8 +161,11 @@ async fn should_flow_through_entire_pipeline(#[case] count: usize) {
 
     // Translate-Pipe
     let translate_flow_in = PipeFlowInImpl::new(sqs, TRANSLATE_Q.queue_url());
-    let translate_processor =
-        TranslationPipeProcesserImpl::new(Arc::new(TranslationAdapterImpl::new().unwrap()));
+    let mut translate_adapter = MockTranslationAdapter::default();
+    translate_adapter
+        .expect_translate_batch()
+        .returning(|batch, _, _| Ok(batch.clone()));
+    let translate_processor = TranslationPipeProcesserImpl::new(Arc::new(translate_adapter));
     let translate_flow_out = PipeFlowOutImpl::new(sqs, EMBED_TEXT_Q.queue_url());
     let translate_pipe: PipeImpl<
         '_,
@@ -182,8 +186,16 @@ async fn should_flow_through_entire_pipeline(#[case] count: usize) {
 
     // Embed-Text-Pipe
     let embed_text_flow_in = PipeFlowInImpl::new(sqs, EMBED_TEXT_Q.queue_url());
-    let embed_text_processor =
-        TextEmbeddingPipeProcesserImpl::new(Arc::new(EmbeddingAdapterImpl::new().unwrap()));
+    let mut embed_text_adapter = MockEmbeddingAdapter::default();
+    embed_text_adapter.expect_embed().returning(|batch| {
+        Ok(fake::vec![[f32; 1024]; batch.len()]
+            .into_iter()
+            .map(Vec::from)
+            .collect_vec()
+            .try_into()
+            .unwrap())
+    });
+    let embed_text_processor = TextEmbeddingPipeProcesserImpl::new(Arc::new(embed_text_adapter));
     let embed_text_flow_out = PipeFlowOutImpl::new(sqs, EXTRACT_ATTRIBUTE_Q.queue_url());
     let embed_text_pipe: PipeImpl<
         '_,

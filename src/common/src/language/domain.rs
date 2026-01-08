@@ -51,6 +51,15 @@ impl Language {
             Language::Es => "es",
         }
     }
+
+    pub fn format_human_readable(&self) -> &'static str {
+        match self {
+            Language::De => "German",
+            Language::En => "English",
+            Language::Fr => "French",
+            Language::Es => "Spanish",
+        }
+    }
 }
 
 impl From<LanguageRecord> for Language {

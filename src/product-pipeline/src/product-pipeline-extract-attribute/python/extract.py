@@ -1,80 +1,52 @@
 from typing import List
 
-import torch
-from transformers import AutoModelForCausalLM, AutoTokenizer
+from vllm import LLM, SamplingParams
 
-MODEL_NAME = "Qwen/Qwen3-8B"
-DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
+llm = LLM(
+    model="unsloth/Qwen3-14B-unsloth-bnb-4bit",
+    dtype="bfloat16",
+    max_model_len=1024,
+    trust_remote_code=True,
+    gpu_memory_utilization=0.95,
+)
 
-tokenizer = AutoTokenizer.from_pretrained(MODEL_NAME)
-model = AutoModelForCausalLM.from_pretrained(
-    MODEL_NAME,
-    device_map=DEVICE,
-    dtype=torch.float16,
+sampling_params = SamplingParams(
+    temperature=0.1,
+    top_p=1.0,
+    max_tokens=512,
+    repetition_penalty=1.0,
 )
 
 
-def extract(schema: str, texts: List[str], batch_size=8) -> List[str]:
-    results: List[str] = []
+def build_prompt(schema: str, text: str) -> str:
+    return f"""/no_think
+        You are a structured information extraction system for the antiques and art domain.
+        You extract product attributes from text.
+        You will be given a JSON-Schema to extract.
+        You must respond with valid JSON only.
+        Do not include explanations or extra text.
+        Only answer with the extracted JSON.
+        If values for any of the target-schema fields are missing, use null.
 
-    for i in range(0, len(texts), batch_size):
-        batch = texts[i : i + batch_size]
+        Schema:\n{schema}\n
 
-        prompts = []
-        for text in batch:
-            messages = [
-                {
-                    "role": "system",
-                    "content": (
-                        "You are a structured information extraction system. "
-                        "You extract product attributes from text. "
-                        "You will be given a JSON-Schema to extract."
-                        "You must respond with valid JSON only. "
-                        "Do not include explanations or extra text."
-                        "If values for any of the target schemas fields are missing, use null."
-                    ),
-                },
-                {
-                    "role": "user",
-                    "content": f"""
-                    Schema:
-                    \"\"\"{schema}\"\"\"
+        Text:\n{text}\n
+        """
 
-                    Text:
-                    \"\"\"{text}\"\"\"
-                    """,
-                },
-            ]
 
-            prompt = tokenizer.apply_chat_template(
-                messages,
-                tokenize=False,
-                add_generation_prompt=True,
-                enable_thinking=False,
-            )
-            prompts.append(prompt)
+def extract(schema: str, texts: List[str]) -> List[str]:
+    prompts = [build_prompt(schema, text) for text in texts]
 
-        inputs = tokenizer(
-            prompts,
-            return_tensors="pt",
-            padding=True,
-            truncation=True,
-        ).to(model.device)
+    outputs = llm.generate(
+        prompts,
+        sampling_params,
+        extra_body={"top_k": 20, "chat_template_kwargs": {"enable_thinking": False}},
+    )
 
-        with torch.inference_mode():
-            outputs = model.generate(
-                **inputs,
-                max_new_tokens=100,
-                do_sample=False,
-            )
+    # vLLM guarantees order preservation
+    extractions = []
+    for output in outputs:
+        text = output.outputs[0].text.strip()
+        extractions.append(text)
 
-        input_length = inputs["input_ids"].shape[1]
-
-        decoded = tokenizer.batch_decode(
-            outputs[:, input_length:],
-            skip_special_tokens=True,
-        )
-
-        results.extend(decoded)
-
-    return results
+    return extractions

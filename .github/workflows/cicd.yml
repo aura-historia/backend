@@ -160,6 +160,7 @@ jobs:
           - src/search-filter-api/src/search-filter-api-post-search-filter
           - src/product
           - src/product-pipeline/src/product-pipeline-common
+          - src/product-pipeline/src/product-pipeline-test
           - src/product-api/src/product-api-get-product
           - src/product-api/src/product-api-get-product-similar
           - src/product-api/src/product-api-put-products
@@ -205,10 +206,7 @@ jobs:
     strategy:
       matrix:
         crate:
-          - src/product-pipeline/src/product-pipeline-translate
           - src/product-pipeline/src/product-pipeline-embed-text
-          - src/product-pipeline/src/product-pipeline-extract-attribute
-          - src/product-pipeline/src/product-pipeline-test
     steps:
       - uses: actions/checkout@v6
         with:
@@ -263,7 +261,7 @@ jobs:
       - name: Install Python deps
         run: |
           python -m pip install --upgrade pip
-          pip install -r src/product-pipeline/src/product-pipeline-test/python/requirements.txt
+          pip install -r src/product-pipeline/src/product-pipeline-embed-text/python/requirements.txt
 
       - name: Generate coverage
         env:

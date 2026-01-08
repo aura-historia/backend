@@ -1,166 +1,72 @@
-import pathlib
-from typing import List, Tuple
+from typing import List
 
-import ctranslate2
-import torch
-from cachetools import LRUCache
-from transformers import AutoTokenizer
+from vllm import LLM, SamplingParams
 
-# ------------------------------------------------------------
-# Configuration
-# ------------------------------------------------------------
-DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
-DTYPE = "float16" if DEVICE == "cuda" else "float32"
+llm = LLM(
+    model="unsloth/Qwen3-14B-unsloth-bnb-4bit",
+    dtype="bfloat16",
+    max_model_len=4096,
+    trust_remote_code=True,
+    gpu_memory_utilization=0.95,
+)
 
-CACHE_DIR = pathlib.Path("./models_cache")
-CACHE_DIR.mkdir(exist_ok=True)
-
-
-# Map (src, tgt) -> huggingface model name
-MODEL_REGISTRY = {
-    ("de", "en"): "Helsinki-NLP/opus-mt-de-en",
-    ("de", "fr"): "Helsinki-NLP/opus-mt-de-fr",
-    ("de", "es"): "Helsinki-NLP/opus-mt-de-es",
-    ("en", "de"): "Helsinki-NLP/opus-mt-en-de",
-    ("en", "fr"): "Helsinki-NLP/opus-mt-en-fr",
-    ("en", "es"): "Helsinki-NLP/opus-mt-en-es",
-    ("fr", "de"): "Helsinki-NLP/opus-mt-fr-de",
-    ("fr", "en"): "Helsinki-NLP/opus-mt-fr-en",
-    ("fr", "es"): "Helsinki-NLP/opus-mt-fr-es",
-    ("es", "de"): "Helsinki-NLP/opus-mt-es-de",
-    ("es", "en"): "Helsinki-NLP/opus-mt-es-en",
-    ("es", "fr"): "Helsinki-NLP/opus-mt-es-fr",
-}
+sampling_params = SamplingParams(
+    temperature=0.1,
+    top_p=1.0,
+    max_tokens=1024,
+    repetition_penalty=1.0,
+)
 
 
-# ------------------------------------------------------------
-# LRU model cache (max 5 loaded models)
-# ------------------------------------------------------------
-_loaded_models: LRUCache[
-    Tuple[str, str], Tuple[AutoTokenizer, ctranslate2.Translator]
-] = LRUCache(maxsize=12)
+def build_prompt(text: str, src_lang: str, tgt_lang: str) -> str:
+    return f"""/no_think
+        You are a professional translator specialized in antique and art-historical descriptions.
+        Translate the following text faithfully and precisely.
+        Do not summarize, omit, or add information.
+        Preserve technical terminology.
+        Do only answer with the translated text, nothing else.
+
+        Source language: {src_lang}
+        Target language: {tgt_lang}
+        Text:\n{text}\n
+        """
 
 
-def _load_model(src: str, tgt: str):
-    key = (src, tgt)
-    if key in _loaded_models:
-        return _loaded_models[key]
+def translate(
+    texts: List[str],
+    source_language: str,
+    target_language: str,
+) -> List[str]:
+    prompts = [build_prompt(text, source_language, target_language) for text in texts]
 
-    if key not in MODEL_REGISTRY:
-        raise ValueError(f"No translation model registered for {src}->{tgt}")
-
-    hf_model_name = MODEL_REGISTRY[key]
-
-    tokenizer = AutoTokenizer.from_pretrained(hf_model_name)
-
-    model_dir = CACHE_DIR / hf_model_name.replace("/", "_") / "ct2"
-
-    # Ensure parent directory exists
-    model_dir.parent.mkdir(parents=True, exist_ok=True)
-
-    needs_conversion = not (model_dir / "model.bin").exists()
-    lock_file = model_dir.parent / (model_dir.name + ".lock")
-
-    if needs_conversion:
-        if lock_file.exists():
-            import time
-
-            while lock_file.exists():
-                time.sleep(1)
-        else:
-            with open(lock_file, "w"):
-                pass
-            try:
-                print(f"[translate] Converting {hf_model_name} → CTranslate2...")
-                import subprocess
-
-                subprocess.run(
-                    [
-                        "ct2-transformers-converter",
-                        "--model",
-                        hf_model_name,
-                        "--output_dir",
-                        str(model_dir),
-                        "--quantization",
-                        "int8_float16",
-                        "--force",
-                    ],
-                    check=True,
-                )
-            finally:
-                lock_file.unlink(missing_ok=True)
-
-    ct2_model = ctranslate2.Translator(
-        str(model_dir),
-        device=DEVICE,
-        compute_type=DTYPE,
+    outputs = llm.generate(
+        prompts,
+        sampling_params,
+        extra_body={"top_k": 20, "chat_template_kwargs": {"enable_thinking": False}},
     )
 
-    _loaded_models[key] = (tokenizer, ct2_model)
-    print(f"[translate] Loaded {hf_model_name} on {DEVICE} ({DTYPE})")
-
-    return tokenizer, ct2_model
-
-
-# ------------------------------------------------------------
-# Public translate() function
-# ------------------------------------------------------------
-def translate(text: str, src: str, tgt: str) -> str:
-    """Translate one text from src -> tgt."""
-    tokenizer, ct2_model = _load_model(src, tgt)
-
-    input_ids = tokenizer.encode(text, return_tensors=None)
-    tokens = tokenizer.convert_ids_to_tokens(input_ids)
-    result = ct2_model.translate_batch([tokens])[0]
-    output_tokens = result.hypotheses[0]
-    output_ids = tokenizer.convert_tokens_to_ids(output_tokens)
-    return tokenizer.decode(output_ids, skip_special_tokens=True)
-
-
-def translate_batch(texts: List[str], src: str, tgt: str) -> List[str]:
-    tokenizer, ct2_model = _load_model(src, tgt)
-
-    # Batch tokenization using HF tokenizer (Optimization 2)
-    encoding = tokenizer(
-        texts,
-        return_tensors=None,
-        padding=True,
-        truncation=True,
-    )
-    batch_tokens = [
-        tokenizer.convert_ids_to_tokens(ids) for ids in encoding["input_ids"]
-    ]
-
-    # Batch translation
-    results = ct2_model.translate_batch(
-        batch_tokens,
-        beam_size=4,
-        max_decoding_length=512,
-        repetition_penalty=1.2,
-        no_repeat_ngram_size=5,
-    )
-
-    # Decode each result
+    # vLLM guarantees order preservation
     translations = []
-    for result in results:
-        output_tokens = result.hypotheses[0]
-        output_ids = tokenizer.convert_tokens_to_ids(output_tokens)
-        decoded = tokenizer.decode(output_ids, skip_special_tokens=True)
-        translations.append(decoded)
+    for output in outputs:
+        text = output.outputs[0].text.strip()
+        translations.append(text)
 
     return translations
 
-if __name__ == '__main__':
-    print('Dummy-translate from all source languages to all target languages to preload and build ctranslate2-models')
-    translate("foo", "de", "en")
-    translate("foo", "de", "fr")
-    translate("foo", "de", "es")
-    translate("foo", "en", "de")
-    translate("foo", "en", "fr")
-    translate("foo", "en", "es")
-    translate("foo", "fr", "de")
-    translate("foo", "fr", "en")
-    translate("foo", "fr", "es")
-    translate("foo", "es", "de")
-    translate("foo", "es", "en")
-    translate("foo", "es", "fr")
+
+if __name__ == "__main__":
+    german_texts = [
+        "Barockes Hängeschränkchen aus massivem Eichenholz.",
+        "Rechteckiger Korpus mit breitem einschübigem Sockelgeschoss.",
+        "Gedrechselter Zugknopf an der Schubladenfront.",
+    ]
+
+    translated = translate(
+        german_texts,
+        source_language="German",
+        target_language="English",
+    )
+
+    for src, tgt in zip(german_texts, translated):
+        print(tgt)
+        print("-" * 60)
