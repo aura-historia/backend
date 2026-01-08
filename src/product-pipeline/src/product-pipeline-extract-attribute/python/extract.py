@@ -44,9 +44,9 @@ def extract(schema: str, texts: List[str]) -> List[str]:
     )
 
     # vLLM guarantees order preservation
-    translations = []
+    extractions = []
     for output in outputs:
         text = output.outputs[0].text.strip()
-        translations.append(text)
+        extractions.append(text)
 
-    return translations
+    return extractions

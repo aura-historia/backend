@@ -52,7 +52,7 @@ impl Language {
         }
     }
 
-    pub fn format_human_readble(&self) -> &'static str {
+    pub fn format_human_readable(&self) -> &'static str {
         match self {
             Language::De => "German",
             Language::En => "English",

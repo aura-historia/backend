@@ -54,8 +54,8 @@ impl TranslationAdapter for TranslationAdapterImpl {
                     py,
                     (
                         py_texts,
-                        src.format_human_readble(),
-                        tgt.format_human_readble(),
+                        src.format_human_readable(),
+                        tgt.format_human_readable(),
                     ),
                 )?;
 
