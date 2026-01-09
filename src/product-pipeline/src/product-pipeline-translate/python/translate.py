@@ -7,7 +7,8 @@ llm = LLM(
     dtype="bfloat16",
     max_model_len=4096,
     trust_remote_code=True,
-    gpu_memory_utilization=0.95,
+    gpu_memory_utilization=0.80,
+    max_num_seqs=64,
 )
 
 sampling_params = SamplingParams(
@@ -42,7 +43,6 @@ def translate(
     outputs = llm.generate(
         prompts,
         sampling_params,
-        extra_body={"top_k": 20, "chat_template_kwargs": {"enable_thinking": False}},
     )
 
     # vLLM guarantees order preservation

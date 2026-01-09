@@ -5,15 +5,16 @@ from vllm import LLM, SamplingParams
 llm = LLM(
     model="unsloth/Qwen3-14B-unsloth-bnb-4bit",
     dtype="bfloat16",
-    max_model_len=1024,
+    max_model_len=2048,
     trust_remote_code=True,
-    gpu_memory_utilization=0.95,
+    gpu_memory_utilization=0.80,
+    max_num_seqs=64,
 )
 
 sampling_params = SamplingParams(
     temperature=0.1,
     top_p=1.0,
-    max_tokens=512,
+    max_tokens=1024,
     repetition_penalty=1.0,
 )
 
@@ -40,7 +41,6 @@ def extract(schema: str, texts: List[str]) -> List[str]:
     outputs = llm.generate(
         prompts,
         sampling_params,
-        extra_body={"top_k": 20, "chat_template_kwargs": {"enable_thinking": False}},
     )
 
     # vLLM guarantees order preservation
