@@ -1,12 +1,15 @@
 use crate::core::sort_shop_field::SortShopField;
 use crate::opensearch::shop_document::ShopDocumentSerdeField;
+use crate::opensearch::shop_document_update::ShopDocumentUpdate;
 use crate::opensearch::{shop_document::ShopDocument, shop_search::ShopSearch};
+use common::opensearch::update_response::UpdateResponse;
+use common::shop_id::ShopId;
 use common::{
     opensearch::{index_response::IndexResponse, search_response::SearchResponse},
     pagination::cursor::Cursor,
     sort::{Sort, SortOrder},
 };
-use opensearch::{IndexParts, SearchParts};
+use opensearch::{IndexParts, SearchParts, UpdateParts};
 use serde::ser::Error;
 use serde_json::json;
 use time::format_description::well_known;
@@ -18,6 +21,12 @@ pub trait ShopOpenSearchRepository {
         &self,
         document: ShopDocument,
     ) -> Result<IndexResponse, opensearch::Error>;
+
+    async fn update_shop_document(
+        &self,
+        shop_id: &ShopId,
+        update: ShopDocumentUpdate,
+    ) -> Result<UpdateResponse, opensearch::Error>;
 
     async fn search_shop_documents(
         &self,
@@ -60,6 +69,31 @@ impl<'a> ShopOpenSearchRepository for ShopOpenSearchRepositoryImpl<'a> {
             })?;
 
         Ok(index_response)
+    }
+
+    async fn update_shop_document(
+        &self,
+        shop_id: &ShopId,
+        update: ShopDocumentUpdate,
+    ) -> Result<UpdateResponse, opensearch::Error> {
+        let response = self
+            .client
+            .update(UpdateParts::IndexId("shops", &shop_id.to_string()))
+            .body(json!({
+                "doc": update
+            }))
+            .send()
+            .await?;
+
+        let payload = response.text().await?;
+        let update_response = serde_json::from_str::<UpdateResponse>(&payload)
+            .map_err(|err| {
+                serde_json::Error::custom(format!(
+                    "Failed deserializing 'UpdateResponse' with error '{err}'. Received payload: {payload}"
+                ))
+            })?;
+
+        Ok(update_response)
     }
 
     async fn search_shop_documents(

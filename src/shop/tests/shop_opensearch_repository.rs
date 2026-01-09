@@ -1,8 +1,10 @@
+use common::domain::Domain;
 use common::pagination::cursor::Cursor;
 use common::sort::SortOrder;
 use common::{query::range_query::RangeQuery, sort::Sort};
 use fake::{Fake, Faker};
 use shop::core::sort_shop_field::SortShopField;
+use shop::opensearch::shop_document_update::ShopDocumentUpdate;
 use shop::opensearch::{
     repository::{ShopOpenSearchRepository, ShopOpenSearchRepositoryImpl},
     shop_document::ShopDocument,
@@ -10,7 +12,9 @@ use shop::opensearch::{
 };
 use std::time::Duration;
 use test_api::*;
+use time::OffsetDateTime;
 use time::macros::datetime;
+use url::Url;
 
 async fn get_repository() -> ShopOpenSearchRepositoryImpl<'static> {
     ShopOpenSearchRepositoryImpl::new(get_opensearch_client().await)
@@ -187,6 +191,47 @@ async fn should_search_shop_documents_for_arguments(
         .unwrap();
 
     assert!(actual.hits.hits.iter().any(|hit| hit.source == expected));
+}
+
+#[localstack_test(services = [OpenSearch()])]
+async fn should_update_shop_document() {
+    let repository = get_repository().await;
+    let create_expected = Faker.fake::<ShopDocument>();
+
+    let created_res = repository
+        .create_shop_document(create_expected.clone())
+        .await
+        .unwrap();
+    assert_eq!("created", created_res.result);
+    refresh_index("shops").await;
+    tokio::time::sleep(Duration::from_secs(3)).await;
+
+    let created = read_by_id::<ShopDocument>("shops", create_expected.shop_id).await;
+    assert_eq!(create_expected, created);
+
+    let update = ShopDocumentUpdate {
+        name: Some("Hansi hans and the Hanses".into()),
+        domains: Some(HashSet::from_iter([
+            Domain::try_from("hansi-hans.de").unwrap(),
+            Domain::try_from("hansi-hans.com").unwrap(),
+        ])),
+        image: Some(Url::parse("https://hansi-hanseatic.es/foo.png").unwrap()),
+        updated: OffsetDateTime::now_utc(),
+    };
+
+    let updated_res = repository
+        .update_shop_document(&created.shop_id, update.clone())
+        .await
+        .unwrap();
+    assert_eq!("updated", updated_res.result);
+    refresh_index("shops").await;
+    tokio::time::sleep(Duration::from_secs(3)).await;
+
+    let updated = read_by_id::<ShopDocument>("shops", create_expected.shop_id).await;
+    assert_eq!(update.name.unwrap(), updated.name);
+    assert_eq!(update.domains.unwrap(), updated.domains);
+    assert_eq!(update.image.unwrap(), updated.image.unwrap());
+    assert_eq!(update.updated, updated.updated);
 }
 
 #[localstack_test(services = [OpenSearch()])]
