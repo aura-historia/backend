@@ -12,6 +12,7 @@ search-filter = { workspace = true }
 search-filter-api = { workspace = true }
 shop = { workspace = true }
 shop-api = { workspace = true }
+shop-lambda = { workspace = true }
 product = { workspace = true }
 product-api = { workspace = true }
 product-lambda = { workspace = true }
@@ -31,13 +32,13 @@ members = [
     "src/common",
     "src/search-filter",
     "src/search-filter-api",
-    "src/shop",
     "src/product",
     "src/product-api",
     "src/product-lambda",
     "src/test-api",
     "src/shop",
     "src/shop-api",
+    "src/shop-lambda",
     "src/user",
     "src/user-api",
     "src/user-lambda",
@@ -73,6 +74,8 @@ search-filter-api-get-search-filters = { path = "src/search-filter-api/src/searc
 search-filter-api-patch-search-filter = { path = "src/search-filter-api/src/search-filter-api-patch-search-filter" }
 search-filter-api-post-search-filter = { path = "src/search-filter-api/src/search-filter-api-post-search-filter" }
 shop = { path = "src/shop" }
+shop-lambda = { path = "src/shop-lambda" }
+shop-lambda-opensearch-index = { path = "src/shop-lambda/src/shop-lambda-opensearch-index" }
 shop-api = { path = "src/shop-api" }
 shop-api-get-shop = { path = "src/shop-api/src/shop-api-get-shop" }
 shop-api-patch-shop = { path = "src/shop-api/src/shop-api-patch-shop" }
