@@ -784,7 +784,9 @@ Resources:
                   - dynamodb:BatchGetItem
                   - dynamodb:Query
                   - dynamodb:PutItem
-                Resource: !GetAtt TableOne.Arn
+                Resource:
+                  - !GetAtt TableOne.Arn
+                  - !Sub "${TableOne.Arn}/index/*"
   ApiPostWatchlistLambda:
     Type: AWS::Lambda::Function
     Properties:
