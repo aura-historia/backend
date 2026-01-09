@@ -287,6 +287,20 @@ Resources:
                     }
                   }
                 }
+            - Pattern: |
+                {
+                  "eventName": ["MODIFY"],
+                  "dynamodb": {
+                    "NewImage": {
+                      "pk": {
+                        "S": [{ "prefix": "shop#shop_id#" }]
+                      },
+                      "sk": {
+                        "S": [ "shop#details" ]
+                      }
+                    }
+                  }
+                }
       Target: !GetAtt DynamoDbEventBus.Arn
       TargetParameters:
         EventBridgeEventBusParameters:
@@ -2016,6 +2030,79 @@ Resources:
       MaximumBatchingWindowInSeconds: 1
       FunctionResponseTypes:
         - ReportBatchItemFailures
+
+  ShopOpenSearchIndexDlq:
+    Type: AWS::SQS::Queue
+    Properties:
+      QueueName: !Sub "shop-opensearch-index-dlq-${StageName}"
+      MessageRetentionPeriod: 1209600
+  ShopOpenSearchIndexQ:
+    Type: AWS::SQS::Queue
+    Properties:
+      QueueName: !Sub "shop-opensearch-index-queue-${StageName}"
+      RedrivePolicy:
+        deadLetterTargetArn: !GetAtt ShopOpenSearchIndexDlq.Arn
+        maxReceiveCount: 5
+      VisibilityTimeout: 360
+  ShopOpenSearchIndexRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Sub "shop-opensearch-index-role-${StageName}"
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: lambda.amazonaws.com
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole
+      Policies:
+        - PolicyName: OpenSearchAccess
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: Allow
+                Action:
+                  - es:*
+                Resource: !Sub "arn:aws:es:${AWS::Region}:${AWS::AccountId}:domain/application-${StageName}/*"
+        - PolicyName: SQSPollerAccess
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: Allow
+                Action:
+                  - sqs:ReceiveMessage
+                  - sqs:DeleteMessage
+                  - sqs:GetQueueAttributes
+                  - sqs:GetQueueUrl
+                Resource: !GetAtt ShopOpenSearchIndexQ.Arn
+  ShopOpenSearchIndexLambda:
+    Type: AWS::Lambda::Function
+    Properties:
+      FunctionName: !Sub "shop-opensearch-index-${StageName}"
+      Runtime: provided.al2023
+      Handler: lib.handler
+      Role: !GetAtt ShopOpenSearchIndexRole.Arn
+      Code:
+        S3Bucket: !Ref ArtifactBucket
+        S3Key: !Sub "shop-opensearch-index-${StageName}-${CommitSHA}.zip"
+      MemorySize: 256
+      Timeout: 30
+      EphemeralStorage:
+        Size: 512
+      Environment:
+        Variables:
+          OPENSEARCH_ENDPOINT_URL: !Sub "https://${OpenSearchDomain.DomainEndpoint}"
+          STAGE: "ephemeral"
+  ShopOpenSearchIndexMapping:
+    Type: AWS::Lambda::EventSourceMapping
+    Properties:
+      FunctionName: !Ref ShopOpenSearchIndexLambda
+      EventSourceArn: !GetAtt ShopOpenSearchIndexQ.Arn
+      Enabled: true
+      BatchSize: 1
+      MaximumBatchingWindowInSeconds: 0
 
   ProductUpdateNotifyUserDlq:
     Type: AWS::SQS::Queue
