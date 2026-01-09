@@ -37,7 +37,7 @@ pub async fn handler(
                     Ok(())
                 }
                 Err(err) => {
-                    let msg = "Failed indexing ShopRecord from Lambda-Event.";
+                    let msg = "Failed indexing ShopRecord";
                     error!(error = %err, shopId = %shop_id, msg);
                     Err(msg.into())
                 }

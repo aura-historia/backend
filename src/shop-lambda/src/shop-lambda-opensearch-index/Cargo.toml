@@ -15,3 +15,11 @@ tracing-subscriber = { workspace = true, features = ["json"] }
 tracing = { workspace = true }
 opensearch = { workspace = true }
 url = { workspace = true }
+
+[dev-dependencies]
+test-api = { workspace = true, features = ["opensearch"] }
+serial_test = { workspace = true }
+uuid = { workspace = true }
+serde_dynamo = { workspace = true }
+fake = { workspace = true }
+shop = { workspace = true, features = ["test-data"] }

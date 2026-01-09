@@ -4889,14 +4889,19 @@ dependencies = [
  "aws-config",
  "aws_lambda_events",
  "common",
+ "fake",
  "lambda_runtime",
  "opensearch",
+ "serde_dynamo",
  "serde_json",
+ "serial_test",
  "shop",
+ "test-api",
  "tokio",
  "tracing",
  "tracing-subscriber",
  "url",
+ "uuid",
 ]
 
 [[package]]
