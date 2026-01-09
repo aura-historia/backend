@@ -331,7 +331,10 @@ Resources:
         AllowMethods:
           - "*"
         AllowHeaders:
-          - "*"
+          - Authorization
+          - Content-Type
+          - Accept-Language
+          - Accept
   ApiStage:
     Type: AWS::ApiGatewayV2::Stage
     Properties:
