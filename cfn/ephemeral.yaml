@@ -289,7 +289,7 @@ Resources:
                 }
             - Pattern: |
                 {
-                  "eventName": ["MODIFY"],
+                  "eventName": ["INSERT", "MODIFY"],
                   "dynamodb": {
                     "NewImage": {
                       "pk": {
@@ -2406,6 +2406,28 @@ Resources:
       Targets:
         - Id: ProductPipelineInit
           Arn: !GetAtt ProductPipelineInitQ.Arn
+  DynamoDbPutShopRecordEventRule:
+    Type: AWS::Events::Rule
+    Properties:
+      Name: !Sub "ddb-put-shop-record-${StageName}"
+      EventBusName: !Ref DynamoDbEventBus
+      EventPattern:
+        source:
+          - !Ref TableOne
+        detail-type:
+          - "DynamoDBStreamRecord"
+        detail:
+          eventName:
+            - "INSERT"
+            - "MODIFY"
+          dynamodb:
+            NewImage:
+              sk:
+                S:
+                  - "shop#details"
+      Targets:
+        - Id: ShopOpenSearchIndexQ
+          Arn: !GetAtt ShopOpenSearchIndexQ.Arn
   DynamoDbUserUpdatedFanoutWatchlistUpdateEventRule:
     Type: AWS::Events::Rule
     Properties:
