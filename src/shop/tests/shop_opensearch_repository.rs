@@ -21,12 +21,12 @@ async fn get_repository() -> ShopOpenSearchRepositoryImpl<'static> {
 }
 
 #[localstack_test(services = [OpenSearch()])]
-async fn should_create_shop_document() {
+async fn should_index_shop_document_when_not_exists() {
     let repository = get_repository().await;
     let expected = Faker.fake::<ShopDocument>();
 
     let response = repository
-        .create_shop_document(expected.clone())
+        .index_shop_document(expected.clone())
         .await
         .unwrap();
     assert_eq!("created", response.result);
@@ -44,14 +44,14 @@ async fn should_search_shop_documents_when_only_name_query_supplied() {
 
     // insert expected
     let response = repository
-        .create_shop_document(expected.clone())
+        .index_shop_document(expected.clone())
         .await
         .unwrap();
     assert_eq!("created", response.result);
 
     // insert civilians
     for doc in fake::vec![ShopDocument; 20] {
-        let response = repository.create_shop_document(doc).await.unwrap();
+        let response = repository.index_shop_document(doc).await.unwrap();
         assert_eq!("created", response.result);
     }
     refresh_index("shops").await;
@@ -172,14 +172,14 @@ async fn should_search_shop_documents_for_arguments(
 
     // insert expected
     let response = repository
-        .create_shop_document(expected.clone())
+        .index_shop_document(expected.clone())
         .await
         .unwrap();
     assert_eq!("created", response.result);
 
     // insert civilians
     for doc in fake::vec![ShopDocument; 20] {
-        let response = repository.create_shop_document(doc).await.unwrap();
+        let response = repository.index_shop_document(doc).await.unwrap();
         assert_eq!("created", response.result);
     }
     refresh_index("shops").await;
@@ -199,7 +199,7 @@ async fn should_update_shop_document_for_index() {
     let create_expected = Faker.fake::<ShopDocument>();
 
     let created_res = repository
-        .create_shop_document(create_expected.clone())
+        .index_shop_document(create_expected.clone())
         .await
         .unwrap();
     assert_eq!("created", created_res.result);
@@ -222,7 +222,7 @@ async fn should_update_shop_document_for_index() {
     };
 
     let updated_res = repository
-        .create_shop_document(updated_expected.clone())
+        .index_shop_document(updated_expected.clone())
         .await
         .unwrap();
     assert_eq!("updated", updated_res.result);
@@ -234,12 +234,12 @@ async fn should_update_shop_document_for_index() {
 }
 
 #[localstack_test(services = [OpenSearch()])]
-async fn should_update_shop_document() {
+async fn should_update_shop_document_for_update() {
     let repository = get_repository().await;
     let create_expected = Faker.fake::<ShopDocument>();
 
     let created_res = repository
-        .create_shop_document(create_expected.clone())
+        .index_shop_document(create_expected.clone())
         .await
         .unwrap();
     assert_eq!("created", created_res.result);
@@ -280,7 +280,7 @@ async fn should_search_shop_documents_when_no_filters() {
 
     // insert civilians
     for doc in fake::vec![ShopDocument; 20] {
-        let response = repository.create_shop_document(doc).await.unwrap();
+        let response = repository.index_shop_document(doc).await.unwrap();
         assert_eq!("created", response.result);
     }
     refresh_index("shops").await;

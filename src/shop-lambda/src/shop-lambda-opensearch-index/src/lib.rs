@@ -26,7 +26,7 @@ pub async fn handler(
         }
         Some(shop_record) => {
             let shop_id = shop_record.shop_id;
-            let index_res = repository.create_shop_document(shop_record.into()).await;
+            let index_res = repository.index_shop_document(shop_record.into()).await;
             match index_res {
                 Ok(response) => {
                     info!(

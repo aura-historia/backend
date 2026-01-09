@@ -17,7 +17,7 @@ use time::format_description::well_known;
 #[async_trait::async_trait]
 #[mockall::automock]
 pub trait ShopOpenSearchRepository {
-    async fn create_shop_document(
+    async fn index_shop_document(
         &self,
         document: ShopDocument,
     ) -> Result<IndexResponse, opensearch::Error>;
@@ -49,7 +49,7 @@ impl<'a> ShopOpenSearchRepositoryImpl<'a> {
 
 #[async_trait::async_trait]
 impl<'a> ShopOpenSearchRepository for ShopOpenSearchRepositoryImpl<'a> {
-    async fn create_shop_document(
+    async fn index_shop_document(
         &self,
         document: ShopDocument,
     ) -> Result<IndexResponse, opensearch::Error> {
