@@ -3,4 +3,3 @@ transformers==4.57.3
 torch-c-dlpack-ext==0.1.4
 accelerate==1.12.0
 bitsandbytes==0.49.1
-vllm==0.13.0
