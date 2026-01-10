@@ -334,7 +334,7 @@ impl<'a> ProductWatchListService for ProductWatchListServiceImpl<'a> {
         if update.is_empty() {
             Ok(watchlist_record.into())
         } else {
-            let _ = self
+            let updated_watchlist_record = self
                 .watchlist_repository
                 .update_watchlist_record(
                     user_id,
@@ -346,9 +346,14 @@ impl<'a> ProductWatchListService for ProductWatchListServiceImpl<'a> {
                         &watchlist_record.product_id,
                     ),
                 )
-                .await?;
+                .await?
+                .ok_or_else(|| {
+                    WatchProductError::SdkUpdateItemError(SdkError::construction_failure(
+                        "Failed parsing DynamoDB UpdateItem Response-Payload",
+                    ))
+                })?;
 
-            Ok(watchlist_record.into())
+            Ok(updated_watchlist_record.into())
         }
     }
 
