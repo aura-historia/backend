@@ -1,72 +1,96 @@
-from typing import List
+import torch
+from transformers import AutoModelForCausalLM, AutoTokenizer
 
-from vllm import LLM, SamplingParams
+MODEL_NAME = "tencent/Hunyuan-MT-7B"
 
-llm = LLM(
-    model="unsloth/Qwen3-14B-unsloth-bnb-4bit",
-    dtype="bfloat16",
-    max_model_len=4096,
-    trust_remote_code=True,
-    gpu_memory_utilization=0.80,
-    max_num_seqs=64,
+tokenizer = AutoTokenizer.from_pretrained(
+    MODEL_NAME,
+    padding_side="left",
 )
 
-sampling_params = SamplingParams(
-    temperature=0.1,
-    top_p=1.0,
-    max_tokens=1024,
-    repetition_penalty=1.0,
+model = AutoModelForCausalLM.from_pretrained(
+    MODEL_NAME,
+    device_map="cuda",
+    dtype=torch.bfloat16,
 )
+model.eval()
 
-
-def build_prompt(text: str, src_lang: str, tgt_lang: str) -> str:
-    return f"""/no_think
-        You are a professional translator specialized in antique and art-historical descriptions.
-        Translate the following text faithfully and precisely.
-        Do not summarize, omit, or add information.
-        Preserve technical terminology.
-        Do only answer with the translated text, nothing else.
-
-        Source language: {src_lang}
-        Target language: {tgt_lang}
-        Text:\n{text}\n
-        """
+try:
+    model = torch.compile(model, mode="reduce-overhead")
+except Exception:
+    pass
 
 
 def translate(
-    texts: List[str],
-    source_language: str,
-    target_language: str,
-) -> List[str]:
-    prompts = [build_prompt(text, source_language, target_language) for text in texts]
+    source_lang: str,
+    target_lang: str,
+    texts: list[str],
+) -> list[str]:
+    messages_batch = [
+        [
+            {
+                "role": "user",
+                "content": (
+                    f"Translate the following segment into {target_lang}, "
+                    f"without additional explanation:\n\n{text}"
+                ),
+            }
+        ]
+        for text in texts
+    ]
 
-    outputs = llm.generate(
-        prompts,
-        sampling_params,
+    input_ids = tokenizer.apply_chat_template(
+        messages_batch,
+        tokenize=True,
+        add_generation_prompt=False,
+        padding=True,
+        return_tensors="pt",
+    ).to(model.device)
+
+    input_len = input_ids.shape[1]
+
+    with torch.inference_mode():
+        output_ids = model.generate(
+            input_ids,
+            max_new_tokens=2048,
+            do_sample=True,
+            top_k=20,
+            top_p=0.6,
+            repetition_penalty=1.05,
+            temperature=0.7,
+            use_cache=True,
+        )
+
+    generated = output_ids[:, input_len:]
+
+    translations = tokenizer.batch_decode(
+        generated,
+        skip_special_tokens=True,
     )
 
-    # vLLM guarantees order preservation
-    translations = []
-    for output in outputs:
-        text = output.outputs[0].text.strip()
-        translations.append(text)
-
-    return translations
+    return [t.strip() for t in translations]
 
 
 if __name__ == "__main__":
-    german_texts = [
-        "Barockes Hängeschränkchen aus massivem Eichenholz.",
-        "Rechteckiger Korpus mit breitem einschübigem Sockelgeschoss.",
-        "Gedrechselter Zugknopf an der Schubladenfront.",
+    texts = [
+        """Musealer Kabinettschrank, Nussbaum Massivholz, Nussbaum Maserholz,
+        Nussbaum, Zwetschge, Ahorn auf Weichholz furniert.""",
+        """Unterbau in Form eines Halbschrankes mit breit abgeschrägten,
+        vorderen Ecken und geschnitzter Schlagleiste.""",
+        """Art.Nr. G1419 Ölgemälde ‚The Education of the Virgin‘ nach Jules-Joseph Lefebvre, um 1900 in einer dekorativen Stuckrahmung
+
+        Dieses Ölgemälde zeigt ein Figurenpaar, welches unter freiem Himmel an einer steinernen Brüstung auf einer Terrasse sitzen. Ein junges Mädchen kniet mit gesenktem Kopf und geschlossenen Augen vor einer älteren Dame. Sie trägt ein graues Gewand, sowie eine hellblaue Schleife in ihrem offenen gelockten Haar. Die Hände hält sie vor der Brust überkreuzt. Die Dame sitzt auf einer breiten, thronähnlichen Bank und ist bekleidet mit einem grün-braunen Gewand, das Haar ist bedeckt. Ihre rechte Hand hält sie erhoben, die linke verweist auf ein Schriftband auf ihrem Schoß. Beide werden von einem schmalen Heiligenschein bekrönt. Es handelt sich hierbei um eine Darstellung der Heiligen Anna, welche hier ihrer Tochter Maria das Lesen lehrt.
+
+        Zustand: feine Craqueluren
+
+        Jules-Joseph Lefebvre (1834-1912) war ein französischer Maler. Der Sohn eines Bäckers wurde in jungen Jahren nach Paris geschickt, um dort an der École nationale supérieure des beaux-arts de Paris zu studieren. Lefebvre stellte Werke im Pariser Salon aus, widmete sich dem Stil des Manierismus in Italien und kehrte nach wenigen Jahren nach Paris zurück. Dort erhielt er eine Lehrstelle an der Académie Julian. Zu seinen berühmtesten Schülern gehört u. a. der Symbolist Fernand Khnopff.""",
     ]
 
-    translated = translate(
-        german_texts,
-        source_language="German",
-        target_language="English",
+    translations = translate(
+        source_lang="German",
+        target_lang="English",
+        texts=texts,
     )
-
-    for src, tgt in zip(german_texts, translated):
-        print(tgt)
-        print("-" * 60)
+    for i, (src, tgt) in enumerate(zip(texts, translations), 1):
+        print(f"\n--- Item {i} ---")
+        print(tgt.strip())
