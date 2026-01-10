@@ -100,7 +100,7 @@ phases:
               export HF_HOME=/opt/huggingface
               export TRANSFORMERS_CACHE=/opt/huggingface
               pip install huggingface_hub --break-system-packages
-              hf download unsloth/Qwen3-14B-unsloth-bnb-4bit
+              hf download tencent/Hunyuan-MT-7B
 
       - name: ConfigureSystemdHFEnv
         action: ExecuteBash
