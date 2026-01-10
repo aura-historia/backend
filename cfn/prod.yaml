@@ -298,6 +298,20 @@ Resources:
                     }
                   }
                 }
+            - Pattern: |
+                {
+                  "eventName": ["INSERT", "MODIFY"],
+                  "dynamodb": {
+                    "NewImage": {
+                      "pk": {
+                        "S": [{ "prefix": "shop#shop_id#" }]
+                      },
+                      "sk": {
+                        "S": [ "shop#details" ]
+                      }
+                    }
+                  }
+                }
       Target: !GetAtt DynamoDbEventBus.Arn
       TargetParameters:
         EventBridgeEventBusParameters:
@@ -312,6 +326,7 @@ Resources:
         - !Ref ProductMaterializeDynamoDbUpdateQ
         - !Ref ProductMaterializeOpenSearchNewQ
         - !Ref ProductMaterializeOpenSearchUpdateQ
+        - !Ref ShopOpenSearchIndexQ
         - !Ref ProductUpdateNotifyUserQ
         - !Ref ProductPipelineInitQ
         - !Ref UserLambdaFanoutUpdateWatchlistQ
@@ -327,6 +342,7 @@ Resources:
               - !GetAtt ProductMaterializeDynamoDbUpdateQ.Arn
               - !GetAtt ProductMaterializeOpenSearchNewQ.Arn
               - !GetAtt ProductMaterializeOpenSearchUpdateQ.Arn
+              - !GetAtt ShopOpenSearchIndexQ.Arn
               - !GetAtt ProductUpdateNotifyUserQ.Arn
               - !GetAtt ProductPipelineInitQ.Arn
               - !GetAtt UserLambdaFanoutUpdateWatchlistQ.Arn
@@ -2381,6 +2397,109 @@ Resources:
       AlarmActions:
         - !Ref AlarmNotificationTopic
 
+  ShopOpenSearchIndexDlq:
+    Type: AWS::SQS::Queue
+    Properties:
+      QueueName: "shop-opensearch-index-dlq-prod"
+      MessageRetentionPeriod: 1209600
+  ShopOpenSearchIndexQ:
+    Type: AWS::SQS::Queue
+    Properties:
+      QueueName: "shop-opensearch-index-queue-prod"
+      RedrivePolicy:
+        deadLetterTargetArn: !GetAtt ShopOpenSearchIndexDlq.Arn
+        maxReceiveCount: 5
+      VisibilityTimeout: 360
+  ShopOpenSearchIndexRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: "shop-opensearch-index-role-prod"
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: lambda.amazonaws.com
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole
+      Policies:
+        - PolicyName: SQSPollerAccess
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: Allow
+                Action:
+                  - sqs:ReceiveMessage
+                  - sqs:DeleteMessage
+                  - sqs:GetQueueAttributes
+                  - sqs:GetQueueUrl
+                Resource: !GetAtt ShopOpenSearchIndexQ.Arn
+  ShopOpenSearchIndexLambda:
+    Type: AWS::Lambda::Function
+    Properties:
+      FunctionName: "shop-opensearch-index-prod"
+      Runtime: provided.al2023
+      Handler: lib.handler
+      Role: !GetAtt ShopOpenSearchIndexRole.Arn
+      Code:
+        S3Bucket: !Ref ArtifactBucket
+        S3Key: !Sub "shop-lambda-opensearch-index-prod-${CommitSHA}.zip"
+      MemorySize: 256
+      Timeout: 30
+      EphemeralStorage:
+        Size: 512
+      Environment:
+        Variables:
+          OPENSEARCH_ENDPOINT_URL: !Ref OpenSearchEndpointUrl
+          STAGE: "prod"
+          OPENSEARCH_USERNAME: !Ref OpenSearchUsername
+          OPENSEARCH_PASSWORD: !Ref OpenSearchPassword
+  ShopOpenSearchIndexMapping:
+    Type: AWS::Lambda::EventSourceMapping
+    Properties:
+      FunctionName: !Ref ShopOpenSearchIndexLambda
+      EventSourceArn: !GetAtt ShopOpenSearchIndexQ.Arn
+      Enabled: true
+      BatchSize: 1
+      MaximumBatchingWindowInSeconds: 0
+  ShopOpenSearchIndexLambdaErrorAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      AlarmName: "prod-shop-opensearch-index-errors"
+      AlarmDescription: "Alarm when shop-opensearch-index lambda has errors"
+      MetricName: Errors
+      Namespace: AWS/Lambda
+      Statistic: Sum
+      Period: 300
+      EvaluationPeriods: 1
+      Threshold: 1
+      ComparisonOperator: GreaterThanOrEqualToThreshold
+      Dimensions:
+        - Name: FunctionName
+          Value: !Ref ShopOpenSearchIndexLambda
+      TreatMissingData: notBreaching
+      AlarmActions:
+        - !Ref AlarmNotificationTopic
+  ShopOpenSearchIndexDlqAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      AlarmName: "prod-shop-opensearch-index-dlq-messages"
+      AlarmDescription: "Alarm when messages appear in shop-opensearch-index DLQ"
+      MetricName: ApproximateNumberOfMessagesVisible
+      Namespace: AWS/SQS
+      Statistic: Sum
+      Period: 300
+      EvaluationPeriods: 1
+      Threshold: 1
+      ComparisonOperator: GreaterThanOrEqualToThreshold
+      Dimensions:
+        - Name: QueueName
+          Value: !GetAtt ShopOpenSearchIndexDlq.QueueName
+      TreatMissingData: notBreaching
+      AlarmActions:
+        - !Ref AlarmNotificationTopic
+
   ProductUpdateNotifyUserDlq:
     Type: AWS::SQS::Queue
     Properties:
@@ -2753,6 +2872,28 @@ Resources:
       Targets:
         - Id: ProductPipelineInitQ
           Arn: !GetAtt ProductPipelineInitQ.Arn
+  DynamoDbPutShopRecordEventRule:
+    Type: AWS::Events::Rule
+    Properties:
+      Name: "ddb-put-shop-record-prod"
+      EventBusName: !Ref DynamoDbEventBus
+      EventPattern:
+        source:
+          - !Ref TableOne
+        detail-type:
+          - "DynamoDBStreamRecord"
+        detail:
+          eventName:
+            - "INSERT"
+            - "MODIFY"
+          dynamodb:
+            NewImage:
+              sk:
+                S:
+                  - "shop#details"
+      Targets:
+        - Id: ShopOpenSearchIndexQ
+          Arn: !GetAtt ShopOpenSearchIndexQ.Arn
   DynamoDbUserUpdatedFanoutWatchlistUpdateEventRule:
     Type: AWS::Events::Rule
     Properties:
@@ -4031,6 +4172,11 @@ Outputs:
     Value: !Ref ProductPipelineCompleteQ
   ProductPipelineCompleteDeadLetterQueueUrl:
     Value: !Ref ProductPipelineCompleteDlq
+
+  ShopOpensearchIndexQueueUrl:
+    Value: !Ref ShopOpenSearchIndexQ
+  ShopOpensearchIndexDeadLetterQueueUrl:
+    Value: !Ref ShopOpenSearchIndexDlq
 
   AlarmNotificationTopicArn:
     Value: !Ref AlarmNotificationTopic
