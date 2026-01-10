@@ -5,7 +5,7 @@ edition = "2024"
 
 [dependencies]
 common = { workspace = true, features = ["api", "opensearch"] }
-shop = { workspace = true, features = ["opensearch", "data", "service"] }
+shop = { workspace = true, features = ["opensearch", "data", "service", "dynamodb"] }
 tracing = { workspace = true }
 tracing-subscriber = { workspace = true, features = ["json"] }
 tokio = { workspace = true, features = ["macros"] }
