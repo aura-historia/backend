@@ -1055,7 +1055,7 @@ mod tests {
                 });
             watchlist_repository
                 .expect_update_watchlist_record()
-                .return_once(|_, _, _, _| Box::pin(async { Ok(Faker.fake()) }));
+                .return_once(|_, _, _, _| Box::pin(async { Ok(Some(Faker.fake())) }));
             let get_product_service = GetProductServiceImpl::new(&product_repository);
 
             let service = ProductWatchListServiceImpl::new(
