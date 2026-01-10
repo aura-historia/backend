@@ -94,36 +94,48 @@ impl PipeProcessor<TextEmbeddedPipeProduct, AttributeExtractedPipeProduct>
                     failures.extend(&mut local_failed);
                 }
                 Ok(extractions) => {
-                    let mut local_enriched = in_batch.into_iter().zip(extractions.into_iter()).map(
+                    let mut local_enriched = in_batch.into_iter().zip(extractions.into_iter()).filter_map(
                         |(in_product, extraction_str)| {
-                            let cleaned_extraction_str = extraction_str.chars().skip_while(|c| c != &'{').collect::<String>();
-                            let mut extracted_attributes = serde_json::from_str(&cleaned_extraction_str).unwrap_or_else(|err| {
-                                error!(error = %err, adapterResponse = extraction_str, "Failed extracting attributes.");
-                                ExtractedAttributes::default()
-                            });
-                            if let Some(origin_year_min) = extracted_attributes.origin_year_min && extracted_attributes.origin_year_min == extracted_attributes.origin_year_max {
-                                extracted_attributes.origin_year = Some(origin_year_min);
-                            }
-                            if let Some(origin_year) = extracted_attributes.origin_year {
-                                extracted_attributes.origin_year_min = Some(origin_year);
-                                extracted_attributes.origin_year_max = Some(origin_year);
-                            }
-                            AttributeExtractedPipeProduct {
-                                product_id: in_product.product_id,
-                                shop_id: in_product.shop_id,
-                                shops_product_id: in_product.shops_product_id,
-                                native_title: in_product.native_title,
-                                other_title: in_product.other_title,
-                                native_description: in_product.native_description,
-                                other_description: in_product.other_description,
-                                text_embedding: in_product.text_embedding,
-                                origin_year_min: extracted_attributes.origin_year_min,
-                                origin_year: extracted_attributes.origin_year,
-                                origin_year_max: extracted_attributes.origin_year_max,
-                                authenticity: extracted_attributes.authenticity.unwrap_or_default(),
-                                condition: extracted_attributes.condition.unwrap_or_default(),
-                                provenance: extracted_attributes.provenance.unwrap_or_default(),
-                                restoration: extracted_attributes.restoration.unwrap_or_default(),
+                            let cleaned_extraction_str = extraction_str
+                                .chars()
+                                .skip_while(|c| c != &'{')
+                                .collect::<String>();
+                            match serde_json::from_str::<ExtractedAttributes>(&cleaned_extraction_str) {
+                                Ok(mut extracted_attributes) => {
+                                    if let Some(origin_year_min) = extracted_attributes.origin_year_min
+                                        && extracted_attributes.origin_year_min
+                                            == extracted_attributes.origin_year_max
+                                    {
+                                        extracted_attributes.origin_year = Some(origin_year_min);
+                                    }
+                                    if let Some(origin_year) = extracted_attributes.origin_year {
+                                        extracted_attributes.origin_year_min = Some(origin_year);
+                                        extracted_attributes.origin_year_max = Some(origin_year);
+                                    }
+                                    let attribute_extracted_pipe_product = AttributeExtractedPipeProduct {
+                                        product_id: in_product.product_id,
+                                        shop_id: in_product.shop_id,
+                                        shops_product_id: in_product.shops_product_id,
+                                        native_title: in_product.native_title,
+                                        other_title: in_product.other_title,
+                                        native_description: in_product.native_description,
+                                        other_description: in_product.other_description,
+                                        text_embedding: in_product.text_embedding,
+                                        origin_year_min: extracted_attributes.origin_year_min,
+                                        origin_year: extracted_attributes.origin_year,
+                                        origin_year_max: extracted_attributes.origin_year_max,
+                                        authenticity: extracted_attributes.authenticity.unwrap_or_default(),
+                                        condition: extracted_attributes.condition.unwrap_or_default(),
+                                        provenance: extracted_attributes.provenance.unwrap_or_default(),
+                                        restoration: extracted_attributes.restoration.unwrap_or_default(),
+                                    };
+                                    Some(attribute_extracted_pipe_product)
+                                }
+                                Err(err) => {
+                                    error!(error = %err, adapterResponse = extraction_str, "Failed extracting attributes.");
+                                    failures.insert(in_product.product_id);
+                                    None
+                                }
                             }
                         },
                     );
@@ -149,6 +161,7 @@ impl PipeProcessor<TextEmbeddedPipeProduct, AttributeExtractedPipeProduct>
 #[cfg(test)]
 pub mod tests {
     use crate::{adapter::MockExtractionAdapter, process::AttributeExtractionPipeProcesserImpl};
+    use common::batch::Batch;
     use product::dynamodb::condition_record::ConditionRecord;
     use product_pipeline_common::{process::PipeProcessor, types::TextEmbeddedPipeProduct};
     use pyo3::{PyErr, exceptions::PyTypeError};
@@ -236,7 +249,7 @@ pub mod tests {
     #[case(256)]
     #[case(1000)]
     #[case(1500)]
-    fn should_partially_fail_entire_batches(#[case] input_count: usize) {
+    fn should_partially_fail_entire_batches_when_py_err(#[case] input_count: usize) {
         let mut delegate = MockExtractionAdapter::default();
         delegate
             .expect_extract()
@@ -247,5 +260,44 @@ pub mod tests {
 
         assert!(res.successes.is_empty());
         assert_eq!(input_count, res.failures.len());
+    }
+
+    #[rstest::rstest]
+    #[trace]
+    #[case(1)]
+    #[case(5)]
+    #[case(20)]
+    #[case(32)]
+    #[case(64)]
+    #[case(70)]
+    #[case(128)]
+    #[case(129)]
+    #[case(256)]
+    #[case(1000)]
+    #[case(1500)]
+    fn should_partially_fail_batch_elements_when_parse_err(#[case] input_count: usize) {
+        let mut delegate = MockExtractionAdapter::default();
+        delegate.expect_extract().returning(move |_, batch| {
+            let mock_res = vec![
+                r#"{"invalid json"}"#.to_owned(),
+                r#"{"condition": "POOR"}"#.to_owned(),
+                r#"{"condition": "UNKNOWN"}"#.to_owned(),
+                r#"{"condition": "FAIR"}"#.to_owned(),
+                r#"{"condition": "GREAT"}"#.to_owned(),
+                r#"{"condition": "GREAT"}"#.to_owned(),
+                r#"{"condition": "GREAT"}"#.to_owned(),
+                r#"{"condition": "GREAT"}"#.to_owned(),
+            ]
+            .into_iter()
+            .take(batch.len());
+            Ok(Batch::try_from_iter(mock_res).unwrap())
+        });
+
+        let embedding_pipe = AttributeExtractionPipeProcesserImpl::new(Arc::new(delegate));
+        let res = embedding_pipe.process(fake::vec![TextEmbeddedPipeProduct; input_count]);
+
+        let expected_failures = input_count.div_ceil(8);
+        assert_eq!(expected_failures, res.failures.len());
+        assert_eq!(input_count - expected_failures, res.successes.len());
     }
 }
