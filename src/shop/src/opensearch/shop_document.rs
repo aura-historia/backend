@@ -1,4 +1,4 @@
-use crate::core::shop::Shop;
+use crate::{core::shop::Shop, dynamodb::shop_record::ShopRecord};
 use common::{domain::Domain, shop_id::ShopId, shop_name::ShopName};
 use serde::{Deserialize, Serialize};
 use serde_fields::SerdeField;
@@ -51,6 +51,19 @@ impl From<ShopDocument> for Shop {
             image: document.image,
             created: document.created,
             updated: document.updated,
+        }
+    }
+}
+
+impl From<ShopRecord> for ShopDocument {
+    fn from(record: ShopRecord) -> Self {
+        ShopDocument {
+            shop_id: record.shop_id,
+            name: record.name,
+            domains: record.domains,
+            image: record.image,
+            created: record.created,
+            updated: record.updated,
         }
     }
 }

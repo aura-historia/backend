@@ -1,8 +1,10 @@
+use common::domain::Domain;
 use common::pagination::cursor::Cursor;
 use common::sort::SortOrder;
 use common::{query::range_query::RangeQuery, sort::Sort};
 use fake::{Fake, Faker};
 use shop::core::sort_shop_field::SortShopField;
+use shop::opensearch::shop_document_update::ShopDocumentUpdate;
 use shop::opensearch::{
     repository::{ShopOpenSearchRepository, ShopOpenSearchRepositoryImpl},
     shop_document::ShopDocument,
@@ -10,19 +12,21 @@ use shop::opensearch::{
 };
 use std::time::Duration;
 use test_api::*;
+use time::OffsetDateTime;
 use time::macros::datetime;
+use url::Url;
 
 async fn get_repository() -> ShopOpenSearchRepositoryImpl<'static> {
     ShopOpenSearchRepositoryImpl::new(get_opensearch_client().await)
 }
 
 #[localstack_test(services = [OpenSearch()])]
-async fn should_create_shop_document() {
+async fn should_index_shop_document_when_not_exists() {
     let repository = get_repository().await;
     let expected = Faker.fake::<ShopDocument>();
 
     let response = repository
-        .create_shop_document(expected.clone())
+        .index_shop_document(expected.clone())
         .await
         .unwrap();
     assert_eq!("created", response.result);
@@ -40,14 +44,14 @@ async fn should_search_shop_documents_when_only_name_query_supplied() {
 
     // insert expected
     let response = repository
-        .create_shop_document(expected.clone())
+        .index_shop_document(expected.clone())
         .await
         .unwrap();
     assert_eq!("created", response.result);
 
     // insert civilians
     for doc in fake::vec![ShopDocument; 20] {
-        let response = repository.create_shop_document(doc).await.unwrap();
+        let response = repository.index_shop_document(doc).await.unwrap();
         assert_eq!("created", response.result);
     }
     refresh_index("shops").await;
@@ -168,14 +172,14 @@ async fn should_search_shop_documents_for_arguments(
 
     // insert expected
     let response = repository
-        .create_shop_document(expected.clone())
+        .index_shop_document(expected.clone())
         .await
         .unwrap();
     assert_eq!("created", response.result);
 
     // insert civilians
     for doc in fake::vec![ShopDocument; 20] {
-        let response = repository.create_shop_document(doc).await.unwrap();
+        let response = repository.index_shop_document(doc).await.unwrap();
         assert_eq!("created", response.result);
     }
     refresh_index("shops").await;
@@ -190,12 +194,93 @@ async fn should_search_shop_documents_for_arguments(
 }
 
 #[localstack_test(services = [OpenSearch()])]
+async fn should_update_shop_document_for_index() {
+    let repository = get_repository().await;
+    let create_expected = Faker.fake::<ShopDocument>();
+
+    let created_res = repository
+        .index_shop_document(create_expected.clone())
+        .await
+        .unwrap();
+    assert_eq!("created", created_res.result);
+    refresh_index("shops").await;
+    tokio::time::sleep(Duration::from_secs(3)).await;
+
+    let created = read_by_id::<ShopDocument>("shops", create_expected.shop_id).await;
+    assert_eq!(create_expected, created);
+
+    let updated_expected = ShopDocument {
+        shop_id: created.shop_id,
+        name: "Hansi hans and the Hanses".into(),
+        domains: HashSet::from_iter([
+            Domain::try_from("hansi-hans.de").unwrap(),
+            Domain::try_from("hansi-hans.com").unwrap(),
+        ]),
+        image: Some(Url::parse("https://hansi-hanseatic.es/foo.png").unwrap()),
+        created: created.created,
+        updated: OffsetDateTime::now_utc(),
+    };
+
+    let updated_res = repository
+        .index_shop_document(updated_expected.clone())
+        .await
+        .unwrap();
+    assert_eq!("updated", updated_res.result);
+    refresh_index("shops").await;
+    tokio::time::sleep(Duration::from_secs(3)).await;
+
+    let updated = read_by_id::<ShopDocument>("shops", updated_expected.shop_id).await;
+    assert_eq!(updated_expected, updated);
+}
+
+#[localstack_test(services = [OpenSearch()])]
+async fn should_update_shop_document_for_update() {
+    let repository = get_repository().await;
+    let create_expected = Faker.fake::<ShopDocument>();
+
+    let created_res = repository
+        .index_shop_document(create_expected.clone())
+        .await
+        .unwrap();
+    assert_eq!("created", created_res.result);
+    refresh_index("shops").await;
+    tokio::time::sleep(Duration::from_secs(3)).await;
+
+    let created = read_by_id::<ShopDocument>("shops", create_expected.shop_id).await;
+    assert_eq!(create_expected, created);
+
+    let update = ShopDocumentUpdate {
+        name: Some("Hansi hans and the Hanses".into()),
+        domains: Some(HashSet::from_iter([
+            Domain::try_from("hansi-hans.de").unwrap(),
+            Domain::try_from("hansi-hans.com").unwrap(),
+        ])),
+        image: Some(Url::parse("https://hansi-hanseatic.es/foo.png").unwrap()),
+        updated: OffsetDateTime::now_utc(),
+    };
+
+    let updated_res = repository
+        .update_shop_document(&created.shop_id, update.clone())
+        .await
+        .unwrap();
+    assert_eq!("updated", updated_res.result);
+    refresh_index("shops").await;
+    tokio::time::sleep(Duration::from_secs(3)).await;
+
+    let updated = read_by_id::<ShopDocument>("shops", create_expected.shop_id).await;
+    assert_eq!(update.name.unwrap(), updated.name);
+    assert_eq!(update.domains.unwrap(), updated.domains);
+    assert_eq!(update.image.unwrap(), updated.image.unwrap());
+    assert_eq!(update.updated, updated.updated);
+}
+
+#[localstack_test(services = [OpenSearch()])]
 async fn should_search_shop_documents_when_no_filters() {
     let repository = get_repository().await;
 
     // insert civilians
     for doc in fake::vec![ShopDocument; 20] {
-        let response = repository.create_shop_document(doc).await.unwrap();
+        let response = repository.index_shop_document(doc).await.unwrap();
         assert_eq!("created", response.result);
     }
     refresh_index("shops").await;

@@ -20,7 +20,7 @@ async fn should_respond_200_when_hits() {
     all.push(expected.clone());
 
     for shop in all {
-        let _ = repository.create_shop_document(shop).await.unwrap();
+        let _ = repository.index_shop_document(shop).await.unwrap();
     }
     os_client
         .index(IndexParts::Index("shops"))

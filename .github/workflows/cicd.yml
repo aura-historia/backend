@@ -96,6 +96,7 @@ jobs:
           - src/product-lambda
           - src/shop
           - src/shop-api
+          - src/shop-lambda
           - src/test-api
           - src/user
           - src/user-api
@@ -172,6 +173,7 @@ jobs:
           - src/shop-api/src/shop-api-search
           - src/shop-api/src/shop-api-patch-shop
           - src/shop-api/src/shop-api-post-shop
+          - src/shop-lambda/src/shop-lambda-opensearch-index
           - src/test-api
           - src/user
           - src/user-api/src/user-api-get-account
@@ -320,6 +322,7 @@ jobs:
           - src/shop-api/src/shop-api-get-shop
           - src/shop-api/src/shop-api-patch-shop
           - src/shop-api/src/shop-api-post-shop
+          - src/shop-lambda/src/shop-lambda-opensearch-index
           - src/user-api/src/user-api-get-account
           - src/user-api/src/user-api-patch-account
           - src/user-lambda/src/user-lambda-fanout-update-watchlist

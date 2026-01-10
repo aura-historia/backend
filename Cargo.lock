@@ -129,6 +129,7 @@ dependencies = [
  "search-filter-api",
  "shop",
  "shop-api",
+ "shop-lambda",
  "test-api",
  "user",
  "user-api",
@@ -4872,6 +4873,35 @@ dependencies = [
  "tokio",
  "tracing",
  "tracing-subscriber",
+]
+
+[[package]]
+name = "shop-lambda"
+version = "0.1.0"
+dependencies = [
+ "shop-lambda-opensearch-index",
+]
+
+[[package]]
+name = "shop-lambda-opensearch-index"
+version = "0.1.0"
+dependencies = [
+ "aws-config",
+ "aws_lambda_events",
+ "common",
+ "fake",
+ "lambda_runtime",
+ "opensearch",
+ "serde_dynamo",
+ "serde_json",
+ "serial_test",
+ "shop",
+ "test-api",
+ "tokio",
+ "tracing",
+ "tracing-subscriber",
+ "url",
+ "uuid",
 ]
 
 [[package]]
