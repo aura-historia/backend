@@ -1212,7 +1212,7 @@ async fn should_200_and_personalize_when_similar_products_have_been_computed_for
     );
 
     let product_record: ProductRecord = Faker.fake();
-    let product_records = fake::vec![ProductRecord; 12];
+    let product_records = fake::vec![ProductRecord; 5];
     let ddb_insert_res = product_dynamodb_repository
         .put_product_records(
             [vec![product_record.clone()], product_records.clone()]
