@@ -2088,7 +2088,7 @@ Resources:
       Role: !GetAtt ShopOpenSearchIndexRole.Arn
       Code:
         S3Bucket: !Ref ArtifactBucket
-        S3Key: !Sub "shop-opensearch-index-${StageName}-${CommitSHA}.zip"
+        S3Key: !Sub "shop-lambda-opensearch-index-${StageName}-${CommitSHA}.zip"
       MemorySize: 256
       Timeout: 30
       EphemeralStorage:
