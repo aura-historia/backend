@@ -13,12 +13,14 @@ async-trait = { workspace = true }
 mockall = { workspace = true }
 thiserror = { workspace = true }
 serde_json = { workspace = true }
+aws-sdk-dynamodb = { workspace = true }
+serde_dynamo = { workspace = true }
+tracing = { workspace = true }
+reqwest = { workspace = true, features = ["json"] }
+strum = { workspace = true }
 
-# Optional
-aws-sdk-dynamodb = { workspace = true, optional = true }
-serde_dynamo = { workspace = true, optional = true }
-tracing = { workspace = true, optional = true }
-
-[features]
-default = []
-dynamodb = ["common/dynamodb", "aws-sdk-dynamodb", "serde_dynamo", "tracing"]
+[dev-dependencies]
+fxrate = { workspace = true }
+test-api = { workspace = true, features = ["dynamodb"] }
+serial_test = { workspace = true }
+tokio = { workspace = true, features = ["macros"] }

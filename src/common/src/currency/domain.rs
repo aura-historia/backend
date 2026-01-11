@@ -109,6 +109,17 @@ impl Currency {
             Currency::Nzd => true,
         }
     }
+
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            Currency::Eur => "EUR",
+            Currency::Gbp => "GBP",
+            Currency::Usd => "USD",
+            Currency::Aud => "AUD",
+            Currency::Cad => "CAD",
+            Currency::Nzd => "NZD",
+        }
+    }
 }
 
 pub trait HasMinorUnitExponent {

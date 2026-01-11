@@ -5,8 +5,8 @@ use std::collections::HashMap;
 use std::ops::{Add, Deref, Sub};
 use strum::{EnumCount, IntoEnumIterator};
 
-type Rate = u64;
-const FX_RATE_SCALE: Rate = 1_000_000;
+pub type Rate = u64;
+pub const FX_RATE_SCALE: Rate = 1_000_000;
 
 pub trait FxRate {
     fn exchange(
