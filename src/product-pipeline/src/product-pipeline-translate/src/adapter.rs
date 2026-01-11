@@ -53,9 +53,9 @@ impl TranslationAdapter for TranslationAdapterImpl {
                 .call1(
                     py,
                     (
-                        py_texts,
                         src.format_human_readable(),
                         tgt.format_human_readable(),
+                        py_texts,
                     ),
                 )?;
 
