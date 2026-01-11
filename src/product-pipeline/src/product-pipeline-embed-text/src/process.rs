@@ -57,6 +57,7 @@ impl PipeProcessor<TranslatedPipeProduct, TextEmbeddedPipeProduct>
                             other_title: in_product.other_title,
                             native_description: in_product.native_description,
                             other_description: in_product.other_description,
+                            images: in_product.images,
                             text_embedding: embedding,
                         },
                     );

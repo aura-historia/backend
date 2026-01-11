@@ -47,6 +47,7 @@ impl PipeProcessor<CleansedPipeProduct, TranslatedPipeProduct> for TranslationPi
                     other_title: HashMap::with_capacity(Language::COUNT),
                     native_description: in_product.native_description,
                     other_description: HashMap::with_capacity(Language::COUNT),
+                    images: in_product.images,
                 };
                 (out_product.product_id, out_product)
             })
@@ -328,6 +329,7 @@ mod tests {
                 text: "Hallo Welt!".to_owned(),
                 language: LanguageRecord::De,
             }),
+            images: Faker.fake(),
         };
         products.push(product);
         products.shuffle(&mut fake::rand::rng());

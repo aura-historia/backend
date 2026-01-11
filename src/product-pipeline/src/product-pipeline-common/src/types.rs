@@ -8,11 +8,12 @@ use common::{
 use product::{
     dynamodb::{
         authenticity_record::AuthenticityRecord, condition_record::ConditionRecord,
-        product_update_record::ProductRecordUpdate, provenance_record::ProvenanceRecord,
-        restoration_record::RestorationRecord,
+        product_image_record::ProductImageRecord, product_update_record::ProductRecordUpdate,
+        provenance_record::ProvenanceRecord, restoration_record::RestorationRecord,
     },
     opensearch::{
         authenticity_document::AuthenticityDocument, condition_document::ConditionDocument,
+        product_image_document::ProductImageDocument,
         product_update_document::ProductUpdateDocument, provenance_document::ProvenanceDocument,
         restoration_document::RestorationDocument,
     },
@@ -33,6 +34,7 @@ pub struct InitialPipeProduct {
     pub shops_product_id: ShopsProductId,
     pub native_title: TextRecord,
     pub native_description: Option<TextRecord>,
+    pub images: Vec<ProductImageRecord>,
 }
 
 impl HasProductId for InitialPipeProduct {
@@ -49,6 +51,7 @@ pub struct CleansedPipeProduct {
     pub shops_product_id: ShopsProductId,
     pub native_title: TextRecord,
     pub native_description: Option<TextRecord>,
+    pub images: Vec<ProductImageRecord>,
 }
 
 impl HasProductId for CleansedPipeProduct {
@@ -67,6 +70,7 @@ pub struct TranslatedPipeProduct {
     pub other_title: HashMap<LanguageRecord, String>,
     pub native_description: Option<TextRecord>,
     pub other_description: HashMap<LanguageRecord, String>,
+    pub images: Vec<ProductImageRecord>,
 }
 
 impl HasProductId for TranslatedPipeProduct {
@@ -85,6 +89,7 @@ pub struct TextEmbeddedPipeProduct {
     pub other_title: HashMap<LanguageRecord, String>,
     pub native_description: Option<TextRecord>,
     pub other_description: HashMap<LanguageRecord, String>,
+    pub images: Vec<ProductImageRecord>,
     pub text_embedding: Vec<f32>,
 }
 
@@ -104,6 +109,7 @@ pub struct AttributeExtractedPipeProduct {
     pub other_title: HashMap<LanguageRecord, String>,
     pub native_description: Option<TextRecord>,
     pub other_description: HashMap<LanguageRecord, String>,
+    pub images: Vec<ProductImageRecord>,
     pub text_embedding: Vec<f32>,
     pub origin_year_min: Option<Year>,
     pub origin_year: Option<Year>,
@@ -130,6 +136,7 @@ pub struct CompletedPipeProduct {
     pub other_title: HashMap<LanguageRecord, String>,
     pub native_description: Option<TextRecord>,
     pub other_description: HashMap<LanguageRecord, String>,
+    pub images: Vec<ProductImageRecord>,
     pub text_embedding: Vec<f32>,
     pub origin_year_min: Option<Year>,
     pub origin_year: Option<Year>,
@@ -176,6 +183,7 @@ impl From<CompletedPipeProduct> for ProductRecordUpdate {
             description_en: descriptions.remove(&LanguageRecord::En),
             description_fr: descriptions.remove(&LanguageRecord::Fr),
             description_es: descriptions.remove(&LanguageRecord::Es),
+            images: Some(completed_pipe_product.images),
             origin_year_min: completed_pipe_product.origin_year_min,
             origin_year: completed_pipe_product.origin_year,
             origin_year_max: completed_pipe_product.origin_year_max,
@@ -217,6 +225,13 @@ impl From<CompletedPipeProduct> for ProductUpdateDocument {
             description_en: descriptions.remove(&LanguageRecord::En),
             description_fr: descriptions.remove(&LanguageRecord::Fr),
             description_es: descriptions.remove(&LanguageRecord::Es),
+            images: Some(
+                completed_pipe_product
+                    .images
+                    .into_iter()
+                    .map(ProductImageDocument::from)
+                    .collect(),
+            ),
             text_embedding: Some(completed_pipe_product.text_embedding),
             origin_year_min: completed_pipe_product.origin_year_min,
             origin_year: completed_pipe_product.origin_year,

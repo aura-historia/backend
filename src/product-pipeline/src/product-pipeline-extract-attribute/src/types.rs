@@ -22,4 +22,6 @@ pub struct ExtractedAttributes {
     pub provenance: Option<ProvenanceRecord>,
     #[serde(skip_serializing_if = "Option::is_none", default)]
     pub restoration: Option<RestorationRecord>,
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub is_from_nazi_germany_epoch: Option<bool>,
 }

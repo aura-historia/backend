@@ -43,4 +43,3 @@ impl From<ProhibitedContentRecord> for ProhibitedContentDocument {
         }
     }
 }
-
