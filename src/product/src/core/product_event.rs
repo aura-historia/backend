@@ -1,4 +1,5 @@
 use crate::core::description::Description;
+use crate::core::product_image::ProductImage;
 use crate::core::title::Title;
 use common::currency::domain::Currency;
 use common::event::Event;
@@ -178,7 +179,7 @@ pub struct ProductCreatedEventPayload {
     pub other_price: HashMap<Currency, MonetaryAmount>,
     pub state: ProductState,
     pub url: Url,
-    pub images: Vec<Url>,
+    pub images: Vec<ProductImage>,
 }
 
 impl ProductCommonEventPayload for ProductCreatedEventPayload {
@@ -290,7 +291,7 @@ pub struct LocalizedProductCreatedEventPayloadView {
     pub price: Option<Price>,
     pub state: ProductState,
     pub url: Url,
-    pub images: Vec<Url>,
+    pub images: Vec<ProductImage>,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -352,23 +353,7 @@ mod faker {
                     config.fake_with_rng::<u16, _>(rng)
                 ))
                 .unwrap(),
-                images: vec![
-                    Url::parse(&format!(
-                        "https://foo.bar/images/{}",
-                        config.fake_with_rng::<u16, _>(rng)
-                    ))
-                    .unwrap(),
-                    Url::parse(&format!(
-                        "https://foo.bar/images/{}",
-                        config.fake_with_rng::<u16, _>(rng)
-                    ))
-                    .unwrap(),
-                    Url::parse(&format!(
-                        "https://foo.bar/images/{}",
-                        config.fake_with_rng::<u16, _>(rng)
-                    ))
-                    .unwrap(),
-                ],
+                images: config.fake_with_rng(rng),
             }
         }
     }

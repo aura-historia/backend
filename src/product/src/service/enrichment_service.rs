@@ -202,23 +202,7 @@ mod faker {
                     config.fake_with_rng::<u16, _>(rng)
                 ))
                 .unwrap(),
-                images: vec![
-                    Url::parse(&format!(
-                        "https://foo.bar/images/{}",
-                        config.fake_with_rng::<u16, _>(rng)
-                    ))
-                    .unwrap(),
-                    Url::parse(&format!(
-                        "https://foo.bar/images/{}",
-                        config.fake_with_rng::<u16, _>(rng)
-                    ))
-                    .unwrap(),
-                    Url::parse(&format!(
-                        "https://foo.bar/images/{}",
-                        config.fake_with_rng::<u16, _>(rng)
-                    ))
-                    .unwrap(),
-                ],
+                images: config.fake_with_rng(rng),
             }
         }
     }
