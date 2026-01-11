@@ -119,6 +119,7 @@ dependencies = [
  "cognito",
  "cognito-post-confirmation",
  "common",
+ "fxrate",
  "mail",
  "mail-lambda-send",
  "product",
@@ -1686,6 +1687,24 @@ dependencies = [
  "pin-project-lite",
  "pin-utils",
  "slab",
+]
+
+[[package]]
+name = "fxrate"
+version = "0.1.0"
+dependencies = [
+ "async-trait",
+ "aws-sdk-dynamodb",
+ "common",
+ "mockall",
+ "serde",
+ "serde_dynamo",
+ "serde_fields",
+ "serde_json",
+ "thiserror",
+ "time",
+ "tracing",
+ "url",
 ]
 
 [[package]]
