@@ -6,6 +6,8 @@ use common::api::error_code::BAD_BODY_VALUE;
 use common::localized::Localized;
 use common::price::domain::Price;
 use lambda_runtime::LambdaEvent;
+use product::core::product_image::ProductImage;
+use product::core::prohibited_content::ProhibitedContent;
 use product::data::put_data::PutProductData;
 use product::service::enrichment_service::{
     EnrichProductCommandError, ProductCommandEnrichmentService,
@@ -199,7 +201,14 @@ fn put_product_data_to_command(data: PutProductData) -> PipedProductCommand {
         other_price: Default::default(),
         state: data.state.into(),
         url: data.url,
-        images: data.images,
+        images: data
+            .images
+            .into_iter()
+            .map(|url| ProductImage {
+                url,
+                prohibited_content: ProhibitedContent::Unknown,
+            })
+            .collect(),
     }
 }
 

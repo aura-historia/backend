@@ -1,6 +1,7 @@
 use crate::core::authenticity::Authenticity;
 use crate::core::condition::Condition;
 use crate::core::origin_year::OriginYear;
+use crate::core::product_image::ProductImage;
 use crate::core::product_search::ProductSearch;
 use crate::core::provenance::Provenance;
 use crate::core::restoration::Restoration;
@@ -196,7 +197,11 @@ pub fn localize_product_document(
         price,
         state,
         url: product_document.url,
-        images: product_document.images,
+        images: product_document
+            .images
+            .into_iter()
+            .map(ProductImage::from)
+            .collect(),
         origin_year: match (
             product_document.origin_year,
             product_document.origin_year_min,

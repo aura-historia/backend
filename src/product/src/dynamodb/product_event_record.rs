@@ -3,7 +3,9 @@ use crate::core::product_event::{
     ProductPriceChangeEventPayload, ProductPriceDiscoveryEventPayload,
     ProductPriceRemovedEventPayload, ProductStateChangeEventPayload,
 };
+use crate::core::product_image::ProductImage;
 use crate::dynamodb::product_event_type_record::ProductEventTypeRecord;
+use crate::dynamodb::product_image_record::ProductImageRecord;
 use crate::dynamodb::product_state_record::ProductStateRecord;
 use common::currency::domain::Currency;
 use common::error::missing_field::MissingPersistenceField;
@@ -102,7 +104,7 @@ pub struct ProductEventRecord {
     pub url: Option<Url>,
 
     #[serde(skip_serializing_if = "Option::is_none", default)]
-    pub images: Option<Vec<Url>>,
+    pub images: Option<Vec<ProductImageRecord>>,
 
     #[serde(with = "time::serde::rfc3339")]
     pub timestamp: OffsetDateTime,
@@ -267,7 +269,13 @@ impl TryFrom<ProductEvent> for ProductEventRecord {
                     new_state: Some(payload.state.into()),
                     old_state: None,
                     url: Some(payload.url),
-                    images: Some(payload.images),
+                    images: Some(
+                        payload
+                            .images
+                            .into_iter()
+                            .map(ProductImageRecord::from)
+                            .collect(),
+                    ),
                     timestamp: domain.timestamp,
                 };
                 Ok(record)
@@ -725,7 +733,12 @@ impl TryFrom<ProductEventRecord> for ProductEvent {
                         url: record
                             .url
                             .ok_or(MissingPersistenceField::new(field!(url@ProductEventRecord)))?,
-                        images: record.images.unwrap_or_default(),
+                        images: record
+                            .images
+                            .unwrap_or_default()
+                            .into_iter()
+                            .map(ProductImage::from)
+                            .collect(),
                     })
                 }
                 ProductEventTypeRecord::StateListed => {

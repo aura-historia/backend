@@ -7,6 +7,7 @@ use crate::core::product_event::{
     ProductEventPayload, ProductPriceChangeEventPayload, ProductPriceDiscoveryEventPayload,
     ProductPriceRemovedEventPayload, ProductStateChangeEventPayload,
 };
+use crate::core::product_image::ProductImage;
 use crate::core::provenance::Provenance;
 use crate::core::restoration::Restoration;
 use crate::core::title::Title;
@@ -41,7 +42,7 @@ pub struct Product {
     pub other_price: HashMap<Currency, MonetaryAmount>,
     pub state: ProductState,
     pub url: Url,
-    pub images: Vec<Url>,
+    pub images: Vec<ProductImage>,
     pub origin_year: Option<OriginYear>,
     pub authenticity: Option<Authenticity>,
     pub condition: Option<Condition>,
@@ -63,7 +64,7 @@ impl Product {
         other_price: HashMap<Currency, MonetaryAmount>,
         state: ProductState,
         url: Url,
-        images: Vec<Url>,
+        images: Vec<ProductImage>,
     ) -> ProductEvent {
         let payload = ProductCreatedEventPayload {
             shop_id,
@@ -239,7 +240,7 @@ pub struct LocalizedProductView {
     pub price: Option<Price>,
     pub state: ProductState,
     pub url: Url,
-    pub images: Vec<Url>,
+    pub images: Vec<ProductImage>,
     pub origin_year: Option<OriginYear>,
     pub authenticity: Option<Authenticity>,
     pub condition: Option<Condition>,
@@ -284,23 +285,7 @@ mod faker {
                     config.fake_with_rng::<u16, _>(rng)
                 ))
                 .unwrap(),
-                images: vec![
-                    Url::parse(&format!(
-                        "https://foo.bar/images/{}",
-                        config.fake_with_rng::<u16, _>(rng)
-                    ))
-                    .unwrap(),
-                    Url::parse(&format!(
-                        "https://foo.bar/images/{}",
-                        config.fake_with_rng::<u16, _>(rng)
-                    ))
-                    .unwrap(),
-                    Url::parse(&format!(
-                        "https://foo.bar/images/{}",
-                        config.fake_with_rng::<u16, _>(rng)
-                    ))
-                    .unwrap(),
-                ],
+                images: config.fake_with_rng(rng),
                 origin_year: config.fake_with_rng(rng),
                 authenticity: config.fake_with_rng(rng),
                 condition: config.fake_with_rng(rng),
@@ -329,23 +314,7 @@ mod faker {
                     config.fake_with_rng::<u16, _>(rng)
                 ))
                 .unwrap(),
-                images: vec![
-                    Url::parse(&format!(
-                        "https://foo.bar/images/{}",
-                        config.fake_with_rng::<u16, _>(rng)
-                    ))
-                    .unwrap(),
-                    Url::parse(&format!(
-                        "https://foo.bar/images/{}",
-                        config.fake_with_rng::<u16, _>(rng)
-                    ))
-                    .unwrap(),
-                    Url::parse(&format!(
-                        "https://foo.bar/images/{}",
-                        config.fake_with_rng::<u16, _>(rng)
-                    ))
-                    .unwrap(),
-                ],
+                images: config.fake_with_rng(rng),
                 origin_year: config.fake_with_rng(rng),
                 authenticity: config.fake_with_rng(rng),
                 condition: config.fake_with_rng(rng),

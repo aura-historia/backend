@@ -1,6 +1,7 @@
 use crate::dynamodb::product_event_record::ProductEventRecord;
 use crate::opensearch::authenticity_document::AuthenticityDocument;
 use crate::opensearch::condition_document::ConditionDocument;
+use crate::opensearch::product_image_document::ProductImageDocument;
 use crate::opensearch::product_state_document::ProductStateDocument;
 use crate::opensearch::provenance_document::ProvenanceDocument;
 use crate::opensearch::restoration_document::RestorationDocument;
@@ -51,6 +52,9 @@ pub struct ProductUpdateDocument {
     pub description_es: Option<String>,
 
     #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub images: Option<Vec<ProductImageDocument>>,
+
+    #[serde(skip_serializing_if = "Option::is_none", default)]
     pub text_embedding: Option<Vec<f32>>,
 
     #[serde(skip_serializing_if = "Option::is_none", default)]
@@ -91,6 +95,7 @@ impl Default for ProductUpdateDocument {
             description_en: None,
             description_fr: None,
             description_es: None,
+            images: None,
             text_embedding: None,
             origin_year_min: None,
             origin_year: None,
@@ -123,6 +128,9 @@ impl From<ProductEventRecord> for ProductUpdateDocument {
             description_en: event_record.description_en,
             description_fr: event_record.description_fr,
             description_es: event_record.description_es,
+            images: event_record
+                .images
+                .map(|images| images.into_iter().map(ProductImageDocument::from).collect()),
             state,
             text_embedding: None,
             origin_year_min: None,
@@ -163,6 +171,7 @@ mod faker {
                 description_en: Some(config.fake_with_rng::<Description, _>(rng).into()),
                 description_fr: Some(config.fake_with_rng::<Description, _>(rng).into()),
                 description_es: Some(config.fake_with_rng::<Description, _>(rng).into()),
+                images: Some(config.fake_with_rng(rng)),
                 state,
                 text_embedding: None,
                 origin_year_min: config.fake_with_rng(rng),

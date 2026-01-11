@@ -9,6 +9,7 @@ use crate::core::product_event::{
     LocalizedProductPriceRemovedEventPayloadView, LocalizedProductStateChangeEventPayloadView,
     ProductEvent, ProductEventPayload,
 };
+use crate::core::product_image::ProductImage;
 use crate::core::provenance::Provenance;
 use crate::core::restoration::Restoration;
 use crate::core::title::Title;
@@ -336,7 +337,11 @@ fn localize_product_record(
         price,
         state: product_record.state.into(),
         url: product_record.url,
-        images: product_record.images,
+        images: product_record
+            .images
+            .into_iter()
+            .map(ProductImage::from)
+            .collect(),
         origin_year: match (
             product_record.origin_year,
             product_record.origin_year_min,

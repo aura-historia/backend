@@ -19,6 +19,7 @@ impl PipeProcessor<ProductEventRecord, InitialPipeProduct> for InitPipeProcessor
                     shops_product_id: event_record.shops_product_id,
                     native_title: title_native,
                     native_description: event_record.description_native,
+                    images: event_record.images.unwrap_or_default()
                 }),
                 None => {
                     error!(

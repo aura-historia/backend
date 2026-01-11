@@ -11,7 +11,7 @@ use common::query::range_query::RangeQuery;
 use common::shops_product_id::ShopsProductId;
 use common::sort::{Sort, SortOrder};
 use common::year::Year;
-use fake::rand;
+use fake::{Fake, Faker, rand};
 use opensearch::http::Url;
 use product::core::authenticity::Authenticity;
 use product::core::condition::Condition;
@@ -63,7 +63,7 @@ async fn should_create_product_document() {
         price_nzd: None,
         state: ProductStateDocument::Listed,
         url: Url::parse("https://foo.com/bar").unwrap(),
-        images: vec![Url::parse("https://foo.com/bar").unwrap()],
+        images: Faker.fake(),
         text_embedding: None,
         origin_year_min: None,
         origin_year: None,
@@ -117,7 +117,7 @@ async fn should_create_product_documents() {
         price_nzd: None,
         state: ProductStateDocument::Listed,
         url: Url::parse("https://foo.com/bar").unwrap(),
-        images: vec![Url::parse("https://foo.com/bar").unwrap()],
+        images: Faker.fake(),
         text_embedding: None,
         origin_year_min: None,
         origin_year: None,
@@ -156,7 +156,7 @@ async fn should_create_product_documents() {
         price_nzd: None,
         state: ProductStateDocument::Listed,
         url: Url::parse("https://foo.com/bar").unwrap(),
-        images: vec![Url::parse("https://foo.com/bar").unwrap()],
+        images: Faker.fake(),
         text_embedding: None,
         origin_year_min: None,
         origin_year: None,
@@ -212,7 +212,7 @@ async fn should_update_product_document() {
         price_nzd: None,
         state: ProductStateDocument::Listed,
         url: Url::parse("https://foo.com/bar").unwrap(),
-        images: vec![Url::parse("https://foo.com/bar").unwrap()],
+        images: Faker.fake(),
         text_embedding: None,
         origin_year_min: None,
         origin_year: None,
@@ -252,6 +252,7 @@ async fn should_update_product_document() {
         description_en: None,
         description_fr: None,
         description_es: None,
+        images: None,
         text_embedding: None,
         origin_year_min: None,
         origin_year: None,
@@ -308,7 +309,7 @@ async fn should_search_product_documents() {
         price_nzd: None,
         state: ProductStateDocument::Available,
         url: Url::parse("https://foo.com/bar").unwrap(),
-        images: vec![Url::parse("https://foo.com/bar").unwrap()],
+        images: Faker.fake(),
         text_embedding: None,
         origin_year_min: None,
         origin_year: None,
@@ -397,7 +398,7 @@ async fn should_omit_descriptions_in_response_for_search_product_documents() {
         price_nzd: None,
         state: ProductStateDocument::Available,
         url: Url::parse("https://foo.com/bar").unwrap(),
-        images: vec![Url::parse("https://foo.com/bar").unwrap()],
+        images: Faker.fake(),
         text_embedding: None,
         origin_year_min: None,
         origin_year: None,
@@ -930,7 +931,7 @@ async fn should_get_product_document() {
         price_nzd: None,
         state: ProductStateDocument::Listed,
         url: Url::parse("https://foo.com/bar").unwrap(),
-        images: vec![Url::parse("https://foo.com/bar").unwrap()],
+        images: Faker.fake(),
         text_embedding: None,
         origin_year_min: None,
         origin_year: None,

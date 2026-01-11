@@ -2,11 +2,13 @@ use crate::core::authenticity::Authenticity;
 use crate::core::condition::Condition;
 use crate::core::origin_year::OriginYear;
 use crate::core::product::Product;
+use crate::core::product_image::ProductImage;
 use crate::core::provenance::Provenance;
 use crate::core::restoration::Restoration;
 use crate::dynamodb::authenticity_record::AuthenticityRecord;
 use crate::dynamodb::condition_record::ConditionRecord;
 use crate::dynamodb::product_event_record::ProductEventRecord;
+use crate::dynamodb::product_image_record::ProductImageRecord;
 use crate::dynamodb::product_state_record::ProductStateRecord;
 use crate::dynamodb::provenance_record::ProvenanceRecord;
 use crate::dynamodb::restoration_record::RestorationRecord;
@@ -80,7 +82,7 @@ pub struct ProductRecord {
     pub state: ProductStateRecord,
     pub url: Url,
     #[serde(skip_serializing_if = "Vec::is_empty", default)]
-    pub images: Vec<Url>,
+    pub images: Vec<ProductImageRecord>,
 
     #[serde(skip_serializing_if = "Option::is_none", default)]
     pub origin_year_min: Option<Year>,
@@ -179,7 +181,7 @@ impl From<ProductRecord> for Product {
             other_price,
             state: record.state.into(),
             url: record.url,
-            images: record.images,
+            images: record.images.into_iter().map(ProductImage::from).collect(),
             origin_year: match record.origin_year {
                 Some(exact_year) => Some(OriginYear::ExactYear(exact_year)),
                 None => match (record.origin_year_min, record.origin_year_max) {
@@ -314,23 +316,7 @@ mod faker {
                     config.fake_with_rng::<u16, _>(rng)
                 ))
                 .unwrap(),
-                images: vec![
-                    Url::parse(&format!(
-                        "https://foo.bar/images/{}",
-                        config.fake_with_rng::<u16, _>(rng)
-                    ))
-                    .unwrap(),
-                    Url::parse(&format!(
-                        "https://foo.bar/images/{}",
-                        config.fake_with_rng::<u16, _>(rng)
-                    ))
-                    .unwrap(),
-                    Url::parse(&format!(
-                        "https://foo.bar/images/{}",
-                        config.fake_with_rng::<u16, _>(rng)
-                    ))
-                    .unwrap(),
-                ],
+                images: config.fake_with_rng(rng),
                 origin_year_min: Some(origin_year_min),
                 origin_year,
                 origin_year_max: Some(origin_year_max),

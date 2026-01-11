@@ -6,6 +6,7 @@ use common::price::record::PriceRecord;
 use common::product_id::ProductId;
 use common::shop_id::ShopId;
 use common::shops_product_id::ShopsProductId;
+use fake::{Fake, Faker};
 use product::dynamodb::product_event_record::{self, ProductEventRecord};
 use product::dynamodb::product_event_type_record::ProductEventTypeRecord;
 use product::dynamodb::product_record::{self, ProductRecord};
@@ -55,7 +56,7 @@ async fn should_put_product_records_for_single_record() {
         price_nzd: None,
         state: ProductStateRecord::Available,
         url: Url::parse("https://foo.bar/123456").unwrap(),
-        images: vec![Url::parse("https://foo.bar/123456/image").unwrap()],
+        images: Faker.fake(),
         origin_year_min: None,
         origin_year: None,
         origin_year_max: None,
@@ -118,7 +119,7 @@ async fn should_put_product_records_for_multiple_records() {
         price_nzd: None,
         state: ProductStateRecord::Available,
         url: Url::parse("https://foo.bar/123456").unwrap(),
-        images: vec![Url::parse("https://foo.bar/123456/image").unwrap()],
+        images: Faker.fake(),
         origin_year_min: None,
         origin_year: None,
         origin_year_max: None,
@@ -161,7 +162,7 @@ async fn should_put_product_records_for_multiple_records() {
         price_nzd: None,
         state: ProductStateRecord::Available,
         url: Url::parse("https://foo.bar/123456").unwrap(),
-        images: vec![Url::parse("https://foo.bar/123456/image").unwrap()],
+        images: Faker.fake(),
         origin_year_min: None,
         origin_year: None,
         origin_year_max: None,
@@ -241,7 +242,7 @@ async fn should_put_product_event_records_for_single_record() {
         new_state: Some(ProductStateRecord::Available),
         old_state: Some(ProductStateRecord::Listed),
         url: Some(Url::parse("https://foo.bar/123456").unwrap()),
-        images: Some(vec![Url::parse("https://foo.bar/123456/image").unwrap()]),
+        images: Faker.fake(),
         timestamp: now,
         new_price_nzd: None,
     };
@@ -314,7 +315,7 @@ async fn should_put_product_event_records_for_multiple_records() {
         new_state: Some(ProductStateRecord::Available),
         old_state: Some(ProductStateRecord::Listed),
         url: Some(Url::parse("https://foo.bar/123456").unwrap()),
-        images: Some(vec![Url::parse("https://foo.bar/123456/image").unwrap()]),
+        images: Faker.fake(),
         timestamp: now1,
         new_price_nzd: None,
     };
@@ -358,7 +359,7 @@ async fn should_put_product_event_records_for_multiple_records() {
         new_state: Some(ProductStateRecord::Available),
         old_state: Some(ProductStateRecord::Listed),
         url: Some(Url::parse("https://foo.bar/123456").unwrap()),
-        images: Some(vec![Url::parse("https://foo.bar/123456/image").unwrap()]),
+        images: Faker.fake(),
         timestamp: now2,
     };
 
@@ -421,7 +422,7 @@ async fn should_update_product_record() {
         price_nzd: None,
         state: ProductStateRecord::Available,
         url: Url::parse("https://foo.bar/123456").unwrap(),
-        images: vec![Url::parse("https://foo.bar/123456/image").unwrap()],
+        images: Faker.fake(),
         origin_year_min: None,
         origin_year: None,
         origin_year_max: None,
@@ -452,6 +453,7 @@ async fn should_update_product_record() {
         description_en: None,
         description_fr: None,
         description_es: None,
+        images: None,
         origin_year_min: None,
         origin_year: None,
         origin_year_max: None,

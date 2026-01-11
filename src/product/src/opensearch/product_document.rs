@@ -2,6 +2,7 @@ use crate::dynamodb::product_event_record::ProductEventRecord;
 use crate::dynamodb::product_record::ProductRecord;
 use crate::opensearch::authenticity_document::AuthenticityDocument;
 use crate::opensearch::condition_document::ConditionDocument;
+use crate::opensearch::product_image_document::ProductImageDocument;
 use crate::opensearch::product_state_document::ProductStateDocument;
 use crate::opensearch::provenance_document::ProvenanceDocument;
 use crate::opensearch::restoration_document::RestorationDocument;
@@ -63,7 +64,7 @@ pub struct ProductDocument {
     pub state: ProductStateDocument,
     pub url: Url,
     #[serde(skip_serializing_if = "Vec::is_empty", default)]
-    pub images: Vec<Url>,
+    pub images: Vec<ProductImageDocument>,
 
     // title [SEP] description, dim=1024 via baai/bge-m3
     #[serde(skip_serializing_if = "Option::is_none", default)]
@@ -147,7 +148,12 @@ impl TryFrom<ProductEventRecord> for ProductDocument {
             url: event_record
                 .url
                 .ok_or_else(|| MissingPersistenceField::new(field!(url@ProductEventRecord)))?,
-            images: event_record.images.unwrap_or_default(),
+            images: event_record
+                .images
+                .unwrap_or_default()
+                .into_iter()
+                .map(ProductImageDocument::from)
+                .collect(),
             text_embedding: None,
             origin_year_min: None,
             origin_year: None,
@@ -188,7 +194,11 @@ impl From<ProductRecord> for ProductDocument {
             price_nzd: record.price_nzd,
             state: record.state.into(),
             url: record.url,
-            images: record.images,
+            images: record
+                .images
+                .into_iter()
+                .map(ProductImageDocument::from)
+                .collect(),
             text_embedding: None,
             origin_year_min: record.origin_year_min,
             origin_year: record.origin_year,
@@ -264,23 +274,7 @@ mod faker {
                     config.fake_with_rng::<u16, _>(rng)
                 ))
                 .unwrap(),
-                images: vec![
-                    Url::parse(&format!(
-                        "https://foo.bar/images/{}",
-                        config.fake_with_rng::<u16, _>(rng)
-                    ))
-                    .unwrap(),
-                    Url::parse(&format!(
-                        "https://foo.bar/images/{}",
-                        config.fake_with_rng::<u16, _>(rng)
-                    ))
-                    .unwrap(),
-                    Url::parse(&format!(
-                        "https://foo.bar/images/{}",
-                        config.fake_with_rng::<u16, _>(rng)
-                    ))
-                    .unwrap(),
-                ],
+                images: config.fake_with_rng(rng),
                 text_embedding: None,
                 origin_year_min: Some(origin_year_min),
                 origin_year,

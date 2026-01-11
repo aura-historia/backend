@@ -2,6 +2,7 @@ use crate::core::product::LocalizedProductView;
 use crate::data::authenticity_data::AuthenticityData;
 use crate::data::condition_data::ConditionData;
 use crate::data::get_product_event_data::GetProductEventData;
+use crate::data::product_image_data::ProductImageData;
 use crate::data::product_state_data::ProductStateData;
 use crate::data::provenance_data::ProvenanceData;
 use crate::data::restoration_data::RestorationData;
@@ -43,7 +44,7 @@ pub struct GetProductData {
     pub url: Url,
 
     #[serde(default)]
-    pub images: Vec<Url>,
+    pub images: Vec<ProductImageData>,
 
     #[serde(skip_serializing_if = "Option::is_none", default)]
     pub origin_year_min: Option<Year>,
@@ -94,7 +95,11 @@ impl From<LocalizedProductView> for GetProductData {
             price: product_view.price.map(PriceData::from),
             state: product_view.state.into(),
             url: product_view.url,
-            images: product_view.images,
+            images: product_view
+                .images
+                .into_iter()
+                .map(ProductImageData::from)
+                .collect(),
             origin_year_min: product_view.origin_year.and_then(|oy| oy.min()),
             origin_year: product_view.origin_year.and_then(|oy| oy.exact()),
             origin_year_max: product_view.origin_year.and_then(|oy| oy.max()),
@@ -144,7 +149,9 @@ mod tests {
             GetProductEventData, ProductEventPayloadData, ProductEventPriceChangedPayloadData,
             ProductEventStateChangedPayloadData, ProductEventTypeData,
         },
+        product_image_data::ProductImageData,
         product_state_data::ProductStateData,
+        prohibited_content_data::ProhibitedContentData,
         provenance_data::ProvenanceData,
         restoration_data::RestorationData,
     };
@@ -179,8 +186,14 @@ mod tests {
             state: ProductStateData::Reserved,
             url: Url::parse("https://my-shop.de/item").unwrap(),
             images: vec![
-                Url::parse("https://my-shop.de/item/images/1").unwrap(),
-                Url::parse("https://my-shop.de/item/images/2").unwrap(),
+                ProductImageData {
+                    url: Url::parse("https://my-shop.de/item/images/1").unwrap(),
+                    prohibited_content: ProhibitedContentData::None,
+                },
+                ProductImageData {
+                    url: Url::parse("https://my-shop.de/item/images/2").unwrap(),
+                    prohibited_content: ProhibitedContentData::NaziGermany,
+                },
             ],
             origin_year_min: Some(1900.into()),
             origin_year: Some(1900.into()),
@@ -243,7 +256,16 @@ mod tests {
             },
             "state": "RESERVED",
             "url": "https://my-shop.de/item",
-            "images": ["https://my-shop.de/item/images/1", "https://my-shop.de/item/images/2"],
+            "images": [
+                {
+                    "url": "https://my-shop.de/item/images/1",
+                    "prohibitedContent": "NONE"
+                },
+                {
+                    "url": "https://my-shop.de/item/images/2",
+                    "prohibitedContent": "NAZI_GERMANY"
+                }
+            ],
             "originYearMin": 1900,
             "originYear": 1900,
             "originYearMax": 1903,

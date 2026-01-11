@@ -22,6 +22,7 @@ impl PipeProcessor<AttributeExtractedPipeProduct, CompletedPipeProduct>
                 other_title: in_product.other_title,
                 native_description: in_product.native_description,
                 other_description: in_product.other_description,
+                images: in_product.images,
                 origin_year_min: in_product.origin_year_min,
                 origin_year: in_product.origin_year,
                 origin_year_max: in_product.origin_year_max,

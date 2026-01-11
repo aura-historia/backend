@@ -14,6 +14,7 @@ mod get_product_record {
     use common::product_id::ProductId;
     use common::shop_id::ShopId;
     use common::shops_product_id::ShopsProductId;
+    use fake::{Fake, Faker};
     use product::dynamodb::product_event_record::{self, ProductEventRecord};
     use product::dynamodb::product_event_type_record::ProductEventTypeRecord;
     use product::dynamodb::product_record::{self, ProductRecord};
@@ -69,7 +70,7 @@ mod get_product_record {
             price_nzd: None,
             state: ProductStateRecord::Available,
             url: Url::parse("https://foo.bar/123456").unwrap(),
-            images: vec![Url::parse("https://foo.bar/123456/image").unwrap()],
+            images: Faker.fake(),
             origin_year_min: None,
             origin_year: None,
             origin_year_max: None,
@@ -135,7 +136,7 @@ mod get_product_record {
             price_nzd: None,
             state: ProductStateRecord::Available,
             url: Url::parse("https://foo.bar/123456").unwrap(),
-            images: vec![Url::parse("https://foo.bar/123456/image").unwrap()],
+            images: Faker.fake(),
             origin_year_min: None,
             origin_year: None,
             origin_year_max: None,
@@ -200,7 +201,7 @@ mod get_product_record {
             price_nzd: None,
             state: ProductStateRecord::Available,
             url: Url::parse("https://foo.bar/123456").unwrap(),
-            images: vec![Url::parse("https://foo.bar/123456/image").unwrap()],
+            images: Faker.fake(),
             origin_year_min: None,
             origin_year: None,
             origin_year_max: None,
@@ -248,7 +249,7 @@ mod get_product_record {
             new_state: Some(ProductStateRecord::Listed),
             old_state: Some(ProductStateRecord::Available),
             url: None,
-            images: Some(vec![Url::parse("https://foo.bar/123456/image").unwrap()]),
+            images: Faker.fake(),
             timestamp: OffsetDateTime::now_utc(),
         };
 
@@ -290,6 +291,7 @@ mod query_product_record_and_event_records {
         ProductCreatedEventPayload, ProductEvent, ProductEventPayload,
         ProductStateChangeEventPayload,
     };
+    use product::core::product_image::ProductImage;
     use product::dynamodb::product_event_record::ProductEventRecord;
     use product::dynamodb::product_event_type_record::ProductEventTypeRecord;
     use product::dynamodb::product_record::ProductRecord;
@@ -378,7 +380,12 @@ mod query_product_record_and_event_records {
                 other_price: Default::default(),
                 state: expected_materialized.state.into(),
                 url: expected_materialized.url.clone(),
-                images: expected_materialized.images.clone(),
+                images: expected_materialized
+                    .images
+                    .clone()
+                    .into_iter()
+                    .map(ProductImage::from)
+                    .collect(),
             }),
         }
         .try_into()
@@ -438,7 +445,12 @@ mod query_product_record_and_event_records {
                 other_price: Default::default(),
                 state: expected_materialized.state.into(),
                 url: expected_materialized.url.clone(),
-                images: expected_materialized.images.clone(),
+                images: expected_materialized
+                    .images
+                    .clone()
+                    .into_iter()
+                    .map(ProductImage::from)
+                    .collect(),
             }),
         }
         .try_into()
@@ -490,6 +502,7 @@ mod batch_get_product_records {
     use common::product_id::{ProductId, ProductKey};
     use common::shop_id::ShopId;
     use common::shops_product_id::ShopsProductId;
+    use fake::{Fake, Faker};
     use product::dynamodb::product_record::{self, ProductRecord};
     use product::dynamodb::product_state_record::ProductStateRecord;
     use product::dynamodb::repository::ProductDynamoDbRepository;
@@ -534,7 +547,7 @@ mod batch_get_product_records {
                 price_nzd: None,
                 state: ProductStateRecord::Available,
                 url: Url::parse(&format!("https://foo.bar/{n}")).unwrap(),
-                images: vec![Url::parse(&format!("https://foo.bar/{n}/image")).unwrap()],
+                images: Faker.fake(),
                 origin_year_min: None,
                 origin_year: None,
                 origin_year_max: None,
@@ -619,7 +632,7 @@ mod batch_get_product_records {
                 price_nzd: None,
                 state: ProductStateRecord::Available,
                 url: Url::parse(&format!("https://foo.bar/{n}")).unwrap(),
-                images: vec![Url::parse(&format!("https://foo.bar/{n}/image")).unwrap()],
+                images: Faker.fake(),
                 origin_year_min: None,
                 origin_year: None,
                 origin_year_max: None,
@@ -705,7 +718,7 @@ mod batch_get_product_records {
                 price_nzd: None,
                 state: ProductStateRecord::Available,
                 url: Url::parse(&format!("https://foo.bar/{n}")).unwrap(),
-                images: vec![Url::parse(&format!("https://foo.bar/{n}/image")).unwrap()],
+                images: Faker.fake(),
                 origin_year_min: None,
                 origin_year: None,
                 origin_year_max: None,
@@ -767,6 +780,7 @@ mod batch_exist_product_records {
     use common::product_id::{ProductId, ProductKey};
     use common::shop_id::ShopId;
     use common::shops_product_id::ShopsProductId;
+    use fake::{Fake, Faker};
     use product::dynamodb::product_record::{self, ProductRecord};
     use product::dynamodb::product_state_record::ProductStateRecord;
     use product::dynamodb::repository::ProductDynamoDbRepository;
@@ -811,7 +825,7 @@ mod batch_exist_product_records {
                 price_nzd: None,
                 state: ProductStateRecord::Available,
                 url: Url::parse(&format!("https://foo.bar/{n}")).unwrap(),
-                images: vec![Url::parse(&format!("https://foo.bar/{n}/image")).unwrap()],
+                images: Faker.fake(),
                 origin_year_min: None,
                 origin_year: None,
                 origin_year_max: None,
@@ -894,7 +908,7 @@ mod batch_exist_product_records {
                 price_nzd: None,
                 state: ProductStateRecord::Available,
                 url: Url::parse(&format!("https://foo.bar/{n}")).unwrap(),
-                images: vec![Url::parse(&format!("https://foo.bar/{n}/image")).unwrap()],
+                images: Faker.fake(),
                 origin_year_min: None,
                 origin_year: None,
                 origin_year_max: None,
@@ -977,7 +991,7 @@ mod batch_exist_product_records {
                 price_nzd: None,
                 state: ProductStateRecord::Available,
                 url: Url::parse(&format!("https://foo.bar/{n}")).unwrap(),
-                images: vec![Url::parse(&format!("https://foo.bar/{n}/image")).unwrap()],
+                images: Faker.fake(),
                 origin_year_min: None,
                 origin_year: None,
                 origin_year_max: None,
@@ -1035,6 +1049,7 @@ mod get_product_id {
     use common::product_id::ProductId;
     use common::shop_id::ShopId;
     use common::shops_product_id::ShopsProductId;
+    use fake::{Fake, Faker};
     use product::dynamodb::product_record::{self, ProductRecord};
     use product::dynamodb::product_state_record::ProductStateRecord;
     use product::dynamodb::repository::ProductDynamoDbRepository;
@@ -1078,7 +1093,7 @@ mod get_product_id {
             price_nzd: None,
             state: ProductStateRecord::Available,
             url: Url::parse("https://foo.bar/123456").unwrap(),
-            images: vec![Url::parse("https://foo.bar/123456/image").unwrap()],
+            images: Faker.fake(),
             origin_year_min: None,
             origin_year: None,
             origin_year_max: None,
@@ -1144,7 +1159,7 @@ mod get_product_id {
             price_nzd: None,
             state: ProductStateRecord::Available,
             url: Url::parse("https://foo.bar/123456").unwrap(),
-            images: vec![Url::parse("https://foo.bar/123456/image").unwrap()],
+            images: Faker.fake(),
             origin_year_min: None,
             origin_year: None,
             origin_year_max: None,

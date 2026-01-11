@@ -153,7 +153,11 @@ async fn should_materialize_product_in_dynamodb_for_update_product_command() {
         price: None,
         state: new_state,
         url: materialized_old.url,
-        images: materialized_old.images,
+        images: materialized_old
+            .images
+            .into_iter()
+            .map(|image| image.url)
+            .collect(),
     };
 
     let url = format!("{}/api/v1/products", stack.api_gateway_endpoint_url);
@@ -329,7 +333,11 @@ async fn should_materialize_product_in_opensearch_for_update_product_command() {
         price: None,
         state: new_state,
         url: materialized_ddb_old.url,
-        images: materialized_ddb_old.images,
+        images: materialized_ddb_old
+            .images
+            .into_iter()
+            .map(|image| image.url)
+            .collect(),
     };
 
     let url = format!("{}/api/v1/products", stack.api_gateway_endpoint_url);

@@ -1,5 +1,6 @@
 use crate::{adapter::ExtractionAdapter, types::ExtractedAttributes};
 use common::{batch::Batch, language::domain::Language};
+use product::dynamodb::prohibited_content_record::ProhibitedContentRecord;
 use product_pipeline_common::{
     process::{PipeProcessor, ProcessResult},
     types::{AttributeExtractedPipeProduct, TextEmbeddedPipeProduct},
@@ -83,7 +84,8 @@ impl PipeProcessor<TextEmbeddedPipeProduct, AttributeExtractedPipeProduct>
                     "authenticity": enum-string | null (The authenticity of the antique. Either of: ORIGINAL, LATER_COPY (antique copy), REPRODUCTION (modern copy), QUESTIONABLE, UNKNOWN),\n
                     "condition": enum-string | null (The condition of the antique. Either of: EXCELLENT, GREAT, GOOD, FAIR, POOR, UNKNOWN),\n
                     "provenance": enum-string | null (The documentation (trail) of the antique. Either of: COMPLETE, PARTIAL, CLAIMED (assumed, but no proof), NONE, UNKNOWN),\n
-                    "restoration": enum-string | null (Restoration done to the antique. Either of: MAJOR, MINOR, NONE, UNKNOWN)\n
+                    "restoration": enum-string | null (Restoration done to the antique. Either of: MAJOR, MINOR, NONE, UNKNOWN),\n
+                    "isFromNaziGermanyEpoch": bool (Whether the antique is from or related to the German Nazis in the 20th Century. Things like SA/SS pre 1933 also count into this.)\n
                 }
             "#;
 
@@ -120,6 +122,10 @@ impl PipeProcessor<TextEmbeddedPipeProduct, AttributeExtractedPipeProduct>
                                         other_title: in_product.other_title,
                                         native_description: in_product.native_description,
                                         other_description: in_product.other_description,
+                                        images: in_product.images.into_iter().map(|mut image| {
+                                            image.prohibited_content = if extracted_attributes.is_from_nazi_germany_epoch.unwrap_or_default() { ProhibitedContentRecord::NaziGermany } else { ProhibitedContentRecord::None };
+                                            image
+                                        }).collect(),
                                         text_embedding: in_product.text_embedding,
                                         origin_year_min: extracted_attributes.origin_year_min,
                                         origin_year: extracted_attributes.origin_year,
