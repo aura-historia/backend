@@ -37,7 +37,7 @@ pub trait FxRate {
 pub struct FixedFxRate();
 
 impl FixedFxRate {
-    fn get_rate(&self, from: Currency, to: Currency) -> Rate {
+    pub fn get_rate(&self, from: Currency, to: Currency) -> Rate {
         match (from, to) {
             (Currency::Eur, Currency::Eur) => 1_000_000,
             (Currency::Eur, Currency::Usd) => 1_167_000,

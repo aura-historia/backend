@@ -3226,6 +3226,7 @@ dependencies = [
  "aws_lambda_events",
  "common",
  "fake",
+ "fxrate",
  "http 1.4.0",
  "lambda_runtime",
  "product",

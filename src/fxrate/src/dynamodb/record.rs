@@ -1,6 +1,8 @@
 use common::{
     currency::domain::Currency,
-    price::domain::{FX_RATE_SCALE, FxRate, MonetaryAmount, MonetaryAmountOverflowError, Rate},
+    price::domain::{
+        FX_RATE_SCALE, FixedFxRate, FxRate, MonetaryAmount, MonetaryAmountOverflowError, Rate,
+    },
 };
 use serde::{Deserialize, Serialize};
 use time::OffsetDateTime;
@@ -123,5 +125,52 @@ impl FxRate for FxRatesRecord {
         let converted = (numerator + half) / FX_RATE_SCALE;
 
         Ok(MonetaryAmount::from(converted))
+    }
+}
+
+impl From<FixedFxRate> for FxRatesRecord {
+    fn from(value: FixedFxRate) -> Self {
+        FxRatesRecord {
+            pk: mk_pk().to_owned(),
+            sk: mk_sk().to_owned(),
+
+            eur_gbp: value.get_rate(Currency::Eur, Currency::Gbp),
+            eur_usd: value.get_rate(Currency::Eur, Currency::Usd),
+            eur_aud: value.get_rate(Currency::Eur, Currency::Aud),
+            eur_cad: value.get_rate(Currency::Eur, Currency::Cad),
+            eur_nzd: value.get_rate(Currency::Eur, Currency::Nzd),
+
+            gbp_eur: value.get_rate(Currency::Gbp, Currency::Eur),
+            gbp_usd: value.get_rate(Currency::Gbp, Currency::Usd),
+            gbp_aud: value.get_rate(Currency::Gbp, Currency::Aud),
+            gbp_cad: value.get_rate(Currency::Gbp, Currency::Cad),
+            gbp_nzd: value.get_rate(Currency::Gbp, Currency::Nzd),
+
+            usd_eur: value.get_rate(Currency::Usd, Currency::Eur),
+            usd_gbp: value.get_rate(Currency::Usd, Currency::Gbp),
+            usd_aud: value.get_rate(Currency::Usd, Currency::Aud),
+            usd_cad: value.get_rate(Currency::Usd, Currency::Cad),
+            usd_nzd: value.get_rate(Currency::Usd, Currency::Nzd),
+
+            aud_eur: value.get_rate(Currency::Aud, Currency::Eur),
+            aud_gbp: value.get_rate(Currency::Aud, Currency::Gbp),
+            aud_usd: value.get_rate(Currency::Aud, Currency::Usd),
+            aud_cad: value.get_rate(Currency::Aud, Currency::Cad),
+            aud_nzd: value.get_rate(Currency::Aud, Currency::Nzd),
+
+            cad_eur: value.get_rate(Currency::Cad, Currency::Eur),
+            cad_gbp: value.get_rate(Currency::Cad, Currency::Gbp),
+            cad_usd: value.get_rate(Currency::Cad, Currency::Usd),
+            cad_aud: value.get_rate(Currency::Cad, Currency::Aud),
+            cad_nzd: value.get_rate(Currency::Cad, Currency::Nzd),
+
+            nzd_eur: value.get_rate(Currency::Nzd, Currency::Eur),
+            nzd_gbp: value.get_rate(Currency::Nzd, Currency::Gbp),
+            nzd_usd: value.get_rate(Currency::Nzd, Currency::Usd),
+            nzd_aud: value.get_rate(Currency::Nzd, Currency::Aud),
+            nzd_cad: value.get_rate(Currency::Nzd, Currency::Cad),
+
+            timestamp: OffsetDateTime::now_utc(),
+        }
     }
 }
