@@ -194,3 +194,35 @@ impl<'a> FxRateService for FxRateServiceImpl<'a> {
             .ok_or(FxRateServiceError::FxRatesNotExists)
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use crate::{
+        dynamodb::repository::MockFxRateDynamoDbRepository,
+        fxratesapi::{FxRatesApiResponse, MockFxRatesApiClient},
+        service::{FxRateService, FxRateServiceImpl},
+    };
+    use std::collections::HashMap;
+
+    #[tokio::test]
+    async fn should_err_when_fxrates_api_not_succesful() {
+        let mut fxrates_api = MockFxRatesApiClient::default();
+        fxrates_api.expect_get_fx_rates().return_once(|base| {
+            let base = *base;
+            Box::pin(async move {
+                Ok(FxRatesApiResponse {
+                    success: false,
+                    base: base.into(),
+                    rates: HashMap::default(),
+                })
+            })
+        });
+        let mut repository = MockFxRateDynamoDbRepository::default();
+        repository.expect_put_fx_rates_record().never();
+
+        let service = FxRateServiceImpl::new(&fxrates_api, &repository);
+        let actual = service.update_current().await;
+
+        assert!(actual.is_err());
+    }
+}
