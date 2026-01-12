@@ -120,6 +120,7 @@ dependencies = [
  "cognito-post-confirmation",
  "common",
  "fxrate",
+ "fxrate-lambda",
  "mail",
  "mail-lambda-send",
  "product",
@@ -1711,6 +1712,25 @@ dependencies = [
  "tokio",
  "tracing",
  "url",
+]
+
+[[package]]
+name = "fxrate-lambda"
+version = "0.1.0"
+dependencies = [
+ "aws-config",
+ "aws-sdk-dynamodb",
+ "common",
+ "fxrate",
+ "lambda_runtime",
+ "reqwest 0.12.28",
+ "rstest",
+ "serde_json",
+ "serial_test",
+ "test-api",
+ "tokio",
+ "tracing",
+ "tracing-subscriber",
 ]
 
 [[package]]
