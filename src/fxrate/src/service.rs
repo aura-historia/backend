@@ -26,15 +26,15 @@ pub enum FxRateServiceError {
     SdkErrorGetItem(#[from] SdkError<GetItemError>),
 
     #[error("SdkErrorPutItem: {0:?}")]
-    SdkErrorPuttItem(#[from] SdkError<PutItemError>),
+    SdkErrorPutItem(#[from] SdkError<PutItemError>),
 
     #[error("FxRatesNotExists: The FxRatesRecord does not exist")]
     FxRatesNotExists,
 
-    #[error("FxratesApiError: The reponse contained success=false")]
+    #[error("FxratesApiError: The response contained success=false")]
     FxratesApiError,
 
-    #[error("MissingFxRate: Missing FxRate to exchang from '{0}' to '{1}'")]
+    #[error("MissingFxRate: Missing FxRate to exchange from '{0}' to '{1}'")]
     MissingFxRate(Currency, Currency),
 }
 
@@ -205,7 +205,7 @@ mod tests {
     use std::collections::HashMap;
 
     #[tokio::test]
-    async fn should_err_when_fxrates_api_not_succesful() {
+    async fn should_err_when_fxrates_api_not_successful() {
         let mut fxrates_api = MockFxRatesApiClient::default();
         fxrates_api.expect_get_fx_rates().return_once(|base| {
             let base = *base;
