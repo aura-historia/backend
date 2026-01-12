@@ -27,6 +27,11 @@ Parameters:
     Type: String
     NoEcho: true
     Description: "Password for accessing the self-hosted OpenSearch-Cluster"
+  FxRatesApiToken:
+    Type: AWS::SSM::Parameter::Value<String>
+    Default: /fxratesapi/dev/api-token
+    NoEcho: true
+    Description: "API-Token for fxratesapi.com"
 
 Resources:
   PrimaryUserPool:
@@ -3619,7 +3624,7 @@ Resources:
       Environment:
         Variables:
           DYNAMODB_TABLE_NAME: !Ref TableOne
-          FXRATES_API_TOKEN: "{{resolve:ssm-secure:/fxratesapi/dev/api-token}}"
+          FXRATES_API_TOKEN: !Ref FxRatesApiToken
   FxRateSyncStartSchedule:
     Type: AWS::Events::Rule
     Properties:
