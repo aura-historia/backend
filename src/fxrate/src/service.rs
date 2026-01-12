@@ -26,7 +26,7 @@ pub enum FxRateServiceError {
     SdkErrorGetItem(#[from] SdkError<GetItemError>),
 
     #[error("SdkErrorPutItem: {0:?}")]
-    SdkErrorPuttItem(#[from] SdkError<PutItemError>),
+    SdkErrorPutItem(#[from] SdkError<PutItemError>),
 
     #[error("FxRatesNotExists: The FxRatesRecord does not exist")]
     FxRatesNotExists,
@@ -200,12 +200,92 @@ mod tests {
     use crate::{
         dynamodb::repository::MockFxRateDynamoDbRepository,
         fxratesapi::{FxRatesApiResponse, MockFxRatesApiClient},
-        service::{FxRateService, FxRateServiceImpl},
+        service::{FxRateService, FxRateServiceError, FxRateServiceImpl},
     };
+    use aws_sdk_dynamodb::{error::SdkError, operation::put_item::PutItemOutput};
+    use common::{currency::data::CurrencyData, currency::domain::Currency};
     use std::collections::HashMap;
+    use strum::{EnumCount, IntoEnumIterator};
+
+    fn create_complete_rates_for_base(base: Currency) -> HashMap<CurrencyData, f32> {
+        let mut rates = HashMap::new();
+        for currency in Currency::iter() {
+            if currency != base {
+                let rate = match (base, currency) {
+                    (Currency::Eur, Currency::Usd) => 1.1,
+                    (Currency::Eur, Currency::Gbp) => 0.85,
+                    (Currency::Eur, Currency::Aud) => 1.6,
+                    (Currency::Eur, Currency::Cad) => 1.5,
+                    (Currency::Eur, Currency::Nzd) => 1.7,
+                    (Currency::Usd, Currency::Eur) => 0.91,
+                    (Currency::Usd, Currency::Gbp) => 0.77,
+                    (Currency::Usd, Currency::Aud) => 1.45,
+                    (Currency::Usd, Currency::Cad) => 1.36,
+                    (Currency::Usd, Currency::Nzd) => 1.55,
+                    (Currency::Gbp, Currency::Eur) => 1.18,
+                    (Currency::Gbp, Currency::Usd) => 1.3,
+                    (Currency::Gbp, Currency::Aud) => 1.88,
+                    (Currency::Gbp, Currency::Cad) => 1.76,
+                    (Currency::Gbp, Currency::Nzd) => 2.0,
+                    (Currency::Aud, Currency::Eur) => 0.63,
+                    (Currency::Aud, Currency::Gbp) => 0.53,
+                    (Currency::Aud, Currency::Usd) => 0.69,
+                    (Currency::Aud, Currency::Cad) => 0.94,
+                    (Currency::Aud, Currency::Nzd) => 1.06,
+                    (Currency::Cad, Currency::Eur) => 0.67,
+                    (Currency::Cad, Currency::Gbp) => 0.57,
+                    (Currency::Cad, Currency::Usd) => 0.74,
+                    (Currency::Cad, Currency::Aud) => 1.06,
+                    (Currency::Cad, Currency::Nzd) => 1.13,
+                    (Currency::Nzd, Currency::Eur) => 0.59,
+                    (Currency::Nzd, Currency::Gbp) => 0.5,
+                    (Currency::Nzd, Currency::Usd) => 0.65,
+                    (Currency::Nzd, Currency::Aud) => 0.94,
+                    (Currency::Nzd, Currency::Cad) => 0.88,
+                    _ => 1.0,
+                };
+                rates.insert(currency.into(), rate);
+            }
+        }
+        rates
+    }
 
     #[tokio::test]
-    async fn should_err_when_fxrates_api_not_succesful() {
+    async fn should_update_current_successfully_when_api_returns_complete_rates() {
+        let mut fxrates_api = MockFxRatesApiClient::default();
+        fxrates_api
+            .expect_get_fx_rates()
+            .times(Currency::COUNT)
+            .returning(|base| {
+                let base = *base;
+                Box::pin(async move {
+                    Ok(FxRatesApiResponse {
+                        success: true,
+                        base: base.into(),
+                        rates: create_complete_rates_for_base(base),
+                    })
+                })
+            });
+
+        let mut repository = MockFxRateDynamoDbRepository::default();
+        repository
+            .expect_put_fx_rates_record()
+            .once()
+            .returning(|_| Box::pin(async { Ok(PutItemOutput::builder().build()) }));
+
+        let service = FxRateServiceImpl::new(&fxrates_api, &repository);
+        let result = service.update_current().await;
+
+        assert!(result.is_ok());
+        let record = result.unwrap();
+        assert_eq!(record.pk, "global#fx_rate");
+        assert_eq!(record.sk, "fx_rate#details");
+        assert!(record.eur_usd > 0);
+        assert!(record.gbp_eur > 0);
+    }
+
+    #[tokio::test]
+    async fn should_err_when_fxrates_api_not_successful() {
         let mut fxrates_api = MockFxRatesApiClient::default();
         fxrates_api.expect_get_fx_rates().return_once(|base| {
             let base = *base;
@@ -224,5 +304,110 @@ mod tests {
         let actual = service.update_current().await;
 
         assert!(actual.is_err());
+        assert!(matches!(
+            actual.unwrap_err(),
+            FxRateServiceError::FxratesApiError
+        ));
+    }
+
+    #[tokio::test]
+    async fn should_err_when_missing_required_rate_for_eur_gbp() {
+        let mut fxrates_api = MockFxRatesApiClient::default();
+        fxrates_api.expect_get_fx_rates().returning(|base| {
+            let base = *base;
+            Box::pin(async move {
+                let mut rates = create_complete_rates_for_base(base);
+                if base == Currency::Eur {
+                    rates.remove(&CurrencyData::Gbp);
+                }
+                Ok(FxRatesApiResponse {
+                    success: true,
+                    base: base.into(),
+                    rates,
+                })
+            })
+        });
+
+        let mut repository = MockFxRateDynamoDbRepository::default();
+        repository.expect_put_fx_rates_record().never();
+
+        let service = FxRateServiceImpl::new(&fxrates_api, &repository);
+        let result = service.update_current().await;
+
+        assert!(result.is_err());
+        assert!(matches!(
+            result.unwrap_err(),
+            FxRateServiceError::MissingFxRate(Currency::Eur, Currency::Gbp)
+        ));
+    }
+
+    #[tokio::test]
+    async fn should_err_when_missing_required_rate_for_usd_aud() {
+        let mut fxrates_api = MockFxRatesApiClient::default();
+        fxrates_api.expect_get_fx_rates().returning(|base| {
+            let base = *base;
+            Box::pin(async move {
+                let mut rates = create_complete_rates_for_base(base);
+                if base == Currency::Usd {
+                    rates.remove(&CurrencyData::Aud);
+                }
+                Ok(FxRatesApiResponse {
+                    success: true,
+                    base: base.into(),
+                    rates,
+                })
+            })
+        });
+
+        let mut repository = MockFxRateDynamoDbRepository::default();
+        repository.expect_put_fx_rates_record().never();
+
+        let service = FxRateServiceImpl::new(&fxrates_api, &repository);
+        let result = service.update_current().await;
+
+        assert!(result.is_err());
+        assert!(matches!(
+            result.unwrap_err(),
+            FxRateServiceError::MissingFxRate(Currency::Usd, Currency::Aud)
+        ));
+    }
+
+    #[tokio::test]
+    async fn should_err_when_dynamodb_put_fails() {
+        let mut fxrates_api = MockFxRatesApiClient::default();
+        fxrates_api
+            .expect_get_fx_rates()
+            .times(Currency::COUNT)
+            .returning(|base| {
+                let base = *base;
+                Box::pin(async move {
+                    Ok(FxRatesApiResponse {
+                        success: true,
+                        base: base.into(),
+                        rates: create_complete_rates_for_base(base),
+                    })
+                })
+            });
+
+        let mut repository = MockFxRateDynamoDbRepository::default();
+        repository
+            .expect_put_fx_rates_record()
+            .once()
+            .returning(|_| {
+                Box::pin(async {
+                    Err(SdkError::construction_failure(
+                        "Failed to put item in DynamoDB",
+                    ))
+                })
+            });
+
+        let service = FxRateServiceImpl::new(&fxrates_api, &repository);
+        let result = service.update_current().await;
+
+        assert!(result.is_err());
+        assert!(matches!(
+            result.unwrap_err(),
+            FxRateServiceError::SdkErrorPutItem(_)
+        ));
     }
 }
