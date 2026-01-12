@@ -4146,7 +4146,7 @@ Resources:
       Environment:
         Variables:
           DYNAMODB_TABLE_NAME: !Ref TableOne
-          FXRATES_API_TOKEN: "{{resolve:ssm:/fxratesapi/prod/api-token}}"
+          FXRATES_API_TOKEN: "{{resolve:ssm-secure:/fxratesapi/prod/api-token}}"
   FxRateSyncStartSchedule:
     Type: AWS::Events::Rule
     Properties:
