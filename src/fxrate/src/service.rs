@@ -285,7 +285,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn should_err_when_fxrates_api_not_succesful() {
+    async fn should_err_when_fxrates_api_not_successful() {
         let mut fxrates_api = MockFxRatesApiClient::default();
         fxrates_api.expect_get_fx_rates().return_once(|base| {
             let base = *base;
