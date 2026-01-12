@@ -4105,6 +4105,66 @@ Resources:
       Principal: "events.amazonaws.com"
       SourceArn: !GetAtt ProductPipelineScalePersistUpStartSchedule.Arn
 
+  FxRateSyncRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Sub "fxrate-lambda-role-prod"
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: lambda.amazonaws.com
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole
+      Policies:
+        - PolicyName: DynamoDBAccess
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: Allow
+                Action:
+                  - dynamodb:GetItem
+                  - dynamodb:PutItem
+                Resource:
+                  - !GetAtt TableOne.Arn
+  FxRateSyncLambda:
+    Type: AWS::Lambda::Function
+    Properties:
+      FunctionName: !Sub "fxrate-lambda-prod"
+      Runtime: provided.al2023
+      Handler: lib.handler
+      Role: !GetAtt FxRateSyncRole.Arn
+      Code:
+        S3Bucket: !Ref ArtifactBucket
+        S3Key: !Sub "fxrate-lambda-prod-${CommitSHA}.zip"
+      MemorySize: 128
+      Timeout: 180
+      EphemeralStorage:
+        Size: 512
+      Environment:
+        Variables:
+          DYNAMODB_TABLE_NAME: !Ref TableOne
+          FXRATES_API_TOKEN: "{{resolve:ssm:/fxratesapi/prod/api-token}}"
+  FxRateSyncStartSchedule:
+    Type: AWS::Events::Rule
+    Properties:
+      ScheduleExpression: "cron(0 6,18 * * ? *)" # 6 AM/PM
+      Targets:
+        - Arn: !GetAtt FxRateSyncLambda.Arn
+          Id: "FxRateSyncStartSchedule"
+          RetryPolicy:
+            MaximumRetryAttempts: 3
+            MaximumEventAgeInSeconds: 3600
+  FxRateSyncStartSchedulePermission:
+    Type: AWS::Lambda::Permission
+    Properties:
+      FunctionName: !Ref FxRateSyncLambda
+      Action: "lambda:InvokeFunction"
+      Principal: "events.amazonaws.com"
+      SourceArn: !GetAtt FxRateSyncStartSchedule.Arn
+
 Outputs:
   CognitoHostedUIDomain:
     Value: !Sub "https://${PrimaryUserPoolDomain}.auth.${AWS::Region}.amazoncognito.com"
