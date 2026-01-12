@@ -26,7 +26,7 @@ pub enum FxRateServiceError {
     SdkErrorGetItem(#[from] SdkError<GetItemError>),
 
     #[error("SdkErrorPutItem: {0:?}")]
-    SdkErrorPuttItem(#[from] SdkError<PutItemError>),
+    SdkErrorPutItem(#[from] SdkError<PutItemError>),
 
     #[error("FxRatesNotExists: The FxRatesRecord does not exist")]
     FxRatesNotExists,
@@ -407,7 +407,7 @@ mod tests {
         assert!(result.is_err());
         assert!(matches!(
             result.unwrap_err(),
-            FxRateServiceError::SdkErrorPuttItem(_)
+            FxRateServiceError::SdkErrorPutItem(_)
         ));
     }
 }
