@@ -5,8 +5,8 @@ use std::collections::HashMap;
 use std::ops::{Add, Deref, Sub};
 use strum::{EnumCount, IntoEnumIterator};
 
-type Rate = u64;
-const FX_RATE_SCALE: Rate = 1_000_000;
+pub type Rate = u64;
+pub const FX_RATE_SCALE: Rate = 1_000_000;
 
 pub trait FxRate {
     fn exchange(
@@ -37,7 +37,7 @@ pub trait FxRate {
 pub struct FixedFxRate();
 
 impl FixedFxRate {
-    fn get_rate(&self, from: Currency, to: Currency) -> Rate {
+    pub fn get_rate(&self, from: Currency, to: Currency) -> Rate {
         match (from, to) {
             (Currency::Eur, Currency::Eur) => 1_000_000,
             (Currency::Eur, Currency::Usd) => 1_167_000,

@@ -23,6 +23,8 @@ user-lambda = { workspace = true }
 mail = { workspace = true }
 mail-lambda-send = { workspace = true }
 product-pipeline = { workspace = true }
+fxrate = { workspace = true }
+fxrate-lambda = { workspace = true }
 
 [workspace]
 members = [
@@ -45,6 +47,8 @@ members = [
     "src/mail",
     "src/mail-lambda-send",
     "src/product-pipeline",
+    "src/fxrate",
+    "src/fxrate-lambda",
 ]
 
 [workspace.dependencies]
@@ -177,3 +181,5 @@ html-escape = "0.2.13"
 pyo3 = "0.27.2"
 pyo3-ffi = "0.27.0"
 regex = "1.12.2"
+fxrate = { path = "src/fxrate" }
+fxrate-lambda = { path = "src/fxrate-lambda" }

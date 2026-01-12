@@ -9,6 +9,7 @@ common = { workspace = true }
 time = { workspace = true, features = ["local-offset", "macros", "formatting"] }
 url = { workspace = true, features = ["serde"] }
 serde = { workspace = true }
+serde_json = { workspace = true }
 serde_fields = { workspace = true }
 async-trait = { workspace = true }
 mockall = { workspace = true }
@@ -19,7 +20,6 @@ fake = { workspace = true, optional = true }
 field = { workspace = true, optional = true }
 aws-sdk-dynamodb = { workspace = true, optional = true }
 serde_dynamo = { workspace = true, optional = true }
-serde_json = { workspace = true }
 tracing = { workspace = true, optional = true }
 opensearch = { workspace = true, optional = true }
 tokio = { workspace = true, optional = true }

@@ -20,6 +20,7 @@ serde_json = { workspace = true }
 http = { workspace = true }
 url = { workspace = true }
 thiserror = { workspace = true }
+fxrate = { workspace = true }
 
 [dev-dependencies]
 product = { workspace = true, features = ["test-data"] }

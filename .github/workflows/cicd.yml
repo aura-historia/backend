@@ -328,6 +328,7 @@ jobs:
           - src/user-lambda/src/user-lambda-fanout-update-watchlist
           - src/cognito-post-confirmation
           - src/mail-lambda-send
+          - src/fxrate-lambda
     steps:
       - uses: actions/checkout@v6
 
