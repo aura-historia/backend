@@ -256,6 +256,7 @@ mod faker {
                 shop_id: config.fake_with_rng(rng),
                 shops_product_id: config.fake_with_rng(rng),
                 shop_name: config.fake_with_rng::<ShopName, _>(rng).into(),
+                shop_type: config.fake_with_rng(rng),
                 title_native: TextDocument {
                     text: config.fake_with_rng::<Title, _>(rng).to_string(),
                     language: config.fake_with_rng(rng),

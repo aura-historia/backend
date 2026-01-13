@@ -4811,6 +4811,8 @@ dependencies = [
  "serde_json",
  "serial_test",
  "shop",
+ "strum",
+ "strum_macros",
  "test-api",
  "thiserror",
  "time",

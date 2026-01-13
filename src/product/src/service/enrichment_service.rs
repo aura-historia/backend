@@ -121,6 +121,7 @@ impl<'a, T: FxRate + Sync> ProductCommandEnrichmentService
                             Some(shop) => {
                                 cmd.shop_id = Some(shop.shop_id);
                                 cmd.shop_name = Some(shop.name.clone());
+                                cmd.shop_type = Some(shop.shop_type);
                                 output.enriched.push(cmd);
                             }
                             None => output
@@ -190,6 +191,7 @@ mod faker {
                 shop_id: config.fake_with_rng(rng),
                 shops_product_id: config.fake_with_rng(rng),
                 shop_name: config.fake_with_rng(rng),
+                shop_type: config.fake_with_rng(rng),
                 native_title: config.fake_with_rng(rng),
                 other_title: config.fake_with_rng(rng),
                 native_description: config.fake_with_rng(rng),

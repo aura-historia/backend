@@ -344,6 +344,7 @@ mod faker {
                 shop_id: config.fake_with_rng(rng),
                 shops_product_id: config.fake_with_rng(rng),
                 shop_name: config.fake_with_rng(rng),
+                shop_type: config.fake_with_rng(rng),
                 native_title: config.fake_with_rng(rng),
                 native_description: config.fake_with_rng(rng),
                 native_price,

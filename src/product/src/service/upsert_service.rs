@@ -262,6 +262,7 @@ impl<T: FxRate + Sync> UpsertProductsServiceImpl<'_, T> {
                 cmd.shop_id,
                 cmd.shops_product_id,
                 cmd.shop_name,
+                cmd.shop_type,
                 cmd.native_title,
                 cmd.native_description,
                 cmd.native_price,

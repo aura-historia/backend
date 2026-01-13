@@ -192,6 +192,7 @@ pub fn localize_product_document(
         shop_id: product_document.shop_id,
         shops_product_id: product_document.shops_product_id,
         shop_name: product_document.shop_name.into(),
+        shop_type: product_document.shop_type.into(),
         title,
         description,
         price,
