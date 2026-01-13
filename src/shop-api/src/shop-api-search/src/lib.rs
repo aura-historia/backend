@@ -72,7 +72,11 @@ pub async fn handle(
 
     let search = ShopSearch {
         shop_name_query: search_data.shop_name_query,
-        shop_type_query: search_data.shop_type_query.into_iter().map(Into::into).collect(),
+        shop_type_query: search_data
+            .shop_type_query
+            .into_iter()
+            .map(Into::into)
+            .collect(),
         created: search_data.created,
         updated: search_data.updated,
     };

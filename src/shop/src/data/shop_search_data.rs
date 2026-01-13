@@ -1,6 +1,6 @@
 use crate::core::shop_type::ShopType;
-use crate::opensearch::shop_search::ShopSearch;
 use crate::data::shop_type_data::ShopTypeData;
+use crate::opensearch::shop_search::ShopSearch;
 use common::query::{range_query::RangeQuery, text_query::TextQuery};
 use serde::{Deserialize, Serialize};
 use std::collections::HashSet;
@@ -11,8 +11,12 @@ use time::OffsetDateTime;
 pub struct ShopSearchData {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub shop_name_query: Option<TextQuery>,
-    
-    #[serde(rename = "shopType", skip_serializing_if = "HashSet::is_empty", default)]
+
+    #[serde(
+        rename = "shopType",
+        skip_serializing_if = "HashSet::is_empty",
+        default
+    )]
     pub shop_type_query: HashSet<ShopTypeData>,
 
     #[serde(

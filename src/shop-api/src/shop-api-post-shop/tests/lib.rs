@@ -1,7 +1,9 @@
 use common::domain::Domain;
 use lambda_runtime::LambdaEvent;
 use shop::{
-    data::{get_shop_data::GetShopData, post_shop_data::PostShopData, shop_type_data::ShopTypeData},
+    data::{
+        get_shop_data::GetShopData, post_shop_data::PostShopData, shop_type_data::ShopTypeData,
+    },
     dynamodb::repository::{ShopDynamoDbRepository, ShopDynamoDbRepositoryImpl},
     service::command_service::CommandShopServiceImpl,
 };
