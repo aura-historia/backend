@@ -26,6 +26,8 @@ use product::opensearch::repository::{
     ProductOpenSearchRepository, ProductOpenSearchRepositoryImpl,
 };
 use serde_json::json;
+use shop::core::shop_type::ShopType;
+use shop::opensearch::shop_type_document::ShopTypeDocument;
 use std::collections::HashMap;
 use std::collections::HashSet;
 use std::time::Duration;
@@ -43,6 +45,7 @@ async fn should_create_product_document() {
         shop_id: Default::default(),
         shops_product_id: ShopsProductId::from("abcdefgh"),
         shop_name: "Foo".to_string(),
+        shop_type: ShopTypeDocument::CommercialDealer,
         title_native: TextDocument {
             text: "Foo".to_string(),
             language: LanguageDocument::Fr,
@@ -97,6 +100,7 @@ async fn should_create_product_documents() {
         shop_id: Default::default(),
         shops_product_id: ShopsProductId::from("abcdefgh"),
         shop_name: "Foo".to_string(),
+        shop_type: ShopTypeDocument::CommercialDealer,
         title_native: TextDocument {
             text: "Foo".to_string(),
             language: LanguageDocument::Fr,
@@ -136,6 +140,7 @@ async fn should_create_product_documents() {
         shop_id: Default::default(),
         shops_product_id: ShopsProductId::from("abcdefgh"),
         shop_name: "Foo".to_string(),
+        shop_type: ShopTypeDocument::CommercialDealer,
         title_native: TextDocument {
             text: "Foo".to_string(),
             language: LanguageDocument::Fr,
@@ -192,6 +197,7 @@ async fn should_update_product_document() {
         shop_id: Default::default(),
         shops_product_id: ShopsProductId::from("abcdefgh"),
         shop_name: "Foo".to_string(),
+        shop_type: ShopTypeDocument::CommercialDealer,
         title_native: TextDocument {
             text: "Foo".to_string(),
             language: LanguageDocument::Fr,
@@ -289,6 +295,7 @@ async fn should_search_product_documents() {
         shop_id: Default::default(),
         shops_product_id: ShopsProductId::from("abcdefgh"),
         shop_name: "Foo".to_string(),
+        shop_type: ShopTypeDocument::CommercialDealer,
         title_native: TextDocument {
             text: "Foo".to_string(),
             language: LanguageDocument::Fr,
@@ -378,6 +385,7 @@ async fn should_omit_descriptions_in_response_for_search_product_documents() {
         shop_id: Default::default(),
         shops_product_id: ShopsProductId::from("abcdefgh"),
         shop_name: "Foo".to_string(),
+        shop_type: ShopTypeDocument::CommercialDealer,
         title_native: TextDocument {
             text: "Foo".to_string(),
             language: LanguageDocument::Fr,
@@ -481,6 +489,7 @@ async fn should_search_product_documents_when_all_arguments_are_given() {
         language: Language::De,
         currency: Currency::Eur,
         product_query: "Lorem".try_into().unwrap(),
+        shop_type_query: Default::default(),
         shop_name_query: Some("LLC".try_into().unwrap()),
         price_query: Some(RangeQuery {
             min: Some(100u64.into()),
@@ -911,6 +920,7 @@ async fn should_get_product_document() {
         shop_id: Default::default(),
         shops_product_id: ShopsProductId::from("abcdefgh"),
         shop_name: "Foo".to_string(),
+        shop_type: ShopTypeDocument::CommercialDealer,
         title_native: TextDocument {
             text: "Foo".to_string(),
             language: LanguageDocument::Fr,
@@ -2908,4 +2918,68 @@ async fn should_search_product_documents_when_restoration_filter_is_given(
             .map(|r| restorations.contains(&Restoration::from(r)))
             .unwrap_or(false)
     }));
+}
+
+#[rstest::rstest]
+#[trace]
+#[test_attr(apply(test))]
+#[case(&[ShopType::AuctionHouse])]
+#[case(&[ShopType::CommercialDealer])]
+#[case(&[ShopType::Marketplace])]
+#[case(&[ShopType::AuctionHouse, ShopType::CommercialDealer])]
+#[localstack_test(services = [OpenSearch()])]
+async fn should_search_product_documents_when_shop_types_are_given(#[case] shop_types: &[ShopType]) {
+    let products = fake::vec![ProductDocument; 3000]
+        .into_iter()
+        .map(|mut item| {
+            item.title_de = Some("Test product for shop type filter".into());
+            item
+        })
+        .collect::<Vec<_>>();
+    let client = get_opensearch_client().await;
+    let repository = ProductOpenSearchRepositoryImpl::new(client);
+    let response = repository
+        .create_product_documents(products.clone())
+        .await
+        .unwrap();
+    assert!(!response.errors);
+    refresh_index("products").await;
+    tokio::time::sleep(Duration::from_millis(3000)).await;
+
+    let search_filter = ProductSearch {
+        language: Language::De,
+        currency: Currency::Eur,
+        product_query: "Test product for shop type filter".try_into().unwrap(),
+        shop_name_query: None,
+        shop_type_query: AnyOfQuery::from(HashSet::from_iter(shop_types.iter().copied())),
+        price_query: None,
+        state_query: Default::default(),
+        origin_year_query: None,
+        authenticity_query: Default::default(),
+        condition_query: Default::default(),
+        provenance_query: Default::default(),
+        restoration_query: Default::default(),
+        created_query: None,
+        updated_query: None,
+    };
+    let response = repository
+        .search_product_documents(
+            &search_filter,
+            &Sort {
+                sort: SortProductField::Score,
+                order: SortOrder::Desc,
+            },
+            &None,
+        )
+        .await
+        .unwrap();
+
+    assert!(response.hits.total.value > 0);
+    assert!(
+        response
+            .hits
+            .hits
+            .iter()
+            .all(|hit| { shop_types.contains(&ShopType::from(hit.source.shop_type)) })
+    );
 }

@@ -82,3 +82,55 @@ async fn should_follow_up_search_after_query(
         payload2.search_after.unwrap()
     );
 }
+
+#[rstest::rstest]
+#[test_attr(apply(test))]
+#[case([shop::data::shop_type_data::ShopTypeData::AuctionHouse].into())]
+#[case([shop::data::shop_type_data::ShopTypeData::CommercialDealer].into())]
+#[case([shop::data::shop_type_data::ShopTypeData::Marketplace].into())]
+#[case([shop::data::shop_type_data::ShopTypeData::AuctionHouse, shop::data::shop_type_data::ShopTypeData::Marketplace].into())]
+#[trace]
+#[localstack_test(services = [OpenSearch()])]
+async fn should_200_when_shop_type_query(#[case] query: std::collections::HashSet<shop::data::shop_type_data::ShopTypeData>) {
+    use common::query::any_of_query::AnyOfQuery;
+    
+    let repository = ShopOpenSearchRepositoryImpl::new(get_opensearch_client().await);
+    let service = QueryShopServiceImpl::new(&repository);
+
+    for _ in 0..100 {
+        let _ = repository.index_shop_document(Faker.fake()).await.unwrap();
+        tokio::time::sleep(tokio::time::Duration::from_millis(10)).await;
+    }
+    refresh_index("shops").await;
+    tokio::time::sleep(tokio::time::Duration::from_secs(3)).await;
+
+    let search = ShopSearchData {
+        shop_name_query: None,
+        shop_type_query: query.clone(),
+        created: None,
+        updated: None,
+    };
+
+    let lambda_event = LambdaEvent {
+        payload: ApiGatewayV2httpRequestProxy::builder()
+            .http_method(http::Method::POST)
+            .body_serde(&search)
+            .build(),
+        context: Default::default(),
+    };
+    let response = handler(lambda_event, &service).await.unwrap();
+    assert_eq!(200, response.status_code);
+    
+    let payload = serde_json::from_value::<JsonCursoredData<GetShopData>>(
+        extract_apigw_response_json_body!(response),
+    )
+    .unwrap();
+    
+    assert!(payload.total.unwrap() > 0);
+    assert!(
+        payload
+            .items
+            .iter()
+            .all(|shop| query.contains(&shop.shop_type))
+    );
+}
