@@ -1,4 +1,7 @@
-use crate::{core::shop::Shop, dynamodb::shop_record::ShopRecord};
+use crate::{
+    core::shop::Shop, dynamodb::shop_record::ShopRecord,
+    opensearch::shop_type_document::ShopTypeDocument,
+};
 use common::{domain::Domain, shop_id::ShopId, shop_name::ShopName};
 use serde::{Deserialize, Serialize};
 use serde_fields::SerdeField;
@@ -11,6 +14,7 @@ use url::Url;
 pub struct ShopDocument {
     pub shop_id: ShopId,
     pub name: ShopName,
+    pub shop_type: ShopTypeDocument,
     pub domains: HashSet<Domain>,
 
     #[serde(skip_serializing_if = "Option::is_none", default)]
@@ -34,6 +38,7 @@ impl From<Shop> for ShopDocument {
         ShopDocument {
             shop_id: shop.shop_id,
             name: shop.name,
+            shop_type: shop.shop_type.into(),
             domains: shop.domains,
             image: shop.image,
             created: shop.created,
@@ -47,6 +52,7 @@ impl From<ShopDocument> for Shop {
         Shop {
             shop_id: document.shop_id,
             name: document.name,
+            shop_type: document.shop_type.into(),
             domains: document.domains,
             image: document.image,
             created: document.created,
@@ -60,6 +66,7 @@ impl From<ShopRecord> for ShopDocument {
         ShopDocument {
             shop_id: record.shop_id,
             name: record.name,
+            shop_type: record.shop_type.into(),
             domains: record.domains,
             image: record.image,
             created: record.created,

@@ -1,3 +1,4 @@
+use crate::data::shop_type_data::ShopTypeData;
 use common::{domain::Domain, shop_name::ShopName};
 use serde::{Deserialize, Serialize};
 use std::collections::HashSet;
@@ -8,6 +9,7 @@ use url::Url;
 #[serde(rename_all = "camelCase")]
 pub struct PostShopData {
     pub name: ShopName,
+    pub shop_type: ShopTypeData,
     pub domains: HashSet<Domain>,
     #[serde(skip_serializing_if = "Option::is_none", default)]
     pub image: Option<Url>,

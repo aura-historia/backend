@@ -3,10 +3,13 @@ use std::collections::HashSet;
 use time::OffsetDateTime;
 use url::Url;
 
+use crate::core::shop_type::ShopType;
+
 #[derive(Debug, Clone, PartialEq)]
 pub struct Shop {
     pub shop_id: ShopId,
     pub name: ShopName,
+    pub shop_type: ShopType,
     pub domains: HashSet<Domain>,
     pub image: Option<Url>,
     pub created: OffsetDateTime,
@@ -23,6 +26,7 @@ mod faker {
             Shop {
                 shop_id: config.fake_with_rng(rng),
                 name: config.fake_with_rng(rng),
+                shop_type: config.fake_with_rng(rng),
                 domains: [Faker.fake()].into(),
                 image: config.fake_with_rng(rng),
                 created: OffsetDateTime::now_utc(),

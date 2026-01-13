@@ -123,6 +123,7 @@ impl<'a> CommandShopService for CommandShopServiceImpl<'a> {
         let shop = Shop {
             shop_id: ShopId::new(),
             name: command.name,
+            shop_type: command.shop_type,
             domains: command.domains,
             image: command.image,
             created: OffsetDateTime::now_utc(),
@@ -173,6 +174,7 @@ impl<'a> CommandShopService for CommandShopServiceImpl<'a> {
 
         let update_record = ShopRecordUpdate {
             name: command.name,
+            shop_type: command.shop_type.map(Into::into),
             domains: command.domains,
             image: command.image,
             updated: OffsetDateTime::now_utc(),
@@ -234,6 +236,9 @@ impl<'a> CommandShopService for CommandShopServiceImpl<'a> {
                     .name
                     .clone()
                     .unwrap_or(shop_record.name.clone()),
+                shop_type: update_record
+                    .shop_type
+                    .unwrap_or(shop_record.shop_type),
                 domain: Some(new_domain),
                 domains: update_record
                     .domains
@@ -254,6 +259,10 @@ impl<'a> CommandShopService for CommandShopServiceImpl<'a> {
                 .name
                 .clone()
                 .unwrap_or(shop_record.name.clone()),
+            shop_type: update_record
+                .shop_type
+                .map(Into::into)
+                .unwrap_or(shop_record.shop_type.into()),
             domains: update_record
                 .domains
                 .clone()
@@ -289,8 +298,9 @@ mod tests {
             let shop_repository = MockShopDynamoDbRepository::default();
             let service = CommandShopServiceImpl::new(&shop_repository);
 
-            let create_cmd = CreateShopCommand {
+            let cmd = CreateShopCommand {
                 name: Faker.fake(),
+                shop_type: Faker.fake(),
                 domains: HashSet::new(),
                 image: None,
             };
@@ -312,6 +322,7 @@ mod tests {
             let service = CommandShopServiceImpl::new(&shop_repository);
             let create_cmd = CreateShopCommand {
                 name: Faker.fake(),
+                shop_type: Faker.fake(),
                 domains: (0..count)
                     .map(|i| Domain::try_from(format!("https://foo-{i}.com")).unwrap())
                     .collect(),
@@ -364,6 +375,7 @@ mod tests {
             let actual = service.create(create_cmd.clone()).await.unwrap();
 
             assert_eq!(create_cmd.name, actual.name);
+            assert_eq!(create_cmd.shop_type, actual.shop_type);
             assert_eq!(create_cmd.image, actual.image);
             assert_eq!(create_cmd.domains, actual.domains);
         }
@@ -565,6 +577,7 @@ mod tests {
                 .return_once(move |put, update, delete| {
                     assert!(update.values().all(|update_record: &ShopRecordUpdate| {
                         update_record.name == Some("Hanses shoppy".into())
+                            && update_record.shop_type.is_none()
                             && update_record.domains.is_none()
                             && update_record.image
                                 == Some(Url::parse("https://hanses.shoppy/img/foo").unwrap())
@@ -581,6 +594,7 @@ mod tests {
             let service = CommandShopServiceImpl::new(&shop_repository);
             let cmd = UpdateShopCommand {
                 name: Some("Hanses shoppy".into()),
+                shop_type: None,
                 domains: None,
                 image: Some(Url::parse("https://hanses.shoppy/img/foo").unwrap()),
             };
@@ -646,6 +660,7 @@ mod tests {
             shop_domains.insert(Domain::try_from("https://what-da-helly.com/").unwrap());
             let cmd = UpdateShopCommand {
                 name: None,
+                shop_type: None,
                 domains: Some(shop_domains.clone()),
                 image: None,
             };
@@ -697,6 +712,7 @@ mod tests {
                 .collect::<HashSet<_>>();
             let cmd = UpdateShopCommand {
                 name: None,
+                shop_type: None,
                 domains: Some(shop_domains.clone()),
                 image: None,
             };

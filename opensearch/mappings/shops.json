@@ -23,6 +23,9 @@
           }
         }
       },
+      "shopType": {
+        "type": "keyword"
+      },
       "domains": {
         "type": "keyword"
       },

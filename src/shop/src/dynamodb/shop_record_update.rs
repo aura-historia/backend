@@ -1,3 +1,4 @@
+use crate::dynamodb::shop_type_record::ShopTypeRecord;
 use common::{domain::Domain, dynamodb_update::DynamoDbUpdate, shop_name::ShopName};
 use serde::{Deserialize, Serialize};
 use std::collections::HashSet;
@@ -8,6 +9,9 @@ use url::Url;
 pub struct ShopRecordUpdate {
     #[serde(skip_serializing_if = "Option::is_none", default)]
     pub name: Option<ShopName>,
+
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub shop_type: Option<ShopTypeRecord>,
 
     #[serde(skip_serializing_if = "Option::is_none", default)]
     pub domains: Option<HashSet<Domain>>,
