@@ -15,6 +15,7 @@ async fn should_create_shop_when_payload_valid() {
 
     let post_shop_data = PostShopData {
         name: "Hanses shippy shop".into(),
+        shop_type: shop::data::shop_type_data::ShopTypeData::CommercialDealer,
         domains: [
             Domain::try_from("https://hans.com").unwrap(),
             Domain::try_from("https://hansi-shoppy.de").unwrap(),
@@ -36,6 +37,10 @@ async fn should_create_shop_when_payload_valid() {
     let actual_response_shop_data: GetShopData =
         serde_json::from_value(extract_apigw_response_json_body!(response)).unwrap();
     assert_eq!(post_shop_data.name, actual_response_shop_data.name);
+    assert_eq!(
+        post_shop_data.shop_type,
+        actual_response_shop_data.shop_type
+    );
     assert_eq!(post_shop_data.domains, actual_response_shop_data.domains);
     assert_eq!(post_shop_data.image, actual_response_shop_data.image);
 
@@ -45,6 +50,10 @@ async fn should_create_shop_when_payload_valid() {
         .unwrap()
         .unwrap();
     assert_eq!(post_shop_data.name, persisted_shop.name);
+    assert_eq!(
+        post_shop_data.shop_type.into(),
+        persisted_shop.shop_type.into()
+    );
     assert_eq!(post_shop_data.domains, persisted_shop.domains);
     assert_eq!(post_shop_data.image, persisted_shop.image);
 }

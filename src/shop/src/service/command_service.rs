@@ -236,9 +236,7 @@ impl<'a> CommandShopService for CommandShopServiceImpl<'a> {
                     .name
                     .clone()
                     .unwrap_or(shop_record.name.clone()),
-                shop_type: update_record
-                    .shop_type
-                    .unwrap_or(shop_record.shop_type),
+                shop_type: update_record.shop_type.unwrap_or(shop_record.shop_type),
                 domain: Some(new_domain),
                 domains: update_record
                     .domains
