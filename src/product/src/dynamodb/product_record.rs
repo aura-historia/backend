@@ -29,6 +29,7 @@ use common::year::{Year, YearRange};
 use field::field;
 use serde::{Deserialize, Serialize};
 use serde_fields::SerdeField;
+use shop::dynamodb::shop_type_record::ShopTypeRecord;
 use std::collections::HashMap;
 use time::OffsetDateTime;
 use url::Url;
@@ -42,6 +43,7 @@ pub struct ProductRecord {
     pub shop_id: ShopId,
     pub shops_product_id: ShopsProductId,
     pub shop_name: String,
+    pub shop_type: ShopTypeRecord,
 
     pub title_native: TextRecord,
     #[serde(skip_serializing_if = "Option::is_none", default)]
@@ -168,6 +170,7 @@ impl From<ProductRecord> for Product {
             shop_id: record.shop_id,
             shops_product_id: record.shops_product_id,
             shop_name: record.shop_name.into(),
+            shop_type: record.shop_type.into(),
             native_title: Localized::new(
                 record.title_native.language.into(),
                 record.title_native.text.into(),
@@ -212,6 +215,9 @@ impl TryFrom<ProductEventRecord> for ProductRecord {
             shops_product_id: event_record.shops_product_id,
             shop_name: event_record.shop_name.ok_or_else(|| {
                 MissingPersistenceField::new(field!(shop_name@ProductEventRecord))
+            })?,
+            shop_type: event_record.shop_type.ok_or_else(|| {
+                MissingPersistenceField::new(field!(shop_type@ProductEventRecord))
             })?,
             title_native: event_record.title_native.ok_or_else(|| {
                 MissingPersistenceField::new(field!(title_native@ProductEventRecord))
@@ -287,6 +293,7 @@ mod faker {
                 shop_id,
                 shops_product_id: shops_product_id.clone(),
                 shop_name: config.fake_with_rng::<ShopName, _>(rng).into(),
+                shop_type: config.fake_with_rng(rng),
                 title_native: TextRecord::new(
                     config.fake_with_rng::<Title, _>(rng).to_string(),
                     config.fake_with_rng(rng),

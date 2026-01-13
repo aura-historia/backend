@@ -25,6 +25,7 @@ use common::shops_product_id::ShopsProductId;
 use field::field;
 use serde::{Deserialize, Serialize};
 use serde_fields::SerdeField;
+use shop::dynamodb::shop_type_record::ShopTypeRecord;
 use std::collections::HashMap;
 use time::format_description::well_known::Rfc3339;
 use time::{OffsetDateTime, error};
@@ -42,6 +43,8 @@ pub struct ProductEventRecord {
     pub shops_product_id: ShopsProductId,
     #[serde(skip_serializing_if = "Option::is_none", default)]
     pub shop_name: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub shop_type: Option<ShopTypeRecord>,
 
     #[serde(skip_serializing_if = "Option::is_none", default)]
     pub title_native: Option<TextRecord>,
