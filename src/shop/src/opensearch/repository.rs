@@ -1,6 +1,7 @@
 use crate::core::sort_shop_field::SortShopField;
 use crate::opensearch::shop_document::ShopDocumentSerdeField;
 use crate::opensearch::shop_document_update::ShopDocumentUpdate;
+use crate::opensearch::shop_type_document::ShopTypeDocument;
 use crate::opensearch::{shop_document::ShopDocument, shop_search::ShopSearch};
 use common::opensearch::update_response::UpdateResponse;
 use common::shop_id::ShopId;
@@ -113,6 +114,20 @@ impl<'a> ShopOpenSearchRepository for ShopOpenSearchRepositoryImpl<'a> {
                         "fuzziness": "AUTO",
                         "minimum_should_match": "70%"
                     }
+                }
+            }));
+        }
+
+        // Add shop_type filter
+        if !search.shop_type_query.is_empty() {
+            let shop_types: Vec<&str> = search
+                .shop_type_query
+                .iter()
+                .map(|v| ShopTypeDocument::from(*v).as_str())
+                .collect();
+            filter.push(json!({
+                "terms": {
+                    ShopDocumentSerdeField::ShopType.as_str(): shop_types
                 }
             }));
         }

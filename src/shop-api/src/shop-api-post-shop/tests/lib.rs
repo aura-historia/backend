@@ -1,7 +1,7 @@
 use common::domain::Domain;
 use lambda_runtime::LambdaEvent;
 use shop::{
-    data::{get_shop_data::GetShopData, post_shop_data::PostShopData},
+    data::{get_shop_data::GetShopData, post_shop_data::PostShopData, shop_type_data::ShopTypeData},
     dynamodb::repository::{ShopDynamoDbRepository, ShopDynamoDbRepositoryImpl},
     service::command_service::CommandShopServiceImpl,
 };
@@ -15,7 +15,7 @@ async fn should_create_shop_when_payload_valid() {
 
     let post_shop_data = PostShopData {
         name: "Hanses shippy shop".into(),
-        shop_type: shop::data::shop_type_data::ShopTypeData::CommercialDealer,
+        shop_type: ShopTypeData::CommercialDealer,
         domains: [
             Domain::try_from("https://hans.com").unwrap(),
             Domain::try_from("https://hansi-shoppy.de").unwrap(),

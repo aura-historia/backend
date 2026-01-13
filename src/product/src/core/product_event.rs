@@ -12,6 +12,7 @@ use common::product_state::domain::ProductState;
 use common::shop_id::ShopId;
 use common::shop_name::ShopName;
 use common::shops_product_id::ShopsProductId;
+use shop::core::shop_type::ShopType;
 use std::collections::HashMap;
 use url::Url;
 
@@ -173,7 +174,7 @@ pub struct ProductCreatedEventPayload {
     pub shop_id: ShopId,
     pub shops_product_id: ShopsProductId,
     pub shop_name: ShopName,
-    pub shop_type: shop::core::shop_type::ShopType,
+    pub shop_type: ShopType,
     pub native_title: Localized<Language, Title>,
     pub native_description: Option<Localized<Language, Description>>,
     pub native_price: Option<Price>,
