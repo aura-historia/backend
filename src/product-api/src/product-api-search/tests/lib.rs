@@ -1534,7 +1534,7 @@ async fn should_200_with_native_title_when_no_target_titles_exist_and_hit_due_to
                 currency: CurrencyData::Eur,
                 product_query: "german description".try_into().unwrap(),
                 shop_name_query: None,
-        shop_type_query: Default::default(),
+                shop_type_query: Default::default(),
                 price_query: None,
                 state_query: Default::default(),
                 origin_year_query: None,
@@ -1649,7 +1649,7 @@ async fn should_respond_200_and_respect_accept_language_header(
                 currency: CurrencyData::Eur,
                 product_query: expected_title.try_into().unwrap(),
                 shop_name_query: None,
-        shop_type_query: Default::default(),
+                shop_type_query: Default::default(),
                 price_query: None,
                 state_query: Default::default(),
                 origin_year_query: None,
@@ -1692,7 +1692,9 @@ async fn should_respond_200_and_respect_accept_language_header(
 #[case([shop::data::shop_type_data::ShopTypeData::AuctionHouse, shop::data::shop_type_data::ShopTypeData::CommercialDealer].into())]
 #[trace]
 #[localstack_test(services = [OpenSearch(), DynamoDB()])]
-async fn should_200_when_shop_type_query(#[case] query: HashSet<shop::data::shop_type_data::ShopTypeData>) {
+async fn should_200_when_shop_type_query(
+    #[case] query: HashSet<shop::data::shop_type_data::ShopTypeData>,
+) {
     let ddb_client = get_dynamodb_client().await;
     let watchlist_repository = WatchlistProductDynamoDbRepositoryImpl::new(ddb_client, "table_1");
     let product_personalization_service =

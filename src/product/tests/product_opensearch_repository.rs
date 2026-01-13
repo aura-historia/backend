@@ -2928,7 +2928,9 @@ async fn should_search_product_documents_when_restoration_filter_is_given(
 #[case(&[ShopType::Marketplace])]
 #[case(&[ShopType::AuctionHouse, ShopType::CommercialDealer])]
 #[localstack_test(services = [OpenSearch()])]
-async fn should_search_product_documents_when_shop_types_are_given(#[case] shop_types: &[ShopType]) {
+async fn should_search_product_documents_when_shop_types_are_given(
+    #[case] shop_types: &[ShopType],
+) {
     let products = fake::vec![ProductDocument; 3000]
         .into_iter()
         .map(|mut item| {

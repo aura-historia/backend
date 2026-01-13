@@ -91,9 +91,11 @@ async fn should_follow_up_search_after_query(
 #[case([shop::data::shop_type_data::ShopTypeData::AuctionHouse, shop::data::shop_type_data::ShopTypeData::Marketplace].into())]
 #[trace]
 #[localstack_test(services = [OpenSearch()])]
-async fn should_200_when_shop_type_query(#[case] query: std::collections::HashSet<shop::data::shop_type_data::ShopTypeData>) {
+async fn should_200_when_shop_type_query(
+    #[case] query: std::collections::HashSet<shop::data::shop_type_data::ShopTypeData>,
+) {
     use common::query::any_of_query::AnyOfQuery;
-    
+
     let repository = ShopOpenSearchRepositoryImpl::new(get_opensearch_client().await);
     let service = QueryShopServiceImpl::new(&repository);
 
@@ -120,12 +122,12 @@ async fn should_200_when_shop_type_query(#[case] query: std::collections::HashSe
     };
     let response = handler(lambda_event, &service).await.unwrap();
     assert_eq!(200, response.status_code);
-    
+
     let payload = serde_json::from_value::<JsonCursoredData<GetShopData>>(
         extract_apigw_response_json_body!(response),
     )
     .unwrap();
-    
+
     assert!(payload.total.unwrap() > 0);
     assert!(
         payload
