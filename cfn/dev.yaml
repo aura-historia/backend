@@ -19,14 +19,6 @@ Parameters:
   OpenSearchEndpointUrl:
     Type: String
     Description: "URL for the self-hosted OpenSearch-Cluster"
-  OpenSearchUsername:
-    Type: String
-    NoEcho: true
-    Description: "Username for accessing the self-hosted OpenSearch-Cluster"
-  OpenSearchPassword:
-    Type: String
-    NoEcho: true
-    Description: "Password for accessing the self-hosted OpenSearch-Cluster"
 
 Resources:
   PrimaryUserPool:
@@ -550,8 +542,8 @@ Resources:
         Variables:
           STAGE: "dev"
           OPENSEARCH_ENDPOINT_URL: !Ref OpenSearchEndpointUrl
-          OPENSEARCH_USERNAME: !Ref OpenSearchUsername
-          OPENSEARCH_PASSWORD: !Ref OpenSearchPassword
+          OPENSEARCH_USERNAME: "{{resolve:ssm:/opensearch/dev/username}}"
+          OPENSEARCH_PASSWORD: "{{resolve:ssm:/opensearch/dev/password}}"
           DYNAMODB_TABLE_NAME: !Ref TableOne
           USER_POOL_ID: !Ref PrimaryUserPool
           USER_POOL_PUBLIC_CLIENT_ID: !Ref PrimaryUserPoolClientPublic
@@ -619,8 +611,8 @@ Resources:
         Variables:
           STAGE: "dev"
           OPENSEARCH_ENDPOINT_URL: !Ref OpenSearchEndpointUrl
-          OPENSEARCH_USERNAME: !Ref OpenSearchUsername
-          OPENSEARCH_PASSWORD: !Ref OpenSearchPassword
+          OPENSEARCH_USERNAME: "{{resolve:ssm:/opensearch/dev/username}}"
+          OPENSEARCH_PASSWORD: "{{resolve:ssm:/opensearch/dev/password}}"
           DYNAMODB_TABLE_NAME: !Ref TableOne
           USER_POOL_ID: !Ref PrimaryUserPool
           USER_POOL_PUBLIC_CLIENT_ID: !Ref PrimaryUserPoolClientPublic
@@ -1263,8 +1255,8 @@ Resources:
         Variables:
           STAGE: "dev"
           OPENSEARCH_ENDPOINT_URL: !Ref OpenSearchEndpointUrl
-          OPENSEARCH_USERNAME: !Ref OpenSearchUsername
-          OPENSEARCH_PASSWORD: !Ref OpenSearchPassword
+          OPENSEARCH_USERNAME: "{{resolve:ssm:/opensearch/dev/username}}"
+          OPENSEARCH_PASSWORD: "{{resolve:ssm:/opensearch/dev/password}}"
   ApiShopSearchLambdaPermission:
     Type: AWS::Lambda::Permission
     Properties:
@@ -1896,8 +1888,8 @@ Resources:
         Variables:
           STAGE: "dev"
           OPENSEARCH_ENDPOINT_URL: !Ref OpenSearchEndpointUrl
-          OPENSEARCH_USERNAME: !Ref OpenSearchUsername
-          OPENSEARCH_PASSWORD: !Ref OpenSearchPassword
+          OPENSEARCH_USERNAME: "{{resolve:ssm:/opensearch/dev/username}}"
+          OPENSEARCH_PASSWORD: "{{resolve:ssm:/opensearch/dev/password}}"
   ProductMaterializeOpenSearchDbNewMapping:
     Type: AWS::Lambda::EventSourceMapping
     Properties:
@@ -1965,8 +1957,8 @@ Resources:
         Variables:
           STAGE: "dev"
           OPENSEARCH_ENDPOINT_URL: !Ref OpenSearchEndpointUrl
-          OPENSEARCH_USERNAME: !Ref OpenSearchUsername
-          OPENSEARCH_PASSWORD: !Ref OpenSearchPassword
+          OPENSEARCH_USERNAME: "{{resolve:ssm:/opensearch/dev/username}}"
+          OPENSEARCH_PASSWORD: "{{resolve:ssm:/opensearch/dev/password}}"
   ProductMaterializeOpenSearchDbUpdateMapping:
     Type: AWS::Lambda::EventSourceMapping
     Properties:
@@ -2033,8 +2025,8 @@ Resources:
       Environment:
         Variables:
           OPENSEARCH_ENDPOINT_URL: !Ref OpenSearchEndpointUrl
-          OPENSEARCH_USERNAME: !Ref OpenSearchUsername
-          OPENSEARCH_PASSWORD: !Ref OpenSearchPassword
+          OPENSEARCH_USERNAME: "{{resolve:ssm:/opensearch/dev/username}}"
+          OPENSEARCH_PASSWORD: "{{resolve:ssm:/opensearch/dev/password}}"
           STAGE: "dev"
   ShopOpenSearchIndexMapping:
     Type: AWS::Lambda::EventSourceMapping
@@ -3248,6 +3240,17 @@ Resources:
                   - logs:CreateLogStream
                   - logs:PutLogEvents
                 Resource: "*"
+        - PolicyName: SSMParameterAccess
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: Allow
+                Action:
+                  - ssm:GetParameter
+                  - ssm:GetParameters
+                Resource:
+                  - !Sub "arn:aws:ssm:${AWS::Region}:${AWS::AccountId}:parameter/opensearch/dev/username"
+                  - !Sub "arn:aws:ssm:${AWS::Region}:${AWS::AccountId}:parameter/opensearch/dev/password"
   ProductPipelineCompleteInstanceProfile:
     Type: AWS::IAM::InstanceProfile
     Properties:
@@ -3290,13 +3293,14 @@ Resources:
             export SOURCE_QUEUE_URL="${ProductPipelineCompleteQ}"
             export DYNAMODB_TABLE_NAME="${TableOne}"
             export OPENSEARCH_ENDPOINT_URL="${OpenSearchEndpointUrl}"
-            export OPENSEARCH_USERNAME="${OpenSearchUsername}"
-            export OPENSEARCH_PASSWORD="${OpenSearchPassword}"
             # Install awscli
             apt -y install unzip
             curl "https://awscli.amazonaws.com/awscli-exe-linux-x86_64.zip" -o "awscliv2.zip"
             unzip awscliv2.zip
             sudo ./aws/install
+            # Fetch OpenSearch credentials from SSM Parameter Store
+            export OPENSEARCH_USERNAME=$(aws ssm get-parameter --name /opensearch/dev/username --query 'Parameter.Value' --output text --region eu-central-1)
+            export OPENSEARCH_PASSWORD=$(aws ssm get-parameter --name /opensearch/dev/password --query 'Parameter.Value' --output text --region eu-central-1)
             # Install cloudwatch-agent
             sudo wget https://s3.amazonaws.com/amazoncloudwatch-agent/debian/amd64/latest/amazon-cloudwatch-agent.deb
             sudo dpkg -i -E ./amazon-cloudwatch-agent.deb
