@@ -90,6 +90,7 @@ impl From<UserSearchFilterRecord> for UserSearchFilter {
                 currency: record.currency.into(),
                 product_query: record.product_query,
                 shop_name_query: record.shop_name_query,
+                shop_type_query: Default::default(), // search filters don't expose shop_type filtering yet
                 price_query: record
                     .price_query
                     .map(|range_query| range_query.map(MonetaryAmount::from)),

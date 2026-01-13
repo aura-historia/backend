@@ -288,6 +288,7 @@ pub struct LocalizedProductCreatedEventPayloadView {
     pub shop_id: ShopId,
     pub shops_product_id: ShopsProductId,
     pub shop_name: ShopName,
+    pub shop_type: ShopType,
     pub title: Localized<Language, Title>,
     pub description: Option<Localized<Language, Description>>,
     pub price: Option<Price>,

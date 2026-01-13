@@ -17,6 +17,7 @@ uuid = { workspace = true }
 once_cell = { workspace = true }
 html-escape = { workspace = true }
 regex = { workspace = true }
+shop = { workspace = true }
 
 # Optional
 field = { workspace = true, optional = true }
@@ -28,7 +29,6 @@ opensearch = { workspace = true, optional = true }
 serde_dynamo = { workspace = true, features = ["aws-sdk-dynamodb+1"], optional = true }
 itertools = { workspace = true, optional = true }
 user = { workspace = true, optional = true, features = ["dynamodb"] }
-shop = { workspace = true, optional = true }
 strum = { workspace = true, optional = true }
 strum_macros = { workspace = true, optional = true }
 tokio = { workspace = true, optional = true }
@@ -43,11 +43,11 @@ tokio = { workspace = true, features = ["macros"] }
 
 [features]
 default = []
-data = ["common/api"]
-dynamodb = ["aws-sdk-dynamodb", "serde_dynamo", "common/dynamodb", "tracing", "field", "strum"]
-opensearch = ["dynamodb", "dep:opensearch", "tracing", "strum", "strum_macros", "common/opensearch"]
+data = ["common/api", "shop/data"]
+dynamodb = ["aws-sdk-dynamodb", "serde_dynamo", "common/dynamodb", "tracing", "field", "strum", "shop/dynamodb"]
+opensearch = ["dynamodb", "dep:opensearch", "tracing", "strum", "strum_macros", "common/opensearch", "shop/opensearch"]
 sqs = ["aws-sdk-sqs", "common/sqs"]
-service = ["itertools", "shop", "shop/dynamodb", "tokio", "tokio/time"]
+service = ["itertools", "shop/dynamodb", "tokio", "tokio/time"]
 watchlist = ["dynamodb", "service", "user", "user/dynamodb"]
 test-data = ["fake", "common/test-data", "shop/test-data", "user/test-data"]
 full = ["data", "dynamodb", "opensearch", "service", "watchlist", "sqs", "test-data"]

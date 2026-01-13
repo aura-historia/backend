@@ -376,6 +376,7 @@ fn localize_product_event(
                 shop_id: payload.shop_id,
                 shops_product_id: payload.shops_product_id,
                 shop_name: payload.shop_name,
+                shop_type: payload.shop_type,
                 title: payload.native_title,
                 description: payload.native_description,
                 price: prices
