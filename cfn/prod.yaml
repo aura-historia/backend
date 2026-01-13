@@ -3826,8 +3826,8 @@ Resources:
             unzip awscliv2.zip
             sudo ./aws/install
             # Fetch OpenSearch credentials from SSM Parameter Store
-            export OPENSEARCH_USERNAME=$(aws ssm get-parameter --name /opensearch/prod/username --with-decryption --query 'Parameter.Value' --output text --region eu-central-1)
-            export OPENSEARCH_PASSWORD=$(aws ssm get-parameter --name /opensearch/prod/password --with-decryption --query 'Parameter.Value' --output text --region eu-central-1)
+            export OPENSEARCH_USERNAME=$(aws ssm get-parameter --name /opensearch/prod/username --query 'Parameter.Value' --output text --region eu-central-1)
+            export OPENSEARCH_PASSWORD=$(aws ssm get-parameter --name /opensearch/prod/password --query 'Parameter.Value' --output text --region eu-central-1)
             # Install cloudwatch-agent
             sudo wget https://s3.amazonaws.com/amazoncloudwatch-agent/debian/amd64/latest/amazon-cloudwatch-agent.deb
             sudo dpkg -i -E ./amazon-cloudwatch-agent.deb
