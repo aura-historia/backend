@@ -20,6 +20,9 @@
             "shopName": {
                 "type": "text"
             },
+            "shopType": {
+                "type": "keyword"
+            },
             "titleNative": {
                 "type": "object",
                 "properties": {
