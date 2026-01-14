@@ -138,6 +138,8 @@ mod tests {
                 Url::parse("https://my-shop.de/item/images/1").unwrap(),
                 Url::parse("https://my-shop.de/item/images/2").unwrap(),
             ],
+            auction_start: None,
+            auction_end: None,
         };
 
         let actual = serde_json::from_value(json).unwrap();

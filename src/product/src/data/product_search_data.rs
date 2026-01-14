@@ -282,6 +282,8 @@ mod tests {
                 min: Some(datetime!(2000 - 05 - 04 0:00 UTC)),
                 max: Some(datetime!(2025 - 05 - 04 0:00 UTC)),
             }),
+            auction_start_query: None,
+            auction_end_query: None,
         };
         let expected = json!({
             "language": "de",
@@ -374,6 +376,8 @@ mod tests {
                 min: Some(datetime!(2000 - 05 - 04 0:00 UTC)),
                 max: Some(datetime!(2025 - 05 - 04 0:00 UTC)),
             }),
+            auction_start_query: None,
+            auction_end_query: None,
         };
 
         let actual: ProductSearchData = serde_json::from_value(json).unwrap();
@@ -398,6 +402,8 @@ mod tests {
             restoration_query: Default::default(),
             created_query: None,
             updated_query: None,
+            auction_start_query: None,
+            auction_end_query: None,
         };
         let expected = json!({
             "language": "de",
@@ -432,6 +438,8 @@ mod tests {
             restoration_query: Default::default(),
             created_query: None,
             updated_query: None,
+            auction_start_query: None,
+            auction_end_query: None,
         };
 
         let actual: ProductSearchData = serde_json::from_value(json).unwrap();

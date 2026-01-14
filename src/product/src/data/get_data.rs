@@ -216,6 +216,8 @@ mod tests {
             condition: Some(ConditionData::Excellent),
             provenance: Some(ProvenanceData::Partial),
             restoration: Some(RestorationData::None),
+            auction_start: None,
+            auction_end: None,
             created: utc_datetime!(2025 - 05 - 05 0:00).into(),
             updated: utc_datetime!(2025 - 05 - 05 0:00).into(),
             history: Some(vec![
