@@ -356,6 +356,8 @@ fn localize_product_record(
         condition: product_record.condition.map(Condition::from),
         provenance: product_record.provenance.map(Provenance::from),
         restoration: product_record.restoration.map(Restoration::from),
+        auction_start: product_record.auction_start,
+        auction_end: product_record.auction_end,
         created: product_record.created,
         updated: product_record.updated,
         history: None,

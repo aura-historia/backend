@@ -3,6 +3,7 @@ use common::language::data::LocalizedTextData;
 use common::price::data::PriceData;
 use common::shops_product_id::ShopsProductId;
 use serde::{Deserialize, Serialize};
+use time::OffsetDateTime;
 use url::Url;
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -24,6 +25,20 @@ pub struct PutProductData {
 
     #[serde(default)]
     pub images: Vec<Url>,
+
+    #[serde(
+        with = "time::serde::rfc3339::option",
+        skip_serializing_if = "Option::is_none",
+        default
+    )]
+    pub auction_start: Option<OffsetDateTime>,
+
+    #[serde(
+        with = "time::serde::rfc3339::option",
+        skip_serializing_if = "Option::is_none",
+        default
+    )]
+    pub auction_end: Option<OffsetDateTime>,
 }
 
 #[cfg(feature = "test-data")]
@@ -68,6 +83,16 @@ mod faker {
                     .into_iter()
                     .map(Url::from)
                     .collect(),
+                auction_start: if config.fake_with_rng(rng) {
+                    Some(OffsetDateTime::now_utc())
+                } else {
+                    None
+                },
+                auction_end: if config.fake_with_rng(rng) {
+                    Some(OffsetDateTime::now_utc())
+                } else {
+                    None
+                },
             }
         }
     }
@@ -129,6 +154,8 @@ mod tests {
                 Url::parse("https://my-shop.de/item/images/1").unwrap(),
                 Url::parse("https://my-shop.de/item/images/2").unwrap(),
             ],
+            auction_start: None,
+            auction_end: None,
         };
 
         let actual = serde_json::from_value(json).unwrap();

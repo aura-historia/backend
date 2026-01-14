@@ -64,6 +64,20 @@ pub struct GetProductData {
     #[serde(skip_serializing_if = "Option::is_none", default)]
     pub restoration: Option<RestorationData>,
 
+    #[serde(
+        with = "time::serde::rfc3339::option",
+        skip_serializing_if = "Option::is_none",
+        default
+    )]
+    pub auction_start: Option<OffsetDateTime>,
+
+    #[serde(
+        with = "time::serde::rfc3339::option",
+        skip_serializing_if = "Option::is_none",
+        default
+    )]
+    pub auction_end: Option<OffsetDateTime>,
+
     #[serde(with = "time::serde::rfc3339")]
     pub created: OffsetDateTime,
 
@@ -111,6 +125,8 @@ impl From<LocalizedProductView> for GetProductData {
             condition: product_view.condition.map(ConditionData::from),
             provenance: product_view.provenance.map(ProvenanceData::from),
             restoration: product_view.restoration.map(RestorationData::from),
+            auction_start: product_view.auction_start,
+            auction_end: product_view.auction_end,
             created: product_view.created,
             updated: product_view.updated,
             history: product_view
@@ -208,6 +224,8 @@ mod tests {
             condition: Some(ConditionData::Excellent),
             provenance: Some(ProvenanceData::Partial),
             restoration: Some(RestorationData::None),
+            auction_start: None,
+            auction_end: None,
             created: utc_datetime!(2025 - 05 - 05 0:00).into(),
             updated: utc_datetime!(2025 - 05 - 05 0:00).into(),
             history: Some(vec![

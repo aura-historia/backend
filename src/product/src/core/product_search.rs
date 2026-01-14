@@ -29,6 +29,8 @@ pub struct ProductSearch {
     pub restoration_query: AnyOfQuery<Restoration>,
     pub created_query: Option<RangeQuery<OffsetDateTime>>,
     pub updated_query: Option<RangeQuery<OffsetDateTime>>,
+    pub auction_start_query: Option<RangeQuery<OffsetDateTime>>,
+    pub auction_end_query: Option<RangeQuery<OffsetDateTime>>,
 }
 
 #[cfg(feature = "test-data")]
@@ -53,6 +55,8 @@ pub mod faker {
                 restoration_query: config.fake_with_rng(rng),
                 created_query: fake_range_query_datetime(config, rng),
                 updated_query: fake_range_query_datetime(config, rng),
+                auction_start_query: fake_range_query_datetime(config, rng),
+                auction_end_query: fake_range_query_datetime(config, rng),
             }
         }
     }

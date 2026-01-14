@@ -90,6 +90,22 @@ pub struct ProductSearchData {
         skip_serializing_if = "Option::is_none"
     )]
     pub updated_query: Option<RangeQuery<OffsetDateTime>>,
+
+    #[serde(
+        rename = "auctionStart",
+        with = "common::query::range_query::range_rfc3339::option",
+        default,
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub auction_start_query: Option<RangeQuery<OffsetDateTime>>,
+
+    #[serde(
+        rename = "auctionEnd",
+        with = "common::query::range_query::range_rfc3339::option",
+        default,
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub auction_end_query: Option<RangeQuery<OffsetDateTime>>,
 }
 
 impl From<ProductSearch> for ProductSearchData {
@@ -135,6 +151,8 @@ impl From<ProductSearch> for ProductSearchData {
                 .collect(),
             created_query: search_filter.created_query,
             updated_query: search_filter.updated_query,
+            auction_start_query: search_filter.auction_start_query,
+            auction_end_query: search_filter.auction_end_query,
         }
     }
 }
@@ -182,6 +200,8 @@ impl From<ProductSearchData> for ProductSearch {
                 .collect(),
             created_query: data.created_query,
             updated_query: data.updated_query,
+            auction_start_query: data.auction_start_query,
+            auction_end_query: data.auction_end_query,
         }
     }
 }
@@ -211,6 +231,8 @@ mod faker {
                 restoration_query: config.fake_with_rng(rng),
                 created_query: fake_range_query_datetime(config, rng),
                 updated_query: fake_range_query_datetime(config, rng),
+                auction_start_query: fake_range_query_datetime(config, rng),
+                auction_end_query: fake_range_query_datetime(config, rng),
             }
         }
     }
@@ -260,6 +282,8 @@ mod tests {
                 min: Some(datetime!(2000 - 05 - 04 0:00 UTC)),
                 max: Some(datetime!(2025 - 05 - 04 0:00 UTC)),
             }),
+            auction_start_query: None,
+            auction_end_query: None,
         };
         let expected = json!({
             "language": "de",
@@ -352,6 +376,8 @@ mod tests {
                 min: Some(datetime!(2000 - 05 - 04 0:00 UTC)),
                 max: Some(datetime!(2025 - 05 - 04 0:00 UTC)),
             }),
+            auction_start_query: None,
+            auction_end_query: None,
         };
 
         let actual: ProductSearchData = serde_json::from_value(json).unwrap();
@@ -376,6 +402,8 @@ mod tests {
             restoration_query: Default::default(),
             created_query: None,
             updated_query: None,
+            auction_start_query: None,
+            auction_end_query: None,
         };
         let expected = json!({
             "language": "de",
@@ -410,6 +438,8 @@ mod tests {
             restoration_query: Default::default(),
             created_query: None,
             updated_query: None,
+            auction_start_query: None,
+            auction_end_query: None,
         };
 
         let actual: ProductSearchData = serde_json::from_value(json).unwrap();

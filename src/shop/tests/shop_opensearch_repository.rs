@@ -140,7 +140,7 @@ async fn should_search_shop_documents_when_only_name_query_supplied() {
         shop_name_query: Some("Expected name".try_into().unwrap()),
             created: Some(RangeQuery { min: Some(datetime!(2000 - 01 - 01 0:00 UTC)), max: Some(datetime!(3000 - 01 - 01 0:00 UTC)) }),
             updated: Some(RangeQuery { min: Some(datetime!(1000 - 01 - 01 0:00 UTC)), max: Some(datetime!(4000 - 01 - 01 0:00 UTC)) }),
-            shop_type_query: Faker.fake(),
+            shop_type_query: Default::default(),
         },
     Sort {
         sort: SortShopField::Score,

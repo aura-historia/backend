@@ -109,6 +109,19 @@ pub struct ProductEventRecord {
     #[serde(skip_serializing_if = "Option::is_none", default)]
     pub images: Option<Vec<ProductImageRecord>>,
 
+    #[serde(
+        with = "time::serde::rfc3339::option",
+        skip_serializing_if = "Option::is_none",
+        default
+    )]
+    pub auction_start: Option<OffsetDateTime>,
+    #[serde(
+        with = "time::serde::rfc3339::option",
+        skip_serializing_if = "Option::is_none",
+        default
+    )]
+    pub auction_end: Option<OffsetDateTime>,
+
     #[serde(with = "time::serde::rfc3339")]
     pub timestamp: OffsetDateTime,
 }
@@ -280,6 +293,8 @@ impl TryFrom<ProductEvent> for ProductEventRecord {
                             .map(ProductImageRecord::from)
                             .collect(),
                     ),
+                    auction_start: payload.auction_start,
+                    auction_end: payload.auction_end,
                     timestamp: domain.timestamp,
                 };
                 Ok(record)
@@ -419,6 +434,8 @@ impl TryFrom<ProductEvent> for ProductEventRecord {
                 old_state: None,
                 url: None,
                 images: None,
+                auction_start: None,
+                auction_end: None,
                 timestamp: domain.timestamp,
             }),
             ProductEventPayload::PriceIncreased(payload) => Ok(mk_price_change_event_record(
@@ -506,6 +523,8 @@ impl TryFrom<ProductEvent> for ProductEventRecord {
                 old_state: None,
                 url: None,
                 images: None,
+                auction_start: None,
+                auction_end: None,
                 timestamp: domain.timestamp,
             }),
         }
@@ -564,6 +583,8 @@ fn mk_state_event_record(
         old_state: Some(old_product_state_record),
         url: None,
         images: None,
+        auction_start: None,
+        auction_end: None,
         timestamp,
     }
 }
@@ -667,6 +688,8 @@ fn mk_price_change_event_record(
         old_state: None,
         url: None,
         images: None,
+        auction_start: None,
+        auction_end: None,
         timestamp,
     }
 }
@@ -750,6 +773,8 @@ impl TryFrom<ProductEventRecord> for ProductEvent {
                             .into_iter()
                             .map(ProductImage::from)
                             .collect(),
+                        auction_start: record.auction_start,
+                        auction_end: record.auction_end,
                     })
                 }
                 ProductEventTypeRecord::StateListed => {

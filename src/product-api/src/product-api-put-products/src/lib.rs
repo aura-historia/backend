@@ -210,6 +210,8 @@ fn put_product_data_to_command(data: PutProductData) -> PipedProductCommand {
                 prohibited_content: ProhibitedContent::Unknown,
             })
             .collect(),
+        auction_start: data.auction_start,
+        auction_end: data.auction_end,
     }
 }
 

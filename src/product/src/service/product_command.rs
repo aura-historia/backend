@@ -15,6 +15,7 @@ use common::shops_product_id::ShopsProductId;
 use field::field;
 use shop::core::shop_type::ShopType;
 use std::collections::HashMap;
+use time::OffsetDateTime;
 use url::Url;
 
 #[derive(Debug, Clone, PartialEq)]
@@ -32,6 +33,8 @@ pub struct UpsertProductCommand {
     pub state: ProductState,
     pub url: Url,
     pub images: Vec<ProductImage>,
+    pub auction_start: Option<OffsetDateTime>,
+    pub auction_end: Option<OffsetDateTime>,
 }
 
 impl HasKey for UpsertProductCommand {
@@ -60,6 +63,8 @@ pub struct PipedProductCommand {
     pub state: ProductState,
     pub url: Url,
     pub images: Vec<ProductImage>,
+    pub auction_start: Option<OffsetDateTime>,
+    pub auction_end: Option<OffsetDateTime>,
 }
 
 impl TryFrom<PipedProductCommand> for UpsertProductCommand {
@@ -86,6 +91,8 @@ impl TryFrom<PipedProductCommand> for UpsertProductCommand {
             state: piped_cmd.state,
             url: piped_cmd.url,
             images: piped_cmd.images,
+            auction_start: piped_cmd.auction_start,
+            auction_end: piped_cmd.auction_end,
         };
         Ok(cmd)
     }
@@ -119,7 +126,17 @@ mod faker {
                 other_price: other_price.unwrap_or_default(),
                 state: config.fake_with_rng(rng),
                 url: Url::parse("https://www.youtube.com/watch?v=dQw4w9WgXcQ").unwrap(),
-                images: config.fake_with_rng(rng),
+                images: Faker.fake(),
+                auction_start: if config.fake_with_rng(rng) {
+                    Some(OffsetDateTime::now_utc())
+                } else {
+                    None
+                },
+                auction_end: if config.fake_with_rng(rng) {
+                    Some(OffsetDateTime::now_utc())
+                } else {
+                    None
+                },
             }
         }
     }

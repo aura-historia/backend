@@ -93,6 +93,8 @@ async fn should_respond_200_when_hits_authenticated() {
         condition: None,
         provenance: None,
         restoration: None,
+        auction_start: None,
+        auction_end: None,
         created: now.into(),
         updated: now.into(),
     };
@@ -154,6 +156,8 @@ async fn should_respond_200_when_hits_authenticated() {
         condition: None,
         provenance: None,
         restoration: None,
+        auction_start: None,
+        auction_end: None,
         created: now.into(),
         updated: now.into(),
     };
@@ -194,6 +198,8 @@ async fn should_respond_200_when_hits_authenticated() {
         condition_query: Default::default(),
         provenance_query: Default::default(),
         restoration_query: Default::default(),
+        auction_start_query: None,
+        auction_end_query: None,
         created_query: Some(RangeQuery {
             min: None,
             max: Some(datetime!(2999-01-02 0:00 UTC)),
@@ -275,6 +281,8 @@ async fn should_respond_200_when_hits_anon() {
         condition: None,
         provenance: None,
         restoration: None,
+        auction_start: None,
+        auction_end: None,
         created: SystemTime::now().into(),
         updated: SystemTime::now().into(),
     };
@@ -307,6 +315,8 @@ async fn should_respond_200_when_hits_anon() {
         condition_query: Default::default(),
         provenance_query: Default::default(),
         restoration_query: Default::default(),
+        auction_start_query: None,
+        auction_end_query: None,
         created_query: Some(RangeQuery {
             min: None,
             max: Some(datetime!(2999 - 01 - 02 0:00 UTC)),

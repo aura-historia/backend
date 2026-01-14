@@ -14,6 +14,7 @@ use common::shop_name::ShopName;
 use common::shops_product_id::ShopsProductId;
 use shop::core::shop_type::ShopType;
 use std::collections::HashMap;
+use time::OffsetDateTime;
 use url::Url;
 
 pub type ProductEvent = Event<ProductId, ProductEventPayload>;
@@ -182,6 +183,8 @@ pub struct ProductCreatedEventPayload {
     pub state: ProductState,
     pub url: Url,
     pub images: Vec<ProductImage>,
+    pub auction_start: Option<OffsetDateTime>,
+    pub auction_end: Option<OffsetDateTime>,
 }
 
 impl ProductCommonEventPayload for ProductCreatedEventPayload {
@@ -358,6 +361,16 @@ mod faker {
                 ))
                 .unwrap(),
                 images: config.fake_with_rng(rng),
+                auction_start: if config.fake_with_rng(rng) {
+                    Some(OffsetDateTime::now_utc())
+                } else {
+                    None
+                },
+                auction_end: if config.fake_with_rng(rng) {
+                    Some(OffsetDateTime::now_utc())
+                } else {
+                    None
+                },
             }
         }
     }

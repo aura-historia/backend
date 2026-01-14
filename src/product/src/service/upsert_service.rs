@@ -270,6 +270,8 @@ impl<T: FxRate + Sync> UpsertProductsServiceImpl<'_, T> {
                 cmd.state,
                 cmd.url,
                 cmd.images,
+                cmd.auction_start,
+                cmd.auction_end,
             )
         })
         .filter_map(|event| {
@@ -379,6 +381,8 @@ pub mod tests {
             state: product1.state,
             url: product1.clone().url,
             images: product1.clone().images,
+            auction_start: product1.auction_start,
+            auction_end: product1.auction_end,
         };
 
         let product2 = Faker.fake::<Product>();
@@ -400,6 +404,8 @@ pub mod tests {
             },
             url: product2.clone().url,
             images: product2.clone().images,
+            auction_start: product2.auction_start,
+            auction_end: product2.auction_end,
         };
 
         let mut skipped_count = 0;
@@ -427,6 +433,8 @@ pub mod tests {
             state: product1.state,
             url: product1.clone().url,
             images: product1.clone().images,
+            auction_start: product1.auction_start,
+            auction_end: product1.auction_end,
         };
 
         let product2 = Faker.fake::<Product>();

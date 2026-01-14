@@ -50,6 +50,8 @@ pub struct Product {
     pub condition: Option<Condition>,
     pub provenance: Option<Provenance>,
     pub restoration: Option<Restoration>,
+    pub auction_start: Option<OffsetDateTime>,
+    pub auction_end: Option<OffsetDateTime>,
     pub created: OffsetDateTime,
     pub updated: OffsetDateTime,
 }
@@ -68,6 +70,8 @@ impl Product {
         state: ProductState,
         url: Url,
         images: Vec<ProductImage>,
+        auction_start: Option<OffsetDateTime>,
+        auction_end: Option<OffsetDateTime>,
     ) -> ProductEvent {
         let payload = ProductCreatedEventPayload {
             shop_id,
@@ -81,6 +85,8 @@ impl Product {
             state,
             url,
             images,
+            auction_start,
+            auction_end,
         };
         ProductEvent {
             aggregate_id: ProductId::new(),
@@ -251,6 +257,8 @@ pub struct LocalizedProductView {
     pub condition: Option<Condition>,
     pub provenance: Option<Provenance>,
     pub restoration: Option<Restoration>,
+    pub auction_start: Option<OffsetDateTime>,
+    pub auction_end: Option<OffsetDateTime>,
     pub created: OffsetDateTime,
     pub updated: OffsetDateTime,
     pub history: Option<Vec<Event<ProductId, LocalizedProductEventPayloadView>>>,
@@ -297,6 +305,16 @@ mod faker {
                 condition: config.fake_with_rng(rng),
                 provenance: config.fake_with_rng(rng),
                 restoration: config.fake_with_rng(rng),
+                auction_start: if config.fake_with_rng(rng) {
+                    Some(OffsetDateTime::now_utc())
+                } else {
+                    None
+                },
+                auction_end: if config.fake_with_rng(rng) {
+                    Some(OffsetDateTime::now_utc())
+                } else {
+                    None
+                },
                 created: OffsetDateTime::now_utc(),
                 updated: OffsetDateTime::now_utc(),
             }
@@ -327,6 +345,16 @@ mod faker {
                 condition: config.fake_with_rng(rng),
                 provenance: config.fake_with_rng(rng),
                 restoration: config.fake_with_rng(rng),
+                auction_start: if config.fake_with_rng(rng) {
+                    Some(OffsetDateTime::now_utc())
+                } else {
+                    None
+                },
+                auction_end: if config.fake_with_rng(rng) {
+                    Some(OffsetDateTime::now_utc())
+                } else {
+                    None
+                },
                 created: OffsetDateTime::now_utc(),
                 updated: OffsetDateTime::now_utc(),
                 history: None,
@@ -399,6 +427,8 @@ mod tests {
                 condition: None,
                 provenance: None,
                 restoration: None,
+                auction_start: None,
+                auction_end: None,
                 created: OffsetDateTime::now_utc(),
                 updated: OffsetDateTime::now_utc(),
             };
@@ -448,6 +478,8 @@ mod tests {
                 condition: None,
                 provenance: None,
                 restoration: None,
+                auction_start: None,
+                auction_end: None,
                 created: OffsetDateTime::now_utc(),
                 updated: OffsetDateTime::now_utc(),
             };
@@ -497,6 +529,8 @@ mod tests {
                 condition: None,
                 provenance: None,
                 restoration: None,
+                auction_start: None,
+                auction_end: None,
                 created: OffsetDateTime::now_utc(),
                 updated: OffsetDateTime::now_utc(),
             };
@@ -580,6 +614,8 @@ mod tests {
                 condition: None,
                 provenance: None,
                 restoration: None,
+                auction_start: None,
+                auction_end: None,
                 created: OffsetDateTime::now_utc(),
                 updated: OffsetDateTime::now_utc(),
             };
@@ -630,6 +666,8 @@ mod tests {
                 condition: None,
                 provenance: None,
                 restoration: None,
+                auction_start: None,
+                auction_end: None,
                 created: OffsetDateTime::now_utc(),
                 updated: OffsetDateTime::now_utc(),
             };
@@ -689,6 +727,8 @@ mod tests {
                 condition: None,
                 provenance: None,
                 restoration: None,
+                auction_start: None,
+                auction_end: None,
                 created: OffsetDateTime::now_utc(),
                 updated: OffsetDateTime::now_utc(),
             };
@@ -752,6 +792,8 @@ mod tests {
                 condition: None,
                 provenance: None,
                 restoration: None,
+                auction_start: None,
+                auction_end: None,
                 created: OffsetDateTime::now_utc(),
                 updated: OffsetDateTime::now_utc(),
             };
@@ -817,6 +859,8 @@ mod tests {
                 condition: None,
                 provenance: None,
                 restoration: None,
+                auction_start: None,
+                auction_end: None,
                 created: OffsetDateTime::now_utc(),
                 updated: OffsetDateTime::now_utc(),
             };
