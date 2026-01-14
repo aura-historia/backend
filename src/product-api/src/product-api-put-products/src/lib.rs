@@ -258,6 +258,7 @@ mod tests {
                         .map(|mut cmd| {
                             cmd.shop_id = Some(ShopId::new());
                             cmd.shop_name = Some(Faker.fake());
+                            cmd.shop_type = Some(Faker.fake());
                             cmd
                         })
                         .collect(),

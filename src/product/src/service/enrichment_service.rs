@@ -116,7 +116,10 @@ impl<'a, T: FxRate + Sync> ProductCommandEnrichmentService
                     let shop_identifier = ShopIdentifier::ShopDomain(domain.clone());
                     if unprocessed_shops.contains(&shop_identifier) {
                         output.unprocessed.push(cmd);
-                    } else if cmd.shop_id.is_none() || cmd.shop_name.is_none() {
+                    } else if cmd.shop_id.is_none()
+                        || cmd.shop_name.is_none()
+                        || cmd.shop_type.is_none()
+                    {
                         match shops.get(&domain) {
                             Some(shop) => {
                                 cmd.shop_id = Some(shop.shop_id);
