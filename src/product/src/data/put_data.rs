@@ -83,8 +83,16 @@ mod faker {
                     .into_iter()
                     .map(Url::from)
                     .collect(),
-                auction_start: config.fake_with_rng(rng),
-                auction_end: config.fake_with_rng(rng),
+                auction_start: if config.fake_with_rng(rng) {
+                    Some(OffsetDateTime::now_utc())
+                } else {
+                    None
+                },
+                auction_end: if config.fake_with_rng(rng) {
+                    Some(OffsetDateTime::now_utc())
+                } else {
+                    None
+                },
             }
         }
     }

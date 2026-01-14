@@ -69,6 +69,14 @@ mod tests {
                 "updated": {
                     "min": "2000-05-04T00:00:00Z",
                     "max": "2025-05-04T00:00:00Z",
+                },
+                "auctionStart": {
+                    "min": "2000-05-04T00:00:00Z",
+                    "max": "2025-05-04T00:00:00Z",
+                },
+                "auctionEnd": {
+                    "min": "2000-05-04T00:00:00Z",
+                    "max": "2025-05-04T00:00:00Z",
                 }
             }
         });
@@ -98,6 +106,14 @@ mod tests {
                     max: Some(datetime!(2025 - 05 - 04 0:00 UTC)),
                 }),
                 updated_query: Some(RangeQuery {
+                    min: Some(datetime!(2000 - 05 - 04 0:00 UTC)),
+                    max: Some(datetime!(2025 - 05 - 04 0:00 UTC)),
+                }),
+                auction_start_query: Some(RangeQuery {
+                    min: Some(datetime!(2000 - 05 - 04 0:00 UTC)),
+                    max: Some(datetime!(2025 - 05 - 04 0:00 UTC)),
+                }),
+                auction_end_query: Some(RangeQuery {
                     min: Some(datetime!(2000 - 05 - 04 0:00 UTC)),
                     max: Some(datetime!(2025 - 05 - 04 0:00 UTC)),
                 }),

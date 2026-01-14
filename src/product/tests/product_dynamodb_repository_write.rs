@@ -23,51 +23,9 @@ async fn get_repository() -> ProductDynamoDbRepositoryImpl<'static> {
 
 #[localstack_test(services = [DynamoDB()])]
 async fn should_put_product_records_for_single_record() {
-    let now = OffsetDateTime::now_utc();
     let shop_id = ShopId::new();
     let shops_product_id: ShopsProductId = "123465".into();
-    let expected = ProductRecord {
-        pk: product_record::mk_pk(&shop_id, &shops_product_id),
-        sk: product_record::mk_sk().to_string(),
-        product_id: ProductId::new(),
-        event_id: EventId::new(),
-        shop_id,
-        shops_product_id: shops_product_id.clone(),
-        shop_name: "Foo".to_string(),
-        shop_type: Faker.fake(),
-        title_native: TextRecord::new("Bar", LanguageRecord::De),
-        title_de: Some("Bar".to_string()),
-        title_en: Some("Barr".to_string()),
-        title_fr: Some("Barrr".to_string()),
-        title_es: Some("Barrrr".to_string()),
-        description_native: Some(TextRecord::new("Baz", LanguageRecord::De)),
-        description_de: Some("Baz".to_string()),
-        description_en: Some("Bazz".to_string()),
-        description_fr: Some("Bazzz".to_string()),
-        description_es: Some("Bazzzz".to_string()),
-        price_native: Some(PriceRecord {
-            amount: 110,
-            currency: CurrencyRecord::Eur,
-        }),
-        price_eur: None,
-        price_usd: None,
-        price_gbp: None,
-        price_aud: None,
-        price_cad: None,
-        price_nzd: None,
-        state: ProductStateRecord::Available,
-        url: Url::parse("https://foo.bar/123456").unwrap(),
-        images: Faker.fake(),
-        origin_year_min: None,
-        origin_year: None,
-        origin_year_max: None,
-        authenticity: None,
-        condition: None,
-        provenance: None,
-        restoration: None,
-        created: now,
-        updated: now,
-    };
+    let expected = Faker.fake::<ProductRecord>();
 
     get_repository()
         .await
@@ -129,6 +87,8 @@ async fn should_put_product_records_for_multiple_records() {
         condition: None,
         provenance: None,
         restoration: None,
+        auction_start: None,
+        auction_end: None,
         created: now1,
         updated: now1,
     };
@@ -173,6 +133,8 @@ async fn should_put_product_records_for_multiple_records() {
         condition: None,
         provenance: None,
         restoration: None,
+        auction_start: None,
+        auction_end: None,
         created: now2,
         updated: now2,
     };
@@ -247,6 +209,8 @@ async fn should_put_product_event_records_for_single_record() {
         old_state: Some(ProductStateRecord::Listed),
         url: Some(Url::parse("https://foo.bar/123456").unwrap()),
         images: Faker.fake(),
+        auction_start: None,
+        auction_end: None,
         timestamp: now,
         new_price_nzd: None,
     };
@@ -321,6 +285,8 @@ async fn should_put_product_event_records_for_multiple_records() {
         old_state: Some(ProductStateRecord::Listed),
         url: Some(Url::parse("https://foo.bar/123456").unwrap()),
         images: Faker.fake(),
+        auction_start: None,
+        auction_end: None,
         timestamp: now1,
         new_price_nzd: None,
     };
@@ -366,6 +332,8 @@ async fn should_put_product_event_records_for_multiple_records() {
         old_state: Some(ProductStateRecord::Listed),
         url: Some(Url::parse("https://foo.bar/123456").unwrap()),
         images: Faker.fake(),
+        auction_start: None,
+        auction_end: None,
         timestamp: now2,
     };
 
@@ -437,6 +405,8 @@ async fn should_update_product_record() {
         condition: None,
         provenance: None,
         restoration: None,
+        auction_start: None,
+        auction_end: None,
         created: now,
         updated: now,
     };

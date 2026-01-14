@@ -305,8 +305,16 @@ mod faker {
                 condition: config.fake_with_rng(rng),
                 provenance: config.fake_with_rng(rng),
                 restoration: config.fake_with_rng(rng),
-                auction_start: config.fake_with_rng(rng),
-                auction_end: config.fake_with_rng(rng),
+                auction_start: if config.fake_with_rng(rng) {
+                    Some(OffsetDateTime::now_utc())
+                } else {
+                    None
+                },
+                auction_end: if config.fake_with_rng(rng) {
+                    Some(OffsetDateTime::now_utc())
+                } else {
+                    None
+                },
                 created: OffsetDateTime::now_utc(),
                 updated: OffsetDateTime::now_utc(),
             }
@@ -337,8 +345,16 @@ mod faker {
                 condition: config.fake_with_rng(rng),
                 provenance: config.fake_with_rng(rng),
                 restoration: config.fake_with_rng(rng),
-                auction_start: config.fake_with_rng(rng),
-                auction_end: config.fake_with_rng(rng),
+                auction_start: if config.fake_with_rng(rng) {
+                    Some(OffsetDateTime::now_utc())
+                } else {
+                    None
+                },
+                auction_end: if config.fake_with_rng(rng) {
+                    Some(OffsetDateTime::now_utc())
+                } else {
+                    None
+                },
                 created: OffsetDateTime::now_utc(),
                 updated: OffsetDateTime::now_utc(),
                 history: None,

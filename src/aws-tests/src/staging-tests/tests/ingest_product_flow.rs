@@ -158,6 +158,8 @@ async fn should_materialize_product_in_dynamodb_for_update_product_command() {
             .into_iter()
             .map(|image| image.url)
             .collect(),
+        auction_start: None,
+        auction_end: None,
     };
 
     let url = format!("{}/api/v1/products", stack.api_gateway_endpoint_url);
@@ -252,6 +254,8 @@ async fn should_materialize_product_in_opensearch_for_create_product_command() {
                     condition_query: Default::default(),
                     provenance_query: Default::default(),
                     restoration_query: Default::default(),
+                    auction_start_query: None,
+                    auction_end_query: None,
                     created_query: None,
                     updated_query: None,
                 },
@@ -339,6 +343,8 @@ async fn should_materialize_product_in_opensearch_for_update_product_command() {
             .into_iter()
             .map(|image| image.url)
             .collect(),
+        auction_start: None,
+        auction_end: None,
     };
 
     let url = format!("{}/api/v1/products", stack.api_gateway_endpoint_url);
@@ -370,6 +376,8 @@ async fn should_materialize_product_in_opensearch_for_update_product_command() {
                     condition_query: Default::default(),
                     provenance_query: Default::default(),
                     restoration_query: Default::default(),
+                    auction_start_query: None,
+                    auction_end_query: None,
                     created_query: None,
                     updated_query: None,
                 },

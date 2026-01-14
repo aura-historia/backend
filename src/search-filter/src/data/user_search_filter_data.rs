@@ -108,6 +108,14 @@ mod tests {
                 condition_query: HashSet::from_iter([ConditionData::Excellent]),
                 provenance_query: HashSet::from_iter([ProvenanceData::Partial]),
                 restoration_query: HashSet::from_iter([RestorationData::Unknown]),
+                auction_start_query: Some(RangeQuery {
+                    min: Some(datetime!(2000 - 05 - 04 0:00 UTC)),
+                    max: Some(datetime!(2025 - 05 - 04 0:00 UTC)),
+                }),
+                auction_end_query: Some(RangeQuery {
+                    min: Some(datetime!(2000 - 05 - 04 0:00 UTC)),
+                    max: Some(datetime!(2025 - 05 - 04 0:00 UTC)),
+                }),
             },
             created: datetime!(2025 - 01 - 01 0:00 UTC),
             updated: datetime!(2025 - 01 - 01 0:00 UTC),
@@ -143,6 +151,14 @@ mod tests {
                 "condition": ["EXCELLENT"],
                 "provenance": ["PARTIAL"],
                 "restoration": ["UNKNOWN"],
+                "auctionStart": {
+                    "min": "2000-05-04T00:00:00Z",
+                    "max": "2025-05-04T00:00:00Z",
+                },
+                "auctionEnd": {
+                    "min": "2000-05-04T00:00:00Z",
+                    "max": "2025-05-04T00:00:00Z",
+                }
             },
             "created": "2025-01-01T00:00:00Z",
             "updated": "2025-01-01T00:00:00Z"
@@ -189,6 +205,14 @@ mod tests {
                 "condition": ["EXCELLENT"],
                 "provenance": ["PARTIAL"],
                 "restoration": ["UNKNOWN"],
+                "auctionStart": {
+                    "min": "2000-05-04T00:00:00Z",
+                    "max": "2025-05-04T00:00:00Z",
+                },
+                "auctionEnd": {
+                    "min": "2000-05-04T00:00:00Z",
+                    "max": "2025-05-04T00:00:00Z",
+                }
             },
             "created": "2025-01-01T00:00:00Z",
             "updated": "2025-01-01T00:00:00Z"
@@ -226,6 +250,14 @@ mod tests {
                 condition_query: HashSet::from_iter([ConditionData::Excellent]),
                 provenance_query: HashSet::from_iter([ProvenanceData::Partial]),
                 restoration_query: HashSet::from_iter([RestorationData::Unknown]),
+                auction_start_query: Some(RangeQuery {
+                    min: Some(datetime!(2000 - 05 - 04 0:00 UTC)),
+                    max: Some(datetime!(2025 - 05 - 04 0:00 UTC)),
+                }),
+                auction_end_query: Some(RangeQuery {
+                    min: Some(datetime!(2000 - 05 - 04 0:00 UTC)),
+                    max: Some(datetime!(2025 - 05 - 04 0:00 UTC)),
+                }),
             },
             created: datetime!(2025 - 01 - 01 0:00 UTC),
             updated: datetime!(2025 - 01 - 01 0:00 UTC),

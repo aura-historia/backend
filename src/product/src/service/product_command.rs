@@ -126,9 +126,17 @@ mod faker {
                 other_price: other_price.unwrap_or_default(),
                 state: config.fake_with_rng(rng),
                 url: Url::parse("https://www.youtube.com/watch?v=dQw4w9WgXcQ").unwrap(),
-                images: config.fake_with_rng(rng),
-                auction_start: config.fake_with_rng(rng),
-                auction_end: config.fake_with_rng(rng),
+                images: Faker.fake(),
+                auction_start: if config.fake_with_rng(rng) {
+                    Some(OffsetDateTime::now_utc())
+                } else {
+                    None
+                },
+                auction_end: if config.fake_with_rng(rng) {
+                    Some(OffsetDateTime::now_utc())
+                } else {
+                    None
+                },
             }
         }
     }

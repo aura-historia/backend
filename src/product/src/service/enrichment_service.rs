@@ -178,6 +178,7 @@ mod faker {
     use super::*;
     use common::price::domain::{FixedFxRate, Price};
     use fake::{Dummy, Fake, Faker, Rng};
+    use time::OffsetDateTime;
     use url::Url;
 
     impl Dummy<Faker> for PipedProductCommand {
@@ -207,9 +208,17 @@ mod faker {
                     config.fake_with_rng::<u16, _>(rng)
                 ))
                 .unwrap(),
-                images: config.fake_with_rng(rng),
-                auction_start: config.fake_with_rng(rng),
-                auction_end: config.fake_with_rng(rng),
+                images: Faker.fake(),
+                auction_start: if config.fake_with_rng(rng) {
+                    Some(OffsetDateTime::now_utc())
+                } else {
+                    None
+                },
+                auction_end: if config.fake_with_rng(rng) {
+                    Some(OffsetDateTime::now_utc())
+                } else {
+                    None
+                },
             }
         }
     }

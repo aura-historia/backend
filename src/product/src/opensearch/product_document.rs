@@ -305,10 +305,26 @@ mod faker {
                 origin_year_max: Some(origin_year_max),
                 authenticity: config.fake_with_rng(rng),
                 condition: config.fake_with_rng(rng),
-                provenance: config.fake_with_rng(rng),
-                restoration: config.fake_with_rng(rng),
-                auction_start: config.fake_with_rng(rng),
-                auction_end: config.fake_with_rng(rng),
+                provenance: if config.fake_with_rng(rng) {
+                    Some(config.fake_with_rng(rng))
+                } else {
+                    None
+                },
+                restoration: if config.fake_with_rng(rng) {
+                    Some(config.fake_with_rng(rng))
+                } else {
+                    None
+                },
+                auction_start: if config.fake_with_rng(rng) {
+                    Some(OffsetDateTime::now_utc())
+                } else {
+                    None
+                },
+                auction_end: if config.fake_with_rng(rng) {
+                    Some(OffsetDateTime::now_utc())
+                } else {
+                    None
+                },
                 created: OffsetDateTime::now_utc(),
                 updated: OffsetDateTime::now_utc(),
             }

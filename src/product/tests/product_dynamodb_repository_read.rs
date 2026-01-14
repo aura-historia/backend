@@ -7,22 +7,13 @@ async fn get_repository() -> ProductDynamoDbRepositoryImpl<'static> {
 
 mod get_product_record {
     use crate::get_repository;
-    use common::currency::record::CurrencyRecord;
-    use common::event_id::EventId;
-    use common::language::record::{LanguageRecord, TextRecord};
-    use common::price::record::PriceRecord;
-    use common::product_id::ProductId;
     use common::shop_id::ShopId;
     use common::shops_product_id::ShopsProductId;
     use fake::{Fake, Faker};
-    use product::dynamodb::product_event_record::{self, ProductEventRecord};
-    use product::dynamodb::product_event_type_record::ProductEventTypeRecord;
-    use product::dynamodb::product_record::{self, ProductRecord};
-    use product::dynamodb::product_state_record::ProductStateRecord;
+    use product::dynamodb::product_event_record::ProductEventRecord;
+    use product::dynamodb::product_record::ProductRecord;
     use product::dynamodb::repository::ProductDynamoDbRepository;
     use test_api::*;
-    use time::OffsetDateTime;
-    use url::Url;
 
     #[localstack_test(services = [DynamoDB()])]
     async fn should_return_nothing_for_get_product_record_when_table_is_empty() {
@@ -37,51 +28,9 @@ mod get_product_record {
 
     #[localstack_test(services = [DynamoDB()])]
     async fn should_return_product_record_for_get_product_record_when_exists() {
-        let now = OffsetDateTime::now_utc();
         let shop_id = ShopId::new();
         let shops_product_id: ShopsProductId = "123465".into();
-        let expected = ProductRecord {
-            pk: product_record::mk_pk(&shop_id, &shops_product_id),
-            sk: product_record::mk_sk().to_string(),
-            product_id: ProductId::new(),
-            event_id: EventId::new(),
-            shop_id,
-            shops_product_id: shops_product_id.clone(),
-            shop_name: "Foo".to_string(),
-            shop_type: Faker.fake(),
-            title_native: TextRecord::new("Bar", LanguageRecord::De),
-            title_de: Some("Bar".to_string()),
-            title_en: Some("Barr".to_string()),
-            title_fr: Some("Barrr".to_string()),
-            title_es: Some("Barrrr".to_string()),
-            description_native: Some(TextRecord::new("Baz", LanguageRecord::De)),
-            description_de: Some("Baz".to_string()),
-            description_en: Some("Bazz".to_string()),
-            description_fr: Some("Bazzz".to_string()),
-            description_es: Some("Bazzzz".to_string()),
-            price_native: Some(PriceRecord {
-                amount: 110,
-                currency: CurrencyRecord::Eur,
-            }),
-            price_eur: None,
-            price_usd: None,
-            price_gbp: None,
-            price_aud: None,
-            price_cad: None,
-            price_nzd: None,
-            state: ProductStateRecord::Available,
-            url: Url::parse("https://foo.bar/123456").unwrap(),
-            images: Faker.fake(),
-            origin_year_min: None,
-            origin_year: None,
-            origin_year_max: None,
-            authenticity: None,
-            condition: None,
-            provenance: None,
-            restoration: None,
-            created: now,
-            updated: now,
-        };
+        let expected = Faker.fake::<ProductRecord>();
 
         get_dynamodb_client()
             .await
@@ -104,51 +53,7 @@ mod get_product_record {
 
     #[localstack_test(services = [DynamoDB()])]
     async fn should_return_nothing_for_get_product_record_when_only_others_exist() {
-        let now = OffsetDateTime::now_utc();
-        let shop_id = ShopId::new();
-        let shops_product_id: ShopsProductId = "123465".into();
-        let other = ProductRecord {
-            pk: product_record::mk_pk(&shop_id, &shops_product_id),
-            sk: product_record::mk_sk().to_string(),
-            product_id: ProductId::new(),
-            event_id: EventId::new(),
-            shop_id,
-            shops_product_id: shops_product_id.clone(),
-            shop_name: "Foo".to_string(),
-            shop_type: Faker.fake(),
-            title_native: TextRecord::new("Bar", LanguageRecord::De),
-            title_de: Some("Bar".to_string()),
-            title_en: Some("Barr".to_string()),
-            title_fr: Some("Barrr".to_string()),
-            title_es: Some("Barrrr".to_string()),
-            description_native: Some(TextRecord::new("Baz", LanguageRecord::De)),
-            description_de: Some("Baz".to_string()),
-            description_en: Some("Bazz".to_string()),
-            description_fr: Some("Bazzz".to_string()),
-            description_es: Some("Bazzzz".to_string()),
-            price_native: Some(PriceRecord {
-                amount: 110,
-                currency: CurrencyRecord::Eur,
-            }),
-            price_eur: None,
-            price_usd: None,
-            price_gbp: None,
-            price_aud: None,
-            price_cad: None,
-            price_nzd: None,
-            state: ProductStateRecord::Available,
-            url: Url::parse("https://foo.bar/123456").unwrap(),
-            images: Faker.fake(),
-            origin_year_min: None,
-            origin_year: None,
-            origin_year_max: None,
-            authenticity: None,
-            condition: None,
-            provenance: None,
-            restoration: None,
-            created: now,
-            updated: now,
-        };
+        let other = Faker.fake::<ProductRecord>();
 
         get_dynamodb_client()
             .await
@@ -170,92 +75,8 @@ mod get_product_record {
 
     #[localstack_test(services = [DynamoDB()])]
     async fn should_return_nothing_for_get_product_record_when_only_others_exist_mix() {
-        let now = OffsetDateTime::now_utc();
-        let shop_id = ShopId::new();
-        let shops_product_id: ShopsProductId = "123465".into();
-        let other1 = ProductRecord {
-            pk: product_record::mk_pk(&shop_id, &shops_product_id),
-            sk: product_record::mk_sk().to_string(),
-            product_id: ProductId::new(),
-            event_id: EventId::new(),
-            shop_id,
-            shops_product_id: shops_product_id.clone(),
-            shop_name: "Foo".to_string(),
-            shop_type: Faker.fake(),
-            title_native: TextRecord::new("Bar", LanguageRecord::De),
-            title_de: Some("Bar".to_string()),
-            title_en: Some("Barr".to_string()),
-            title_fr: Some("Barrr".to_string()),
-            title_es: Some("Barrrr".to_string()),
-            description_native: Some(TextRecord::new("Baz", LanguageRecord::De)),
-            description_de: Some("Baz".to_string()),
-            description_en: Some("Bazz".to_string()),
-            description_fr: Some("Bazzz".to_string()),
-            description_es: Some("Bazzzz".to_string()),
-            price_native: Some(PriceRecord {
-                amount: 110,
-                currency: CurrencyRecord::Eur,
-            }),
-            price_eur: None,
-            price_usd: None,
-            price_gbp: None,
-            price_aud: None,
-            price_cad: None,
-            price_nzd: None,
-            state: ProductStateRecord::Available,
-            url: Url::parse("https://foo.bar/123456").unwrap(),
-            images: Faker.fake(),
-            origin_year_min: None,
-            origin_year: None,
-            origin_year_max: None,
-            authenticity: None,
-            condition: None,
-            provenance: None,
-            restoration: None,
-            created: now,
-            updated: now,
-        };
-        let other2 = ProductEventRecord {
-            pk: product_event_record::mk_pk(&shop_id, &shops_product_id),
-            sk: product_event_record::mk_sk(&now).unwrap(),
-            product_id: ProductId::new(),
-            event_id: EventId::new(),
-            event_type: ProductEventTypeRecord::StateListed,
-            event_type_schema_version: 0,
-            shop_id,
-            shops_product_id: shops_product_id.clone(),
-            shop_name: None,
-            shop_type: Faker.fake(),
-            title_native: Some(TextRecord::new("Bar", LanguageRecord::De)),
-            title_de: Some("Bar".to_string()),
-            title_en: Some("Barr".to_string()),
-            title_fr: Some("Barrr".to_string()),
-            title_es: Some("Barrrr".to_string()),
-            description_native: Some(TextRecord::new("Baz", LanguageRecord::De)),
-            description_de: Some("Baz".to_string()),
-            description_en: Some("Bazz".to_string()),
-            description_fr: Some("Bazzz".to_string()),
-            description_es: Some("Bazzzz".to_string()),
-            new_price_native: None,
-            new_price_eur: None,
-            new_price_usd: None,
-            new_price_gbp: None,
-            new_price_aud: None,
-            new_price_cad: None,
-            new_price_nzd: None,
-            old_price_native: None,
-            old_price_eur: None,
-            old_price_usd: None,
-            old_price_gbp: None,
-            old_price_aud: None,
-            old_price_cad: None,
-            old_price_nzd: None,
-            new_state: Some(ProductStateRecord::Listed),
-            old_state: Some(ProductStateRecord::Available),
-            url: None,
-            images: Faker.fake(),
-            timestamp: OffsetDateTime::now_utc(),
-        };
+        let other1 = Faker.fake::<ProductRecord>();
+        let other2 = Faker.fake::<ProductEventRecord>();
 
         let repository = get_repository().await;
         get_dynamodb_client()
@@ -391,6 +212,8 @@ mod query_product_record_and_event_records {
                     .into_iter()
                     .map(ProductImage::from)
                     .collect(),
+                auction_start: expected_materialized.auction_start,
+                auction_end: expected_materialized.auction_end,
             }),
         }
         .try_into()
@@ -457,6 +280,8 @@ mod query_product_record_and_event_records {
                     .into_iter()
                     .map(ProductImage::from)
                     .collect(),
+                auction_start: expected_materialized.auction_start,
+                auction_end: expected_materialized.auction_end,
             }),
         }
         .try_into()
@@ -562,6 +387,8 @@ mod batch_get_product_records {
                 condition: None,
                 provenance: None,
                 restoration: None,
+                auction_start: None,
+                auction_end: None,
                 created: now,
                 updated: now,
             }
@@ -648,6 +475,8 @@ mod batch_get_product_records {
                 condition: None,
                 provenance: None,
                 restoration: None,
+                auction_start: None,
+                auction_end: None,
                 created: now,
                 updated: now,
             }
@@ -735,6 +564,8 @@ mod batch_get_product_records {
                 condition: None,
                 provenance: None,
                 restoration: None,
+                auction_start: None,
+                auction_end: None,
                 created: now,
                 updated: now,
             }
@@ -843,6 +674,8 @@ mod batch_exist_product_records {
                 condition: None,
                 provenance: None,
                 restoration: None,
+                auction_start: None,
+                auction_end: None,
                 created: now,
                 updated: now,
             }
@@ -927,6 +760,8 @@ mod batch_exist_product_records {
                 condition: None,
                 provenance: None,
                 restoration: None,
+                auction_start: None,
+                auction_end: None,
                 created: now,
                 updated: now,
             }
@@ -1011,6 +846,8 @@ mod batch_exist_product_records {
                 condition: None,
                 provenance: None,
                 restoration: None,
+                auction_start: None,
+                auction_end: None,
                 created: now,
                 updated: now,
             }
@@ -1114,6 +951,8 @@ mod get_product_id {
             condition: None,
             provenance: None,
             restoration: None,
+            auction_start: None,
+            auction_end: None,
             created: now,
             updated: now,
         };
@@ -1181,6 +1020,8 @@ mod get_product_id {
             condition: None,
             provenance: None,
             restoration: None,
+            auction_start: None,
+            auction_end: None,
             created: now,
             updated: now,
         };
