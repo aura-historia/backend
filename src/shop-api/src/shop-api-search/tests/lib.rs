@@ -27,7 +27,7 @@ async fn should_follow_up_search_after_query(
     let repository = ShopOpenSearchRepositoryImpl::new(get_opensearch_client().await);
     let service = QueryShopServiceImpl::new(&repository);
 
-    for _ in 0..100 {
+    for _ in 0..300 {
         let _ = repository.index_shop_document(Faker.fake()).await.unwrap();
         tokio::time::sleep(tokio::time::Duration::from_millis(10)).await;
     }
