@@ -8,7 +8,6 @@ async fn get_repository() -> ProductDynamoDbRepositoryImpl<'static> {
 mod get_product_record {
     use crate::get_repository;
     use common::shop_id::ShopId;
-    use common::shops_product_id::ShopsProductId;
     use fake::{Fake, Faker};
     use product::dynamodb::product_event_record::ProductEventRecord;
     use product::dynamodb::product_record::ProductRecord;
@@ -28,8 +27,6 @@ mod get_product_record {
 
     #[localstack_test(services = [DynamoDB()])]
     async fn should_return_product_record_for_get_product_record_when_exists() {
-        let shop_id = ShopId::new();
-        let shops_product_id: ShopsProductId = "123465".into();
         let expected = Faker.fake::<ProductRecord>();
 
         get_dynamodb_client()
@@ -43,7 +40,7 @@ mod get_product_record {
 
         let repository = get_repository().await;
         let actual = repository
-            .get_product_record(&shop_id, &shops_product_id)
+            .get_product_record(&expected.shop_id, &expected.shops_product_id)
             .await
             .unwrap();
 
