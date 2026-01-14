@@ -26,3 +26,4 @@ serial_test = { workspace = true }
 http = { workspace = true }
 fake = { workspace = true }
 time = { workspace = true }
+shop = { workspace = true, features = ["data", "test-data"] }

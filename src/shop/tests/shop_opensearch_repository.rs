@@ -59,6 +59,7 @@ async fn should_search_shop_documents_when_only_name_query_supplied() {
 
     let search = ShopSearch {
         shop_name_query: Some(expected.name.to_string().try_into().unwrap()),
+        shop_type_query: Default::default(),
         created: None,
         updated: None,
     };
@@ -84,7 +85,8 @@ async fn should_search_shop_documents_when_only_name_query_supplied() {
     ShopSearch {
         shop_name_query: Some("Expected name".try_into().unwrap()),
             created: Some(RangeQuery { min: Some(datetime!(2000 - 01 - 01 0:00 UTC)), max: Some(datetime!(3000 - 01 - 01 0:00 UTC)) }),
-            updated: Some(RangeQuery { min: Some(datetime!(1000 - 01 - 01 0:00 UTC)), max: Some(datetime!(4000 - 01 - 01 0:00 UTC)) })
+            updated: Some(RangeQuery { min: Some(datetime!(1000 - 01 - 01 0:00 UTC)), max: Some(datetime!(4000 - 01 - 01 0:00 UTC)) }),
+            shop_type_query: Default::default(),
         },
     Sort { sort: SortShopField::Created, order: SortOrder::Asc },
 )]
@@ -92,7 +94,8 @@ async fn should_search_shop_documents_when_only_name_query_supplied() {
     ShopSearch {
         shop_name_query: Some("Expected name".try_into().unwrap()),
             created: Some(RangeQuery { min: Some(datetime!(2000 - 01 - 01 0:00 UTC)), max: Some(datetime!(3000 - 01 - 01 0:00 UTC)) }),
-            updated: Some(RangeQuery { min: Some(datetime!(1000 - 01 - 01 0:00 UTC)), max: Some(datetime!(4000 - 01 - 01 0:00 UTC)) })
+            updated: Some(RangeQuery { min: Some(datetime!(1000 - 01 - 01 0:00 UTC)), max: Some(datetime!(4000 - 01 - 01 0:00 UTC)) }),
+            shop_type_query: Default::default(),
         },
     Sort { sort: SortShopField::Created, order: SortOrder::Desc },
 )]
@@ -100,7 +103,8 @@ async fn should_search_shop_documents_when_only_name_query_supplied() {
     ShopSearch {
         shop_name_query: Some("Expected name".try_into().unwrap()),
             created: Some(RangeQuery { min: Some(datetime!(2000 - 01 - 01 0:00 UTC)), max: Some(datetime!(3000 - 01 - 01 0:00 UTC)) }),
-            updated: Some(RangeQuery { min: Some(datetime!(1000 - 01 - 01 0:00 UTC)), max: Some(datetime!(4000 - 01 - 01 0:00 UTC)) })
+            updated: Some(RangeQuery { min: Some(datetime!(1000 - 01 - 01 0:00 UTC)), max: Some(datetime!(4000 - 01 - 01 0:00 UTC)) }),
+            shop_type_query: Default::default(),
         },
     Sort { sort: SortShopField::Updated, order: SortOrder::Asc },
 )]
@@ -108,7 +112,8 @@ async fn should_search_shop_documents_when_only_name_query_supplied() {
     ShopSearch {
         shop_name_query: Some("Expected name".try_into().unwrap()),
             created: Some(RangeQuery { min: Some(datetime!(2000 - 01 - 01 0:00 UTC)), max: Some(datetime!(3000 - 01 - 01 0:00 UTC)) }),
-            updated: Some(RangeQuery { min: Some(datetime!(1000 - 01 - 01 0:00 UTC)), max: Some(datetime!(4000 - 01 - 01 0:00 UTC)) })
+            updated: Some(RangeQuery { min: Some(datetime!(1000 - 01 - 01 0:00 UTC)), max: Some(datetime!(4000 - 01 - 01 0:00 UTC)) }),
+            shop_type_query: Default::default(),
         },
     Sort { sort: SortShopField::Updated, order: SortOrder::Desc },
 )]
@@ -116,7 +121,8 @@ async fn should_search_shop_documents_when_only_name_query_supplied() {
     ShopSearch {
         shop_name_query: Some("Expected name".try_into().unwrap()),
             created: Some(RangeQuery { min: Some(datetime!(2000 - 01 - 01 0:00 UTC)), max: Some(datetime!(3000 - 01 - 01 0:00 UTC)) }),
-            updated: Some(RangeQuery { min: Some(datetime!(1000 - 01 - 01 0:00 UTC)), max: Some(datetime!(4000 - 01 - 01 0:00 UTC)) })
+            updated: Some(RangeQuery { min: Some(datetime!(1000 - 01 - 01 0:00 UTC)), max: Some(datetime!(4000 - 01 - 01 0:00 UTC)) }),
+            shop_type_query: Default::default(),
         },
     Sort { sort: SortShopField::Name, order: SortOrder::Asc },
 )]
@@ -124,7 +130,8 @@ async fn should_search_shop_documents_when_only_name_query_supplied() {
     ShopSearch {
         shop_name_query: Some("Expected name".try_into().unwrap()),
             created: Some(RangeQuery { min: Some(datetime!(2000 - 01 - 01 0:00 UTC)), max: Some(datetime!(3000 - 01 - 01 0:00 UTC)) }),
-            updated: Some(RangeQuery { min: Some(datetime!(1000 - 01 - 01 0:00 UTC)), max: Some(datetime!(4000 - 01 - 01 0:00 UTC)) })
+            updated: Some(RangeQuery { min: Some(datetime!(1000 - 01 - 01 0:00 UTC)), max: Some(datetime!(4000 - 01 - 01 0:00 UTC)) }),
+            shop_type_query: Default::default(),
         },
     Sort { sort: SortShopField::Name, order: SortOrder::Desc },
 )]
@@ -132,7 +139,8 @@ async fn should_search_shop_documents_when_only_name_query_supplied() {
     ShopSearch {
         shop_name_query: Some("Expected name".try_into().unwrap()),
             created: Some(RangeQuery { min: Some(datetime!(2000 - 01 - 01 0:00 UTC)), max: Some(datetime!(3000 - 01 - 01 0:00 UTC)) }),
-            updated: Some(RangeQuery { min: Some(datetime!(1000 - 01 - 01 0:00 UTC)), max: Some(datetime!(4000 - 01 - 01 0:00 UTC)) })
+            updated: Some(RangeQuery { min: Some(datetime!(1000 - 01 - 01 0:00 UTC)), max: Some(datetime!(4000 - 01 - 01 0:00 UTC)) }),
+            shop_type_query: Faker.fake(),
         },
     Sort {
         sort: SortShopField::Score,
@@ -143,7 +151,8 @@ async fn should_search_shop_documents_when_only_name_query_supplied() {
     ShopSearch {
         shop_name_query: Some("Expected name".try_into().unwrap()),
             created: Some(RangeQuery { min: Some(datetime!(2000 - 01 - 01 0:00 UTC)), max: Some(datetime!(3000 - 01 - 01 0:00 UTC)) }),
-            updated: None
+            updated: None,
+            shop_type_query: Default::default(),
         },
     Sort {
         sort: SortShopField::Score,
@@ -155,6 +164,7 @@ async fn should_search_shop_documents_when_only_name_query_supplied() {
         shop_name_query: Some("Expected name".try_into().unwrap()),
             created: None,
             updated: Some(RangeQuery { min: Some(datetime!(2000 - 01 - 01 0:00 UTC)), max: Some(datetime!(3000 - 01 - 01 0:00 UTC)) }),
+            shop_type_query: Default::default(),
         },
     Sort {
         sort: SortShopField::Score,
@@ -212,6 +222,7 @@ async fn should_update_shop_document_for_index() {
     let updated_expected = ShopDocument {
         shop_id: created.shop_id,
         name: "Hansi hans and the Hanses".into(),
+        shop_type: Faker.fake(),
         domains: HashSet::from_iter([
             Domain::try_from("hansi-hans.de").unwrap(),
             Domain::try_from("hansi-hans.com").unwrap(),

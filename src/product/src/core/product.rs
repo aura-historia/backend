@@ -354,12 +354,12 @@ mod faker {
 #[cfg(test)]
 mod tests {
     mod state {
-        use rstest;
-
         use crate::core::product::Product;
         use common::language::domain::Language;
         use common::localized::Localized;
         use common::product_state::domain::ProductState;
+        use fake::Fake;
+        use rstest;
         use time::OffsetDateTime;
         use url::Url;
 
@@ -514,6 +514,7 @@ mod tests {
         use common::localized::Localized;
         use common::price::domain::{FxRate, MonetaryAmount, Price};
         use common::product_state::domain::ProductState;
+        use fake::Fake;
         use time::OffsetDateTime;
         use url::Url;
 
@@ -611,8 +612,8 @@ mod tests {
                 shop_id: Default::default(),
                 shops_product_id: Default::default(),
                 shop_name: "Boop".into(),
+                shop_type: fake::Faker.fake(),
                 native_title: Localized {
-                    shop_type: fake::Faker.fake(),
                     localization: Language::De,
                     payload: "Boop".into(),
                 },

@@ -1,6 +1,7 @@
 use common::domain::Domain;
 use lambda_runtime::LambdaEvent;
 use shop::{
+    core::shop_type::ShopType,
     data::{
         get_shop_data::GetShopData, post_shop_data::PostShopData, shop_type_data::ShopTypeData,
     },
@@ -53,8 +54,8 @@ async fn should_create_shop_when_payload_valid() {
         .unwrap();
     assert_eq!(post_shop_data.name, persisted_shop.name);
     assert_eq!(
-        post_shop_data.shop_type.into(),
-        persisted_shop.shop_type.into()
+        ShopType::from(post_shop_data.shop_type),
+        ShopType::from(persisted_shop.shop_type)
     );
     assert_eq!(post_shop_data.domains, persisted_shop.domains);
     assert_eq!(post_shop_data.image, persisted_shop.image);

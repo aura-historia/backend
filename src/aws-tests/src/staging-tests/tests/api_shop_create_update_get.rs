@@ -1,5 +1,6 @@
 use aws_tests_common::get_cfn_output;
 use common::{domain::Domain, shop_id::ShopId};
+use fake::{Fake, Faker};
 use shop::data::{
     get_shop_data::GetShopData, patch_shop_data::PatchShopData, post_shop_data::PostShopData,
 };
@@ -11,6 +12,7 @@ use url::Url;
 async fn should_create_update_get_shop() {
     let post_shop_data = PostShopData {
         name: "Woobl woop".into(),
+        shop_type: Faker.fake(),
         domains: [Domain::try_from("https://hans-shopping-nig.com").unwrap()].into(),
         image: None,
     };
@@ -27,6 +29,7 @@ async fn should_create_update_get_shop() {
 
     let patch_shop_data = PatchShopData {
         name: Some("hans goes shopping nig".into()),
+        shop_type: Faker.fake(),
         domains: None,
         image: Some(Url::parse("https://hans-shopping-nig.co.uk").unwrap()),
     };

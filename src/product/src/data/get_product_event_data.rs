@@ -204,8 +204,6 @@ impl From<Event<ProductId, LocalizedProductEventPayloadView>> for GetProductEven
 
 #[cfg(test)]
 mod tests {
-    use rstest;
-
     use crate::core::product_event::{
         LocalizedProductCreatedEventPayloadView, LocalizedProductEventPayloadView,
         LocalizedProductPriceChangeEventPayloadView,
@@ -227,6 +225,8 @@ mod tests {
         price::{data::PriceData, domain::Price},
         product_state::domain::ProductState,
     };
+    use fake::Fake;
+    use rstest;
     use time::macros::utc_datetime;
     use url::Url;
     use uuid::Uuid;

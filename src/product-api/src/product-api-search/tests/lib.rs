@@ -24,6 +24,7 @@ use product::service::personalization_service::ProductPersonalizationServiceImpl
 use product::service::query_service::QueryProductServiceImpl;
 use product::watchlist::dynamodb::repository::WatchlistProductDynamoDbRepositoryImpl;
 use product_api_search::handler;
+use shop::data::shop_type_data::ShopTypeData;
 use std::collections::HashSet;
 use std::time::Duration;
 use test_api::*;
@@ -1686,15 +1687,13 @@ async fn should_respond_200_and_respect_accept_language_header(
 
 #[rstest::rstest]
 #[test_attr(apply(test))]
-#[case([shop::data::shop_type_data::ShopTypeData::AuctionHouse].into())]
-#[case([shop::data::shop_type_data::ShopTypeData::CommercialDealer].into())]
-#[case([shop::data::shop_type_data::ShopTypeData::Marketplace].into())]
-#[case([shop::data::shop_type_data::ShopTypeData::AuctionHouse, shop::data::shop_type_data::ShopTypeData::CommercialDealer].into())]
+#[case([ShopTypeData::AuctionHouse].into())]
+#[case([ShopTypeData::CommercialDealer].into())]
+#[case([ShopTypeData::Marketplace].into())]
+#[case([ShopTypeData::AuctionHouse, ShopTypeData::CommercialDealer].into())]
 #[trace]
 #[localstack_test(services = [OpenSearch(), DynamoDB()])]
-async fn should_200_when_shop_type_query(
-    #[case] query: HashSet<shop::data::shop_type_data::ShopTypeData>,
-) {
+async fn should_200_when_shop_type_query(#[case] query: HashSet<ShopTypeData>) {
     let ddb_client = get_dynamodb_client().await;
     let watchlist_repository = WatchlistProductDynamoDbRepositoryImpl::new(ddb_client, "table_1");
     let product_personalization_service =
@@ -1760,7 +1759,7 @@ async fn should_200_when_shop_type_query(
         response_data
             .items
             .iter()
-            .filter_map(|item| item.item.shop_type)
+            .map(|item| item.item.shop_type)
             .all(|actual| query.contains(&actual))
     );
 }

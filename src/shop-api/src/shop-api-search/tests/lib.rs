@@ -94,8 +94,6 @@ async fn should_follow_up_search_after_query(
 async fn should_200_when_shop_type_query(
     #[case] query: std::collections::HashSet<shop::data::shop_type_data::ShopTypeData>,
 ) {
-    use common::query::any_of_query::AnyOfQuery;
-
     let repository = ShopOpenSearchRepositoryImpl::new(get_opensearch_client().await);
     let service = QueryShopServiceImpl::new(&repository);
 

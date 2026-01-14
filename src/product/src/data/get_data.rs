@@ -15,6 +15,7 @@ use common::shop_id::ShopId;
 use common::shops_product_id::ShopsProductId;
 use common::year::Year;
 use serde::{Deserialize, Serialize};
+use shop::data::shop_type_data::ShopTypeData;
 use time::OffsetDateTime;
 use url::Url;
 
@@ -30,6 +31,8 @@ pub struct GetProductData {
     pub shops_product_id: ShopsProductId,
 
     pub shop_name: String,
+
+    pub shop_type: ShopTypeData,
 
     pub title: LocalizedTextData,
 
@@ -90,6 +93,7 @@ impl From<LocalizedProductView> for GetProductData {
             shop_id: product_view.shop_id,
             shops_product_id: product_view.shops_product_id,
             shop_name: product_view.shop_name.into(),
+            shop_type: product_view.shop_type.into(),
             title: product_view.title.into(),
             description: product_view.description.map(LocalizedTextData::from),
             price: product_view.price.map(PriceData::from),
@@ -165,6 +169,7 @@ mod tests {
         shops_product_id::ShopsProductId,
     };
     use serde_json::json;
+    use shop::data::shop_type_data::ShopTypeData;
     use time::macros::utc_datetime;
     use url::Url;
 
@@ -180,6 +185,7 @@ mod tests {
             shop_id,
             shops_product_id: shops_product_id.clone(),
             shop_name: "My shop".into(),
+            shop_type: ShopTypeData::AuctionHouse,
             title: LocalizedTextData::new("Mein titel", LanguageData::De),
             description: Some(LocalizedTextData::new("My description", LanguageData::En)),
             price: Some(PriceData::new(CurrencyData::Eur, 50000)),
@@ -242,6 +248,7 @@ mod tests {
             "shopId": shop_id,
             "shopsProductId": shops_product_id,
             "shopName": "My shop",
+            "shopType": "AUCTION_HOUSE",
             "title": {
                 "text": "Mein titel",
                 "language": "de"
