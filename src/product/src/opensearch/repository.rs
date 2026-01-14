@@ -18,6 +18,7 @@ use common::sort::{Sort, SortOrder};
 use opensearch::{BulkOperation, BulkOperations, BulkParts, GetParts, SearchParts};
 use serde::ser::Error;
 use serde_json::json;
+use shop::opensearch::shop_type_document::ShopTypeDocument;
 use std::collections::HashMap;
 use std::hash::Hash;
 use std::ops::Deref;
@@ -298,6 +299,17 @@ impl<'a> ProductOpenSearchRepository for ProductOpenSearchRepositoryImpl<'a> {
                 .map(|v| RestorationDocument::from(*v))
                 .collect(),
             ProductDocumentSerdeField::Restoration,
+            |v| v.as_str(),
+        );
+
+        apply_any_of_filter(
+            &mut filter,
+            &search
+                .shop_type_query
+                .iter()
+                .map(|v| ShopTypeDocument::from(*v))
+                .collect(),
+            ProductDocumentSerdeField::ShopType,
             |v| v.as_str(),
         );
 

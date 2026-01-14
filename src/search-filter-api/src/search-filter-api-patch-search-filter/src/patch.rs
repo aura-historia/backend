@@ -19,6 +19,8 @@ use product::data::restoration_data::RestorationData;
 use search_filter::core::user_search_filter_name::UserSearchFilterName;
 use search_filter::service::user_search_filter_update::UserSearchFilterUpdate;
 use serde::{Deserialize, Serialize};
+use shop::core::shop_type::ShopType;
+use shop::data::shop_type_data::ShopTypeData;
 use std::collections::HashSet;
 use time::OffsetDateTime;
 
@@ -55,6 +57,9 @@ pub struct PatchProductSearchData {
         default
     )]
     pub shop_name_query: Option<TextQuery>,
+
+    #[serde(rename = "shopType", skip_serializing_if = "Option::is_none", default)]
+    pub shop_type_query: Option<HashSet<ShopTypeData>>,
 
     #[serde(rename = "price", skip_serializing_if = "Option::is_none", default)]
     pub price_query: Option<RangeQuery<u64>>,
@@ -126,6 +131,11 @@ impl From<PatchUserSearchFilterData> for UserSearchFilterUpdate {
                 .search
                 .as_ref()
                 .and_then(|sf| sf.shop_name_query.clone()),
+            shop_type_query: patch.search.as_ref().and_then(|sf| {
+                sf.shop_type_query
+                    .clone()
+                    .map(|types| types.into_iter().map(ShopType::from).collect())
+            }),
             price_query: patch
                 .search
                 .as_ref()
@@ -176,6 +186,7 @@ mod faker {
                 currency: config.fake_with_rng(rng),
                 product_query: config.fake_with_rng(rng),
                 shop_name_query: config.fake_with_rng(rng),
+                shop_type_query: config.fake_with_rng(rng),
                 price_query: config.fake_with_rng(rng),
                 state_query: config.fake_with_rng(rng),
                 origin_year_query: config.fake_with_rng(rng),
@@ -238,6 +249,7 @@ mod tests {
             currency: Some(CurrencyData::Eur),
             product_query: Some("Boop".try_into().unwrap()),
             shop_name_query: Some("Baap".try_into().unwrap()),
+            shop_type_query: None,
             price_query: Some(RangeQuery {
                 min: Some(37),
                 max: Some(42),
@@ -305,6 +317,7 @@ mod tests {
                 currency: Some(CurrencyData::Eur),
                 product_query: Some("Boop".try_into().unwrap()),
                 shop_name_query: Some("Baap".try_into().unwrap()),
+                shop_type_query: None,
                 price_query: Some(RangeQuery {
                     min: Some(37),
                     max: Some(42),

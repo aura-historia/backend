@@ -12,12 +12,12 @@ use common::{
     sort::api::extract_sort_query,
 };
 use lambda_runtime::LambdaEvent;
+use shop::core::shop_search::ShopSearch;
 use shop::core::sort_shop_field::SortShopField;
 use shop::data::{
     get_shop_data::GetShopData, shop_search_data::ShopSearchData,
     sort_shop_field_data::SortShopFieldData,
 };
-use shop::opensearch::shop_search::ShopSearch;
 use shop::service::query_service::QueryShopService;
 
 #[tracing::instrument(
@@ -72,6 +72,11 @@ pub async fn handle(
 
     let search = ShopSearch {
         shop_name_query: search_data.shop_name_query,
+        shop_type_query: search_data
+            .shop_type_query
+            .into_iter()
+            .map(Into::into)
+            .collect(),
         created: search_data.created,
         updated: search_data.updated,
     };

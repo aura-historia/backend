@@ -141,6 +141,7 @@ mod tests {
     use common::product_state::domain::ProductState;
     use common::shop_id::ShopId;
     use common::shops_product_id::ShopsProductId;
+    use fake::Fake;
     use http::header::{ACCEPT_LANGUAGE, CONTENT_LANGUAGE, ETAG, LAST_MODIFIED};
     use lambda_runtime::LambdaEvent;
     use product::core::product::LocalizedProductView;
@@ -188,6 +189,7 @@ mod tests {
                     shop_id: *shop_id,
                     shops_product_id: shops_product_id.clone(),
                     shop_name: "".into(),
+                    shop_type: fake::Faker.fake(),
                     title: Localized::new(language.into(), "Native title".into()),
                     description: None,
                     price: None,
@@ -245,6 +247,7 @@ mod tests {
                     shops_product_id: shops_product_id.clone(),
                     shop_name: "".into(),
                     title: Localized::new(Language::Es, "Native title".into()),
+                    shop_type: fake::Faker.fake(),
                     description: None,
                     price: None,
                     state: ProductState::Listed,
@@ -307,6 +310,7 @@ mod tests {
                     shop_name: "".into(),
                     title: Localized::new(Language::Es, "Native title".into()),
                     description: None,
+                    shop_type: fake::Faker.fake(),
                     price: None,
                     state: ProductState::Listed,
                     url: Url::parse("https://foo.com/boop").unwrap(),
@@ -377,6 +381,7 @@ mod tests {
                     shop_name: "".into(),
                     title: Localized::new(Language::Es, "Native title".into()),
                     description: None,
+                    shop_type: fake::Faker.fake(),
                     price: None,
                     state: ProductState::Listed,
                     url: Url::parse("https://foo.com/boop").unwrap(),

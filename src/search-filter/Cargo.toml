@@ -16,6 +16,7 @@ async-trait = { workspace = true }
 # Optional
 fake = { workspace = true, optional = true }
 product = { workspace = true, optional = true }
+shop = { workspace = true, optional = true }
 field = { workspace = true, optional = true }
 tracing = { workspace = true, optional = true }
 aws-sdk-dynamodb = { workspace = true, optional = true }
@@ -32,8 +33,8 @@ tokio = { workspace = true, features = ["macros"] }
 
 [features]
 default = []
-dynamodb = ["common/dynamodb", "product", "product/dynamodb", "field", "tracing", "aws-sdk-dynamodb", "serde_dynamo", "serde_dynamo/aws-sdk-dynamodb+1"]
-service = ["common/dynamodb", "product"]
-data = ["product", "product/data"]
-test-data = ["fake", "common/test-data", "product/test-data"]
+dynamodb = ["common/dynamodb", "product", "product/dynamodb", "shop/dynamodb", "field", "tracing", "aws-sdk-dynamodb", "serde_dynamo", "serde_dynamo/aws-sdk-dynamodb+1"]
+service = ["common/dynamodb", "product", "shop"]
+data = ["product", "product/data", "shop/data"]
+test-data = ["fake", "common/test-data", "product/test-data", "shop/test-data"]
 full = ["dynamodb", "service", "data", "test-data"]

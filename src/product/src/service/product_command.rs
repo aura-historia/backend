@@ -13,6 +13,7 @@ use common::shop_id::ShopId;
 use common::shop_name::ShopName;
 use common::shops_product_id::ShopsProductId;
 use field::field;
+use shop::core::shop_type::ShopType;
 use std::collections::HashMap;
 use url::Url;
 
@@ -21,6 +22,7 @@ pub struct UpsertProductCommand {
     pub shop_id: ShopId,
     pub shops_product_id: ShopsProductId,
     pub shop_name: ShopName,
+    pub shop_type: ShopType,
     pub native_title: Localized<Language, Title>,
     pub other_title: HashMap<Language, Title>,
     pub native_description: Option<Localized<Language, Description>>,
@@ -48,6 +50,7 @@ pub struct PipedProductCommand {
     pub shop_id: Option<ShopId>,
     pub shops_product_id: ShopsProductId,
     pub shop_name: Option<ShopName>,
+    pub shop_type: Option<ShopType>,
     pub native_title: Localized<Language, Title>,
     pub other_title: HashMap<Language, Title>,
     pub native_description: Option<Localized<Language, Description>>,
@@ -70,6 +73,9 @@ impl TryFrom<PipedProductCommand> for UpsertProductCommand {
             shops_product_id: piped_cmd.shops_product_id,
             shop_name: piped_cmd.shop_name.ok_or(MissingRequiredField::from(
                 field!(shop_name@UpsertProductCommand),
+            ))?,
+            shop_type: piped_cmd.shop_type.ok_or(MissingRequiredField::from(
+                field!(shop_type@UpsertProductCommand),
             ))?,
             native_title: piped_cmd.native_title,
             other_title: piped_cmd.other_title,
@@ -104,6 +110,7 @@ mod faker {
                 shop_id: config.fake_with_rng(rng),
                 shops_product_id: config.fake_with_rng(rng),
                 shop_name: config.fake_with_rng(rng),
+                shop_type: config.fake_with_rng(rng),
                 native_title: config.fake_with_rng(rng),
                 other_title: config.fake_with_rng(rng),
                 native_description: config.fake_with_rng(rng),

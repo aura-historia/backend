@@ -193,6 +193,7 @@ fn put_product_data_to_command(data: PutProductData) -> PipedProductCommand {
         shop_id: None,
         shops_product_id: data.shops_product_id,
         shop_name: None,
+        shop_type: None,
         native_title: data.title.into(),
         other_title: Default::default(),
         native_description: data.description.map(Localized::from),
@@ -257,6 +258,7 @@ mod tests {
                         .map(|mut cmd| {
                             cmd.shop_id = Some(ShopId::new());
                             cmd.shop_name = Some(Faker.fake());
+                            cmd.shop_type = Some(Faker.fake());
                             cmd
                         })
                         .collect(),

@@ -23,6 +23,7 @@ use common::product_state::domain::ProductState;
 use common::shop_id::ShopId;
 use common::shop_name::ShopName;
 use common::shops_product_id::ShopsProductId;
+use shop::core::shop_type::ShopType;
 use std::collections::HashMap;
 use time::OffsetDateTime;
 use url::Url;
@@ -34,6 +35,7 @@ pub struct Product {
     pub shop_id: ShopId,
     pub shops_product_id: ShopsProductId,
     pub shop_name: ShopName,
+    pub shop_type: ShopType,
     pub native_title: Localized<Language, Title>,
     pub other_title: HashMap<Language, Title>,
     pub native_description: Option<Localized<Language, Description>>,
@@ -58,6 +60,7 @@ impl Product {
         shop_id: ShopId,
         shops_product_id: ShopsProductId,
         shop_name: ShopName,
+        shop_type: ShopType,
         native_title: Localized<Language, Title>,
         native_description: Option<Localized<Language, Description>>,
         native_price: Option<Price>,
@@ -70,6 +73,7 @@ impl Product {
             shop_id,
             shops_product_id,
             shop_name,
+            shop_type,
             native_title,
             native_description,
             native_price,
@@ -235,6 +239,7 @@ pub struct LocalizedProductView {
     pub shop_id: ShopId,
     pub shops_product_id: ShopsProductId,
     pub shop_name: ShopName,
+    pub shop_type: ShopType,
     pub title: Localized<Language, Title>,
     pub description: Option<Localized<Language, Description>>,
     pub price: Option<Price>,
@@ -273,6 +278,7 @@ mod faker {
                 shop_id: config.fake_with_rng(rng),
                 shops_product_id: config.fake_with_rng(rng),
                 shop_name: config.fake_with_rng(rng),
+                shop_type: config.fake_with_rng(rng),
                 native_title: config.fake_with_rng(rng),
                 other_title: config.fake_with_rng(rng),
                 native_description: config.fake_with_rng(rng),
@@ -305,6 +311,7 @@ mod faker {
                 shop_id: config.fake_with_rng(rng),
                 shops_product_id: config.fake_with_rng(rng),
                 shop_name: config.fake_with_rng(rng),
+                shop_type: config.fake_with_rng(rng),
                 title: config.fake_with_rng(rng),
                 description: config.fake_with_rng(rng),
                 price: config.fake_with_rng(rng),
@@ -347,12 +354,12 @@ mod faker {
 #[cfg(test)]
 mod tests {
     mod state {
-        use rstest;
-
         use crate::core::product::Product;
         use common::language::domain::Language;
         use common::localized::Localized;
         use common::product_state::domain::ProductState;
+        use fake::Fake;
+        use rstest;
         use time::OffsetDateTime;
         use url::Url;
 
@@ -374,6 +381,7 @@ mod tests {
                 shop_id: Default::default(),
                 shops_product_id: Default::default(),
                 shop_name: "Boop".into(),
+                shop_type: fake::Faker.fake(),
                 native_title: Localized {
                     localization: Language::De,
                     payload: "Boop".into(),
@@ -422,6 +430,7 @@ mod tests {
                 shop_id: Default::default(),
                 shops_product_id: Default::default(),
                 shop_name: "Boop".into(),
+                shop_type: fake::Faker.fake(),
                 native_title: Localized {
                     localization: Language::De,
                     payload: "Boop".into(),
@@ -470,6 +479,7 @@ mod tests {
                 shop_id: Default::default(),
                 shops_product_id: Default::default(),
                 shop_name: "Boop".into(),
+                shop_type: fake::Faker.fake(),
                 native_title: Localized {
                     localization: Language::De,
                     payload: "Boop".into(),
@@ -504,6 +514,7 @@ mod tests {
         use common::localized::Localized;
         use common::price::domain::{FxRate, MonetaryAmount, Price};
         use common::product_state::domain::ProductState;
+        use fake::Fake;
         use time::OffsetDateTime;
         use url::Url;
 
@@ -549,6 +560,7 @@ mod tests {
                 shop_id: Default::default(),
                 shops_product_id: Default::default(),
                 shop_name: "Boop".into(),
+                shop_type: fake::Faker.fake(),
                 native_title: Localized {
                     localization: Language::De,
                     payload: "Boop".into(),
@@ -600,6 +612,7 @@ mod tests {
                 shop_id: Default::default(),
                 shops_product_id: Default::default(),
                 shop_name: "Boop".into(),
+                shop_type: fake::Faker.fake(),
                 native_title: Localized {
                     localization: Language::De,
                     payload: "Boop".into(),
@@ -658,6 +671,7 @@ mod tests {
                 shop_id: Default::default(),
                 shops_product_id: Default::default(),
                 shop_name: "Boop".into(),
+                shop_type: fake::Faker.fake(),
                 native_title: Localized {
                     localization: Language::De,
                     payload: "Boop".into(),
@@ -720,6 +734,7 @@ mod tests {
                 shop_id: Default::default(),
                 shops_product_id: Default::default(),
                 shop_name: "Boop".into(),
+                shop_type: fake::Faker.fake(),
                 native_title: Localized {
                     localization: Language::De,
                     payload: "Boop".into(),
@@ -783,6 +798,7 @@ mod tests {
                 event_id: Default::default(),
                 shop_id: Default::default(),
                 shops_product_id: Default::default(),
+                shop_type: fake::Faker.fake(),
                 shop_name: "Boop".into(),
                 native_title: Localized {
                     localization: Language::De,

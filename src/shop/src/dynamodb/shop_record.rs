@@ -1,4 +1,5 @@
 use crate::core::shop::Shop;
+use crate::dynamodb::shop_type_record::ShopTypeRecord;
 use common::{
     domain::Domain,
     shop_id::{ShopId, ShopIdentifier},
@@ -15,6 +16,7 @@ pub struct ShopRecord {
     pub sk: String,
     pub shop_id: ShopId,
     pub name: ShopName,
+    pub shop_type: ShopTypeRecord,
 
     // Some if this record is a Shop-Host-Record, None if it is a Shop-Id-Record
     #[serde(skip_serializing_if = "Option::is_none", default)]
@@ -56,6 +58,7 @@ impl ShopRecord {
             shop_id: shop.shop_id,
             domain: None,
             name: shop.name,
+            shop_type: shop.shop_type.into(),
             domains: shop.domains,
             image: shop.image,
             created: shop.created,
@@ -71,6 +74,7 @@ impl ShopRecord {
                 sk: "shop#details".to_owned(),
                 shop_id: shop.shop_id,
                 name: shop.name.clone(),
+                shop_type: shop.shop_type.into(),
                 domain: Some(domain.clone()),
                 domains: shop.domains.clone(),
                 image: shop.image.clone(),
@@ -98,6 +102,7 @@ impl From<ShopRecord> for Shop {
         Shop {
             shop_id: document.shop_id,
             name: document.name,
+            shop_type: document.shop_type.into(),
             domains: document.domains,
             image: document.image,
             created: document.created,

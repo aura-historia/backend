@@ -1,5 +1,9 @@
+use crate::core::shop_search::ShopSearch;
+use crate::core::shop_type::ShopType;
+use crate::data::shop_type_data::ShopTypeData;
 use common::query::{range_query::RangeQuery, text_query::TextQuery};
 use serde::{Deserialize, Serialize};
+use std::collections::HashSet;
 use time::OffsetDateTime;
 
 #[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
@@ -7,6 +11,13 @@ use time::OffsetDateTime;
 pub struct ShopSearchData {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub shop_name_query: Option<TextQuery>,
+
+    #[serde(
+        rename = "shopType",
+        skip_serializing_if = "HashSet::is_empty",
+        default
+    )]
+    pub shop_type_query: HashSet<ShopTypeData>,
 
     #[serde(
         with = "common::query::range_query::range_rfc3339::option",
@@ -23,6 +34,36 @@ pub struct ShopSearchData {
     pub updated: Option<RangeQuery<OffsetDateTime>>,
 }
 
+impl From<ShopSearch> for ShopSearchData {
+    fn from(search: ShopSearch) -> Self {
+        ShopSearchData {
+            shop_name_query: search.shop_name_query,
+            shop_type_query: search
+                .shop_type_query
+                .into_iter()
+                .map(ShopTypeData::from)
+                .collect(),
+            created: search.created,
+            updated: search.updated,
+        }
+    }
+}
+
+impl From<ShopSearchData> for ShopSearch {
+    fn from(data: ShopSearchData) -> Self {
+        ShopSearch {
+            shop_name_query: data.shop_name_query,
+            shop_type_query: data
+                .shop_type_query
+                .into_iter()
+                .map(ShopType::from)
+                .collect(),
+            created: data.created,
+            updated: data.updated,
+        }
+    }
+}
+
 #[cfg(feature = "test-data")]
 mod faker {
     use super::*;
@@ -32,6 +73,7 @@ mod faker {
         fn dummy_with_rng<R: Rng + ?Sized>(config: &Faker, rng: &mut R) -> Self {
             ShopSearchData {
                 shop_name_query: Faker.fake(),
+                shop_type_query: config.fake_with_rng(rng),
                 created: fake_range_query_datetime(config, rng),
                 updated: fake_range_query_datetime(config, rng),
             }
@@ -74,14 +116,17 @@ mod faker {
 #[cfg(test)]
 mod tests {
     use crate::data::shop_search_data::ShopSearchData;
+    use crate::data::shop_type_data::ShopTypeData;
     use common::query::range_query::RangeQuery;
     use serde_json::json;
+    use std::collections::HashSet;
     use time::macros::datetime;
 
     #[test]
     fn should_deserialize_full() {
         let json = json!({
             "shopNameQuery": "Baap",
+            "shopType": ["AUCTION_HOUSE"],
             "created": {
                 "min": "2000-05-04T00:00:00Z",
                 "max": "2025-05-04T00:00:00Z",
@@ -93,6 +138,7 @@ mod tests {
         });
         let expected = ShopSearchData {
             shop_name_query: Some("Baap".try_into().unwrap()),
+            shop_type_query: HashSet::from_iter([ShopTypeData::AuctionHouse]),
             created: Some(RangeQuery {
                 min: Some(datetime!(2000 - 05 - 04 0:00 UTC)),
                 max: Some(datetime!(2025 - 05 - 04 0:00 UTC)),
@@ -115,6 +161,7 @@ mod tests {
         });
         let expected = ShopSearchData {
             shop_name_query: Some("Baap".try_into().unwrap()),
+            shop_type_query: Default::default(),
             created: None,
             updated: None,
         };
@@ -129,6 +176,7 @@ mod tests {
         let json = json!({});
         let expected = ShopSearchData {
             shop_name_query: None,
+            shop_type_query: Default::default(),
             created: None,
             updated: None,
         };

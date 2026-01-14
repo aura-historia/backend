@@ -116,11 +116,15 @@ impl<'a, T: FxRate + Sync> ProductCommandEnrichmentService
                     let shop_identifier = ShopIdentifier::ShopDomain(domain.clone());
                     if unprocessed_shops.contains(&shop_identifier) {
                         output.unprocessed.push(cmd);
-                    } else if cmd.shop_id.is_none() || cmd.shop_name.is_none() {
+                    } else if cmd.shop_id.is_none()
+                        || cmd.shop_name.is_none()
+                        || cmd.shop_type.is_none()
+                    {
                         match shops.get(&domain) {
                             Some(shop) => {
                                 cmd.shop_id = Some(shop.shop_id);
                                 cmd.shop_name = Some(shop.name.clone());
+                                cmd.shop_type = Some(shop.shop_type);
                                 output.enriched.push(cmd);
                             }
                             None => output
@@ -190,6 +194,7 @@ mod faker {
                 shop_id: config.fake_with_rng(rng),
                 shops_product_id: config.fake_with_rng(rng),
                 shop_name: config.fake_with_rng(rng),
+                shop_type: config.fake_with_rng(rng),
                 native_title: config.fake_with_rng(rng),
                 other_title: config.fake_with_rng(rng),
                 native_description: config.fake_with_rng(rng),
@@ -277,7 +282,9 @@ mod tests {
         assert_eq!(
             cmds.into_iter()
                 .filter(|piped_cmd| {
-                    piped_cmd.shop_id.is_none() || piped_cmd.shop_name.is_none()
+                    piped_cmd.shop_id.is_none()
+                        || piped_cmd.shop_name.is_none()
+                        || piped_cmd.shop_type.is_none()
                 })
                 .count(),
             actual.enriched.len()
@@ -351,7 +358,9 @@ mod tests {
         assert_eq!(
             cmds.into_iter()
                 .filter(|piped_cmd| {
-                    piped_cmd.shop_id.is_none() || piped_cmd.shop_name.is_none()
+                    piped_cmd.shop_id.is_none()
+                        || piped_cmd.shop_name.is_none()
+                        || piped_cmd.shop_type.is_none()
                 })
                 .count(),
             actual.failed.len()

@@ -12,6 +12,7 @@ use common::product_state::domain::ProductState;
 use common::shop_id::ShopId;
 use common::shop_name::ShopName;
 use common::shops_product_id::ShopsProductId;
+use shop::core::shop_type::ShopType;
 use std::collections::HashMap;
 use url::Url;
 
@@ -173,6 +174,7 @@ pub struct ProductCreatedEventPayload {
     pub shop_id: ShopId,
     pub shops_product_id: ShopsProductId,
     pub shop_name: ShopName,
+    pub shop_type: ShopType,
     pub native_title: Localized<Language, Title>,
     pub native_description: Option<Localized<Language, Description>>,
     pub native_price: Option<Price>,
@@ -286,6 +288,7 @@ pub struct LocalizedProductCreatedEventPayloadView {
     pub shop_id: ShopId,
     pub shops_product_id: ShopsProductId,
     pub shop_name: ShopName,
+    pub shop_type: ShopType,
     pub title: Localized<Language, Title>,
     pub description: Option<Localized<Language, Description>>,
     pub price: Option<Price>,
@@ -343,6 +346,7 @@ mod faker {
                 shop_id: config.fake_with_rng(rng),
                 shops_product_id: config.fake_with_rng(rng),
                 shop_name: config.fake_with_rng(rng),
+                shop_type: config.fake_with_rng(rng),
                 native_title: config.fake_with_rng(rng),
                 native_description: config.fake_with_rng(rng),
                 native_price,

@@ -19,6 +19,8 @@ use product::dynamodb::condition_record::ConditionRecord;
 use product::dynamodb::product_state_record::ProductStateRecord;
 use product::dynamodb::provenance_record::ProvenanceRecord;
 use product::dynamodb::restoration_record::RestorationRecord;
+use shop::core::shop_type::ShopType;
+use shop::dynamodb::shop_type_record::ShopTypeRecord;
 use time::OffsetDateTime;
 
 #[derive(Debug, Clone, PartialEq)]
@@ -26,6 +28,7 @@ pub struct UserSearchFilterUpdate {
     pub name: Option<UserSearchFilterName>,
     pub product_query: Option<TextQuery>,
     pub shop_name_query: Option<TextQuery>,
+    pub shop_type_query: Option<AnyOfQuery<ShopType>>,
     pub price_query: Option<RangeQuery<MonetaryAmount>>,
     pub state_query: Option<AnyOfQuery<ProductState>>,
     pub created_query: Option<RangeQuery<OffsetDateTime>>,
@@ -46,6 +49,7 @@ impl UserSearchFilterUpdate {
             name: search_filter_name,
             product_query,
             shop_name_query,
+            shop_type_query,
             price_query,
             state_query,
             created_query,
@@ -63,6 +67,7 @@ impl UserSearchFilterUpdate {
         search_filter_name.is_none()
             && product_query.is_none()
             && shop_name_query.is_none()
+            && shop_type_query.is_none()
             && price_query.is_none()
             && state_query.is_none()
             && created_query.is_none()
@@ -83,6 +88,9 @@ impl From<UserSearchFilterUpdate> for UserSearchFilterRecordUpdate {
             name: update.name,
             product_query: update.product_query,
             shop_name_query: update.shop_name_query,
+            shop_type_query: update
+                .shop_type_query
+                .map(|types| types.into_iter().map(ShopTypeRecord::from).collect()),
             price_query: update
                 .price_query
                 .map(|range_query| range_query.map(u64::from)),
@@ -124,6 +132,7 @@ mod fake {
                 name: config.fake_with_rng(rng),
                 product_query: config.fake_with_rng(rng),
                 shop_name_query: config.fake_with_rng(rng),
+                shop_type_query: config.fake_with_rng(rng),
                 price_query: config.fake_with_rng(rng),
                 state_query: config.fake_with_rng(rng),
                 created_query: fake_range_query_datetime(config, rng),

@@ -84,6 +84,9 @@ mod tests {
                 currency: CurrencyData::Eur,
                 product_query: "Boop".try_into().unwrap(),
                 shop_name_query: Some("Baap".try_into().unwrap()),
+                shop_type_query: HashSet::from_iter([
+                    shop::data::shop_type_data::ShopTypeData::CommercialDealer,
+                ]),
                 price_query: Some(RangeQuery {
                     min: Some(37),
                     max: Some(42),
@@ -118,6 +121,7 @@ mod tests {
                 "currency": "EUR",
                 "productQuery": "Boop",
                 "shopNameQuery": "Baap",
+                "shopType": ["COMMERCIAL_DEALER"],
                 "price": {
                     "min": 37,
                     "max": 42
@@ -162,7 +166,9 @@ mod tests {
                 "currency": "EUR",
                 "productQuery": "Boop",
                 "shopNameQuery": "Baap",
+                "shopType": ["COMMERCIAL_DEALER"],
                 "price": {
+                "shopType": ["COMMERCIAL_DEALER"],
                     "min": 37,
                     "max": 42
                 },
@@ -196,6 +202,9 @@ mod tests {
                 currency: CurrencyData::Eur,
                 product_query: "Boop".try_into().unwrap(),
                 shop_name_query: Some("Baap".try_into().unwrap()),
+                shop_type_query: HashSet::from_iter([
+                    shop::data::shop_type_data::ShopTypeData::CommercialDealer,
+                ]),
                 price_query: Some(RangeQuery {
                     min: Some(37),
                     max: Some(42),

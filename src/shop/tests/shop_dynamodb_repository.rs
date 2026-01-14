@@ -209,6 +209,7 @@ async fn should_transact_write() {
     let shop = Shop {
         shop_id: Faker.fake(),
         name: Faker.fake(),
+        shop_type: Faker.fake(),
         domains: [
             Domain::try_from("https://foo.de").unwrap(),
             Domain::try_from("https://foo.com").unwrap(),
@@ -246,6 +247,7 @@ async fn should_transact_write() {
     ];
     let update_record = ShopRecordUpdate {
         name: Some("Hans' Shop".into()),
+        shop_type: Faker.fake(),
         domains: Some(
             [
                 Domain::try_from("https://foo.com").unwrap(),

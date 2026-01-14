@@ -17,6 +17,7 @@ use common::{event_id::EventId, has_key::HasKey};
 use field::field;
 use serde::{Deserialize, Serialize};
 use serde_fields::SerdeField;
+use shop::opensearch::shop_type_document::ShopTypeDocument;
 use time::OffsetDateTime;
 use url::Url;
 
@@ -28,6 +29,7 @@ pub struct ProductDocument {
     pub shop_id: ShopId,
     pub shops_product_id: ShopsProductId,
     pub shop_name: String,
+    pub shop_type: ShopTypeDocument,
 
     pub title_native: TextDocument,
     #[serde(skip_serializing_if = "Option::is_none", default)]
@@ -124,6 +126,9 @@ impl TryFrom<ProductEventRecord> for ProductDocument {
             shop_name: event_record.shop_name.ok_or_else(|| {
                 MissingPersistenceField::new(field!(shop_name@ProductEventRecord))
             })?,
+            shop_type: event_record.shop_type.map(Into::into).ok_or_else(|| {
+                MissingPersistenceField::new(field!(shop_type@ProductEventRecord))
+            })?,
             title_native: event_record
                 .title_native
                 .map(TextDocument::from)
@@ -177,6 +182,7 @@ impl From<ProductRecord> for ProductDocument {
             shop_id: record.shop_id,
             shops_product_id: record.shops_product_id,
             shop_name: record.shop_name,
+            shop_type: record.shop_type.into(),
             title_native: record.title_native.into(),
             title_de: record.title_de,
             title_en: record.title_en,
@@ -250,6 +256,7 @@ mod faker {
                 shop_id: config.fake_with_rng(rng),
                 shops_product_id: config.fake_with_rng(rng),
                 shop_name: config.fake_with_rng::<ShopName, _>(rng).into(),
+                shop_type: config.fake_with_rng(rng),
                 title_native: TextDocument {
                     text: config.fake_with_rng::<Title, _>(rng).to_string(),
                     language: config.fake_with_rng(rng),

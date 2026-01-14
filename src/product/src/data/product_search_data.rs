@@ -16,6 +16,8 @@ use common::{
     product_state::domain::ProductState,
 };
 use serde::{Deserialize, Serialize};
+use shop::core::shop_type::ShopType;
+use shop::data::shop_type_data::ShopTypeData;
 use std::collections::HashSet;
 use time::OffsetDateTime;
 
@@ -31,6 +33,12 @@ pub struct ProductSearchData {
         default
     )]
     pub shop_name_query: Option<TextQuery>,
+    #[serde(
+        rename = "shopType",
+        skip_serializing_if = "HashSet::is_empty",
+        default
+    )]
+    pub shop_type_query: HashSet<ShopTypeData>,
     #[serde(rename = "price", skip_serializing_if = "Option::is_none", default)]
     pub price_query: Option<RangeQuery<u64>>,
     #[serde(rename = "state", skip_serializing_if = "HashSet::is_empty", default)]
@@ -91,6 +99,11 @@ impl From<ProductSearch> for ProductSearchData {
             currency: search_filter.currency.into(),
             product_query: search_filter.product_query,
             shop_name_query: search_filter.shop_name_query,
+            shop_type_query: search_filter
+                .shop_type_query
+                .into_iter()
+                .map(ShopTypeData::from)
+                .collect(),
             price_query: search_filter
                 .price_query
                 .map(|price_query| price_query.map(u64::from)),
@@ -133,6 +146,11 @@ impl From<ProductSearchData> for ProductSearch {
             currency: data.currency.into(),
             product_query: data.product_query,
             shop_name_query: data.shop_name_query,
+            shop_type_query: data
+                .shop_type_query
+                .into_iter()
+                .map(ShopType::from)
+                .collect(),
             price_query: data
                 .price_query
                 .map(|query| query.map(MonetaryAmount::from)),
@@ -181,6 +199,7 @@ mod faker {
                 currency: config.fake_with_rng(rng),
                 product_query: config.fake_with_rng(rng),
                 shop_name_query: config.fake_with_rng(rng),
+                shop_type_query: config.fake_with_rng(rng),
                 price_query: config
                     .fake_with_rng::<Option<RangeQuery<u32>>, R>(rng) // otherwise get Out-Of-Range-Err often from OpenSearch
                     .map(|query| query.map(u64::from)),
@@ -208,6 +227,7 @@ mod tests {
     use common::query::range_query::RangeQuery;
     use common::{currency::data::CurrencyData, language::data::LanguageData};
     use serde_json::json;
+    use shop::data::shop_type_data::ShopTypeData;
     use std::collections::HashSet;
     use time::macros::datetime;
 
@@ -218,6 +238,7 @@ mod tests {
             currency: CurrencyData::Eur,
             product_query: "Boop".try_into().unwrap(),
             shop_name_query: Some("Baap".try_into().unwrap()),
+            shop_type_query: HashSet::from_iter([ShopTypeData::CommercialDealer]),
             price_query: Some(RangeQuery {
                 min: Some(37),
                 max: Some(42),
@@ -245,6 +266,7 @@ mod tests {
             "currency": "EUR",
             "productQuery": "Boop",
             "shopNameQuery": "Baap",
+            "shopType": ["COMMERCIAL_DEALER"],
             "price": {
                 "min": 37,
                 "max": 42
@@ -280,6 +302,7 @@ mod tests {
             "currency": "EUR",
             "productQuery": "Boop",
             "shopNameQuery": "Baap",
+            "shopType": ["COMMERCIAL_DEALER"],
             "price": {
                 "min": 37,
                 "max": 42
@@ -307,6 +330,7 @@ mod tests {
             currency: CurrencyData::Eur,
             product_query: "Boop".try_into().unwrap(),
             shop_name_query: Some("Baap".try_into().unwrap()),
+            shop_type_query: HashSet::from_iter([ShopTypeData::CommercialDealer]),
             price_query: Some(RangeQuery {
                 min: Some(37),
                 max: Some(42),
@@ -342,6 +366,7 @@ mod tests {
             currency: CurrencyData::Eur,
             product_query: "Boop".try_into().unwrap(),
             shop_name_query: None,
+            shop_type_query: Default::default(),
             price_query: None,
             state_query: Default::default(),
             origin_year_query: None,
@@ -375,6 +400,7 @@ mod tests {
             currency: CurrencyData::Eur,
             product_query: "Boop".try_into().unwrap(),
             shop_name_query: None,
+            shop_type_query: Default::default(),
             price_query: None,
             state_query: Default::default(),
             origin_year_query: None,

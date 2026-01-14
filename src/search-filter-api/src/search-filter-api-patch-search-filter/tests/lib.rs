@@ -33,6 +33,7 @@ async fn should_update_search_filter() {
             currency: None,
             product_query: None,
             shop_name_query: Some("Whoop boop woah".try_into().unwrap()),
+            shop_type_query: None,
             price_query: Some(RangeQuery {
                 min: Some(37),
                 max: Some(42),

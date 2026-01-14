@@ -25,6 +25,7 @@ use common::shops_product_id::ShopsProductId;
 use field::field;
 use serde::{Deserialize, Serialize};
 use serde_fields::SerdeField;
+use shop::dynamodb::shop_type_record::ShopTypeRecord;
 use std::collections::HashMap;
 use time::format_description::well_known::Rfc3339;
 use time::{OffsetDateTime, error};
@@ -42,6 +43,8 @@ pub struct ProductEventRecord {
     pub shops_product_id: ShopsProductId,
     #[serde(skip_serializing_if = "Option::is_none", default)]
     pub shop_name: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub shop_type: Option<ShopTypeRecord>,
 
     #[serde(skip_serializing_if = "Option::is_none", default)]
     pub title_native: Option<TextRecord>,
@@ -218,6 +221,7 @@ impl TryFrom<ProductEvent> for ProductEventRecord {
                     shop_id,
                     shops_product_id,
                     shop_name: Some(payload.shop_name.into()),
+                    shop_type: Some(payload.shop_type.into()),
                     title_native: Some(payload.native_title.into()),
                     title_de,
                     title_en,
@@ -362,6 +366,7 @@ impl TryFrom<ProductEvent> for ProductEventRecord {
                 shop_id,
                 shops_product_id,
                 shop_name: None,
+                shop_type: None,
                 title_native: None,
                 title_de: None,
                 title_en: None,
@@ -448,6 +453,7 @@ impl TryFrom<ProductEvent> for ProductEventRecord {
                 shop_id,
                 shops_product_id,
                 shop_name: None,
+                shop_type: None,
                 title_native: None,
                 title_de: None,
                 title_en: None,
@@ -529,6 +535,7 @@ fn mk_state_event_record(
         shop_id,
         shops_product_id,
         shop_name: None,
+        shop_type: None,
         title_native: None,
         title_de: None,
         title_en: None,
@@ -583,6 +590,7 @@ fn mk_price_change_event_record(
         shop_id,
         shops_product_id,
         shop_name: None,
+        shop_type: None,
         title_native: None,
         title_de: None,
         title_en: None,
@@ -720,6 +728,9 @@ impl TryFrom<ProductEventRecord> for ProductEvent {
                         shops_product_id,
                         shop_name: record.shop_name.map(ShopName::from).ok_or(
                             MissingPersistenceField::new(field!(shop_name@ProductEventRecord)),
+                        )?,
+                        shop_type: record.shop_type.map(Into::into).ok_or(
+                            MissingPersistenceField::new(field!(shop_type@ProductEventRecord)),
                         )?,
                         native_title: record.title_native.map(Localized::from).ok_or(
                             MissingPersistenceField::new(field!(title_native@ProductEventRecord)),

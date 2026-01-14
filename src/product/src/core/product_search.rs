@@ -10,6 +10,7 @@ use common::query::any_of_query::AnyOfQuery;
 use common::query::range_query::RangeQuery;
 use common::query::text_query::TextQuery;
 use common::year::Year;
+use shop::core::shop_type::ShopType;
 use time::OffsetDateTime;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -18,6 +19,7 @@ pub struct ProductSearch {
     pub currency: Currency,
     pub product_query: TextQuery,
     pub shop_name_query: Option<TextQuery>,
+    pub shop_type_query: AnyOfQuery<ShopType>,
     pub price_query: Option<RangeQuery<MonetaryAmount>>,
     pub state_query: AnyOfQuery<ProductState>,
     pub origin_year_query: Option<RangeQuery<Year>>,
@@ -41,6 +43,7 @@ pub mod faker {
                 currency: config.fake_with_rng(rng),
                 product_query: config.fake_with_rng(rng),
                 shop_name_query: config.fake_with_rng(rng),
+                shop_type_query: config.fake_with_rng(rng),
                 price_query: config.fake_with_rng(rng),
                 state_query: config.fake_with_rng(rng),
                 origin_year_query: config.fake_with_rng(rng),

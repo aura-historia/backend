@@ -61,6 +61,7 @@ async fn should_respond_200_when_hits_authenticated() {
         product_id: ProductId::new(),
         event_id: EventId::new(),
         shop_id: ShopId::new(),
+        shop_type: Faker.fake(),
         shops_product_id: ShopsProductId::new(),
         shop_name: "Hans Volkers Shop".into(),
         title_native: TextDocument {
@@ -119,6 +120,7 @@ async fn should_respond_200_when_hits_authenticated() {
         shop_id: expected.shop_id,
         shops_product_id: expected.shops_product_id.clone(),
         shop_name: expected.shop_name.clone(),
+        shop_type: Faker.fake(),
         title_native: TextRecord {
             text: "Chopin Etudes Op.10 1833".to_owned(),
             language: LanguageRecord::De,
@@ -181,6 +183,7 @@ async fn should_respond_200_when_hits_authenticated() {
         currency: CurrencyData::Eur,
         product_query: "Chopin Etudes Op.10".try_into().unwrap(),
         shop_name_query: Some("Hans Volkers".try_into().unwrap()),
+        shop_type_query: Default::default(),
         price_query: Some(RangeQuery {
             min: None,
             max: Some(99999999),
@@ -242,6 +245,7 @@ async fn should_respond_200_when_hits_anon() {
         shop_id: ShopId::new(),
         shops_product_id: ShopsProductId::new(),
         shop_name: "Hans Volkers Shop".into(),
+        shop_type: Faker.fake(),
         title_native: TextDocument {
             text: "Foo".to_string(),
             language: LanguageDocument::Fr,
@@ -292,6 +296,7 @@ async fn should_respond_200_when_hits_anon() {
         currency: CurrencyData::Eur,
         product_query: "Chopin Etudes Op.10".try_into().unwrap(),
         shop_name_query: Some("Hans Volkers".try_into().unwrap()),
+        shop_type_query: Default::default(),
         price_query: Some(RangeQuery {
             min: None,
             max: Some(99999999),

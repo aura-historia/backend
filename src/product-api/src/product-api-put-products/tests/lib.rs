@@ -117,6 +117,7 @@ async fn should_put_products_with_known_domain_when_domain_contains_subdomain_ww
     let shop = Shop {
         shop_id: Faker.fake(),
         name: Faker.fake(),
+        shop_type: Faker.fake(),
         domains: HashSet::from_iter([
             Domain::try_from("https://www.antiquitaeten-tuebingen.de").unwrap()
         ]),
