@@ -109,9 +109,17 @@ pub struct ProductEventRecord {
     #[serde(skip_serializing_if = "Option::is_none", default)]
     pub images: Option<Vec<ProductImageRecord>>,
 
-    #[serde(with = "time::serde::rfc3339::option", skip_serializing_if = "Option::is_none", default)]
+    #[serde(
+        with = "time::serde::rfc3339::option",
+        skip_serializing_if = "Option::is_none",
+        default
+    )]
     pub auction_start: Option<OffsetDateTime>,
-    #[serde(with = "time::serde::rfc3339::option", skip_serializing_if = "Option::is_none", default)]
+    #[serde(
+        with = "time::serde::rfc3339::option",
+        skip_serializing_if = "Option::is_none",
+        default
+    )]
     pub auction_end: Option<OffsetDateTime>,
 
     #[serde(with = "time::serde::rfc3339")]

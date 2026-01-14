@@ -1573,8 +1573,8 @@ async fn should_200_with_native_title_when_no_target_titles_exist_and_hit_due_to
                 restoration_query: Default::default(),
                 created_query: None,
                 updated_query: None,
-        auction_start_query: None,
-        auction_end_query: None,
+                auction_start_query: None,
+                auction_end_query: None,
             })
             .build(),
         context: Default::default(),
@@ -1690,8 +1690,8 @@ async fn should_respond_200_and_respect_accept_language_header(
                 restoration_query: Default::default(),
                 created_query: None,
                 updated_query: None,
-        auction_start_query: None,
-        auction_end_query: None,
+                auction_start_query: None,
+                auction_end_query: None,
             })
             .build(),
         context: Default::default(),
@@ -1878,10 +1878,12 @@ async fn should_200_when_auction_start_range_is_given() {
     let response_data: JsonCursoredData<PersonalizedData<GetProductData, ProductUserStateData>> =
         serde_json::from_value(json).unwrap();
     assert_eq!(30, response_data.items.len());
-    assert!(response_data
-        .items
-        .iter()
-        .all(|item| item.item.auction_start.is_some()));
+    assert!(
+        response_data
+            .items
+            .iter()
+            .all(|item| item.item.auction_start.is_some())
+    );
 }
 
 #[localstack_test(services = [OpenSearch(), DynamoDB()])]
@@ -1964,9 +1966,10 @@ async fn should_200_when_auction_end_range_is_given() {
     let response_data: JsonCursoredData<PersonalizedData<GetProductData, ProductUserStateData>> =
         serde_json::from_value(json).unwrap();
     assert_eq!(25, response_data.items.len());
-    assert!(response_data
-        .items
-        .iter()
-        .all(|item| item.item.auction_end.is_some()));
+    assert!(
+        response_data
+            .items
+            .iter()
+            .all(|item| item.item.auction_end.is_some())
+    );
 }
-

@@ -317,8 +317,14 @@ impl<'a> ProductOpenSearchRepository for ProductOpenSearchRepositoryImpl<'a> {
         for (query, field) in [
             (&search.created_query, ProductDocumentSerdeField::Created),
             (&search.updated_query, ProductDocumentSerdeField::Updated),
-            (&search.auction_start_query, ProductDocumentSerdeField::AuctionStart),
-            (&search.auction_end_query, ProductDocumentSerdeField::AuctionEnd),
+            (
+                &search.auction_start_query,
+                ProductDocumentSerdeField::AuctionStart,
+            ),
+            (
+                &search.auction_end_query,
+                ProductDocumentSerdeField::AuctionEnd,
+            ),
         ] {
             if let Some(min) = query.and_then(|q| q.min) {
                 let v = min

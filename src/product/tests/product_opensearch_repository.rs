@@ -3107,7 +3107,12 @@ async fn should_search_product_documents_when_auction_start_range_is_given(
             product
         })
         .collect::<Vec<_>>();
-    let products = [early_auction_products, late_auction_products, no_auction_products].concat();
+    let products = [
+        early_auction_products,
+        late_auction_products,
+        no_auction_products,
+    ]
+    .concat();
     let client = get_opensearch_client().await;
     let repository = ProductOpenSearchRepositoryImpl::new(client);
     let response = repository
@@ -3231,7 +3236,12 @@ async fn should_search_product_documents_when_auction_end_range_is_given(
             product
         })
         .collect::<Vec<_>>();
-    let products = [early_auction_products, late_auction_products, no_auction_products].concat();
+    let products = [
+        early_auction_products,
+        late_auction_products,
+        no_auction_products,
+    ]
+    .concat();
     let client = get_opensearch_client().await;
     let repository = ProductOpenSearchRepositoryImpl::new(client);
     let response = repository
@@ -3305,4 +3315,3 @@ async fn should_search_product_documents_when_auction_end_range_is_given(
             .all(|product| actual_items.contains(product))
     );
 }
-
