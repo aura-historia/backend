@@ -23,8 +23,6 @@ async fn get_repository() -> ProductDynamoDbRepositoryImpl<'static> {
 
 #[localstack_test(services = [DynamoDB()])]
 async fn should_put_product_records_for_single_record() {
-    let shop_id = ShopId::new();
-    let shops_product_id: ShopsProductId = "123465".into();
     let expected = Faker.fake::<ProductRecord>();
 
     get_repository()
@@ -35,7 +33,7 @@ async fn should_put_product_records_for_single_record() {
 
     let actual = get_repository()
         .await
-        .get_product_record(&shop_id, &shops_product_id)
+        .get_product_record(&expected.shop_id, &expected.shops_product_id)
         .await
         .unwrap()
         .unwrap();
