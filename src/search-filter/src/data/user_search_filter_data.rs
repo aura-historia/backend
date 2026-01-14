@@ -121,6 +121,7 @@ mod tests {
                 "currency": "EUR",
                 "productQuery": "Boop",
                 "shopNameQuery": "Baap",
+                "shopType": ["COMMERCIAL_DEALER"],
                 "price": {
                     "min": 37,
                     "max": 42
@@ -165,6 +166,7 @@ mod tests {
                 "currency": "EUR",
                 "productQuery": "Boop",
                 "shopNameQuery": "Baap",
+                "shopType": ["COMMERCIAL_DEALER"],
                 "price": {
                 "shopType": ["COMMERCIAL_DEALER"],
                     "min": 37,

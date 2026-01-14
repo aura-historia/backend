@@ -282,7 +282,9 @@ mod tests {
         assert_eq!(
             cmds.into_iter()
                 .filter(|piped_cmd| {
-                    piped_cmd.shop_id.is_none() || piped_cmd.shop_name.is_none()
+                    piped_cmd.shop_id.is_none()
+                        || piped_cmd.shop_name.is_none()
+                        || piped_cmd.shop_type.is_none()
                 })
                 .count(),
             actual.enriched.len()
@@ -356,7 +358,9 @@ mod tests {
         assert_eq!(
             cmds.into_iter()
                 .filter(|piped_cmd| {
-                    piped_cmd.shop_id.is_none() || piped_cmd.shop_name.is_none()
+                    piped_cmd.shop_id.is_none()
+                        || piped_cmd.shop_name.is_none()
+                        || piped_cmd.shop_type.is_none()
                 })
                 .count(),
             actual.failed.len()
