@@ -11,6 +11,7 @@ use product::dynamodb::provenance_record::ProvenanceRecord;
 use product::dynamodb::restoration_record::RestorationRecord;
 use serde::{Deserialize, Serialize};
 use serde_fields::SerdeField;
+use shop::dynamodb::shop_type_record::ShopTypeRecord;
 use std::collections::HashSet;
 use time::OffsetDateTime;
 
@@ -22,6 +23,8 @@ pub struct UserSearchFilterRecordUpdate {
     pub product_query: Option<TextQuery>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub shop_name_query: Option<TextQuery>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub shop_type_query: Option<HashSet<ShopTypeRecord>>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub price_query: Option<RangeQuery<u64>>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -72,6 +75,7 @@ mod fake {
                 name: config.fake_with_rng(rng),
                 product_query: config.fake_with_rng(rng),
                 shop_name_query: config.fake_with_rng(rng),
+                shop_type_query: config.fake_with_rng(rng),
                 price_query: config.fake_with_rng(rng),
                 state_query: config.fake_with_rng(rng),
                 created_query: fake_range_query_datetime(config, rng),

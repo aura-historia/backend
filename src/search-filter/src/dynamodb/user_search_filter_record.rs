@@ -21,6 +21,9 @@ use product::dynamodb::provenance_record::ProvenanceRecord;
 use product::dynamodb::restoration_record::RestorationRecord;
 use serde::{Deserialize, Serialize};
 use serde_fields::SerdeField;
+use shop::core::shop_type::ShopType;
+use shop::dynamodb::shop_type_record::ShopTypeRecord;
+use shop::dynamodb::shop_type_record::ShopTypeRecord;
 use std::collections::HashSet;
 use time::OffsetDateTime;
 
@@ -34,6 +37,8 @@ pub struct UserSearchFilterRecord {
     pub product_query: TextQuery,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub shop_name_query: Option<TextQuery>,
+    #[serde(default, skip_serializing_if = "HashSet::is_empty")]
+    pub shop_type_query: HashSet<ShopTypeRecord>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub price_query: Option<RangeQuery<u64>>,
     #[serde(default, skip_serializing_if = "HashSet::is_empty")]
@@ -90,7 +95,11 @@ impl From<UserSearchFilterRecord> for UserSearchFilter {
                 currency: record.currency.into(),
                 product_query: record.product_query,
                 shop_name_query: record.shop_name_query,
-                shop_type_query: Default::default(), // search filters don't expose shop_type filtering yet
+                shop_type_query: record
+                    .shop_type_query
+                    .into_iter()
+                    .map(ShopType::from)
+                    .collect(),
                 price_query: record
                     .price_query
                     .map(|range_query| range_query.map(MonetaryAmount::from)),
@@ -139,6 +148,12 @@ impl From<UserSearchFilter> for UserSearchFilterRecord {
             name: user_search_filter.name,
             product_query: user_search_filter.search.product_query,
             shop_name_query: user_search_filter.search.shop_name_query,
+            shop_type_query: user_search_filter
+                .search
+                .shop_type_query
+                .into_iter()
+                .map(ShopTypeRecord::from)
+                .collect(),
             price_query: user_search_filter
                 .search
                 .price_query
@@ -203,6 +218,7 @@ mod fake {
                 name: config.fake_with_rng(rng),
                 product_query: config.fake_with_rng(rng),
                 shop_name_query: config.fake_with_rng(rng),
+                shop_type_query: config.fake_with_rng(rng),
                 price_query: config.fake_with_rng(rng),
                 state_query: config.fake_with_rng(rng),
                 created_query: fake_range_query_datetime(config, rng),
