@@ -238,6 +238,7 @@ mod tests {
             shops_product_id: "bar".into(),
             shop_name: "baz".into(),
             title: Localized::new(common::language::domain::Language::De, "boop".into()),
+            shop_type: fake::Faker.fake(),
             description: None,
             price: Some(Price::new(500u64.into(), Currency::Eur)),
             state: ProductState::Listed,

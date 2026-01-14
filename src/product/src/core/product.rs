@@ -381,6 +381,7 @@ mod tests {
                 shop_id: Default::default(),
                 shops_product_id: Default::default(),
                 shop_name: "Boop".into(),
+                shop_type: fake::Faker.fake(),
                 native_title: Localized {
                     localization: Language::De,
                     payload: "Boop".into(),
@@ -429,6 +430,7 @@ mod tests {
                 shop_id: Default::default(),
                 shops_product_id: Default::default(),
                 shop_name: "Boop".into(),
+                shop_type: fake::Faker.fake(),
                 native_title: Localized {
                     localization: Language::De,
                     payload: "Boop".into(),
@@ -477,6 +479,7 @@ mod tests {
                 shop_id: Default::default(),
                 shops_product_id: Default::default(),
                 shop_name: "Boop".into(),
+                shop_type: fake::Faker.fake(),
                 native_title: Localized {
                     localization: Language::De,
                     payload: "Boop".into(),
@@ -556,6 +559,7 @@ mod tests {
                 shop_id: Default::default(),
                 shops_product_id: Default::default(),
                 shop_name: "Boop".into(),
+                shop_type: fake::Faker.fake(),
                 native_title: Localized {
                     localization: Language::De,
                     payload: "Boop".into(),
@@ -608,6 +612,7 @@ mod tests {
                 shops_product_id: Default::default(),
                 shop_name: "Boop".into(),
                 native_title: Localized {
+                    shop_type: fake::Faker.fake(),
                     localization: Language::De,
                     payload: "Boop".into(),
                 },
@@ -665,6 +670,7 @@ mod tests {
                 shop_id: Default::default(),
                 shops_product_id: Default::default(),
                 shop_name: "Boop".into(),
+                shop_type: fake::Faker.fake(),
                 native_title: Localized {
                     localization: Language::De,
                     payload: "Boop".into(),
@@ -727,6 +733,7 @@ mod tests {
                 shop_id: Default::default(),
                 shops_product_id: Default::default(),
                 shop_name: "Boop".into(),
+                shop_type: fake::Faker.fake(),
                 native_title: Localized {
                     localization: Language::De,
                     payload: "Boop".into(),
@@ -790,6 +797,7 @@ mod tests {
                 event_id: Default::default(),
                 shop_id: Default::default(),
                 shops_product_id: Default::default(),
+                shop_type: fake::Faker.fake(),
                 shop_name: "Boop".into(),
                 native_title: Localized {
                     localization: Language::De,

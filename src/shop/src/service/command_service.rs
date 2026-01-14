@@ -302,7 +302,7 @@ mod tests {
                 domains: HashSet::new(),
                 image: None,
             };
-            let actual = service.create(create_cmd).await;
+            let actual = service.create(cmd).await;
 
             assert!(actual.is_err());
         }

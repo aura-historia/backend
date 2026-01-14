@@ -79,6 +79,7 @@ mod tests {
                 currency: CurrencyData::Eur,
                 product_query: "Boop".try_into().unwrap(),
                 shop_name_query: Some("Baap".try_into().unwrap()),
+                shop_type_query: HashSet::new(),
                 price_query: Some(RangeQuery {
                     min: Some(37),
                     max: Some(42),

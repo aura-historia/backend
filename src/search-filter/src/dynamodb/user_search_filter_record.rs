@@ -23,7 +23,6 @@ use serde::{Deserialize, Serialize};
 use serde_fields::SerdeField;
 use shop::core::shop_type::ShopType;
 use shop::dynamodb::shop_type_record::ShopTypeRecord;
-use shop::dynamodb::shop_type_record::ShopTypeRecord;
 use std::collections::HashSet;
 use time::OffsetDateTime;
 

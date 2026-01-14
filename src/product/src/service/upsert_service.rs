@@ -387,6 +387,7 @@ pub mod tests {
             shop_name: product2.clone().shop_name,
             native_title: product2.clone().native_title,
             other_title: Default::default(),
+            shop_type: product2.clone().shop_type,
             native_description: product2.clone().native_description,
             other_description: Default::default(),
             native_price: Some(Faker.fake()),
