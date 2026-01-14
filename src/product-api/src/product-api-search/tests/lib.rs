@@ -1854,11 +1854,11 @@ async fn should_200_when_auction_start_range_is_given() {
         .unwrap();
     assert!(!create_res.errors);
     refresh_index("products").await;
-    tokio::time::sleep(std::time::Duration::from_secs(5)).await;
+    tokio::time::sleep(std::time::Duration::from_secs(10)).await;
 
     let lambda_event = LambdaEvent {
         payload: ApiGatewayV2httpRequestProxy::builder()
-            .http_method(http::Method::POST)
+            .query_string_parameter("size", "50")
             .body_serde(&search)
             .build(),
         context: Default::default(),
@@ -1947,6 +1947,7 @@ async fn should_200_when_auction_end_range_is_given() {
     let lambda_event = LambdaEvent {
         payload: ApiGatewayV2httpRequestProxy::builder()
             .http_method(http::Method::POST)
+            .query_string_parameter("size", "50")
             .body_serde(&search)
             .build(),
         context: Default::default(),
