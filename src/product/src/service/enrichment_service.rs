@@ -208,6 +208,8 @@ mod faker {
                 ))
                 .unwrap(),
                 images: config.fake_with_rng(rng),
+                auction_start: config.fake_with_rng(rng),
+                auction_end: config.fake_with_rng(rng),
             }
         }
     }

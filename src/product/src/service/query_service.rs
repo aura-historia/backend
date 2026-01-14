@@ -216,6 +216,8 @@ pub fn localize_product_document(
         condition: product_document.condition.map(Condition::from),
         provenance: product_document.provenance.map(Provenance::from),
         restoration: product_document.restoration.map(Restoration::from),
+        auction_start: product_document.auction_start,
+        auction_end: product_document.auction_end,
         created: product_document.created,
         updated: product_document.updated,
         history: None,

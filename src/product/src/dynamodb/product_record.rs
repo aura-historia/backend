@@ -101,6 +101,11 @@ pub struct ProductRecord {
     #[serde(skip_serializing_if = "Option::is_none", default)]
     pub restoration: Option<RestorationRecord>,
 
+    #[serde(with = "time::serde::rfc3339::option", skip_serializing_if = "Option::is_none", default)]
+    pub auction_start: Option<OffsetDateTime>,
+    #[serde(with = "time::serde::rfc3339::option", skip_serializing_if = "Option::is_none", default)]
+    pub auction_end: Option<OffsetDateTime>,
+
     #[serde(with = "time::serde::rfc3339")]
     pub created: OffsetDateTime,
     #[serde(with = "time::serde::rfc3339")]
@@ -196,6 +201,8 @@ impl From<ProductRecord> for Product {
             condition: record.condition.map(Condition::from),
             provenance: record.provenance.map(Provenance::from),
             restoration: record.restoration.map(Restoration::from),
+            auction_start: record.auction_start,
+            auction_end: record.auction_end,
             created: record.created,
             updated: record.updated,
         }
@@ -252,6 +259,8 @@ impl TryFrom<ProductEventRecord> for ProductRecord {
             condition: None,
             provenance: None,
             restoration: None,
+            auction_start: event_record.auction_start,
+            auction_end: event_record.auction_end,
             created: event_record.timestamp,
             updated: event_record.timestamp,
         };
@@ -331,6 +340,8 @@ mod faker {
                 condition: config.fake_with_rng(rng),
                 provenance: config.fake_with_rng(rng),
                 restoration: config.fake_with_rng(rng),
+                auction_start: config.fake_with_rng(rng),
+                auction_end: config.fake_with_rng(rng),
                 created: now,
                 updated: now,
             }

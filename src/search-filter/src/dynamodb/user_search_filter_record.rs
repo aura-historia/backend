@@ -55,6 +55,19 @@ pub struct UserSearchFilterRecord {
     )]
     pub updated_query: Option<RangeQuery<OffsetDateTime>>,
 
+    #[serde(
+        with = "common::query::range_query::range_rfc3339::option",
+        default,
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub auction_start_query: Option<RangeQuery<OffsetDateTime>>,
+    #[serde(
+        with = "common::query::range_query::range_rfc3339::option",
+        default,
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub auction_end_query: Option<RangeQuery<OffsetDateTime>>,
+
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub origin_year_query: Option<RangeQuery<Year>>,
     #[serde(default, skip_serializing_if = "HashSet::is_empty")]
@@ -130,6 +143,8 @@ impl From<UserSearchFilterRecord> for UserSearchFilter {
                     .collect(),
                 created_query: record.created_query,
                 updated_query: record.updated_query,
+                auction_start_query: record.auction_start_query,
+                auction_end_query: record.auction_end_query,
             },
             created: record.created,
             updated: record.updated,
@@ -192,6 +207,8 @@ impl From<UserSearchFilter> for UserSearchFilterRecord {
                 .into_iter()
                 .map(RestorationRecord::from)
                 .collect(),
+            auction_start_query: user_search_filter.search.auction_start_query,
+            auction_end_query: user_search_filter.search.auction_end_query,
             created: user_search_filter.created,
             updated: user_search_filter.updated,
         }
@@ -222,6 +239,8 @@ mod fake {
                 state_query: config.fake_with_rng(rng),
                 created_query: fake_range_query_datetime(config, rng),
                 updated_query: fake_range_query_datetime(config, rng),
+                auction_start_query: fake_range_query_datetime(config, rng),
+                auction_end_query: fake_range_query_datetime(config, rng),
                 language: config.fake_with_rng(rng),
                 currency: config.fake_with_rng(rng),
                 origin_year_query: config.fake_with_rng(rng),

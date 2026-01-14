@@ -270,6 +270,8 @@ impl<T: FxRate + Sync> UpsertProductsServiceImpl<'_, T> {
                 cmd.state,
                 cmd.url,
                 cmd.images,
+                cmd.auction_start,
+                cmd.auction_end,
             )
         })
         .filter_map(|event| {

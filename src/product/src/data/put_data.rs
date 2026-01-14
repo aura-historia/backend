@@ -3,6 +3,7 @@ use common::language::data::LocalizedTextData;
 use common::price::data::PriceData;
 use common::shops_product_id::ShopsProductId;
 use serde::{Deserialize, Serialize};
+use time::OffsetDateTime;
 use url::Url;
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -24,6 +25,12 @@ pub struct PutProductData {
 
     #[serde(default)]
     pub images: Vec<Url>,
+
+    #[serde(with = "time::serde::rfc3339::option", skip_serializing_if = "Option::is_none", default)]
+    pub auction_start: Option<OffsetDateTime>,
+
+    #[serde(with = "time::serde::rfc3339::option", skip_serializing_if = "Option::is_none", default)]
+    pub auction_end: Option<OffsetDateTime>,
 }
 
 #[cfg(feature = "test-data")]
@@ -68,6 +75,8 @@ mod faker {
                     .into_iter()
                     .map(Url::from)
                     .collect(),
+                auction_start: config.fake_with_rng(rng),
+                auction_end: config.fake_with_rng(rng),
             }
         }
     }

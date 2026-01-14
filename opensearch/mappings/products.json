@@ -142,6 +142,14 @@
             "restoration": {
                 "type": "keyword"
             },
+            "auctionStart": {
+                "type": "date",
+                "format": "strict_date_time"
+            },
+            "auctionEnd": {
+                "type": "date",
+                "format": "strict_date_time"
+            },
             "created": {
                 "type": "date",
                 "format": "strict_date_time"
