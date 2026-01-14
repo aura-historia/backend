@@ -1,6 +1,6 @@
+use crate::core::shop_search::ShopSearch;
 use crate::core::shop_type::ShopType;
 use crate::data::shop_type_data::ShopTypeData;
-use crate::opensearch::shop_search::ShopSearch;
 use common::query::{range_query::RangeQuery, text_query::TextQuery};
 use serde::{Deserialize, Serialize};
 use std::collections::HashSet;

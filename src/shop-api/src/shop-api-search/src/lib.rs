@@ -12,12 +12,12 @@ use common::{
     sort::api::extract_sort_query,
 };
 use lambda_runtime::LambdaEvent;
+use shop::core::shop_search::ShopSearch;
 use shop::core::sort_shop_field::SortShopField;
 use shop::data::{
     get_shop_data::GetShopData, shop_search_data::ShopSearchData,
     sort_shop_field_data::SortShopFieldData,
 };
-use shop::opensearch::shop_search::ShopSearch;
 use shop::service::query_service::QueryShopService;
 
 #[tracing::instrument(

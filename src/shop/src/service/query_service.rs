@@ -1,7 +1,7 @@
 use crate::core::shop::Shop;
+use crate::core::shop_search::ShopSearch;
 use crate::core::sort_shop_field::SortShopField;
 use crate::opensearch::repository::ShopOpenSearchRepository;
-use crate::opensearch::shop_search::ShopSearch;
 use async_trait::async_trait;
 use common::{
     pagination::cursor::{Cursor, CursoredResult},
@@ -114,12 +114,10 @@ impl<'a> QueryShopService for QueryShopServiceImpl<'a> {
 
 #[cfg(test)]
 mod tests {
-    use rstest;
-
+    use crate::core::shop_search::ShopSearch;
     use crate::core::sort_shop_field::SortShopField;
     use crate::opensearch::repository::MockShopOpenSearchRepository;
     use crate::opensearch::shop_document::ShopDocument;
-    use crate::opensearch::shop_search::ShopSearch;
     use crate::service::query_service::{QueryShopService, QueryShopServiceImpl};
     use common::pagination::cursor::Cursor;
     use common::query::range_query::RangeQuery;
@@ -130,6 +128,7 @@ mod tests {
         },
         sort::{Sort, SortOrder},
     };
+    use rstest;
     use serde::ser::Error;
     use serde_json::json;
     use time::macros::datetime;

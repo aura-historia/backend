@@ -3,12 +3,12 @@ use common::pagination::cursor::Cursor;
 use common::sort::SortOrder;
 use common::{query::range_query::RangeQuery, sort::Sort};
 use fake::{Fake, Faker};
+use shop::core::shop_search::ShopSearch;
 use shop::core::sort_shop_field::SortShopField;
 use shop::opensearch::shop_document_update::ShopDocumentUpdate;
 use shop::opensearch::{
     repository::{ShopOpenSearchRepository, ShopOpenSearchRepositoryImpl},
     shop_document::ShopDocument,
-    shop_search::ShopSearch,
 };
 use std::time::Duration;
 use test_api::*;

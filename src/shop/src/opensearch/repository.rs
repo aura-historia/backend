@@ -1,8 +1,9 @@
+use crate::core::shop_search::ShopSearch;
 use crate::core::sort_shop_field::SortShopField;
+use crate::opensearch::shop_document::ShopDocument;
 use crate::opensearch::shop_document::ShopDocumentSerdeField;
 use crate::opensearch::shop_document_update::ShopDocumentUpdate;
 use crate::opensearch::shop_type_document::ShopTypeDocument;
-use crate::opensearch::{shop_document::ShopDocument, shop_search::ShopSearch};
 use common::opensearch::update_response::UpdateResponse;
 use common::shop_id::ShopId;
 use common::{
