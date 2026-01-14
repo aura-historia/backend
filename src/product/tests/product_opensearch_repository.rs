@@ -77,6 +77,8 @@ async fn should_create_product_document() {
         restoration: None,
         created: OffsetDateTime::now_utc(),
         updated: OffsetDateTime::now_utc(),
+        auction_start: None,
+        auction_end: None,
     };
     let client = get_opensearch_client().await;
     let repository = ProductOpenSearchRepositoryImpl::new(client);
@@ -132,6 +134,8 @@ async fn should_create_product_documents() {
         restoration: None,
         created: OffsetDateTime::now_utc(),
         updated: OffsetDateTime::now_utc(),
+        auction_start: None,
+        auction_end: None,
     };
     let product_id2 = ProductId::new();
     let expected2 = ProductDocument {
@@ -172,6 +176,8 @@ async fn should_create_product_documents() {
         restoration: None,
         created: OffsetDateTime::now_utc(),
         updated: OffsetDateTime::now_utc(),
+        auction_start: None,
+        auction_end: None,
     };
     let client = get_opensearch_client().await;
     let repository = ProductOpenSearchRepositoryImpl::new(client);
@@ -229,6 +235,8 @@ async fn should_update_product_document() {
         restoration: None,
         created: OffsetDateTime::now_utc(),
         updated: OffsetDateTime::now_utc(),
+        auction_start: None,
+        auction_end: None,
     };
     let client = get_opensearch_client().await;
     let repository = ProductOpenSearchRepositoryImpl::new(client);
@@ -327,6 +335,8 @@ async fn should_search_product_documents() {
         restoration: None,
         created: OffsetDateTime::now_utc(),
         updated: OffsetDateTime::now_utc(),
+        auction_start: None,
+        auction_end: None,
     };
     let client = get_opensearch_client().await;
     let repository = ProductOpenSearchRepositoryImpl::new(client);
@@ -354,6 +364,8 @@ async fn should_search_product_documents() {
         restoration_query: Default::default(),
         created_query: None,
         updated_query: None,
+        auction_start_query: None,
+        auction_end_query: None,
     };
     let response = repository
         .search_product_documents(
@@ -418,6 +430,8 @@ async fn should_omit_descriptions_in_response_for_search_product_documents() {
         restoration: None,
         created: OffsetDateTime::now_utc(),
         updated: OffsetDateTime::now_utc(),
+        auction_start: None,
+        auction_end: None,
     };
     let client = get_opensearch_client().await;
     let repository = ProductOpenSearchRepositoryImpl::new(client);
@@ -445,6 +459,8 @@ async fn should_omit_descriptions_in_response_for_search_product_documents() {
         restoration_query: Default::default(),
         created_query: None,
         updated_query: None,
+        auction_start_query: None,
+        auction_end_query: None,
     };
     let response = repository
         .search_product_documents(
@@ -524,6 +540,8 @@ async fn should_search_product_documents_when_all_arguments_are_given() {
             min: Some(datetime!(1000-01-01 0:00 UTC)),
             max: Some(datetime!(3000-01-01 0:00 UTC)),
         }),
+        auction_start_query: None,
+        auction_end_query: None,
     };
     let sort = Sort {
         sort: SortProductField::Price,
@@ -580,6 +598,8 @@ async fn should_search_product_documents_when_states_are_given(#[case] states: &
         restoration_query: Default::default(),
         created_query: None,
         updated_query: None,
+        auction_start_query: None,
+        auction_end_query: None,
     };
     let response = repository
         .search_product_documents(
@@ -637,6 +657,8 @@ async fn should_search_product_documents_when_no_states_are_given() {
         restoration_query: Default::default(),
         created_query: None,
         updated_query: None,
+        auction_start_query: None,
+        auction_end_query: None,
     };
     let response = repository
         .search_product_documents(
@@ -717,6 +739,8 @@ async fn should_search_product_documents_when_price_range_is_given(
         restoration_query: Default::default(),
         created_query: None,
         updated_query: None,
+        auction_start_query: None,
+        auction_end_query: None,
     };
     let response = repository
         .search_product_documents(
@@ -799,6 +823,8 @@ async fn should_search_product_documents_respecting_paging_when_sorted_by_price(
         restoration_query: Default::default(),
         created_query: None,
         updated_query: None,
+        auction_start_query: None,
+        auction_end_query: None,
     };
     let response = repository
         .search_product_documents(
@@ -885,6 +911,8 @@ async fn should_search_product_documents_respecting_search_after_when_sorted_by_
         restoration_query: Default::default(),
         created_query: None,
         updated_query: None,
+        auction_start_query: None,
+        auction_end_query: None,
     };
     let response = repository
         .search_product_documents(
@@ -959,6 +987,8 @@ async fn should_get_product_document() {
         restoration: None,
         created: OffsetDateTime::now_utc(),
         updated: OffsetDateTime::now_utc(),
+        auction_start: None,
+        auction_end: None,
     };
     let client = get_opensearch_client().await;
     let repository = ProductOpenSearchRepositoryImpl::new(client);
@@ -2087,6 +2117,8 @@ async fn should_search_product_documents_when_exact_year_is_given_for_stored_exa
         restoration_query: Default::default(),
         created_query: None,
         updated_query: None,
+        auction_start_query: None,
+        auction_end_query: None,
     };
     let response = repository
         .search_product_documents(
@@ -2178,6 +2210,8 @@ async fn should_search_product_documents_when_only_min_year_is_given_for_stored_
         restoration_query: Default::default(),
         created_query: None,
         updated_query: None,
+        auction_start_query: None,
+        auction_end_query: None,
     };
     let response = repository
         .search_product_documents(
@@ -2269,6 +2303,8 @@ async fn should_search_product_documents_when_only_max_year_is_given_for_stored_
         restoration_query: Default::default(),
         created_query: None,
         updated_query: None,
+        auction_start_query: None,
+        auction_end_query: None,
     };
     let response = repository
         .search_product_documents(
@@ -2360,6 +2396,8 @@ async fn should_search_product_documents_when_min_and_max_year_is_given_for_stor
         restoration_query: Default::default(),
         created_query: None,
         updated_query: None,
+        auction_start_query: None,
+        auction_end_query: None,
     };
     let response = repository
         .search_product_documents(
@@ -2453,6 +2491,8 @@ async fn should_search_product_documents_when_only_min_year_is_given_for_stored_
         restoration_query: Default::default(),
         created_query: None,
         updated_query: None,
+        auction_start_query: None,
+        auction_end_query: None,
     };
     let response = repository
         .search_product_documents(
@@ -2544,6 +2584,8 @@ async fn should_search_product_documents_when_only_max_year_is_given_for_stored_
         restoration_query: Default::default(),
         created_query: None,
         updated_query: None,
+        auction_start_query: None,
+        auction_end_query: None,
     };
     let response = repository
         .search_product_documents(
@@ -2635,6 +2677,8 @@ async fn should_search_product_documents_when_min_and_max_year_is_given_for_stor
         restoration_query: Default::default(),
         created_query: None,
         updated_query: None,
+        auction_start_query: None,
+        auction_end_query: None,
     };
     let response = repository
         .search_product_documents(
@@ -2712,6 +2756,8 @@ async fn should_search_product_documents_when_authenticity_filter_is_given(
         restoration_query: Default::default(),
         created_query: None,
         updated_query: None,
+        auction_start_query: None,
+        auction_end_query: None,
     };
     let response = repository
         .search_product_documents(
@@ -2781,6 +2827,8 @@ async fn should_search_product_documents_when_condition_filter_is_given(
         restoration_query: Default::default(),
         created_query: None,
         updated_query: None,
+        auction_start_query: None,
+        auction_end_query: None,
     };
     let response = repository
         .search_product_documents(
@@ -2849,6 +2897,8 @@ async fn should_search_product_documents_when_provenance_filter_is_given(
         restoration_query: Default::default(),
         created_query: None,
         updated_query: None,
+        auction_start_query: None,
+        auction_end_query: None,
     };
     let response = repository
         .search_product_documents(
@@ -2916,6 +2966,8 @@ async fn should_search_product_documents_when_restoration_filter_is_given(
         restoration_query: AnyOfQuery::from(HashSet::from_iter(restorations.iter().copied())),
         created_query: None,
         updated_query: None,
+        auction_start_query: None,
+        auction_end_query: None,
     };
     let response = repository
         .search_product_documents(
@@ -2981,6 +3033,8 @@ async fn should_search_product_documents_when_shop_types_are_given(
         restoration_query: Default::default(),
         created_query: None,
         updated_query: None,
+        auction_start_query: None,
+        auction_end_query: None,
     };
     let response = repository
         .search_product_documents(
@@ -3003,3 +3057,252 @@ async fn should_search_product_documents_when_shop_types_are_given(
             .all(|hit| { shop_types.contains(&ShopType::from(hit.source.shop_type)) })
     );
 }
+
+#[rstest::rstest]
+#[trace]
+#[test_attr(apply(test))]
+#[case(RangeQuery { min: Some(datetime!(2026-01-01 0:00 UTC)), max: Some(datetime!(2026-01-31 23:59 UTC)) })]
+#[case(RangeQuery { min: Some(datetime!(2026-02-01 0:00 UTC)), max: None })]
+#[case(RangeQuery { min: None, max: Some(datetime!(2026-12-31 23:59 UTC)) })]
+#[localstack_test(services = [OpenSearch()])]
+async fn should_search_product_documents_when_auction_start_range_is_given(
+    #[case] auction_start_query: RangeQuery<OffsetDateTime>,
+) {
+    let early_auction_products = fake::vec![ProductDocument; 50]
+        .into_iter()
+        .map(|mut product| {
+            product.title_de = Some("Auction product".into());
+            product.auction_start = Some(datetime!(2026-01-15 10:00 UTC));
+            product.auction_end = Some(datetime!(2026-01-15 14:00 UTC));
+            product.description_de = None;
+            product.description_en = None;
+            product.description_fr = None;
+            product.description_es = None;
+            product
+        })
+        .collect::<Vec<_>>();
+    let late_auction_products = fake::vec![ProductDocument; 50]
+        .into_iter()
+        .map(|mut product| {
+            product.title_de = Some("Auction product".into());
+            product.auction_start = Some(datetime!(2026-06-20 10:00 UTC));
+            product.auction_end = Some(datetime!(2026-06-20 14:00 UTC));
+            product.description_de = None;
+            product.description_en = None;
+            product.description_fr = None;
+            product.description_es = None;
+            product
+        })
+        .collect::<Vec<_>>();
+    let no_auction_products = fake::vec![ProductDocument; 50]
+        .into_iter()
+        .map(|mut product| {
+            product.title_de = Some("Auction product".into());
+            product.auction_start = None;
+            product.auction_end = None;
+            product.description_de = None;
+            product.description_en = None;
+            product.description_fr = None;
+            product.description_es = None;
+            product
+        })
+        .collect::<Vec<_>>();
+    let products = [early_auction_products, late_auction_products, no_auction_products].concat();
+    let client = get_opensearch_client().await;
+    let repository = ProductOpenSearchRepositoryImpl::new(client);
+    let response = repository
+        .create_product_documents(products.clone())
+        .await
+        .unwrap();
+    assert!(!response.errors);
+    refresh_index("products").await;
+    tokio::time::sleep(Duration::from_millis(3000)).await;
+
+    let search_filter = ProductSearch {
+        language: Language::De,
+        currency: Currency::Eur,
+        product_query: "Auction product".try_into().unwrap(),
+        shop_name_query: None,
+        shop_type_query: Default::default(),
+        price_query: None,
+        state_query: Default::default(),
+        origin_year_query: None,
+        authenticity_query: Default::default(),
+        condition_query: Default::default(),
+        provenance_query: Default::default(),
+        restoration_query: Default::default(),
+        created_query: None,
+        updated_query: None,
+        auction_start_query: Some(auction_start_query),
+        auction_end_query: None,
+    };
+    let response = repository
+        .search_product_documents(
+            &search_filter,
+            &Sort {
+                sort: SortProductField::Score,
+                order: SortOrder::Desc,
+            },
+            &Some(Cursor {
+                size: 200,
+                search_after: None,
+            }),
+        )
+        .await
+        .unwrap();
+    let actual_items = response
+        .hits
+        .hits
+        .into_iter()
+        .map(|hit| hit.source)
+        .collect::<Vec<_>>();
+    let expected_products = products
+        .into_iter()
+        .filter(|product| {
+            if let Some(auction_start) = product.auction_start {
+                let mut filter = true;
+                if let Some(min) = auction_start_query.min {
+                    filter = filter && auction_start >= min;
+                }
+                if let Some(max) = auction_start_query.max {
+                    filter = filter && auction_start <= max;
+                }
+                filter
+            } else {
+                false
+            }
+        })
+        .collect::<Vec<_>>();
+
+    assert_eq!(expected_products.len(), actual_items.len());
+    assert!(
+        expected_products
+            .iter()
+            .all(|product| actual_items.contains(product))
+    );
+}
+
+#[rstest::rstest]
+#[trace]
+#[test_attr(apply(test))]
+#[case(RangeQuery { min: Some(datetime!(2026-01-01 0:00 UTC)), max: Some(datetime!(2026-01-31 23:59 UTC)) })]
+#[case(RangeQuery { min: Some(datetime!(2026-06-01 0:00 UTC)), max: None })]
+#[case(RangeQuery { min: None, max: Some(datetime!(2026-12-31 23:59 UTC)) })]
+#[localstack_test(services = [OpenSearch()])]
+async fn should_search_product_documents_when_auction_end_range_is_given(
+    #[case] auction_end_query: RangeQuery<OffsetDateTime>,
+) {
+    let early_auction_products = fake::vec![ProductDocument; 50]
+        .into_iter()
+        .map(|mut product| {
+            product.title_de = Some("Auction item".into());
+            product.auction_start = Some(datetime!(2026-01-15 10:00 UTC));
+            product.auction_end = Some(datetime!(2026-01-15 14:00 UTC));
+            product.description_de = None;
+            product.description_en = None;
+            product.description_fr = None;
+            product.description_es = None;
+            product
+        })
+        .collect::<Vec<_>>();
+    let late_auction_products = fake::vec![ProductDocument; 50]
+        .into_iter()
+        .map(|mut product| {
+            product.title_de = Some("Auction item".into());
+            product.auction_start = Some(datetime!(2026-06-20 10:00 UTC));
+            product.auction_end = Some(datetime!(2026-06-20 14:00 UTC));
+            product.description_de = None;
+            product.description_en = None;
+            product.description_fr = None;
+            product.description_es = None;
+            product
+        })
+        .collect::<Vec<_>>();
+    let no_auction_products = fake::vec![ProductDocument; 50]
+        .into_iter()
+        .map(|mut product| {
+            product.title_de = Some("Auction item".into());
+            product.auction_start = None;
+            product.auction_end = None;
+            product.description_de = None;
+            product.description_en = None;
+            product.description_fr = None;
+            product.description_es = None;
+            product
+        })
+        .collect::<Vec<_>>();
+    let products = [early_auction_products, late_auction_products, no_auction_products].concat();
+    let client = get_opensearch_client().await;
+    let repository = ProductOpenSearchRepositoryImpl::new(client);
+    let response = repository
+        .create_product_documents(products.clone())
+        .await
+        .unwrap();
+    assert!(!response.errors);
+    refresh_index("products").await;
+    tokio::time::sleep(Duration::from_millis(3000)).await;
+
+    let search_filter = ProductSearch {
+        language: Language::De,
+        currency: Currency::Eur,
+        product_query: "Auction item".try_into().unwrap(),
+        shop_name_query: None,
+        shop_type_query: Default::default(),
+        price_query: None,
+        state_query: Default::default(),
+        origin_year_query: None,
+        authenticity_query: Default::default(),
+        condition_query: Default::default(),
+        provenance_query: Default::default(),
+        restoration_query: Default::default(),
+        created_query: None,
+        updated_query: None,
+        auction_start_query: None,
+        auction_end_query: Some(auction_end_query),
+    };
+    let response = repository
+        .search_product_documents(
+            &search_filter,
+            &Sort {
+                sort: SortProductField::Score,
+                order: SortOrder::Desc,
+            },
+            &Some(Cursor {
+                size: 200,
+                search_after: None,
+            }),
+        )
+        .await
+        .unwrap();
+    let actual_items = response
+        .hits
+        .hits
+        .into_iter()
+        .map(|hit| hit.source)
+        .collect::<Vec<_>>();
+    let expected_products = products
+        .into_iter()
+        .filter(|product| {
+            if let Some(auction_end) = product.auction_end {
+                let mut filter = true;
+                if let Some(min) = auction_end_query.min {
+                    filter = filter && auction_end >= min;
+                }
+                if let Some(max) = auction_end_query.max {
+                    filter = filter && auction_end <= max;
+                }
+                filter
+            } else {
+                false
+            }
+        })
+        .collect::<Vec<_>>();
+
+    assert_eq!(expected_products.len(), actual_items.len());
+    assert!(
+        expected_products
+            .iter()
+            .all(|product| actual_items.contains(product))
+    );
+}
+

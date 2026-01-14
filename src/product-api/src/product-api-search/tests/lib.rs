@@ -97,6 +97,8 @@ async fn should_200_when_following_search_after_from_previous_response_for_sort_
         restoration_query: Default::default(),
         created_query: None,
         updated_query: None,
+        auction_start_query: None,
+        auction_end_query: None,
     };
 
     let mut products = fake::vec![ProductDocument; 1370];
@@ -236,6 +238,8 @@ async fn should_200_when_following_search_after_from_previous_response_for_sort_
         restoration_query: Default::default(),
         created_query: None,
         updated_query: None,
+        auction_start_query: None,
+        auction_end_query: None,
     };
 
     let mut products = fake::vec![ProductDocument; 1370];
@@ -380,6 +384,8 @@ async fn should_200_when_following_search_after_from_previous_response_for_impli
         restoration_query: Default::default(),
         created_query: None,
         updated_query: None,
+        auction_start_query: None,
+        auction_end_query: None,
     };
 
     let mut products = fake::vec![ProductDocument; 1370];
@@ -486,6 +492,8 @@ async fn should_200_when_following_search_after_from_previous_response_for_expli
         restoration_query: Default::default(),
         created_query: None,
         updated_query: None,
+        auction_start_query: None,
+        auction_end_query: None,
     };
 
     let mut products = fake::vec![ProductDocument; 1370];
@@ -596,6 +604,8 @@ async fn should_200_when_following_search_after_from_previous_response_for_sort_
         restoration_query: Default::default(),
         created_query: None,
         updated_query: None,
+        auction_start_query: None,
+        auction_end_query: None,
     };
 
     let mut products = fake::vec![ProductDocument; 1370];
@@ -719,6 +729,8 @@ async fn should_200_when_following_search_after_from_previous_response_for_sort_
         restoration_query: Default::default(),
         created_query: None,
         updated_query: None,
+        auction_start_query: None,
+        auction_end_query: None,
     };
 
     let mut products = fake::vec![ProductDocument; 1370];
@@ -852,6 +864,8 @@ async fn should_200_when_created_query(
         restoration_query: Default::default(),
         created_query: Some(created),
         updated_query: None,
+        auction_start_query: None,
+        auction_end_query: None,
     };
     let lambda_event = LambdaEvent {
         payload: ApiGatewayV2httpRequestProxy::builder()
@@ -945,6 +959,8 @@ async fn should_200_when_updated_query(
         restoration_query: Default::default(),
         created_query: None,
         updated_query: Some(updated),
+        auction_start_query: None,
+        auction_end_query: None,
     };
     let lambda_event = LambdaEvent {
         payload: ApiGatewayV2httpRequestProxy::builder()
@@ -1038,6 +1054,8 @@ async fn should_200_when_year_query(#[case] min: Option<Year>, #[case] max: Opti
         restoration_query: Default::default(),
         created_query: None,
         updated_query: None,
+        auction_start_query: None,
+        auction_end_query: None,
     };
     let lambda_event = LambdaEvent {
         payload: ApiGatewayV2httpRequestProxy::builder()
@@ -1132,6 +1150,8 @@ async fn should_200_when_authenticity_query(#[case] query: HashSet<AuthenticityD
         restoration_query: Default::default(),
         created_query: None,
         updated_query: None,
+        auction_start_query: None,
+        auction_end_query: None,
     };
     let lambda_event = LambdaEvent {
         payload: ApiGatewayV2httpRequestProxy::builder()
@@ -1217,6 +1237,8 @@ async fn should_200_when_condition_query(#[case] query: HashSet<ConditionData>) 
         restoration_query: Default::default(),
         created_query: None,
         updated_query: None,
+        auction_start_query: None,
+        auction_end_query: None,
     };
     let lambda_event = LambdaEvent {
         payload: ApiGatewayV2httpRequestProxy::builder()
@@ -1300,6 +1322,8 @@ async fn should_200_when_provenance_query(#[case] query: HashSet<ProvenanceData>
         restoration_query: Default::default(),
         created_query: None,
         updated_query: None,
+        auction_start_query: None,
+        auction_end_query: None,
     };
     let lambda_event = LambdaEvent {
         payload: ApiGatewayV2httpRequestProxy::builder()
@@ -1383,6 +1407,8 @@ async fn should_200_when_restoration_query(#[case] query: HashSet<RestorationDat
         restoration_query: query.clone(),
         created_query: None,
         updated_query: None,
+        auction_start_query: None,
+        auction_end_query: None,
     };
     let lambda_event = LambdaEvent {
         payload: ApiGatewayV2httpRequestProxy::builder()
@@ -1455,6 +1481,8 @@ async fn should_200_personalized_when_authenticated_and_not_watching() {
         restoration_query: Default::default(),
         created_query: None,
         updated_query: None,
+        auction_start_query: None,
+        auction_end_query: None,
     };
     let lambda_event = LambdaEvent {
         payload: ApiGatewayV2httpRequestProxy::builder()
@@ -1545,6 +1573,8 @@ async fn should_200_with_native_title_when_no_target_titles_exist_and_hit_due_to
                 restoration_query: Default::default(),
                 created_query: None,
                 updated_query: None,
+        auction_start_query: None,
+        auction_end_query: None,
             })
             .build(),
         context: Default::default(),
@@ -1660,6 +1690,8 @@ async fn should_respond_200_and_respect_accept_language_header(
                 restoration_query: Default::default(),
                 created_query: None,
                 updated_query: None,
+        auction_start_query: None,
+        auction_end_query: None,
             })
             .build(),
         context: Default::default(),
@@ -1720,6 +1752,8 @@ async fn should_200_when_shop_type_query(#[case] query: HashSet<ShopTypeData>) {
         restoration_query: Default::default(),
         created_query: None,
         updated_query: None,
+        auction_start_query: None,
+        auction_end_query: None,
     };
     let lambda_event = LambdaEvent {
         payload: ApiGatewayV2httpRequestProxy::builder()
@@ -1763,3 +1797,176 @@ async fn should_200_when_shop_type_query(#[case] query: HashSet<ShopTypeData>) {
             .all(|actual| query.contains(&actual))
     );
 }
+
+#[localstack_test(services = [OpenSearch(), DynamoDB()])]
+async fn should_200_when_auction_start_range_is_given() {
+    let ddb_client = get_dynamodb_client().await;
+    let watchlist_repository = WatchlistProductDynamoDbRepositoryImpl::new(ddb_client, "table_1");
+    let product_personalization_service =
+        ProductPersonalizationServiceImpl::new(&watchlist_repository);
+    let opensearch_repository = ProductOpenSearchRepositoryImpl::new(get_opensearch_client().await);
+    let query_service = QueryProductServiceImpl::new(&opensearch_repository);
+    let mut access_token_verifier_service = MockAccessTokenVerifierService::default();
+    access_token_verifier_service
+        .expect_verify_extract_user_id()
+        .returning(|_| Box::pin(async { Ok(None) }));
+
+    let search = ProductSearchData {
+        language: LanguageData::De,
+        currency: CurrencyData::Eur,
+        product_query: "Auction test product".try_into().unwrap(),
+        shop_name_query: None,
+        shop_type_query: Default::default(),
+        price_query: None,
+        state_query: Default::default(),
+        origin_year_query: None,
+        authenticity_query: Default::default(),
+        condition_query: Default::default(),
+        provenance_query: Default::default(),
+        restoration_query: Default::default(),
+        created_query: None,
+        updated_query: None,
+        auction_start_query: Some(RangeQuery {
+            min: Some(datetime!(2026-01-01 0:00 UTC)),
+            max: Some(datetime!(2026-03-31 23:59 UTC)),
+        }),
+        auction_end_query: None,
+    };
+
+    let mut early_products = fake::vec![ProductDocument; 30];
+    for product in &mut early_products {
+        product.title_de = Some("Auction test product".to_string());
+        product.auction_start = Some(datetime!(2026-02-15 10:00 UTC));
+        product.auction_end = Some(datetime!(2026-02-15 14:00 UTC));
+    }
+
+    let mut late_products = fake::vec![ProductDocument; 30];
+    for product in &mut late_products {
+        product.title_de = Some("Auction test product".to_string());
+        product.auction_start = Some(datetime!(2026-06-20 10:00 UTC));
+        product.auction_end = Some(datetime!(2026-06-20 14:00 UTC));
+    }
+
+    let all_products = [early_products.clone(), late_products].concat();
+    let create_res = opensearch_repository
+        .create_product_documents(all_products)
+        .await
+        .unwrap();
+    assert!(!create_res.errors);
+    refresh_index("products").await;
+    tokio::time::sleep(std::time::Duration::from_secs(5)).await;
+
+    let lambda_event = LambdaEvent {
+        payload: ApiGatewayV2httpRequestProxy::builder()
+            .http_method(http::Method::POST)
+            .body_serde(&search)
+            .build(),
+        context: Default::default(),
+    };
+
+    let response = handler(
+        lambda_event,
+        &query_service,
+        &access_token_verifier_service,
+        &product_personalization_service,
+    )
+    .await
+    .unwrap();
+    assert_eq!(200, response.status_code);
+
+    let json = extract_apigw_response_json_body!(response);
+    let response_data: JsonCursoredData<PersonalizedData<GetProductData, ProductUserStateData>> =
+        serde_json::from_value(json).unwrap();
+    assert_eq!(30, response_data.items.len());
+    assert!(response_data
+        .items
+        .iter()
+        .all(|item| item.item.auction_start.is_some()));
+}
+
+#[localstack_test(services = [OpenSearch(), DynamoDB()])]
+async fn should_200_when_auction_end_range_is_given() {
+    let ddb_client = get_dynamodb_client().await;
+    let watchlist_repository = WatchlistProductDynamoDbRepositoryImpl::new(ddb_client, "table_1");
+    let product_personalization_service =
+        ProductPersonalizationServiceImpl::new(&watchlist_repository);
+    let opensearch_repository = ProductOpenSearchRepositoryImpl::new(get_opensearch_client().await);
+    let query_service = QueryProductServiceImpl::new(&opensearch_repository);
+    let mut access_token_verifier_service = MockAccessTokenVerifierService::default();
+    access_token_verifier_service
+        .expect_verify_extract_user_id()
+        .returning(|_| Box::pin(async { Ok(None) }));
+
+    let search = ProductSearchData {
+        language: LanguageData::De,
+        currency: CurrencyData::Eur,
+        product_query: "Auction end test".try_into().unwrap(),
+        shop_name_query: None,
+        shop_type_query: Default::default(),
+        price_query: None,
+        state_query: Default::default(),
+        origin_year_query: None,
+        authenticity_query: Default::default(),
+        condition_query: Default::default(),
+        provenance_query: Default::default(),
+        restoration_query: Default::default(),
+        created_query: None,
+        updated_query: None,
+        auction_start_query: None,
+        auction_end_query: Some(RangeQuery {
+            min: None,
+            max: Some(datetime!(2026-02-28 23:59 UTC)),
+        }),
+    };
+
+    let mut early_products = fake::vec![ProductDocument; 25];
+    for product in &mut early_products {
+        product.title_de = Some("Auction end test".to_string());
+        product.auction_start = Some(datetime!(2026-01-15 10:00 UTC));
+        product.auction_end = Some(datetime!(2026-01-15 14:00 UTC));
+    }
+
+    let mut late_products = fake::vec![ProductDocument; 25];
+    for product in &mut late_products {
+        product.title_de = Some("Auction end test".to_string());
+        product.auction_start = Some(datetime!(2026-05-10 10:00 UTC));
+        product.auction_end = Some(datetime!(2026-05-10 14:00 UTC));
+    }
+
+    let all_products = [early_products.clone(), late_products].concat();
+    let create_res = opensearch_repository
+        .create_product_documents(all_products)
+        .await
+        .unwrap();
+    assert!(!create_res.errors);
+    refresh_index("products").await;
+    tokio::time::sleep(std::time::Duration::from_secs(5)).await;
+
+    let lambda_event = LambdaEvent {
+        payload: ApiGatewayV2httpRequestProxy::builder()
+            .http_method(http::Method::POST)
+            .body_serde(&search)
+            .build(),
+        context: Default::default(),
+    };
+
+    let response = handler(
+        lambda_event,
+        &query_service,
+        &access_token_verifier_service,
+        &product_personalization_service,
+    )
+    .await
+    .unwrap();
+    assert_eq!(200, response.status_code);
+
+    let json = extract_apigw_response_json_body!(response);
+    let response_data: JsonCursoredData<PersonalizedData<GetProductData, ProductUserStateData>> =
+        serde_json::from_value(json).unwrap();
+    assert_eq!(25, response_data.items.len());
+    assert!(response_data
+        .items
+        .iter()
+        .all(|item| item.item.auction_end.is_some()));
+}
+

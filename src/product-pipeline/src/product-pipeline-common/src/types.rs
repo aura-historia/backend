@@ -248,8 +248,6 @@ impl From<CompletedPipeProduct> for ProductUpdateDocument {
             restoration: completed_pipe_product
                 .restoration
                 .map(RestorationDocument::from),
-            auction_start: None,
-            auction_end: None,
             updated: OffsetDateTime::now_utc(),
         }
     }
