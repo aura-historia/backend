@@ -253,6 +253,9 @@ jobs:
         with:
           components: clippy, rustfmt, llvm-tools
 
+      - name: Add Cargo bin to PATH
+        run: echo "$HOME/.cargo/bin" >> $GITHUB_PATH
+
       - name: Install grcov
         run: cargo install grcov
 

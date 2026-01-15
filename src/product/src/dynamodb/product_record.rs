@@ -81,6 +81,36 @@ pub struct ProductRecord {
     #[serde(skip_serializing_if = "Option::is_none", default)]
     pub price_nzd: Option<u64>,
 
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub price_estimate_min_native: Option<PriceRecord>,
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub price_estimate_min_eur: Option<u64>,
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub price_estimate_min_usd: Option<u64>,
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub price_estimate_min_gbp: Option<u64>,
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub price_estimate_min_aud: Option<u64>,
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub price_estimate_min_cad: Option<u64>,
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub price_estimate_min_nzd: Option<u64>,
+
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub price_estimate_max_native: Option<PriceRecord>,
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub price_estimate_max_eur: Option<u64>,
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub price_estimate_max_usd: Option<u64>,
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub price_estimate_max_gbp: Option<u64>,
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub price_estimate_max_aud: Option<u64>,
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub price_estimate_max_cad: Option<u64>,
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub price_estimate_max_nzd: Option<u64>,
+
     pub state: ProductStateRecord,
     pub url: Url,
     #[serde(skip_serializing_if = "Vec::is_empty", default)]
@@ -177,6 +207,46 @@ impl From<ProductRecord> for Product {
             other_price.insert(Currency::Nzd, price_eur.into());
         }
 
+        let mut other_price_estimate_min = HashMap::with_capacity(2);
+        if let Some(price_eur) = record.price_estimate_min_eur {
+            other_price_estimate_min.insert(Currency::Eur, price_eur.into());
+        }
+        if let Some(price_eur) = record.price_estimate_min_gbp {
+            other_price_estimate_min.insert(Currency::Gbp, price_eur.into());
+        }
+        if let Some(price_eur) = record.price_estimate_min_usd {
+            other_price_estimate_min.insert(Currency::Usd, price_eur.into());
+        }
+        if let Some(price_eur) = record.price_estimate_min_aud {
+            other_price_estimate_min.insert(Currency::Aud, price_eur.into());
+        }
+        if let Some(price_eur) = record.price_estimate_min_cad {
+            other_price_estimate_min.insert(Currency::Cad, price_eur.into());
+        }
+        if let Some(price_eur) = record.price_estimate_min_nzd {
+            other_price_estimate_min.insert(Currency::Nzd, price_eur.into());
+        }
+
+        let mut other_price_estimate_max = HashMap::with_capacity(2);
+        if let Some(price_eur) = record.price_estimate_max_eur {
+            other_price_estimate_max.insert(Currency::Eur, price_eur.into());
+        }
+        if let Some(price_eur) = record.price_estimate_max_gbp {
+            other_price_estimate_max.insert(Currency::Gbp, price_eur.into());
+        }
+        if let Some(price_eur) = record.price_estimate_max_usd {
+            other_price_estimate_max.insert(Currency::Usd, price_eur.into());
+        }
+        if let Some(price_eur) = record.price_estimate_max_aud {
+            other_price_estimate_max.insert(Currency::Aud, price_eur.into());
+        }
+        if let Some(price_eur) = record.price_estimate_max_cad {
+            other_price_estimate_max.insert(Currency::Cad, price_eur.into());
+        }
+        if let Some(price_eur) = record.price_estimate_max_nzd {
+            other_price_estimate_max.insert(Currency::Nzd, price_eur.into());
+        }
+
         Product {
             product_id: record.product_id,
             event_id: record.event_id,
@@ -195,6 +265,10 @@ impl From<ProductRecord> for Product {
             other_description,
             native_price: record.price_native.map(Price::from),
             other_price,
+            native_price_estimate_min: record.price_estimate_min_native.map(Price::from),
+            other_price_estimate_min,
+            native_price_estimate_max: record.price_estimate_max_native.map(Price::from),
+            other_price_estimate_max,
             state: record.state.into(),
             url: record.url,
             images: record.images.into_iter().map(ProductImage::from).collect(),
@@ -253,6 +327,20 @@ impl TryFrom<ProductEventRecord> for ProductRecord {
             price_aud: event_record.new_price_aud,
             price_cad: event_record.new_price_cad,
             price_nzd: event_record.new_price_nzd,
+            price_estimate_min_native: event_record.new_price_estimate_min_native,
+            price_estimate_min_eur: event_record.new_price_estimate_min_eur,
+            price_estimate_min_usd: event_record.new_price_estimate_min_usd,
+            price_estimate_min_gbp: event_record.new_price_estimate_min_gbp,
+            price_estimate_min_aud: event_record.new_price_estimate_min_aud,
+            price_estimate_min_cad: event_record.new_price_estimate_min_cad,
+            price_estimate_min_nzd: event_record.new_price_estimate_min_nzd,
+            price_estimate_max_native: event_record.new_price_estimate_max_native,
+            price_estimate_max_eur: event_record.new_price_estimate_max_eur,
+            price_estimate_max_usd: event_record.new_price_estimate_max_usd,
+            price_estimate_max_gbp: event_record.new_price_estimate_max_gbp,
+            price_estimate_max_aud: event_record.new_price_estimate_max_aud,
+            price_estimate_max_cad: event_record.new_price_estimate_max_cad,
+            price_estimate_max_nzd: event_record.new_price_estimate_max_nzd,
             state: event_record.new_state.ok_or_else(|| {
                 MissingPersistenceField::new(field!(new_state@ProductEventRecord))
             })?,
@@ -334,6 +422,20 @@ mod faker {
                 price_aud: Some(config.fake_with_rng::<MonetaryAmount, _>(rng).into()),
                 price_cad: Some(config.fake_with_rng::<MonetaryAmount, _>(rng).into()),
                 price_nzd: Some(config.fake_with_rng::<MonetaryAmount, _>(rng).into()),
+                price_estimate_min_native: Some(config.fake_with_rng::<Price, _>(rng).into()),
+                price_estimate_min_eur: Some(config.fake_with_rng::<MonetaryAmount, _>(rng).into()),
+                price_estimate_min_usd: Some(config.fake_with_rng::<MonetaryAmount, _>(rng).into()),
+                price_estimate_min_gbp: Some(config.fake_with_rng::<MonetaryAmount, _>(rng).into()),
+                price_estimate_min_aud: Some(config.fake_with_rng::<MonetaryAmount, _>(rng).into()),
+                price_estimate_min_cad: Some(config.fake_with_rng::<MonetaryAmount, _>(rng).into()),
+                price_estimate_min_nzd: Some(config.fake_with_rng::<MonetaryAmount, _>(rng).into()),
+                price_estimate_max_native: Some(config.fake_with_rng::<Price, _>(rng).into()),
+                price_estimate_max_eur: Some(config.fake_with_rng::<MonetaryAmount, _>(rng).into()),
+                price_estimate_max_usd: Some(config.fake_with_rng::<MonetaryAmount, _>(rng).into()),
+                price_estimate_max_gbp: Some(config.fake_with_rng::<MonetaryAmount, _>(rng).into()),
+                price_estimate_max_aud: Some(config.fake_with_rng::<MonetaryAmount, _>(rng).into()),
+                price_estimate_max_cad: Some(config.fake_with_rng::<MonetaryAmount, _>(rng).into()),
+                price_estimate_max_nzd: Some(config.fake_with_rng::<MonetaryAmount, _>(rng).into()),
                 state,
                 url: Url::parse(&format!(
                     "https://foo.bar/item/{}",

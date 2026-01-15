@@ -184,6 +184,49 @@ pub fn localize_product_document(
             .price_nzd
             .map(|amount| Price::new(amount.into(), Currency::Nzd)),
     };
+
+    let price_estimate_min = match currency {
+        Currency::Eur => product_document
+            .price_estimate_min_eur
+            .map(|amount| Price::new(amount.into(), Currency::Eur)),
+        Currency::Gbp => product_document
+            .price_estimate_min_gbp
+            .map(|amount| Price::new(amount.into(), Currency::Gbp)),
+        Currency::Usd => product_document
+            .price_estimate_min_usd
+            .map(|amount| Price::new(amount.into(), Currency::Usd)),
+        Currency::Aud => product_document
+            .price_estimate_min_aud
+            .map(|amount| Price::new(amount.into(), Currency::Aud)),
+        Currency::Cad => product_document
+            .price_estimate_min_cad
+            .map(|amount| Price::new(amount.into(), Currency::Cad)),
+        Currency::Nzd => product_document
+            .price_estimate_min_nzd
+            .map(|amount| Price::new(amount.into(), Currency::Nzd)),
+    };
+
+    let price_estimate_max = match currency {
+        Currency::Eur => product_document
+            .price_estimate_max_eur
+            .map(|amount| Price::new(amount.into(), Currency::Eur)),
+        Currency::Gbp => product_document
+            .price_estimate_max_gbp
+            .map(|amount| Price::new(amount.into(), Currency::Gbp)),
+        Currency::Usd => product_document
+            .price_estimate_max_usd
+            .map(|amount| Price::new(amount.into(), Currency::Usd)),
+        Currency::Aud => product_document
+            .price_estimate_max_aud
+            .map(|amount| Price::new(amount.into(), Currency::Aud)),
+        Currency::Cad => product_document
+            .price_estimate_max_cad
+            .map(|amount| Price::new(amount.into(), Currency::Cad)),
+        Currency::Nzd => product_document
+            .price_estimate_max_nzd
+            .map(|amount| Price::new(amount.into(), Currency::Nzd)),
+    };
+
     let state = product_document.state.into();
 
     LocalizedProductView {
@@ -196,6 +239,8 @@ pub fn localize_product_document(
         title,
         description,
         price,
+        price_estimate_min,
+        price_estimate_max,
         state,
         url: product_document.url,
         images: product_document

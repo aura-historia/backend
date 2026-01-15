@@ -151,6 +151,8 @@ async fn should_materialize_product_in_dynamodb_for_update_product_command() {
         title: Faker.fake(),
         description: None,
         price: None,
+        price_estimate_min: Faker.fake(),
+        price_estimate_max: Faker.fake(),
         state: new_state,
         url: materialized_old.url,
         images: materialized_old
@@ -336,6 +338,8 @@ async fn should_materialize_product_in_opensearch_for_update_product_command() {
         title: Faker.fake(),
         description: None,
         price: None,
+        price_estimate_min: Faker.fake(),
+        price_estimate_max: Faker.fake(),
         state: new_state,
         url: materialized_ddb_old.url,
         images: materialized_ddb_old

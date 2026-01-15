@@ -245,19 +245,6 @@ impl<T: FxRate + Sync> UpsertProductsServiceImpl<'_, T> {
         create_chunk: Vec<UpsertProductCommand>,
     ) -> Vec<ProductEventRecord> {
         create_chunk.into_iter().map(|cmd| {
-            let other_price = cmd
-                .native_price
-                .as_ref()
-                .and_then(|price| {
-                    self.fx_rate
-                        .exchange_all(price.currency, price.monetary_amount)
-                        .map(Some)
-                        .unwrap_or_else(|err| {
-                            error!(error = %err, price = ?price, "Failed exchanging price for all other supported currencies.");
-                            None
-                        })
-                })
-                .unwrap_or_default();
             Product::create(
                 cmd.shop_id,
                 cmd.shops_product_id,
@@ -266,7 +253,11 @@ impl<T: FxRate + Sync> UpsertProductsServiceImpl<'_, T> {
                 cmd.native_title,
                 cmd.native_description,
                 cmd.native_price,
-                other_price,
+                cmd.other_price,
+                cmd.native_price_estimate_min,
+                cmd.other_price_estimate_min,
+                cmd.native_price_estimate_max,
+                cmd.other_price_estimate_max,
                 cmd.state,
                 cmd.url,
                 cmd.images,
@@ -378,6 +369,10 @@ pub mod tests {
             other_description: Default::default(),
             native_price: Some(Faker.fake()),
             other_price: Default::default(),
+            native_price_estimate_min: None,
+            other_price_estimate_min: Default::default(),
+            native_price_estimate_max: None,
+            other_price_estimate_max: Default::default(),
             state: product1.state,
             url: product1.clone().url,
             images: product1.clone().images,
@@ -397,6 +392,10 @@ pub mod tests {
             other_description: Default::default(),
             native_price: Some(Faker.fake()),
             other_price: Default::default(),
+            native_price_estimate_min: None,
+            other_price_estimate_min: Default::default(),
+            native_price_estimate_max: None,
+            other_price_estimate_max: Default::default(),
             state: if matches!(product2.state, ProductState::Available) {
                 ProductState::Removed
             } else {
@@ -430,6 +429,10 @@ pub mod tests {
             other_description: Default::default(),
             native_price: Some(Faker.fake()),
             other_price: Default::default(),
+            native_price_estimate_min: None,
+            other_price_estimate_min: Default::default(),
+            native_price_estimate_max: None,
+            other_price_estimate_max: Default::default(),
             state: product1.state,
             url: product1.clone().url,
             images: product1.clone().images,

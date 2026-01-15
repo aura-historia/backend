@@ -84,6 +84,42 @@
             "priceNze": {
                 "type": "unsigned_long"
             },
+            "priceEstimateMinEur": {
+                "type": "unsigned_long"
+            },
+            "priceEstimateMinUsd": {
+                "type": "unsigned_long"
+            },
+            "priceEstimateMinGbp": {
+                "type": "unsigned_long"
+            },
+            "priceEstimateMinAud": {
+                "type": "unsigned_long"
+            },
+            "priceEstimateMinCad": {
+                "type": "unsigned_long"
+            },
+            "priceEstimateMinNzd": {
+                "type": "unsigned_long"
+            },
+            "priceEstimateMaxEur": {
+                "type": "unsigned_long"
+            },
+            "priceEstimateMaxUsd": {
+                "type": "unsigned_long"
+            },
+            "priceEstimateMaxGbp": {
+                "type": "unsigned_long"
+            },
+            "priceEstimateMaxAud": {
+                "type": "unsigned_long"
+            },
+            "priceEstimateMaxCad": {
+                "type": "unsigned_long"
+            },
+            "priceEstimateMaxNzd": {
+                "type": "unsigned_long"
+            },
             "state": {
                 "type": "keyword"
             },

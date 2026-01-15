@@ -326,6 +326,48 @@ fn localize_product_record(
             .map(|amount| Price::new(amount.into(), Currency::Nzd)),
     };
 
+    let price_estimate_min = match currency {
+        Currency::Eur => product_record
+            .price_estimate_min_eur
+            .map(|amount| Price::new(amount.into(), Currency::Eur)),
+        Currency::Gbp => product_record
+            .price_estimate_min_gbp
+            .map(|amount| Price::new(amount.into(), Currency::Gbp)),
+        Currency::Usd => product_record
+            .price_estimate_min_usd
+            .map(|amount| Price::new(amount.into(), Currency::Usd)),
+        Currency::Aud => product_record
+            .price_estimate_min_aud
+            .map(|amount| Price::new(amount.into(), Currency::Aud)),
+        Currency::Cad => product_record
+            .price_estimate_min_cad
+            .map(|amount| Price::new(amount.into(), Currency::Cad)),
+        Currency::Nzd => product_record
+            .price_estimate_min_nzd
+            .map(|amount| Price::new(amount.into(), Currency::Nzd)),
+    };
+
+    let price_estimate_max = match currency {
+        Currency::Eur => product_record
+            .price_estimate_max_eur
+            .map(|amount| Price::new(amount.into(), Currency::Eur)),
+        Currency::Gbp => product_record
+            .price_estimate_max_gbp
+            .map(|amount| Price::new(amount.into(), Currency::Gbp)),
+        Currency::Usd => product_record
+            .price_estimate_max_usd
+            .map(|amount| Price::new(amount.into(), Currency::Usd)),
+        Currency::Aud => product_record
+            .price_estimate_max_aud
+            .map(|amount| Price::new(amount.into(), Currency::Aud)),
+        Currency::Cad => product_record
+            .price_estimate_max_cad
+            .map(|amount| Price::new(amount.into(), Currency::Cad)),
+        Currency::Nzd => product_record
+            .price_estimate_max_nzd
+            .map(|amount| Price::new(amount.into(), Currency::Nzd)),
+    };
+
     LocalizedProductView {
         product_id: product_record.product_id,
         event_id: product_record.event_id,
@@ -336,6 +378,8 @@ fn localize_product_record(
         title,
         description,
         price,
+        price_estimate_min,
+        price_estimate_max,
         state: product_record.state.into(),
         url: product_record.url,
         images: product_record
