@@ -175,7 +175,11 @@ impl<'a, T: FxRate + Sync> ProductCommandEnrichmentService
                 })
                 .unwrap_or_else(|| Ok(HashMap::default()));
 
-            match (other_price_res, other_price_estimate_min_res, other_price_estimate_max_res) {
+            match (
+                other_price_res,
+                other_price_estimate_min_res,
+                other_price_estimate_max_res,
+            ) {
                 (Ok(other_price), Ok(other_price_estimate_min), Ok(other_price_estimate_max)) => {
                     cmd.other_price = other_price;
                     cmd.other_price_estimate_min = other_price_estimate_min;

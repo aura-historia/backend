@@ -348,6 +348,20 @@ mod faker {
                     .exchange_all(price.currency, price.monetary_amount)
                     .unwrap(),
             };
+            let native_price_estimate_min: Option<Price> = config.fake_with_rng(rng);
+            let other_price_estimate_min = match native_price_estimate_min {
+                None => HashMap::new(),
+                Some(price) => FixedFxRate()
+                    .exchange_all(price.currency, price.monetary_amount)
+                    .unwrap(),
+            };
+            let native_price_estimate_max: Option<Price> = config.fake_with_rng(rng);
+            let other_price_estimate_max = match native_price_estimate_max {
+                None => HashMap::new(),
+                Some(price) => FixedFxRate()
+                    .exchange_all(price.currency, price.monetary_amount)
+                    .unwrap(),
+            };
             let state = config.fake_with_rng(rng);
             ProductCreatedEventPayload {
                 shop_id: config.fake_with_rng(rng),
@@ -358,6 +372,10 @@ mod faker {
                 native_description: config.fake_with_rng(rng),
                 native_price,
                 other_price,
+                native_price_estimate_min,
+                other_price_estimate_min,
+                native_price_estimate_max,
+                other_price_estimate_max,
                 state,
                 url: Url::parse(&format!(
                     "https://foo.bar/item/{}",

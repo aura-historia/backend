@@ -239,6 +239,20 @@ async fn should_put_product_event_records_for_single_record() {
         auction_end: None,
         timestamp: now,
         new_price_nzd: None,
+        new_price_estimate_min_native: None,
+        new_price_estimate_min_eur: None,
+        new_price_estimate_min_usd: None,
+        new_price_estimate_min_gbp: None,
+        new_price_estimate_min_aud: None,
+        new_price_estimate_min_cad: None,
+        new_price_estimate_min_nzd: None,
+        new_price_estimate_max_native: None,
+        new_price_estimate_max_eur: None,
+        new_price_estimate_max_usd: None,
+        new_price_estimate_max_gbp: None,
+        new_price_estimate_max_aud: None,
+        new_price_estimate_max_cad: None,
+        new_price_estimate_max_nzd: None,
     };
 
     get_repository()
@@ -315,6 +329,20 @@ async fn should_put_product_event_records_for_multiple_records() {
         auction_end: None,
         timestamp: now1,
         new_price_nzd: None,
+        new_price_estimate_min_native: None,
+        new_price_estimate_min_eur: None,
+        new_price_estimate_min_usd: None,
+        new_price_estimate_min_gbp: None,
+        new_price_estimate_min_aud: None,
+        new_price_estimate_min_cad: None,
+        new_price_estimate_min_nzd: None,
+        new_price_estimate_max_native: None,
+        new_price_estimate_max_eur: None,
+        new_price_estimate_max_usd: None,
+        new_price_estimate_max_gbp: None,
+        new_price_estimate_max_aud: None,
+        new_price_estimate_max_cad: None,
+        new_price_estimate_max_nzd: None,
     };
 
     let now2 = OffsetDateTime::now_utc();
@@ -361,6 +389,20 @@ async fn should_put_product_event_records_for_multiple_records() {
         auction_start: None,
         auction_end: None,
         timestamp: now2,
+        new_price_estimate_min_native: None,
+        new_price_estimate_min_eur: None,
+        new_price_estimate_min_usd: None,
+        new_price_estimate_min_gbp: None,
+        new_price_estimate_min_aud: None,
+        new_price_estimate_min_cad: None,
+        new_price_estimate_min_nzd: None,
+        new_price_estimate_max_native: None,
+        new_price_estimate_max_eur: None,
+        new_price_estimate_max_usd: None,
+        new_price_estimate_max_gbp: None,
+        new_price_estimate_max_aud: None,
+        new_price_estimate_max_cad: None,
+        new_price_estimate_max_nzd: None,
     };
 
     get_repository()

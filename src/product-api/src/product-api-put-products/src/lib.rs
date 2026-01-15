@@ -200,6 +200,10 @@ fn put_product_data_to_command(data: PutProductData) -> PipedProductCommand {
         other_description: Default::default(),
         native_price: data.price.map(Price::from),
         other_price: Default::default(),
+        native_price_estimate_min: data.price_estimate_min.map(Price::from),
+        other_price_estimate_min: Default::default(),
+        native_price_estimate_max: data.price_estimate_max.map(Price::from),
+        other_price_estimate_max: Default::default(),
         state: data.state.into(),
         url: data.url,
         images: data

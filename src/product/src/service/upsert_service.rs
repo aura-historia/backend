@@ -408,6 +408,10 @@ pub mod tests {
             other_description: Default::default(),
             native_price: Some(Faker.fake()),
             other_price: Default::default(),
+            native_price_estimate_min: None,
+            other_price_estimate_min: Default::default(),
+            native_price_estimate_max: None,
+            other_price_estimate_max: Default::default(),
             state: product1.state,
             url: product1.clone().url,
             images: product1.clone().images,
@@ -427,6 +431,10 @@ pub mod tests {
             other_description: Default::default(),
             native_price: Some(Faker.fake()),
             other_price: Default::default(),
+            native_price_estimate_min: None,
+            other_price_estimate_min: Default::default(),
+            native_price_estimate_max: None,
+            other_price_estimate_max: Default::default(),
             state: if matches!(product2.state, ProductState::Available) {
                 ProductState::Removed
             } else {
@@ -460,6 +468,10 @@ pub mod tests {
             other_description: Default::default(),
             native_price: Some(Faker.fake()),
             other_price: Default::default(),
+            native_price_estimate_min: None,
+            other_price_estimate_min: Default::default(),
+            native_price_estimate_max: None,
+            other_price_estimate_max: Default::default(),
             state: product1.state,
             url: product1.clone().url,
             images: product1.clone().images,
