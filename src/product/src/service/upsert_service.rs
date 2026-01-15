@@ -258,6 +258,32 @@ impl<T: FxRate + Sync> UpsertProductsServiceImpl<'_, T> {
                         })
                 })
                 .unwrap_or_default();
+            let other_price_estimate_min = cmd
+                .native_price_estimate_min
+                .as_ref()
+                .and_then(|price| {
+                    self.fx_rate
+                        .exchange_all(price.currency, price.monetary_amount)
+                        .map(Some)
+                        .unwrap_or_else(|err| {
+                            error!(error = %err, price = ?price, "Failed exchanging price estimate min for all other supported currencies.");
+                            None
+                        })
+                })
+                .unwrap_or_default();
+            let other_price_estimate_max = cmd
+                .native_price_estimate_max
+                .as_ref()
+                .and_then(|price| {
+                    self.fx_rate
+                        .exchange_all(price.currency, price.monetary_amount)
+                        .map(Some)
+                        .unwrap_or_else(|err| {
+                            error!(error = %err, price = ?price, "Failed exchanging price estimate max for all other supported currencies.");
+                            None
+                        })
+                })
+                .unwrap_or_default();
             Product::create(
                 cmd.shop_id,
                 cmd.shops_product_id,
@@ -267,6 +293,10 @@ impl<T: FxRate + Sync> UpsertProductsServiceImpl<'_, T> {
                 cmd.native_description,
                 cmd.native_price,
                 other_price,
+                cmd.native_price_estimate_min,
+                other_price_estimate_min,
+                cmd.native_price_estimate_max,
+                other_price_estimate_max,
                 cmd.state,
                 cmd.url,
                 cmd.images,

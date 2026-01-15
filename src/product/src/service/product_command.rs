@@ -30,6 +30,10 @@ pub struct UpsertProductCommand {
     pub other_description: HashMap<Language, Description>,
     pub native_price: Option<Price>,
     pub other_price: HashMap<Currency, MonetaryAmount>,
+    pub native_price_estimate_min: Option<Price>,
+    pub other_price_estimate_min: HashMap<Currency, MonetaryAmount>,
+    pub native_price_estimate_max: Option<Price>,
+    pub other_price_estimate_max: HashMap<Currency, MonetaryAmount>,
     pub state: ProductState,
     pub url: Url,
     pub images: Vec<ProductImage>,
@@ -60,6 +64,10 @@ pub struct PipedProductCommand {
     pub other_description: HashMap<Language, Description>,
     pub native_price: Option<Price>,
     pub other_price: HashMap<Currency, MonetaryAmount>,
+    pub native_price_estimate_min: Option<Price>,
+    pub other_price_estimate_min: HashMap<Currency, MonetaryAmount>,
+    pub native_price_estimate_max: Option<Price>,
+    pub other_price_estimate_max: HashMap<Currency, MonetaryAmount>,
     pub state: ProductState,
     pub url: Url,
     pub images: Vec<ProductImage>,
@@ -88,6 +96,10 @@ impl TryFrom<PipedProductCommand> for UpsertProductCommand {
             other_description: piped_cmd.other_description,
             native_price: piped_cmd.native_price,
             other_price: piped_cmd.other_price,
+            native_price_estimate_min: piped_cmd.native_price_estimate_min,
+            other_price_estimate_min: piped_cmd.other_price_estimate_min,
+            native_price_estimate_max: piped_cmd.native_price_estimate_max,
+            other_price_estimate_max: piped_cmd.other_price_estimate_max,
             state: piped_cmd.state,
             url: piped_cmd.url,
             images: piped_cmd.images,
@@ -113,6 +125,20 @@ mod faker {
                     .unwrap()
             });
 
+            let native_price_estimate_min = config.fake_with_rng::<Option<Price>, R>(rng);
+            let other_price_estimate_min = native_price_estimate_min.map(|price| {
+                FixedFxRate()
+                    .exchange_all(price.currency, price.monetary_amount)
+                    .unwrap()
+            });
+
+            let native_price_estimate_max = config.fake_with_rng::<Option<Price>, R>(rng);
+            let other_price_estimate_max = native_price_estimate_max.map(|price| {
+                FixedFxRate()
+                    .exchange_all(price.currency, price.monetary_amount)
+                    .unwrap()
+            });
+
             UpsertProductCommand {
                 shop_id: config.fake_with_rng(rng),
                 shops_product_id: config.fake_with_rng(rng),
@@ -124,6 +150,10 @@ mod faker {
                 other_description: config.fake_with_rng(rng),
                 native_price,
                 other_price: other_price.unwrap_or_default(),
+                native_price_estimate_min,
+                other_price_estimate_min: other_price_estimate_min.unwrap_or_default(),
+                native_price_estimate_max,
+                other_price_estimate_max: other_price_estimate_max.unwrap_or_default(),
                 state: config.fake_with_rng(rng),
                 url: Url::parse("https://www.youtube.com/watch?v=dQw4w9WgXcQ").unwrap(),
                 images: Faker.fake(),

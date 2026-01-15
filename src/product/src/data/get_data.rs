@@ -42,6 +42,12 @@ pub struct GetProductData {
     #[serde(skip_serializing_if = "Option::is_none", default)]
     pub price: Option<PriceData>,
 
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub price_estimate_min: Option<PriceData>,
+
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub price_estimate_max: Option<PriceData>,
+
     pub state: ProductStateData,
 
     pub url: Url,
@@ -111,6 +117,8 @@ impl From<LocalizedProductView> for GetProductData {
             title: product_view.title.into(),
             description: product_view.description.map(LocalizedTextData::from),
             price: product_view.price.map(PriceData::from),
+            price_estimate_min: product_view.price_estimate_min.map(PriceData::from),
+            price_estimate_max: product_view.price_estimate_max.map(PriceData::from),
             state: product_view.state.into(),
             url: product_view.url,
             images: product_view

@@ -156,12 +156,33 @@ impl<'a, T: FxRate + Sync> ProductCommandEnrichmentService
                         .exchange_all(price.currency, price.monetary_amount)
                 })
                 .unwrap_or_else(|| Ok(HashMap::default()));
-            match other_price_res {
-                Ok(other_price) => {
+
+            let other_price_estimate_min_res = cmd
+                .native_price_estimate_min
+                .as_ref()
+                .map(|price| {
+                    self.fx_rate
+                        .exchange_all(price.currency, price.monetary_amount)
+                })
+                .unwrap_or_else(|| Ok(HashMap::default()));
+
+            let other_price_estimate_max_res = cmd
+                .native_price_estimate_max
+                .as_ref()
+                .map(|price| {
+                    self.fx_rate
+                        .exchange_all(price.currency, price.monetary_amount)
+                })
+                .unwrap_or_else(|| Ok(HashMap::default()));
+
+            match (other_price_res, other_price_estimate_min_res, other_price_estimate_max_res) {
+                (Ok(other_price), Ok(other_price_estimate_min), Ok(other_price_estimate_max)) => {
                     cmd.other_price = other_price;
+                    cmd.other_price_estimate_min = other_price_estimate_min;
+                    cmd.other_price_estimate_max = other_price_estimate_max;
                     output.enriched.push(cmd);
                 }
-                Err(err) => {
+                (Err(err), _, _) | (_, Err(err), _) | (_, _, Err(err)) => {
                     output
                         .failed
                         .push((cmd, EnrichProductCommandError::from(err)));
@@ -190,6 +211,20 @@ mod faker {
                     .exchange_all(price.currency, price.monetary_amount)
                     .unwrap(),
             };
+            let native_price_estimate_min: Option<Price> = config.fake_with_rng(rng);
+            let other_price_estimate_min = match native_price_estimate_min {
+                None => HashMap::new(),
+                Some(price) => FixedFxRate()
+                    .exchange_all(price.currency, price.monetary_amount)
+                    .unwrap(),
+            };
+            let native_price_estimate_max: Option<Price> = config.fake_with_rng(rng);
+            let other_price_estimate_max = match native_price_estimate_max {
+                None => HashMap::new(),
+                Some(price) => FixedFxRate()
+                    .exchange_all(price.currency, price.monetary_amount)
+                    .unwrap(),
+            };
             let state = config.fake_with_rng(rng);
             PipedProductCommand {
                 shop_id: config.fake_with_rng(rng),
@@ -202,6 +237,10 @@ mod faker {
                 other_description: config.fake_with_rng(rng),
                 native_price,
                 other_price,
+                native_price_estimate_min,
+                other_price_estimate_min,
+                native_price_estimate_max,
+                other_price_estimate_max,
                 state,
                 url: Url::parse(&format!(
                     "https://foo.bar/item/{}",
