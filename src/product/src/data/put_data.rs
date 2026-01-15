@@ -19,6 +19,12 @@ pub struct PutProductData {
     #[serde(skip_serializing_if = "Option::is_none", default)]
     pub price: Option<PriceData>,
 
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub price_estimate_min: Option<PriceData>,
+
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub price_estimate_max: Option<PriceData>,
+
     pub state: ProductStateData,
 
     pub url: Url,
@@ -74,6 +80,8 @@ mod faker {
                     None
                 },
                 price: config.fake_with_rng(rng),
+                price_estimate_min: config.fake_with_rng(rng),
+                price_estimate_max: config.fake_with_rng(rng),
                 state: config.fake_with_rng(rng),
                 url: config
                     .fake_with_rng::<Url, R>(rng)

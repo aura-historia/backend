@@ -84,6 +84,36 @@ pub struct ProductEventRecord {
     pub new_price_nzd: Option<u64>,
 
     #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub new_price_estimate_min_native: Option<PriceRecord>,
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub new_price_estimate_min_eur: Option<u64>,
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub new_price_estimate_min_usd: Option<u64>,
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub new_price_estimate_min_gbp: Option<u64>,
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub new_price_estimate_min_aud: Option<u64>,
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub new_price_estimate_min_cad: Option<u64>,
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub new_price_estimate_min_nzd: Option<u64>,
+
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub new_price_estimate_max_native: Option<PriceRecord>,
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub new_price_estimate_max_eur: Option<u64>,
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub new_price_estimate_max_usd: Option<u64>,
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub new_price_estimate_max_gbp: Option<u64>,
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub new_price_estimate_max_aud: Option<u64>,
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub new_price_estimate_max_cad: Option<u64>,
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub new_price_estimate_max_nzd: Option<u64>,
+
+    #[serde(skip_serializing_if = "Option::is_none", default)]
     pub old_price_native: Option<PriceRecord>,
     #[serde(skip_serializing_if = "Option::is_none", default)]
     pub old_price_eur: Option<u64>,
@@ -276,6 +306,68 @@ impl TryFrom<ProductEvent> for ProductEventRecord {
                         .get(&Currency::Nzd)
                         .copied()
                         .map(u64::from),
+                    new_price_estimate_min_native: payload.native_price_estimate_min.map(PriceRecord::from),
+                    new_price_estimate_min_eur: payload
+                        .other_price_estimate_min
+                        .get(&Currency::Eur)
+                        .copied()
+                        .map(u64::from),
+                    new_price_estimate_min_usd: payload
+                        .other_price_estimate_min
+                        .get(&Currency::Usd)
+                        .copied()
+                        .map(u64::from),
+                    new_price_estimate_min_gbp: payload
+                        .other_price_estimate_min
+                        .get(&Currency::Gbp)
+                        .copied()
+                        .map(u64::from),
+                    new_price_estimate_min_aud: payload
+                        .other_price_estimate_min
+                        .get(&Currency::Aud)
+                        .copied()
+                        .map(u64::from),
+                    new_price_estimate_min_cad: payload
+                        .other_price_estimate_min
+                        .get(&Currency::Cad)
+                        .copied()
+                        .map(u64::from),
+                    new_price_estimate_min_nzd: payload
+                        .other_price_estimate_min
+                        .get(&Currency::Nzd)
+                        .copied()
+                        .map(u64::from),
+                    new_price_estimate_max_native: payload.native_price_estimate_max.map(PriceRecord::from),
+                    new_price_estimate_max_eur: payload
+                        .other_price_estimate_max
+                        .get(&Currency::Eur)
+                        .copied()
+                        .map(u64::from),
+                    new_price_estimate_max_usd: payload
+                        .other_price_estimate_max
+                        .get(&Currency::Usd)
+                        .copied()
+                        .map(u64::from),
+                    new_price_estimate_max_gbp: payload
+                        .other_price_estimate_max
+                        .get(&Currency::Gbp)
+                        .copied()
+                        .map(u64::from),
+                    new_price_estimate_max_aud: payload
+                        .other_price_estimate_max
+                        .get(&Currency::Aud)
+                        .copied()
+                        .map(u64::from),
+                    new_price_estimate_max_cad: payload
+                        .other_price_estimate_max
+                        .get(&Currency::Cad)
+                        .copied()
+                        .map(u64::from),
+                    new_price_estimate_max_nzd: payload
+                        .other_price_estimate_max
+                        .get(&Currency::Nzd)
+                        .copied()
+                        .map(u64::from),
                     old_price_native: None,
                     old_price_eur: None,
                     old_price_usd: None,
@@ -423,6 +515,20 @@ impl TryFrom<ProductEvent> for ProductEventRecord {
                     .get(&Currency::Nzd)
                     .copied()
                     .map(u64::from),
+                new_price_estimate_min_native: None,
+                new_price_estimate_min_eur: None,
+                new_price_estimate_min_usd: None,
+                new_price_estimate_min_gbp: None,
+                new_price_estimate_min_aud: None,
+                new_price_estimate_min_cad: None,
+                new_price_estimate_min_nzd: None,
+                new_price_estimate_max_native: None,
+                new_price_estimate_max_eur: None,
+                new_price_estimate_max_usd: None,
+                new_price_estimate_max_gbp: None,
+                new_price_estimate_max_aud: None,
+                new_price_estimate_max_cad: None,
+                new_price_estimate_max_nzd: None,
                 old_price_native: None,
                 old_price_eur: None,
                 old_price_usd: None,
@@ -488,6 +594,20 @@ impl TryFrom<ProductEvent> for ProductEventRecord {
                 new_price_aud: None,
                 new_price_cad: None,
                 new_price_nzd: None,
+                new_price_estimate_min_native: None,
+                new_price_estimate_min_eur: None,
+                new_price_estimate_min_usd: None,
+                new_price_estimate_min_gbp: None,
+                new_price_estimate_min_aud: None,
+                new_price_estimate_min_cad: None,
+                new_price_estimate_min_nzd: None,
+                new_price_estimate_max_native: None,
+                new_price_estimate_max_eur: None,
+                new_price_estimate_max_usd: None,
+                new_price_estimate_max_gbp: None,
+                new_price_estimate_max_aud: None,
+                new_price_estimate_max_cad: None,
+                new_price_estimate_max_nzd: None,
                 old_price_native: Some(payload.old_native_price.into()),
                 old_price_eur: payload
                     .old_other_price
@@ -572,6 +692,20 @@ fn mk_state_event_record(
         new_price_aud: None,
         new_price_cad: None,
         new_price_nzd: None,
+        new_price_estimate_min_native: None,
+        new_price_estimate_min_eur: None,
+        new_price_estimate_min_usd: None,
+        new_price_estimate_min_gbp: None,
+        new_price_estimate_min_aud: None,
+        new_price_estimate_min_cad: None,
+        new_price_estimate_min_nzd: None,
+        new_price_estimate_max_native: None,
+        new_price_estimate_max_eur: None,
+        new_price_estimate_max_usd: None,
+        new_price_estimate_max_gbp: None,
+        new_price_estimate_max_aud: None,
+        new_price_estimate_max_cad: None,
+        new_price_estimate_max_nzd: None,
         old_price_native: None,
         old_price_eur: None,
         old_price_usd: None,
@@ -653,6 +787,20 @@ fn mk_price_change_event_record(
             .get(&Currency::Nzd)
             .copied()
             .map(u64::from),
+        new_price_estimate_min_native: None,
+        new_price_estimate_min_eur: None,
+        new_price_estimate_min_usd: None,
+        new_price_estimate_min_gbp: None,
+        new_price_estimate_min_aud: None,
+        new_price_estimate_min_cad: None,
+        new_price_estimate_min_nzd: None,
+        new_price_estimate_max_native: None,
+        new_price_estimate_max_eur: None,
+        new_price_estimate_max_usd: None,
+        new_price_estimate_max_gbp: None,
+        new_price_estimate_max_aud: None,
+        new_price_estimate_max_cad: None,
+        new_price_estimate_max_nzd: None,
         old_price_native: Some(product_price_change_event_payload.old_native_price.into()),
         old_price_eur: product_price_change_event_payload
             .old_other_price

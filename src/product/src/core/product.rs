@@ -42,6 +42,10 @@ pub struct Product {
     pub other_description: HashMap<Language, Description>,
     pub native_price: Option<Price>,
     pub other_price: HashMap<Currency, MonetaryAmount>,
+    pub native_price_estimate_min: Option<Price>,
+    pub other_price_estimate_min: HashMap<Currency, MonetaryAmount>,
+    pub native_price_estimate_max: Option<Price>,
+    pub other_price_estimate_max: HashMap<Currency, MonetaryAmount>,
     pub state: ProductState,
     pub url: Url,
     pub images: Vec<ProductImage>,
@@ -67,6 +71,10 @@ impl Product {
         native_description: Option<Localized<Language, Description>>,
         native_price: Option<Price>,
         other_price: HashMap<Currency, MonetaryAmount>,
+        native_price_estimate_min: Option<Price>,
+        other_price_estimate_min: HashMap<Currency, MonetaryAmount>,
+        native_price_estimate_max: Option<Price>,
+        other_price_estimate_max: HashMap<Currency, MonetaryAmount>,
         state: ProductState,
         url: Url,
         images: Vec<ProductImage>,
@@ -82,6 +90,10 @@ impl Product {
             native_description,
             native_price,
             other_price,
+            native_price_estimate_min,
+            other_price_estimate_min,
+            native_price_estimate_max,
+            other_price_estimate_max,
             state,
             url,
             images,
@@ -249,6 +261,8 @@ pub struct LocalizedProductView {
     pub title: Localized<Language, Title>,
     pub description: Option<Localized<Language, Description>>,
     pub price: Option<Price>,
+    pub price_estimate_min: Option<Price>,
+    pub price_estimate_max: Option<Price>,
     pub state: ProductState,
     pub url: Url,
     pub images: Vec<ProductImage>,
@@ -279,6 +293,20 @@ mod faker {
                     .exchange_all(price.currency, price.monetary_amount)
                     .unwrap(),
             };
+            let native_price_estimate_min: Option<Price> = config.fake_with_rng(rng);
+            let other_price_estimate_min = match native_price_estimate_min {
+                None => HashMap::new(),
+                Some(price) => FixedFxRate()
+                    .exchange_all(price.currency, price.monetary_amount)
+                    .unwrap(),
+            };
+            let native_price_estimate_max: Option<Price> = config.fake_with_rng(rng);
+            let other_price_estimate_max = match native_price_estimate_max {
+                None => HashMap::new(),
+                Some(price) => FixedFxRate()
+                    .exchange_all(price.currency, price.monetary_amount)
+                    .unwrap(),
+            };
             let state = config.fake_with_rng(rng);
             Product {
                 product_id: config.fake_with_rng(rng),
@@ -293,6 +321,10 @@ mod faker {
                 other_description: config.fake_with_rng(rng),
                 native_price,
                 other_price,
+                native_price_estimate_min,
+                other_price_estimate_min,
+                native_price_estimate_max,
+                other_price_estimate_max,
                 state,
                 url: Url::parse(&format!(
                     "https://foo.bar/item/{}",
@@ -333,6 +365,8 @@ mod faker {
                 title: config.fake_with_rng(rng),
                 description: config.fake_with_rng(rng),
                 price: config.fake_with_rng(rng),
+                price_estimate_min: config.fake_with_rng(rng),
+                price_estimate_max: config.fake_with_rng(rng),
                 state: config.fake_with_rng(rng),
                 url: Url::parse(&format!(
                     "https://foo.bar/item/{}",
