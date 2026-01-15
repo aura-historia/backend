@@ -213,8 +213,8 @@ mod tests {
             title: LocalizedTextData::new("Mein titel", LanguageData::De),
             description: Some(LocalizedTextData::new("My description", LanguageData::En)),
             price: Some(PriceData::new(CurrencyData::Eur, 50000)),
-            price_estimate_min: None,
-            price_estimate_max: None,
+            price_estimate_min: Some(PriceData::new(CurrencyData::Eur, 42)),
+            price_estimate_max: Some(PriceData::new(CurrencyData::Eur, 69)),
             state: ProductStateData::Reserved,
             url: Url::parse("https://my-shop.de/item").unwrap(),
             images: vec![
@@ -288,6 +288,14 @@ mod tests {
             "price": {
                 "currency": "EUR",
                 "amount": 50000
+            },
+            "priceEstimateMin": {
+                "currency": "EUR",
+                "amount": 42
+            },
+            "priceEstimateMax": {
+                "currency": "EUR",
+                "amount": 69
             },
             "state": "RESERVED",
             "url": "https://my-shop.de/item",
