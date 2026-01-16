@@ -1,4 +1,5 @@
 use common::query::range_query::RangeQuery;
+use common::shop_name::ShopName;
 use common::user_id::UserId;
 use fake::{Fake, Faker};
 use lambda_runtime::LambdaEvent;
@@ -32,7 +33,7 @@ async fn should_update_search_filter() {
             language: None,
             currency: None,
             product_query: None,
-            shop_name_query: Some("Whoop boop woah".try_into().unwrap()),
+            shop_name_query: Some(HashSet::from_iter([ShopName::from("Whoop boop woah")])),
             shop_type_query: None,
             price_query: Some(RangeQuery {
                 min: Some(37),
@@ -66,7 +67,7 @@ async fn should_update_search_filter() {
     assert_eq!(patch.name.unwrap(), actual.name);
     assert_eq!(
         patch.search.clone().unwrap().shop_name_query.unwrap(),
-        actual.search.shop_name_query.unwrap()
+        actual.search.shop_name_query
     );
     assert_eq!(
         patch.search.clone().unwrap().price_query.unwrap(),

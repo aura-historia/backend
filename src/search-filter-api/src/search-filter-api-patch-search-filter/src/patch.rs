@@ -1,5 +1,6 @@
 use common::query::range_query::RangeQuery;
 use common::query::text_query::TextQuery;
+use common::shop_name::ShopName;
 use common::year::Year;
 use common::{
     currency::{data::CurrencyData, domain::Currency},
@@ -51,12 +52,8 @@ pub struct PatchProductSearchData {
     )]
     pub product_query: Option<TextQuery>,
 
-    #[serde(
-        rename = "shopNameQuery",
-        skip_serializing_if = "Option::is_none",
-        default
-    )]
-    pub shop_name_query: Option<TextQuery>,
+    #[serde(rename = "shopName", skip_serializing_if = "Option::is_none", default)]
+    pub shop_name_query: Option<HashSet<ShopName>>,
 
     #[serde(rename = "shopType", skip_serializing_if = "Option::is_none", default)]
     pub shop_type_query: Option<HashSet<ShopTypeData>>,
@@ -205,6 +202,7 @@ mod faker {
 mod tests {
     use crate::patch::{PatchProductSearchData, PatchUserSearchFilterData};
     use common::query::range_query::RangeQuery;
+    use common::shop_name::ShopName;
     use common::{currency::data::CurrencyData, language::data::LanguageData};
     use product::data::authenticity_data::AuthenticityData;
     use product::data::condition_data::ConditionData;
@@ -221,7 +219,7 @@ mod tests {
             "language": "de",
             "currency": "EUR",
             "productQuery": "Boop",
-            "shopNameQuery": "Baap",
+            "shopName": ["Baap"],
             "price": {
                 "min": 37,
                 "max": 42
@@ -248,7 +246,7 @@ mod tests {
             language: Some(LanguageData::De),
             currency: Some(CurrencyData::Eur),
             product_query: Some("Boop".try_into().unwrap()),
-            shop_name_query: Some("Baap".try_into().unwrap()),
+            shop_name_query: Some(HashSet::from_iter([ShopName::from("Baap")])),
             shop_type_query: None,
             price_query: Some(RangeQuery {
                 min: Some(37),
@@ -286,7 +284,7 @@ mod tests {
                 "language": "de",
                 "currency": "EUR",
                 "productQuery": "Boop",
-                "shopNameQuery": "Baap",
+                "shopName": ["Baap"],
                 "price": {
                     "min": 37,
                     "max": 42
@@ -316,7 +314,7 @@ mod tests {
                 language: Some(LanguageData::De),
                 currency: Some(CurrencyData::Eur),
                 product_query: Some("Boop".try_into().unwrap()),
-                shop_name_query: Some("Baap".try_into().unwrap()),
+                shop_name_query: Some(["Baap".into()].into()),
                 shop_type_query: None,
                 price_query: Some(RangeQuery {
                     min: Some(37),

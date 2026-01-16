@@ -3,9 +3,10 @@ use std::{
     fmt::{Display, Formatter},
     ops::Deref,
 };
+use strum::EnumCount;
 
 #[cfg_attr(feature = "test-data", derive(fake::Dummy))]
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub struct ShopName(
     #[cfg_attr(
         feature = "test-data",
@@ -56,4 +57,11 @@ impl AsRef<str> for ShopName {
     fn as_ref(&self) -> &str {
         &self.0
     }
+}
+
+// not ideal but handy for any-of-filter, technically doesn't hurt semantics either
+// as there's at any time a natural and fixed amount of shop-names
+// at most as many as could fit in memory
+impl EnumCount for ShopName {
+    const COUNT: usize = usize::MAX;
 }

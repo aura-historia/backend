@@ -2,6 +2,7 @@ use crate::core::user_search_filter_name::UserSearchFilterName;
 use common::dynamodb_update::DynamoDbUpdate;
 use common::query::range_query::RangeQuery;
 use common::query::text_query::TextQuery;
+use common::shop_name::ShopName;
 use common::year::Year;
 use common::{currency::record::CurrencyRecord, language::record::LanguageRecord};
 use product::dynamodb::authenticity_record::AuthenticityRecord;
@@ -22,7 +23,7 @@ pub struct UserSearchFilterRecordUpdate {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub product_query: Option<TextQuery>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub shop_name_query: Option<TextQuery>,
+    pub shop_name_query: Option<HashSet<ShopName>>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub shop_type_query: Option<HashSet<ShopTypeRecord>>,
     #[serde(default, skip_serializing_if = "Option::is_none")]

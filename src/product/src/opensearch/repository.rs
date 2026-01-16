@@ -170,18 +170,6 @@ impl<'a> ProductOpenSearchRepository for ProductOpenSearchRepositoryImpl<'a> {
             }
         }));
 
-        if let Some(shop_name_query) = &search.shop_name_query {
-            must.push(json!({
-                "match": {
-                    "shopName": {
-                        "query": shop_name_query.deref(),
-                        "fuzziness": "AUTO",
-                        "operator": "and"
-                    }
-                }
-            }));
-        }
-
         // ---------- Price ----------
         let price_field = match search.currency {
             Currency::Eur => ProductDocumentSerdeField::PriceEur.as_str(),
@@ -247,6 +235,13 @@ impl<'a> ProductOpenSearchRepository for ProductOpenSearchRepositoryImpl<'a> {
         }
 
         // ---------- AnyOf filters ----------
+        apply_any_of_filter(
+            &mut filter,
+            &search.shop_name_query,
+            ProductDocumentSerdeField::ShopName,
+            |v| v.as_ref(),
+        );
+
         apply_any_of_filter(
             &mut filter,
             &search
@@ -459,13 +454,13 @@ impl<'a> ProductOpenSearchRepository for ProductOpenSearchRepositoryImpl<'a> {
     }
 }
 
-fn apply_any_of_filter<T: Copy + Hash + Eq + EnumCount>(
+fn apply_any_of_filter<T: Hash + Eq + EnumCount>(
     filter: &mut Vec<serde_json::Value>,
     query: &AnyOfQuery<T>,
     field: ProductDocumentSerdeField,
-    to_str: fn(T) -> &'static str,
+    to_str: fn(&T) -> &str,
 ) {
-    let values: Vec<&str> = query.iter().map(|v| to_str(*v)).collect();
+    let values: Vec<&str> = query.iter().map(to_str).collect();
     if !values.is_empty() && values.len() != T::COUNT {
         filter.push(json!({ "terms": { field.as_str(): values } }));
     }
