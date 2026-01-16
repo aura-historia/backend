@@ -21,7 +21,7 @@ async fn main() {
         .without_time()
         .init();
 
-    let aws_config = aws_config::defaults(BehaviorVersion::v2025_08_07())
+    let aws_config = aws_config::defaults(BehaviorVersion::v2026_01_12())
         .load()
         .await;
     let sqs = Client::new(&aws_config);

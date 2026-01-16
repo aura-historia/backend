@@ -15,7 +15,7 @@ pub async fn load_transport() -> Result<Transport, lambda_runtime::Error> {
 
     let transport = match stage.as_str() {
         "ephemeral" => {
-            let aws_config = aws_config::defaults(BehaviorVersion::v2025_08_07())
+            let aws_config = aws_config::defaults(BehaviorVersion::v2026_01_12())
                 .load()
                 .await;
             TransportBuilder::new(SingleNodeConnectionPool::new(endpoint_url))
