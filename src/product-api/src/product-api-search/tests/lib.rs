@@ -1807,9 +1807,7 @@ async fn should_200_when_shop_type_query(#[case] query: HashSet<ShopTypeData>) {
 #[case(["Sotheby's", "Christie's", "Heritage Auctions"].into())]
 #[trace]
 #[localstack_test(services = [OpenSearch(), DynamoDB()])]
-async fn should_200_when_shop_name_query_for_keyword_filter(
-    #[case] query: HashSet<&str>,
-) {
+async fn should_200_when_shop_name_query_for_keyword_filter(#[case] query: HashSet<&str>) {
     let ddb_client = get_dynamodb_client().await;
     let watchlist_repository = WatchlistProductDynamoDbRepositoryImpl::new(ddb_client, "table_1");
     let product_personalization_service =

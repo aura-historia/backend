@@ -3163,7 +3163,7 @@ async fn should_search_product_documents_when_shop_names_are_given_for_keyword_f
             item
         })
         .collect::<Vec<_>>();
-    
+
     let products_with_other_shops = fake::vec![ProductDocument; 1500]
         .into_iter()
         .map(|mut item| {
@@ -3174,7 +3174,7 @@ async fn should_search_product_documents_when_shop_names_are_given_for_keyword_f
         .collect::<Vec<_>>();
 
     let all_products = [products_with_target_shops, products_with_other_shops].concat();
-    
+
     let client = get_opensearch_client().await;
     let repository = ProductOpenSearchRepositoryImpl::new(client);
     let response = repository
@@ -3189,9 +3189,9 @@ async fn should_search_product_documents_when_shop_names_are_given_for_keyword_f
         language: Language::De,
         currency: Currency::Eur,
         product_query: "Test product for shop name filter".try_into().unwrap(),
-        shop_name_query: AnyOfQuery::from(
-            HashSet::from_iter(shop_names.iter().map(|name| name.to_string().into()))
-        ),
+        shop_name_query: AnyOfQuery::from(HashSet::from_iter(
+            shop_names.iter().map(|name| name.to_string().into()),
+        )),
         shop_type_query: Default::default(),
         price_query: None,
         state_query: Default::default(),
