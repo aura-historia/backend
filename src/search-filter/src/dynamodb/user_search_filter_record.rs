@@ -38,6 +38,8 @@ pub struct UserSearchFilterRecord {
     #[serde(default, skip_serializing_if = "HashSet::is_empty")]
     pub shop_name_query: HashSet<ShopName>,
     #[serde(default, skip_serializing_if = "HashSet::is_empty")]
+    pub exclude_shop_name_query: HashSet<ShopName>,
+    #[serde(default, skip_serializing_if = "HashSet::is_empty")]
     pub shop_type_query: HashSet<ShopTypeRecord>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub price_query: Option<RangeQuery<u64>>,
@@ -108,6 +110,7 @@ impl From<UserSearchFilterRecord> for UserSearchFilter {
                 currency: record.currency.into(),
                 product_query: record.product_query,
                 shop_name_query: record.shop_name_query.into(),
+                exclude_shop_name_query: record.exclude_shop_name_query.into(),
                 shop_type_query: record
                     .shop_type_query
                     .into_iter()
@@ -163,6 +166,7 @@ impl From<UserSearchFilter> for UserSearchFilterRecord {
             name: user_search_filter.name,
             product_query: user_search_filter.search.product_query,
             shop_name_query: user_search_filter.search.shop_name_query.into(),
+            exclude_shop_name_query: user_search_filter.search.exclude_shop_name_query.into(),
             shop_type_query: user_search_filter
                 .search
                 .shop_type_query
@@ -235,6 +239,7 @@ mod fake {
                 name: config.fake_with_rng(rng),
                 product_query: config.fake_with_rng(rng),
                 shop_name_query: config.fake_with_rng(rng),
+                exclude_shop_name_query: config.fake_with_rng(rng),
                 shop_type_query: config.fake_with_rng(rng),
                 price_query: config.fake_with_rng(rng),
                 state_query: config.fake_with_rng(rng),

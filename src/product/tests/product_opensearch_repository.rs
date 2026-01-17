@@ -414,6 +414,7 @@ async fn should_search_product_documents() {
         currency: Currency::Eur,
         product_query: "Hallo Welt".try_into().unwrap(),
         shop_name_query: Default::default(),
+        exclude_shop_name_query: Default::default(),
         shop_type_query: Default::default(),
         price_query: None,
         state_query: Default::default(),
@@ -521,6 +522,7 @@ async fn should_omit_descriptions_in_response_for_search_product_documents() {
         currency: Currency::Eur,
         product_query: "Hallo Welt".try_into().unwrap(),
         shop_name_query: Default::default(),
+        exclude_shop_name_query: Default::default(),
         shop_type_query: Default::default(),
         price_query: None,
         state_query: Default::default(),
@@ -581,6 +583,7 @@ async fn should_search_product_documents_when_all_arguments_are_given() {
         product_query: "Lorem".try_into().unwrap(),
         shop_type_query: Default::default(),
         shop_name_query: HashSet::from_iter(["Wyoming LLC".into()]).into(),
+        exclude_shop_name_query: HashSet::from_iter(["Berlin GmbH".into()]).into(),
         price_query: Some(RangeQuery {
             min: Some(100u64.into()),
             max: Some(999999u64.into()),
@@ -660,6 +663,7 @@ async fn should_search_product_documents_when_states_are_given(#[case] states: &
         currency: Currency::Eur,
         product_query: "The same title".try_into().unwrap(),
         shop_name_query: Default::default(),
+        exclude_shop_name_query: Default::default(),
         shop_type_query: Default::default(),
         price_query: None,
         state_query: AnyOfQuery::from(HashSet::from_iter(states.iter().copied())),
@@ -719,6 +723,7 @@ async fn should_search_product_documents_when_no_states_are_given() {
         currency: Currency::Eur,
         product_query: "The same title".try_into().unwrap(),
         shop_name_query: Default::default(),
+        exclude_shop_name_query: Default::default(),
         shop_type_query: Default::default(),
         price_query: None,
         state_query: AnyOfQuery::from(HashSet::new()),
@@ -801,6 +806,7 @@ async fn should_search_product_documents_when_price_range_is_given(
         currency: Currency::Eur,
         product_query: "The same title".try_into().unwrap(),
         shop_name_query: Default::default(),
+        exclude_shop_name_query: Default::default(),
         shop_type_query: Default::default(),
         price_query: Some(price_query),
         state_query: Default::default(),
@@ -885,6 +891,7 @@ async fn should_search_product_documents_respecting_paging_when_sorted_by_price(
         currency: Currency::Usd,
         product_query: "The same title".try_into().unwrap(),
         shop_name_query: Default::default(),
+        exclude_shop_name_query: Default::default(),
         shop_type_query: Default::default(),
         price_query: None,
         state_query: Default::default(),
@@ -973,6 +980,7 @@ async fn should_search_product_documents_respecting_search_after_when_sorted_by_
         currency: Currency::Usd,
         product_query: "The same title".try_into().unwrap(),
         shop_name_query: Default::default(),
+        exclude_shop_name_query: Default::default(),
         shop_type_query: Default::default(),
         price_query: None,
         state_query: Default::default(),
@@ -2188,6 +2196,7 @@ async fn should_search_product_documents_when_exact_year_is_given_for_stored_exa
         currency: Currency::Eur,
         product_query: "The same title".try_into().unwrap(),
         shop_name_query: Default::default(),
+        exclude_shop_name_query: Default::default(),
         shop_type_query: Default::default(),
         price_query: None,
         state_query: Default::default(),
@@ -2281,6 +2290,7 @@ async fn should_search_product_documents_when_only_min_year_is_given_for_stored_
         currency: Currency::Eur,
         product_query: "The same title".try_into().unwrap(),
         shop_name_query: Default::default(),
+        exclude_shop_name_query: Default::default(),
         shop_type_query: Default::default(),
         price_query: None,
         state_query: Default::default(),
@@ -2374,6 +2384,7 @@ async fn should_search_product_documents_when_only_max_year_is_given_for_stored_
         currency: Currency::Eur,
         product_query: "The same title".try_into().unwrap(),
         shop_name_query: Default::default(),
+        exclude_shop_name_query: Default::default(),
         shop_type_query: Default::default(),
         price_query: None,
         state_query: Default::default(),
@@ -2467,6 +2478,7 @@ async fn should_search_product_documents_when_min_and_max_year_is_given_for_stor
         currency: Currency::Eur,
         product_query: "The same title".try_into().unwrap(),
         shop_name_query: Default::default(),
+        exclude_shop_name_query: Default::default(),
         shop_type_query: Default::default(),
         price_query: None,
         state_query: Default::default(),
@@ -2562,6 +2574,7 @@ async fn should_search_product_documents_when_only_min_year_is_given_for_stored_
         currency: Currency::Eur,
         product_query: "The same title".try_into().unwrap(),
         shop_name_query: Default::default(),
+        exclude_shop_name_query: Default::default(),
         shop_type_query: Default::default(),
         price_query: None,
         state_query: Default::default(),
@@ -2655,6 +2668,7 @@ async fn should_search_product_documents_when_only_max_year_is_given_for_stored_
         currency: Currency::Eur,
         product_query: "The same title".try_into().unwrap(),
         shop_name_query: Default::default(),
+        exclude_shop_name_query: Default::default(),
         shop_type_query: Default::default(),
         price_query: None,
         state_query: Default::default(),
@@ -2748,6 +2762,7 @@ async fn should_search_product_documents_when_min_and_max_year_is_given_for_stor
         currency: Currency::Eur,
         product_query: "The same title".try_into().unwrap(),
         shop_name_query: Default::default(),
+        exclude_shop_name_query: Default::default(),
         shop_type_query: Default::default(),
         price_query: None,
         state_query: Default::default(),
@@ -2830,6 +2845,7 @@ async fn should_search_product_documents_when_authenticity_filter_is_given(
         currency: Currency::Eur,
         product_query: "The same title".try_into().unwrap(),
         shop_name_query: Default::default(),
+        exclude_shop_name_query: Default::default(),
         shop_type_query: Default::default(),
         price_query: None,
         state_query: Default::default(),
@@ -2901,6 +2917,7 @@ async fn should_search_product_documents_when_condition_filter_is_given(
         currency: Currency::Eur,
         product_query: "The same title".try_into().unwrap(),
         shop_name_query: Default::default(),
+        exclude_shop_name_query: Default::default(),
         shop_type_query: Default::default(),
         price_query: None,
         state_query: Default::default(),
@@ -2971,6 +2988,7 @@ async fn should_search_product_documents_when_provenance_filter_is_given(
         currency: Currency::Eur,
         product_query: "The same title".try_into().unwrap(),
         shop_name_query: Default::default(),
+        exclude_shop_name_query: Default::default(),
         shop_type_query: Default::default(),
         price_query: None,
         state_query: Default::default(),
@@ -3040,6 +3058,7 @@ async fn should_search_product_documents_when_restoration_filter_is_given(
         currency: Currency::Eur,
         product_query: "The same title".try_into().unwrap(),
         shop_name_query: Default::default(),
+        exclude_shop_name_query: Default::default(),
         shop_type_query: Default::default(),
         price_query: None,
         state_query: Default::default(),
@@ -3107,6 +3126,7 @@ async fn should_search_product_documents_when_shop_types_are_given(
         currency: Currency::Eur,
         product_query: "Test product for shop type filter".try_into().unwrap(),
         shop_name_query: Default::default(),
+        exclude_shop_name_query: Default::default(),
         shop_type_query: AnyOfQuery::from(HashSet::from_iter(shop_types.iter().copied())),
         price_query: None,
         state_query: Default::default(),
@@ -3143,13 +3163,13 @@ async fn should_search_product_documents_when_shop_types_are_given(
 }
 
 #[rstest::rstest]
-#[trace]
 #[test_attr(apply(test))]
 #[case(&["Sotheby's"])]
 #[case(&["Christie's"])]
 #[case(&["Heritage Auctions"])]
 #[case(&["Sotheby's", "Christie's"])]
 #[case(&["Sotheby's", "Christie's", "Heritage Auctions"])]
+#[trace]
 #[localstack_test(services = [OpenSearch()])]
 async fn should_search_product_documents_when_shop_names_are_given_for_keyword_filter(
     #[case] shop_names: &[&str],
@@ -3192,6 +3212,7 @@ async fn should_search_product_documents_when_shop_names_are_given_for_keyword_f
         shop_name_query: AnyOfQuery::from(HashSet::from_iter(
             shop_names.iter().map(|name| name.to_string().into()),
         )),
+        exclude_shop_name_query: Default::default(),
         shop_type_query: Default::default(),
         price_query: None,
         state_query: Default::default(),
@@ -3225,6 +3246,95 @@ async fn should_search_product_documents_when_shop_names_are_given_for_keyword_f
             .hits
             .iter()
             .all(|hit| { shop_names.contains(&hit.source.shop_name.as_str()) })
+    );
+}
+
+#[rstest::rstest]
+#[test_attr(apply(test))]
+#[case(&["Sotheby's"])]
+#[case(&["Christie's"])]
+#[case(&["Heritage Auctions"])]
+#[case(&["Sotheby's", "Christie's"])]
+#[case(&["Sotheby's", "Christie's", "Heritage Auctions"])]
+#[trace]
+#[localstack_test(services = [OpenSearch()])]
+async fn should_search_product_documents_when_excluded_shop_names_are_given(
+    #[case] exclude_shop_names: &[&str],
+) {
+    let products_with_target_shops = fake::vec![ProductDocument; 1500]
+        .into_iter()
+        .enumerate()
+        .map(|(idx, mut item)| {
+            item.title_de = Some("Test product for shop name filter".into());
+            item.shop_name = exclude_shop_names[idx % exclude_shop_names.len()].to_string();
+            item
+        })
+        .collect::<Vec<_>>();
+
+    let products_with_other_shops = fake::vec![ProductDocument; 1500]
+        .into_iter()
+        .map(|mut item| {
+            item.title_de = Some("Test product for shop name filter".into());
+            item.shop_name = "Other Auction House".to_string();
+            item
+        })
+        .collect::<Vec<_>>();
+
+    let all_products = [products_with_target_shops, products_with_other_shops].concat();
+
+    let client = get_opensearch_client().await;
+    let repository = ProductOpenSearchRepositoryImpl::new(client);
+    let response = repository
+        .create_product_documents(all_products)
+        .await
+        .unwrap();
+    assert!(!response.errors);
+    refresh_index("products").await;
+    tokio::time::sleep(Duration::from_millis(3000)).await;
+
+    let search_filter = ProductSearch {
+        language: Language::De,
+        currency: Currency::Eur,
+        product_query: "Test product for shop name filter".try_into().unwrap(),
+        shop_name_query: Default::default(),
+        exclude_shop_name_query: AnyOfQuery::from(HashSet::from_iter(
+            exclude_shop_names
+                .iter()
+                .map(|name| name.to_string().into()),
+        )),
+        shop_type_query: Default::default(),
+        price_query: None,
+        state_query: Default::default(),
+        origin_year_query: None,
+        authenticity_query: Default::default(),
+        condition_query: Default::default(),
+        provenance_query: Default::default(),
+        restoration_query: Default::default(),
+        created_query: None,
+        updated_query: None,
+        auction_start_query: None,
+        auction_end_query: None,
+    };
+    let response = repository
+        .search_product_documents(
+            &search_filter,
+            &Sort {
+                sort: SortProductField::Score,
+                order: SortOrder::Desc,
+            },
+            &None,
+        )
+        .await
+        .unwrap();
+
+    assert!(response.hits.total.value > 0);
+    assert_eq!(1500, response.hits.total.value);
+    assert!(
+        response
+            .hits
+            .hits
+            .iter()
+            .all(|hit| !exclude_shop_names.contains(&hit.source.shop_name.as_str()))
     );
 }
 
@@ -3298,6 +3408,7 @@ async fn should_search_product_documents_when_auction_start_range_is_given(
         currency: Currency::Eur,
         product_query: "Auction product".try_into().unwrap(),
         shop_name_query: Default::default(),
+        exclude_shop_name_query: Default::default(),
         shop_type_query: Default::default(),
         price_query: None,
         state_query: Default::default(),
@@ -3427,6 +3538,7 @@ async fn should_search_product_documents_when_auction_end_range_is_given(
         currency: Currency::Eur,
         product_query: "Auction item".try_into().unwrap(),
         shop_name_query: Default::default(),
+        exclude_shop_name_query: Default::default(),
         shop_type_query: Default::default(),
         price_query: None,
         state_query: Default::default(),

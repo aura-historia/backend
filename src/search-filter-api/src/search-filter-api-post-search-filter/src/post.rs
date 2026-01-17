@@ -48,6 +48,7 @@ mod tests {
                 "currency": "EUR",
                 "productQuery": "Boop",
                 "shopName": ["Baap"],
+                "excludeShopName": ["baddlebap"],
                 "price": {
                     "min": 37,
                     "max": 42
@@ -86,6 +87,7 @@ mod tests {
                 currency: CurrencyData::Eur,
                 product_query: "Boop".try_into().unwrap(),
                 shop_name_query: ["Baap".into()].into(),
+                exclude_shop_name_query: ["baddlebap".into()].into(),
                 shop_type_query: HashSet::new(),
                 price_query: Some(RangeQuery {
                     min: Some(37),

@@ -35,6 +35,12 @@ pub struct ProductSearchData {
     )]
     pub shop_name_query: HashSet<ShopName>,
     #[serde(
+        rename = "excludeShopName",
+        skip_serializing_if = "HashSet::is_empty",
+        default
+    )]
+    pub exclude_shop_name_query: HashSet<ShopName>,
+    #[serde(
         rename = "shopType",
         skip_serializing_if = "HashSet::is_empty",
         default
@@ -116,6 +122,7 @@ impl From<ProductSearch> for ProductSearchData {
             currency: search_filter.currency.into(),
             product_query: search_filter.product_query,
             shop_name_query: search_filter.shop_name_query.into(),
+            exclude_shop_name_query: search_filter.exclude_shop_name_query.into(),
             shop_type_query: search_filter
                 .shop_type_query
                 .into_iter()
@@ -165,6 +172,7 @@ impl From<ProductSearchData> for ProductSearch {
             currency: data.currency.into(),
             product_query: data.product_query,
             shop_name_query: data.shop_name_query.into(),
+            exclude_shop_name_query: data.exclude_shop_name_query.into(),
             shop_type_query: data
                 .shop_type_query
                 .into_iter()
@@ -220,6 +228,7 @@ mod faker {
                 currency: config.fake_with_rng(rng),
                 product_query: config.fake_with_rng(rng),
                 shop_name_query: config.fake_with_rng(rng),
+                exclude_shop_name_query: config.fake_with_rng(rng),
                 shop_type_query: config.fake_with_rng(rng),
                 price_query: config
                     .fake_with_rng::<Option<RangeQuery<u32>>, R>(rng) // otherwise get Out-Of-Range-Err often from OpenSearch
@@ -261,6 +270,7 @@ mod tests {
             currency: CurrencyData::Eur,
             product_query: "Boop".try_into().unwrap(),
             shop_name_query: ["Baap".into()].into(),
+            exclude_shop_name_query: ["Meow".into()].into(),
             shop_type_query: HashSet::from_iter([ShopTypeData::CommercialDealer]),
             price_query: Some(RangeQuery {
                 min: Some(37),
@@ -291,6 +301,7 @@ mod tests {
             "currency": "EUR",
             "productQuery": "Boop",
             "shopName": ["Baap"],
+            "excludeShopName": ["Meow"],
             "shopType": ["COMMERCIAL_DEALER"],
             "price": {
                 "min": 37,
@@ -327,6 +338,7 @@ mod tests {
             "currency": "EUR",
             "productQuery": "Boop",
             "shopName": ["Baap"],
+            "excludeShopName": ["Meow"],
             "shopType": ["COMMERCIAL_DEALER"],
             "price": {
                 "min": 37,
@@ -355,6 +367,7 @@ mod tests {
             currency: CurrencyData::Eur,
             product_query: "Boop".try_into().unwrap(),
             shop_name_query: ["Baap".into()].into(),
+            exclude_shop_name_query: ["Meow".into()].into(),
             shop_type_query: HashSet::from_iter([ShopTypeData::CommercialDealer]),
             price_query: Some(RangeQuery {
                 min: Some(37),
@@ -393,6 +406,7 @@ mod tests {
             currency: CurrencyData::Eur,
             product_query: "Boop".try_into().unwrap(),
             shop_name_query: Default::default(),
+            exclude_shop_name_query: Default::default(),
             shop_type_query: Default::default(),
             price_query: None,
             state_query: Default::default(),
@@ -429,6 +443,7 @@ mod tests {
             currency: CurrencyData::Eur,
             product_query: "Boop".try_into().unwrap(),
             shop_name_query: Default::default(),
+            exclude_shop_name_query: Default::default(),
             shop_type_query: Default::default(),
             price_query: None,
             state_query: Default::default(),
