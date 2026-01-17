@@ -1,7 +1,6 @@
 AWSTemplateFormatVersion: "2010-09-09"
 Description: Production Stack for the Aura-Historia Application-Backend
 
-
 Parameters:
   ArtifactBucket:
     Type: String
@@ -22,7 +21,6 @@ Parameters:
     Description: "URL for the self-hosted OpenSearch-Cluster"
 
 Resources:
-  # SNS Topic for CloudWatch Alarms
   AlarmNotificationTopic:
     Type: AWS::SNS::Topic
     Properties:
@@ -226,6 +224,7 @@ Resources:
         SSEType: KMS
       PointInTimeRecoverySpecification:
         PointInTimeRecoveryEnabled: true
+        RecoveryPeriodInDays: 7
   TableOneThrottledRequestsAlarm:
     Type: AWS::CloudWatch::Alarm
     Properties:
