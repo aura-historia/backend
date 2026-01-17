@@ -3504,42 +3504,6 @@ Resources:
         deadLetterTargetArn: !GetAtt ProductPipelineInitDlq.Arn
         maxReceiveCount: 5
       VisibilityTimeout: 60
-  ProductPipelineInitQueueAgeAlarm:
-    Type: AWS::CloudWatch::Alarm
-    Properties:
-      AlarmName: "prod-pipeline-init-queue-message-age"
-      AlarmDescription: "Alarm when pipeline-init queue has old messages"
-      MetricName: ApproximateAgeOfOldestMessage
-      Namespace: AWS/SQS
-      Statistic: Maximum
-      Period: 300
-      EvaluationPeriods: 1
-      Threshold: 3600
-      ComparisonOperator: GreaterThanThreshold
-      Dimensions:
-        - Name: QueueName
-          Value: !GetAtt ProductPipelineInitQ.QueueName
-      TreatMissingData: notBreaching
-      AlarmActions:
-        - !Ref AlarmNotificationTopic
-  ProductPipelineInitQueueDepthAlarm:
-    Type: AWS::CloudWatch::Alarm
-    Properties:
-      AlarmName: "prod-pipeline-init-queue-depth"
-      AlarmDescription: "Alarm when pipeline-init queue has too many messages"
-      MetricName: ApproximateNumberOfMessagesVisible
-      Namespace: AWS/SQS
-      Statistic: Average
-      Period: 300
-      EvaluationPeriods: 2
-      Threshold: 100
-      ComparisonOperator: GreaterThanThreshold
-      Dimensions:
-        - Name: QueueName
-          Value: !GetAtt ProductPipelineInitQ.QueueName
-      TreatMissingData: notBreaching
-      AlarmActions:
-        - !Ref AlarmNotificationTopic
   ProductPipelineInitRole:
     Type: AWS::IAM::Role
     Properties:
@@ -3832,42 +3796,6 @@ Resources:
         deadLetterTargetArn: !GetAtt ProductPipelineTranslateDlq.Arn
         maxReceiveCount: 3
       VisibilityTimeout: 300
-  ProductPipelineTranslateQueueAgeAlarm:
-    Type: AWS::CloudWatch::Alarm
-    Properties:
-      AlarmName: "prod-pipeline-translate-queue-message-age"
-      AlarmDescription: "Alarm when pipeline-translate queue has old messages"
-      MetricName: ApproximateAgeOfOldestMessage
-      Namespace: AWS/SQS
-      Statistic: Maximum
-      Period: 300
-      EvaluationPeriods: 1
-      Threshold: 7200
-      ComparisonOperator: GreaterThanThreshold
-      Dimensions:
-        - Name: QueueName
-          Value: !GetAtt ProductPipelineTranslateQ.QueueName
-      TreatMissingData: notBreaching
-      AlarmActions:
-        - !Ref AlarmNotificationTopic
-  ProductPipelineTranslateQueueDepthAlarm:
-    Type: AWS::CloudWatch::Alarm
-    Properties:
-      AlarmName: "prod-pipeline-translate-queue-depth"
-      AlarmDescription: "Alarm when pipeline-translate queue has too many messages"
-      MetricName: ApproximateNumberOfMessagesVisible
-      Namespace: AWS/SQS
-      Statistic: Average
-      Period: 300
-      EvaluationPeriods: 2
-      Threshold: 50
-      ComparisonOperator: GreaterThanThreshold
-      Dimensions:
-        - Name: QueueName
-          Value: !GetAtt ProductPipelineTranslateQ.QueueName
-      TreatMissingData: notBreaching
-      AlarmActions:
-        - !Ref AlarmNotificationTopic
   ProductPipelineTranslateRole:
     Type: AWS::IAM::Role
     Properties:
@@ -4057,42 +3985,6 @@ Resources:
         deadLetterTargetArn: !GetAtt ProductPipelineEmbedTextDlq.Arn
         maxReceiveCount: 3
       VisibilityTimeout: 300
-  ProductPipelineEmbedTextQueueAgeAlarm:
-    Type: AWS::CloudWatch::Alarm
-    Properties:
-      AlarmName: "prod-pipeline-embed-text-queue-message-age"
-      AlarmDescription: "Alarm when pipeline-embed-text queue has old messages"
-      MetricName: ApproximateAgeOfOldestMessage
-      Namespace: AWS/SQS
-      Statistic: Maximum
-      Period: 300
-      EvaluationPeriods: 1
-      Threshold: 7200
-      ComparisonOperator: GreaterThanThreshold
-      Dimensions:
-        - Name: QueueName
-          Value: !GetAtt ProductPipelineEmbedTextQ.QueueName
-      TreatMissingData: notBreaching
-      AlarmActions:
-        - !Ref AlarmNotificationTopic
-  ProductPipelineEmbedTextQueueDepthAlarm:
-    Type: AWS::CloudWatch::Alarm
-    Properties:
-      AlarmName: "prod-pipeline-embed-text-queue-depth"
-      AlarmDescription: "Alarm when pipeline-embed-text queue has too many messages"
-      MetricName: ApproximateNumberOfMessagesVisible
-      Namespace: AWS/SQS
-      Statistic: Average
-      Period: 300
-      EvaluationPeriods: 2
-      Threshold: 50
-      ComparisonOperator: GreaterThanThreshold
-      Dimensions:
-        - Name: QueueName
-          Value: !GetAtt ProductPipelineEmbedTextQ.QueueName
-      TreatMissingData: notBreaching
-      AlarmActions:
-        - !Ref AlarmNotificationTopic
   ProductPipelineEmbedTextRole:
     Type: AWS::IAM::Role
     Properties:
@@ -4282,42 +4174,6 @@ Resources:
         deadLetterTargetArn: !GetAtt ProductPipelineExtractAttributeDlq.Arn
         maxReceiveCount: 3
       VisibilityTimeout: 300
-  ProductPipelineExtractAttributeQueueAgeAlarm:
-    Type: AWS::CloudWatch::Alarm
-    Properties:
-      AlarmName: "prod-pipeline-extract-attribute-queue-message-age"
-      AlarmDescription: "Alarm when pipeline-extract-attribute queue has old messages"
-      MetricName: ApproximateAgeOfOldestMessage
-      Namespace: AWS/SQS
-      Statistic: Maximum
-      Period: 300
-      EvaluationPeriods: 1
-      Threshold: 7200
-      ComparisonOperator: GreaterThanThreshold
-      Dimensions:
-        - Name: QueueName
-          Value: !GetAtt ProductPipelineExtractAttributeQ.QueueName
-      TreatMissingData: notBreaching
-      AlarmActions:
-        - !Ref AlarmNotificationTopic
-  ProductPipelineExtractAttributeQueueDepthAlarm:
-    Type: AWS::CloudWatch::Alarm
-    Properties:
-      AlarmName: "prod-pipeline-extract-attribute-queue-depth"
-      AlarmDescription: "Alarm when pipeline-extract-attribute queue has too many messages"
-      MetricName: ApproximateNumberOfMessagesVisible
-      Namespace: AWS/SQS
-      Statistic: Average
-      Period: 300
-      EvaluationPeriods: 2
-      Threshold: 50
-      ComparisonOperator: GreaterThanThreshold
-      Dimensions:
-        - Name: QueueName
-          Value: !GetAtt ProductPipelineExtractAttributeQ.QueueName
-      TreatMissingData: notBreaching
-      AlarmActions:
-        - !Ref AlarmNotificationTopic
   ProductPipelineExtractAttributeRole:
     Type: AWS::IAM::Role
     Properties:
@@ -4507,42 +4363,6 @@ Resources:
         deadLetterTargetArn: !GetAtt ProductPipelineCompleteDlq.Arn
         maxReceiveCount: 5
       VisibilityTimeout: 60
-  ProductPipelineCompleteQueueAgeAlarm:
-    Type: AWS::CloudWatch::Alarm
-    Properties:
-      AlarmName: "prod-pipeline-complete-queue-message-age"
-      AlarmDescription: "Alarm when pipeline-complete queue has old messages"
-      MetricName: ApproximateAgeOfOldestMessage
-      Namespace: AWS/SQS
-      Statistic: Maximum
-      Period: 300
-      EvaluationPeriods: 1
-      Threshold: 3600
-      ComparisonOperator: GreaterThanThreshold
-      Dimensions:
-        - Name: QueueName
-          Value: !GetAtt ProductPipelineCompleteQ.QueueName
-      TreatMissingData: notBreaching
-      AlarmActions:
-        - !Ref AlarmNotificationTopic
-  ProductPipelineCompleteQueueDepthAlarm:
-    Type: AWS::CloudWatch::Alarm
-    Properties:
-      AlarmName: "prod-pipeline-complete-queue-depth"
-      AlarmDescription: "Alarm when pipeline-complete queue has too many messages"
-      MetricName: ApproximateNumberOfMessagesVisible
-      Namespace: AWS/SQS
-      Statistic: Average
-      Period: 300
-      EvaluationPeriods: 2
-      Threshold: 100
-      ComparisonOperator: GreaterThanThreshold
-      Dimensions:
-        - Name: QueueName
-          Value: !GetAtt ProductPipelineCompleteQ.QueueName
-      TreatMissingData: notBreaching
-      AlarmActions:
-        - !Ref AlarmNotificationTopic
   ProductPipelineCompleteRole:
     Type: AWS::IAM::Role
     Properties:
