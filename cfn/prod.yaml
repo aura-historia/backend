@@ -272,6 +272,46 @@ Resources:
       AlarmActions:
         - !Ref AlarmNotificationTopic
 
+  TableOneSystemErrorsAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      AlarmName: "prod-dynamodb-system-errors"
+      AlarmDescription: "Alarm when DynamoDB table has system errors"
+      MetricName: SystemErrors
+      Namespace: AWS/DynamoDB
+      Statistic: Sum
+      Period: 300
+      EvaluationPeriods: 1
+      Threshold: 1
+      ComparisonOperator: GreaterThanOrEqualToThreshold
+      Dimensions:
+        - Name: TableName
+          Value: !Ref TableOne
+      TreatMissingData: notBreaching
+      AlarmActions:
+        - !Ref AlarmNotificationTopic
+  TableOneConditionalCheckFailedRequestsAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      AlarmName: "prod-dynamodb-conditional-check-failures"
+      AlarmDescription: "Alarm when DynamoDB has high conditional check failures"
+      MetricName: ConditionalCheckFailedRequests
+      Namespace: AWS/DynamoDB
+      Statistic: Sum
+      Period: 300
+      EvaluationPeriods: 2
+      Threshold: 100
+      ComparisonOperator: GreaterThanThreshold
+      Dimensions:
+        - Name: TableName
+          Value: !Ref TableOne
+      TreatMissingData: notBreaching
+      AlarmActions:
+        - !Ref AlarmNotificationTopic
+
+  # EventBridge monitoring: Consider adding CloudWatch alarms for failed event deliveries
+  # and rule execution metrics for production visibility
+  
   DynamoDbEventBus:
     Type: AWS::Events::EventBus
     Properties:
@@ -392,6 +432,13 @@ Resources:
               - !GetAtt ProductUpdateNotifyUserQ.Arn
               - !GetAtt ProductPipelineInitQ.Arn
               - !GetAtt UserLambdaFanoutUpdateWatchlistQ.Arn
+
+  # NOTE: Consider adding AWS WAF WebACL for production API protection
+  # Uncomment and configure the following resources for enhanced security:
+  # - AWS::WAFv2::WebACL for API Gateway protection
+  # - AWS::WAFv2::WebACLAssociation to link WAF with API Gateway
+  # - Rules for rate limiting, geo-blocking, and common attack patterns
+  # Cost: ~$5-10/month base + $1 per million requests
 
   ApiLogGroup:
     Type: AWS::Logs::LogGroup
@@ -2724,6 +2771,79 @@ Resources:
       TreatMissingData: notBreaching
       AlarmActions:
         - !Ref AlarmNotificationTopic
+  ProductPipelineInitQueueDepthAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      AlarmName: "prod-product-pipeline-init-queue-depth"
+      AlarmDescription: "Alarm when product-pipeline-init queue has high message count"
+      MetricName: ApproximateNumberOfMessagesVisible
+      Namespace: AWS/SQS
+      Statistic: Average
+      Period: 300
+      EvaluationPeriods: 2
+      Threshold: 100
+      ComparisonOperator: GreaterThanThreshold
+      Dimensions:
+        - Name: QueueName
+          Value: !GetAtt ProductPipelineInitQ.QueueName
+      TreatMissingData: notBreaching
+      AlarmActions:
+        - !Ref AlarmNotificationTopic
+  ProductMaterializeDynamoDbNewQueueDepthAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      AlarmName: "prod-product-materialize-dynamodb-new-queue-depth"
+      AlarmDescription: "Alarm when product-materialize-dynamodb-new queue has high message count"
+      MetricName: ApproximateNumberOfMessagesVisible
+      Namespace: AWS/SQS
+      Statistic: Average
+      Period: 300
+      EvaluationPeriods: 2
+      Threshold: 1000
+      ComparisonOperator: GreaterThanThreshold
+      Dimensions:
+        - Name: QueueName
+          Value: !GetAtt ProductMaterializeDynamoDbNewQ.QueueName
+      TreatMissingData: notBreaching
+      AlarmActions:
+        - !Ref AlarmNotificationTopic
+  ProductMaterializeOpenSearchNewQueueDepthAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      AlarmName: "prod-product-materialize-opensearch-new-queue-depth"
+      AlarmDescription: "Alarm when product-materialize-opensearch-new queue has high message count"
+      MetricName: ApproximateNumberOfMessagesVisible
+      Namespace: AWS/SQS
+      Statistic: Average
+      Period: 300
+      EvaluationPeriods: 2
+      Threshold: 1000
+      ComparisonOperator: GreaterThanThreshold
+      Dimensions:
+        - Name: QueueName
+          Value: !GetAtt ProductMaterializeOpenSearchNewQ.QueueName
+      TreatMissingData: notBreaching
+      AlarmActions:
+        - !Ref AlarmNotificationTopic
+  SendMailQueueDepthAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      AlarmName: "prod-send-mail-queue-depth"
+      AlarmDescription: "Alarm when send-mail queue has high message count"
+      MetricName: ApproximateNumberOfMessagesVisible
+      Namespace: AWS/SQS
+      Statistic: Average
+      Period: 300
+      EvaluationPeriods: 2
+      Threshold: 500
+      ComparisonOperator: GreaterThanThreshold
+      Dimensions:
+        - Name: QueueName
+          Value: !GetAtt SendMailQ.QueueName
+      TreatMissingData: notBreaching
+      AlarmActions:
+        - !Ref AlarmNotificationTopic
+
   ProductPipelineTranslateDlqAlarm:
     Type: AWS::CloudWatch::Alarm
     Properties:
