@@ -3145,6 +3145,92 @@ async fn should_search_product_documents_when_shop_types_are_given(
 #[rstest::rstest]
 #[trace]
 #[test_attr(apply(test))]
+#[case(&["Sotheby's"])]
+#[case(&["Christie's"])]
+#[case(&["Heritage Auctions"])]
+#[case(&["Sotheby's", "Christie's"])]
+#[case(&["Sotheby's", "Christie's", "Heritage Auctions"])]
+#[localstack_test(services = [OpenSearch()])]
+async fn should_search_product_documents_when_shop_names_are_given_for_keyword_filter(
+    #[case] shop_names: &[&str],
+) {
+    let products_with_target_shops = fake::vec![ProductDocument; 1500]
+        .into_iter()
+        .enumerate()
+        .map(|(idx, mut item)| {
+            item.title_de = Some("Test product for shop name filter".into());
+            item.shop_name = shop_names[idx % shop_names.len()].to_string();
+            item
+        })
+        .collect::<Vec<_>>();
+
+    let products_with_other_shops = fake::vec![ProductDocument; 1500]
+        .into_iter()
+        .map(|mut item| {
+            item.title_de = Some("Test product for shop name filter".into());
+            item.shop_name = "Other Auction House".to_string();
+            item
+        })
+        .collect::<Vec<_>>();
+
+    let all_products = [products_with_target_shops, products_with_other_shops].concat();
+
+    let client = get_opensearch_client().await;
+    let repository = ProductOpenSearchRepositoryImpl::new(client);
+    let response = repository
+        .create_product_documents(all_products)
+        .await
+        .unwrap();
+    assert!(!response.errors);
+    refresh_index("products").await;
+    tokio::time::sleep(Duration::from_millis(3000)).await;
+
+    let search_filter = ProductSearch {
+        language: Language::De,
+        currency: Currency::Eur,
+        product_query: "Test product for shop name filter".try_into().unwrap(),
+        shop_name_query: AnyOfQuery::from(HashSet::from_iter(
+            shop_names.iter().map(|name| name.to_string().into()),
+        )),
+        shop_type_query: Default::default(),
+        price_query: None,
+        state_query: Default::default(),
+        origin_year_query: None,
+        authenticity_query: Default::default(),
+        condition_query: Default::default(),
+        provenance_query: Default::default(),
+        restoration_query: Default::default(),
+        created_query: None,
+        updated_query: None,
+        auction_start_query: None,
+        auction_end_query: None,
+    };
+    let response = repository
+        .search_product_documents(
+            &search_filter,
+            &Sort {
+                sort: SortProductField::Score,
+                order: SortOrder::Desc,
+            },
+            &None,
+        )
+        .await
+        .unwrap();
+
+    assert!(response.hits.total.value > 0);
+    assert_eq!(1500, response.hits.total.value);
+    assert!(
+        response
+            .hits
+            .hits
+            .iter()
+            .all(|hit| { shop_names.contains(&hit.source.shop_name.as_str()) })
+    );
+}
+
+#[rstest::rstest]
+#[trace]
+#[test_attr(apply(test))]
 #[case(RangeQuery { min: Some(datetime!(2026-01-01 0:00 UTC)), max: Some(datetime!(2026-01-31 23:59 UTC)) })]
 #[case(RangeQuery { min: Some(datetime!(2026-02-01 0:00 UTC)), max: None })]
 #[case(RangeQuery { min: None, max: Some(datetime!(2026-12-31 23:59 UTC)) })]
