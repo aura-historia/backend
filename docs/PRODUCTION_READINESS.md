@@ -19,9 +19,9 @@ The CloudFormation template has been enhanced with comprehensive security, monit
   - `UpdateReplacePolicy: Retain`
 
 ### 2. SQS Queue Security
-- **Encryption**: Enabled server-side encryption for all 24 SQS queues
-  - 12 Dead Letter Queues (DLQs)
-  - 12 Operational Queues
+- **Encryption**: Enabled server-side encryption for all 26 SQS queues
+  - 13 Dead Letter Queues (DLQs)
+  - 13 Operational Queues
   - Uses `SqsManagedSseEnabled: true` for AWS-managed encryption
 
 ### 3. Network Security
@@ -50,21 +50,18 @@ The CloudFormation template has been enhanced with comprehensive security, monit
 
 ### 1. Lambda Function Monitoring
 #### X-Ray Tracing
-- Enabled Active tracing for all 24 Lambda functions
+- Enabled Active tracing for all 31 Lambda functions
 - Added `AWSXRayDaemonWriteAccess` policy to all Lambda IAM roles
 - Provides distributed tracing across microservices
 
 #### CloudWatch Alarms
-- **Error Alarms**: All Lambda functions have error rate monitoring
-- **Throttle Alarms**: All Lambda functions have throttling monitoring
-- **Duration Alarms**: Added for 6 critical Lambda functions:
+- **Error Alarms**: Most Lambda functions have error rate monitoring
+- **Throttle Alarms**: API-facing Lambda functions have throttling monitoring  
+- **Duration Alarms**: Added for 4 critical user-facing Lambda functions:
   - `ApiGetProductLambda`: 8s threshold (10s timeout)
   - `ApiPutProductsLambda`: 50s threshold (60s timeout)
   - `ApiProductSearchLambda`: 8s threshold (10s timeout)
   - `ApiProductSimilaritySearchLambda`: 8s threshold (10s timeout)
-  - `SendMailLambda`: 150s threshold (180s timeout)
-  - `ProductMaterializeDynamoDbNewLambda`: 50s threshold (60s timeout)
-  - `ProductMaterializeOpenSearchNewLambda`: 50s threshold (60s timeout)
 
 ### 2. DynamoDB Monitoring
 - **Throttled Requests**: Alerts on throttling issues
