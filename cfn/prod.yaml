@@ -1,6 +1,9 @@
 AWSTemplateFormatVersion: "2010-09-09"
 Description: Production Stack for the Aura-Historia Application-Backend
 
+Conditions:
+  HasAlarmEmail: !Not [!Equals [!Ref AlarmEmail, ""]]
+
 Parameters:
   ArtifactBucket:
     Type: String
@@ -19,6 +22,10 @@ Parameters:
   OpenSearchEndpointUrl:
     Type: String
     Description: "URL for the self-hosted OpenSearch-Cluster"
+  AlarmEmail:
+    Type: String
+    Description: "Email address for CloudWatch alarm notifications"
+    Default: ""
 
 Resources:
   # SNS Topic for CloudWatch Alarms
@@ -27,6 +34,18 @@ Resources:
     Properties:
       TopicName: "cloudwatch-alarms-prod"
       DisplayName: "CloudWatch Alarms for Aura-Historia Backend stage 'prod'"
+      Tags:
+        - Key: Environment
+          Value: prod
+        - Key: Application
+          Value: aura-historia
+  AlarmEmailSubscription:
+    Type: AWS::SNS::Subscription
+    Condition: HasAlarmEmail
+    Properties:
+      Protocol: email
+      TopicArn: !Ref AlarmNotificationTopic
+      Endpoint: !Ref AlarmEmail
 
   PrimaryUserPool:
     Type: AWS::Cognito::UserPool
@@ -95,6 +114,9 @@ Resources:
       Timeout: 5
       EphemeralStorage:
         Size: 512
+      ReservedConcurrentExecutions: 50
+      TracingConfig:
+        Mode: Active
       Environment:
         Variables:
           DYNAMODB_TABLE_NAME: !Ref TableOne
@@ -177,6 +199,8 @@ Resources:
 
   TableOne:
     Type: AWS::DynamoDB::Table
+    DeletionPolicy: Retain
+    UpdateReplacePolicy: Retain
     Properties:
       TableName: "table_1-prod"
       AttributeDefinitions:
@@ -217,6 +241,18 @@ Resources:
       TableClass: STANDARD
       StreamSpecification:
         StreamViewType: NEW_IMAGE
+      SSESpecification:
+        SSEEnabled: true
+        SSEType: KMS
+      PointInTimeRecoverySpecification:
+        PointInTimeRecoveryEnabled: true
+      Tags:
+        - Key: Environment
+          Value: prod
+        - Key: Application
+          Value: aura-historia
+        - Key: ManagedBy
+          Value: CloudFormation
   TableOneThrottledRequestsAlarm:
     Type: AWS::CloudWatch::Alarm
     Properties:
@@ -357,6 +393,12 @@ Resources:
               - !GetAtt ProductPipelineInitQ.Arn
               - !GetAtt UserLambdaFanoutUpdateWatchlistQ.Arn
 
+  ApiLogGroup:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: !Sub "/aws/apigateway/api-prod"
+      RetentionInDays: 30
+
   Api:
     Type: AWS::ApiGatewayV2::Api
     Properties:
@@ -381,6 +423,13 @@ Resources:
       DefaultRouteSettings:
         ThrottlingBurstLimit: 5000
         ThrottlingRateLimit: 2000
+        DetailedMetricsEnabled: true
+      AccessLogSettings:
+        DestinationArn: !GetAtt ApiLogGroup.Arn
+        Format: '{"requestId":"$context.requestId","ip":"$context.identity.sourceIp","requestTime":"$context.requestTime","httpMethod":"$context.httpMethod","routeKey":"$context.routeKey","status":"$context.status","protocol":"$context.protocol","responseLength":"$context.responseLength","integrationLatency":"$context.integrationLatency","responseLatency":"$context.responseLatency","integrationStatus":"$context.integrationStatus","errorMessage":"$context.error.message","errorMessageString":"$context.error.messageString"}'
+      Tags:
+        Environment: prod
+        Application: aura-historia
   ApiCognitoAuthorizer:
     Type: AWS::ApiGatewayV2::Authorizer
     Properties:
@@ -431,6 +480,25 @@ Resources:
       AlarmActions:
         - !Ref AlarmNotificationTopic
 
+  ApiLatencyAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      AlarmName: "prod-api-high-latency"
+      AlarmDescription: "Alarm when API Gateway has high latency"
+      MetricName: IntegrationLatency
+      Namespace: AWS/ApiGateway
+      Statistic: Average
+      Period: 300
+      EvaluationPeriods: 2
+      Threshold: 3000
+      ComparisonOperator: GreaterThanThreshold
+      Dimensions:
+        - Name: ApiId
+          Value: !Ref Api
+      TreatMissingData: notBreaching
+      AlarmActions:
+        - !Ref AlarmNotificationTopic
+
   ApiGetProductRoute:
     Type: AWS::ApiGatewayV2::Route
     Properties:
@@ -457,6 +525,7 @@ Resources:
             Action: sts:AssumeRole
       ManagedPolicyArns:
         - arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole
+        - arn:aws:iam::aws:policy/AWSXRayDaemonWriteAccess
       Policies:
         - PolicyName: DynamoDBAccess
           PolicyDocument:
@@ -480,14 +549,22 @@ Resources:
         S3Key: !Sub "product-api-get-product-prod-${CommitSHA}.zip"
       MemorySize: 512
       Timeout: 10
+      ReservedConcurrentExecutions: 100
       EphemeralStorage:
         Size: 512
+      TracingConfig:
+        Mode: Active
       Environment:
         Variables:
           DYNAMODB_TABLE_NAME: !Ref TableOne
           USER_POOL_ID: !Ref PrimaryUserPool
           USER_POOL_PUBLIC_CLIENT_ID: !Ref PrimaryUserPoolClientPublic
           USER_POOL_ADMIN_CLIENT_ID: !Ref PrimaryUserPoolClientAdmin
+      Tags:
+        - Key: Environment
+          Value: prod
+        - Key: Application
+          Value: aura-historia
   ApiGetProductLambdaPermission:
     Type: AWS::Lambda::Permission
     Properties:
@@ -525,6 +602,24 @@ Resources:
       EvaluationPeriods: 1
       Threshold: 1
       ComparisonOperator: GreaterThanOrEqualToThreshold
+      Dimensions:
+        - Name: FunctionName
+          Value: !Ref ApiGetProductLambda
+      TreatMissingData: notBreaching
+      AlarmActions:
+        - !Ref AlarmNotificationTopic
+  ApiGetProductLambdaDurationAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      AlarmName: "prod-get-product-lambda-high-duration"
+      AlarmDescription: "Alarm when get-product Lambda has high execution duration"
+      MetricName: Duration
+      Namespace: AWS/Lambda
+      Statistic: Average
+      Period: 300
+      EvaluationPeriods: 2
+      Threshold: 8000
+      ComparisonOperator: GreaterThanThreshold
       Dimensions:
         - Name: FunctionName
           Value: !Ref ApiGetProductLambda
@@ -589,6 +684,9 @@ Resources:
       Timeout: 60
       EphemeralStorage:
         Size: 512
+      ReservedConcurrentExecutions: 50
+      TracingConfig:
+        Mode: Active
       Environment:
         Variables:
           DYNAMODB_TABLE_NAME: !Ref TableOne
@@ -629,6 +727,25 @@ Resources:
       EvaluationPeriods: 1
       Threshold: 1
       ComparisonOperator: GreaterThanOrEqualToThreshold
+      Dimensions:
+        - Name: FunctionName
+          Value: !Ref ApiPutProductsLambda
+      TreatMissingData: notBreaching
+      AlarmActions:
+        - !Ref AlarmNotificationTopic
+
+  ApiPutProductsLambdaDurationAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      AlarmName: "prod-put-products-lambda-high-duration"
+      AlarmDescription: "Alarm when put-products Lambda has high execution duration"
+      MetricName: Duration
+      Namespace: AWS/Lambda
+      Statistic: Average
+      Period: 300
+      EvaluationPeriods: 2
+      Threshold: 50000
+      ComparisonOperator: GreaterThanThreshold
       Dimensions:
         - Name: FunctionName
           Value: !Ref ApiPutProductsLambda
@@ -687,6 +804,9 @@ Resources:
       Timeout: 10
       EphemeralStorage:
         Size: 512
+      ReservedConcurrentExecutions: 100
+      TracingConfig:
+        Mode: Active
       Environment:
         Variables:
           OPENSEARCH_ENDPOINT_URL: !Ref OpenSearchEndpointUrl
@@ -734,6 +854,25 @@ Resources:
       EvaluationPeriods: 1
       Threshold: 1
       ComparisonOperator: GreaterThanOrEqualToThreshold
+      Dimensions:
+        - Name: FunctionName
+          Value: !Ref ApiProductSearchLambda
+      TreatMissingData: notBreaching
+      AlarmActions:
+        - !Ref AlarmNotificationTopic
+
+  ApiProductSearchLambdaDurationAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      AlarmName: "prod-product-search-lambda-high-duration"
+      AlarmDescription: "Alarm when product-search Lambda has high execution duration"
+      MetricName: Duration
+      Namespace: AWS/Lambda
+      Statistic: Average
+      Period: 300
+      EvaluationPeriods: 2
+      Threshold: 8000
+      ComparisonOperator: GreaterThanThreshold
       Dimensions:
         - Name: FunctionName
           Value: !Ref ApiProductSearchLambda
@@ -792,6 +931,9 @@ Resources:
       Timeout: 10
       EphemeralStorage:
         Size: 512
+      ReservedConcurrentExecutions: 50
+      TracingConfig:
+        Mode: Active
       Environment:
         Variables:
           OPENSEARCH_ENDPOINT_URL: !Ref OpenSearchEndpointUrl
@@ -839,6 +981,25 @@ Resources:
       EvaluationPeriods: 1
       Threshold: 1
       ComparisonOperator: GreaterThanOrEqualToThreshold
+      Dimensions:
+        - Name: FunctionName
+          Value: !Ref ApiProductSimilaritySearchLambda
+      TreatMissingData: notBreaching
+      AlarmActions:
+        - !Ref AlarmNotificationTopic
+
+  ApiProductSimilaritySearchLambdaDurationAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      AlarmName: "prod-product-similarity-search-lambda-high-duration"
+      AlarmDescription: "Alarm when product-similarity-search Lambda has high execution duration"
+      MetricName: Duration
+      Namespace: AWS/Lambda
+      Statistic: Average
+      Period: 300
+      EvaluationPeriods: 2
+      Threshold: 8000
+      ComparisonOperator: GreaterThanThreshold
       Dimensions:
         - Name: FunctionName
           Value: !Ref ApiProductSimilaritySearchLambda
@@ -901,6 +1062,9 @@ Resources:
       Timeout: 10
       EphemeralStorage:
         Size: 512
+      ReservedConcurrentExecutions: 50
+      TracingConfig:
+        Mode: Active
       Environment:
         Variables:
           DYNAMODB_TABLE_NAME: !Ref TableOne
@@ -1002,6 +1166,9 @@ Resources:
       Timeout: 10
       EphemeralStorage:
         Size: 512
+      ReservedConcurrentExecutions: 50
+      TracingConfig:
+        Mode: Active
       Environment:
         Variables:
           DYNAMODB_TABLE_NAME: !Ref TableOne
@@ -1105,6 +1272,9 @@ Resources:
       Timeout: 10
       EphemeralStorage:
         Size: 512
+      ReservedConcurrentExecutions: 50
+      TracingConfig:
+        Mode: Active
       Environment:
         Variables:
           DYNAMODB_TABLE_NAME: !Ref TableOne
@@ -1204,6 +1374,9 @@ Resources:
       Timeout: 10
       EphemeralStorage:
         Size: 512
+      ReservedConcurrentExecutions: 50
+      TracingConfig:
+        Mode: Active
       Environment:
         Variables:
           DYNAMODB_TABLE_NAME: !Ref TableOne
@@ -1306,6 +1479,9 @@ Resources:
       Timeout: 10
       EphemeralStorage:
         Size: 512
+      ReservedConcurrentExecutions: 50
+      TracingConfig:
+        Mode: Active
       Environment:
         Variables:
           DYNAMODB_TABLE_NAME: !Ref TableOne
@@ -1405,6 +1581,9 @@ Resources:
       Timeout: 10
       EphemeralStorage:
         Size: 512
+      ReservedConcurrentExecutions: 50
+      TracingConfig:
+        Mode: Active
       Environment:
         Variables:
           DYNAMODB_TABLE_NAME: !Ref TableOne
@@ -1503,6 +1682,9 @@ Resources:
       Timeout: 10
       EphemeralStorage:
         Size: 512
+      ReservedConcurrentExecutions: 30
+      TracingConfig:
+        Mode: Active
       Environment:
         Variables:
           DYNAMODB_TABLE_NAME: !Ref TableOne
@@ -1607,6 +1789,9 @@ Resources:
       Timeout: 10
       EphemeralStorage:
         Size: 512
+      ReservedConcurrentExecutions: 30
+      TracingConfig:
+        Mode: Active
       Environment:
         Variables:
           DYNAMODB_TABLE_NAME: !Ref TableOne
@@ -1709,6 +1894,9 @@ Resources:
       Timeout: 10
       EphemeralStorage:
         Size: 512
+      ReservedConcurrentExecutions: 30
+      TracingConfig:
+        Mode: Active
       Environment:
         Variables:
           DYNAMODB_TABLE_NAME: !Ref TableOne
@@ -1796,6 +1984,9 @@ Resources:
       Timeout: 10
       EphemeralStorage:
         Size: 512
+      ReservedConcurrentExecutions: 30
+      TracingConfig:
+        Mode: Active
       Environment:
         Variables:
           OPENSEARCH_ENDPOINT_URL: !Ref OpenSearchEndpointUrl
@@ -1900,6 +2091,9 @@ Resources:
       Timeout: 10
       EphemeralStorage:
         Size: 512
+      ReservedConcurrentExecutions: 30
+      TracingConfig:
+        Mode: Active
       Environment:
         Variables:
           DYNAMODB_TABLE_NAME: !Ref TableOne
@@ -2000,6 +2194,9 @@ Resources:
       Timeout: 10
       EphemeralStorage:
         Size: 512
+      ReservedConcurrentExecutions: 30
+      TracingConfig:
+        Mode: Active
       Environment:
         Variables:
           DYNAMODB_TABLE_NAME: !Ref TableOne
@@ -2100,6 +2297,9 @@ Resources:
       Timeout: 10
       EphemeralStorage:
         Size: 512
+      ReservedConcurrentExecutions: 30
+      TracingConfig:
+        Mode: Active
       Environment:
         Variables:
           DYNAMODB_TABLE_NAME: !Ref TableOne
@@ -2200,6 +2400,9 @@ Resources:
       Timeout: 10
       EphemeralStorage:
         Size: 512
+      ReservedConcurrentExecutions: 30
+      TracingConfig:
+        Mode: Active
       Environment:
         Variables:
           DYNAMODB_TABLE_NAME: !Ref TableOne
@@ -2298,6 +2501,9 @@ Resources:
       Timeout: 10
       EphemeralStorage:
         Size: 512
+      ReservedConcurrentExecutions: 30
+      TracingConfig:
+        Mode: Active
       Environment:
         Variables:
           DYNAMODB_TABLE_NAME: !Ref TableOne
@@ -2350,6 +2556,247 @@ Resources:
     Properties:
       QueueName: "mail-lambda-send-prod"
       MessageRetentionPeriod: 1209600
+      SqsManagedSseEnabled: true
+      Tags:
+        - Key: Environment
+          Value: prod
+        - Key: Application
+          Value: aura-historia
+  SendMailDlqAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      AlarmName: "prod-send-mail-dlq-messages"
+      AlarmDescription: "Alarm when send-mail DLQ has messages"
+      MetricName: ApproximateNumberOfMessagesVisible
+      Namespace: AWS/SQS
+      Statistic: Average
+      Period: 300
+      EvaluationPeriods: 1
+      Threshold: 1
+      ComparisonOperator: GreaterThanOrEqualToThreshold
+      Dimensions:
+        - Name: QueueName
+          Value: !GetAtt SendMailDlq.QueueName
+      TreatMissingData: notBreaching
+      AlarmActions:
+        - !Ref AlarmNotificationTopic
+  ProductMaterializeDynamoDbNewDlqAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      AlarmName: "prod-productmaterializedynamodbnew-dlq-messages"
+      AlarmDescription: "Alarm when productmaterializedynamodbnew DLQ has messages"
+      MetricName: ApproximateNumberOfMessagesVisible
+      Namespace: AWS/SQS
+      Statistic: Average
+      Period: 300
+      EvaluationPeriods: 1
+      Threshold: 1
+      ComparisonOperator: GreaterThanOrEqualToThreshold
+      Dimensions:
+        - Name: QueueName
+          Value: !GetAtt ProductMaterializeDynamoDbNewDlq.QueueName
+      TreatMissingData: notBreaching
+      AlarmActions:
+        - !Ref AlarmNotificationTopic
+  ProductMaterializeDynamoDbUpdateDlqAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      AlarmName: "prod-productmaterializedynamodbupdate-dlq-messages"
+      AlarmDescription: "Alarm when productmaterializedynamodbupdate DLQ has messages"
+      MetricName: ApproximateNumberOfMessagesVisible
+      Namespace: AWS/SQS
+      Statistic: Average
+      Period: 300
+      EvaluationPeriods: 1
+      Threshold: 1
+      ComparisonOperator: GreaterThanOrEqualToThreshold
+      Dimensions:
+        - Name: QueueName
+          Value: !GetAtt ProductMaterializeDynamoDbUpdateDlq.QueueName
+      TreatMissingData: notBreaching
+      AlarmActions:
+        - !Ref AlarmNotificationTopic
+  ProductMaterializeOpenSearchNewDlqAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      AlarmName: "prod-productmaterializeopensearchnew-dlq-messages"
+      AlarmDescription: "Alarm when productmaterializeopensearchnew DLQ has messages"
+      MetricName: ApproximateNumberOfMessagesVisible
+      Namespace: AWS/SQS
+      Statistic: Average
+      Period: 300
+      EvaluationPeriods: 1
+      Threshold: 1
+      ComparisonOperator: GreaterThanOrEqualToThreshold
+      Dimensions:
+        - Name: QueueName
+          Value: !GetAtt ProductMaterializeOpenSearchNewDlq.QueueName
+      TreatMissingData: notBreaching
+      AlarmActions:
+        - !Ref AlarmNotificationTopic
+  ProductMaterializeOpenSearchUpdateDlqAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      AlarmName: "prod-productmaterializeopensearchupdate-dlq-messages"
+      AlarmDescription: "Alarm when productmaterializeopensearchupdate DLQ has messages"
+      MetricName: ApproximateNumberOfMessagesVisible
+      Namespace: AWS/SQS
+      Statistic: Average
+      Period: 300
+      EvaluationPeriods: 1
+      Threshold: 1
+      ComparisonOperator: GreaterThanOrEqualToThreshold
+      Dimensions:
+        - Name: QueueName
+          Value: !GetAtt ProductMaterializeOpenSearchUpdateDlq.QueueName
+      TreatMissingData: notBreaching
+      AlarmActions:
+        - !Ref AlarmNotificationTopic
+  ShopOpenSearchIndexDlqAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      AlarmName: "prod-shopopensearchindex-dlq-messages"
+      AlarmDescription: "Alarm when shopopensearchindex DLQ has messages"
+      MetricName: ApproximateNumberOfMessagesVisible
+      Namespace: AWS/SQS
+      Statistic: Average
+      Period: 300
+      EvaluationPeriods: 1
+      Threshold: 1
+      ComparisonOperator: GreaterThanOrEqualToThreshold
+      Dimensions:
+        - Name: QueueName
+          Value: !GetAtt ShopOpenSearchIndexDlq.QueueName
+      TreatMissingData: notBreaching
+      AlarmActions:
+        - !Ref AlarmNotificationTopic
+  ProductUpdateNotifyUserDlqAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      AlarmName: "prod-productupdatenotifyuser-dlq-messages"
+      AlarmDescription: "Alarm when productupdatenotifyuser DLQ has messages"
+      MetricName: ApproximateNumberOfMessagesVisible
+      Namespace: AWS/SQS
+      Statistic: Average
+      Period: 300
+      EvaluationPeriods: 1
+      Threshold: 1
+      ComparisonOperator: GreaterThanOrEqualToThreshold
+      Dimensions:
+        - Name: QueueName
+          Value: !GetAtt ProductUpdateNotifyUserDlq.QueueName
+      TreatMissingData: notBreaching
+      AlarmActions:
+        - !Ref AlarmNotificationTopic
+  UserLambdaFanoutUpdateWatchlistDlqAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      AlarmName: "prod-userlambdafanoutupdatewatchlist-dlq-messages"
+      AlarmDescription: "Alarm when userlambdafanoutupdatewatchlist DLQ has messages"
+      MetricName: ApproximateNumberOfMessagesVisible
+      Namespace: AWS/SQS
+      Statistic: Average
+      Period: 300
+      EvaluationPeriods: 1
+      Threshold: 1
+      ComparisonOperator: GreaterThanOrEqualToThreshold
+      Dimensions:
+        - Name: QueueName
+          Value: !GetAtt UserLambdaFanoutUpdateWatchlistDlq.QueueName
+      TreatMissingData: notBreaching
+      AlarmActions:
+        - !Ref AlarmNotificationTopic
+  ProductPipelineInitDlqAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      AlarmName: "prod-productpipelineinit-dlq-messages"
+      AlarmDescription: "Alarm when productpipelineinit DLQ has messages"
+      MetricName: ApproximateNumberOfMessagesVisible
+      Namespace: AWS/SQS
+      Statistic: Average
+      Period: 300
+      EvaluationPeriods: 1
+      Threshold: 1
+      ComparisonOperator: GreaterThanOrEqualToThreshold
+      Dimensions:
+        - Name: QueueName
+          Value: !GetAtt ProductPipelineInitDlq.QueueName
+      TreatMissingData: notBreaching
+      AlarmActions:
+        - !Ref AlarmNotificationTopic
+  ProductPipelineTranslateDlqAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      AlarmName: "prod-productpipelinetranslate-dlq-messages"
+      AlarmDescription: "Alarm when productpipelinetranslate DLQ has messages"
+      MetricName: ApproximateNumberOfMessagesVisible
+      Namespace: AWS/SQS
+      Statistic: Average
+      Period: 300
+      EvaluationPeriods: 1
+      Threshold: 1
+      ComparisonOperator: GreaterThanOrEqualToThreshold
+      Dimensions:
+        - Name: QueueName
+          Value: !GetAtt ProductPipelineTranslateDlq.QueueName
+      TreatMissingData: notBreaching
+      AlarmActions:
+        - !Ref AlarmNotificationTopic
+  ProductPipelineEmbedTextDlqAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      AlarmName: "prod-productpipelineembedtext-dlq-messages"
+      AlarmDescription: "Alarm when productpipelineembedtext DLQ has messages"
+      MetricName: ApproximateNumberOfMessagesVisible
+      Namespace: AWS/SQS
+      Statistic: Average
+      Period: 300
+      EvaluationPeriods: 1
+      Threshold: 1
+      ComparisonOperator: GreaterThanOrEqualToThreshold
+      Dimensions:
+        - Name: QueueName
+          Value: !GetAtt ProductPipelineEmbedTextDlq.QueueName
+      TreatMissingData: notBreaching
+      AlarmActions:
+        - !Ref AlarmNotificationTopic
+  ProductPipelineExtractAttributeDlqAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      AlarmName: "prod-productpipelineextractattribute-dlq-messages"
+      AlarmDescription: "Alarm when productpipelineextractattribute DLQ has messages"
+      MetricName: ApproximateNumberOfMessagesVisible
+      Namespace: AWS/SQS
+      Statistic: Average
+      Period: 300
+      EvaluationPeriods: 1
+      Threshold: 1
+      ComparisonOperator: GreaterThanOrEqualToThreshold
+      Dimensions:
+        - Name: QueueName
+          Value: !GetAtt ProductPipelineExtractAttributeDlq.QueueName
+      TreatMissingData: notBreaching
+      AlarmActions:
+        - !Ref AlarmNotificationTopic
+  ProductPipelineCompleteDlqAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      AlarmName: "prod-productpipelinecomplete-dlq-messages"
+      AlarmDescription: "Alarm when productpipelinecomplete DLQ has messages"
+      MetricName: ApproximateNumberOfMessagesVisible
+      Namespace: AWS/SQS
+      Statistic: Average
+      Period: 300
+      EvaluationPeriods: 1
+      Threshold: 1
+      ComparisonOperator: GreaterThanOrEqualToThreshold
+      Dimensions:
+        - Name: QueueName
+          Value: !GetAtt ProductPipelineCompleteDlq.QueueName
+      TreatMissingData: notBreaching
+      AlarmActions:
+        - !Ref AlarmNotificationTopic
+
   SendMailQ:
     Type: AWS::SQS::Queue
     Properties:
@@ -2358,6 +2805,12 @@ Resources:
         deadLetterTargetArn: !GetAtt SendMailDlq.Arn
         maxReceiveCount: 5
       VisibilityTimeout: 180
+      SqsManagedSseEnabled: true
+      Tags:
+        - Key: Environment
+          Value: prod
+        - Key: Application
+          Value: aura-historia
   SendMailRole:
     Type: AWS::IAM::Role
     Properties:
@@ -2428,6 +2881,9 @@ Resources:
       Timeout: 60
       EphemeralStorage:
         Size: 512
+      ReservedConcurrentExecutions: 20
+      TracingConfig:
+        Mode: Active
       Environment:
         Variables:
           DYNAMODB_TABLE_NAME: !Ref TableOne
@@ -2462,30 +2918,18 @@ Resources:
       TreatMissingData: notBreaching
       AlarmActions:
         - !Ref AlarmNotificationTopic
-  SendMailDlqAlarm:
-    Type: AWS::CloudWatch::Alarm
-    Properties:
-      AlarmName: "prod-send-mail-dlq-messages"
-      AlarmDescription: "Alarm when messages appear in send-mail DLQ"
-      MetricName: ApproximateNumberOfMessagesVisible
-      Namespace: AWS/SQS
-      Statistic: Sum
-      Period: 300
-      EvaluationPeriods: 1
-      Threshold: 1
-      ComparisonOperator: GreaterThanOrEqualToThreshold
-      Dimensions:
-        - Name: QueueName
-          Value: !GetAtt SendMailDlq.QueueName
-      TreatMissingData: notBreaching
-      AlarmActions:
-        - !Ref AlarmNotificationTopic
 
   ProductMaterializeDynamoDbNewDlq:
     Type: AWS::SQS::Queue
     Properties:
       QueueName: "product-lambda-materialize-dynamodb-new-dlq-prod"
       MessageRetentionPeriod: 1209600
+      SqsManagedSseEnabled: true
+      Tags:
+        - Key: Environment
+          Value: prod
+        - Key: Application
+          Value: aura-historia
   ProductMaterializeDynamoDbNewQ:
     Type: AWS::SQS::Queue
     Properties:
@@ -2494,6 +2938,12 @@ Resources:
         deadLetterTargetArn: !GetAtt ProductMaterializeDynamoDbNewDlq.Arn
         maxReceiveCount: 5
       VisibilityTimeout: 360
+      SqsManagedSseEnabled: true
+      Tags:
+        - Key: Environment
+          Value: prod
+        - Key: Application
+          Value: aura-historia
   ProductMaterializeDynamoDbNewRole:
     Type: AWS::IAM::Role
     Properties:
@@ -2541,6 +2991,9 @@ Resources:
       Timeout: 60
       EphemeralStorage:
         Size: 512
+      ReservedConcurrentExecutions: 25
+      TracingConfig:
+        Mode: Active
       Environment:
         Variables:
           DYNAMODB_TABLE_NAME: !Ref TableOne
@@ -2572,30 +3025,18 @@ Resources:
       TreatMissingData: notBreaching
       AlarmActions:
         - !Ref AlarmNotificationTopic
-  ProductMaterializeDynamoDbNewDlqAlarm:
-    Type: AWS::CloudWatch::Alarm
-    Properties:
-      AlarmName: "prod-materialize-ddb-new-dlq-messages"
-      AlarmDescription: "Alarm when messages appear in materialize-ddb-new DLQ"
-      MetricName: ApproximateNumberOfMessagesVisible
-      Namespace: AWS/SQS
-      Statistic: Sum
-      Period: 300
-      EvaluationPeriods: 1
-      Threshold: 1
-      ComparisonOperator: GreaterThanOrEqualToThreshold
-      Dimensions:
-        - Name: QueueName
-          Value: !GetAtt ProductMaterializeDynamoDbNewDlq.QueueName
-      TreatMissingData: notBreaching
-      AlarmActions:
-        - !Ref AlarmNotificationTopic
 
   ProductMaterializeDynamoDbUpdateDlq:
     Type: AWS::SQS::Queue
     Properties:
       QueueName: "product-lambda-materialize-dynamodb-update-dlq-prod"
       MessageRetentionPeriod: 1209600
+      SqsManagedSseEnabled: true
+      Tags:
+        - Key: Environment
+          Value: prod
+        - Key: Application
+          Value: aura-historia
   ProductMaterializeDynamoDbUpdateQ:
     Type: AWS::SQS::Queue
     Properties:
@@ -2604,6 +3045,12 @@ Resources:
         deadLetterTargetArn: !GetAtt ProductMaterializeDynamoDbUpdateDlq.Arn
         maxReceiveCount: 5
       VisibilityTimeout: 360
+      SqsManagedSseEnabled: true
+      Tags:
+        - Key: Environment
+          Value: prod
+        - Key: Application
+          Value: aura-historia
   ProductMaterializeDynamoDbUpdateRole:
     Type: AWS::IAM::Role
     Properties:
@@ -2651,6 +3098,9 @@ Resources:
       Timeout: 60
       EphemeralStorage:
         Size: 512
+      ReservedConcurrentExecutions: 25
+      TracingConfig:
+        Mode: Active
       Environment:
         Variables:
           DYNAMODB_TABLE_NAME: !Ref TableOne
@@ -2682,30 +3132,18 @@ Resources:
       TreatMissingData: notBreaching
       AlarmActions:
         - !Ref AlarmNotificationTopic
-  ProductMaterializeDynamoDbUpdateDlqAlarm:
-    Type: AWS::CloudWatch::Alarm
-    Properties:
-      AlarmName: "prod-materialize-ddb-update-dlq-messages"
-      AlarmDescription: "Alarm when messages appear in materialize-ddb-update DLQ"
-      MetricName: ApproximateNumberOfMessagesVisible
-      Namespace: AWS/SQS
-      Statistic: Sum
-      Period: 300
-      EvaluationPeriods: 1
-      Threshold: 1
-      ComparisonOperator: GreaterThanOrEqualToThreshold
-      Dimensions:
-        - Name: QueueName
-          Value: !GetAtt ProductMaterializeDynamoDbUpdateDlq.QueueName
-      TreatMissingData: notBreaching
-      AlarmActions:
-        - !Ref AlarmNotificationTopic
 
   ProductMaterializeOpenSearchNewDlq:
     Type: AWS::SQS::Queue
     Properties:
       QueueName: "product-lambda-materialize-opensearch-new-dlq-prod"
       MessageRetentionPeriod: 1209600
+      SqsManagedSseEnabled: true
+      Tags:
+        - Key: Environment
+          Value: prod
+        - Key: Application
+          Value: aura-historia
   ProductMaterializeOpenSearchNewQ:
     Type: AWS::SQS::Queue
     Properties:
@@ -2714,6 +3152,12 @@ Resources:
         deadLetterTargetArn: !GetAtt ProductMaterializeOpenSearchNewDlq.Arn
         maxReceiveCount: 5
       VisibilityTimeout: 360
+      SqsManagedSseEnabled: true
+      Tags:
+        - Key: Environment
+          Value: prod
+        - Key: Application
+          Value: aura-historia
   ProductMaterializeOpenSearchNewRole:
     Type: AWS::IAM::Role
     Properties:
@@ -2753,6 +3197,9 @@ Resources:
       Timeout: 60
       EphemeralStorage:
         Size: 512
+      ReservedConcurrentExecutions: 25
+      TracingConfig:
+        Mode: Active
       Environment:
         Variables:
           OPENSEARCH_ENDPOINT_URL: !Ref OpenSearchEndpointUrl
@@ -2787,30 +3234,18 @@ Resources:
       TreatMissingData: notBreaching
       AlarmActions:
         - !Ref AlarmNotificationTopic
-  ProductMaterializeOpenSearchNewDlqAlarm:
-    Type: AWS::CloudWatch::Alarm
-    Properties:
-      AlarmName: "prod-materialize-os-new-dlq-messages"
-      AlarmDescription: "Alarm when messages appear in materialize-opensearch-new DLQ"
-      MetricName: ApproximateNumberOfMessagesVisible
-      Namespace: AWS/SQS
-      Statistic: Sum
-      Period: 300
-      EvaluationPeriods: 1
-      Threshold: 1
-      ComparisonOperator: GreaterThanOrEqualToThreshold
-      Dimensions:
-        - Name: QueueName
-          Value: !GetAtt ProductMaterializeOpenSearchNewDlq.QueueName
-      TreatMissingData: notBreaching
-      AlarmActions:
-        - !Ref AlarmNotificationTopic
 
   ProductMaterializeOpenSearchUpdateDlq:
     Type: AWS::SQS::Queue
     Properties:
       QueueName: "product-lambda-materialize-opensearch-update-dlq-prod"
       MessageRetentionPeriod: 1209600
+      SqsManagedSseEnabled: true
+      Tags:
+        - Key: Environment
+          Value: prod
+        - Key: Application
+          Value: aura-historia
   ProductMaterializeOpenSearchUpdateQ:
     Type: AWS::SQS::Queue
     Properties:
@@ -2819,6 +3254,12 @@ Resources:
         deadLetterTargetArn: !GetAtt ProductMaterializeOpenSearchUpdateDlq.Arn
         maxReceiveCount: 5
       VisibilityTimeout: 360
+      SqsManagedSseEnabled: true
+      Tags:
+        - Key: Environment
+          Value: prod
+        - Key: Application
+          Value: aura-historia
   ProductMaterializeOpenSearchUpdateRole:
     Type: AWS::IAM::Role
     Properties:
@@ -2858,6 +3299,9 @@ Resources:
       Timeout: 60
       EphemeralStorage:
         Size: 512
+      ReservedConcurrentExecutions: 25
+      TracingConfig:
+        Mode: Active
       Environment:
         Variables:
           OPENSEARCH_ENDPOINT_URL: !Ref OpenSearchEndpointUrl
@@ -2892,30 +3336,18 @@ Resources:
       TreatMissingData: notBreaching
       AlarmActions:
         - !Ref AlarmNotificationTopic
-  ProductMaterializeOpenSearchUpdateDlqAlarm:
-    Type: AWS::CloudWatch::Alarm
-    Properties:
-      AlarmName: "prod-materialize-os-update-dlq-messages"
-      AlarmDescription: "Alarm when messages appear in materialize-opensearch-update DLQ"
-      MetricName: ApproximateNumberOfMessagesVisible
-      Namespace: AWS/SQS
-      Statistic: Sum
-      Period: 300
-      EvaluationPeriods: 1
-      Threshold: 1
-      ComparisonOperator: GreaterThanOrEqualToThreshold
-      Dimensions:
-        - Name: QueueName
-          Value: !GetAtt ProductMaterializeOpenSearchUpdateDlq.QueueName
-      TreatMissingData: notBreaching
-      AlarmActions:
-        - !Ref AlarmNotificationTopic
 
   ShopOpenSearchIndexDlq:
     Type: AWS::SQS::Queue
     Properties:
       QueueName: "shop-opensearch-index-dlq-prod"
       MessageRetentionPeriod: 1209600
+      SqsManagedSseEnabled: true
+      Tags:
+        - Key: Environment
+          Value: prod
+        - Key: Application
+          Value: aura-historia
   ShopOpenSearchIndexQ:
     Type: AWS::SQS::Queue
     Properties:
@@ -2924,6 +3356,12 @@ Resources:
         deadLetterTargetArn: !GetAtt ShopOpenSearchIndexDlq.Arn
         maxReceiveCount: 5
       VisibilityTimeout: 360
+      SqsManagedSseEnabled: true
+      Tags:
+        - Key: Environment
+          Value: prod
+        - Key: Application
+          Value: aura-historia
   ShopOpenSearchIndexRole:
     Type: AWS::IAM::Role
     Properties:
@@ -2963,6 +3401,9 @@ Resources:
       Timeout: 30
       EphemeralStorage:
         Size: 512
+      ReservedConcurrentExecutions: 30
+      TracingConfig:
+        Mode: Active
       Environment:
         Variables:
           OPENSEARCH_ENDPOINT_URL: !Ref OpenSearchEndpointUrl
@@ -2995,30 +3436,18 @@ Resources:
       TreatMissingData: notBreaching
       AlarmActions:
         - !Ref AlarmNotificationTopic
-  ShopOpenSearchIndexDlqAlarm:
-    Type: AWS::CloudWatch::Alarm
-    Properties:
-      AlarmName: "prod-shop-opensearch-index-dlq-messages"
-      AlarmDescription: "Alarm when messages appear in shop-opensearch-index DLQ"
-      MetricName: ApproximateNumberOfMessagesVisible
-      Namespace: AWS/SQS
-      Statistic: Sum
-      Period: 300
-      EvaluationPeriods: 1
-      Threshold: 1
-      ComparisonOperator: GreaterThanOrEqualToThreshold
-      Dimensions:
-        - Name: QueueName
-          Value: !GetAtt ShopOpenSearchIndexDlq.QueueName
-      TreatMissingData: notBreaching
-      AlarmActions:
-        - !Ref AlarmNotificationTopic
 
   ProductUpdateNotifyUserDlq:
     Type: AWS::SQS::Queue
     Properties:
       QueueName: "product-lambda-update-notify-user-dlq-prod"
       MessageRetentionPeriod: 1209600
+      SqsManagedSseEnabled: true
+      Tags:
+        - Key: Environment
+          Value: prod
+        - Key: Application
+          Value: aura-historia
   ProductUpdateNotifyUserQ:
     Type: AWS::SQS::Queue
     Properties:
@@ -3027,6 +3456,12 @@ Resources:
         deadLetterTargetArn: !GetAtt ProductUpdateNotifyUserDlq.Arn
         maxReceiveCount: 5
       VisibilityTimeout: 360
+      SqsManagedSseEnabled: true
+      Tags:
+        - Key: Environment
+          Value: prod
+        - Key: Application
+          Value: aura-historia
   ProductUpdateNotifyUserRole:
     Type: AWS::IAM::Role
     Properties:
@@ -3085,6 +3520,9 @@ Resources:
       Timeout: 60
       EphemeralStorage:
         Size: 512
+      ReservedConcurrentExecutions: 50
+      TracingConfig:
+        Mode: Active
       Environment:
         Variables:
           DYNAMODB_TABLE_NAME: !Ref TableOne
@@ -3118,30 +3556,18 @@ Resources:
       TreatMissingData: notBreaching
       AlarmActions:
         - !Ref AlarmNotificationTopic
-  ProductUpdateNotifyUserDlqAlarm:
-    Type: AWS::CloudWatch::Alarm
-    Properties:
-      AlarmName: "prod-product-update-notify-user-dlq-messages"
-      AlarmDescription: "Alarm when messages appear in product-update-notify-user DLQ"
-      MetricName: ApproximateNumberOfMessagesVisible
-      Namespace: AWS/SQS
-      Statistic: Sum
-      Period: 300
-      EvaluationPeriods: 1
-      Threshold: 1
-      ComparisonOperator: GreaterThanOrEqualToThreshold
-      Dimensions:
-        - Name: QueueName
-          Value: !GetAtt ProductUpdateNotifyUserDlq.QueueName
-      TreatMissingData: notBreaching
-      AlarmActions:
-        - !Ref AlarmNotificationTopic
 
   UserLambdaFanoutUpdateWatchlistDlq:
     Type: AWS::SQS::Queue
     Properties:
       QueueName: "user-lambda-fanout-update-watchlist-dlq-prod"
       MessageRetentionPeriod: 1209600
+      SqsManagedSseEnabled: true
+      Tags:
+        - Key: Environment
+          Value: prod
+        - Key: Application
+          Value: aura-historia
   UserLambdaFanoutUpdateWatchlistQ:
     Type: AWS::SQS::Queue
     Properties:
@@ -3150,6 +3576,12 @@ Resources:
         deadLetterTargetArn: !GetAtt UserLambdaFanoutUpdateWatchlistDlq.Arn
         maxReceiveCount: 5
       VisibilityTimeout: 360
+      SqsManagedSseEnabled: true
+      Tags:
+        - Key: Environment
+          Value: prod
+        - Key: Application
+          Value: aura-historia
   UserLambdaFanoutUpdateWatchlistRole:
     Type: AWS::IAM::Role
     Properties:
@@ -3207,6 +3639,9 @@ Resources:
       Timeout: 60
       EphemeralStorage:
         Size: 512
+      ReservedConcurrentExecutions: 50
+      TracingConfig:
+        Mode: Active
       Environment:
         Variables:
           DYNAMODB_TABLE_NAME: !Ref TableOne
@@ -3235,24 +3670,6 @@ Resources:
       Dimensions:
         - Name: FunctionName
           Value: !Ref UserLambdaFanoutUpdateWatchlistLambda
-      TreatMissingData: notBreaching
-      AlarmActions:
-        - !Ref AlarmNotificationTopic
-  UserLambdaFanoutUpdateWatchlistDlqAlarm:
-    Type: AWS::CloudWatch::Alarm
-    Properties:
-      AlarmName: "prod-user-lambda-fanout-update-watchlist-dlq-messages"
-      AlarmDescription: "Alarm when messages appear in user-lambda-fanout-update-watchlist DLQ"
-      MetricName: ApproximateNumberOfMessagesVisible
-      Namespace: AWS/SQS
-      Statistic: Sum
-      Period: 300
-      EvaluationPeriods: 1
-      Threshold: 1
-      ComparisonOperator: GreaterThanOrEqualToThreshold
-      Dimensions:
-        - Name: QueueName
-          Value: !GetAtt UserLambdaFanoutUpdateWatchlistDlq.QueueName
       TreatMissingData: notBreaching
       AlarmActions:
         - !Ref AlarmNotificationTopic
@@ -3496,6 +3913,12 @@ Resources:
     Properties:
       QueueName: "product-pipeline-init-dlq-prod"
       MessageRetentionPeriod: 1209600
+      SqsManagedSseEnabled: true
+      Tags:
+        - Key: Environment
+          Value: prod
+        - Key: Application
+          Value: aura-historia
   ProductPipelineInitQ:
     Type: AWS::SQS::Queue
     Properties:
@@ -3504,6 +3927,12 @@ Resources:
         deadLetterTargetArn: !GetAtt ProductPipelineInitDlq.Arn
         maxReceiveCount: 5
       VisibilityTimeout: 60
+      SqsManagedSseEnabled: true
+      Tags:
+        - Key: Environment
+          Value: prod
+        - Key: Application
+          Value: aura-historia
   ProductPipelineInitRole:
     Type: AWS::IAM::Role
     Properties:
@@ -3788,6 +4217,12 @@ Resources:
     Properties:
       QueueName: "product-pipeline-translate-dlq-prod"
       MessageRetentionPeriod: 1209600
+      SqsManagedSseEnabled: true
+      Tags:
+        - Key: Environment
+          Value: prod
+        - Key: Application
+          Value: aura-historia
   ProductPipelineTranslateQ:
     Type: AWS::SQS::Queue
     Properties:
@@ -3796,6 +4231,12 @@ Resources:
         deadLetterTargetArn: !GetAtt ProductPipelineTranslateDlq.Arn
         maxReceiveCount: 3
       VisibilityTimeout: 300
+      SqsManagedSseEnabled: true
+      Tags:
+        - Key: Environment
+          Value: prod
+        - Key: Application
+          Value: aura-historia
   ProductPipelineTranslateRole:
     Type: AWS::IAM::Role
     Properties:
@@ -3977,6 +4418,12 @@ Resources:
     Properties:
       QueueName: "product-pipeline-embed-text-dlq-prod"
       MessageRetentionPeriod: 1209600
+      SqsManagedSseEnabled: true
+      Tags:
+        - Key: Environment
+          Value: prod
+        - Key: Application
+          Value: aura-historia
   ProductPipelineEmbedTextQ:
     Type: AWS::SQS::Queue
     Properties:
@@ -3985,6 +4432,12 @@ Resources:
         deadLetterTargetArn: !GetAtt ProductPipelineEmbedTextDlq.Arn
         maxReceiveCount: 3
       VisibilityTimeout: 300
+      SqsManagedSseEnabled: true
+      Tags:
+        - Key: Environment
+          Value: prod
+        - Key: Application
+          Value: aura-historia
   ProductPipelineEmbedTextRole:
     Type: AWS::IAM::Role
     Properties:
@@ -4166,6 +4619,12 @@ Resources:
     Properties:
       QueueName: !Sub "product-pipeline-extract-attribute-dlq-prod"
       MessageRetentionPeriod: 1209600
+      SqsManagedSseEnabled: true
+      Tags:
+        - Key: Environment
+          Value: prod
+        - Key: Application
+          Value: aura-historia
   ProductPipelineExtractAttributeQ:
     Type: AWS::SQS::Queue
     Properties:
@@ -4174,6 +4633,12 @@ Resources:
         deadLetterTargetArn: !GetAtt ProductPipelineExtractAttributeDlq.Arn
         maxReceiveCount: 3
       VisibilityTimeout: 300
+      SqsManagedSseEnabled: true
+      Tags:
+        - Key: Environment
+          Value: prod
+        - Key: Application
+          Value: aura-historia
   ProductPipelineExtractAttributeRole:
     Type: AWS::IAM::Role
     Properties:
@@ -4355,6 +4820,12 @@ Resources:
     Properties:
       QueueName: "product-pipeline-complete-dlq-prod"
       MessageRetentionPeriod: 1209600
+      SqsManagedSseEnabled: true
+      Tags:
+        - Key: Environment
+          Value: prod
+        - Key: Application
+          Value: aura-historia
   ProductPipelineCompleteQ:
     Type: AWS::SQS::Queue
     Properties:
@@ -4363,6 +4834,12 @@ Resources:
         deadLetterTargetArn: !GetAtt ProductPipelineCompleteDlq.Arn
         maxReceiveCount: 5
       VisibilityTimeout: 60
+      SqsManagedSseEnabled: true
+      Tags:
+        - Key: Environment
+          Value: prod
+        - Key: Application
+          Value: aura-historia
   ProductPipelineCompleteRole:
     Type: AWS::IAM::Role
     Properties:
@@ -4720,6 +5197,9 @@ Resources:
       Timeout: 60
       EphemeralStorage:
         Size: 512
+      ReservedConcurrentExecutions: 10
+      TracingConfig:
+        Mode: Active
       Environment:
         Variables:
           PRODUCT_PIPELINE_INIT_SQS_URL: !Ref ProductPipelineInitQ
@@ -4806,6 +5286,9 @@ Resources:
       Timeout: 60
       EphemeralStorage:
         Size: 512
+      ReservedConcurrentExecutions: 10
+      TracingConfig:
+        Mode: Active
       Environment:
         Variables:
           PRODUCT_PIPELINE_COMPLETE_ASG_NAME: !Ref ProductPipelineCompleteASG
@@ -4858,8 +5341,10 @@ Resources:
             Principal:
               Service: lambda.amazonaws.com
             Action: sts:AssumeRole
+
       ManagedPolicyArns:
         - arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole
+        - arn:aws:iam::aws:policy/AWSXRayDaemonWriteAccess
       Policies:
         - PolicyName: DynamoDBAccess
           PolicyDocument:
@@ -4885,6 +5370,9 @@ Resources:
       Timeout: 180
       EphemeralStorage:
         Size: 512
+      ReservedConcurrentExecutions: 10
+      TracingConfig:
+        Mode: Active
       Environment:
         Variables:
           DYNAMODB_TABLE_NAME: !Ref TableOne
