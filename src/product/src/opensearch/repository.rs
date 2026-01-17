@@ -14,6 +14,7 @@ use common::opensearch::{bulk_response::BulkResponse, search_response::SearchRes
 use common::pagination::cursor::Cursor;
 use common::product_id::ProductId;
 use common::query::any_of_query::AnyOfQuery;
+use common::shop_name::ShopName;
 use common::sort::{Sort, SortOrder};
 use opensearch::{BulkOperation, BulkOperations, BulkParts, GetParts, SearchParts};
 use serde::ser::Error;
@@ -136,6 +137,7 @@ impl<'a> ProductOpenSearchRepository for ProductOpenSearchRepositoryImpl<'a> {
         cursor: &Option<Cursor<serde_json::Value>>,
     ) -> Result<SearchResponse<ProductDocument>, opensearch::Error> {
         let mut must = Vec::with_capacity(3);
+        let mut must_not = Vec::with_capacity(1);
         let mut filter = Vec::with_capacity(16);
 
         // ---------- Text search ----------
@@ -169,6 +171,15 @@ impl<'a> ProductOpenSearchRepository for ProductOpenSearchRepositoryImpl<'a> {
                 "minimum_should_match": "70%"
             }
         }));
+
+        // ---------- Exclusions ----------
+        if !search.exclude_shop_name_query.is_empty() {
+            must_not.push(json!({
+                "terms": {
+                    "shopName": search.exclude_shop_name_query.iter().map(ShopName::as_ref).collect::<Vec<_>>()
+                }
+            }));
+        }
 
         // ---------- Price ----------
         let price_field = match search.currency {
@@ -345,6 +356,7 @@ impl<'a> ProductOpenSearchRepository for ProductOpenSearchRepositoryImpl<'a> {
             "query": {
                 "bool": {
                     "must": must,
+                    "must_not": must_not,
                     "filter": filter
                 }
             }

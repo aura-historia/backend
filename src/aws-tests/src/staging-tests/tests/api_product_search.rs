@@ -213,6 +213,7 @@ async fn should_respond_200_when_hits_authenticated() {
         currency: CurrencyData::Eur,
         product_query: "Chopin Etudes Op.10".try_into().unwrap(),
         shop_name_query: ["Hans Volkers Shop".into()].into(),
+        exclude_shop_name_query: Default::default(),
         shop_type_query: Default::default(),
         price_query: Some(RangeQuery {
             min: None,
@@ -342,6 +343,7 @@ async fn should_respond_200_when_hits_anon() {
         currency: CurrencyData::Eur,
         product_query: "Chopin Etudes Op.10".try_into().unwrap(),
         shop_name_query: ["Hans Volkers Shop".into()].into(),
+        exclude_shop_name_query: Default::default(),
         shop_type_query: Default::default(),
         price_query: Some(RangeQuery {
             min: None,
