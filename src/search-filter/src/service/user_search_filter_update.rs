@@ -1,8 +1,11 @@
+use std::collections::HashSet;
+
 use crate::core::user_search_filter_name::UserSearchFilterName;
 use crate::dynamodb::user_search_filter_record_update::UserSearchFilterRecordUpdate;
 use common::query::any_of_query::AnyOfQuery;
 use common::query::range_query::RangeQuery;
 use common::query::text_query::TextQuery;
+use common::shop_name::ShopName;
 use common::year::Year;
 use common::{
     currency::{domain::Currency, record::CurrencyRecord},
@@ -27,7 +30,7 @@ use time::OffsetDateTime;
 pub struct UserSearchFilterUpdate {
     pub name: Option<UserSearchFilterName>,
     pub product_query: Option<TextQuery>,
-    pub shop_name_query: Option<TextQuery>,
+    pub shop_name_query: Option<HashSet<ShopName>>,
     pub shop_type_query: Option<AnyOfQuery<ShopType>>,
     pub price_query: Option<RangeQuery<MonetaryAmount>>,
     pub state_query: Option<AnyOfQuery<ProductState>>,

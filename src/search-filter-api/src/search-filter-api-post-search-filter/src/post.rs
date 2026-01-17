@@ -26,6 +26,7 @@ mod faker {
 
 #[cfg(test)]
 mod tests {
+    use crate::post::PostUserSearchFilterData;
     use common::query::range_query::RangeQuery;
     use common::{currency::data::CurrencyData, language::data::LanguageData};
     use product::data::authenticity_data::AuthenticityData;
@@ -38,8 +39,6 @@ mod tests {
     use std::collections::HashSet;
     use time::macros::datetime;
 
-    use crate::post::PostUserSearchFilterData;
-
     #[test]
     fn should_deserialize_post_user_search_filter() {
         let json = json!({
@@ -48,7 +47,7 @@ mod tests {
                 "language": "de",
                 "currency": "EUR",
                 "productQuery": "Boop",
-                "shopNameQuery": "Baap",
+                "shopName": ["Baap"],
                 "price": {
                     "min": 37,
                     "max": 42
@@ -86,7 +85,7 @@ mod tests {
                 language: LanguageData::De,
                 currency: CurrencyData::Eur,
                 product_query: "Boop".try_into().unwrap(),
-                shop_name_query: Some("Baap".try_into().unwrap()),
+                shop_name_query: ["Baap".into()].into(),
                 shop_type_query: HashSet::new(),
                 price_query: Some(RangeQuery {
                     min: Some(37),

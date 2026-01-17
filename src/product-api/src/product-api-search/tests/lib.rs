@@ -86,7 +86,7 @@ async fn should_200_when_following_search_after_from_previous_response_for_sort_
         language: common::language::data::LanguageData::De,
         currency: common::currency::data::CurrencyData::Eur,
         product_query: "Der erwartete Titel".try_into().unwrap(),
-        shop_name_query: None,
+        shop_name_query: Default::default(),
         shop_type_query: Default::default(),
         price_query: None,
         state_query: Default::default(),
@@ -227,7 +227,7 @@ async fn should_200_when_following_search_after_from_previous_response_for_sort_
         language: common::language::data::LanguageData::De,
         currency: common::currency::data::CurrencyData::Eur,
         product_query: "Der erwartete Titel".try_into().unwrap(),
-        shop_name_query: None,
+        shop_name_query: Default::default(),
         shop_type_query: Default::default(),
         price_query: None,
         state_query: Default::default(),
@@ -373,7 +373,7 @@ async fn should_200_when_following_search_after_from_previous_response_for_impli
         language: common::language::data::LanguageData::De,
         currency: common::currency::data::CurrencyData::Usd,
         product_query: "Der erwartete Titel".try_into().unwrap(),
-        shop_name_query: None,
+        shop_name_query: Default::default(),
         shop_type_query: Default::default(),
         price_query: None,
         state_query: Default::default(),
@@ -481,7 +481,7 @@ async fn should_200_when_following_search_after_from_previous_response_for_expli
         language: common::language::data::LanguageData::De,
         currency: common::currency::data::CurrencyData::Usd,
         product_query: "Der erwartete Titel".try_into().unwrap(),
-        shop_name_query: None,
+        shop_name_query: Default::default(),
         shop_type_query: Default::default(),
         price_query: None,
         state_query: Default::default(),
@@ -593,7 +593,7 @@ async fn should_200_when_following_search_after_from_previous_response_for_sort_
         language: common::language::data::LanguageData::De,
         currency: common::currency::data::CurrencyData::Usd,
         product_query: "Der erwartete Titel".try_into().unwrap(),
-        shop_name_query: None,
+        shop_name_query: Default::default(),
         shop_type_query: Default::default(),
         price_query: None,
         state_query: Default::default(),
@@ -718,7 +718,7 @@ async fn should_200_when_following_search_after_from_previous_response_for_sort_
         language: common::language::data::LanguageData::De,
         currency: common::currency::data::CurrencyData::Usd,
         product_query: "Der erwartete Titel".try_into().unwrap(),
-        shop_name_query: None,
+        shop_name_query: Default::default(),
         shop_type_query: Default::default(),
         price_query: None,
         state_query: Default::default(),
@@ -853,7 +853,7 @@ async fn should_200_when_created_query(
         language: common::language::data::LanguageData::De,
         currency: common::currency::data::CurrencyData::Eur,
         product_query: "Der erwartete Titel".try_into().unwrap(),
-        shop_name_query: None,
+        shop_name_query: Default::default(),
         shop_type_query: Default::default(),
         price_query: None,
         state_query: Default::default(),
@@ -948,7 +948,7 @@ async fn should_200_when_updated_query(
         language: common::language::data::LanguageData::De,
         currency: common::currency::data::CurrencyData::Eur,
         product_query: "Der erwartete Titel".try_into().unwrap(),
-        shop_name_query: None,
+        shop_name_query: Default::default(),
         shop_type_query: Default::default(),
         price_query: None,
         state_query: Default::default(),
@@ -1043,7 +1043,7 @@ async fn should_200_when_year_query(#[case] min: Option<Year>, #[case] max: Opti
         language: common::language::data::LanguageData::De,
         currency: common::currency::data::CurrencyData::Eur,
         product_query: "Der erwartete Titel".try_into().unwrap(),
-        shop_name_query: None,
+        shop_name_query: Default::default(),
         shop_type_query: Default::default(),
         price_query: None,
         state_query: Default::default(),
@@ -1139,7 +1139,7 @@ async fn should_200_when_authenticity_query(#[case] query: HashSet<AuthenticityD
         language: common::language::data::LanguageData::De,
         currency: common::currency::data::CurrencyData::Eur,
         product_query: "Der erwartete Titel".try_into().unwrap(),
-        shop_name_query: None,
+        shop_name_query: Default::default(),
         shop_type_query: Default::default(),
         price_query: None,
         state_query: Default::default(),
@@ -1226,7 +1226,7 @@ async fn should_200_when_condition_query(#[case] query: HashSet<ConditionData>) 
         language: common::language::data::LanguageData::De,
         currency: common::currency::data::CurrencyData::Eur,
         product_query: "Der erwartete Titel".try_into().unwrap(),
-        shop_name_query: None,
+        shop_name_query: Default::default(),
         shop_type_query: Default::default(),
         price_query: None,
         state_query: Default::default(),
@@ -1311,7 +1311,7 @@ async fn should_200_when_provenance_query(#[case] query: HashSet<ProvenanceData>
         language: common::language::data::LanguageData::De,
         currency: common::currency::data::CurrencyData::Eur,
         product_query: "Der erwartete Titel".try_into().unwrap(),
-        shop_name_query: None,
+        shop_name_query: Default::default(),
         shop_type_query: Default::default(),
         price_query: None,
         state_query: Default::default(),
@@ -1396,7 +1396,7 @@ async fn should_200_when_restoration_query(#[case] query: HashSet<RestorationDat
         language: common::language::data::LanguageData::De,
         currency: common::currency::data::CurrencyData::Eur,
         product_query: "Der erwartete Titel".try_into().unwrap(),
-        shop_name_query: None,
+        shop_name_query: Default::default(),
         shop_type_query: Default::default(),
         price_query: None,
         state_query: Default::default(),
@@ -1470,7 +1470,7 @@ async fn should_200_personalized_when_authenticated_and_not_watching() {
         language: common::language::data::LanguageData::De,
         currency: common::currency::data::CurrencyData::Eur,
         product_query: "Der erwartete Titel".try_into().unwrap(),
-        shop_name_query: None,
+        shop_name_query: Default::default(),
         shop_type_query: Default::default(),
         price_query: None,
         state_query: Default::default(),
@@ -1562,7 +1562,7 @@ async fn should_200_with_native_title_when_no_target_titles_exist_and_hit_due_to
                 language: LanguageData::De,
                 currency: CurrencyData::Eur,
                 product_query: "german description".try_into().unwrap(),
-                shop_name_query: None,
+                shop_name_query: Default::default(),
                 shop_type_query: Default::default(),
                 price_query: None,
                 state_query: Default::default(),
@@ -1679,7 +1679,7 @@ async fn should_respond_200_and_respect_accept_language_header(
                 language: expected_title_lang.into(),
                 currency: CurrencyData::Eur,
                 product_query: expected_title.try_into().unwrap(),
-                shop_name_query: None,
+                shop_name_query: Default::default(),
                 shop_type_query: Default::default(),
                 price_query: None,
                 state_query: Default::default(),
@@ -1741,7 +1741,7 @@ async fn should_200_when_shop_type_query(#[case] query: HashSet<ShopTypeData>) {
         language: common::language::data::LanguageData::De,
         currency: common::currency::data::CurrencyData::Eur,
         product_query: "Der erwartete Titel".try_into().unwrap(),
-        shop_name_query: None,
+        shop_name_query: Default::default(),
         shop_type_query: query.clone(),
         price_query: None,
         state_query: Default::default(),
@@ -1798,6 +1798,99 @@ async fn should_200_when_shop_type_query(#[case] query: HashSet<ShopTypeData>) {
     );
 }
 
+#[rstest::rstest]
+#[test_attr(apply(test))]
+#[case(["Sotheby's"].into())]
+#[case(["Christie's"].into())]
+#[case(["Heritage Auctions"].into())]
+#[case(["Sotheby's", "Christie's"].into())]
+#[case(["Sotheby's", "Christie's", "Heritage Auctions"].into())]
+#[trace]
+#[localstack_test(services = [OpenSearch(), DynamoDB()])]
+async fn should_200_when_shop_name_query_for_keyword_filter(#[case] query: HashSet<&str>) {
+    let ddb_client = get_dynamodb_client().await;
+    let watchlist_repository = WatchlistProductDynamoDbRepositoryImpl::new(ddb_client, "table_1");
+    let product_personalization_service =
+        ProductPersonalizationServiceImpl::new(&watchlist_repository);
+    let opensearch_repository = ProductOpenSearchRepositoryImpl::new(get_opensearch_client().await);
+    let query_service = QueryProductServiceImpl::new(&opensearch_repository);
+    let mut access_token_verifier_service = MockAccessTokenVerifierService::default();
+    access_token_verifier_service
+        .expect_verify_extract_user_id()
+        .returning(|_| Box::pin(async { Ok(None) }));
+
+    let search = ProductSearchData {
+        language: common::language::data::LanguageData::De,
+        currency: common::currency::data::CurrencyData::Eur,
+        product_query: "Der erwartete Titel".try_into().unwrap(),
+        shop_name_query: query.iter().map(|s| s.to_string().into()).collect(),
+        shop_type_query: Default::default(),
+        price_query: None,
+        state_query: Default::default(),
+        origin_year_query: None,
+        authenticity_query: Default::default(),
+        condition_query: Default::default(),
+        provenance_query: Default::default(),
+        restoration_query: Default::default(),
+        created_query: None,
+        updated_query: None,
+        auction_start_query: None,
+        auction_end_query: None,
+    };
+    let lambda_event = LambdaEvent {
+        payload: ApiGatewayV2httpRequestProxy::builder()
+            .http_method(http::Method::POST)
+            .body_serde(&search)
+            .build(),
+        context: Default::default(),
+    };
+
+    let shop_names_vec: Vec<&str> = query.iter().copied().collect();
+    let mut products_with_target_shops = fake::vec![ProductDocument; 685];
+    for (idx, product) in products_with_target_shops.iter_mut().enumerate() {
+        product.title_de = Some("Der erwartete Titel".to_string());
+        product.shop_name = shop_names_vec[idx % shop_names_vec.len()].to_string();
+    }
+
+    let mut products_with_other_shops = fake::vec![ProductDocument; 685];
+    for product in &mut products_with_other_shops {
+        product.title_de = Some("Der erwartete Titel".to_string());
+        product.shop_name = "Other Auction House".to_string();
+    }
+
+    let all_products = [products_with_target_shops, products_with_other_shops].concat();
+    let create_res = opensearch_repository
+        .create_product_documents(all_products)
+        .await
+        .unwrap();
+    assert!(!create_res.errors);
+    refresh_index("products").await;
+    tokio::time::sleep(std::time::Duration::from_secs(10)).await;
+
+    let response = handler(
+        lambda_event,
+        &query_service,
+        &access_token_verifier_service,
+        &product_personalization_service,
+    )
+    .await
+    .unwrap();
+    assert_eq!(200, response.status_code);
+
+    let json = extract_apigw_response_json_body!(response);
+    let response_data: JsonCursoredData<PersonalizedData<GetProductData, ProductUserStateData>> =
+        serde_json::from_value(json).unwrap();
+    assert!(!response_data.items.is_empty());
+    assert_eq!(685, response_data.total.unwrap());
+    assert!(
+        response_data
+            .items
+            .iter()
+            .map(|item| item.item.shop_name.as_str())
+            .all(|actual| query.contains(actual))
+    );
+}
+
 #[localstack_test(services = [OpenSearch(), DynamoDB()])]
 async fn should_200_when_auction_start_range_is_given() {
     let ddb_client = get_dynamodb_client().await;
@@ -1815,7 +1908,7 @@ async fn should_200_when_auction_start_range_is_given() {
         language: LanguageData::De,
         currency: CurrencyData::Eur,
         product_query: "Auction test product".try_into().unwrap(),
-        shop_name_query: None,
+        shop_name_query: Default::default(),
         shop_type_query: Default::default(),
         price_query: None,
         state_query: Default::default(),
@@ -1903,7 +1996,7 @@ async fn should_200_when_auction_end_range_is_given() {
         language: LanguageData::De,
         currency: CurrencyData::Eur,
         product_query: "Auction end test".try_into().unwrap(),
-        shop_name_query: None,
+        shop_name_query: Default::default(),
         shop_type_query: Default::default(),
         price_query: None,
         state_query: Default::default(),

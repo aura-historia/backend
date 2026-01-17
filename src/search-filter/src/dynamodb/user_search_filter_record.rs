@@ -4,6 +4,7 @@ use crate::core::{
 };
 use common::query::range_query::RangeQuery;
 use common::query::text_query::TextQuery;
+use common::shop_name::ShopName;
 use common::year::Year;
 use common::{
     currency::record::CurrencyRecord, language::record::LanguageRecord,
@@ -34,8 +35,8 @@ pub struct UserSearchFilterRecord {
     pub user_search_filter_id: UserSearchFilterId,
     pub name: UserSearchFilterName,
     pub product_query: TextQuery,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub shop_name_query: Option<TextQuery>,
+    #[serde(default, skip_serializing_if = "HashSet::is_empty")]
+    pub shop_name_query: HashSet<ShopName>,
     #[serde(default, skip_serializing_if = "HashSet::is_empty")]
     pub shop_type_query: HashSet<ShopTypeRecord>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -106,7 +107,7 @@ impl From<UserSearchFilterRecord> for UserSearchFilter {
                 language: record.language.into(),
                 currency: record.currency.into(),
                 product_query: record.product_query,
-                shop_name_query: record.shop_name_query,
+                shop_name_query: record.shop_name_query.into(),
                 shop_type_query: record
                     .shop_type_query
                     .into_iter()
@@ -161,7 +162,7 @@ impl From<UserSearchFilter> for UserSearchFilterRecord {
             user_search_filter_id: user_search_filter.user_search_filter_id,
             name: user_search_filter.name,
             product_query: user_search_filter.search.product_query,
-            shop_name_query: user_search_filter.search.shop_name_query,
+            shop_name_query: user_search_filter.search.shop_name_query.into(),
             shop_type_query: user_search_filter
                 .search
                 .shop_type_query

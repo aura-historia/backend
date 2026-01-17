@@ -10,6 +10,7 @@ use crate::data::provenance_data::ProvenanceData;
 use crate::data::restoration_data::RestorationData;
 use common::query::range_query::RangeQuery;
 use common::query::text_query::TextQuery;
+use common::shop_name::ShopName;
 use common::year::Year;
 use common::{
     currency::data::CurrencyData, language::data::LanguageData, price::domain::MonetaryAmount,
@@ -28,11 +29,11 @@ pub struct ProductSearchData {
     #[serde(rename = "productQuery")]
     pub product_query: TextQuery,
     #[serde(
-        rename = "shopNameQuery",
-        skip_serializing_if = "Option::is_none",
+        rename = "shopName",
+        skip_serializing_if = "HashSet::is_empty",
         default
     )]
-    pub shop_name_query: Option<TextQuery>,
+    pub shop_name_query: HashSet<ShopName>,
     #[serde(
         rename = "shopType",
         skip_serializing_if = "HashSet::is_empty",
@@ -114,7 +115,7 @@ impl From<ProductSearch> for ProductSearchData {
             language: search_filter.language.into(),
             currency: search_filter.currency.into(),
             product_query: search_filter.product_query,
-            shop_name_query: search_filter.shop_name_query,
+            shop_name_query: search_filter.shop_name_query.into(),
             shop_type_query: search_filter
                 .shop_type_query
                 .into_iter()
@@ -163,7 +164,7 @@ impl From<ProductSearchData> for ProductSearch {
             language: data.language.into(),
             currency: data.currency.into(),
             product_query: data.product_query,
-            shop_name_query: data.shop_name_query,
+            shop_name_query: data.shop_name_query.into(),
             shop_type_query: data
                 .shop_type_query
                 .into_iter()
@@ -259,7 +260,7 @@ mod tests {
             language: LanguageData::De,
             currency: CurrencyData::Eur,
             product_query: "Boop".try_into().unwrap(),
-            shop_name_query: Some("Baap".try_into().unwrap()),
+            shop_name_query: ["Baap".into()].into(),
             shop_type_query: HashSet::from_iter([ShopTypeData::CommercialDealer]),
             price_query: Some(RangeQuery {
                 min: Some(37),
@@ -289,7 +290,7 @@ mod tests {
             "language": "de",
             "currency": "EUR",
             "productQuery": "Boop",
-            "shopNameQuery": "Baap",
+            "shopName": ["Baap"],
             "shopType": ["COMMERCIAL_DEALER"],
             "price": {
                 "min": 37,
@@ -325,7 +326,7 @@ mod tests {
             "language": "de",
             "currency": "EUR",
             "productQuery": "Boop",
-            "shopNameQuery": "Baap",
+            "shopName": ["Baap"],
             "shopType": ["COMMERCIAL_DEALER"],
             "price": {
                 "min": 37,
@@ -353,7 +354,7 @@ mod tests {
             language: LanguageData::De,
             currency: CurrencyData::Eur,
             product_query: "Boop".try_into().unwrap(),
-            shop_name_query: Some("Baap".try_into().unwrap()),
+            shop_name_query: ["Baap".into()].into(),
             shop_type_query: HashSet::from_iter([ShopTypeData::CommercialDealer]),
             price_query: Some(RangeQuery {
                 min: Some(37),
@@ -391,7 +392,7 @@ mod tests {
             language: LanguageData::De,
             currency: CurrencyData::Eur,
             product_query: "Boop".try_into().unwrap(),
-            shop_name_query: None,
+            shop_name_query: Default::default(),
             shop_type_query: Default::default(),
             price_query: None,
             state_query: Default::default(),
@@ -427,7 +428,7 @@ mod tests {
             language: LanguageData::De,
             currency: CurrencyData::Eur,
             product_query: "Boop".try_into().unwrap(),
-            shop_name_query: None,
+            shop_name_query: Default::default(),
             shop_type_query: Default::default(),
             price_query: None,
             state_query: Default::default(),

@@ -83,7 +83,7 @@ mod tests {
                 language: LanguageData::De,
                 currency: CurrencyData::Eur,
                 product_query: "Boop".try_into().unwrap(),
-                shop_name_query: Some("Baap".try_into().unwrap()),
+                shop_name_query: ["Baap".into()].into(),
                 shop_type_query: HashSet::from_iter([
                     shop::data::shop_type_data::ShopTypeData::CommercialDealer,
                 ]),
@@ -128,7 +128,7 @@ mod tests {
                 "language": "de",
                 "currency": "EUR",
                 "productQuery": "Boop",
-                "shopNameQuery": "Baap",
+                "shopName": ["Baap"],
                 "shopType": ["COMMERCIAL_DEALER"],
                 "price": {
                     "min": 37,
@@ -181,7 +181,7 @@ mod tests {
                 "language": "de",
                 "currency": "EUR",
                 "productQuery": "Boop",
-                "shopNameQuery": "Baap",
+                "shopName": ["Baap"],
                 "shopType": ["COMMERCIAL_DEALER"],
                 "price": {
                 "shopType": ["COMMERCIAL_DEALER"],
@@ -225,7 +225,7 @@ mod tests {
                 language: LanguageData::De,
                 currency: CurrencyData::Eur,
                 product_query: "Boop".try_into().unwrap(),
-                shop_name_query: Some("Baap".try_into().unwrap()),
+                shop_name_query: ["Baap".into()].into(),
                 shop_type_query: HashSet::from_iter([
                     shop::data::shop_type_data::ShopTypeData::CommercialDealer,
                 ]),

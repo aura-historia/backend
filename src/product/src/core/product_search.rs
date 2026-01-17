@@ -9,6 +9,7 @@ use common::product_state::domain::ProductState;
 use common::query::any_of_query::AnyOfQuery;
 use common::query::range_query::RangeQuery;
 use common::query::text_query::TextQuery;
+use common::shop_name::ShopName;
 use common::year::Year;
 use shop::core::shop_type::ShopType;
 use time::OffsetDateTime;
@@ -18,7 +19,7 @@ pub struct ProductSearch {
     pub language: Language,
     pub currency: Currency,
     pub product_query: TextQuery,
-    pub shop_name_query: Option<TextQuery>,
+    pub shop_name_query: AnyOfQuery<ShopName>,
     pub shop_type_query: AnyOfQuery<ShopType>,
     pub price_query: Option<RangeQuery<MonetaryAmount>>,
     pub state_query: AnyOfQuery<ProductState>,
