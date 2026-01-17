@@ -535,8 +535,6 @@ jobs:
                 CommitSHA=${GITHUB_SHA} \
                 Ec2KeyPairName=${{ vars.EC2_KEY_PAIR_NAME }} \
                 OpenSearchEndpointUrl=${{ vars.OPENSEARCH_ENDPOINT_URL }} \
-                OpenSearchUsername=${{ secrets.OPENSEARCH_USERNAME }} \
-                OpenSearchPassword=${{ secrets.OPENSEARCH_PASSWORD }}
 
       - name: Install OpenSearch CLI
         if: ${{ github.event_name == 'pull_request' }}
