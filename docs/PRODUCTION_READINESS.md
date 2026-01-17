@@ -49,11 +49,6 @@ The CloudFormation template has been enhanced with comprehensive security, monit
 ## Monitoring & Observability
 
 ### 1. Lambda Function Monitoring
-#### X-Ray Tracing
-- Enabled Active tracing for all 31 Lambda functions
-- Added `AWSXRayDaemonWriteAccess` policy to all Lambda IAM roles
-- Provides distributed tracing across microservices
-
 #### CloudWatch Alarms
 - **Error Alarms**: Most Lambda functions have error rate monitoring
 - **Throttle Alarms**: API-facing Lambda functions have throttling monitoring  
@@ -94,38 +89,26 @@ All Auto Scaling Groups have:
 
 ### 6. SNS Alarm Notifications
 - Centralized SNS Topic: `cloudwatch-alarms-prod`
-- Optional Email Subscription via `AlarmEmail` parameter
 - All alarms route to this topic for consistent alerting
 
 ## Reliability & Resilience
 
 ### 1. Lambda Concurrency Limits
-Reserved concurrent executions configured per function type to prevent resource exhaustion and ensure fair resource allocation:
+Reserved concurrent executions configured for specific high-priority functions:
 
 #### High-Traffic APIs (100 concurrent executions)
 - `ApiGetProductLambda`: Read-heavy product retrieval
 - `ApiProductSearchLambda`: Search operations
 
-#### Medium-Traffic Operations (50 concurrent executions)
-- `ApiPutProductsLambda`: Product updates
-- User Operations: Watchlist and Account APIs
-- `ProductUpdateNotifyUserLambda`: User notifications
-- `UserLambdaFanoutUpdateWatchlistLambda`: Bulk updates
-
-#### Shop & Search Operations (30 concurrent executions)
-- Shop APIs: Get, Patch, Post, Search
-- Search Filter APIs: All CRUD operations
-
-#### Background Processing (25 concurrent executions)
-- Product Materialization Lambdas (DynamoDB & OpenSearch)
-
-#### Low-Traffic Operations (20 concurrent executions)
+#### User Signup (50 concurrent executions)
+- `PrimaryUserPoolPostConfirmationLambda`: User signup processing
 - `SendMailLambda`: Email sending
-- `PrimaryUserPoolPostConfirmationLambda`: User signup
 
-#### Scheduled/Pipeline Tasks (10 concurrent executions)
-- `FxRateSyncLambda`: Currency rate updates
-- Pipeline Control Lambdas: Auto-scaling and persistence
+#### Background Processing (10 concurrent executions each)
+- `ProductMaterializeDynamoDbNewLambda`: New product materialization to DynamoDB
+- `ProductMaterializeDynamoDbUpdateLambda`: Product update materialization to DynamoDB
+- `ProductMaterializeOpenSearchNewLambda`: New product materialization to OpenSearch
+- `ProductMaterializeOpenSearchUpdateLambda`: Product update materialization to OpenSearch
 
 ### 2. Dead Letter Queues
 - All operational queues have DLQs configured
@@ -146,38 +129,20 @@ Reserved concurrent executions configured per function type to prevent resource 
 
 ## Cost Optimization
 
-### 1. Resource Tagging
-All major resources tagged with:
-```yaml
-Tags:
-  - Key: Environment
-    Value: prod
-  - Key: Application
-    Value: aura-historia
-  - Key: ManagedBy
-    Value: CloudFormation
-```
-
-Benefits:
-- Cost allocation and tracking
-- Resource organization
-- Compliance reporting
-- Automated operations
-
-### 2. Log Retention Policies
+### 1. Log Retention Policies
 - API Gateway Logs: 30 days (balance between debugging and cost)
 - VPC Flow Logs: 7 days (security analysis window)
 - Configurable per organizational requirements
 
-### 3. DynamoDB Billing
+### 2. DynamoDB Billing
 - Using `PAY_PER_REQUEST` mode for cost-effective scaling
 - No over-provisioning of read/write capacity
 
-### 4. Spot Instances
+### 3. Spot Instances
 - All EC2 pipeline instances use Spot with OnDemandPercentageAboveBaseCapacity: 0
 - Cost savings of 60-90% compared to On-Demand
 
-### 5. Lambda Optimization
+### 4. Lambda Optimization
 - Reserved concurrency prevents over-scaling costs
 - Appropriate timeouts prevent runaway executions
 - Memory sizes unchanged (as per requirements)
@@ -196,7 +161,6 @@ Benefits:
 - CloudWatch Logs for application logging
 
 ### 3. Parameter Management
-- `AlarmEmail` parameter for centralized alert management
 - SSM Parameter Store integration for sensitive values:
   - OpenSearch credentials
   - FX Rates API token
@@ -244,7 +208,6 @@ When deploying, provide:
 - `CommitSHA`: Git commit SHA for versioning
 - `Ec2KeyPairName`: EC2 key pair for SSH access
 - `OpenSearchEndpointUrl`: Self-hosted OpenSearch cluster URL
-- `AlarmEmail` (optional): Email for alarm notifications
 
 ### Validation
 Template validated with:
@@ -263,7 +226,6 @@ aws cloudformation deploy \
     CommitSHA=abc123 \
     Ec2KeyPairName=your-keypair \
     OpenSearchEndpointUrl=https://your-opensearch.com \
-    AlarmEmail=ops@example.com \
   --capabilities CAPABILITY_NAMED_IAM \
   --tags Environment=prod Application=aura-historia
 ```
@@ -312,8 +274,8 @@ Create CloudWatch Dashboard with:
 5. Redrive messages from DLQ to source queue
 
 ### Lambda Duration Alarm
-1. Check X-Ray traces for bottlenecks
-2. Review CloudWatch Insights for slow operations
+1. Check CloudWatch Logs for slow operations
+2. Review CloudWatch Insights for bottlenecks
 3. Consider:
    - Increasing memory (if approved)
    - Optimizing code
@@ -328,7 +290,7 @@ Create CloudWatch Dashboard with:
 
 ### DynamoDB Throttling
 1. Check if table is in PAY_PER_REQUEST mode
-2. Review access patterns in X-Ray
+2. Review access patterns in CloudWatch Logs
 3. Implement:
    - Request batching
    - Exponential backoff
@@ -337,8 +299,8 @@ Create CloudWatch Dashboard with:
 ## Summary
 
 The production-ready `cfn/prod.yaml` template now includes:
-- ✅ 24 Lambda functions with X-Ray tracing and reserved concurrency
-- ✅ 24 SQS queues with encryption
+- ✅ 8 Lambda functions with reserved concurrency for critical operations
+- ✅ 26 SQS queues with encryption
 - ✅ 35+ CloudWatch alarms for comprehensive monitoring
 - ✅ API Gateway access logging and throttling
 - ✅ DynamoDB encryption, PITR, and deletion protection

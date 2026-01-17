@@ -1,8 +1,6 @@
 AWSTemplateFormatVersion: "2010-09-09"
 Description: Production Stack for the Aura-Historia Application-Backend
 
-Conditions:
-  HasAlarmEmail: !Not [!Equals [!Ref AlarmEmail, ""]]
 
 Parameters:
   ArtifactBucket:
@@ -22,10 +20,6 @@ Parameters:
   OpenSearchEndpointUrl:
     Type: String
     Description: "URL for the self-hosted OpenSearch-Cluster"
-  AlarmEmail:
-    Type: String
-    Description: "Email address for CloudWatch alarm notifications"
-    Default: ""
 
 Resources:
   # SNS Topic for CloudWatch Alarms
@@ -34,18 +28,6 @@ Resources:
     Properties:
       TopicName: "cloudwatch-alarms-prod"
       DisplayName: "CloudWatch Alarms for Aura-Historia Backend stage 'prod'"
-      Tags:
-        - Key: Environment
-          Value: prod
-        - Key: Application
-          Value: aura-historia
-  AlarmEmailSubscription:
-    Type: AWS::SNS::Subscription
-    Condition: HasAlarmEmail
-    Properties:
-      Protocol: email
-      TopicArn: !Ref AlarmNotificationTopic
-      Endpoint: !Ref AlarmEmail
 
   PrimaryUserPool:
     Type: AWS::Cognito::UserPool
@@ -112,11 +94,9 @@ Resources:
         S3Key: !Sub "cognito-post-confirmation-prod-${CommitSHA}.zip"
       MemorySize: 256
       Timeout: 5
+      ReservedConcurrentExecutions: 50
       EphemeralStorage:
         Size: 512
-      ReservedConcurrentExecutions: 50
-      TracingConfig:
-        Mode: Active
       Environment:
         Variables:
           DYNAMODB_TABLE_NAME: !Ref TableOne
@@ -246,13 +226,6 @@ Resources:
         SSEType: KMS
       PointInTimeRecoverySpecification:
         PointInTimeRecoveryEnabled: true
-      Tags:
-        - Key: Environment
-          Value: prod
-        - Key: Application
-          Value: aura-historia
-        - Key: ManagedBy
-          Value: CloudFormation
   TableOneThrottledRequestsAlarm:
     Type: AWS::CloudWatch::Alarm
     Properties:
@@ -572,7 +545,6 @@ Resources:
             Action: sts:AssumeRole
       ManagedPolicyArns:
         - arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole
-        - arn:aws:iam::aws:policy/AWSXRayDaemonWriteAccess
       Policies:
         - PolicyName: DynamoDBAccess
           PolicyDocument:
@@ -599,19 +571,12 @@ Resources:
       ReservedConcurrentExecutions: 100
       EphemeralStorage:
         Size: 512
-      TracingConfig:
-        Mode: Active
       Environment:
         Variables:
           DYNAMODB_TABLE_NAME: !Ref TableOne
           USER_POOL_ID: !Ref PrimaryUserPool
           USER_POOL_PUBLIC_CLIENT_ID: !Ref PrimaryUserPoolClientPublic
           USER_POOL_ADMIN_CLIENT_ID: !Ref PrimaryUserPoolClientAdmin
-      Tags:
-        - Key: Environment
-          Value: prod
-        - Key: Application
-          Value: aura-historia
   ApiGetProductLambdaPermission:
     Type: AWS::Lambda::Permission
     Properties:
@@ -731,9 +696,6 @@ Resources:
       Timeout: 60
       EphemeralStorage:
         Size: 512
-      ReservedConcurrentExecutions: 50
-      TracingConfig:
-        Mode: Active
       Environment:
         Variables:
           DYNAMODB_TABLE_NAME: !Ref TableOne
@@ -849,11 +811,9 @@ Resources:
         S3Key: !Sub "product-api-search-prod-${CommitSHA}.zip"
       MemorySize: 512
       Timeout: 10
+      ReservedConcurrentExecutions: 100
       EphemeralStorage:
         Size: 512
-      ReservedConcurrentExecutions: 100
-      TracingConfig:
-        Mode: Active
       Environment:
         Variables:
           OPENSEARCH_ENDPOINT_URL: !Ref OpenSearchEndpointUrl
@@ -978,9 +938,6 @@ Resources:
       Timeout: 10
       EphemeralStorage:
         Size: 512
-      ReservedConcurrentExecutions: 50
-      TracingConfig:
-        Mode: Active
       Environment:
         Variables:
           OPENSEARCH_ENDPOINT_URL: !Ref OpenSearchEndpointUrl
@@ -1109,9 +1066,6 @@ Resources:
       Timeout: 10
       EphemeralStorage:
         Size: 512
-      ReservedConcurrentExecutions: 50
-      TracingConfig:
-        Mode: Active
       Environment:
         Variables:
           DYNAMODB_TABLE_NAME: !Ref TableOne
@@ -1213,9 +1167,6 @@ Resources:
       Timeout: 10
       EphemeralStorage:
         Size: 512
-      ReservedConcurrentExecutions: 50
-      TracingConfig:
-        Mode: Active
       Environment:
         Variables:
           DYNAMODB_TABLE_NAME: !Ref TableOne
@@ -1319,9 +1270,6 @@ Resources:
       Timeout: 10
       EphemeralStorage:
         Size: 512
-      ReservedConcurrentExecutions: 50
-      TracingConfig:
-        Mode: Active
       Environment:
         Variables:
           DYNAMODB_TABLE_NAME: !Ref TableOne
@@ -1421,9 +1369,6 @@ Resources:
       Timeout: 10
       EphemeralStorage:
         Size: 512
-      ReservedConcurrentExecutions: 50
-      TracingConfig:
-        Mode: Active
       Environment:
         Variables:
           DYNAMODB_TABLE_NAME: !Ref TableOne
@@ -1526,9 +1471,6 @@ Resources:
       Timeout: 10
       EphemeralStorage:
         Size: 512
-      ReservedConcurrentExecutions: 50
-      TracingConfig:
-        Mode: Active
       Environment:
         Variables:
           DYNAMODB_TABLE_NAME: !Ref TableOne
@@ -1628,9 +1570,6 @@ Resources:
       Timeout: 10
       EphemeralStorage:
         Size: 512
-      ReservedConcurrentExecutions: 50
-      TracingConfig:
-        Mode: Active
       Environment:
         Variables:
           DYNAMODB_TABLE_NAME: !Ref TableOne
@@ -1729,9 +1668,6 @@ Resources:
       Timeout: 10
       EphemeralStorage:
         Size: 512
-      ReservedConcurrentExecutions: 30
-      TracingConfig:
-        Mode: Active
       Environment:
         Variables:
           DYNAMODB_TABLE_NAME: !Ref TableOne
@@ -1836,9 +1772,6 @@ Resources:
       Timeout: 10
       EphemeralStorage:
         Size: 512
-      ReservedConcurrentExecutions: 30
-      TracingConfig:
-        Mode: Active
       Environment:
         Variables:
           DYNAMODB_TABLE_NAME: !Ref TableOne
@@ -1941,9 +1874,6 @@ Resources:
       Timeout: 10
       EphemeralStorage:
         Size: 512
-      ReservedConcurrentExecutions: 30
-      TracingConfig:
-        Mode: Active
       Environment:
         Variables:
           DYNAMODB_TABLE_NAME: !Ref TableOne
@@ -2031,9 +1961,6 @@ Resources:
       Timeout: 10
       EphemeralStorage:
         Size: 512
-      ReservedConcurrentExecutions: 30
-      TracingConfig:
-        Mode: Active
       Environment:
         Variables:
           OPENSEARCH_ENDPOINT_URL: !Ref OpenSearchEndpointUrl
@@ -2138,9 +2065,6 @@ Resources:
       Timeout: 10
       EphemeralStorage:
         Size: 512
-      ReservedConcurrentExecutions: 30
-      TracingConfig:
-        Mode: Active
       Environment:
         Variables:
           DYNAMODB_TABLE_NAME: !Ref TableOne
@@ -2241,9 +2165,6 @@ Resources:
       Timeout: 10
       EphemeralStorage:
         Size: 512
-      ReservedConcurrentExecutions: 30
-      TracingConfig:
-        Mode: Active
       Environment:
         Variables:
           DYNAMODB_TABLE_NAME: !Ref TableOne
@@ -2344,9 +2265,6 @@ Resources:
       Timeout: 10
       EphemeralStorage:
         Size: 512
-      ReservedConcurrentExecutions: 30
-      TracingConfig:
-        Mode: Active
       Environment:
         Variables:
           DYNAMODB_TABLE_NAME: !Ref TableOne
@@ -2447,9 +2365,6 @@ Resources:
       Timeout: 10
       EphemeralStorage:
         Size: 512
-      ReservedConcurrentExecutions: 30
-      TracingConfig:
-        Mode: Active
       Environment:
         Variables:
           DYNAMODB_TABLE_NAME: !Ref TableOne
@@ -2548,9 +2463,6 @@ Resources:
       Timeout: 10
       EphemeralStorage:
         Size: 512
-      ReservedConcurrentExecutions: 30
-      TracingConfig:
-        Mode: Active
       Environment:
         Variables:
           DYNAMODB_TABLE_NAME: !Ref TableOne
@@ -2604,11 +2516,6 @@ Resources:
       QueueName: "mail-lambda-send-prod"
       MessageRetentionPeriod: 1209600
       SqsManagedSseEnabled: true
-      Tags:
-        - Key: Environment
-          Value: prod
-        - Key: Application
-          Value: aura-historia
   SendMailDlqAlarm:
     Type: AWS::CloudWatch::Alarm
     Properties:
@@ -2926,11 +2833,6 @@ Resources:
         maxReceiveCount: 5
       VisibilityTimeout: 180
       SqsManagedSseEnabled: true
-      Tags:
-        - Key: Environment
-          Value: prod
-        - Key: Application
-          Value: aura-historia
   SendMailRole:
     Type: AWS::IAM::Role
     Properties:
@@ -2999,11 +2901,9 @@ Resources:
         S3Key: !Sub "mail-lambda-send-prod-${CommitSHA}.zip"
       MemorySize: 512
       Timeout: 60
+      ReservedConcurrentExecutions: 50
       EphemeralStorage:
         Size: 512
-      ReservedConcurrentExecutions: 20
-      TracingConfig:
-        Mode: Active
       Environment:
         Variables:
           DYNAMODB_TABLE_NAME: !Ref TableOne
@@ -3045,11 +2945,6 @@ Resources:
       QueueName: "product-lambda-materialize-dynamodb-new-dlq-prod"
       MessageRetentionPeriod: 1209600
       SqsManagedSseEnabled: true
-      Tags:
-        - Key: Environment
-          Value: prod
-        - Key: Application
-          Value: aura-historia
   ProductMaterializeDynamoDbNewQ:
     Type: AWS::SQS::Queue
     Properties:
@@ -3059,11 +2954,6 @@ Resources:
         maxReceiveCount: 5
       VisibilityTimeout: 360
       SqsManagedSseEnabled: true
-      Tags:
-        - Key: Environment
-          Value: prod
-        - Key: Application
-          Value: aura-historia
   ProductMaterializeDynamoDbNewRole:
     Type: AWS::IAM::Role
     Properties:
@@ -3109,11 +2999,9 @@ Resources:
         S3Key: !Sub "product-lambda-materialize-dynamodb-new-prod-${CommitSHA}.zip"
       MemorySize: 512
       Timeout: 60
+      ReservedConcurrentExecutions: 10
       EphemeralStorage:
         Size: 512
-      ReservedConcurrentExecutions: 25
-      TracingConfig:
-        Mode: Active
       Environment:
         Variables:
           DYNAMODB_TABLE_NAME: !Ref TableOne
@@ -3152,11 +3040,6 @@ Resources:
       QueueName: "product-lambda-materialize-dynamodb-update-dlq-prod"
       MessageRetentionPeriod: 1209600
       SqsManagedSseEnabled: true
-      Tags:
-        - Key: Environment
-          Value: prod
-        - Key: Application
-          Value: aura-historia
   ProductMaterializeDynamoDbUpdateQ:
     Type: AWS::SQS::Queue
     Properties:
@@ -3166,11 +3049,6 @@ Resources:
         maxReceiveCount: 5
       VisibilityTimeout: 360
       SqsManagedSseEnabled: true
-      Tags:
-        - Key: Environment
-          Value: prod
-        - Key: Application
-          Value: aura-historia
   ProductMaterializeDynamoDbUpdateRole:
     Type: AWS::IAM::Role
     Properties:
@@ -3216,11 +3094,9 @@ Resources:
         S3Key: !Sub "product-lambda-materialize-dynamodb-update-prod-${CommitSHA}.zip"
       MemorySize: 512
       Timeout: 60
+      ReservedConcurrentExecutions: 10
       EphemeralStorage:
         Size: 512
-      ReservedConcurrentExecutions: 25
-      TracingConfig:
-        Mode: Active
       Environment:
         Variables:
           DYNAMODB_TABLE_NAME: !Ref TableOne
@@ -3259,11 +3135,6 @@ Resources:
       QueueName: "product-lambda-materialize-opensearch-new-dlq-prod"
       MessageRetentionPeriod: 1209600
       SqsManagedSseEnabled: true
-      Tags:
-        - Key: Environment
-          Value: prod
-        - Key: Application
-          Value: aura-historia
   ProductMaterializeOpenSearchNewQ:
     Type: AWS::SQS::Queue
     Properties:
@@ -3273,11 +3144,6 @@ Resources:
         maxReceiveCount: 5
       VisibilityTimeout: 360
       SqsManagedSseEnabled: true
-      Tags:
-        - Key: Environment
-          Value: prod
-        - Key: Application
-          Value: aura-historia
   ProductMaterializeOpenSearchNewRole:
     Type: AWS::IAM::Role
     Properties:
@@ -3315,11 +3181,9 @@ Resources:
         S3Key: !Sub "product-lambda-materialize-opensearch-new-prod-${CommitSHA}.zip"
       MemorySize: 512
       Timeout: 60
+      ReservedConcurrentExecutions: 10
       EphemeralStorage:
         Size: 512
-      ReservedConcurrentExecutions: 25
-      TracingConfig:
-        Mode: Active
       Environment:
         Variables:
           OPENSEARCH_ENDPOINT_URL: !Ref OpenSearchEndpointUrl
@@ -3361,11 +3225,6 @@ Resources:
       QueueName: "product-lambda-materialize-opensearch-update-dlq-prod"
       MessageRetentionPeriod: 1209600
       SqsManagedSseEnabled: true
-      Tags:
-        - Key: Environment
-          Value: prod
-        - Key: Application
-          Value: aura-historia
   ProductMaterializeOpenSearchUpdateQ:
     Type: AWS::SQS::Queue
     Properties:
@@ -3375,11 +3234,6 @@ Resources:
         maxReceiveCount: 5
       VisibilityTimeout: 360
       SqsManagedSseEnabled: true
-      Tags:
-        - Key: Environment
-          Value: prod
-        - Key: Application
-          Value: aura-historia
   ProductMaterializeOpenSearchUpdateRole:
     Type: AWS::IAM::Role
     Properties:
@@ -3417,11 +3271,9 @@ Resources:
         S3Key: !Sub "product-lambda-materialize-opensearch-update-prod-${CommitSHA}.zip"
       MemorySize: 512
       Timeout: 60
+      ReservedConcurrentExecutions: 10
       EphemeralStorage:
         Size: 512
-      ReservedConcurrentExecutions: 25
-      TracingConfig:
-        Mode: Active
       Environment:
         Variables:
           OPENSEARCH_ENDPOINT_URL: !Ref OpenSearchEndpointUrl
@@ -3463,11 +3315,6 @@ Resources:
       QueueName: "shop-opensearch-index-dlq-prod"
       MessageRetentionPeriod: 1209600
       SqsManagedSseEnabled: true
-      Tags:
-        - Key: Environment
-          Value: prod
-        - Key: Application
-          Value: aura-historia
   ShopOpenSearchIndexQ:
     Type: AWS::SQS::Queue
     Properties:
@@ -3477,11 +3324,6 @@ Resources:
         maxReceiveCount: 5
       VisibilityTimeout: 360
       SqsManagedSseEnabled: true
-      Tags:
-        - Key: Environment
-          Value: prod
-        - Key: Application
-          Value: aura-historia
   ShopOpenSearchIndexRole:
     Type: AWS::IAM::Role
     Properties:
@@ -3521,9 +3363,6 @@ Resources:
       Timeout: 30
       EphemeralStorage:
         Size: 512
-      ReservedConcurrentExecutions: 30
-      TracingConfig:
-        Mode: Active
       Environment:
         Variables:
           OPENSEARCH_ENDPOINT_URL: !Ref OpenSearchEndpointUrl
@@ -3563,11 +3402,6 @@ Resources:
       QueueName: "product-lambda-update-notify-user-dlq-prod"
       MessageRetentionPeriod: 1209600
       SqsManagedSseEnabled: true
-      Tags:
-        - Key: Environment
-          Value: prod
-        - Key: Application
-          Value: aura-historia
   ProductUpdateNotifyUserQ:
     Type: AWS::SQS::Queue
     Properties:
@@ -3577,11 +3411,6 @@ Resources:
         maxReceiveCount: 5
       VisibilityTimeout: 360
       SqsManagedSseEnabled: true
-      Tags:
-        - Key: Environment
-          Value: prod
-        - Key: Application
-          Value: aura-historia
   ProductUpdateNotifyUserRole:
     Type: AWS::IAM::Role
     Properties:
@@ -3640,9 +3469,6 @@ Resources:
       Timeout: 60
       EphemeralStorage:
         Size: 512
-      ReservedConcurrentExecutions: 50
-      TracingConfig:
-        Mode: Active
       Environment:
         Variables:
           DYNAMODB_TABLE_NAME: !Ref TableOne
@@ -3683,11 +3509,6 @@ Resources:
       QueueName: "user-lambda-fanout-update-watchlist-dlq-prod"
       MessageRetentionPeriod: 1209600
       SqsManagedSseEnabled: true
-      Tags:
-        - Key: Environment
-          Value: prod
-        - Key: Application
-          Value: aura-historia
   UserLambdaFanoutUpdateWatchlistQ:
     Type: AWS::SQS::Queue
     Properties:
@@ -3697,11 +3518,6 @@ Resources:
         maxReceiveCount: 5
       VisibilityTimeout: 360
       SqsManagedSseEnabled: true
-      Tags:
-        - Key: Environment
-          Value: prod
-        - Key: Application
-          Value: aura-historia
   UserLambdaFanoutUpdateWatchlistRole:
     Type: AWS::IAM::Role
     Properties:
@@ -3759,9 +3575,6 @@ Resources:
       Timeout: 60
       EphemeralStorage:
         Size: 512
-      ReservedConcurrentExecutions: 50
-      TracingConfig:
-        Mode: Active
       Environment:
         Variables:
           DYNAMODB_TABLE_NAME: !Ref TableOne
@@ -4034,11 +3847,6 @@ Resources:
       QueueName: "product-pipeline-init-dlq-prod"
       MessageRetentionPeriod: 1209600
       SqsManagedSseEnabled: true
-      Tags:
-        - Key: Environment
-          Value: prod
-        - Key: Application
-          Value: aura-historia
   ProductPipelineInitQ:
     Type: AWS::SQS::Queue
     Properties:
@@ -4048,11 +3856,6 @@ Resources:
         maxReceiveCount: 5
       VisibilityTimeout: 60
       SqsManagedSseEnabled: true
-      Tags:
-        - Key: Environment
-          Value: prod
-        - Key: Application
-          Value: aura-historia
   ProductPipelineInitRole:
     Type: AWS::IAM::Role
     Properties:
@@ -4338,11 +4141,6 @@ Resources:
       QueueName: "product-pipeline-translate-dlq-prod"
       MessageRetentionPeriod: 1209600
       SqsManagedSseEnabled: true
-      Tags:
-        - Key: Environment
-          Value: prod
-        - Key: Application
-          Value: aura-historia
   ProductPipelineTranslateQ:
     Type: AWS::SQS::Queue
     Properties:
@@ -4352,11 +4150,6 @@ Resources:
         maxReceiveCount: 3
       VisibilityTimeout: 300
       SqsManagedSseEnabled: true
-      Tags:
-        - Key: Environment
-          Value: prod
-        - Key: Application
-          Value: aura-historia
   ProductPipelineTranslateRole:
     Type: AWS::IAM::Role
     Properties:
@@ -4539,11 +4332,6 @@ Resources:
       QueueName: "product-pipeline-embed-text-dlq-prod"
       MessageRetentionPeriod: 1209600
       SqsManagedSseEnabled: true
-      Tags:
-        - Key: Environment
-          Value: prod
-        - Key: Application
-          Value: aura-historia
   ProductPipelineEmbedTextQ:
     Type: AWS::SQS::Queue
     Properties:
@@ -4553,11 +4341,6 @@ Resources:
         maxReceiveCount: 3
       VisibilityTimeout: 300
       SqsManagedSseEnabled: true
-      Tags:
-        - Key: Environment
-          Value: prod
-        - Key: Application
-          Value: aura-historia
   ProductPipelineEmbedTextRole:
     Type: AWS::IAM::Role
     Properties:
@@ -4740,11 +4523,6 @@ Resources:
       QueueName: !Sub "product-pipeline-extract-attribute-dlq-prod"
       MessageRetentionPeriod: 1209600
       SqsManagedSseEnabled: true
-      Tags:
-        - Key: Environment
-          Value: prod
-        - Key: Application
-          Value: aura-historia
   ProductPipelineExtractAttributeQ:
     Type: AWS::SQS::Queue
     Properties:
@@ -4754,11 +4532,6 @@ Resources:
         maxReceiveCount: 3
       VisibilityTimeout: 300
       SqsManagedSseEnabled: true
-      Tags:
-        - Key: Environment
-          Value: prod
-        - Key: Application
-          Value: aura-historia
   ProductPipelineExtractAttributeRole:
     Type: AWS::IAM::Role
     Properties:
@@ -4941,11 +4714,6 @@ Resources:
       QueueName: "product-pipeline-complete-dlq-prod"
       MessageRetentionPeriod: 1209600
       SqsManagedSseEnabled: true
-      Tags:
-        - Key: Environment
-          Value: prod
-        - Key: Application
-          Value: aura-historia
   ProductPipelineCompleteQ:
     Type: AWS::SQS::Queue
     Properties:
@@ -4955,11 +4723,6 @@ Resources:
         maxReceiveCount: 5
       VisibilityTimeout: 60
       SqsManagedSseEnabled: true
-      Tags:
-        - Key: Environment
-          Value: prod
-        - Key: Application
-          Value: aura-historia
   ProductPipelineCompleteRole:
     Type: AWS::IAM::Role
     Properties:
@@ -5317,9 +5080,6 @@ Resources:
       Timeout: 60
       EphemeralStorage:
         Size: 512
-      ReservedConcurrentExecutions: 10
-      TracingConfig:
-        Mode: Active
       Environment:
         Variables:
           PRODUCT_PIPELINE_INIT_SQS_URL: !Ref ProductPipelineInitQ
@@ -5406,9 +5166,6 @@ Resources:
       Timeout: 60
       EphemeralStorage:
         Size: 512
-      ReservedConcurrentExecutions: 10
-      TracingConfig:
-        Mode: Active
       Environment:
         Variables:
           PRODUCT_PIPELINE_COMPLETE_ASG_NAME: !Ref ProductPipelineCompleteASG
@@ -5464,7 +5221,6 @@ Resources:
 
       ManagedPolicyArns:
         - arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole
-        - arn:aws:iam::aws:policy/AWSXRayDaemonWriteAccess
       Policies:
         - PolicyName: DynamoDBAccess
           PolicyDocument:
@@ -5490,9 +5246,6 @@ Resources:
       Timeout: 180
       EphemeralStorage:
         Size: 512
-      ReservedConcurrentExecutions: 10
-      TracingConfig:
-        Mode: Active
       Environment:
         Variables:
           DYNAMODB_TABLE_NAME: !Ref TableOne
