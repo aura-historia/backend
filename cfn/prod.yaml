@@ -105,6 +105,24 @@ Resources:
       FunctionName: !Ref PrimaryUserPoolPostConfirmationLambda
       Principal: cognito-idp.amazonaws.com
       SourceArn: !GetAtt PrimaryUserPool.Arn
+  PrimaryUserPoolPostConfirmationLambdaErrorAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      AlarmName: "prod-cognito-post-confirmation-lambda-errors"
+      AlarmDescription: "Alarm when Cognito post-confirmation Lambda has errors"
+      MetricName: Errors
+      Namespace: AWS/Lambda
+      Statistic: Sum
+      Period: 300
+      EvaluationPeriods: 1
+      Threshold: 1
+      ComparisonOperator: GreaterThanOrEqualToThreshold
+      Dimensions:
+        - Name: FunctionName
+          Value: !Ref PrimaryUserPoolPostConfirmationLambda
+      TreatMissingData: notBreaching
+      AlarmActions:
+        - !Ref AlarmNotificationTopic
 
   PrimaryUserPoolClientPublic:
     Type: AWS::Cognito::UserPoolClient
@@ -704,6 +722,24 @@ Resources:
       TreatMissingData: notBreaching
       AlarmActions:
         - !Ref AlarmNotificationTopic
+  ApiProductSearchLambdaThrottleAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      AlarmName: "prod-product-search-lambda-throttles"
+      AlarmDescription: "Alarm when product-search Lambda is throttled"
+      MetricName: Throttles
+      Namespace: AWS/Lambda
+      Statistic: Sum
+      Period: 300
+      EvaluationPeriods: 1
+      Threshold: 1
+      ComparisonOperator: GreaterThanOrEqualToThreshold
+      Dimensions:
+        - Name: FunctionName
+          Value: !Ref ApiProductSearchLambda
+      TreatMissingData: notBreaching
+      AlarmActions:
+        - !Ref AlarmNotificationTopic
 
   ApiProductSimilaritySearchRoute:
     Type: AWS::ApiGatewayV2::Route
@@ -791,6 +827,24 @@ Resources:
       TreatMissingData: notBreaching
       AlarmActions:
         - !Ref AlarmNotificationTopic
+  ApiProductSimilaritySearchLambdaThrottleAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      AlarmName: "prod-product-similarity-search-lambda-throttles"
+      AlarmDescription: "Alarm when product-similarity-search Lambda is throttled"
+      MetricName: Throttles
+      Namespace: AWS/Lambda
+      Statistic: Sum
+      Period: 300
+      EvaluationPeriods: 1
+      Threshold: 1
+      ComparisonOperator: GreaterThanOrEqualToThreshold
+      Dimensions:
+        - Name: FunctionName
+          Value: !Ref ApiProductSimilaritySearchLambda
+      TreatMissingData: notBreaching
+      AlarmActions:
+        - !Ref AlarmNotificationTopic
 
   ApiGetWatchlistProductsRoute:
     Type: AWS::ApiGatewayV2::Route
@@ -857,6 +911,42 @@ Resources:
       FunctionName: !Ref ApiGetWatchlistProductsLambda
       Principal: apigateway.amazonaws.com
       SourceArn: !Sub "arn:aws:execute-api:${AWS::Region}:${AWS::AccountId}:${Api}/*/*/api/v1/me/watchlist*"
+  ApiGetWatchlistProductsLambdaErrorAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      AlarmName: "prod-get-watchlist-products-lambda-errors"
+      AlarmDescription: "Alarm when get-watchlist-products Lambda has errors"
+      MetricName: Errors
+      Namespace: AWS/Lambda
+      Statistic: Sum
+      Period: 300
+      EvaluationPeriods: 1
+      Threshold: 1
+      ComparisonOperator: GreaterThanOrEqualToThreshold
+      Dimensions:
+        - Name: FunctionName
+          Value: !Ref ApiGetWatchlistProductsLambda
+      TreatMissingData: notBreaching
+      AlarmActions:
+        - !Ref AlarmNotificationTopic
+  ApiGetWatchlistProductsLambdaThrottleAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      AlarmName: "prod-get-watchlist-products-lambda-throttles"
+      AlarmDescription: "Alarm when get-watchlist-products Lambda is throttled"
+      MetricName: Throttles
+      Namespace: AWS/Lambda
+      Statistic: Sum
+      Period: 300
+      EvaluationPeriods: 1
+      Threshold: 1
+      ComparisonOperator: GreaterThanOrEqualToThreshold
+      Dimensions:
+        - Name: FunctionName
+          Value: !Ref ApiGetWatchlistProductsLambda
+      TreatMissingData: notBreaching
+      AlarmActions:
+        - !Ref AlarmNotificationTopic
 
   ApiDeleteWatchlistProductRoute:
     Type: AWS::ApiGatewayV2::Route
@@ -922,6 +1012,42 @@ Resources:
       FunctionName: !Ref ApiDeleteWatchlistLambda
       Principal: apigateway.amazonaws.com
       SourceArn: !Sub "arn:aws:execute-api:${AWS::Region}:${AWS::AccountId}:${Api}/*/*/api/v1/me/watchlist/*/*"
+  ApiDeleteWatchlistLambdaErrorAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      AlarmName: "prod-delete-watchlist-lambda-errors"
+      AlarmDescription: "Alarm when delete-watchlist Lambda has errors"
+      MetricName: Errors
+      Namespace: AWS/Lambda
+      Statistic: Sum
+      Period: 300
+      EvaluationPeriods: 1
+      Threshold: 1
+      ComparisonOperator: GreaterThanOrEqualToThreshold
+      Dimensions:
+        - Name: FunctionName
+          Value: !Ref ApiDeleteWatchlistLambda
+      TreatMissingData: notBreaching
+      AlarmActions:
+        - !Ref AlarmNotificationTopic
+  ApiDeleteWatchlistLambdaThrottleAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      AlarmName: "prod-delete-watchlist-lambda-throttles"
+      AlarmDescription: "Alarm when delete-watchlist Lambda is throttled"
+      MetricName: Throttles
+      Namespace: AWS/Lambda
+      Statistic: Sum
+      Period: 300
+      EvaluationPeriods: 1
+      Threshold: 1
+      ComparisonOperator: GreaterThanOrEqualToThreshold
+      Dimensions:
+        - Name: FunctionName
+          Value: !Ref ApiDeleteWatchlistLambda
+      TreatMissingData: notBreaching
+      AlarmActions:
+        - !Ref AlarmNotificationTopic
 
   ApiPostWatchlistProductRoute:
     Type: AWS::ApiGatewayV2::Route
@@ -989,6 +1115,42 @@ Resources:
       FunctionName: !Ref ApiPostWatchlistLambda
       Principal: apigateway.amazonaws.com
       SourceArn: !Sub "arn:aws:execute-api:${AWS::Region}:${AWS::AccountId}:${Api}/*/*/api/v1/me/watchlist"
+  ApiPostWatchlistLambdaErrorAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      AlarmName: "prod-post-watchlist-lambda-errors"
+      AlarmDescription: "Alarm when post-watchlist Lambda has errors"
+      MetricName: Errors
+      Namespace: AWS/Lambda
+      Statistic: Sum
+      Period: 300
+      EvaluationPeriods: 1
+      Threshold: 1
+      ComparisonOperator: GreaterThanOrEqualToThreshold
+      Dimensions:
+        - Name: FunctionName
+          Value: !Ref ApiPostWatchlistLambda
+      TreatMissingData: notBreaching
+      AlarmActions:
+        - !Ref AlarmNotificationTopic
+  ApiPostWatchlistLambdaThrottleAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      AlarmName: "prod-post-watchlist-lambda-throttles"
+      AlarmDescription: "Alarm when post-watchlist Lambda is throttled"
+      MetricName: Throttles
+      Namespace: AWS/Lambda
+      Statistic: Sum
+      Period: 300
+      EvaluationPeriods: 1
+      Threshold: 1
+      ComparisonOperator: GreaterThanOrEqualToThreshold
+      Dimensions:
+        - Name: FunctionName
+          Value: !Ref ApiPostWatchlistLambda
+      TreatMissingData: notBreaching
+      AlarmActions:
+        - !Ref AlarmNotificationTopic
 
   ApiPatchWatchlistProductRoute:
     Type: AWS::ApiGatewayV2::Route
@@ -1052,6 +1214,42 @@ Resources:
       FunctionName: !Ref ApiPatchWatchlistLambda
       Principal: apigateway.amazonaws.com
       SourceArn: !Sub "arn:aws:execute-api:${AWS::Region}:${AWS::AccountId}:${Api}/*/*/api/v1/me/watchlist/*/*"
+  ApiPatchWatchlistLambdaErrorAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      AlarmName: "prod-patch-watchlist-lambda-errors"
+      AlarmDescription: "Alarm when patch-watchlist Lambda has errors"
+      MetricName: Errors
+      Namespace: AWS/Lambda
+      Statistic: Sum
+      Period: 300
+      EvaluationPeriods: 1
+      Threshold: 1
+      ComparisonOperator: GreaterThanOrEqualToThreshold
+      Dimensions:
+        - Name: FunctionName
+          Value: !Ref ApiPatchWatchlistLambda
+      TreatMissingData: notBreaching
+      AlarmActions:
+        - !Ref AlarmNotificationTopic
+  ApiPatchWatchlistLambdaThrottleAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      AlarmName: "prod-patch-watchlist-lambda-throttles"
+      AlarmDescription: "Alarm when patch-watchlist Lambda is throttled"
+      MetricName: Throttles
+      Namespace: AWS/Lambda
+      Statistic: Sum
+      Period: 300
+      EvaluationPeriods: 1
+      Threshold: 1
+      ComparisonOperator: GreaterThanOrEqualToThreshold
+      Dimensions:
+        - Name: FunctionName
+          Value: !Ref ApiPatchWatchlistLambda
+      TreatMissingData: notBreaching
+      AlarmActions:
+        - !Ref AlarmNotificationTopic
 
   ApiGetUserAccountRoute:
     Type: AWS::ApiGatewayV2::Route
@@ -1118,6 +1316,42 @@ Resources:
       FunctionName: !Ref ApiGetUserAccountLambda
       Principal: apigateway.amazonaws.com
       SourceArn: !Sub "arn:aws:execute-api:${AWS::Region}:${AWS::AccountId}:${Api}/*/*/api/v1/me/account*"
+  ApiGetUserAccountLambdaErrorAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      AlarmName: "prod-get-user-account-lambda-errors"
+      AlarmDescription: "Alarm when get-user-account Lambda has errors"
+      MetricName: Errors
+      Namespace: AWS/Lambda
+      Statistic: Sum
+      Period: 300
+      EvaluationPeriods: 1
+      Threshold: 1
+      ComparisonOperator: GreaterThanOrEqualToThreshold
+      Dimensions:
+        - Name: FunctionName
+          Value: !Ref ApiGetUserAccountLambda
+      TreatMissingData: notBreaching
+      AlarmActions:
+        - !Ref AlarmNotificationTopic
+  ApiGetUserAccountLambdaThrottleAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      AlarmName: "prod-get-user-account-lambda-throttles"
+      AlarmDescription: "Alarm when get-user-account Lambda is throttled"
+      MetricName: Throttles
+      Namespace: AWS/Lambda
+      Statistic: Sum
+      Period: 300
+      EvaluationPeriods: 1
+      Threshold: 1
+      ComparisonOperator: GreaterThanOrEqualToThreshold
+      Dimensions:
+        - Name: FunctionName
+          Value: !Ref ApiGetUserAccountLambda
+      TreatMissingData: notBreaching
+      AlarmActions:
+        - !Ref AlarmNotificationTopic
 
   ApiPatchUserAccountRoute:
     Type: AWS::ApiGatewayV2::Route
@@ -1181,6 +1415,42 @@ Resources:
       FunctionName: !Ref ApiPatchUserAccountLambda
       Principal: apigateway.amazonaws.com
       SourceArn: !Sub "arn:aws:execute-api:${AWS::Region}:${AWS::AccountId}:${Api}/*/*/api/v1/me/account*"
+  ApiPatchUserAccountLambdaErrorAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      AlarmName: "prod-patch-user-account-lambda-errors"
+      AlarmDescription: "Alarm when patch-user-account Lambda has errors"
+      MetricName: Errors
+      Namespace: AWS/Lambda
+      Statistic: Sum
+      Period: 300
+      EvaluationPeriods: 1
+      Threshold: 1
+      ComparisonOperator: GreaterThanOrEqualToThreshold
+      Dimensions:
+        - Name: FunctionName
+          Value: !Ref ApiPatchUserAccountLambda
+      TreatMissingData: notBreaching
+      AlarmActions:
+        - !Ref AlarmNotificationTopic
+  ApiPatchUserAccountLambdaThrottleAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      AlarmName: "prod-patch-user-account-lambda-throttles"
+      AlarmDescription: "Alarm when patch-user-account Lambda is throttled"
+      MetricName: Throttles
+      Namespace: AWS/Lambda
+      Statistic: Sum
+      Period: 300
+      EvaluationPeriods: 1
+      Threshold: 1
+      ComparisonOperator: GreaterThanOrEqualToThreshold
+      Dimensions:
+        - Name: FunctionName
+          Value: !Ref ApiPatchUserAccountLambda
+      TreatMissingData: notBreaching
+      AlarmActions:
+        - !Ref AlarmNotificationTopic
 
   ApiGetShopRoute:
     Type: AWS::ApiGatewayV2::Route
@@ -1243,6 +1513,42 @@ Resources:
       FunctionName: !Ref ApiGetShopLambda
       Principal: apigateway.amazonaws.com
       SourceArn: !Sub "arn:aws:execute-api:${AWS::Region}:${AWS::AccountId}:${Api}/*/*/api/v1/shops/*"
+  ApiGetShopLambdaErrorAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      AlarmName: "prod-get-shop-lambda-errors"
+      AlarmDescription: "Alarm when get-shop Lambda has errors"
+      MetricName: Errors
+      Namespace: AWS/Lambda
+      Statistic: Sum
+      Period: 300
+      EvaluationPeriods: 1
+      Threshold: 1
+      ComparisonOperator: GreaterThanOrEqualToThreshold
+      Dimensions:
+        - Name: FunctionName
+          Value: !Ref ApiGetShopLambda
+      TreatMissingData: notBreaching
+      AlarmActions:
+        - !Ref AlarmNotificationTopic
+  ApiGetShopLambdaThrottleAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      AlarmName: "prod-get-shop-lambda-throttles"
+      AlarmDescription: "Alarm when get-shop Lambda is throttled"
+      MetricName: Throttles
+      Namespace: AWS/Lambda
+      Statistic: Sum
+      Period: 300
+      EvaluationPeriods: 1
+      Threshold: 1
+      ComparisonOperator: GreaterThanOrEqualToThreshold
+      Dimensions:
+        - Name: FunctionName
+          Value: !Ref ApiGetShopLambda
+      TreatMissingData: notBreaching
+      AlarmActions:
+        - !Ref AlarmNotificationTopic
 
   ApiPatchShopRoute:
     Type: AWS::ApiGatewayV2::Route
@@ -1503,6 +1809,42 @@ Resources:
       FunctionName: !Ref ApiShopSearchLambda
       Principal: apigateway.amazonaws.com
       SourceArn: !Sub "arn:aws:execute-api:${AWS::Region}:${AWS::AccountId}:${Api}/*/*/api/v1/shops/search*"
+  ApiShopSearchLambdaErrorAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      AlarmName: "prod-shop-search-lambda-errors"
+      AlarmDescription: "Alarm when shop-search Lambda has errors"
+      MetricName: Errors
+      Namespace: AWS/Lambda
+      Statistic: Sum
+      Period: 300
+      EvaluationPeriods: 1
+      Threshold: 1
+      ComparisonOperator: GreaterThanOrEqualToThreshold
+      Dimensions:
+        - Name: FunctionName
+          Value: !Ref ApiShopSearchLambda
+      TreatMissingData: notBreaching
+      AlarmActions:
+        - !Ref AlarmNotificationTopic
+  ApiShopSearchLambdaThrottleAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      AlarmName: "prod-shop-search-lambda-throttles"
+      AlarmDescription: "Alarm when shop-search Lambda is throttled"
+      MetricName: Throttles
+      Namespace: AWS/Lambda
+      Statistic: Sum
+      Period: 300
+      EvaluationPeriods: 1
+      Threshold: 1
+      ComparisonOperator: GreaterThanOrEqualToThreshold
+      Dimensions:
+        - Name: FunctionName
+          Value: !Ref ApiShopSearchLambda
+      TreatMissingData: notBreaching
+      AlarmActions:
+        - !Ref AlarmNotificationTopic
 
   ApiDeleteSearchFilterRoute:
     Type: AWS::ApiGatewayV2::Route
@@ -1568,6 +1910,42 @@ Resources:
       FunctionName: !Ref ApiDeleteSearchFilterLambda
       Principal: apigateway.amazonaws.com
       SourceArn: !Sub "arn:aws:execute-api:${AWS::Region}:${AWS::AccountId}:${Api}/*/*/api/v1/me/search-filters/*"
+  ApiDeleteSearchFilterLambdaErrorAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      AlarmName: "prod-delete-search-filter-lambda-errors"
+      AlarmDescription: "Alarm when delete-search-filter Lambda has errors"
+      MetricName: Errors
+      Namespace: AWS/Lambda
+      Statistic: Sum
+      Period: 300
+      EvaluationPeriods: 1
+      Threshold: 1
+      ComparisonOperator: GreaterThanOrEqualToThreshold
+      Dimensions:
+        - Name: FunctionName
+          Value: !Ref ApiDeleteSearchFilterLambda
+      TreatMissingData: notBreaching
+      AlarmActions:
+        - !Ref AlarmNotificationTopic
+  ApiDeleteSearchFilterLambdaThrottleAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      AlarmName: "prod-delete-search-filter-lambda-throttles"
+      AlarmDescription: "Alarm when delete-search-filter Lambda is throttled"
+      MetricName: Throttles
+      Namespace: AWS/Lambda
+      Statistic: Sum
+      Period: 300
+      EvaluationPeriods: 1
+      Threshold: 1
+      ComparisonOperator: GreaterThanOrEqualToThreshold
+      Dimensions:
+        - Name: FunctionName
+          Value: !Ref ApiDeleteSearchFilterLambda
+      TreatMissingData: notBreaching
+      AlarmActions:
+        - !Ref AlarmNotificationTopic
 
   ApiGetSearchFilterRoute:
     Type: AWS::ApiGatewayV2::Route
@@ -1632,6 +2010,42 @@ Resources:
       FunctionName: !Ref ApiGetSearchFilterLambda
       Principal: apigateway.amazonaws.com
       SourceArn: !Sub "arn:aws:execute-api:${AWS::Region}:${AWS::AccountId}:${Api}/*/*/api/v1/me/search-filters/*"
+  ApiGetSearchFilterLambdaErrorAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      AlarmName: "prod-get-search-filter-lambda-errors"
+      AlarmDescription: "Alarm when get-search-filter Lambda has errors"
+      MetricName: Errors
+      Namespace: AWS/Lambda
+      Statistic: Sum
+      Period: 300
+      EvaluationPeriods: 1
+      Threshold: 1
+      ComparisonOperator: GreaterThanOrEqualToThreshold
+      Dimensions:
+        - Name: FunctionName
+          Value: !Ref ApiGetSearchFilterLambda
+      TreatMissingData: notBreaching
+      AlarmActions:
+        - !Ref AlarmNotificationTopic
+  ApiGetSearchFilterLambdaThrottleAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      AlarmName: "prod-get-search-filter-lambda-throttles"
+      AlarmDescription: "Alarm when get-search-filter Lambda is throttled"
+      MetricName: Throttles
+      Namespace: AWS/Lambda
+      Statistic: Sum
+      Period: 300
+      EvaluationPeriods: 1
+      Threshold: 1
+      ComparisonOperator: GreaterThanOrEqualToThreshold
+      Dimensions:
+        - Name: FunctionName
+          Value: !Ref ApiGetSearchFilterLambda
+      TreatMissingData: notBreaching
+      AlarmActions:
+        - !Ref AlarmNotificationTopic
 
   ApiGetSearchFiltersRoute:
     Type: AWS::ApiGatewayV2::Route
@@ -1696,6 +2110,42 @@ Resources:
       FunctionName: !Ref ApiGetSearchFiltersLambda
       Principal: apigateway.amazonaws.com
       SourceArn: !Sub "arn:aws:execute-api:${AWS::Region}:${AWS::AccountId}:${Api}/*/*/api/v1/me/search-filters"
+  ApiGetSearchFiltersLambdaErrorAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      AlarmName: "prod-get-search-filters-lambda-errors"
+      AlarmDescription: "Alarm when get-search-filters Lambda has errors"
+      MetricName: Errors
+      Namespace: AWS/Lambda
+      Statistic: Sum
+      Period: 300
+      EvaluationPeriods: 1
+      Threshold: 1
+      ComparisonOperator: GreaterThanOrEqualToThreshold
+      Dimensions:
+        - Name: FunctionName
+          Value: !Ref ApiGetSearchFiltersLambda
+      TreatMissingData: notBreaching
+      AlarmActions:
+        - !Ref AlarmNotificationTopic
+  ApiGetSearchFiltersLambdaThrottleAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      AlarmName: "prod-get-search-filters-lambda-throttles"
+      AlarmDescription: "Alarm when get-search-filters Lambda is throttled"
+      MetricName: Throttles
+      Namespace: AWS/Lambda
+      Statistic: Sum
+      Period: 300
+      EvaluationPeriods: 1
+      Threshold: 1
+      ComparisonOperator: GreaterThanOrEqualToThreshold
+      Dimensions:
+        - Name: FunctionName
+          Value: !Ref ApiGetSearchFiltersLambda
+      TreatMissingData: notBreaching
+      AlarmActions:
+        - !Ref AlarmNotificationTopic
 
   ApiPatchSearchFilterRoute:
     Type: AWS::ApiGatewayV2::Route
@@ -1760,6 +2210,42 @@ Resources:
       FunctionName: !Ref ApiPatchSearchFilterLambda
       Principal: apigateway.amazonaws.com
       SourceArn: !Sub "arn:aws:execute-api:${AWS::Region}:${AWS::AccountId}:${Api}/*/*/api/v1/me/search-filters/*"
+  ApiPatchSearchFilterLambdaErrorAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      AlarmName: "prod-patch-search-filter-lambda-errors"
+      AlarmDescription: "Alarm when patch-search-filter Lambda has errors"
+      MetricName: Errors
+      Namespace: AWS/Lambda
+      Statistic: Sum
+      Period: 300
+      EvaluationPeriods: 1
+      Threshold: 1
+      ComparisonOperator: GreaterThanOrEqualToThreshold
+      Dimensions:
+        - Name: FunctionName
+          Value: !Ref ApiPatchSearchFilterLambda
+      TreatMissingData: notBreaching
+      AlarmActions:
+        - !Ref AlarmNotificationTopic
+  ApiPatchSearchFilterLambdaThrottleAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      AlarmName: "prod-patch-search-filter-lambda-throttles"
+      AlarmDescription: "Alarm when patch-search-filter Lambda is throttled"
+      MetricName: Throttles
+      Namespace: AWS/Lambda
+      Statistic: Sum
+      Period: 300
+      EvaluationPeriods: 1
+      Threshold: 1
+      ComparisonOperator: GreaterThanOrEqualToThreshold
+      Dimensions:
+        - Name: FunctionName
+          Value: !Ref ApiPatchSearchFilterLambda
+      TreatMissingData: notBreaching
+      AlarmActions:
+        - !Ref AlarmNotificationTopic
 
   ApiPostSearchFilterRoute:
     Type: AWS::ApiGatewayV2::Route
@@ -1822,6 +2308,42 @@ Resources:
       FunctionName: !Ref ApiPostSearchFilterLambda
       Principal: apigateway.amazonaws.com
       SourceArn: !Sub "arn:aws:execute-api:${AWS::Region}:${AWS::AccountId}:${Api}/*/*/api/v1/me/search-filters"
+  ApiPostSearchFilterLambdaErrorAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      AlarmName: "prod-post-search-filter-lambda-errors"
+      AlarmDescription: "Alarm when post-search-filter Lambda has errors"
+      MetricName: Errors
+      Namespace: AWS/Lambda
+      Statistic: Sum
+      Period: 300
+      EvaluationPeriods: 1
+      Threshold: 1
+      ComparisonOperator: GreaterThanOrEqualToThreshold
+      Dimensions:
+        - Name: FunctionName
+          Value: !Ref ApiPostSearchFilterLambda
+      TreatMissingData: notBreaching
+      AlarmActions:
+        - !Ref AlarmNotificationTopic
+  ApiPostSearchFilterLambdaThrottleAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      AlarmName: "prod-post-search-filter-lambda-throttles"
+      AlarmDescription: "Alarm when post-search-filter Lambda is throttled"
+      MetricName: Throttles
+      Namespace: AWS/Lambda
+      Statistic: Sum
+      Period: 300
+      EvaluationPeriods: 1
+      Threshold: 1
+      ComparisonOperator: GreaterThanOrEqualToThreshold
+      Dimensions:
+        - Name: FunctionName
+          Value: !Ref ApiPostSearchFilterLambda
+      TreatMissingData: notBreaching
+      AlarmActions:
+        - !Ref AlarmNotificationTopic
 
   SendMailDlq:
     Type: AWS::SQS::Queue
@@ -3224,6 +3746,42 @@ Resources:
           PropagateAtLaunch: true
       HealthCheckType: EC2
       HealthCheckGracePeriod: 120
+  ProductPipelineInitCPUAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      AlarmName: "prod-pipeline-init-high-cpu"
+      AlarmDescription: "Alarm when pipeline-init instances have high CPU"
+      MetricName: CPUUtilization
+      Namespace: AWS/EC2
+      Statistic: Average
+      Period: 300
+      EvaluationPeriods: 2
+      Threshold: 90
+      ComparisonOperator: GreaterThanThreshold
+      Dimensions:
+        - Name: AutoScalingGroupName
+          Value: !Ref ProductPipelineInitASG
+      TreatMissingData: notBreaching
+      AlarmActions:
+        - !Ref AlarmNotificationTopic
+  ProductPipelineInitStatusCheckAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      AlarmName: "prod-pipeline-init-status-check-failed"
+      AlarmDescription: "Alarm when pipeline-init instances fail status checks"
+      MetricName: StatusCheckFailed
+      Namespace: AWS/EC2
+      Statistic: Maximum
+      Period: 60
+      EvaluationPeriods: 2
+      Threshold: 0
+      ComparisonOperator: GreaterThanThreshold
+      Dimensions:
+        - Name: AutoScalingGroupName
+          Value: !Ref ProductPipelineInitASG
+      TreatMissingData: notBreaching
+      AlarmActions:
+        - !Ref AlarmNotificationTopic
 
   ProductPipelineTranslateDlq:
     Type: AWS::SQS::Queue
@@ -3377,6 +3935,42 @@ Resources:
           PropagateAtLaunch: true
       HealthCheckType: EC2
       HealthCheckGracePeriod: 120
+  ProductPipelineTranslateCPUAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      AlarmName: "prod-pipeline-translate-high-cpu"
+      AlarmDescription: "Alarm when pipeline-translate instances have high CPU"
+      MetricName: CPUUtilization
+      Namespace: AWS/EC2
+      Statistic: Average
+      Period: 300
+      EvaluationPeriods: 2
+      Threshold: 90
+      ComparisonOperator: GreaterThanThreshold
+      Dimensions:
+        - Name: AutoScalingGroupName
+          Value: !Ref ProductPipelineTranslateASG
+      TreatMissingData: notBreaching
+      AlarmActions:
+        - !Ref AlarmNotificationTopic
+  ProductPipelineTranslateStatusCheckAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      AlarmName: "prod-pipeline-translate-status-check-failed"
+      AlarmDescription: "Alarm when pipeline-translate instances fail status checks"
+      MetricName: StatusCheckFailed
+      Namespace: AWS/EC2
+      Statistic: Maximum
+      Period: 60
+      EvaluationPeriods: 2
+      Threshold: 0
+      ComparisonOperator: GreaterThanThreshold
+      Dimensions:
+        - Name: AutoScalingGroupName
+          Value: !Ref ProductPipelineTranslateASG
+      TreatMissingData: notBreaching
+      AlarmActions:
+        - !Ref AlarmNotificationTopic
 
   ProductPipelineEmbedTextDlq:
     Type: AWS::SQS::Queue
@@ -3530,6 +4124,42 @@ Resources:
           PropagateAtLaunch: true
       HealthCheckType: EC2
       HealthCheckGracePeriod: 120
+  ProductPipelineEmbedTextCPUAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      AlarmName: "prod-pipeline-embed-text-high-cpu"
+      AlarmDescription: "Alarm when pipeline-embed-text instances have high CPU"
+      MetricName: CPUUtilization
+      Namespace: AWS/EC2
+      Statistic: Average
+      Period: 300
+      EvaluationPeriods: 2
+      Threshold: 90
+      ComparisonOperator: GreaterThanThreshold
+      Dimensions:
+        - Name: AutoScalingGroupName
+          Value: !Ref ProductPipelineEmbedTextASG
+      TreatMissingData: notBreaching
+      AlarmActions:
+        - !Ref AlarmNotificationTopic
+  ProductPipelineEmbedTextStatusCheckAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      AlarmName: "prod-pipeline-embed-text-status-check-failed"
+      AlarmDescription: "Alarm when pipeline-embed-text instances fail status checks"
+      MetricName: StatusCheckFailed
+      Namespace: AWS/EC2
+      Statistic: Maximum
+      Period: 60
+      EvaluationPeriods: 2
+      Threshold: 0
+      ComparisonOperator: GreaterThanThreshold
+      Dimensions:
+        - Name: AutoScalingGroupName
+          Value: !Ref ProductPipelineEmbedTextASG
+      TreatMissingData: notBreaching
+      AlarmActions:
+        - !Ref AlarmNotificationTopic
 
   ProductPipelineExtractAttributeDlq:
     Type: AWS::SQS::Queue
@@ -3683,6 +4313,42 @@ Resources:
           PropagateAtLaunch: true
       HealthCheckType: EC2
       HealthCheckGracePeriod: 120
+  ProductPipelineExtractAttributeCPUAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      AlarmName: "prod-pipeline-extract-attribute-high-cpu"
+      AlarmDescription: "Alarm when pipeline-extract-attribute instances have high CPU"
+      MetricName: CPUUtilization
+      Namespace: AWS/EC2
+      Statistic: Average
+      Period: 300
+      EvaluationPeriods: 2
+      Threshold: 90
+      ComparisonOperator: GreaterThanThreshold
+      Dimensions:
+        - Name: AutoScalingGroupName
+          Value: !Ref ProductPipelineExtractAttributeASG
+      TreatMissingData: notBreaching
+      AlarmActions:
+        - !Ref AlarmNotificationTopic
+  ProductPipelineExtractAttributeStatusCheckAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      AlarmName: "prod-pipeline-extract-attribute-status-check-failed"
+      AlarmDescription: "Alarm when pipeline-extract-attribute instances fail status checks"
+      MetricName: StatusCheckFailed
+      Namespace: AWS/EC2
+      Statistic: Maximum
+      Period: 60
+      EvaluationPeriods: 2
+      Threshold: 0
+      ComparisonOperator: GreaterThanThreshold
+      Dimensions:
+        - Name: AutoScalingGroupName
+          Value: !Ref ProductPipelineExtractAttributeASG
+      TreatMissingData: notBreaching
+      AlarmActions:
+        - !Ref AlarmNotificationTopic
 
   ProductPipelineCompleteDlq:
     Type: AWS::SQS::Queue
@@ -3970,6 +4636,42 @@ Resources:
           PropagateAtLaunch: true
       HealthCheckType: EC2
       HealthCheckGracePeriod: 120
+  ProductPipelineCompleteCPUAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      AlarmName: "prod-pipeline-complete-high-cpu"
+      AlarmDescription: "Alarm when pipeline-complete instances have high CPU"
+      MetricName: CPUUtilization
+      Namespace: AWS/EC2
+      Statistic: Average
+      Period: 300
+      EvaluationPeriods: 2
+      Threshold: 90
+      ComparisonOperator: GreaterThanThreshold
+      Dimensions:
+        - Name: AutoScalingGroupName
+          Value: !Ref ProductPipelineCompleteASG
+      TreatMissingData: notBreaching
+      AlarmActions:
+        - !Ref AlarmNotificationTopic
+  ProductPipelineCompleteStatusCheckAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      AlarmName: "prod-pipeline-complete-status-check-failed"
+      AlarmDescription: "Alarm when pipeline-complete instances fail status checks"
+      MetricName: StatusCheckFailed
+      Namespace: AWS/EC2
+      Statistic: Maximum
+      Period: 60
+      EvaluationPeriods: 2
+      Threshold: 0
+      ComparisonOperator: GreaterThanThreshold
+      Dimensions:
+        - Name: AutoScalingGroupName
+          Value: !Ref ProductPipelineCompleteASG
+      TreatMissingData: notBreaching
+      AlarmActions:
+        - !Ref AlarmNotificationTopic
 
   ProductPipelineScaleControlRole:
     Type: AWS::IAM::Role
@@ -4048,6 +4750,24 @@ Resources:
       Action: "lambda:InvokeFunction"
       Principal: "events.amazonaws.com"
       SourceArn: !GetAtt ProductPipelineScaleControlStartSchedule.Arn
+  ProductPipelineScaleControlLambdaErrorAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      AlarmName: "prod-pipeline-scale-control-lambda-errors"
+      AlarmDescription: "Alarm when pipeline-scale-control Lambda has errors"
+      MetricName: Errors
+      Namespace: AWS/Lambda
+      Statistic: Sum
+      Period: 300
+      EvaluationPeriods: 1
+      Threshold: 1
+      ComparisonOperator: GreaterThanOrEqualToThreshold
+      Dimensions:
+        - Name: FunctionName
+          Value: !Ref ProductPipelineScaleControlLambda
+      TreatMissingData: notBreaching
+      AlarmActions:
+        - !Ref AlarmNotificationTopic
 
   ProductPipelineScalePersistUpRole:
     Type: AWS::IAM::Role
@@ -4108,6 +4828,24 @@ Resources:
       Action: "lambda:InvokeFunction"
       Principal: "events.amazonaws.com"
       SourceArn: !GetAtt ProductPipelineScalePersistUpStartSchedule.Arn
+  ProductPipelineScalePersistUpLambdaErrorAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      AlarmName: "prod-pipeline-scale-persist-up-lambda-errors"
+      AlarmDescription: "Alarm when pipeline-scale-persist-up Lambda has errors"
+      MetricName: Errors
+      Namespace: AWS/Lambda
+      Statistic: Sum
+      Period: 300
+      EvaluationPeriods: 1
+      Threshold: 1
+      ComparisonOperator: GreaterThanOrEqualToThreshold
+      Dimensions:
+        - Name: FunctionName
+          Value: !Ref ProductPipelineScalePersistUpLambda
+      TreatMissingData: notBreaching
+      AlarmActions:
+        - !Ref AlarmNotificationTopic
 
   FxRateSyncRole:
     Type: AWS::IAM::Role
@@ -4168,6 +4906,24 @@ Resources:
       Action: "lambda:InvokeFunction"
       Principal: "events.amazonaws.com"
       SourceArn: !GetAtt FxRateSyncStartSchedule.Arn
+  FxRateSyncLambdaErrorAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      AlarmName: "prod-fxrate-sync-lambda-errors"
+      AlarmDescription: "Alarm when fxrate-sync Lambda has errors"
+      MetricName: Errors
+      Namespace: AWS/Lambda
+      Statistic: Sum
+      Period: 300
+      EvaluationPeriods: 1
+      Threshold: 1
+      ComparisonOperator: GreaterThanOrEqualToThreshold
+      Dimensions:
+        - Name: FunctionName
+          Value: !Ref FxRateSyncLambda
+      TreatMissingData: notBreaching
+      AlarmActions:
+        - !Ref AlarmNotificationTopic
 
 Outputs:
   CognitoHostedUIDomain:
