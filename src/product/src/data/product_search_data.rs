@@ -27,7 +27,7 @@ pub struct ProductSearchData {
     pub language: LanguageData,
     pub currency: CurrencyData,
     #[serde(rename = "productQuery")]
-    pub product_query: TextQuery,
+    pub product_query: TextQuery<3>,
     #[serde(
         rename = "shopName",
         skip_serializing_if = "HashSet::is_empty",

@@ -4,7 +4,7 @@ use time::OffsetDateTime;
 
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub struct ShopSearch {
-    pub shop_name_query: Option<TextQuery>,
+    pub shop_name_query: Option<TextQuery<0>>,
     pub shop_type_query: AnyOfQuery<ShopType>,
     pub created: Option<RangeQuery<OffsetDateTime>>,
     pub updated: Option<RangeQuery<OffsetDateTime>>,

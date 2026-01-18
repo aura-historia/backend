@@ -21,7 +21,7 @@ pub struct UserSearchFilterRecordUpdate {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub name: Option<UserSearchFilterName>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub product_query: Option<TextQuery>,
+    pub product_query: Option<TextQuery<3>>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub shop_name_query: Option<HashSet<ShopName>>,
     #[serde(default, skip_serializing_if = "Option::is_none")]

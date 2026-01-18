@@ -10,7 +10,7 @@ use time::OffsetDateTime;
 #[serde(rename_all = "camelCase")]
 pub struct ShopSearchData {
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub shop_name_query: Option<TextQuery>,
+    pub shop_name_query: Option<TextQuery<0>>,
 
     #[serde(
         rename = "shopType",

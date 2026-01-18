@@ -50,7 +50,7 @@ pub struct PatchProductSearchData {
         skip_serializing_if = "Option::is_none",
         default
     )]
-    pub product_query: Option<TextQuery>,
+    pub product_query: Option<TextQuery<3>>,
 
     #[serde(rename = "shopName", skip_serializing_if = "Option::is_none", default)]
     pub shop_name_query: Option<HashSet<ShopName>>,
