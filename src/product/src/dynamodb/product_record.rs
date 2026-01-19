@@ -25,6 +25,7 @@ use common::price::record::PriceRecord;
 use common::product_id::{ProductId, ProductKey};
 use common::shop_id::ShopId;
 use common::shops_product_id::ShopsProductId;
+use common::slug_id::SlugId;
 use common::year::{Year, YearRange};
 use field::field;
 use serde::{Deserialize, Serialize};
@@ -39,6 +40,7 @@ pub struct ProductRecord {
     pub pk: String,
     pub sk: String,
     pub product_id: ProductId,
+    pub slug_id: SlugId,
     pub event_id: EventId,
     pub shop_id: ShopId,
     pub shops_product_id: ShopsProductId,
@@ -249,6 +251,7 @@ impl From<ProductRecord> for Product {
 
         Product {
             product_id: record.product_id,
+            slug_id: record.slug_id,
             event_id: record.event_id,
             shop_id: record.shop_id,
             shops_product_id: record.shops_product_id,
@@ -299,6 +302,9 @@ impl TryFrom<ProductEventRecord> for ProductRecord {
             pk: event_record.pk,
             sk: mk_sk().to_string(),
             product_id: event_record.product_id,
+            slug_id: event_record
+                .slug_id
+                .ok_or_else(|| MissingPersistenceField::new(field!(slug_id@ProductEventRecord)))?,
             event_id: event_record.event_id,
             shop_id: event_record.shop_id,
             shops_product_id: event_record.shops_product_id,
@@ -390,19 +396,21 @@ mod faker {
                 None
             };
 
+            let title_native = TextRecord::new(
+                config.fake_with_rng::<Title, _>(rng).to_string(),
+                config.fake_with_rng(rng),
+            );
             ProductRecord {
                 pk: mk_pk(&shop_id, &shops_product_id),
                 sk: mk_sk().to_string(),
                 product_id: config.fake_with_rng(rng),
+                slug_id: SlugId::from(&title_native.text),
                 event_id: config.fake_with_rng(rng),
                 shop_id,
                 shops_product_id: shops_product_id.clone(),
                 shop_name: config.fake_with_rng::<ShopName, _>(rng).into(),
                 shop_type: config.fake_with_rng(rng),
-                title_native: TextRecord::new(
-                    config.fake_with_rng::<Title, _>(rng).to_string(),
-                    config.fake_with_rng(rng),
-                ),
+                title_native,
                 title_de: Some(config.fake_with_rng::<Title, _>(rng).to_string()),
                 title_en: Some(config.fake_with_rng::<Title, _>(rng).to_string()),
                 title_fr: Some(config.fake_with_rng::<Title, _>(rng).to_string()),

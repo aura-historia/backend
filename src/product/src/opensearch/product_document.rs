@@ -12,6 +12,7 @@ use common::language::document::TextDocument;
 use common::product_id::{ProductId, ProductKey};
 use common::shop_id::ShopId;
 use common::shops_product_id::ShopsProductId;
+use common::slug_id::SlugId;
 use common::year::Year;
 use common::{event_id::EventId, has_key::HasKey};
 use field::field;
@@ -25,6 +26,7 @@ use url::Url;
 #[serde(rename_all = "camelCase")]
 pub struct ProductDocument {
     pub product_id: ProductId,
+    pub slug_id: SlugId,
     pub event_id: EventId,
     pub shop_id: ShopId,
     pub shops_product_id: ShopsProductId,
@@ -159,6 +161,9 @@ impl TryFrom<ProductEventRecord> for ProductDocument {
             .ok_or_else(|| MissingPersistenceField::new(field!(new_state@ProductEventRecord)))?;
         let document = ProductDocument {
             product_id: event_record.product_id,
+            slug_id: event_record
+                .slug_id
+                .ok_or_else(|| MissingPersistenceField::new(field!(slug_id@ProductEventRecord)))?,
             event_id: event_record.event_id,
             shop_id: event_record.shop_id,
             shops_product_id: event_record.shops_product_id,
@@ -231,6 +236,7 @@ impl From<ProductRecord> for ProductDocument {
     fn from(record: ProductRecord) -> Self {
         ProductDocument {
             product_id: record.product_id,
+            slug_id: record.slug_id,
             event_id: record.event_id,
             shop_id: record.shop_id,
             shops_product_id: record.shops_product_id,
@@ -317,17 +323,19 @@ mod faker {
             } else {
                 None
             };
+            let title_native = TextDocument {
+                text: config.fake_with_rng::<Title, _>(rng).to_string(),
+                language: config.fake_with_rng(rng),
+            };
             ProductDocument {
                 product_id: config.fake_with_rng(rng),
+                slug_id: SlugId::from(&title_native.text),
                 event_id: config.fake_with_rng(rng),
                 shop_id: config.fake_with_rng(rng),
                 shops_product_id: config.fake_with_rng(rng),
                 shop_name: config.fake_with_rng::<ShopName, _>(rng).into(),
                 shop_type: config.fake_with_rng(rng),
-                title_native: TextDocument {
-                    text: config.fake_with_rng::<Title, _>(rng).to_string(),
-                    language: config.fake_with_rng(rng),
-                },
+                title_native,
                 title_de: Some(config.fake_with_rng::<Title, _>(rng).to_string()),
                 title_en: Some(config.fake_with_rng::<Title, _>(rng).to_string()),
                 title_fr: Some(config.fake_with_rng::<Title, _>(rng).to_string()),

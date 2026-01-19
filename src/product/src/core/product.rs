@@ -23,6 +23,7 @@ use common::product_state::domain::ProductState;
 use common::shop_id::ShopId;
 use common::shop_name::ShopName;
 use common::shops_product_id::ShopsProductId;
+use common::slug_id::SlugId;
 use shop::core::shop_type::ShopType;
 use std::collections::HashMap;
 use time::OffsetDateTime;
@@ -31,6 +32,7 @@ use url::Url;
 #[derive(Debug, Clone, PartialEq)]
 pub struct Product {
     pub product_id: ProductId,
+    pub slug_id: SlugId,
     pub event_id: EventId,
     pub shop_id: ShopId,
     pub shops_product_id: ShopsProductId,
@@ -82,6 +84,7 @@ impl Product {
         auction_end: Option<OffsetDateTime>,
     ) -> ProductEvent {
         let payload = ProductCreatedEventPayload {
+            slug_id: SlugId::from(native_title.payload.as_ref()),
             shop_id,
             shops_product_id,
             shop_name,
@@ -253,6 +256,7 @@ impl HasKey for Product {
 #[derive(Debug, Clone, PartialEq)]
 pub struct LocalizedProductView {
     pub product_id: ProductId,
+    pub slug_id: SlugId,
     pub event_id: EventId,
     pub shop_id: ShopId,
     pub shops_product_id: ShopsProductId,
@@ -308,14 +312,16 @@ mod faker {
                     .unwrap(),
             };
             let state = config.fake_with_rng(rng);
+            let native_title: Localized<Language, Title> = config.fake_with_rng(rng);
             Product {
+                slug_id: SlugId::from(native_title.payload.as_ref()),
                 product_id: config.fake_with_rng(rng),
                 event_id: config.fake_with_rng(rng),
                 shop_id: config.fake_with_rng(rng),
                 shops_product_id: config.fake_with_rng(rng),
                 shop_name: config.fake_with_rng(rng),
                 shop_type: config.fake_with_rng(rng),
-                native_title: config.fake_with_rng(rng),
+                native_title,
                 other_title: config.fake_with_rng(rng),
                 native_description: config.fake_with_rng(rng),
                 other_description: config.fake_with_rng(rng),
@@ -355,14 +361,16 @@ mod faker {
 
     impl Dummy<Faker> for LocalizedProductView {
         fn dummy_with_rng<R: Rng + ?Sized>(config: &Faker, rng: &mut R) -> Self {
+            let title: Localized<Language, Title> = config.fake_with_rng(rng);
             LocalizedProductView {
+                slug_id: SlugId::from(title.payload.as_ref()),
                 product_id: config.fake_with_rng(rng),
                 event_id: config.fake_with_rng(rng),
                 shop_id: config.fake_with_rng(rng),
                 shops_product_id: config.fake_with_rng(rng),
                 shop_name: config.fake_with_rng(rng),
                 shop_type: config.fake_with_rng(rng),
-                title: config.fake_with_rng(rng),
+                title,
                 description: config.fake_with_rng(rng),
                 price: config.fake_with_rng(rng),
                 price_estimate_min: config.fake_with_rng(rng),
@@ -420,7 +428,7 @@ mod tests {
         use common::language::domain::Language;
         use common::localized::Localized;
         use common::product_state::domain::ProductState;
-        use fake::Fake;
+        use fake::{Fake, Faker};
         use rstest;
         use time::OffsetDateTime;
         use url::Url;
@@ -439,6 +447,7 @@ mod tests {
         ) {
             let mut product = Product {
                 product_id: Default::default(),
+                slug_id: Faker.fake(),
                 event_id: Default::default(),
                 shop_id: Default::default(),
                 shops_product_id: Default::default(),
@@ -494,6 +503,7 @@ mod tests {
         ) {
             let mut product = Product {
                 product_id: Default::default(),
+                slug_id: Faker.fake(),
                 event_id: Default::default(),
                 shop_id: Default::default(),
                 shops_product_id: Default::default(),
@@ -549,6 +559,7 @@ mod tests {
         ) {
             let mut product = Product {
                 product_id: Default::default(),
+                slug_id: Faker.fake(),
                 event_id: Default::default(),
                 shop_id: Default::default(),
                 shops_product_id: Default::default(),
@@ -595,6 +606,7 @@ mod tests {
         use common::price::domain::{FxRate, MonetaryAmount, Price};
         use common::product_state::domain::ProductState;
         use fake::Fake;
+        use fake::Faker;
         use time::OffsetDateTime;
         use url::Url;
 
@@ -636,6 +648,7 @@ mod tests {
             };
             let mut product = Product {
                 product_id: Default::default(),
+                slug_id: Faker.fake(),
                 event_id: Default::default(),
                 shop_id: Default::default(),
                 shops_product_id: Default::default(),
@@ -694,6 +707,7 @@ mod tests {
         ) {
             let mut product = Product {
                 product_id: Default::default(),
+                slug_id: Faker.fake(),
                 event_id: Default::default(),
                 shop_id: Default::default(),
                 shops_product_id: Default::default(),
@@ -759,6 +773,7 @@ mod tests {
         fn should_find_dropped_price_when_price_dropped_for_new_price(#[case] to_price: Price) {
             let mut product = Product {
                 product_id: Default::default(),
+                slug_id: Faker.fake(),
                 event_id: Default::default(),
                 shop_id: Default::default(),
                 shops_product_id: Default::default(),
@@ -828,6 +843,7 @@ mod tests {
         fn should_find_increased_price_when_price_increased_for_new_price(#[case] to_price: Price) {
             let mut product = Product {
                 product_id: Default::default(),
+                slug_id: Faker.fake(),
                 event_id: Default::default(),
                 shop_id: Default::default(),
                 shops_product_id: Default::default(),
@@ -899,6 +915,7 @@ mod tests {
         ) {
             let mut product = Product {
                 product_id: Default::default(),
+                slug_id: Faker.fake(),
                 event_id: Default::default(),
                 shop_id: Default::default(),
                 shops_product_id: Default::default(),

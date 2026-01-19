@@ -12,6 +12,7 @@ use common::product_state::domain::ProductState;
 use common::shop_id::ShopId;
 use common::shop_name::ShopName;
 use common::shops_product_id::ShopsProductId;
+use common::slug_id::SlugId;
 use shop::core::shop_type::ShopType;
 use std::collections::HashMap;
 use time::OffsetDateTime;
@@ -172,6 +173,7 @@ impl ProductCommonEventPayload for ProductEventPayload {
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct ProductCreatedEventPayload {
+    pub slug_id: SlugId,
     pub shop_id: ShopId,
     pub shops_product_id: ShopsProductId,
     pub shop_name: ShopName,
@@ -363,12 +365,14 @@ mod faker {
                     .unwrap(),
             };
             let state = config.fake_with_rng(rng);
+            let native_title: Localized<Language, Title> = config.fake_with_rng(rng);
             ProductCreatedEventPayload {
+                slug_id: SlugId::from(native_title.payload.as_ref()),
                 shop_id: config.fake_with_rng(rng),
                 shops_product_id: config.fake_with_rng(rng),
                 shop_name: config.fake_with_rng(rng),
                 shop_type: config.fake_with_rng(rng),
-                native_title: config.fake_with_rng(rng),
+                native_title,
                 native_description: config.fake_with_rng(rng),
                 native_price,
                 other_price,

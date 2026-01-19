@@ -4,6 +4,7 @@ use common::language::document::{LanguageDocument, TextDocument};
 use common::language::record::{LanguageRecord, TextRecord};
 use common::price::record::PriceRecord;
 use common::query::range_query::RangeQuery;
+use common::slug_id::SlugId;
 use common::{
     currency::data::CurrencyData, event_id::EventId, language::data::LanguageData,
     product_id::ProductId, shop_id::ShopId, shops_product_id::ShopsProductId,
@@ -59,6 +60,7 @@ async fn should_respond_200_when_hits_authenticated() {
     let product_opensearch_repository = ProductOpenSearchRepositoryImpl::new(os_client);
     let expected = ProductDocument {
         product_id: ProductId::new(),
+        slug_id: SlugId::from("Foo"),
         event_id: EventId::new(),
         shop_id: ShopId::new(),
         shop_type: Faker.fake(),
@@ -130,6 +132,7 @@ async fn should_respond_200_when_hits_authenticated() {
         pk: product_record::mk_pk(&expected.shop_id, &expected.shops_product_id),
         sk: product_record::mk_sk().to_owned(),
         product_id: expected.product_id,
+        slug_id: SlugId::from("Chopin Etudes Op.10 1833"),
         event_id: expected.event_id,
         shop_id: expected.shop_id,
         shops_product_id: expected.shops_product_id.clone(),
@@ -274,6 +277,7 @@ async fn should_respond_200_when_hits_anon() {
     let repository = ProductOpenSearchRepositoryImpl::new(os_client);
     let expected = ProductDocument {
         product_id: ProductId::new(),
+        slug_id: SlugId::from("Foo"),
         event_id: EventId::new(),
         shop_id: ShopId::new(),
         shops_product_id: ShopsProductId::new(),
