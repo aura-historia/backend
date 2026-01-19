@@ -25,7 +25,7 @@ use url::Url;
 pub struct GetProductData {
     pub product_id: ProductId,
 
-    pub slug_id: SlugId,
+    pub slug_id: SlugId<6>,
 
     pub event_id: EventId,
 

@@ -173,7 +173,7 @@ impl ProductCommonEventPayload for ProductEventPayload {
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct ProductCreatedEventPayload {
-    pub slug_id: SlugId,
+    pub slug_id: SlugId<6>,
     pub shop_id: ShopId,
     pub shops_product_id: ShopsProductId,
     pub shop_name: ShopName,

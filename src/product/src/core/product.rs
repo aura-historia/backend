@@ -32,7 +32,7 @@ use url::Url;
 #[derive(Debug, Clone, PartialEq)]
 pub struct Product {
     pub product_id: ProductId,
-    pub slug_id: SlugId,
+    pub slug_id: SlugId<6>,
     pub event_id: EventId,
     pub shop_id: ShopId,
     pub shops_product_id: ShopsProductId,
@@ -256,7 +256,7 @@ impl HasKey for Product {
 #[derive(Debug, Clone, PartialEq)]
 pub struct LocalizedProductView {
     pub product_id: ProductId,
-    pub slug_id: SlugId,
+    pub slug_id: SlugId<6>,
     pub event_id: EventId,
     pub shop_id: ShopId,
     pub shops_product_id: ShopsProductId,

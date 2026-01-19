@@ -37,7 +37,7 @@ pub struct ProductEventRecord {
     pub pk: String,
     pub sk: String,
     pub product_id: ProductId,
-    pub slug_id: Option<SlugId>,
+    pub slug_id: Option<SlugId<6>>,
     pub event_id: EventId,
     pub event_type: ProductEventTypeRecord,
     pub event_type_schema_version: u8,

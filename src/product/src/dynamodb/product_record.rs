@@ -40,7 +40,7 @@ pub struct ProductRecord {
     pub pk: String,
     pub sk: String,
     pub product_id: ProductId,
-    pub slug_id: SlugId,
+    pub slug_id: SlugId<6>,
     pub event_id: EventId,
     pub shop_id: ShopId,
     pub shops_product_id: ShopsProductId,
