@@ -149,7 +149,7 @@ test-api = { path = "src/test-api" }
 test-api-macros = { path = "src/test-api/src/test-api-macros" }
 testcontainers = "0.24.0"
 testcontainers-modules = "0.12.1"
-thiserror = "2.0.17"
+thiserror = "2.0.18"
 time = "0.3.45"
 tokio = { version = "1.49.0", default-features = false }
 tracing = "0.1.44"
