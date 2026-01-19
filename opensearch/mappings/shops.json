@@ -1,45 +1,48 @@
 {
-  "settings": {
-    "analysis": {
-      "normalizer": {
-        "lowercase_normalizer": {
-          "type": "custom",
-          "filter": ["lowercase"]
+    "settings": {
+        "analysis": {
+            "normalizer": {
+                "lowercase_normalizer": {
+                    "type": "custom",
+                    "filter": ["lowercase"]
+                }
+            }
         }
-      }
-    }
-  },
-  "mappings": {
-    "properties": {
-      "shopId": {
-        "type": "keyword"
-      },
-      "name": {
-        "type": "text",
-        "fields": {
-          "keyword": {
-            "type": "keyword",
-            "normalizer": "lowercase_normalizer"
-          }
+    },
+    "mappings": {
+        "properties": {
+            "shopId": {
+                "type": "keyword"
+            },
+            "slugId": {
+                "type": "keyword"
+            },
+            "name": {
+                "type": "text",
+                "fields": {
+                    "keyword": {
+                        "type": "keyword",
+                        "normalizer": "lowercase_normalizer"
+                    }
+                }
+            },
+            "shopType": {
+                "type": "keyword"
+            },
+            "domains": {
+                "type": "keyword"
+            },
+            "image": {
+                "type": "keyword"
+            },
+            "created": {
+                "type": "date",
+                "format": "strict_date_time"
+            },
+            "updated": {
+                "type": "date",
+                "format": "strict_date_time"
+            }
         }
-      },
-      "shopType": {
-        "type": "keyword"
-      },
-      "domains": {
-        "type": "keyword"
-      },
-      "image": {
-        "type": "keyword"
-      },
-      "created": {
-        "type": "date",
-        "format": "strict_date_time"
-      },
-      "updated": {
-        "type": "date",
-        "format": "strict_date_time"
-      }
     }
-  }
 }

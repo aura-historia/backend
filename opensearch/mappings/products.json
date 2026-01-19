@@ -8,6 +8,9 @@
             "productId": {
                 "type": "keyword"
             },
+            "slugId": {
+                "type": "keyword"
+            },
             "eventId": {
                 "type": "keyword"
             },
