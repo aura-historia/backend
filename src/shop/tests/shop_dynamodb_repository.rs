@@ -4,6 +4,7 @@ use aws_sdk_dynamodb::error::SdkError;
 use common::domain::Domain;
 use common::shop_id::{ShopId, ShopIdentifier};
 use common::shop_name::ShopName;
+use common::slug_id::SlugId;
 use fake::{Fake, Faker};
 use shop::core::shop::Shop;
 use shop::dynamodb::shop_record_update::ShopRecordUpdate;
@@ -206,9 +207,11 @@ async fn should_get_shop_records() {
 async fn should_transact_write() {
     let repository = get_repository().await;
 
+    let name: ShopName = Faker.fake();
     let shop = Shop {
         shop_id: Faker.fake(),
-        name: Faker.fake(),
+        slug_id: SlugId::from(name.as_ref()),
+        name,
         shop_type: Faker.fake(),
         domains: [
             Domain::try_from("https://foo.de").unwrap(),

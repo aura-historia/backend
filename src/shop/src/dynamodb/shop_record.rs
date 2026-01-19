@@ -4,6 +4,7 @@ use common::{
     domain::Domain,
     shop_id::{ShopId, ShopIdentifier},
     shop_name::ShopName,
+    slug_id::SlugId,
 };
 use serde::{Deserialize, Serialize};
 use std::collections::HashSet;
@@ -15,6 +16,7 @@ pub struct ShopRecord {
     pub pk: String,
     pub sk: String,
     pub shop_id: ShopId,
+    pub slug_id: SlugId<0>,
     pub name: ShopName,
     pub shop_type: ShopTypeRecord,
 
@@ -56,6 +58,7 @@ impl ShopRecord {
             pk: mk_pk_as_shop_id(&shop.shop_id),
             sk: "shop#details".to_owned(),
             shop_id: shop.shop_id,
+            slug_id: shop.slug_id,
             domain: None,
             name: shop.name,
             shop_type: shop.shop_type.into(),
@@ -73,6 +76,7 @@ impl ShopRecord {
                 pk: mk_pk_as_shop_domain(domain),
                 sk: "shop#details".to_owned(),
                 shop_id: shop.shop_id,
+                slug_id: shop.slug_id.clone(),
                 name: shop.name.clone(),
                 shop_type: shop.shop_type.into(),
                 domain: Some(domain.clone()),
@@ -98,15 +102,16 @@ impl ShopRecord {
 }
 
 impl From<ShopRecord> for Shop {
-    fn from(document: ShopRecord) -> Self {
+    fn from(record: ShopRecord) -> Self {
         Shop {
-            shop_id: document.shop_id,
-            name: document.name,
-            shop_type: document.shop_type.into(),
-            domains: document.domains,
-            image: document.image,
-            created: document.created,
-            updated: document.updated,
+            shop_id: record.shop_id,
+            slug_id: record.slug_id,
+            name: record.name,
+            shop_type: record.shop_type.into(),
+            domains: record.domains,
+            image: record.image,
+            created: record.created,
+            updated: record.updated,
         }
     }
 }
