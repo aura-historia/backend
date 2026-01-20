@@ -199,10 +199,7 @@ Resources:
             - AttributeName: gsi2_sk
               KeyType: RANGE
           Projection:
-            ProjectionType: INCLUDE
-            NonKeyAttributes:
-              - "shop_id"
-              - "shops_product_id"
+            ProjectionType: KEYS_ONLY
       BillingMode: PAY_PER_REQUEST
       TableClass: STANDARD
       StreamSpecification:

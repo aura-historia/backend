@@ -62,8 +62,8 @@
 - Sparse (globally)
 - PK is `gsi2_pk`
 - SK is `gsi2_sk`
-- Project `shop_id`, `shops_product_id`
+- Project keys-only
 - User
   - PK is `ShopSlugId + ProductSlugId`
   - SK is constant
-  - Used for looking up `ShopId` and `ShopsProductId` for given `ShopSlugId` and `ProductSlugId`
+  - Used for looking up `ShopId` and `ShopsProductId` from `pk` for given `ShopSlugId` and `ProductSlugId`

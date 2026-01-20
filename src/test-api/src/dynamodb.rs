@@ -206,9 +206,7 @@ async fn set_up_table_1() -> Result<(), Error> {
                 )
                 .projection(
                     Projection::builder()
-                        .projection_type(ProjectionType::Include)
-                        .non_key_attributes("shop_id")
-                        .non_key_attributes("shops_product_id")
+                        .projection_type(ProjectionType::KeysOnly)
                         .build(),
                 )
                 .build()?,
