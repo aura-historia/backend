@@ -40,7 +40,7 @@ pub struct ProductRecord {
     pub pk: String,
     pub sk: String,
     pub product_id: ProductId,
-    pub slug_id: SlugId<6>,
+    pub product_slug_id: SlugId<6>,
     pub event_id: EventId,
     pub shop_id: ShopId,
     pub shops_product_id: ShopsProductId,
@@ -251,7 +251,7 @@ impl From<ProductRecord> for Product {
 
         Product {
             product_id: record.product_id,
-            slug_id: record.slug_id,
+            product_slug_id: record.product_slug_id,
             event_id: record.event_id,
             shop_id: record.shop_id,
             shops_product_id: record.shops_product_id,
@@ -302,9 +302,9 @@ impl TryFrom<ProductEventRecord> for ProductRecord {
             pk: event_record.pk,
             sk: mk_sk().to_string(),
             product_id: event_record.product_id,
-            slug_id: event_record
-                .slug_id
-                .ok_or_else(|| MissingPersistenceField::new(field!(slug_id@ProductEventRecord)))?,
+            product_slug_id: event_record.product_slug_id.ok_or_else(|| {
+                MissingPersistenceField::new(field!(product_slug_id@ProductEventRecord))
+            })?,
             event_id: event_record.event_id,
             shop_id: event_record.shop_id,
             shops_product_id: event_record.shops_product_id,
@@ -404,7 +404,7 @@ mod faker {
                 pk: mk_pk(&shop_id, &shops_product_id),
                 sk: mk_sk().to_string(),
                 product_id: config.fake_with_rng(rng),
-                slug_id: SlugId::from(&title_native.text),
+                product_slug_id: SlugId::from(&title_native.text),
                 event_id: config.fake_with_rng(rng),
                 shop_id,
                 shops_product_id: shops_product_id.clone(),

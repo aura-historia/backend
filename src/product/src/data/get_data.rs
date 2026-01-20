@@ -25,7 +25,7 @@ use url::Url;
 pub struct GetProductData {
     pub product_id: ProductId,
 
-    pub slug_id: SlugId<6>,
+    pub product_slug_id: SlugId<6>,
 
     pub event_id: EventId,
 
@@ -112,7 +112,7 @@ impl From<LocalizedProductView> for GetProductData {
     fn from(product_view: LocalizedProductView) -> Self {
         GetProductData {
             product_id: product_view.product_id,
-            slug_id: product_view.slug_id,
+            product_slug_id: product_view.product_slug_id,
             event_id: product_view.event_id,
             shop_id: product_view.shop_id,
             shops_product_id: product_view.shops_product_id,
@@ -209,7 +209,7 @@ mod tests {
         let shops_product_id = ShopsProductId::new();
         let dto = GetProductData {
             product_id,
-            slug_id: "beedel-beep-bap-fa87c45d".into(),
+            product_slug_id: "beedel-beep-bap-fa87c45d".into(),
             event_id,
             shop_id,
             shops_product_id: shops_product_id.clone(),
@@ -277,7 +277,7 @@ mod tests {
 
         let expected = json!({
             "productId": product_id,
-            "slugId": "beedel-beep-bap-fa87c45d",
+            "productSlugId": "beedel-beep-bap-fa87c45d",
             "eventId": event_id,
             "shopId": shop_id,
             "shopsProductId": shops_product_id,

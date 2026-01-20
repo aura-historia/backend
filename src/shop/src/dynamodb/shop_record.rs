@@ -16,7 +16,7 @@ pub struct ShopRecord {
     pub pk: String,
     pub sk: String,
     pub shop_id: ShopId,
-    pub slug_id: SlugId<0>,
+    pub shop_slug_id: SlugId<0>,
     pub name: ShopName,
     pub shop_type: ShopTypeRecord,
 
@@ -58,7 +58,7 @@ impl ShopRecord {
             pk: mk_pk_as_shop_id(&shop.shop_id),
             sk: "shop#details".to_owned(),
             shop_id: shop.shop_id,
-            slug_id: shop.slug_id,
+            shop_slug_id: shop.shop_slug_id,
             domain: None,
             name: shop.name,
             shop_type: shop.shop_type.into(),
@@ -76,7 +76,7 @@ impl ShopRecord {
                 pk: mk_pk_as_shop_domain(domain),
                 sk: "shop#details".to_owned(),
                 shop_id: shop.shop_id,
-                slug_id: shop.slug_id.clone(),
+                shop_slug_id: shop.shop_slug_id.clone(),
                 name: shop.name.clone(),
                 shop_type: shop.shop_type.into(),
                 domain: Some(domain.clone()),
@@ -105,7 +105,7 @@ impl From<ShopRecord> for Shop {
     fn from(record: ShopRecord) -> Self {
         Shop {
             shop_id: record.shop_id,
-            slug_id: record.slug_id,
+            shop_slug_id: record.shop_slug_id,
             name: record.name,
             shop_type: record.shop_type.into(),
             domains: record.domains,

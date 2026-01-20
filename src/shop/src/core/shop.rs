@@ -7,7 +7,7 @@ use url::Url;
 #[derive(Debug, Clone, PartialEq)]
 pub struct Shop {
     pub shop_id: ShopId,
-    pub slug_id: SlugId<0>,
+    pub shop_slug_id: SlugId<0>,
     pub name: ShopName,
     pub shop_type: ShopType,
     pub domains: HashSet<Domain>,
@@ -26,7 +26,7 @@ mod faker {
             let name: ShopName = config.fake_with_rng(rng);
             Shop {
                 shop_id: config.fake_with_rng(rng),
-                slug_id: SlugId::from(name.as_ref()),
+                shop_slug_id: SlugId::from(name.as_ref()),
                 name,
                 shop_type: config.fake_with_rng(rng),
                 domains: [Faker.fake()].into(),

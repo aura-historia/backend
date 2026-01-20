@@ -224,7 +224,7 @@ async fn should_update_shop_document_for_index() {
     let name: ShopName = "Hansi hans and the Hanses".into();
     let updated_expected = ShopDocument {
         shop_id: created.shop_id,
-        slug_id: SlugId::from(name.as_ref()),
+        shop_slug_id: SlugId::from(name.as_ref()),
         name,
         shop_type: Faker.fake(),
         domains: HashSet::from_iter([

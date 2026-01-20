@@ -41,7 +41,7 @@ async fn should_create_product_document() {
     let product_id = ProductId::new();
     let expected = ProductDocument {
         product_id,
-        slug_id: Faker.fake(),
+        product_slug_id: Faker.fake(),
         event_id: Default::default(),
         shop_id: Default::default(),
         shops_product_id: ShopsProductId::from("abcdefgh"),
@@ -111,7 +111,7 @@ async fn should_create_product_documents() {
     let product_id1 = ProductId::new();
     let expected1 = ProductDocument {
         product_id: product_id1,
-        slug_id: Faker.fake(),
+        product_slug_id: Faker.fake(),
         event_id: Default::default(),
         shop_id: Default::default(),
         shops_product_id: ShopsProductId::from("abcdefgh"),
@@ -166,7 +166,7 @@ async fn should_create_product_documents() {
     let product_id2 = ProductId::new();
     let expected2 = ProductDocument {
         product_id: product_id2,
-        slug_id: Faker.fake(),
+        product_slug_id: Faker.fake(),
         event_id: Default::default(),
         shop_id: Default::default(),
         shops_product_id: ShopsProductId::from("abcdefgh"),
@@ -238,7 +238,7 @@ async fn should_update_product_document() {
     let product_id = ProductId::new();
     let initial = ProductDocument {
         product_id,
-        slug_id: Faker.fake(),
+        product_slug_id: Faker.fake(),
         event_id: Default::default(),
         shop_id: Default::default(),
         shops_product_id: ShopsProductId::from("abcdefgh"),
@@ -351,7 +351,7 @@ async fn should_update_product_document() {
 async fn should_search_product_documents() {
     let expected = ProductDocument {
         product_id: Default::default(),
-        slug_id: Faker.fake(),
+        product_slug_id: Faker.fake(),
         event_id: Default::default(),
         shop_id: Default::default(),
         shops_product_id: ShopsProductId::from("abcdefgh"),
@@ -460,7 +460,7 @@ async fn should_search_product_documents() {
 async fn should_omit_descriptions_in_response_for_search_product_documents() {
     let mut expected = ProductDocument {
         product_id: Default::default(),
-        slug_id: Faker.fake(),
+        product_slug_id: Faker.fake(),
         event_id: Default::default(),
         shop_id: Default::default(),
         shops_product_id: ShopsProductId::from("abcdefgh"),
@@ -1037,7 +1037,7 @@ async fn should_get_product_document() {
     let product_id = ProductId::new();
     let expected = ProductDocument {
         product_id,
-        slug_id: Faker.fake(),
+        product_slug_id: Faker.fake(),
         event_id: Default::default(),
         shop_id: Default::default(),
         shops_product_id: ShopsProductId::from("abcdefgh"),

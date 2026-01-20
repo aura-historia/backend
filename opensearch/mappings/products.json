@@ -8,7 +8,7 @@
             "productId": {
                 "type": "keyword"
             },
-            "slugId": {
+            "productSlugId": {
                 "type": "keyword"
             },
             "eventId": {

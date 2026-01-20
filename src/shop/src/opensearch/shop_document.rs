@@ -13,7 +13,7 @@ use url::Url;
 #[serde(rename_all = "camelCase")]
 pub struct ShopDocument {
     pub shop_id: ShopId,
-    pub slug_id: SlugId<0>,
+    pub shop_slug_id: SlugId<0>,
     pub name: ShopName,
     pub shop_type: ShopTypeDocument,
     pub domains: HashSet<Domain>,
@@ -38,7 +38,7 @@ impl From<Shop> for ShopDocument {
     fn from(shop: Shop) -> Self {
         ShopDocument {
             shop_id: shop.shop_id,
-            slug_id: shop.slug_id,
+            shop_slug_id: shop.shop_slug_id,
             name: shop.name,
             shop_type: shop.shop_type.into(),
             domains: shop.domains,
@@ -53,7 +53,7 @@ impl From<ShopDocument> for Shop {
     fn from(document: ShopDocument) -> Self {
         Shop {
             shop_id: document.shop_id,
-            slug_id: document.slug_id,
+            shop_slug_id: document.shop_slug_id,
             name: document.name,
             shop_type: document.shop_type.into(),
             domains: document.domains,
@@ -68,7 +68,7 @@ impl From<ShopRecord> for ShopDocument {
     fn from(record: ShopRecord) -> Self {
         ShopDocument {
             shop_id: record.shop_id,
-            slug_id: record.slug_id,
+            shop_slug_id: record.shop_slug_id,
             name: record.name,
             shop_type: record.shop_type.into(),
             domains: record.domains,

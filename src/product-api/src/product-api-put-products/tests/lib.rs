@@ -119,7 +119,7 @@ async fn should_put_products_with_known_domain_when_domain_contains_subdomain_ww
     let name: ShopName = Faker.fake();
     let shop = Shop {
         shop_id: Faker.fake(),
-        slug_id: SlugId::from(name.as_ref()),
+        shop_slug_id: SlugId::from(name.as_ref()),
         name,
         shop_type: Faker.fake(),
         domains: HashSet::from_iter([

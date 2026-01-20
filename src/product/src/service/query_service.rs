@@ -230,7 +230,7 @@ pub fn localize_product_document(
     let state = product_document.state.into();
 
     LocalizedProductView {
-        slug_id: product_document.slug_id,
+        product_slug_id: product_document.product_slug_id,
         product_id: product_document.product_id,
         event_id: product_document.event_id,
         shop_id: product_document.shop_id,

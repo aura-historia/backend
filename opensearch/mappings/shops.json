@@ -14,7 +14,7 @@
             "shopId": {
                 "type": "keyword"
             },
-            "slugId": {
+            "shopSlugId": {
                 "type": "keyword"
             },
             "name": {

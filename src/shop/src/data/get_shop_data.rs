@@ -9,7 +9,7 @@ use url::Url;
 #[serde(rename_all = "camelCase")]
 pub struct GetShopData {
     pub shop_id: ShopId,
-    pub slug_id: SlugId<0>,
+    pub shop_slug_id: SlugId<0>,
     pub name: ShopName,
     pub shop_type: ShopTypeData,
     pub domains: HashSet<Domain>,
@@ -28,7 +28,7 @@ impl From<Shop> for GetShopData {
     fn from(shop: Shop) -> Self {
         GetShopData {
             shop_id: shop.shop_id,
-            slug_id: shop.slug_id,
+            shop_slug_id: shop.shop_slug_id,
             name: shop.name,
             shop_type: shop.shop_type.into(),
             domains: shop.domains,
@@ -51,7 +51,7 @@ mod tests {
     fn should_serialize() {
         let datum = GetShopData {
             shop_id: ShopId::new(),
-            slug_id: "Woaah & Co. Ltd.".into(),
+            shop_slug_id: "Woaah & Co. Ltd.".into(),
             name: "Woaah & Co. Ltd.".into(),
             shop_type: ShopTypeData::CommercialDealer,
             domains: [Domain::try_from("https://woaah.co.ltd.com").unwrap()].into(),
@@ -62,7 +62,7 @@ mod tests {
 
         let expected = json!({
             "shopId": datum.shop_id.to_string(),
-            "slugId": "woaah-co-ltd",
+            "productSlugId": "woaah-co-ltd",
             "name": "Woaah & Co. Ltd.",
             "shopType": "COMMERCIAL_DEALER",
             "domains": ["woaah.co.ltd.com"],

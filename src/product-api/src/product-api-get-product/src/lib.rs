@@ -186,7 +186,7 @@ mod tests {
             move |shop_id, shops_product_id, _, _, _| {
                 let product = LocalizedProductView {
                     product_id: Default::default(),
-                    slug_id: Faker.fake(),
+                    product_slug_id: Faker.fake(),
                     event_id: EventId::new(),
                     shop_id: *shop_id,
                     shops_product_id: shops_product_id.clone(),
@@ -248,7 +248,7 @@ mod tests {
             move |shop_id, shops_product_id, _, _, _| {
                 let product = LocalizedProductView {
                     product_id: Default::default(),
-                    slug_id: Faker.fake(),
+                    product_slug_id: Faker.fake(),
                     event_id,
                     shop_id: *shop_id,
                     shops_product_id: shops_product_id.clone(),
@@ -315,7 +315,7 @@ mod tests {
             move |shop_id, shops_product_id, _, _, _| {
                 let product = LocalizedProductView {
                     product_id: Default::default(),
-                    slug_id: Faker.fake(),
+                    product_slug_id: Faker.fake(),
                     event_id,
                     shop_id: *shop_id,
                     shops_product_id: shops_product_id.clone(),
@@ -391,7 +391,7 @@ mod tests {
                 assert_eq!(expected_history, history);
                 let product = LocalizedProductView {
                     product_id: Default::default(),
-                    slug_id: Faker.fake(),
+                    product_slug_id: Faker.fake(),
                     event_id,
                     shop_id: *shop_id,
                     shops_product_id: shops_product_id.clone(),

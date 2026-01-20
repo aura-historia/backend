@@ -123,7 +123,7 @@ impl<'a> CommandShopService for CommandShopServiceImpl<'a> {
 
         let shop = Shop {
             shop_id: ShopId::new(),
-            slug_id: SlugId::from(command.name.as_ref()),
+            shop_slug_id: SlugId::from(command.name.as_ref()),
             name: command.name,
             shop_type: command.shop_type,
             domains: command.domains,
@@ -234,7 +234,7 @@ impl<'a> CommandShopService for CommandShopServiceImpl<'a> {
                 pk: mk_pk_as_shop_domain(&new_domain),
                 sk: "shop#details".to_owned(),
                 shop_id: shop_record.shop_id,
-                slug_id: shop_record.slug_id.clone(),
+                shop_slug_id: shop_record.shop_slug_id.clone(),
                 name: update_record
                     .name
                     .clone()
@@ -256,7 +256,7 @@ impl<'a> CommandShopService for CommandShopServiceImpl<'a> {
 
         Ok(Shop {
             shop_id: shop_record.shop_id,
-            slug_id: shop_record.slug_id,
+            shop_slug_id: shop_record.shop_slug_id,
             name: update_record.name.unwrap_or(shop_record.name),
             shop_type: update_record
                 .shop_type

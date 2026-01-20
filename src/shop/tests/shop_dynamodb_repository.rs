@@ -210,7 +210,7 @@ async fn should_transact_write() {
     let name: ShopName = Faker.fake();
     let shop = Shop {
         shop_id: Faker.fake(),
-        slug_id: SlugId::from(name.as_ref()),
+        shop_slug_id: SlugId::from(name.as_ref()),
         name,
         shop_type: Faker.fake(),
         domains: [
