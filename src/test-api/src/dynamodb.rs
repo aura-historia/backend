@@ -121,6 +121,18 @@ async fn set_up_table_1() -> Result<(), Error> {
                 .attribute_type(S)
                 .build()?,
         )
+        .attribute_definitions(
+            AttributeDefinition::builder()
+                .attribute_name("gsi2_pk")
+                .attribute_type(S)
+                .build()?,
+        )
+        .attribute_definitions(
+            AttributeDefinition::builder()
+                .attribute_name("gsi2_sk")
+                .attribute_type(S)
+                .build()?,
+        )
         .key_schema(
             KeySchemaElement::builder()
                 .attribute_name("pk")
@@ -173,6 +185,30 @@ async fn set_up_table_1() -> Result<(), Error> {
                 .projection(
                     Projection::builder()
                         .projection_type(ProjectionType::All)
+                        .build(),
+                )
+                .build()?,
+        )
+        .global_secondary_indexes(
+            GlobalSecondaryIndex::builder()
+                .index_name("gsi2")
+                .key_schema(
+                    KeySchemaElement::builder()
+                        .attribute_name("gsi2_pk")
+                        .key_type(KeyType::Hash)
+                        .build()?,
+                )
+                .key_schema(
+                    KeySchemaElement::builder()
+                        .attribute_name("gsi2_sk")
+                        .key_type(KeyType::Range)
+                        .build()?,
+                )
+                .projection(
+                    Projection::builder()
+                        .projection_type(ProjectionType::Include)
+                        .non_key_attributes("shop_id")
+                        .non_key_attributes("shops_product_id")
                         .build(),
                 )
                 .build()?,

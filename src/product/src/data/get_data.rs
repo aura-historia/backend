@@ -191,6 +191,7 @@ mod tests {
         product_id::ProductId,
         shop_id::ShopId,
         shops_product_id::ShopsProductId,
+        slug_id::SlugId,
     };
     use serde_json::json;
     use shop::data::shop_type_data::ShopTypeData;
@@ -205,7 +206,7 @@ mod tests {
         let shops_product_id = ShopsProductId::new();
         let dto = GetProductData {
             product_id,
-            product_slug_id: "beedel-beep-bap-fa87c45d".into(),
+            product_slug_id: SlugId::raw("beedel-beep-bap-fa87c45d"),
             shop_slug_id: "my-shop".into(),
             event_id,
             shop_id,

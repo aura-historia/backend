@@ -165,6 +165,10 @@ Resources:
           AttributeType: S
         - AttributeName: gsi1_sk
           AttributeType: S
+        - AttributeName: gsi2_pk
+          AttributeType: S
+        - AttributeName: gsi2_sk
+          AttributeType: S
       KeySchema:
         - AttributeName: pk
           KeyType: HASH
@@ -188,6 +192,17 @@ Resources:
               KeyType: RANGE
           Projection:
             ProjectionType: ALL
+        - IndexName: gsi2
+          KeySchema:
+            - AttributeName: gsi2_pk
+              KeyType: HASH
+            - AttributeName: gsi2_sk
+              KeyType: RANGE
+          Projection:
+            ProjectionType: INCLUDE
+            NonKeyAttributes:
+              - "shop_id"
+              - "shops_product_id"
       BillingMode: PAY_PER_REQUEST
       TableClass: STANDARD
       StreamSpecification:
