@@ -17,6 +17,7 @@ use common::dynamodb_update::DynamoDbUpdate;
 use common::product_id::{ProductId, ProductKey};
 use common::shop_id::ShopId;
 use common::shops_product_id::ShopsProductId;
+use common::slug_id::SlugId;
 use std::collections::HashMap;
 use tracing::{error, warn};
 
@@ -71,6 +72,12 @@ pub trait ProductDynamoDbRepository {
         shop_id: &ShopId,
         shops_product_id: &ShopsProductId,
     ) -> Result<Option<ProductId>, SdkError<GetItemError, HttpResponse>>;
+
+    async fn query_product_key(
+        &self,
+        shop_slug_id: &SlugId<0>,
+        product_slug_id: &SlugId<6>,
+    ) -> Result<Option<ProductKey>, SdkError<QueryError, HttpResponse>>;
 }
 
 #[derive(Debug, Clone)]
@@ -448,6 +455,47 @@ impl<'a> ProductDynamoDbRepository for ProductDynamoDbRepositoryImpl<'a> {
             .map_err(SdkError::construction_failure)?; // not ideal semantically - but eases types
 
         Ok(product_id)
+    }
+
+    async fn query_product_key(
+        &self,
+        shop_slug_id: &SlugId<0>,
+        product_slug_id: &SlugId<6>,
+    ) -> Result<Option<ProductKey>, SdkError<QueryError, HttpResponse>> {
+        self.client
+            .query()
+            .table_name(&self.table)
+            .key_condition_expression("#gsi2_pk = :gsi2_pk_val AND #gsi2_sk = :gsi2_sk_val")
+            .expression_attribute_names("#gsi2_pk", "gsi2_pk")
+            .expression_attribute_names("#gsi2_sk", "gsi2_sk")
+            .expression_attribute_values(
+                ":gsi2_pk_val",
+                AttributeValue::S(product_record::mk_gsi2_pk(shop_slug_id, product_slug_id)),
+            )
+            .expression_attribute_values(
+                ":gsi2_sk_val",
+                AttributeValue::S(product_record::mk_gsi2_sk().to_owned()),
+            )
+            .limit(1)
+            .send()
+            .await?
+            .items
+            .unwrap_or_default()
+            .into_iter()
+            .next()
+            .map(|mut attr_map| {
+                attr_map
+                    .remove("pk")
+                    .ok_or(SdkError::construction_failure(format!(
+                    "DynamoDB Reponse attribute-map did not contain field 'pk' when querying gsi2
+                        for shop_slug_id '{shop_slug_id}' and product_slug_id '{product_slug_id}'"
+                )))
+            })
+            .transpose()?
+            .map(|v| v.as_s().expect("shouldn't fail extracting 'pk' as String because PKs are always Strings for us").clone())
+            .map(|s| ProductKey::try_from(s.as_str()))
+            .transpose()
+            .map_err(SdkError::construction_failure)
     }
 }
 
