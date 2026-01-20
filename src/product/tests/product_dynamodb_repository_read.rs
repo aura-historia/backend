@@ -1197,3 +1197,43 @@ mod get_product_id {
         assert!(actual.is_none());
     }
 }
+
+mod query_product_key {
+    use std::time::Duration;
+
+    use crate::get_repository;
+    use common::product_id::ProductKey;
+    use fake::{Fake, Faker};
+    use product::dynamodb::product_record::ProductRecord;
+    use product::dynamodb::repository::ProductDynamoDbRepository;
+    use test_api::*;
+
+    #[localstack_test(services = [DynamoDB()])]
+    async fn should_return_product_key_for_query_product_key_when_exists() {
+        let record = Faker.fake::<ProductRecord>();
+        get_dynamodb_client()
+            .await
+            .put_item()
+            .table_name("table_1")
+            .set_item(serde_dynamo::to_item(&record).ok())
+            .send()
+            .await
+            .unwrap();
+
+        // wait gsi
+        tokio::time::sleep(Duration::from_secs(1)).await;
+
+        let repository = get_repository().await;
+        let actual = repository
+            .query_product_key(&record.shop_slug_id, &record.product_slug_id)
+            .await
+            .unwrap()
+            .unwrap();
+
+        let expected = ProductKey {
+            shop_id: record.shop_id,
+            shops_product_id: record.shops_product_id,
+        };
+        assert_eq!(expected, actual);
+    }
+}

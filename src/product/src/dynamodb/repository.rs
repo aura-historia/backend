@@ -465,6 +465,7 @@ impl<'a> ProductDynamoDbRepository for ProductDynamoDbRepositoryImpl<'a> {
         self.client
             .query()
             .table_name(&self.table)
+            .index_name("gsi2")
             .key_condition_expression("#gsi2_pk = :gsi2_pk_val AND #gsi2_sk = :gsi2_sk_val")
             .expression_attribute_names("#gsi2_pk", "gsi2_pk")
             .expression_attribute_names("#gsi2_sk", "gsi2_sk")
@@ -493,7 +494,7 @@ impl<'a> ProductDynamoDbRepository for ProductDynamoDbRepositoryImpl<'a> {
             })
             .transpose()?
             .map(|v| v.as_s().expect("shouldn't fail extracting 'pk' as String because PKs are always Strings for us").clone())
-            .map(|s| ProductKey::try_from(s.as_str()))
+            .map(|s| ProductKey::try_from(s.as_str().trim_start_matches("product#")))
             .transpose()
             .map_err(SdkError::construction_failure)
     }
