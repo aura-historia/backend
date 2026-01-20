@@ -371,6 +371,7 @@ fn localize_product_record(
     LocalizedProductView {
         product_id: product_record.product_id,
         product_slug_id: product_record.product_slug_id,
+        shop_slug_id: product_record.shop_slug_id,
         event_id: product_record.event_id,
         shop_id: product_record.shop_id,
         shops_product_id: product_record.shops_product_id,

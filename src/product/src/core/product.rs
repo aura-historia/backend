@@ -33,6 +33,7 @@ use url::Url;
 pub struct Product {
     pub product_id: ProductId,
     pub product_slug_id: SlugId<6>,
+    pub shop_slug_id: SlugId<0>,
     pub event_id: EventId,
     pub shop_id: ShopId,
     pub shops_product_id: ShopsProductId,
@@ -85,6 +86,7 @@ impl Product {
     ) -> ProductEvent {
         let payload = ProductCreatedEventPayload {
             product_slug_id: SlugId::from(native_title.payload.as_ref()),
+            shop_slug_id: SlugId::from(shop_name.as_ref()),
             shop_id,
             shops_product_id,
             shop_name,
@@ -257,6 +259,7 @@ impl HasKey for Product {
 pub struct LocalizedProductView {
     pub product_id: ProductId,
     pub product_slug_id: SlugId<6>,
+    pub shop_slug_id: SlugId<0>,
     pub event_id: EventId,
     pub shop_id: ShopId,
     pub shops_product_id: ShopsProductId,
@@ -313,13 +316,15 @@ mod faker {
             };
             let state = config.fake_with_rng(rng);
             let native_title: Localized<Language, Title> = config.fake_with_rng(rng);
+            let shop_name: ShopName = config.fake_with_rng(rng);
             Product {
                 product_slug_id: SlugId::from(native_title.payload.as_ref()),
+                shop_slug_id: SlugId::from(shop_name.as_ref()),
                 product_id: config.fake_with_rng(rng),
                 event_id: config.fake_with_rng(rng),
                 shop_id: config.fake_with_rng(rng),
                 shops_product_id: config.fake_with_rng(rng),
-                shop_name: config.fake_with_rng(rng),
+                shop_name,
                 shop_type: config.fake_with_rng(rng),
                 native_title,
                 other_title: config.fake_with_rng(rng),
@@ -362,13 +367,15 @@ mod faker {
     impl Dummy<Faker> for LocalizedProductView {
         fn dummy_with_rng<R: Rng + ?Sized>(config: &Faker, rng: &mut R) -> Self {
             let title: Localized<Language, Title> = config.fake_with_rng(rng);
+            let shop_name: ShopName = config.fake_with_rng(rng);
             LocalizedProductView {
                 product_slug_id: SlugId::from(title.payload.as_ref()),
+                shop_slug_id: SlugId::from(shop_name.as_ref()),
                 product_id: config.fake_with_rng(rng),
                 event_id: config.fake_with_rng(rng),
                 shop_id: config.fake_with_rng(rng),
                 shops_product_id: config.fake_with_rng(rng),
-                shop_name: config.fake_with_rng(rng),
+                shop_name,
                 shop_type: config.fake_with_rng(rng),
                 title,
                 description: config.fake_with_rng(rng),
@@ -448,6 +455,7 @@ mod tests {
             let mut product = Product {
                 product_id: Default::default(),
                 product_slug_id: Faker.fake(),
+                shop_slug_id: Faker.fake(),
                 event_id: Default::default(),
                 shop_id: Default::default(),
                 shops_product_id: Default::default(),
@@ -504,6 +512,7 @@ mod tests {
             let mut product = Product {
                 product_id: Default::default(),
                 product_slug_id: Faker.fake(),
+                shop_slug_id: Faker.fake(),
                 event_id: Default::default(),
                 shop_id: Default::default(),
                 shops_product_id: Default::default(),
@@ -560,6 +569,7 @@ mod tests {
             let mut product = Product {
                 product_id: Default::default(),
                 product_slug_id: Faker.fake(),
+                shop_slug_id: Faker.fake(),
                 event_id: Default::default(),
                 shop_id: Default::default(),
                 shops_product_id: Default::default(),
@@ -649,6 +659,7 @@ mod tests {
             let mut product = Product {
                 product_id: Default::default(),
                 product_slug_id: Faker.fake(),
+                shop_slug_id: Faker.fake(),
                 event_id: Default::default(),
                 shop_id: Default::default(),
                 shops_product_id: Default::default(),
@@ -708,6 +719,7 @@ mod tests {
             let mut product = Product {
                 product_id: Default::default(),
                 product_slug_id: Faker.fake(),
+                shop_slug_id: Faker.fake(),
                 event_id: Default::default(),
                 shop_id: Default::default(),
                 shops_product_id: Default::default(),
@@ -774,6 +786,7 @@ mod tests {
             let mut product = Product {
                 product_id: Default::default(),
                 product_slug_id: Faker.fake(),
+                shop_slug_id: Faker.fake(),
                 event_id: Default::default(),
                 shop_id: Default::default(),
                 shops_product_id: Default::default(),
@@ -844,6 +857,7 @@ mod tests {
             let mut product = Product {
                 product_id: Default::default(),
                 product_slug_id: Faker.fake(),
+                shop_slug_id: Faker.fake(),
                 event_id: Default::default(),
                 shop_id: Default::default(),
                 shops_product_id: Default::default(),
@@ -916,6 +930,7 @@ mod tests {
             let mut product = Product {
                 product_id: Default::default(),
                 product_slug_id: Faker.fake(),
+                shop_slug_id: Faker.fake(),
                 event_id: Default::default(),
                 shop_id: Default::default(),
                 shops_product_id: Default::default(),

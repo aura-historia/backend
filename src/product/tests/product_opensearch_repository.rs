@@ -42,6 +42,7 @@ async fn should_create_product_document() {
     let expected = ProductDocument {
         product_id,
         product_slug_id: Faker.fake(),
+        shop_slug_id: Faker.fake(),
         event_id: Default::default(),
         shop_id: Default::default(),
         shops_product_id: ShopsProductId::from("abcdefgh"),
@@ -112,6 +113,7 @@ async fn should_create_product_documents() {
     let expected1 = ProductDocument {
         product_id: product_id1,
         product_slug_id: Faker.fake(),
+        shop_slug_id: Faker.fake(),
         event_id: Default::default(),
         shop_id: Default::default(),
         shops_product_id: ShopsProductId::from("abcdefgh"),
@@ -167,6 +169,7 @@ async fn should_create_product_documents() {
     let expected2 = ProductDocument {
         product_id: product_id2,
         product_slug_id: Faker.fake(),
+        shop_slug_id: Faker.fake(),
         event_id: Default::default(),
         shop_id: Default::default(),
         shops_product_id: ShopsProductId::from("abcdefgh"),
@@ -239,6 +242,7 @@ async fn should_update_product_document() {
     let initial = ProductDocument {
         product_id,
         product_slug_id: Faker.fake(),
+        shop_slug_id: Faker.fake(),
         event_id: Default::default(),
         shop_id: Default::default(),
         shops_product_id: ShopsProductId::from("abcdefgh"),
@@ -352,6 +356,7 @@ async fn should_search_product_documents() {
     let expected = ProductDocument {
         product_id: Default::default(),
         product_slug_id: Faker.fake(),
+        shop_slug_id: Faker.fake(),
         event_id: Default::default(),
         shop_id: Default::default(),
         shops_product_id: ShopsProductId::from("abcdefgh"),
@@ -461,6 +466,7 @@ async fn should_omit_descriptions_in_response_for_search_product_documents() {
     let mut expected = ProductDocument {
         product_id: Default::default(),
         product_slug_id: Faker.fake(),
+        shop_slug_id: Faker.fake(),
         event_id: Default::default(),
         shop_id: Default::default(),
         shops_product_id: ShopsProductId::from("abcdefgh"),
@@ -1038,6 +1044,7 @@ async fn should_get_product_document() {
     let expected = ProductDocument {
         product_id,
         product_slug_id: Faker.fake(),
+        shop_slug_id: Faker.fake(),
         event_id: Default::default(),
         shop_id: Default::default(),
         shops_product_id: ShopsProductId::from("abcdefgh"),

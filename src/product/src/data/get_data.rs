@@ -24,17 +24,12 @@ use url::Url;
 #[serde(rename_all = "camelCase")]
 pub struct GetProductData {
     pub product_id: ProductId,
-
     pub product_slug_id: SlugId<6>,
-
+    pub shop_slug_id: SlugId<0>,
     pub event_id: EventId,
-
     pub shop_id: ShopId,
-
     pub shops_product_id: ShopsProductId,
-
     pub shop_name: String,
-
     pub shop_type: ShopTypeData,
 
     pub title: LocalizedTextData,
@@ -113,6 +108,7 @@ impl From<LocalizedProductView> for GetProductData {
         GetProductData {
             product_id: product_view.product_id,
             product_slug_id: product_view.product_slug_id,
+            shop_slug_id: product_view.shop_slug_id,
             event_id: product_view.event_id,
             shop_id: product_view.shop_id,
             shops_product_id: product_view.shops_product_id,
@@ -210,6 +206,7 @@ mod tests {
         let dto = GetProductData {
             product_id,
             product_slug_id: "beedel-beep-bap-fa87c45d".into(),
+            shop_slug_id: "my-shop".into(),
             event_id,
             shop_id,
             shops_product_id: shops_product_id.clone(),
@@ -278,6 +275,7 @@ mod tests {
         let expected = json!({
             "productId": product_id,
             "productSlugId": "beedel-beep-bap-fa87c45d",
+            "shopSlugId": "my-shop",
             "eventId": event_id,
             "shopId": shop_id,
             "shopsProductId": shops_product_id,

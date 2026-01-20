@@ -187,6 +187,7 @@ mod tests {
                 let product = LocalizedProductView {
                     product_id: Default::default(),
                     product_slug_id: Faker.fake(),
+                    shop_slug_id: Faker.fake(),
                     event_id: EventId::new(),
                     shop_id: *shop_id,
                     shops_product_id: shops_product_id.clone(),
@@ -249,6 +250,7 @@ mod tests {
                 let product = LocalizedProductView {
                     product_id: Default::default(),
                     product_slug_id: Faker.fake(),
+                    shop_slug_id: Faker.fake(),
                     event_id,
                     shop_id: *shop_id,
                     shops_product_id: shops_product_id.clone(),
@@ -316,6 +318,7 @@ mod tests {
                 let product = LocalizedProductView {
                     product_id: Default::default(),
                     product_slug_id: Faker.fake(),
+                    shop_slug_id: Faker.fake(),
                     event_id,
                     shop_id: *shop_id,
                     shops_product_id: shops_product_id.clone(),
@@ -392,6 +395,7 @@ mod tests {
                 let product = LocalizedProductView {
                     product_id: Default::default(),
                     product_slug_id: Faker.fake(),
+                    shop_slug_id: Faker.fake(),
                     event_id,
                     shop_id: *shop_id,
                     shops_product_id: shops_product_id.clone(),

@@ -37,7 +37,11 @@ pub struct ProductEventRecord {
     pub pk: String,
     pub sk: String,
     pub product_id: ProductId,
+
+    #[serde(skip_serializing_if = "Option::is_none", default)]
     pub product_slug_id: Option<SlugId<6>>,
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub shop_slug_id: Option<SlugId<0>>,
     pub event_id: EventId,
     pub event_type: ProductEventTypeRecord,
     pub event_type_schema_version: u8,
@@ -261,6 +265,7 @@ impl TryFrom<ProductEvent> for ProductEventRecord {
                     sk,
                     product_id,
                     product_slug_id: Some(payload.product_slug_id),
+                    shop_slug_id: Some(payload.shop_slug_id),
                     event_id,
                     event_type,
                     event_type_schema_version: 0,
@@ -475,6 +480,7 @@ impl TryFrom<ProductEvent> for ProductEventRecord {
                 sk,
                 product_id,
                 product_slug_id: None,
+                shop_slug_id: None,
                 event_id,
                 event_type,
                 event_type_schema_version: 0,
@@ -578,6 +584,7 @@ impl TryFrom<ProductEvent> for ProductEventRecord {
                 pk,
                 sk,
                 product_id,
+                shop_slug_id: None,
                 product_slug_id: None,
                 event_id,
                 event_type,
@@ -678,6 +685,7 @@ fn mk_state_event_record(
         sk,
         product_id,
         product_slug_id: None,
+        shop_slug_id: None,
         event_id,
         event_type,
         event_type_schema_version: 0,
@@ -749,6 +757,7 @@ fn mk_price_change_event_record(
         pk,
         sk,
         product_id,
+        shop_slug_id: None,
         product_slug_id: None,
         event_id,
         event_type,
@@ -951,6 +960,9 @@ impl TryFrom<ProductEventRecord> for ProductEvent {
                                 field!(product_slug_id@ProductEventRecord),
                             ),
                         )?,
+                        shop_slug_id: record.shop_slug_id.ok_or(MissingPersistenceField::new(
+                            field!(shop_slug_id@ProductEventRecord),
+                        ))?,
                         shop_id,
                         shops_product_id,
                         shop_name: record.shop_name.map(ShopName::from).ok_or(
