@@ -11,6 +11,7 @@ use crate::{
 use aws_sdk_dynamodb::{
     config::http::HttpResponse, error::SdkError, operation::put_item::PutItemError,
 };
+use common::slug_id::SlugId;
 use common::{
     currency::domain::Currency,
     language::domain::Language,
@@ -37,6 +38,9 @@ pub enum WatchProductError {
 
     #[error("Product with ShopId '{0}' and ShopsProductId '{1}' not found.")]
     ProductNotFound(ShopId, ShopsProductId),
+
+    #[error("Product with ShopSlugId '{0}' and ProductSlugId '{1}' not found.")]
+    ProductSlugNotFound(SlugId<0>, SlugId<6>),
 
     #[error("There exists no User with id '{0}'.")]
     UserNotFound(UserId),
@@ -90,6 +94,9 @@ impl From<GetProductError> for WatchProductError {
             GetProductError::ProductNotFound(shop_id, shops_product_id) => {
                 WatchProductError::ProductNotFound(shop_id, shops_product_id)
             }
+            GetProductError::ProductSlugNotFound(shop_slug_id, product_slug_id) => {
+                WatchProductError::ProductSlugNotFound(shop_slug_id, product_slug_id)
+            }
             GetProductError::MonetaryAmountOverflowError(e) => {
                 WatchProductError::MonetaryAmountOverflowError(e)
             }
@@ -119,6 +126,9 @@ pub mod api {
                     ApiError::internal_server_error(MONETARY_AMOUNT_OVERFLOW, Box::new(err))
                 }
                 WatchProductError::ProductNotFound(_, _) => {
+                    ApiError::not_found(PRODUCT_NOT_FOUND, Box::new(err))
+                }
+                WatchProductError::ProductSlugNotFound(_, _) => {
                     ApiError::not_found(PRODUCT_NOT_FOUND, Box::new(err))
                 }
                 WatchProductError::UserNotFound(_) => {

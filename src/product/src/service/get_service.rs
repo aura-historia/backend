@@ -28,6 +28,7 @@ use common::price::domain::{MonetaryAmountOverflowError, Price};
 use common::product_id::{ProductId, ProductKey};
 use common::shop_id::ShopId;
 use common::shops_product_id::ShopsProductId;
+use common::slug_id::SlugId;
 use common::year::YearRange;
 use std::collections::HashMap;
 use strum::EnumCount;
@@ -37,6 +38,9 @@ use tracing::error;
 pub enum GetProductError {
     #[error("Product with ShopId '{0}' and ShopsProductId '{1}' not found.")]
     ProductNotFound(ShopId, ShopsProductId),
+
+    #[error("Product with ShopSlugId '{0}' and ProductSlugId '{1}' not found.")]
+    ProductSlugNotFound(SlugId<0>, SlugId<6>),
 
     #[error("{0}")]
     MonetaryAmountOverflowError(#[from] MonetaryAmountOverflowError),
@@ -73,6 +77,9 @@ pub mod api {
                 GetProductError::ProductNotFound(_, _) => {
                     ApiError::not_found(PRODUCT_NOT_FOUND, Box::new(err))
                 }
+                GetProductError::ProductSlugNotFound(_, _) => {
+                    ApiError::not_found(PRODUCT_NOT_FOUND, Box::new(err))
+                }
                 GetProductError::MonetaryAmountOverflowError(_) => {
                     ApiError::internal_server_error(MONETARY_AMOUNT_OVERFLOW, Box::new(err))
                 }
@@ -94,6 +101,12 @@ pub trait GetProductService {
         &self,
         shop_id: &ShopId,
         shops_product_id: &ShopsProductId,
+    ) -> Result<Product, GetProductError>;
+
+    async fn find_product_by_slug(
+        &self,
+        shop_slug_id: &SlugId<0>,
+        product_slug_id: &SlugId<6>,
     ) -> Result<Product, GetProductError>;
 
     async fn view_product(
@@ -140,6 +153,27 @@ impl<'a> GetProductService for GetProductServiceImpl<'a> {
             ))?;
 
         Ok(product_record.into())
+    }
+
+    async fn find_product_by_slug(
+        &self,
+        shop_slug_id: &SlugId<0>,
+        product_slug_id: &SlugId<6>,
+    ) -> Result<Product, GetProductError> {
+        let product_key_opt = self
+            .repository
+            .query_product_key(shop_slug_id, product_slug_id)
+            .await?;
+        match product_key_opt {
+            Some(product_key) => {
+                self.find_product(&product_key.shop_id, &product_key.shops_product_id)
+                    .await
+            }
+            None => Err(GetProductError::ProductSlugNotFound(
+                shop_slug_id.clone(),
+                product_slug_id.clone(),
+            )),
+        }
     }
 
     async fn view_product(
@@ -665,6 +699,140 @@ mod tests {
             match actual.unwrap_err() {
                 GetProductError::SdkGetItemError(_) => {}
                 _ => panic!("expected GetProductError::ProductNotFound"),
+            }
+        }
+    }
+
+    mod find_product_by_slug {
+        use crate::dynamodb::repository::MockProductDynamoDbRepository;
+        use crate::service::get_service::{
+            GetProductError, GetProductService, GetProductServiceImpl,
+        };
+        use aws_sdk_dynamodb::{
+            config::http::HttpResponse,
+            error::{ConnectorError, SdkError},
+        };
+        use fake::{Fake, Faker};
+
+        #[tokio::test]
+        async fn should_return_product_when_exists() {
+            let mut repository = MockProductDynamoDbRepository::default();
+            repository
+                .expect_query_product_key()
+                .return_once(|_, _| Box::pin(async { Ok(Some(Faker.fake())) }));
+            repository
+                .expect_get_product_record()
+                .return_once(|_, _| Box::pin(async { Ok(Some(Faker.fake())) }));
+            let service = GetProductServiceImpl {
+                repository: &repository,
+            };
+            let actual = service
+                .find_product_by_slug(&Faker.fake(), &Faker.fake())
+                .await;
+            assert!(actual.is_ok());
+        }
+
+        #[tokio::test]
+        async fn should_return_product_not_found_err_when_product_does_not_exist() {
+            let shop_slug_id = Faker.fake();
+            let product_slug_id = "non-existent".into();
+            let mut repository = MockProductDynamoDbRepository::default();
+            repository
+                .expect_query_product_key()
+                .return_once(|_, _| Box::pin(async { Ok(None) }));
+            let service = GetProductServiceImpl {
+                repository: &repository,
+            };
+            let actual = service
+                .find_product_by_slug(&shop_slug_id, &product_slug_id)
+                .await;
+
+            assert!(actual.is_err());
+            match actual.unwrap_err() {
+                GetProductError::ProductSlugNotFound(err_shop_slug_id, err_product_slug_id) => {
+                    assert_eq!(err_shop_slug_id, shop_slug_id);
+                    assert_eq!(err_product_slug_id, product_slug_id);
+                }
+                _ => panic!("expected GetProductError::ProductSlugNotFound"),
+            }
+        }
+
+        #[tokio::test]
+        #[rstest::rstest]
+        #[case::construction_failure(SdkError::construction_failure("Something went wrong"))]
+        #[case::timeout(SdkError::timeout_error("Something went wrong"))]
+        #[case::dispatch_failure(SdkError::dispatch_failure(ConnectorError::user("Something went wrong".into())))]
+        #[case::response_error(SdkError::response_error(
+            "Something went wrong",
+            HttpResponse::new(500u16.try_into().unwrap(), "{}".into())
+        ))]
+        #[case::service_error(SdkError::service_error(
+            aws_sdk_dynamodb::operation::query::QueryError::unhandled("Something went wrong"),
+            HttpResponse::new(500u16.try_into().unwrap(), "{}".into())
+        ))]
+        #[trace]
+        async fn should_propagate_sdk_error_for_query(
+            #[case] expected: SdkError<
+                aws_sdk_dynamodb::operation::query::QueryError,
+                aws_sdk_dynamodb::config::http::HttpResponse,
+            >,
+        ) {
+            let mut repository = MockProductDynamoDbRepository::default();
+            repository
+                .expect_query_product_key()
+                .return_once(|_, _| Box::pin(async { Err(expected) }));
+            let service = GetProductServiceImpl {
+                repository: &repository,
+            };
+            let actual = service
+                .find_product_by_slug(&Faker.fake(), &Faker.fake())
+                .await;
+
+            assert!(actual.is_err());
+            match actual.unwrap_err() {
+                GetProductError::SdkQueryError(_) => {}
+                _ => panic!("expected GetProductError::SdkQueryError"),
+            }
+        }
+
+        #[tokio::test]
+        #[rstest::rstest]
+        #[case::construction_failure(SdkError::construction_failure("Something went wrong"))]
+        #[case::timeout(SdkError::timeout_error("Something went wrong"))]
+        #[case::dispatch_failure(SdkError::dispatch_failure(ConnectorError::user("Something went wrong".into())))]
+        #[case::response_error(SdkError::response_error(
+            "Something went wrong",
+            HttpResponse::new(500u16.try_into().unwrap(), "{}".into())
+        ))]
+        #[case::service_error(SdkError::service_error(
+            aws_sdk_dynamodb::operation::get_item::GetItemError::unhandled("Something went wrong"),
+            HttpResponse::new(500u16.try_into().unwrap(), "{}".into())
+        ))]
+        #[trace]
+        async fn should_propagate_sdk_error_for_get_item(
+            #[case] expected: SdkError<
+                aws_sdk_dynamodb::operation::get_item::GetItemError,
+                aws_sdk_dynamodb::config::http::HttpResponse,
+            >,
+        ) {
+            let mut repository = MockProductDynamoDbRepository::default();
+            repository
+                .expect_query_product_key()
+                .return_once(|_, _| Box::pin(async { Ok(Some(Faker.fake())) }));
+            repository
+                .expect_get_product_record()
+                .return_once(|_, _| Box::pin(async { Err(expected) }));
+            let service = GetProductServiceImpl {
+                repository: &repository,
+            };
+            let actual = service
+                .find_product_by_slug(&Faker.fake(), &Faker.fake())
+                .await;
+
+            assert!(actual.is_err());
+            match actual.unwrap_err() {
+                GetProductError::SdkGetItemError(_) => {}
+                _ => panic!("expected GetProductError::SdkGetItemError"),
             }
         }
     }
