@@ -3,9 +3,13 @@ use lambda_runtime::LambdaEvent;
 use shop::{
     data::{get_shop_data::GetShopData, patch_shop_data::PatchShopData},
     dynamodb::repository::ShopDynamoDbRepositoryImpl,
-    service::command_service::{CommandShopService, CommandShopServiceImpl},
+    service::{
+        command_service::{CommandShopService, CommandShopServiceImpl},
+        get_service::MockGetShopService,
+        query_service::MockQueryShopService,
+    },
 };
-use shop_api_patch_shop::handler;
+use shop_api::handle;
 use test_api::*;
 use url::Url;
 
@@ -26,12 +30,20 @@ async fn should_update_shop_when_payload_valid_for_path_param_shop_id() {
     let lambda_event = LambdaEvent {
         payload: ApiGatewayV2httpRequestProxy::builder()
             .http_method(http::Method::PATCH)
+            .route_key("PATCH /api/v1/shops/{shopIdentifier}")
             .path_parameter("shopIdentifier", existing_shop.shop_id)
             .body_serde(&patch_shop_data)
             .build(),
         context: Default::default(),
     };
-    let response = handler(lambda_event, &service).await.unwrap();
+    let response = handle(
+        lambda_event,
+        &MockGetShopService::default(),
+        &MockQueryShopService::default(),
+        &service,
+    )
+    .await
+    .unwrap();
     assert_eq!(200, response.status_code);
 
     let actual: GetShopData =
@@ -59,6 +71,7 @@ async fn should_update_shop_when_payload_valid_for_path_param_shop_domain() {
     let lambda_event = LambdaEvent {
         payload: ApiGatewayV2httpRequestProxy::builder()
             .http_method(http::Method::PATCH)
+            .route_key("PATCH /api/v1/shops/{shopIdentifier}")
             .path_parameter(
                 "shopIdentifier",
                 existing_shop.domains.iter().next().unwrap().clone(),
@@ -67,7 +80,14 @@ async fn should_update_shop_when_payload_valid_for_path_param_shop_domain() {
             .build(),
         context: Default::default(),
     };
-    let response = handler(lambda_event, &service).await.unwrap();
+    let response = handle(
+        lambda_event,
+        &MockGetShopService::default(),
+        &MockQueryShopService::default(),
+        &service,
+    )
+    .await
+    .unwrap();
     assert_eq!(200, response.status_code);
 
     let actual: GetShopData =

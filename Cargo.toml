@@ -76,10 +76,6 @@ shop = { path = "src/shop" }
 shop-lambda = { path = "src/shop-lambda" }
 shop-lambda-opensearch-index = { path = "src/shop-lambda/src/shop-lambda-opensearch-index" }
 shop-api = { path = "src/shop-api" }
-shop-api-get-shop = { path = "src/shop-api/src/shop-api-get-shop" }
-shop-api-patch-shop = { path = "src/shop-api/src/shop-api-patch-shop" }
-shop-api-post-shop = { path = "src/shop-api/src/shop-api-post-shop" }
-shop-api-search = { path = "src/shop-api/src/shop-api-search" }
 mail = { path = "src/mail" }
 mail-core = { path = "src/mail/src/mail-core" }
 mail-lambda-send = { path = "src/mail-lambda-send" }

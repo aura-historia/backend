@@ -1,8 +1,7 @@
 use aws_lambda_events::apigw::{ApiGatewayV2httpRequest, ApiGatewayV2httpResponse};
 use common::{
     api::{
-        api_gateway_v2_http_response_builder::ApiGatewayV2HttpResponseBuilder,
-        error::{ApiError, log_api_error},
+        api_gateway_v2_http_response_builder::ApiGatewayV2HttpResponseBuilder, error::ApiError,
         error_code::BAD_BODY_VALUE,
     },
     pagination::cursor::{
@@ -20,32 +19,6 @@ use shop::data::{
 };
 use shop::service::query_service::QueryShopService;
 
-#[tracing::instrument(
-    skip(event, service),
-    fields(
-        requestId = %event.context.request_id,
-        method = event.payload.request_context.http.method.as_str(),
-        path = &event.payload.raw_path.as_deref().unwrap_or("NULL"),
-        query = &event.payload.raw_query_string.as_deref().unwrap_or("NULL"),
-        body = &event.payload.body.as_deref().unwrap_or("NULL"),
-        ip = &event.payload.request_context.http.source_ip.as_deref().unwrap_or("NULL"),
-        userAgent = &event.payload.request_context.http.user_agent.as_deref().unwrap_or("NULL"),
-    )
-)]
-pub async fn handler(
-    event: LambdaEvent<ApiGatewayV2httpRequest>,
-    service: &impl QueryShopService,
-) -> Result<ApiGatewayV2httpResponse, lambda_runtime::Error> {
-    match handle(event, service).await {
-        Ok(response) => Ok(response),
-        Err(err) => {
-            log_api_error(&err);
-            Ok(ApiGatewayV2httpResponse::from(err))
-        }
-    }
-}
-
-// POST /api/v1/shops/search
 pub async fn handle(
     event: LambdaEvent<ApiGatewayV2httpRequest>,
     service: &impl QueryShopService,
@@ -94,13 +67,15 @@ pub async fn handle(
 #[cfg(test)]
 #[allow(clippy::too_many_arguments)]
 mod tests {
-    use crate::handler;
+    use crate::handle;
     use common::pagination::cursor::{Cursor, CursoredResult};
     use fake::Fake;
     use fake::Faker;
     use lambda_runtime::LambdaEvent;
     use shop::core::shop::Shop;
     use shop::data::shop_search_data::ShopSearchData;
+    use shop::service::command_service::MockCommandShopService;
+    use shop::service::get_service::MockGetShopService;
     use shop::service::query_service::MockQueryShopService;
     use test_api::ApiGatewayV2httpRequestProxy;
 
@@ -115,6 +90,7 @@ mod tests {
         let lambda_event = LambdaEvent {
             payload: ApiGatewayV2httpRequestProxy::builder()
                 .http_method(http::Method::POST)
+                .route_key("POST /api/v1/shops/search")
                 .try_query_string_parameter("sort", sort)
                 .try_query_string_parameter("order", order)
                 .body_serde(&Faker.fake::<ShopSearchData>())
@@ -137,7 +113,14 @@ mod tests {
                 };
                 Box::pin(async move { Ok(search_result) })
             });
-        let response = handler(lambda_event, &service).await.unwrap();
+        let response = handle(
+            lambda_event,
+            &MockGetShopService::default(),
+            &service,
+            &MockCommandShopService::default(),
+        )
+        .await
+        .unwrap();
 
         assert_eq!(200, response.status_code);
     }
@@ -147,6 +130,7 @@ mod tests {
         let lambda_event = LambdaEvent {
             payload: ApiGatewayV2httpRequestProxy::builder()
                 .http_method(http::Method::POST)
+                .route_key("POST /api/v1/shops/search")
                 .body_serde(&ShopSearchData::default())
                 .build(),
             context: Default::default(),
@@ -165,7 +149,14 @@ mod tests {
             };
             Box::pin(async move { Ok(search_result) })
         });
-        let response = handler(lambda_event, &service).await.unwrap();
+        let response = handle(
+            lambda_event,
+            &MockGetShopService::default(),
+            &service,
+            &MockCommandShopService::default(),
+        )
+        .await
+        .unwrap();
 
         assert_eq!(200, response.status_code);
     }

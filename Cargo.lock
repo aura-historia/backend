@@ -4546,88 +4546,8 @@ dependencies = [
 name = "shop-api"
 version = "0.1.0"
 dependencies = [
- "shop-api-get-shop",
- "shop-api-patch-shop",
- "shop-api-post-shop",
- "shop-api-search",
-]
-
-[[package]]
-name = "shop-api-get-shop"
-version = "0.1.0"
-dependencies = [
  "aws-config",
  "aws-sdk-dynamodb",
- "aws_lambda_events",
- "common",
- "fake",
- "http 1.4.0",
- "lambda_runtime",
- "rstest",
- "serde_json",
- "serial_test",
- "shop",
- "test-api",
- "time",
- "tokio",
- "tracing",
- "tracing-subscriber",
- "url",
-]
-
-[[package]]
-name = "shop-api-patch-shop"
-version = "0.1.0"
-dependencies = [
- "aws-config",
- "aws-sdk-dynamodb",
- "aws_lambda_events",
- "common",
- "fake",
- "http 1.4.0",
- "lambda_runtime",
- "rstest",
- "serde",
- "serde_json",
- "serial_test",
- "shop",
- "test-api",
- "time",
- "tokio",
- "tracing",
- "tracing-subscriber",
- "url",
-]
-
-[[package]]
-name = "shop-api-post-shop"
-version = "0.1.0"
-dependencies = [
- "aws-config",
- "aws-sdk-dynamodb",
- "aws_lambda_events",
- "common",
- "fake",
- "http 1.4.0",
- "lambda_runtime",
- "rstest",
- "serde",
- "serde_json",
- "serial_test",
- "shop",
- "test-api",
- "time",
- "tokio",
- "tracing",
- "tracing-subscriber",
- "url",
-]
-
-[[package]]
-name = "shop-api-search"
-version = "0.1.0"
-dependencies = [
- "aws-config",
  "aws_lambda_events",
  "common",
  "fake",
@@ -4639,9 +4559,11 @@ dependencies = [
  "serial_test",
  "shop",
  "test-api",
+ "time",
  "tokio",
  "tracing",
  "tracing-subscriber",
+ "url",
 ]
 
 [[package]]

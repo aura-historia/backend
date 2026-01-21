@@ -3,8 +3,10 @@ use fake::{Fake, Faker};
 use lambda_runtime::LambdaEvent;
 use shop::data::{get_shop_data::GetShopData, shop_search_data::ShopSearchData};
 use shop::opensearch::repository::{ShopOpenSearchRepository, ShopOpenSearchRepositoryImpl};
+use shop::service::command_service::MockCommandShopService;
+use shop::service::get_service::MockGetShopService;
 use shop::service::query_service::QueryShopServiceImpl;
-use shop_api_search::handler;
+use shop_api::handle;
 use test_api::*;
 
 #[rstest::rstest]
@@ -36,6 +38,7 @@ async fn should_follow_up_search_after_query(
     let lambda_event = LambdaEvent {
         payload: ApiGatewayV2httpRequestProxy::builder()
             .http_method(http::Method::POST)
+            .route_key("POST /api/v1/shops/search")
             .query_string_parameter("size", size.to_string())
             .query_string_parameter("sort", sort)
             .query_string_parameter("order", order)
@@ -43,7 +46,14 @@ async fn should_follow_up_search_after_query(
             .build(),
         context: Default::default(),
     };
-    let response1 = handler(lambda_event, &service).await.unwrap();
+    let response1 = handle(
+        lambda_event,
+        &MockGetShopService::default(),
+        &service,
+        &MockCommandShopService::default(),
+    )
+    .await
+    .unwrap();
     assert_eq!(200, response1.status_code);
     let payload1 = serde_json::from_value::<JsonCursoredData<GetShopData>>(
         extract_apigw_response_json_body!(response1),
@@ -56,6 +66,7 @@ async fn should_follow_up_search_after_query(
     let lambda_event = LambdaEvent {
         payload: ApiGatewayV2httpRequestProxy::builder()
             .http_method(http::Method::POST)
+            .route_key("POST /api/v1/shops/search")
             .query_string_parameter("size", size.to_string())
             .query_string_parameter("sort", sort)
             .query_string_parameter("order", order)
@@ -67,7 +78,14 @@ async fn should_follow_up_search_after_query(
             .build(),
         context: Default::default(),
     };
-    let response2 = handler(lambda_event, &service).await.unwrap();
+    let response2 = handle(
+        lambda_event,
+        &MockGetShopService::default(),
+        &service,
+        &MockCommandShopService::default(),
+    )
+    .await
+    .unwrap();
     assert_eq!(200, response2.status_code);
     let payload2 = serde_json::from_value::<JsonCursoredData<GetShopData>>(
         extract_apigw_response_json_body!(response2),
@@ -114,11 +132,19 @@ async fn should_200_when_shop_type_query(
     let lambda_event = LambdaEvent {
         payload: ApiGatewayV2httpRequestProxy::builder()
             .http_method(http::Method::POST)
+            .route_key("POST /api/v1/shops/search")
             .body_serde(&search)
             .build(),
         context: Default::default(),
     };
-    let response = handler(lambda_event, &service).await.unwrap();
+    let response = handle(
+        lambda_event,
+        &MockGetShopService::default(),
+        &service,
+        &MockCommandShopService::default(),
+    )
+    .await
+    .unwrap();
     assert_eq!(200, response.status_code);
 
     let payload = serde_json::from_value::<JsonCursoredData<GetShopData>>(

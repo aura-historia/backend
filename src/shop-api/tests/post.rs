@@ -6,9 +6,12 @@ use shop::{
         get_shop_data::GetShopData, post_shop_data::PostShopData, shop_type_data::ShopTypeData,
     },
     dynamodb::repository::{ShopDynamoDbRepository, ShopDynamoDbRepositoryImpl},
-    service::command_service::CommandShopServiceImpl,
+    service::{
+        command_service::CommandShopServiceImpl, get_service::MockGetShopService,
+        query_service::MockQueryShopService,
+    },
 };
-use shop_api_post_shop::handler;
+use shop_api::handle;
 use test_api::*;
 
 #[localstack_test(services = [DynamoDB()])]
@@ -30,11 +33,19 @@ async fn should_create_shop_when_payload_valid() {
     let lambda_event = LambdaEvent {
         payload: ApiGatewayV2httpRequestProxy::builder()
             .http_method(http::Method::POST)
+            .route_key("POST /api/v1/shops")
             .body_serde(&post_shop_data)
             .build(),
         context: Default::default(),
     };
-    let response = handler(lambda_event, &service).await.unwrap();
+    let response = handle(
+        lambda_event,
+        &MockGetShopService::default(),
+        &MockQueryShopService::default(),
+        &service,
+    )
+    .await
+    .unwrap();
     assert_eq!(201, response.status_code);
 
     let actual_response_shop_data: GetShopData =

@@ -1,6 +1,6 @@
 use aws_lambda_events::apigw::{ApiGatewayV2httpRequest, ApiGatewayV2httpResponse};
 use common::api::api_gateway_v2_http_response_builder::ApiGatewayV2HttpResponseBuilder;
-use common::api::error::{ApiError, log_api_error};
+use common::api::error::ApiError;
 use common::api::error_code::BAD_BODY_VALUE;
 use lambda_runtime::LambdaEvent;
 use shop::data::get_shop_data::GetShopData;
@@ -9,32 +9,6 @@ use shop::data::shop_identifier_data::extract_shop_identifier_data_path;
 use shop::service::command::UpdateShopCommand;
 use shop::service::command_service::CommandShopService;
 
-#[tracing::instrument(
-    skip(event, service),
-    fields(
-        requestId = %event.context.request_id,
-        method = event.payload.request_context.http.method.as_str(),
-        path = &event.payload.raw_path.as_deref().unwrap_or("NULL"),
-        query = &event.payload.raw_query_string.as_deref().unwrap_or("NULL"),
-        body = &event.payload.body.as_deref().unwrap_or("NULL"),
-        ip = &event.payload.request_context.http.source_ip.as_deref().unwrap_or("NULL"),
-        userAgent = &event.payload.request_context.http.user_agent.as_deref().unwrap_or("NULL"),
-    )
-)]
-pub async fn handler(
-    event: LambdaEvent<ApiGatewayV2httpRequest>,
-    service: &impl CommandShopService,
-) -> Result<ApiGatewayV2httpResponse, lambda_runtime::Error> {
-    match handle(event, service).await {
-        Ok(response) => Ok(response),
-        Err(err) => {
-            log_api_error(&err);
-            Ok(ApiGatewayV2httpResponse::from(err))
-        }
-    }
-}
-
-// PATCH /api/v1/shops/{shopIdentifier}
 pub async fn handle(
     event: LambdaEvent<ApiGatewayV2httpRequest>,
     service: &impl CommandShopService,
@@ -72,7 +46,7 @@ pub async fn handle(
 
 #[cfg(test)]
 mod tests {
-    use crate::handler;
+    use crate::handle;
     use common::shop_id::ShopId;
     use fake::{Fake, Faker};
     use http::header::LAST_MODIFIED;
@@ -81,6 +55,8 @@ mod tests {
     use shop::core::shop::Shop;
     use shop::data::patch_shop_data::PatchShopData;
     use shop::service::command_service::MockCommandShopService;
+    use shop::service::get_service::MockGetShopService;
+    use shop::service::query_service::MockQueryShopService;
     use test_api::ApiGatewayV2httpRequestProxy;
     use time::macros::datetime;
 
@@ -95,11 +71,19 @@ mod tests {
             payload: ApiGatewayV2httpRequestProxy::builder()
                 .path_parameter("shopIdentifier", ShopId::new())
                 .http_method(http::Method::PATCH)
+                .route_key("PATCH /api/v1/shops/{shopIdentifier}")
                 .body_serde(&Faker.fake::<PatchShopData>())
                 .build(),
             context: Default::default(),
         };
-        let response = handler(lambda_event, &service).await.unwrap();
+        let response = handle(
+            lambda_event,
+            &MockGetShopService::default(),
+            &MockQueryShopService::default(),
+            &service,
+        )
+        .await
+        .unwrap();
         assert_eq!(200, response.status_code);
     }
 
@@ -114,11 +98,19 @@ mod tests {
             payload: ApiGatewayV2httpRequestProxy::builder()
                 .path_parameter("shopIdentifier", "boop.com")
                 .http_method(http::Method::PATCH)
+                .route_key("PATCH /api/v1/shops/{shopIdentifier}")
                 .body_serde(&Faker.fake::<PatchShopData>())
                 .build(),
             context: Default::default(),
         };
-        let response = handler(lambda_event, &service).await.unwrap();
+        let response = handle(
+            lambda_event,
+            &MockGetShopService::default(),
+            &MockQueryShopService::default(),
+            &service,
+        )
+        .await
+        .unwrap();
         assert_eq!(200, response.status_code);
     }
 
@@ -135,11 +127,19 @@ mod tests {
             payload: ApiGatewayV2httpRequestProxy::builder()
                 .path_parameter("shopIdentifier", ShopId::new())
                 .http_method(http::Method::PATCH)
+                .route_key("PATCH /api/v1/shops/{shopIdentifier}")
                 .body_serde(&Faker.fake::<PatchShopData>())
                 .build(),
             context: Default::default(),
         };
-        let response = handler(lambda_event, &service).await.unwrap();
+        let response = handle(
+            lambda_event,
+            &MockGetShopService::default(),
+            &MockQueryShopService::default(),
+            &service,
+        )
+        .await
+        .unwrap();
         assert_eq!(
             "Wed, 01 Jan 2020 00:00:00 GMT",
             response.headers.get(LAST_MODIFIED).unwrap()
@@ -152,11 +152,19 @@ mod tests {
         let lambda_event = LambdaEvent {
             payload: ApiGatewayV2httpRequestProxy::builder()
                 .http_method(http::Method::PATCH)
+                .route_key("PATCH /api/v1/shops/{shopIdentifier}")
                 .build(),
             context: Default::default(),
         };
-        let response = handler(lambda_event, &service).await.unwrap();
-        assert_eq!(400, response.status_code);
+        let response = handle(
+            lambda_event,
+            &MockGetShopService::default(),
+            &MockQueryShopService::default(),
+            &service,
+        )
+        .await
+        .unwrap_err();
+        assert_eq!(400, response.status);
     }
 
     #[tokio::test]
@@ -165,13 +173,21 @@ mod tests {
         let lambda_event = LambdaEvent {
             payload: ApiGatewayV2httpRequestProxy::builder()
                 .http_method(http::Method::PATCH)
+                .route_key("PATCH /api/v1/shops/{shopIdentifier}")
                 .body_serde(&json!({
                     "foo": 42
                 }))
                 .build(),
             context: Default::default(),
         };
-        let response = handler(lambda_event, &service).await.unwrap();
-        assert_eq!(400, response.status_code);
+        let response = handle(
+            lambda_event,
+            &MockGetShopService::default(),
+            &MockQueryShopService::default(),
+            &service,
+        )
+        .await
+        .unwrap_err();
+        assert_eq!(400, response.status);
     }
 }
