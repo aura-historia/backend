@@ -857,7 +857,7 @@ Resources:
       MemorySize: 512
       Timeout: 10
       EphemeralStorage:
-        Size: 256
+        Size: 512
       Environment:
         Variables:
           DYNAMODB_TABLE_NAME: !Ref TableOne
