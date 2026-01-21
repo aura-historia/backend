@@ -92,6 +92,7 @@ jobs:
           - src/aws-tests
           - src/product
           - src/product-api
+          - src/product-watchlist-api
           - src/product-pipeline
           - src/product-lambda
           - src/shop
@@ -154,31 +155,18 @@ jobs:
       matrix:
         crate:
           - src/search-filter
-          - src/search-filter-api/src/search-filter-api-delete-search-filter
-          - src/search-filter-api/src/search-filter-api-get-search-filter
-          - src/search-filter-api/src/search-filter-api-get-search-filters
-          - src/search-filter-api/src/search-filter-api-patch-search-filter
-          - src/search-filter-api/src/search-filter-api-post-search-filter
+          - src/search-filter-api
           - src/product
           - src/product-pipeline/src/product-pipeline-common
           - src/product-pipeline/src/product-pipeline-test
-          - src/product-api/src/product-api-get-product
-          - src/product-api/src/product-api-get-product-similar
-          - src/product-api/src/product-api-put-products
-          - src/product-api/src/product-api-search
-          - src/product-api/src/product-api-watchlist-get
-          - src/product-api/src/product-api-watchlist-patch
-          - src/product-api/src/product-api-watchlist-post
+          - src/product-api
+          - src/product-watchlist-api
           - src/shop
-          - src/shop-api/src/shop-api-get-shop
-          - src/shop-api/src/shop-api-search
-          - src/shop-api/src/shop-api-patch-shop
-          - src/shop-api/src/shop-api-post-shop
+          - src/shop-api
           - src/shop-lambda/src/shop-lambda-opensearch-index
           - src/test-api
           - src/user
-          - src/user-api/src/user-api-get-account
-          - src/user-api/src/user-api-patch-account
+          - src/user-api
           - src/mail/src/mail-core
     steps:
       - uses: actions/checkout@v6
@@ -302,19 +290,9 @@ jobs:
     strategy:
       matrix:
         crate:
-          - src/search-filter-api/src/search-filter-api-delete-search-filter
-          - src/search-filter-api/src/search-filter-api-get-search-filter
-          - src/search-filter-api/src/search-filter-api-get-search-filters
-          - src/search-filter-api/src/search-filter-api-patch-search-filter
-          - src/search-filter-api/src/search-filter-api-post-search-filter
-          - src/product-api/src/product-api-get-product
-          - src/product-api/src/product-api-get-product-similar
-          - src/product-api/src/product-api-put-products
-          - src/product-api/src/product-api-search
-          - src/product-api/src/product-api-watchlist-delete
-          - src/product-api/src/product-api-watchlist-get
-          - src/product-api/src/product-api-watchlist-post
-          - src/product-api/src/product-api-watchlist-patch
+          - src/search-filter-api
+          - src/product-api
+          - src/product-watchlist-api
           - src/product-pipeline/src/product-pipeline-asg-scale-persist-up
           - src/product-pipeline/src/product-pipeline-asg-scale-control
           - src/product-lambda/src/product-lambda-materialize-dynamodb-new
@@ -322,13 +300,9 @@ jobs:
           - src/product-lambda/src/product-lambda-materialize-opensearch-new
           - src/product-lambda/src/product-lambda-materialize-opensearch-update
           - src/product-lambda/src/product-lambda-update-notify-user
-          - src/shop-api/src/shop-api-search
-          - src/shop-api/src/shop-api-get-shop
-          - src/shop-api/src/shop-api-patch-shop
-          - src/shop-api/src/shop-api-post-shop
+          - src/shop-api
           - src/shop-lambda/src/shop-lambda-opensearch-index
-          - src/user-api/src/user-api-get-account
-          - src/user-api/src/user-api-patch-account
+          - src/user-api
           - src/user-lambda/src/user-lambda-fanout-update-watchlist
           - src/cognito-post-confirmation
           - src/mail-lambda-send
