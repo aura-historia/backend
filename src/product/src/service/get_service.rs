@@ -118,6 +118,15 @@ pub trait GetProductService {
         history: bool,
     ) -> Result<LocalizedProductView, GetProductError>;
 
+    async fn view_product_by_slug(
+        &self,
+        shop_slug_id: &SlugId<0>,
+        product_slug_id: &SlugId<6>,
+        languages: &[Language],
+        currency: &Currency,
+        history: bool,
+    ) -> Result<LocalizedProductView, GetProductError>;
+
     async fn view_products(
         &self,
         items: Vec<ProductKey>,
@@ -227,6 +236,36 @@ impl<'a> GetProductService for GetProductServiceImpl<'a> {
         product_view.history = if history { Some(event_views) } else { None };
 
         Ok(product_view)
+    }
+
+    async fn view_product_by_slug(
+        &self,
+        shop_slug_id: &SlugId<0>,
+        product_slug_id: &SlugId<6>,
+        languages: &[Language],
+        currency: &Currency,
+        history: bool,
+    ) -> Result<LocalizedProductView, GetProductError> {
+        let product_key_opt = self
+            .repository
+            .query_product_key(shop_slug_id, product_slug_id)
+            .await?;
+        match product_key_opt {
+            Some(product_key) => {
+                self.view_product(
+                    &product_key.shop_id,
+                    &product_key.shops_product_id,
+                    languages,
+                    currency,
+                    history,
+                )
+                .await
+            }
+            None => Err(GetProductError::ProductSlugNotFound(
+                shop_slug_id.clone(),
+                product_slug_id.clone(),
+            )),
+        }
     }
 
     async fn view_products(
