@@ -63,7 +63,11 @@
 - PK is `gsi2_pk`
 - SK is `gsi2_sk`
 - Project keys-only
-- User
+- Product
   - PK is `ShopSlugId + ProductSlugId`
   - SK is constant
   - Used for looking up `ShopId` and `ShopsProductId` from `pk` for given `ShopSlugId` and `ProductSlugId`
+- Shop
+  - PK is `ShopSlugId`
+  - SK is constant
+  - Used for looking up `ShopId` from `pk` for given `ShopSlugId`
