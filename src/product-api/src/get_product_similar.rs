@@ -1,10 +1,7 @@
 use aws_lambda_events::apigw::{ApiGatewayV2httpRequest, ApiGatewayV2httpResponse};
 use cognito::access_token_verifier_service::AccessTokenVerifierService;
 use common::{
-    api::{
-        api_gateway_v2_http_response_builder::ApiGatewayV2HttpResponseBuilder,
-        error::{ApiError, log_api_error},
-    },
+    api::{api_gateway_v2_http_response_builder::ApiGatewayV2HttpResponseBuilder, error::ApiError},
     currency::data::api::extract_currency_query,
     language::{data::api::extract_languages_header, domain::Language},
     personalized::{Personalized, api::PersonalizedData},
@@ -20,42 +17,6 @@ use product::{
     data::user_state_data::ProductUserStateData, service::semantic_service::SemanticSearchService,
 };
 
-#[tracing::instrument(
-    skip(event, semantic_search_service, access_token_verifier_service, product_personalization_service),
-    fields(
-        requestId = %event.context.request_id,
-        method = event.payload.request_context.http.method.as_str(),
-        path = &event.payload.raw_path.as_deref().unwrap_or("NULL"),
-        query = &event.payload.raw_query_string.as_deref().unwrap_or("NULL"),
-        body = &event.payload.body.as_deref().unwrap_or("NULL"),
-        ip = &event.payload.request_context.http.source_ip.as_deref().unwrap_or("NULL"),
-        userAgent = &event.payload.request_context.http.user_agent.as_deref().unwrap_or("NULL"),
-        userId = tracing::field::Empty,
-    )
-)]
-pub async fn handler(
-    event: LambdaEvent<ApiGatewayV2httpRequest>,
-    semantic_search_service: &impl SemanticSearchService,
-    access_token_verifier_service: &(impl AccessTokenVerifierService + Sync),
-    product_personalization_service: &impl ProductPersonalizationService,
-) -> Result<ApiGatewayV2httpResponse, lambda_runtime::Error> {
-    match handle(
-        event,
-        semantic_search_service,
-        access_token_verifier_service,
-        product_personalization_service,
-    )
-    .await
-    {
-        Ok(response) => Ok(response),
-        Err(err) => {
-            log_api_error(&err);
-            Ok(ApiGatewayV2httpResponse::from(err))
-        }
-    }
-}
-
-// GET /api/v1/products/{shopId}/{shopsProductId}/similar
 pub async fn handle(
     event: LambdaEvent<ApiGatewayV2httpRequest>,
     semantic_search_service: &impl SemanticSearchService,
@@ -130,7 +91,7 @@ pub async fn handle(
 
 #[cfg(test)]
 mod tests {
-    use crate::handler;
+    use super::handle;
     use cognito::access_token_verifier_service::MockAccessTokenVerifierService;
     use common::shop_id::ShopId;
     use common::shops_product_id::ShopsProductId;
@@ -164,7 +125,7 @@ mod tests {
             context: Default::default(),
         };
 
-        let response = handler(
+        let response = handle(
             lambda_event,
             &semantic_search_service,
             &cognito_service,
@@ -196,7 +157,7 @@ mod tests {
             context: Default::default(),
         };
 
-        let response = handler(
+        let response = handle(
             lambda_event,
             &semantic_search_service,
             &cognito_service,
@@ -232,7 +193,7 @@ mod tests {
             context: Default::default(),
         };
 
-        let response = handler(
+        let response = handle(
             lambda_event,
             &semantic_search_service,
             &cognito_service,
@@ -265,7 +226,7 @@ mod tests {
             context: Default::default(),
         };
 
-        let response = handler(
+        let response = handle(
             lambda_event,
             &semantic_search_service,
             &cognito_service,
@@ -295,7 +256,7 @@ mod tests {
             context: Default::default(),
         };
 
-        let response = handler(
+        let response = handle(
             lambda_event,
             &semantic_search_service,
             &cognito_service,
@@ -341,7 +302,7 @@ mod tests {
                 })
             });
 
-        let response = handler(
+        let response = handle(
             lambda_event,
             &semantic_search_service,
             &cognito_service,

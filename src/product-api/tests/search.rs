@@ -23,7 +23,7 @@ use product::opensearch::{
 use product::service::personalization_service::ProductPersonalizationServiceImpl;
 use product::service::query_service::QueryProductServiceImpl;
 use product::watchlist::dynamodb::repository::WatchlistProductDynamoDbRepositoryImpl;
-use product_api_search::handler;
+use product_api::search::handle;
 use shop::data::shop_type_data::ShopTypeData;
 use std::collections::HashSet;
 use std::time::Duration;
@@ -52,7 +52,7 @@ async fn should_200_when_no_hits() {
         context: Default::default(),
     };
 
-    let response = handler(
+    let response = handle(
         lambda_event,
         &query_service,
         &access_token_verifier_service,
@@ -137,7 +137,7 @@ async fn should_200_when_following_search_after_from_previous_response_for_sort_
         context: Default::default(),
     };
 
-    let response_1 = handler(
+    let response_1 = handle(
         lambda_event_1,
         &query_service,
         &access_token_verifier_service,
@@ -181,7 +181,7 @@ async fn should_200_when_following_search_after_from_previous_response_for_sort_
         context: Default::default(),
     };
 
-    let response_2 = handler(
+    let response_2 = handle(
         lambda_event_2,
         &query_service,
         &access_token_verifier_service,
@@ -284,7 +284,7 @@ async fn should_200_when_following_search_after_from_previous_response_for_sort_
         context: Default::default(),
     };
 
-    let response_1 = handler(
+    let response_1 = handle(
         lambda_event_1,
         &query_service,
         &access_token_verifier_service,
@@ -328,7 +328,7 @@ async fn should_200_when_following_search_after_from_previous_response_for_sort_
         context: Default::default(),
     };
 
-    let response_2 = handler(
+    let response_2 = handle(
         lambda_event_2,
         &query_service,
         &access_token_verifier_service,
@@ -413,7 +413,7 @@ async fn should_200_when_following_search_after_from_previous_response_for_impli
         context: Default::default(),
     };
 
-    let response_1 = handler(
+    let response_1 = handle(
         lambda_event_1,
         &query_service,
         &access_token_verifier_service,
@@ -442,7 +442,7 @@ async fn should_200_when_following_search_after_from_previous_response_for_impli
         context: Default::default(),
     };
 
-    let response_2 = handler(
+    let response_2 = handle(
         lambda_event_2,
         &query_service,
         &access_token_verifier_service,
@@ -524,7 +524,7 @@ async fn should_200_when_following_search_after_from_previous_response_for_expli
         context: Default::default(),
     };
 
-    let response_1 = handler(
+    let response_1 = handle(
         lambda_event_1,
         &query_service,
         &access_token_verifier_service,
@@ -555,7 +555,7 @@ async fn should_200_when_following_search_after_from_previous_response_for_expli
         context: Default::default(),
     };
 
-    let response_2 = handler(
+    let response_2 = handle(
         lambda_event_2,
         &query_service,
         &access_token_verifier_service,
@@ -638,7 +638,7 @@ async fn should_200_when_following_search_after_from_previous_response_for_sort_
         context: Default::default(),
     };
 
-    let response_1 = handler(
+    let response_1 = handle(
         lambda_event_1,
         &query_service,
         &access_token_verifier_service,
@@ -675,7 +675,7 @@ async fn should_200_when_following_search_after_from_previous_response_for_sort_
         context: Default::default(),
     };
 
-    let response_2 = handler(
+    let response_2 = handle(
         lambda_event_2,
         &query_service,
         &access_token_verifier_service,
@@ -763,7 +763,7 @@ async fn should_200_when_following_search_after_from_previous_response_for_sort_
         context: Default::default(),
     };
 
-    let response_1 = handler(
+    let response_1 = handle(
         lambda_event_1,
         &query_service,
         &access_token_verifier_service,
@@ -800,7 +800,7 @@ async fn should_200_when_following_search_after_from_previous_response_for_sort_
         context: Default::default(),
     };
 
-    let response_2 = handler(
+    let response_2 = handle(
         lambda_event_2,
         &query_service,
         &access_token_verifier_service,
@@ -894,7 +894,7 @@ async fn should_200_when_created_query(
     refresh_index("products").await;
     tokio::time::sleep(std::time::Duration::from_secs(10)).await;
 
-    let response = handler(
+    let response = handle(
         lambda_event,
         &query_service,
         &access_token_verifier_service,
@@ -990,7 +990,7 @@ async fn should_200_when_updated_query(
     refresh_index("products").await;
     tokio::time::sleep(std::time::Duration::from_secs(10)).await;
 
-    let response = handler(
+    let response = handle(
         lambda_event,
         &query_service,
         &access_token_verifier_service,
@@ -1086,7 +1086,7 @@ async fn should_200_when_year_query(#[case] min: Option<Year>, #[case] max: Opti
     refresh_index("products").await;
     tokio::time::sleep(std::time::Duration::from_secs(10)).await;
 
-    let response = handler(
+    let response = handle(
         lambda_event,
         &query_service,
         &access_token_verifier_service,
@@ -1183,7 +1183,7 @@ async fn should_200_when_authenticity_query(#[case] query: HashSet<AuthenticityD
     refresh_index("products").await;
     tokio::time::sleep(std::time::Duration::from_secs(10)).await;
 
-    let response = handler(
+    let response = handle(
         lambda_event,
         &query_service,
         &access_token_verifier_service,
@@ -1271,7 +1271,7 @@ async fn should_200_when_condition_query(#[case] query: HashSet<ConditionData>) 
     refresh_index("products").await;
     tokio::time::sleep(std::time::Duration::from_secs(10)).await;
 
-    let response = handler(
+    let response = handle(
         lambda_event,
         &query_service,
         &access_token_verifier_service,
@@ -1357,7 +1357,7 @@ async fn should_200_when_provenance_query(#[case] query: HashSet<ProvenanceData>
     refresh_index("products").await;
     tokio::time::sleep(std::time::Duration::from_secs(10)).await;
 
-    let response = handler(
+    let response = handle(
         lambda_event,
         &query_service,
         &access_token_verifier_service,
@@ -1443,7 +1443,7 @@ async fn should_200_when_restoration_query(#[case] query: HashSet<RestorationDat
     refresh_index("products").await;
     tokio::time::sleep(std::time::Duration::from_secs(10)).await;
 
-    let response = handler(
+    let response = handle(
         lambda_event,
         &query_service,
         &access_token_verifier_service,
@@ -1518,7 +1518,7 @@ async fn should_200_personalized_when_authenticated_and_not_watching() {
     refresh_index("products").await;
     tokio::time::sleep(std::time::Duration::from_secs(10)).await;
 
-    let response = handler(
+    let response = handle(
         lambda_event,
         &query_service,
         &access_token_verifier_service,
@@ -1595,7 +1595,7 @@ async fn should_200_with_native_title_when_no_target_titles_exist_and_hit_due_to
         context: Default::default(),
     };
 
-    let response = handler(
+    let response = handle(
         lambda_event,
         &query_service,
         &access_token_verifier_service,
@@ -1713,7 +1713,7 @@ async fn should_respond_200_and_respect_accept_language_header(
         context: Default::default(),
     };
 
-    let response = handler(
+    let response = handle(
         lambda_event,
         &query_service,
         &access_token_verifier_service,
@@ -1792,7 +1792,7 @@ async fn should_200_when_shop_type_query(#[case] query: HashSet<ShopTypeData>) {
     refresh_index("products").await;
     tokio::time::sleep(std::time::Duration::from_secs(10)).await;
 
-    let response = handler(
+    let response = handle(
         lambda_event,
         &query_service,
         &access_token_verifier_service,
@@ -1885,7 +1885,7 @@ async fn should_200_when_shop_name_query_for_keyword_filter(#[case] query: HashS
     refresh_index("products").await;
     tokio::time::sleep(std::time::Duration::from_secs(10)).await;
 
-    let response = handler(
+    let response = handle(
         lambda_event,
         &query_service,
         &access_token_verifier_service,
@@ -1979,7 +1979,7 @@ async fn should_200_when_exclude_shop_name_query(#[case] query: HashSet<&str>) {
     refresh_index("products").await;
     tokio::time::sleep(std::time::Duration::from_secs(10)).await;
 
-    let response = handler(
+    let response = handle(
         lambda_event,
         &query_service,
         &access_token_verifier_service,
@@ -2070,7 +2070,7 @@ async fn should_200_when_auction_start_range_is_given() {
         context: Default::default(),
     };
 
-    let response = handler(
+    let response = handle(
         lambda_event,
         &query_service,
         &access_token_verifier_service,
@@ -2160,7 +2160,7 @@ async fn should_200_when_auction_end_range_is_given() {
         context: Default::default(),
     };
 
-    let response = handler(
+    let response = handle(
         lambda_event,
         &query_service,
         &access_token_verifier_service,

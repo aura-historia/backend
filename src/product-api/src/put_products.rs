@@ -1,7 +1,7 @@
 use aws_lambda_events::apigw::{ApiGatewayV2httpRequest, ApiGatewayV2httpResponse};
 use common::api::api_gateway_v2_http_response_builder::ApiGatewayV2HttpResponseBuilder;
 use common::api::collection::PutCollectionData;
-use common::api::error::{ApiError, log_api_error};
+use common::api::error::ApiError;
 use common::api::error_code::BAD_BODY_VALUE;
 use common::localized::Localized;
 use common::price::domain::Price;
@@ -81,33 +81,6 @@ pub struct PutProductsResponse {
     pub skipped: u64,
 }
 
-#[tracing::instrument(
-    skip(event, upsert_service, enrich_service),
-    fields(
-        requestId = %event.context.request_id,
-        method = event.payload.request_context.http.method.as_str(),
-        path = &event.payload.raw_path.as_deref().unwrap_or("NULL"),
-        query = &event.payload.raw_query_string.as_deref().unwrap_or("NULL"),
-        body = &event.payload.body.as_deref().unwrap_or("NULL"),
-        ip = &event.payload.request_context.http.source_ip.as_deref().unwrap_or("NULL"),
-        userAgent = &event.payload.request_context.http.user_agent.as_deref().unwrap_or("NULL"),
-    )
-)]
-pub async fn handler(
-    event: LambdaEvent<ApiGatewayV2httpRequest>,
-    upsert_service: &impl UpsertProductsService,
-    enrich_service: &(impl ProductCommandEnrichmentService + Sync),
-) -> Result<ApiGatewayV2httpResponse, lambda_runtime::Error> {
-    match handle(event, upsert_service, enrich_service).await {
-        Ok(response) => Ok(response),
-        Err(err) => {
-            log_api_error(&err);
-            Ok(ApiGatewayV2httpResponse::from(err))
-        }
-    }
-}
-
-// PUT /api/v1/products
 pub async fn handle(
     event: LambdaEvent<ApiGatewayV2httpRequest>,
     upsert_service: &impl UpsertProductsService,
@@ -221,7 +194,7 @@ fn put_product_data_to_command(data: PutProductData) -> PipedProductCommand {
 
 #[cfg(test)]
 mod tests {
-    use crate::handler;
+    use super::handle;
     use common::api::collection::PutCollectionData;
     use common::shop_id::ShopId;
     use fake::{Fake, Faker};
@@ -292,7 +265,7 @@ mod tests {
                 .build(),
             context: Default::default(),
         };
-        let response = handler(lambda_event, &upsert_service, &enrich_service)
+        let response = handle(lambda_event, &upsert_service, &enrich_service)
             .await
             .unwrap();
 

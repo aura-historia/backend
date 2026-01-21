@@ -14,7 +14,7 @@ use product::watchlist::{
     },
     service::product_watchlist_service::ProductWatchListServiceImpl,
 };
-use product_api_watchlist_post::handler;
+use product_api::watchlist_post::handle;
 use test_api::*;
 use time::OffsetDateTime;
 use user::dynamodb::{
@@ -96,7 +96,7 @@ async fn should_201_when_new_watchlist_entry_would_not_exceed_quota() {
         context: Default::default(),
     };
 
-    let response = handler(lambda_event, &service).await.unwrap();
+    let response = handle(lambda_event, &service).await.unwrap();
     assert_eq!(201, response.status_code);
 }
 
@@ -174,6 +174,6 @@ async fn should_422_when_new_watchlist_entry_would_exceed_quota() {
         context: Default::default(),
     };
 
-    let response = handler(lambda_event, &service).await.unwrap();
+    let response = handle(lambda_event, &service).await.unwrap();
     assert_eq!(422, response.status_code);
 }

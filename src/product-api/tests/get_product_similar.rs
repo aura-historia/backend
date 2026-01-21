@@ -20,7 +20,7 @@ use product::watchlist::dynamodb::repository::WatchlistProductDynamoDbRepository
 use product::watchlist::service::product_watchlist_service::{
     ProductWatchListService, ProductWatchListServiceImpl,
 };
-use product_api_get_product_similar::handler;
+use product_api::get_product_similar::handle;
 use std::time::Duration;
 use test_api::*;
 use user::dynamodb::repository::{UserDynamoDbRepository, UserDynamoDbRepositoryImpl};
@@ -1108,7 +1108,7 @@ async fn should_202_when_similar_products_have_not_been_computed_for_anon() {
         context: Default::default(),
     };
 
-    let response = handler(
+    let response = handle(
         lambda_event,
         &semantic_search_service,
         &cognito_service,
@@ -1178,7 +1178,7 @@ async fn should_200_when_similar_products_have_been_computed_for_anon() {
         context: Default::default(),
     };
 
-    let response = handler(
+    let response = handle(
         lambda_event,
         &semantic_search_service,
         &cognito_service,
@@ -1302,7 +1302,7 @@ async fn should_200_and_personalize_when_similar_products_have_been_computed_for
         context: Default::default(),
     };
 
-    let response = handler(
+    let response = handle(
         lambda_event,
         &semantic_search_service,
         &cognito_service,
@@ -1454,7 +1454,7 @@ async fn should_respond_200_and_respect_accept_language_header(
         context: Default::default(),
     };
 
-    let response = handler(
+    let response = handle(
         lambda_event,
         &semantic_search_service,
         &cognito_service,

@@ -32,7 +32,7 @@ use product::{
     service::get_service::GetProductServiceImpl,
     watchlist::service::product_watchlist_service::ProductWatchListServiceImpl,
 };
-use product_api_get_product::handler;
+use product_api::get_product::handle;
 use std::time::{Duration, SystemTime};
 use test_api::*;
 use user::dynamodb::{
@@ -119,7 +119,7 @@ async fn should_respond_200_with_history_when_anon_and_history_flag_true() {
             .build(),
         context: Default::default(),
     };
-    let response = handler(
+    let response = handle(
         lambda_event,
         &get_product_service,
         &access_token_verifier_service,
@@ -229,7 +229,7 @@ async fn should_respond_200_without_history_when_anon_and_history_flag_false() {
             .build(),
         context: Default::default(),
     };
-    let response = handler(
+    let response = handle(
         lambda_event,
         &get_product_service,
         &access_token_verifier_service,
@@ -330,7 +330,7 @@ async fn should_respond_200_personalized_when_authenticated_and_not_watched() {
             .build(),
         context: Default::default(),
     };
-    let response = handler(
+    let response = handle(
         lambda_event,
         &get_product_service,
         &access_token_verifier_service,
@@ -466,7 +466,7 @@ async fn should_respond_200_personalized_when_authenticated_and_watched() {
             .build(),
         context: Default::default(),
     };
-    let response = handler(
+    let response = handle(
         lambda_event,
         &get_product_service,
         &access_token_verifier_service,
@@ -737,7 +737,7 @@ async fn should_respond_200_and_respect_accept_language_header(
             .build(),
         context: Default::default(),
     };
-    let response = handler(
+    let response = handle(
         lambda_event,
         &get_product_service,
         &access_token_verifier_service,
@@ -794,7 +794,7 @@ async fn should_respond_200_for_path_params_slugs() {
             .build(),
         context: Default::default(),
     };
-    let response = handler(
+    let response = handle(
         lambda_event,
         &get_product_service,
         &access_token_verifier_service,

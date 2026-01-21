@@ -4,11 +4,30 @@ version = "0.1.0"
 edition = "2024"
 
 [dependencies]
-product-api-get-product = { workspace = true }
-product-api-get-product-similar = { workspace = true }
-product-api-put-products = { workspace = true }
-product-api-search = { workspace = true }
-product-api-watchlist-get = { workspace = true }
-product-api-watchlist-patch = { workspace = true }
-product-api-watchlist-post = { workspace = true }
-product-api-watchlist-delete = { workspace = true }
+common = { workspace = true, features = ["api", "opensearch"] }
+product = { workspace = true, features = ["data", "service", "dynamodb", "watchlist", "opensearch", "sqs"] }
+user = { workspace = true, features = ["dynamodb"] }
+shop = { workspace = true, features = ["dynamodb"] }
+cognito = { workspace = true }
+tracing = { workspace = true }
+tracing-subscriber = { workspace = true, features = ["json"] }
+tokio = { workspace = true, features = ["macros"] }
+aws_lambda_events = { workspace = true, features = ["apigw"] }
+lambda_runtime = { workspace = true }
+aws-config = { workspace = true }
+aws-sdk-dynamodb = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+http = { workspace = true }
+url = { workspace = true }
+time = { workspace = true }
+thiserror = { workspace = true }
+fxrate = { workspace = true }
+
+[dev-dependencies]
+product = { workspace = true, features = ["test-data"] }
+user = { workspace = true, features = ["test-data"] }
+test-api = { workspace = true, features = ["api-gateway", "dynamodb", "opensearch", "sqs"] }
+serial_test = { workspace = true }
+rstest = { workspace = true }
+fake = { workspace = true }

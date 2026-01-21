@@ -2,7 +2,7 @@ use aws_lambda_events::apigw::{ApiGatewayV2httpRequest, ApiGatewayV2httpResponse
 use aws_lambda_events::query_map::QueryMap;
 use cognito::access_token_verifier_service::AccessTokenVerifierService;
 use common::api::api_gateway_v2_http_response_builder::ApiGatewayV2HttpResponseBuilder;
-use common::api::error::{ApiError, log_api_error};
+use common::api::error::ApiError;
 use common::api::error_code::{BAD_QUERY_PARAMETER_VALUE, INTERNAL_SERVER_ERROR};
 use common::currency::data::api::extract_currency_query;
 use common::language::data::api::extract_languages_header;
@@ -20,43 +20,6 @@ use product::data::user_state_data::ProductUserStateData;
 use product::service::get_service::GetProductService;
 use product::service::personalization_service::ProductPersonalizationService;
 
-#[tracing::instrument(
-    skip(event, get_product_service, access_token_verifier_service, product_personalization_service),
-    fields(
-        requestId = %event.context.request_id,
-        method = event.payload.request_context.http.method.as_str(),
-        path = &event.payload.raw_path.as_deref().unwrap_or("NULL"),
-        query = &event.payload.raw_query_string.as_deref().unwrap_or("NULL"),
-        body = &event.payload.body.as_deref().unwrap_or("NULL"),
-        ip = &event.payload.request_context.http.source_ip.as_deref().unwrap_or("NULL"),
-        userAgent = &event.payload.request_context.http.user_agent.as_deref().unwrap_or("NULL"),
-        userId = tracing::field::Empty,
-    )
-)]
-pub async fn handler(
-    event: LambdaEvent<ApiGatewayV2httpRequest>,
-    get_product_service: &impl GetProductService,
-    access_token_verifier_service: &(impl AccessTokenVerifierService + Sync),
-    product_personalization_service: &impl ProductPersonalizationService,
-) -> Result<ApiGatewayV2httpResponse, lambda_runtime::Error> {
-    match handle(
-        event,
-        get_product_service,
-        access_token_verifier_service,
-        product_personalization_service,
-    )
-    .await
-    {
-        Ok(response) => Ok(response),
-        Err(err) => {
-            log_api_error(&err);
-            Ok(ApiGatewayV2httpResponse::from(err))
-        }
-    }
-}
-
-// GET /api/v1/products/{shopId}/{shopsProductId}
-// GET /api/v1/products/by-slug/{shopSlugId}/{productSlugId}
 pub async fn handle(
     event: LambdaEvent<ApiGatewayV2httpRequest>,
     get_product_service: &impl GetProductService,
@@ -164,7 +127,7 @@ fn extract_history_query(query: &QueryMap) -> Result<bool, ApiError> {
 
 #[cfg(test)]
 mod tests {
-    use crate::handler;
+    use super::handle;
     use cognito::access_token_verifier_service::MockAccessTokenVerifierService;
     use common::event_id::EventId;
     use common::language::data::LanguageData;
@@ -249,7 +212,7 @@ mod tests {
             },
         );
 
-        let response = handler(
+        let response = handle(
             lambda_event,
             &get_product_service,
             &cognito_service,
@@ -322,7 +285,7 @@ mod tests {
                 .build(),
             context: Default::default(),
         };
-        let response = handler(
+        let response = handle(
             lambda_event,
             &get_product_service,
             &cognito_service,
@@ -391,7 +354,7 @@ mod tests {
                 .build(),
             context: Default::default(),
         };
-        let response = handler(
+        let response = handle(
             lambda_event,
             &get_product_service,
             &cognito_service,
@@ -470,7 +433,7 @@ mod tests {
                 .build(),
             context: Default::default(),
         };
-        let response = handler(
+        let response = handle(
             lambda_event,
             &get_product_service,
             &cognito_service,
@@ -503,7 +466,7 @@ mod tests {
             context: Default::default(),
         };
 
-        let response = handler(
+        let response = handle(
             lambda_event,
             &get_product_service,
             &cognito_service,
@@ -535,7 +498,7 @@ mod tests {
             context: Default::default(),
         };
 
-        let response = handler(
+        let response = handle(
             lambda_event,
             &get_product_service,
             &cognito_service,
@@ -569,7 +532,7 @@ mod tests {
             context: Default::default(),
         };
 
-        let response = handler(
+        let response = handle(
             lambda_event,
             &get_product_service,
             &cognito_service,
@@ -613,7 +576,7 @@ mod tests {
             },
         );
 
-        let response = handler(
+        let response = handle(
             lambda_event,
             &get_product_service,
             &cognito_service,

@@ -11,7 +11,7 @@ use product::watchlist::{
         WatchlistProductDynamoDbRepository, WatchlistProductDynamoDbRepositoryImpl,
     },
 };
-use product_api_watchlist_patch::WatchlistProductPatch;
+use product_api::watchlist_patch::WatchlistProductPatch;
 use shop::core::shop::Shop;
 use shop::dynamodb::{
     repository::{ShopDynamoDbRepository, ShopDynamoDbRepositoryImpl},

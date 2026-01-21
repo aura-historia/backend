@@ -2,8 +2,7 @@ use aws_lambda_events::apigw::{ApiGatewayV2httpRequest, ApiGatewayV2httpResponse
 use cognito::access_token_verifier_service::AccessTokenVerifierService;
 use common::{
     api::{
-        api_gateway_v2_http_response_builder::ApiGatewayV2HttpResponseBuilder,
-        error::{ApiError, log_api_error},
+        api_gateway_v2_http_response_builder::ApiGatewayV2HttpResponseBuilder, error::ApiError,
         error_code::BAD_BODY_VALUE,
     },
     pagination::cursor::{
@@ -24,42 +23,6 @@ use product::{
     service::personalization_service::ProductPersonalizationService,
 };
 
-#[tracing::instrument(
-    skip(event, query_product_service, access_token_verifier_service, product_personalization_service),
-    fields(
-        requestId = %event.context.request_id,
-        method = event.payload.request_context.http.method.as_str(),
-        path = &event.payload.raw_path.as_deref().unwrap_or("NULL"),
-        query = &event.payload.raw_query_string.as_deref().unwrap_or("NULL"),
-        body = &event.payload.body.as_deref().unwrap_or("NULL"),
-        ip = &event.payload.request_context.http.source_ip.as_deref().unwrap_or("NULL"),
-        userAgent = &event.payload.request_context.http.user_agent.as_deref().unwrap_or("NULL"),
-        userId = tracing::field::Empty,
-    )
-)]
-pub async fn handler(
-    event: LambdaEvent<ApiGatewayV2httpRequest>,
-    query_product_service: &impl QueryProductService,
-    access_token_verifier_service: &(impl AccessTokenVerifierService + Sync),
-    product_personalization_service: &impl ProductPersonalizationService,
-) -> Result<ApiGatewayV2httpResponse, lambda_runtime::Error> {
-    match handle(
-        event,
-        query_product_service,
-        access_token_verifier_service,
-        product_personalization_service,
-    )
-    .await
-    {
-        Ok(response) => Ok(response),
-        Err(err) => {
-            log_api_error(&err);
-            Ok(ApiGatewayV2httpResponse::from(err))
-        }
-    }
-}
-
-// POST /api/v1/products/search
 pub async fn handle(
     event: LambdaEvent<ApiGatewayV2httpRequest>,
     service: &impl QueryProductService,
@@ -131,7 +94,7 @@ pub async fn handle(
 #[cfg(test)]
 #[allow(clippy::too_many_arguments)]
 mod tests {
-    use crate::handler;
+    use super::handle;
     use cognito::access_token_verifier_service::MockAccessTokenVerifierService;
     use common::pagination::cursor::Cursor;
     use common::pagination::cursor::CursoredResult;
@@ -187,7 +150,7 @@ mod tests {
                 };
                 Box::pin(async move { Ok(search_result) })
             });
-        let response = handler(
+        let response = handle(
             lambda_event,
             &query_product_service,
             &access_token_verifier_service,

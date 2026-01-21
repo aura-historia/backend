@@ -10,8 +10,8 @@ use product::watchlist::dynamodb::record::WatchlistProductRecord;
 use product::watchlist::dynamodb::repository::WatchlistProductDynamoDbRepository;
 use product::watchlist::dynamodb::repository::WatchlistProductDynamoDbRepositoryImpl;
 use product::watchlist::service::product_watchlist_service::ProductWatchListServiceImpl;
-use product_api_watchlist_patch::WatchlistProductPatch;
-use product_api_watchlist_patch::handler;
+use product_api::watchlist_patch::WatchlistProductPatch;
+use product_api::watchlist_patch::handle;
 use test_api::*;
 use time::OffsetDateTime;
 use user::dynamodb::repository::UserDynamoDbRepository;
@@ -98,7 +98,7 @@ async fn should_respond_with_patched_notifications(
         context: Default::default(),
     };
 
-    let response = handler(lambda_event, &service).await.unwrap();
+    let response = handle(lambda_event, &service).await.unwrap();
     assert_eq!(200, response.status_code);
 
     let patched_watchlist_product: WatchlistProductData =

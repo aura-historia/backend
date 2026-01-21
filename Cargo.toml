@@ -94,14 +94,6 @@ http = "1.4.0"
 httpdate = "1.0.3"
 product = { path = "src/product" }
 product-api = { path = "src/product-api" }
-product-api-get-product = { path = "src/product-api/src/product-api-get-product" }
-product-api-get-product-similar = { path = "src/product-api/src/product-api-get-product-similar" }
-product-api-put-products = { path = "src/product-api/src/product-api-put-products" }
-product-api-search = { path = "src/product-api/src/product-api-search" }
-product-api-watchlist-get = { path = "src/product-api/src/product-api-watchlist-get" }
-product-api-watchlist-patch = { path = "src/product-api/src/product-api-watchlist-patch" }
-product-api-watchlist-post = { path = "src/product-api/src/product-api-watchlist-post" }
-product-api-watchlist-delete = { path = "src/product-api/src/product-api-watchlist-delete" }
 product-lambda = { path = "src/product-lambda" }
 product-pipeline-common = { path = "src/product-pipeline/src/product-pipeline-common" }
 product-pipeline-init = { path = "src/product-pipeline/src/product-pipeline-init" }

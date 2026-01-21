@@ -11,7 +11,7 @@ use product::service::{
     enrichment_service::ProductCommandEnrichmentServiceImpl,
     upsert_service::UpsertProductsServiceImpl,
 };
-use product_api_put_products::{PutProductsResponse, handler};
+use product_api::put_products::{PutProductsResponse, handle};
 use shop::core::shop::Shop;
 use shop::dynamodb::{
     repository::{ShopDynamoDbRepository, ShopDynamoDbRepositoryImpl},
@@ -38,7 +38,7 @@ async fn should_fail_products_with_unknown_domain() {
             .build(),
         context: Default::default(),
     };
-    let response = handler(lambda_event, &upsert_service, &enrichment_service)
+    let response = handle(lambda_event, &upsert_service, &enrichment_service)
         .await
         .unwrap();
 
@@ -81,7 +81,7 @@ async fn should_put_products_with_known_domain() {
             .build(),
         context: Default::default(),
     };
-    let response = handler(lambda_event, &upsert_service, &enrichment_service)
+    let response = handle(lambda_event, &upsert_service, &enrichment_service)
         .await
         .unwrap();
 
@@ -154,7 +154,7 @@ async fn should_put_products_with_known_domain_when_domain_contains_subdomain_ww
             .build(),
         context: Default::default(),
     };
-    let response = handler(lambda_event, &upsert_service, &enrichment_service)
+    let response = handle(lambda_event, &upsert_service, &enrichment_service)
         .await
         .unwrap();
 

@@ -15,7 +15,7 @@ use product::watchlist::{
     },
     service::product_watchlist_service::ProductWatchListServiceImpl,
 };
-use product_api_watchlist_get::{WatchlistProductDataView, handler};
+use product_api::watchlist_get::{WatchlistProductDataView, handle};
 use test_api::*;
 use time::{OffsetDateTime, format_description::well_known::Rfc3339};
 use user::dynamodb::repository::UserDynamoDbRepositoryImpl;
@@ -84,7 +84,7 @@ async fn should_200_when_sort_created_asc() {
         context: Default::default(),
     };
 
-    let response = handler(lambda_event, &service).await.unwrap();
+    let response = handle(lambda_event, &service).await.unwrap();
     assert_eq!(200, response.status_code);
 
     let actual: TimeCursoredData<WatchlistProductDataView> =
@@ -175,7 +175,7 @@ async fn should_200_when_sort_created_asc_search_after() {
         context: Default::default(),
     };
 
-    let response = handler(lambda_event, &service).await.unwrap();
+    let response = handle(lambda_event, &service).await.unwrap();
     assert_eq!(200, response.status_code);
 
     let actual: TimeCursoredData<WatchlistProductDataView> =
@@ -259,7 +259,7 @@ async fn should_200_when_sort_created_desc() {
         context: Default::default(),
     };
 
-    let response = handler(lambda_event, &service).await.unwrap();
+    let response = handle(lambda_event, &service).await.unwrap();
     assert_eq!(200, response.status_code);
 
     let actual: TimeCursoredData<WatchlistProductDataView> =
@@ -350,7 +350,7 @@ async fn should_200_when_sort_created_desc_search_after() {
         context: Default::default(),
     };
 
-    let response = handler(lambda_event, &service).await.unwrap();
+    let response = handle(lambda_event, &service).await.unwrap();
     assert_eq!(200, response.status_code);
 
     let actual: TimeCursoredData<WatchlistProductDataView> =
@@ -640,7 +640,7 @@ async fn should_respond_200_and_respect_accept_language_header(
         context: Default::default(),
     };
 
-    let response = handler(lambda_event, &service).await.unwrap();
+    let response = handle(lambda_event, &service).await.unwrap();
     assert_eq!(200, response.status_code);
 
     let actual: TimeCursoredData<WatchlistProductDataView> =
