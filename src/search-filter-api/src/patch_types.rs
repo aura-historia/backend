@@ -200,7 +200,7 @@ mod faker {
 
 #[cfg(test)]
 mod tests {
-    use crate::patch::{PatchProductSearchData, PatchUserSearchFilterData};
+    use crate::patch_types::{PatchProductSearchData, PatchUserSearchFilterData};
     use common::query::range_query::RangeQuery;
     use common::shop_name::ShopName;
     use common::{currency::data::CurrencyData, language::data::LanguageData};

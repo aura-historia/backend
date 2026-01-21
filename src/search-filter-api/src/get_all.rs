@@ -1,9 +1,6 @@
 use aws_lambda_events::apigw::{ApiGatewayV2httpRequest, ApiGatewayV2httpResponse};
 use common::{
-    api::{
-        api_gateway_v2_http_response_builder::ApiGatewayV2HttpResponseBuilder,
-        error::{ApiError, log_api_error},
-    },
+    api::{api_gateway_v2_http_response_builder::ApiGatewayV2HttpResponseBuilder, error::ApiError},
     pagination::page::api::PaginatedData,
     sort::api::extract_sort_query,
     user_id::api::extract_user_id_request_context,
@@ -15,33 +12,6 @@ use search_filter::data::{
 };
 use search_filter::service::user_search_filter_service::UserSearchFilterService;
 
-#[tracing::instrument(
-    skip(event, service),
-    fields(
-        requestId = %event.context.request_id,
-        method = event.payload.request_context.http.method.as_str(),
-        path = &event.payload.raw_path.as_deref().unwrap_or("NULL"),
-        query = &event.payload.raw_query_string.as_deref().unwrap_or("NULL"),
-        body = &event.payload.body.as_deref().unwrap_or("NULL"),
-        ip = &event.payload.request_context.http.source_ip.as_deref().unwrap_or("NULL"),
-        userAgent = &event.payload.request_context.http.user_agent.as_deref().unwrap_or("NULL"),
-        userId = tracing::field::Empty,
-    )
-)]
-pub async fn handler(
-    event: LambdaEvent<ApiGatewayV2httpRequest>,
-    service: &impl UserSearchFilterService,
-) -> Result<ApiGatewayV2httpResponse, lambda_runtime::Error> {
-    match handle(event, service).await {
-        Ok(response) => Ok(response),
-        Err(err) => {
-            log_api_error(&err);
-            Ok(ApiGatewayV2httpResponse::from(err))
-        }
-    }
-}
-
-// GET /api/v1/me/search-filters
 pub async fn handle(
     event: LambdaEvent<ApiGatewayV2httpRequest>,
     service: &impl UserSearchFilterService,
@@ -74,7 +44,7 @@ pub async fn handle(
 
 #[cfg(test)]
 mod tests {
-    use crate::handler;
+    use crate::handle;
     use common::user_id::UserId;
     use lambda_runtime::LambdaEvent;
     use search_filter::core::user_search_filter::UserSearchFilter;
@@ -86,6 +56,7 @@ mod tests {
         let lambda_event = LambdaEvent {
             payload: ApiGatewayV2httpRequestProxy::builder()
                 .http_method(http::Method::GET)
+                .route_key("GET /api/v1/me/search-filters")
                 .jwt_claim("sub", UserId::new())
                 .build(),
             context: Default::default(),
@@ -96,7 +67,7 @@ mod tests {
             .expect_find_user_search_filters()
             .return_once(|_, _| Box::pin(async { Ok(fake::vec![UserSearchFilter; 42]) }));
 
-        let response = handler(lambda_event, &service).await.unwrap();
+        let response = handle(lambda_event, &service).await.unwrap();
 
         assert_eq!(200, response.status_code);
     }

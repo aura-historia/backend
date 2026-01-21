@@ -26,7 +26,7 @@ mod faker {
 
 #[cfg(test)]
 mod tests {
-    use crate::post::PostUserSearchFilterData;
+    use crate::post_types::PostUserSearchFilterData;
     use common::query::range_query::RangeQuery;
     use common::{currency::data::CurrencyData, language::data::LanguageData};
     use product::data::authenticity_data::AuthenticityData;

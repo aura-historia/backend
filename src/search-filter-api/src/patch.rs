@@ -1,75 +1,27 @@
-pub mod patch;
-
-use crate::patch::PatchUserSearchFilterData;
+use crate::patch_types::PatchUserSearchFilterData;
 use aws_lambda_events::apigw::{ApiGatewayV2httpRequest, ApiGatewayV2httpResponse};
 use common::{
     api::{
-        api_gateway_v2_http_response_builder::ApiGatewayV2HttpResponseBuilder,
-        error::{ApiError, log_api_error},
-        error_code::{BAD_BODY_VALUE, BAD_PATH_PARAMETER_VALUE, INVALID_UUID},
+        api_gateway_v2_http_response_builder::ApiGatewayV2HttpResponseBuilder, error::ApiError,
+        error_code::BAD_BODY_VALUE,
     },
     user_id::api::extract_user_id_request_context,
 };
 use lambda_runtime::LambdaEvent;
-use search_filter::core::user_search_filter_id::UserSearchFilterId;
+use search_filter::core::user_search_filter_id::api::extract_user_search_filter_id_path;
 use search_filter::data::user_search_filter_data::UserSearchFilterData;
 use search_filter::service::{
     user_search_filter_service::UserSearchFilterService,
     user_search_filter_update::UserSearchFilterUpdate,
 };
 
-#[tracing::instrument(
-    skip(event, service),
-    fields(
-        requestId = %event.context.request_id,
-        method = event.payload.request_context.http.method.as_str(),
-        path = &event.payload.raw_path.as_deref().unwrap_or("NULL"),
-        query = &event.payload.raw_query_string.as_deref().unwrap_or("NULL"),
-        body = &event.payload.body.as_deref().unwrap_or("NULL"),
-        ip = &event.payload.request_context.http.source_ip.as_deref().unwrap_or("NULL"),
-        userAgent = &event.payload.request_context.http.user_agent.as_deref().unwrap_or("NULL"),
-        userId = tracing::field::Empty,
-    )
-)]
-pub async fn handler(
-    event: LambdaEvent<ApiGatewayV2httpRequest>,
-    service: &impl UserSearchFilterService,
-) -> Result<ApiGatewayV2httpResponse, lambda_runtime::Error> {
-    match handle(event, service).await {
-        Ok(response) => Ok(response),
-        Err(err) => {
-            log_api_error(&err);
-            Ok(ApiGatewayV2httpResponse::from(err))
-        }
-    }
-}
-
-// PATCH /api/v1/me/search-filters/{searchFilterId}
 pub async fn handle(
     event: LambdaEvent<ApiGatewayV2httpRequest>,
     service: &impl UserSearchFilterService,
 ) -> Result<ApiGatewayV2httpResponse, ApiError> {
     let user_id = extract_user_id_request_context(&event.payload.request_context)?;
     tracing::Span::current().record("userId", user_id.to_string());
-    let search_filter_id = event
-        .payload
-        .path_parameters
-        .get("userSearchFilterId")
-        .filter(|str| !str.is_empty())
-        .map(String::as_str)
-        .map(UserSearchFilterId::try_from)
-        .ok_or_else(|| {
-            let err_msg = "Parameter 'userSearchFilterId' cannot be empty.";
-            ApiError::bad_request(BAD_PATH_PARAMETER_VALUE, err_msg.into())
-                .with_path_field("userSearchFilterId")
-                .with_detail(err_msg)
-        })?
-        .map_err(|err| {
-            let err_msg = err.to_string();
-            ApiError::bad_request(INVALID_UUID, Box::new(err))
-                .with_path_field("userSearchFilterId")
-                .with_detail(err_msg)
-        })?;
+    let search_filter_id = extract_user_search_filter_id_path(&event.payload.path_parameters)?;
     let body = event.payload.body;
 
     let patched: UserSearchFilterData = match body {
@@ -120,6 +72,7 @@ mod tests {
         let lambda_event = LambdaEvent {
             payload: ApiGatewayV2httpRequestProxy::builder()
                 .http_method(http::Method::PATCH)
+                .route_key("PATCH /api/v1/me/search-filters/{userSearchFilterId}")
                 .path_parameter("userSearchFilterId", UserSearchFilterId::new())
                 .body_serde(&PatchUserSearchFilterData {
                     name: Some("foo".into()),
@@ -145,6 +98,7 @@ mod tests {
         let lambda_event = LambdaEvent {
             payload: ApiGatewayV2httpRequestProxy::builder()
                 .http_method(http::Method::PATCH)
+                .route_key("PATCH /api/v1/me/search-filters/{userSearchFilterId}")
                 .path_parameter("userSearchFilterId", UserSearchFilterId::new())
                 .jwt_claim("sub", UserId::new())
                 .build(),
@@ -167,6 +121,7 @@ mod tests {
         let lambda_event = LambdaEvent {
             payload: ApiGatewayV2httpRequestProxy::builder()
                 .http_method(http::Method::PATCH)
+                .route_key("PATCH /api/v1/me/search-filters/{userSearchFilterId}")
                 .path_parameter("userSearchFilterId", UserSearchFilterId::new())
                 .body_serde(&PatchUserSearchFilterData::default())
                 .jwt_claim("sub", UserId::new())
@@ -190,6 +145,7 @@ mod tests {
         let lambda_event = LambdaEvent {
             payload: ApiGatewayV2httpRequestProxy::builder()
                 .http_method(http::Method::PATCH)
+                .route_key("PATCH /api/v1/me/search-filters/{userSearchFilterId}")
                 .body_serde(&Faker.fake::<PatchUserSearchFilterData>())
                 .jwt_claim("sub", UserId::new())
                 .build(),
@@ -212,6 +168,7 @@ mod tests {
         let lambda_event = LambdaEvent {
             payload: ApiGatewayV2httpRequestProxy::builder()
                 .http_method(http::Method::PATCH)
+                .route_key("PATCH /api/v1/me/search-filters/{userSearchFilterId}")
                 .path_parameter("userSearchFilterId", "not-a-valid-uuid")
                 .body_serde(&Faker.fake::<PatchUserSearchFilterData>())
                 .jwt_claim("sub", UserId::new())
@@ -244,6 +201,7 @@ mod tests {
         let lambda_event = LambdaEvent {
             payload: ApiGatewayV2httpRequestProxy::builder()
                 .http_method(http::Method::PATCH)
+                .route_key("PATCH /api/v1/me/search-filters/{userSearchFilterId}")
                 .path_parameter("userSearchFilterId", UserSearchFilterId::new())
                 .body_serde(&Faker.fake::<PatchUserSearchFilterData>())
                 .jwt_claim("sub", UserId::new())

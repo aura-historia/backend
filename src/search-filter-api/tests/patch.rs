@@ -9,10 +9,8 @@ use search_filter::dynamodb::repository::UserSearchFilterDynamoDbRepositoryImpl;
 use search_filter::service::user_search_filter_service::{
     UserSearchFilterService, UserSearchFilterServiceImpl,
 };
-use search_filter_api_patch_search_filter::{
-    handler,
-    patch::{PatchProductSearchData, PatchUserSearchFilterData},
-};
+use search_filter_api::handle;
+use search_filter_api::patch_types::{PatchProductSearchData, PatchUserSearchFilterData};
 use test_api::*;
 
 #[localstack_test(services = [DynamoDB()])]
@@ -52,6 +50,7 @@ async fn should_update_search_filter() {
     let lambda_event = LambdaEvent {
         payload: ApiGatewayV2httpRequestProxy::builder()
             .http_method(http::Method::PATCH)
+            .route_key("PATCH /api/v1/me/search-filters/{userSearchFilterId}")
             .jwt_claim("sub", user_id)
             .path_parameter("userSearchFilterId", initial.user_search_filter_id)
             .body_serde(&patch)
@@ -59,7 +58,7 @@ async fn should_update_search_filter() {
         context: Default::default(),
     };
 
-    let response = handler(lambda_event, &service).await.unwrap();
+    let response = handle(lambda_event, &service).await.unwrap();
     assert_eq!(200, response.status_code);
 
     let json = extract_apigw_response_json_body!(response);

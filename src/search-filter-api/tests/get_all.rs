@@ -7,7 +7,7 @@ use search_filter::dynamodb::repository::UserSearchFilterDynamoDbRepositoryImpl;
 use search_filter::service::user_search_filter_service::{
     UserSearchFilterService, UserSearchFilterServiceImpl,
 };
-use search_filter_api_get_search_filters::handler;
+use search_filter_api::handle;
 use test_api::*;
 
 #[localstack_test(services = [DynamoDB()])]
@@ -33,6 +33,7 @@ async fn should_return_actual_search_filters_sortet_oldest_for_order_asc() {
     let lambda_event = LambdaEvent {
         payload: ApiGatewayV2httpRequestProxy::builder()
             .http_method(http::Method::GET)
+            .route_key("GET /api/v1/me/search-filters")
             .query_string_parameter("sort", "created")
             .query_string_parameter("order", "asc")
             .jwt_claim("sub", user_id)
@@ -40,7 +41,7 @@ async fn should_return_actual_search_filters_sortet_oldest_for_order_asc() {
         context: Default::default(),
     };
 
-    let response = handler(lambda_event, &service).await.unwrap();
+    let response = handle(lambda_event, &service).await.unwrap();
     assert_eq!(200, response.status_code);
     let json = extract_apigw_response_json_body!(response);
 
@@ -83,6 +84,7 @@ async fn should_return_actual_search_filters_sortet_latest_for_order_desc() {
     let lambda_event = LambdaEvent {
         payload: ApiGatewayV2httpRequestProxy::builder()
             .http_method(http::Method::GET)
+            .route_key("GET /api/v1/me/search-filters")
             .query_string_parameter("sort", "created")
             .query_string_parameter("order", "desc")
             .jwt_claim("sub", user_id)
@@ -90,7 +92,7 @@ async fn should_return_actual_search_filters_sortet_latest_for_order_desc() {
         context: Default::default(),
     };
 
-    let response = handler(lambda_event, &service).await.unwrap();
+    let response = handle(lambda_event, &service).await.unwrap();
     assert_eq!(200, response.status_code);
     let json = extract_apigw_response_json_body!(response);
 

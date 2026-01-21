@@ -2,10 +2,10 @@ use aws_tests_common::get_cfn_output;
 use common::language::data::LanguageData;
 use fake::{Fake, Faker};
 use search_filter::data::user_search_filter_data::UserSearchFilterData;
-use search_filter_api_patch_search_filter::patch::{
-    PatchProductSearchData, PatchUserSearchFilterData,
+use search_filter_api::{
+    patch_types::{PatchProductSearchData, PatchUserSearchFilterData},
+    post_types::PostUserSearchFilterData,
 };
-use search_filter_api_post_search_filter::post::PostUserSearchFilterData;
 use staging_tests::create_random_test_user;
 use staging_tests_macros::staging_test;
 

@@ -1,11 +1,8 @@
-pub mod post;
-
-use crate::post::PostUserSearchFilterData;
+use crate::post_types::PostUserSearchFilterData;
 use aws_lambda_events::apigw::{ApiGatewayV2httpRequest, ApiGatewayV2httpResponse};
 use common::{
     api::{
-        api_gateway_v2_http_response_builder::ApiGatewayV2HttpResponseBuilder,
-        error::{ApiError, log_api_error},
+        api_gateway_v2_http_response_builder::ApiGatewayV2HttpResponseBuilder, error::ApiError,
         error_code::BAD_BODY_VALUE,
     },
     user_id::api::extract_user_id_request_context,
@@ -14,33 +11,6 @@ use lambda_runtime::LambdaEvent;
 use search_filter::data::user_search_filter_data::UserSearchFilterData;
 use search_filter::service::user_search_filter_service::UserSearchFilterService;
 
-#[tracing::instrument(
-    skip(event, service),
-    fields(
-        requestId = %event.context.request_id,
-        method = event.payload.request_context.http.method.as_str(),
-        path = &event.payload.raw_path.as_deref().unwrap_or("NULL"),
-        query = &event.payload.raw_query_string.as_deref().unwrap_or("NULL"),
-        body = &event.payload.body.as_deref().unwrap_or("NULL"),
-        ip = &event.payload.request_context.http.source_ip.as_deref().unwrap_or("NULL"),
-        userAgent = &event.payload.request_context.http.user_agent.as_deref().unwrap_or("NULL"),
-        userId = tracing::field::Empty,
-    )
-)]
-pub async fn handler(
-    event: LambdaEvent<ApiGatewayV2httpRequest>,
-    service: &impl UserSearchFilterService,
-) -> Result<ApiGatewayV2httpResponse, lambda_runtime::Error> {
-    match handle(event, service).await {
-        Ok(response) => Ok(response),
-        Err(err) => {
-            log_api_error(&err);
-            Ok(ApiGatewayV2httpResponse::from(err))
-        }
-    }
-}
-
-// POST /api/v1/me/search-filters
 pub async fn handle(
     event: LambdaEvent<ApiGatewayV2httpRequest>,
     service: &impl UserSearchFilterService,
@@ -106,6 +76,7 @@ mod tests {
         let lambda_event = LambdaEvent {
             payload: ApiGatewayV2httpRequestProxy::builder()
                 .http_method(http::Method::POST)
+                .route_key("POST /api/v1/me/search-filters")
                 .body_serde(&Faker.fake::<PostUserSearchFilterData>())
                 .jwt_claim("sub", UserId::new())
                 .domain_name("my.domain.com")
@@ -137,6 +108,7 @@ mod tests {
         let lambda_event = LambdaEvent {
             payload: ApiGatewayV2httpRequestProxy::builder()
                 .http_method(http::Method::POST)
+                .route_key("POST /api/v1/me/search-filters")
                 .jwt_claim("sub", UserId::new())
                 .build(),
             context: Default::default(),
@@ -158,6 +130,7 @@ mod tests {
         let lambda_event = LambdaEvent {
             payload: ApiGatewayV2httpRequestProxy::builder()
                 .http_method(http::Method::POST)
+                .route_key("POST /api/v1/me/search-filters")
                 .jwt_claim("sub", UserId::new())
                 .body_serde(&"invalid-search-filter-json")
                 .build(),
