@@ -391,31 +391,31 @@ Resources:
     Properties:
       ApiId: !Ref Api
       RouteKey: "GET /api/v1/products/{shopId}/{shopsProductId}"
-      Target: !Sub "integrations/${ApiGetProductLambdaIntegration}"
+      Target: !Sub "integrations/${ProductApiLambdaIntegration}"
   ProductApiGetProductBySlugIdRoute:
     Type: AWS::ApiGatewayV2::Route
     Properties:
       ApiId: !Ref Api
       RouteKey: "GET /api/v1/products/by-slug/{shopSlugId}/{productSlugId}"
-      Target: !Sub "integrations/${ApiGetProductLambdaIntegration}"
+      Target: !Sub "integrations/${ProductApiLambdaIntegration}"
   ProductApiGetProductSimilarRoute:
     Type: AWS::ApiGatewayV2::Route
     Properties:
       ApiId: !Ref Api
       RouteKey: "GET /api/v1/products/{shopId}/{shopsProductId}/similar"
-      Target: !Sub "integrations/${ApiGetProductLambdaIntegration}"
+      Target: !Sub "integrations/${ProductApiLambdaIntegration}"
   ProductApiPutProductRoute:
     Type: AWS::ApiGatewayV2::Route
     Properties:
       ApiId: !Ref Api
       RouteKey: "PUT /api/v1/products"
-      Target: !Sub "integrations/${ApiGetProductLambdaIntegration}"
+      Target: !Sub "integrations/${ProductApiLambdaIntegration}"
   ProductApiSearchProductRoute:
     Type: AWS::ApiGatewayV2::Route
     Properties:
       ApiId: !Ref Api
       RouteKey: "POST /api/v1/products/search"
-      Target: !Sub "integrations/${ApiGetProductLambdaIntegration}"
+      Target: !Sub "integrations/${ProductApiLambdaIntegration}"
   ProductApiLambdaIntegration:
     Type: AWS::ApiGatewayV2::Integration
     Properties:
