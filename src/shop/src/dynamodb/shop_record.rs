@@ -15,6 +15,10 @@ use url::Url;
 pub struct ShopRecord {
     pub pk: String,
     pub sk: String,
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub gsi2_pk: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub gsi2_sk: Option<String>,
     pub shop_id: ShopId,
     pub shop_slug_id: SlugId<0>,
     pub name: ShopName,
@@ -52,11 +56,21 @@ pub fn mk_pk_as_shop_domain(domain: &Domain) -> String {
     format!("shop#domain#{}", domain.as_str().to_lowercase())
 }
 
+pub fn mk_gsi2_pk(shop_slug_id: &SlugId<0>) -> String {
+    format!("shop_slug_id#{shop_slug_id}")
+}
+
+pub fn mk_gsi2_sk() -> &'static str {
+    "lookup#shop_id"
+}
+
 impl ShopRecord {
     pub fn from_shop_as_shop_id_record(shop: Shop) -> ShopRecord {
         ShopRecord {
             pk: mk_pk_as_shop_id(&shop.shop_id),
             sk: "shop#details".to_owned(),
+            gsi2_pk: Some(mk_gsi2_pk(&shop.shop_slug_id)),
+            gsi2_sk: Some(mk_gsi2_sk().to_owned()),
             shop_id: shop.shop_id,
             shop_slug_id: shop.shop_slug_id,
             domain: None,
@@ -75,6 +89,8 @@ impl ShopRecord {
             .map(|domain| ShopRecord {
                 pk: mk_pk_as_shop_domain(domain),
                 sk: "shop#details".to_owned(),
+                gsi2_pk: None,
+                gsi2_sk: None,
                 shop_id: shop.shop_id,
                 shop_slug_id: shop.shop_slug_id.clone(),
                 name: shop.name.clone(),

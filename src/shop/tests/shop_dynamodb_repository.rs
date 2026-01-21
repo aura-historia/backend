@@ -1,5 +1,3 @@
-use std::collections::HashMap;
-
 use aws_sdk_dynamodb::error::SdkError;
 use common::domain::Domain;
 use common::shop_id::{ShopId, ShopIdentifier};
@@ -12,6 +10,7 @@ use shop::dynamodb::{
     repository::{ShopDynamoDbRepository, ShopDynamoDbRepositoryImpl},
     shop_record::ShopRecord,
 };
+use std::collections::HashMap;
 use test_api::*;
 use time::OffsetDateTime;
 use url::Url;
@@ -40,6 +39,15 @@ async fn should_return_none_when_shop_record_not_exists_for_get_by_url() {
         .get_shop_record_by_domain(&Domain::try_from("https://google.com").unwrap())
         .await
         .unwrap();
+
+    assert!(actual.is_none());
+}
+
+#[localstack_test(services = [DynamoDB()])]
+async fn should_return_none_when_shop_record_not_exists_for_query_shop_id() {
+    let repository = get_repository().await;
+
+    let actual = repository.query_shop_id(&Faker.fake()).await.unwrap();
 
     assert!(actual.is_none());
 }
@@ -75,6 +83,21 @@ async fn should_return_some_when_shop_record_exists_for_get_by_url() {
         .unwrap();
 
     assert_eq!(records[0], actual);
+}
+
+#[localstack_test(services = [DynamoDB()])]
+async fn should_return_some_when_shop_record_exists_for_query_shop_id() {
+    let repository = get_repository().await;
+
+    let expected = ShopRecord::from_shop_as_shop_id_record(Faker.fake::<Shop>());
+    let _ = repository.put_shop_record(expected.clone()).await.unwrap();
+    let actual = repository
+        .query_shop_id(&expected.shop_slug_id)
+        .await
+        .unwrap()
+        .unwrap();
+
+    assert_eq!(expected.shop_id, actual);
 }
 
 #[localstack_test(services = [DynamoDB()])]

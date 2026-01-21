@@ -233,6 +233,8 @@ impl<'a> CommandShopService for CommandShopServiceImpl<'a> {
             let new_shop_domain_record = ShopRecord {
                 pk: mk_pk_as_shop_domain(&new_domain),
                 sk: "shop#details".to_owned(),
+                gsi2_pk: None,
+                gsi2_sk: None,
                 shop_id: shop_record.shop_id,
                 shop_slug_id: shop_record.shop_slug_id.clone(),
                 name: update_record
