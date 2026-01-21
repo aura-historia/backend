@@ -4,6 +4,7 @@ use common::language::document::{LanguageDocument, TextDocument};
 use common::language::record::{LanguageRecord, TextRecord};
 use common::price::record::PriceRecord;
 use common::query::range_query::RangeQuery;
+use common::slug_id::SlugId;
 use common::{
     currency::data::CurrencyData, event_id::EventId, language::data::LanguageData,
     product_id::ProductId, shop_id::ShopId, shops_product_id::ShopsProductId,
@@ -12,7 +13,7 @@ use fake::{Fake, Faker};
 use opensearch::{IndexParts, params::Refresh};
 use product::data::product_search_data::ProductSearchData;
 use product::data::product_state_data::ProductStateData;
-use product::dynamodb::product_record::{self, ProductRecord};
+use product::dynamodb::product_record::{self, ProductRecord, mk_gsi2_pk, mk_gsi2_sk};
 use product::dynamodb::product_state_record::ProductStateRecord;
 use product::dynamodb::repository::{ProductDynamoDbRepository, ProductDynamoDbRepositoryImpl};
 use product::opensearch::{
@@ -59,6 +60,8 @@ async fn should_respond_200_when_hits_authenticated() {
     let product_opensearch_repository = ProductOpenSearchRepositoryImpl::new(os_client);
     let expected = ProductDocument {
         product_id: ProductId::new(),
+        product_slug_id: SlugId::from("Foo"),
+        shop_slug_id: SlugId::from("Foo"),
         event_id: EventId::new(),
         shop_id: ShopId::new(),
         shop_type: Faker.fake(),
@@ -126,10 +129,16 @@ async fn should_respond_200_when_hits_authenticated() {
         .unwrap();
     tokio::time::sleep(Duration::from_secs(3)).await;
 
+    let product_slug_id = SlugId::from("Chopin Etudes Op.10 1833");
+    let shop_slug_id = SlugId::from(&expected.shop_name);
     let ddb_materialized = ProductRecord {
         pk: product_record::mk_pk(&expected.shop_id, &expected.shops_product_id),
         sk: product_record::mk_sk().to_owned(),
+        gsi2_pk: mk_gsi2_pk(&shop_slug_id, &product_slug_id),
+        gsi2_sk: mk_gsi2_sk().to_owned(),
         product_id: expected.product_id,
+        product_slug_id,
+        shop_slug_id,
         event_id: expected.event_id,
         shop_id: expected.shop_id,
         shops_product_id: expected.shops_product_id.clone(),
@@ -274,6 +283,8 @@ async fn should_respond_200_when_hits_anon() {
     let repository = ProductOpenSearchRepositoryImpl::new(os_client);
     let expected = ProductDocument {
         product_id: ProductId::new(),
+        product_slug_id: SlugId::from("Foo"),
+        shop_slug_id: SlugId::from("Foo"),
         event_id: EventId::new(),
         shop_id: ShopId::new(),
         shops_product_id: ShopsProductId::new(),

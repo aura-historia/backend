@@ -3,13 +3,14 @@ use aws_lambda_events::query_map::QueryMap;
 use cognito::access_token_verifier_service::AccessTokenVerifierService;
 use common::api::api_gateway_v2_http_response_builder::ApiGatewayV2HttpResponseBuilder;
 use common::api::error::{ApiError, log_api_error};
-use common::api::error_code::BAD_QUERY_PARAMETER_VALUE;
+use common::api::error_code::{BAD_QUERY_PARAMETER_VALUE, INTERNAL_SERVER_ERROR};
 use common::currency::data::api::extract_currency_query;
 use common::language::data::api::extract_languages_header;
 use common::language::domain::Language;
 use common::personalized::Personalized;
 use common::personalized::api::PersonalizedData;
-use common::shop_id::api::extract_shop_id_path;
+use common::product_id::api::extract_product_slug_id_path;
+use common::shop_id::api::{extract_shop_id_path, extract_shop_slug_id_path};
 use common::shops_product_id::api::extract_shops_product_id_path;
 use lambda_runtime::LambdaEvent;
 use product::core::product::LocalizedProductView;
@@ -55,6 +56,7 @@ pub async fn handler(
 }
 
 // GET /api/v1/products/{shopId}/{shopsProductId}
+// GET /api/v1/products/by-slug/{shopSlugId}/{productSlugId}
 pub async fn handle(
     event: LambdaEvent<ApiGatewayV2httpRequest>,
     get_product_service: &impl GetProductService,
@@ -73,18 +75,48 @@ pub async fn handle(
         .map(Language::from)
         .collect::<Vec<_>>();
     let currency = extract_currency_query(&event.payload.query_string_parameters)?.into();
-    let shop_id = extract_shop_id_path(&event.payload.path_parameters)?;
-    let shops_product_id = extract_shops_product_id_path(&event.payload.path_parameters)?;
 
-    let localized_product: LocalizedProductView = get_product_service
-        .view_product(
-            &shop_id,
-            &shops_product_id,
-            languages.as_slice(),
-            &currency,
-            extract_history_query(&event.payload.query_string_parameters)?,
-        )
-        .await?;
+    let localized_product: LocalizedProductView = match event.payload.route_key.as_deref() {
+        Some("GET /api/v1/products/{shopId}/{shopsProductId}") => {
+            let shop_id = extract_shop_id_path(&event.payload.path_parameters)?;
+            let shops_product_id = extract_shops_product_id_path(&event.payload.path_parameters)?;
+            get_product_service
+                .view_product(
+                    &shop_id,
+                    &shops_product_id,
+                    languages.as_slice(),
+                    &currency,
+                    extract_history_query(&event.payload.query_string_parameters)?,
+                )
+                .await?
+        }
+        Some("GET /api/v1/products/by-slug/{shopSlugId}/{productSlugId}") => {
+            let shop_slug_id = extract_shop_slug_id_path(&event.payload.path_parameters)?;
+            let product_slug_id = extract_product_slug_id_path(&event.payload.path_parameters)?;
+            get_product_service
+                .view_product_by_slug(
+                    &shop_slug_id,
+                    &product_slug_id,
+                    languages.as_slice(),
+                    &currency,
+                    extract_history_query(&event.payload.query_string_parameters)?,
+                )
+                .await?
+        }
+        Some(unknown) => {
+            return Err(ApiError::internal_server_error(
+                INTERNAL_SERVER_ERROR,
+                format!("Unknown route-key '{unknown}' in AWS-Payload").into(),
+            ));
+        }
+        None => {
+            return Err(ApiError::internal_server_error(
+                INTERNAL_SERVER_ERROR,
+                "Missing route-key in AWS-Payload".into(),
+            ));
+        }
+    };
+
     let personalized_product_data: PersonalizedData<GetProductData, ProductUserStateData> =
         match user_id_opt {
             None => PersonalizedData {
@@ -142,6 +174,7 @@ mod tests {
     use common::shop_id::ShopId;
     use common::shops_product_id::ShopsProductId;
     use fake::Fake;
+    use fake::Faker;
     use http::header::{ACCEPT_LANGUAGE, CONTENT_LANGUAGE, ETAG, LAST_MODIFIED};
     use lambda_runtime::LambdaEvent;
     use product::core::product::LocalizedProductView;
@@ -168,6 +201,7 @@ mod tests {
         let lambda_event = LambdaEvent {
             payload: ApiGatewayV2httpRequestProxy::builder()
                 .http_method(http::Method::GET)
+                .route_key("GET /api/v1/products/{shopId}/{shopsProductId}".to_owned())
                 .path_parameter("shopId", shop_id)
                 .path_parameter("shopsProductId", shops_product_id)
                 .header(ACCEPT_LANGUAGE.as_str(), expected_content_language)
@@ -185,6 +219,8 @@ mod tests {
             move |shop_id, shops_product_id, _, _, _| {
                 let product = LocalizedProductView {
                     product_id: Default::default(),
+                    product_slug_id: Faker.fake(),
+                    shop_slug_id: Faker.fake(),
                     event_id: EventId::new(),
                     shop_id: *shop_id,
                     shops_product_id: shops_product_id.clone(),
@@ -246,6 +282,8 @@ mod tests {
             move |shop_id, shops_product_id, _, _, _| {
                 let product = LocalizedProductView {
                     product_id: Default::default(),
+                    product_slug_id: Faker.fake(),
+                    shop_slug_id: Faker.fake(),
                     event_id,
                     shop_id: *shop_id,
                     shops_product_id: shops_product_id.clone(),
@@ -278,6 +316,7 @@ mod tests {
         let lambda_event = LambdaEvent {
             payload: ApiGatewayV2httpRequestProxy::builder()
                 .http_method(http::Method::GET)
+                .route_key("GET /api/v1/products/{shopId}/{shopsProductId}".to_owned())
                 .path_parameter("shopId", shop_id)
                 .path_parameter("shopsProductId", shops_product_id)
                 .build(),
@@ -312,6 +351,8 @@ mod tests {
             move |shop_id, shops_product_id, _, _, _| {
                 let product = LocalizedProductView {
                     product_id: Default::default(),
+                    product_slug_id: Faker.fake(),
+                    shop_slug_id: Faker.fake(),
                     event_id,
                     shop_id: *shop_id,
                     shops_product_id: shops_product_id.clone(),
@@ -344,6 +385,7 @@ mod tests {
         let lambda_event = LambdaEvent {
             payload: ApiGatewayV2httpRequestProxy::builder()
                 .http_method(http::Method::GET)
+                .route_key("GET /api/v1/products/{shopId}/{shopsProductId}".to_owned())
                 .path_parameter("shopId", shop_id)
                 .path_parameter("shopsProductId", shops_product_id)
                 .build(),
@@ -387,6 +429,8 @@ mod tests {
                 assert_eq!(expected_history, history);
                 let product = LocalizedProductView {
                     product_id: Default::default(),
+                    product_slug_id: Faker.fake(),
+                    shop_slug_id: Faker.fake(),
                     event_id,
                     shop_id: *shop_id,
                     shops_product_id: shops_product_id.clone(),
@@ -419,6 +463,7 @@ mod tests {
         let lambda_event = LambdaEvent {
             payload: ApiGatewayV2httpRequestProxy::builder()
                 .http_method(http::Method::GET)
+                .route_key("GET /api/v1/products/{shopId}/{shopsProductId}".to_owned())
                 .path_parameter("shopId", shop_id)
                 .path_parameter("shopsProductId", shops_product_id)
                 .try_query_string_parameter("history", history_query_value)
@@ -452,6 +497,7 @@ mod tests {
         let lambda_event = LambdaEvent {
             payload: ApiGatewayV2httpRequestProxy::builder()
                 .http_method(http::Method::GET)
+                .route_key("GET /api/v1/products/{shopId}/{shopsProductId}".to_owned())
                 .path_parameter("shopsProductId", ShopsProductId::new())
                 .build(),
             context: Default::default(),
@@ -483,6 +529,7 @@ mod tests {
         let lambda_event = LambdaEvent {
             payload: ApiGatewayV2httpRequestProxy::builder()
                 .http_method(http::Method::GET)
+                .route_key("GET /api/v1/products/{shopId}/{shopsProductId}".to_owned())
                 .path_parameter("shopId", ShopId::new())
                 .build(),
             context: Default::default(),
@@ -514,6 +561,7 @@ mod tests {
         let lambda_event = LambdaEvent {
             payload: ApiGatewayV2httpRequestProxy::builder()
                 .http_method(http::Method::GET)
+                .route_key("GET /api/v1/products/{shopId}/{shopsProductId}".to_owned())
                 .path_parameter("shopId", ShopId::new())
                 .path_parameter("shopsProductId", ShopsProductId::new())
                 .query_string_parameter("history", "boop")
@@ -542,6 +590,7 @@ mod tests {
         let lambda_event = LambdaEvent {
             payload: ApiGatewayV2httpRequestProxy::builder()
                 .http_method(http::Method::GET)
+                .route_key("GET /api/v1/products/{shopId}/{shopsProductId}".to_owned())
                 .path_parameter("shopId", shop_id)
                 .path_parameter("shopsProductId", shops_product_id)
                 .build(),

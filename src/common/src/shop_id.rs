@@ -105,6 +105,7 @@ pub mod api {
         },
         error::missing_field::MissingRequiredField,
         shop_id::ShopId,
+        slug_id::SlugId,
     };
     use std::collections::HashMap;
 
@@ -127,5 +128,18 @@ pub mod api {
                 .with_path_field("shopId")
                 .with_detail("Missing field 'shopId'."),
             )
+    }
+
+    pub fn extract_shop_slug_id_path(
+        path_params: &HashMap<String, String>,
+    ) -> Result<SlugId<0>, ApiError> {
+        path_params.get("shopSlugId").map(SlugId::raw).ok_or(
+            ApiError::bad_request(
+                BAD_PATH_PARAMETER_VALUE,
+                Box::new(MissingRequiredField::new("shopSlugId")),
+            )
+            .with_path_field("shopSlugId")
+            .with_detail("Missing field 'shopSlugId'."),
+        )
     }
 }

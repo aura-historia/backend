@@ -1,4 +1,6 @@
 use common::domain::Domain;
+use common::shop_name::ShopName;
+use common::slug_id::SlugId;
 use common::{api::collection::PutCollectionData, price::domain::FixedFxRate};
 use fake::{Fake, Faker};
 use lambda_runtime::LambdaEvent;
@@ -114,9 +116,11 @@ async fn should_put_products_with_known_domain_when_domain_contains_subdomain_ww
     let enrichment_service = ProductCommandEnrichmentServiceImpl::new(&shop_repository, &fx_rate);
     let upsert_service = UpsertProductsServiceImpl::new(&product_repository, &fx_rate);
 
+    let name: ShopName = Faker.fake();
     let shop = Shop {
         shop_id: Faker.fake(),
-        name: Faker.fake(),
+        shop_slug_id: SlugId::from(name.as_ref()),
+        name,
         shop_type: Faker.fake(),
         domains: HashSet::from_iter([
             Domain::try_from("https://www.antiquitaeten-tuebingen.de").unwrap()

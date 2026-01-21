@@ -110,6 +110,8 @@ async fn should_respond_200_with_history_when_anon_and_history_flag_true() {
 
     let lambda_event = LambdaEvent {
         payload: ApiGatewayV2httpRequestProxy::builder()
+            .http_method(http::Method::GET)
+            .route_key("GET /api/v1/products/{shopId}/{shopsProductId}".to_owned())
             .path_parameter("shopId", record.shop_id)
             .path_parameter("shopsProductId", record.shops_product_id)
             .query_string_parameter("history", "true")
@@ -219,6 +221,8 @@ async fn should_respond_200_without_history_when_anon_and_history_flag_false() {
 
     let lambda_event = LambdaEvent {
         payload: ApiGatewayV2httpRequestProxy::builder()
+            .http_method(http::Method::GET)
+            .route_key("GET /api/v1/products/{shopId}/{shopsProductId}".to_owned())
             .path_parameter("shopId", record.shop_id)
             .path_parameter("shopsProductId", record.shops_product_id)
             .query_string_parameter("history", "false")
@@ -318,6 +322,8 @@ async fn should_respond_200_personalized_when_authenticated_and_not_watched() {
 
     let lambda_event = LambdaEvent {
         payload: ApiGatewayV2httpRequestProxy::builder()
+            .http_method(http::Method::GET)
+            .route_key("GET /api/v1/products/{shopId}/{shopsProductId}".to_owned())
             .path_parameter("shopId", record.shop_id)
             .path_parameter("shopsProductId", record.shops_product_id)
             .query_string_parameter("history", "false")
@@ -452,6 +458,8 @@ async fn should_respond_200_personalized_when_authenticated_and_watched() {
 
     let lambda_event = LambdaEvent {
         payload: ApiGatewayV2httpRequestProxy::builder()
+            .http_method(http::Method::GET)
+            .route_key("GET /api/v1/products/{shopId}/{shopsProductId}".to_owned())
             .path_parameter("shopId", record.shop_id)
             .path_parameter("shopsProductId", record.shops_product_id)
             .query_string_parameter("history", "false")
@@ -484,7 +492,6 @@ async fn should_respond_200_personalized_when_authenticated_and_watched() {
 }
 
 #[rstest::rstest]
-#[trace]
 #[test_attr(apply(test))]
 #[case("de", "German title", Language::De, "German description", Language::De)]
 #[case(
@@ -684,6 +691,7 @@ async fn should_respond_200_personalized_when_authenticated_and_watched() {
     "Spanish description",
     Language::Es
 )]
+#[trace]
 #[localstack_test(services = [DynamoDB()])]
 async fn should_respond_200_and_respect_accept_language_header(
     #[case] accept_language_header: &str,
@@ -721,6 +729,8 @@ async fn should_respond_200_and_respect_accept_language_header(
 
     let lambda_event = LambdaEvent {
         payload: ApiGatewayV2httpRequestProxy::builder()
+            .http_method(http::Method::GET)
+            .route_key("GET /api/v1/products/{shopId}/{shopsProductId}".to_owned())
             .header(ACCEPT_LANGUAGE.as_str(), accept_language_header)
             .path_parameter("shopId", record.shop_id)
             .path_parameter("shopsProductId", record.shops_product_id)
@@ -752,4 +762,54 @@ async fn should_respond_200_and_respect_accept_language_header(
         expected_description_lang,
         actual.item.description.as_ref().unwrap().language.into()
     );
+}
+
+#[localstack_test(services = [DynamoDB()])]
+async fn should_respond_200_for_path_params_slugs() {
+    let ddb_client = get_dynamodb_client().await;
+    let product_repository = ProductDynamoDbRepositoryImpl::new(ddb_client, "table_1");
+    let watchlist_repository = WatchlistProductDynamoDbRepositoryImpl::new(ddb_client, "table_1");
+    let get_product_service = GetProductServiceImpl::new(&product_repository);
+    let product_personalization_service =
+        ProductPersonalizationServiceImpl::new(&watchlist_repository);
+    let mut access_token_verifier_service = MockAccessTokenVerifierService::default();
+    access_token_verifier_service
+        .expect_verify_extract_user_id()
+        .return_once(|_| Box::pin(async { Ok(None) }));
+
+    let record = Faker.fake::<ProductRecord>();
+    let insert_res = product_repository
+        .put_product_records([record.clone()].into())
+        .await
+        .unwrap();
+    assert!(insert_res.unprocessed_items.unwrap().is_empty());
+    tokio::time::sleep(Duration::from_secs(1)).await;
+
+    let lambda_event = LambdaEvent {
+        payload: ApiGatewayV2httpRequestProxy::builder()
+            .http_method(http::Method::GET)
+            .route_key("GET /api/v1/products/by-slug/{shopSlugId}/{productSlugId}".to_owned())
+            .path_parameter("shopSlugId", record.shop_slug_id)
+            .path_parameter("productSlugId", record.product_slug_id)
+            .build(),
+        context: Default::default(),
+    };
+    let response = handler(
+        lambda_event,
+        &get_product_service,
+        &access_token_verifier_service,
+        &product_personalization_service,
+    )
+    .await
+    .unwrap();
+
+    assert_eq!(200, response.status_code);
+
+    let body = extract_apigw_response_json_body!(response);
+    let actual: PersonalizedData<GetProductData, ProductUserStateData> =
+        serde_json::from_value(body).unwrap();
+
+    assert_eq!(record.product_id, actual.item.product_id);
+    assert_eq!(record.shop_id, actual.item.shop_id);
+    assert_eq!(record.shops_product_id, actual.item.shops_product_id);
 }

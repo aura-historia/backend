@@ -30,7 +30,7 @@ use std::time::{Duration, SystemTime};
 use user::dynamodb::repository::UserDynamoDbRepositoryImpl;
 
 #[staging_test]
-async fn should_respond_200_when_anon_and_product_does_exist() {
+async fn should_respond_200_when_anon_and_product_does_exist_for_ids() {
     let ddb_client = get_dynamodb_client().await;
     let repository =
         ProductDynamoDbRepositoryImpl::new(ddb_client, &get_cfn_output().dynamodb_table_1_name);
@@ -47,6 +47,42 @@ async fn should_respond_200_when_anon_and_product_does_exist() {
         get_cfn_output().api_gateway_endpoint_url,
         record.shop_id,
         record.shops_product_id
+    );
+    let response = reqwest::get(url).await.unwrap();
+
+    assert_eq!(200, response.status());
+
+    let body = response.json::<serde_json::Value>().await.unwrap();
+    assert_eq!(record.shop_id.to_string(), body["item"]["shopId"]);
+    assert_eq!(
+        record.shops_product_id.to_string(),
+        body["item"]["shopsProductId"]
+    );
+    assert_eq!(record.product_id.to_string(), body["item"]["productId"]);
+    assert_eq!(record.event_id.to_string(), body["item"]["eventId"]);
+    assert_eq!(record.url.to_string(), body["item"]["url"]);
+    assert_eq!(record.price_gbp.unwrap(), body["item"]["price"]["amount"]);
+    assert_eq!("GBP", body["item"]["price"]["currency"]);
+}
+
+#[staging_test]
+async fn should_respond_200_when_anon_and_product_does_exist_for_slug_ids() {
+    let ddb_client = get_dynamodb_client().await;
+    let repository =
+        ProductDynamoDbRepositoryImpl::new(ddb_client, &get_cfn_output().dynamodb_table_1_name);
+    let record = Faker.fake::<ProductRecord>();
+    let insert_res = repository
+        .put_product_records([record.clone()].into())
+        .await
+        .unwrap();
+    assert!(insert_res.unprocessed_items.unwrap().is_empty());
+    tokio::time::sleep(Duration::from_secs(1)).await;
+
+    let url = format!(
+        "{}/api/v1/products/by-slug/{}/{}?currency=GBP",
+        get_cfn_output().api_gateway_endpoint_url,
+        record.shop_slug_id,
+        record.product_slug_id
     );
     let response = reqwest::get(url).await.unwrap();
 

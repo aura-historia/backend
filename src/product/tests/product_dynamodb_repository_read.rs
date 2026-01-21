@@ -193,6 +193,8 @@ mod query_product_record_and_event_records {
             event_id: Default::default(),
             timestamp: OffsetDateTime::now_utc(),
             payload: ProductEventPayload::Created(ProductCreatedEventPayload {
+                product_slug_id: expected_materialized.product_slug_id.clone(),
+                shop_slug_id: expected_materialized.shop_slug_id.clone(),
                 shop_id: expected_materialized.shop_id,
                 shops_product_id: expected_materialized.shops_product_id.clone(),
                 shop_name: expected_materialized.shop_name.clone().into(),
@@ -265,6 +267,8 @@ mod query_product_record_and_event_records {
             event_id: Default::default(),
             timestamp: OffsetDateTime::now_utc(),
             payload: ProductEventPayload::Created(ProductCreatedEventPayload {
+                product_slug_id: expected_materialized.product_slug_id.clone(),
+                shop_slug_id: expected_materialized.shop_slug_id.clone(),
                 shop_id: expected_materialized.shop_id,
                 shops_product_id: expected_materialized.shops_product_id.clone(),
                 shop_name: expected_materialized.shop_name.clone().into(),
@@ -356,7 +360,11 @@ mod batch_get_product_records {
             ProductRecord {
                 pk: product_record::mk_pk(&shop_id, &shops_product_id),
                 sk: product_record::mk_sk().to_string(),
+                gsi2_pk: Faker.fake(),
+                gsi2_sk: Faker.fake(),
                 product_id: ProductId::new(),
+                product_slug_id: Faker.fake(),
+                shop_slug_id: Faker.fake(),
                 event_id: EventId::new(),
                 shop_id,
                 shops_product_id: shops_product_id.clone(),
@@ -458,7 +466,11 @@ mod batch_get_product_records {
             ProductRecord {
                 pk: product_record::mk_pk(&shop_id, &shops_product_id),
                 sk: product_record::mk_sk().to_string(),
+                gsi2_pk: Faker.fake(),
+                gsi2_sk: Faker.fake(),
                 product_id: ProductId::new(),
+                product_slug_id: Faker.fake(),
+                shop_slug_id: Faker.fake(),
                 event_id: EventId::new(),
                 shop_id,
                 shops_product_id: shops_product_id.clone(),
@@ -561,7 +573,11 @@ mod batch_get_product_records {
             ProductRecord {
                 pk: product_record::mk_pk(&shop_id, &shops_product_id),
                 sk: product_record::mk_sk().to_string(),
+                gsi2_pk: Faker.fake(),
+                gsi2_sk: Faker.fake(),
                 product_id: ProductId::new(),
+                product_slug_id: Faker.fake(),
+                shop_slug_id: Faker.fake(),
                 event_id: EventId::new(),
                 shop_id,
                 shops_product_id: shops_product_id.clone(),
@@ -685,7 +701,11 @@ mod batch_exist_product_records {
             ProductRecord {
                 pk: product_record::mk_pk(&shop_id, &shops_product_id),
                 sk: product_record::mk_sk().to_string(),
+                gsi2_pk: Faker.fake(),
+                gsi2_sk: Faker.fake(),
                 product_id: ProductId::new(),
+                product_slug_id: Faker.fake(),
+                shop_slug_id: Faker.fake(),
                 event_id: EventId::new(),
                 shop_id,
                 shops_product_id: shops_product_id.clone(),
@@ -785,7 +805,11 @@ mod batch_exist_product_records {
             ProductRecord {
                 pk: product_record::mk_pk(&shop_id, &shops_product_id),
                 sk: product_record::mk_sk().to_string(),
+                gsi2_pk: Faker.fake(),
+                gsi2_sk: Faker.fake(),
                 product_id: ProductId::new(),
+                product_slug_id: Faker.fake(),
+                shop_slug_id: Faker.fake(),
                 event_id: EventId::new(),
                 shop_id,
                 shops_product_id: shops_product_id.clone(),
@@ -885,7 +909,11 @@ mod batch_exist_product_records {
             ProductRecord {
                 pk: product_record::mk_pk(&shop_id, &shops_product_id),
                 sk: product_record::mk_sk().to_string(),
+                gsi2_pk: Faker.fake(),
+                gsi2_sk: Faker.fake(),
                 product_id: ProductId::new(),
+                product_slug_id: Faker.fake(),
+                shop_slug_id: Faker.fake(),
                 event_id: EventId::new(),
                 shop_id,
                 shops_product_id: shops_product_id.clone(),
@@ -1004,7 +1032,11 @@ mod get_product_id {
         let record = ProductRecord {
             pk: product_record::mk_pk(&shop_id, &shops_product_id),
             sk: product_record::mk_sk().to_string(),
+            gsi2_pk: Faker.fake(),
+            gsi2_sk: Faker.fake(),
             product_id,
+            product_slug_id: Faker.fake(),
+            shop_slug_id: Faker.fake(),
             event_id: EventId::new(),
             shop_id,
             shops_product_id: shops_product_id.clone(),
@@ -1087,7 +1119,11 @@ mod get_product_id {
         let other = ProductRecord {
             pk: product_record::mk_pk(&shop_id, &shops_product_id),
             sk: product_record::mk_sk().to_string(),
+            gsi2_pk: Faker.fake(),
+            gsi2_sk: Faker.fake(),
             product_id: ProductId::new(),
+            product_slug_id: Faker.fake(),
+            shop_slug_id: Faker.fake(),
             event_id: EventId::new(),
             shop_id,
             shops_product_id: shops_product_id.clone(),
@@ -1159,5 +1195,45 @@ mod get_product_id {
             .unwrap();
 
         assert!(actual.is_none());
+    }
+}
+
+mod query_product_key {
+    use std::time::Duration;
+
+    use crate::get_repository;
+    use common::product_id::ProductKey;
+    use fake::{Fake, Faker};
+    use product::dynamodb::product_record::ProductRecord;
+    use product::dynamodb::repository::ProductDynamoDbRepository;
+    use test_api::*;
+
+    #[localstack_test(services = [DynamoDB()])]
+    async fn should_return_product_key_for_query_product_key_when_exists() {
+        let record = Faker.fake::<ProductRecord>();
+        get_dynamodb_client()
+            .await
+            .put_item()
+            .table_name("table_1")
+            .set_item(serde_dynamo::to_item(&record).ok())
+            .send()
+            .await
+            .unwrap();
+
+        // wait gsi
+        tokio::time::sleep(Duration::from_secs(1)).await;
+
+        let repository = get_repository().await;
+        let actual = repository
+            .query_product_key(&record.shop_slug_id, &record.product_slug_id)
+            .await
+            .unwrap()
+            .unwrap();
+
+        let expected = ProductKey {
+            shop_id: record.shop_id,
+            shops_product_id: record.shops_product_id,
+        };
+        assert_eq!(expected, actual);
     }
 }

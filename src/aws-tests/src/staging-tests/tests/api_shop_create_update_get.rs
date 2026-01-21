@@ -54,10 +54,26 @@ async fn should_create_update_get_shop() {
     );
     tokio::time::sleep(Duration::from_secs(1)).await;
 
+    // get by id
     let get_url = format!(
         "{}/api/v1/shops/{}",
         get_cfn_output().api_gateway_endpoint_url,
         created.shop_id
+    );
+    let response = reqwest::Client::new().get(get_url).send().await.unwrap();
+    assert_eq!(200, response.status());
+    let gotten = response.json::<GetShopData>().await.unwrap();
+    assert_eq!(updated.shop_id, gotten.shop_id);
+    assert_eq!(updated.name, gotten.name);
+    assert_eq!(updated.domains, gotten.domains);
+    assert_eq!(updated.image, gotten.image);
+    assert_eq!(updated.created, gotten.created);
+
+    // get by slug-id
+    let get_url = format!(
+        "{}/api/v1/shops/by-slug/{}",
+        get_cfn_output().api_gateway_endpoint_url,
+        created.shop_slug_id
     );
     let response = reqwest::Client::new().get(get_url).send().await.unwrap();
     assert_eq!(200, response.status());

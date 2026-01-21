@@ -1,13 +1,13 @@
-use common::{domain::Domain, shop_id::ShopId, shop_name::ShopName};
+use crate::core::shop_type::ShopType;
+use common::{domain::Domain, shop_id::ShopId, shop_name::ShopName, slug_id::SlugId};
 use std::collections::HashSet;
 use time::OffsetDateTime;
 use url::Url;
 
-use crate::core::shop_type::ShopType;
-
 #[derive(Debug, Clone, PartialEq)]
 pub struct Shop {
     pub shop_id: ShopId,
+    pub shop_slug_id: SlugId<0>,
     pub name: ShopName,
     pub shop_type: ShopType,
     pub domains: HashSet<Domain>,
@@ -23,9 +23,11 @@ mod faker {
 
     impl Dummy<Faker> for Shop {
         fn dummy_with_rng<R: Rng + ?Sized>(config: &Faker, rng: &mut R) -> Self {
+            let name: ShopName = config.fake_with_rng(rng);
             Shop {
                 shop_id: config.fake_with_rng(rng),
-                name: config.fake_with_rng(rng),
+                shop_slug_id: SlugId::from(name.as_ref()),
+                name,
                 shop_type: config.fake_with_rng(rng),
                 domains: [Faker.fake()].into(),
                 image: config.fake_with_rng(rng),

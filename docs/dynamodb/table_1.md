@@ -21,7 +21,7 @@
     - the `ShopId`
     - any of the shops domains
   - SK is constant `details`
-  - Partitions must be kept strictly in sync (`TransactWriteItems`) 
+  - Partitions must be kept strictly in sync (`TransactWriteItems`)
 
 #### User
 
@@ -38,8 +38,8 @@
 - Sparse (globally)
 - SK is `lsi_sk`
 - User
-  - Uses it for sorting by creation-timestamp of watchlist-entries 
-  - Sets SK as that exact timestamp  
+  - Uses it for sorting by creation-timestamp of watchlist-entries
+  - Sets SK as that exact timestamp
 
 ## Global Secondary Indexes
 
@@ -51,9 +51,23 @@
 - PK is `gsi1_pk`
 - SK is `gsi1_sk`
 - User
-  - PK is `ProductId` 
-  - SK is `UserId` 
+  - PK is `ProductId`
+  - SK is `UserId`
   - Uses it to query all users that have notifications for a product on their watchlist activated
   - SK is sparse locally - it's only set if a product is on the users watchlist **and** notifications are activated
   - This invariant must always hold - crucial for inserts/updates of watchlist-products
 
+### GSI2: `gsi2`
+
+- Sparse (globally)
+- PK is `gsi2_pk`
+- SK is `gsi2_sk`
+- Project keys-only
+- Product
+  - PK is `ShopSlugId + ProductSlugId`
+  - SK is constant
+  - Used for looking up `ShopId` and `ShopsProductId` from `pk` for given `ShopSlugId` and `ProductSlugId`
+- Shop
+  - PK is `ShopSlugId`
+  - SK is constant
+  - Used for looking up `ShopId` from `pk` for given `ShopSlugId`

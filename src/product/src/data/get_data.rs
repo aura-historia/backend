@@ -13,6 +13,7 @@ use common::price::data::PriceData;
 use common::product_id::{ProductId, ProductKey};
 use common::shop_id::ShopId;
 use common::shops_product_id::ShopsProductId;
+use common::slug_id::SlugId;
 use common::year::Year;
 use serde::{Deserialize, Serialize};
 use shop::data::shop_type_data::ShopTypeData;
@@ -23,15 +24,12 @@ use url::Url;
 #[serde(rename_all = "camelCase")]
 pub struct GetProductData {
     pub product_id: ProductId,
-
+    pub product_slug_id: SlugId<6>,
+    pub shop_slug_id: SlugId<0>,
     pub event_id: EventId,
-
     pub shop_id: ShopId,
-
     pub shops_product_id: ShopsProductId,
-
     pub shop_name: String,
-
     pub shop_type: ShopTypeData,
 
     pub title: LocalizedTextData,
@@ -109,6 +107,8 @@ impl From<LocalizedProductView> for GetProductData {
     fn from(product_view: LocalizedProductView) -> Self {
         GetProductData {
             product_id: product_view.product_id,
+            product_slug_id: product_view.product_slug_id,
+            shop_slug_id: product_view.shop_slug_id,
             event_id: product_view.event_id,
             shop_id: product_view.shop_id,
             shops_product_id: product_view.shops_product_id,
@@ -191,6 +191,7 @@ mod tests {
         product_id::ProductId,
         shop_id::ShopId,
         shops_product_id::ShopsProductId,
+        slug_id::SlugId,
     };
     use serde_json::json;
     use shop::data::shop_type_data::ShopTypeData;
@@ -205,6 +206,8 @@ mod tests {
         let shops_product_id = ShopsProductId::new();
         let dto = GetProductData {
             product_id,
+            product_slug_id: SlugId::raw("beedel-beep-bap-fa87c45d"),
+            shop_slug_id: "my-shop".into(),
             event_id,
             shop_id,
             shops_product_id: shops_product_id.clone(),
@@ -272,6 +275,8 @@ mod tests {
 
         let expected = json!({
             "productId": product_id,
+            "productSlugId": "beedel-beep-bap-fa87c45d",
+            "shopSlugId": "my-shop",
             "eventId": event_id,
             "shopId": shop_id,
             "shopsProductId": shops_product_id,

@@ -192,6 +192,10 @@ Resources:
           AttributeType: S
         - AttributeName: gsi1_sk
           AttributeType: S
+        - AttributeName: gsi2_pk
+          AttributeType: S
+        - AttributeName: gsi2_sk
+          AttributeType: S
       KeySchema:
         - AttributeName: pk
           KeyType: HASH
@@ -215,6 +219,14 @@ Resources:
               KeyType: RANGE
           Projection:
             ProjectionType: ALL
+        - IndexName: gsi2
+          KeySchema:
+            - AttributeName: gsi2_pk
+              KeyType: HASH
+            - AttributeName: gsi2_sk
+              KeyType: RANGE
+          Projection:
+            ProjectionType: KEYS_ONLY
       BillingMode: PAY_PER_REQUEST
       TableClass: STANDARD
       StreamSpecification:
@@ -508,11 +520,17 @@ Resources:
       AlarmActions:
         - !Ref AlarmNotificationTopic
 
-  ApiGetProductRoute:
+  ApiGetProductByShopIdAndShopsProductIdRoute:
     Type: AWS::ApiGatewayV2::Route
     Properties:
       ApiId: !Ref Api
       RouteKey: "GET /api/v1/products/{shopId}/{shopsProductId}"
+      Target: !Sub "integrations/${ApiGetProductLambdaIntegration}"
+  ApiGetProductByShopSlugIdAndProductSlugIdRoute:
+    Type: AWS::ApiGatewayV2::Route
+    Properties:
+      ApiId: !Ref Api
+      RouteKey: "GET /api/v1/products/by-slug/{shopSlugId}/{productSlugId}"
       Target: !Sub "integrations/${ApiGetProductLambdaIntegration}"
   ApiGetProductLambdaIntegration:
     Type: AWS::ApiGatewayV2::Integration
@@ -544,7 +562,9 @@ Resources:
                   - dynamodb:GetItem
                   - dynamodb:BatchGetItem
                   - dynamodb:Query
-                Resource: !GetAtt TableOne.Arn
+                Resource:
+                  - !GetAtt TableOne.Arn
+                  - !Sub "${TableOne.Arn}/index/*"
   ApiGetProductLambda:
     Type: AWS::Lambda::Function
     Properties:
@@ -572,7 +592,7 @@ Resources:
       Action: lambda:InvokeFunction
       FunctionName: !Ref ApiGetProductLambda
       Principal: apigateway.amazonaws.com
-      SourceArn: !Sub "arn:aws:execute-api:${AWS::Region}:${AWS::AccountId}:${Api}/*/*/api/v1/products/*/*"
+      SourceArn: !Sub "arn:aws:execute-api:${AWS::Region}:${AWS::AccountId}:${Api}/*/*/api/v1/products/*"
   ApiGetProductLambdaErrorAlarm:
     Type: AWS::CloudWatch::Alarm
     Properties:
@@ -1606,11 +1626,17 @@ Resources:
       AlarmActions:
         - !Ref AlarmNotificationTopic
 
-  ApiGetShopRoute:
+  ApiGetShopByShopIdentifierRoute:
     Type: AWS::ApiGatewayV2::Route
     Properties:
       ApiId: !Ref Api
       RouteKey: "GET /api/v1/shops/{shopIdentifier}"
+      Target: !Sub "integrations/${ApiGetShopLambdaIntegration}"
+  ApiGetShopByShopSlugIdRoute:
+    Type: AWS::ApiGatewayV2::Route
+    Properties:
+      ApiId: !Ref Api
+      RouteKey: "GET /api/v1/shops/by-slug/{shopSlugId}"
       Target: !Sub "integrations/${ApiGetShopLambdaIntegration}"
   ApiGetShopLambdaIntegration:
     Type: AWS::ApiGatewayV2::Integration
@@ -1642,7 +1668,9 @@ Resources:
                   - dynamodb:GetItem
                   - dynamodb:BatchGetItem
                   - dynamodb:Query
-                Resource: !GetAtt TableOne.Arn
+                Resource:
+                  - !GetAtt TableOne.Arn
+                  - !Sub "${TableOne.Arn}/index/*"
   ApiGetShopLambda:
     Type: AWS::Lambda::Function
     Properties:

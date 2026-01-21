@@ -25,6 +25,7 @@ use common::price::record::PriceRecord;
 use common::product_id::{ProductId, ProductKey};
 use common::shop_id::ShopId;
 use common::shops_product_id::ShopsProductId;
+use common::slug_id::SlugId;
 use common::year::{Year, YearRange};
 use field::field;
 use serde::{Deserialize, Serialize};
@@ -38,7 +39,12 @@ use url::Url;
 pub struct ProductRecord {
     pub pk: String,
     pub sk: String,
+    pub gsi2_pk: String,
+    pub gsi2_sk: String,
+
     pub product_id: ProductId,
+    pub product_slug_id: SlugId<6>,
+    pub shop_slug_id: SlugId<0>,
     pub event_id: EventId,
     pub shop_id: ShopId,
     pub shops_product_id: ShopsProductId,
@@ -158,6 +164,14 @@ pub fn mk_sk() -> &'static str {
     "product#materialized"
 }
 
+pub fn mk_gsi2_pk(shop_slug_id: &SlugId<0>, product_slug_id: &SlugId<6>) -> String {
+    format!("shop_slug_id#{shop_slug_id}#product_slug_id#{product_slug_id}")
+}
+
+pub fn mk_gsi2_sk() -> &'static str {
+    "lookup#shop_id#shops_product_id"
+}
+
 impl HasKey for ProductRecord {
     type Key = ProductKey;
 
@@ -249,6 +263,8 @@ impl From<ProductRecord> for Product {
 
         Product {
             product_id: record.product_id,
+            product_slug_id: record.product_slug_id,
+            shop_slug_id: record.shop_slug_id,
             event_id: record.event_id,
             shop_id: record.shop_id,
             shops_product_id: record.shops_product_id,
@@ -295,10 +311,20 @@ impl TryFrom<ProductEventRecord> for ProductRecord {
     type Error = PersistenceMappingError;
 
     fn try_from(event_record: ProductEventRecord) -> Result<Self, Self::Error> {
+        let product_slug_id = event_record.product_slug_id.ok_or_else(|| {
+            MissingPersistenceField::new(field!(product_slug_id@ProductEventRecord))
+        })?;
+        let shop_slug_id = event_record
+            .shop_slug_id
+            .ok_or_else(|| MissingPersistenceField::new(field!(shop_slug_id@ProductEventRecord)))?;
         let record = ProductRecord {
             pk: event_record.pk,
             sk: mk_sk().to_string(),
+            gsi2_pk: mk_gsi2_pk(&shop_slug_id, &product_slug_id),
+            gsi2_sk: mk_gsi2_sk().to_owned(),
             product_id: event_record.product_id,
+            product_slug_id,
+            shop_slug_id,
             event_id: event_record.event_id,
             shop_id: event_record.shop_id,
             shops_product_id: event_record.shops_product_id,
@@ -371,7 +397,6 @@ mod faker {
     use crate::core::description::Description;
     use crate::core::title::Title;
     use common::price::domain::MonetaryAmount;
-    use common::shop_name::ShopName;
     use fake::{Dummy, Fake, Faker, Rng};
 
     impl Dummy<Faker> for ProductRecord {
@@ -390,19 +415,27 @@ mod faker {
                 None
             };
 
+            let title_native = TextRecord::new(
+                config.fake_with_rng::<Title, _>(rng).to_string(),
+                config.fake_with_rng(rng),
+            );
+            let shop_name = config.fake_with_rng(rng);
+            let shop_slug_id = SlugId::from(&shop_name);
+            let product_slug_id = SlugId::from(&title_native.text);
             ProductRecord {
                 pk: mk_pk(&shop_id, &shops_product_id),
                 sk: mk_sk().to_string(),
+                gsi2_pk: mk_gsi2_pk(&shop_slug_id, &product_slug_id),
+                gsi2_sk: mk_gsi2_sk().to_owned(),
                 product_id: config.fake_with_rng(rng),
+                product_slug_id,
+                shop_slug_id,
                 event_id: config.fake_with_rng(rng),
                 shop_id,
                 shops_product_id: shops_product_id.clone(),
-                shop_name: config.fake_with_rng::<ShopName, _>(rng).into(),
+                shop_name,
                 shop_type: config.fake_with_rng(rng),
-                title_native: TextRecord::new(
-                    config.fake_with_rng::<Title, _>(rng).to_string(),
-                    config.fake_with_rng(rng),
-                ),
+                title_native,
                 title_de: Some(config.fake_with_rng::<Title, _>(rng).to_string()),
                 title_en: Some(config.fake_with_rng::<Title, _>(rng).to_string()),
                 title_fr: Some(config.fake_with_rng::<Title, _>(rng).to_string()),

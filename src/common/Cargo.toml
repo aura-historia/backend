@@ -18,6 +18,7 @@ tracing = { workspace = true }
 itertools = { workspace = true }
 strum = { workspace = true }
 strum_macros = { workspace = true }
+slug = { workspace = true }
 
 # Optional dependencies via feature-flags
 aws-config = { workspace = true, optional = true }

@@ -1,5 +1,5 @@
 use crate::dynamodb::{
-    shop_record::{ShopRecord, mk_pk, mk_pk_as_shop_domain, mk_pk_as_shop_id},
+    shop_record::{self, ShopRecord, mk_pk, mk_pk_as_shop_domain, mk_pk_as_shop_id},
     shop_record_update::ShopRecordUpdate,
 };
 use aws_sdk_dynamodb::{
@@ -10,6 +10,7 @@ use aws_sdk_dynamodb::{
         batch_get_item::BatchGetItemError,
         get_item::GetItemError,
         put_item::{PutItemError, PutItemOutput},
+        query::QueryError,
         transact_write_items::{TransactWriteItemsError, TransactWriteItemsOutput},
     },
     types::{AttributeValue, Delete, KeysAndAttributes, Put, TransactWriteItem, Update},
@@ -19,6 +20,7 @@ use common::{
     domain::Domain,
     dynamodb_update::DynamoDbUpdate,
     shop_id::{ShopId, ShopIdentifier},
+    slug_id::SlugId,
 };
 use std::collections::HashMap;
 use tracing::error;
@@ -48,6 +50,11 @@ pub trait ShopDynamoDbRepository {
         &self,
         shop_domain: &Domain,
     ) -> Result<Option<ShopRecord>, SdkError<GetItemError, HttpResponse>>;
+
+    async fn query_shop_id(
+        &self,
+        shop_slug_id: &SlugId<0>,
+    ) -> Result<Option<ShopId>, SdkError<QueryError, HttpResponse>>;
 
     async fn get_shop_records(
         &self,
@@ -221,6 +228,47 @@ impl<'a> ShopDynamoDbRepository for ShopDynamoDbRepositoryImpl<'a> {
             });
 
         Ok(rec)
+    }
+
+    async fn query_shop_id(
+        &self,
+        shop_slug_id: &SlugId<0>,
+    ) -> Result<Option<ShopId>, SdkError<QueryError, HttpResponse>> {
+        self.client
+            .query()
+            .table_name(&self.table)
+            .index_name("gsi2")
+            .key_condition_expression("#gsi2_pk = :gsi2_pk_val AND #gsi2_sk = :gsi2_sk_val")
+            .expression_attribute_names("#gsi2_pk", "gsi2_pk")
+            .expression_attribute_names("#gsi2_sk", "gsi2_sk")
+            .expression_attribute_values(
+                ":gsi2_pk_val",
+                AttributeValue::S(shop_record::mk_gsi2_pk(shop_slug_id)),
+            )
+            .expression_attribute_values(
+                ":gsi2_sk_val",
+                AttributeValue::S(shop_record::mk_gsi2_sk().to_owned()),
+            )
+            .limit(1)
+            .send()
+            .await?
+            .items
+            .unwrap_or_default()
+            .into_iter()
+            .next()
+            .map(|mut attr_map| {
+                attr_map
+                    .remove("pk")
+                    .ok_or(SdkError::construction_failure(format!(
+                    "DynamoDB Response attribute-map did not contain field 'pk' when querying gsi2 for shop_slug_id '{shop_slug_id}'"
+                )))
+            })
+            .transpose()?
+            .map(|v| v.as_s().expect("shouldn't fail extracting 'pk' as String because PKs are always Strings for us").clone())
+            .map(|s| s.trim_start_matches("shop#shop_id#").to_owned())
+            .map(ShopId::try_from)
+            .transpose()
+            .map_err(SdkError::construction_failure)
     }
 
     async fn get_shop_records(

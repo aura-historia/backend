@@ -8,6 +8,12 @@
             "productId": {
                 "type": "keyword"
             },
+            "productSlugId": {
+                "type": "keyword"
+            },
+            "shopSlugId": {
+                "type": "keyword"
+            },
             "eventId": {
                 "type": "keyword"
             },

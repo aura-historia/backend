@@ -22,6 +22,7 @@ use common::product_state::domain::ProductState;
 use common::shop_id::ShopId;
 use common::shop_name::ShopName;
 use common::shops_product_id::ShopsProductId;
+use common::slug_id::SlugId;
 use field::field;
 use serde::{Deserialize, Serialize};
 use serde_fields::SerdeField;
@@ -36,6 +37,11 @@ pub struct ProductEventRecord {
     pub pk: String,
     pub sk: String,
     pub product_id: ProductId,
+
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub product_slug_id: Option<SlugId<6>>,
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub shop_slug_id: Option<SlugId<0>>,
     pub event_id: EventId,
     pub event_type: ProductEventTypeRecord,
     pub event_type_schema_version: u8,
@@ -258,6 +264,8 @@ impl TryFrom<ProductEvent> for ProductEventRecord {
                     pk,
                     sk,
                     product_id,
+                    product_slug_id: Some(payload.product_slug_id),
+                    shop_slug_id: Some(payload.shop_slug_id),
                     event_id,
                     event_type,
                     event_type_schema_version: 0,
@@ -471,6 +479,8 @@ impl TryFrom<ProductEvent> for ProductEventRecord {
                 pk,
                 sk,
                 product_id,
+                product_slug_id: None,
+                shop_slug_id: None,
                 event_id,
                 event_type,
                 event_type_schema_version: 0,
@@ -574,6 +584,8 @@ impl TryFrom<ProductEvent> for ProductEventRecord {
                 pk,
                 sk,
                 product_id,
+                shop_slug_id: None,
+                product_slug_id: None,
                 event_id,
                 event_type,
                 event_type_schema_version: 0,
@@ -672,6 +684,8 @@ fn mk_state_event_record(
         pk,
         sk,
         product_id,
+        product_slug_id: None,
+        shop_slug_id: None,
         event_id,
         event_type,
         event_type_schema_version: 0,
@@ -743,6 +757,8 @@ fn mk_price_change_event_record(
         pk,
         sk,
         product_id,
+        shop_slug_id: None,
+        product_slug_id: None,
         event_id,
         event_type,
         event_type_schema_version: 0,
@@ -939,6 +955,14 @@ impl TryFrom<ProductEventRecord> for ProductEvent {
             payload: match record.event_type {
                 ProductEventTypeRecord::Created => {
                     ProductEventPayload::Created(ProductCreatedEventPayload {
+                        product_slug_id: record.product_slug_id.ok_or(
+                            MissingPersistenceField::new(
+                                field!(product_slug_id@ProductEventRecord),
+                            ),
+                        )?,
+                        shop_slug_id: record.shop_slug_id.ok_or(MissingPersistenceField::new(
+                            field!(shop_slug_id@ProductEventRecord),
+                        ))?,
                         shop_id,
                         shops_product_id,
                         shop_name: record.shop_name.map(ShopName::from).ok_or(

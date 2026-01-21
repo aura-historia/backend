@@ -33,6 +33,7 @@ pub mod serde;
 pub mod shop_id;
 pub mod shop_name;
 pub mod shops_product_id;
+pub mod slug_id;
 pub mod sort;
 pub mod user_id;
 pub mod year;

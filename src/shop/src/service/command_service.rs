@@ -12,6 +12,7 @@ use common::{
     batch::{Batch, BatchConstructionError},
     shop_id::{ShopId, ShopIdentifier},
     shop_name::ShopName,
+    slug_id::SlugId,
 };
 use std::collections::HashMap;
 use time::OffsetDateTime;
@@ -122,6 +123,7 @@ impl<'a> CommandShopService for CommandShopServiceImpl<'a> {
 
         let shop = Shop {
             shop_id: ShopId::new(),
+            shop_slug_id: SlugId::from(command.name.as_ref()),
             name: command.name,
             shop_type: command.shop_type,
             domains: command.domains,
@@ -231,7 +233,10 @@ impl<'a> CommandShopService for CommandShopServiceImpl<'a> {
             let new_shop_domain_record = ShopRecord {
                 pk: mk_pk_as_shop_domain(&new_domain),
                 sk: "shop#details".to_owned(),
+                gsi2_pk: None,
+                gsi2_sk: None,
                 shop_id: shop_record.shop_id,
+                shop_slug_id: shop_record.shop_slug_id.clone(),
                 name: update_record
                     .name
                     .clone()
@@ -253,19 +258,14 @@ impl<'a> CommandShopService for CommandShopServiceImpl<'a> {
 
         Ok(Shop {
             shop_id: shop_record.shop_id,
-            name: update_record
-                .name
-                .clone()
-                .unwrap_or(shop_record.name.clone()),
+            shop_slug_id: shop_record.shop_slug_id,
+            name: update_record.name.unwrap_or(shop_record.name),
             shop_type: update_record
                 .shop_type
                 .map(Into::into)
                 .unwrap_or(shop_record.shop_type.into()),
-            domains: update_record
-                .domains
-                .clone()
-                .unwrap_or(shop_record.domains.clone()),
-            image: update_record.image.clone().or(shop_record.image.clone()),
+            domains: update_record.domains.unwrap_or(shop_record.domains),
+            image: update_record.image.or(shop_record.image),
             created: shop_record.created,
             updated: OffsetDateTime::now_utc(),
         })

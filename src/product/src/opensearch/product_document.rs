@@ -12,6 +12,7 @@ use common::language::document::TextDocument;
 use common::product_id::{ProductId, ProductKey};
 use common::shop_id::ShopId;
 use common::shops_product_id::ShopsProductId;
+use common::slug_id::SlugId;
 use common::year::Year;
 use common::{event_id::EventId, has_key::HasKey};
 use field::field;
@@ -25,6 +26,8 @@ use url::Url;
 #[serde(rename_all = "camelCase")]
 pub struct ProductDocument {
     pub product_id: ProductId,
+    pub product_slug_id: SlugId<6>,
+    pub shop_slug_id: SlugId<0>,
     pub event_id: EventId,
     pub shop_id: ShopId,
     pub shops_product_id: ShopsProductId,
@@ -159,6 +162,12 @@ impl TryFrom<ProductEventRecord> for ProductDocument {
             .ok_or_else(|| MissingPersistenceField::new(field!(new_state@ProductEventRecord)))?;
         let document = ProductDocument {
             product_id: event_record.product_id,
+            product_slug_id: event_record.product_slug_id.ok_or_else(|| {
+                MissingPersistenceField::new(field!(product_slug_id@ProductEventRecord))
+            })?,
+            shop_slug_id: event_record.shop_slug_id.ok_or_else(|| {
+                MissingPersistenceField::new(field!(shop_slug_id@ProductEventRecord))
+            })?,
             event_id: event_record.event_id,
             shop_id: event_record.shop_id,
             shops_product_id: event_record.shops_product_id,
@@ -231,6 +240,8 @@ impl From<ProductRecord> for ProductDocument {
     fn from(record: ProductRecord) -> Self {
         ProductDocument {
             product_id: record.product_id,
+            product_slug_id: record.product_slug_id,
+            shop_slug_id: record.shop_slug_id,
             event_id: record.event_id,
             shop_id: record.shop_id,
             shops_product_id: record.shops_product_id,
@@ -304,7 +315,6 @@ mod faker {
     use crate::core::description::Description;
     use crate::core::title::Title;
     use common::price::domain::MonetaryAmount;
-    use common::shop_name::ShopName;
     use fake::{Dummy, Fake, Faker, Rng};
 
     impl Dummy<Faker> for ProductDocument {
@@ -317,17 +327,21 @@ mod faker {
             } else {
                 None
             };
+            let title_native = TextDocument {
+                text: config.fake_with_rng::<Title, _>(rng).to_string(),
+                language: config.fake_with_rng(rng),
+            };
+            let shop_name: String = config.fake_with_rng(rng);
             ProductDocument {
                 product_id: config.fake_with_rng(rng),
+                product_slug_id: SlugId::from(&title_native.text),
+                shop_slug_id: SlugId::from(&shop_name),
                 event_id: config.fake_with_rng(rng),
                 shop_id: config.fake_with_rng(rng),
                 shops_product_id: config.fake_with_rng(rng),
-                shop_name: config.fake_with_rng::<ShopName, _>(rng).into(),
+                shop_name,
                 shop_type: config.fake_with_rng(rng),
-                title_native: TextDocument {
-                    text: config.fake_with_rng::<Title, _>(rng).to_string(),
-                    language: config.fake_with_rng(rng),
-                },
+                title_native,
                 title_de: Some(config.fake_with_rng::<Title, _>(rng).to_string()),
                 title_en: Some(config.fake_with_rng::<Title, _>(rng).to_string()),
                 title_fr: Some(config.fake_with_rng::<Title, _>(rng).to_string()),

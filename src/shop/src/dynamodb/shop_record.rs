@@ -4,6 +4,7 @@ use common::{
     domain::Domain,
     shop_id::{ShopId, ShopIdentifier},
     shop_name::ShopName,
+    slug_id::SlugId,
 };
 use serde::{Deserialize, Serialize};
 use std::collections::HashSet;
@@ -14,7 +15,12 @@ use url::Url;
 pub struct ShopRecord {
     pub pk: String,
     pub sk: String,
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub gsi2_pk: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub gsi2_sk: Option<String>,
     pub shop_id: ShopId,
+    pub shop_slug_id: SlugId<0>,
     pub name: ShopName,
     pub shop_type: ShopTypeRecord,
 
@@ -50,12 +56,23 @@ pub fn mk_pk_as_shop_domain(domain: &Domain) -> String {
     format!("shop#domain#{}", domain.as_str().to_lowercase())
 }
 
+pub fn mk_gsi2_pk(shop_slug_id: &SlugId<0>) -> String {
+    format!("shop_slug_id#{shop_slug_id}")
+}
+
+pub fn mk_gsi2_sk() -> &'static str {
+    "lookup#shop_id"
+}
+
 impl ShopRecord {
     pub fn from_shop_as_shop_id_record(shop: Shop) -> ShopRecord {
         ShopRecord {
             pk: mk_pk_as_shop_id(&shop.shop_id),
             sk: "shop#details".to_owned(),
+            gsi2_pk: Some(mk_gsi2_pk(&shop.shop_slug_id)),
+            gsi2_sk: Some(mk_gsi2_sk().to_owned()),
             shop_id: shop.shop_id,
+            shop_slug_id: shop.shop_slug_id,
             domain: None,
             name: shop.name,
             shop_type: shop.shop_type.into(),
@@ -72,7 +89,10 @@ impl ShopRecord {
             .map(|domain| ShopRecord {
                 pk: mk_pk_as_shop_domain(domain),
                 sk: "shop#details".to_owned(),
+                gsi2_pk: None,
+                gsi2_sk: None,
                 shop_id: shop.shop_id,
+                shop_slug_id: shop.shop_slug_id.clone(),
                 name: shop.name.clone(),
                 shop_type: shop.shop_type.into(),
                 domain: Some(domain.clone()),
@@ -98,15 +118,16 @@ impl ShopRecord {
 }
 
 impl From<ShopRecord> for Shop {
-    fn from(document: ShopRecord) -> Self {
+    fn from(record: ShopRecord) -> Self {
         Shop {
-            shop_id: document.shop_id,
-            name: document.name,
-            shop_type: document.shop_type.into(),
-            domains: document.domains,
-            image: document.image,
-            created: document.created,
-            updated: document.updated,
+            shop_id: record.shop_id,
+            shop_slug_id: record.shop_slug_id,
+            name: record.name,
+            shop_type: record.shop_type.into(),
+            domains: record.domains,
+            image: record.image,
+            created: record.created,
+            updated: record.updated,
         }
     }
 }
