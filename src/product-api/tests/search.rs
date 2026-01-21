@@ -113,7 +113,7 @@ async fn should_200_when_following_search_after_from_previous_response_for_sort_
         .unwrap();
     assert!(!create_res.errors);
     refresh_index("products").await;
-    tokio::time::sleep(std::time::Duration::from_secs(10)).await;
+    tokio::time::sleep(std::time::Duration::from_secs(3)).await;
 
     let sorter = |l: &ProductDocument, r: &ProductDocument| match l
         .price_eur
@@ -255,7 +255,7 @@ async fn should_200_when_following_search_after_from_previous_response_for_sort_
         .unwrap();
     assert!(!create_res.errors);
     refresh_index("products").await;
-    tokio::time::sleep(std::time::Duration::from_secs(10)).await;
+    tokio::time::sleep(std::time::Duration::from_secs(3)).await;
 
     let sorter = |l: &ProductDocument, r: &ProductDocument| match l
         .price_eur
@@ -401,7 +401,7 @@ async fn should_200_when_following_search_after_from_previous_response_for_impli
         .unwrap();
     assert!(!create_res.errors);
     refresh_index("products").await;
-    tokio::time::sleep(std::time::Duration::from_secs(10)).await;
+    tokio::time::sleep(std::time::Duration::from_secs(3)).await;
 
     // first request
     let lambda_event_1 = LambdaEvent {
@@ -510,7 +510,7 @@ async fn should_200_when_following_search_after_from_previous_response_for_expli
         .unwrap();
     assert!(!create_res.errors);
     refresh_index("products").await;
-    tokio::time::sleep(std::time::Duration::from_secs(10)).await;
+    tokio::time::sleep(std::time::Duration::from_secs(3)).await;
 
     // first request
     let lambda_event_1 = LambdaEvent {
@@ -624,7 +624,7 @@ async fn should_200_when_following_search_after_from_previous_response_for_sort_
         .unwrap();
     assert!(!create_res.errors);
     refresh_index("products").await;
-    tokio::time::sleep(std::time::Duration::from_secs(10)).await;
+    tokio::time::sleep(std::time::Duration::from_secs(3)).await;
 
     // first request
     let lambda_event_1 = LambdaEvent {
@@ -749,7 +749,7 @@ async fn should_200_when_following_search_after_from_previous_response_for_sort_
         .unwrap();
     assert!(!create_res.errors);
     refresh_index("products").await;
-    tokio::time::sleep(std::time::Duration::from_secs(10)).await;
+    tokio::time::sleep(std::time::Duration::from_secs(3)).await;
 
     // first request
     let lambda_event_1 = LambdaEvent {
@@ -892,7 +892,7 @@ async fn should_200_when_created_query(
         .unwrap();
     assert!(!create_res.errors);
     refresh_index("products").await;
-    tokio::time::sleep(std::time::Duration::from_secs(10)).await;
+    tokio::time::sleep(std::time::Duration::from_secs(3)).await;
 
     let response = handle(
         lambda_event,
@@ -988,7 +988,7 @@ async fn should_200_when_updated_query(
         .unwrap();
     assert!(!create_res.errors);
     refresh_index("products").await;
-    tokio::time::sleep(std::time::Duration::from_secs(10)).await;
+    tokio::time::sleep(std::time::Duration::from_secs(3)).await;
 
     let response = handle(
         lambda_event,
@@ -1084,7 +1084,7 @@ async fn should_200_when_year_query(#[case] min: Option<Year>, #[case] max: Opti
         .unwrap();
     assert!(!create_res.errors);
     refresh_index("products").await;
-    tokio::time::sleep(std::time::Duration::from_secs(10)).await;
+    tokio::time::sleep(std::time::Duration::from_secs(3)).await;
 
     let response = handle(
         lambda_event,
@@ -1181,7 +1181,7 @@ async fn should_200_when_authenticity_query(#[case] query: HashSet<AuthenticityD
         .unwrap();
     assert!(!create_res.errors);
     refresh_index("products").await;
-    tokio::time::sleep(std::time::Duration::from_secs(10)).await;
+    tokio::time::sleep(std::time::Duration::from_secs(3)).await;
 
     let response = handle(
         lambda_event,
@@ -1269,7 +1269,7 @@ async fn should_200_when_condition_query(#[case] query: HashSet<ConditionData>) 
         .unwrap();
     assert!(!create_res.errors);
     refresh_index("products").await;
-    tokio::time::sleep(std::time::Duration::from_secs(10)).await;
+    tokio::time::sleep(std::time::Duration::from_secs(3)).await;
 
     let response = handle(
         lambda_event,
@@ -1355,7 +1355,7 @@ async fn should_200_when_provenance_query(#[case] query: HashSet<ProvenanceData>
         .unwrap();
     assert!(!create_res.errors);
     refresh_index("products").await;
-    tokio::time::sleep(std::time::Duration::from_secs(10)).await;
+    tokio::time::sleep(std::time::Duration::from_secs(3)).await;
 
     let response = handle(
         lambda_event,
@@ -1441,7 +1441,7 @@ async fn should_200_when_restoration_query(#[case] query: HashSet<RestorationDat
         .unwrap();
     assert!(!create_res.errors);
     refresh_index("products").await;
-    tokio::time::sleep(std::time::Duration::from_secs(10)).await;
+    tokio::time::sleep(std::time::Duration::from_secs(3)).await;
 
     let response = handle(
         lambda_event,
@@ -1516,7 +1516,7 @@ async fn should_200_personalized_when_authenticated_and_not_watching() {
         .unwrap();
     assert!(!create_res.errors);
     refresh_index("products").await;
-    tokio::time::sleep(std::time::Duration::from_secs(10)).await;
+    tokio::time::sleep(std::time::Duration::from_secs(3)).await;
 
     let response = handle(
         lambda_event,
@@ -1790,7 +1790,7 @@ async fn should_200_when_shop_type_query(#[case] query: HashSet<ShopTypeData>) {
         .unwrap();
     assert!(!create_res.errors);
     refresh_index("products").await;
-    tokio::time::sleep(std::time::Duration::from_secs(10)).await;
+    tokio::time::sleep(std::time::Duration::from_secs(3)).await;
 
     let response = handle(
         lambda_event,
@@ -1883,7 +1883,7 @@ async fn should_200_when_shop_name_query_for_keyword_filter(#[case] query: HashS
         .unwrap();
     assert!(!create_res.errors);
     refresh_index("products").await;
-    tokio::time::sleep(std::time::Duration::from_secs(10)).await;
+    tokio::time::sleep(std::time::Duration::from_secs(3)).await;
 
     let response = handle(
         lambda_event,
@@ -1977,7 +1977,7 @@ async fn should_200_when_exclude_shop_name_query(#[case] query: HashSet<&str>) {
         .unwrap();
     assert!(!create_res.errors);
     refresh_index("products").await;
-    tokio::time::sleep(std::time::Duration::from_secs(10)).await;
+    tokio::time::sleep(std::time::Duration::from_secs(3)).await;
 
     let response = handle(
         lambda_event,
@@ -2060,7 +2060,7 @@ async fn should_200_when_auction_start_range_is_given() {
         .unwrap();
     assert!(!create_res.errors);
     refresh_index("products").await;
-    tokio::time::sleep(std::time::Duration::from_secs(10)).await;
+    tokio::time::sleep(std::time::Duration::from_secs(3)).await;
 
     let lambda_event = LambdaEvent {
         payload: ApiGatewayV2httpRequestProxy::builder()
