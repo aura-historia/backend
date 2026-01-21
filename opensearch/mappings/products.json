@@ -11,6 +11,9 @@
             "productSlugId": {
                 "type": "keyword"
             },
+            "shopSlugId": {
+                "type": "keyword"
+            },
             "eventId": {
                 "type": "keyword"
             },

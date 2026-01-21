@@ -62,7 +62,7 @@ mod tests {
 
         let expected = json!({
             "shopId": datum.shop_id.to_string(),
-            "productSlugId": "woaah-co-ltd",
+            "shopSlugId": "woaah-co-ltd",
             "name": "Woaah & Co. Ltd.",
             "shopType": "COMMERCIAL_DEALER",
             "domains": ["woaah.co.ltd.com"],

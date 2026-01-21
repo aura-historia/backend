@@ -530,7 +530,7 @@ Resources:
     Type: AWS::ApiGatewayV2::Route
     Properties:
       ApiId: !Ref Api
-      RouteKey: "GET /api/v1/products/{shopSlugId}/{productSlugId}"
+      RouteKey: "GET /api/v1/products/by-slug/{shopSlugId}/{productSlugId}"
       Target: !Sub "integrations/${ApiGetProductLambdaIntegration}"
   ApiGetProductLambdaIntegration:
     Type: AWS::ApiGatewayV2::Integration

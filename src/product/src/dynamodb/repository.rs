@@ -488,7 +488,7 @@ impl<'a> ProductDynamoDbRepository for ProductDynamoDbRepositoryImpl<'a> {
                 attr_map
                     .remove("pk")
                     .ok_or(SdkError::construction_failure(format!(
-                    "DynamoDB Reponse attribute-map did not contain field 'pk' when querying gsi2
+                    "DynamoDB Response attribute-map did not contain field 'pk' when querying gsi2
                         for shop_slug_id '{shop_slug_id}' and product_slug_id '{product_slug_id}'"
                 )))
             })

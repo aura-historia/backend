@@ -88,8 +88,8 @@ impl<'a> PipeFlowOut<'a, CompletedPipeProduct> for PersistDynamoDbOpenSearchPipe
             match os_res {
                 Ok(bulk_response) => {
                     if bulk_response.errors {
-                        for reponse_item in bulk_response.items {
-                            let update_res = reponse_item.unwrap_update();
+                        for response_item in bulk_response.items {
+                            let update_res = response_item.unwrap_update();
                             match ProductId::try_from(update_res.id) {
                                 Ok(product_id) => match update_res.error {
                                     None => {
