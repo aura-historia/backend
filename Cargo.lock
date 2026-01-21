@@ -259,9 +259,9 @@ dependencies = [
 
 [[package]]
 name = "aws-sdk-autoscaling"
-version = "1.105.0"
+version = "1.106.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "cb32078c1e9493356cfbbd396265ae018f068945258914b53aec8c37df8afe88"
+checksum = "c94334f420b7d696e9ecb8417f9abd9420b0190182eb6270de981372dd31b41a"
 dependencies = [
  "aws-credential-types",
  "aws-runtime",
