@@ -5,23 +5,16 @@ use common::api::{
     error_code::INTERNAL_SERVER_ERROR,
 };
 use lambda_runtime::LambdaEvent;
-use product::{
-    service::{
-        enrichment_service::ProductCommandEnrichmentService, get_service::GetProductService,
-        personalization_service::ProductPersonalizationService, query_service::QueryProductService,
-        semantic_service::SemanticSearchService, upsert_service::UpsertProductsService,
-    },
-    watchlist::service::product_watchlist_service::ProductWatchListService,
+use product::service::{
+    enrichment_service::ProductCommandEnrichmentService, get_service::GetProductService,
+    personalization_service::ProductPersonalizationService, query_service::QueryProductService,
+    semantic_service::SemanticSearchService, upsert_service::UpsertProductsService,
 };
 
 pub mod get_product;
 pub mod get_product_similar;
 pub mod put_products;
 pub mod search;
-pub mod watchlist_delete;
-pub mod watchlist_get;
-pub mod watchlist_patch;
-pub mod watchlist_post;
 
 #[tracing::instrument(
     skip(
@@ -29,7 +22,6 @@ pub mod watchlist_post;
         get_product_service,
         query_product_service,
         semantic_search_service,
-        product_watchlist_service,
         product_personalization_service,
         upsert_service,
         enrich_service,
@@ -52,7 +44,6 @@ pub async fn handler(
     get_product_service: &impl GetProductService,
     query_product_service: &impl QueryProductService,
     semantic_search_service: &impl SemanticSearchService,
-    product_watchlist_service: &impl ProductWatchListService,
     product_personalization_service: &impl ProductPersonalizationService,
     upsert_service: &impl UpsertProductsService,
     enrich_service: &(impl ProductCommandEnrichmentService + Sync),
@@ -63,7 +54,6 @@ pub async fn handler(
         get_product_service,
         query_product_service,
         semantic_search_service,
-        product_watchlist_service,
         product_personalization_service,
         upsert_service,
         enrich_service,
@@ -85,7 +75,6 @@ pub async fn handle(
     get_product_service: &impl GetProductService,
     query_product_service: &impl QueryProductService,
     semantic_search_service: &impl SemanticSearchService,
-    product_watchlist_service: &impl ProductWatchListService,
     product_personalization_service: &impl ProductPersonalizationService,
     upsert_service: &impl UpsertProductsService,
     enrich_service: &(impl ProductCommandEnrichmentService + Sync),
@@ -122,18 +111,6 @@ pub async fn handle(
                 product_personalization_service,
             )
             .await
-        }
-        Some("DELETE /api/v1/me/watchlist/{shopId}/{shopsProductId}") => {
-            watchlist_delete::handle(event, product_watchlist_service).await
-        }
-        Some("GET /api/v1/me/watchlist/{shopId}/{shopsProductId}") => {
-            watchlist_get::handle(event, product_watchlist_service).await
-        }
-        Some("PATCH /api/v1/me/watchlist/{shopId}/{shopsProductId}") => {
-            watchlist_patch::handle(event, product_watchlist_service).await
-        }
-        Some("POST /api/v1/me/watchlist") => {
-            watchlist_post::handle(event, product_watchlist_service).await
         }
         Some(unknown) => Err(ApiError::internal_server_error(
             INTERNAL_SERVER_ERROR,

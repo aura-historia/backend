@@ -15,11 +15,9 @@ use product::service::query_service::QueryProductServiceImpl;
 use product::service::semantic_service::SemanticSearchServiceImpl;
 use product::service::upsert_service::UpsertProductsServiceImpl;
 use product::watchlist::dynamodb::repository::WatchlistProductDynamoDbRepositoryImpl;
-use product::watchlist::service::product_watchlist_service::ProductWatchListServiceImpl;
 use product_api::handler;
 use shop::dynamodb::repository::ShopDynamoDbRepositoryImpl;
 use tracing::{error, warn};
-use user::dynamodb::repository::UserDynamoDbRepositoryImpl;
 
 #[tokio::main]
 async fn main() -> Result<(), Error> {
@@ -50,7 +48,6 @@ async fn main() -> Result<(), Error> {
         .expect("shouldn't fail loading OpenSearch-Client");
 
     let watchlist_repository = WatchlistProductDynamoDbRepositoryImpl::new(&dynamodb, &table_name);
-    let user_repository = UserDynamoDbRepositoryImpl::new(&dynamodb, &table_name);
     let shop_dynamodb_repository = ShopDynamoDbRepositoryImpl::new(&dynamodb, &table_name);
     let product_dynamodb_repository = ProductDynamoDbRepositoryImpl::new(&dynamodb, &table_name);
     let product_opensearch_repository = ProductOpenSearchRepositoryImpl::new(&opensearch);
@@ -61,12 +58,6 @@ async fn main() -> Result<(), Error> {
     let semantic_search_service = SemanticSearchServiceImpl::new(
         &product_dynamodb_repository,
         &product_opensearch_repository,
-    );
-    let product_watchlist_service = ProductWatchListServiceImpl::new(
-        &watchlist_repository,
-        &user_repository,
-        &product_dynamodb_repository,
-        &get_product_service,
     );
     let product_personalization_service =
         ProductPersonalizationServiceImpl::new(&watchlist_repository);
@@ -101,7 +92,6 @@ async fn main() -> Result<(), Error> {
                 &get_product_service,
                 &query_product_service,
                 &semantic_search_service,
-                &product_watchlist_service,
                 &product_personalization_service,
                 &upsert_service,
                 &enrich_service,

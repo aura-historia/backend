@@ -14,7 +14,7 @@ use product::watchlist::{
     },
     service::product_watchlist_service::ProductWatchListServiceImpl,
 };
-use product_api::watchlist_post::handle;
+use product_watchlist_api::watchlist_post::handle;
 use test_api::*;
 use time::OffsetDateTime;
 use user::dynamodb::{

@@ -15,7 +15,7 @@ use product::watchlist::{
     },
     service::product_watchlist_service::ProductWatchListServiceImpl,
 };
-use product_api::watchlist_get::{WatchlistProductDataView, handle};
+use product_watchlist_api::watchlist_get::{WatchlistProductDataView, handle};
 use test_api::*;
 use time::{OffsetDateTime, format_description::well_known::Rfc3339};
 use user::dynamodb::repository::UserDynamoDbRepositoryImpl;
