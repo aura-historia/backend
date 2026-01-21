@@ -37,4 +37,3 @@ pub mod slug_id;
 pub mod sort;
 pub mod user_id;
 pub mod year;
-
