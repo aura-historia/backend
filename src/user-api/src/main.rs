@@ -5,7 +5,7 @@ use lambda_runtime::tracing::info;
 use lambda_runtime::{Error, LambdaEvent, run, service_fn};
 use user::dynamodb::repository::UserDynamoDbRepositoryImpl;
 use user::service::user_service::UserServiceImpl;
-use user_api_get_account::handler;
+use user_api::handler;
 
 #[tokio::main]
 async fn main() -> Result<(), Error> {
@@ -26,10 +26,7 @@ async fn main() -> Result<(), Error> {
     let repository = UserDynamoDbRepositoryImpl::new(&client, &table_name);
     let service = UserServiceImpl::new(&repository);
 
-    info!(
-        dynamoDbTableName = %table_name,
-        "Lambda cold start completed, client initialized."
-    );
+    info!("Lambda cold start completed, client initialized.");
 
     run(service_fn(
         |event: LambdaEvent<ApiGatewayV2httpRequest>| async { handler(event, &service).await },

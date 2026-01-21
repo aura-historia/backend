@@ -1,6 +1,6 @@
 use aws_lambda_events::apigw::{ApiGatewayV2httpRequest, ApiGatewayV2httpResponse};
 use common::api::api_gateway_v2_http_response_builder::ApiGatewayV2HttpResponseBuilder;
-use common::api::error::{ApiError, log_api_error};
+use common::api::error::ApiError;
 use common::api::error_code::BAD_BODY_VALUE;
 use common::currency::domain::Currency;
 use common::language::domain::Language;
@@ -11,33 +11,6 @@ use user::data::patch_user_data::PatchUserAccountData;
 use user::service::command::UpdateUserCommand;
 use user::service::user_service::UserService;
 
-#[tracing::instrument(
-    skip(event, service),
-    fields(
-        requestId = %event.context.request_id,
-        method = event.payload.request_context.http.method.as_str(),
-        path = &event.payload.raw_path.as_deref().unwrap_or("NULL"),
-        query = &event.payload.raw_query_string.as_deref().unwrap_or("NULL"),
-        body = &event.payload.body.as_deref().unwrap_or("NULL"),
-        ip = &event.payload.request_context.http.source_ip.as_deref().unwrap_or("NULL"),
-        userAgent = &event.payload.request_context.http.user_agent.as_deref().unwrap_or("NULL"),
-        userId = tracing::field::Empty,
-    )
-)]
-pub async fn handler(
-    event: LambdaEvent<ApiGatewayV2httpRequest>,
-    service: &impl UserService,
-) -> Result<ApiGatewayV2httpResponse, lambda_runtime::Error> {
-    match handle(event, service).await {
-        Ok(response) => Ok(response),
-        Err(err) => {
-            log_api_error(&err);
-            Ok(ApiGatewayV2httpResponse::from(err))
-        }
-    }
-}
-
-// PATCH /api/v1/me/account
 pub async fn handle(
     event: LambdaEvent<ApiGatewayV2httpRequest>,
     service: &impl UserService,
@@ -77,7 +50,7 @@ pub async fn handle(
 
 #[cfg(test)]
 mod tests {
-    use crate::handler;
+    use crate::handle;
     use common::user_id::UserId;
     use fake::{Fake, Faker};
     use http::header::LAST_MODIFIED;
@@ -102,12 +75,13 @@ mod tests {
         let lambda_event = LambdaEvent {
             payload: ApiGatewayV2httpRequestProxy::builder()
                 .http_method(http::Method::PATCH)
+                .route_key("PATCH /api/v1/me/account")
                 .body_serde(&Faker.fake::<PatchUserAccountData>())
                 .jwt_claim("sub", UserId::new())
                 .build(),
             context: Default::default(),
         };
-        let response = handler(lambda_event, &service).await.unwrap();
+        let response = handle(lambda_event, &service).await.unwrap();
         assert_eq!(200, response.status_code);
         assert_eq!(
             "Wed, 01 Jan 2020 00:00:00 GMT",
@@ -121,13 +95,14 @@ mod tests {
         let lambda_event = LambdaEvent {
             payload: ApiGatewayV2httpRequestProxy::builder()
                 .http_method(http::Method::PATCH)
+                .route_key("PATCH /api/v1/me/account")
                 .body_serde(&Faker.fake::<PatchUserAccountData>())
                 .build(),
             context: Default::default(),
         };
 
-        let response = handler(lambda_event, &service).await.unwrap();
-        assert_eq!(401, response.status_code);
+        let response = handle(lambda_event, &service).await.unwrap_err();
+        assert_eq!(401, response.status);
     }
 
     #[tokio::test]
@@ -135,6 +110,7 @@ mod tests {
         let lambda_event = LambdaEvent {
             payload: ApiGatewayV2httpRequestProxy::builder()
                 .http_method(http::Method::PATCH)
+                .route_key("PATCH /api/v1/me/account")
                 .jwt_claim("sub", UserId::new())
                 .body_serde(&Faker.fake::<PatchUserAccountData>())
                 .build(),
@@ -147,7 +123,7 @@ mod tests {
             Box::pin(async move { Err(UserServiceError::UserNotFound(user_id)) })
         });
 
-        let response = handler(lambda_event, &service).await.unwrap();
-        assert_eq!(404, response.status_code);
+        let response = handle(lambda_event, &service).await.unwrap_err();
+        assert_eq!(404, response.status);
     }
 }

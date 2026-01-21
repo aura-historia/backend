@@ -7,7 +7,7 @@ use user::{
     dynamodb::repository::UserDynamoDbRepositoryImpl,
     service::user_service::{UserService, UserServiceImpl},
 };
-use user_api_patch_account::handler;
+use user_api::handler;
 
 #[localstack_test(services = [DynamoDB()])]
 async fn should_200_respond_user_when_exists() {
@@ -25,6 +25,7 @@ async fn should_200_respond_user_when_exists() {
     let lambda_event = LambdaEvent {
         payload: ApiGatewayV2httpRequestProxy::builder()
             .http_method(http::Method::PATCH)
+            .route_key("PATCH /api/v1/me/account")
             .jwt_claim("sub", user.user_id)
             .body_serde(&patch_user_account_data)
             .build(),
