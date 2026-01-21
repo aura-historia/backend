@@ -3,7 +3,7 @@ use crate::dynamodb::repository::ShopDynamoDbRepository;
 use async_trait::async_trait;
 use aws_sdk_dynamodb::config::http::HttpResponse;
 use aws_sdk_dynamodb::error::SdkError;
-use common::{batch::Batch, shop_id::ShopIdentifier};
+use common::{batch::Batch, shop_id::ShopIdentifier, slug_id::SlugId};
 
 #[derive(thiserror::Error, Debug)]
 #[allow(clippy::large_enum_variant)]
@@ -11,10 +11,16 @@ pub enum GetShopError {
     #[error("Shop with identifier '{0}' not found")]
     ShopNotFound(ShopIdentifier),
 
+    #[error("Shop with SlugId '{0}' not found")]
+    ShopSlugIdNotFound(SlugId<0>),
+
     #[error("Encountered DynamoDB SdkError for GetItem: {0}")]
     SdkGetItemError(
         #[from] SdkError<aws_sdk_dynamodb::operation::get_item::GetItemError, HttpResponse>,
     ),
+
+    #[error("Encountered DynamoDB SdkError for Query: {0}")]
+    SdkQueryError(#[from] SdkError<aws_sdk_dynamodb::operation::query::QueryError, HttpResponse>),
 
     #[error("Encountered DynamoDB SdkError for BatchGetItem: {0}")]
     SdkBatchGetItemError(
@@ -36,7 +42,11 @@ pub mod api {
         fn from(err: GetShopError) -> Self {
             match err {
                 GetShopError::ShopNotFound(_) => ApiError::not_found(SHOP_NOT_FOUND, Box::new(err)),
+                GetShopError::ShopSlugIdNotFound(_) => {
+                    ApiError::not_found(SHOP_NOT_FOUND, Box::new(err))
+                }
                 GetShopError::SdkGetItemError(err) => err.into(),
+                GetShopError::SdkQueryError(err) => err.into(),
                 GetShopError::SdkBatchGetItemError(err) => err.into(),
                 GetShopError::UnprocessedAfterMaxRetries(_) => {
                     ApiError::service_unavailable(UNPROCESSED_AFTER_MAX_RETRIES, Box::new(err))
@@ -50,6 +60,8 @@ pub mod api {
 #[mockall::automock]
 pub trait GetShopService {
     async fn find_shop(&self, shop_identifier: &ShopIdentifier) -> Result<Shop, GetShopError>;
+
+    async fn find_shop_by_slug(&self, shop_slug_id: &SlugId<0>) -> Result<Shop, GetShopError>;
 
     async fn find_shops(
         &self,
@@ -82,6 +94,14 @@ impl<'a> GetShopService for GetShopServiceImpl<'a> {
             shop_record_opt.ok_or(GetShopError::ShopNotFound(shop_identifier.clone()))?;
 
         Ok(shop_record.into())
+    }
+
+    async fn find_shop_by_slug(&self, shop_slug_id: &SlugId<0>) -> Result<Shop, GetShopError> {
+        let shop_id_opt = self.repository.query_shop_id(shop_slug_id).await?;
+        match shop_id_opt {
+            Some(shop_id) => self.find_shop(&shop_id.into()).await,
+            None => Err(GetShopError::ShopSlugIdNotFound(shop_slug_id.clone())),
+        }
     }
 
     async fn find_shops(
