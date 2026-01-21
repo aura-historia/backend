@@ -20,6 +20,7 @@ pub struct ApiGatewayV2httpRequestProxy {
     pub authorization_token: Option<String>,
     pub resource: Option<String>,
     pub version: Option<String>,
+    #[builder(setter(into))]
     pub route_key: Option<String>,
     pub raw_path: Option<String>,
     pub raw_query_string: Option<String>,

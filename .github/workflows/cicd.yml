@@ -170,6 +170,7 @@ jobs:
           - src/product-api/src/product-api-watchlist-patch
           - src/product-api/src/product-api-watchlist-post
           - src/shop
+          - src/shop-api/src/shop-api-get-shop
           - src/shop-api/src/shop-api-search
           - src/shop-api/src/shop-api-patch-shop
           - src/shop-api/src/shop-api-post-shop

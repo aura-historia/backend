@@ -1075,11 +1075,17 @@ Resources:
       Principal: apigateway.amazonaws.com
       SourceArn: !Sub "arn:aws:execute-api:${AWS::Region}:${AWS::AccountId}:${Api}/*/*/api/v1/me/account*"
 
-  ApiGetShopRoute:
+  ApiGetShopByShopIdentifierRoute:
     Type: AWS::ApiGatewayV2::Route
     Properties:
       ApiId: !Ref Api
       RouteKey: "GET /api/v1/shops/{shopIdentifier}"
+      Target: !Sub "integrations/${ApiGetShopLambdaIntegration}"
+  ApiGetShopByShopSlugIdRoute:
+    Type: AWS::ApiGatewayV2::Route
+    Properties:
+      ApiId: !Ref Api
+      RouteKey: "GET /api/v1/shops/by-slug/{shopSlugId}"
       Target: !Sub "integrations/${ApiGetShopLambdaIntegration}"
   ApiGetShopLambdaIntegration:
     Type: AWS::ApiGatewayV2::Integration
@@ -1111,7 +1117,9 @@ Resources:
                   - dynamodb:GetItem
                   - dynamodb:BatchGetItem
                   - dynamodb:Query
-                Resource: !GetAtt TableOne.Arn
+                Resource:
+                  - !GetAtt TableOne.Arn
+                  - !Sub "${TableOne.Arn}/index/*"
   ApiGetShopLambda:
     Type: AWS::Lambda::Function
     Properties:
