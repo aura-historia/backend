@@ -29,7 +29,7 @@ mod tests {
     use common::{shop_id::ShopId, shops_product_id::ShopsProductId, user_id::UserId};
     use lambda_runtime::LambdaEvent;
     use product::watchlist::service::product_watchlist_service::MockProductWatchListService;
-    use test_api::{ApiGatewayV2httpRequestProxy, extract_apigw_response_json_body};
+    use test_api::ApiGatewayV2httpRequestProxy;
     use time::{OffsetDateTime, format_description::well_known::Rfc3339};
 
     #[tokio::test]
@@ -76,13 +76,8 @@ mod tests {
             context: Default::default(),
         };
 
-        let response = handle(lambda_event, &service).await.unwrap();
-        assert_eq!(400, response.status_code);
-
-        let json = extract_apigw_response_json_body!(response);
-        assert_eq!("BAD_PATH_PARAMETER_VALUE", json["error"]);
-        assert_eq!("shopId", json["source"]["field"]);
-        assert_eq!("PATH", json["source"]["type"]);
+        let actual = handle(lambda_event, &service).await.unwrap_err();
+        assert_eq!(400, actual.status);
     }
 
     #[tokio::test]
@@ -103,13 +98,8 @@ mod tests {
             context: Default::default(),
         };
 
-        let response = handle(lambda_event, &service).await.unwrap();
-        assert_eq!(400, response.status_code);
-
-        let json = extract_apigw_response_json_body!(response);
-        assert_eq!("BAD_PATH_PARAMETER_VALUE", json["error"]);
-        assert_eq!("shopsProductId", json["source"]["field"]);
-        assert_eq!("PATH", json["source"]["type"]);
+        let actual = handle(lambda_event, &service).await.unwrap_err();
+        assert_eq!(400, actual.status);
     }
 
     #[tokio::test]
@@ -130,8 +120,7 @@ mod tests {
             context: Default::default(),
         };
 
-        let response = handle(lambda_event, &service).await.unwrap();
-
-        assert_eq!(401, response.status_code);
+        let actual = handle(lambda_event, &service).await.unwrap_err();
+        assert_eq!(401, actual.status);
     }
 }

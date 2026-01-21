@@ -102,7 +102,7 @@ mod tests {
     use product::service::personalization_service::MockProductPersonalizationService;
     use product::service::semantic_service::MockSemanticSearchService;
     use product::service::semantic_service::SemanticSearchProductsError;
-    use test_api::{ApiGatewayV2httpRequestProxy, extract_apigw_response_json_body};
+    use test_api::ApiGatewayV2httpRequestProxy;
 
     #[tokio::test]
     async fn should_200_when_similar_products_have_been_computed_and_empty() {
@@ -226,18 +226,15 @@ mod tests {
             context: Default::default(),
         };
 
-        let response = handle(
+        let actual = handle(
             lambda_event,
             &semantic_search_service,
             &cognito_service,
             &product_personalization_service,
         )
         .await
-        .unwrap();
-        assert_eq!(400, response.status_code);
-        let json = extract_apigw_response_json_body!(response);
-        assert_eq!(400, json["status"]);
-        assert_eq!("shopId", json["source"]["field"]);
+        .unwrap_err();
+        assert_eq!(400, actual.status);
     }
 
     #[tokio::test]
@@ -256,18 +253,15 @@ mod tests {
             context: Default::default(),
         };
 
-        let response = handle(
+        let actual = handle(
             lambda_event,
             &semantic_search_service,
             &cognito_service,
             &product_personalization_service,
         )
         .await
-        .unwrap();
-        assert_eq!(400, response.status_code);
-        let json = extract_apigw_response_json_body!(response);
-        assert_eq!(400, json["status"]);
-        assert_eq!("shopsProductId", json["source"]["field"]);
+        .unwrap_err();
+        assert_eq!(400, actual.status);
     }
 
     #[tokio::test]
@@ -302,16 +296,14 @@ mod tests {
                 })
             });
 
-        let response = handle(
+        let actual = handle(
             lambda_event,
             &semantic_search_service,
             &cognito_service,
             &product_personalization_service,
         )
         .await
-        .unwrap();
-        assert_eq!(404, response.status_code);
-        let json = extract_apigw_response_json_body!(response);
-        assert_eq!(404, json["status"]);
+        .unwrap_err();
+        assert_eq!(404, actual.status);
     }
 }

@@ -124,8 +124,7 @@ mod tests {
             context: Default::default(),
         };
 
-        let response = handle(lambda_event, &service).await.unwrap();
-
-        assert_eq!(401, response.status_code);
+        let actual = handle(lambda_event, &service).await.unwrap_err();
+        assert_eq!(401, actual.status);
     }
 }

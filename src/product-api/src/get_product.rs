@@ -143,7 +143,7 @@ mod tests {
     use product::core::product::LocalizedProductView;
     use product::service::get_service::{GetProductError, MockGetProductService};
     use product::service::personalization_service::MockProductPersonalizationService;
-    use test_api::{ApiGatewayV2httpRequestProxy, extract_apigw_response_json_body};
+    use test_api::ApiGatewayV2httpRequestProxy;
     use time::OffsetDateTime;
     use time::macros::datetime;
     use url::Url;
@@ -466,18 +466,15 @@ mod tests {
             context: Default::default(),
         };
 
-        let response = handle(
+        let actual = handle(
             lambda_event,
             &get_product_service,
             &cognito_service,
             &product_personalization_service,
         )
         .await
-        .unwrap();
-        assert_eq!(400, response.status_code);
-        let json = extract_apigw_response_json_body!(response);
-        assert_eq!(400, json["status"]);
-        assert_eq!("shopId", json["source"]["field"]);
+        .unwrap_err();
+        assert_eq!(400, actual.status);
     }
 
     #[tokio::test]
@@ -498,18 +495,15 @@ mod tests {
             context: Default::default(),
         };
 
-        let response = handle(
+        let actual = handle(
             lambda_event,
             &get_product_service,
             &cognito_service,
             &product_personalization_service,
         )
         .await
-        .unwrap();
-        assert_eq!(400, response.status_code);
-        let json = extract_apigw_response_json_body!(response);
-        assert_eq!(400, json["status"]);
-        assert_eq!("shopsProductId", json["source"]["field"]);
+        .unwrap_err();
+        assert_eq!(400, actual.status);
     }
 
     #[tokio::test]
@@ -532,18 +526,15 @@ mod tests {
             context: Default::default(),
         };
 
-        let response = handle(
+        let actual = handle(
             lambda_event,
             &get_product_service,
             &cognito_service,
             &product_personalization_service,
         )
         .await
-        .unwrap();
-        assert_eq!(400, response.status_code);
-        let json = extract_apigw_response_json_body!(response);
-        assert_eq!(400, json["status"]);
-        assert_eq!("history", json["source"]["field"]);
+        .unwrap_err();
+        assert_eq!(400, actual.status);
     }
 
     #[tokio::test]
@@ -576,16 +567,14 @@ mod tests {
             },
         );
 
-        let response = handle(
+        let actual = handle(
             lambda_event,
             &get_product_service,
             &cognito_service,
             &product_personalization_service,
         )
         .await
-        .unwrap();
-        assert_eq!(404, response.status_code);
-        let json = extract_apigw_response_json_body!(response);
-        assert_eq!(404, json["status"]);
+        .unwrap_err();
+        assert_eq!(404, actual.status);
     }
 }

@@ -174,6 +174,6 @@ async fn should_422_when_new_watchlist_entry_would_exceed_quota() {
         context: Default::default(),
     };
 
-    let response = handle(lambda_event, &service).await.unwrap();
-    assert_eq!(422, response.status_code);
+    let actual = handle(lambda_event, &service).await.unwrap_err();
+    assert_eq!(422, actual.status);
 }
