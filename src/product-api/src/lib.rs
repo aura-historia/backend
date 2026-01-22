@@ -81,8 +81,8 @@ pub async fn handle(
     access_token_verifier_service: &(impl AccessTokenVerifierService + Sync),
 ) -> Result<ApiGatewayV2httpResponse, ApiError> {
     match event.payload.route_key.as_deref() {
-        Some("GET /api/v1/shops/{shopId}/products/{shopsProductId}")
-        | Some("GET /api/v1/shops/by-slug/{shopIdSlug}/products/by-slug/{productIdSlug}") => {
+        Some("GET /api/v1/products/{shopId}/{shopsProductId}")
+        | Some("GET /api/v1/products/by-slug/{shopIdSlug}/by-slug/{productIdSlug}") => {
             get_product::handle(
                 event,
                 get_product_service,
@@ -91,7 +91,7 @@ pub async fn handle(
             )
             .await
         }
-        Some("GET /api/v1/shops/{shopId}/products/{shopsProductId}/similar") => {
+        Some("GET /api/v1/products/{shopId}/{shopsProductId}/similar") => {
             get_product_similar::handle(
                 event,
                 semantic_search_service,
