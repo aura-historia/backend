@@ -689,7 +689,7 @@ Resources:
     Type: AWS::ApiGatewayV2::Route
     Properties:
       ApiId: !Ref Api
-      RouteKey: "POST /api/v1/shops"
+      RouteKey: "POST /api/v1/shops/search"
       Target: !Sub "integrations/${ShopApiLambdaIntegration}"
   ShopApiLambdaIntegration:
     Type: AWS::ApiGatewayV2::Integration
