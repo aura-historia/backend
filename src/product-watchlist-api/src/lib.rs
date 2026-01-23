@@ -47,7 +47,7 @@ pub async fn handle(
         Some("DELETE /api/v1/me/watchlist/{shopId}/{shopsProductId}") => {
             watchlist_delete::handle(event, product_watchlist_service).await
         }
-        Some("GET /api/v1/me/watchlist/{shopId}/{shopsProductId}") => {
+        Some("GET /api/v1/me/watchlist") => {
             watchlist_get::handle(event, product_watchlist_service).await
         }
         Some("PATCH /api/v1/me/watchlist/{shopId}/{shopsProductId}") => {
