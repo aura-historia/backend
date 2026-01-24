@@ -12,6 +12,7 @@ use product::service::{
 };
 
 pub mod get_product;
+pub mod get_product_history;
 pub mod get_product_similar;
 pub mod put_products;
 pub mod search;
@@ -111,6 +112,9 @@ pub async fn handle(
                 product_personalization_service,
             )
             .await
+        }
+        Some("GET /api/v1/products/{shopId}/{shopsProductId}/history") => {
+            get_product_history::handle(event, get_product_service).await
         }
         Some(unknown) => Err(ApiError::internal_server_error(
             INTERNAL_SERVER_ERROR,

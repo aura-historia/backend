@@ -281,7 +281,7 @@ impl<'a> GetProductService for GetProductServiceImpl<'a> {
         _languages: &[Language],
         currency: &Currency,
     ) -> Result<Vec<Event<ProductId, LocalizedProductEventPayloadView>>, GetProductError> {
-        let events = self
+        let events: Vec<Event<ProductId, LocalizedProductEventPayloadView>> = self
             .repository
             .query_product_event_records(shop_id, shops_product_id)
             .await?
@@ -301,7 +301,14 @@ impl<'a> GetProductService for GetProductServiceImpl<'a> {
             .map(|event| localize_product_event(event, currency))
             .collect();
 
-        Ok(events)
+        if events.is_empty() {
+            Err(GetProductError::ProductNotFound(
+                *shop_id,
+                shops_product_id.clone(),
+            ))
+        } else {
+            Ok(events)
+        }
     }
 }
 
@@ -1350,7 +1357,7 @@ mod tests {
             dynamodb::{
                 product_event_record::ProductEventRecord, repository::MockProductDynamoDbRepository,
             },
-            service::get_service::{GetProductService, GetProductServiceImpl},
+            service::get_service::{GetProductError, GetProductService, GetProductServiceImpl},
         };
         use common::{
             currency::domain::Currency, shop_id::ShopId, shops_product_id::ShopsProductId,
@@ -1382,6 +1389,33 @@ mod tests {
                 .collect_vec();
 
             assert_eq!(expected, actual);
+        }
+
+        #[tokio::test]
+        async fn should_err_product_not_found_when_events_empty() {
+            let mut repository = MockProductDynamoDbRepository::default();
+            repository
+                .expect_query_product_event_records()
+                .return_once(|_, _| Box::pin(async { Ok(vec![]) }));
+            let service = GetProductServiceImpl {
+                repository: &repository,
+            };
+            let shop_id = ShopId::new();
+            let shops_product_id = ShopsProductId::new();
+            let actual = service
+                .view_product_history(&shop_id, &shops_product_id, &[], &Currency::Eur)
+                .await
+                .unwrap_err();
+
+            match actual {
+                GetProductError::ProductNotFound(err_shop_id, err_shops_product_id) => {
+                    assert_eq!(shop_id, err_shop_id);
+                    assert_eq!(shops_product_id, err_shops_product_id);
+                }
+                other => {
+                    panic!("Expected 'GetProductError::ProductNotFound'. Got: '{other}'")
+                }
+            }
         }
     }
 }

@@ -416,6 +416,12 @@ Resources:
       ApiId: !Ref Api
       RouteKey: "POST /api/v1/products/search"
       Target: !Sub "integrations/${ProductApiLambdaIntegration}"
+  ProductApiGetProductHistoryRoute:
+    Type: AWS::ApiGatewayV2::Route
+    Properties:
+      ApiId: !Ref Api
+      RouteKey: "GET /api/v1/products/{shopId}/{shopsProductId}/history"
+      Target: !Sub "integrations/${ProductApiLambdaIntegration}"
   ProductApiLambdaIntegration:
     Type: AWS::ApiGatewayV2::Integration
     Properties:
