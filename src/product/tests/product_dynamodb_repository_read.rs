@@ -1237,3 +1237,107 @@ mod query_product_key {
         assert_eq!(expected, actual);
     }
 }
+
+mod query_product_event_records {
+    use crate::get_repository;
+    use common::price::domain::Price;
+    use common::product_state::domain::ProductState;
+    use common::shop_id::ShopId;
+    use common::shops_product_id::ShopsProductId;
+    use fake::{Fake, Faker};
+    use product::core::product_event::{
+        ProductCreatedEventPayload, ProductEvent, ProductEventPayload,
+        ProductStateChangeEventPayload,
+    };
+    use product::core::product_image::ProductImage;
+    use product::dynamodb::product_event_record::ProductEventRecord;
+    use product::dynamodb::product_event_type_record::ProductEventTypeRecord;
+    use product::dynamodb::product_record::ProductRecord;
+    use product::dynamodb::repository::ProductDynamoDbRepository;
+    use test_api::*;
+    use time::OffsetDateTime;
+
+    #[localstack_test(services = [DynamoDB()])]
+    async fn should_return_empty_vec_when_partition_empty() {
+        let repository = get_repository().await;
+
+        let actual = repository
+            .query_product_event_records(&ShopId::new(), &ShopsProductId::new())
+            .await
+            .unwrap();
+
+        assert!(actual.is_empty())
+    }
+
+    #[localstack_test(services = [DynamoDB()])]
+    async fn should_return_oldest_event_first() {
+        let repository = get_repository().await;
+
+        let expected_materialized = Faker.fake::<ProductRecord>();
+        let created_event: ProductEventRecord = ProductEvent {
+            aggregate_id: Default::default(),
+            event_id: Default::default(),
+            timestamp: OffsetDateTime::now_utc(),
+            payload: ProductEventPayload::Created(ProductCreatedEventPayload {
+                product_slug_id: expected_materialized.product_slug_id.clone(),
+                shop_slug_id: expected_materialized.shop_slug_id.clone(),
+                shop_id: expected_materialized.shop_id,
+                shops_product_id: expected_materialized.shops_product_id.clone(),
+                shop_name: expected_materialized.shop_name.clone().into(),
+                shop_type: expected_materialized.shop_type.into(),
+                native_title: expected_materialized.title_native.clone().into(),
+                native_description: Default::default(),
+                native_price: expected_materialized.price_native.map(Price::from),
+                other_price: Default::default(),
+                native_price_estimate_min: None,
+                other_price_estimate_min: Default::default(),
+                native_price_estimate_max: None,
+                other_price_estimate_max: Default::default(),
+                state: expected_materialized.state.into(),
+                url: expected_materialized.url.clone(),
+                images: expected_materialized
+                    .images
+                    .clone()
+                    .into_iter()
+                    .map(ProductImage::from)
+                    .collect(),
+                auction_start: expected_materialized.auction_start,
+                auction_end: expected_materialized.auction_end,
+            }),
+        }
+        .try_into()
+        .unwrap();
+        let updated_event: ProductEventRecord = ProductEvent {
+            aggregate_id: Default::default(),
+            event_id: Default::default(),
+            timestamp: OffsetDateTime::now_utc(),
+            payload: ProductEventPayload::StateAvailable(ProductStateChangeEventPayload {
+                shop_id: expected_materialized.shop_id,
+                shops_product_id: expected_materialized.shops_product_id.clone(),
+                old_state: ProductState::Listed,
+            }),
+        }
+        .try_into()
+        .unwrap();
+        let insert_res = repository
+            .put_product_event_records([created_event.clone(), updated_event.clone()].into())
+            .await
+            .unwrap();
+        assert!(insert_res.unprocessed_items.unwrap_or_default().is_empty());
+
+        let actual_events = repository
+            .query_product_event_records(
+                &expected_materialized.shop_id,
+                &expected_materialized.shops_product_id,
+            )
+            .await
+            .unwrap();
+
+        assert_eq!(2, actual_events.len());
+        assert_eq!(ProductEventTypeRecord::Created, actual_events[0].event_type);
+        assert_eq!(
+            ProductEventTypeRecord::StateAvailable,
+            actual_events[1].event_type
+        );
+    }
+}

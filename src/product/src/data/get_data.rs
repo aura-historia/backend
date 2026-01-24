@@ -1,7 +1,6 @@
 use crate::core::product::LocalizedProductView;
 use crate::data::authenticity_data::AuthenticityData;
 use crate::data::condition_data::ConditionData;
-use crate::data::get_product_event_data::GetProductEventData;
 use crate::data::product_image_data::ProductImageData;
 use crate::data::product_state_data::ProductStateData;
 use crate::data::provenance_data::ProvenanceData;
@@ -87,9 +86,6 @@ pub struct GetProductData {
 
     #[serde(with = "time::serde::rfc3339")]
     pub updated: OffsetDateTime,
-
-    #[serde(skip_serializing_if = "Option::is_none", default)]
-    pub history: Option<Vec<GetProductEventData>>,
 }
 
 impl HasKey for GetProductData {
@@ -137,9 +133,6 @@ impl From<LocalizedProductView> for GetProductData {
             auction_end: product_view.auction_end,
             created: product_view.created,
             updated: product_view.updated,
-            history: product_view
-                .history
-                .map(|events| events.into_iter().map(|event| event.into()).collect()),
         }
     }
 }
@@ -170,18 +163,10 @@ mod faker {
 #[cfg(test)]
 mod tests {
     use crate::data::{
-        authenticity_data::AuthenticityData,
-        condition_data::ConditionData,
-        get_data::GetProductData,
-        get_product_event_data::{
-            GetProductEventData, ProductEventPayloadData, ProductEventPriceChangedPayloadData,
-            ProductEventStateChangedPayloadData, ProductEventTypeData,
-        },
-        product_image_data::ProductImageData,
-        product_state_data::ProductStateData,
-        prohibited_content_data::ProhibitedContentData,
-        provenance_data::ProvenanceData,
-        restoration_data::RestorationData,
+        authenticity_data::AuthenticityData, condition_data::ConditionData,
+        get_data::GetProductData, product_image_data::ProductImageData,
+        product_state_data::ProductStateData, prohibited_content_data::ProhibitedContentData,
+        provenance_data::ProvenanceData, restoration_data::RestorationData,
     };
     use common::{
         currency::data::CurrencyData,
@@ -241,36 +226,6 @@ mod tests {
             auction_end: None,
             created: utc_datetime!(2025 - 05 - 05 0:00).into(),
             updated: utc_datetime!(2025 - 05 - 05 0:00).into(),
-            history: Some(vec![
-                GetProductEventData {
-                    event_type: ProductEventTypeData::StateAvailable,
-                    product_id,
-                    event_id,
-                    shop_id,
-                    shops_product_id: shops_product_id.clone(),
-                    payload: ProductEventPayloadData::StateAvailable(
-                        ProductEventStateChangedPayloadData {
-                            old_state: ProductStateData::Listed,
-                            new_state: ProductStateData::Available,
-                        },
-                    ),
-                    timestamp: utc_datetime!(2025 - 05 - 05 0:00).into(),
-                },
-                GetProductEventData {
-                    event_type: ProductEventTypeData::PriceDropped,
-                    product_id,
-                    event_id,
-                    shop_id,
-                    shops_product_id: shops_product_id.clone(),
-                    payload: ProductEventPayloadData::PriceDropped(
-                        ProductEventPriceChangedPayloadData {
-                            old_price: PriceData::new(CurrencyData::Eur, 69),
-                            new_price: PriceData::new(CurrencyData::Eur, 42),
-                        },
-                    ),
-                    timestamp: utc_datetime!(2025 - 05 - 05 0:00).into(),
-                },
-            ]),
         };
 
         let expected = json!({
@@ -323,38 +278,6 @@ mod tests {
             "restoration": "NONE",
             "created": "2025-05-05T00:00:00Z",
             "updated": "2025-05-05T00:00:00Z",
-            "history": [
-                {
-                    "eventType": "STATE_AVAILABLE",
-                    "productId": product_id,
-                    "eventId": event_id,
-                    "shopId": shop_id,
-                    "shopsProductId": shops_product_id,
-                    "payload": {
-                        "oldState": "LISTED",
-                        "newState": "AVAILABLE"
-                    },
-                    "timestamp": "2025-05-05T00:00:00Z",
-                },
-                {
-                    "eventType": "PRICE_DROPPED",
-                    "productId": product_id,
-                    "eventId": event_id,
-                    "shopId": shop_id,
-                    "shopsProductId": shops_product_id,
-                    "payload": {
-                        "oldPrice": {
-                            "amount": 69,
-                            "currency": "EUR"
-                        },
-                        "newPrice": {
-                            "amount": 42,
-                            "currency": "EUR"
-                        }
-                    },
-                    "timestamp": "2025-05-05T00:00:00Z",
-                }
-            ]
         });
 
         let actual = serde_json::to_value(dto).unwrap();

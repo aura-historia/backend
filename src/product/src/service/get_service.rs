@@ -115,7 +115,6 @@ pub trait GetProductService {
         shops_product_id: &ShopsProductId,
         languages: &[Language],
         currency: &Currency,
-        history: bool,
     ) -> Result<LocalizedProductView, GetProductError>;
 
     async fn view_product_by_slug(
@@ -124,7 +123,6 @@ pub trait GetProductService {
         product_slug_id: &SlugId<6>,
         languages: &[Language],
         currency: &Currency,
-        history: bool,
     ) -> Result<LocalizedProductView, GetProductError>;
 
     async fn view_products(
@@ -133,6 +131,14 @@ pub trait GetProductService {
         languages: &[Language],
         currency: &Currency,
     ) -> Result<Vec<LocalizedProductView>, GetProductError>;
+
+    async fn view_product_history(
+        &self,
+        shop_id: &ShopId,
+        shops_product_id: &ShopsProductId,
+        languages: &[Language],
+        currency: &Currency,
+    ) -> Result<Vec<Event<ProductId, LocalizedProductEventPayloadView>>, GetProductError>;
 }
 
 pub struct GetProductServiceImpl<'a> {
@@ -191,49 +197,17 @@ impl<'a> GetProductService for GetProductServiceImpl<'a> {
         shops_product_id: &ShopsProductId,
         preferred_languages: &[Language],
         currency: &Currency,
-        history: bool,
     ) -> Result<LocalizedProductView, GetProductError> {
-        let (product_record, event_records) = if history {
-            self.repository
-                .query_product_record_and_event_records(shop_id, shops_product_id)
-                .await?
-                .ok_or(GetProductError::ProductNotFound(
-                    *shop_id,
-                    shops_product_id.clone(),
-                ))?
-        } else {
-            let product_record = self
-                .repository
-                .get_product_record(shop_id, shops_product_id)
-                .await?
-                .ok_or(GetProductError::ProductNotFound(
-                    *shop_id,
-                    shops_product_id.clone(),
-                ))?;
-            (product_record, vec![])
-        };
+        let product_record = self
+            .repository
+            .get_product_record(shop_id, shops_product_id)
+            .await?
+            .ok_or(GetProductError::ProductNotFound(
+                *shop_id,
+                shops_product_id.clone(),
+            ))?;
 
-        let mut product_view =
-            localize_product_record(product_record, currency, preferred_languages);
-
-        let event_views = event_records
-            .into_iter()
-            .map(ProductEvent::try_from)
-            .filter_map(|event_res| match event_res {
-                Ok(event) => Some(event),
-                Err(err) => {
-                    error!(
-                        error = %err,
-                        fromType = %std::any::type_name::<ProductEventRecord>(),
-                        toType = %std::any::type_name::<ProductEvent>(),
-                        "Failed mapping types."
-                    );
-                    None
-                }
-            })
-            .map(|event| localize_product_event(event, currency))
-            .collect();
-        product_view.history = if history { Some(event_views) } else { None };
+        let product_view = localize_product_record(product_record, currency, preferred_languages);
 
         Ok(product_view)
     }
@@ -244,7 +218,6 @@ impl<'a> GetProductService for GetProductServiceImpl<'a> {
         product_slug_id: &SlugId<6>,
         languages: &[Language],
         currency: &Currency,
-        history: bool,
     ) -> Result<LocalizedProductView, GetProductError> {
         let product_key_opt = self
             .repository
@@ -257,7 +230,6 @@ impl<'a> GetProductService for GetProductServiceImpl<'a> {
                     &product_key.shops_product_id,
                     languages,
                     currency,
-                    history,
                 )
                 .await
             }
@@ -300,6 +272,43 @@ impl<'a> GetProductService for GetProductServiceImpl<'a> {
         }
 
         Ok(views)
+    }
+
+    async fn view_product_history(
+        &self,
+        shop_id: &ShopId,
+        shops_product_id: &ShopsProductId,
+        _languages: &[Language],
+        currency: &Currency,
+    ) -> Result<Vec<Event<ProductId, LocalizedProductEventPayloadView>>, GetProductError> {
+        let events: Vec<Event<ProductId, LocalizedProductEventPayloadView>> = self
+            .repository
+            .query_product_event_records(shop_id, shops_product_id)
+            .await?
+            .into_iter()
+            .filter_map(|event_record| match ProductEvent::try_from(event_record) {
+                Ok(event) => Some(event),
+                Err(err) => {
+                    error!(
+                        error = %err,
+                        fromtype = %std::any::type_name::<ProductEventRecord>(),
+                        totype = %std::any::type_name::<ProductEvent>(),
+                        "Failed mapping"
+                    );
+                    None
+                }
+            })
+            .map(|event| localize_product_event(event, currency))
+            .collect();
+
+        if events.is_empty() {
+            Err(GetProductError::ProductNotFound(
+                *shop_id,
+                shops_product_id.clone(),
+            ))
+        } else {
+            Ok(events)
+        }
     }
 }
 
@@ -479,7 +488,6 @@ fn localize_product_record(
         auction_end: product_record.auction_end,
         created: product_record.created,
         updated: product_record.updated,
-        history: None,
     }
 }
 
@@ -878,8 +886,7 @@ mod tests {
 
     mod view_product {
         use crate::dynamodb::{
-            product_event_record::ProductEventRecord, product_record::ProductRecord,
-            repository::MockProductDynamoDbRepository,
+            product_record::ProductRecord, repository::MockProductDynamoDbRepository,
         };
         use crate::service::get_service::{
             GetProductError, GetProductService, GetProductServiceImpl,
@@ -899,10 +906,9 @@ mod tests {
             shops_product_id::ShopsProductId,
         };
         use fake::{Fake, Faker};
-        use itertools::Itertools;
 
         #[tokio::test]
-        async fn should_return_product_when_exists_without_history() {
+        async fn should_return_product_when_exists() {
             let mut repository = MockProductDynamoDbRepository::default();
             repository
                 .expect_get_product_record()
@@ -911,71 +917,9 @@ mod tests {
                 repository: &repository,
             };
             let actual = service
-                .view_product(
-                    &ShopId::new(),
-                    &ShopsProductId::new(),
-                    &[],
-                    &Currency::Eur,
-                    false,
-                )
+                .view_product(&ShopId::new(), &ShopsProductId::new(), &[], &Currency::Eur)
                 .await;
             assert!(actual.is_ok());
-        }
-
-        #[tokio::test]
-        async fn should_return_product_when_exists_with_history() {
-            let mut repository = MockProductDynamoDbRepository::default();
-            repository
-                .expect_query_product_record_and_event_records()
-                .return_once(|_, _| Box::pin(async { Ok(Some(Faker.fake())) }));
-            let service = GetProductServiceImpl {
-                repository: &repository,
-            };
-            let actual = service
-                .view_product(
-                    &ShopId::new(),
-                    &ShopsProductId::new(),
-                    &[],
-                    &Currency::Eur,
-                    true,
-                )
-                .await;
-            assert!(actual.is_ok());
-        }
-
-        #[tokio::test]
-        async fn should_keep_history_in_exact_order_as_dynamodb_read() {
-            let mut repository = MockProductDynamoDbRepository::default();
-            let mut events = fake::vec![ProductEventRecord; 100];
-            events.sort_by(|l, r| l.product_id.cmp(&r.product_id));
-            let expected = events
-                .clone()
-                .into_iter()
-                .map(|record| record.product_id)
-                .collect_vec();
-            repository
-                .expect_query_product_record_and_event_records()
-                .return_once(|_, _| Box::pin(async { Ok(Some((Faker.fake(), events))) }));
-            let service = GetProductServiceImpl {
-                repository: &repository,
-            };
-            let actual = service
-                .view_product(
-                    &ShopId::new(),
-                    &ShopsProductId::new(),
-                    &[],
-                    &Currency::Eur,
-                    true,
-                )
-                .await
-                .unwrap()
-                .history
-                .unwrap()
-                .into_iter()
-                .map(|event| event.aggregate_id)
-                .collect_vec();
-
-            assert_eq!(expected, actual);
         }
 
         #[tokio::test]
@@ -1003,13 +947,7 @@ mod tests {
                 repository: &repository,
             };
             let actual_price = service
-                .view_product(
-                    &ShopId::new(),
-                    &ShopsProductId::new(),
-                    &[],
-                    &currency,
-                    false,
-                )
+                .view_product(&ShopId::new(), &ShopsProductId::new(), &[], &currency)
                 .await
                 .unwrap()
                 .price
@@ -1055,7 +993,6 @@ mod tests {
                     &ShopsProductId::new(),
                     languages,
                     &Currency::Gbp,
-                    false,
                 )
                 .await
                 .unwrap()
@@ -1101,7 +1038,6 @@ mod tests {
                     &ShopsProductId::new(),
                     languages,
                     &Currency::Gbp,
-                    false,
                 )
                 .await
                 .unwrap()
@@ -1148,7 +1084,6 @@ mod tests {
                     &ShopsProductId::new(),
                     languages,
                     &Currency::Gbp,
-                    false,
                 )
                 .await
                 .unwrap()
@@ -1196,7 +1131,6 @@ mod tests {
                     &ShopsProductId::new(),
                     languages,
                     &Currency::Gbp,
-                    false,
                 )
                 .await
                 .unwrap()
@@ -1241,7 +1175,6 @@ mod tests {
                     &ShopsProductId::new(),
                     languages,
                     &Currency::Gbp,
-                    false,
                 )
                 .await
                 .unwrap()
@@ -1261,7 +1194,7 @@ mod tests {
                 repository: &repository,
             };
             let actual = service
-                .view_product(&shop_id, &shops_product_id, &[], &Currency::Eur, false)
+                .view_product(&shop_id, &shops_product_id, &[], &Currency::Eur)
                 .await;
 
             assert!(actual.is_err());
@@ -1304,7 +1237,7 @@ mod tests {
                 repository: &repository,
             };
             let actual = service
-                .view_product(&shop_id, &shops_product_id, &[], &Currency::Eur, false)
+                .view_product(&shop_id, &shops_product_id, &[], &Currency::Eur)
                 .await;
 
             assert!(actual.is_err());
@@ -1415,6 +1348,73 @@ mod tests {
             match actual.unwrap_err() {
                 GetProductError::SdkBatchGetItemError(_) => {}
                 _ => panic!("expected GetProductError::SdkBatchGetItemError"),
+            }
+        }
+    }
+
+    mod view_product_events {
+        use crate::{
+            dynamodb::{
+                product_event_record::ProductEventRecord, repository::MockProductDynamoDbRepository,
+            },
+            service::get_service::{GetProductError, GetProductService, GetProductServiceImpl},
+        };
+        use common::{
+            currency::domain::Currency, shop_id::ShopId, shops_product_id::ShopsProductId,
+        };
+        use itertools::Itertools;
+
+        #[tokio::test]
+        async fn should_keep_history_in_exact_order_as_dynamodb_read() {
+            let mut repository = MockProductDynamoDbRepository::default();
+            let mut events = fake::vec![ProductEventRecord; 100];
+            events.sort_by(|l, r| l.product_id.cmp(&r.product_id));
+            let expected = events
+                .clone()
+                .into_iter()
+                .map(|record| record.product_id)
+                .collect_vec();
+            repository
+                .expect_query_product_event_records()
+                .return_once(|_, _| Box::pin(async { Ok(events) }));
+            let service = GetProductServiceImpl {
+                repository: &repository,
+            };
+            let actual = service
+                .view_product_history(&ShopId::new(), &ShopsProductId::new(), &[], &Currency::Eur)
+                .await
+                .unwrap()
+                .into_iter()
+                .map(|event| event.aggregate_id)
+                .collect_vec();
+
+            assert_eq!(expected, actual);
+        }
+
+        #[tokio::test]
+        async fn should_err_product_not_found_when_events_empty() {
+            let mut repository = MockProductDynamoDbRepository::default();
+            repository
+                .expect_query_product_event_records()
+                .return_once(|_, _| Box::pin(async { Ok(vec![]) }));
+            let service = GetProductServiceImpl {
+                repository: &repository,
+            };
+            let shop_id = ShopId::new();
+            let shops_product_id = ShopsProductId::new();
+            let actual = service
+                .view_product_history(&shop_id, &shops_product_id, &[], &Currency::Eur)
+                .await
+                .unwrap_err();
+
+            match actual {
+                GetProductError::ProductNotFound(err_shop_id, err_shops_product_id) => {
+                    assert_eq!(shop_id, err_shop_id);
+                    assert_eq!(shops_product_id, err_shops_product_id);
+                }
+                other => {
+                    panic!("Expected 'GetProductError::ProductNotFound'. Got: '{other}'")
+                }
             }
         }
     }

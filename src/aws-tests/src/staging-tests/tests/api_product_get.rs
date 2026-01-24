@@ -12,18 +12,18 @@ use product::{
     core::product_event::{
         ProductEventPayload, ProductPriceChangeEventPayload, ProductStateChangeEventPayload,
     },
-    service::get_service::GetProductServiceImpl,
-    watchlist::{
-        dynamodb::repository::WatchlistProductDynamoDbRepositoryImpl,
-        service::product_watchlist_service::ProductWatchListServiceImpl,
-    },
-};
-use product::{
     dynamodb::{
         product_record::ProductRecord,
         repository::{ProductDynamoDbRepository, ProductDynamoDbRepositoryImpl},
     },
     watchlist::service::product_watchlist_service::ProductWatchListService,
+};
+use product::{
+    service::get_service::GetProductServiceImpl,
+    watchlist::{
+        dynamodb::repository::WatchlistProductDynamoDbRepositoryImpl,
+        service::product_watchlist_service::ProductWatchListServiceImpl,
+    },
 };
 use staging_tests::{create_random_test_user, get_dynamodb_client, staging_test};
 use std::time::{Duration, SystemTime};
@@ -172,12 +172,29 @@ async fn should_respond_200_personalized_when_authenticated_and_product_does_exi
 }
 
 #[staging_test]
-async fn should_respond_200_with_history() {
+async fn should_respond_404_when_product_does_not_exist() {
+    let response = reqwest::get(format!(
+        "{}/api/v1/products/{}/bar",
+        get_cfn_output().api_gateway_endpoint_url,
+        ShopId::new()
+    ))
+    .await
+    .unwrap();
+    assert_eq!(404, response.status());
+
+    let body = response.json::<serde_json::Value>().await.unwrap();
+    assert_eq!(404, body["status"]);
+    assert_eq!("PRODUCT_NOT_FOUND", body["error"]);
+}
+
+#[staging_test]
+async fn should_respond_200_for_history() {
     let ddb_client = get_dynamodb_client().await;
-    let repository =
+    let product_repository =
         ProductDynamoDbRepositoryImpl::new(ddb_client, &get_cfn_output().dynamodb_table_1_name);
+
     let record = Faker.fake::<ProductRecord>();
-    let insert_res = repository
+    let insert_res = product_repository
         .put_product_records([record.clone()].into())
         .await
         .unwrap();
@@ -206,6 +223,7 @@ async fn should_respond_200_with_history() {
                 .unwrap(),
         }),
     };
+    tokio::time::sleep(Duration::from_secs(1)).await;
     let event_2_id = EventId::new();
     let event_2 = Event {
         aggregate_id: record.product_id,
@@ -217,7 +235,7 @@ async fn should_respond_200_with_history() {
             old_state: ProductState::Sold,
         }),
     };
-    let insert_res = repository
+    let insert_res = product_repository
         .put_product_event_records(
             [
                 event_1.clone().try_into().unwrap(),
@@ -230,18 +248,20 @@ async fn should_respond_200_with_history() {
     assert!(insert_res.unprocessed_items.unwrap().is_empty());
     tokio::time::sleep(Duration::from_secs(1)).await;
 
-    let url = format!(
-        "{}/api/v1/products/{}/{}?currency=USD&history=true",
+    let response = reqwest::get(format!(
+        "{}/api/v1/products/{}/{}/history?currency=USD",
         get_cfn_output().api_gateway_endpoint_url,
         record.shop_id,
-        record.shops_product_id
-    );
-    let response = reqwest::get(url).await.unwrap();
+        record.shops_product_id,
+    ))
+    .await
+    .unwrap();
 
     assert_eq!(200, response.status());
 
     let body = response.json::<serde_json::Value>().await.unwrap();
-    let history = body["item"]["history"].as_array().unwrap();
+    let history = body.as_array().cloned().unwrap();
+
     assert_eq!(2, history.len());
     assert_eq!(event_1_id.to_string(), history[0]["eventId"]);
     assert_eq!("PRICE_DROPPED", history[0]["eventType"]);
@@ -257,20 +277,4 @@ async fn should_respond_200_with_history() {
     );
     assert_eq!(event_2_id.to_string(), history[1]["eventId"]);
     assert_eq!("STATE_REMOVED", history[1]["eventType"]);
-}
-
-#[staging_test]
-async fn should_respond_404_when_product_does_not_exist() {
-    let response = reqwest::get(format!(
-        "{}/api/v1/products/{}/bar",
-        get_cfn_output().api_gateway_endpoint_url,
-        ShopId::new()
-    ))
-    .await
-    .unwrap();
-    assert_eq!(404, response.status());
-
-    let body = response.json::<serde_json::Value>().await.unwrap();
-    assert_eq!(404, body["status"]);
-    assert_eq!("PRODUCT_NOT_FOUND", body["error"]);
 }
