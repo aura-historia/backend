@@ -366,96 +366,48 @@ Resources:
           - !Ref PrimaryUserPoolClientPublic
           - !Ref PrimaryUserPoolClientAdmin
 
-  ApiGetProductByShopIdAndShopsProductIdRoute:
+
+  ProductApiGetProductRoute:
     Type: AWS::ApiGatewayV2::Route
     Properties:
       ApiId: !Ref Api
       RouteKey: "GET /api/v1/products/{shopId}/{shopsProductId}"
-      Target: !Sub "integrations/${ApiGetProductLambdaIntegration}"
-  ApiGetProductByShopSlugIdAndProductSlugIdRoute:
+      Target: !Sub "integrations/${ProductApiLambdaIntegration}"
+  ProductApiGetProductBySlugIdRoute:
     Type: AWS::ApiGatewayV2::Route
     Properties:
       ApiId: !Ref Api
       RouteKey: "GET /api/v1/products/by-slug/{shopSlugId}/{productSlugId}"
-      Target: !Sub "integrations/${ApiGetProductLambdaIntegration}"
-  ApiGetProductLambdaIntegration:
-    Type: AWS::ApiGatewayV2::Integration
+      Target: !Sub "integrations/${ProductApiLambdaIntegration}"
+  ProductApiGetProductSimilarRoute:
+    Type: AWS::ApiGatewayV2::Route
     Properties:
       ApiId: !Ref Api
-      IntegrationType: AWS_PROXY
-      IntegrationUri: !Sub "arn:aws:lambda:${AWS::Region}:${AWS::AccountId}:function:${ApiGetProductLambda}"
-      PayloadFormatVersion: "2.0"
-  ApiGetProductRole:
-    Type: AWS::IAM::Role
-    Properties:
-      RoleName: "api-get-product-role-dev"
-      AssumeRolePolicyDocument:
-        Version: "2012-10-17"
-        Statement:
-          - Effect: Allow
-            Principal:
-              Service: lambda.amazonaws.com
-            Action: sts:AssumeRole
-      ManagedPolicyArns:
-        - arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole
-      Policies:
-        - PolicyName: DynamoDBAccess
-          PolicyDocument:
-            Version: "2012-10-17"
-            Statement:
-              - Effect: Allow
-                Action:
-                  - dynamodb:GetItem
-                  - dynamodb:BatchGetItem
-                  - dynamodb:Query
-                Resource:
-                  - !GetAtt TableOne.Arn
-                  - !Sub "${TableOne.Arn}/index/*"
-  ApiGetProductLambda:
-    Type: AWS::Lambda::Function
-    Properties:
-      FunctionName: "api-get-product-dev"
-      Runtime: provided.al2023
-      Handler: lib.handler
-      Role: !GetAtt ApiGetProductRole.Arn
-      Code:
-        S3Bucket: !Ref ArtifactBucket
-        S3Key: !Sub "product-api-get-product-dev-${CommitSHA}.zip"
-      MemorySize: 512
-      Timeout: 10
-      EphemeralStorage:
-        Size: 512
-      Environment:
-        Variables:
-          DYNAMODB_TABLE_NAME: !Ref TableOne
-          USER_POOL_ID: !Ref PrimaryUserPool
-          USER_POOL_PUBLIC_CLIENT_ID: !Ref PrimaryUserPoolClientPublic
-          USER_POOL_ADMIN_CLIENT_ID: !Ref PrimaryUserPoolClientAdmin
-  ApiGetProductLambdaPermission:
-    Type: AWS::Lambda::Permission
-    Properties:
-      Action: lambda:InvokeFunction
-      FunctionName: !Ref ApiGetProductLambda
-      Principal: apigateway.amazonaws.com
-      SourceArn: !Sub "arn:aws:execute-api:${AWS::Region}:${AWS::AccountId}:${Api}/*/*/api/v1/products/*"
-
-  ApiPutProductsRoute:
+      RouteKey: "GET /api/v1/products/{shopId}/{shopsProductId}/similar"
+      Target: !Sub "integrations/${ProductApiLambdaIntegration}"
+  ProductApiPutProductRoute:
     Type: AWS::ApiGatewayV2::Route
     Properties:
       ApiId: !Ref Api
       RouteKey: "PUT /api/v1/products"
-      Target: !Sub "integrations/${ApiPutProductsLambdaIntegration}"
-  ApiPutProductsLambdaIntegration:
+      Target: !Sub "integrations/${ProductApiLambdaIntegration}"
+  ProductApiSearchProductRoute:
+    Type: AWS::ApiGatewayV2::Route
+    Properties:
+      ApiId: !Ref Api
+      RouteKey: "POST /api/v1/products/search"
+      Target: !Sub "integrations/${ProductApiLambdaIntegration}"
+  ProductApiLambdaIntegration:
     Type: AWS::ApiGatewayV2::Integration
     Properties:
       ApiId: !Ref Api
       IntegrationType: AWS_PROXY
-      IntegrationUri: !Sub "arn:aws:lambda:${AWS::Region}:${AWS::AccountId}:function:${ApiPutProductsLambda}"
+      IntegrationUri: !Sub "arn:aws:lambda:${AWS::Region}:${AWS::AccountId}:function:${ProductApiLambda}"
       PayloadFormatVersion: "2.0"
-  ApiPutProductsRole:
+  ProductApiRole:
     Type: AWS::IAM::Role
     Properties:
-      RoleName: "api-put-products-role-dev"
+      RoleName: "product-api-role-dev"
       AssumeRolePolicyDocument:
         Version: "2012-10-17"
         Statement:
@@ -481,387 +433,84 @@ Resources:
                   - dynamodb:BatchWriteItem
                   - dynamodb:TransactGetItems
                   - dynamodb:TransactWriteItems
-                Resource: !GetAtt TableOne.Arn
-  ApiPutProductsLambda:
-    Type: AWS::Lambda::Function
-    Properties:
-      FunctionName: "api-put-products-dev"
-      Runtime: provided.al2023
-      Handler: lib.handler
-      Role: !GetAtt ApiPutProductsRole.Arn
-      Code:
-        S3Bucket: !Ref ArtifactBucket
-        S3Key: !Sub "product-api-put-products-dev-${CommitSHA}.zip"
-      MemorySize: 1024
-      Timeout: 60
-      EphemeralStorage:
-        Size: 512
-      Environment:
-        Variables:
-          DYNAMODB_TABLE_NAME: !Ref TableOne
-  ApiPutProductsLambdaPermission:
-    Type: AWS::Lambda::Permission
-    Properties:
-      Action: lambda:InvokeFunction
-      FunctionName: !Ref ApiPutProductsLambda
-      Principal: apigateway.amazonaws.com
-      SourceArn: !Sub "arn:aws:execute-api:${AWS::Region}:${AWS::AccountId}:${Api}/*/*/api/v1/products"
-
-  ApiProductSearchRoute:
-    Type: AWS::ApiGatewayV2::Route
-    Properties:
-      ApiId: !Ref Api
-      RouteKey: "POST /api/v1/products/search"
-      Target: !Sub "integrations/${ApiProductSearchLambdaIntegration}"
-  ApiProductSearchLambdaIntegration:
-    Type: AWS::ApiGatewayV2::Integration
-    Properties:
-      ApiId: !Ref Api
-      IntegrationType: AWS_PROXY
-      IntegrationUri: !Sub "arn:aws:lambda:${AWS::Region}:${AWS::AccountId}:function:${ApiProductSearchLambda}"
-      PayloadFormatVersion: "2.0"
-  ApiProductSearchRole:
-    Type: AWS::IAM::Role
-    Properties:
-      RoleName: "api-product-search-role-dev"
-      AssumeRolePolicyDocument:
-        Version: "2012-10-17"
-        Statement:
-          - Effect: Allow
-            Principal:
-              Service: lambda.amazonaws.com
-            Action: sts:AssumeRole
-      ManagedPolicyArns:
-        - arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole
-      Policies:
-        - PolicyName: DynamoDBAccess
-          PolicyDocument:
-            Version: "2012-10-17"
-            Statement:
-              - Effect: Allow
-                Action:
-                  - dynamodb:GetItem
-                  - dynamodb:BatchGetItem
-                  - dynamodb:Query
-                Resource: !GetAtt TableOne.Arn
-  ApiProductSearchLambda:
-    Type: AWS::Lambda::Function
-    Properties:
-      FunctionName: "api-product-search-dev"
-      Runtime: provided.al2023
-      Handler: lib.handler
-      Role: !GetAtt ApiProductSearchRole.Arn
-      Code:
-        S3Bucket: !Ref ArtifactBucket
-        S3Key: !Sub "product-api-search-dev-${CommitSHA}.zip"
-      MemorySize: 512
-      Timeout: 10
-      EphemeralStorage:
-        Size: 512
-      Environment:
-        Variables:
-          STAGE: "dev"
-          OPENSEARCH_ENDPOINT_URL: !Ref OpenSearchEndpointUrl
-          OPENSEARCH_USERNAME: "{{resolve:ssm:/opensearch/dev/username}}"
-          OPENSEARCH_PASSWORD: "{{resolve:ssm:/opensearch/dev/password}}"
-          DYNAMODB_TABLE_NAME: !Ref TableOne
-          USER_POOL_ID: !Ref PrimaryUserPool
-          USER_POOL_PUBLIC_CLIENT_ID: !Ref PrimaryUserPoolClientPublic
-          USER_POOL_ADMIN_CLIENT_ID: !Ref PrimaryUserPoolClientAdmin
-  ApiProductSearchLambdaPermission:
-    Type: AWS::Lambda::Permission
-    Properties:
-      Action: lambda:InvokeFunction
-      FunctionName: !Ref ApiProductSearchLambda
-      Principal: apigateway.amazonaws.com
-      SourceArn: !Sub "arn:aws:execute-api:${AWS::Region}:${AWS::AccountId}:${Api}/*/*/api/v1/products/search*"
-
-  ApiProductSimilaritySearchRoute:
-    Type: AWS::ApiGatewayV2::Route
-    Properties:
-      ApiId: !Ref Api
-      RouteKey: "GET /api/v1/products/{shopId}/{shopsProductId}/similar"
-      Target: !Sub "integrations/${ApiProductSimilaritySearchLambdaIntegration}"
-  ApiProductSimilaritySearchLambdaIntegration:
-    Type: AWS::ApiGatewayV2::Integration
-    Properties:
-      ApiId: !Ref Api
-      IntegrationType: AWS_PROXY
-      IntegrationUri: !Sub "arn:aws:lambda:${AWS::Region}:${AWS::AccountId}:function:${ApiProductSimilaritySearchLambda}"
-      PayloadFormatVersion: "2.0"
-  ApiProductSimilaritySearchRole:
-    Type: AWS::IAM::Role
-    Properties:
-      RoleName: "api-product-similarity-search-role-dev"
-      AssumeRolePolicyDocument:
-        Version: "2012-10-17"
-        Statement:
-          - Effect: Allow
-            Principal:
-              Service: lambda.amazonaws.com
-            Action: sts:AssumeRole
-      ManagedPolicyArns:
-        - arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole
-      Policies:
-        - PolicyName: DynamoDBAccess
-          PolicyDocument:
-            Version: "2012-10-17"
-            Statement:
-              - Effect: Allow
-                Action:
-                  - dynamodb:GetItem
-                  - dynamodb:BatchGetItem
-                  - dynamodb:Query
-                Resource: !GetAtt TableOne.Arn
-  ApiProductSimilaritySearchLambda:
-    Type: AWS::Lambda::Function
-    Properties:
-      FunctionName: "api-product-similarity-search-dev"
-      Runtime: provided.al2023
-      Handler: lib.handler
-      Role: !GetAtt ApiProductSimilaritySearchRole.Arn
-      Code:
-        S3Bucket: !Ref ArtifactBucket
-        S3Key: !Sub "product-api-get-product-similar-dev-${CommitSHA}.zip"
-      MemorySize: 512
-      Timeout: 10
-      EphemeralStorage:
-        Size: 512
-      Environment:
-        Variables:
-          STAGE: "dev"
-          OPENSEARCH_ENDPOINT_URL: !Ref OpenSearchEndpointUrl
-          OPENSEARCH_USERNAME: "{{resolve:ssm:/opensearch/dev/username}}"
-          OPENSEARCH_PASSWORD: "{{resolve:ssm:/opensearch/dev/password}}"
-          DYNAMODB_TABLE_NAME: !Ref TableOne
-          USER_POOL_ID: !Ref PrimaryUserPool
-          USER_POOL_PUBLIC_CLIENT_ID: !Ref PrimaryUserPoolClientPublic
-          USER_POOL_ADMIN_CLIENT_ID: !Ref PrimaryUserPoolClientAdmin
-  ApiProductSimilaritySearchLambdaPermission:
-    Type: AWS::Lambda::Permission
-    Properties:
-      Action: lambda:InvokeFunction
-      FunctionName: !Ref ApiProductSimilaritySearchLambda
-      Principal: apigateway.amazonaws.com
-      SourceArn: !Sub "arn:aws:execute-api:${AWS::Region}:${AWS::AccountId}:${Api}/*/*/api/v1/products/*/*/*"
-
-  ApiGetWatchlistProductsRoute:
-    Type: AWS::ApiGatewayV2::Route
-    Properties:
-      ApiId: !Ref Api
-      RouteKey: "GET /api/v1/me/watchlist"
-      AuthorizationType: JWT
-      AuthorizerId: !Ref ApiCognitoAuthorizer
-      Target: !Sub "integrations/${ApiGetWatchlistProductsLambdaIntegration}"
-  ApiGetWatchlistProductsLambdaIntegration:
-    Type: AWS::ApiGatewayV2::Integration
-    Properties:
-      ApiId: !Ref Api
-      IntegrationType: AWS_PROXY
-      IntegrationUri: !Sub "arn:aws:lambda:${AWS::Region}:${AWS::AccountId}:function:${ApiGetWatchlistProductsLambda}"
-      PayloadFormatVersion: "2.0"
-  ApiGetWatchlistProductsRole:
-    Type: AWS::IAM::Role
-    Properties:
-      RoleName: "api-get-watchlist-products-role-dev"
-      AssumeRolePolicyDocument:
-        Version: "2012-10-17"
-        Statement:
-          - Effect: Allow
-            Principal:
-              Service: lambda.amazonaws.com
-            Action: sts:AssumeRole
-      ManagedPolicyArns:
-        - arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole
-      Policies:
-        - PolicyName: DynamoDBAccess
-          PolicyDocument:
-            Version: "2012-10-17"
-            Statement:
-              - Effect: Allow
-                Action:
-                  - dynamodb:GetItem
-                  - dynamodb:BatchGetItem
-                  - dynamodb:Query
                 Resource:
                   - !GetAtt TableOne.Arn
                   - !Sub "${TableOne.Arn}/index/*"
-  ApiGetWatchlistProductsLambda:
+  ProductApiLambda:
     Type: AWS::Lambda::Function
     Properties:
-      FunctionName: "api-get-watchlist-products-dev"
+      FunctionName: "product-api-dev"
       Runtime: provided.al2023
       Handler: lib.handler
-      Role: !GetAtt ApiGetWatchlistProductsRole.Arn
+      Role: !GetAtt ProductApiRole.Arn
       Code:
         S3Bucket: !Ref ArtifactBucket
-        S3Key: !Sub "product-api-watchlist-get-dev-${CommitSHA}.zip"
+        S3Key: "product-api-dev-latest.zip"
       MemorySize: 512
       Timeout: 10
       EphemeralStorage:
         Size: 512
       Environment:
         Variables:
+          OPENSEARCH_ENDPOINT_URL: !Ref OpenSearchEndpointUrl
+          STAGE: "dev"
+          OPENSEARCH_USERNAME: "{{resolve:ssm:/opensearch/dev/username}}"
+          OPENSEARCH_PASSWORD: "{{resolve:ssm:/opensearch/dev/password}}"
           DYNAMODB_TABLE_NAME: !Ref TableOne
-  ApiGetWatchlistProductsLambdaPermission:
+          USER_POOL_ID: !Ref PrimaryUserPool
+          USER_POOL_PUBLIC_CLIENT_ID: !Ref PrimaryUserPoolClientPublic
+          USER_POOL_ADMIN_CLIENT_ID: !Ref PrimaryUserPoolClientAdmin
+  ProductApiLambdaPermission:
     Type: AWS::Lambda::Permission
     Properties:
       Action: lambda:InvokeFunction
-      FunctionName: !Ref ApiGetWatchlistProductsLambda
+      FunctionName: !Ref ProductApiLambda
       Principal: apigateway.amazonaws.com
-      SourceArn: !Sub "arn:aws:execute-api:${AWS::Region}:${AWS::AccountId}:${Api}/*/*/api/v1/me/watchlist*"
+      SourceArn: !Sub "arn:aws:execute-api:${AWS::Region}:${AWS::AccountId}:${Api}/*/*/api/v1/products*"
 
-  ApiDeleteWatchlistProductRoute:
+  ProductWatchlistApiDeleteWatchlistProductRoute:
     Type: AWS::ApiGatewayV2::Route
     Properties:
       ApiId: !Ref Api
       RouteKey: "DELETE /api/v1/me/watchlist/{shopId}/{shopsProductId}"
       AuthorizationType: JWT
       AuthorizerId: !Ref ApiCognitoAuthorizer
-      Target: !Sub "integrations/${ApiDeleteWatchlistLambdaIntegration}"
-  ApiDeleteWatchlistLambdaIntegration:
-    Type: AWS::ApiGatewayV2::Integration
-    Properties:
-      ApiId: !Ref Api
-      IntegrationType: AWS_PROXY
-      IntegrationUri: !Sub "arn:aws:lambda:${AWS::Region}:${AWS::AccountId}:function:${ApiDeleteWatchlistLambda}"
-      PayloadFormatVersion: "2.0"
-  ApiDeleteWatchlistProductRole:
-    Type: AWS::IAM::Role
-    Properties:
-      RoleName: "api-delete-watchlist-product-role-dev"
-      AssumeRolePolicyDocument:
-        Version: "2012-10-17"
-        Statement:
-          - Effect: Allow
-            Principal:
-              Service: lambda.amazonaws.com
-            Action: sts:AssumeRole
-      ManagedPolicyArns:
-        - arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole
-      Policies:
-        - PolicyName: DynamoDBAccess
-          PolicyDocument:
-            Version: "2012-10-17"
-            Statement:
-              - Effect: Allow
-                Action:
-                  - dynamodb:GetItem
-                  - dynamodb:BatchGetItem
-                  - dynamodb:Query
-                  - dynamodb:DeleteItem
-                Resource: !GetAtt TableOne.Arn
-  ApiDeleteWatchlistLambda:
-    Type: AWS::Lambda::Function
-    Properties:
-      FunctionName: "api-delete-watchlist-product-dev"
-      Runtime: provided.al2023
-      Handler: lib.handler
-      Role: !GetAtt ApiDeleteWatchlistProductRole.Arn
-      Code:
-        S3Bucket: !Ref ArtifactBucket
-        S3Key: !Sub "product-api-watchlist-delete-dev-${CommitSHA}.zip"
-      MemorySize: 512
-      Timeout: 10
-      EphemeralStorage:
-        Size: 512
-      Environment:
-        Variables:
-          DYNAMODB_TABLE_NAME: !Ref TableOne
-  ApiDeleteWatchlistLambdaPermission:
-    Type: AWS::Lambda::Permission
-    Properties:
-      Action: lambda:InvokeFunction
-      FunctionName: !Ref ApiDeleteWatchlistLambda
-      Principal: apigateway.amazonaws.com
-      SourceArn: !Sub "arn:aws:execute-api:${AWS::Region}:${AWS::AccountId}:${Api}/*/*/api/v1/me/watchlist/*/*"
-
-  ApiPostWatchlistProductRoute:
+      Target: !Sub "integrations/${ProductWatchlistApiLambdaIntegration}"
+  ProductWatchlistApiGetAllWatchlistProductRoute:
     Type: AWS::ApiGatewayV2::Route
     Properties:
       ApiId: !Ref Api
-      RouteKey: "POST /api/v1/me/watchlist"
+      RouteKey: "GET /api/v1/me/watchlist"
       AuthorizationType: JWT
       AuthorizerId: !Ref ApiCognitoAuthorizer
-      Target: !Sub "integrations/${ApiPostWatchlistLambdaIntegration}"
-  ApiPostWatchlistLambdaIntegration:
-    Type: AWS::ApiGatewayV2::Integration
-    Properties:
-      ApiId: !Ref Api
-      IntegrationType: AWS_PROXY
-      IntegrationUri: !Sub "arn:aws:lambda:${AWS::Region}:${AWS::AccountId}:function:${ApiPostWatchlistLambda}"
-      PayloadFormatVersion: "2.0"
-  ApiPostWatchlistProductRole:
-    Type: AWS::IAM::Role
-    Properties:
-      RoleName: "api-post-watchlist-product-role-dev"
-      AssumeRolePolicyDocument:
-        Version: "2012-10-17"
-        Statement:
-          - Effect: Allow
-            Principal:
-              Service: lambda.amazonaws.com
-            Action: sts:AssumeRole
-      ManagedPolicyArns:
-        - arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole
-      Policies:
-        - PolicyName: DynamoDBAccess
-          PolicyDocument:
-            Version: "2012-10-17"
-            Statement:
-              - Effect: Allow
-                Action:
-                  - dynamodb:GetItem
-                  - dynamodb:BatchGetItem
-                  - dynamodb:Query
-                  - dynamodb:PutItem
-                Resource:
-                  - !GetAtt TableOne.Arn
-                  - !Sub "${TableOne.Arn}/index/*"
-  ApiPostWatchlistLambda:
-    Type: AWS::Lambda::Function
-    Properties:
-      FunctionName: "api-post-watchlist-product-dev"
-      Runtime: provided.al2023
-      Handler: lib.handler
-      Role: !GetAtt ApiPostWatchlistProductRole.Arn
-      Code:
-        S3Bucket: !Ref ArtifactBucket
-        S3Key: !Sub "product-api-watchlist-post-dev-${CommitSHA}.zip"
-      MemorySize: 512
-      Timeout: 10
-      EphemeralStorage:
-        Size: 512
-      Environment:
-        Variables:
-          DYNAMODB_TABLE_NAME: !Ref TableOne
-  ApiPostWatchlistLambdaPermission:
-    Type: AWS::Lambda::Permission
-    Properties:
-      Action: lambda:InvokeFunction
-      FunctionName: !Ref ApiPostWatchlistLambda
-      Principal: apigateway.amazonaws.com
-      SourceArn: !Sub "arn:aws:execute-api:${AWS::Region}:${AWS::AccountId}:${Api}/*/*/api/v1/me/watchlist"
-
-  ApiPatchWatchlistProductRoute:
+      Target: !Sub "integrations/${ProductWatchlistApiLambdaIntegration}"
+  ProductWatchlistApiPatchWatchlistProductRoute:
     Type: AWS::ApiGatewayV2::Route
     Properties:
       ApiId: !Ref Api
       RouteKey: "PATCH /api/v1/me/watchlist/{shopId}/{shopsProductId}"
       AuthorizationType: JWT
       AuthorizerId: !Ref ApiCognitoAuthorizer
-      Target: !Sub "integrations/${ApiPatchWatchlistLambdaIntegration}"
-  ApiPatchWatchlistLambdaIntegration:
+      Target: !Sub "integrations/${ProductWatchlistApiLambdaIntegration}"
+  ProductWatchlistApiPostWatchlistProductRoute:
+    Type: AWS::ApiGatewayV2::Route
+    Properties:
+      ApiId: !Ref Api
+      RouteKey: "POST /api/v1/me/watchlist"
+      AuthorizationType: JWT
+      AuthorizerId: !Ref ApiCognitoAuthorizer
+      Target: !Sub "integrations/${ProductWatchlistApiLambdaIntegration}"
+  ProductWatchlistApiLambdaIntegration:
     Type: AWS::ApiGatewayV2::Integration
     Properties:
       ApiId: !Ref Api
       IntegrationType: AWS_PROXY
-      IntegrationUri: !Sub "arn:aws:lambda:${AWS::Region}:${AWS::AccountId}:function:${ApiPatchWatchlistLambda}"
+      IntegrationUri: !Sub "arn:aws:lambda:${AWS::Region}:${AWS::AccountId}:function:${ProductWatchlistApiLambda}"
       PayloadFormatVersion: "2.0"
-  ApiPatchWatchlistProductRole:
+  ProductWatchlistApiRole:
     Type: AWS::IAM::Role
     Properties:
-      RoleName: "api-patch-watchlist-product-role-dev"
+      RoleName: "product-watchlist-api-role-dev"
       AssumeRolePolicyDocument:
         Version: "2012-10-17"
         Statement:
@@ -879,18 +528,24 @@ Resources:
               - Effect: Allow
                 Action:
                   - dynamodb:GetItem
+                  - dynamodb:PutItem
                   - dynamodb:UpdateItem
-                Resource: !GetAtt TableOne.Arn
-  ApiPatchWatchlistLambda:
+                  - dynamodb:DeleteItem
+                  - dynamodb:BatchGetItem
+                  - dynamodb:Query
+                Resource:
+                  - !GetAtt TableOne.Arn
+                  - !Sub "${TableOne.Arn}/index/*"
+  ProductWatchlistApiLambda:
     Type: AWS::Lambda::Function
     Properties:
-      FunctionName: "api-patch-watchlist-product-dev"
+      FunctionName: "product-watchlist-api-dev"
       Runtime: provided.al2023
       Handler: lib.handler
-      Role: !GetAtt ApiPatchWatchlistProductRole.Arn
+      Role: !GetAtt ProductWatchlistApiRole.Arn
       Code:
         S3Bucket: !Ref ArtifactBucket
-        S3Key: !Sub "product-api-watchlist-patch-dev-${CommitSHA}.zip"
+        S3Key: "product-watchlist-api-dev-latest.zip"
       MemorySize: 256
       Timeout: 10
       EphemeralStorage:
@@ -898,99 +553,41 @@ Resources:
       Environment:
         Variables:
           DYNAMODB_TABLE_NAME: !Ref TableOne
-  ApiPatchWatchlistLambdaPermission:
+  ProductWatchlistApiLambdaPermission:
     Type: AWS::Lambda::Permission
     Properties:
       Action: lambda:InvokeFunction
-      FunctionName: !Ref ApiPatchWatchlistLambda
+      FunctionName: !Ref ProductWatchlistApiLambda
       Principal: apigateway.amazonaws.com
-      SourceArn: !Sub "arn:aws:execute-api:${AWS::Region}:${AWS::AccountId}:${Api}/*/*/api/v1/me/watchlist/*/*"
+      SourceArn: !Sub "arn:aws:execute-api:${AWS::Region}:${AWS::AccountId}:${Api}/*/*/api/v1/me/watchlist*"
 
-  ApiGetUserAccountRoute:
+  UserApiGetUserAccountRoute:
     Type: AWS::ApiGatewayV2::Route
     Properties:
       ApiId: !Ref Api
       RouteKey: "GET /api/v1/me/account"
       AuthorizationType: JWT
       AuthorizerId: !Ref ApiCognitoAuthorizer
-      Target: !Sub "integrations/${ApiGetUserAccountLambdaIntegration}"
-  ApiGetUserAccountLambdaIntegration:
-    Type: AWS::ApiGatewayV2::Integration
-    Properties:
-      ApiId: !Ref Api
-      IntegrationType: AWS_PROXY
-      IntegrationUri: !Sub "arn:aws:lambda:${AWS::Region}:${AWS::AccountId}:function:${ApiGetUserAccountLambda}"
-      PayloadFormatVersion: "2.0"
-  ApiGetUserAccountRole:
-    Type: AWS::IAM::Role
-    Properties:
-      RoleName: "api-user-get-account-role-dev"
-      AssumeRolePolicyDocument:
-        Version: "2012-10-17"
-        Statement:
-          - Effect: Allow
-            Principal:
-              Service: lambda.amazonaws.com
-            Action: sts:AssumeRole
-      ManagedPolicyArns:
-        - arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole
-      Policies:
-        - PolicyName: DynamoDBAccess
-          PolicyDocument:
-            Version: "2012-10-17"
-            Statement:
-              - Effect: Allow
-                Action:
-                  - dynamodb:GetItem
-                  - dynamodb:BatchGetItem
-                  - dynamodb:Query
-                Resource:
-                  - !GetAtt TableOne.Arn
-                  - !Sub "${TableOne.Arn}/index/*"
-  ApiGetUserAccountLambda:
-    Type: AWS::Lambda::Function
-    Properties:
-      FunctionName: "api-user-get-account-dev"
-      Runtime: provided.al2023
-      Handler: lib.handler
-      Role: !GetAtt ApiGetUserAccountRole.Arn
-      Code:
-        S3Bucket: !Ref ArtifactBucket
-        S3Key: !Sub "user-api-get-account-dev-${CommitSHA}.zip"
-      MemorySize: 512
-      Timeout: 10
-      EphemeralStorage:
-        Size: 512
-      Environment:
-        Variables:
-          DYNAMODB_TABLE_NAME: !Ref TableOne
-  ApiGetUserAccountLambdaPermission:
-    Type: AWS::Lambda::Permission
-    Properties:
-      Action: lambda:InvokeFunction
-      FunctionName: !Ref ApiGetUserAccountLambda
-      Principal: apigateway.amazonaws.com
-      SourceArn: !Sub "arn:aws:execute-api:${AWS::Region}:${AWS::AccountId}:${Api}/*/*/api/v1/me/account*"
-
-  ApiPatchUserAccountRoute:
+      Target: !Sub "integrations/${UserApiLambdaIntegration}"
+  UserApiPatchUserAccountRoute:
     Type: AWS::ApiGatewayV2::Route
     Properties:
       ApiId: !Ref Api
       RouteKey: "PATCH /api/v1/me/account"
       AuthorizationType: JWT
       AuthorizerId: !Ref ApiCognitoAuthorizer
-      Target: !Sub "integrations/${ApiPatchUserAccountLambdaIntegration}"
-  ApiPatchUserAccountLambdaIntegration:
+      Target: !Sub "integrations/${UserApiLambdaIntegration}"
+  UserApiLambdaIntegration:
     Type: AWS::ApiGatewayV2::Integration
     Properties:
       ApiId: !Ref Api
       IntegrationType: AWS_PROXY
-      IntegrationUri: !Sub "arn:aws:lambda:${AWS::Region}:${AWS::AccountId}:function:${ApiPatchUserAccountLambda}"
+      IntegrationUri: !Sub "arn:aws:lambda:${AWS::Region}:${AWS::AccountId}:function:${UserApiLambda}"
       PayloadFormatVersion: "2.0"
-  ApiPatchUserAccountRole:
+  UserApiRole:
     Type: AWS::IAM::Role
     Properties:
-      RoleName: "api-patch-user-account-role-dev"
+      RoleName: "user-api-role-dev"
       AssumeRolePolicyDocument:
         Version: "2012-10-17"
         Statement:
@@ -1010,16 +607,16 @@ Resources:
                   - dynamodb:GetItem
                   - dynamodb:UpdateItem
                 Resource: !GetAtt TableOne.Arn
-  ApiPatchUserAccountLambda:
+  UserApiLambda:
     Type: AWS::Lambda::Function
     Properties:
-      FunctionName: "api-patch-user-account-dev"
+      FunctionName: "user-api-dev"
       Runtime: provided.al2023
       Handler: lib.handler
-      Role: !GetAtt ApiPatchUserAccountRole.Arn
+      Role: !GetAtt UserApiRole.Arn
       Code:
         S3Bucket: !Ref ArtifactBucket
-        S3Key: !Sub "user-api-patch-account-dev-${CommitSHA}.zip"
+        S3Key: "user-api-dev-latest.zip"
       MemorySize: 256
       Timeout: 10
       EphemeralStorage:
@@ -1027,101 +624,55 @@ Resources:
       Environment:
         Variables:
           DYNAMODB_TABLE_NAME: !Ref TableOne
-  ApiPatchUserAccountLambdaPermission:
+  UserApiLambdaPermission:
     Type: AWS::Lambda::Permission
     Properties:
       Action: lambda:InvokeFunction
-      FunctionName: !Ref ApiPatchUserAccountLambda
+      FunctionName: !Ref UserApiLambda
       Principal: apigateway.amazonaws.com
       SourceArn: !Sub "arn:aws:execute-api:${AWS::Region}:${AWS::AccountId}:${Api}/*/*/api/v1/me/account*"
 
-  ApiGetShopByShopIdentifierRoute:
+  ShopApiGetShopByIdentifierRoute:
     Type: AWS::ApiGatewayV2::Route
     Properties:
       ApiId: !Ref Api
       RouteKey: "GET /api/v1/shops/{shopIdentifier}"
-      Target: !Sub "integrations/${ApiGetShopLambdaIntegration}"
-  ApiGetShopByShopSlugIdRoute:
+      Target: !Sub "integrations/${ShopApiLambdaIntegration}"
+  ShopApiGetShopBySlugIdRoute:
     Type: AWS::ApiGatewayV2::Route
     Properties:
       ApiId: !Ref Api
       RouteKey: "GET /api/v1/shops/by-slug/{shopSlugId}"
-      Target: !Sub "integrations/${ApiGetShopLambdaIntegration}"
-  ApiGetShopLambdaIntegration:
-    Type: AWS::ApiGatewayV2::Integration
-    Properties:
-      ApiId: !Ref Api
-      IntegrationType: AWS_PROXY
-      IntegrationUri: !Sub "arn:aws:lambda:${AWS::Region}:${AWS::AccountId}:function:${ApiGetShopLambda}"
-      PayloadFormatVersion: "2.0"
-  ApiGetShopRole:
-    Type: AWS::IAM::Role
-    Properties:
-      RoleName: "api-get-shop-role-dev"
-      AssumeRolePolicyDocument:
-        Version: "2012-10-17"
-        Statement:
-          - Effect: Allow
-            Principal:
-              Service: lambda.amazonaws.com
-            Action: sts:AssumeRole
-      ManagedPolicyArns:
-        - arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole
-      Policies:
-        - PolicyName: DynamoDBAccess
-          PolicyDocument:
-            Version: "2012-10-17"
-            Statement:
-              - Effect: Allow
-                Action:
-                  - dynamodb:GetItem
-                  - dynamodb:BatchGetItem
-                  - dynamodb:Query
-                Resource:
-                  - !GetAtt TableOne.Arn
-                  - !Sub "${TableOne.Arn}/index/*"
-  ApiGetShopLambda:
-    Type: AWS::Lambda::Function
-    Properties:
-      FunctionName: "api-get-shop-dev"
-      Runtime: provided.al2023
-      Handler: lib.handler
-      Role: !GetAtt ApiGetShopRole.Arn
-      Code:
-        S3Bucket: !Ref ArtifactBucket
-        S3Key: !Sub "shop-api-get-shop-dev-${CommitSHA}.zip"
-      MemorySize: 512
-      Timeout: 10
-      EphemeralStorage:
-        Size: 512
-      Environment:
-        Variables:
-          DYNAMODB_TABLE_NAME: !Ref TableOne
-  ApiGetShopLambdaPermission:
-    Type: AWS::Lambda::Permission
-    Properties:
-      Action: lambda:InvokeFunction
-      FunctionName: !Ref ApiGetShopLambda
-      Principal: apigateway.amazonaws.com
-      SourceArn: !Sub "arn:aws:execute-api:${AWS::Region}:${AWS::AccountId}:${Api}/*/*/api/v1/shops/*"
-
-  ApiPatchShopRoute:
+      Target: !Sub "integrations/${ShopApiLambdaIntegration}"
+  ShopApiPatchShopRoute:
     Type: AWS::ApiGatewayV2::Route
     Properties:
       ApiId: !Ref Api
       RouteKey: "PATCH /api/v1/shops/{shopIdentifier}"
-      Target: !Sub "integrations/${ApiPatchShopLambdaIntegration}"
-  ApiPatchShopLambdaIntegration:
+      Target: !Sub "integrations/${ShopApiLambdaIntegration}"
+  ShopApiPostShopRoute:
+    Type: AWS::ApiGatewayV2::Route
+    Properties:
+      ApiId: !Ref Api
+      RouteKey: "POST /api/v1/shops"
+      Target: !Sub "integrations/${ShopApiLambdaIntegration}"
+  ShopApiSearchRoute:
+    Type: AWS::ApiGatewayV2::Route
+    Properties:
+      ApiId: !Ref Api
+      RouteKey: "POST /api/v1/shops/search"
+      Target: !Sub "integrations/${ShopApiLambdaIntegration}"
+  ShopApiLambdaIntegration:
     Type: AWS::ApiGatewayV2::Integration
     Properties:
       ApiId: !Ref Api
       IntegrationType: AWS_PROXY
-      IntegrationUri: !Sub "arn:aws:lambda:${AWS::Region}:${AWS::AccountId}:function:${ApiPatchShopLambda}"
+      IntegrationUri: !Sub "arn:aws:lambda:${AWS::Region}:${AWS::AccountId}:function:${ShopApiLambda}"
       PayloadFormatVersion: "2.0"
-  ApiPatchShopRole:
+  ShopApiRole:
     Type: AWS::IAM::Role
     Properties:
-      RoleName: "api-patch-shop-role-dev"
+      RoleName: "shop-api-role-dev"
       AssumeRolePolicyDocument:
         Version: "2012-10-17"
         Statement:
@@ -1147,17 +698,19 @@ Resources:
                   - dynamodb:BatchWriteItem
                   - dynamodb:TransactGetItems
                   - dynamodb:TransactWriteItems
-                Resource: !GetAtt TableOne.Arn
-  ApiPatchShopLambda:
+                Resource:
+                  - !GetAtt TableOne.Arn
+                  - !Sub "${TableOne.Arn}/index/*"
+  ShopApiLambda:
     Type: AWS::Lambda::Function
     Properties:
-      FunctionName: "api-patch-shop-dev"
+      FunctionName: "shop-api-dev"
       Runtime: provided.al2023
       Handler: lib.handler
-      Role: !GetAtt ApiPatchShopRole.Arn
+      Role: !GetAtt ShopApiRole.Arn
       Code:
         S3Bucket: !Ref ArtifactBucket
-        S3Key: !Sub "shop-api-patch-shop-dev-${CommitSHA}.zip"
+        S3Key: "shop-api-dev-latest.zip"
       MemorySize: 512
       Timeout: 10
       EphemeralStorage:
@@ -1165,410 +718,68 @@ Resources:
       Environment:
         Variables:
           DYNAMODB_TABLE_NAME: !Ref TableOne
-  ApiPatchShopLambdaPermission:
-    Type: AWS::Lambda::Permission
-    Properties:
-      Action: lambda:InvokeFunction
-      FunctionName: !Ref ApiPatchShopLambda
-      Principal: apigateway.amazonaws.com
-      SourceArn: !Sub "arn:aws:execute-api:${AWS::Region}:${AWS::AccountId}:${Api}/*/*/api/v1/shops/*"
-
-  ApiPostShopRoute:
-    Type: AWS::ApiGatewayV2::Route
-    Properties:
-      ApiId: !Ref Api
-      RouteKey: "POST /api/v1/shops"
-      Target: !Sub "integrations/${ApiPostShopLambdaIntegration}"
-  ApiPostShopLambdaIntegration:
-    Type: AWS::ApiGatewayV2::Integration
-    Properties:
-      ApiId: !Ref Api
-      IntegrationType: AWS_PROXY
-      IntegrationUri: !Sub "arn:aws:lambda:${AWS::Region}:${AWS::AccountId}:function:${ApiPostShopLambda}"
-      PayloadFormatVersion: "2.0"
-  ApiPostShopRole:
-    Type: AWS::IAM::Role
-    Properties:
-      RoleName: "api-post-shop-role-dev"
-      AssumeRolePolicyDocument:
-        Version: "2012-10-17"
-        Statement:
-          - Effect: Allow
-            Principal:
-              Service: lambda.amazonaws.com
-            Action: sts:AssumeRole
-      ManagedPolicyArns:
-        - arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole
-      Policies:
-        - PolicyName: DynamoDBAccess
-          PolicyDocument:
-            Version: "2012-10-17"
-            Statement:
-              - Effect: Allow
-                Action:
-                  - dynamodb:Query
-                  - dynamodb:GetItem
-                  - dynamodb:PutItem
-                  - dynamodb:BatchGetItem
-                  - dynamodb:BatchWriteItem
-                  - dynamodb:TransactGetItems
-                  - dynamodb:TransactWriteItems
-                Resource: !GetAtt TableOne.Arn
-  ApiPostShopLambda:
-    Type: AWS::Lambda::Function
-    Properties:
-      FunctionName: "api-post-shop-dev"
-      Runtime: provided.al2023
-      Handler: lib.handler
-      Role: !GetAtt ApiPostShopRole.Arn
-      Code:
-        S3Bucket: !Ref ArtifactBucket
-        S3Key: !Sub "shop-api-post-shop-dev-${CommitSHA}.zip"
-      MemorySize: 512
-      Timeout: 10
-      EphemeralStorage:
-        Size: 512
-      Environment:
-        Variables:
-          DYNAMODB_TABLE_NAME: !Ref TableOne
-  ApiPostShopLambdaPermission:
-    Type: AWS::Lambda::Permission
-    Properties:
-      Action: lambda:InvokeFunction
-      FunctionName: !Ref ApiPostShopLambda
-      Principal: apigateway.amazonaws.com
-      SourceArn: !Sub "arn:aws:execute-api:${AWS::Region}:${AWS::AccountId}:${Api}/*/*/api/v1/shops"
-
-  ApiShopSearchRoute:
-    Type: AWS::ApiGatewayV2::Route
-    Properties:
-      ApiId: !Ref Api
-      RouteKey: "POST /api/v1/shops/search"
-      Target: !Sub "integrations/${ApiShopSearchLambdaIntegration}"
-  ApiShopSearchLambdaIntegration:
-    Type: AWS::ApiGatewayV2::Integration
-    Properties:
-      ApiId: !Ref Api
-      IntegrationType: AWS_PROXY
-      IntegrationUri: !Sub "arn:aws:lambda:${AWS::Region}:${AWS::AccountId}:function:${ApiShopSearchLambda}"
-      PayloadFormatVersion: "2.0"
-  ApiShopSearchRole:
-    Type: AWS::IAM::Role
-    Properties:
-      RoleName: "api-shop-search-role-dev"
-      AssumeRolePolicyDocument:
-        Version: "2012-10-17"
-        Statement:
-          - Effect: Allow
-            Principal:
-              Service: lambda.amazonaws.com
-            Action: sts:AssumeRole
-      ManagedPolicyArns:
-        - arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole
-  ApiShopSearchLambda:
-    Type: AWS::Lambda::Function
-    Properties:
-      FunctionName: "api-shop-search-dev"
-      Runtime: provided.al2023
-      Handler: lib.handler
-      Role: !GetAtt ApiShopSearchRole.Arn
-      Code:
-        S3Bucket: !Ref ArtifactBucket
-        S3Key: !Sub "shop-api-search-dev-${CommitSHA}.zip"
-      MemorySize: 512
-      Timeout: 10
-      EphemeralStorage:
-        Size: 512
-      Environment:
-        Variables:
-          STAGE: "dev"
           OPENSEARCH_ENDPOINT_URL: !Ref OpenSearchEndpointUrl
           OPENSEARCH_USERNAME: "{{resolve:ssm:/opensearch/dev/username}}"
           OPENSEARCH_PASSWORD: "{{resolve:ssm:/opensearch/dev/password}}"
-  ApiShopSearchLambdaPermission:
+  ShopApiLambdaPermission:
     Type: AWS::Lambda::Permission
     Properties:
       Action: lambda:InvokeFunction
-      FunctionName: !Ref ApiShopSearchLambda
+      FunctionName: !Ref ShopApiLambda
       Principal: apigateway.amazonaws.com
-      SourceArn: !Sub "arn:aws:execute-api:${AWS::Region}:${AWS::AccountId}:${Api}/*/*/api/v1/shops/search*"
+      SourceArn: !Sub "arn:aws:execute-api:${AWS::Region}:${AWS::AccountId}:${Api}/*/*/api/v1/shops/*"
 
-  ApiDeleteSearchFilterRoute:
+  SearchFilterApiDeleteSearchFilterRoute:
     Type: AWS::ApiGatewayV2::Route
     Properties:
       ApiId: !Ref Api
       RouteKey: "DELETE /api/v1/me/search-filters/{userSearchFilterId}"
       AuthorizationType: JWT
       AuthorizerId: !Ref ApiCognitoAuthorizer
-      Target: !Sub "integrations/${ApiDeleteSearchFilterLambdaIntegration}"
-  ApiDeleteSearchFilterLambdaIntegration:
-    Type: AWS::ApiGatewayV2::Integration
-    Properties:
-      ApiId: !Ref Api
-      IntegrationType: AWS_PROXY
-      IntegrationUri: !Sub "arn:aws:lambda:${AWS::Region}:${AWS::AccountId}:function:${ApiDeleteSearchFilterLambda}"
-      PayloadFormatVersion: "2.0"
-  ApiDeleteSearchFilterRole:
-    Type: AWS::IAM::Role
-    Properties:
-      RoleName: "api-delete-search-filter-role-dev"
-      AssumeRolePolicyDocument:
-        Version: "2012-10-17"
-        Statement:
-          - Effect: Allow
-            Principal:
-              Service: lambda.amazonaws.com
-            Action: sts:AssumeRole
-      ManagedPolicyArns:
-        - arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole
-      Policies:
-        - PolicyName: DynamoDBAccess
-          PolicyDocument:
-            Version: "2012-10-17"
-            Statement:
-              - Effect: Allow
-                Action:
-                  - dynamodb:GetItem
-                  - dynamodb:DeleteItem
-                  - dynamodb:BatchGetItem
-                  - dynamodb:Query
-                Resource: !GetAtt TableOne.Arn
-  ApiDeleteSearchFilterLambda:
-    Type: AWS::Lambda::Function
-    Properties:
-      FunctionName: "api-delete-search-filter-dev"
-      Runtime: provided.al2023
-      Handler: lib.handler
-      Role: !GetAtt ApiDeleteSearchFilterRole.Arn
-      Code:
-        S3Bucket: !Ref ArtifactBucket
-        S3Key: !Sub "search-filter-api-delete-search-filter-dev-${CommitSHA}.zip"
-      MemorySize: 512
-      Timeout: 10
-      EphemeralStorage:
-        Size: 512
-      Environment:
-        Variables:
-          DYNAMODB_TABLE_NAME: !Ref TableOne
-  ApiDeleteSearchFilterLambdaPermission:
-    Type: AWS::Lambda::Permission
-    Properties:
-      Action: lambda:InvokeFunction
-      FunctionName: !Ref ApiDeleteSearchFilterLambda
-      Principal: apigateway.amazonaws.com
-      SourceArn: !Sub "arn:aws:execute-api:${AWS::Region}:${AWS::AccountId}:${Api}/*/*/api/v1/me/search-filters/*"
-
-  ApiGetSearchFilterRoute:
+      Target: !Sub "integrations/${SearchFilterApiLambdaIntegration}"
+  SearchFilterApiGetOneSearchFilterRoute:
     Type: AWS::ApiGatewayV2::Route
     Properties:
       ApiId: !Ref Api
       RouteKey: "GET /api/v1/me/search-filters/{userSearchFilterId}"
       AuthorizationType: JWT
       AuthorizerId: !Ref ApiCognitoAuthorizer
-      Target: !Sub "integrations/${ApiGetSearchFilterLambdaIntegration}"
-  ApiGetSearchFilterLambdaIntegration:
-    Type: AWS::ApiGatewayV2::Integration
-    Properties:
-      ApiId: !Ref Api
-      IntegrationType: AWS_PROXY
-      IntegrationUri: !Sub "arn:aws:lambda:${AWS::Region}:${AWS::AccountId}:function:${ApiGetSearchFilterLambda}"
-      PayloadFormatVersion: "2.0"
-  ApiGetSearchFilterRole:
-    Type: AWS::IAM::Role
-    Properties:
-      RoleName: "api-get-search-filter-role-dev"
-      AssumeRolePolicyDocument:
-        Version: "2012-10-17"
-        Statement:
-          - Effect: Allow
-            Principal:
-              Service: lambda.amazonaws.com
-            Action: sts:AssumeRole
-      ManagedPolicyArns:
-        - arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole
-      Policies:
-        - PolicyName: DynamoDBAccess
-          PolicyDocument:
-            Version: "2012-10-17"
-            Statement:
-              - Effect: Allow
-                Action:
-                  - dynamodb:GetItem
-                  - dynamodb:BatchGetItem
-                  - dynamodb:Query
-                Resource: !GetAtt TableOne.Arn
-  ApiGetSearchFilterLambda:
-    Type: AWS::Lambda::Function
-    Properties:
-      FunctionName: "api-get-search-filter-dev"
-      Runtime: provided.al2023
-      Handler: lib.handler
-      Role: !GetAtt ApiGetSearchFilterRole.Arn
-      Code:
-        S3Bucket: !Ref ArtifactBucket
-        S3Key: !Sub "search-filter-api-get-search-filter-dev-${CommitSHA}.zip"
-      MemorySize: 512
-      Timeout: 10
-      EphemeralStorage:
-        Size: 512
-      Environment:
-        Variables:
-          DYNAMODB_TABLE_NAME: !Ref TableOne
-  ApiGetSearchFilterLambdaPermission:
-    Type: AWS::Lambda::Permission
-    Properties:
-      Action: lambda:InvokeFunction
-      FunctionName: !Ref ApiGetSearchFilterLambda
-      Principal: apigateway.amazonaws.com
-      SourceArn: !Sub "arn:aws:execute-api:${AWS::Region}:${AWS::AccountId}:${Api}/*/*/api/v1/me/search-filters/*"
-
-  ApiGetSearchFiltersRoute:
+      Target: !Sub "integrations/${SearchFilterApiLambdaIntegration}"
+  SearchFilterApiGetAllSearchFilterRoute:
     Type: AWS::ApiGatewayV2::Route
     Properties:
       ApiId: !Ref Api
       RouteKey: "GET /api/v1/me/search-filters"
       AuthorizationType: JWT
       AuthorizerId: !Ref ApiCognitoAuthorizer
-      Target: !Sub "integrations/${ApiGetSearchFiltersLambdaIntegration}"
-  ApiGetSearchFiltersLambdaIntegration:
-    Type: AWS::ApiGatewayV2::Integration
-    Properties:
-      ApiId: !Ref Api
-      IntegrationType: AWS_PROXY
-      IntegrationUri: !Sub "arn:aws:lambda:${AWS::Region}:${AWS::AccountId}:function:${ApiGetSearchFiltersLambda}"
-      PayloadFormatVersion: "2.0"
-  ApiGetSearchFiltersRole:
-    Type: AWS::IAM::Role
-    Properties:
-      RoleName: "api-get-search-filters-role-dev"
-      AssumeRolePolicyDocument:
-        Version: "2012-10-17"
-        Statement:
-          - Effect: Allow
-            Principal:
-              Service: lambda.amazonaws.com
-            Action: sts:AssumeRole
-      ManagedPolicyArns:
-        - arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole
-      Policies:
-        - PolicyName: DynamoDBAccess
-          PolicyDocument:
-            Version: "2012-10-17"
-            Statement:
-              - Effect: Allow
-                Action:
-                  - dynamodb:GetItem
-                  - dynamodb:BatchGetItem
-                  - dynamodb:Query
-                Resource: !GetAtt TableOne.Arn
-  ApiGetSearchFiltersLambda:
-    Type: AWS::Lambda::Function
-    Properties:
-      FunctionName: "api-get-search-filters-dev"
-      Runtime: provided.al2023
-      Handler: lib.handler
-      Role: !GetAtt ApiGetSearchFiltersRole.Arn
-      Code:
-        S3Bucket: !Ref ArtifactBucket
-        S3Key: !Sub "search-filter-api-get-search-filters-dev-${CommitSHA}.zip"
-      MemorySize: 512
-      Timeout: 10
-      EphemeralStorage:
-        Size: 512
-      Environment:
-        Variables:
-          DYNAMODB_TABLE_NAME: !Ref TableOne
-  ApiGetSearchFiltersLambdaPermission:
-    Type: AWS::Lambda::Permission
-    Properties:
-      Action: lambda:InvokeFunction
-      FunctionName: !Ref ApiGetSearchFiltersLambda
-      Principal: apigateway.amazonaws.com
-      SourceArn: !Sub "arn:aws:execute-api:${AWS::Region}:${AWS::AccountId}:${Api}/*/*/api/v1/me/search-filters"
-
-  ApiPatchSearchFilterRoute:
+      Target: !Sub "integrations/${SearchFilterApiLambdaIntegration}"
+  SearchFilterApiPatchSearchFilterRoute:
     Type: AWS::ApiGatewayV2::Route
     Properties:
       ApiId: !Ref Api
       RouteKey: "PATCH /api/v1/me/search-filters/{userSearchFilterId}"
       AuthorizationType: JWT
       AuthorizerId: !Ref ApiCognitoAuthorizer
-      Target: !Sub "integrations/${ApiPatchSearchFilterLambdaIntegration}"
-  ApiPatchSearchFilterLambdaIntegration:
-    Type: AWS::ApiGatewayV2::Integration
-    Properties:
-      ApiId: !Ref Api
-      IntegrationType: AWS_PROXY
-      IntegrationUri: !Sub "arn:aws:lambda:${AWS::Region}:${AWS::AccountId}:function:${ApiPatchSearchFilterLambda}"
-      PayloadFormatVersion: "2.0"
-  ApiPatchSearchFilterRole:
-    Type: AWS::IAM::Role
-    Properties:
-      RoleName: "api-patch-search-filter-role-dev"
-      AssumeRolePolicyDocument:
-        Version: "2012-10-17"
-        Statement:
-          - Effect: Allow
-            Principal:
-              Service: lambda.amazonaws.com
-            Action: sts:AssumeRole
-      ManagedPolicyArns:
-        - arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole
-      Policies:
-        - PolicyName: DynamoDBAccess
-          PolicyDocument:
-            Version: "2012-10-17"
-            Statement:
-              - Effect: Allow
-                Action:
-                  - dynamodb:UpdateItem
-                  - dynamodb:GetItem
-                  - dynamodb:PutItem
-                Resource: !GetAtt TableOne.Arn
-  ApiPatchSearchFilterLambda:
-    Type: AWS::Lambda::Function
-    Properties:
-      FunctionName: "api-patch-search-filter-dev"
-      Runtime: provided.al2023
-      Handler: lib.handler
-      Role: !GetAtt ApiPatchSearchFilterRole.Arn
-      Code:
-        S3Bucket: !Ref ArtifactBucket
-        S3Key: !Sub "search-filter-api-patch-search-filter-dev-${CommitSHA}.zip"
-      MemorySize: 512
-      Timeout: 10
-      EphemeralStorage:
-        Size: 512
-      Environment:
-        Variables:
-          DYNAMODB_TABLE_NAME: !Ref TableOne
-  ApiPatchSearchFilterLambdaPermission:
-    Type: AWS::Lambda::Permission
-    Properties:
-      Action: lambda:InvokeFunction
-      FunctionName: !Ref ApiPatchSearchFilterLambda
-      Principal: apigateway.amazonaws.com
-      SourceArn: !Sub "arn:aws:execute-api:${AWS::Region}:${AWS::AccountId}:${Api}/*/*/api/v1/me/search-filters/*"
-
-  ApiPostSearchFilterRoute:
+      Target: !Sub "integrations/${SearchFilterApiLambdaIntegration}"
+  SearchFilterApiPostSearchFilterRoute:
     Type: AWS::ApiGatewayV2::Route
     Properties:
       ApiId: !Ref Api
       RouteKey: "POST /api/v1/me/search-filters"
       AuthorizationType: JWT
       AuthorizerId: !Ref ApiCognitoAuthorizer
-      Target: !Sub "integrations/${ApiPostSearchFilterLambdaIntegration}"
-  ApiPostSearchFilterLambdaIntegration:
+      Target: !Sub "integrations/${SearchFilterApiLambdaIntegration}"
+  SearchFilterApiLambdaIntegration:
     Type: AWS::ApiGatewayV2::Integration
     Properties:
       ApiId: !Ref Api
       IntegrationType: AWS_PROXY
-      IntegrationUri: !Sub "arn:aws:lambda:${AWS::Region}:${AWS::AccountId}:function:${ApiPostSearchFilterLambda}"
+      IntegrationUri: !Sub "arn:aws:lambda:${AWS::Region}:${AWS::AccountId}:function:${SearchFilterApiLambda}"
       PayloadFormatVersion: "2.0"
-  ApiPostSearchFilterRole:
+  SearchFilterApiRole:
     Type: AWS::IAM::Role
     Properties:
-      RoleName: "api-post-search-filter-role-dev"
+      RoleName: "search-filter-api-role-dev"
       AssumeRolePolicyDocument:
         Version: "2012-10-17"
         Statement:
@@ -1585,18 +796,25 @@ Resources:
             Statement:
               - Effect: Allow
                 Action:
+                  - dynamodb:GetItem
                   - dynamodb:PutItem
-                Resource: !GetAtt TableOne.Arn
-  ApiPostSearchFilterLambda:
+                  - dynamodb:UpdateItem
+                  - dynamodb:DeleteItem
+                  - dynamodb:BatchGetItem
+                  - dynamodb:Query
+                Resource:
+                  - !GetAtt TableOne.Arn
+                  - !Sub "${TableOne.Arn}/index/*"
+  SearchFilterApiLambda:
     Type: AWS::Lambda::Function
     Properties:
-      FunctionName: "api-post-search-filter-dev"
+      FunctionName: "search-filter-api-dev"
       Runtime: provided.al2023
       Handler: lib.handler
-      Role: !GetAtt ApiPostSearchFilterRole.Arn
+      Role: !GetAtt SearchFilterApiRole.Arn
       Code:
         S3Bucket: !Ref ArtifactBucket
-        S3Key: !Sub "search-filter-api-post-search-filter-dev-${CommitSHA}.zip"
+        S3Key: "search-filter-api-dev-latest.zip"
       MemorySize: 512
       Timeout: 10
       EphemeralStorage:
@@ -1604,13 +822,13 @@ Resources:
       Environment:
         Variables:
           DYNAMODB_TABLE_NAME: !Ref TableOne
-  ApiPostSearchFilterLambdaPermission:
+  SearchFilterApiLambdaPermission:
     Type: AWS::Lambda::Permission
     Properties:
       Action: lambda:InvokeFunction
-      FunctionName: !Ref ApiPostSearchFilterLambda
+      FunctionName: !Ref SearchFilterApiLambda
       Principal: apigateway.amazonaws.com
-      SourceArn: !Sub "arn:aws:execute-api:${AWS::Region}:${AWS::AccountId}:${Api}/*/*/api/v1/me/search-filters"
+      SourceArn: !Sub "arn:aws:execute-api:${AWS::Region}:${AWS::AccountId}:${Api}/*/*/api/v1/me/search-filters*"
 
   SendMailDlq:
     Type: AWS::SQS::Queue
