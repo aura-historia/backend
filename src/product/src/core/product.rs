@@ -3,9 +3,9 @@ use crate::core::condition::Condition;
 use crate::core::description::Description;
 use crate::core::origin_year::OriginYear;
 use crate::core::product_event::{
-    LocalizedProductEventPayloadView, ProductCreatedEventPayload, ProductEvent,
-    ProductEventPayload, ProductPriceChangeEventPayload, ProductPriceDiscoveryEventPayload,
-    ProductPriceRemovedEventPayload, ProductStateChangeEventPayload,
+    ProductCreatedEventPayload, ProductEvent, ProductEventPayload, ProductPriceChangeEventPayload,
+    ProductPriceDiscoveryEventPayload, ProductPriceRemovedEventPayload,
+    ProductStateChangeEventPayload,
 };
 use crate::core::product_image::ProductImage;
 use crate::core::provenance::Provenance;
@@ -282,7 +282,6 @@ pub struct LocalizedProductView {
     pub auction_end: Option<OffsetDateTime>,
     pub created: OffsetDateTime,
     pub updated: OffsetDateTime,
-    pub history: Option<Vec<Event<ProductId, LocalizedProductEventPayloadView>>>,
 }
 
 #[cfg(feature = "test-data")]
@@ -406,7 +405,6 @@ mod faker {
                 },
                 created: OffsetDateTime::now_utc(),
                 updated: OffsetDateTime::now_utc(),
-                history: None,
             }
         }
     }

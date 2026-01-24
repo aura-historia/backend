@@ -54,6 +54,12 @@ pub trait ProductDynamoDbRepository {
         shops_product_id: &ShopsProductId,
     ) -> Result<Option<(ProductRecord, Vec<ProductEventRecord>)>, SdkError<QueryError, HttpResponse>>;
 
+    async fn query_product_event_records(
+        &self,
+        shop_id: &ShopId,
+        shops_product_id: &ShopsProductId,
+    ) -> Result<Vec<ProductEventRecord>, SdkError<QueryError, HttpResponse>>;
+
     async fn get_product_records(
         &self,
         product_keys: &Batch<ProductKey, 100>,
@@ -259,6 +265,51 @@ impl<'a> ProductDynamoDbRepository for ProductDynamoDbRepositoryImpl<'a> {
             (Some(materialized), None) => Ok(Some((materialized, vec![]))),
             (Some(materialized), Some(events)) => Ok(Some((materialized, events))),
         }
+    }
+
+    async fn query_product_event_records(
+        &self,
+        shop_id: &ShopId,
+        shops_product_id: &ShopsProductId,
+    ) -> Result<Vec<ProductEventRecord>, SdkError<QueryError, HttpResponse>> {
+        let event_records = self
+            .client
+            .query()
+            .table_name(&self.table)
+            .key_condition_expression("#pk = :pk_val AND begins_with(#sk, :sk_prefix)")
+            .expression_attribute_names("#pk", "pk")
+            .expression_attribute_names("#sk", "sk")
+            .expression_attribute_values(
+                ":pk_val",
+                AttributeValue::S(product_record::mk_pk(shop_id, shops_product_id)),
+            )
+            .expression_attribute_values(
+                ":sk_prefix",
+                AttributeValue::S("product#event#".to_string()),
+            )
+            .scan_index_forward(true)
+            .into_paginator()
+            .send()
+            .try_collect()
+            .await?
+            .into_iter()
+            .flat_map(|query_output| query_output.items.unwrap_or_default())
+            .filter_map(|event_record_attr_map| {
+                match serde_dynamo::from_item::<_, ProductEventRecord>(event_record_attr_map) {
+                    Ok(event_record) => Some(event_record),
+                    Err(err) => {
+                        error!(
+                            error = %err,
+                            type = %std::any::type_name::<ProductEventRecord>(),
+                            "Failed deserializing."
+                        );
+                        None
+                    }
+                }
+            })
+            .collect();
+
+        Ok(event_records)
     }
 
     async fn get_product_records(

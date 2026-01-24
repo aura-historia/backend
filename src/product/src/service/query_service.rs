@@ -267,7 +267,6 @@ pub fn localize_product_document(
         auction_end: product_document.auction_end,
         created: product_document.created,
         updated: product_document.updated,
-        history: None,
     }
 }
 

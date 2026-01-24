@@ -1,9 +1,8 @@
 use aws_lambda_events::apigw::{ApiGatewayV2httpRequest, ApiGatewayV2httpResponse};
-use aws_lambda_events::query_map::QueryMap;
 use cognito::access_token_verifier_service::AccessTokenVerifierService;
 use common::api::api_gateway_v2_http_response_builder::ApiGatewayV2HttpResponseBuilder;
 use common::api::error::ApiError;
-use common::api::error_code::{BAD_QUERY_PARAMETER_VALUE, INTERNAL_SERVER_ERROR};
+use common::api::error_code::INTERNAL_SERVER_ERROR;
 use common::currency::data::api::extract_currency_query;
 use common::language::data::api::extract_languages_header;
 use common::language::domain::Language;
@@ -44,13 +43,7 @@ pub async fn handle(
             let shop_id = extract_shop_id_path(&event.payload.path_parameters)?;
             let shops_product_id = extract_shops_product_id_path(&event.payload.path_parameters)?;
             get_product_service
-                .view_product(
-                    &shop_id,
-                    &shops_product_id,
-                    languages.as_slice(),
-                    &currency,
-                    extract_history_query(&event.payload.query_string_parameters)?,
-                )
+                .view_product(&shop_id, &shops_product_id, languages.as_slice(), &currency)
                 .await?
         }
         Some("GET /api/v1/products/by-slug/{shopSlugId}/{productSlugId}") => {
@@ -62,7 +55,6 @@ pub async fn handle(
                     &product_slug_id,
                     languages.as_slice(),
                     &currency,
-                    extract_history_query(&event.payload.query_string_parameters)?,
                 )
                 .await?
         }
@@ -105,24 +97,6 @@ pub async fn handle(
         .last_modified(personalized_product_data.item.updated)
         .body_serde(personalized_product_data)?
         .build())
-}
-
-fn extract_history_query(query: &QueryMap) -> Result<bool, ApiError> {
-    query
-        .first("history")
-        .map(|val| match val {
-            "true" => Ok(true),
-            "false" => Ok(false),
-            other => {
-                let err_msg = format!("Expected any of: 'true' or 'false'. Got: '{other}'");
-                Err(
-                    ApiError::bad_request(BAD_QUERY_PARAMETER_VALUE, err_msg.as_str().into())
-                        .with_query_field("history")
-                        .with_detail(err_msg),
-                )
-            }
-        })
-        .unwrap_or(Ok(false))
 }
 
 #[cfg(test)]
@@ -179,7 +153,7 @@ mod tests {
         let product_personalization_service = MockProductPersonalizationService::default();
         let mut get_product_service = MockGetProductService::default();
         get_product_service.expect_view_product().return_once(
-            move |shop_id, shops_product_id, _, _, _| {
+            move |shop_id, shops_product_id, _, _| {
                 let product = LocalizedProductView {
                     product_id: Default::default(),
                     product_slug_id: Faker.fake(),
@@ -206,7 +180,6 @@ mod tests {
                     auction_end: None,
                     created: OffsetDateTime::now_utc(),
                     updated: OffsetDateTime::now_utc(),
-                    history: None,
                 };
                 Box::pin(async move { Ok(product) })
             },
@@ -242,7 +215,7 @@ mod tests {
         let product_personalization_service = MockProductPersonalizationService::default();
         let mut get_product_service = MockGetProductService::default();
         get_product_service.expect_view_product().return_once(
-            move |shop_id, shops_product_id, _, _, _| {
+            move |shop_id, shops_product_id, _, _| {
                 let product = LocalizedProductView {
                     product_id: Default::default(),
                     product_slug_id: Faker.fake(),
@@ -269,7 +242,6 @@ mod tests {
                     auction_end: None,
                     created: OffsetDateTime::now_utc(),
                     updated: OffsetDateTime::now_utc(),
-                    history: None,
                 };
                 Box::pin(async move { Ok(product) })
             },
@@ -311,7 +283,7 @@ mod tests {
         let product_personalization_service = MockProductPersonalizationService::default();
         let mut get_product_service = MockGetProductService::default();
         get_product_service.expect_view_product().return_once(
-            move |shop_id, shops_product_id, _, _, _| {
+            move |shop_id, shops_product_id, _, _| {
                 let product = LocalizedProductView {
                     product_id: Default::default(),
                     product_slug_id: Faker.fake(),
@@ -338,7 +310,6 @@ mod tests {
                     auction_end: None,
                     created: timestamp,
                     updated: timestamp,
-                    history: None,
                 };
                 Box::pin(async move { Ok(product) })
             },
@@ -351,85 +322,6 @@ mod tests {
                 .route_key("GET /api/v1/products/{shopId}/{shopsProductId}".to_owned())
                 .path_parameter("shopId", shop_id)
                 .path_parameter("shopsProductId", shops_product_id)
-                .build(),
-            context: Default::default(),
-        };
-        let response = handle(
-            lambda_event,
-            &get_product_service,
-            &cognito_service,
-            &product_personalization_service,
-        )
-        .await
-        .unwrap();
-        assert_eq!(200, response.status_code);
-        assert_eq!(
-            "Wed, 01 Jan 2020 00:00:00 GMT",
-            response.headers.get(LAST_MODIFIED).unwrap()
-        );
-    }
-
-    #[tokio::test]
-    #[rstest::rstest]
-    #[case::default_false(None, false)]
-    #[case::accept_true(Some("true"), true)]
-    #[case::accept_false(Some("false"), false)]
-    #[trace]
-    async fn should_respect_history_query_param(
-        #[case] history_query_value: Option<&'static str>,
-        #[case] expected_history: bool,
-    ) {
-        let timestamp = datetime!(2020-01-01 0:00 UTC);
-        let event_id = EventId::new();
-        let mut cognito_service = MockAccessTokenVerifierService::default();
-        cognito_service
-            .expect_verify_extract_user_id()
-            .return_once(|_| Box::pin(async { Ok(None) }));
-        let product_personalization_service = MockProductPersonalizationService::default();
-        let mut get_product_service = MockGetProductService::default();
-        get_product_service.expect_view_product().return_once(
-            move |shop_id, shops_product_id, _, _, history| {
-                assert_eq!(expected_history, history);
-                let product = LocalizedProductView {
-                    product_id: Default::default(),
-                    product_slug_id: Faker.fake(),
-                    shop_slug_id: Faker.fake(),
-                    event_id,
-                    shop_id: *shop_id,
-                    shops_product_id: shops_product_id.clone(),
-                    shop_name: "".into(),
-                    title: Localized::new(Language::Es, "Native title".into()),
-                    description: None,
-                    shop_type: fake::Faker.fake(),
-                    price: None,
-                    price_estimate_min: None,
-                    price_estimate_max: None,
-                    state: ProductState::Listed,
-                    url: Url::parse("https://foo.com/boop").unwrap(),
-                    images: vec![],
-                    origin_year: None,
-                    authenticity: None,
-                    condition: None,
-                    provenance: None,
-                    restoration: None,
-                    auction_start: None,
-                    auction_end: None,
-                    created: timestamp,
-                    updated: timestamp,
-                    history: None,
-                };
-                Box::pin(async move { Ok(product) })
-            },
-        );
-        let shop_id = ShopId::new();
-        let shops_product_id = ShopsProductId::new();
-        let lambda_event = LambdaEvent {
-            payload: ApiGatewayV2httpRequestProxy::builder()
-                .http_method(http::Method::GET)
-                .route_key("GET /api/v1/products/{shopId}/{shopsProductId}".to_owned())
-                .path_parameter("shopId", shop_id)
-                .path_parameter("shopsProductId", shops_product_id)
-                .try_query_string_parameter("history", history_query_value)
                 .build(),
             context: Default::default(),
         };
@@ -558,7 +450,7 @@ mod tests {
         let product_personalization_service = MockProductPersonalizationService::default();
         let mut get_product_service = MockGetProductService::default();
         get_product_service.expect_view_product().return_once(
-            move |shop_id, shops_product_id, _, _, _| {
+            move |shop_id, shops_product_id, _, _| {
                 let shop_id = *shop_id;
                 let shops_product_id = shops_product_id.clone();
                 Box::pin(
