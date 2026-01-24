@@ -581,6 +581,7 @@ Resources:
         Size: 512
       Environment:
         Variables:
+          STAGE: !Ref StageName
           DYNAMODB_TABLE_NAME: !Ref TableOne
   ProductWatchlistApiLambdaPermission:
     Type: AWS::Lambda::Permission
@@ -652,6 +653,7 @@ Resources:
         Size: 512
       Environment:
         Variables:
+          STAGE: !Ref StageName
           DYNAMODB_TABLE_NAME: !Ref TableOne
   UserApiLambdaPermission:
     Type: AWS::Lambda::Permission
@@ -758,6 +760,7 @@ Resources:
         Size: 512
       Environment:
         Variables:
+          STAGE: !Ref StageName
           DYNAMODB_TABLE_NAME: !Ref TableOne
           OPENSEARCH_ENDPOINT_URL: !Sub "https://${OpenSearchDomain.DomainEndpoint}"
   ShopApiLambdaPermission:
@@ -860,6 +863,7 @@ Resources:
         Size: 512
       Environment:
         Variables:
+          STAGE: !Ref StageName
           DYNAMODB_TABLE_NAME: !Ref TableOne
   SearchFilterApiLambdaPermission:
     Type: AWS::Lambda::Permission
