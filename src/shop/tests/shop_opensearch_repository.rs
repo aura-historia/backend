@@ -324,6 +324,7 @@ async fn should_search_shop_documents_when_no_filters() {
 #[trace]
 #[test_attr(apply(test))]
 #[case(&[shop::core::shop_type::ShopType::AuctionHouse])]
+#[case(&[shop::core::shop_type::ShopType::AuctionPlatform])]
 #[case(&[shop::core::shop_type::ShopType::CommercialDealer])]
 #[case(&[shop::core::shop_type::ShopType::Marketplace])]
 #[case(&[shop::core::shop_type::ShopType::AuctionHouse, shop::core::shop_type::ShopType::Marketplace])]

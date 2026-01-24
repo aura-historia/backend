@@ -8,6 +8,7 @@ use serde::{Deserialize, Serialize};
 #[serde(rename_all = "SCREAMING_SNAKE_CASE")]
 pub enum ShopTypeDocument {
     AuctionHouse,
+    AuctionPlatform,
     CommercialDealer,
     Marketplace,
 }
@@ -16,6 +17,7 @@ impl ShopTypeDocument {
     pub fn as_str(&self) -> &'static str {
         match self {
             ShopTypeDocument::AuctionHouse => "AUCTION_HOUSE",
+            ShopTypeDocument::AuctionPlatform => "AUCTION_PLATFORM",
             ShopTypeDocument::CommercialDealer => "COMMERCIAL_DEALER",
             ShopTypeDocument::Marketplace => "MARKETPLACE",
         }
@@ -26,6 +28,7 @@ impl From<ShopTypeRecord> for ShopTypeDocument {
     fn from(record: ShopTypeRecord) -> Self {
         match record {
             ShopTypeRecord::AuctionHouse => ShopTypeDocument::AuctionHouse,
+            ShopTypeRecord::AuctionPlatform => ShopTypeDocument::AuctionPlatform,
             ShopTypeRecord::CommercialDealer => ShopTypeDocument::CommercialDealer,
             ShopTypeRecord::Marketplace => ShopTypeDocument::Marketplace,
         }
@@ -36,6 +39,7 @@ impl From<ShopTypeDocument> for ShopType {
     fn from(doc: ShopTypeDocument) -> Self {
         match doc {
             ShopTypeDocument::AuctionHouse => ShopType::AuctionHouse,
+            ShopTypeDocument::AuctionPlatform => ShopType::AuctionPlatform,
             ShopTypeDocument::CommercialDealer => ShopType::CommercialDealer,
             ShopTypeDocument::Marketplace => ShopType::Marketplace,
         }
@@ -46,6 +50,7 @@ impl From<ShopType> for ShopTypeDocument {
     fn from(value: ShopType) -> Self {
         match value {
             ShopType::AuctionHouse => ShopTypeDocument::AuctionHouse,
+            ShopType::AuctionPlatform => ShopTypeDocument::AuctionPlatform,
             ShopType::CommercialDealer => ShopTypeDocument::CommercialDealer,
             ShopType::Marketplace => ShopTypeDocument::Marketplace,
         }
@@ -60,6 +65,7 @@ mod tests {
     #[rstest]
     #[trace]
     #[case(ShopTypeDocument::AuctionHouse, "\"AUCTION_HOUSE\"")]
+    #[case(ShopTypeDocument::AuctionPlatform, "\"AUCTION_PLATFORM\"")]
     #[case(ShopTypeDocument::CommercialDealer, "\"COMMERCIAL_DEALER\"")]
     #[case(ShopTypeDocument::Marketplace, "\"MARKETPLACE\"")]
     fn should_serialize_shop_type_document_in_screaming_snake_case(
@@ -73,6 +79,7 @@ mod tests {
     #[rstest]
     #[trace]
     #[case("\"AUCTION_HOUSE\"", ShopTypeDocument::AuctionHouse)]
+    #[case("\"AUCTION_PLATFORM\"", ShopTypeDocument::AuctionPlatform)]
     #[case("\"COMMERCIAL_DEALER\"", ShopTypeDocument::CommercialDealer)]
     #[case("\"MARKETPLACE\"", ShopTypeDocument::Marketplace)]
     fn should_deserialize_shop_type_document_in_screaming_snake_case(
@@ -86,6 +93,7 @@ mod tests {
     #[rstest]
     #[trace]
     #[case(ShopTypeDocument::AuctionHouse)]
+    #[case(ShopTypeDocument::AuctionPlatform)]
     #[case(ShopTypeDocument::CommercialDealer)]
     #[case(ShopTypeDocument::Marketplace)]
     fn should_as_str_match_serialized(#[case] shop_type: ShopTypeDocument) {
