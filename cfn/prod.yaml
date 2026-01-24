@@ -706,6 +706,7 @@ Resources:
         Size: 512
       Environment:
         Variables:
+          STAGE: "prod"
           DYNAMODB_TABLE_NAME: !Ref TableOne
   ProductWatchlistApiLambdaPermission:
     Type: AWS::Lambda::Permission
@@ -777,6 +778,7 @@ Resources:
         Size: 512
       Environment:
         Variables:
+          STAGE: "prod"
           DYNAMODB_TABLE_NAME: !Ref TableOne
   UserApiLambdaPermission:
     Type: AWS::Lambda::Permission
@@ -871,6 +873,7 @@ Resources:
         Size: 512
       Environment:
         Variables:
+          STAGE: "prod"
           DYNAMODB_TABLE_NAME: !Ref TableOne
           OPENSEARCH_ENDPOINT_URL: !Ref OpenSearchEndpointUrl
           OPENSEARCH_USERNAME: "{{resolve:ssm:/opensearch/prod/username}}"
@@ -975,6 +978,7 @@ Resources:
         Size: 512
       Environment:
         Variables:
+          STAGE: "prod"
           DYNAMODB_TABLE_NAME: !Ref TableOne
   SearchFilterApiLambdaPermission:
     Type: AWS::Lambda::Permission
