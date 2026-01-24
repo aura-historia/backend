@@ -6,6 +6,7 @@ use serde::{Deserialize, Serialize};
 #[serde(rename_all = "SCREAMING_SNAKE_CASE")]
 pub enum ShopTypeData {
     AuctionHouse,
+    AuctionPlatform,
     CommercialDealer,
     Marketplace,
 }
@@ -14,6 +15,7 @@ impl From<ShopType> for ShopTypeData {
     fn from(value: ShopType) -> Self {
         match value {
             ShopType::AuctionHouse => ShopTypeData::AuctionHouse,
+            ShopType::AuctionPlatform => ShopTypeData::AuctionPlatform,
             ShopType::CommercialDealer => ShopTypeData::CommercialDealer,
             ShopType::Marketplace => ShopTypeData::Marketplace,
         }
@@ -24,6 +26,7 @@ impl From<ShopTypeData> for ShopType {
     fn from(value: ShopTypeData) -> Self {
         match value {
             ShopTypeData::AuctionHouse => ShopType::AuctionHouse,
+            ShopTypeData::AuctionPlatform => ShopType::AuctionPlatform,
             ShopTypeData::CommercialDealer => ShopType::CommercialDealer,
             ShopTypeData::Marketplace => ShopType::Marketplace,
         }

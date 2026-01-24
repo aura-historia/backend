@@ -104,6 +104,7 @@ async fn should_follow_up_search_after_query(
 #[rstest::rstest]
 #[test_attr(apply(test))]
 #[case([shop::data::shop_type_data::ShopTypeData::AuctionHouse].into())]
+#[case([shop::data::shop_type_data::ShopTypeData::AuctionPlatform].into())]
 #[case([shop::data::shop_type_data::ShopTypeData::CommercialDealer].into())]
 #[case([shop::data::shop_type_data::ShopTypeData::Marketplace].into())]
 #[case([shop::data::shop_type_data::ShopTypeData::AuctionHouse, shop::data::shop_type_data::ShopTypeData::Marketplace].into())]

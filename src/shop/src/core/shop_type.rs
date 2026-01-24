@@ -2,6 +2,7 @@
 #[derive(Copy, Clone, Eq, PartialEq, Debug, Hash)]
 pub enum ShopType {
     AuctionHouse,
+    AuctionPlatform,
     CommercialDealer,
     Marketplace,
 }
