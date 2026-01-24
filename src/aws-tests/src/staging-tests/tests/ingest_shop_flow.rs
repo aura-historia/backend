@@ -11,6 +11,7 @@ use shop::{
 };
 use staging_tests::{get_dynamodb_client, get_opensearch_client, staging_test};
 use std::time::Duration;
+use url::Url;
 
 pub async fn read_by_id<T: DeserializeOwned>(index: &str, id: impl Into<String>) -> T {
     let get_response = get_opensearch_client()
@@ -70,7 +71,7 @@ async fn should_create_shop_dynamodb_and_index_opensearch_when_post_shop_then_pa
         stack.api_gateway_endpoint_url, post_res.shop_id
     );
     let mut patch_shop_data = Faker.fake::<PatchShopData>();
-    patch_shop_data.name = Some("Gretel und die 42 Elfen".into());
+    patch_shop_data.image = Some(Url::parse("https://rainer.calmund/whopper-happy-meal").unwrap());
     let patch_response = reqwest::Client::new()
         .patch(patch_url)
         .json(&patch_shop_data)
@@ -84,7 +85,10 @@ async fn should_create_shop_dynamodb_and_index_opensearch_when_post_shop_then_pa
         .await
         .unwrap()
         .unwrap();
-    assert_eq!(patch_shop_data.name.unwrap(), patched_shop_record.name);
+    assert_eq!(
+        patch_shop_data.image.unwrap(),
+        patched_shop_record.image.unwrap()
+    );
     tokio::time::sleep(Duration::from_secs(30)).await;
     let patched_shop_document = read_by_id::<ShopDocument>("shops", patch_res.shop_id).await;
     assert_eq!(patch_res.name, patched_shop_document.name);

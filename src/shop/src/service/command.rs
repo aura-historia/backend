@@ -14,7 +14,6 @@ pub struct CreateShopCommand {
 #[cfg_attr(feature = "test-data", derive(fake::Dummy))]
 #[derive(Debug, Clone, PartialEq, Default)]
 pub struct UpdateShopCommand {
-    pub name: Option<ShopName>,
     pub shop_type: Option<ShopType>,
     pub domains: Option<HashSet<Domain>>,
     pub image: Option<Url>,
@@ -22,10 +21,7 @@ pub struct UpdateShopCommand {
 
 impl UpdateShopCommand {
     pub fn is_empty(&self) -> bool {
-        self.name.is_none()
-            && self.shop_type.is_none()
-            && self.domains.is_none()
-            && self.image.is_none()
+        self.shop_type.is_none() && self.domains.is_none() && self.image.is_none()
     }
 }
 

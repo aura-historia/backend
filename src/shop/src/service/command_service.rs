@@ -23,10 +23,11 @@ pub enum CommandShopError {
     #[error("Shop with identifier '{0}' not found")]
     ShopNotFound(ShopIdentifier),
 
-    #[error(
-        "Shop with name '{0}' exists already due - an URL for any domain of shop is already registered."
-    )]
-    ShopExistsAlready(ShopName),
+    #[error("Shop with name '{0}' exists already - a domain of the shop is already registered.")]
+    ShopDomainExistsAlready(ShopName),
+
+    #[error("Shop with name '{0}' exists already - the shop-slug '{1}' is already registered.")]
+    ShopSlugExistsAlready(ShopName, SlugId<0>),
 
     #[error("Shop can only have 100 URLs but was given more: '{0}'")]
     ShopCanOnlyHave100Urls(#[from] BatchConstructionError<100>),
@@ -49,6 +50,9 @@ pub enum CommandShopError {
     SdkBatchGetItemError(
         #[from] SdkError<aws_sdk_dynamodb::operation::batch_get_item::BatchGetItemError>,
     ),
+
+    #[error("Encountered DynamoDB SdkError for Query: {0}")]
+    SdkQueryError(#[from] SdkError<aws_sdk_dynamodb::operation::query::QueryError>),
 }
 
 #[cfg(feature = "data")]
@@ -65,7 +69,10 @@ pub mod api {
                 CommandShopError::ShopNotFound(_) => {
                     ApiError::not_found(SHOP_NOT_FOUND, Box::new(err))
                 }
-                CommandShopError::ShopExistsAlready(_) => {
+                CommandShopError::ShopDomainExistsAlready(_) => {
+                    ApiError::conflict(SHOP_EXISTS_ALREADY, Box::new(err))
+                }
+                CommandShopError::ShopSlugExistsAlready(_, _) => {
                     ApiError::conflict(SHOP_EXISTS_ALREADY, Box::new(err))
                 }
                 CommandShopError::ShopCanOnlyHave100Urls(_) => {
@@ -77,6 +84,7 @@ pub mod api {
                 CommandShopError::SdkGetItemError(err) => err.into(),
                 CommandShopError::SdkTransactWriteItemsError(err) => err.into(),
                 CommandShopError::SdkBatchGetItemError(err) => err.into(),
+                CommandShopError::SdkQueryError(err) => err.into(),
             }
         }
     }
@@ -106,6 +114,15 @@ impl<'a> CommandShopServiceImpl<'a> {
 #[async_trait::async_trait]
 impl<'a> CommandShopService for CommandShopServiceImpl<'a> {
     async fn create(&self, command: CreateShopCommand) -> Result<Shop, CommandShopError> {
+        let shop_slug_id = SlugId::from(command.name.as_ref());
+        let existing_shop_opt = self.repository.query_shop_id(&shop_slug_id).await?;
+        if existing_shop_opt.is_some() {
+            return Err(CommandShopError::ShopSlugExistsAlready(
+                command.name,
+                shop_slug_id,
+            ));
+        }
+
         let shop_identifiers = Batch::try_from_iter(
             command
                 .domains
@@ -118,7 +135,7 @@ impl<'a> CommandShopService for CommandShopServiceImpl<'a> {
             return Err(CommandShopError::SdkBatchGetItemUnprocessed);
         }
         if !get_res.items.is_empty() {
-            return Err(CommandShopError::ShopExistsAlready(command.name));
+            return Err(CommandShopError::ShopDomainExistsAlready(command.name));
         }
 
         let shop = Shop {
@@ -175,7 +192,6 @@ impl<'a> CommandShopService for CommandShopServiceImpl<'a> {
         }
 
         let update_record = ShopRecordUpdate {
-            name: command.name,
             shop_type: command.shop_type.map(Into::into),
             domains: command.domains,
             image: command.image,
@@ -237,10 +253,7 @@ impl<'a> CommandShopService for CommandShopServiceImpl<'a> {
                 gsi2_sk: None,
                 shop_id: shop_record.shop_id,
                 shop_slug_id: shop_record.shop_slug_id.clone(),
-                name: update_record
-                    .name
-                    .clone()
-                    .unwrap_or(shop_record.name.clone()),
+                name: shop_record.name.clone(),
                 shop_type: update_record.shop_type.unwrap_or(shop_record.shop_type),
                 domain: Some(new_domain),
                 domains: update_record
@@ -259,7 +272,7 @@ impl<'a> CommandShopService for CommandShopServiceImpl<'a> {
         Ok(Shop {
             shop_id: shop_record.shop_id,
             shop_slug_id: shop_record.shop_slug_id,
-            name: update_record.name.unwrap_or(shop_record.name),
+            name: shop_record.name,
             shop_type: update_record
                 .shop_type
                 .map(Into::into)
@@ -292,8 +305,34 @@ mod tests {
         use std::collections::HashSet;
 
         #[tokio::test]
+        async fn should_err_when_shop_slug_exists_already() {
+            let mut shop_repository = MockShopDynamoDbRepository::default();
+            shop_repository
+                .expect_query_shop_id()
+                .return_once(|_| Box::pin(async { Ok(Some(Faker.fake())) }));
+            let service = CommandShopServiceImpl::new(&shop_repository);
+
+            let cmd = CreateShopCommand {
+                name: Faker.fake(),
+                shop_type: Faker.fake(),
+                domains: HashSet::new(),
+                image: None,
+            };
+            let actual = service.create(cmd).await.unwrap_err();
+            match actual {
+                CommandShopError::ShopSlugExistsAlready(_, _) => {}
+                other => {
+                    panic!("Expected 'CommandShopError::ShopSlugExistsAlready'. Got '{other}'")
+                }
+            }
+        }
+
+        #[tokio::test]
         async fn should_err_when_shop_domains_empty() {
-            let shop_repository = MockShopDynamoDbRepository::default();
+            let mut shop_repository = MockShopDynamoDbRepository::default();
+            shop_repository
+                .expect_query_shop_id()
+                .return_once(|_| Box::pin(async { Ok(None) }));
             let service = CommandShopServiceImpl::new(&shop_repository);
 
             let cmd = CreateShopCommand {
@@ -316,7 +355,10 @@ mod tests {
         #[tokio::test]
         #[trace]
         async fn should_err_when_shop_domains_more_than_100(#[case] count: usize) {
-            let shop_repository = MockShopDynamoDbRepository::default();
+            let mut shop_repository = MockShopDynamoDbRepository::default();
+            shop_repository
+                .expect_query_shop_id()
+                .return_once(|_| Box::pin(async { Ok(None) }));
             let service = CommandShopServiceImpl::new(&shop_repository);
             let create_cmd = CreateShopCommand {
                 name: Faker.fake(),
@@ -334,6 +376,9 @@ mod tests {
         #[tokio::test]
         async fn should_err_when_unprocessed() {
             let mut shop_repository = MockShopDynamoDbRepository::default();
+            shop_repository
+                .expect_query_shop_id()
+                .return_once(|_| Box::pin(async { Ok(None) }));
             shop_repository.expect_get_shop_records().return_once(|_| {
                 Box::pin(async {
                     Ok(BatchGetItemResult {
@@ -353,6 +398,9 @@ mod tests {
         #[tokio::test]
         async fn should_create_shop_when_not_exists_and_none_unprocessed() {
             let mut shop_repository = MockShopDynamoDbRepository::default();
+            shop_repository
+                .expect_query_shop_id()
+                .return_once(|_| Box::pin(async { Ok(None) }));
             shop_repository.expect_get_shop_records().return_once(|_| {
                 Box::pin(async {
                     Ok(BatchGetItemResult {
@@ -381,6 +429,9 @@ mod tests {
         #[tokio::test]
         async fn should_transact_put_n_plus_1_records() {
             let mut shop_repository = MockShopDynamoDbRepository::default();
+            shop_repository
+                .expect_query_shop_id()
+                .return_once(|_| Box::pin(async { Ok(None) }));
             shop_repository.expect_get_shop_records().return_once(|_| {
                 Box::pin(async {
                     Ok(BatchGetItemResult {
@@ -416,6 +467,38 @@ mod tests {
                 HttpResponse::new(500u16.try_into().unwrap(), "{}".into())
             ))]
         #[case::service_error(SdkError::service_error(
+                aws_sdk_dynamodb::operation::query::QueryError::unhandled("Something went wrong"),
+                HttpResponse::new(500u16.try_into().unwrap(), "{}".into())
+            ))]
+        #[trace]
+        async fn should_propagate_sdk_error_for_query(
+            #[case] expected: SdkError<aws_sdk_dynamodb::operation::query::QueryError>,
+        ) {
+            let mut shop_repository = MockShopDynamoDbRepository::default();
+            shop_repository
+                .expect_query_shop_id()
+                .return_once(|_| Box::pin(async { Err(expected) }));
+            let service = CommandShopServiceImpl::new(&shop_repository);
+
+            let actual = service.create(Faker.fake()).await;
+
+            assert!(actual.is_err());
+            match actual.unwrap_err() {
+                CommandShopError::SdkQueryError(_) => {}
+                _ => panic!("expected CommandShopError::SdkQueryError"),
+            }
+        }
+
+        #[tokio::test]
+        #[rstest::rstest]
+        #[case::construction_failure(SdkError::construction_failure("Something went wrong"))]
+        #[case::timeout(SdkError::timeout_error("Something went wrong"))]
+        #[case::dispatch_failure(SdkError::dispatch_failure(ConnectorError::user("Something went wrong".into())))]
+        #[case::response_error(SdkError::response_error(
+                "Something went wrong",
+                HttpResponse::new(500u16.try_into().unwrap(), "{}".into())
+            ))]
+        #[case::service_error(SdkError::service_error(
                 aws_sdk_dynamodb::operation::batch_get_item::BatchGetItemError::unhandled("Something went wrong"),
                 HttpResponse::new(500u16.try_into().unwrap(), "{}".into())
             ))]
@@ -426,6 +509,9 @@ mod tests {
             >,
         ) {
             let mut shop_repository = MockShopDynamoDbRepository::default();
+            shop_repository
+                .expect_query_shop_id()
+                .return_once(|_| Box::pin(async { Ok(None) }));
             shop_repository
                 .expect_get_shop_records()
                 .return_once(|_| Box::pin(async { Err(expected) }));
@@ -460,6 +546,9 @@ mod tests {
             >,
         ) {
             let mut shop_repository = MockShopDynamoDbRepository::default();
+            shop_repository
+                .expect_query_shop_id()
+                .return_once(|_| Box::pin(async { Ok(None) }));
             shop_repository.expect_get_shop_records().return_once(|_| {
                 Box::pin(async {
                     Ok(BatchGetItemResult {
@@ -574,8 +663,7 @@ mod tests {
                 .expect_transact_write()
                 .return_once(move |put, update, delete| {
                     assert!(update.values().all(|update_record: &ShopRecordUpdate| {
-                        update_record.name == Some("Hanses shoppy".into())
-                            && update_record.shop_type.is_none()
+                        update_record.shop_type.is_none()
                             && update_record.domains.is_none()
                             && update_record.image
                                 == Some(Url::parse("https://hanses.shoppy/img/foo").unwrap())
@@ -591,7 +679,6 @@ mod tests {
 
             let service = CommandShopServiceImpl::new(&shop_repository);
             let cmd = UpdateShopCommand {
-                name: Some("Hanses shoppy".into()),
                 shop_type: None,
                 domains: None,
                 image: Some(Url::parse("https://hanses.shoppy/img/foo").unwrap()),
@@ -601,7 +688,6 @@ mod tests {
                 .await
                 .unwrap();
 
-            assert_eq!("Hanses shoppy", actual.name.to_string());
             assert_eq!(
                 "https://hanses.shoppy/img/foo",
                 actual.image.unwrap().to_string()
@@ -657,7 +743,6 @@ mod tests {
 
             shop_domains.insert(Domain::try_from("https://what-da-helly.com/").unwrap());
             let cmd = UpdateShopCommand {
-                name: None,
                 shop_type: None,
                 domains: Some(shop_domains.clone()),
                 image: None,
@@ -709,7 +794,6 @@ mod tests {
                 .take(shop_domains.len() - 1)
                 .collect::<HashSet<_>>();
             let cmd = UpdateShopCommand {
-                name: None,
                 shop_type: None,
                 domains: Some(shop_domains.clone()),
                 image: None,

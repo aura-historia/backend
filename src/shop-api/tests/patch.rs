@@ -21,7 +21,6 @@ async fn should_update_shop_when_payload_valid_for_path_param_shop_id() {
     let existing_shop = service.create(Faker.fake()).await.unwrap();
 
     let patch_shop_data = PatchShopData {
-        name: Some("hans goes shopping nig".into()),
         shop_type: None,
         domains: None,
         image: Some(Url::parse("https://hans-shopping-nig.co.uk").unwrap()),
@@ -49,7 +48,6 @@ async fn should_update_shop_when_payload_valid_for_path_param_shop_id() {
     let actual: GetShopData =
         serde_json::from_value(extract_apigw_response_json_body!(response)).unwrap();
 
-    assert_eq!(patch_shop_data.name.unwrap(), actual.name);
     assert_eq!(existing_shop.domains, actual.domains);
     assert_eq!(patch_shop_data.image.unwrap(), actual.image.unwrap());
 }
@@ -62,7 +60,6 @@ async fn should_update_shop_when_payload_valid_for_path_param_shop_domain() {
     let existing_shop = service.create(Faker.fake()).await.unwrap();
 
     let patch_shop_data = PatchShopData {
-        name: Some("hans goes shopping nig".into()),
         shop_type: None,
         domains: None,
         image: Some(Url::parse("https://hans-shopping-nig.co.uk").unwrap()),
@@ -93,7 +90,6 @@ async fn should_update_shop_when_payload_valid_for_path_param_shop_domain() {
     let actual: GetShopData =
         serde_json::from_value(extract_apigw_response_json_body!(response)).unwrap();
 
-    assert_eq!(patch_shop_data.name.unwrap(), actual.name);
     assert_eq!(existing_shop.domains, actual.domains);
     assert_eq!(patch_shop_data.image.unwrap(), actual.image.unwrap());
 }

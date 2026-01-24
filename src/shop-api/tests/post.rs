@@ -1,4 +1,7 @@
+use std::time::Duration;
+
 use common::domain::Domain;
+use fake::{Fake, Faker};
 use lambda_runtime::LambdaEvent;
 use shop::{
     core::shop_type::ShopType,
@@ -7,7 +10,8 @@ use shop::{
     },
     dynamodb::repository::{ShopDynamoDbRepository, ShopDynamoDbRepositoryImpl},
     service::{
-        command_service::CommandShopServiceImpl, get_service::MockGetShopService,
+        command_service::{CommandShopService, CommandShopServiceImpl},
+        get_service::MockGetShopService,
         query_service::MockQueryShopService,
     },
 };
@@ -70,4 +74,45 @@ async fn should_create_shop_when_payload_valid() {
     );
     assert_eq!(post_shop_data.domains, persisted_shop.domains);
     assert_eq!(post_shop_data.image, persisted_shop.image);
+}
+
+#[localstack_test(services = [DynamoDB()])]
+async fn should_409_when_shop_slug_exists_already() {
+    let repository = ShopDynamoDbRepositoryImpl::new(get_dynamodb_client().await, "table_1");
+    let service = CommandShopServiceImpl::new(&repository);
+
+    let existing_shop = service.create(Faker.fake()).await.unwrap();
+
+    // wait gsi
+    tokio::time::sleep(Duration::from_secs(1)).await;
+
+    let post_shop_data = PostShopData {
+        shop_type: Faker.fake(),
+        name: existing_shop.name,
+        domains: [
+            Domain::try_from("https://hans.com").unwrap(),
+            Domain::try_from("https://hansi-shoppy.de").unwrap(),
+            Faker.fake(),
+        ]
+        .into(),
+        image: Faker.fake(),
+    };
+
+    let lambda_event = LambdaEvent {
+        payload: ApiGatewayV2httpRequestProxy::builder()
+            .http_method(http::Method::POST)
+            .route_key("POST /api/v1/shops")
+            .body_serde(&post_shop_data)
+            .build(),
+        context: Default::default(),
+    };
+    let response = handle(
+        lambda_event,
+        &MockGetShopService::default(),
+        &MockQueryShopService::default(),
+        &service,
+    )
+    .await
+    .unwrap_err();
+    assert_eq!(409, response.status);
 }
