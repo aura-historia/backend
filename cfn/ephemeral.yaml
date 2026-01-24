@@ -804,7 +804,7 @@ Resources:
     Type: AWS::ApiGatewayV2::Route
     Properties:
       ApiId: !Ref Api
-      RouteKey: "POST /api/v1/me/search-filters/{userSearchFilterId}"
+      RouteKey: "POST /api/v1/me/search-filters"
       AuthorizationType: JWT
       AuthorizerId: !Ref ApiCognitoAuthorizer
       Target: !Sub "integrations/${SearchFilterApiLambdaIntegration}"
