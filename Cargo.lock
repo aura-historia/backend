@@ -127,6 +127,7 @@ dependencies = [
  "product-api",
  "product-lambda",
  "product-pipeline",
+ "product-watchlist-api",
  "search-filter",
  "search-filter-api",
  "shop",
@@ -3191,74 +3192,10 @@ dependencies = [
 name = "product-api"
 version = "0.1.0"
 dependencies = [
- "product-api-get-product",
- "product-api-get-product-similar",
- "product-api-put-products",
- "product-api-search",
- "product-api-watchlist-delete",
- "product-api-watchlist-get",
- "product-api-watchlist-patch",
- "product-api-watchlist-post",
-]
-
-[[package]]
-name = "product-api-get-product"
-version = "0.1.0"
-dependencies = [
  "aws-config",
  "aws-sdk-dynamodb",
  "aws_lambda_events",
  "cognito",
- "common",
- "fake",
- "http 1.4.0",
- "lambda_runtime",
- "product",
- "rstest",
- "serde_json",
- "serial_test",
- "test-api",
- "time",
- "tokio",
- "tracing",
- "tracing-subscriber",
- "url",
- "user",
-]
-
-[[package]]
-name = "product-api-get-product-similar"
-version = "0.1.0"
-dependencies = [
- "aws-config",
- "aws-sdk-dynamodb",
- "aws_lambda_events",
- "cognito",
- "common",
- "fake",
- "http 1.4.0",
- "lambda_runtime",
- "opensearch",
- "product",
- "rstest",
- "serde_json",
- "serial_test",
- "test-api",
- "time",
- "tokio",
- "tracing",
- "tracing-subscriber",
- "user",
-]
-
-[[package]]
-name = "product-api-put-products"
-version = "0.1.0"
-dependencies = [
- "aws-config",
- "aws-sdk-dynamodb",
- "aws-sdk-sqs",
- "aws_lambda_events",
  "common",
  "fake",
  "fxrate",
@@ -3272,130 +3209,6 @@ dependencies = [
  "shop",
  "test-api",
  "thiserror",
- "time",
- "tokio",
- "tracing",
- "tracing-subscriber",
- "url",
-]
-
-[[package]]
-name = "product-api-search"
-version = "0.1.0"
-dependencies = [
- "aws-config",
- "aws-sdk-dynamodb",
- "aws_lambda_events",
- "cognito",
- "common",
- "fake",
- "http 1.4.0",
- "lambda_runtime",
- "opensearch",
- "product",
- "rstest",
- "serde_json",
- "serial_test",
- "shop",
- "test-api",
- "time",
- "tokio",
- "tracing",
- "tracing-subscriber",
-]
-
-[[package]]
-name = "product-api-watchlist-delete"
-version = "0.1.0"
-dependencies = [
- "aws-config",
- "aws-sdk-dynamodb",
- "aws_lambda_events",
- "common",
- "fake",
- "http 1.4.0",
- "lambda_runtime",
- "product",
- "rstest",
- "serde",
- "serde_json",
- "serial_test",
- "test-api",
- "time",
- "tokio",
- "tracing",
- "tracing-subscriber",
- "url",
- "user",
-]
-
-[[package]]
-name = "product-api-watchlist-get"
-version = "0.1.0"
-dependencies = [
- "aws-config",
- "aws-sdk-dynamodb",
- "aws_lambda_events",
- "common",
- "fake",
- "http 1.4.0",
- "lambda_runtime",
- "product",
- "rstest",
- "serde",
- "serde_json",
- "serial_test",
- "test-api",
- "time",
- "tokio",
- "tracing",
- "tracing-subscriber",
- "url",
- "user",
-]
-
-[[package]]
-name = "product-api-watchlist-patch"
-version = "0.1.0"
-dependencies = [
- "aws-config",
- "aws-sdk-dynamodb",
- "aws_lambda_events",
- "common",
- "fake",
- "http 1.4.0",
- "lambda_runtime",
- "product",
- "rstest",
- "serde",
- "serde_json",
- "serial_test",
- "test-api",
- "time",
- "tokio",
- "tracing",
- "tracing-subscriber",
- "url",
- "user",
-]
-
-[[package]]
-name = "product-api-watchlist-post"
-version = "0.1.0"
-dependencies = [
- "aws-config",
- "aws-sdk-dynamodb",
- "aws_lambda_events",
- "common",
- "fake",
- "http 1.4.0",
- "lambda_runtime",
- "product",
- "rstest",
- "serde",
- "serde_json",
- "serial_test",
- "test-api",
  "time",
  "tokio",
  "tracing",
@@ -3745,6 +3558,34 @@ dependencies = [
  "tokio",
  "tracing",
  "tracing-subscriber",
+]
+
+[[package]]
+name = "product-watchlist-api"
+version = "0.1.0"
+dependencies = [
+ "aws-config",
+ "aws-sdk-dynamodb",
+ "aws_lambda_events",
+ "cognito",
+ "common",
+ "fake",
+ "http 1.4.0",
+ "lambda_runtime",
+ "product",
+ "rstest",
+ "serde",
+ "serde_json",
+ "serial_test",
+ "shop",
+ "test-api",
+ "thiserror",
+ "time",
+ "tokio",
+ "tracing",
+ "tracing-subscriber",
+ "url",
+ "user",
 ]
 
 [[package]]
@@ -4411,17 +4252,6 @@ dependencies = [
 name = "search-filter-api"
 version = "0.1.0"
 dependencies = [
- "search-filter-api-delete-search-filter",
- "search-filter-api-get-search-filter",
- "search-filter-api-get-search-filters",
- "search-filter-api-patch-search-filter",
- "search-filter-api-post-search-filter",
-]
-
-[[package]]
-name = "search-filter-api-delete-search-filter"
-version = "0.1.0"
-dependencies = [
  "aws-config",
  "aws-sdk-dynamodb",
  "aws_lambda_events",
@@ -4432,109 +4262,11 @@ dependencies = [
  "product",
  "rstest",
  "search-filter",
- "serde_json",
- "serial_test",
- "test-api",
- "time",
- "tokio",
- "tracing",
- "tracing-subscriber",
- "url",
-]
-
-[[package]]
-name = "search-filter-api-get-search-filter"
-version = "0.1.0"
-dependencies = [
- "aws-config",
- "aws-sdk-dynamodb",
- "aws_lambda_events",
- "common",
- "fake",
- "http 1.4.0",
- "lambda_runtime",
- "product",
- "rstest",
- "search-filter",
- "serde_json",
- "serial_test",
- "test-api",
- "time",
- "tokio",
- "tracing",
- "tracing-subscriber",
- "url",
-]
-
-[[package]]
-name = "search-filter-api-get-search-filters"
-version = "0.1.0"
-dependencies = [
- "aws-config",
- "aws-sdk-dynamodb",
- "aws_lambda_events",
- "common",
- "fake",
- "http 1.4.0",
- "lambda_runtime",
- "product",
- "rstest",
- "search-filter",
- "serde_json",
- "serial_test",
- "test-api",
- "time",
- "tokio",
- "tracing",
- "tracing-subscriber",
- "url",
-]
-
-[[package]]
-name = "search-filter-api-patch-search-filter"
-version = "0.1.0"
-dependencies = [
- "aws-config",
- "aws-sdk-dynamodb",
- "aws_lambda_events",
- "common",
- "fake",
- "http 1.4.0",
- "lambda_runtime",
- "product",
- "rstest",
- "search-filter",
- "search-filter-api-patch-search-filter",
+ "search-filter-api",
  "serde",
  "serde_json",
  "serial_test",
  "shop",
- "test-api",
- "time",
- "tokio",
- "tracing",
- "tracing-subscriber",
- "url",
-]
-
-[[package]]
-name = "search-filter-api-post-search-filter"
-version = "0.1.0"
-dependencies = [
- "aws-config",
- "aws-sdk-dynamodb",
- "aws_lambda_events",
- "common",
- "fake",
- "http 1.4.0",
- "lambda_runtime",
- "product",
- "rstest",
- "search-filter",
- "search-filter-api-post-search-filter",
- "serde",
- "serde_json",
- "serial_test",
  "test-api",
  "time",
  "tokio",
@@ -4843,88 +4575,8 @@ dependencies = [
 name = "shop-api"
 version = "0.1.0"
 dependencies = [
- "shop-api-get-shop",
- "shop-api-patch-shop",
- "shop-api-post-shop",
- "shop-api-search",
-]
-
-[[package]]
-name = "shop-api-get-shop"
-version = "0.1.0"
-dependencies = [
  "aws-config",
  "aws-sdk-dynamodb",
- "aws_lambda_events",
- "common",
- "fake",
- "http 1.4.0",
- "lambda_runtime",
- "rstest",
- "serde_json",
- "serial_test",
- "shop",
- "test-api",
- "time",
- "tokio",
- "tracing",
- "tracing-subscriber",
- "url",
-]
-
-[[package]]
-name = "shop-api-patch-shop"
-version = "0.1.0"
-dependencies = [
- "aws-config",
- "aws-sdk-dynamodb",
- "aws_lambda_events",
- "common",
- "fake",
- "http 1.4.0",
- "lambda_runtime",
- "rstest",
- "serde",
- "serde_json",
- "serial_test",
- "shop",
- "test-api",
- "time",
- "tokio",
- "tracing",
- "tracing-subscriber",
- "url",
-]
-
-[[package]]
-name = "shop-api-post-shop"
-version = "0.1.0"
-dependencies = [
- "aws-config",
- "aws-sdk-dynamodb",
- "aws_lambda_events",
- "common",
- "fake",
- "http 1.4.0",
- "lambda_runtime",
- "rstest",
- "serde",
- "serde_json",
- "serial_test",
- "shop",
- "test-api",
- "time",
- "tokio",
- "tracing",
- "tracing-subscriber",
- "url",
-]
-
-[[package]]
-name = "shop-api-search"
-version = "0.1.0"
-dependencies = [
- "aws-config",
  "aws_lambda_events",
  "common",
  "fake",
@@ -4936,9 +4588,11 @@ dependencies = [
  "serial_test",
  "shop",
  "test-api",
+ "time",
  "tokio",
  "tracing",
  "tracing-subscriber",
+ "url",
 ]
 
 [[package]]
@@ -5126,12 +4780,11 @@ dependencies = [
  "http 1.4.0",
  "opensearch",
  "product",
- "product-api-watchlist-get",
- "product-api-watchlist-patch",
+ "product-api",
+ "product-watchlist-api",
  "reqwest 0.12.28",
  "search-filter",
- "search-filter-api-patch-search-filter",
- "search-filter-api-post-search-filter",
+ "search-filter-api",
  "serde",
  "serde_json",
  "serial_test",
@@ -5828,42 +5481,6 @@ dependencies = [
 
 [[package]]
 name = "user-api"
-version = "0.1.0"
-dependencies = [
- "user-api-get-account",
- "user-api-patch-account",
-]
-
-[[package]]
-name = "user-api-get-account"
-version = "0.1.0"
-dependencies = [
- "async-trait",
- "aws-config",
- "aws-sdk-dynamodb",
- "aws_lambda_events",
- "common",
- "fake",
- "http 1.4.0",
- "lambda_runtime",
- "mockall",
- "serde",
- "serde-email",
- "serde_dynamo",
- "serde_fields",
- "serde_json",
- "serial_test",
- "test-api",
- "thiserror",
- "time",
- "tokio",
- "tracing",
- "tracing-subscriber",
- "user",
-]
-
-[[package]]
-name = "user-api-patch-account"
 version = "0.1.0"
 dependencies = [
  "async-trait",

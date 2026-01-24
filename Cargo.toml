@@ -15,6 +15,7 @@ shop-api = { workspace = true }
 shop-lambda = { workspace = true }
 product = { workspace = true }
 product-api = { workspace = true }
+product-watchlist-api = { workspace = true }
 product-lambda = { workspace = true }
 test-api = { workspace = true }
 user = { workspace = true }
@@ -36,6 +37,7 @@ members = [
     "src/search-filter-api",
     "src/product",
     "src/product-api",
+    "src/product-watchlist-api",
     "src/product-lambda",
     "src/test-api",
     "src/shop",
@@ -72,19 +74,10 @@ fake = { version = "4.4.0", features = ["derive", "time", "uuid", "url"] }
 field = "0.1.0"
 search-filter = { path = "src/search-filter" }
 search-filter-api = { path = "src/search-filter-api" }
-search-filter-api-delete-search-filter = { path = "src/search-filter-api/src/search-filter-api-delete-search-filter" }
-search-filter-api-get-search-filter = { path = "src/search-filter-api/src/search-filter-api-get-search-filter" }
-search-filter-api-get-search-filters = { path = "src/search-filter-api/src/search-filter-api-get-search-filters" }
-search-filter-api-patch-search-filter = { path = "src/search-filter-api/src/search-filter-api-patch-search-filter" }
-search-filter-api-post-search-filter = { path = "src/search-filter-api/src/search-filter-api-post-search-filter" }
 shop = { path = "src/shop" }
 shop-lambda = { path = "src/shop-lambda" }
 shop-lambda-opensearch-index = { path = "src/shop-lambda/src/shop-lambda-opensearch-index" }
 shop-api = { path = "src/shop-api" }
-shop-api-get-shop = { path = "src/shop-api/src/shop-api-get-shop" }
-shop-api-patch-shop = { path = "src/shop-api/src/shop-api-patch-shop" }
-shop-api-post-shop = { path = "src/shop-api/src/shop-api-post-shop" }
-shop-api-search = { path = "src/shop-api/src/shop-api-search" }
 mail = { path = "src/mail" }
 mail-core = { path = "src/mail/src/mail-core" }
 mail-lambda-send = { path = "src/mail-lambda-send" }
@@ -94,14 +87,7 @@ http = "1.4.0"
 httpdate = "1.0.3"
 product = { path = "src/product" }
 product-api = { path = "src/product-api" }
-product-api-get-product = { path = "src/product-api/src/product-api-get-product" }
-product-api-get-product-similar = { path = "src/product-api/src/product-api-get-product-similar" }
-product-api-put-products = { path = "src/product-api/src/product-api-put-products" }
-product-api-search = { path = "src/product-api/src/product-api-search" }
-product-api-watchlist-get = { path = "src/product-api/src/product-api-watchlist-get" }
-product-api-watchlist-patch = { path = "src/product-api/src/product-api-watchlist-patch" }
-product-api-watchlist-post = { path = "src/product-api/src/product-api-watchlist-post" }
-product-api-watchlist-delete = { path = "src/product-api/src/product-api-watchlist-delete" }
+product-watchlist-api = { path = "src/product-watchlist-api" }
 product-lambda = { path = "src/product-lambda" }
 product-pipeline-common = { path = "src/product-pipeline/src/product-pipeline-common" }
 product-pipeline-init = { path = "src/product-pipeline/src/product-pipeline-init" }
@@ -164,8 +150,6 @@ smoking-tests-macros = { path = "src/aws-tests/src/smoking-tests/src/smoking-tes
 staging-tests-macros = { path = "src/aws-tests/src/staging-tests/src/staging-tests-macros" }
 user = { path = "src/user" }
 user-api = { path = "src/user-api" }
-user-api-get-account = { path = "src/user-api/src/user-api-get-account" }
-user-api-patch-account = { path = "src/user-api/src/user-api-patch-account" }
 user-lambda = { path = "src/user-lambda" }
 cognito = { path = "src/cognito" }
 user-lambda-fanout-update-watchlist = { path = "src/user-lambda/src/user-lambda-fanout-update-watchlist" }

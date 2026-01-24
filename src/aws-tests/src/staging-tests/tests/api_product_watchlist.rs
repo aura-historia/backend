@@ -9,8 +9,8 @@ use product::dynamodb::{
     repository::{ProductDynamoDbRepository, ProductDynamoDbRepositoryImpl},
 };
 use product::watchlist::data::watchlist_product_data::WatchlistProductData;
-use product_api_watchlist_get::WatchlistProductDataView;
-use product_api_watchlist_patch::WatchlistProductPatch;
+use product_watchlist_api::watchlist_get::WatchlistProductDataView;
+use product_watchlist_api::watchlist_patch::WatchlistProductPatch;
 use staging_tests::{create_random_test_user, get_dynamodb_client, staging_test};
 
 #[staging_test]
