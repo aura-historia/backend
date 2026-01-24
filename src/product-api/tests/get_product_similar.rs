@@ -5,7 +5,7 @@ use common::personalized::api::PersonalizedData;
 use fake::{Fake, Faker};
 use http::header::ACCEPT_LANGUAGE;
 use lambda_runtime::LambdaEvent;
-use product::data::get_data::GetProductData;
+use product::data::get_summary_data::GetProductSummaryData;
 use product::data::user_state_data::ProductUserStateData;
 use product::dynamodb::product_record::ProductRecord;
 use product::dynamodb::repository::{ProductDynamoDbRepository, ProductDynamoDbRepositoryImpl};
@@ -1188,7 +1188,7 @@ async fn should_200_when_similar_products_have_been_computed_for_anon() {
     .unwrap();
     assert_eq!(200, response.status_code);
     let response_payload = extract_apigw_response_json_body!(response);
-    let actual: Vec<PersonalizedData<GetProductData, ProductUserStateData>> =
+    let actual: Vec<PersonalizedData<GetProductSummaryData, ProductUserStateData>> =
         serde_json::from_value(response_payload).unwrap();
 
     // tough due to ANN
@@ -1312,7 +1312,7 @@ async fn should_200_and_personalize_when_similar_products_have_been_computed_for
     .unwrap();
     assert_eq!(200, response.status_code);
     let response_payload = extract_apigw_response_json_body!(response);
-    let actual: Vec<PersonalizedData<GetProductData, ProductUserStateData>> =
+    let actual: Vec<PersonalizedData<GetProductSummaryData, ProductUserStateData>> =
         serde_json::from_value(response_payload).unwrap();
 
     // tough due to ANN
@@ -1464,7 +1464,7 @@ async fn should_respond_200_and_respect_accept_language_header(
     .unwrap();
     assert_eq!(200, response.status_code);
     let response_payload = extract_apigw_response_json_body!(response);
-    let actual: Vec<PersonalizedData<GetProductData, ProductUserStateData>> =
+    let actual: Vec<PersonalizedData<GetProductSummaryData, ProductUserStateData>> =
         serde_json::from_value(response_payload).unwrap();
 
     assert!(
