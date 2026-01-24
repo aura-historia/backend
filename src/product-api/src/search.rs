@@ -15,11 +15,14 @@ use common::{
 use lambda_runtime::LambdaEvent;
 use product::{
     core::sort_product_field::SortProductField,
-    data::{product_search_data::ProductSearchData, user_state_data::ProductUserStateData},
+    data::{
+        get_summary_data::GetProductSummaryData, product_search_data::ProductSearchData,
+        user_state_data::ProductUserStateData,
+    },
 };
 use product::{core::user_state::ProductUserState, service::query_service::QueryProductService};
 use product::{
-    data::{get_data::GetProductData, sort_product_field_data::SortProductFieldData},
+    data::sort_product_field_data::SortProductFieldData,
     service::personalization_service::ProductPersonalizationService,
 };
 
@@ -83,7 +86,7 @@ pub async fn handle(
     };
 
     let json_cursored_data: JsonCursoredData<
-        PersonalizedData<GetProductData, ProductUserStateData>,
+        PersonalizedData<GetProductSummaryData, ProductUserStateData>,
     > = JsonCursoredData::from(cursored_result);
 
     Ok(ApiGatewayV2HttpResponseBuilder::json(200)

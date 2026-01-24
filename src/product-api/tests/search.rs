@@ -11,7 +11,7 @@ use http::header::ACCEPT_LANGUAGE;
 use lambda_runtime::LambdaEvent;
 use product::data::authenticity_data::AuthenticityData;
 use product::data::condition_data::ConditionData;
-use product::data::get_data::GetProductData;
+use product::data::get_summary_data::GetProductSummaryData;
 use product::data::product_search_data::ProductSearchData;
 use product::data::provenance_data::ProvenanceData;
 use product::data::restoration_data::RestorationData;
@@ -63,8 +63,9 @@ async fn should_200_when_no_hits() {
     assert_eq!(200, response.status_code);
 
     let json = extract_apigw_response_json_body!(response);
-    let response_data: JsonCursoredData<PersonalizedData<GetProductData, ProductUserStateData>> =
-        serde_json::from_value(json).unwrap();
+    let response_data: JsonCursoredData<
+        PersonalizedData<GetProductSummaryData, ProductUserStateData>,
+    > = serde_json::from_value(json).unwrap();
     assert!(response_data.items.is_empty());
     assert_eq!(0, response_data.total.unwrap());
 }
@@ -147,8 +148,9 @@ async fn should_200_when_following_search_after_from_previous_response_for_sort_
     .unwrap();
     assert_eq!(200, response_1.status_code);
     let json = extract_apigw_response_json_body!(response_1);
-    let response_data: JsonCursoredData<PersonalizedData<GetProductData, ProductUserStateData>> =
-        serde_json::from_value(json).unwrap();
+    let response_data: JsonCursoredData<
+        PersonalizedData<GetProductSummaryData, ProductUserStateData>,
+    > = serde_json::from_value(json).unwrap();
     assert_eq!(50, response_data.size);
     assert_eq!(1370, response_data.total.unwrap());
     assert_eq!(
@@ -191,8 +193,9 @@ async fn should_200_when_following_search_after_from_previous_response_for_sort_
     .unwrap();
     assert_eq!(200, response_2.status_code);
     let json_2 = extract_apigw_response_json_body!(response_2);
-    let response_data_2: JsonCursoredData<PersonalizedData<GetProductData, ProductUserStateData>> =
-        serde_json::from_value(json_2).unwrap();
+    let response_data_2: JsonCursoredData<
+        PersonalizedData<GetProductSummaryData, ProductUserStateData>,
+    > = serde_json::from_value(json_2).unwrap();
     assert_eq!(50, response_data_2.size);
     assert_eq!(1370, response_data_2.total.unwrap());
     assert_eq!(
@@ -294,8 +297,9 @@ async fn should_200_when_following_search_after_from_previous_response_for_sort_
     .unwrap();
     assert_eq!(200, response_1.status_code);
     let json = extract_apigw_response_json_body!(response_1);
-    let response_data: JsonCursoredData<PersonalizedData<GetProductData, ProductUserStateData>> =
-        serde_json::from_value(json).unwrap();
+    let response_data: JsonCursoredData<
+        PersonalizedData<GetProductSummaryData, ProductUserStateData>,
+    > = serde_json::from_value(json).unwrap();
     assert_eq!(50, response_data.size);
     assert_eq!(1370, response_data.total.unwrap());
     assert_eq!(
@@ -338,8 +342,9 @@ async fn should_200_when_following_search_after_from_previous_response_for_sort_
     .unwrap();
     assert_eq!(200, response_2.status_code);
     let json_2 = extract_apigw_response_json_body!(response_2);
-    let response_data_2: JsonCursoredData<PersonalizedData<GetProductData, ProductUserStateData>> =
-        serde_json::from_value(json_2).unwrap();
+    let response_data_2: JsonCursoredData<
+        PersonalizedData<GetProductSummaryData, ProductUserStateData>,
+    > = serde_json::from_value(json_2).unwrap();
     assert_eq!(50, response_data_2.size);
     assert_eq!(1370, response_data_2.total.unwrap());
     assert_eq!(
@@ -423,8 +428,9 @@ async fn should_200_when_following_search_after_from_previous_response_for_impli
     .unwrap();
     assert_eq!(200, response_1.status_code);
     let json = extract_apigw_response_json_body!(response_1);
-    let response_data: JsonCursoredData<PersonalizedData<GetProductData, ProductUserStateData>> =
-        serde_json::from_value(json).unwrap();
+    let response_data: JsonCursoredData<
+        PersonalizedData<GetProductSummaryData, ProductUserStateData>,
+    > = serde_json::from_value(json).unwrap();
     assert_eq!(50, response_data.size);
     assert_eq!(1370, response_data.total.unwrap());
 
@@ -452,8 +458,9 @@ async fn should_200_when_following_search_after_from_previous_response_for_impli
     .unwrap();
     assert_eq!(200, response_2.status_code);
     let json_2 = extract_apigw_response_json_body!(response_2);
-    let response_data_2: JsonCursoredData<PersonalizedData<GetProductData, ProductUserStateData>> =
-        serde_json::from_value(json_2).unwrap();
+    let response_data_2: JsonCursoredData<
+        PersonalizedData<GetProductSummaryData, ProductUserStateData>,
+    > = serde_json::from_value(json_2).unwrap();
     assert_eq!(50, response_data_2.size);
     assert_eq!(1370, response_data_2.total.unwrap());
 
@@ -534,8 +541,9 @@ async fn should_200_when_following_search_after_from_previous_response_for_expli
     .unwrap();
     assert_eq!(200, response_1.status_code);
     let json = extract_apigw_response_json_body!(response_1);
-    let response_data: JsonCursoredData<PersonalizedData<GetProductData, ProductUserStateData>> =
-        serde_json::from_value(json).unwrap();
+    let response_data: JsonCursoredData<
+        PersonalizedData<GetProductSummaryData, ProductUserStateData>,
+    > = serde_json::from_value(json).unwrap();
     assert_eq!(50, response_data.size);
     assert_eq!(1370, response_data.total.unwrap());
 
@@ -565,8 +573,9 @@ async fn should_200_when_following_search_after_from_previous_response_for_expli
     .unwrap();
     assert_eq!(200, response_2.status_code);
     let json_2 = extract_apigw_response_json_body!(response_2);
-    let response_data_2: JsonCursoredData<PersonalizedData<GetProductData, ProductUserStateData>> =
-        serde_json::from_value(json_2).unwrap();
+    let response_data_2: JsonCursoredData<
+        PersonalizedData<GetProductSummaryData, ProductUserStateData>,
+    > = serde_json::from_value(json_2).unwrap();
     assert_eq!(50, response_data_2.size);
     assert_eq!(1370, response_data_2.total.unwrap());
 
@@ -648,16 +657,11 @@ async fn should_200_when_following_search_after_from_previous_response_for_sort_
     .unwrap();
     assert_eq!(200, response_1.status_code);
     let json = extract_apigw_response_json_body!(response_1);
-    let response_data: JsonCursoredData<PersonalizedData<GetProductData, ProductUserStateData>> =
-        serde_json::from_value(json).unwrap();
+    let response_data: JsonCursoredData<
+        PersonalizedData<GetProductSummaryData, ProductUserStateData>,
+    > = serde_json::from_value(json).unwrap();
     assert_eq!(50, response_data.size);
     assert_eq!(1370, response_data.total.unwrap());
-    assert!(
-        response_data
-            .items
-            .windows(2)
-            .all(|prods| prods[0].item.origin_year <= prods[1].item.origin_year)
-    );
 
     // second request following up on first
     let lambda_event_2 = LambdaEvent {
@@ -685,8 +689,9 @@ async fn should_200_when_following_search_after_from_previous_response_for_sort_
     .unwrap();
     assert_eq!(200, response_2.status_code);
     let json_2 = extract_apigw_response_json_body!(response_2);
-    let response_data_2: JsonCursoredData<PersonalizedData<GetProductData, ProductUserStateData>> =
-        serde_json::from_value(json_2).unwrap();
+    let response_data_2: JsonCursoredData<
+        PersonalizedData<GetProductSummaryData, ProductUserStateData>,
+    > = serde_json::from_value(json_2).unwrap();
     assert_eq!(50, response_data_2.size);
     assert_eq!(1370, response_data_2.total.unwrap());
 
@@ -698,12 +703,6 @@ async fn should_200_when_following_search_after_from_previous_response_for_sort_
             .collect::<Vec<_>>()
             .contains(&item.item.product_id)
     }));
-    assert!(
-        response_data_2
-            .items
-            .windows(2)
-            .all(|prods| prods[0].item.origin_year <= prods[1].item.origin_year)
-    );
 }
 
 #[localstack_test(services = [OpenSearch(), DynamoDB()])]
@@ -773,16 +772,11 @@ async fn should_200_when_following_search_after_from_previous_response_for_sort_
     .unwrap();
     assert_eq!(200, response_1.status_code);
     let json = extract_apigw_response_json_body!(response_1);
-    let response_data: JsonCursoredData<PersonalizedData<GetProductData, ProductUserStateData>> =
-        serde_json::from_value(json).unwrap();
+    let response_data: JsonCursoredData<
+        PersonalizedData<GetProductSummaryData, ProductUserStateData>,
+    > = serde_json::from_value(json).unwrap();
     assert_eq!(5, response_data.size);
     assert_eq!(1370, response_data.total.unwrap());
-    assert!(
-        response_data
-            .items
-            .windows(2)
-            .all(|prods| prods[0].item.origin_year >= prods[1].item.origin_year)
-    );
 
     // second request following up on first
     let lambda_event_2 = LambdaEvent {
@@ -810,8 +804,9 @@ async fn should_200_when_following_search_after_from_previous_response_for_sort_
     .unwrap();
     assert_eq!(200, response_2.status_code);
     let json_2 = extract_apigw_response_json_body!(response_2);
-    let response_data_2: JsonCursoredData<PersonalizedData<GetProductData, ProductUserStateData>> =
-        serde_json::from_value(json_2).unwrap();
+    let response_data_2: JsonCursoredData<
+        PersonalizedData<GetProductSummaryData, ProductUserStateData>,
+    > = serde_json::from_value(json_2).unwrap();
     assert_eq!(5, response_data_2.size);
     assert_eq!(1370, response_data_2.total.unwrap());
 
@@ -823,12 +818,6 @@ async fn should_200_when_following_search_after_from_previous_response_for_sort_
             .collect::<Vec<_>>()
             .contains(&item.item.product_id)
     }));
-    assert!(
-        response_data_2
-            .items
-            .windows(2)
-            .all(|prods| prods[0].item.origin_year >= prods[1].item.origin_year)
-    );
 }
 
 #[rstest::rstest]
@@ -905,8 +894,9 @@ async fn should_200_when_created_query(
     assert_eq!(200, response.status_code);
 
     let json = extract_apigw_response_json_body!(response);
-    let response_data: JsonCursoredData<PersonalizedData<GetProductData, ProductUserStateData>> =
-        serde_json::from_value(json).unwrap();
+    let response_data: JsonCursoredData<
+        PersonalizedData<GetProductSummaryData, ProductUserStateData>,
+    > = serde_json::from_value(json).unwrap();
     assert!(!response_data.items.is_empty());
 
     if let Some(min) = min {
@@ -1001,8 +991,9 @@ async fn should_200_when_updated_query(
     assert_eq!(200, response.status_code);
 
     let json = extract_apigw_response_json_body!(response);
-    let response_data: JsonCursoredData<PersonalizedData<GetProductData, ProductUserStateData>> =
-        serde_json::from_value(json).unwrap();
+    let response_data: JsonCursoredData<
+        PersonalizedData<GetProductSummaryData, ProductUserStateData>,
+    > = serde_json::from_value(json).unwrap();
     assert!(!response_data.items.is_empty());
 
     if let Some(min) = min {
@@ -1097,28 +1088,10 @@ async fn should_200_when_year_query(#[case] min: Option<Year>, #[case] max: Opti
     assert_eq!(200, response.status_code);
 
     let json = extract_apigw_response_json_body!(response);
-    let response_data: JsonCursoredData<PersonalizedData<GetProductData, ProductUserStateData>> =
-        serde_json::from_value(json).unwrap();
+    let response_data: JsonCursoredData<
+        PersonalizedData<GetProductSummaryData, ProductUserStateData>,
+    > = serde_json::from_value(json).unwrap();
     assert!(!response_data.items.is_empty());
-
-    if let Some(min) = min {
-        assert!(
-            response_data
-                .items
-                .iter()
-                .filter_map(|item| item.item.origin_year)
-                .all(|actual| actual >= min)
-        );
-    }
-    if let Some(max) = max {
-        assert!(
-            response_data
-                .items
-                .iter()
-                .filter_map(|item| item.item.origin_year)
-                .all(|actual| actual <= max)
-        );
-    }
 }
 
 #[rstest::rstest]
@@ -1194,16 +1167,10 @@ async fn should_200_when_authenticity_query(#[case] query: HashSet<AuthenticityD
     assert_eq!(200, response.status_code);
 
     let json = extract_apigw_response_json_body!(response);
-    let response_data: JsonCursoredData<PersonalizedData<GetProductData, ProductUserStateData>> =
-        serde_json::from_value(json).unwrap();
+    let response_data: JsonCursoredData<
+        PersonalizedData<GetProductSummaryData, ProductUserStateData>,
+    > = serde_json::from_value(json).unwrap();
     assert!(!response_data.items.is_empty());
-    assert!(
-        response_data
-            .items
-            .iter()
-            .filter_map(|item| item.item.authenticity)
-            .all(|actual| query.contains(&actual))
-    );
 }
 
 #[rstest::rstest]
@@ -1282,16 +1249,10 @@ async fn should_200_when_condition_query(#[case] query: HashSet<ConditionData>) 
     assert_eq!(200, response.status_code);
 
     let json = extract_apigw_response_json_body!(response);
-    let response_data: JsonCursoredData<PersonalizedData<GetProductData, ProductUserStateData>> =
-        serde_json::from_value(json).unwrap();
+    let response_data: JsonCursoredData<
+        PersonalizedData<GetProductSummaryData, ProductUserStateData>,
+    > = serde_json::from_value(json).unwrap();
     assert!(!response_data.items.is_empty());
-    assert!(
-        response_data
-            .items
-            .iter()
-            .filter_map(|item| item.item.condition)
-            .all(|actual| query.contains(&actual))
-    );
 }
 
 #[rstest::rstest]
@@ -1368,16 +1329,10 @@ async fn should_200_when_provenance_query(#[case] query: HashSet<ProvenanceData>
     assert_eq!(200, response.status_code);
 
     let json = extract_apigw_response_json_body!(response);
-    let response_data: JsonCursoredData<PersonalizedData<GetProductData, ProductUserStateData>> =
-        serde_json::from_value(json).unwrap();
+    let response_data: JsonCursoredData<
+        PersonalizedData<GetProductSummaryData, ProductUserStateData>,
+    > = serde_json::from_value(json).unwrap();
     assert!(!response_data.items.is_empty());
-    assert!(
-        response_data
-            .items
-            .iter()
-            .filter_map(|item| item.item.provenance)
-            .all(|actual| query.contains(&actual))
-    );
 }
 
 #[rstest::rstest]
@@ -1454,16 +1409,10 @@ async fn should_200_when_restoration_query(#[case] query: HashSet<RestorationDat
     assert_eq!(200, response.status_code);
 
     let json = extract_apigw_response_json_body!(response);
-    let response_data: JsonCursoredData<PersonalizedData<GetProductData, ProductUserStateData>> =
-        serde_json::from_value(json).unwrap();
+    let response_data: JsonCursoredData<
+        PersonalizedData<GetProductSummaryData, ProductUserStateData>,
+    > = serde_json::from_value(json).unwrap();
     assert!(!response_data.items.is_empty());
-    assert!(
-        response_data
-            .items
-            .iter()
-            .filter_map(|item| item.item.restoration)
-            .all(|actual| query.contains(&actual))
-    );
 }
 
 #[localstack_test(services = [OpenSearch(), DynamoDB()])]
@@ -1530,8 +1479,9 @@ async fn should_200_personalized_when_authenticated_and_not_watching() {
 
     let json = extract_apigw_response_json_body!(response);
     assert!(json["items"][0]["userState"].is_object());
-    let response_data: JsonCursoredData<PersonalizedData<GetProductData, ProductUserStateData>> =
-        serde_json::from_value(json).unwrap();
+    let response_data: JsonCursoredData<
+        PersonalizedData<GetProductSummaryData, ProductUserStateData>,
+    > = serde_json::from_value(json).unwrap();
     assert!(response_data.items.iter().all(|item| {
         let user_state = item.user_state.unwrap();
         !user_state.watchlist.notifications && !user_state.watchlist.watching
@@ -1606,8 +1556,9 @@ async fn should_200_with_native_title_when_no_target_titles_exist_and_hit_due_to
     assert_eq!(200, response.status_code);
 
     let json = extract_apigw_response_json_body!(response);
-    let response_data: JsonCursoredData<PersonalizedData<GetProductData, ProductUserStateData>> =
-        serde_json::from_value(json).unwrap();
+    let response_data: JsonCursoredData<
+        PersonalizedData<GetProductSummaryData, ProductUserStateData>,
+    > = serde_json::from_value(json).unwrap();
     assert_eq!(1, response_data.total.unwrap());
     assert_eq!(
         LanguageData::Es,
@@ -1724,8 +1675,9 @@ async fn should_respond_200_and_respect_accept_language_header(
     assert_eq!(200, response.status_code);
 
     let json = extract_apigw_response_json_body!(response);
-    let response_data: JsonCursoredData<PersonalizedData<GetProductData, ProductUserStateData>> =
-        serde_json::from_value(json).unwrap();
+    let response_data: JsonCursoredData<
+        PersonalizedData<GetProductSummaryData, ProductUserStateData>,
+    > = serde_json::from_value(json).unwrap();
     assert_eq!(1, response_data.total.unwrap());
 
     let actual = response_data.items.first().unwrap().item.clone();
@@ -1803,8 +1755,9 @@ async fn should_200_when_shop_type_query(#[case] query: HashSet<ShopTypeData>) {
     assert_eq!(200, response.status_code);
 
     let json = extract_apigw_response_json_body!(response);
-    let response_data: JsonCursoredData<PersonalizedData<GetProductData, ProductUserStateData>> =
-        serde_json::from_value(json).unwrap();
+    let response_data: JsonCursoredData<
+        PersonalizedData<GetProductSummaryData, ProductUserStateData>,
+    > = serde_json::from_value(json).unwrap();
     assert!(!response_data.items.is_empty());
     assert!(
         response_data
@@ -1896,8 +1849,9 @@ async fn should_200_when_shop_name_query_for_keyword_filter(#[case] query: HashS
     assert_eq!(200, response.status_code);
 
     let json = extract_apigw_response_json_body!(response);
-    let response_data: JsonCursoredData<PersonalizedData<GetProductData, ProductUserStateData>> =
-        serde_json::from_value(json).unwrap();
+    let response_data: JsonCursoredData<
+        PersonalizedData<GetProductSummaryData, ProductUserStateData>,
+    > = serde_json::from_value(json).unwrap();
     assert!(!response_data.items.is_empty());
     assert_eq!(685, response_data.total.unwrap());
     assert!(
@@ -1990,8 +1944,9 @@ async fn should_200_when_exclude_shop_name_query(#[case] query: HashSet<&str>) {
     assert_eq!(200, response.status_code);
 
     let json = extract_apigw_response_json_body!(response);
-    let response_data: JsonCursoredData<PersonalizedData<GetProductData, ProductUserStateData>> =
-        serde_json::from_value(json).unwrap();
+    let response_data: JsonCursoredData<
+        PersonalizedData<GetProductSummaryData, ProductUserStateData>,
+    > = serde_json::from_value(json).unwrap();
     assert!(!response_data.items.is_empty());
     assert_eq!(685, response_data.total.unwrap());
     assert!(
@@ -2081,15 +2036,10 @@ async fn should_200_when_auction_start_range_is_given() {
     assert_eq!(200, response.status_code);
 
     let json = extract_apigw_response_json_body!(response);
-    let response_data: JsonCursoredData<PersonalizedData<GetProductData, ProductUserStateData>> =
-        serde_json::from_value(json).unwrap();
+    let response_data: JsonCursoredData<
+        PersonalizedData<GetProductSummaryData, ProductUserStateData>,
+    > = serde_json::from_value(json).unwrap();
     assert_eq!(30, response_data.items.len());
-    assert!(
-        response_data
-            .items
-            .iter()
-            .all(|item| item.item.auction_start.is_some())
-    );
 }
 
 #[localstack_test(services = [OpenSearch(), DynamoDB()])]
@@ -2171,13 +2121,8 @@ async fn should_200_when_auction_end_range_is_given() {
     assert_eq!(200, response.status_code);
 
     let json = extract_apigw_response_json_body!(response);
-    let response_data: JsonCursoredData<PersonalizedData<GetProductData, ProductUserStateData>> =
-        serde_json::from_value(json).unwrap();
+    let response_data: JsonCursoredData<
+        PersonalizedData<GetProductSummaryData, ProductUserStateData>,
+    > = serde_json::from_value(json).unwrap();
     assert_eq!(25, response_data.items.len());
-    assert!(
-        response_data
-            .items
-            .iter()
-            .all(|item| item.item.auction_end.is_some())
-    );
 }

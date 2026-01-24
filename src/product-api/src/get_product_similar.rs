@@ -9,10 +9,8 @@ use common::{
     shops_product_id::api::extract_shops_product_id_path,
 };
 use lambda_runtime::LambdaEvent;
-use product::core::user_state::ProductUserState;
-use product::{
-    data::get_data::GetProductData, service::personalization_service::ProductPersonalizationService,
-};
+use product::service::personalization_service::ProductPersonalizationService;
+use product::{core::user_state::ProductUserState, data::get_summary_data::GetProductSummaryData};
 use product::{
     data::user_state_data::ProductUserStateData, service::semantic_service::SemanticSearchService,
 };
@@ -76,11 +74,12 @@ pub async fn handle(
                     .collect::<Vec<_>>(),
             };
 
-            let similar_products_data: Vec<PersonalizedData<GetProductData, ProductUserStateData>> =
-                personalized_similar_products
-                    .into_iter()
-                    .map(PersonalizedData::from)
-                    .collect();
+            let similar_products_data: Vec<
+                PersonalizedData<GetProductSummaryData, ProductUserStateData>,
+            > = personalized_similar_products
+                .into_iter()
+                .map(PersonalizedData::from)
+                .collect();
 
             Ok(ApiGatewayV2HttpResponseBuilder::json(200)
                 .body_serde(similar_products_data)?
