@@ -1,4 +1,4 @@
-use common::{domain::Domain, shop_name::ShopName};
+use common::domain::Domain;
 use serde::{Deserialize, Serialize};
 use serde_fields::SerdeField;
 use std::collections::HashSet;
@@ -8,9 +8,6 @@ use url::Url;
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, SerdeField)]
 #[serde(rename_all = "camelCase")]
 pub struct ShopDocumentUpdate {
-    #[serde(skip_serializing_if = "Option::is_none", default)]
-    pub name: Option<ShopName>,
-
     #[serde(skip_serializing_if = "Option::is_none", default)]
     pub domains: Option<HashSet<Domain>>,
 
@@ -29,7 +26,6 @@ mod faker {
     impl Dummy<Faker> for ShopDocumentUpdate {
         fn dummy_with_rng<R: Rng + ?Sized>(config: &Faker, rng: &mut R) -> Self {
             ShopDocumentUpdate {
-                name: config.fake_with_rng(rng),
                 domains: config.fake_with_rng(rng),
                 image: config.fake_with_rng(rng),
                 updated: OffsetDateTime::now_utc(),

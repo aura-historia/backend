@@ -265,7 +265,6 @@ async fn should_update_shop_document_for_update() {
     assert_eq!(create_expected, created);
 
     let update = ShopDocumentUpdate {
-        name: Some("Hansi hans and the Hanses".into()),
         domains: Some(HashSet::from_iter([
             Domain::try_from("hansi-hans.de").unwrap(),
             Domain::try_from("hansi-hans.com").unwrap(),
@@ -283,7 +282,6 @@ async fn should_update_shop_document_for_update() {
     tokio::time::sleep(Duration::from_secs(3)).await;
 
     let updated = read_by_id::<ShopDocument>("shops", create_expected.shop_id).await;
-    assert_eq!(update.name.unwrap(), updated.name);
     assert_eq!(update.domains.unwrap(), updated.domains);
     assert_eq!(update.image.unwrap(), updated.image.unwrap());
     assert_eq!(update.updated, updated.updated);

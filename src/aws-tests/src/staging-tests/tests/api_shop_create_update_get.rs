@@ -28,7 +28,6 @@ async fn should_create_update_get_shop() {
     tokio::time::sleep(Duration::from_secs(1)).await;
 
     let patch_shop_data = PatchShopData {
-        name: Some("hans goes shopping nig".into()),
         shop_type: Faker.fake(),
         domains: None,
         image: Some(Url::parse("https://hans-shopping-nig.co.uk").unwrap()),
@@ -46,7 +45,6 @@ async fn should_create_update_get_shop() {
         .unwrap();
     assert_eq!(200, response.status());
     let updated = response.json::<GetShopData>().await.unwrap();
-    assert_eq!(patch_shop_data.name.unwrap(), updated.name);
     assert_eq!(post_shop_data.domains, updated.domains);
     assert_eq!(
         patch_shop_data.image.unwrap(),

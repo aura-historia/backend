@@ -28,7 +28,6 @@ pub async fn handle(
     })?;
 
     let update_shop_command = UpdateShopCommand {
-        name: patch_shop_data.name,
         shop_type: patch_shop_data.shop_type.map(Into::into),
         domains: patch_shop_data.domains,
         image: patch_shop_data.image,

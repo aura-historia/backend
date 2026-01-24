@@ -272,7 +272,6 @@ async fn should_transact_write() {
             .clone(),
     ];
     let update_record = ShopRecordUpdate {
-        name: Some("Hans' Shop".into()),
         shop_type: Faker.fake(),
         domains: Some(
             [
