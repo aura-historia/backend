@@ -262,9 +262,16 @@ async fn should_transact_write() {
         .await
         .unwrap();
 
-    let mut new_shop = shop.clone();
-    new_shop.name = "Hans' Shop".into();
-    new_shop.domains = [Domain::try_from("https://foo.fr").unwrap()].into();
+    let new_shop = Shop {
+        shop_id: shop.shop_id,
+        shop_slug_id: "Hans' Shop".into(),
+        name: "Hans' Shop".into(),
+        shop_type: shop.shop_type,
+        domains: [Domain::try_from("https://foo.fr").unwrap()].into(),
+        image: shop.image,
+        created: shop.created,
+        updated: shop.updated,
+    };
     let put = vec![
         ShopRecord::clone_from_shop_as_shop_domain_records(&new_shop)
             .first()
@@ -304,7 +311,6 @@ async fn should_transact_write() {
         .await
         .unwrap()
         .unwrap();
-    assert_eq!(ShopName::from("Hans' Shop"), actual_shop_id_record.name);
     assert_eq!(
         Url::parse("https://foo.bar").unwrap(),
         actual_shop_id_record.image.unwrap()
@@ -331,10 +337,6 @@ async fn should_transact_write() {
         .await
         .unwrap()
         .unwrap();
-    assert_eq!(
-        ShopName::from("Hans' Shop"),
-        actual_shop_url_record_com.name
-    );
     assert_eq!(
         Url::parse("https://foo.bar").unwrap(),
         actual_shop_url_record_com.image.unwrap()

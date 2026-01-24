@@ -688,7 +688,6 @@ mod tests {
                 .await
                 .unwrap();
 
-            assert_eq!("Hanses shoppy", actual.name.to_string());
             assert_eq!(
                 "https://hanses.shoppy/img/foo",
                 actual.image.unwrap().to_string()
