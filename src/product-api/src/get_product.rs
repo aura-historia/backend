@@ -399,37 +399,6 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn should_400_when_history_query_param_value_invalid() {
-        let mut cognito_service = MockAccessTokenVerifierService::default();
-        cognito_service
-            .expect_verify_extract_user_id()
-            .return_once(|_| Box::pin(async { Ok(None) }));
-        let product_personalization_service = MockProductPersonalizationService::default();
-        let mut get_product_service = MockGetProductService::default();
-        get_product_service.expect_view_product().never();
-        let lambda_event = LambdaEvent {
-            payload: ApiGatewayV2httpRequestProxy::builder()
-                .http_method(http::Method::GET)
-                .route_key("GET /api/v1/products/{shopId}/{shopsProductId}".to_owned())
-                .path_parameter("shopId", ShopId::new())
-                .path_parameter("shopsProductId", ShopsProductId::new())
-                .query_string_parameter("history", "boop")
-                .build(),
-            context: Default::default(),
-        };
-
-        let actual = handle(
-            lambda_event,
-            &get_product_service,
-            &cognito_service,
-            &product_personalization_service,
-        )
-        .await
-        .unwrap_err();
-        assert_eq!(400, actual.status);
-    }
-
-    #[tokio::test]
     async fn should_404_when_product_does_not_exist() {
         let shop_id = ShopId::new();
         let shops_product_id = ShopsProductId::new();

@@ -249,7 +249,7 @@ async fn should_respond_200_for_history() {
     tokio::time::sleep(Duration::from_secs(1)).await;
 
     let response = reqwest::get(format!(
-        "{}/api/v1/products/{}/{}/history",
+        "{}/api/v1/products/{}/{}/history?currency=USD",
         get_cfn_output().api_gateway_endpoint_url,
         record.shop_id,
         record.shops_product_id,
