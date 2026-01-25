@@ -1095,7 +1095,7 @@ async fn should_202_when_similar_products_have_not_been_computed_for_anon() {
     tokio::time::sleep(Duration::from_secs(20)).await;
 
     let url = format!(
-        "{}/api/v1/products/{}/{}/similar",
+        "{}/api/v1/shops/{}/products/{}/similar",
         get_cfn_output().api_gateway_endpoint_url,
         product_record.shop_id,
         product_record.shops_product_id,
@@ -1149,7 +1149,7 @@ async fn should_200_when_similar_products_have_been_computed_for_anon() {
     tokio::time::sleep(Duration::from_secs(20)).await;
 
     let url = format!(
-        "{}/api/v1/products/{}/{}/similar?currency=USD",
+        "{}/api/v1/shops/{}/products/{}/similar?currency=USD",
         get_cfn_output().api_gateway_endpoint_url,
         product_record.shop_id,
         product_record.shops_product_id,
@@ -1267,7 +1267,7 @@ async fn should_200_and_personalize_when_similar_products_have_been_computed_for
     tokio::time::sleep(Duration::from_secs(20)).await;
 
     let url = format!(
-        "{}/api/v1/products/{}/{}/similar?currency=EUR",
+        "{}/api/v1/shops/{}/products/{}/similar?currency=EUR",
         get_cfn_output().api_gateway_endpoint_url,
         product_record.shop_id,
         product_record.shops_product_id,

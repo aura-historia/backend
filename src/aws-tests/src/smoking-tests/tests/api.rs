@@ -7,7 +7,7 @@ use uuid::Uuid;
 #[smoking_test]
 async fn should_respond_404_for_get_product_when_not_exists() {
     let response = reqwest::get(format!(
-        "{}/api/v1/products/{}/{}",
+        "{}/api/v1/shops/{}/products/{}",
         get_cfn_output().api_gateway_endpoint_url,
         Uuid::new_v4(),
         Uuid::new_v4()
