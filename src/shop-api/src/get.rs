@@ -2,10 +2,11 @@ use aws_lambda_events::apigw::{ApiGatewayV2httpRequest, ApiGatewayV2httpResponse
 use common::api::api_gateway_v2_http_response_builder::ApiGatewayV2HttpResponseBuilder;
 use common::api::error::ApiError;
 use common::api::error_code::INTERNAL_SERVER_ERROR;
-use common::shop_id::api::extract_shop_slug_id_path;
+use common::shop_id::ShopIdentifier;
+use common::shop_id::api::{extract_shop_id_path, extract_shop_slug_id_path};
 use lambda_runtime::LambdaEvent;
 use shop::data::get_shop_data::GetShopData;
-use shop::data::shop_identifier_data::extract_shop_identifier_data_path;
+use shop::data::shop_identifier_data::extract_shop_domain_path;
 use shop::service::get_service::GetShopService;
 
 pub async fn handle(
@@ -13,10 +14,15 @@ pub async fn handle(
     service: &impl GetShopService,
 ) -> Result<ApiGatewayV2httpResponse, ApiError> {
     let shop = match event.payload.route_key.as_deref() {
-        Some("GET /api/v1/shops/{shopIdentifier}") => {
-            let shop_identifier =
-                extract_shop_identifier_data_path(&event.payload.path_parameters)?.into();
-            service.find_shop(&shop_identifier).await?
+        Some("GET /api/v1/shops/{shopId}") => {
+            let shop_id = extract_shop_id_path(&event.payload.path_parameters)?;
+            service.find_shop(&ShopIdentifier::ShopId(shop_id)).await?
+        }
+        Some("GET /api/v1/by-domain/shops/{shopDomain}") => {
+            let shop_domain = extract_shop_domain_path(&event.payload.path_parameters)?;
+            service
+                .find_shop(&ShopIdentifier::ShopDomain(shop_domain))
+                .await?
         }
         Some("GET /api/v1/by-slug/shops/{shopSlugId}") => {
             let shop_slug_id = extract_shop_slug_id_path(&event.payload.path_parameters)?;
@@ -71,8 +77,8 @@ mod tests {
         let lambda_event = LambdaEvent {
             payload: ApiGatewayV2httpRequestProxy::builder()
                 .http_method(http::Method::GET)
-                .route_key("GET /api/v1/shops/{shopIdentifier}")
-                .path_parameter("shopIdentifier", shop_id)
+                .route_key("GET /api/v1/shops/{shopId}")
+                .path_parameter("shopId", shop_id)
                 .build(),
             context: Default::default(),
         };
@@ -103,8 +109,8 @@ mod tests {
         let lambda_event = LambdaEvent {
             payload: ApiGatewayV2httpRequestProxy::builder()
                 .http_method(http::Method::GET)
-                .route_key("GET /api/v1/shops/{shopIdentifier}")
-                .path_parameter("shopIdentifier", "foo.bar")
+                .route_key("GET /api/v1/by-domain/shops/{shopDomain}")
+                .path_parameter("shopDomain", "foo.bar")
                 .build(),
             context: Default::default(),
         };
@@ -130,7 +136,7 @@ mod tests {
         let lambda_event = LambdaEvent {
             payload: ApiGatewayV2httpRequestProxy::builder()
                 .http_method(http::Method::GET)
-                .route_key("GET /api/v1/shops/{shopIdentifier}")
+                .route_key("GET /api/v1/shops/{shopId}")
                 .build(),
             context: Default::default(),
         };
@@ -153,7 +159,7 @@ mod tests {
         let lambda_event = LambdaEvent {
             payload: ApiGatewayV2httpRequestProxy::builder()
                 .http_method(http::Method::GET)
-                .route_key("GET /api/v1/shops/{shopIdentifier}")
+                .route_key("GET /api/v1/shops/{shopId}")
                 .build(),
             context: Default::default(),
         };
@@ -175,8 +181,8 @@ mod tests {
         let lambda_event = LambdaEvent {
             payload: ApiGatewayV2httpRequestProxy::builder()
                 .http_method(http::Method::GET)
-                .route_key("GET /api/v1/shops/{shopIdentifier}")
-                .path_parameter("shopIdentifier", shop_id)
+                .route_key("GET /api/v1/shops/{shopId}")
+                .path_parameter("shopId", shop_id)
                 .build(),
             context: Default::default(),
         };
@@ -206,8 +212,8 @@ mod tests {
         let lambda_event = LambdaEvent {
             payload: ApiGatewayV2httpRequestProxy::builder()
                 .http_method(http::Method::GET)
-                .route_key("GET /api/v1/shops/{shopIdentifier}")
-                .path_parameter("shopIdentifier", shop_id)
+                .route_key("GET /api/v1/shops/{shopId}")
+                .path_parameter("shopId", shop_id)
                 .build(),
             context: Default::default(),
         };

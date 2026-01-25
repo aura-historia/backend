@@ -639,11 +639,17 @@ Resources:
       Principal: apigateway.amazonaws.com
       SourceArn: !Sub "arn:aws:execute-api:${AWS::Region}:${AWS::AccountId}:${Api}/*/*/api/v1/me/account*"
 
-  ShopApiGetShopByIdentifierRoute:
+  ShopApiGetShopByIdRoute:
     Type: AWS::ApiGatewayV2::Route
     Properties:
       ApiId: !Ref Api
-      RouteKey: "GET /api/v1/shops/{shopIdentifier}"
+      RouteKey: "GET /api/v1/shops/{shopId}"
+      Target: !Sub "integrations/${ShopApiLambdaIntegration}"
+  ShopApiGetShopByDomainRoute:
+    Type: AWS::ApiGatewayV2::Route
+    Properties:
+      ApiId: !Ref Api
+      RouteKey: "GET /api/v1/by-domain/shops/{shopDomain}"
       Target: !Sub "integrations/${ShopApiLambdaIntegration}"
   ShopApiGetShopBySlugIdRoute:
     Type: AWS::ApiGatewayV2::Route
@@ -651,11 +657,17 @@ Resources:
       ApiId: !Ref Api
       RouteKey: "GET /api/v1/by-slug/shops/{shopSlugId}"
       Target: !Sub "integrations/${ShopApiLambdaIntegration}"
-  ShopApiPatchShopRoute:
+  ShopApiPatchShopByIdRoute:
     Type: AWS::ApiGatewayV2::Route
     Properties:
       ApiId: !Ref Api
-      RouteKey: "PATCH /api/v1/shops/{shopIdentifier}"
+      RouteKey: "PATCH /api/v1/shops/{shopId}"
+      Target: !Sub "integrations/${ShopApiLambdaIntegration}"
+  ShopApiPatchShopByDomainRoute:
+    Type: AWS::ApiGatewayV2::Route
+    Properties:
+      ApiId: !Ref Api
+      RouteKey: "PATCH /api/v1/by-domain/shops/{shopDomain}"
       Target: !Sub "integrations/${ShopApiLambdaIntegration}"
   ShopApiPostShopRoute:
     Type: AWS::ApiGatewayV2::Route

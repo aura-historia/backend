@@ -52,11 +52,13 @@ pub async fn handle(
     command_shop_service: &impl CommandShopService,
 ) -> Result<ApiGatewayV2httpResponse, ApiError> {
     match event.payload.route_key.as_deref() {
-        Some("GET /api/v1/shops/{shopIdentifier}")
-        | Some("GET /api/v1/by-slug/shops/{shopSlugId}") => {
+        Some("GET /api/v1/shops/{shopId}")
+        | Some("GET /api/v1/by-slug/shops/{shopSlugId}")
+        | Some("GET /api/v1/by-domain/shops/{shopDomain}") => {
             get::handle(event, get_shop_service).await
         }
-        Some("PATCH /api/v1/shops/{shopIdentifier}") => {
+        Some("PATCH /api/v1/shops/{shopId}")
+        | Some("PATCH /api/v1/by-domain/shops/{shopDomain}") => {
             patch::handle(event, command_shop_service).await
         }
         Some("POST /api/v1/shops") => post::handle(event, command_shop_service).await,
