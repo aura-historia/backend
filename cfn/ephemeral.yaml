@@ -501,7 +501,7 @@ Resources:
       Action: lambda:InvokeFunction
       FunctionName: !Ref ProductApiLambda
       Principal: apigateway.amazonaws.com
-      SourceArn: !Sub "arn:aws:execute-api:${AWS::Region}:${AWS::AccountId}:${Api}/*/*/api/v1/products*"
+      SourceArn: !Sub "arn:aws:execute-api:${AWS::Region}:${AWS::AccountId}:${Api}/*/*/api/v1*"
 
   ProductWatchlistApiDeleteWatchlistProductRoute:
     Type: AWS::ApiGatewayV2::Route
@@ -595,7 +595,7 @@ Resources:
       Action: lambda:InvokeFunction
       FunctionName: !Ref ProductWatchlistApiLambda
       Principal: apigateway.amazonaws.com
-      SourceArn: !Sub "arn:aws:execute-api:${AWS::Region}:${AWS::AccountId}:${Api}/*/*/api/v1/me/watchlist*"
+      SourceArn: !Sub "arn:aws:execute-api:${AWS::Region}:${AWS::AccountId}:${Api}/*/*/api/v1*"
 
   UserApiGetUserAccountRoute:
     Type: AWS::ApiGatewayV2::Route
@@ -667,7 +667,7 @@ Resources:
       Action: lambda:InvokeFunction
       FunctionName: !Ref UserApiLambda
       Principal: apigateway.amazonaws.com
-      SourceArn: !Sub "arn:aws:execute-api:${AWS::Region}:${AWS::AccountId}:${Api}/*/*/api/v1/me/account*"
+      SourceArn: !Sub "arn:aws:execute-api:${AWS::Region}:${AWS::AccountId}:${Api}/*/*/api/v1*"
 
   ShopApiGetShopByIdRoute:
     Type: AWS::ApiGatewayV2::Route
@@ -787,7 +787,7 @@ Resources:
       Action: lambda:InvokeFunction
       FunctionName: !Ref ShopApiLambda
       Principal: apigateway.amazonaws.com
-      SourceArn: !Sub "arn:aws:execute-api:${AWS::Region}:${AWS::AccountId}:${Api}/*/*/api/v1/shops/*"
+      SourceArn: !Sub "arn:aws:execute-api:${AWS::Region}:${AWS::AccountId}:${Api}/*/*/api/v1*"
 
   SearchFilterApiDeleteSearchFilterRoute:
     Type: AWS::ApiGatewayV2::Route
@@ -889,7 +889,7 @@ Resources:
       Action: lambda:InvokeFunction
       FunctionName: !Ref SearchFilterApiLambda
       Principal: apigateway.amazonaws.com
-      SourceArn: !Sub "arn:aws:execute-api:${AWS::Region}:${AWS::AccountId}:${Api}/*/*/api/v1/me/search-filters*"
+      SourceArn: !Sub "arn:aws:execute-api:${AWS::Region}:${AWS::AccountId}:${Api}/*/*/api/v1*"
 
   SendMailDlq:
     Type: AWS::SQS::Queue
