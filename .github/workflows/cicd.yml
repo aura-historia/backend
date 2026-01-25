@@ -503,6 +503,7 @@ jobs:
             --s3-prefix ${{ env.STAGE_NAME }} \
             --capabilities CAPABILITY_NAMED_IAM \
             --parameter-overrides \
+                Stage=${{ env.STAGE }} \
                 StageName=${{ env.STAGE_NAME }} \
                 ArtifactBucket=${{ vars.S3_BINARY_ARTIFACTS_BUCKET_NAME }} \
                 ResourceBucket=${{ vars.S3_RESOURCE_ARTIFACTS_BUCKET_NAME }} \
