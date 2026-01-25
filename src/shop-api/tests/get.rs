@@ -86,7 +86,7 @@ async fn should_200_respond_shop_for_slug() {
     let lambda_event = LambdaEvent {
         payload: ApiGatewayV2httpRequestProxy::builder()
             .http_method(http::Method::GET)
-            .route_key("GET /api/v1/shops/by-slug/{shopSlugId}")
+            .route_key("GET /api/v1/by-slug/shops/{shopSlugId}")
             .path_parameter("shopSlugId", expected.shop_slug_id.clone())
             .build(),
         context: Default::default(),

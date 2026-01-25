@@ -370,19 +370,19 @@ Resources:
     Type: AWS::ApiGatewayV2::Route
     Properties:
       ApiId: !Ref Api
-      RouteKey: "GET /api/v1/products/{shopId}/{shopsProductId}"
+      RouteKey: "GET /api/v1/shops/{shopId}/products/{shopsProductId}"
       Target: !Sub "integrations/${ProductApiLambdaIntegration}"
   ProductApiGetProductBySlugIdRoute:
     Type: AWS::ApiGatewayV2::Route
     Properties:
       ApiId: !Ref Api
-      RouteKey: "GET /api/v1/products/by-slug/{shopSlugId}/{productSlugId}"
+      RouteKey: "GET /api/v1/by-slug/shops/{shopSlugId}/products/{productSlugId}"
       Target: !Sub "integrations/${ProductApiLambdaIntegration}"
   ProductApiGetProductSimilarRoute:
     Type: AWS::ApiGatewayV2::Route
     Properties:
       ApiId: !Ref Api
-      RouteKey: "GET /api/v1/products/{shopId}/{shopsProductId}/similar"
+      RouteKey: "GET /api/v1/shops/{shopId}/products/{shopsProductId}/similar"
       Target: !Sub "integrations/${ProductApiLambdaIntegration}"
   ProductApiPutProductRoute:
     Type: AWS::ApiGatewayV2::Route
@@ -400,7 +400,7 @@ Resources:
     Type: AWS::ApiGatewayV2::Route
     Properties:
       ApiId: !Ref Api
-      RouteKey: "GET /api/v1/products/{shopId}/{shopsProductId}/history"
+      RouteKey: "GET /api/v1/shops/{shopId}/products/{shopsProductId}/history"
       Target: !Sub "integrations/${ProductApiLambdaIntegration}"
   ProductApiLambdaIntegration:
     Type: AWS::ApiGatewayV2::Integration
@@ -649,7 +649,7 @@ Resources:
     Type: AWS::ApiGatewayV2::Route
     Properties:
       ApiId: !Ref Api
-      RouteKey: "GET /api/v1/shops/by-slug/{shopSlugId}"
+      RouteKey: "GET /api/v1/by-slug/shops/{shopSlugId}"
       Target: !Sub "integrations/${ShopApiLambdaIntegration}"
   ShopApiPatchShopRoute:
     Type: AWS::ApiGatewayV2::Route

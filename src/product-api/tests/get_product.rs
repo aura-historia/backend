@@ -111,7 +111,7 @@ async fn should_respond_200_without_history_when_anon() {
     let lambda_event = LambdaEvent {
         payload: ApiGatewayV2httpRequestProxy::builder()
             .http_method(http::Method::GET)
-            .route_key("GET /api/v1/products/{shopId}/{shopsProductId}".to_owned())
+            .route_key("GET /api/v1/shops/{shopId}/products/{shopsProductId}".to_owned())
             .path_parameter("shopId", record.shop_id)
             .path_parameter("shopsProductId", record.shops_product_id)
             .build(),
@@ -211,7 +211,7 @@ async fn should_respond_200_personalized_when_authenticated_and_not_watched() {
     let lambda_event = LambdaEvent {
         payload: ApiGatewayV2httpRequestProxy::builder()
             .http_method(http::Method::GET)
-            .route_key("GET /api/v1/products/{shopId}/{shopsProductId}".to_owned())
+            .route_key("GET /api/v1/shops/{shopId}/products/{shopsProductId}".to_owned())
             .path_parameter("shopId", record.shop_id)
             .path_parameter("shopsProductId", record.shops_product_id)
             .build(),
@@ -345,7 +345,7 @@ async fn should_respond_200_personalized_when_authenticated_and_watched() {
     let lambda_event = LambdaEvent {
         payload: ApiGatewayV2httpRequestProxy::builder()
             .http_method(http::Method::GET)
-            .route_key("GET /api/v1/products/{shopId}/{shopsProductId}".to_owned())
+            .route_key("GET /api/v1/shops/{shopId}/products/{shopsProductId}".to_owned())
             .path_parameter("shopId", record.shop_id)
             .path_parameter("shopsProductId", record.shops_product_id)
             .build(),
@@ -614,7 +614,7 @@ async fn should_respond_200_and_respect_accept_language_header(
     let lambda_event = LambdaEvent {
         payload: ApiGatewayV2httpRequestProxy::builder()
             .http_method(http::Method::GET)
-            .route_key("GET /api/v1/products/{shopId}/{shopsProductId}".to_owned())
+            .route_key("GET /api/v1/shops/{shopId}/products/{shopsProductId}".to_owned())
             .header(ACCEPT_LANGUAGE.as_str(), accept_language_header)
             .path_parameter("shopId", record.shop_id)
             .path_parameter("shopsProductId", record.shops_product_id)
@@ -672,7 +672,7 @@ async fn should_respond_200_for_path_params_slugs() {
     let lambda_event = LambdaEvent {
         payload: ApiGatewayV2httpRequestProxy::builder()
             .http_method(http::Method::GET)
-            .route_key("GET /api/v1/products/by-slug/{shopSlugId}/{productSlugId}".to_owned())
+            .route_key("GET /api/v1/by-slug/shops/{shopSlugId}/products/{productSlugId}".to_owned())
             .path_parameter("shopSlugId", record.shop_slug_id)
             .path_parameter("productSlugId", record.product_slug_id)
             .build(),

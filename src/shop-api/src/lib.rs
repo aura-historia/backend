@@ -53,7 +53,7 @@ pub async fn handle(
 ) -> Result<ApiGatewayV2httpResponse, ApiError> {
     match event.payload.route_key.as_deref() {
         Some("GET /api/v1/shops/{shopIdentifier}")
-        | Some("GET /api/v1/shops/by-slug/{shopSlugId}") => {
+        | Some("GET /api/v1/by-slug/shops/{shopSlugId}") => {
             get::handle(event, get_shop_service).await
         }
         Some("PATCH /api/v1/shops/{shopIdentifier}") => {

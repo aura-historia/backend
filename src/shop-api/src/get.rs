@@ -18,7 +18,7 @@ pub async fn handle(
                 extract_shop_identifier_data_path(&event.payload.path_parameters)?.into();
             service.find_shop(&shop_identifier).await?
         }
-        Some("GET /api/v1/shops/by-slug/{shopSlugId}") => {
+        Some("GET /api/v1/by-slug/shops/{shopSlugId}") => {
             let shop_slug_id = extract_shop_slug_id_path(&event.payload.path_parameters)?;
             service.find_shop_by_slug(&shop_slug_id).await?
         }

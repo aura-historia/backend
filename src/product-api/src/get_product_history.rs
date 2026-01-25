@@ -50,7 +50,9 @@ mod tests {
         let lambda_event = LambdaEvent {
             payload: ApiGatewayV2httpRequestProxy::builder()
                 .http_method(http::Method::GET)
-                .route_key("GET /api/v1/products/{shopId}/{shopsProductId}/history".to_owned())
+                .route_key(
+                    "GET /api/v1/shops/{shopId}/products/{shopsProductId}/history".to_owned(),
+                )
                 .path_parameter("shopsProductId", ShopsProductId::new())
                 .build(),
             context: Default::default(),
@@ -69,7 +71,9 @@ mod tests {
         let lambda_event = LambdaEvent {
             payload: ApiGatewayV2httpRequestProxy::builder()
                 .http_method(http::Method::GET)
-                .route_key("GET /api/v1/products/{shopId}/{shopsProductId}/history".to_owned())
+                .route_key(
+                    "GET /api/v1/shops/{shopId}/products/{shopsProductId}/history".to_owned(),
+                )
                 .path_parameter("shopId", ShopId::new())
                 .build(),
             context: Default::default(),
@@ -88,7 +92,9 @@ mod tests {
         let lambda_event = LambdaEvent {
             payload: ApiGatewayV2httpRequestProxy::builder()
                 .http_method(http::Method::GET)
-                .route_key("GET /api/v1/products/{shopId}/{shopsProductId}/history".to_owned())
+                .route_key(
+                    "GET /api/v1/shops/{shopId}/products/{shopsProductId}/history".to_owned(),
+                )
                 .path_parameter("shopId", shop_id)
                 .path_parameter("shopsProductId", shops_product_id)
                 .build(),
