@@ -32,13 +32,13 @@ async fn should_create_update_get_shop() {
         domains: None,
         image: Some(Url::parse("https://hans-shopping-nig.co.uk").unwrap()),
     };
-    let post_url = format!(
+    let patch_url = format!(
         "{}/api/v1/shops/{}",
         get_cfn_output().api_gateway_endpoint_url,
         created.shop_id
     );
     let response = reqwest::Client::new()
-        .patch(post_url)
+        .patch(patch_url)
         .json(&patch_shop_data)
         .send()
         .await
@@ -69,7 +69,7 @@ async fn should_create_update_get_shop() {
 
     // get by slug-id
     let get_url = format!(
-        "{}/api/v1/shops/by-slug/{}",
+        "{}/api/v1/by-slug/shops{}",
         get_cfn_output().api_gateway_endpoint_url,
         created.shop_slug_id
     );
