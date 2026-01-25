@@ -7,6 +7,7 @@ use common::currency::record::CurrencyRecord;
 use common::language::record::LanguageRecord;
 use common::user_id::UserId;
 use time::OffsetDateTime;
+use tracing::info;
 
 #[derive(thiserror::Error, Debug)]
 pub enum UserServiceError {
@@ -102,6 +103,7 @@ impl<'a> UserService for UserServiceImpl<'a> {
                     updated: now,
                 };
                 let _ = self.repository.put_user_record(user.clone().into()).await?;
+                info!(userId = %user.user_id, "Created User.");
                 Ok(user)
             }
         }
@@ -125,12 +127,16 @@ impl<'a> UserService for UserServiceImpl<'a> {
                 currency: cmd.currency.map(CurrencyRecord::from),
                 updated: OffsetDateTime::now_utc(),
             };
-            self.repository
+            let user = self.repository
                 .update_user_record(user_id, user_record_update)
                 .await?
                 .ok_or(UserServiceError::SdkUpdateItemError(
                     SdkError::construction_failure("Failed deserializing updated UserRecord in UpdateItem-Response from DynamoDB."),
-                )).map(User::from)
+                )).map(User::from)?;
+
+            info!(userId = %user.user_id, "Updated User.");
+
+            Ok(user)
         }
     }
 }
