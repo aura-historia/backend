@@ -53,6 +53,7 @@ pub async fn handle(
 #[cfg(test)]
 mod tests {
     use crate::handle;
+    use common::domain::Domain;
     use common::shop_id::ShopId;
     use fake::{Fake, Faker};
     use http::header::LAST_MODIFIED;
@@ -208,12 +209,11 @@ mod tests {
 
     #[tokio::test]
     async fn should_404_when_shop_does_not_exist_for_domain() {
-        let shop_id = ShopId::new();
         let lambda_event = LambdaEvent {
             payload: ApiGatewayV2httpRequestProxy::builder()
                 .http_method(http::Method::GET)
-                .route_key("GET /api/v1/shops/{shopId}")
-                .path_parameter("shopId", shop_id)
+                .route_key("GET /api/v1/by-domain/shops/{shopDomain}")
+                .path_parameter("shopDomain", Faker.fake::<Domain>())
                 .build(),
             context: Default::default(),
         };

@@ -50,7 +50,37 @@ impl From<ShopIdentifierData> for ShopIdentifier {
 
 #[cfg(test)]
 mod tests {
-    use crate::data::shop_identifier_data::ShopIdentifierData;
+    use crate::data::shop_identifier_data::{ShopIdentifierData, extract_shop_domain_path};
+    use common::{
+        api::{error::ApiErrorSourceType, error_code::INVALID_DOMAIN},
+        domain::Domain,
+    };
+    use std::collections::HashMap;
+
+    #[rstest::rstest]
+    #[case("shop.com", "shop.com".try_into().unwrap())]
+    #[case("foo.bar.de", "foo.bar.de".try_into().unwrap())]
+    #[case("foo.bar.baz", "foo.bar.baz".try_into().unwrap())]
+    fn should_extract_shop_domain_path(#[case] path_param_val: String, #[case] expected: Domain) {
+        let path_params = HashMap::from_iter([("shopDomain".to_owned(), path_param_val)]);
+        let actual = extract_shop_domain_path(&path_params).unwrap();
+
+        assert_eq!(expected, actual);
+    }
+
+    #[rstest::rstest]
+    #[case("-shopcom")]
+    #[case("foobarde")]
+    #[case("foobarbaz")]
+    fn should_err_when_extract_shop_domain_path_for_invalid_domain(#[case] path_param_val: String) {
+        let path_params = HashMap::from_iter([("shopDomain".to_owned(), path_param_val)]);
+        let actual = extract_shop_domain_path(&path_params).unwrap_err();
+
+        assert_eq!(INVALID_DOMAIN, actual.error);
+        assert_eq!(400, actual.status);
+        assert_eq!("shopDomain", actual.source.unwrap().field);
+        assert_eq!(ApiErrorSourceType::Path, actual.source.unwrap().source_type);
+    }
 
     #[rstest::rstest]
     #[case("2a99b5de-cb5e-4c8b-bd06-4a7e3ca3a432", ShopIdentifierData::ShopId("2a99b5de-cb5e-4c8b-bd06-4a7e3ca3a432".try_into().unwrap()))]
