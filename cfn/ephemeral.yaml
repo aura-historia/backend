@@ -2,6 +2,9 @@ AWSTemplateFormatVersion: "2010-09-09"
 Description: Ephemeral Staging-Test Stack for the Aura-Historia Application-Backend
 
 Parameters:
+  Stage:
+    Type: String
+    Description: "Name of the stage"
   StageName:
     Type: String
     Description: "Name of the ephemeral stage"
