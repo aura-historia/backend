@@ -6,7 +6,7 @@ Description: >
 Parameters:
   Stage:
     Type: String
-    Description: "Name of the stage"
+    Description: "Type of the stage"
     AllowedValues:
       - prod
       - dev
