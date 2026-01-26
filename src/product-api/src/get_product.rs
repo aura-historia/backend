@@ -39,14 +39,14 @@ pub async fn handle(
     let currency = extract_currency_query(&event.payload.query_string_parameters)?.into();
 
     let localized_product: LocalizedProductView = match event.payload.route_key.as_deref() {
-        Some("GET /api/v1/products/{shopId}/{shopsProductId}") => {
+        Some("GET /api/v1/shops/{shopId}/products/{shopsProductId}") => {
             let shop_id = extract_shop_id_path(&event.payload.path_parameters)?;
             let shops_product_id = extract_shops_product_id_path(&event.payload.path_parameters)?;
             get_product_service
                 .view_product(&shop_id, &shops_product_id, languages.as_slice(), &currency)
                 .await?
         }
-        Some("GET /api/v1/products/by-slug/{shopSlugId}/{productSlugId}") => {
+        Some("GET /api/v1/by-slug/shops/{shopSlugId}/products/{productSlugId}") => {
             let shop_slug_id = extract_shop_slug_id_path(&event.payload.path_parameters)?;
             let product_slug_id = extract_product_slug_id_path(&event.payload.path_parameters)?;
             get_product_service
@@ -138,7 +138,7 @@ mod tests {
         let lambda_event = LambdaEvent {
             payload: ApiGatewayV2httpRequestProxy::builder()
                 .http_method(http::Method::GET)
-                .route_key("GET /api/v1/products/{shopId}/{shopsProductId}".to_owned())
+                .route_key("GET /api/v1/shops/{shopId}/products/{shopsProductId}".to_owned())
                 .path_parameter("shopId", shop_id)
                 .path_parameter("shopsProductId", shops_product_id)
                 .header(ACCEPT_LANGUAGE.as_str(), expected_content_language)
@@ -251,7 +251,7 @@ mod tests {
         let lambda_event = LambdaEvent {
             payload: ApiGatewayV2httpRequestProxy::builder()
                 .http_method(http::Method::GET)
-                .route_key("GET /api/v1/products/{shopId}/{shopsProductId}".to_owned())
+                .route_key("GET /api/v1/shops/{shopId}/products/{shopsProductId}".to_owned())
                 .path_parameter("shopId", shop_id)
                 .path_parameter("shopsProductId", shops_product_id)
                 .build(),
@@ -319,7 +319,7 @@ mod tests {
         let lambda_event = LambdaEvent {
             payload: ApiGatewayV2httpRequestProxy::builder()
                 .http_method(http::Method::GET)
-                .route_key("GET /api/v1/products/{shopId}/{shopsProductId}".to_owned())
+                .route_key("GET /api/v1/shops/{shopId}/products/{shopsProductId}".to_owned())
                 .path_parameter("shopId", shop_id)
                 .path_parameter("shopsProductId", shops_product_id)
                 .build(),
@@ -352,7 +352,7 @@ mod tests {
         let lambda_event = LambdaEvent {
             payload: ApiGatewayV2httpRequestProxy::builder()
                 .http_method(http::Method::GET)
-                .route_key("GET /api/v1/products/{shopId}/{shopsProductId}".to_owned())
+                .route_key("GET /api/v1/shops/{shopId}/products/{shopsProductId}".to_owned())
                 .path_parameter("shopsProductId", ShopsProductId::new())
                 .build(),
             context: Default::default(),
@@ -381,7 +381,7 @@ mod tests {
         let lambda_event = LambdaEvent {
             payload: ApiGatewayV2httpRequestProxy::builder()
                 .http_method(http::Method::GET)
-                .route_key("GET /api/v1/products/{shopId}/{shopsProductId}".to_owned())
+                .route_key("GET /api/v1/shops/{shopId}/products/{shopsProductId}".to_owned())
                 .path_parameter("shopId", ShopId::new())
                 .build(),
             context: Default::default(),
@@ -405,7 +405,7 @@ mod tests {
         let lambda_event = LambdaEvent {
             payload: ApiGatewayV2httpRequestProxy::builder()
                 .http_method(http::Method::GET)
-                .route_key("GET /api/v1/products/{shopId}/{shopsProductId}".to_owned())
+                .route_key("GET /api/v1/shops/{shopId}/products/{shopsProductId}".to_owned())
                 .path_parameter("shopId", shop_id)
                 .path_parameter("shopsProductId", shops_product_id)
                 .build(),

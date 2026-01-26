@@ -2,6 +2,9 @@ AWSTemplateFormatVersion: "2010-09-09"
 Description: Ephemeral Staging-Test Stack for the Aura-Historia Application-Backend
 
 Parameters:
+  Stage:
+    Type: String
+    Description: "Name of the stage"
   StageName:
     Type: String
     Description: "Name of the ephemeral stage"
@@ -390,19 +393,19 @@ Resources:
     Type: AWS::ApiGatewayV2::Route
     Properties:
       ApiId: !Ref Api
-      RouteKey: "GET /api/v1/products/{shopId}/{shopsProductId}"
+      RouteKey: "GET /api/v1/shops/{shopId}/products/{shopsProductId}"
       Target: !Sub "integrations/${ProductApiLambdaIntegration}"
   ProductApiGetProductBySlugIdRoute:
     Type: AWS::ApiGatewayV2::Route
     Properties:
       ApiId: !Ref Api
-      RouteKey: "GET /api/v1/products/by-slug/{shopSlugId}/{productSlugId}"
+      RouteKey: "GET /api/v1/by-slug/shops/{shopSlugId}/products/{productSlugId}"
       Target: !Sub "integrations/${ProductApiLambdaIntegration}"
   ProductApiGetProductSimilarRoute:
     Type: AWS::ApiGatewayV2::Route
     Properties:
       ApiId: !Ref Api
-      RouteKey: "GET /api/v1/products/{shopId}/{shopsProductId}/similar"
+      RouteKey: "GET /api/v1/shops/{shopId}/products/{shopsProductId}/similar"
       Target: !Sub "integrations/${ProductApiLambdaIntegration}"
   ProductApiPutProductRoute:
     Type: AWS::ApiGatewayV2::Route
@@ -420,7 +423,7 @@ Resources:
     Type: AWS::ApiGatewayV2::Route
     Properties:
       ApiId: !Ref Api
-      RouteKey: "GET /api/v1/products/{shopId}/{shopsProductId}/history"
+      RouteKey: "GET /api/v1/shops/{shopId}/products/{shopsProductId}/history"
       Target: !Sub "integrations/${ProductApiLambdaIntegration}"
   ProductApiLambdaIntegration:
     Type: AWS::ApiGatewayV2::Integration
@@ -501,7 +504,7 @@ Resources:
       Action: lambda:InvokeFunction
       FunctionName: !Ref ProductApiLambda
       Principal: apigateway.amazonaws.com
-      SourceArn: !Sub "arn:aws:execute-api:${AWS::Region}:${AWS::AccountId}:${Api}/*/*/api/v1/products*"
+      SourceArn: !Sub "arn:aws:execute-api:${AWS::Region}:${AWS::AccountId}:${Api}/*/*/api/v1*"
 
   ProductWatchlistApiDeleteWatchlistProductRoute:
     Type: AWS::ApiGatewayV2::Route
@@ -587,7 +590,7 @@ Resources:
         Size: 512
       Environment:
         Variables:
-          STAGE: !Ref StageName
+          STAGE: !Ref Stage
           DYNAMODB_TABLE_NAME: !Ref TableOne
   ProductWatchlistApiLambdaPermission:
     Type: AWS::Lambda::Permission
@@ -595,7 +598,7 @@ Resources:
       Action: lambda:InvokeFunction
       FunctionName: !Ref ProductWatchlistApiLambda
       Principal: apigateway.amazonaws.com
-      SourceArn: !Sub "arn:aws:execute-api:${AWS::Region}:${AWS::AccountId}:${Api}/*/*/api/v1/me/watchlist*"
+      SourceArn: !Sub "arn:aws:execute-api:${AWS::Region}:${AWS::AccountId}:${Api}/*/*/api/v1*"
 
   UserApiGetUserAccountRoute:
     Type: AWS::ApiGatewayV2::Route
@@ -659,7 +662,7 @@ Resources:
         Size: 512
       Environment:
         Variables:
-          STAGE: !Ref StageName
+          STAGE: !Ref Stage
           DYNAMODB_TABLE_NAME: !Ref TableOne
   UserApiLambdaPermission:
     Type: AWS::Lambda::Permission
@@ -667,25 +670,37 @@ Resources:
       Action: lambda:InvokeFunction
       FunctionName: !Ref UserApiLambda
       Principal: apigateway.amazonaws.com
-      SourceArn: !Sub "arn:aws:execute-api:${AWS::Region}:${AWS::AccountId}:${Api}/*/*/api/v1/me/account*"
+      SourceArn: !Sub "arn:aws:execute-api:${AWS::Region}:${AWS::AccountId}:${Api}/*/*/api/v1*"
 
-  ShopApiGetShopByIdentifierRoute:
+  ShopApiGetShopByIdRoute:
     Type: AWS::ApiGatewayV2::Route
     Properties:
       ApiId: !Ref Api
-      RouteKey: "GET /api/v1/shops/{shopIdentifier}"
+      RouteKey: "GET /api/v1/shops/{shopId}"
+      Target: !Sub "integrations/${ShopApiLambdaIntegration}"
+  ShopApiGetShopByDomainRoute:
+    Type: AWS::ApiGatewayV2::Route
+    Properties:
+      ApiId: !Ref Api
+      RouteKey: "GET /api/v1/by-domain/shops/{shopDomain}"
       Target: !Sub "integrations/${ShopApiLambdaIntegration}"
   ShopApiGetShopBySlugIdRoute:
     Type: AWS::ApiGatewayV2::Route
     Properties:
       ApiId: !Ref Api
-      RouteKey: "GET /api/v1/shops/by-slug/{shopSlugId}"
+      RouteKey: "GET /api/v1/by-slug/shops/{shopSlugId}"
       Target: !Sub "integrations/${ShopApiLambdaIntegration}"
-  ShopApiPatchShopRoute:
+  ShopApiPatchShopByIdRoute:
     Type: AWS::ApiGatewayV2::Route
     Properties:
       ApiId: !Ref Api
-      RouteKey: "PATCH /api/v1/shops/{shopIdentifier}"
+      RouteKey: "PATCH /api/v1/shops/{shopId}"
+      Target: !Sub "integrations/${ShopApiLambdaIntegration}"
+  ShopApiPatchShopByDomainRoute:
+    Type: AWS::ApiGatewayV2::Route
+    Properties:
+      ApiId: !Ref Api
+      RouteKey: "PATCH /api/v1/by-domain/shops/{shopDomain}"
       Target: !Sub "integrations/${ShopApiLambdaIntegration}"
   ShopApiPostShopRoute:
     Type: AWS::ApiGatewayV2::Route
@@ -766,7 +781,7 @@ Resources:
         Size: 512
       Environment:
         Variables:
-          STAGE: !Ref StageName
+          STAGE: !Ref Stage
           DYNAMODB_TABLE_NAME: !Ref TableOne
           OPENSEARCH_ENDPOINT_URL: !Sub "https://${OpenSearchDomain.DomainEndpoint}"
   ShopApiLambdaPermission:
@@ -775,7 +790,7 @@ Resources:
       Action: lambda:InvokeFunction
       FunctionName: !Ref ShopApiLambda
       Principal: apigateway.amazonaws.com
-      SourceArn: !Sub "arn:aws:execute-api:${AWS::Region}:${AWS::AccountId}:${Api}/*/*/api/v1/shops/*"
+      SourceArn: !Sub "arn:aws:execute-api:${AWS::Region}:${AWS::AccountId}:${Api}/*/*/api/v1*"
 
   SearchFilterApiDeleteSearchFilterRoute:
     Type: AWS::ApiGatewayV2::Route
@@ -869,7 +884,7 @@ Resources:
         Size: 512
       Environment:
         Variables:
-          STAGE: !Ref StageName
+          STAGE: !Ref Stage
           DYNAMODB_TABLE_NAME: !Ref TableOne
   SearchFilterApiLambdaPermission:
     Type: AWS::Lambda::Permission
@@ -877,7 +892,7 @@ Resources:
       Action: lambda:InvokeFunction
       FunctionName: !Ref SearchFilterApiLambda
       Principal: apigateway.amazonaws.com
-      SourceArn: !Sub "arn:aws:execute-api:${AWS::Region}:${AWS::AccountId}:${Api}/*/*/api/v1/me/search-filters*"
+      SourceArn: !Sub "arn:aws:execute-api:${AWS::Region}:${AWS::AccountId}:${Api}/*/*/api/v1*"
 
   SendMailDlq:
     Type: AWS::SQS::Queue

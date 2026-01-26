@@ -7,6 +7,7 @@ use aws_sdk_dynamodb::{config::http::HttpResponse, error::SdkError};
 use common::{sort::SortOrder, user_id::UserId};
 use product::core::product_search::ProductSearch;
 use time::OffsetDateTime;
+use tracing::info;
 
 #[derive(thiserror::Error, Debug)]
 pub enum UserSearchFilterError {
@@ -161,6 +162,8 @@ impl<'a> UserSearchFilterService for UserSearchFilterServiceImpl<'a> {
             .put_user_search_filter_record(user_search_filter.clone().into())
             .await?;
 
+        info!(userId = %user_id, userSearchFilterId = %user_search_filter.user_search_filter_id, "Saved UserSearchFilter.");
+
         Ok(user_search_filter)
     }
 
@@ -177,6 +180,7 @@ impl<'a> UserSearchFilterService for UserSearchFilterServiceImpl<'a> {
             .repository
             .delete_user_search_filter_record(user_id, user_search_filter_id)
             .await?;
+        info!(userId = %user_id, userSearchFilterId = %user_search_filter_id, "Deleted UserSearchFilter.");
         Ok(())
     }
 
@@ -194,6 +198,7 @@ impl<'a> UserSearchFilterService for UserSearchFilterServiceImpl<'a> {
             .repository
             .update_user_search_filter_record(user_id, user_search_filter_id, update.into())
             .await?;
+        info!(userId = %user_id, userSearchFilterId = %user_search_filter_id, "Updated UserSearchFilter.");
         match updated_opt {
             Some(updated) => Ok(updated.into()),
             None => {

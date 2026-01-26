@@ -23,8 +23,8 @@ async fn should_200_respond_shop_for_id() {
     let lambda_event = LambdaEvent {
         payload: ApiGatewayV2httpRequestProxy::builder()
             .http_method(http::Method::GET)
-            .route_key("GET /api/v1/shops/{shopIdentifier}")
-            .path_parameter("shopIdentifier", expected.shop_id)
+            .route_key("GET /api/v1/shops/{shopId}")
+            .path_parameter("shopId", expected.shop_id)
             .build(),
         context: Default::default(),
     };
@@ -53,9 +53,9 @@ async fn should_200_respond_shop_for_domain() {
     let lambda_event = LambdaEvent {
         payload: ApiGatewayV2httpRequestProxy::builder()
             .http_method(http::Method::GET)
-            .route_key("GET /api/v1/shops/{shopIdentifier}")
+            .route_key("GET /api/v1/by-domain/shops/{shopDomain}")
             .path_parameter(
-                "shopIdentifier",
+                "shopDomain",
                 expected.domains.iter().next().unwrap().to_string(),
             )
             .build(),
@@ -86,7 +86,7 @@ async fn should_200_respond_shop_for_slug() {
     let lambda_event = LambdaEvent {
         payload: ApiGatewayV2httpRequestProxy::builder()
             .http_method(http::Method::GET)
-            .route_key("GET /api/v1/shops/by-slug/{shopSlugId}")
+            .route_key("GET /api/v1/by-slug/shops/{shopSlugId}")
             .path_parameter("shopSlugId", expected.shop_slug_id.clone())
             .build(),
         context: Default::default(),

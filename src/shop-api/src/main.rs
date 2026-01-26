@@ -35,10 +35,7 @@ async fn main() -> Result<(), Error> {
 
     let command_shop_service = CommandShopServiceImpl::new(&shop_dynamodb_repository);
 
-    info!(
-        dynamoDbTableName = %table_name,
-        "Lambda cold start completed, client initialized."
-    );
+    info!("Lambda cold start completed, client initialized.");
 
     run(service_fn(
         |event: LambdaEvent<ApiGatewayV2httpRequest>| async {

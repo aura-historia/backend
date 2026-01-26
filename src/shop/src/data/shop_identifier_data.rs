@@ -1,7 +1,7 @@
 use common::{
     api::{
         error::ApiError,
-        error_code::{BAD_PATH_PARAMETER_VALUE, INVALID_SHOP_IDENTIFIER},
+        error_code::{BAD_PATH_PARAMETER_VALUE, INVALID_DOMAIN},
     },
     domain::Domain,
     error::missing_field::MissingRequiredField,
@@ -17,27 +17,25 @@ pub enum ShopIdentifierData {
     ShopDomain(Domain),
 }
 
-pub fn extract_shop_identifier_data_path(
-    path_params: &HashMap<String, String>,
-) -> Result<ShopIdentifierData, ApiError> {
+pub fn extract_shop_domain_path(path_params: &HashMap<String, String>) -> Result<Domain, ApiError> {
     path_params
-        .get("shopIdentifier")
+        .get("shopDomain")
         .map(|str| format!("\"{str}\""))
         .map(|string| serde_json::from_str(&string))
         .transpose()
         .map_err(|err| {
             let msg = err.to_string();
-            ApiError::bad_request(INVALID_SHOP_IDENTIFIER, Box::new(err))
-                .with_path_field("shopIdentifier")
+            ApiError::bad_request(INVALID_DOMAIN, Box::new(err))
+                .with_path_field("shopDomain")
                 .with_detail(msg)
         })?
         .ok_or(
             ApiError::bad_request(
                 BAD_PATH_PARAMETER_VALUE,
-                Box::new(MissingRequiredField::new("shopIdentifier")),
+                Box::new(MissingRequiredField::new("shopDomain")),
             )
-            .with_path_field("shopIdentifier")
-            .with_detail("Missing field 'shopIdentifier'."),
+            .with_path_field("shopDomain")
+            .with_detail("Missing field 'shopDomain'."),
         )
 }
 
@@ -52,14 +50,37 @@ impl From<ShopIdentifierData> for ShopIdentifier {
 
 #[cfg(test)]
 mod tests {
+    use crate::data::shop_identifier_data::{ShopIdentifierData, extract_shop_domain_path};
+    use common::{
+        api::{error::ApiErrorSourceType, error_code::INVALID_DOMAIN},
+        domain::Domain,
+    };
     use std::collections::HashMap;
 
-    use common::api::error_code::INVALID_SHOP_IDENTIFIER;
-    use fake::{Fake, Faker};
+    #[rstest::rstest]
+    #[case("shop.com", "shop.com".try_into().unwrap())]
+    #[case("foo.bar.de", "foo.bar.de".try_into().unwrap())]
+    #[case("foo.bar.baz", "foo.bar.baz".try_into().unwrap())]
+    fn should_extract_shop_domain_path(#[case] path_param_val: String, #[case] expected: Domain) {
+        let path_params = HashMap::from_iter([("shopDomain".to_owned(), path_param_val)]);
+        let actual = extract_shop_domain_path(&path_params).unwrap();
 
-    use crate::data::shop_identifier_data::{
-        ShopIdentifierData, extract_shop_identifier_data_path,
-    };
+        assert_eq!(expected, actual);
+    }
+
+    #[rstest::rstest]
+    #[case("-shopcom")]
+    #[case("foobarde")]
+    #[case("foobarbaz")]
+    fn should_err_when_extract_shop_domain_path_for_invalid_domain(#[case] path_param_val: String) {
+        let path_params = HashMap::from_iter([("shopDomain".to_owned(), path_param_val)]);
+        let actual = extract_shop_domain_path(&path_params).unwrap_err();
+
+        assert_eq!(INVALID_DOMAIN, actual.error);
+        assert_eq!(400, actual.status);
+        assert_eq!("shopDomain", actual.source.unwrap().field);
+        assert_eq!(ApiErrorSourceType::Path, actual.source.unwrap().source_type);
+    }
 
     #[rstest::rstest]
     #[case("2a99b5de-cb5e-4c8b-bd06-4a7e3ca3a432", ShopIdentifierData::ShopId("2a99b5de-cb5e-4c8b-bd06-4a7e3ca3a432".try_into().unwrap()))]
@@ -86,42 +107,5 @@ mod tests {
         let actual = serde_json::to_string(&payload).unwrap();
 
         assert_eq!(format!("\"{expected}\""), actual);
-    }
-
-    #[rstest::rstest]
-    #[case("2a99b5de-cb5e-4c8b-bd06-4a7e3ca3a432", ShopIdentifierData::ShopId("2a99b5de-cb5e-4c8b-bd06-4a7e3ca3a432".try_into().unwrap()))]
-    #[case("shop.com", ShopIdentifierData::ShopDomain("shop.com".try_into().unwrap()))]
-    #[case("foo.bar.de", ShopIdentifierData::ShopDomain("foo.bar.de".try_into().unwrap()))]
-    #[case("foo.bar.baz", ShopIdentifierData::ShopDomain("foo.bar.baz".try_into().unwrap()))]
-    fn should_extract_shop_identifier_data(
-        #[case] path_value: String,
-        #[case] expected: ShopIdentifierData,
-    ) {
-        let mut path_params: HashMap<String, String> = Faker.fake();
-        path_params.insert("shopIdentifier".to_owned(), path_value);
-
-        let actual = extract_shop_identifier_data_path(&path_params).unwrap();
-
-        assert_eq!(expected, actual);
-    }
-
-    #[rstest::rstest]
-    #[case("2a99b5de")]
-    #[case("2a99b5de-cb5e")]
-    #[case("2a99b5de-cb5e-4c8b-bd06")]
-    #[case("2a99b5de-cb5e-4c8b-bd06-4a7e3ca")]
-    #[case("norealdomain")]
-    #[case("norealdomain:8080")]
-    #[case("http://foo")]
-    #[case("https://foo")]
-    fn should_err_invalid_shop_identifier_when_invalid_for_extract(#[case] path_value: String) {
-        let mut path_params: HashMap<String, String> = Faker.fake();
-        path_params.insert("shopIdentifier".to_owned(), path_value);
-
-        let actual = extract_shop_identifier_data_path(&path_params).unwrap_err();
-
-        assert_eq!(400, actual.status);
-        assert_eq!(INVALID_SHOP_IDENTIFIER, actual.error);
-        assert_eq!("shopIdentifier", actual.source.unwrap().field);
     }
 }

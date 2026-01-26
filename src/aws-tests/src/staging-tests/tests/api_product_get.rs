@@ -43,7 +43,7 @@ async fn should_respond_200_when_anon_and_product_does_exist_for_ids() {
     tokio::time::sleep(Duration::from_secs(1)).await;
 
     let url = format!(
-        "{}/api/v1/products/{}/{}?currency=GBP",
+        "{}/api/v1/shops/{}/products/{}?currency=GBP",
         get_cfn_output().api_gateway_endpoint_url,
         record.shop_id,
         record.shops_product_id
@@ -79,7 +79,7 @@ async fn should_respond_200_when_anon_and_product_does_exist_for_slug_ids() {
     tokio::time::sleep(Duration::from_secs(1)).await;
 
     let url = format!(
-        "{}/api/v1/products/by-slug/{}/{}?currency=GBP",
+        "{}/api/v1/by-slug/shops/{}/products/{}?currency=GBP",
         get_cfn_output().api_gateway_endpoint_url,
         record.shop_slug_id,
         record.product_slug_id
@@ -134,7 +134,7 @@ async fn should_respond_200_personalized_when_authenticated_and_product_does_exi
         .unwrap();
 
     let url = format!(
-        "{}/api/v1/products/{}/{}?currency=GBP",
+        "{}/api/v1/shops/{}/products/{}?currency=GBP",
         get_cfn_output().api_gateway_endpoint_url,
         record.shop_id,
         record.shops_product_id
@@ -174,7 +174,7 @@ async fn should_respond_200_personalized_when_authenticated_and_product_does_exi
 #[staging_test]
 async fn should_respond_404_when_product_does_not_exist() {
     let response = reqwest::get(format!(
-        "{}/api/v1/products/{}/bar",
+        "{}/api/v1/shops/{}/products/bar",
         get_cfn_output().api_gateway_endpoint_url,
         ShopId::new()
     ))
@@ -249,7 +249,7 @@ async fn should_respond_200_for_history() {
     tokio::time::sleep(Duration::from_secs(1)).await;
 
     let response = reqwest::get(format!(
-        "{}/api/v1/products/{}/{}/history?currency=USD",
+        "{}/api/v1/shops/{}/products/{}/history?currency=USD",
         get_cfn_output().api_gateway_endpoint_url,
         record.shop_id,
         record.shops_product_id,

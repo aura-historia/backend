@@ -1,11 +1,13 @@
 use aws_lambda_events::apigw::{ApiGatewayV2httpRequest, ApiGatewayV2httpResponse};
 use common::api::api_gateway_v2_http_response_builder::ApiGatewayV2HttpResponseBuilder;
 use common::api::error::ApiError;
-use common::api::error_code::BAD_BODY_VALUE;
+use common::api::error_code::{BAD_BODY_VALUE, INTERNAL_SERVER_ERROR};
+use common::shop_id::ShopIdentifier;
+use common::shop_id::api::extract_shop_id_path;
 use lambda_runtime::LambdaEvent;
 use shop::data::get_shop_data::GetShopData;
 use shop::data::patch_shop_data::PatchShopData;
-use shop::data::shop_identifier_data::extract_shop_identifier_data_path;
+use shop::data::shop_identifier_data::extract_shop_domain_path;
 use shop::service::command::UpdateShopCommand;
 use shop::service::command_service::CommandShopService;
 
@@ -13,7 +15,28 @@ pub async fn handle(
     event: LambdaEvent<ApiGatewayV2httpRequest>,
     service: &impl CommandShopService,
 ) -> Result<ApiGatewayV2httpResponse, ApiError> {
-    let shop_identifier = extract_shop_identifier_data_path(&event.payload.path_parameters)?.into();
+    let shop_identifier = match event.payload.route_key.as_deref() {
+        Some("PATCH /api/v1/shops/{shopId}") => {
+            let shop_id = extract_shop_id_path(&event.payload.path_parameters)?;
+            ShopIdentifier::ShopId(shop_id)
+        }
+        Some("PATCH /api/v1/by-domain/shops/{shopDomain}") => {
+            let shop_domain = extract_shop_domain_path(&event.payload.path_parameters)?;
+            ShopIdentifier::ShopDomain(shop_domain)
+        }
+        Some(unknown) => {
+            return Err(ApiError::internal_server_error(
+                INTERNAL_SERVER_ERROR,
+                format!("Unknown route-key '{unknown}' in AWS-Payload").into(),
+            ));
+        }
+        None => {
+            return Err(ApiError::internal_server_error(
+                INTERNAL_SERVER_ERROR,
+                "Missing route-key in AWS-Payload".into(),
+            ));
+        }
+    };
     let body = event
         .payload
         .body
@@ -68,9 +91,9 @@ mod tests {
         });
         let lambda_event = LambdaEvent {
             payload: ApiGatewayV2httpRequestProxy::builder()
-                .path_parameter("shopIdentifier", ShopId::new())
+                .path_parameter("shopId", ShopId::new())
                 .http_method(http::Method::PATCH)
-                .route_key("PATCH /api/v1/shops/{shopIdentifier}")
+                .route_key("PATCH /api/v1/shops/{shopId}")
                 .body_serde(&Faker.fake::<PatchShopData>())
                 .build(),
             context: Default::default(),
@@ -95,9 +118,9 @@ mod tests {
         });
         let lambda_event = LambdaEvent {
             payload: ApiGatewayV2httpRequestProxy::builder()
-                .path_parameter("shopIdentifier", "boop.com")
+                .path_parameter("shopDomain", "boop.com")
                 .http_method(http::Method::PATCH)
-                .route_key("PATCH /api/v1/shops/{shopIdentifier}")
+                .route_key("PATCH /api/v1/by-domain/shops/{shopDomain}")
                 .body_serde(&Faker.fake::<PatchShopData>())
                 .build(),
             context: Default::default(),
@@ -124,9 +147,9 @@ mod tests {
         });
         let lambda_event = LambdaEvent {
             payload: ApiGatewayV2httpRequestProxy::builder()
-                .path_parameter("shopIdentifier", ShopId::new())
+                .path_parameter("shopId", ShopId::new())
                 .http_method(http::Method::PATCH)
-                .route_key("PATCH /api/v1/shops/{shopIdentifier}")
+                .route_key("PATCH /api/v1/shops/{shopId}")
                 .body_serde(&Faker.fake::<PatchShopData>())
                 .build(),
             context: Default::default(),
@@ -151,7 +174,7 @@ mod tests {
         let lambda_event = LambdaEvent {
             payload: ApiGatewayV2httpRequestProxy::builder()
                 .http_method(http::Method::PATCH)
-                .route_key("PATCH /api/v1/shops/{shopIdentifier}")
+                .route_key("PATCH /api/v1/shops/{shopId}")
                 .build(),
             context: Default::default(),
         };
@@ -172,7 +195,7 @@ mod tests {
         let lambda_event = LambdaEvent {
             payload: ApiGatewayV2httpRequestProxy::builder()
                 .http_method(http::Method::PATCH)
-                .route_key("PATCH /api/v1/shops/{shopIdentifier}")
+                .route_key("PATCH /api/v1/shops/{shopId}")
                 .body_serde(&json!({
                     "foo": 42
                 }))

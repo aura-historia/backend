@@ -29,8 +29,8 @@ async fn should_update_shop_when_payload_valid_for_path_param_shop_id() {
     let lambda_event = LambdaEvent {
         payload: ApiGatewayV2httpRequestProxy::builder()
             .http_method(http::Method::PATCH)
-            .route_key("PATCH /api/v1/shops/{shopIdentifier}")
-            .path_parameter("shopIdentifier", existing_shop.shop_id)
+            .route_key("PATCH /api/v1/shops/{shopId}")
+            .path_parameter("shopId", existing_shop.shop_id)
             .body_serde(&patch_shop_data)
             .build(),
         context: Default::default(),
@@ -68,9 +68,9 @@ async fn should_update_shop_when_payload_valid_for_path_param_shop_domain() {
     let lambda_event = LambdaEvent {
         payload: ApiGatewayV2httpRequestProxy::builder()
             .http_method(http::Method::PATCH)
-            .route_key("PATCH /api/v1/shops/{shopIdentifier}")
+            .route_key("PATCH /api/v1/by-domain/shops/{shopDomain}")
             .path_parameter(
-                "shopIdentifier",
+                "shopDomain",
                 existing_shop.domains.iter().next().unwrap().clone(),
             )
             .body_serde(&patch_shop_data)
