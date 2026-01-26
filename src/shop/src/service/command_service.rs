@@ -16,6 +16,7 @@ use common::{
 };
 use std::collections::HashMap;
 use time::OffsetDateTime;
+use tracing::info;
 
 #[derive(Debug, thiserror::Error)]
 #[allow(clippy::large_enum_variant)]
@@ -156,6 +157,8 @@ impl<'a> CommandShopService for CommandShopServiceImpl<'a> {
             .put_shop_records_transact(shop_records)
             .await?;
 
+        info!(shopId = %shop.shop_id, name = %shop.name, slug = %shop.shop_slug_id, domains = ?shop.domains, "Created Shop.");
+
         Ok(shop)
     }
 
@@ -193,8 +196,8 @@ impl<'a> CommandShopService for CommandShopServiceImpl<'a> {
 
         let update_record = ShopRecordUpdate {
             shop_type: command.shop_type.map(Into::into),
-            domains: command.domains,
-            image: command.image,
+            domains: command.domains.clone(),
+            image: command.image.clone(),
             updated: OffsetDateTime::now_utc(),
         };
 
@@ -268,6 +271,8 @@ impl<'a> CommandShopService for CommandShopServiceImpl<'a> {
         }
 
         let _ = self.repository.transact_write(put, update, delete).await?;
+
+        info!(shopId = %shop_record.shop_id, name = %shop_record.name, slug = %shop_record.shop_slug_id, payload = ?command, "Updated Shop.");
 
         Ok(Shop {
             shop_id: shop_record.shop_id,

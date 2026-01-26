@@ -83,7 +83,7 @@ async fn should_respond_200() {
     let lambda_event = LambdaEvent {
         payload: ApiGatewayV2httpRequestProxy::builder()
             .http_method(http::Method::GET)
-            .route_key("GET /api/v1/products/{shopId}/{shopsProductId}/history".to_owned())
+            .route_key("GET /api/v1/shops/{shopId}/products/{shopsProductId}/history".to_owned())
             .path_parameter("shopId", record.shop_id)
             .path_parameter("shopsProductId", record.shops_product_id)
             .query_string_parameter("currency", "USD")
