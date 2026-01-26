@@ -16,9 +16,6 @@ Parameters:
     Description: "S3 bucket containing mail-templates"
   CommitSHA:
     Type: String
-  Ec2KeyPairName:
-    Type: AWS::EC2::KeyPair::KeyName
-    Description: "For EC2 SSH-Access"
 
 Resources:
   PrimaryUserPool:
@@ -1833,7 +1830,6 @@ Resources:
     Properties:
       LaunchTemplateName: !Sub "product-pipeline-init-template-${StageName}"
       LaunchTemplateData:
-        KeyName: !Ref Ec2KeyPairName
         IamInstanceProfile:
           Name: !Ref ProductPipelineInitInstanceProfile
         InstanceType: c7i.large
@@ -2090,7 +2086,6 @@ Resources:
     Properties:
       LaunchTemplateName: !Sub "product-pipeline-translate-template-${StageName}"
       LaunchTemplateData:
-        KeyName: !Ref Ec2KeyPairName
         IamInstanceProfile:
           Name: !Ref ProductPipelineTranslateInstanceProfile
         InstanceType: g6.xlarge # Placeholder - ASG overrides this
@@ -2243,7 +2238,6 @@ Resources:
     Properties:
       LaunchTemplateName: !Sub "product-pipeline-embed-text-template-${StageName}"
       LaunchTemplateData:
-        KeyName: !Ref Ec2KeyPairName
         IamInstanceProfile:
           Name: !Ref ProductPipelineEmbedTextInstanceProfile
         InstanceType: g6.xlarge # Placeholder - ASG overrides this
@@ -2396,7 +2390,6 @@ Resources:
     Properties:
       LaunchTemplateName: !Sub "product-pipeline-extract-attribute-template-${StageName}"
       LaunchTemplateData:
-        KeyName: !Ref Ec2KeyPairName
         IamInstanceProfile:
           Name: !Ref ProductPipelineExtractAttributeInstanceProfile
         InstanceType: g6.xlarge # Placeholder - ASG overrides this
@@ -2573,7 +2566,6 @@ Resources:
     Properties:
       LaunchTemplateName: !Sub "product-pipeline-complete-template-${StageName}"
       LaunchTemplateData:
-        KeyName: !Ref Ec2KeyPairName
         IamInstanceProfile:
           Name: !Ref ProductPipelineCompleteInstanceProfile
         InstanceType: c7i.large

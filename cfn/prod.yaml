@@ -13,9 +13,6 @@ Parameters:
     Description: "S3 bucket containing mail-templates"
   CommitSHA:
     Type: String
-  Ec2KeyPairName:
-    Type: AWS::EC2::KeyPair::KeyName
-    Description: For EC2 SSH-Access
   OpenSearchEndpointUrl:
     Type: String
     Description: "URL for the self-hosted OpenSearch-Cluster"
@@ -2276,7 +2273,6 @@ Resources:
     Properties:
       LaunchTemplateName: "product-pipeline-init-template-prod"
       LaunchTemplateData:
-        KeyName: !Ref Ec2KeyPairName
         IamInstanceProfile:
           Name: !Ref ProductPipelineInitInstanceProfile
         InstanceType: c7i.large
@@ -2570,7 +2566,6 @@ Resources:
     Properties:
       LaunchTemplateName: "product-pipeline-translate-template-prod"
       LaunchTemplateData:
-        KeyName: !Ref Ec2KeyPairName
         IamInstanceProfile:
           Name: !Ref ProductPipelineTranslateInstanceProfile
         InstanceType: g6.xlarge # Placeholder - ASG overrides this
@@ -2761,7 +2756,6 @@ Resources:
     Properties:
       LaunchTemplateName: "product-pipeline-embed-text-template-prod"
       LaunchTemplateData:
-        KeyName: !Ref Ec2KeyPairName
         IamInstanceProfile:
           Name: !Ref ProductPipelineEmbedTextInstanceProfile
         InstanceType: g6.xlarge # Placeholder - ASG overrides this
@@ -2952,7 +2946,6 @@ Resources:
     Properties:
       LaunchTemplateName: !Sub "product-pipeline-extract-attribute-template-prod"
       LaunchTemplateData:
-        KeyName: !Ref Ec2KeyPairName
         IamInstanceProfile:
           Name: !Ref ProductPipelineExtractAttributeInstanceProfile
         InstanceType: g6.xlarge # Placeholder - ASG overrides this
@@ -3170,7 +3163,6 @@ Resources:
     Properties:
       LaunchTemplateName: "product-pipeline-complete-template-prod"
       LaunchTemplateData:
-        KeyName: !Ref Ec2KeyPairName
         IamInstanceProfile:
           Name: !Ref ProductPipelineCompleteInstanceProfile
         InstanceType: c7i.large
