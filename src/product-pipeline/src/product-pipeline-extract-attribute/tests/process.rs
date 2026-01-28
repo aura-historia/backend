@@ -13,11 +13,6 @@ use std::sync::Arc;
 #[case(0)]
 #[serial_test::serial]
 fn should_process_extraction(#[case] count: usize) {
-    // Set environment variable to use CPU for testing
-    unsafe {
-        std::env::set_var("AURA_DEVICE", "cpu");
-    }
-
     let adapter = ExtractionAdapterImpl::new().unwrap();
     let extraction_pipe_processor = AttributeExtractionPipeProcesserImpl::new(Arc::new(adapter));
 
@@ -25,15 +20,12 @@ fn should_process_extraction(#[case] count: usize) {
     let mut products = fake::vec![TextEmbeddedPipeProduct; count];
     let mut product = Faker.fake::<TextEmbeddedPipeProduct>();
     product.product_id = product_id;
-    // Use very short text to minimize test duration
     product.native_title.text = "Antique Chair".to_owned();
     product.native_title.language = LanguageRecord::En;
     product.native_description = Some(TextRecord {
         language: LanguageRecord::En,
-        text: "1800s oak".to_owned(),
+        text: "1845 oak".to_owned(),
     });
-    // Generate a small fake embedding
-    product.text_embedding = vec![0.1; 1024];
     products.push(product);
     products.shuffle(&mut fake::rand::rng());
 
@@ -47,34 +39,11 @@ fn should_process_extraction(#[case] count: usize) {
         .find(|out_product| out_product.product_id == product_id)
         .unwrap();
 
-    // Verify that extraction was performed - check if any attribute has a non-default value
-    // These fields use enum types with Unknown as the default, or Option types for years
-    let has_extracted_data = extracted.origin_year.is_some()
-        || extracted.origin_year_min.is_some()
-        || extracted.origin_year_max.is_some()
-        || !matches!(
-            extracted.authenticity,
-            product::dynamodb::authenticity_record::AuthenticityRecord::Unknown
-        )
-        || !matches!(
-            extracted.condition,
-            product::dynamodb::condition_record::ConditionRecord::Unknown
-        )
-        || !matches!(
-            extracted.provenance,
-            product::dynamodb::provenance_record::ProvenanceRecord::Unknown
-        )
-        || !matches!(
-            extracted.restoration,
-            product::dynamodb::restoration_record::RestorationRecord::Unknown
-        );
+    let has_extracted_data = extracted.origin_year.is_some_and(|y| y == 1845.into())
+        || extracted.origin_year_min.is_some_and(|y| y == 1845.into())
+        || extracted.origin_year_max.is_some_and(|y| y == 1845.into());
 
-    assert!(
-        has_extracted_data,
-        "Expected at least one attribute to be extracted"
-    );
-
-    // Verify the native title is preserved
+    assert!(has_extracted_data);
     assert_eq!("Antique Chair", extracted.native_title.text);
     assert_eq!(LanguageRecord::En, extracted.native_title.language);
 }
