@@ -63,14 +63,14 @@ mod tests {
     fn should_extract() {
         let delegate = ExtractionAdapterImpl::new().unwrap();
         let schema = r#"
-            {
-                "brand": string | null,
-                "material": string | null,
-                "color": string | null,
-                "size": float | null,
-                "price": float | null
-            }
-            "#;
+                {
+                    "brand": string | null,
+                    "material": string | null,
+                    "color": string | null,
+                    "size": float | null,
+                    "price": float | null
+                }
+                "#;
         let extraction = delegate
             .extract(
                 schema,

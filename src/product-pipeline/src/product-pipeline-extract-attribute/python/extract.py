@@ -3,14 +3,18 @@ from typing import List
 import torch
 from transformers import AutoModelForCausalLM, AutoTokenizer
 
-MODEL_NAME = "unsloth/Qwen3-14B-unsloth-bnb-4bit"
+MODEL_NAME = (
+    "unsloth/Qwen3-14B-unsloth-bnb-4bit"
+    if torch.cuda.is_available()
+    else "Qwen/Qwen3-1.7B"
+)
 DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
 
 tokenizer = AutoTokenizer.from_pretrained(MODEL_NAME)
 model = AutoModelForCausalLM.from_pretrained(
     MODEL_NAME,
     device_map=DEVICE,
-    dtype=torch.float16,
+    dtype=torch.float32 if DEVICE == "cpu" else torch.float16,
 )
 
 
