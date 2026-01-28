@@ -1,12 +1,8 @@
-import os
 import torch
 from transformers import AutoModelForCausalLM, AutoTokenizer
 
 MODEL_NAME = "tencent/Hunyuan-MT-7B"
-
-# Allow CPU-only execution for tests
-USE_CPU = os.environ.get("AURA_DEVICE", "cuda") == "cpu"
-DEVICE = "cpu" if USE_CPU else ("cuda" if torch.cuda.is_available() else "cpu")
+DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
 
 tokenizer = AutoTokenizer.from_pretrained(
     MODEL_NAME,
@@ -15,13 +11,12 @@ tokenizer = AutoTokenizer.from_pretrained(
 
 model = AutoModelForCausalLM.from_pretrained(
     MODEL_NAME,
-    device_map=DEVICE,
-    dtype=torch.float32 if USE_CPU else torch.bfloat16,
+    dtype=torch.float32 if DEVICE == "cpu" else torch.bfloat16,
 )
 model.eval()
 
 try:
-    if not USE_CPU:
+    if DEVICE == "cuda":
         model = torch.compile(model, mode="reduce-overhead")
 except Exception:
     pass
