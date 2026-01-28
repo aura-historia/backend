@@ -41,17 +41,12 @@ pub async fn handle(
         .await?;
 
     match localized_similar_products_opt {
-        None => {
-            let location = match event.payload.request_context.domain_name {
-                None => None,
-                Some(domain_name) => event.payload.request_context.stage.map(|stage_name| format!(
-                        "https://{domain_name}/{stage_name}/api/v1/products/{shop_id}/{shops_product_id}/similar",
-                    )),
-            };
-            Ok(ApiGatewayV2HttpResponseBuilder::json(202)
-                .try_location(location.as_deref())
-                .build())
-        }
+        None => Ok(ApiGatewayV2HttpResponseBuilder::json(202)
+            .location(
+                &format!("shops/{shop_id}/products/{shops_product_id}/similar"),
+                &event.payload.request_context,
+            )
+            .build()),
         Some(localized_similar_products) => {
             let personalized_similar_products = match user_id_opt {
                 None => localized_similar_products
@@ -96,7 +91,6 @@ mod tests {
     use common::shops_product_id::ShopsProductId;
     use fake::Fake;
     use fake::Faker;
-    use http::header::LOCATION;
     use lambda_runtime::LambdaEvent;
     use product::service::personalization_service::MockProductPersonalizationService;
     use product::service::semantic_service::MockSemanticSearchService;
@@ -186,7 +180,6 @@ mod tests {
                 .http_method(http::Method::GET)
                 .path_parameter("shopId", shop_id)
                 .path_parameter("shopsProductId", shops_product_id.clone())
-                .domain_name("my.domain.com")
                 .stage("prod")
                 .build(),
             context: Default::default(),
@@ -201,12 +194,6 @@ mod tests {
         .await
         .unwrap();
         assert_eq!(202, response.status_code);
-        assert_eq!(
-            format!(
-                "https://my.domain.com/prod/api/v1/products/{shop_id}/{shops_product_id}/similar"
-            ),
-            response.headers.get(LOCATION).unwrap().to_str().unwrap()
-        )
     }
 
     #[tokio::test]

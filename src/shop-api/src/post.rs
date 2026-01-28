@@ -32,21 +32,11 @@ pub async fn handle(
         image: post_shop_data.image,
     };
     let created_shop = service.create(create_shop_command).await?;
-
-    let location = match event.payload.request_context.domain_name {
-        None => None,
-        Some(domain_name) => match event.payload.request_context.stage {
-            Some(stage_name) => Some(format!(
-                "https://{domain_name}/{stage_name}/api/v1/shops/{}",
-                created_shop.shop_id
-            )),
-            None => None,
-        },
-    };
+    let location = format!("shops/{}", created_shop.shop_id);
     let created_shop_data = GetShopData::from(created_shop);
 
     Ok(ApiGatewayV2HttpResponseBuilder::json(201)
-        .try_location(location.as_deref())
+        .location(&location, &event.payload.request_context)
         .last_modified(created_shop_data.updated)
         .body_serde(created_shop_data)?
         .build())
