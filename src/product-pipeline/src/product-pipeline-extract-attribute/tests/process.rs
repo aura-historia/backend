@@ -14,7 +14,9 @@ use std::sync::Arc;
 #[serial_test::serial]
 fn should_process_extraction(#[case] count: usize) {
     // Set environment variable to use CPU for testing
-    std::env::set_var("AURA_DEVICE", "cpu");
+    unsafe {
+        std::env::set_var("AURA_DEVICE", "cpu");
+    }
 
     let adapter = ExtractionAdapterImpl::new().unwrap();
     let extraction_pipe_processor = AttributeExtractionPipeProcesserImpl::new(Arc::new(adapter));
@@ -45,15 +47,30 @@ fn should_process_extraction(#[case] count: usize) {
         .find(|out_product| out_product.product_id == product_id)
         .unwrap();
 
-    // Verify that extraction was performed
+    // Verify that extraction was performed - check if any attribute has a non-default value
+    // These fields use enum types with Unknown as the default, or Option types for years
+    let has_extracted_data = extracted.origin_year.is_some()
+        || extracted.origin_year_min.is_some()
+        || extracted.origin_year_max.is_some()
+        || !matches!(
+            extracted.authenticity,
+            product::dynamodb::authenticity_record::AuthenticityRecord::Unknown
+        )
+        || !matches!(
+            extracted.condition,
+            product::dynamodb::condition_record::ConditionRecord::Unknown
+        )
+        || !matches!(
+            extracted.provenance,
+            product::dynamodb::provenance_record::ProvenanceRecord::Unknown
+        )
+        || !matches!(
+            extracted.restoration,
+            product::dynamodb::restoration_record::RestorationRecord::Unknown
+        );
+
     assert!(
-        extracted.authenticity.is_some()
-            || extracted.condition.is_some()
-            || extracted.origin_year.is_some()
-            || extracted.origin_year_min.is_some()
-            || extracted.origin_year_max.is_some()
-            || extracted.provenance.is_some()
-            || extracted.restoration.is_some(),
+        has_extracted_data,
         "Expected at least one attribute to be extracted"
     );
 

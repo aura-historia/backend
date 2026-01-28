@@ -14,7 +14,9 @@ use std::sync::Arc;
 #[serial_test::serial]
 fn should_process_translation(#[case] count: usize) {
     // Set environment variable to use CPU for testing
-    std::env::set_var("AURA_DEVICE", "cpu");
+    unsafe {
+        std::env::set_var("AURA_DEVICE", "cpu");
+    }
 
     let adapter = TranslationAdapterImpl::new().unwrap();
     let translation_pipe_processor = TranslationPipeProcesserImpl::new(Arc::new(adapter));
