@@ -40,20 +40,14 @@ pub async fn handle(
         .await?
         .into();
 
-    let location = match event.payload.request_context.domain_name {
-        None => None,
-        Some(domain_name) => match event.payload.request_context.stage {
-            Some(stage_name) => Some(format!(
-                "https://{domain_name}/{stage_name}/api/v1/me/search-filters/{}",
-                user_search_filter_data.user_search_filter_id
-            )),
-            None => None,
-        },
-    };
+    let location = format!(
+        "me/search-filters/{}",
+        user_search_filter_data.user_search_filter_id
+    );
     let content_language = user_search_filter_data.search.language;
 
     Ok(ApiGatewayV2HttpResponseBuilder::json(201)
-        .try_location(location.as_deref())
+        .location(&location, &event.payload.request_context)
         .content_language(content_language)
         .last_modified(user_search_filter_data.updated)
         .body_serde(user_search_filter_data)?
@@ -65,7 +59,6 @@ mod tests {
     use crate::{handler, post::PostUserSearchFilterData};
     use common::user_id::UserId;
     use fake::{Fake, Faker};
-    use http::header::LOCATION;
     use lambda_runtime::LambdaEvent;
     use search_filter::core::user_search_filter::UserSearchFilter;
     use search_filter::service::user_search_filter_service::MockUserSearchFilterService;
@@ -79,14 +72,12 @@ mod tests {
                 .route_key("POST /api/v1/me/search-filters")
                 .body_serde(&Faker.fake::<PostUserSearchFilterData>())
                 .jwt_claim("sub", UserId::new())
-                .domain_name("my.domain.com")
                 .stage("prod")
                 .build(),
             context: Default::default(),
         };
 
         let expected = Faker.fake::<UserSearchFilter>();
-        let expected_search_filter_id = expected.user_search_filter_id;
         let mut service = MockUserSearchFilterService::default();
         service
             .expect_save_user_search_filter()
@@ -95,12 +86,6 @@ mod tests {
         let response = handler(lambda_event, &service).await.unwrap();
 
         assert_eq!(201, response.status_code);
-        assert_eq!(
-            format!(
-                "https://my.domain.com/prod/api/v1/me/search-filters/{expected_search_filter_id}"
-            ),
-            response.headers.get(LOCATION).unwrap().to_str().unwrap()
-        )
     }
 
     #[tokio::test]

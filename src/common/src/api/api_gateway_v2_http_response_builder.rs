@@ -1,7 +1,7 @@
 use crate::api::error::ApiError;
 use crate::api::error_code::INTERNAL_SERVER_ERROR;
 use crate::language::data::LanguageData;
-use aws_lambda_events::apigw::ApiGatewayV2httpResponse;
+use aws_lambda_events::apigw::{ApiGatewayV2httpRequestContext, ApiGatewayV2httpResponse};
 use aws_lambda_events::encodings::Body;
 use http::header::{CONTENT_LANGUAGE, CONTENT_TYPE, ETAG, LAST_MODIFIED, LOCATION, VARY};
 use http::{HeaderMap, HeaderName, HeaderValue};
@@ -130,27 +130,34 @@ impl ApiGatewayV2HttpResponseBuilder {
         self
     }
 
-    pub fn location(mut self, location: &str) -> Self {
-        match HeaderValue::from_str(location) {
+    pub fn location(
+        mut self,
+        path: &str,
+        request_context: &ApiGatewayV2httpRequestContext,
+    ) -> Self {
+        let host = match request_context.stage.as_deref() {
+            Some("prod") => "api.aura-historia.com",
+            Some("dev") => "api.dev.aura-historia.com",
+            _ => request_context
+                .domain_name
+                .as_deref()
+                .unwrap_or("api.dev.aura-historia.com"),
+        };
+        let location = format!("https://{host}/api/v1/{path}");
+        match HeaderValue::from_str(&location) {
             Ok(location_value) => {
                 self.headers.insert(LOCATION, location_value);
             }
             Err(err) => {
                 error!(
                     error = %err,
-                    location = %location,
+                    path = path,
+                    location = location,
                     "Failed to convert location to HeaderValue when setting HTTP Location."
                 )
             }
         }
         self
-    }
-
-    pub fn try_location(self, location_opt: Option<&str>) -> Self {
-        match location_opt {
-            None => self,
-            Some(location) => self.location(location),
-        }
     }
 
     pub fn body<T: Into<Body>>(mut self, body: T) -> Self {
@@ -185,12 +192,13 @@ impl ApiGatewayV2HttpResponseBuilder {
 
 #[cfg(test)]
 pub mod tests {
-    use rstest;
-
     use crate::{
         api::api_gateway_v2_http_response_builder::ApiGatewayV2HttpResponseBuilder,
         language::data::LanguageData,
     };
+    use aws_lambda_events::apigw::ApiGatewayV2httpRequestContext;
+    use http::header::LOCATION;
+    use rstest;
     use std::time::SystemTime;
 
     #[rstest::rstest]
@@ -232,5 +240,43 @@ pub mod tests {
             "Accept-Language",
             "Vary header should contain Accept-Language"
         );
+    }
+
+    #[rstest::rstest]
+    #[case(
+        "prod",
+        "shops/foo/products/bar",
+        "https://api.aura-historia.com/api/v1/shops/foo/products/bar"
+    )]
+    #[case(
+        "dev",
+        "shops/foo/products/bar",
+        "https://api.dev.aura-historia.com/api/v1/shops/foo/products/bar"
+    )]
+    #[case(
+        "prod",
+        "watchlist/foo/bar",
+        "https://api.aura-historia.com/api/v1/watchlist/foo/bar"
+    )]
+    #[case(
+        "dev",
+        "watchlist/foo/bar",
+        "https://api.dev.aura-historia.com/api/v1/watchlist/foo/bar"
+    )]
+    #[trace]
+    fn should_build_location_correctly(
+        #[case] stage: String,
+        #[case] path: String,
+        #[case] expected_location: String,
+    ) {
+        let mut request_context = ApiGatewayV2httpRequestContext::default();
+        request_context.stage = Some(stage);
+
+        let response = ApiGatewayV2HttpResponseBuilder::new(200)
+            .location(&path, &request_context)
+            .build();
+        let actual = response.headers.get(LOCATION).unwrap().to_str().unwrap();
+
+        assert_eq!(&expected_location, actual);
     }
 }

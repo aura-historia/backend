@@ -35,19 +35,14 @@ pub async fn handle(
         )
         .await?;
 
-    let location = match event.payload.request_context.domain_name {
-        None => None,
-        Some(domain_name) => match event.payload.request_context.stage {
-            Some(stage_name) => Some(format!(
-                "https://{domain_name}/{stage_name}/api/v1/me/watchlist/{}/{}",
-                product_key_data.shop_id, product_key_data.shops_product_id
-            )),
-            None => None,
-        },
-    };
-
     Ok(ApiGatewayV2HttpResponseBuilder::json(201)
-        .try_location(location.as_deref())
+        .location(
+            &format!(
+                "me/watchlist/{}/{}",
+                product_key_data.shop_id, product_key_data.shops_product_id
+            ),
+            &event.payload.request_context,
+        )
         .body_serde(WatchlistProductData::from(watchlist_product))?
         .build())
 }
@@ -57,7 +52,6 @@ mod tests {
     use super::handle;
     use common::{product_id::api::ProductKeyData, user_id::UserId};
     use fake::{Fake, Faker};
-    use http::header::LOCATION;
     use lambda_runtime::LambdaEvent;
     use product::watchlist::service::product_watchlist_service::MockProductWatchListService;
     use test_api::ApiGatewayV2httpRequestProxy;
@@ -75,7 +69,6 @@ mod tests {
                 .http_method(http::Method::POST)
                 .body_serde(&product_key_data)
                 .jwt_claim("sub", UserId::new())
-                .domain_name("my.domain.com")
                 .stage("prod")
                 .build(),
             context: Default::default(),
@@ -84,13 +77,6 @@ mod tests {
         let response = handle(lambda_event, &service).await.unwrap();
 
         assert_eq!(201, response.status_code);
-        assert_eq!(
-            format!(
-                "https://my.domain.com/prod/api/v1/me/watchlist/{}/{}",
-                product_key_data.shop_id, product_key_data.shops_product_id
-            ),
-            response.headers.get(LOCATION).unwrap().to_str().unwrap()
-        )
     }
 
     #[tokio::test]
