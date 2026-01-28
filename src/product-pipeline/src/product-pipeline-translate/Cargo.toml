@@ -26,3 +26,4 @@ strum_macros = { workspace = true }
 product-pipeline-common = { workspace = true, features = ["test-data"] }
 fake = { workspace = true }
 rstest = { workspace = true }
+serial_test = { workspace = true }
