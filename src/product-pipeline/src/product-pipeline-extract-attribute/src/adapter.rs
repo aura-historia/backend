@@ -51,4 +51,3 @@ impl ExtractionAdapter for ExtractionAdapterImpl {
         })
     }
 }
-
