@@ -48,12 +48,14 @@ def translate(
         return_tensors="pt",
     )
     input_ids = batch_encoding["input_ids"].to(model.device)
+    attention_mask = batch_encoding["attention_mask"].to(model.device)
 
     input_len = input_ids.shape[1]
 
     with torch.inference_mode():
         output_ids = model.generate(
             input_ids,
+            attention_mask=attention_mask,
             max_new_tokens=2048,
             do_sample=True,
             top_k=20,
