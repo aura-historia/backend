@@ -170,7 +170,8 @@ mod tests {
             shop_name_query: Some("Woaaaah Co. Ltd.".try_into().unwrap()),
             shop_type_query: Default::default(),
             created: Some(RangeQuery { min: Some(datetime!(2000 - 01 - 01 0:00 UTC)), max: Some(datetime!(3000 - 01 - 01 0:00 UTC)) }),
-            updated: Some(RangeQuery { min: Some(datetime!(1000 - 01 - 01 0:00 UTC)), max: Some(datetime!(4000 - 01 - 01 0:00 UTC)) })
+            updated: Some(RangeQuery { min: Some(datetime!(1000 - 01 - 01 0:00 UTC)), max: Some(datetime!(4000 - 01 - 01 0:00 UTC)) }),
+            min_score: None,
         },
         Some(Sort { sort: SortShopField::Created, order: SortOrder::Asc }),
         Some(Cursor { size: 20, search_after: Some(json!(["2021-01-01T00:00:00Z", ShopId::new()])) }),
@@ -181,7 +182,8 @@ mod tests {
             shop_name_query: Some("Woaaaah Co. Ltd.".try_into().unwrap()),
             created: Some(RangeQuery { min: Some(datetime!(2000 - 01 - 01 0:00 UTC)), max: Some(datetime!(3000 - 01 - 01 0:00 UTC)) }),
             shop_type_query: Default::default(),
-            updated: None
+            updated: None,
+            min_score: None,
         },
         Some(Sort { sort: SortShopField::Name, order: SortOrder::Desc }),
         Some(Cursor { size: 50, search_after: Some(json!(["Woaaaah Co. Ltd. and partners", ShopId::new()])) }),
@@ -192,7 +194,8 @@ mod tests {
             shop_name_query: Some("Woaaaah Co. Ltd.".try_into().unwrap()),
             shop_type_query: Default::default(),
             created: None,
-            updated: Some(RangeQuery { min: Some(datetime!(1000 - 01 - 01 0:00 UTC)), max: Some(datetime!(4000 - 01 - 01 0:00 UTC)) })
+            updated: Some(RangeQuery { min: Some(datetime!(1000 - 01 - 01 0:00 UTC)), max: Some(datetime!(4000 - 01 - 01 0:00 UTC)) }),
+            min_score: None,
         },
         None,
         None,
@@ -203,7 +206,8 @@ mod tests {
             shop_name_query: Some("Woaaaah Co. Ltd.".try_into().unwrap()),
             shop_type_query: Default::default(),
             created: None,
-            updated: None
+            updated: None,
+            min_score: None,
         },
         None,
         None,
@@ -258,6 +262,7 @@ mod tests {
                     created: None,
                     shop_type_query: Default::default(),
                     updated: None,
+                    min_score: None,
                 },
                 &None,
                 &None,
@@ -278,6 +283,7 @@ mod tests {
                 max: Some(datetime!(3000 - 01 - 01 0:00 UTC)),
             }),
             updated: None,
+            min_score: None,
         },
         Some(Sort { sort: SortShopField::Score, order: SortOrder::Asc }),
     )]
@@ -286,7 +292,8 @@ mod tests {
             shop_name_query: None,
             created: None,
             shop_type_query: Default::default(),
-            updated: None
+            updated: None,
+            min_score: None,
         },
         Some(Sort { sort: SortShopField::Score, order: SortOrder::Desc }),
     )]
@@ -296,6 +303,7 @@ mod tests {
             shop_type_query: Default::default(),
             created: None,
             updated: None,
+            min_score: None,
         },
         None,
     )]
@@ -324,7 +332,8 @@ mod tests {
             shop_name_query: Some("Woaaaah Co. Ltd.".try_into().unwrap()),
             created: Some(RangeQuery { min: Some(datetime!(2000 - 01 - 01 0:00 UTC)), max: Some(datetime!(3000 - 01 - 01 0:00 UTC)) }),
             shop_type_query: Default::default(),
-            updated: Some(RangeQuery { min: Some(datetime!(1000 - 01 - 01 0:00 UTC)), max: Some(datetime!(4000 - 01 - 01 0:00 UTC)) })
+            updated: Some(RangeQuery { min: Some(datetime!(1000 - 01 - 01 0:00 UTC)), max: Some(datetime!(4000 - 01 - 01 0:00 UTC)) }),
+            min_score: None,
         },
         Sort { sort: SortShopField::Created, order: SortOrder::Asc }
     )]
@@ -333,7 +342,8 @@ mod tests {
             shop_name_query: Some("Woaaaah Co. Ltd.".try_into().unwrap()),
             created: Some(RangeQuery { min: Some(datetime!(2000 - 01 - 01 0:00 UTC)), max: Some(datetime!(3000 - 01 - 01 0:00 UTC)) }),
             shop_type_query: Default::default(),
-            updated: None
+            updated: None,
+            min_score: None,
         },
         Sort { sort: SortShopField::Name, order: SortOrder::Desc }
     )]

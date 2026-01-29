@@ -43,16 +43,7 @@ pub async fn handle(
         ApiError::bad_request(BAD_BODY_VALUE, Box::new(err)).with_detail(err_msg)
     })?;
 
-    let search = ShopSearch {
-        shop_name_query: search_data.shop_name_query,
-        shop_type_query: search_data
-            .shop_type_query
-            .into_iter()
-            .map(Into::into)
-            .collect(),
-        created: search_data.created,
-        updated: search_data.updated,
-    };
+    let search: ShopSearch = search_data.into();
     let search_result = service
         .search_shops(&search, &sort, &Some(cursor))
         .await?

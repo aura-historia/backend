@@ -32,6 +32,9 @@ pub struct ShopSearchData {
         skip_serializing_if = "Option::is_none"
     )]
     pub updated: Option<RangeQuery<OffsetDateTime>>,
+
+    #[serde(rename = "minScore", skip_serializing_if = "Option::is_none", default)]
+    pub min_score: Option<f64>,
 }
 
 impl From<ShopSearch> for ShopSearchData {
@@ -45,6 +48,7 @@ impl From<ShopSearch> for ShopSearchData {
                 .collect(),
             created: search.created,
             updated: search.updated,
+            min_score: search.min_score,
         }
     }
 }
@@ -60,6 +64,7 @@ impl From<ShopSearchData> for ShopSearch {
                 .collect(),
             created: data.created,
             updated: data.updated,
+            min_score: data.min_score,
         }
     }
 }
@@ -76,6 +81,7 @@ mod faker {
                 shop_type_query: config.fake_with_rng(rng),
                 created: fake_range_query_datetime(config, rng),
                 updated: fake_range_query_datetime(config, rng),
+                min_score: config.fake_with_rng(rng),
             }
         }
     }
@@ -147,6 +153,7 @@ mod tests {
                 min: Some(datetime!(2000 - 05 - 04 0:00 UTC)),
                 max: Some(datetime!(2025 - 05 - 04 0:00 UTC)),
             }),
+            min_score: None,
         };
 
         let actual: ShopSearchData = serde_json::from_value(json).unwrap();
@@ -164,6 +171,7 @@ mod tests {
             shop_type_query: Default::default(),
             created: None,
             updated: None,
+            min_score: None,
         };
 
         let actual: ShopSearchData = serde_json::from_value(json).unwrap();
@@ -179,6 +187,45 @@ mod tests {
             shop_type_query: Default::default(),
             created: None,
             updated: None,
+            min_score: None,
+        };
+
+        let actual: ShopSearchData = serde_json::from_value(json).unwrap();
+
+        assert_eq!(expected, actual);
+    }
+
+    #[test]
+    fn should_serialize_data_when_min_score_for_filtering() {
+        let search_data = ShopSearchData {
+            shop_name_query: Some("Baap".try_into().unwrap()),
+            shop_type_query: Default::default(),
+            created: None,
+            updated: None,
+            min_score: Some(0.8),
+        };
+        let expected = json!({
+            "shopNameQuery": "Baap",
+            "minScore": 0.8
+        });
+
+        let actual = serde_json::to_value(search_data).unwrap();
+
+        assert_eq!(expected, actual);
+    }
+
+    #[test]
+    fn should_deserialize_data_when_min_score_for_filtering() {
+        let json = json!({
+            "shopNameQuery": "Baap",
+            "minScore": 0.6
+        });
+        let expected = ShopSearchData {
+            shop_name_query: Some("Baap".try_into().unwrap()),
+            shop_type_query: Default::default(),
+            created: None,
+            updated: None,
+            min_score: Some(0.6),
         };
 
         let actual: ShopSearchData = serde_json::from_value(json).unwrap();

@@ -395,6 +395,11 @@ impl<'a> ProductOpenSearchRepository for ProductOpenSearchRepositoryImpl<'a> {
             { ProductDocumentSerdeField::ProductId.as_str(): { "order": "asc" } }
         ]);
 
+        // ---------- Min Score ----------
+        if let Some(min_score) = search.min_score {
+            body["min_score"] = json!(min_score);
+        }
+
         // ---------- Execute ----------
         let response = self
             .client

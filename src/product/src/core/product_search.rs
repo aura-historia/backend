@@ -14,7 +14,7 @@ use common::year::Year;
 use shop::core::shop_type::ShopType;
 use time::OffsetDateTime;
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct ProductSearch {
     pub language: Language,
     pub currency: Currency,
@@ -33,6 +33,7 @@ pub struct ProductSearch {
     pub updated_query: Option<RangeQuery<OffsetDateTime>>,
     pub auction_start_query: Option<RangeQuery<OffsetDateTime>>,
     pub auction_end_query: Option<RangeQuery<OffsetDateTime>>,
+    pub min_score: Option<f64>,
 }
 
 #[cfg(feature = "test-data")]
@@ -60,6 +61,7 @@ pub mod faker {
                 updated_query: fake_range_query_datetime(config, rng),
                 auction_start_query: fake_range_query_datetime(config, rng),
                 auction_end_query: fake_range_query_datetime(config, rng),
+                min_score: config.fake_with_rng(rng),
             }
         }
     }

@@ -211,6 +211,13 @@ impl<'a> ShopOpenSearchRepository for ShopOpenSearchRepositoryImpl<'a> {
             ]),
         );
 
+        // Add min_score if provided
+        if let Some(min_score) = search.min_score {
+            body.as_object_mut()
+                .unwrap()
+                .insert("min_score".to_string(), json!(min_score));
+        }
+
         let response = self
             .client
             .search(SearchParts::Index(&["shops"]))

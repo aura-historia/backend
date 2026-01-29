@@ -22,7 +22,7 @@ use shop::data::shop_type_data::ShopTypeData;
 use std::collections::HashSet;
 use time::OffsetDateTime;
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct ProductSearchData {
     pub language: LanguageData,
     pub currency: CurrencyData,
@@ -113,6 +113,9 @@ pub struct ProductSearchData {
         skip_serializing_if = "Option::is_none"
     )]
     pub auction_end_query: Option<RangeQuery<OffsetDateTime>>,
+
+    #[serde(rename = "minScore", skip_serializing_if = "Option::is_none", default)]
+    pub min_score: Option<f64>,
 }
 
 impl From<ProductSearch> for ProductSearchData {
@@ -161,6 +164,7 @@ impl From<ProductSearch> for ProductSearchData {
             updated_query: search_filter.updated_query,
             auction_start_query: search_filter.auction_start_query,
             auction_end_query: search_filter.auction_end_query,
+            min_score: search_filter.min_score,
         }
     }
 }
@@ -211,6 +215,7 @@ impl From<ProductSearchData> for ProductSearch {
             updated_query: data.updated_query,
             auction_start_query: data.auction_start_query,
             auction_end_query: data.auction_end_query,
+            min_score: data.min_score,
         }
     }
 }
@@ -243,6 +248,7 @@ mod faker {
                 updated_query: fake_range_query_datetime(config, rng),
                 auction_start_query: fake_range_query_datetime(config, rng),
                 auction_end_query: fake_range_query_datetime(config, rng),
+                min_score: config.fake_with_rng(rng),
             }
         }
     }
@@ -295,6 +301,7 @@ mod tests {
             }),
             auction_start_query: None,
             auction_end_query: None,
+            min_score: None,
         };
         let expected = json!({
             "language": "de",
@@ -392,6 +399,7 @@ mod tests {
             }),
             auction_start_query: None,
             auction_end_query: None,
+            min_score: None,
         };
 
         let actual: ProductSearchData = serde_json::from_value(json).unwrap();
@@ -419,6 +427,7 @@ mod tests {
             updated_query: None,
             auction_start_query: None,
             auction_end_query: None,
+            min_score: None,
         };
         let expected = json!({
             "language": "de",
@@ -456,6 +465,75 @@ mod tests {
             updated_query: None,
             auction_start_query: None,
             auction_end_query: None,
+            min_score: None,
+        };
+
+        let actual: ProductSearchData = serde_json::from_value(json).unwrap();
+
+        assert_eq!(expected, actual);
+    }
+
+    #[test]
+    fn should_serialize_data_when_min_score_for_filtering() {
+        let search_filter = ProductSearchData {
+            language: LanguageData::De,
+            currency: CurrencyData::Eur,
+            product_query: "Boop".try_into().unwrap(),
+            shop_name_query: Default::default(),
+            exclude_shop_name_query: Default::default(),
+            shop_type_query: Default::default(),
+            price_query: None,
+            state_query: Default::default(),
+            origin_year_query: None,
+            authenticity_query: Default::default(),
+            condition_query: Default::default(),
+            provenance_query: Default::default(),
+            restoration_query: Default::default(),
+            created_query: None,
+            updated_query: None,
+            auction_start_query: None,
+            auction_end_query: None,
+            min_score: Some(0.75),
+        };
+        let expected = json!({
+            "language": "de",
+            "currency": "EUR",
+            "productQuery": "Boop",
+            "minScore": 0.75
+        });
+
+        let actual = serde_json::to_value(search_filter).unwrap();
+
+        assert_eq!(expected, actual);
+    }
+
+    #[test]
+    fn should_deserialize_data_when_min_score_for_filtering() {
+        let json = json!({
+            "language": "de",
+            "currency": "EUR",
+            "productQuery": "Boop",
+            "minScore": 0.5
+        });
+        let expected = ProductSearchData {
+            language: LanguageData::De,
+            currency: CurrencyData::Eur,
+            product_query: "Boop".try_into().unwrap(),
+            shop_name_query: Default::default(),
+            exclude_shop_name_query: Default::default(),
+            shop_type_query: Default::default(),
+            price_query: None,
+            state_query: Default::default(),
+            origin_year_query: None,
+            authenticity_query: Default::default(),
+            condition_query: Default::default(),
+            provenance_query: Default::default(),
+            restoration_query: Default::default(),
+            created_query: None,
+            updated_query: None,
+            auction_start_query: None,
+            auction_end_query: None,
+            min_score: Some(0.5),
         };
 
         let actual: ProductSearchData = serde_json::from_value(json).unwrap();
