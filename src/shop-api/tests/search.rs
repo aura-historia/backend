@@ -192,8 +192,14 @@ async fn should_200_when_min_score_filters_results() {
         image: Some("https://modern-store.com/logo.jpg".parse().unwrap()),
     };
 
-    repository.index_shop_document(high_relevance_shop).await.unwrap();
-    repository.index_shop_document(low_relevance_shop).await.unwrap();
+    repository
+        .index_shop_document(high_relevance_shop)
+        .await
+        .unwrap();
+    repository
+        .index_shop_document(low_relevance_shop)
+        .await
+        .unwrap();
     refresh_index("shops").await;
     tokio::time::sleep(tokio::time::Duration::from_secs(3)).await;
 
@@ -214,7 +220,7 @@ async fn should_200_when_min_score_filters_results() {
             .build(),
         context: Default::default(),
     };
-    
+
     let response = handle(
         lambda_event,
         &MockGetShopService::default(),
@@ -223,7 +229,7 @@ async fn should_200_when_min_score_filters_results() {
     )
     .await
     .unwrap();
-    
+
     assert_eq!(200, response.status_code);
 
     let payload = serde_json::from_value::<JsonCursoredData<GetShopData>>(

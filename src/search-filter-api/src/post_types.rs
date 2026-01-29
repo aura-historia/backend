@@ -2,7 +2,7 @@ use product::data::product_search_data::ProductSearchData;
 use search_filter::core::user_search_filter_name::UserSearchFilterName;
 use serde::{Deserialize, Serialize};
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct PostUserSearchFilterData {
     pub name: UserSearchFilterName,
@@ -118,6 +118,7 @@ mod tests {
                     min: Some(datetime!(2000 - 05 - 04 0:00 UTC)),
                     max: Some(datetime!(2025 - 05 - 04 0:00 UTC)),
                 }),
+                min_score: None,
             },
         };
 

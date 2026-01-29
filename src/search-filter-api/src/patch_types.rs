@@ -26,7 +26,7 @@ use std::collections::HashSet;
 use time::OffsetDateTime;
 
 #[cfg_attr(feature = "test-data", derive(fake::Dummy))]
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
 #[serde(rename_all = "camelCase")]
 pub struct PatchUserSearchFilterData {
     #[serde(skip_serializing_if = "Option::is_none", default)]
@@ -36,7 +36,7 @@ pub struct PatchUserSearchFilterData {
     pub search: Option<PatchProductSearchData>,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
 #[serde(rename_all = "camelCase")]
 pub struct PatchProductSearchData {
     #[serde(skip_serializing_if = "Option::is_none", default)]

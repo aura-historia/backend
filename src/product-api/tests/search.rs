@@ -2299,14 +2299,14 @@ async fn should_200_when_min_score_filters_results() {
     )
     .await
     .unwrap();
-    
+
     assert_eq!(200, response.status_code);
 
     let json = extract_apigw_response_json_body!(response);
     let response_data: JsonCursoredData<
         PersonalizedData<GetProductSummaryData, ProductUserStateData>,
     > = serde_json::from_value(json).unwrap();
-    
+
     // Should return filtered results (at least 1, at most 2)
     assert!(response_data.items.len() >= 1);
     assert!(response_data.items.len() <= 2);

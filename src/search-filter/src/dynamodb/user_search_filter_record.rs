@@ -149,6 +149,7 @@ impl From<UserSearchFilterRecord> for UserSearchFilter {
                 updated_query: record.updated_query,
                 auction_start_query: record.auction_start_query,
                 auction_end_query: record.auction_end_query,
+                min_score: None,
             },
             created: record.created,
             updated: record.updated,
