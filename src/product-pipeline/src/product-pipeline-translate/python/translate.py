@@ -40,19 +40,22 @@ def translate(
         for text in texts
     ]
 
-    input_ids = tokenizer.apply_chat_template(
+    batch_encoding = tokenizer.apply_chat_template(
         messages_batch,
         tokenize=True,
         add_generation_prompt=False,
         padding=True,
         return_tensors="pt",
-    ).to(model.device)
+    )
+    input_ids = batch_encoding["input_ids"].to(model.device)
+    attention_mask = batch_encoding["attention_mask"].to(model.device)
 
     input_len = input_ids.shape[1]
 
     with torch.inference_mode():
         output_ids = model.generate(
             input_ids,
+            attention_mask=attention_mask,
             max_new_tokens=2048,
             do_sample=True,
             top_k=20,
