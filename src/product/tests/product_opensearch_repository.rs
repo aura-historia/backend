@@ -437,6 +437,7 @@ async fn should_search_product_documents() {
         updated_query: None,
         auction_start_query: None,
         auction_end_query: None,
+        min_score: None,
     };
     let response = repository
         .search_product_documents(
@@ -547,6 +548,7 @@ async fn should_omit_descriptions_in_response_for_search_product_documents() {
         updated_query: None,
         auction_start_query: None,
         auction_end_query: None,
+        min_score: None,
     };
     let response = repository
         .search_product_documents(
@@ -629,6 +631,7 @@ async fn should_search_product_documents_when_all_arguments_are_given() {
         }),
         auction_start_query: None,
         auction_end_query: None,
+        min_score: None,
     };
     let sort = Sort {
         sort: SortProductField::Price,
@@ -688,6 +691,7 @@ async fn should_search_product_documents_when_states_are_given(#[case] states: &
         updated_query: None,
         auction_start_query: None,
         auction_end_query: None,
+        min_score: None,
     };
     let response = repository
         .search_product_documents(
@@ -748,6 +752,7 @@ async fn should_search_product_documents_when_no_states_are_given() {
         updated_query: None,
         auction_start_query: None,
         auction_end_query: None,
+        min_score: None,
     };
     let response = repository
         .search_product_documents(
@@ -831,6 +836,7 @@ async fn should_search_product_documents_when_price_range_is_given(
         updated_query: None,
         auction_start_query: None,
         auction_end_query: None,
+        min_score: None,
     };
     let response = repository
         .search_product_documents(
@@ -916,6 +922,7 @@ async fn should_search_product_documents_respecting_paging_when_sorted_by_price(
         updated_query: None,
         auction_start_query: None,
         auction_end_query: None,
+        min_score: None,
     };
     let response = repository
         .search_product_documents(
@@ -1005,6 +1012,7 @@ async fn should_search_product_documents_respecting_search_after_when_sorted_by_
         updated_query: None,
         auction_start_query: None,
         auction_end_query: None,
+        min_score: None,
     };
     let response = repository
         .search_product_documents(
@@ -2226,6 +2234,7 @@ async fn should_search_product_documents_when_exact_year_is_given_for_stored_exa
         updated_query: None,
         auction_start_query: None,
         auction_end_query: None,
+        min_score: None,
     };
     let response = repository
         .search_product_documents(
@@ -2320,6 +2329,7 @@ async fn should_search_product_documents_when_only_min_year_is_given_for_stored_
         updated_query: None,
         auction_start_query: None,
         auction_end_query: None,
+        min_score: None,
     };
     let response = repository
         .search_product_documents(
@@ -2414,6 +2424,7 @@ async fn should_search_product_documents_when_only_max_year_is_given_for_stored_
         updated_query: None,
         auction_start_query: None,
         auction_end_query: None,
+        min_score: None,
     };
     let response = repository
         .search_product_documents(
@@ -2508,6 +2519,7 @@ async fn should_search_product_documents_when_min_and_max_year_is_given_for_stor
         updated_query: None,
         auction_start_query: None,
         auction_end_query: None,
+        min_score: None,
     };
     let response = repository
         .search_product_documents(
@@ -2604,6 +2616,7 @@ async fn should_search_product_documents_when_only_min_year_is_given_for_stored_
         updated_query: None,
         auction_start_query: None,
         auction_end_query: None,
+        min_score: None,
     };
     let response = repository
         .search_product_documents(
@@ -2698,6 +2711,7 @@ async fn should_search_product_documents_when_only_max_year_is_given_for_stored_
         updated_query: None,
         auction_start_query: None,
         auction_end_query: None,
+        min_score: None,
     };
     let response = repository
         .search_product_documents(
@@ -2792,6 +2806,7 @@ async fn should_search_product_documents_when_min_and_max_year_is_given_for_stor
         updated_query: None,
         auction_start_query: None,
         auction_end_query: None,
+        min_score: None,
     };
     let response = repository
         .search_product_documents(
@@ -2872,6 +2887,7 @@ async fn should_search_product_documents_when_authenticity_filter_is_given(
         updated_query: None,
         auction_start_query: None,
         auction_end_query: None,
+        min_score: None,
     };
     let response = repository
         .search_product_documents(
@@ -2944,6 +2960,7 @@ async fn should_search_product_documents_when_condition_filter_is_given(
         updated_query: None,
         auction_start_query: None,
         auction_end_query: None,
+        min_score: None,
     };
     let response = repository
         .search_product_documents(
@@ -3015,6 +3032,7 @@ async fn should_search_product_documents_when_provenance_filter_is_given(
         updated_query: None,
         auction_start_query: None,
         auction_end_query: None,
+        min_score: None,
     };
     let response = repository
         .search_product_documents(
@@ -3085,6 +3103,7 @@ async fn should_search_product_documents_when_restoration_filter_is_given(
         updated_query: None,
         auction_start_query: None,
         auction_end_query: None,
+        min_score: None,
     };
     let response = repository
         .search_product_documents(
@@ -3153,6 +3172,7 @@ async fn should_search_product_documents_when_shop_types_are_given(
         updated_query: None,
         auction_start_query: None,
         auction_end_query: None,
+        min_score: None,
     };
     let response = repository
         .search_product_documents(
@@ -3239,6 +3259,7 @@ async fn should_search_product_documents_when_shop_names_are_given_for_keyword_f
         updated_query: None,
         auction_start_query: None,
         auction_end_query: None,
+        min_score: None,
     };
     let response = repository
         .search_product_documents(
@@ -3328,6 +3349,7 @@ async fn should_search_product_documents_when_excluded_shop_names_are_given(
         updated_query: None,
         auction_start_query: None,
         auction_end_query: None,
+        min_score: None,
     };
     let response = repository
         .search_product_documents(
@@ -3435,6 +3457,7 @@ async fn should_search_product_documents_when_auction_start_range_is_given(
         updated_query: None,
         auction_start_query: Some(auction_start_query),
         auction_end_query: None,
+        min_score: None,
     };
     let response = repository
         .search_product_documents(
@@ -3565,6 +3588,7 @@ async fn should_search_product_documents_when_auction_end_range_is_given(
         updated_query: None,
         auction_start_query: None,
         auction_end_query: Some(auction_end_query),
+        min_score: None,
     };
     let response = repository
         .search_product_documents(
@@ -3610,4 +3634,215 @@ async fn should_search_product_documents_when_auction_end_range_is_given(
             .iter()
             .all(|product| actual_items.contains(product))
     );
+}
+
+#[localstack_test(services = [OpenSearch()])]
+async fn should_filter_product_documents_when_min_score_is_given() {
+    // Create products with varying relevance scores
+    let high_relevance_product = ProductDocument {
+        product_id: ProductId::new(),
+        product_slug_id: Faker.fake(),
+        shop_slug_id: Faker.fake(),
+        event_id: EventId::new(),
+        shop_id: Default::default(),
+        shops_product_id: ShopsProductId::from("high-rel"),
+        shop_name: "Test Shop".to_string(),
+        shop_type: ShopTypeDocument::CommercialDealer,
+        title_native: TextDocument {
+            text: "Antique Vase".to_string(),
+            language: LanguageDocument::En,
+        },
+        title_de: Some("Antike Vase Antik".to_string()),
+        title_en: Some("Antique Vase Antique".to_string()),
+        title_fr: Some("Vase Antique".to_string()),
+        title_es: Some("Jarrón Antiguo".to_string()),
+        description_de: Some("Antike Vase aus dem 18. Jahrhundert".to_string()),
+        description_en: Some("Antique vase from the 18th century".to_string()),
+        description_fr: Some("Vase antique du 18ème siècle".to_string()),
+        description_es: Some("Jarrón antiguo del siglo XVIII".to_string()),
+        price_eur: Some(1000),
+        price_usd: None,
+        price_gbp: None,
+        price_aud: None,
+        price_cad: None,
+        price_nzd: None,
+        price_estimate_min_eur: None,
+        price_estimate_min_usd: None,
+        price_estimate_min_gbp: None,
+        price_estimate_min_aud: None,
+        price_estimate_min_cad: None,
+        price_estimate_min_nzd: None,
+        price_estimate_max_eur: None,
+        price_estimate_max_usd: None,
+        price_estimate_max_gbp: None,
+        price_estimate_max_aud: None,
+        price_estimate_max_cad: None,
+        price_estimate_max_nzd: None,
+        state: ProductStateDocument::Available,
+        url: Url::parse("https://example.com/high").unwrap(),
+        images: vec![],
+        text_embedding: None,
+        origin_year_min: None,
+        origin_year: None,
+        origin_year_max: None,
+        authenticity: None,
+        condition: None,
+        provenance: None,
+        restoration: None,
+        created: OffsetDateTime::now_utc(),
+        updated: OffsetDateTime::now_utc(),
+        auction_start: None,
+        auction_end: None,
+    };
+
+    let low_relevance_product = ProductDocument {
+        product_id: ProductId::new(),
+        product_slug_id: Faker.fake(),
+        shop_slug_id: Faker.fake(),
+        event_id: EventId::new(),
+        shop_id: Default::default(),
+        shops_product_id: ShopsProductId::from("low-rel"),
+        shop_name: "Other Shop".to_string(),
+        shop_type: ShopTypeDocument::PrivateSeller,
+        title_native: TextDocument {
+            text: "Modern Item".to_string(),
+            language: LanguageDocument::En,
+        },
+        title_de: Some("Moderner Gegenstand".to_string()),
+        title_en: Some("Modern Item antique mentioned".to_string()),
+        title_fr: Some("Article moderne".to_string()),
+        title_es: Some("Artículo moderno".to_string()),
+        description_de: Some("Ein moderner Gegenstand".to_string()),
+        description_en: Some("A modern item".to_string()),
+        description_fr: Some("Un article moderne".to_string()),
+        description_es: Some("Un artículo moderno".to_string()),
+        price_eur: Some(50),
+        price_usd: None,
+        price_gbp: None,
+        price_aud: None,
+        price_cad: None,
+        price_nzd: None,
+        price_estimate_min_eur: None,
+        price_estimate_min_usd: None,
+        price_estimate_min_gbp: None,
+        price_estimate_min_aud: None,
+        price_estimate_min_cad: None,
+        price_estimate_min_nzd: None,
+        price_estimate_max_eur: None,
+        price_estimate_max_usd: None,
+        price_estimate_max_gbp: None,
+        price_estimate_max_aud: None,
+        price_estimate_max_cad: None,
+        price_estimate_max_nzd: None,
+        state: ProductStateDocument::Available,
+        url: Url::parse("https://example.com/low").unwrap(),
+        images: vec![],
+        text_embedding: None,
+        origin_year_min: None,
+        origin_year: None,
+        origin_year_max: None,
+        authenticity: None,
+        condition: None,
+        provenance: None,
+        restoration: None,
+        created: OffsetDateTime::now_utc(),
+        updated: OffsetDateTime::now_utc(),
+        auction_start: None,
+        auction_end: None,
+    };
+
+    let client = get_opensearch_client().await;
+    let repository = ProductOpenSearchRepositoryImpl::new(client);
+
+    // Create both products
+    let response = repository
+        .create_product_documents(vec![
+            high_relevance_product.clone(),
+            low_relevance_product.clone(),
+        ])
+        .await
+        .unwrap();
+    assert!(!response.errors);
+    refresh_index("products").await;
+    tokio::time::sleep(Duration::from_millis(3000)).await;
+
+    // Search without min_score - should return both products
+    let search_without_threshold = ProductSearch {
+        language: Language::En,
+        currency: Currency::Eur,
+        product_query: "antique".try_into().unwrap(),
+        shop_name_query: Default::default(),
+        exclude_shop_name_query: Default::default(),
+        shop_type_query: Default::default(),
+        price_query: None,
+        state_query: Default::default(),
+        origin_year_query: None,
+        authenticity_query: Default::default(),
+        condition_query: Default::default(),
+        provenance_query: Default::default(),
+        restoration_query: Default::default(),
+        created_query: None,
+        updated_query: None,
+        auction_start_query: None,
+        auction_end_query: None,
+        min_score: None,
+    };
+
+    let response_without_threshold = repository
+        .search_product_documents(
+            &search_without_threshold,
+            &Sort {
+                sort: SortProductField::Score,
+                order: SortOrder::Desc,
+            },
+            &None,
+        )
+        .await
+        .unwrap();
+
+    // Should return both products (high relevance with "Antique" in title, low with "antique mentioned")
+    assert_eq!(response_without_threshold.hits.hits.len(), 2);
+
+    // Search with high min_score threshold - should filter out low relevance product
+    let search_with_threshold = ProductSearch {
+        language: Language::En,
+        currency: Currency::Eur,
+        product_query: "antique".try_into().unwrap(),
+        shop_name_query: Default::default(),
+        exclude_shop_name_query: Default::default(),
+        shop_type_query: Default::default(),
+        price_query: None,
+        state_query: Default::default(),
+        origin_year_query: None,
+        authenticity_query: Default::default(),
+        condition_query: Default::default(),
+        provenance_query: Default::default(),
+        restoration_query: Default::default(),
+        created_query: None,
+        updated_query: None,
+        auction_start_query: None,
+        auction_end_query: None,
+        min_score: Some(0.5),
+    };
+
+    let response_with_threshold = repository
+        .search_product_documents(
+            &search_with_threshold,
+            &Sort {
+                sort: SortProductField::Score,
+                order: SortOrder::Desc,
+            },
+            &None,
+        )
+        .await
+        .unwrap();
+
+    // Should return only high relevance product
+    assert!(response_with_threshold.hits.hits.len() <= 2);
+    assert!(response_with_threshold.hits.hits.len() >= 1);
+
+    // Verify that the returned products all have scores >= min_score
+    for hit in response_with_threshold.hits.hits {
+        assert!(hit.score.unwrap_or(0.0) >= 0.5);
+    }
 }

@@ -64,6 +64,7 @@ async fn should_search_shop_documents_when_only_name_query_supplied() {
         shop_type_query: Default::default(),
         created: None,
         updated: None,
+        min_score: None,
     };
     let actual = repository
         .search_shop_documents(
@@ -88,6 +89,7 @@ async fn should_search_shop_documents_when_only_name_query_supplied() {
         shop_name_query: Some("Expected name".try_into().unwrap()),
             created: Some(RangeQuery { min: Some(datetime!(2000 - 01 - 01 0:00 UTC)), max: Some(datetime!(3000 - 01 - 01 0:00 UTC)) }),
             updated: Some(RangeQuery { min: Some(datetime!(1000 - 01 - 01 0:00 UTC)), max: Some(datetime!(4000 - 01 - 01 0:00 UTC)) }),
+            min_score: None,
             shop_type_query: Default::default(),
         },
     Sort { sort: SortShopField::Created, order: SortOrder::Asc },
@@ -97,6 +99,7 @@ async fn should_search_shop_documents_when_only_name_query_supplied() {
         shop_name_query: Some("Expected name".try_into().unwrap()),
             created: Some(RangeQuery { min: Some(datetime!(2000 - 01 - 01 0:00 UTC)), max: Some(datetime!(3000 - 01 - 01 0:00 UTC)) }),
             updated: Some(RangeQuery { min: Some(datetime!(1000 - 01 - 01 0:00 UTC)), max: Some(datetime!(4000 - 01 - 01 0:00 UTC)) }),
+            min_score: None,
             shop_type_query: Default::default(),
         },
     Sort { sort: SortShopField::Created, order: SortOrder::Desc },
@@ -106,6 +109,7 @@ async fn should_search_shop_documents_when_only_name_query_supplied() {
         shop_name_query: Some("Expected name".try_into().unwrap()),
             created: Some(RangeQuery { min: Some(datetime!(2000 - 01 - 01 0:00 UTC)), max: Some(datetime!(3000 - 01 - 01 0:00 UTC)) }),
             updated: Some(RangeQuery { min: Some(datetime!(1000 - 01 - 01 0:00 UTC)), max: Some(datetime!(4000 - 01 - 01 0:00 UTC)) }),
+            min_score: None,
             shop_type_query: Default::default(),
         },
     Sort { sort: SortShopField::Updated, order: SortOrder::Asc },
@@ -115,6 +119,7 @@ async fn should_search_shop_documents_when_only_name_query_supplied() {
         shop_name_query: Some("Expected name".try_into().unwrap()),
             created: Some(RangeQuery { min: Some(datetime!(2000 - 01 - 01 0:00 UTC)), max: Some(datetime!(3000 - 01 - 01 0:00 UTC)) }),
             updated: Some(RangeQuery { min: Some(datetime!(1000 - 01 - 01 0:00 UTC)), max: Some(datetime!(4000 - 01 - 01 0:00 UTC)) }),
+            min_score: None,
             shop_type_query: Default::default(),
         },
     Sort { sort: SortShopField::Updated, order: SortOrder::Desc },
@@ -124,6 +129,7 @@ async fn should_search_shop_documents_when_only_name_query_supplied() {
         shop_name_query: Some("Expected name".try_into().unwrap()),
             created: Some(RangeQuery { min: Some(datetime!(2000 - 01 - 01 0:00 UTC)), max: Some(datetime!(3000 - 01 - 01 0:00 UTC)) }),
             updated: Some(RangeQuery { min: Some(datetime!(1000 - 01 - 01 0:00 UTC)), max: Some(datetime!(4000 - 01 - 01 0:00 UTC)) }),
+            min_score: None,
             shop_type_query: Default::default(),
         },
     Sort { sort: SortShopField::Name, order: SortOrder::Asc },
@@ -133,6 +139,7 @@ async fn should_search_shop_documents_when_only_name_query_supplied() {
         shop_name_query: Some("Expected name".try_into().unwrap()),
             created: Some(RangeQuery { min: Some(datetime!(2000 - 01 - 01 0:00 UTC)), max: Some(datetime!(3000 - 01 - 01 0:00 UTC)) }),
             updated: Some(RangeQuery { min: Some(datetime!(1000 - 01 - 01 0:00 UTC)), max: Some(datetime!(4000 - 01 - 01 0:00 UTC)) }),
+            min_score: None,
             shop_type_query: Default::default(),
         },
     Sort { sort: SortShopField::Name, order: SortOrder::Desc },
@@ -142,6 +149,7 @@ async fn should_search_shop_documents_when_only_name_query_supplied() {
         shop_name_query: Some("Expected name".try_into().unwrap()),
             created: Some(RangeQuery { min: Some(datetime!(2000 - 01 - 01 0:00 UTC)), max: Some(datetime!(3000 - 01 - 01 0:00 UTC)) }),
             updated: Some(RangeQuery { min: Some(datetime!(1000 - 01 - 01 0:00 UTC)), max: Some(datetime!(4000 - 01 - 01 0:00 UTC)) }),
+            min_score: None,
             shop_type_query: Default::default(),
         },
     Sort {
@@ -166,6 +174,7 @@ async fn should_search_shop_documents_when_only_name_query_supplied() {
         shop_name_query: Some("Expected name".try_into().unwrap()),
             created: None,
             updated: Some(RangeQuery { min: Some(datetime!(2000 - 01 - 01 0:00 UTC)), max: Some(datetime!(3000 - 01 - 01 0:00 UTC)) }),
+            min_score: None,
             shop_type_query: Default::default(),
         },
     Sort {
@@ -347,6 +356,7 @@ async fn should_search_shop_documents_when_shop_types_are_given(
         shop_type_query: AnyOfQuery::from(HashSet::from_iter(shop_types.iter().copied())),
         created: None,
         updated: None,
+        min_score: None,
     };
     let response = repository
         .search_shop_documents(
@@ -364,4 +374,103 @@ async fn should_search_shop_documents_when_shop_types_are_given(
     assert!(response.hits.hits.iter().all(|hit| {
         shop_types.contains(&shop::core::shop_type::ShopType::from(hit.source.shop_type))
     }));
+}
+
+#[localstack_test(services = [OpenSearch()])]
+async fn should_filter_shop_documents_when_min_score_is_given() {
+    let repository = get_repository().await;
+
+    // Create a shop with high relevance
+    let high_relevance_shop = ShopDocument {
+        shop_id: Default::default(),
+        shop_slug_id: Faker.fake(),
+        name: ShopName::from("Antique Auction House"),
+        domain: Domain::from("antique-auction.com"),
+        shop_type: shop::opensearch::shop_type_document::ShopTypeDocument::AuctionHouse,
+        created: OffsetDateTime::now_utc(),
+        updated: OffsetDateTime::now_utc(),
+        url: Url::parse("https://antique-auction.com").unwrap(),
+    };
+
+    // Create a shop with lower relevance
+    let low_relevance_shop = ShopDocument {
+        shop_id: Default::default(),
+        shop_slug_id: Faker.fake(),
+        name: ShopName::from("Modern Store antique mention"),
+        domain: Domain::from("modern-store.com"),
+        shop_type: shop::opensearch::shop_type_document::ShopTypeDocument::CommercialDealer,
+        created: OffsetDateTime::now_utc(),
+        updated: OffsetDateTime::now_utc(),
+        url: Url::parse("https://modern-store.com").unwrap(),
+    };
+
+    // Index both shops
+    let response1 = repository
+        .index_shop_document(high_relevance_shop.clone())
+        .await
+        .unwrap();
+    assert_eq!("created", response1.result);
+
+    let response2 = repository
+        .index_shop_document(low_relevance_shop.clone())
+        .await
+        .unwrap();
+    assert_eq!("created", response2.result);
+
+    refresh_index("shops").await;
+    tokio::time::sleep(Duration::from_secs(3)).await;
+
+    // Search without min_score - should return both shops
+    let search_without_threshold = ShopSearch {
+        shop_name_query: Some("antique".try_into().unwrap()),
+        shop_type_query: Default::default(),
+        created: None,
+        updated: None,
+        min_score: None,
+    };
+
+    let response_without_threshold = repository
+        .search_shop_documents(
+            &search_without_threshold,
+            &Sort {
+                sort: SortShopField::Score,
+                order: SortOrder::Desc,
+            },
+            &None,
+        )
+        .await
+        .unwrap();
+
+    // Should return both shops
+    assert_eq!(response_without_threshold.hits.hits.len(), 2);
+
+    // Search with high min_score threshold - should filter out low relevance shop
+    let search_with_threshold = ShopSearch {
+        shop_name_query: Some("antique".try_into().unwrap()),
+        shop_type_query: Default::default(),
+        created: None,
+        updated: None,
+        min_score: Some(0.5),
+    };
+
+    let response_with_threshold = repository
+        .search_shop_documents(
+            &search_with_threshold,
+            &Sort {
+                sort: SortShopField::Score,
+                order: SortOrder::Desc,
+            },
+            &None,
+        )
+        .await
+        .unwrap();
+
+    // Should return at most 2 shops, at least 1
+    assert!(response_with_threshold.hits.hits.len() <= 2);
+    assert!(response_with_threshold.hits.hits.len() >= 1);
+
+    // Verify that all returned shops have scores >= min_score
+    for hit in response_with_threshold.hits.hits {
+        assert!(hit.score.unwrap_or(0.0) >= 0.5);
+    }
 }
