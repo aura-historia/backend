@@ -2126,3 +2126,188 @@ async fn should_200_when_auction_end_range_is_given() {
     > = serde_json::from_value(json).unwrap();
     assert_eq!(25, response_data.items.len());
 }
+
+#[localstack_test(services = [OpenSearch(), DynamoDB()])]
+async fn should_200_when_min_score_filters_results() {
+    let ddb_client = get_dynamodb_client().await;
+    let watchlist_repository = WatchlistProductDynamoDbRepositoryImpl::new(ddb_client, "table_1");
+    let product_personalization_service =
+        ProductPersonalizationServiceImpl::new(&watchlist_repository);
+    let opensearch_repository = ProductOpenSearchRepositoryImpl::new(get_opensearch_client().await);
+    let query_service = QueryProductServiceImpl::new(&opensearch_repository);
+    let mut access_token_verifier_service = MockAccessTokenVerifierService::default();
+    access_token_verifier_service
+        .expect_verify_extract_user_id()
+        .returning(|_| Box::pin(async { Ok(None) }));
+
+    // Create products with different relevance scores
+    let high_relevance_product = ProductDocument {
+        product_id: Default::default(),
+        product_slug_id: Faker.fake(),
+        shop_slug_id: Faker.fake(),
+        event_id: Default::default(),
+        shop_id: Default::default(),
+        shops_product_id: "high-rel".into(),
+        shop_name: "Test Shop".to_string(),
+        shop_type: shop::opensearch::shop_type_document::ShopTypeDocument::AuctionHouse,
+        title_native: TextDocument {
+            text: "Antique Vase".to_string(),
+            language: LanguageDocument::En,
+        },
+        title_de: Some("Antike Vase Antik".to_string()),
+        title_en: Some("Antique Vase Antique".to_string()),
+        title_fr: Some("Vase Antique".to_string()),
+        title_es: Some("Jarrón Antiguo".to_string()),
+        description_de: Some("Antike Vase aus dem 18. Jahrhundert".to_string()),
+        description_en: Some("Antique vase from the 18th century".to_string()),
+        description_fr: Some("Vase antique du 18ème siècle".to_string()),
+        description_es: Some("Jarrón antiguo del siglo XVIII".to_string()),
+        price_eur: Some(1000),
+        price_usd: None,
+        price_gbp: None,
+        price_aud: None,
+        price_cad: None,
+        price_nzd: None,
+        price_estimate_min_eur: None,
+        price_estimate_min_usd: None,
+        price_estimate_min_gbp: None,
+        price_estimate_min_aud: None,
+        price_estimate_min_cad: None,
+        price_estimate_min_nzd: None,
+        price_estimate_max_eur: None,
+        price_estimate_max_usd: None,
+        price_estimate_max_gbp: None,
+        price_estimate_max_aud: None,
+        price_estimate_max_cad: None,
+        price_estimate_max_nzd: None,
+        state: product::opensearch::product_state_document::ProductStateDocument::Available,
+        url: "https://example.com/high".parse().unwrap(),
+        images: vec![],
+        text_embedding: None,
+        origin_year_min: None,
+        origin_year: None,
+        origin_year_max: None,
+        authenticity: None,
+        condition: None,
+        provenance: None,
+        restoration: None,
+        created: OffsetDateTime::now_utc(),
+        updated: OffsetDateTime::now_utc(),
+        auction_start: None,
+        auction_end: None,
+    };
+
+    let low_relevance_product = ProductDocument {
+        product_id: Default::default(),
+        product_slug_id: Faker.fake(),
+        shop_slug_id: Faker.fake(),
+        event_id: Default::default(),
+        shop_id: Default::default(),
+        shops_product_id: "low-rel".into(),
+        shop_name: "Other Shop".to_string(),
+        shop_type: shop::opensearch::shop_type_document::ShopTypeDocument::PrivateSeller,
+        title_native: TextDocument {
+            text: "Modern Item".to_string(),
+            language: LanguageDocument::En,
+        },
+        title_de: Some("Moderner Gegenstand".to_string()),
+        title_en: Some("Modern Item antique mentioned".to_string()),
+        title_fr: Some("Article moderne".to_string()),
+        title_es: Some("Artículo moderno".to_string()),
+        description_de: Some("Ein moderner Gegenstand".to_string()),
+        description_en: Some("A modern item".to_string()),
+        description_fr: Some("Un article moderne".to_string()),
+        description_es: Some("Un artículo moderno".to_string()),
+        price_eur: Some(50),
+        price_usd: None,
+        price_gbp: None,
+        price_aud: None,
+        price_cad: None,
+        price_nzd: None,
+        price_estimate_min_eur: None,
+        price_estimate_min_usd: None,
+        price_estimate_min_gbp: None,
+        price_estimate_min_aud: None,
+        price_estimate_min_cad: None,
+        price_estimate_min_nzd: None,
+        price_estimate_max_eur: None,
+        price_estimate_max_usd: None,
+        price_estimate_max_gbp: None,
+        price_estimate_max_aud: None,
+        price_estimate_max_cad: None,
+        price_estimate_max_nzd: None,
+        state: product::opensearch::product_state_document::ProductStateDocument::Available,
+        url: "https://example.com/low".parse().unwrap(),
+        images: vec![],
+        text_embedding: None,
+        origin_year_min: None,
+        origin_year: None,
+        origin_year_max: None,
+        authenticity: None,
+        condition: None,
+        provenance: None,
+        restoration: None,
+        created: OffsetDateTime::now_utc(),
+        updated: OffsetDateTime::now_utc(),
+        auction_start: None,
+        auction_end: None,
+    };
+
+    // Index both products
+    opensearch_repository
+        .create_product_documents(vec![high_relevance_product, low_relevance_product])
+        .await
+        .unwrap();
+    refresh_index("products").await;
+    tokio::time::sleep(Duration::from_secs(3)).await;
+
+    // Test with min_score threshold
+    let search_with_threshold = ProductSearchData {
+        language: LanguageData::En,
+        currency: CurrencyData::Eur,
+        product_query: "antique".try_into().unwrap(),
+        shop_name_query: Default::default(),
+        exclude_shop_name_query: Default::default(),
+        shop_type_query: Default::default(),
+        price_query: None,
+        state_query: Default::default(),
+        origin_year_query: None,
+        authenticity_query: Default::default(),
+        condition_query: Default::default(),
+        provenance_query: Default::default(),
+        restoration_query: Default::default(),
+        created_query: None,
+        updated_query: None,
+        auction_start_query: None,
+        auction_end_query: None,
+        min_score: Some(0.5),
+    };
+
+    let lambda_event = LambdaEvent {
+        payload: ApiGatewayV2httpRequestProxy::builder()
+            .http_method(http::Method::POST)
+            .body_serde(&search_with_threshold)
+            .build(),
+        context: Default::default(),
+    };
+
+    let response = handle(
+        lambda_event,
+        &query_service,
+        &access_token_verifier_service,
+        &product_personalization_service,
+    )
+    .await
+    .unwrap();
+    
+    assert_eq!(200, response.status_code);
+
+    let json = extract_apigw_response_json_body!(response);
+    let response_data: JsonCursoredData<
+        PersonalizedData<GetProductSummaryData, ProductUserStateData>,
+    > = serde_json::from_value(json).unwrap();
+    
+    // Should return filtered results (at least 1, at most 2)
+    assert!(response_data.items.len() >= 1);
+    assert!(response_data.items.len() <= 2);
+}

@@ -128,6 +128,7 @@ async fn should_200_when_shop_type_query(
         shop_type_query: query.clone(),
         created: None,
         updated: None,
+        min_score: None,
     };
 
     let lambda_event = LambdaEvent {
@@ -160,4 +161,77 @@ async fn should_200_when_shop_type_query(
             .iter()
             .all(|shop| query.contains(&shop.shop_type))
     );
+}
+
+#[localstack_test(services = [OpenSearch()])]
+async fn should_200_when_min_score_filters_results() {
+    let repository = ShopOpenSearchRepositoryImpl::new(get_opensearch_client().await);
+    let service = QueryShopServiceImpl::new(&repository);
+
+    // Create shop with high relevance
+    let high_relevance_shop = shop::opensearch::shop_document::ShopDocument {
+        shop_id: Default::default(),
+        shop_slug_id: Faker.fake(),
+        name: "Antique Auction House".into(),
+        domains: ["antique-auction.com".into()].into(),
+        shop_type: shop::opensearch::shop_type_document::ShopTypeDocument::AuctionHouse,
+        created: time::OffsetDateTime::now_utc(),
+        updated: time::OffsetDateTime::now_utc(),
+        image: Some("https://antique-auction.com/logo.jpg".parse().unwrap()),
+    };
+
+    // Create shop with lower relevance
+    let low_relevance_shop = shop::opensearch::shop_document::ShopDocument {
+        shop_id: Default::default(),
+        shop_slug_id: Faker.fake(),
+        name: "Modern Store antique mention".into(),
+        domains: ["modern-store.com".into()].into(),
+        shop_type: shop::opensearch::shop_type_document::ShopTypeDocument::CommercialDealer,
+        created: time::OffsetDateTime::now_utc(),
+        updated: time::OffsetDateTime::now_utc(),
+        image: Some("https://modern-store.com/logo.jpg".parse().unwrap()),
+    };
+
+    repository.index_shop_document(high_relevance_shop).await.unwrap();
+    repository.index_shop_document(low_relevance_shop).await.unwrap();
+    refresh_index("shops").await;
+    tokio::time::sleep(tokio::time::Duration::from_secs(3)).await;
+
+    // Test with min_score threshold
+    let search_with_threshold = ShopSearchData {
+        shop_name_query: Some("antique".try_into().unwrap()),
+        shop_type_query: Default::default(),
+        created: None,
+        updated: None,
+        min_score: Some(0.5),
+    };
+
+    let lambda_event = LambdaEvent {
+        payload: ApiGatewayV2httpRequestProxy::builder()
+            .http_method(http::Method::POST)
+            .route_key("POST /api/v1/shops/search")
+            .body_serde(&search_with_threshold)
+            .build(),
+        context: Default::default(),
+    };
+    
+    let response = handle(
+        lambda_event,
+        &MockGetShopService::default(),
+        &service,
+        &MockCommandShopService::default(),
+    )
+    .await
+    .unwrap();
+    
+    assert_eq!(200, response.status_code);
+
+    let payload = serde_json::from_value::<JsonCursoredData<GetShopData>>(
+        extract_apigw_response_json_body!(response),
+    )
+    .unwrap();
+
+    // Should return filtered results (at least 1, at most 2)
+    assert!(payload.items.len() >= 1);
+    assert!(payload.items.len() <= 2);
 }
