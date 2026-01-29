@@ -397,7 +397,10 @@ impl<'a> ProductOpenSearchRepository for ProductOpenSearchRepositoryImpl<'a> {
 
         // ---------- Min Score ----------
         if let Some(min_score) = search.min_score {
-            body["min_score"] = json!(min_score);
+            // Validate that min_score is finite and non-negative
+            if min_score.is_finite() && min_score >= 0.0 {
+                body["min_score"] = json!(min_score);
+            }
         }
 
         // ---------- Execute ----------

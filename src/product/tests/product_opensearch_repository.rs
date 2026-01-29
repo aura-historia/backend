@@ -3846,3 +3846,108 @@ async fn should_filter_product_documents_when_min_score_is_given() {
         assert!(hit.score.unwrap_or(0.0) >= 0.5);
     }
 }
+
+#[localstack_test(services = [OpenSearch()])]
+async fn should_ignore_invalid_min_score_when_nan() {
+    let product = ProductDocument {
+        product_id: ProductId::new(),
+        product_slug_id: Faker.fake(),
+        shop_slug_id: Faker.fake(),
+        event_id: EventId::new(),
+        shop_id: Default::default(),
+        shops_product_id: ShopsProductId::from("test"),
+        shop_name: "Test Shop".to_string(),
+        shop_type: ShopTypeDocument::CommercialDealer,
+        title_native: TextDocument {
+            text: "Test Product".to_string(),
+            language: LanguageDocument::En,
+        },
+        title_de: Some("Test Produkt".to_string()),
+        title_en: Some("Test Product".to_string()),
+        title_fr: Some("Produit Test".to_string()),
+        title_es: Some("Producto de Prueba".to_string()),
+        description_de: None,
+        description_en: None,
+        description_fr: None,
+        description_es: None,
+        price_eur: Some(100),
+        price_usd: None,
+        price_gbp: None,
+        price_aud: None,
+        price_cad: None,
+        price_nzd: None,
+        price_estimate_min_eur: None,
+        price_estimate_min_usd: None,
+        price_estimate_min_gbp: None,
+        price_estimate_min_aud: None,
+        price_estimate_min_cad: None,
+        price_estimate_min_nzd: None,
+        price_estimate_max_eur: None,
+        price_estimate_max_usd: None,
+        price_estimate_max_gbp: None,
+        price_estimate_max_aud: None,
+        price_estimate_max_cad: None,
+        price_estimate_max_nzd: None,
+        state: ProductStateDocument::Available,
+        url: Url::parse("https://example.com/test").unwrap(),
+        images: vec![],
+        text_embedding: None,
+        origin_year_min: None,
+        origin_year: None,
+        origin_year_max: None,
+        authenticity: None,
+        condition: None,
+        provenance: None,
+        restoration: None,
+        created: OffsetDateTime::now_utc(),
+        updated: OffsetDateTime::now_utc(),
+        auction_start: None,
+        auction_end: None,
+    };
+
+    let client = get_opensearch_client().await;
+    let repository = ProductOpenSearchRepositoryImpl::new(client);
+    repository
+        .create_product_documents(vec![product])
+        .await
+        .unwrap();
+    refresh_index("products").await;
+    tokio::time::sleep(Duration::from_millis(3000)).await;
+
+    // Search with NaN min_score - should be ignored and return results
+    let search = ProductSearch {
+        language: Language::En,
+        currency: Currency::Eur,
+        product_query: "Test".try_into().unwrap(),
+        shop_name_query: Default::default(),
+        exclude_shop_name_query: Default::default(),
+        shop_type_query: Default::default(),
+        price_query: None,
+        state_query: Default::default(),
+        origin_year_query: None,
+        authenticity_query: Default::default(),
+        condition_query: Default::default(),
+        provenance_query: Default::default(),
+        restoration_query: Default::default(),
+        created_query: None,
+        updated_query: None,
+        auction_start_query: None,
+        auction_end_query: None,
+        min_score: Some(f64::NAN),
+    };
+
+    let response = repository
+        .search_product_documents(
+            &search,
+            &Sort {
+                sort: SortProductField::Score,
+                order: SortOrder::Desc,
+            },
+            &None,
+        )
+        .await
+        .unwrap();
+
+    // Should return the product despite invalid min_score
+    assert_eq!(response.hits.hits.len(), 1);
+}

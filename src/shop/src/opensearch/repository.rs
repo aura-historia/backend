@@ -211,11 +211,14 @@ impl<'a> ShopOpenSearchRepository for ShopOpenSearchRepositoryImpl<'a> {
             ]),
         );
 
-        // Add min_score if provided
+        // Add min_score if provided and valid
         if let Some(min_score) = search.min_score {
-            body.as_object_mut()
-                .unwrap()
-                .insert("min_score".to_string(), json!(min_score));
+            // Validate that min_score is finite and non-negative
+            if min_score.is_finite() && min_score >= 0.0 {
+                body.as_object_mut()
+                    .unwrap()
+                    .insert("min_score".to_string(), json!(min_score));
+            }
         }
 
         let response = self

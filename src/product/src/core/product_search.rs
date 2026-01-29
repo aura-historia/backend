@@ -33,6 +33,10 @@ pub struct ProductSearch {
     pub updated_query: Option<RangeQuery<OffsetDateTime>>,
     pub auction_start_query: Option<RangeQuery<OffsetDateTime>>,
     pub auction_end_query: Option<RangeQuery<OffsetDateTime>>,
+    /// Minimum relevance score threshold for search results.
+    /// Results with scores below this threshold will be filtered out.
+    /// Typically ranges from 0.0 to higher values depending on the query.
+    /// When None, all matching results are returned regardless of score.
     pub min_score: Option<f64>,
 }
 
