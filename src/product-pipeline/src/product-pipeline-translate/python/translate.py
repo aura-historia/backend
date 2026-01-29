@@ -40,13 +40,14 @@ def translate(
         for text in texts
     ]
 
-    input_ids = tokenizer.apply_chat_template(
+    batch_encoding = tokenizer.apply_chat_template(
         messages_batch,
         tokenize=True,
         add_generation_prompt=False,
         padding=True,
         return_tensors="pt",
-    ).to(model.device)
+    )
+    input_ids = batch_encoding["input_ids"].to(model.device)
 
     input_len = input_ids.shape[1]
 
