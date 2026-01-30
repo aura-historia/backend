@@ -93,6 +93,7 @@ jobs:
         uses: aws-actions/configure-aws-credentials@v5.1.1
         with:
           role-to-assume: ${{ secrets.CI_DEPLOY_ROLE_ARN }}
+          role-duration-seconds: 14400 # 4 hours
           aws-region: ${{ vars.AWS_REGION }}
 
       - name: Deploy Image Builder CloudFormation
