@@ -2137,43 +2137,52 @@ Resources:
             cd /opt/product-pipeline-translate
             source .venv/bin/activate
             # ----------------------------
-            # INSTANCE STORE SETUP FOR HF CACHE
+            # INSTANCE STORE (CORRECT ZERO-COPY HF CACHE)
             # ----------------------------
-            # Detect root device
+            set -euxo pipefail
+
             ROOT_DEV=$(lsblk -ndo PKNAME "$(findmnt -n -o SOURCE /)")
-            # Pick first non-root NVMe disk
-            DEVICE=$(lsblk -ndo NAME,TYPE | awk '$2=="disk"{print "/dev/"$1}' | grep -v "$ROOT_DEV" | head -n1)
+            DEVICE=""
 
-            if [ -n "$DEVICE" ]; then
-              echo "Found instance store device: $DEVICE"
+            echo "Waiting for instance store NVMe..."
 
-              # Format if not already formatted
-              if ! blkid "$DEVICE" > /dev/null 2>&1; then
-                mkfs.xfs -f "$DEVICE"
-              fi
+            for i in {1..30}; do
+              DEVICE=$(lsblk -ndo NAME,TYPE | awk '$2=="disk"{print "/dev/"$1}' | grep -v "$ROOT_DEV" | head -n1 || true)
+              [ -n "$DEVICE" ] && break
+              sleep 1
+            done
 
-              # Mount it
-              mkdir -p /mnt/instance-store
-              mount -o noatime,nodiratime "$DEVICE" /mnt/instance-store
-
-              # Optional: persist in fstab
-              grep -q "$DEVICE" /etc/fstab || echo "$DEVICE /mnt/instance-store xfs defaults,nofail 0 0" >> /etc/fstab
-
-              # Copy preloaded Hugging Face cache to instance store
-              rsync -a --info=progress2 /opt/huggingface/ /mnt/instance-store/huggingface/
-
-              # Update environment variables to point to instance store
-              export HF_HOME=/mnt/instance-store/huggingface
-              export TRANSFORMERS_CACHE=/mnt/instance-store/huggingface
-              export SENTENCE_TRANSFORMERS_HOME=/mnt/instance-store/huggingface
-
-              echo "Hugging Face cache now on instance store at $HF_HOME"
-            else
-              echo "No instance store detected; falling back to AMI EBS cache at /opt/huggingface"
+            if [ -z "$DEVICE" ]; then
+              echo "❌ No instance store detected — using EBS"
               export HF_HOME=/opt/huggingface
               export TRANSFORMERS_CACHE=/opt/huggingface
               export SENTENCE_TRANSFORMERS_HOME=/opt/huggingface
+            else
+              echo "✅ Found instance store: $DEVICE"
+
+              if ! blkid "$DEVICE" >/dev/null 2>&1; then
+                mkfs.xfs -f "$DEVICE"
+              fi
+
+              mkdir -p /mnt/instance-store
+              mount -o noatime,nodiratime "$DEVICE" /mnt/instance-store
+
+              mkdir -p /mnt/instance-store/huggingface
+
+              # If /opt/huggingface is NOT already a symlink, replace it
+              if [ ! -L /opt/huggingface ]; then
+                echo "🔁 Moving HF cache pointer to NVMe (no copy)"
+                rm -rf /opt/huggingface
+                ln -s /mnt/instance-store/huggingface /opt/huggingface
+              fi
+
+              export HF_HOME=/opt/huggingface
+              export TRANSFORMERS_CACHE=/opt/huggingface
+              export SENTENCE_TRANSFORMERS_HOME=/opt/huggingface
+
+              echo "🔥 HuggingFace cache now lives on NVMe"
             fi
+
             # Run binary
             LOG_PATH="/var/log/product-pipeline-translate.log"
             echo "[$(date)] Running product-pipeline-translate..." | tee -a "$LOG_PATH"
@@ -2327,43 +2336,52 @@ Resources:
             cd /opt/product-pipeline-embed-text
             source .venv/bin/activate
             # ----------------------------
-            # INSTANCE STORE SETUP FOR HF CACHE
+            # INSTANCE STORE (CORRECT ZERO-COPY HF CACHE)
             # ----------------------------
-            # Detect root device
+            set -euxo pipefail
+
             ROOT_DEV=$(lsblk -ndo PKNAME "$(findmnt -n -o SOURCE /)")
-            # Pick first non-root NVMe disk
-            DEVICE=$(lsblk -ndo NAME,TYPE | awk '$2=="disk"{print "/dev/"$1}' | grep -v "$ROOT_DEV" | head -n1)
+            DEVICE=""
 
-            if [ -n "$DEVICE" ]; then
-              echo "Found instance store device: $DEVICE"
+            echo "Waiting for instance store NVMe..."
 
-              # Format if not already formatted
-              if ! blkid "$DEVICE" > /dev/null 2>&1; then
-                mkfs.xfs -f "$DEVICE"
-              fi
+            for i in {1..30}; do
+              DEVICE=$(lsblk -ndo NAME,TYPE | awk '$2=="disk"{print "/dev/"$1}' | grep -v "$ROOT_DEV" | head -n1 || true)
+              [ -n "$DEVICE" ] && break
+              sleep 1
+            done
 
-              # Mount it
-              mkdir -p /mnt/instance-store
-              mount -o noatime,nodiratime "$DEVICE" /mnt/instance-store
-
-              # Optional: persist in fstab
-              grep -q "$DEVICE" /etc/fstab || echo "$DEVICE /mnt/instance-store xfs defaults,nofail 0 0" >> /etc/fstab
-
-              # Copy preloaded Hugging Face cache to instance store
-              rsync -a --info=progress2 /opt/huggingface/ /mnt/instance-store/huggingface/
-
-              # Update environment variables to point to instance store
-              export HF_HOME=/mnt/instance-store/huggingface
-              export TRANSFORMERS_CACHE=/mnt/instance-store/huggingface
-              export SENTENCE_TRANSFORMERS_HOME=/mnt/instance-store/huggingface
-
-              echo "Hugging Face cache now on instance store at $HF_HOME"
-            else
-              echo "No instance store detected; falling back to AMI EBS cache at /opt/huggingface"
+            if [ -z "$DEVICE" ]; then
+              echo "❌ No instance store detected — using EBS"
               export HF_HOME=/opt/huggingface
               export TRANSFORMERS_CACHE=/opt/huggingface
               export SENTENCE_TRANSFORMERS_HOME=/opt/huggingface
+            else
+              echo "✅ Found instance store: $DEVICE"
+
+              if ! blkid "$DEVICE" >/dev/null 2>&1; then
+                mkfs.xfs -f "$DEVICE"
+              fi
+
+              mkdir -p /mnt/instance-store
+              mount -o noatime,nodiratime "$DEVICE" /mnt/instance-store
+
+              mkdir -p /mnt/instance-store/huggingface
+
+              # If /opt/huggingface is NOT already a symlink, replace it
+              if [ ! -L /opt/huggingface ]; then
+                echo "🔁 Moving HF cache pointer to NVMe (no copy)"
+                rm -rf /opt/huggingface
+                ln -s /mnt/instance-store/huggingface /opt/huggingface
+              fi
+
+              export HF_HOME=/opt/huggingface
+              export TRANSFORMERS_CACHE=/opt/huggingface
+              export SENTENCE_TRANSFORMERS_HOME=/opt/huggingface
+
+              echo "🔥 HuggingFace cache now lives on NVMe"
             fi
+
             # Run binary
             LOG_PATH="/var/log/product-pipeline-embed-text.log"
             echo "[$(date)] Running product-pipeline-embed-text..." | tee -a "$LOG_PATH"
@@ -2517,43 +2535,52 @@ Resources:
             cd /opt/product-pipeline-extract-attribute
             source .venv/bin/activate
             # ----------------------------
-            # INSTANCE STORE SETUP FOR HF CACHE
+            # INSTANCE STORE (CORRECT ZERO-COPY HF CACHE)
             # ----------------------------
-            # Detect root device
+            set -euxo pipefail
+
             ROOT_DEV=$(lsblk -ndo PKNAME "$(findmnt -n -o SOURCE /)")
-            # Pick first non-root NVMe disk
-            DEVICE=$(lsblk -ndo NAME,TYPE | awk '$2=="disk"{print "/dev/"$1}' | grep -v "$ROOT_DEV" | head -n1)
+            DEVICE=""
 
-            if [ -n "$DEVICE" ]; then
-              echo "Found instance store device: $DEVICE"
+            echo "Waiting for instance store NVMe..."
 
-              # Format if not already formatted
-              if ! blkid "$DEVICE" > /dev/null 2>&1; then
-                mkfs.xfs -f "$DEVICE"
-              fi
+            for i in {1..30}; do
+              DEVICE=$(lsblk -ndo NAME,TYPE | awk '$2=="disk"{print "/dev/"$1}' | grep -v "$ROOT_DEV" | head -n1 || true)
+              [ -n "$DEVICE" ] && break
+              sleep 1
+            done
 
-              # Mount it
-              mkdir -p /mnt/instance-store
-              mount -o noatime,nodiratime "$DEVICE" /mnt/instance-store
-
-              # Optional: persist in fstab
-              grep -q "$DEVICE" /etc/fstab || echo "$DEVICE /mnt/instance-store xfs defaults,nofail 0 0" >> /etc/fstab
-
-              # Copy preloaded Hugging Face cache to instance store
-              rsync -a --info=progress2 /opt/huggingface/ /mnt/instance-store/huggingface/
-
-              # Update environment variables to point to instance store
-              export HF_HOME=/mnt/instance-store/huggingface
-              export TRANSFORMERS_CACHE=/mnt/instance-store/huggingface
-              export SENTENCE_TRANSFORMERS_HOME=/mnt/instance-store/huggingface
-
-              echo "Hugging Face cache now on instance store at $HF_HOME"
-            else
-              echo "No instance store detected; falling back to AMI EBS cache at /opt/huggingface"
+            if [ -z "$DEVICE" ]; then
+              echo "❌ No instance store detected — using EBS"
               export HF_HOME=/opt/huggingface
               export TRANSFORMERS_CACHE=/opt/huggingface
               export SENTENCE_TRANSFORMERS_HOME=/opt/huggingface
+            else
+              echo "✅ Found instance store: $DEVICE"
+
+              if ! blkid "$DEVICE" >/dev/null 2>&1; then
+                mkfs.xfs -f "$DEVICE"
+              fi
+
+              mkdir -p /mnt/instance-store
+              mount -o noatime,nodiratime "$DEVICE" /mnt/instance-store
+
+              mkdir -p /mnt/instance-store/huggingface
+
+              # If /opt/huggingface is NOT already a symlink, replace it
+              if [ ! -L /opt/huggingface ]; then
+                echo "🔁 Moving HF cache pointer to NVMe (no copy)"
+                rm -rf /opt/huggingface
+                ln -s /mnt/instance-store/huggingface /opt/huggingface
+              fi
+
+              export HF_HOME=/opt/huggingface
+              export TRANSFORMERS_CACHE=/opt/huggingface
+              export SENTENCE_TRANSFORMERS_HOME=/opt/huggingface
+
+              echo "🔥 HuggingFace cache now lives on NVMe"
             fi
+
             # Run binary
             LOG_PATH="/var/log/product-pipeline-extract-attribute.log"
             echo "[$(date)] Running product-pipeline-extract-attribute..." | tee -a "$LOG_PATH"
