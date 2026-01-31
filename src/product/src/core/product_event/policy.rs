@@ -5,7 +5,7 @@ use common::{reason::Reason, shop_id::ShopId, shops_product_id::ShopsProductId};
 #[derive(Debug, Clone, PartialEq)]
 #[allow(clippy::large_enum_variant)]
 pub enum ProductPolicyEventPayload {
-    ProhibitedContent(ProhibitedContentProductPolicyEventPayload),
+    ProhibitedContentDecision(ProhibitedContentProductPolicyEventPayload),
 }
 
 #[cfg_attr(feature = "test-data", derive(fake::Dummy))]
