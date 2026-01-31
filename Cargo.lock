@@ -3349,13 +3349,9 @@ name = "product-pipeline"
 version = "0.1.0"
 dependencies = [
  "product-pipeline-asg-scale-control",
- "product-pipeline-asg-scale-persist-up",
  "product-pipeline-common",
- "product-pipeline-complete",
  "product-pipeline-embed-text",
  "product-pipeline-extract-attribute",
- "product-pipeline-init",
- "product-pipeline-test",
  "product-pipeline-translate",
 ]
 
@@ -3371,19 +3367,6 @@ dependencies = [
  "rstest",
  "serde_json",
  "time",
- "tokio",
- "tracing",
- "tracing-subscriber",
-]
-
-[[package]]
-name = "product-pipeline-asg-scale-persist-up"
-version = "0.1.0"
-dependencies = [
- "aws-config",
- "aws-sdk-autoscaling",
- "lambda_runtime",
- "serde_json",
  "tokio",
  "tracing",
  "tracing-subscriber",
@@ -3409,30 +3392,6 @@ dependencies = [
  "time",
  "tokio",
  "tracing",
-]
-
-[[package]]
-name = "product-pipeline-complete"
-version = "0.1.0"
-dependencies = [
- "async-trait",
- "aws-config",
- "aws-sdk-dynamodb",
- "aws-sdk-sqs",
- "common",
- "fake",
- "mockall",
- "opensearch",
- "product",
- "product-pipeline-common",
- "rstest",
- "serde",
- "serde_json",
- "serial_test",
- "test-api",
- "tokio",
- "tracing",
- "tracing-subscriber",
 ]
 
 [[package]]
@@ -3479,61 +3438,6 @@ dependencies = [
  "tokio",
  "tracing",
  "tracing-subscriber",
-]
-
-[[package]]
-name = "product-pipeline-init"
-version = "0.1.0"
-dependencies = [
- "async-trait",
- "aws-config",
- "aws-sdk-sqs",
- "common",
- "fake",
- "mockall",
- "product",
- "product-pipeline-common",
- "rstest",
- "serde",
- "serde_json",
- "tokio",
- "tracing",
- "tracing-subscriber",
-]
-
-[[package]]
-name = "product-pipeline-test"
-version = "0.1.0"
-dependencies = [
- "async-trait",
- "aws-config",
- "aws-sdk-sqs",
- "aws_lambda_events",
- "common",
- "fake",
- "itertools 0.14.0",
- "mockall",
- "product",
- "product-pipeline-common",
- "product-pipeline-complete",
- "product-pipeline-embed-text",
- "product-pipeline-extract-attribute",
- "product-pipeline-init",
- "product-pipeline-translate",
- "pyo3",
- "pyo3-ffi",
- "rstest",
- "serde",
- "serde_dynamo",
- "serde_json",
- "serial_test",
- "strum",
- "strum_macros",
- "test-api",
- "time",
- "tokio",
- "tracing",
- "uuid",
 ]
 
 [[package]]
