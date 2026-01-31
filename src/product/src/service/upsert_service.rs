@@ -1,6 +1,6 @@
 use crate::core::product::Product;
 use crate::core::product_event::ProductDomainEvent;
-use crate::dynamodb::product_event_record::ProductDomainEventRecord;
+use crate::dynamodb::product_event_record::domain::ProductDomainEventRecord;
 use crate::dynamodb::repository::{ProductDynamoDbRepository, extract_product_key};
 use crate::service::product_command::UpsertProductCommand;
 use async_trait::async_trait;

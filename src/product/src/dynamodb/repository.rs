@@ -1,4 +1,4 @@
-use crate::dynamodb::product_event_record::ProductDomainEventRecord;
+use crate::dynamodb::product_event_record::domain::ProductDomainEventRecord;
 use crate::dynamodb::product_record::{self, ProductRecord};
 use crate::dynamodb::product_update_record::ProductRecordUpdate;
 use async_trait::async_trait;
@@ -52,7 +52,10 @@ pub trait ProductDynamoDbRepository {
         &self,
         shop_id: &ShopId,
         shops_product_id: &ShopsProductId,
-    ) -> Result<Option<(ProductRecord, Vec<ProductDomainEventRecord>)>, SdkError<QueryError, HttpResponse>>;
+    ) -> Result<
+        Option<(ProductRecord, Vec<ProductDomainEventRecord>)>,
+        SdkError<QueryError, HttpResponse>,
+    >;
 
     async fn query_product_event_records(
         &self,
@@ -183,8 +186,10 @@ impl<'a> ProductDynamoDbRepository for ProductDynamoDbRepositoryImpl<'a> {
         &self,
         shop_id: &ShopId,
         shops_product_id: &ShopsProductId,
-    ) -> Result<Option<(ProductRecord, Vec<ProductDomainEventRecord>)>, SdkError<QueryError, HttpResponse>>
-    {
+    ) -> Result<
+        Option<(ProductRecord, Vec<ProductDomainEventRecord>)>,
+        SdkError<QueryError, HttpResponse>,
+    > {
         let composite = self
             .client
             .query()
@@ -295,7 +300,8 @@ impl<'a> ProductDynamoDbRepository for ProductDynamoDbRepositoryImpl<'a> {
             .into_iter()
             .flat_map(|query_output| query_output.items.unwrap_or_default())
             .filter_map(|event_record_attr_map| {
-                match serde_dynamo::from_item::<_, ProductDomainEventRecord>(event_record_attr_map) {
+                match serde_dynamo::from_item::<_, ProductDomainEventRecord>(event_record_attr_map)
+                {
                     Ok(event_record) => Some(event_record),
                     Err(err) => {
                         error!(

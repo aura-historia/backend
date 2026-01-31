@@ -7,7 +7,8 @@ use common::product_id::ProductKey;
 use lambda_runtime::LambdaEvent;
 use product::dynamodb::repository::ProductDynamoDbRepository;
 use product::dynamodb::{
-    product_event_record::ProductDomainEventRecord, product_update_record::ProductRecordUpdate,
+    product_event_record::domain::ProductDomainEventRecord,
+    product_update_record::ProductRecordUpdate,
 };
 use tracing::{error, info};
 
@@ -102,7 +103,7 @@ mod tests {
     use lambda_runtime::{Context, LambdaEvent};
     use product::core::product_event::ProductDomainEvent;
     use product::core::product_event::domain::ProductCommonEventPayload;
-    use product::dynamodb::product_event_record::ProductDomainEventRecord;
+    use product::dynamodb::product_event_record::domain::ProductDomainEventRecord;
     use product::dynamodb::repository::MockProductDynamoDbRepository;
     use std::time::SystemTime;
     use uuid::Uuid;

@@ -1,4 +1,4 @@
-use crate::dynamodb::product_event_record::ProductDomainEventRecord;
+use crate::dynamodb::product_event_record::domain::ProductDomainEventRecord;
 use crate::opensearch::authenticity_document::AuthenticityDocument;
 use crate::opensearch::condition_document::ConditionDocument;
 use crate::opensearch::product_image_document::ProductImageDocument;

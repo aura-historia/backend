@@ -1,6 +1,6 @@
 use crate::dynamodb::authenticity_record::AuthenticityRecord;
 use crate::dynamodb::condition_record::ConditionRecord;
-use crate::dynamodb::product_event_record::ProductDomainEventRecord;
+use crate::dynamodb::product_event_record::domain::ProductDomainEventRecord;
 use crate::dynamodb::product_image_record::ProductImageRecord;
 use crate::dynamodb::product_state_record::ProductStateRecord;
 use crate::dynamodb::provenance_record::ProvenanceRecord;

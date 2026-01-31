@@ -5,48 +5,52 @@ use serde::{Deserialize, Serialize};
 #[derive(Copy, Clone, Eq, PartialEq, Debug, Serialize, Deserialize)]
 #[serde(rename_all = "SCREAMING_SNAKE_CASE")]
 pub enum ProductDomainEventTypeRecord {
-    Created,
-    StateListed,
-    StateAvailable,
-    StateReserved,
-    StateSold,
-    StateRemoved,
-    StateUnknown,
-    PriceDiscovered,
-    PriceDropped,
-    PriceIncreased,
-    PriceRemoved,
+    DomainCreated,
+    DomainStateListed,
+    DomainStateAvailable,
+    DomainStateReserved,
+    DomainStateSold,
+    DomainStateRemoved,
+    DomainStateUnknown,
+    DomainPriceDiscovered,
+    DomainPriceDropped,
+    DomainPriceIncreased,
+    DomainPriceRemoved,
 }
 
 impl From<&ProductDomainEventPayload> for ProductDomainEventTypeRecord {
     fn from(domain: &ProductDomainEventPayload) -> Self {
         match domain {
-            ProductDomainEventPayload::Created(_) => ProductDomainEventTypeRecord::Created,
-            ProductDomainEventPayload::StateListed(_) => ProductDomainEventTypeRecord::StateListed,
+            ProductDomainEventPayload::Created(_) => ProductDomainEventTypeRecord::DomainCreated,
+            ProductDomainEventPayload::StateListed(_) => {
+                ProductDomainEventTypeRecord::DomainStateListed
+            }
             ProductDomainEventPayload::StateAvailable(_) => {
-                ProductDomainEventTypeRecord::StateAvailable
+                ProductDomainEventTypeRecord::DomainStateAvailable
             }
             ProductDomainEventPayload::StateReserved(_) => {
-                ProductDomainEventTypeRecord::StateReserved
+                ProductDomainEventTypeRecord::DomainStateReserved
             }
-            ProductDomainEventPayload::StateSold(_) => ProductDomainEventTypeRecord::StateSold,
+            ProductDomainEventPayload::StateSold(_) => {
+                ProductDomainEventTypeRecord::DomainStateSold
+            }
             ProductDomainEventPayload::StateRemoved(_) => {
-                ProductDomainEventTypeRecord::StateRemoved
+                ProductDomainEventTypeRecord::DomainStateRemoved
             }
             ProductDomainEventPayload::StateUnknown(_) => {
-                ProductDomainEventTypeRecord::StateUnknown
+                ProductDomainEventTypeRecord::DomainStateUnknown
             }
             ProductDomainEventPayload::PriceDiscovered(_) => {
-                ProductDomainEventTypeRecord::PriceDiscovered
+                ProductDomainEventTypeRecord::DomainPriceDiscovered
             }
             ProductDomainEventPayload::PriceDropped(_) => {
-                ProductDomainEventTypeRecord::PriceDropped
+                ProductDomainEventTypeRecord::DomainPriceDropped
             }
             ProductDomainEventPayload::PriceIncreased(_) => {
-                ProductDomainEventTypeRecord::PriceIncreased
+                ProductDomainEventTypeRecord::DomainPriceIncreased
             }
             ProductDomainEventPayload::PriceRemoved(_) => {
-                ProductDomainEventTypeRecord::PriceRemoved
+                ProductDomainEventTypeRecord::DomainPriceRemoved
             }
         }
     }
@@ -59,16 +63,40 @@ mod tests {
 
     #[rstest]
     #[trace]
-    #[case(ProductDomainEventTypeRecord::Created, "\"CREATED\"")]
-    #[case(ProductDomainEventTypeRecord::StateListed, "\"STATE_LISTED\"")]
-    #[case(ProductDomainEventTypeRecord::StateAvailable, "\"STATE_AVAILABLE\"")]
-    #[case(ProductDomainEventTypeRecord::StateReserved, "\"STATE_RESERVED\"")]
-    #[case(ProductDomainEventTypeRecord::StateSold, "\"STATE_SOLD\"")]
-    #[case(ProductDomainEventTypeRecord::StateRemoved, "\"STATE_REMOVED\"")]
-    #[case(ProductDomainEventTypeRecord::StateUnknown, "\"STATE_UNKNOWN\"")]
-    #[case(ProductDomainEventTypeRecord::PriceDiscovered, "\"PRICE_DISCOVERED\"")]
-    #[case(ProductDomainEventTypeRecord::PriceDropped, "\"PRICE_DROPPED\"")]
-    #[case(ProductDomainEventTypeRecord::PriceIncreased, "\"PRICE_INCREASED\"")]
+    #[case(ProductDomainEventTypeRecord::DomainCreated, "\"DOMAIN_CREATED\"")]
+    #[case(
+        ProductDomainEventTypeRecord::DomainStateListed,
+        "\"DOMAIN_STATE_LISTED\""
+    )]
+    #[case(
+        ProductDomainEventTypeRecord::DomainStateAvailable,
+        "\"DOMAIN_STATE_AVAILABLE\""
+    )]
+    #[case(
+        ProductDomainEventTypeRecord::DomainStateReserved,
+        "\"DOMAIN_STATE_RESERVED\""
+    )]
+    #[case(ProductDomainEventTypeRecord::DomainStateSold, "\"DOMAIN_STATE_SOLD\"")]
+    #[case(
+        ProductDomainEventTypeRecord::DomainStateRemoved,
+        "\"DOMAIN_STATE_REMOVED\""
+    )]
+    #[case(
+        ProductDomainEventTypeRecord::DomainStateUnknown,
+        "\"DOMAIN_STATE_UNKNOWN\""
+    )]
+    #[case(
+        ProductDomainEventTypeRecord::DomainPriceDiscovered,
+        "\"DOMAIN_PRICE_DISCOVERED\""
+    )]
+    #[case(
+        ProductDomainEventTypeRecord::DomainPriceDropped,
+        "\"DOMAIN_PRICE_DROPPED\""
+    )]
+    #[case(
+        ProductDomainEventTypeRecord::DomainPriceIncreased,
+        "\"DOMAIN_PRICE_INCREASED\""
+    )]
     fn should_serialize_product_event_type_record_in_screaming_snake_case(
         #[case] product_state_record: ProductDomainEventTypeRecord,
         #[case] expected: &str,
@@ -79,16 +107,40 @@ mod tests {
 
     #[rstest]
     #[trace]
-    #[case("\"CREATED\"", ProductDomainEventTypeRecord::Created)]
-    #[case("\"STATE_LISTED\"", ProductDomainEventTypeRecord::StateListed)]
-    #[case("\"STATE_AVAILABLE\"", ProductDomainEventTypeRecord::StateAvailable)]
-    #[case("\"STATE_RESERVED\"", ProductDomainEventTypeRecord::StateReserved)]
-    #[case("\"STATE_SOLD\"", ProductDomainEventTypeRecord::StateSold)]
-    #[case("\"STATE_REMOVED\"", ProductDomainEventTypeRecord::StateRemoved)]
-    #[case("\"STATE_UNKNOWN\"", ProductDomainEventTypeRecord::StateUnknown)]
-    #[case("\"PRICE_DISCOVERED\"", ProductDomainEventTypeRecord::PriceDiscovered)]
-    #[case("\"PRICE_DROPPED\"", ProductDomainEventTypeRecord::PriceDropped)]
-    #[case("\"PRICE_INCREASED\"", ProductDomainEventTypeRecord::PriceIncreased)]
+    #[case("\"DOMAIN_CREATED\"", ProductDomainEventTypeRecord::DomainCreated)]
+    #[case(
+        "\"DOMAIN_STATE_LISTED\"",
+        ProductDomainEventTypeRecord::DomainStateListed
+    )]
+    #[case(
+        "\"DOMAIN_STATE_AVAILABLE\"",
+        ProductDomainEventTypeRecord::DomainStateAvailable
+    )]
+    #[case(
+        "\"DOMAIN_STATE_RESERVED\"",
+        ProductDomainEventTypeRecord::DomainStateReserved
+    )]
+    #[case("\"DOMAIN_STATE_SOLD\"", ProductDomainEventTypeRecord::DomainStateSold)]
+    #[case(
+        "\"DOMAIN_STATE_REMOVED\"",
+        ProductDomainEventTypeRecord::DomainStateRemoved
+    )]
+    #[case(
+        "\"DOMAIN_STATE_UNKNOWN\"",
+        ProductDomainEventTypeRecord::DomainStateUnknown
+    )]
+    #[case(
+        "\"DOMAIN_PRICE_DISCOVERED\"",
+        ProductDomainEventTypeRecord::DomainPriceDiscovered
+    )]
+    #[case(
+        "\"DOMAIN_PRICE_DROPPED\"",
+        ProductDomainEventTypeRecord::DomainPriceDropped
+    )]
+    #[case(
+        "\"DOMAIN_PRICE_INCREASED\"",
+        ProductDomainEventTypeRecord::DomainPriceIncreased
+    )]
     fn should_deserialize_product_event_type_record_in_screaming_snake_case(
         #[case] currency: &str,
         #[case] expected: ProductDomainEventTypeRecord,

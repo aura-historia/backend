@@ -5,7 +5,7 @@ use common::{api::collection::PutCollectionData, price::domain::FixedFxRate};
 use fake::{Fake, Faker};
 use lambda_runtime::LambdaEvent;
 use product::data::put_data::PutProductData;
-use product::dynamodb::product_event_record::ProductDomainEventRecordSerdeField;
+use product::dynamodb::product_event_record::domain::ProductDomainEventRecordSerdeField;
 use product::dynamodb::repository::ProductDynamoDbRepositoryImpl;
 use product::service::{
     enrichment_service::ProductCommandEnrichmentServiceImpl,

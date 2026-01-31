@@ -3,7 +3,7 @@ use common::dynamodb_stream::extract_sqs_event_bridge_dynamodb_record;
 use common::opensearch::bulk_response::{BulkItemResult, BulkResponse};
 use common::product_id::ProductId;
 use lambda_runtime::LambdaEvent;
-use product::dynamodb::product_event_record::ProductDomainEventRecord;
+use product::dynamodb::product_event_record::domain::ProductDomainEventRecord;
 use product::opensearch::product_update_document::ProductUpdateDocument;
 use product::opensearch::repository::ProductOpenSearchRepository;
 use std::collections::HashMap;
@@ -149,7 +149,7 @@ mod tests {
     use product::core::product_event::domain::{
         ProductCreatedDomainEventPayload, ProductDomainEventPayload,
     };
-    use product::dynamodb::product_event_record::ProductDomainEventRecord;
+    use product::dynamodb::product_event_record::domain::ProductDomainEventRecord;
     use product::opensearch::repository::MockProductOpenSearchRepository;
     use std::collections::HashMap;
     use std::time::SystemTime;
@@ -183,7 +183,10 @@ mod tests {
         msg
     }
 
-    fn mk_sqs_message_with_id(event_record: &ProductDomainEventRecord, message_id: String) -> SqsMessage {
+    fn mk_sqs_message_with_id(
+        event_record: &ProductDomainEventRecord,
+        message_id: String,
+    ) -> SqsMessage {
         let mut msg = SqsMessage::default();
         msg.message_id = Some(message_id);
         msg.body = Some(mk_event_bridge_payload(event_record));

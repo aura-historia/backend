@@ -9,7 +9,7 @@ mod get_product_record {
     use crate::get_repository;
     use common::shop_id::ShopId;
     use fake::{Fake, Faker};
-    use product::dynamodb::product_event_record::ProductDomainEventRecord;
+    use product::dynamodb::product_event_record::domain::ProductDomainEventRecord;
     use product::dynamodb::product_record::ProductRecord;
     use product::dynamodb::repository::ProductDynamoDbRepository;
     use test_api::*;
@@ -115,7 +115,7 @@ mod query_product_record_and_event_records {
         ProductStateChangeDomainEventPayload,
     };
     use product::core::product_image::ProductImage;
-    use product::dynamodb::product_event_record::ProductDomainEventRecord;
+    use product::dynamodb::product_event_record::domain::ProductDomainEventRecord;
     use product::dynamodb::product_event_type_record::ProductDomainEventTypeRecord;
     use product::dynamodb::product_record::ProductRecord;
     use product::dynamodb::repository::ProductDynamoDbRepository;
@@ -329,9 +329,12 @@ mod query_product_record_and_event_records {
 
         assert_eq!(expected_materialized, actual_materialized);
         assert_eq!(2, actual_events.len());
-        assert_eq!(ProductDomainEventTypeRecord::Created, actual_events[0].event_type);
         assert_eq!(
-            ProductDomainEventTypeRecord::StateAvailable,
+            ProductDomainEventTypeRecord::DomainCreated,
+            actual_events[0].event_type
+        );
+        assert_eq!(
+            ProductDomainEventTypeRecord::DomainStateAvailable,
             actual_events[1].event_type
         );
     }
@@ -1256,7 +1259,7 @@ mod query_product_event_records {
         ProductStateChangeDomainEventPayload,
     };
     use product::core::product_image::ProductImage;
-    use product::dynamodb::product_event_record::ProductDomainEventRecord;
+    use product::dynamodb::product_event_record::domain::ProductDomainEventRecord;
     use product::dynamodb::product_event_type_record::ProductDomainEventTypeRecord;
     use product::dynamodb::product_record::ProductRecord;
     use product::dynamodb::repository::ProductDynamoDbRepository;
@@ -1342,9 +1345,12 @@ mod query_product_event_records {
             .unwrap();
 
         assert_eq!(2, actual_events.len());
-        assert_eq!(ProductDomainEventTypeRecord::Created, actual_events[0].event_type);
         assert_eq!(
-            ProductDomainEventTypeRecord::StateAvailable,
+            ProductDomainEventTypeRecord::DomainCreated,
+            actual_events[0].event_type
+        );
+        assert_eq!(
+            ProductDomainEventTypeRecord::DomainStateAvailable,
             actual_events[1].event_type
         );
     }

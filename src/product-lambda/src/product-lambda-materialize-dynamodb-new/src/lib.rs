@@ -5,7 +5,7 @@ use common::{
     batch::Batch, batch::dynamodb::handle_dynamodb_batch_write_put_product_output, has_key::HasKey,
 };
 use lambda_runtime::LambdaEvent;
-use product::dynamodb::product_event_record::ProductDomainEventRecord;
+use product::dynamodb::product_event_record::domain::ProductDomainEventRecord;
 use product::dynamodb::product_record::ProductRecord;
 use product::dynamodb::repository::ProductDynamoDbRepository;
 use std::collections::HashMap;
@@ -130,7 +130,7 @@ mod tests {
     use product::core::product_event::domain::{
         ProductCreatedDomainEventPayload, ProductDomainEventPayload,
     };
-    use product::dynamodb::product_event_record::ProductDomainEventRecord;
+    use product::dynamodb::product_event_record::domain::ProductDomainEventRecord;
     use product::dynamodb::repository::MockProductDynamoDbRepository;
     use std::collections::HashMap;
     use std::sync::{Arc, Mutex};

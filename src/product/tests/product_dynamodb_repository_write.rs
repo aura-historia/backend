@@ -7,7 +7,8 @@ use common::product_id::ProductId;
 use common::shop_id::ShopId;
 use common::shops_product_id::ShopsProductId;
 use fake::{Fake, Faker};
-use product::dynamodb::product_event_record::{self, ProductDomainEventRecord};
+use product::dynamodb::product_event_record;
+use product::dynamodb::product_event_record::domain::ProductDomainEventRecord;
 use product::dynamodb::product_event_type_record::ProductDomainEventTypeRecord;
 use product::dynamodb::product_record::{self, ProductRecord};
 use product::dynamodb::product_state_record::ProductStateRecord;
@@ -206,13 +207,13 @@ async fn should_put_product_event_records_for_single_record() {
         currency: CurrencyRecord::Eur,
     });
     let expected = ProductDomainEventRecord {
-        pk: product_event_record::mk_pk(&shop_id, &shops_product_id),
-        sk: product_event_record::mk_sk(&now).unwrap(),
+        pk: product_event_record::domain::mk_pk(&shop_id, &shops_product_id),
+        sk: product_event_record::domain::mk_sk(&now).unwrap(),
         product_id: ProductId::new(),
         product_slug_id: Faker.fake(),
         shop_slug_id: Faker.fake(),
         event_id: EventId::new(),
-        event_type: ProductDomainEventTypeRecord::Created,
+        event_type: ProductDomainEventTypeRecord::DomainCreated,
         event_type_schema_version: 0,
         shop_id,
         shops_product_id: shops_product_id.clone(),
@@ -298,13 +299,13 @@ async fn should_put_product_event_records_for_multiple_records() {
         currency: CurrencyRecord::Eur,
     });
     let expected1 = ProductDomainEventRecord {
-        pk: product_event_record::mk_pk(&shop_id, &shops_product_id1),
-        sk: product_event_record::mk_sk(&now1).unwrap(),
+        pk: product_event_record::domain::mk_pk(&shop_id, &shops_product_id1),
+        sk: product_event_record::domain::mk_sk(&now1).unwrap(),
         product_id: ProductId::new(),
         product_slug_id: Faker.fake(),
         shop_slug_id: Faker.fake(),
         event_id: EventId::new(),
-        event_type: ProductDomainEventTypeRecord::Created,
+        event_type: ProductDomainEventTypeRecord::DomainCreated,
         event_type_schema_version: 0,
         shop_id,
         shops_product_id: shops_product_id1.clone(),
@@ -360,13 +361,13 @@ async fn should_put_product_event_records_for_multiple_records() {
     let now2 = OffsetDateTime::now_utc();
     let shops_product_id2: ShopsProductId = "123465".into();
     let expected2 = ProductDomainEventRecord {
-        pk: product_event_record::mk_pk(&shop_id, &shops_product_id2),
-        sk: product_event_record::mk_sk(&now2).unwrap(),
+        pk: product_event_record::domain::mk_pk(&shop_id, &shops_product_id2),
+        sk: product_event_record::domain::mk_sk(&now2).unwrap(),
         product_id: ProductId::new(),
         product_slug_id: Faker.fake(),
         shop_slug_id: Faker.fake(),
         event_id: EventId::new(),
-        event_type: ProductDomainEventTypeRecord::Created,
+        event_type: ProductDomainEventTypeRecord::DomainCreated,
         event_type_schema_version: 0,
         shop_id,
         shops_product_id: shops_product_id2.clone(),

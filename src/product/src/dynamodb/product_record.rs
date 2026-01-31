@@ -7,7 +7,7 @@ use crate::core::provenance::Provenance;
 use crate::core::restoration::Restoration;
 use crate::dynamodb::authenticity_record::AuthenticityRecord;
 use crate::dynamodb::condition_record::ConditionRecord;
-use crate::dynamodb::product_event_record::ProductDomainEventRecord;
+use crate::dynamodb::product_event_record::domain::ProductDomainEventRecord;
 use crate::dynamodb::product_image_record::ProductImageRecord;
 use crate::dynamodb::product_state_record::ProductStateRecord;
 use crate::dynamodb::provenance_record::ProvenanceRecord;
@@ -314,9 +314,9 @@ impl TryFrom<ProductDomainEventRecord> for ProductRecord {
         let product_slug_id = event_record.product_slug_id.ok_or_else(|| {
             MissingPersistenceField::new(field!(product_slug_id@ProductDomainEventRecord))
         })?;
-        let shop_slug_id = event_record
-            .shop_slug_id
-            .ok_or_else(|| MissingPersistenceField::new(field!(shop_slug_id@ProductDomainEventRecord)))?;
+        let shop_slug_id = event_record.shop_slug_id.ok_or_else(|| {
+            MissingPersistenceField::new(field!(shop_slug_id@ProductDomainEventRecord))
+        })?;
         let record = ProductRecord {
             pk: event_record.pk,
             sk: mk_sk().to_string(),
@@ -370,9 +370,9 @@ impl TryFrom<ProductDomainEventRecord> for ProductRecord {
             state: event_record.new_state.ok_or_else(|| {
                 MissingPersistenceField::new(field!(new_state@ProductDomainEventRecord))
             })?,
-            url: event_record
-                .url
-                .ok_or_else(|| MissingPersistenceField::new(field!(url@ProductDomainEventRecord)))?,
+            url: event_record.url.ok_or_else(|| {
+                MissingPersistenceField::new(field!(url@ProductDomainEventRecord))
+            })?,
             images: event_record.images.unwrap_or_default(),
             origin_year_min: None,
             origin_year: None,

@@ -1,8 +1,8 @@
 use common::{price::domain::FixedFxRate, product_state::domain::ProductState};
 use product::core::product::Product;
-use product::dynamodb::product_event_record::ProductDomainEventRecordSerdeField;
+use product::dynamodb::product_event_record::domain::ProductDomainEventRecordSerdeField;
 use product::dynamodb::{
-    product_event_record::ProductDomainEventRecord,
+    product_event_record::domain::ProductDomainEventRecord,
     product_record::ProductRecord,
     repository::{ProductDynamoDbRepository, ProductDynamoDbRepositoryImpl},
 };

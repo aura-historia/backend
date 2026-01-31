@@ -1,4 +1,4 @@
-use crate::dynamodb::product_event_record::ProductDomainEventRecord;
+use crate::dynamodb::product_event_record::domain::ProductDomainEventRecord;
 use crate::dynamodb::product_record::ProductRecord;
 use crate::opensearch::authenticity_document::AuthenticityDocument;
 use crate::opensearch::condition_document::ConditionDocument;
@@ -159,7 +159,9 @@ impl TryFrom<ProductDomainEventRecord> for ProductDocument {
         let state = event_record
             .new_state
             .map(ProductStateDocument::from)
-            .ok_or_else(|| MissingPersistenceField::new(field!(new_state@ProductDomainEventRecord)))?;
+            .ok_or_else(|| {
+                MissingPersistenceField::new(field!(new_state@ProductDomainEventRecord))
+            })?;
         let document = ProductDocument {
             product_id: event_record.product_id,
             product_slug_id: event_record.product_slug_id.ok_or_else(|| {
@@ -210,9 +212,9 @@ impl TryFrom<ProductDomainEventRecord> for ProductDocument {
             price_estimate_max_cad: event_record.new_price_estimate_max_cad,
             price_estimate_max_nzd: event_record.new_price_estimate_max_nzd,
             state,
-            url: event_record
-                .url
-                .ok_or_else(|| MissingPersistenceField::new(field!(url@ProductDomainEventRecord)))?,
+            url: event_record.url.ok_or_else(|| {
+                MissingPersistenceField::new(field!(url@ProductDomainEventRecord))
+            })?,
             images: event_record
                 .images
                 .unwrap_or_default()

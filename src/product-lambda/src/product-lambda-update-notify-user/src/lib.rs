@@ -6,7 +6,7 @@ use common::dynamodb_stream::extract_sqs_event_bridge_dynamodb_record;
 use lambda_runtime::LambdaEvent;
 use mail_core::{payload::MailPayload, queue_service::QueueMailService};
 use product::core::product_event::ProductDomainEvent;
-use product::dynamodb::product_event_record::ProductDomainEventRecord;
+use product::dynamodb::product_event_record::domain::ProductDomainEventRecord;
 use tracing::{error, info};
 
 #[tracing::instrument(skip(queue_mail_service, product_event_mail_payload_service, event), fields(requestId = %event.context.request_id))]
@@ -125,7 +125,7 @@ mod tests {
     use mail_core::payload::MailPayload;
     use mail_core::queue_service::MockQueueMailService;
     use product::core::product_event::ProductDomainEvent;
-    use product::dynamodb::product_event_record::ProductDomainEventRecord;
+    use product::dynamodb::product_event_record::domain::ProductDomainEventRecord;
     use std::ops::SubAssign;
     use std::sync::Arc;
     use std::time::SystemTime;

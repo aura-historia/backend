@@ -954,7 +954,7 @@ impl TryFrom<ProductDomainEventRecord> for ProductDomainEvent {
             event_id: record.event_id,
             timestamp: record.timestamp,
             payload: match record.event_type {
-                ProductDomainEventTypeRecord::Created => {
+                ProductDomainEventTypeRecord::DomainCreated => {
                     ProductDomainEventPayload::Created(ProductCreatedDomainEventPayload {
                         product_slug_id: record.product_slug_id.ok_or(
                             MissingPersistenceField::new(
@@ -1010,7 +1010,7 @@ impl TryFrom<ProductDomainEventRecord> for ProductDomainEvent {
                         auction_end: record.auction_end,
                     })
                 }
-                ProductDomainEventTypeRecord::StateListed => {
+                ProductDomainEventTypeRecord::DomainStateListed => {
                     ProductDomainEventPayload::StateListed(ProductStateChangeDomainEventPayload {
                         shop_id,
                         shops_product_id,
@@ -1021,7 +1021,7 @@ impl TryFrom<ProductDomainEventRecord> for ProductDomainEvent {
                         )?,
                     })
                 }
-                ProductDomainEventTypeRecord::StateAvailable => {
+                ProductDomainEventTypeRecord::DomainStateAvailable => {
                     ProductDomainEventPayload::StateAvailable(
                         ProductStateChangeDomainEventPayload {
                             shop_id,
@@ -1034,7 +1034,7 @@ impl TryFrom<ProductDomainEventRecord> for ProductDomainEvent {
                         },
                     )
                 }
-                ProductDomainEventTypeRecord::StateReserved => {
+                ProductDomainEventTypeRecord::DomainStateReserved => {
                     ProductDomainEventPayload::StateReserved(ProductStateChangeDomainEventPayload {
                         shop_id,
                         shops_product_id,
@@ -1045,7 +1045,7 @@ impl TryFrom<ProductDomainEventRecord> for ProductDomainEvent {
                         )?,
                     })
                 }
-                ProductDomainEventTypeRecord::StateSold => {
+                ProductDomainEventTypeRecord::DomainStateSold => {
                     ProductDomainEventPayload::StateSold(ProductStateChangeDomainEventPayload {
                         shop_id,
                         shops_product_id,
@@ -1056,7 +1056,7 @@ impl TryFrom<ProductDomainEventRecord> for ProductDomainEvent {
                         )?,
                     })
                 }
-                ProductDomainEventTypeRecord::StateRemoved => {
+                ProductDomainEventTypeRecord::DomainStateRemoved => {
                     ProductDomainEventPayload::StateRemoved(ProductStateChangeDomainEventPayload {
                         shop_id,
                         shops_product_id,
@@ -1067,7 +1067,7 @@ impl TryFrom<ProductDomainEventRecord> for ProductDomainEvent {
                         )?,
                     })
                 }
-                ProductDomainEventTypeRecord::StateUnknown => {
+                ProductDomainEventTypeRecord::DomainStateUnknown => {
                     ProductDomainEventPayload::StateUnknown(ProductStateChangeDomainEventPayload {
                         shop_id,
                         shops_product_id,
@@ -1078,7 +1078,7 @@ impl TryFrom<ProductDomainEventRecord> for ProductDomainEvent {
                         )?,
                     })
                 }
-                ProductDomainEventTypeRecord::PriceDiscovered => {
+                ProductDomainEventTypeRecord::DomainPriceDiscovered => {
                     ProductDomainEventPayload::PriceDiscovered(
                         ProductPriceDiscoveryDomainEventPayload {
                             shop_id,
@@ -1092,7 +1092,7 @@ impl TryFrom<ProductDomainEventRecord> for ProductDomainEvent {
                         },
                     )
                 }
-                ProductDomainEventTypeRecord::PriceDropped => {
+                ProductDomainEventTypeRecord::DomainPriceDropped => {
                     ProductDomainEventPayload::PriceDropped(ProductPriceChangeDomainEventPayload {
                         shop_id,
                         shops_product_id,
@@ -1110,7 +1110,7 @@ impl TryFrom<ProductDomainEventRecord> for ProductDomainEvent {
                         old_other_price,
                     })
                 }
-                ProductDomainEventTypeRecord::PriceIncreased => {
+                ProductDomainEventTypeRecord::DomainPriceIncreased => {
                     ProductDomainEventPayload::PriceIncreased(
                         ProductPriceChangeDomainEventPayload {
                             shop_id,
@@ -1130,7 +1130,7 @@ impl TryFrom<ProductDomainEventRecord> for ProductDomainEvent {
                         },
                     )
                 }
-                ProductDomainEventTypeRecord::PriceRemoved => {
+                ProductDomainEventTypeRecord::DomainPriceRemoved => {
                     ProductDomainEventPayload::PriceRemoved(ProductPriceRemovedDomainEventPayload {
                         shop_id,
                         shops_product_id,
@@ -1164,7 +1164,7 @@ mod faker {
 
     #[cfg(test)]
     mod tests {
-        use crate::dynamodb::product_event_record::ProductDomainEventRecord;
+        use crate::dynamodb::product_event_record::domain::ProductDomainEventRecord;
         use fake::{Fake, Faker};
 
         #[test]

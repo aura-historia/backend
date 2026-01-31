@@ -15,7 +15,7 @@ use crate::core::product_image::ProductImage;
 use crate::core::provenance::Provenance;
 use crate::core::restoration::Restoration;
 use crate::core::title::Title;
-use crate::dynamodb::product_event_record::ProductDomainEventRecord;
+use crate::dynamodb::product_event_record::domain::ProductDomainEventRecord;
 use crate::dynamodb::product_record::ProductRecord;
 use crate::dynamodb::repository::ProductDynamoDbRepository;
 use async_trait::async_trait;
@@ -1366,7 +1366,8 @@ mod tests {
     mod view_product_events {
         use crate::{
             dynamodb::{
-                product_event_record::ProductDomainEventRecord, repository::MockProductDynamoDbRepository,
+                product_event_record::domain::ProductDomainEventRecord,
+                repository::MockProductDynamoDbRepository,
             },
             service::get_service::{GetProductError, GetProductService, GetProductServiceImpl},
         };
