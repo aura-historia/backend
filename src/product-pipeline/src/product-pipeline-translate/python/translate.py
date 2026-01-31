@@ -11,10 +11,16 @@ tokenizer = AutoTokenizer.from_pretrained(
 
 model = AutoModelForCausalLM.from_pretrained(
     MODEL_NAME,
+    device_map="auto" if DEVICE == "cuda" else None,
     dtype=torch.float32 if DEVICE == "cpu" else torch.bfloat16,
-    device_map="auto",
 )
 model.eval()
+
+try:
+    if DEVICE == "cuda":
+        model = torch.compile(model, mode="reduce-overhead")
+except Exception:
+    pass
 
 
 def translate(
@@ -35,24 +41,25 @@ def translate(
         for text in texts
     ]
 
-    batch_encoding = tokenizer.apply_chat_template(
+    input_ids = tokenizer.apply_chat_template(
         messages_batch,
         tokenize=True,
         add_generation_prompt=False,
         padding=True,
         return_tensors="pt",
-    )
-    input_ids = batch_encoding["input_ids"].to(model.device)
-    attention_mask = batch_encoding["attention_mask"].to(model.device)
+    ).to(model.device)
 
     input_len = input_ids.shape[1]
+
+    input_lengths = input_ids.ne(tokenizer.pad_token_id).sum(dim=1)
+    max_input_len = int(input_lengths.max().item())
+    max_new_tokens = min(int(max_input_len * 1.2), 2000)
 
     with torch.inference_mode():
         output_ids = model.generate(
             input_ids,
-            attention_mask=attention_mask,
-            max_new_tokens=2048,
-            do_sample=True,
+            max_new_tokens=max_new_tokens,
+            do_sample=False,
             top_k=20,
             top_p=0.6,
             repetition_penalty=1.05,
@@ -73,9 +80,9 @@ def translate(
 if __name__ == "__main__":
     texts = [
         """Musealer Kabinettschrank, Nussbaum Massivholz, Nussbaum Maserholz,
-        Nussbaum, Zwetschge, Ahorn auf Weichholz furniert.""",
+        Nussbaum, Zwetschge, Ahorn auf Weichholz furniert""",
         """Unterbau in Form eines Halbschrankes mit breit abgeschrägten,
-        vorderen Ecken und geschnitzter Schlagleiste.""",
+        vorderen Ecken und geschnitzter Schlagleiste""",
         """Art.Nr. G1419 Ölgemälde ‚The Education of the Virgin‘ nach Jules-Joseph Lefebvre, um 1900 in einer dekorativen Stuckrahmung
 
         Dieses Ölgemälde zeigt ein Figurenpaar, welches unter freiem Himmel an einer steinernen Brüstung auf einer Terrasse sitzen. Ein junges Mädchen kniet mit gesenktem Kopf und geschlossenen Augen vor einer älteren Dame. Sie trägt ein graues Gewand, sowie eine hellblaue Schleife in ihrem offenen gelockten Haar. Die Hände hält sie vor der Brust überkreuzt. Die Dame sitzt auf einer breiten, thronähnlichen Bank und ist bekleidet mit einem grün-braunen Gewand, das Haar ist bedeckt. Ihre rechte Hand hält sie erhoben, die linke verweist auf ein Schriftband auf ihrem Schoß. Beide werden von einem schmalen Heiligenschein bekrönt. Es handelt sich hierbei um eine Darstellung der Heiligen Anna, welche hier ihrer Tochter Maria das Lesen lehrt.
@@ -84,7 +91,6 @@ if __name__ == "__main__":
 
         Jules-Joseph Lefebvre (1834-1912) war ein französischer Maler. Der Sohn eines Bäckers wurde in jungen Jahren nach Paris geschickt, um dort an der École nationale supérieure des beaux-arts de Paris zu studieren. Lefebvre stellte Werke im Pariser Salon aus, widmete sich dem Stil des Manierismus in Italien und kehrte nach wenigen Jahren nach Paris zurück. Dort erhielt er eine Lehrstelle an der Académie Julian. Zu seinen berühmtesten Schülern gehört u. a. der Symbolist Fernand Khnopff.""",
     ]
-
     translations = translate(
         source_lang="German",
         target_lang="English",
