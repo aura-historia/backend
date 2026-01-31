@@ -29,6 +29,7 @@ pub mod pagination;
 pub mod personalized;
 pub mod price;
 pub mod query;
+pub mod reason;
 pub mod serde;
 pub mod shop_id;
 pub mod shop_name;
