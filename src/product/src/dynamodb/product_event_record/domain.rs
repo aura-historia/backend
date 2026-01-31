@@ -168,7 +168,10 @@ pub fn mk_pk(shop_id: &ShopId, shops_product_id: &ShopsProductId) -> String {
 }
 
 pub fn mk_sk(timestamp: &OffsetDateTime) -> Result<String, error::Format> {
-    Ok(format!("product#event#{}", timestamp.format(&Rfc3339)?))
+    Ok(format!(
+        "product#event#domain#{}",
+        timestamp.format(&Rfc3339)?
+    ))
 }
 
 impl ProductDomainEventRecord {

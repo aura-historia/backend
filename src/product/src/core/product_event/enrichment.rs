@@ -18,7 +18,7 @@ pub enum ProductEnrichmentEventPayload {
 
 #[cfg_attr(feature = "test-data", derive(fake::Dummy))]
 #[derive(Debug, Clone, PartialEq)]
-pub struct TranslationProductEnrichmentEventPayload<T> {
+pub struct TranslationProductEnrichmentEventPayload<T: Into<String> + From<String>> {
     pub shop_id: ShopId,
     pub shops_product_id: ShopsProductId,
     pub source_language: Language,

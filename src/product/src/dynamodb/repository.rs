@@ -228,7 +228,7 @@ impl<'a> ProductDynamoDbRepository for ProductDynamoDbRepositoryImpl<'a> {
                         },
                     }
                 },
-                Some(sk) if sk.starts_with("product#event#") => {
+                Some(sk) if sk.starts_with("product#event#domain#") => {
                     match serde_dynamo::from_item::<_, ProductDomainEventRecord>(record) {
                         Ok(event) => {
                             let mut events: Vec<ProductDomainEventRecord> = events.unwrap_or_default();
@@ -290,7 +290,7 @@ impl<'a> ProductDynamoDbRepository for ProductDynamoDbRepositoryImpl<'a> {
             )
             .expression_attribute_values(
                 ":sk_prefix",
-                AttributeValue::S("product#event#".to_string()),
+                AttributeValue::S("product#event#domain#".to_string()),
             )
             .scan_index_forward(true)
             .into_paginator()
