@@ -11,3 +11,12 @@ pub mod policy;
 pub type ProductDomainEvent = Event<ProductId, ProductDomainEventPayload>;
 pub type ProductEnrichmentEvent = Event<ProductId, ProductEnrichmentEventPayload>;
 pub type ProductPolicyEvent = Event<ProductId, ProductPolicyEventPayload>;
+
+#[cfg_attr(feature = "test-data", derive(fake::Dummy))]
+#[derive(Debug, Clone, PartialEq)]
+#[allow(clippy::large_enum_variant)]
+pub enum ProductEventPayload {
+    ProductDomainEvent(ProductDomainEventPayload),
+    ProductEnrichmentEvent(ProductEnrichmentEventPayload),
+    ProductPolicyEvent(ProductPolicyEventPayload),
+}
