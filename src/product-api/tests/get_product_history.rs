@@ -7,8 +7,9 @@ use common::{
 };
 use fake::{Fake, Faker};
 use lambda_runtime::LambdaEvent;
-use product::core::product_event::{
-    ProductEventPayload, ProductPriceChangeEventPayload, ProductStateChangeEventPayload,
+use product::core::product_event::domain::{
+    ProductDomainEventPayload, ProductPriceChangeDomainEventPayload,
+    ProductStateChangeDomainEventPayload,
 };
 use product::dynamodb::{
     product_record::ProductRecord,
@@ -39,7 +40,7 @@ async fn should_respond_200() {
         aggregate_id: record.product_id,
         event_id: event_1_id,
         timestamp: SystemTime::now().into(),
-        payload: ProductEventPayload::PriceDropped(ProductPriceChangeEventPayload {
+        payload: ProductDomainEventPayload::PriceDropped(ProductPriceChangeDomainEventPayload {
             shop_id: record.shop_id,
             shops_product_id: record.shops_product_id.clone(),
             new_native_price: event_1_price,
@@ -61,7 +62,7 @@ async fn should_respond_200() {
         aggregate_id: record.product_id,
         event_id: event_2_id,
         timestamp: SystemTime::now().into(),
-        payload: ProductEventPayload::StateRemoved(ProductStateChangeEventPayload {
+        payload: ProductDomainEventPayload::StateRemoved(ProductStateChangeDomainEventPayload {
             shop_id: record.shop_id,
             shops_product_id: record.shops_product_id.clone(),
             old_state: ProductState::Sold,

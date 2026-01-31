@@ -1,7 +1,8 @@
-use crate::core::product_event::{
-    ProductCommonEventPayload, ProductCreatedEventPayload, ProductEvent, ProductEventPayload,
-    ProductPriceChangeEventPayload, ProductPriceDiscoveryEventPayload,
-    ProductPriceRemovedEventPayload, ProductStateChangeEventPayload,
+use crate::core::product_event::ProductDomainEvent;
+use crate::core::product_event::domain::{
+    ProductCommonEventPayload, ProductCreatedDomainEventPayload, ProductDomainEventPayload,
+    ProductPriceChangeDomainEventPayload, ProductPriceDiscoveryDomainEventPayload,
+    ProductPriceRemovedDomainEventPayload, ProductStateChangeDomainEventPayload,
 };
 use crate::core::product_image::ProductImage;
 use crate::dynamodb::product_event_type_record::ProductEventTypeRecord;
@@ -187,9 +188,9 @@ impl HasKey for ProductEventRecord {
     }
 }
 
-impl TryFrom<ProductEvent> for ProductEventRecord {
+impl TryFrom<ProductDomainEvent> for ProductEventRecord {
     type Error = error::Format;
-    fn try_from(domain: ProductEvent) -> Result<Self, Self::Error> {
+    fn try_from(domain: ProductDomainEvent) -> Result<Self, Self::Error> {
         let shop_id = *domain.payload.shop_id();
         let shops_product_id = domain.payload.shops_product_id();
         let pk = mk_pk(&shop_id, shops_product_id);
@@ -200,7 +201,7 @@ impl TryFrom<ProductEvent> for ProductEventRecord {
         let shops_product_id = shops_product_id.clone();
 
         match domain.payload {
-            ProductEventPayload::Created(payload) => {
+            ProductDomainEventPayload::Created(payload) => {
                 let (title_de, title_en, title_fr, title_es) =
                     match payload.native_title.localization {
                         Language::De => (
@@ -403,7 +404,7 @@ impl TryFrom<ProductEvent> for ProductEventRecord {
                 };
                 Ok(record)
             }
-            ProductEventPayload::StateListed(payload) => Ok(mk_state_event_record(
+            ProductDomainEventPayload::StateListed(payload) => Ok(mk_state_event_record(
                 ProductStateRecord::Listed,
                 payload.old_state.into(),
                 pk,
@@ -415,7 +416,7 @@ impl TryFrom<ProductEvent> for ProductEventRecord {
                 shops_product_id,
                 domain.timestamp,
             )),
-            ProductEventPayload::StateReserved(payload) => Ok(mk_state_event_record(
+            ProductDomainEventPayload::StateReserved(payload) => Ok(mk_state_event_record(
                 ProductStateRecord::Reserved,
                 payload.old_state.into(),
                 pk,
@@ -427,7 +428,7 @@ impl TryFrom<ProductEvent> for ProductEventRecord {
                 shops_product_id,
                 domain.timestamp,
             )),
-            ProductEventPayload::StateAvailable(payload) => Ok(mk_state_event_record(
+            ProductDomainEventPayload::StateAvailable(payload) => Ok(mk_state_event_record(
                 ProductStateRecord::Available,
                 payload.old_state.into(),
                 pk,
@@ -439,7 +440,7 @@ impl TryFrom<ProductEvent> for ProductEventRecord {
                 shops_product_id,
                 domain.timestamp,
             )),
-            ProductEventPayload::StateSold(payload) => Ok(mk_state_event_record(
+            ProductDomainEventPayload::StateSold(payload) => Ok(mk_state_event_record(
                 ProductStateRecord::Sold,
                 payload.old_state.into(),
                 pk,
@@ -451,7 +452,7 @@ impl TryFrom<ProductEvent> for ProductEventRecord {
                 shops_product_id,
                 domain.timestamp,
             )),
-            ProductEventPayload::StateRemoved(payload) => Ok(mk_state_event_record(
+            ProductDomainEventPayload::StateRemoved(payload) => Ok(mk_state_event_record(
                 ProductStateRecord::Removed,
                 payload.old_state.into(),
                 pk,
@@ -463,7 +464,7 @@ impl TryFrom<ProductEvent> for ProductEventRecord {
                 shops_product_id,
                 domain.timestamp,
             )),
-            ProductEventPayload::StateUnknown(payload) => Ok(mk_state_event_record(
+            ProductDomainEventPayload::StateUnknown(payload) => Ok(mk_state_event_record(
                 ProductStateRecord::Unknown,
                 payload.old_state.into(),
                 pk,
@@ -475,7 +476,7 @@ impl TryFrom<ProductEvent> for ProductEventRecord {
                 shops_product_id,
                 domain.timestamp,
             )),
-            ProductEventPayload::PriceDiscovered(payload) => Ok(ProductEventRecord {
+            ProductDomainEventPayload::PriceDiscovered(payload) => Ok(ProductEventRecord {
                 pk,
                 sk,
                 product_id,
@@ -558,7 +559,7 @@ impl TryFrom<ProductEvent> for ProductEventRecord {
                 auction_end: None,
                 timestamp: domain.timestamp,
             }),
-            ProductEventPayload::PriceIncreased(payload) => Ok(mk_price_change_event_record(
+            ProductDomainEventPayload::PriceIncreased(payload) => Ok(mk_price_change_event_record(
                 payload,
                 pk,
                 sk,
@@ -569,7 +570,7 @@ impl TryFrom<ProductEvent> for ProductEventRecord {
                 shops_product_id,
                 domain.timestamp,
             )),
-            ProductEventPayload::PriceDropped(payload) => Ok(mk_price_change_event_record(
+            ProductDomainEventPayload::PriceDropped(payload) => Ok(mk_price_change_event_record(
                 payload,
                 pk,
                 sk,
@@ -580,7 +581,7 @@ impl TryFrom<ProductEvent> for ProductEventRecord {
                 shops_product_id,
                 domain.timestamp,
             )),
-            ProductEventPayload::PriceRemoved(payload) => Ok(ProductEventRecord {
+            ProductDomainEventPayload::PriceRemoved(payload) => Ok(ProductEventRecord {
                 pk,
                 sk,
                 product_id,
@@ -743,7 +744,7 @@ fn mk_state_event_record(
 
 #[allow(clippy::too_many_arguments)]
 fn mk_price_change_event_record(
-    product_price_change_event_payload: ProductPriceChangeEventPayload,
+    product_price_change_event_payload: ProductPriceChangeDomainEventPayload,
     pk: String,
     sk: String,
     product_id: ProductId,
@@ -862,7 +863,7 @@ fn mk_price_change_event_record(
     }
 }
 
-impl TryFrom<ProductEventRecord> for ProductEvent {
+impl TryFrom<ProductEventRecord> for ProductDomainEvent {
     type Error = MissingPersistenceField;
 
     fn try_from(record: ProductEventRecord) -> Result<Self, Self::Error> {
@@ -954,7 +955,7 @@ impl TryFrom<ProductEventRecord> for ProductEvent {
             timestamp: record.timestamp,
             payload: match record.event_type {
                 ProductEventTypeRecord::Created => {
-                    ProductEventPayload::Created(ProductCreatedEventPayload {
+                    ProductDomainEventPayload::Created(ProductCreatedDomainEventPayload {
                         product_slug_id: record.product_slug_id.ok_or(
                             MissingPersistenceField::new(
                                 field!(product_slug_id@ProductEventRecord),
@@ -1002,7 +1003,7 @@ impl TryFrom<ProductEventRecord> for ProductEvent {
                     })
                 }
                 ProductEventTypeRecord::StateListed => {
-                    ProductEventPayload::StateListed(ProductStateChangeEventPayload {
+                    ProductDomainEventPayload::StateListed(ProductStateChangeDomainEventPayload {
                         shop_id,
                         shops_product_id,
                         old_state: record.old_state.map(ProductState::from).ok_or(
@@ -1011,16 +1012,18 @@ impl TryFrom<ProductEventRecord> for ProductEvent {
                     })
                 }
                 ProductEventTypeRecord::StateAvailable => {
-                    ProductEventPayload::StateAvailable(ProductStateChangeEventPayload {
-                        shop_id,
-                        shops_product_id,
-                        old_state: record.old_state.map(ProductState::from).ok_or(
-                            MissingPersistenceField::new(field!(old_state@ProductEventRecord)),
-                        )?,
-                    })
+                    ProductDomainEventPayload::StateAvailable(
+                        ProductStateChangeDomainEventPayload {
+                            shop_id,
+                            shops_product_id,
+                            old_state: record.old_state.map(ProductState::from).ok_or(
+                                MissingPersistenceField::new(field!(old_state@ProductEventRecord)),
+                            )?,
+                        },
+                    )
                 }
                 ProductEventTypeRecord::StateReserved => {
-                    ProductEventPayload::StateReserved(ProductStateChangeEventPayload {
+                    ProductDomainEventPayload::StateReserved(ProductStateChangeDomainEventPayload {
                         shop_id,
                         shops_product_id,
                         old_state: record.old_state.map(ProductState::from).ok_or(
@@ -1029,7 +1032,7 @@ impl TryFrom<ProductEventRecord> for ProductEvent {
                     })
                 }
                 ProductEventTypeRecord::StateSold => {
-                    ProductEventPayload::StateSold(ProductStateChangeEventPayload {
+                    ProductDomainEventPayload::StateSold(ProductStateChangeDomainEventPayload {
                         shop_id,
                         shops_product_id,
                         old_state: record.old_state.map(ProductState::from).ok_or(
@@ -1038,7 +1041,7 @@ impl TryFrom<ProductEventRecord> for ProductEvent {
                     })
                 }
                 ProductEventTypeRecord::StateRemoved => {
-                    ProductEventPayload::StateRemoved(ProductStateChangeEventPayload {
+                    ProductDomainEventPayload::StateRemoved(ProductStateChangeDomainEventPayload {
                         shop_id,
                         shops_product_id,
                         old_state: record.old_state.map(ProductState::from).ok_or(
@@ -1047,7 +1050,7 @@ impl TryFrom<ProductEventRecord> for ProductEvent {
                     })
                 }
                 ProductEventTypeRecord::StateUnknown => {
-                    ProductEventPayload::StateUnknown(ProductStateChangeEventPayload {
+                    ProductDomainEventPayload::StateUnknown(ProductStateChangeDomainEventPayload {
                         shop_id,
                         shops_product_id,
                         old_state: record.old_state.map(ProductState::from).ok_or(
@@ -1056,19 +1059,21 @@ impl TryFrom<ProductEventRecord> for ProductEvent {
                     })
                 }
                 ProductEventTypeRecord::PriceDiscovered => {
-                    ProductEventPayload::PriceDiscovered(ProductPriceDiscoveryEventPayload {
-                        shop_id,
-                        shops_product_id,
-                        native_price: record.new_price_native.map(Price::from).ok_or(
-                            MissingPersistenceField::new(
-                                field!(new_price_native@ProductEventRecord),
-                            ),
-                        )?,
-                        other_price: new_other_price,
-                    })
+                    ProductDomainEventPayload::PriceDiscovered(
+                        ProductPriceDiscoveryDomainEventPayload {
+                            shop_id,
+                            shops_product_id,
+                            native_price: record.new_price_native.map(Price::from).ok_or(
+                                MissingPersistenceField::new(
+                                    field!(new_price_native@ProductEventRecord),
+                                ),
+                            )?,
+                            other_price: new_other_price,
+                        },
+                    )
                 }
                 ProductEventTypeRecord::PriceDropped => {
-                    ProductEventPayload::PriceDropped(ProductPriceChangeEventPayload {
+                    ProductDomainEventPayload::PriceDropped(ProductPriceChangeDomainEventPayload {
                         shop_id,
                         shops_product_id,
                         new_native_price: record.new_price_native.map(Price::from).ok_or(
@@ -1086,25 +1091,27 @@ impl TryFrom<ProductEventRecord> for ProductEvent {
                     })
                 }
                 ProductEventTypeRecord::PriceIncreased => {
-                    ProductEventPayload::PriceIncreased(ProductPriceChangeEventPayload {
-                        shop_id,
-                        shops_product_id,
-                        new_native_price: record.new_price_native.map(Price::from).ok_or(
-                            MissingPersistenceField::new(
-                                field!(new_price_native@ProductEventRecord),
-                            ),
-                        )?,
-                        new_other_price,
-                        old_native_price: record.old_price_native.map(Price::from).ok_or(
-                            MissingPersistenceField::new(
-                                field!(old_price_native@ProductEventRecord),
-                            ),
-                        )?,
-                        old_other_price,
-                    })
+                    ProductDomainEventPayload::PriceIncreased(
+                        ProductPriceChangeDomainEventPayload {
+                            shop_id,
+                            shops_product_id,
+                            new_native_price: record.new_price_native.map(Price::from).ok_or(
+                                MissingPersistenceField::new(
+                                    field!(new_price_native@ProductEventRecord),
+                                ),
+                            )?,
+                            new_other_price,
+                            old_native_price: record.old_price_native.map(Price::from).ok_or(
+                                MissingPersistenceField::new(
+                                    field!(old_price_native@ProductEventRecord),
+                                ),
+                            )?,
+                            old_other_price,
+                        },
+                    )
                 }
                 ProductEventTypeRecord::PriceRemoved => {
-                    ProductEventPayload::PriceRemoved(ProductPriceRemovedEventPayload {
+                    ProductDomainEventPayload::PriceRemoved(ProductPriceRemovedDomainEventPayload {
                         shop_id,
                         shops_product_id,
                         old_native_price: record.old_price_native.map(Price::from).ok_or(
@@ -1129,7 +1136,7 @@ mod faker {
     impl Dummy<Faker> for ProductEventRecord {
         fn dummy_with_rng<R: Rng + ?Sized>(config: &Faker, rng: &mut R) -> Self {
             config
-                .fake_with_rng::<ProductEvent, _>(rng)
+                .fake_with_rng::<ProductDomainEvent, _>(rng)
                 .try_into()
                 .unwrap()
         }

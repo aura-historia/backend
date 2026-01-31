@@ -1,5 +1,5 @@
 use crate::core::product::Product;
-use crate::core::product_event::ProductEvent;
+use crate::core::product_event::ProductDomainEvent;
 use crate::dynamodb::product_event_record::ProductEventRecord;
 use crate::dynamodb::repository::{ProductDynamoDbRepository, extract_product_key};
 use crate::service::product_command::UpsertProductCommand;
@@ -301,7 +301,7 @@ fn determine_update_events(
     update_chunk: Vec<(Product, UpsertProductCommand)>,
     skipped_count: &mut usize,
     fx_rate: &impl FxRate,
-) -> Vec<ProductEvent> {
+) -> Vec<ProductDomainEvent> {
     let mut events = Vec::with_capacity(update_chunk.len());
     for (mut product, update_cmd) in update_chunk {
         let mut any_changes = false;

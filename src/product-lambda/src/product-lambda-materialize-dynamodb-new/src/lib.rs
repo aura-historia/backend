@@ -127,7 +127,9 @@ mod tests {
     use common::product_id::ProductKey;
     use fake::{Fake, Faker};
     use lambda_runtime::{Context, LambdaEvent};
-    use product::core::product_event::{ProductCreatedEventPayload, ProductEventPayload};
+    use product::core::product_event::domain::{
+        ProductCreatedDomainEventPayload, ProductDomainEventPayload,
+    };
     use product::dynamodb::product_event_record::ProductEventRecord;
     use product::dynamodb::repository::MockProductDynamoDbRepository;
     use std::collections::HashMap;
@@ -186,9 +188,9 @@ mod tests {
     #[case(10874)]
     #[trace]
     async fn should_handle_sqs_message(#[case] record_count: usize) {
-        let records = fake::vec![ProductCreatedEventPayload; record_count]
+        let records = fake::vec![ProductCreatedDomainEventPayload; record_count]
             .into_iter()
-            .map(ProductEventPayload::Created)
+            .map(ProductDomainEventPayload::Created)
             .map(|event_payload| Event {
                 aggregate_id: Faker.fake(),
                 event_id: Faker.fake(),
@@ -232,9 +234,9 @@ mod tests {
         #[case] record_count: usize,
     ) {
         let mut message_ids = HashMap::with_capacity(record_count);
-        let records = fake::vec![ProductCreatedEventPayload; record_count]
+        let records = fake::vec![ProductCreatedDomainEventPayload; record_count]
             .into_iter()
-            .map(ProductEventPayload::Created)
+            .map(ProductDomainEventPayload::Created)
             .map(|event_payload| Event {
                 aggregate_id: Faker.fake(),
                 event_id: Faker.fake(),
@@ -319,9 +321,9 @@ mod tests {
             .cloned()
             .collect::<Vec<_>>();
         let expected_failures_clone = expected_failures.clone();
-        let records = fake::vec![ProductCreatedEventPayload; record_count]
+        let records = fake::vec![ProductCreatedDomainEventPayload; record_count]
             .into_iter()
-            .map(ProductEventPayload::Created)
+            .map(ProductDomainEventPayload::Created)
             .map(|event_payload| Event {
                 aggregate_id: Faker.fake(),
                 event_id: Faker.fake(),

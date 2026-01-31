@@ -3,11 +3,13 @@ use crate::core::condition::Condition;
 use crate::core::description::Description;
 use crate::core::origin_year::OriginYear;
 use crate::core::product::{LocalizedProductView, Product};
-use crate::core::product_event::{
-    LocalizedProductCreatedEventPayloadView, LocalizedProductEventPayloadView,
-    LocalizedProductPriceChangeEventPayloadView, LocalizedProductPriceDiscoveryEventPayloadView,
-    LocalizedProductPriceRemovedEventPayloadView, LocalizedProductStateChangeEventPayloadView,
-    ProductEvent, ProductEventPayload,
+use crate::core::product_event::ProductDomainEvent;
+use crate::core::product_event::domain::{
+    LocalizedProductCreatedDomainEventPayloadView, LocalizedProductDomainEventPayloadView,
+    LocalizedProductPriceChangeDomainEventPayloadView,
+    LocalizedProductPriceDiscoveryDomainEventPayloadView,
+    LocalizedProductPriceRemovedDomainEventPayloadView,
+    LocalizedProductStateChangeDomainEventPayloadView, ProductDomainEventPayload,
 };
 use crate::core::product_image::ProductImage;
 use crate::core::provenance::Provenance;
@@ -138,7 +140,7 @@ pub trait GetProductService {
         shops_product_id: &ShopsProductId,
         languages: &[Language],
         currency: &Currency,
-    ) -> Result<Vec<Event<ProductId, LocalizedProductEventPayloadView>>, GetProductError>;
+    ) -> Result<Vec<Event<ProductId, LocalizedProductDomainEventPayloadView>>, GetProductError>;
 }
 
 pub struct GetProductServiceImpl<'a> {
@@ -280,24 +282,27 @@ impl<'a> GetProductService for GetProductServiceImpl<'a> {
         shops_product_id: &ShopsProductId,
         _languages: &[Language],
         currency: &Currency,
-    ) -> Result<Vec<Event<ProductId, LocalizedProductEventPayloadView>>, GetProductError> {
-        let events: Vec<Event<ProductId, LocalizedProductEventPayloadView>> = self
+    ) -> Result<Vec<Event<ProductId, LocalizedProductDomainEventPayloadView>>, GetProductError>
+    {
+        let events: Vec<Event<ProductId, LocalizedProductDomainEventPayloadView>> = self
             .repository
             .query_product_event_records(shop_id, shops_product_id)
             .await?
             .into_iter()
-            .filter_map(|event_record| match ProductEvent::try_from(event_record) {
-                Ok(event) => Some(event),
-                Err(err) => {
-                    error!(
-                        error = %err,
-                        fromtype = %std::any::type_name::<ProductEventRecord>(),
-                        totype = %std::any::type_name::<ProductEvent>(),
-                        "Failed mapping"
-                    );
-                    None
-                }
-            })
+            .filter_map(
+                |event_record| match ProductDomainEvent::try_from(event_record) {
+                    Ok(event) => Some(event),
+                    Err(err) => {
+                        error!(
+                            error = %err,
+                            fromtype = %std::any::type_name::<ProductEventRecord>(),
+                            totype = %std::any::type_name::<ProductDomainEvent>(),
+                            "Failed mapping"
+                        );
+                        None
+                    }
+                },
+            )
             .map(|event| localize_product_event(event, currency))
             .collect();
 
@@ -492,88 +497,94 @@ fn localize_product_record(
 }
 
 fn localize_product_event(
-    event: ProductEvent,
+    event: ProductDomainEvent,
     currency: &Currency,
-) -> Event<ProductId, LocalizedProductEventPayloadView> {
+) -> Event<ProductId, LocalizedProductDomainEventPayloadView> {
     let payload = match event.payload {
-        ProductEventPayload::Created(payload) => {
+        ProductDomainEventPayload::Created(payload) => {
             let mut prices = payload.other_price;
             if let Some(native_price) = payload.native_price {
                 prices.insert(native_price.currency, native_price.monetary_amount);
             }
-            LocalizedProductEventPayloadView::Created(LocalizedProductCreatedEventPayloadView {
-                shop_id: payload.shop_id,
-                shops_product_id: payload.shops_product_id,
-                shop_name: payload.shop_name,
-                shop_type: payload.shop_type,
-                title: payload.native_title,
-                description: payload.native_description,
-                price: prices
-                    .remove(currency)
-                    .map(|amount| Price::new(amount, *currency)),
-                state: payload.state,
-                url: payload.url,
-                images: payload.images,
-            })
+            LocalizedProductDomainEventPayloadView::Created(
+                LocalizedProductCreatedDomainEventPayloadView {
+                    shop_id: payload.shop_id,
+                    shops_product_id: payload.shops_product_id,
+                    shop_name: payload.shop_name,
+                    shop_type: payload.shop_type,
+                    title: payload.native_title,
+                    description: payload.native_description,
+                    price: prices
+                        .remove(currency)
+                        .map(|amount| Price::new(amount, *currency)),
+                    state: payload.state,
+                    url: payload.url,
+                    images: payload.images,
+                },
+            )
         }
-        ProductEventPayload::StateListed(payload) => LocalizedProductEventPayloadView::StateListed(
-            LocalizedProductStateChangeEventPayloadView {
-                shop_id: payload.shop_id,
-                shops_product_id: payload.shops_product_id,
-                old_state: payload.old_state,
-            },
-        ),
-        ProductEventPayload::StateAvailable(payload) => {
-            LocalizedProductEventPayloadView::StateAvailable(
-                LocalizedProductStateChangeEventPayloadView {
+        ProductDomainEventPayload::StateListed(payload) => {
+            LocalizedProductDomainEventPayloadView::StateListed(
+                LocalizedProductStateChangeDomainEventPayloadView {
                     shop_id: payload.shop_id,
                     shops_product_id: payload.shops_product_id,
                     old_state: payload.old_state,
                 },
             )
         }
-        ProductEventPayload::StateReserved(payload) => {
-            LocalizedProductEventPayloadView::StateReserved(
-                LocalizedProductStateChangeEventPayloadView {
+        ProductDomainEventPayload::StateAvailable(payload) => {
+            LocalizedProductDomainEventPayloadView::StateAvailable(
+                LocalizedProductStateChangeDomainEventPayloadView {
                     shop_id: payload.shop_id,
                     shops_product_id: payload.shops_product_id,
                     old_state: payload.old_state,
                 },
             )
         }
-        ProductEventPayload::StateSold(payload) => LocalizedProductEventPayloadView::StateSold(
-            LocalizedProductStateChangeEventPayloadView {
-                shop_id: payload.shop_id,
-                shops_product_id: payload.shops_product_id,
-                old_state: payload.old_state,
-            },
-        ),
-        ProductEventPayload::StateRemoved(payload) => {
-            LocalizedProductEventPayloadView::StateRemoved(
-                LocalizedProductStateChangeEventPayloadView {
+        ProductDomainEventPayload::StateReserved(payload) => {
+            LocalizedProductDomainEventPayloadView::StateReserved(
+                LocalizedProductStateChangeDomainEventPayloadView {
                     shop_id: payload.shop_id,
                     shops_product_id: payload.shops_product_id,
                     old_state: payload.old_state,
                 },
             )
         }
-        ProductEventPayload::StateUnknown(payload) => {
-            LocalizedProductEventPayloadView::StateUnknown(
-                LocalizedProductStateChangeEventPayloadView {
+        ProductDomainEventPayload::StateSold(payload) => {
+            LocalizedProductDomainEventPayloadView::StateSold(
+                LocalizedProductStateChangeDomainEventPayloadView {
                     shop_id: payload.shop_id,
                     shops_product_id: payload.shops_product_id,
                     old_state: payload.old_state,
                 },
             )
         }
-        ProductEventPayload::PriceDiscovered(payload) => {
+        ProductDomainEventPayload::StateRemoved(payload) => {
+            LocalizedProductDomainEventPayloadView::StateRemoved(
+                LocalizedProductStateChangeDomainEventPayloadView {
+                    shop_id: payload.shop_id,
+                    shops_product_id: payload.shops_product_id,
+                    old_state: payload.old_state,
+                },
+            )
+        }
+        ProductDomainEventPayload::StateUnknown(payload) => {
+            LocalizedProductDomainEventPayloadView::StateUnknown(
+                LocalizedProductStateChangeDomainEventPayloadView {
+                    shop_id: payload.shop_id,
+                    shops_product_id: payload.shops_product_id,
+                    old_state: payload.old_state,
+                },
+            )
+        }
+        ProductDomainEventPayload::PriceDiscovered(payload) => {
             let mut prices = payload.other_price;
             prices.insert(
                 payload.native_price.currency,
                 payload.native_price.monetary_amount,
             );
-            LocalizedProductEventPayloadView::PriceDiscovered(
-                LocalizedProductPriceDiscoveryEventPayloadView {
+            LocalizedProductDomainEventPayloadView::PriceDiscovered(
+                LocalizedProductPriceDiscoveryDomainEventPayloadView {
                         shop_id: payload.shop_id,
                         shops_product_id: payload.shops_product_id,
                         price: Currency::resolve(&[*currency], prices).unwrap_or_else(|| {
@@ -583,7 +594,7 @@ fn localize_product_event(
                     },
                 )
         }
-        ProductEventPayload::PriceDropped(payload) => {
+        ProductDomainEventPayload::PriceDropped(payload) => {
             let mut new_prices = payload.new_other_price;
             new_prices.insert(
                 payload.new_native_price.currency,
@@ -594,8 +605,8 @@ fn localize_product_event(
                 payload.old_native_price.currency,
                 payload.old_native_price.monetary_amount,
             );
-            LocalizedProductEventPayloadView::PriceDropped(
-                LocalizedProductPriceChangeEventPayloadView {
+            LocalizedProductDomainEventPayloadView::PriceDropped(
+                LocalizedProductPriceChangeDomainEventPayloadView {
                         shop_id: payload.shop_id,
                         shops_product_id: payload.shops_product_id,
                         new_price: Currency::resolve(&[*currency], new_prices).unwrap_or_else(|| {
@@ -609,7 +620,7 @@ fn localize_product_event(
                     },
                 )
         }
-        ProductEventPayload::PriceIncreased(payload) => {
+        ProductDomainEventPayload::PriceIncreased(payload) => {
             let mut new_prices = payload.new_other_price;
             new_prices.insert(
                 payload.new_native_price.currency,
@@ -620,8 +631,8 @@ fn localize_product_event(
                 payload.old_native_price.currency,
                 payload.old_native_price.monetary_amount,
             );
-            LocalizedProductEventPayloadView::PriceIncreased(
-                LocalizedProductPriceChangeEventPayloadView {
+            LocalizedProductDomainEventPayloadView::PriceIncreased(
+                LocalizedProductPriceChangeDomainEventPayloadView {
                         shop_id: payload.shop_id,
                         shops_product_id: payload.shops_product_id,
                         new_price: Currency::resolve(&[*currency], new_prices).unwrap_or_else(|| {
@@ -635,13 +646,13 @@ fn localize_product_event(
                     },
                 )
         }
-        ProductEventPayload::PriceRemoved(payload) => {
+        ProductDomainEventPayload::PriceRemoved(payload) => {
             let mut old_prices = payload.old_other_price;
             old_prices.insert(
                 payload.old_native_price.currency,
                 payload.old_native_price.monetary_amount,
             );
-            LocalizedProductEventPayloadView::PriceRemoved(LocalizedProductPriceRemovedEventPayloadView {
+            LocalizedProductDomainEventPayloadView::PriceRemoved(LocalizedProductPriceRemovedDomainEventPayloadView {
                 shop_id: payload.shop_id,
                 shops_product_id: payload.shops_product_id,
                 old_price: Currency::resolve(&[*currency], old_prices).unwrap_or_else(|| {

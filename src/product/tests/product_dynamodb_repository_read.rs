@@ -109,9 +109,10 @@ mod query_product_record_and_event_records {
     use common::shop_id::ShopId;
     use common::shops_product_id::ShopsProductId;
     use fake::{Fake, Faker};
-    use product::core::product_event::{
-        ProductCreatedEventPayload, ProductEvent, ProductEventPayload,
-        ProductStateChangeEventPayload,
+    use product::core::product_event::ProductDomainEvent;
+    use product::core::product_event::domain::{
+        ProductCreatedDomainEventPayload, ProductDomainEventPayload,
+        ProductStateChangeDomainEventPayload,
     };
     use product::core::product_image::ProductImage;
     use product::dynamodb::product_event_record::ProductEventRecord;
@@ -135,11 +136,11 @@ mod query_product_record_and_event_records {
 
     #[localstack_test(services = [DynamoDB()])]
     async fn should_return_none_when_events_exist_but_materialized_does_not() {
-        let event: ProductEventRecord = ProductEvent {
+        let event: ProductEventRecord = ProductDomainEvent {
             aggregate_id: Default::default(),
             event_id: Default::default(),
             timestamp: OffsetDateTime::now_utc(),
-            payload: ProductEventPayload::Created(Faker.fake()),
+            payload: ProductDomainEventPayload::Created(Faker.fake()),
         }
         .try_into()
         .unwrap();
@@ -188,11 +189,11 @@ mod query_product_record_and_event_records {
             .unwrap();
         assert!(insert_res.unprocessed_items.unwrap_or_default().is_empty());
 
-        let created_event: ProductEventRecord = ProductEvent {
+        let created_event: ProductEventRecord = ProductDomainEvent {
             aggregate_id: Default::default(),
             event_id: Default::default(),
             timestamp: OffsetDateTime::now_utc(),
-            payload: ProductEventPayload::Created(ProductCreatedEventPayload {
+            payload: ProductDomainEventPayload::Created(ProductCreatedDomainEventPayload {
                 product_slug_id: expected_materialized.product_slug_id.clone(),
                 shop_slug_id: expected_materialized.shop_slug_id.clone(),
                 shop_id: expected_materialized.shop_id,
@@ -221,15 +222,17 @@ mod query_product_record_and_event_records {
         }
         .try_into()
         .unwrap();
-        let updated_event: ProductEventRecord = ProductEvent {
+        let updated_event: ProductEventRecord = ProductDomainEvent {
             aggregate_id: Default::default(),
             event_id: Default::default(),
             timestamp: OffsetDateTime::now_utc(),
-            payload: ProductEventPayload::StateAvailable(ProductStateChangeEventPayload {
-                shop_id: expected_materialized.shop_id,
-                shops_product_id: expected_materialized.shops_product_id.clone(),
-                old_state: ProductState::Listed,
-            }),
+            payload: ProductDomainEventPayload::StateAvailable(
+                ProductStateChangeDomainEventPayload {
+                    shop_id: expected_materialized.shop_id,
+                    shops_product_id: expected_materialized.shops_product_id.clone(),
+                    old_state: ProductState::Listed,
+                },
+            ),
         }
         .try_into()
         .unwrap();
@@ -262,11 +265,11 @@ mod query_product_record_and_event_records {
             .unwrap();
         assert!(insert_res.unprocessed_items.unwrap_or_default().is_empty());
 
-        let created_event: ProductEventRecord = ProductEvent {
+        let created_event: ProductEventRecord = ProductDomainEvent {
             aggregate_id: Default::default(),
             event_id: Default::default(),
             timestamp: OffsetDateTime::now_utc(),
-            payload: ProductEventPayload::Created(ProductCreatedEventPayload {
+            payload: ProductDomainEventPayload::Created(ProductCreatedDomainEventPayload {
                 product_slug_id: expected_materialized.product_slug_id.clone(),
                 shop_slug_id: expected_materialized.shop_slug_id.clone(),
                 shop_id: expected_materialized.shop_id,
@@ -295,15 +298,17 @@ mod query_product_record_and_event_records {
         }
         .try_into()
         .unwrap();
-        let updated_event: ProductEventRecord = ProductEvent {
+        let updated_event: ProductEventRecord = ProductDomainEvent {
             aggregate_id: Default::default(),
             event_id: Default::default(),
             timestamp: OffsetDateTime::now_utc(),
-            payload: ProductEventPayload::StateAvailable(ProductStateChangeEventPayload {
-                shop_id: expected_materialized.shop_id,
-                shops_product_id: expected_materialized.shops_product_id.clone(),
-                old_state: ProductState::Listed,
-            }),
+            payload: ProductDomainEventPayload::StateAvailable(
+                ProductStateChangeDomainEventPayload {
+                    shop_id: expected_materialized.shop_id,
+                    shops_product_id: expected_materialized.shops_product_id.clone(),
+                    old_state: ProductState::Listed,
+                },
+            ),
         }
         .try_into()
         .unwrap();
@@ -1245,9 +1250,10 @@ mod query_product_event_records {
     use common::shop_id::ShopId;
     use common::shops_product_id::ShopsProductId;
     use fake::{Fake, Faker};
-    use product::core::product_event::{
-        ProductCreatedEventPayload, ProductEvent, ProductEventPayload,
-        ProductStateChangeEventPayload,
+    use product::core::product_event::ProductDomainEvent;
+    use product::core::product_event::domain::{
+        ProductCreatedDomainEventPayload, ProductDomainEventPayload,
+        ProductStateChangeDomainEventPayload,
     };
     use product::core::product_image::ProductImage;
     use product::dynamodb::product_event_record::ProductEventRecord;
@@ -1274,11 +1280,11 @@ mod query_product_event_records {
         let repository = get_repository().await;
 
         let expected_materialized = Faker.fake::<ProductRecord>();
-        let created_event: ProductEventRecord = ProductEvent {
+        let created_event: ProductEventRecord = ProductDomainEvent {
             aggregate_id: Default::default(),
             event_id: Default::default(),
             timestamp: OffsetDateTime::now_utc(),
-            payload: ProductEventPayload::Created(ProductCreatedEventPayload {
+            payload: ProductDomainEventPayload::Created(ProductCreatedDomainEventPayload {
                 product_slug_id: expected_materialized.product_slug_id.clone(),
                 shop_slug_id: expected_materialized.shop_slug_id.clone(),
                 shop_id: expected_materialized.shop_id,
@@ -1307,15 +1313,17 @@ mod query_product_event_records {
         }
         .try_into()
         .unwrap();
-        let updated_event: ProductEventRecord = ProductEvent {
+        let updated_event: ProductEventRecord = ProductDomainEvent {
             aggregate_id: Default::default(),
             event_id: Default::default(),
             timestamp: OffsetDateTime::now_utc(),
-            payload: ProductEventPayload::StateAvailable(ProductStateChangeEventPayload {
-                shop_id: expected_materialized.shop_id,
-                shops_product_id: expected_materialized.shops_product_id.clone(),
-                old_state: ProductState::Listed,
-            }),
+            payload: ProductDomainEventPayload::StateAvailable(
+                ProductStateChangeDomainEventPayload {
+                    shop_id: expected_materialized.shop_id,
+                    shops_product_id: expected_materialized.shops_product_id.clone(),
+                    old_state: ProductState::Listed,
+                },
+            ),
         }
         .try_into()
         .unwrap();

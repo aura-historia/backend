@@ -4,10 +4,8 @@ use mail_core::{
     payload::MailPayload,
     template::{MailTemplate, MailTemplateType},
 };
-use product::core::{
-    product::Product,
-    product_event::{ProductCommonEventPayload, ProductEvent},
-};
+use product::core::product_event::ProductDomainEvent;
+use product::core::{product::Product, product_event::domain::ProductCommonEventPayload};
 use product::service::get_service::{GetProductError, GetProductService};
 use product::watchlist::service::product_watchlist_service::{
     ProductWatchListService, WatchProductError,
@@ -30,7 +28,7 @@ pub enum ProductEventMailPayloadServiceError {
 pub trait ProductEventMailPayloadService {
     async fn create_mail_payloads(
         &self,
-        event: ProductEvent,
+        event: ProductDomainEvent,
     ) -> Result<Vec<MailPayload>, ProductEventMailPayloadServiceError>;
 }
 
@@ -58,7 +56,7 @@ impl<'a> ProductEventMailPayloadServiceImpl<'a> {
 impl<'a> ProductEventMailPayloadService for ProductEventMailPayloadServiceImpl<'a> {
     async fn create_mail_payloads(
         &self,
-        event: ProductEvent,
+        event: ProductDomainEvent,
     ) -> Result<Vec<MailPayload>, ProductEventMailPayloadServiceError> {
         let users = self
             .watchlist_service
@@ -82,7 +80,12 @@ impl<'a> ProductEventMailPayloadService for ProductEventMailPayloadServiceImpl<'
 }
 
 impl<'a> ProductEventMailPayloadServiceImpl<'a> {
-    fn customize_mail(&self, user: User, product: &Product, event: &ProductEvent) -> MailPayload {
+    fn customize_mail(
+        &self,
+        user: User,
+        product: &Product,
+        event: &ProductDomainEvent,
+    ) -> MailPayload {
         let title = product
             .other_title
             .get(&user.language.unwrap_or_default())

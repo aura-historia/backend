@@ -5,7 +5,7 @@ use aws_lambda_events::sqs::{BatchItemFailure, SqsBatchResponse, SqsEvent};
 use common::dynamodb_stream::extract_sqs_event_bridge_dynamodb_record;
 use lambda_runtime::LambdaEvent;
 use mail_core::{payload::MailPayload, queue_service::QueueMailService};
-use product::core::product_event::ProductEvent;
+use product::core::product_event::ProductDomainEvent;
 use product::dynamodb::product_event_record::ProductEventRecord;
 use tracing::{error, info};
 
@@ -31,7 +31,7 @@ pub async fn handler(
         >(
             message, &mut failed_message_ids, &mut skipped_count
         ) {
-            match ProductEvent::try_from(product_event_record) {
+            match ProductDomainEvent::try_from(product_event_record) {
                 Ok(product_event) => {
                     let mail_payloads_res = product_event_mail_payload_service
                         .create_mail_payloads(product_event)
@@ -50,7 +50,7 @@ pub async fn handler(
                     error!(
                         error = %err,
                         fromType = %std::any::type_name::<ProductEventRecord>(),
-                        toType = %std::any::type_name::<ProductEvent>(),
+                        toType = %std::any::type_name::<ProductDomainEvent>(),
                         "Failed mapping types. Skipping event."
                     );
                     skipped_count += 1;
@@ -124,7 +124,7 @@ mod tests {
     use lambda_runtime::{Context, LambdaEvent};
     use mail_core::payload::MailPayload;
     use mail_core::queue_service::MockQueueMailService;
-    use product::core::product_event::ProductEvent;
+    use product::core::product_event::ProductDomainEvent;
     use product::dynamodb::product_event_record::ProductEventRecord;
     use std::ops::SubAssign;
     use std::sync::Arc;
@@ -173,7 +173,7 @@ mod tests {
     #[case(10874)]
     #[trace]
     async fn should_handle_sqs_message(#[case] record_count: usize) {
-        let records = fake::vec![ProductEvent; record_count]
+        let records = fake::vec![ProductDomainEvent; record_count]
             .into_iter()
             .map(ProductEventRecord::try_from)
             .map(Result::unwrap)
@@ -225,7 +225,7 @@ mod tests {
     ) {
         use std::sync::Mutex;
 
-        let records = fake::vec![ProductEvent; record_count]
+        let records = fake::vec![ProductDomainEvent; record_count]
             .into_iter()
             .map(ProductEventRecord::try_from)
             .map(Result::unwrap)

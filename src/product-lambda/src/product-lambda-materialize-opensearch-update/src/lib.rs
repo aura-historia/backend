@@ -145,8 +145,10 @@ mod tests {
     use fake::Fake;
     use fake::Faker;
     use lambda_runtime::LambdaEvent;
-    use product::core::product_event::ProductEvent;
-    use product::core::product_event::{ProductCreatedEventPayload, ProductEventPayload};
+    use product::core::product_event::ProductDomainEvent;
+    use product::core::product_event::domain::{
+        ProductCreatedDomainEventPayload, ProductDomainEventPayload,
+    };
     use product::dynamodb::product_event_record::ProductEventRecord;
     use product::opensearch::repository::MockProductOpenSearchRepository;
     use std::collections::HashMap;
@@ -216,9 +218,9 @@ mod tests {
                 })
             });
 
-        let records = fake::vec![ProductCreatedEventPayload; record_count]
+        let records = fake::vec![ProductCreatedDomainEventPayload; record_count]
             .into_iter()
-            .map(ProductEventPayload::Created)
+            .map(ProductDomainEventPayload::Created)
             .map(|event_payload| Event {
                 aggregate_id: Faker.fake(),
                 event_id: Faker.fake(),
@@ -266,7 +268,7 @@ mod tests {
             .cloned()
             .collect::<Vec<_>>();
         let expected_failures_clone = expected_failures.clone();
-        let records = fake::vec![ProductEvent; record_count]
+        let records = fake::vec![ProductDomainEvent; record_count]
             .into_iter()
             .map(ProductEventRecord::try_from)
             .map(Result::unwrap)

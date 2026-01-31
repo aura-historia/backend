@@ -2,10 +2,11 @@ use crate::core::authenticity::Authenticity;
 use crate::core::condition::Condition;
 use crate::core::description::Description;
 use crate::core::origin_year::OriginYear;
-use crate::core::product_event::{
-    ProductCreatedEventPayload, ProductEvent, ProductEventPayload, ProductPriceChangeEventPayload,
-    ProductPriceDiscoveryEventPayload, ProductPriceRemovedEventPayload,
-    ProductStateChangeEventPayload,
+use crate::core::product_event::ProductDomainEvent;
+use crate::core::product_event::domain::{
+    ProductCreatedDomainEventPayload, ProductDomainEventPayload,
+    ProductPriceChangeDomainEventPayload, ProductPriceDiscoveryDomainEventPayload,
+    ProductPriceRemovedDomainEventPayload, ProductStateChangeDomainEventPayload,
 };
 use crate::core::product_image::ProductImage;
 use crate::core::provenance::Provenance;
@@ -83,8 +84,8 @@ impl Product {
         images: Vec<ProductImage>,
         auction_start: Option<OffsetDateTime>,
         auction_end: Option<OffsetDateTime>,
-    ) -> ProductEvent {
-        let payload = ProductCreatedEventPayload {
+    ) -> ProductDomainEvent {
+        let payload = ProductCreatedDomainEventPayload {
             product_slug_id: SlugId::from(native_title.payload.as_ref()),
             shop_slug_id: SlugId::from(shop_name.as_ref()),
             shop_id,
@@ -105,33 +106,33 @@ impl Product {
             auction_start,
             auction_end,
         };
-        ProductEvent {
+        ProductDomainEvent {
             aggregate_id: ProductId::new(),
             event_id: EventId::new(),
             timestamp: OffsetDateTime::now_utc(),
-            payload: ProductEventPayload::Created(payload),
+            payload: ProductDomainEventPayload::Created(payload),
         }
     }
 
-    pub fn change_state(&mut self, new_state: ProductState) -> Option<ProductEvent> {
+    pub fn change_state(&mut self, new_state: ProductState) -> Option<ProductDomainEvent> {
         if self.state == new_state {
             None
         } else {
             let old_state = self.state;
             self.state = new_state;
             let event_payload_constructor = match new_state {
-                ProductState::Listed => ProductEventPayload::StateListed,
-                ProductState::Available => ProductEventPayload::StateAvailable,
-                ProductState::Reserved => ProductEventPayload::StateReserved,
-                ProductState::Sold => ProductEventPayload::StateSold,
-                ProductState::Removed => ProductEventPayload::StateRemoved,
-                ProductState::Unknown => ProductEventPayload::StateUnknown,
+                ProductState::Listed => ProductDomainEventPayload::StateListed,
+                ProductState::Available => ProductDomainEventPayload::StateAvailable,
+                ProductState::Reserved => ProductDomainEventPayload::StateReserved,
+                ProductState::Sold => ProductDomainEventPayload::StateSold,
+                ProductState::Removed => ProductDomainEventPayload::StateRemoved,
+                ProductState::Unknown => ProductDomainEventPayload::StateUnknown,
             };
             let event = Event {
                 aggregate_id: self.product_id,
                 event_id: EventId::new(),
                 timestamp: OffsetDateTime::now_utc(),
-                payload: event_payload_constructor(ProductStateChangeEventPayload {
+                payload: event_payload_constructor(ProductStateChangeDomainEventPayload {
                     shop_id: self.shop_id,
                     shops_product_id: self.shops_product_id.clone(),
                     old_state,
@@ -145,7 +146,7 @@ impl Product {
         &mut self,
         new_native_price: Price,
         fx_rate: &impl FxRate,
-    ) -> Option<ProductEvent> {
+    ) -> Option<ProductDomainEvent> {
         let old_native_price_opt = self.native_price;
         let old_other_price = self.other_price.clone();
 
@@ -161,8 +162,8 @@ impl Product {
                     aggregate_id: self.product_id,
                     event_id: EventId::new(),
                     timestamp: OffsetDateTime::now_utc(),
-                    payload: ProductEventPayload::PriceDiscovered(
-                        ProductPriceDiscoveryEventPayload {
+                    payload: ProductDomainEventPayload::PriceDiscovered(
+                        ProductPriceDiscoveryDomainEventPayload {
                             shop_id: self.shop_id,
                             shops_product_id: self.shops_product_id.clone(),
                             native_price: new_native_price,
@@ -176,7 +177,7 @@ impl Product {
                 let old_price_for_new_currency = old_native_price
                     .into_exchanged(fx_rate, new_native_price.currency)
                     .unwrap_or(old_native_price);
-                let payload = ProductPriceChangeEventPayload {
+                let payload = ProductPriceChangeDomainEventPayload {
                     shop_id: self.shop_id,
                     shops_product_id: self.shops_product_id.clone(),
                     new_native_price,
@@ -189,7 +190,7 @@ impl Product {
                         aggregate_id: self.product_id,
                         event_id: EventId::new(),
                         timestamp: OffsetDateTime::now_utc(),
-                        payload: ProductEventPayload::PriceIncreased(payload),
+                        payload: ProductDomainEventPayload::PriceIncreased(payload),
                     };
                     Some(event)
                 } else if old_price_for_new_currency.monetary_amount
@@ -199,7 +200,7 @@ impl Product {
                         aggregate_id: self.product_id,
                         event_id: EventId::new(),
                         timestamp: OffsetDateTime::now_utc(),
-                        payload: ProductEventPayload::PriceDropped(payload),
+                        payload: ProductDomainEventPayload::PriceDropped(payload),
                     };
                     Some(event)
                 } else {
@@ -209,12 +210,12 @@ impl Product {
         }
     }
 
-    pub fn remove_price(&mut self) -> Option<ProductEvent> {
+    pub fn remove_price(&mut self) -> Option<ProductDomainEvent> {
         match self.native_price {
             Some(old_native_price) => {
                 self.native_price = None;
                 let old_other_price = self.other_price.drain().collect();
-                let payload = ProductPriceRemovedEventPayload {
+                let payload = ProductPriceRemovedDomainEventPayload {
                     shop_id: self.shop_id,
                     shops_product_id: self.shops_product_id.clone(),
                     old_native_price,
@@ -224,7 +225,7 @@ impl Product {
                     aggregate_id: self.product_id,
                     event_id: EventId::new(),
                     timestamp: OffsetDateTime::now_utc(),
-                    payload: ProductEventPayload::PriceRemoved(payload),
+                    payload: ProductDomainEventPayload::PriceRemoved(payload),
                 };
                 Some(event)
             }
@@ -236,7 +237,7 @@ impl Product {
         &mut self,
         new_price_opt: Option<Price>,
         fx_rate: &impl FxRate,
-    ) -> Option<ProductEvent> {
+    ) -> Option<ProductDomainEvent> {
         match new_price_opt {
             Some(new_price) => self.change_price(new_price, fx_rate),
             None => self.remove_price(),
@@ -607,7 +608,7 @@ mod tests {
 
     mod price {
         use crate::core::product::Product;
-        use crate::core::product_event::ProductEventPayload;
+        use crate::core::product_event::domain::ProductDomainEventPayload;
         use common::currency::domain::Currency;
         use common::language::domain::Language;
         use common::localized::Localized;
@@ -752,7 +753,7 @@ mod tests {
             let actual = product.new_price(Some(to_price), &IdentityFxRate).unwrap();
 
             match actual.payload {
-                ProductEventPayload::PriceDiscovered(payload) => {
+                ProductDomainEventPayload::PriceDiscovered(payload) => {
                     assert_eq!(to_price, payload.native_price);
                     assert!(
                         payload
@@ -819,7 +820,7 @@ mod tests {
             let actual = product.new_price(Some(to_price), &IdentityFxRate).unwrap();
 
             match actual.payload {
-                ProductEventPayload::PriceDropped(payload) => {
+                ProductDomainEventPayload::PriceDropped(payload) => {
                     assert_eq!(to_price, payload.new_native_price);
                     assert!(
                         payload
@@ -890,7 +891,7 @@ mod tests {
             let actual = product.new_price(Some(to_price), &IdentityFxRate).unwrap();
 
             match actual.payload {
-                ProductEventPayload::PriceIncreased(payload) => {
+                ProductDomainEventPayload::PriceIncreased(payload) => {
                     assert_eq!(to_price, payload.new_native_price);
                     assert!(
                         payload
@@ -963,7 +964,7 @@ mod tests {
             let actual = product.new_price(None, &IdentityFxRate).unwrap();
 
             match actual.payload {
-                ProductEventPayload::PriceRemoved(payload) => {
+                ProductDomainEventPayload::PriceRemoved(payload) => {
                     assert!(product.native_price.is_none());
                     assert!(product.other_price.is_empty());
                     assert_eq!(price, payload.old_native_price);

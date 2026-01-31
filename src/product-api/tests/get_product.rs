@@ -12,8 +12,9 @@ use fake::{Fake, Faker};
 use http::header::ACCEPT_LANGUAGE;
 use lambda_runtime::LambdaEvent;
 use product::{
-    core::product_event::{
-        ProductEventPayload, ProductPriceChangeEventPayload, ProductStateChangeEventPayload,
+    core::product_event::domain::{
+        ProductDomainEventPayload, ProductPriceChangeDomainEventPayload,
+        ProductStateChangeDomainEventPayload,
     },
     data::{get_data::GetProductData, user_state_data::ProductUserStateData},
     service::personalization_service::ProductPersonalizationServiceImpl,
@@ -67,7 +68,7 @@ async fn should_respond_200_without_history_when_anon() {
         aggregate_id: record.product_id,
         event_id: event_1_id,
         timestamp: SystemTime::now().into(),
-        payload: ProductEventPayload::PriceDropped(ProductPriceChangeEventPayload {
+        payload: ProductDomainEventPayload::PriceDropped(ProductPriceChangeDomainEventPayload {
             shop_id: record.shop_id,
             shops_product_id: record.shops_product_id.clone(),
             new_native_price: event_1_price,
@@ -89,7 +90,7 @@ async fn should_respond_200_without_history_when_anon() {
         aggregate_id: record.product_id,
         event_id: event_2_id,
         timestamp: SystemTime::now().into(),
-        payload: ProductEventPayload::StateRemoved(ProductStateChangeEventPayload {
+        payload: ProductDomainEventPayload::StateRemoved(ProductStateChangeDomainEventPayload {
             shop_id: record.shop_id,
             shops_product_id: record.shops_product_id.clone(),
             old_state: ProductState::Sold,
@@ -167,7 +168,7 @@ async fn should_respond_200_personalized_when_authenticated_and_not_watched() {
         aggregate_id: record.product_id,
         event_id: event_1_id,
         timestamp: SystemTime::now().into(),
-        payload: ProductEventPayload::PriceDropped(ProductPriceChangeEventPayload {
+        payload: ProductDomainEventPayload::PriceDropped(ProductPriceChangeDomainEventPayload {
             shop_id: record.shop_id,
             shops_product_id: record.shops_product_id.clone(),
             new_native_price: event_1_price,
@@ -189,7 +190,7 @@ async fn should_respond_200_personalized_when_authenticated_and_not_watched() {
         aggregate_id: record.product_id,
         event_id: event_2_id,
         timestamp: SystemTime::now().into(),
-        payload: ProductEventPayload::StateRemoved(ProductStateChangeEventPayload {
+        payload: ProductDomainEventPayload::StateRemoved(ProductStateChangeDomainEventPayload {
             shop_id: record.shop_id,
             shops_product_id: record.shops_product_id.clone(),
             old_state: ProductState::Sold,
@@ -301,7 +302,7 @@ async fn should_respond_200_personalized_when_authenticated_and_watched() {
         aggregate_id: record.product_id,
         event_id: event_1_id,
         timestamp: SystemTime::now().into(),
-        payload: ProductEventPayload::PriceDropped(ProductPriceChangeEventPayload {
+        payload: ProductDomainEventPayload::PriceDropped(ProductPriceChangeDomainEventPayload {
             shop_id: record.shop_id,
             shops_product_id: record.shops_product_id.clone(),
             new_native_price: event_1_price,
@@ -323,7 +324,7 @@ async fn should_respond_200_personalized_when_authenticated_and_watched() {
         aggregate_id: record.product_id,
         event_id: event_2_id,
         timestamp: SystemTime::now().into(),
-        payload: ProductEventPayload::StateRemoved(ProductStateChangeEventPayload {
+        payload: ProductDomainEventPayload::StateRemoved(ProductStateChangeDomainEventPayload {
             shop_id: record.shop_id,
             shops_product_id: record.shops_product_id.clone(),
             old_state: ProductState::Sold,

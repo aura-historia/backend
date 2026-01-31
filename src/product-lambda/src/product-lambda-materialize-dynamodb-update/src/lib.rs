@@ -100,7 +100,8 @@ mod tests {
     use aws_sdk_dynamodb::operation::update_item::UpdateItemOutput;
     use fake::{Fake, Faker};
     use lambda_runtime::{Context, LambdaEvent};
-    use product::core::product_event::{ProductCommonEventPayload, ProductEvent};
+    use product::core::product_event::ProductDomainEvent;
+    use product::core::product_event::domain::ProductCommonEventPayload;
     use product::dynamodb::product_event_record::ProductEventRecord;
     use product::dynamodb::repository::MockProductDynamoDbRepository;
     use std::time::SystemTime;
@@ -158,7 +159,7 @@ mod tests {
     #[case(2874)]
     #[case(10874)]
     async fn should_handle_sqs_message(#[case] record_count: usize) {
-        let records = fake::vec![ProductEvent; record_count]
+        let records = fake::vec![ProductDomainEvent; record_count]
             .into_iter()
             .map(ProductEventRecord::try_from)
             .map(Result::unwrap)
@@ -200,7 +201,7 @@ mod tests {
         #[case] failure_count: usize,
         #[case] record_count: usize,
     ) {
-        let events = fake::vec![ProductEvent; record_count];
+        let events = fake::vec![ProductDomainEvent; record_count];
         let expected_failed_events = events
             .clone()
             .into_iter()
