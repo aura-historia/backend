@@ -116,7 +116,7 @@ mod query_product_record_and_event_records {
     };
     use product::core::product_image::ProductImage;
     use product::dynamodb::product_event_record::domain::ProductDomainEventRecord;
-    use product::dynamodb::product_event_type_record::ProductDomainEventTypeRecord;
+    use product::dynamodb::product_event_type_record::domain::ProductDomainEventTypeRecord;
     use product::dynamodb::product_record::ProductRecord;
     use product::dynamodb::repository::ProductDynamoDbRepository;
     use test_api::*;
@@ -1260,7 +1260,7 @@ mod query_product_event_records {
     };
     use product::core::product_image::ProductImage;
     use product::dynamodb::product_event_record::domain::ProductDomainEventRecord;
-    use product::dynamodb::product_event_type_record::ProductDomainEventTypeRecord;
+    use product::dynamodb::product_event_type_record::domain::ProductDomainEventTypeRecord;
     use product::dynamodb::product_record::ProductRecord;
     use product::dynamodb::repository::ProductDynamoDbRepository;
     use test_api::*;

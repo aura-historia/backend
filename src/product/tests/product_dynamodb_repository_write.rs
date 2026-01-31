@@ -9,7 +9,7 @@ use common::shops_product_id::ShopsProductId;
 use fake::{Fake, Faker};
 use product::dynamodb::product_event_record;
 use product::dynamodb::product_event_record::domain::ProductDomainEventRecord;
-use product::dynamodb::product_event_type_record::ProductDomainEventTypeRecord;
+use product::dynamodb::product_event_type_record::domain::ProductDomainEventTypeRecord;
 use product::dynamodb::product_record::{self, ProductRecord};
 use product::dynamodb::product_state_record::ProductStateRecord;
 use product::dynamodb::product_update_record::ProductRecordUpdate;

@@ -5,7 +5,7 @@ use crate::core::product_event::domain::{
     ProductPriceRemovedDomainEventPayload, ProductStateChangeDomainEventPayload,
 };
 use crate::core::product_image::ProductImage;
-use crate::dynamodb::product_event_type_record::ProductDomainEventTypeRecord;
+use crate::dynamodb::product_event_type_record::domain::ProductDomainEventTypeRecord;
 use crate::dynamodb::product_image_record::ProductImageRecord;
 use crate::dynamodb::product_state_record::ProductStateRecord;
 use common::currency::domain::Currency;
