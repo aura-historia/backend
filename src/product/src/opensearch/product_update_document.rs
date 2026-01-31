@@ -1,4 +1,4 @@
-use crate::dynamodb::product_event_record::ProductEventRecord;
+use crate::dynamodb::product_event_record::ProductDomainEventRecord;
 use crate::opensearch::authenticity_document::AuthenticityDocument;
 use crate::opensearch::condition_document::ConditionDocument;
 use crate::opensearch::product_image_document::ProductImageDocument;
@@ -109,8 +109,8 @@ impl Default for ProductUpdateDocument {
     }
 }
 
-impl From<ProductEventRecord> for ProductUpdateDocument {
-    fn from(event_record: ProductEventRecord) -> Self {
+impl From<ProductDomainEventRecord> for ProductUpdateDocument {
+    fn from(event_record: ProductDomainEventRecord) -> Self {
         let state = event_record.new_state.map(ProductStateDocument::from);
         ProductUpdateDocument {
             event_id: Some(event_record.event_id),

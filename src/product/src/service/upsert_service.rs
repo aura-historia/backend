@@ -1,6 +1,6 @@
 use crate::core::product::Product;
 use crate::core::product_event::ProductDomainEvent;
-use crate::dynamodb::product_event_record::ProductEventRecord;
+use crate::dynamodb::product_event_record::ProductDomainEventRecord;
 use crate::dynamodb::repository::{ProductDynamoDbRepository, extract_product_key};
 use crate::service::product_command::UpsertProductCommand;
 use async_trait::async_trait;
@@ -243,7 +243,7 @@ impl<T: FxRate + Sync> UpsertProductsServiceImpl<'_, T> {
     async fn extract_create_events(
         &self,
         create_chunk: Vec<UpsertProductCommand>,
-    ) -> Vec<ProductEventRecord> {
+    ) -> Vec<ProductDomainEventRecord> {
         create_chunk.into_iter().map(|cmd| {
             Product::create(
                 cmd.shop_id,
@@ -266,7 +266,7 @@ impl<T: FxRate + Sync> UpsertProductsServiceImpl<'_, T> {
             )
         })
         .filter_map(|event| {
-            match ProductEventRecord::try_from(event) {
+            match ProductDomainEventRecord::try_from(event) {
                 Ok(record_event) => Some(record_event),
                 Err(err) => {
                     error!(error = %err, "Failed converting ProductEvent to ProductEventRecord. This is a bug. Not retrying");
@@ -281,11 +281,11 @@ impl<T: FxRate + Sync> UpsertProductsServiceImpl<'_, T> {
         &self,
         update_chunk: Vec<(Product, UpsertProductCommand)>,
         skipped_count: &mut usize,
-    ) -> Vec<ProductEventRecord> {
+    ) -> Vec<ProductDomainEventRecord> {
         determine_update_events(update_chunk, skipped_count, self.fx_rate)
             .into_iter()
             .filter_map(|event| {
-                match ProductEventRecord::try_from(event) {
+                match ProductDomainEventRecord::try_from(event) {
                     Ok(record_event) => Some(record_event),
                     Err(err) => {
                         error!(error = %err, "Failed converting ProductEvent to ProductEventRecord. This is a bug. Not retriying.");

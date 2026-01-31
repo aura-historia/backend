@@ -7,7 +7,7 @@ use crate::core::provenance::Provenance;
 use crate::core::restoration::Restoration;
 use crate::dynamodb::authenticity_record::AuthenticityRecord;
 use crate::dynamodb::condition_record::ConditionRecord;
-use crate::dynamodb::product_event_record::ProductEventRecord;
+use crate::dynamodb::product_event_record::ProductDomainEventRecord;
 use crate::dynamodb::product_image_record::ProductImageRecord;
 use crate::dynamodb::product_state_record::ProductStateRecord;
 use crate::dynamodb::provenance_record::ProvenanceRecord;
@@ -307,16 +307,16 @@ impl From<ProductRecord> for Product {
     }
 }
 
-impl TryFrom<ProductEventRecord> for ProductRecord {
+impl TryFrom<ProductDomainEventRecord> for ProductRecord {
     type Error = PersistenceMappingError;
 
-    fn try_from(event_record: ProductEventRecord) -> Result<Self, Self::Error> {
+    fn try_from(event_record: ProductDomainEventRecord) -> Result<Self, Self::Error> {
         let product_slug_id = event_record.product_slug_id.ok_or_else(|| {
-            MissingPersistenceField::new(field!(product_slug_id@ProductEventRecord))
+            MissingPersistenceField::new(field!(product_slug_id@ProductDomainEventRecord))
         })?;
         let shop_slug_id = event_record
             .shop_slug_id
-            .ok_or_else(|| MissingPersistenceField::new(field!(shop_slug_id@ProductEventRecord)))?;
+            .ok_or_else(|| MissingPersistenceField::new(field!(shop_slug_id@ProductDomainEventRecord)))?;
         let record = ProductRecord {
             pk: event_record.pk,
             sk: mk_sk().to_string(),
@@ -329,13 +329,13 @@ impl TryFrom<ProductEventRecord> for ProductRecord {
             shop_id: event_record.shop_id,
             shops_product_id: event_record.shops_product_id,
             shop_name: event_record.shop_name.ok_or_else(|| {
-                MissingPersistenceField::new(field!(shop_name@ProductEventRecord))
+                MissingPersistenceField::new(field!(shop_name@ProductDomainEventRecord))
             })?,
             shop_type: event_record.shop_type.ok_or_else(|| {
-                MissingPersistenceField::new(field!(shop_type@ProductEventRecord))
+                MissingPersistenceField::new(field!(shop_type@ProductDomainEventRecord))
             })?,
             title_native: event_record.title_native.ok_or_else(|| {
-                MissingPersistenceField::new(field!(title_native@ProductEventRecord))
+                MissingPersistenceField::new(field!(title_native@ProductDomainEventRecord))
             })?,
             title_de: event_record.title_de,
             title_en: event_record.title_en,
@@ -368,11 +368,11 @@ impl TryFrom<ProductEventRecord> for ProductRecord {
             price_estimate_max_cad: event_record.new_price_estimate_max_cad,
             price_estimate_max_nzd: event_record.new_price_estimate_max_nzd,
             state: event_record.new_state.ok_or_else(|| {
-                MissingPersistenceField::new(field!(new_state@ProductEventRecord))
+                MissingPersistenceField::new(field!(new_state@ProductDomainEventRecord))
             })?,
             url: event_record
                 .url
-                .ok_or_else(|| MissingPersistenceField::new(field!(url@ProductEventRecord)))?,
+                .ok_or_else(|| MissingPersistenceField::new(field!(url@ProductDomainEventRecord)))?,
             images: event_record.images.unwrap_or_default(),
             origin_year_min: None,
             origin_year: None,

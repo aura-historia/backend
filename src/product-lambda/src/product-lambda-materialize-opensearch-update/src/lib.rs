@@ -3,7 +3,7 @@ use common::dynamodb_stream::extract_sqs_event_bridge_dynamodb_record;
 use common::opensearch::bulk_response::{BulkItemResult, BulkResponse};
 use common::product_id::ProductId;
 use lambda_runtime::LambdaEvent;
-use product::dynamodb::product_event_record::ProductEventRecord;
+use product::dynamodb::product_event_record::ProductDomainEventRecord;
 use product::opensearch::product_update_document::ProductUpdateDocument;
 use product::opensearch::repository::ProductOpenSearchRepository;
 use std::collections::HashMap;
@@ -71,7 +71,7 @@ fn extract_message_data(
         .message_id
         .clone()
         .expect("shouldn't receive an SQS-Message without 'message_id' because AWS sets it.");
-    let product_event_record: ProductEventRecord =
+    let product_event_record: ProductDomainEventRecord =
         extract_sqs_event_bridge_dynamodb_record(message, failed_message_ids, skipped_count)?;
     let product_id = product_event_record.product_id;
     let update_document = ProductUpdateDocument::from(product_event_record);
@@ -149,14 +149,14 @@ mod tests {
     use product::core::product_event::domain::{
         ProductCreatedDomainEventPayload, ProductDomainEventPayload,
     };
-    use product::dynamodb::product_event_record::ProductEventRecord;
+    use product::dynamodb::product_event_record::ProductDomainEventRecord;
     use product::opensearch::repository::MockProductOpenSearchRepository;
     use std::collections::HashMap;
     use std::time::SystemTime;
     use time::OffsetDateTime;
     use uuid::Uuid;
 
-    fn mk_event_bridge_payload(product_event_record: &ProductEventRecord) -> String {
+    fn mk_event_bridge_payload(product_event_record: &ProductDomainEventRecord) -> String {
         let mut stream_record = StreamRecord::default();
         stream_record.approximate_creation_date_time = SystemTime::now().into();
         stream_record.new_image = serde_dynamo::to_item(product_event_record).unwrap();
@@ -176,14 +176,14 @@ mod tests {
         serde_json::to_string(&event).unwrap()
     }
 
-    fn mk_sqs_message(event_record: &ProductEventRecord) -> SqsMessage {
+    fn mk_sqs_message(event_record: &ProductDomainEventRecord) -> SqsMessage {
         let mut msg = SqsMessage::default();
         msg.message_id = Some(Faker.fake());
         msg.body = Some(mk_event_bridge_payload(event_record));
         msg
     }
 
-    fn mk_sqs_message_with_id(event_record: &ProductEventRecord, message_id: String) -> SqsMessage {
+    fn mk_sqs_message_with_id(event_record: &ProductDomainEventRecord, message_id: String) -> SqsMessage {
         let mut msg = SqsMessage::default();
         msg.message_id = Some(message_id);
         msg.body = Some(mk_event_bridge_payload(event_record));
@@ -227,7 +227,7 @@ mod tests {
                 timestamp: OffsetDateTime::now_utc(),
                 payload: event_payload,
             })
-            .map(ProductEventRecord::try_from)
+            .map(ProductDomainEventRecord::try_from)
             .map(Result::unwrap)
             .map(|event_record| mk_sqs_message(&event_record))
             .collect();
@@ -270,7 +270,7 @@ mod tests {
         let expected_failures_clone = expected_failures.clone();
         let records = fake::vec![ProductDomainEvent; record_count]
             .into_iter()
-            .map(ProductEventRecord::try_from)
+            .map(ProductDomainEventRecord::try_from)
             .map(Result::unwrap)
             .map(|event_record| {
                 let uuid = Uuid::new_v4().to_string();

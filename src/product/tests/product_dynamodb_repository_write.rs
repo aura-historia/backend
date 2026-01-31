@@ -7,8 +7,8 @@ use common::product_id::ProductId;
 use common::shop_id::ShopId;
 use common::shops_product_id::ShopsProductId;
 use fake::{Fake, Faker};
-use product::dynamodb::product_event_record::{self, ProductEventRecord};
-use product::dynamodb::product_event_type_record::ProductEventTypeRecord;
+use product::dynamodb::product_event_record::{self, ProductDomainEventRecord};
+use product::dynamodb::product_event_type_record::ProductDomainEventTypeRecord;
 use product::dynamodb::product_record::{self, ProductRecord};
 use product::dynamodb::product_state_record::ProductStateRecord;
 use product::dynamodb::product_update_record::ProductRecordUpdate;
@@ -205,14 +205,14 @@ async fn should_put_product_event_records_for_single_record() {
         amount: 110,
         currency: CurrencyRecord::Eur,
     });
-    let expected = ProductEventRecord {
+    let expected = ProductDomainEventRecord {
         pk: product_event_record::mk_pk(&shop_id, &shops_product_id),
         sk: product_event_record::mk_sk(&now).unwrap(),
         product_id: ProductId::new(),
         product_slug_id: Faker.fake(),
         shop_slug_id: Faker.fake(),
         event_id: EventId::new(),
-        event_type: ProductEventTypeRecord::Created,
+        event_type: ProductDomainEventTypeRecord::Created,
         event_type_schema_version: 0,
         shop_id,
         shops_product_id: shops_product_id.clone(),
@@ -282,7 +282,7 @@ async fn should_put_product_event_records_for_single_record() {
         .unwrap()
         .into_iter()
         .map(serde_dynamo::from_item)
-        .collect::<Result<Vec<ProductEventRecord>, _>>()
+        .collect::<Result<Vec<ProductDomainEventRecord>, _>>()
         .unwrap();
 
     assert_eq!(vec![expected], actual);
@@ -297,14 +297,14 @@ async fn should_put_product_event_records_for_multiple_records() {
         amount: 110,
         currency: CurrencyRecord::Eur,
     });
-    let expected1 = ProductEventRecord {
+    let expected1 = ProductDomainEventRecord {
         pk: product_event_record::mk_pk(&shop_id, &shops_product_id1),
         sk: product_event_record::mk_sk(&now1).unwrap(),
         product_id: ProductId::new(),
         product_slug_id: Faker.fake(),
         shop_slug_id: Faker.fake(),
         event_id: EventId::new(),
-        event_type: ProductEventTypeRecord::Created,
+        event_type: ProductDomainEventTypeRecord::Created,
         event_type_schema_version: 0,
         shop_id,
         shops_product_id: shops_product_id1.clone(),
@@ -359,14 +359,14 @@ async fn should_put_product_event_records_for_multiple_records() {
 
     let now2 = OffsetDateTime::now_utc();
     let shops_product_id2: ShopsProductId = "123465".into();
-    let expected2 = ProductEventRecord {
+    let expected2 = ProductDomainEventRecord {
         pk: product_event_record::mk_pk(&shop_id, &shops_product_id2),
         sk: product_event_record::mk_sk(&now2).unwrap(),
         product_id: ProductId::new(),
         product_slug_id: Faker.fake(),
         shop_slug_id: Faker.fake(),
         event_id: EventId::new(),
-        event_type: ProductEventTypeRecord::Created,
+        event_type: ProductDomainEventTypeRecord::Created,
         event_type_schema_version: 0,
         shop_id,
         shops_product_id: shops_product_id2.clone(),
@@ -436,7 +436,7 @@ async fn should_put_product_event_records_for_multiple_records() {
         .unwrap()
         .into_iter()
         .map(serde_dynamo::from_item)
-        .collect::<Result<Vec<ProductEventRecord>, _>>()
+        .collect::<Result<Vec<ProductDomainEventRecord>, _>>()
         .unwrap();
 
     assert_eq!(vec![expected1, expected2], actual);

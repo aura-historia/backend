@@ -5,7 +5,7 @@ use common::{api::collection::PutCollectionData, price::domain::FixedFxRate};
 use fake::{Fake, Faker};
 use lambda_runtime::LambdaEvent;
 use product::data::put_data::PutProductData;
-use product::dynamodb::product_event_record::ProductEventRecordSerdeField;
+use product::dynamodb::product_event_record::ProductDomainEventRecordSerdeField;
 use product::dynamodb::repository::ProductDynamoDbRepositoryImpl;
 use product::service::{
     enrichment_service::ProductCommandEnrichmentServiceImpl,
@@ -102,7 +102,7 @@ async fn should_put_products_with_known_domain() {
         .items
         .unwrap()
         .iter()
-        .filter_map(|record| record.get(ProductEventRecordSerdeField::EventType.as_str()))
+        .filter_map(|record| record.get(ProductDomainEventRecordSerdeField::EventType.as_str()))
         .count();
     assert_eq!(235, event_records_count);
 }
@@ -175,7 +175,7 @@ async fn should_put_products_with_known_domain_when_domain_contains_subdomain_ww
         .items
         .unwrap()
         .iter()
-        .filter_map(|record| record.get(ProductEventRecordSerdeField::EventType.as_str()))
+        .filter_map(|record| record.get(ProductDomainEventRecordSerdeField::EventType.as_str()))
         .count();
     assert_eq!(235, event_records_count);
 }

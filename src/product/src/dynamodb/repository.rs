@@ -1,4 +1,4 @@
-use crate::dynamodb::product_event_record::ProductEventRecord;
+use crate::dynamodb::product_event_record::ProductDomainEventRecord;
 use crate::dynamodb::product_record::{self, ProductRecord};
 use crate::dynamodb::product_update_record::ProductRecordUpdate;
 use async_trait::async_trait;
@@ -27,7 +27,7 @@ use tracing::{error, warn};
 pub trait ProductDynamoDbRepository {
     async fn put_product_event_records(
         &self,
-        product_event_records: Batch<ProductEventRecord, 25>,
+        product_event_records: Batch<ProductDomainEventRecord, 25>,
     ) -> Result<BatchWriteItemOutput, SdkError<BatchWriteItemError, HttpResponse>>;
 
     async fn put_product_records(
@@ -52,13 +52,13 @@ pub trait ProductDynamoDbRepository {
         &self,
         shop_id: &ShopId,
         shops_product_id: &ShopsProductId,
-    ) -> Result<Option<(ProductRecord, Vec<ProductEventRecord>)>, SdkError<QueryError, HttpResponse>>;
+    ) -> Result<Option<(ProductRecord, Vec<ProductDomainEventRecord>)>, SdkError<QueryError, HttpResponse>>;
 
     async fn query_product_event_records(
         &self,
         shop_id: &ShopId,
         shops_product_id: &ShopsProductId,
-    ) -> Result<Vec<ProductEventRecord>, SdkError<QueryError, HttpResponse>>;
+    ) -> Result<Vec<ProductDomainEventRecord>, SdkError<QueryError, HttpResponse>>;
 
     async fn get_product_records(
         &self,
@@ -105,7 +105,7 @@ impl<'a> ProductDynamoDbRepositoryImpl<'a> {
 impl<'a> ProductDynamoDbRepository for ProductDynamoDbRepositoryImpl<'a> {
     async fn put_product_event_records(
         &self,
-        product_event_records: Batch<ProductEventRecord, 25>,
+        product_event_records: Batch<ProductDomainEventRecord, 25>,
     ) -> Result<BatchWriteItemOutput, SdkError<BatchWriteItemError, HttpResponse>> {
         self.client
             .batch_write_item()
@@ -183,7 +183,7 @@ impl<'a> ProductDynamoDbRepository for ProductDynamoDbRepositoryImpl<'a> {
         &self,
         shop_id: &ShopId,
         shops_product_id: &ShopsProductId,
-    ) -> Result<Option<(ProductRecord, Vec<ProductEventRecord>)>, SdkError<QueryError, HttpResponse>>
+    ) -> Result<Option<(ProductRecord, Vec<ProductDomainEventRecord>)>, SdkError<QueryError, HttpResponse>>
     {
         let composite = self
             .client
@@ -224,16 +224,16 @@ impl<'a> ProductDynamoDbRepository for ProductDynamoDbRepositoryImpl<'a> {
                     }
                 },
                 Some(sk) if sk.starts_with("product#event#") => {
-                    match serde_dynamo::from_item::<_, ProductEventRecord>(record) {
+                    match serde_dynamo::from_item::<_, ProductDomainEventRecord>(record) {
                         Ok(event) => {
-                            let mut events: Vec<ProductEventRecord> = events.unwrap_or_default();
+                            let mut events: Vec<ProductDomainEventRecord> = events.unwrap_or_default();
                             events.push(event);
                             (materialized, Some(events))
                         },
                         Err(err) => {
                             error!(
                                 error = %err,
-                                type = %std::any::type_name::<ProductEventRecord>(),
+                                type = %std::any::type_name::<ProductDomainEventRecord>(),
                                 "Failed deserializing ProductEventRecord."
                             );
                             (materialized, events)
@@ -271,7 +271,7 @@ impl<'a> ProductDynamoDbRepository for ProductDynamoDbRepositoryImpl<'a> {
         &self,
         shop_id: &ShopId,
         shops_product_id: &ShopsProductId,
-    ) -> Result<Vec<ProductEventRecord>, SdkError<QueryError, HttpResponse>> {
+    ) -> Result<Vec<ProductDomainEventRecord>, SdkError<QueryError, HttpResponse>> {
         let event_records = self
             .client
             .query()
@@ -295,12 +295,12 @@ impl<'a> ProductDynamoDbRepository for ProductDynamoDbRepositoryImpl<'a> {
             .into_iter()
             .flat_map(|query_output| query_output.items.unwrap_or_default())
             .filter_map(|event_record_attr_map| {
-                match serde_dynamo::from_item::<_, ProductEventRecord>(event_record_attr_map) {
+                match serde_dynamo::from_item::<_, ProductDomainEventRecord>(event_record_attr_map) {
                     Ok(event_record) => Some(event_record),
                     Err(err) => {
                         error!(
                             error = %err,
-                            type = %std::any::type_name::<ProductEventRecord>(),
+                            type = %std::any::type_name::<ProductDomainEventRecord>(),
                             "Failed deserializing."
                         );
                         None

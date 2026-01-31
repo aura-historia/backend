@@ -7,7 +7,7 @@ use common::product_id::ProductKey;
 use lambda_runtime::LambdaEvent;
 use product::dynamodb::repository::ProductDynamoDbRepository;
 use product::dynamodb::{
-    product_event_record::ProductEventRecord, product_update_record::ProductRecordUpdate,
+    product_event_record::ProductDomainEventRecord, product_update_record::ProductRecordUpdate,
 };
 use tracing::{error, info};
 
@@ -82,7 +82,7 @@ fn extract_message_data(
         .message_id
         .clone()
         .expect("shouldn't receive an SQS-Message without 'message_id' because AWS sets it.");
-    let product_event_record: ProductEventRecord =
+    let product_event_record: ProductDomainEventRecord =
         extract_sqs_event_bridge_dynamodb_record(message, failed_message_ids, skipped_count)?;
     let key = product_event_record.key();
     let update_record = ProductRecordUpdate::from(product_event_record);
@@ -102,12 +102,12 @@ mod tests {
     use lambda_runtime::{Context, LambdaEvent};
     use product::core::product_event::ProductDomainEvent;
     use product::core::product_event::domain::ProductCommonEventPayload;
-    use product::dynamodb::product_event_record::ProductEventRecord;
+    use product::dynamodb::product_event_record::ProductDomainEventRecord;
     use product::dynamodb::repository::MockProductDynamoDbRepository;
     use std::time::SystemTime;
     use uuid::Uuid;
 
-    fn mk_event_bridge_payload(product_event_record: &ProductEventRecord) -> String {
+    fn mk_event_bridge_payload(product_event_record: &ProductDomainEventRecord) -> String {
         let mut stream_record = StreamRecord::default();
         stream_record.approximate_creation_date_time = SystemTime::now().into();
         stream_record.new_image = serde_dynamo::to_item(product_event_record).unwrap();
@@ -127,7 +127,7 @@ mod tests {
         serde_json::to_string(&event).unwrap()
     }
 
-    fn mk_sqs_message(product_event_record: &ProductEventRecord) -> SqsMessage {
+    fn mk_sqs_message(product_event_record: &ProductDomainEventRecord) -> SqsMessage {
         let mut msg = SqsMessage::default();
         msg.message_id = Some(Faker.fake());
         msg.body = Some(mk_event_bridge_payload(product_event_record));
@@ -135,7 +135,7 @@ mod tests {
     }
 
     fn mk_sqs_message_with_id(
-        product_event_record: &ProductEventRecord,
+        product_event_record: &ProductDomainEventRecord,
         message_id: String,
     ) -> SqsMessage {
         let mut msg = SqsMessage::default();
@@ -161,7 +161,7 @@ mod tests {
     async fn should_handle_sqs_message(#[case] record_count: usize) {
         let records = fake::vec![ProductDomainEvent; record_count]
             .into_iter()
-            .map(ProductEventRecord::try_from)
+            .map(ProductDomainEventRecord::try_from)
             .map(Result::unwrap)
             .map(|product_event_record| mk_sqs_message(&product_event_record))
             .collect();
@@ -210,7 +210,7 @@ mod tests {
         let mut expected_failed_message_ids = Vec::with_capacity(failure_count);
         let records = events
             .into_iter()
-            .map(ProductEventRecord::try_from)
+            .map(ProductDomainEventRecord::try_from)
             .map(Result::unwrap)
             .map(|event_record| {
                 let message_id = Uuid::new_v4().to_string();

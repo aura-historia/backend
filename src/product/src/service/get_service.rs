@@ -15,7 +15,7 @@ use crate::core::product_image::ProductImage;
 use crate::core::provenance::Provenance;
 use crate::core::restoration::Restoration;
 use crate::core::title::Title;
-use crate::dynamodb::product_event_record::ProductEventRecord;
+use crate::dynamodb::product_event_record::ProductDomainEventRecord;
 use crate::dynamodb::product_record::ProductRecord;
 use crate::dynamodb::repository::ProductDynamoDbRepository;
 use async_trait::async_trait;
@@ -295,7 +295,7 @@ impl<'a> GetProductService for GetProductServiceImpl<'a> {
                     Err(err) => {
                         error!(
                             error = %err,
-                            fromtype = %std::any::type_name::<ProductEventRecord>(),
+                            fromtype = %std::any::type_name::<ProductDomainEventRecord>(),
                             totype = %std::any::type_name::<ProductDomainEvent>(),
                             "Failed mapping"
                         );
@@ -1366,7 +1366,7 @@ mod tests {
     mod view_product_events {
         use crate::{
             dynamodb::{
-                product_event_record::ProductEventRecord, repository::MockProductDynamoDbRepository,
+                product_event_record::ProductDomainEventRecord, repository::MockProductDynamoDbRepository,
             },
             service::get_service::{GetProductError, GetProductService, GetProductServiceImpl},
         };
@@ -1378,7 +1378,7 @@ mod tests {
         #[tokio::test]
         async fn should_keep_history_in_exact_order_as_dynamodb_read() {
             let mut repository = MockProductDynamoDbRepository::default();
-            let mut events = fake::vec![ProductEventRecord; 100];
+            let mut events = fake::vec![ProductDomainEventRecord; 100];
             events.sort_by(|l, r| l.product_id.cmp(&r.product_id));
             let expected = events
                 .clone()

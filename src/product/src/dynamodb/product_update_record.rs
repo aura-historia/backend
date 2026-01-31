@@ -1,6 +1,6 @@
 use crate::dynamodb::authenticity_record::AuthenticityRecord;
 use crate::dynamodb::condition_record::ConditionRecord;
-use crate::dynamodb::product_event_record::ProductEventRecord;
+use crate::dynamodb::product_event_record::ProductDomainEventRecord;
 use crate::dynamodb::product_image_record::ProductImageRecord;
 use crate::dynamodb::product_state_record::ProductStateRecord;
 use crate::dynamodb::provenance_record::ProvenanceRecord;
@@ -111,8 +111,8 @@ impl Default for ProductRecordUpdate {
     }
 }
 
-impl From<ProductEventRecord> for ProductRecordUpdate {
-    fn from(event: ProductEventRecord) -> Self {
+impl From<ProductDomainEventRecord> for ProductRecordUpdate {
+    fn from(event: ProductDomainEventRecord) -> Self {
         ProductRecordUpdate {
             event_id: Some(event.event_id),
             price_native: event.new_price_native,

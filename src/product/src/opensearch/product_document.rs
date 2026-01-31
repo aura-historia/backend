@@ -1,4 +1,4 @@
-use crate::dynamodb::product_event_record::ProductEventRecord;
+use crate::dynamodb::product_event_record::ProductDomainEventRecord;
 use crate::dynamodb::product_record::ProductRecord;
 use crate::opensearch::authenticity_document::AuthenticityDocument;
 use crate::opensearch::condition_document::ConditionDocument;
@@ -152,36 +152,36 @@ impl HasKey for ProductDocument {
     }
 }
 
-impl TryFrom<ProductEventRecord> for ProductDocument {
+impl TryFrom<ProductDomainEventRecord> for ProductDocument {
     type Error = PersistenceMappingError;
 
-    fn try_from(event_record: ProductEventRecord) -> Result<Self, Self::Error> {
+    fn try_from(event_record: ProductDomainEventRecord) -> Result<Self, Self::Error> {
         let state = event_record
             .new_state
             .map(ProductStateDocument::from)
-            .ok_or_else(|| MissingPersistenceField::new(field!(new_state@ProductEventRecord)))?;
+            .ok_or_else(|| MissingPersistenceField::new(field!(new_state@ProductDomainEventRecord)))?;
         let document = ProductDocument {
             product_id: event_record.product_id,
             product_slug_id: event_record.product_slug_id.ok_or_else(|| {
-                MissingPersistenceField::new(field!(product_slug_id@ProductEventRecord))
+                MissingPersistenceField::new(field!(product_slug_id@ProductDomainEventRecord))
             })?,
             shop_slug_id: event_record.shop_slug_id.ok_or_else(|| {
-                MissingPersistenceField::new(field!(shop_slug_id@ProductEventRecord))
+                MissingPersistenceField::new(field!(shop_slug_id@ProductDomainEventRecord))
             })?,
             event_id: event_record.event_id,
             shop_id: event_record.shop_id,
             shops_product_id: event_record.shops_product_id,
             shop_name: event_record.shop_name.ok_or_else(|| {
-                MissingPersistenceField::new(field!(shop_name@ProductEventRecord))
+                MissingPersistenceField::new(field!(shop_name@ProductDomainEventRecord))
             })?,
             shop_type: event_record.shop_type.map(Into::into).ok_or_else(|| {
-                MissingPersistenceField::new(field!(shop_type@ProductEventRecord))
+                MissingPersistenceField::new(field!(shop_type@ProductDomainEventRecord))
             })?,
             title_native: event_record
                 .title_native
                 .map(TextDocument::from)
                 .ok_or_else(|| {
-                    MissingPersistenceField::new(field!(title_native@ProductEventRecord))
+                    MissingPersistenceField::new(field!(title_native@ProductDomainEventRecord))
                 })?,
             title_de: event_record.title_de,
             title_en: event_record.title_en,
@@ -212,7 +212,7 @@ impl TryFrom<ProductEventRecord> for ProductDocument {
             state,
             url: event_record
                 .url
-                .ok_or_else(|| MissingPersistenceField::new(field!(url@ProductEventRecord)))?,
+                .ok_or_else(|| MissingPersistenceField::new(field!(url@ProductDomainEventRecord)))?,
             images: event_record
                 .images
                 .unwrap_or_default()
