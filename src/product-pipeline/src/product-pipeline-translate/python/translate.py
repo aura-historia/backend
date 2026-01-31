@@ -12,14 +12,9 @@ tokenizer = AutoTokenizer.from_pretrained(
 model = AutoModelForCausalLM.from_pretrained(
     MODEL_NAME,
     dtype=torch.float32 if DEVICE == "cpu" else torch.bfloat16,
+    device_map="auto",
 )
 model.eval()
-
-try:
-    if DEVICE == "cuda":
-        model = torch.compile(model, mode="reduce-overhead")
-except Exception:
-    pass
 
 
 def translate(
