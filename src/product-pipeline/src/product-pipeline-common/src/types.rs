@@ -184,6 +184,7 @@ impl From<CompletedPipeProduct> for ProductRecordUpdate {
             description_fr: descriptions.remove(&LanguageRecord::Fr),
             description_es: descriptions.remove(&LanguageRecord::Es),
             images: Some(completed_pipe_product.images),
+            text_embedding: Some(completed_pipe_product.text_embedding),
             origin_year_min: completed_pipe_product.origin_year_min,
             origin_year: completed_pipe_product.origin_year,
             origin_year_max: completed_pipe_product.origin_year_max,

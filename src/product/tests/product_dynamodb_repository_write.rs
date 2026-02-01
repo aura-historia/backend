@@ -535,6 +535,7 @@ async fn should_update_product_record() {
         description_fr: None,
         description_es: None,
         images: None,
+        text_embedding: None,
         origin_year_min: None,
         origin_year: None,
         origin_year_max: None,
