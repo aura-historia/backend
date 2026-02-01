@@ -2,13 +2,21 @@ use crate::core::authenticity::Authenticity;
 use crate::core::condition::Condition;
 use crate::core::description::Description;
 use crate::core::origin_year::OriginYear;
-use crate::core::product_event::ProductDomainEvent;
 use crate::core::product_event::domain::{
     ProductCreatedDomainEventPayload, ProductDomainEventPayload,
     ProductPriceChangeDomainEventPayload, ProductPriceDiscoveryDomainEventPayload,
     ProductPriceRemovedDomainEventPayload, ProductStateChangeDomainEventPayload,
 };
+use crate::core::product_event::enrichment::{
+    EmbeddedTextProductEnrichmentEventPayload, ExtractedAttributesProductEnrichmentEventPayload,
+    ProductEnrichmentEventPayload, TranslationProductEnrichmentEventPayload,
+};
+use crate::core::product_event::policy::{
+    ProductPolicyEventPayload, ProhibitedContentProductPolicyEventPayload,
+};
+use crate::core::product_event::{ProductDomainEvent, ProductEnrichmentEvent, ProductPolicyEvent};
 use crate::core::product_image::ProductImage;
+use crate::core::prohibited_content::ProhibitedContent;
 use crate::core::provenance::Provenance;
 use crate::core::restoration::Restoration;
 use crate::core::title::Title;
@@ -21,6 +29,7 @@ use common::localized::Localized;
 use common::price::domain::{FxRate, MonetaryAmount, Price};
 use common::product_id::{ProductId, ProductKey};
 use common::product_state::domain::ProductState;
+use common::reason::Reason;
 use common::shop_id::ShopId;
 use common::shop_name::ShopName;
 use common::shops_product_id::ShopsProductId;
@@ -53,11 +62,12 @@ pub struct Product {
     pub state: ProductState,
     pub url: Url,
     pub images: Vec<ProductImage>,
+    pub text_embedding: Option<Vec<f32>>,
     pub origin_year: Option<OriginYear>,
-    pub authenticity: Option<Authenticity>,
-    pub condition: Option<Condition>,
-    pub provenance: Option<Provenance>,
-    pub restoration: Option<Restoration>,
+    pub authenticity: Authenticity,
+    pub condition: Condition,
+    pub provenance: Provenance,
+    pub restoration: Restoration,
     pub auction_start: Option<OffsetDateTime>,
     pub auction_end: Option<OffsetDateTime>,
     pub created: OffsetDateTime,
@@ -243,6 +253,185 @@ impl Product {
             None => self.remove_price(),
         }
     }
+
+    pub fn translate_title(
+        &mut self,
+        source_language: Language,
+        target_language: Language,
+        title: Title,
+    ) -> Option<ProductEnrichmentEvent> {
+        if self
+            .other_title
+            .get(&target_language)
+            .is_some_and(|existing| existing == &title)
+        {
+            None
+        } else {
+            self.other_title.insert(target_language, title.clone());
+            let event_payload = ProductEnrichmentEventPayload::TranslatedTitle(
+                TranslationProductEnrichmentEventPayload {
+                    shop_id: self.shop_id,
+                    shops_product_id: self.shops_product_id.clone(),
+                    source_language,
+                    target_language,
+                    target: title,
+                },
+            );
+            let event = Event {
+                aggregate_id: self.product_id,
+                event_id: EventId::new(),
+                timestamp: OffsetDateTime::now_utc(),
+                payload: event_payload,
+            };
+
+            Some(event)
+        }
+    }
+
+    pub fn translate_description(
+        &mut self,
+        source_language: Language,
+        target_language: Language,
+        description: Description,
+    ) -> Option<ProductEnrichmentEvent> {
+        if self
+            .other_description
+            .get(&target_language)
+            .is_some_and(|existing| existing == &description)
+        {
+            None
+        } else {
+            self.other_description
+                .insert(target_language, description.clone());
+            let event_payload = ProductEnrichmentEventPayload::TranslatedDescription(
+                TranslationProductEnrichmentEventPayload {
+                    shop_id: self.shop_id,
+                    shops_product_id: self.shops_product_id.clone(),
+                    source_language,
+                    target_language,
+                    target: description,
+                },
+            );
+            let event = Event {
+                aggregate_id: self.product_id,
+                event_id: EventId::new(),
+                timestamp: OffsetDateTime::now_utc(),
+                payload: event_payload,
+            };
+
+            Some(event)
+        }
+    }
+
+    pub fn embed_text(&mut self, text_embedding: Vec<f32>) -> Option<ProductEnrichmentEvent> {
+        if self
+            .text_embedding
+            .as_ref()
+            .is_some_and(|existing| existing == &text_embedding)
+        {
+            None
+        } else {
+            self.text_embedding = Some(text_embedding.clone());
+            let event_payload = ProductEnrichmentEventPayload::EmbeddedText(
+                EmbeddedTextProductEnrichmentEventPayload {
+                    shop_id: self.shop_id,
+                    shops_product_id: self.shops_product_id.clone(),
+                    embedding: text_embedding,
+                },
+            );
+            let event = Event {
+                aggregate_id: self.product_id,
+                event_id: EventId::new(),
+                timestamp: OffsetDateTime::now_utc(),
+                payload: event_payload,
+            };
+
+            Some(event)
+        }
+    }
+
+    pub fn extract_attributes(
+        &mut self,
+        origin_year: Option<OriginYear>,
+        authenticity: Option<Authenticity>,
+        condition: Option<Condition>,
+        provenance: Option<Provenance>,
+        restoration: Option<Restoration>,
+    ) -> Option<ProductEnrichmentEvent> {
+        let mut event_payload = ExtractedAttributesProductEnrichmentEventPayload {
+            shop_id: self.shop_id,
+            shops_product_id: self.shops_product_id.clone(),
+            origin_year_min: None,
+            origin_year: None,
+            origin_year_max: None,
+            authenticity: None,
+            condition: None,
+            provenance: None,
+            restoration: None,
+        };
+        if self.origin_year != origin_year && origin_year.is_some() {
+            event_payload.origin_year_min = origin_year.and_then(|oy| oy.min());
+            event_payload.origin_year = origin_year.and_then(|oy| oy.exact());
+            event_payload.origin_year_max = origin_year.and_then(|oy| oy.max());
+            self.origin_year = origin_year;
+        }
+        if authenticity.is_some_and(|new| new != self.authenticity) {
+            event_payload.authenticity = authenticity;
+            self.authenticity = authenticity.expect("shouldn't fail because is_some");
+        }
+        if condition.is_some_and(|new| new != self.condition) {
+            event_payload.condition = condition;
+            self.condition = condition.expect("shouldn't fail because is_some");
+        }
+        if provenance.is_some_and(|new| new != self.provenance) {
+            event_payload.provenance = provenance;
+            self.provenance = provenance.expect("shouldn't fail because is_some");
+        }
+        if restoration.is_some_and(|new| new != self.restoration) {
+            event_payload.restoration = restoration;
+            self.restoration = restoration.expect("shouldn't fail because is_some");
+        }
+
+        let event = Event {
+            aggregate_id: self.product_id,
+            event_id: EventId::new(),
+            timestamp: OffsetDateTime::now_utc(),
+            payload: ProductEnrichmentEventPayload::ExtractedAttributes(event_payload),
+        };
+
+        Some(event)
+    }
+
+    pub fn prohibit_content(
+        &mut self,
+        decision: ProhibitedContent,
+        reason: Reason,
+    ) -> Option<ProductPolicyEvent> {
+        let event_payload = ProductPolicyEventPayload::ProhibitedContentDecision(
+            ProhibitedContentProductPolicyEventPayload {
+                shop_id: self.shop_id,
+                shops_product_id: self.shops_product_id.clone(),
+                decision,
+                reason,
+            },
+        );
+        let event = Event {
+            aggregate_id: self.product_id,
+            event_id: EventId::new(),
+            timestamp: OffsetDateTime::now_utc(),
+            payload: event_payload,
+        };
+
+        match decision {
+            ProhibitedContent::Unknown => None,
+            prohibted_content => {
+                for image in &mut self.images {
+                    image.prohibited_content = prohibted_content;
+                }
+                Some(event)
+            }
+        }
+    }
 }
 
 impl HasKey for Product {
@@ -275,10 +464,10 @@ pub struct LocalizedProductView {
     pub url: Url,
     pub images: Vec<ProductImage>,
     pub origin_year: Option<OriginYear>,
-    pub authenticity: Option<Authenticity>,
-    pub condition: Option<Condition>,
-    pub provenance: Option<Provenance>,
-    pub restoration: Option<Restoration>,
+    pub authenticity: Authenticity,
+    pub condition: Condition,
+    pub provenance: Provenance,
+    pub restoration: Restoration,
     pub auction_start: Option<OffsetDateTime>,
     pub auction_end: Option<OffsetDateTime>,
     pub created: OffsetDateTime,
@@ -343,6 +532,7 @@ mod faker {
                 ))
                 .unwrap(),
                 images: config.fake_with_rng(rng),
+                text_embedding: Some(fake::vec![f32; 1024]),
                 origin_year: config.fake_with_rng(rng),
                 authenticity: config.fake_with_rng(rng),
                 condition: config.fake_with_rng(rng),
@@ -476,11 +666,12 @@ mod tests {
                 state: from_state,
                 url: Url::parse("https://example.com").unwrap(),
                 images: vec![],
+                text_embedding: Faker.fake(),
                 origin_year: None,
-                authenticity: None,
-                condition: None,
-                provenance: None,
-                restoration: None,
+                authenticity: Default::default(),
+                condition: Default::default(),
+                provenance: Default::default(),
+                restoration: Default::default(),
                 auction_start: None,
                 auction_end: None,
                 created: OffsetDateTime::now_utc(),
@@ -533,11 +724,12 @@ mod tests {
                 state: from_state,
                 url: Url::parse("https://example.com").unwrap(),
                 images: vec![],
+                text_embedding: Faker.fake(),
                 origin_year: None,
-                authenticity: None,
-                condition: None,
-                provenance: None,
-                restoration: None,
+                authenticity: Default::default(),
+                condition: Default::default(),
+                provenance: Default::default(),
+                restoration: Default::default(),
                 auction_start: None,
                 auction_end: None,
                 created: OffsetDateTime::now_utc(),
@@ -590,11 +782,12 @@ mod tests {
                 state: from_state,
                 url: Url::parse("https://example.com").unwrap(),
                 images: vec![],
+                text_embedding: Faker.fake(),
                 origin_year: None,
-                authenticity: None,
-                condition: None,
-                provenance: None,
-                restoration: None,
+                authenticity: Default::default(),
+                condition: Default::default(),
+                provenance: Default::default(),
+                restoration: Default::default(),
                 auction_start: None,
                 auction_end: None,
                 created: OffsetDateTime::now_utc(),
@@ -682,11 +875,12 @@ mod tests {
                 state: ProductState::Listed,
                 url: Url::parse("https://example.com").unwrap(),
                 images: vec![],
+                text_embedding: Faker.fake(),
                 origin_year: None,
-                authenticity: None,
-                condition: None,
-                provenance: None,
-                restoration: None,
+                authenticity: Default::default(),
+                condition: Default::default(),
+                provenance: Default::default(),
+                restoration: Default::default(),
                 auction_start: None,
                 auction_end: None,
                 created: OffsetDateTime::now_utc(),
@@ -740,11 +934,12 @@ mod tests {
                 state: ProductState::Listed,
                 url: Url::parse("https://example.com").unwrap(),
                 images: vec![],
+                text_embedding: Faker.fake(),
                 origin_year: None,
-                authenticity: None,
-                condition: None,
-                provenance: None,
-                restoration: None,
+                authenticity: Default::default(),
+                condition: Default::default(),
+                provenance: Default::default(),
+                restoration: Default::default(),
                 auction_start: None,
                 auction_end: None,
                 created: OffsetDateTime::now_utc(),
@@ -807,11 +1002,12 @@ mod tests {
                 state: ProductState::Listed,
                 url: Url::parse("https://example.com").unwrap(),
                 images: vec![],
+                text_embedding: Faker.fake(),
                 origin_year: None,
-                authenticity: None,
-                condition: None,
-                provenance: None,
-                restoration: None,
+                authenticity: Default::default(),
+                condition: Default::default(),
+                provenance: Default::default(),
+                restoration: Default::default(),
                 auction_start: None,
                 auction_end: None,
                 created: OffsetDateTime::now_utc(),
@@ -878,11 +1074,12 @@ mod tests {
                 state: ProductState::Listed,
                 url: Url::parse("https://example.com").unwrap(),
                 images: vec![],
+                text_embedding: Faker.fake(),
                 origin_year: None,
-                authenticity: None,
-                condition: None,
-                provenance: None,
-                restoration: None,
+                authenticity: Default::default(),
+                condition: Default::default(),
+                provenance: Default::default(),
+                restoration: Default::default(),
                 auction_start: None,
                 auction_end: None,
                 created: OffsetDateTime::now_utc(),
@@ -951,11 +1148,12 @@ mod tests {
                 state: ProductState::Listed,
                 url: Url::parse("https://example.com").unwrap(),
                 images: vec![],
+                text_embedding: Faker.fake(),
                 origin_year: None,
-                authenticity: None,
-                condition: None,
-                provenance: None,
-                restoration: None,
+                authenticity: Default::default(),
+                condition: Default::default(),
+                provenance: Default::default(),
+                restoration: Default::default(),
                 auction_start: None,
                 auction_end: None,
                 created: OffsetDateTime::now_utc(),

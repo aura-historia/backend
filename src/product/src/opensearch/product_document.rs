@@ -107,14 +107,11 @@ pub struct ProductDocument {
     pub origin_year: Option<Year>,
     #[serde(skip_serializing_if = "Option::is_none", default)]
     pub origin_year_max: Option<Year>,
-    #[serde(skip_serializing_if = "Option::is_none", default)]
-    pub authenticity: Option<AuthenticityDocument>,
-    #[serde(skip_serializing_if = "Option::is_none", default)]
-    pub condition: Option<ConditionDocument>,
-    #[serde(skip_serializing_if = "Option::is_none", default)]
-    pub provenance: Option<ProvenanceDocument>,
-    #[serde(skip_serializing_if = "Option::is_none", default)]
-    pub restoration: Option<RestorationDocument>,
+
+    pub authenticity: AuthenticityDocument,
+    pub condition: ConditionDocument,
+    pub provenance: ProvenanceDocument,
+    pub restoration: RestorationDocument,
 
     #[serde(
         with = "time::serde::rfc3339::option",
@@ -225,10 +222,10 @@ impl TryFrom<ProductDomainEventRecord> for ProductDocument {
             origin_year_min: None,
             origin_year: None,
             origin_year_max: None,
-            authenticity: None,
-            condition: None,
-            provenance: None,
-            restoration: None,
+            authenticity: Default::default(),
+            condition: Default::default(),
+            provenance: Default::default(),
+            restoration: Default::default(),
             auction_start: event_record.auction_start,
             auction_end: event_record.auction_end,
             created: event_record.timestamp,
@@ -287,10 +284,10 @@ impl From<ProductRecord> for ProductDocument {
             origin_year_min: record.origin_year_min,
             origin_year: record.origin_year,
             origin_year_max: record.origin_year_max,
-            authenticity: record.authenticity.map(AuthenticityDocument::from),
-            condition: record.condition.map(ConditionDocument::from),
-            provenance: record.provenance.map(ProvenanceDocument::from),
-            restoration: record.restoration.map(RestorationDocument::from),
+            authenticity: record.authenticity.into(),
+            condition: record.condition.into(),
+            provenance: record.provenance.into(),
+            restoration: record.restoration.into(),
             auction_start: record.auction_start,
             auction_end: record.auction_end,
             created: record.created,
@@ -383,16 +380,8 @@ mod faker {
                 origin_year_max: Some(origin_year_max),
                 authenticity: config.fake_with_rng(rng),
                 condition: config.fake_with_rng(rng),
-                provenance: if config.fake_with_rng(rng) {
-                    Some(config.fake_with_rng(rng))
-                } else {
-                    None
-                },
-                restoration: if config.fake_with_rng(rng) {
-                    Some(config.fake_with_rng(rng))
-                } else {
-                    None
-                },
+                provenance: config.fake_with_rng(rng),
+                restoration: config.fake_with_rng(rng),
                 auction_start: if config.fake_with_rng(rng) {
                     Some(OffsetDateTime::now_utc())
                 } else {

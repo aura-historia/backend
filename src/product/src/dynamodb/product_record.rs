@@ -1,10 +1,6 @@
-use crate::core::authenticity::Authenticity;
-use crate::core::condition::Condition;
 use crate::core::origin_year::OriginYear;
 use crate::core::product::Product;
 use crate::core::product_image::ProductImage;
-use crate::core::provenance::Provenance;
-use crate::core::restoration::Restoration;
 use crate::dynamodb::authenticity_record::AuthenticityRecord;
 use crate::dynamodb::condition_record::ConditionRecord;
 use crate::dynamodb::product_event_record::domain::ProductDomainEventRecord;
@@ -121,6 +117,8 @@ pub struct ProductRecord {
     pub url: Url,
     #[serde(skip_serializing_if = "Vec::is_empty", default)]
     pub images: Vec<ProductImageRecord>,
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub text_embedding: Option<Vec<f32>>,
 
     #[serde(skip_serializing_if = "Option::is_none", default)]
     pub origin_year_min: Option<Year>,
@@ -128,14 +126,11 @@ pub struct ProductRecord {
     pub origin_year: Option<Year>,
     #[serde(skip_serializing_if = "Option::is_none", default)]
     pub origin_year_max: Option<Year>,
-    #[serde(skip_serializing_if = "Option::is_none", default)]
-    pub authenticity: Option<AuthenticityRecord>,
-    #[serde(skip_serializing_if = "Option::is_none", default)]
-    pub condition: Option<ConditionRecord>,
-    #[serde(skip_serializing_if = "Option::is_none", default)]
-    pub provenance: Option<ProvenanceRecord>,
-    #[serde(skip_serializing_if = "Option::is_none", default)]
-    pub restoration: Option<RestorationRecord>,
+
+    pub authenticity: AuthenticityRecord,
+    pub condition: ConditionRecord,
+    pub provenance: ProvenanceRecord,
+    pub restoration: RestorationRecord,
 
     #[serde(
         with = "time::serde::rfc3339::option",
@@ -288,6 +283,7 @@ impl From<ProductRecord> for Product {
             state: record.state.into(),
             url: record.url,
             images: record.images.into_iter().map(ProductImage::from).collect(),
+            text_embedding: record.text_embedding,
             origin_year: match record.origin_year {
                 Some(exact_year) => Some(OriginYear::ExactYear(exact_year)),
                 None => match (record.origin_year_min, record.origin_year_max) {
@@ -295,10 +291,10 @@ impl From<ProductRecord> for Product {
                     (min, max) => Some(OriginYear::EstimatedRange(YearRange { min, max })),
                 },
             },
-            authenticity: record.authenticity.map(Authenticity::from),
-            condition: record.condition.map(Condition::from),
-            provenance: record.provenance.map(Provenance::from),
-            restoration: record.restoration.map(Restoration::from),
+            authenticity: record.authenticity.into(),
+            condition: record.condition.into(),
+            provenance: record.provenance.into(),
+            restoration: record.restoration.into(),
             auction_start: record.auction_start,
             auction_end: record.auction_end,
             created: record.created,
@@ -374,13 +370,14 @@ impl TryFrom<ProductDomainEventRecord> for ProductRecord {
                 MissingPersistenceField::new(field!(url@ProductDomainEventRecord))
             })?,
             images: event_record.images.unwrap_or_default(),
+            text_embedding: None,
             origin_year_min: None,
             origin_year: None,
             origin_year_max: None,
-            authenticity: None,
-            condition: None,
-            provenance: None,
-            restoration: None,
+            authenticity: Default::default(),
+            condition: Default::default(),
+            provenance: Default::default(),
+            restoration: Default::default(),
             auction_start: event_record.auction_start,
             auction_end: event_record.auction_end,
             created: event_record.timestamp,
@@ -476,6 +473,7 @@ mod faker {
                 ))
                 .unwrap(),
                 images: config.fake_with_rng(rng),
+                text_embedding: config.fake_with_rng(rng),
                 origin_year_min: Some(origin_year_min),
                 origin_year,
                 origin_year_max: Some(origin_year_max),

@@ -1,10 +1,6 @@
-use crate::core::authenticity::Authenticity;
-use crate::core::condition::Condition;
 use crate::core::origin_year::OriginYear;
 use crate::core::product_image::ProductImage;
 use crate::core::product_search::ProductSearch;
-use crate::core::provenance::Provenance;
-use crate::core::restoration::Restoration;
 use crate::core::sort_product_field::SortProductField;
 use crate::core::{description::Description, product::LocalizedProductView, title::Title};
 use crate::opensearch::product_document::ProductDocument;
@@ -259,10 +255,10 @@ pub fn localize_product_document(
             (Some(exact_year), _, _) => Some(OriginYear::ExactYear(exact_year)),
             (_, min, max) => Some(OriginYear::EstimatedRange(YearRange { min, max })),
         },
-        authenticity: product_document.authenticity.map(Authenticity::from),
-        condition: product_document.condition.map(Condition::from),
-        provenance: product_document.provenance.map(Provenance::from),
-        restoration: product_document.restoration.map(Restoration::from),
+        authenticity: product_document.authenticity.into(),
+        condition: product_document.condition.into(),
+        provenance: product_document.provenance.into(),
+        restoration: product_document.restoration.into(),
         auction_start: product_document.auction_start,
         auction_end: product_document.auction_end,
         created: product_document.created,

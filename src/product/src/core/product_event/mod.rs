@@ -20,3 +20,6 @@ pub enum ProductEventPayload {
     ProductEnrichmentEvent(ProductEnrichmentEventPayload),
     ProductPolicyEvent(ProductPolicyEventPayload),
 }
+
+pub type ProductEvent = Event<ProductId, ProductEventPayload>;
+

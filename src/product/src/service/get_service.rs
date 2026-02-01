@@ -1,5 +1,3 @@
-use crate::core::authenticity::Authenticity;
-use crate::core::condition::Condition;
 use crate::core::description::Description;
 use crate::core::origin_year::OriginYear;
 use crate::core::product::{LocalizedProductView, Product};
@@ -12,8 +10,6 @@ use crate::core::product_event::domain::{
     LocalizedProductStateChangeDomainEventPayloadView, ProductDomainEventPayload,
 };
 use crate::core::product_image::ProductImage;
-use crate::core::provenance::Provenance;
-use crate::core::restoration::Restoration;
 use crate::core::title::Title;
 use crate::dynamodb::product_event_record::domain::ProductDomainEventRecord;
 use crate::dynamodb::product_record::ProductRecord;
@@ -485,10 +481,10 @@ fn localize_product_record(
             (Some(exact_year), _, _) => Some(OriginYear::ExactYear(exact_year)),
             (_, min, max) => Some(OriginYear::EstimatedRange(YearRange { min, max })),
         },
-        authenticity: product_record.authenticity.map(Authenticity::from),
-        condition: product_record.condition.map(Condition::from),
-        provenance: product_record.provenance.map(Provenance::from),
-        restoration: product_record.restoration.map(Restoration::from),
+        authenticity: product_record.authenticity.into(),
+        condition: product_record.condition.into(),
+        provenance: product_record.provenance.into(),
+        restoration: product_record.restoration.into(),
         auction_start: product_record.auction_start,
         auction_end: product_record.auction_end,
         created: product_record.created,
