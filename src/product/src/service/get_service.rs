@@ -282,7 +282,7 @@ impl<'a> GetProductService for GetProductServiceImpl<'a> {
     {
         let events: Vec<Event<ProductId, LocalizedProductDomainEventPayloadView>> = self
             .repository
-            .query_product_event_records(shop_id, shops_product_id)
+            .query_product_domain_event_records(shop_id, shops_product_id)
             .await?
             .into_iter()
             .filter_map(
@@ -1383,7 +1383,7 @@ mod tests {
                 .map(|record| record.product_id)
                 .collect_vec();
             repository
-                .expect_query_product_event_records()
+                .expect_query_product_domain_event_records()
                 .return_once(|_, _| Box::pin(async { Ok(events) }));
             let service = GetProductServiceImpl {
                 repository: &repository,
@@ -1403,7 +1403,7 @@ mod tests {
         async fn should_err_product_not_found_when_events_empty() {
             let mut repository = MockProductDynamoDbRepository::default();
             repository
-                .expect_query_product_event_records()
+                .expect_query_product_domain_event_records()
                 .return_once(|_, _| Box::pin(async { Ok(vec![]) }));
             let service = GetProductServiceImpl {
                 repository: &repository,

@@ -49,7 +49,7 @@ pub trait ProductDynamoDbRepository {
         shops_product_id: &ShopsProductId,
     ) -> Result<Option<ProductRecord>, SdkError<GetItemError, HttpResponse>>;
 
-    async fn query_product_record_and_event_records(
+    async fn query_product_record_and_domain_event_records(
         &self,
         shop_id: &ShopId,
         shops_product_id: &ShopsProductId,
@@ -58,7 +58,7 @@ pub trait ProductDynamoDbRepository {
         SdkError<QueryError, HttpResponse>,
     >;
 
-    async fn query_product_event_records(
+    async fn query_product_domain_event_records(
         &self,
         shop_id: &ShopId,
         shops_product_id: &ShopsProductId,
@@ -183,7 +183,7 @@ impl<'a> ProductDynamoDbRepository for ProductDynamoDbRepositoryImpl<'a> {
         Ok(rec)
     }
 
-    async fn query_product_record_and_event_records(
+    async fn query_product_record_and_domain_event_records(
         &self,
         shop_id: &ShopId,
         shops_product_id: &ShopsProductId,
@@ -273,7 +273,7 @@ impl<'a> ProductDynamoDbRepository for ProductDynamoDbRepositoryImpl<'a> {
         }
     }
 
-    async fn query_product_event_records(
+    async fn query_product_domain_event_records(
         &self,
         shop_id: &ShopId,
         shops_product_id: &ShopsProductId,
