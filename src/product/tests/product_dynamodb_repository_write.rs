@@ -7,8 +7,8 @@ use common::product_id::ProductId;
 use common::shop_id::ShopId;
 use common::shops_product_id::ShopsProductId;
 use fake::{Fake, Faker};
-use product::dynamodb::product_event_record;
 use product::dynamodb::product_event_record::domain::ProductDomainEventRecord;
+use product::dynamodb::product_event_record::{self, ProductEventRecord};
 use product::dynamodb::product_event_type_record::domain::ProductDomainEventTypeRecord;
 use product::dynamodb::product_record::{self, ProductRecord};
 use product::dynamodb::product_state_record::ProductStateRecord;
@@ -199,75 +199,14 @@ async fn should_put_product_records_for_multiple_records() {
     assert_eq!(expected2, actual2);
 }
 
+#[rstest::rstest]
+#[test_attr(apply(test))]
+#[case(ProductEventRecord::Domain(Faker.fake()))]
+#[case(ProductEventRecord::Enrichment(Faker.fake()))]
+#[case(ProductEventRecord::Policy(Faker.fake()))]
+#[trace]
 #[localstack_test(services = [DynamoDB()])]
-async fn should_put_product_event_records_for_single_record() {
-    let now = OffsetDateTime::now_utc();
-    let shop_id = ShopId::new();
-    let shops_product_id: ShopsProductId = "123465".into();
-    let price = Some(PriceRecord {
-        amount: 110,
-        currency: CurrencyRecord::Eur,
-    });
-    let expected = ProductDomainEventRecord {
-        pk: product_event_record::domain::mk_pk(&shop_id, &shops_product_id),
-        sk: product_event_record::domain::mk_sk(&now).unwrap(),
-        product_id: ProductId::new(),
-        product_slug_id: Faker.fake(),
-        shop_slug_id: Faker.fake(),
-        event_id: EventId::new(),
-        event_type: ProductDomainEventTypeRecord::DomainCreated,
-        event_type_schema_version: 0,
-        shop_id,
-        shops_product_id: shops_product_id.clone(),
-        shop_name: Some("Foo".to_string()),
-        shop_type: Faker.fake(),
-        title_native: Some(TextRecord::new("Bar", LanguageRecord::De)),
-        title_de: Some("Bar".to_string()),
-        title_en: Some("Barr".to_string()),
-        title_fr: Some("Barrr".to_string()),
-        title_es: Some("Barrrr".to_string()),
-        description_native: Some(TextRecord::new("Baz", LanguageRecord::De)),
-        description_de: Some("Baz".to_string()),
-        description_en: Some("Bazz".to_string()),
-        description_fr: Some("Bazzz".to_string()),
-        description_es: Some("Bazzzz".to_string()),
-        new_price_native: price,
-        new_price_eur: None,
-        new_price_usd: None,
-        new_price_gbp: None,
-        new_price_aud: None,
-        new_price_cad: None,
-        old_price_native: None,
-        old_price_eur: None,
-        old_price_usd: None,
-        old_price_gbp: None,
-        old_price_aud: None,
-        old_price_cad: None,
-        old_price_nzd: None,
-        new_state: Some(ProductStateRecord::Available),
-        old_state: Some(ProductStateRecord::Listed),
-        url: Some(Url::parse("https://foo.bar/123456").unwrap()),
-        images: Faker.fake(),
-        auction_start: None,
-        auction_end: None,
-        timestamp: now,
-        new_price_nzd: None,
-        new_price_estimate_min_native: None,
-        new_price_estimate_min_eur: None,
-        new_price_estimate_min_usd: None,
-        new_price_estimate_min_gbp: None,
-        new_price_estimate_min_aud: None,
-        new_price_estimate_min_cad: None,
-        new_price_estimate_min_nzd: None,
-        new_price_estimate_max_native: None,
-        new_price_estimate_max_eur: None,
-        new_price_estimate_max_usd: None,
-        new_price_estimate_max_gbp: None,
-        new_price_estimate_max_aud: None,
-        new_price_estimate_max_cad: None,
-        new_price_estimate_max_nzd: None,
-    };
-
+async fn should_put_product_event_records_for_single_record(#[case] expected: ProductEventRecord) {
     get_repository()
         .await
         .put_product_event_records(Batch::from([expected.clone()]))
@@ -285,7 +224,7 @@ async fn should_put_product_event_records_for_single_record() {
         .unwrap()
         .into_iter()
         .map(serde_dynamo::from_item)
-        .collect::<Result<Vec<ProductDomainEventRecord>, _>>()
+        .collect::<Result<Vec<ProductEventRecord>, _>>()
         .unwrap();
 
     assert_eq!(vec![expected], actual);
@@ -424,7 +363,10 @@ async fn should_put_product_event_records_for_multiple_records() {
 
     get_repository()
         .await
-        .put_product_event_records(Batch::from([expected1.clone(), expected2.clone()]))
+        .put_product_event_records(Batch::from([
+            expected1.clone().into(),
+            expected2.clone().into(),
+        ]))
         .await
         .unwrap();
 

@@ -146,7 +146,7 @@ mod query_product_record_and_event_records {
         .unwrap();
         let repository = get_repository().await;
         let insert_res = repository
-            .put_product_event_records([event.clone()].into())
+            .put_product_event_records([event.clone().into()].into())
             .await
             .unwrap();
         assert!(insert_res.unprocessed_items.unwrap_or_default().is_empty());
@@ -237,7 +237,9 @@ mod query_product_record_and_event_records {
         .try_into()
         .unwrap();
         let insert_res = repository
-            .put_product_event_records([created_event.clone(), updated_event.clone()].into())
+            .put_product_event_records(
+                [created_event.clone().into(), updated_event.clone().into()].into(),
+            )
             .await
             .unwrap();
         assert!(insert_res.unprocessed_items.unwrap_or_default().is_empty());
@@ -313,7 +315,9 @@ mod query_product_record_and_event_records {
         .try_into()
         .unwrap();
         let insert_res = repository
-            .put_product_event_records([created_event.clone(), updated_event.clone()].into())
+            .put_product_event_records(
+                [created_event.clone().into(), updated_event.clone().into()].into(),
+            )
             .await
             .unwrap();
         assert!(insert_res.unprocessed_items.unwrap_or_default().is_empty());
@@ -1339,7 +1343,9 @@ mod query_product_event_records {
         .try_into()
         .unwrap();
         let insert_res = repository
-            .put_product_event_records([created_event.clone(), updated_event.clone()].into())
+            .put_product_event_records(
+                [created_event.clone().into(), updated_event.clone().into()].into(),
+            )
             .await
             .unwrap();
         assert!(insert_res.unprocessed_items.unwrap_or_default().is_empty());

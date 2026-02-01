@@ -1,3 +1,4 @@
+use crate::dynamodb::product_event_record::ProductEventRecord;
 use crate::dynamodb::product_event_record::domain::ProductDomainEventRecord;
 use crate::dynamodb::product_record::{self, ProductRecord};
 use crate::dynamodb::product_update_record::ProductRecordUpdate;
@@ -27,7 +28,7 @@ use tracing::{error, warn};
 pub trait ProductDynamoDbRepository {
     async fn put_product_event_records(
         &self,
-        product_event_records: Batch<ProductDomainEventRecord, 25>,
+        product_event_records: Batch<ProductEventRecord, 25>,
     ) -> Result<BatchWriteItemOutput, SdkError<BatchWriteItemError, HttpResponse>>;
 
     async fn put_product_records(
@@ -108,7 +109,7 @@ impl<'a> ProductDynamoDbRepositoryImpl<'a> {
 impl<'a> ProductDynamoDbRepository for ProductDynamoDbRepositoryImpl<'a> {
     async fn put_product_event_records(
         &self,
-        product_event_records: Batch<ProductDomainEventRecord, 25>,
+        product_event_records: Batch<ProductEventRecord, 25>,
     ) -> Result<BatchWriteItemOutput, SdkError<BatchWriteItemError, HttpResponse>> {
         self.client
             .batch_write_item()

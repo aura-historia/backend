@@ -1,5 +1,6 @@
 use crate::core::product::Product;
 use crate::core::product_event::ProductDomainEvent;
+use crate::dynamodb::product_event_record::ProductEventRecord;
 use crate::dynamodb::product_event_record::domain::ProductDomainEventRecord;
 use crate::dynamodb::repository::{ProductDynamoDbRepository, extract_product_key};
 use crate::service::product_command::UpsertProductCommand;
@@ -172,7 +173,7 @@ impl<T: FxRate + Sync> UpsertProductsServiceImpl<'_, T> {
                         .collect::<Vec<_>>();
                     let res = self
                         .dynamodb_repository
-                        .put_product_event_records(batch)
+                        .put_product_event_records(batch.map(ProductEventRecord::from))
                         .await;
                     match res {
                         Ok(output) => {
