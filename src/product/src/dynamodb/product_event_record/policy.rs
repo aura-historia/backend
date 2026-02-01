@@ -45,6 +45,7 @@ pub fn mk_sk(timestamp: &OffsetDateTime) -> Result<String, error::Format> {
 
 impl TryFrom<ProductPolicyEvent> for ProductPolicyEventRecord {
     type Error = error::Format;
+
     fn try_from(event: ProductPolicyEvent) -> Result<Self, Self::Error> {
         let record = match event.payload {
             ProductPolicyEventPayload::ProhibitedContentDecision(payload) => {
@@ -63,6 +64,7 @@ impl TryFrom<ProductPolicyEvent> for ProductPolicyEventRecord {
                 }
             }
         };
+
         Ok(record)
     }
 }
@@ -77,6 +79,7 @@ impl From<ProductPolicyEventRecord> for ProductPolicyEvent {
         };
         let payload =
             ProductPolicyEventPayload::ProhibitedContentDecision(prohibited_content_decision);
+
         Event {
             aggregate_id: value.product_id,
             event_id: value.event_id,
