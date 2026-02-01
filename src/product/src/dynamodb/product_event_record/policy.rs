@@ -88,3 +88,29 @@ impl From<ProductPolicyEventRecord> for ProductPolicyEvent {
         }
     }
 }
+
+#[cfg(feature = "test-data")]
+mod faker {
+    use super::*;
+    use fake::{Dummy, Fake, Faker, Rng};
+
+    impl Dummy<Faker> for ProductPolicyEventRecord {
+        fn dummy_with_rng<R: Rng + ?Sized>(config: &Faker, rng: &mut R) -> Self {
+            config
+                .fake_with_rng::<ProductPolicyEvent, _>(rng)
+                .try_into()
+                .unwrap()
+        }
+    }
+
+    #[cfg(test)]
+    mod tests {
+        use crate::dynamodb::product_event_record::policy::ProductPolicyEventRecord;
+        use fake::{Fake, Faker};
+
+        #[test]
+        fn should_fake_product_policy_event_record() {
+            let _ = Faker.fake::<ProductPolicyEventRecord>();
+        }
+    }
+}

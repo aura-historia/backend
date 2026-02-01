@@ -290,3 +290,29 @@ impl TryFrom<ProductEnrichmentEventRecord> for ProductEnrichmentEvent {
         }
     }
 }
+
+#[cfg(feature = "test-data")]
+mod faker {
+    use super::*;
+    use fake::{Dummy, Fake, Faker, Rng};
+
+    impl Dummy<Faker> for ProductEnrichmentEventRecord {
+        fn dummy_with_rng<R: Rng + ?Sized>(config: &Faker, rng: &mut R) -> Self {
+            config
+                .fake_with_rng::<ProductEnrichmentEvent, _>(rng)
+                .try_into()
+                .unwrap()
+        }
+    }
+
+    #[cfg(test)]
+    mod tests {
+        use crate::dynamodb::product_event_record::enrichment::ProductEnrichmentEventRecord;
+        use fake::{Fake, Faker};
+
+        #[test]
+        fn should_fake_product_enrichment_event_record() {
+            let _ = Faker.fake::<ProductEnrichmentEventRecord>();
+        }
+    }
+}
