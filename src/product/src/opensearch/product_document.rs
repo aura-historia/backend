@@ -328,6 +328,12 @@ impl From<ProductDocument> for Product {
         if let Some(title_de) = product_document.title_de {
             other_title.insert(Language::De, title_de.into());
         }
+        if let Some(title_fr) = product_document.title_fr {
+            other_title.insert(Language::Fr, title_fr.into());
+        }
+        if let Some(title_es) = product_document.title_es {
+            other_title.insert(Language::Es, title_es.into());
+        }
 
         let mut other_description = HashMap::with_capacity(2);
         if let Some(description_en) = product_document.description_en {
@@ -335,6 +341,12 @@ impl From<ProductDocument> for Product {
         }
         if let Some(description_de) = product_document.description_de {
             other_description.insert(Language::De, description_de.into());
+        }
+        if let Some(description_fr) = product_document.description_fr {
+            other_description.insert(Language::Fr, description_fr.into());
+        }
+        if let Some(description_es) = product_document.description_es {
+            other_description.insert(Language::Es, description_es.into());
         }
 
         let mut other_price = HashMap::with_capacity(2);

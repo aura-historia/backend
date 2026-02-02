@@ -105,7 +105,8 @@ mod tests {
     #[rstest::rstest]
     #[case::empty_defaults_english(&[], Some("English text".into()))]
     #[case::takes_preferred_from_singleton(&[Language::En], Some("English text".into()))]
-    #[case::takes_preferred_from_many(&[Language::Es, Language::Fr, Language::En], Some("Spanish text".into()))]
+    #[case::takes_preferred_from_many1(&[Language::Es, Language::Fr, Language::En], Some("Spanish text".into()))]
+    #[case::takes_preferred_from_many2(&[Language::Fr, Language::De, Language::En, Language::Es], Some("French text".into()))]
     #[trace]
     fn should_respect_language_priority_when_contains_all_for_resolve(
         #[case] preferred: &[Language],

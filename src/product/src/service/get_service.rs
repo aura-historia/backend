@@ -92,6 +92,8 @@ pub trait GetProductService {
         product_slug_id: &SlugId<6>,
     ) -> Result<Product, GetProductError>;
 
+    async fn find_products(&self, items: Vec<ProductKey>) -> Result<Vec<Product>, GetProductError>;
+
     async fn view_product(
         &self,
         shop_id: &ShopId,
@@ -225,21 +227,30 @@ impl<'a> GetProductService for GetProductServiceImpl<'a> {
 
     async fn view_products(
         &self,
-        items: Vec<ProductKey>,
+        product_keys: Vec<ProductKey>,
         languages: &[Language],
         currency: &Currency,
     ) -> Result<Vec<LocalizedProductView>, GetProductError> {
+        let products = self.find_products(product_keys).await?;
+        let product_views = products
+            .into_iter()
+            .map(|product| product.localized(currency, languages))
+            .collect();
+
+        Ok(product_views)
+    }
+
+    async fn find_products(&self, items: Vec<ProductKey>) -> Result<Vec<Product>, GetProductError> {
         const MAX_RETRIES: u32 = 3;
         const BASE_DELAY_MS: u64 = 100;
 
-        let mut views = Vec::with_capacity(items.len());
+        let mut products = Vec::with_capacity(items.len());
         let mut unprocessed = items;
         let mut retry_count = 0;
         loop {
-            let (mut local_views, local_unprocessed) = self
-                .view_products_with_unprocessed(unprocessed, languages, currency)
-                .await?;
-            views.append(&mut local_views);
+            let (mut local_views, local_unprocessed) =
+                self.view_products_with_unprocessed(unprocessed).await?;
+            products.append(&mut local_views);
 
             if local_unprocessed.is_empty() {
                 break;
@@ -254,7 +265,7 @@ impl<'a> GetProductService for GetProductServiceImpl<'a> {
             unprocessed = local_unprocessed;
         }
 
-        Ok(views)
+        Ok(products)
     }
 
     async fn view_product_history(
@@ -302,25 +313,19 @@ impl<'a> GetProductServiceImpl<'a> {
     async fn view_products_with_unprocessed(
         &self,
         items: Vec<ProductKey>,
-        languages: &[Language],
-        currency: &Currency,
-    ) -> Result<(Vec<LocalizedProductView>, Vec<ProductKey>), GetProductError> {
-        let mut views = Vec::with_capacity(items.len());
+    ) -> Result<(Vec<Product>, Vec<ProductKey>), GetProductError> {
+        let mut products = Vec::with_capacity(items.len());
         let mut unprocessed = Vec::new();
         for batch in Batch::chunked_from(items.into_iter()) {
             let result = self.repository.get_product_records(&batch).await?;
             if let Some(up) = result.unprocessed {
                 unprocessed.extend(up);
             }
-            let local_views = result
-                .items
-                .into_iter()
-                .map(Product::from)
-                .map(|product| product.localized(currency, languages));
-            views.extend(local_views);
+            let local_products = result.items.into_iter().map(Product::from);
+            products.extend(local_products);
         }
 
-        Ok((views, unprocessed))
+        Ok((products, unprocessed))
     }
 }
 
@@ -599,6 +604,7 @@ mod tests {
         async fn should_respect_currency(#[case] currency: Currency, #[case] expected_amount: u64) {
             let mut repository = MockProductDynamoDbRepository::default();
             let mut expected_record: ProductRecord = Faker.fake();
+            expected_record.price_native = None;
             expected_record.price_eur = Some(2);
             expected_record.price_gbp = Some(4);
             expected_record.price_usd = Some(10);

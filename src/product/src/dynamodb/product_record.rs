@@ -187,6 +187,12 @@ impl From<ProductRecord> for Product {
         if let Some(title_de) = record.title_de {
             other_title.insert(Language::De, title_de.into());
         }
+        if let Some(title_fr) = record.title_fr {
+            other_title.insert(Language::Fr, title_fr.into());
+        }
+        if let Some(title_es) = record.title_es {
+            other_title.insert(Language::Es, title_es.into());
+        }
 
         let mut other_description = HashMap::with_capacity(2);
         if let Some(description_en) = record.description_en {
@@ -194,6 +200,12 @@ impl From<ProductRecord> for Product {
         }
         if let Some(description_de) = record.description_de {
             other_description.insert(Language::De, description_de.into());
+        }
+        if let Some(description_fr) = record.description_fr {
+            other_description.insert(Language::Fr, description_fr.into());
+        }
+        if let Some(description_es) = record.description_es {
+            other_description.insert(Language::Es, description_es.into());
         }
 
         let mut other_price = HashMap::with_capacity(2);
