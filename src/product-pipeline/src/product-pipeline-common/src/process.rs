@@ -1,13 +1,14 @@
 use common::product_id::ProductId;
+use product::core::{product::Product, product_event::ProductEnrichmentEvent};
 use std::collections::HashSet;
 
 #[derive(Debug, Clone, Default)]
-pub struct ProcessResult<Product> {
-    pub successes: Vec<Product>,
+pub struct ProcessResult {
+    pub successes: Vec<ProductEnrichmentEvent>,
     pub failures: HashSet<ProductId>,
 }
 
 #[mockall::automock]
-pub trait PipeProcessor<In, Out> {
-    fn process(&self, products: Vec<In>) -> ProcessResult<Out>;
+pub trait PipeProcessor {
+    fn process(&self, products: Vec<Product>) -> ProcessResult;
 }

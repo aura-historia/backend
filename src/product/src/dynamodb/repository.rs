@@ -26,6 +26,8 @@ use tracing::{error, warn};
 #[allow(clippy::result_large_err)]
 #[mockall::automock]
 pub trait ProductDynamoDbRepository {
+    fn table(&self) -> &str;
+
     async fn put_product_event_records(
         &self,
         product_event_records: Batch<ProductEventRecord, 25>,
@@ -107,6 +109,10 @@ impl<'a> ProductDynamoDbRepositoryImpl<'a> {
 
 #[async_trait]
 impl<'a> ProductDynamoDbRepository for ProductDynamoDbRepositoryImpl<'a> {
+    fn table(&self) -> &str {
+        &self.table
+    }
+
     async fn put_product_event_records(
         &self,
         product_event_records: Batch<ProductEventRecord, 25>,

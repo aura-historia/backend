@@ -3379,6 +3379,7 @@ dependencies = [
  "async-trait",
  "aws-config",
  "aws-sdk-sqs",
+ "aws_lambda_events",
  "common",
  "fake",
  "mockall",
@@ -3386,12 +3387,14 @@ dependencies = [
  "product-pipeline-common",
  "rstest",
  "serde",
+ "serde_dynamo",
  "serde_json",
  "serial_test",
  "test-api",
  "time",
  "tokio",
  "tracing",
+ "uuid",
 ]
 
 [[package]]

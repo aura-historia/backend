@@ -16,6 +16,7 @@ pub mod domain;
 pub mod enrichment;
 pub mod policy;
 
+#[cfg_attr(feature = "test-data", derive(fake::Dummy))]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(untagged)] // fine as related Product[TYPE]EventTypeRecord disjoint - their contructors are globally unique
 #[allow(clippy::large_enum_variant)]
