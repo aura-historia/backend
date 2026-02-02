@@ -5,7 +5,11 @@ use crate::{
         policy::ProductPolicyEventRecord,
     },
 };
-use common::event::Event;
+use common::{
+    event::Event,
+    has_key::HasKey,
+    product_id::{ProductId, ProductKey},
+};
 use serde::{Deserialize, Serialize};
 
 pub mod domain;
@@ -24,6 +28,28 @@ pub enum ProductEventRecord {
 impl From<ProductDomainEventRecord> for ProductEventRecord {
     fn from(domain_record: ProductDomainEventRecord) -> Self {
         Self::Domain(domain_record)
+    }
+}
+
+impl ProductEventRecord {
+    pub fn product_id(&self) -> &ProductId {
+        match self {
+            ProductEventRecord::Domain(record) => &record.product_id,
+            ProductEventRecord::Enrichment(record) => &record.product_id,
+            ProductEventRecord::Policy(record) => &record.product_id,
+        }
+    }
+}
+
+impl HasKey for ProductEventRecord {
+    type Key = ProductKey;
+
+    fn key(&self) -> Self::Key {
+        match self {
+            ProductEventRecord::Domain(record) => record.key(),
+            ProductEventRecord::Enrichment(record) => record.key(),
+            ProductEventRecord::Policy(record) => record.key(),
+        }
     }
 }
 

@@ -11,8 +11,9 @@ use crate::dynamodb::restoration_record::RestorationRecord;
 use common::error::missing_field::MissingPersistenceField;
 use common::event::Event;
 use common::event_id::EventId;
+use common::has_key::HasKey;
 use common::language::record::LanguageRecord;
-use common::product_id::ProductId;
+use common::product_id::{ProductId, ProductKey};
 use common::shop_id::ShopId;
 use common::shops_product_id::ShopsProductId;
 use common::year::Year;
@@ -60,6 +61,17 @@ pub struct ProductEnrichmentEventRecord {
 
     #[serde(with = "time::serde::rfc3339")]
     pub timestamp: OffsetDateTime,
+}
+
+impl HasKey for ProductEnrichmentEventRecord {
+    type Key = ProductKey;
+
+    fn key(&self) -> Self::Key {
+        ProductKey {
+            shop_id: self.shop_id,
+            shops_product_id: self.shops_product_id.clone(),
+        }
+    }
 }
 
 pub fn mk_pk(shop_id: &ShopId, shops_product_id: &ShopsProductId) -> String {

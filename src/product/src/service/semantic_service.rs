@@ -1,8 +1,6 @@
+use crate::core::product::{LocalizedProductView, Product};
 use crate::dynamodb::repository::ProductDynamoDbRepository;
 use crate::opensearch::repository::ProductOpenSearchRepository;
-use crate::{
-    core::product::LocalizedProductView, service::query_service::localize_product_document,
-};
 use async_trait::async_trait;
 use aws_sdk_dynamodb::error::SdkError;
 use common::currency::domain::Currency;
@@ -121,7 +119,8 @@ impl<'a> SemanticSearchService for SemanticSearchServiceImpl<'a> {
                     .into_iter()
                     .filter(|hit| hit.source.product_id != document.product_id)
                     .map(|hit| hit.source)
-                    .map(|doc| localize_product_document(doc, languages, currency))
+                    .map(Product::from)
+                    .map(|product| product.localized(currency, languages))
                     .collect();
                 Ok(Some(localized_documents))
             }

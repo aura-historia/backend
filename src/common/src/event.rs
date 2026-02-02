@@ -9,6 +9,21 @@ pub struct Event<AggregateId, Payload> {
     pub payload: Payload,
 }
 
+impl<AggregateId, Payload> Event<AggregateId, Payload> {
+    pub fn map_payload<R, F>(self, f: F) -> Event<AggregateId, R>
+    where
+        F: FnMut(Payload) -> R,
+    {
+        let mut f = f;
+        Event {
+            aggregate_id: self.aggregate_id,
+            event_id: self.event_id,
+            timestamp: self.timestamp,
+            payload: f(self.payload),
+        }
+    }
+}
+
 #[cfg(feature = "test-data")]
 mod faker {
     use super::*;

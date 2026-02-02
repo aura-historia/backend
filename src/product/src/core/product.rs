@@ -37,6 +37,7 @@ use common::slug_id::SlugId;
 use shop::core::shop_type::ShopType;
 use std::collections::HashMap;
 use time::OffsetDateTime;
+use tracing::error;
 use url::Url;
 
 #[derive(Debug, Clone, PartialEq)]
@@ -430,6 +431,79 @@ impl Product {
                 }
                 Some(event)
             }
+        }
+    }
+
+    pub fn localized(
+        self,
+        currency: &Currency,
+        preferred_languages: &[Language],
+    ) -> LocalizedProductView {
+        let mut available_titles: HashMap<Language, Title> = self.other_title;
+        available_titles.insert(self.native_title.localization, self.native_title.payload);
+
+        let mut available_descriptions: HashMap<Language, Description> = self.other_description;
+        if let Some(description_native) = self.native_description {
+            available_descriptions
+                .insert(description_native.localization, description_native.payload);
+        }
+
+        let mut available_prices = self.other_price;
+        if let Some(native_price) = self.native_price {
+            available_prices.insert(native_price.currency, native_price.monetary_amount);
+        }
+
+        let mut available_price_estimates_min = self.other_price_estimate_min;
+        if let Some(price_estimates_min) = self.native_price_estimate_min {
+            available_price_estimates_min.insert(
+                price_estimates_min.currency,
+                price_estimates_min.monetary_amount,
+            );
+        }
+
+        let mut available_price_estimates_max = self.other_price_estimate_max;
+        if let Some(price_estimates_max) = self.native_price_estimate_max {
+            available_price_estimates_max.insert(
+                price_estimates_max.currency,
+                price_estimates_max.monetary_amount,
+            );
+        }
+
+        let title = Language::resolve(preferred_languages, available_titles).unwrap_or_else(|| {
+            error!("Failed resolving title. This SHOULD be impossible because the native title always exists.");
+            Localized::new(Language::En, "Unknown title".into())
+        });
+        let description = Language::resolve(preferred_languages, available_descriptions);
+        let price = Currency::resolve(&[*currency], available_prices);
+        let price_estimate_min = Currency::resolve(&[*currency], available_price_estimates_min);
+        let price_estimate_max = Currency::resolve(&[*currency], available_price_estimates_max);
+
+        LocalizedProductView {
+            product_id: self.product_id,
+            product_slug_id: self.product_slug_id,
+            shop_slug_id: self.shop_slug_id,
+            event_id: self.event_id,
+            shop_id: self.shop_id,
+            shops_product_id: self.shops_product_id,
+            shop_name: self.shop_name,
+            shop_type: self.shop_type,
+            title,
+            description,
+            price,
+            price_estimate_min,
+            price_estimate_max,
+            state: self.state,
+            url: self.url,
+            images: self.images,
+            origin_year: self.origin_year,
+            authenticity: self.authenticity,
+            condition: self.condition,
+            provenance: self.provenance,
+            restoration: self.restoration,
+            auction_start: self.auction_start,
+            auction_end: self.auction_end,
+            created: self.created,
+            updated: self.updated,
         }
     }
 }

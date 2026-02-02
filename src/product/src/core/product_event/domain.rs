@@ -15,6 +15,7 @@ use common::slug_id::SlugId;
 use shop::core::shop_type::ShopType;
 use std::collections::HashMap;
 use time::OffsetDateTime;
+use tracing::error;
 use url::Url;
 
 #[cfg_attr(feature = "test-data", derive(fake::Dummy))]
@@ -117,6 +118,171 @@ impl ProductDomainEventPayload {
         match self {
             ProductDomainEventPayload::PriceRemoved(payload) => Some(payload),
             _ => None,
+        }
+    }
+
+    pub fn localized(self, currency: &Currency) -> LocalizedProductDomainEventPayloadView {
+        match self {
+            ProductDomainEventPayload::Created(payload) => {
+                let mut prices = payload.other_price;
+                if let Some(native_price) = payload.native_price {
+                    prices.insert(native_price.currency, native_price.monetary_amount);
+                }
+                LocalizedProductDomainEventPayloadView::Created(
+                    LocalizedProductCreatedDomainEventPayloadView {
+                        shop_id: payload.shop_id,
+                        shops_product_id: payload.shops_product_id,
+                        shop_name: payload.shop_name,
+                        shop_type: payload.shop_type,
+                        title: payload.native_title,
+                        description: payload.native_description,
+                        price: prices
+                            .remove(currency)
+                            .map(|amount| Price::new(amount, *currency)),
+                        state: payload.state,
+                        url: payload.url,
+                        images: payload.images,
+                    },
+                )
+            }
+            ProductDomainEventPayload::StateListed(payload) => {
+                LocalizedProductDomainEventPayloadView::StateListed(
+                    LocalizedProductStateChangeDomainEventPayloadView {
+                        shop_id: payload.shop_id,
+                        shops_product_id: payload.shops_product_id,
+                        old_state: payload.old_state,
+                    },
+                )
+            }
+            ProductDomainEventPayload::StateAvailable(payload) => {
+                LocalizedProductDomainEventPayloadView::StateAvailable(
+                    LocalizedProductStateChangeDomainEventPayloadView {
+                        shop_id: payload.shop_id,
+                        shops_product_id: payload.shops_product_id,
+                        old_state: payload.old_state,
+                    },
+                )
+            }
+            ProductDomainEventPayload::StateReserved(payload) => {
+                LocalizedProductDomainEventPayloadView::StateReserved(
+                    LocalizedProductStateChangeDomainEventPayloadView {
+                        shop_id: payload.shop_id,
+                        shops_product_id: payload.shops_product_id,
+                        old_state: payload.old_state,
+                    },
+                )
+            }
+            ProductDomainEventPayload::StateSold(payload) => {
+                LocalizedProductDomainEventPayloadView::StateSold(
+                    LocalizedProductStateChangeDomainEventPayloadView {
+                        shop_id: payload.shop_id,
+                        shops_product_id: payload.shops_product_id,
+                        old_state: payload.old_state,
+                    },
+                )
+            }
+            ProductDomainEventPayload::StateRemoved(payload) => {
+                LocalizedProductDomainEventPayloadView::StateRemoved(
+                    LocalizedProductStateChangeDomainEventPayloadView {
+                        shop_id: payload.shop_id,
+                        shops_product_id: payload.shops_product_id,
+                        old_state: payload.old_state,
+                    },
+                )
+            }
+            ProductDomainEventPayload::StateUnknown(payload) => {
+                LocalizedProductDomainEventPayloadView::StateUnknown(
+                    LocalizedProductStateChangeDomainEventPayloadView {
+                        shop_id: payload.shop_id,
+                        shops_product_id: payload.shops_product_id,
+                        old_state: payload.old_state,
+                    },
+                )
+            }
+            ProductDomainEventPayload::PriceDiscovered(payload) => {
+                let mut prices = payload.other_price;
+                prices.insert(
+                    payload.native_price.currency,
+                    payload.native_price.monetary_amount,
+                );
+                LocalizedProductDomainEventPayloadView::PriceDiscovered(
+                    LocalizedProductPriceDiscoveryDomainEventPayloadView {
+                            shop_id: payload.shop_id,
+                            shops_product_id: payload.shops_product_id,
+                            price: Currency::resolve(&[*currency], prices).unwrap_or_else(|| {
+                                error!("Failed resolving price. This SHOULD be impossible because the native price always exists.");
+                                Price::new(0u64.into(), *currency)
+                            }),
+                        },
+                    )
+            }
+            ProductDomainEventPayload::PriceDropped(payload) => {
+                let mut new_prices = payload.new_other_price;
+                new_prices.insert(
+                    payload.new_native_price.currency,
+                    payload.new_native_price.monetary_amount,
+                );
+                let mut old_prices = payload.old_other_price;
+                old_prices.insert(
+                    payload.old_native_price.currency,
+                    payload.old_native_price.monetary_amount,
+                );
+                LocalizedProductDomainEventPayloadView::PriceDropped(
+                    LocalizedProductPriceChangeDomainEventPayloadView {
+                            shop_id: payload.shop_id,
+                            shops_product_id: payload.shops_product_id,
+                            new_price: Currency::resolve(&[*currency], new_prices).unwrap_or_else(|| {
+                                error!("Failed resolving price. This SHOULD be impossible because the native price always exists.");
+                                Price::new(0u64.into(), *currency)
+                            }),
+                            old_price: Currency::resolve(&[*currency], old_prices).unwrap_or_else(|| {
+                                error!("Failed resolving price. This SHOULD be impossible because the native price always exists.");
+                                Price::new(0u64.into(), *currency)
+                            }),
+                        },
+                    )
+            }
+            ProductDomainEventPayload::PriceIncreased(payload) => {
+                let mut new_prices = payload.new_other_price;
+                new_prices.insert(
+                    payload.new_native_price.currency,
+                    payload.new_native_price.monetary_amount,
+                );
+                let mut old_prices = payload.old_other_price;
+                old_prices.insert(
+                    payload.old_native_price.currency,
+                    payload.old_native_price.monetary_amount,
+                );
+                LocalizedProductDomainEventPayloadView::PriceIncreased(
+                    LocalizedProductPriceChangeDomainEventPayloadView {
+                            shop_id: payload.shop_id,
+                            shops_product_id: payload.shops_product_id,
+                            new_price: Currency::resolve(&[*currency], new_prices).unwrap_or_else(|| {
+                                error!("Failed resolving price. This SHOULD be impossible because the native price always exists.");
+                                Price::new(0u64.into(), *currency)
+                            }),
+                            old_price: Currency::resolve(&[*currency], old_prices).unwrap_or_else(|| {
+                                error!("Failed resolving price. This SHOULD be impossible because the native price always exists.");
+                                Price::new(0u64.into(), *currency)
+                            }),
+                        },
+                    )
+            }
+            ProductDomainEventPayload::PriceRemoved(payload) => {
+                let mut old_prices = payload.old_other_price;
+                old_prices.insert(
+                    payload.old_native_price.currency,
+                    payload.old_native_price.monetary_amount,
+                );
+                LocalizedProductDomainEventPayloadView::PriceRemoved(LocalizedProductPriceRemovedDomainEventPayloadView {
+                    shop_id: payload.shop_id,
+                    shops_product_id: payload.shops_product_id,
+                    old_price: Currency::resolve(&[*currency], old_prices).unwrap_or_else(|| {
+                        error!("Failed resolving price. This SHOULD be impossible because the native price always exists.");
+                        Price::new(0u64.into(), *currency)
+                    }),
+                })
+            }
         }
     }
 }

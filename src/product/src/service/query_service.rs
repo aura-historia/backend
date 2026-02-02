@@ -1,20 +1,12 @@
-use crate::core::origin_year::OriginYear;
-use crate::core::product_image::ProductImage;
+use crate::core::product::LocalizedProductView;
+use crate::core::product::Product;
 use crate::core::product_search::ProductSearch;
 use crate::core::sort_product_field::SortProductField;
-use crate::core::{description::Description, product::LocalizedProductView, title::Title};
-use crate::opensearch::product_document::ProductDocument;
 use crate::opensearch::repository::ProductOpenSearchRepository;
 use async_trait::async_trait;
-use common::language::domain::Language;
 use common::pagination::cursor::{Cursor, CursoredResult};
-use common::price::domain::Price;
 use common::sort::{Sort, SortOrder};
-use common::year::YearRange;
-use common::{currency::domain::Currency, localized::Localized};
-use std::collections::HashMap;
-use strum::EnumCount;
-use tracing::{error, warn};
+use tracing::warn;
 
 #[derive(thiserror::Error, Debug)]
 pub enum SearchProductsError {
@@ -99,9 +91,8 @@ impl<'a> QueryProductService for QueryProductServiceImpl<'a> {
             .hits
             .into_iter()
             .map(|hit| hit.source)
-            .map(|product_document| {
-                localize_product_document(product_document, &[search.language], &search.currency)
-            })
+            .map(Product::from)
+            .map(|product| product.localized(&search.currency, &[search.language]))
             .collect::<Vec<_>>();
 
         Ok(CursoredResult {
@@ -109,160 +100,6 @@ impl<'a> QueryProductService for QueryProductServiceImpl<'a> {
             cursor,
             total: Some(search_response.hits.total.value),
         })
-    }
-}
-
-pub fn localize_product_document(
-    product_document: ProductDocument,
-    languages: &[Language],
-    currency: &Currency,
-) -> LocalizedProductView {
-    let mut available_titles: HashMap<Language, Title> = HashMap::with_capacity(Language::COUNT);
-    available_titles.insert(
-        product_document.title_native.language.into(),
-        product_document.title_native.text.into(),
-    );
-    if let Some(title_de) = product_document.title_de {
-        available_titles.insert(Language::De, title_de.into());
-    }
-    if let Some(title_en) = product_document.title_en {
-        available_titles.insert(Language::En, title_en.into());
-    }
-    if let Some(title_fr) = product_document.title_fr {
-        available_titles.insert(Language::Fr, title_fr.into());
-    }
-    if let Some(title_es) = product_document.title_es {
-        available_titles.insert(Language::Es, title_es.into());
-    }
-
-    let mut available_descriptions: HashMap<Language, Description> =
-        HashMap::with_capacity(Language::COUNT);
-    if let Some(description_de) = product_document.description_de {
-        available_descriptions.insert(Language::De, description_de.into());
-    }
-    if let Some(description_en) = product_document.description_en {
-        available_descriptions.insert(Language::En, description_en.into());
-    }
-    if let Some(description_fr) = product_document.description_fr {
-        available_descriptions.insert(Language::Fr, description_fr.into());
-    }
-    if let Some(description_es) = product_document.description_es {
-        available_descriptions.insert(Language::Es, description_es.into());
-    }
-
-    let title = Language::resolve(languages, available_titles).unwrap_or_else(|| {
-        error!(
-            shopId = %product_document.shop_id,
-            shopsProductId = %product_document.shops_product_id,
-            "Failed resolving title. This SHOULD be impossible because the native title always exists."
-        );
-        Localized::new(Language::En, "Unknown title".into())
-    });
-    let description = Language::resolve(languages, available_descriptions);
-
-    let price = match currency {
-        Currency::Eur => product_document
-            .price_eur
-            .map(|amount| Price::new(amount.into(), Currency::Eur)),
-        Currency::Gbp => product_document
-            .price_gbp
-            .map(|amount| Price::new(amount.into(), Currency::Gbp)),
-        Currency::Usd => product_document
-            .price_usd
-            .map(|amount| Price::new(amount.into(), Currency::Usd)),
-        Currency::Aud => product_document
-            .price_aud
-            .map(|amount| Price::new(amount.into(), Currency::Aud)),
-        Currency::Cad => product_document
-            .price_cad
-            .map(|amount| Price::new(amount.into(), Currency::Cad)),
-        Currency::Nzd => product_document
-            .price_nzd
-            .map(|amount| Price::new(amount.into(), Currency::Nzd)),
-    };
-
-    let price_estimate_min = match currency {
-        Currency::Eur => product_document
-            .price_estimate_min_eur
-            .map(|amount| Price::new(amount.into(), Currency::Eur)),
-        Currency::Gbp => product_document
-            .price_estimate_min_gbp
-            .map(|amount| Price::new(amount.into(), Currency::Gbp)),
-        Currency::Usd => product_document
-            .price_estimate_min_usd
-            .map(|amount| Price::new(amount.into(), Currency::Usd)),
-        Currency::Aud => product_document
-            .price_estimate_min_aud
-            .map(|amount| Price::new(amount.into(), Currency::Aud)),
-        Currency::Cad => product_document
-            .price_estimate_min_cad
-            .map(|amount| Price::new(amount.into(), Currency::Cad)),
-        Currency::Nzd => product_document
-            .price_estimate_min_nzd
-            .map(|amount| Price::new(amount.into(), Currency::Nzd)),
-    };
-
-    let price_estimate_max = match currency {
-        Currency::Eur => product_document
-            .price_estimate_max_eur
-            .map(|amount| Price::new(amount.into(), Currency::Eur)),
-        Currency::Gbp => product_document
-            .price_estimate_max_gbp
-            .map(|amount| Price::new(amount.into(), Currency::Gbp)),
-        Currency::Usd => product_document
-            .price_estimate_max_usd
-            .map(|amount| Price::new(amount.into(), Currency::Usd)),
-        Currency::Aud => product_document
-            .price_estimate_max_aud
-            .map(|amount| Price::new(amount.into(), Currency::Aud)),
-        Currency::Cad => product_document
-            .price_estimate_max_cad
-            .map(|amount| Price::new(amount.into(), Currency::Cad)),
-        Currency::Nzd => product_document
-            .price_estimate_max_nzd
-            .map(|amount| Price::new(amount.into(), Currency::Nzd)),
-    };
-
-    let state = product_document.state.into();
-
-    LocalizedProductView {
-        product_slug_id: product_document.product_slug_id,
-        shop_slug_id: product_document.shop_slug_id,
-        product_id: product_document.product_id,
-        event_id: product_document.event_id,
-        shop_id: product_document.shop_id,
-        shops_product_id: product_document.shops_product_id,
-        shop_name: product_document.shop_name.into(),
-        shop_type: product_document.shop_type.into(),
-        title,
-        description,
-        price,
-        price_estimate_min,
-        price_estimate_max,
-        state,
-        url: product_document.url,
-        images: product_document
-            .images
-            .into_iter()
-            .map(ProductImage::from)
-            .collect(),
-        origin_year: match (
-            product_document.origin_year,
-            product_document.origin_year_min,
-            product_document.origin_year_max,
-        ) {
-            (None, None, None) => None,
-            (Some(exact_year), _, _) => Some(OriginYear::ExactYear(exact_year)),
-            (_, min, max) => Some(OriginYear::EstimatedRange(YearRange { min, max })),
-        },
-        authenticity: product_document.authenticity.into(),
-        condition: product_document.condition.into(),
-        provenance: product_document.provenance.into(),
-        restoration: product_document.restoration.into(),
-        auction_start: product_document.auction_start,
-        auction_end: product_document.auction_end,
-        created: product_document.created,
-        updated: product_document.updated,
     }
 }
 
