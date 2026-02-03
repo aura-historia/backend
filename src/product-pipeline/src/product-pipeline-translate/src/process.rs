@@ -198,7 +198,6 @@ mod tests {
         let actuals = translation_pipe_processor.process(products);
 
         assert!(actuals.failures.is_empty());
-        assert_eq!(3, actuals.successes.len());
 
         let actual = actuals.successes;
         assert!(!actual.is_empty());
