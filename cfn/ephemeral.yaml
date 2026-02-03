@@ -1249,6 +1249,14 @@ Resources:
                 Action:
                   - es:*
                 Resource: !Sub "arn:aws:es:${AWS::Region}:${AWS::AccountId}:domain/application-${StageName}/*"
+        - PolicyName: DynamoDBAccess
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: Allow
+                Action:
+                  - dynamodb:GetItem
+                Resource: !GetAtt TableOne.Arn
         - PolicyName: SQSPollerAccess
           PolicyDocument:
             Version: "2012-10-17"
@@ -1276,6 +1284,7 @@ Resources:
         Size: 512
       Environment:
         Variables:
+          DYNAMODB_TABLE_NAME: !Ref TableOne
           OPENSEARCH_ENDPOINT_URL: !Sub "https://${OpenSearchDomain.DomainEndpoint}"
           STAGE: "ephemeral"
   ProductMaterializeOpenSearchDbUpdateMapping:
