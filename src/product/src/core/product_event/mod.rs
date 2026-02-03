@@ -22,4 +22,3 @@ pub enum ProductEventPayload {
 }
 
 pub type ProductEvent = Event<ProductId, ProductEventPayload>;
-

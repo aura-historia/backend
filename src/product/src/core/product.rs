@@ -1245,4 +1245,738 @@ mod tests {
             }
         }
     }
+
+    mod change_price {
+        use crate::core::product::Product;
+        use common::currency::domain::Currency;
+        use common::language::domain::Language;
+        use common::localized::Localized;
+        use common::price::domain::{FxRate, MonetaryAmount, Price};
+        use common::product_state::domain::ProductState;
+        use fake::{Fake, Faker};
+        use rstest;
+        use time::OffsetDateTime;
+        use url::Url;
+
+        struct IdentityFxRate;
+
+        impl FxRate for IdentityFxRate {
+            fn exchange(
+                &self,
+                _from_currency: Currency,
+                _to_currency: Currency,
+                from_amount: MonetaryAmount,
+            ) -> Result<MonetaryAmount, common::price::domain::MonetaryAmountOverflowError>
+            {
+                Ok(from_amount)
+            }
+        }
+
+        #[rstest::rstest]
+        #[case::eur(Price::new(42u64.into(), Currency::Eur))]
+        #[case::gbp(Price::new(42u64.into(), Currency::Gbp))]
+        #[case::usd(Price::new(42u64.into(), Currency::Usd))]
+        #[trace]
+        fn should_return_none_when_price_did_not_change_for_change_price(#[case] price: Price) {
+            let mut product = Product {
+                product_id: Default::default(),
+                product_slug_id: Faker.fake(),
+                shop_slug_id: Faker.fake(),
+                event_id: Default::default(),
+                shop_id: Default::default(),
+                shops_product_id: Default::default(),
+                shop_name: "Boop".into(),
+                shop_type: fake::Faker.fake(),
+                native_title: Localized::new(Language::De, "Titel".into()),
+                other_title: Default::default(),
+                native_description: None,
+                other_description: Default::default(),
+                native_price: Some(price),
+                other_price: IdentityFxRate
+                    .exchange_all(price.currency, price.monetary_amount)
+                    .unwrap(),
+                native_price_estimate_min: None,
+                other_price_estimate_min: Default::default(),
+                native_price_estimate_max: None,
+                other_price_estimate_max: Default::default(),
+                state: ProductState::Listed,
+                url: Url::parse("https://example.com").unwrap(),
+                images: vec![],
+                text_embedding: Faker.fake(),
+                origin_year: None,
+                authenticity: Default::default(),
+                condition: Default::default(),
+                provenance: Default::default(),
+                restoration: Default::default(),
+                auction_start: None,
+                auction_end: None,
+                created: OffsetDateTime::now_utc(),
+                updated: OffsetDateTime::now_utc(),
+            };
+
+            let actual = product.change_price(price, &IdentityFxRate);
+            assert!(actual.is_none());
+        }
+    }
+
+    mod translation {
+        use crate::core::product::Product;
+        use crate::core::product_event::enrichment::ProductEnrichmentEventPayload;
+        use common::language::domain::Language;
+        use common::localized::Localized;
+        use fake::{Fake, Faker};
+        use time::OffsetDateTime;
+        use url::Url;
+
+        #[test]
+        fn should_return_none_when_translated_title_is_same_for_translate_title() {
+            let mut product = Product {
+                product_id: Default::default(),
+                product_slug_id: Faker.fake(),
+                shop_slug_id: Faker.fake(),
+                event_id: Default::default(),
+                shop_id: Default::default(),
+                shops_product_id: Default::default(),
+                shop_name: "Boop".into(),
+                shop_type: fake::Faker.fake(),
+                native_title: Localized::new(Language::De, "Titel".into()),
+                other_title: {
+                    let mut m = std::collections::HashMap::new();
+                    m.insert(Language::En, "Title".into());
+                    m
+                },
+                native_description: None,
+                other_description: Default::default(),
+                native_price: None,
+                other_price: Default::default(),
+                native_price_estimate_min: None,
+                other_price_estimate_min: Default::default(),
+                native_price_estimate_max: None,
+                other_price_estimate_max: Default::default(),
+                state: common::product_state::domain::ProductState::Listed,
+                url: Url::parse("https://example.com").unwrap(),
+                images: vec![],
+                text_embedding: Faker.fake(),
+                origin_year: None,
+                authenticity: Default::default(),
+                condition: Default::default(),
+                provenance: Default::default(),
+                restoration: Default::default(),
+                auction_start: None,
+                auction_end: None,
+                created: OffsetDateTime::now_utc(),
+                updated: OffsetDateTime::now_utc(),
+            };
+
+            let actual = product.translate_title(Language::De, Language::En, "Title".into());
+            assert!(actual.is_none());
+        }
+
+        #[test]
+        fn should_emit_event_and_store_translated_title_when_new_for_translate_title() {
+            let mut product = Product {
+                product_id: Default::default(),
+                product_slug_id: Faker.fake(),
+                shop_slug_id: Faker.fake(),
+                event_id: Default::default(),
+                shop_id: Default::default(),
+                shops_product_id: Default::default(),
+                shop_name: "Boop".into(),
+                shop_type: fake::Faker.fake(),
+                native_title: Localized::new(Language::De, "Titel".into()),
+                other_title: Default::default(),
+                native_description: None,
+                other_description: Default::default(),
+                native_price: None,
+                other_price: Default::default(),
+                native_price_estimate_min: None,
+                other_price_estimate_min: Default::default(),
+                native_price_estimate_max: None,
+                other_price_estimate_max: Default::default(),
+                state: common::product_state::domain::ProductState::Listed,
+                url: Url::parse("https://example.com").unwrap(),
+                images: vec![],
+                text_embedding: Faker.fake(),
+                origin_year: None,
+                authenticity: Default::default(),
+                condition: Default::default(),
+                provenance: Default::default(),
+                restoration: Default::default(),
+                auction_start: None,
+                auction_end: None,
+                created: OffsetDateTime::now_utc(),
+                updated: OffsetDateTime::now_utc(),
+            };
+
+            let actual = product
+                .translate_title(Language::De, Language::En, "Title".into())
+                .unwrap();
+            match actual.payload {
+                ProductEnrichmentEventPayload::TranslatedTitle(payload) => {
+                    assert_eq!(payload.target_language, Language::En);
+                    assert_eq!(payload.target, "Title".into());
+                    assert_eq!(
+                        product.other_title.get(&Language::En).cloned(),
+                        Some("Title".into())
+                    );
+                }
+                _ => panic!("Expected ProductEnrichmentEventPayload::TranslatedTitle"),
+            }
+        }
+
+        #[test]
+        fn should_return_none_when_translated_description_is_same_for_translate_description() {
+            let mut product = Product {
+                product_id: Default::default(),
+                product_slug_id: Faker.fake(),
+                shop_slug_id: Faker.fake(),
+                event_id: Default::default(),
+                shop_id: Default::default(),
+                shops_product_id: Default::default(),
+                shop_name: "Boop".into(),
+                shop_type: fake::Faker.fake(),
+                native_title: Localized::new(Language::De, "Titel".into()),
+                other_title: Default::default(),
+                native_description: None,
+                other_description: {
+                    let mut m = std::collections::HashMap::new();
+                    m.insert(Language::En, "Desc".into());
+                    m
+                },
+                native_price: None,
+                other_price: Default::default(),
+                native_price_estimate_min: None,
+                other_price_estimate_min: Default::default(),
+                native_price_estimate_max: None,
+                other_price_estimate_max: Default::default(),
+                state: common::product_state::domain::ProductState::Listed,
+                url: Url::parse("https://example.com").unwrap(),
+                images: vec![],
+                text_embedding: Faker.fake(),
+                origin_year: None,
+                authenticity: Default::default(),
+                condition: Default::default(),
+                provenance: Default::default(),
+                restoration: Default::default(),
+                auction_start: None,
+                auction_end: None,
+                created: OffsetDateTime::now_utc(),
+                updated: OffsetDateTime::now_utc(),
+            };
+
+            let actual = product.translate_description(Language::De, Language::En, "Desc".into());
+            assert!(actual.is_none());
+        }
+
+        #[test]
+        fn should_emit_event_and_store_translated_description_when_new_for_translate_description() {
+            let mut product = Product {
+                product_id: Default::default(),
+                product_slug_id: Faker.fake(),
+                shop_slug_id: Faker.fake(),
+                event_id: Default::default(),
+                shop_id: Default::default(),
+                shops_product_id: Default::default(),
+                shop_name: "Boop".into(),
+                shop_type: fake::Faker.fake(),
+                native_title: Localized::new(Language::De, "Titel".into()),
+                other_title: Default::default(),
+                native_description: None,
+                other_description: Default::default(),
+                native_price: None,
+                other_price: Default::default(),
+                native_price_estimate_min: None,
+                other_price_estimate_min: Default::default(),
+                native_price_estimate_max: None,
+                other_price_estimate_max: Default::default(),
+                state: common::product_state::domain::ProductState::Listed,
+                url: Url::parse("https://example.com").unwrap(),
+                images: vec![],
+                text_embedding: Faker.fake(),
+                origin_year: None,
+                authenticity: Default::default(),
+                condition: Default::default(),
+                provenance: Default::default(),
+                restoration: Default::default(),
+                auction_start: None,
+                auction_end: None,
+                created: OffsetDateTime::now_utc(),
+                updated: OffsetDateTime::now_utc(),
+            };
+
+            let actual = product
+                .translate_description(Language::De, Language::En, "Desc".into())
+                .unwrap();
+            match actual.payload {
+                ProductEnrichmentEventPayload::TranslatedDescription(payload) => {
+                    assert_eq!(payload.target_language, Language::En);
+                    assert_eq!(payload.target, "Desc".into());
+                    assert_eq!(
+                        product.other_description.get(&Language::En).cloned(),
+                        Some("Desc".into())
+                    );
+                }
+                _ => panic!("Expected ProductEnrichmentEventPayload::TranslatedDescription"),
+            }
+        }
+    }
+
+    mod embedding {
+        use crate::core::product::Product;
+        use crate::core::product_event::enrichment::ProductEnrichmentEventPayload;
+        use common::language::domain::Language;
+        use common::localized::Localized;
+        use common::product_state::domain::ProductState;
+        use fake::{Fake, Faker};
+        use time::OffsetDateTime;
+        use url::Url;
+
+        #[test]
+        fn should_return_none_when_embedding_is_same_for_embed_text() {
+            let embedding = vec![0.1f32, 0.2f32, 0.3f32];
+            let mut product = Product {
+                product_id: Default::default(),
+                product_slug_id: Faker.fake(),
+                shop_slug_id: Faker.fake(),
+                event_id: Default::default(),
+                shop_id: Default::default(),
+                shops_product_id: Default::default(),
+                shop_name: "Boop".into(),
+                shop_type: fake::Faker.fake(),
+                native_title: Localized::new(Language::De, "Titel".into()),
+                other_title: Default::default(),
+                native_description: None,
+                other_description: Default::default(),
+                native_price: None,
+                other_price: Default::default(),
+                native_price_estimate_min: None,
+                other_price_estimate_min: Default::default(),
+                native_price_estimate_max: None,
+                other_price_estimate_max: Default::default(),
+                state: ProductState::Listed,
+                url: Url::parse("https://example.com").unwrap(),
+                images: vec![],
+                text_embedding: Some(embedding.clone()),
+                origin_year: None,
+                authenticity: Default::default(),
+                condition: Default::default(),
+                provenance: Default::default(),
+                restoration: Default::default(),
+                auction_start: None,
+                auction_end: None,
+                created: OffsetDateTime::now_utc(),
+                updated: OffsetDateTime::now_utc(),
+            };
+
+            let actual = product.embed_text(embedding);
+            assert!(actual.is_none());
+        }
+
+        #[test]
+        fn should_emit_event_and_store_embedding_when_new_for_embed_text() {
+            let embedding = vec![0.1f32, 0.2f32, 0.3f32];
+            let mut product = Product {
+                product_id: Default::default(),
+                product_slug_id: Faker.fake(),
+                shop_slug_id: Faker.fake(),
+                event_id: Default::default(),
+                shop_id: Default::default(),
+                shops_product_id: Default::default(),
+                shop_name: "Boop".into(),
+                shop_type: fake::Faker.fake(),
+                native_title: Localized::new(Language::De, "Titel".into()),
+                other_title: Default::default(),
+                native_description: None,
+                other_description: Default::default(),
+                native_price: None,
+                other_price: Default::default(),
+                native_price_estimate_min: None,
+                other_price_estimate_min: Default::default(),
+                native_price_estimate_max: None,
+                other_price_estimate_max: Default::default(),
+                state: ProductState::Listed,
+                url: Url::parse("https://example.com").unwrap(),
+                images: vec![],
+                text_embedding: None,
+                origin_year: None,
+                authenticity: Default::default(),
+                condition: Default::default(),
+                provenance: Default::default(),
+                restoration: Default::default(),
+                auction_start: None,
+                auction_end: None,
+                created: OffsetDateTime::now_utc(),
+                updated: OffsetDateTime::now_utc(),
+            };
+
+            let actual = product.embed_text(embedding.clone()).unwrap();
+            match actual.payload {
+                ProductEnrichmentEventPayload::EmbeddedText(payload) => {
+                    assert_eq!(payload.embedding, embedding);
+                    assert_eq!(product.text_embedding, Some(embedding));
+                }
+                _ => panic!("Expected ProductEnrichmentEventPayload::EmbeddedText"),
+            }
+        }
+    }
+
+    mod attributes {
+        use crate::core::product::Product;
+        use crate::core::product_event::enrichment::ProductEnrichmentEventPayload;
+        use common::language::domain::Language;
+        use common::localized::Localized;
+        use common::product_state::domain::ProductState;
+        use fake::{Fake, Faker};
+        use time::OffsetDateTime;
+        use url::Url;
+
+        #[test]
+        fn should_emit_event_and_update_fields_for_extract_attributes() {
+            let mut product = Product {
+                product_id: Default::default(),
+                product_slug_id: Faker.fake(),
+                shop_slug_id: Faker.fake(),
+                event_id: Default::default(),
+                shop_id: Default::default(),
+                shops_product_id: Default::default(),
+                shop_name: "Boop".into(),
+                shop_type: fake::Faker.fake(),
+                native_title: Localized::new(Language::De, "Titel".into()),
+                other_title: Default::default(),
+                native_description: None,
+                other_description: Default::default(),
+                native_price: None,
+                other_price: Default::default(),
+                native_price_estimate_min: None,
+                other_price_estimate_min: Default::default(),
+                native_price_estimate_max: None,
+                other_price_estimate_max: Default::default(),
+                state: ProductState::Listed,
+                url: Url::parse("https://example.com").unwrap(),
+                images: vec![],
+                text_embedding: None,
+                origin_year: None,
+                authenticity: Default::default(),
+                condition: Default::default(),
+                provenance: Default::default(),
+                restoration: Default::default(),
+                auction_start: None,
+                auction_end: None,
+                created: OffsetDateTime::now_utc(),
+                updated: OffsetDateTime::now_utc(),
+            };
+
+            let origin_year = Faker.fake();
+            let authenticity = crate::core::authenticity::Authenticity::LaterCopy;
+            let condition = crate::core::condition::Condition::Excellent;
+            let provenance = crate::core::provenance::Provenance::Claimed;
+            let restoration = crate::core::restoration::Restoration::Major;
+
+            let actual = product
+                .extract_attributes(
+                    origin_year,
+                    Some(authenticity),
+                    Some(condition),
+                    Some(provenance),
+                    Some(restoration),
+                )
+                .unwrap();
+
+            match actual.payload {
+                ProductEnrichmentEventPayload::ExtractedAttributes(payload) => {
+                    assert_eq!(payload.authenticity.unwrap(), authenticity);
+                    assert_eq!(payload.condition.unwrap(), condition);
+                    assert_eq!(payload.provenance.unwrap(), provenance);
+                    assert_eq!(payload.restoration.unwrap(), restoration);
+
+                    assert_eq!(product.origin_year, origin_year);
+                    assert_eq!(product.authenticity, authenticity);
+                    assert_eq!(product.condition, condition);
+                    assert_eq!(product.provenance, provenance);
+                    assert_eq!(product.restoration, restoration);
+                }
+                _ => panic!("Expected ProductEnrichmentEventPayload::ExtractedAttributes"),
+            }
+        }
+    }
+
+    mod policy {
+        use crate::core::product::Product;
+        use crate::core::product_event::policy::ProductPolicyEventPayload;
+        use crate::core::product_image::ProductImage;
+        use crate::core::prohibited_content::ProhibitedContent;
+        use common::language::domain::Language;
+        use common::localized::Localized;
+        use common::product_state::domain::ProductState;
+        use fake::{Fake, Faker};
+        use time::OffsetDateTime;
+        use url::Url;
+
+        #[test]
+        fn should_return_none_and_not_mutate_when_unknown_for_prohibit_content() {
+            let mut product = Product {
+                product_id: Default::default(),
+                product_slug_id: Faker.fake(),
+                shop_slug_id: Faker.fake(),
+                event_id: Default::default(),
+                shop_id: Default::default(),
+                shops_product_id: Default::default(),
+                shop_name: "Boop".into(),
+                shop_type: fake::Faker.fake(),
+                native_title: Localized::new(Language::De, "Titel".into()),
+                other_title: Default::default(),
+                native_description: None,
+                other_description: Default::default(),
+                native_price: None,
+                other_price: Default::default(),
+                native_price_estimate_min: None,
+                other_price_estimate_min: Default::default(),
+                native_price_estimate_max: None,
+                other_price_estimate_max: Default::default(),
+                state: ProductState::Listed,
+                url: Url::parse("https://example.com").unwrap(),
+                images: vec![ProductImage {
+                    url: Url::parse("https://example.com/image.jpg").unwrap(),
+                    prohibited_content: ProhibitedContent::Unknown,
+                }],
+                text_embedding: None,
+                origin_year: None,
+                authenticity: Default::default(),
+                condition: Default::default(),
+                provenance: Default::default(),
+                restoration: Default::default(),
+                auction_start: None,
+                auction_end: None,
+                created: OffsetDateTime::now_utc(),
+                updated: OffsetDateTime::now_utc(),
+            };
+
+            let actual = product.prohibit_content(ProhibitedContent::Unknown, "bar".into());
+            assert!(actual.is_none());
+            assert!(
+                product
+                    .images
+                    .iter()
+                    .all(|i| i.prohibited_content == ProhibitedContent::Unknown)
+            );
+        }
+
+        #[test]
+        fn should_emit_event_and_update_images_when_prohibited_for_prohibit_content() {
+            let mut product = Product {
+                product_id: Default::default(),
+                product_slug_id: Faker.fake(),
+                shop_slug_id: Faker.fake(),
+                event_id: Default::default(),
+                shop_id: Default::default(),
+                shops_product_id: Default::default(),
+                shop_name: "Boop".into(),
+                shop_type: fake::Faker.fake(),
+                native_title: Localized::new(Language::De, "Titel".into()),
+                other_title: Default::default(),
+                native_description: None,
+                other_description: Default::default(),
+                native_price: None,
+                other_price: Default::default(),
+                native_price_estimate_min: None,
+                other_price_estimate_min: Default::default(),
+                native_price_estimate_max: None,
+                other_price_estimate_max: Default::default(),
+                state: ProductState::Listed,
+                url: Url::parse("https://example.com").unwrap(),
+                images: vec![
+                    ProductImage {
+                        url: Url::parse("https://example.com/image1.jpg").unwrap(),
+                        prohibited_content: ProhibitedContent::Unknown,
+                    },
+                    ProductImage {
+                        url: Url::parse("https://example.com/image2.jpg").unwrap(),
+                        prohibited_content: ProhibitedContent::Unknown,
+                    },
+                ],
+                text_embedding: None,
+                origin_year: None,
+                authenticity: Default::default(),
+                condition: Default::default(),
+                provenance: Default::default(),
+                restoration: Default::default(),
+                auction_start: None,
+                auction_end: None,
+                created: OffsetDateTime::now_utc(),
+                updated: OffsetDateTime::now_utc(),
+            };
+
+            let actual = product
+                .prohibit_content(ProhibitedContent::NaziGermany, "foo".into())
+                .unwrap();
+
+            match actual.payload {
+                ProductPolicyEventPayload::ProhibitedContentDecision(payload) => {
+                    assert_eq!(payload.decision, ProhibitedContent::NaziGermany);
+                    assert!(
+                        product
+                            .images
+                            .iter()
+                            .all(|i| i.prohibited_content == ProhibitedContent::NaziGermany)
+                    );
+                }
+            }
+        }
+    }
+
+    mod localization {
+        use crate::core::product::Product;
+        use common::currency::domain::Currency;
+        use common::language::domain::Language;
+        use common::localized::Localized;
+        use common::price::domain::Price;
+        use common::product_state::domain::ProductState;
+        use fake::{Fake, Faker};
+        use time::OffsetDateTime;
+        use url::Url;
+
+        #[test]
+        fn should_localize_fields_when_available_for_localized() {
+            let product = Product {
+                product_id: Default::default(),
+                product_slug_id: Faker.fake(),
+                shop_slug_id: Faker.fake(),
+                event_id: Default::default(),
+                shop_id: Default::default(),
+                shops_product_id: Default::default(),
+                shop_name: "Boop".into(),
+                shop_type: fake::Faker.fake(),
+                native_title: Localized::new(Language::De, "Titel".into()),
+                other_title: {
+                    let mut m = std::collections::HashMap::new();
+                    m.insert(Language::En, "Title".into());
+                    m
+                },
+                native_description: Some(Localized::new(Language::De, "Beschreibung".into())),
+                other_description: {
+                    let mut m = std::collections::HashMap::new();
+                    m.insert(Language::En, "Description".into());
+                    m
+                },
+                native_price: Some(Price::new(42u64.into(), Currency::Eur)),
+                other_price: {
+                    let mut m = std::collections::HashMap::new();
+                    m.insert(Currency::Usd, 42u64.into());
+                    m
+                },
+                native_price_estimate_min: Some(Price::new(10u64.into(), Currency::Eur)),
+                other_price_estimate_min: {
+                    let mut m = std::collections::HashMap::new();
+                    m.insert(Currency::Usd, 10u64.into());
+                    m
+                },
+                native_price_estimate_max: Some(Price::new(100u64.into(), Currency::Eur)),
+                other_price_estimate_max: {
+                    let mut m = std::collections::HashMap::new();
+                    m.insert(Currency::Usd, 100u64.into());
+                    m
+                },
+                state: ProductState::Listed,
+                url: Url::parse("https://example.com").unwrap(),
+                images: vec![],
+                text_embedding: None,
+                origin_year: None,
+                authenticity: Default::default(),
+                condition: Default::default(),
+                provenance: Default::default(),
+                restoration: Default::default(),
+                auction_start: None,
+                auction_end: None,
+                created: OffsetDateTime::now_utc(),
+                updated: OffsetDateTime::now_utc(),
+            };
+
+            let view = product.localized(&Currency::Usd, &[Language::En, Language::De]);
+
+            assert_eq!(view.title.localization, Language::En);
+            assert_eq!(view.title.payload, "Title".into());
+            assert_eq!(
+                view.description.as_ref().unwrap().localization,
+                Language::En
+            );
+            assert_eq!(
+                view.description.as_ref().unwrap().payload,
+                "Description".into()
+            );
+            assert_eq!(view.price.unwrap().currency, Currency::Usd);
+            assert_eq!(view.price.unwrap().monetary_amount, 42u64.into());
+            assert_eq!(view.price_estimate_min.unwrap().currency, Currency::Usd);
+            assert_eq!(
+                view.price_estimate_min.unwrap().monetary_amount,
+                10u64.into()
+            );
+            assert_eq!(view.price_estimate_max.unwrap().currency, Currency::Usd);
+            assert_eq!(
+                view.price_estimate_max.unwrap().monetary_amount,
+                100u64.into()
+            );
+        }
+
+        #[test]
+        fn should_fallback_to_native_when_preferred_missing_for_localized() {
+            let product = Product {
+                product_id: Default::default(),
+                product_slug_id: Faker.fake(),
+                shop_slug_id: Faker.fake(),
+                event_id: Default::default(),
+                shop_id: Default::default(),
+                shops_product_id: Default::default(),
+                shop_name: "Boop".into(),
+                shop_type: fake::Faker.fake(),
+                native_title: Localized::new(Language::De, "Titel".into()),
+                other_title: Default::default(),
+                native_description: Some(Localized::new(Language::De, "Beschreibung".into())),
+                other_description: Default::default(),
+                native_price: Some(Price::new(42u64.into(), Currency::Eur)),
+                other_price: Default::default(),
+                native_price_estimate_min: Some(Price::new(10u64.into(), Currency::Eur)),
+                other_price_estimate_min: Default::default(),
+                native_price_estimate_max: Some(Price::new(100u64.into(), Currency::Eur)),
+                other_price_estimate_max: Default::default(),
+                state: ProductState::Listed,
+                url: Url::parse("https://example.com").unwrap(),
+                images: vec![],
+                text_embedding: None,
+                origin_year: None,
+                authenticity: Default::default(),
+                condition: Default::default(),
+                provenance: Default::default(),
+                restoration: Default::default(),
+                auction_start: None,
+                auction_end: None,
+                created: OffsetDateTime::now_utc(),
+                updated: OffsetDateTime::now_utc(),
+            };
+
+            let view = product.localized(&Currency::Eur, &[Language::En, Language::De]);
+
+            assert_eq!(view.title.localization, Language::De);
+            assert_eq!(view.title.payload, "Titel".into());
+            assert_eq!(
+                view.description.as_ref().unwrap().localization,
+                Language::De
+            );
+            assert_eq!(
+                view.description.as_ref().unwrap().payload,
+                "Beschreibung".into()
+            );
+            assert_eq!(view.price.unwrap().currency, Currency::Eur);
+            assert_eq!(view.price.unwrap().monetary_amount, 42u64.into());
+            assert_eq!(view.price_estimate_min.unwrap().currency, Currency::Eur);
+            assert_eq!(
+                view.price_estimate_min.unwrap().monetary_amount,
+                10u64.into()
+            );
+            assert_eq!(view.price_estimate_max.unwrap().currency, Currency::Eur);
+            assert_eq!(
+                view.price_estimate_max.unwrap().monetary_amount,
+                100u64.into()
+            );
+        }
+    }
 }
