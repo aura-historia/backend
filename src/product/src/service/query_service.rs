@@ -105,14 +105,13 @@ impl<'a> QueryProductService for QueryProductServiceImpl<'a> {
 
 #[cfg(test)]
 mod tests {
-    use rstest;
-
     use crate::core::product_search::ProductSearch;
     use crate::core::sort_product_field::SortProductField;
     use crate::opensearch::{
         product_document::ProductDocument, repository::MockProductOpenSearchRepository,
     };
     use crate::service::query_service::{QueryProductService, QueryProductServiceImpl};
+    use common::language::document::{LanguageDocument, TextDocument};
     use common::pagination::cursor::Cursor;
     use common::query::any_of_query::AnyOfQuery;
     use common::query::range_query::RangeQuery;
@@ -125,6 +124,7 @@ mod tests {
         product_state::domain::ProductState,
         sort::{Sort, SortOrder},
     };
+    use rstest;
     use serde::ser::Error;
     use serde_json::json;
     use std::collections::HashSet;
@@ -433,6 +433,10 @@ mod tests {
                 let items = fake::vec![ProductDocument; 369]
                     .into_iter()
                     .map(|mut product| {
+                        product.title_native = TextDocument {
+                            text: "German".to_string(),
+                            language: LanguageDocument::De,
+                        };
                         product.title_de = Some("German".to_string());
                         product.title_en = Some("English".to_string());
                         product.title_fr = Some("French".to_string());
@@ -479,10 +483,25 @@ mod tests {
             actual
                 .items
                 .iter()
-                .all(|item| item.title.localization == language
-                    && item.title.payload.as_ref() == expected
-                    && item.description.clone().unwrap().localization == language
-                    && item.description.clone().unwrap().payload.as_ref() == expected)
+                .all(|item| item.title.localization == language)
+        );
+        assert!(
+            actual
+                .items
+                .iter()
+                .all(|item| { item.title.payload.as_ref() == expected })
+        );
+        assert!(
+            actual
+                .items
+                .iter()
+                .all(|item| item.description.clone().unwrap().localization == language)
+        );
+        assert!(
+            actual
+                .items
+                .iter()
+                .all(|item| item.description.clone().unwrap().payload.as_ref() == expected)
         );
     }
 }
