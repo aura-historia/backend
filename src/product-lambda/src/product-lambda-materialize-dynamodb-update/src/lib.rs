@@ -1,15 +1,12 @@
-use std::collections::HashMap;
-
 use aws_lambda_events::sqs::{BatchItemFailure, SqsBatchResponse, SqsEvent, SqsMessage};
 use common::dynamodb_stream::extract_sqs_event_bridge_dynamodb_record;
 use common::has_key::HasKey;
 use common::product_id::ProductKey;
 use lambda_runtime::LambdaEvent;
+use product::dynamodb::product_event_record::ProductEventRecord;
+use product::dynamodb::product_update_record::ProductRecordUpdate;
 use product::dynamodb::repository::ProductDynamoDbRepository;
-use product::dynamodb::{
-    product_event_record::domain::ProductDomainEventRecord,
-    product_update_record::ProductRecordUpdate,
-};
+use std::collections::HashMap;
 use tracing::{error, info};
 
 #[tracing::instrument(skip(repository, event), fields(requestId = %event.context.request_id))]
@@ -31,7 +28,10 @@ pub async fn handler(
             &mut failed_message_ids,
             &mut skipped_count,
             &mut message_ids,
-        ) {
+            repository,
+        )
+        .await
+        {
             updates.push(update);
         }
     }
@@ -73,22 +73,67 @@ pub async fn handler(
     Ok(sqs_batch_response)
 }
 
-fn extract_message_data(
+async fn extract_message_data(
     message: SqsMessage,
     failed_message_ids: &mut Vec<String>,
     skipped_count: &mut usize,
     message_ids: &mut HashMap<ProductKey, String>,
+    repository: &impl ProductDynamoDbRepository,
 ) -> Option<(ProductKey, ProductRecordUpdate)> {
     let message_id = message
         .message_id
         .clone()
         .expect("shouldn't receive an SQS-Message without 'message_id' because AWS sets it.");
-    let product_event_record: ProductDomainEventRecord =
+    let product_event_record: ProductEventRecord =
         extract_sqs_event_bridge_dynamodb_record(message, failed_message_ids, skipped_count)?;
     let key = product_event_record.key();
-    let update_record = ProductRecordUpdate::from(product_event_record);
+    let update_record = match product_event_record {
+        ProductEventRecord::Domain(event_record) => Some(ProductRecordUpdate::from(event_record)),
+        ProductEventRecord::Enrichment(event_record) => {
+            Some(ProductRecordUpdate::from(event_record))
+        }
+        ProductEventRecord::Policy(event_record) => {
+            let record_res = repository
+                .get_product_record(&event_record.shop_id, &event_record.shops_product_id)
+                .await;
+            match record_res {
+                Ok(Some(record)) => {
+                    let mut update_record = ProductRecordUpdate::default();
+                    let prohibited_images = record
+                        .images
+                        .into_iter()
+                        .map(|mut image| {
+                            image.prohibited_content = event_record.prohibited_content_decision;
+                            image
+                        })
+                        .collect();
+                    update_record.images = Some(prohibited_images);
+                    Some(update_record)
+                }
+                Ok(None) => {
+                    error!(
+                        shopId = %event_record.shop_id,
+                        shopsProductId = %event_record.shops_product_id,
+                        "ProductRecord doesn't exist. This is a logic error. Impossible to apply policy to non-existent product."
+                    );
+                    failed_message_ids.push(message_id.clone());
+                    None
+                }
+                Err(err) => {
+                    error!(
+                        error = ?err,
+                        error = ?err,
+                        shopId = %event_record.shop_id,
+                        "Failed getting ProductRecord"
+                    );
+                    failed_message_ids.push(message_id.clone());
+                    None
+                }
+            }
+        }
+    };
     message_ids.insert(key.clone(), message_id);
-    Some((key, update_record))
+    Some((key, update_record?))
 }
 
 #[cfg(test)]
@@ -99,16 +144,16 @@ mod tests {
     use aws_lambda_events::sqs::{SqsEvent, SqsMessage};
     use aws_sdk_dynamodb::error::SdkError;
     use aws_sdk_dynamodb::operation::update_item::UpdateItemOutput;
+    use common::has_key::HasKey;
     use fake::{Fake, Faker};
     use lambda_runtime::{Context, LambdaEvent};
-    use product::core::product_event::ProductDomainEvent;
-    use product::core::product_event::domain::ProductCommonEventPayload;
-    use product::dynamodb::product_event_record::domain::ProductDomainEventRecord;
+    use product::core::product_event::ProductEvent;
+    use product::dynamodb::product_event_record::ProductEventRecord;
     use product::dynamodb::repository::MockProductDynamoDbRepository;
     use std::time::SystemTime;
     use uuid::Uuid;
 
-    fn mk_event_bridge_payload(product_event_record: &ProductDomainEventRecord) -> String {
+    fn mk_event_bridge_payload(product_event_record: &ProductEventRecord) -> String {
         let mut stream_record = StreamRecord::default();
         stream_record.approximate_creation_date_time = SystemTime::now().into();
         stream_record.new_image = serde_dynamo::to_item(product_event_record).unwrap();
@@ -128,7 +173,7 @@ mod tests {
         serde_json::to_string(&event).unwrap()
     }
 
-    fn mk_sqs_message(product_event_record: &ProductDomainEventRecord) -> SqsMessage {
+    fn mk_sqs_message(product_event_record: &ProductEventRecord) -> SqsMessage {
         let mut msg = SqsMessage::default();
         msg.message_id = Some(Faker.fake());
         msg.body = Some(mk_event_bridge_payload(product_event_record));
@@ -136,7 +181,7 @@ mod tests {
     }
 
     fn mk_sqs_message_with_id(
-        product_event_record: &ProductDomainEventRecord,
+        product_event_record: &ProductEventRecord,
         message_id: String,
     ) -> SqsMessage {
         let mut msg = SqsMessage::default();
@@ -160,9 +205,9 @@ mod tests {
     #[case(2874)]
     #[case(10874)]
     async fn should_handle_sqs_message(#[case] record_count: usize) {
-        let records = fake::vec![ProductDomainEvent; record_count]
+        let records = fake::vec![ProductEvent; record_count]
             .into_iter()
-            .map(ProductDomainEventRecord::try_from)
+            .map(ProductEventRecord::try_from)
             .map(Result::unwrap)
             .map(|product_event_record| mk_sqs_message(&product_event_record))
             .collect();
@@ -173,6 +218,9 @@ mod tests {
             context: Context::default(),
         };
         let mut repository = MockProductDynamoDbRepository::default();
+        repository
+            .expect_get_product_record() // if policy event
+            .returning(move |_, _| Box::pin(async move { Ok(Some(Faker.fake())) }));
         repository
             .expect_update_product_record()
             .returning(move |_, _, _| {
@@ -202,7 +250,7 @@ mod tests {
         #[case] failure_count: usize,
         #[case] record_count: usize,
     ) {
-        let events = fake::vec![ProductDomainEvent; record_count];
+        let events = fake::vec![ProductEvent; record_count];
         let expected_failed_events = events
             .clone()
             .into_iter()
@@ -211,14 +259,14 @@ mod tests {
         let mut expected_failed_message_ids = Vec::with_capacity(failure_count);
         let records = events
             .into_iter()
-            .map(ProductDomainEventRecord::try_from)
+            .map(ProductEventRecord::try_from)
             .map(Result::unwrap)
             .map(|event_record| {
                 let message_id = Uuid::new_v4().to_string();
-                if expected_failed_events.iter().any(|event| {
-                    event.payload.shop_id() == &event_record.shop_id
-                        && event.payload.shops_product_id() == &event_record.shops_product_id
-                }) {
+                if expected_failed_events
+                    .iter()
+                    .any(|event| event.payload.key() == event_record.key())
+                {
                     expected_failed_message_ids.push(message_id.clone());
                 }
                 mk_sqs_message_with_id(&event_record, message_id)
@@ -232,11 +280,14 @@ mod tests {
         };
         let mut repository = MockProductDynamoDbRepository::default();
         repository
+            .expect_get_product_record() // if policy event
+            .returning(move |_, _| Box::pin(async move { Ok(Some(Faker.fake())) }));
+        repository
             .expect_update_product_record()
             .returning(move |shop_id, shops_product_id, _| {
                 if expected_failed_events.iter().any(|event| {
-                    event.payload.shop_id() == shop_id
-                        && event.payload.shops_product_id() == shops_product_id
+                    &event.payload.key().shop_id == shop_id
+                        && &event.payload.key().shops_product_id == shops_product_id
                 }) {
                     Box::pin(
                         async move { Err(SdkError::construction_failure("Something went wrong.")) },

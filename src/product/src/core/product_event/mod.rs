@@ -2,7 +2,11 @@ use crate::core::product_event::{
     domain::ProductDomainEventPayload, enrichment::ProductEnrichmentEventPayload,
     policy::ProductPolicyEventPayload,
 };
-use common::{event::Event, product_id::ProductId};
+use common::{
+    event::Event,
+    has_key::HasKey,
+    product_id::{ProductId, ProductKey},
+};
 
 pub mod domain;
 pub mod enrichment;
@@ -22,6 +26,18 @@ pub enum ProductEventPayload {
 }
 
 pub type ProductEvent = Event<ProductId, ProductEventPayload>;
+
+impl HasKey for ProductEventPayload {
+    type Key = ProductKey;
+
+    fn key(&self) -> Self::Key {
+        match self {
+            ProductEventPayload::ProductDomainEvent(event_payload) => event_payload.key(),
+            ProductEventPayload::ProductEnrichmentEvent(event_payload) => event_payload.key(),
+            ProductEventPayload::ProductPolicyEvent(event_payload) => event_payload.key(),
+        }
+    }
+}
 
 impl From<ProductDomainEventPayload> for ProductEventPayload {
     fn from(payload: ProductDomainEventPayload) -> Self {

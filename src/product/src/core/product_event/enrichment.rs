@@ -3,7 +3,8 @@ use crate::core::{
     provenance::Provenance, restoration::Restoration, title::Title,
 };
 use common::{
-    language::domain::Language, shop_id::ShopId, shops_product_id::ShopsProductId, year::Year,
+    has_key::HasKey, language::domain::Language, product_id::ProductKey, shop_id::ShopId,
+    shops_product_id::ShopsProductId, year::Year,
 };
 
 #[cfg_attr(feature = "test-data", derive(fake::Dummy))]
@@ -46,6 +47,46 @@ pub struct ExtractedAttributesProductEnrichmentEventPayload {
     pub condition: Option<Condition>,
     pub provenance: Option<Provenance>,
     pub restoration: Option<Restoration>,
+}
+
+impl HasKey for ProductEnrichmentEventPayload {
+    type Key = ProductKey;
+
+    fn key(&self) -> Self::Key {
+        match self {
+            ProductEnrichmentEventPayload::TranslatedTitle(payload) => payload.key(),
+            ProductEnrichmentEventPayload::TranslatedDescription(payload) => payload.key(),
+            ProductEnrichmentEventPayload::EmbeddedText(payload) => payload.key(),
+            ProductEnrichmentEventPayload::ExtractedAttributes(payload) => payload.key(),
+        }
+    }
+}
+
+impl<T> HasKey for TranslationProductEnrichmentEventPayload<T>
+where
+    T: Into<String> + From<String>,
+{
+    type Key = ProductKey;
+
+    fn key(&self) -> Self::Key {
+        ProductKey::new(self.shop_id, self.shops_product_id.clone())
+    }
+}
+
+impl HasKey for EmbeddedTextProductEnrichmentEventPayload {
+    type Key = ProductKey;
+
+    fn key(&self) -> Self::Key {
+        ProductKey::new(self.shop_id, self.shops_product_id.clone())
+    }
+}
+
+impl HasKey for ExtractedAttributesProductEnrichmentEventPayload {
+    type Key = ProductKey;
+
+    fn key(&self) -> Self::Key {
+        ProductKey::new(self.shop_id, self.shops_product_id.clone())
+    }
 }
 
 impl ProductEnrichmentEventPayload {
