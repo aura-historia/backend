@@ -64,10 +64,10 @@ jobs:
       - uses: Swatinem/rust-cache@v2
 
       - name: Format check
-        run: cargo fmt --all -- --check
+        run: cargo fmt --locked --all -- --check
 
       - name: Clippy lint
-        run: cargo clippy --workspace --all-targets --all-features -- -D warnings
+        run: cargo clippy --locked --workspace --all-targets --all-features -- -D warnings
 
   build:
     name: Build ${{ matrix.crate }}
@@ -108,7 +108,7 @@ jobs:
 
       - name: Build ${{ matrix.crate }}
         working-directory: ${{ matrix.crate }}
-        run: cargo build --all-features --all-targets
+        run: cargo build --locked --all-features --all-targets
 
   unit-test:
     name: Unit-Test Workspace
@@ -125,7 +125,7 @@ jobs:
       - uses: Swatinem/rust-cache@v2
 
       - name: Test Workspace
-        run: cargo test --workspace --lib --all-features -- --nocapture
+        run: cargo test --locked --workspace --lib --all-features -- --nocapture
 
   integration-test:
     name: Integration-Test ${{ matrix.crate }}
@@ -160,7 +160,7 @@ jobs:
 
       - name: Test ${{ matrix.crate }}
         working-directory: ${{ matrix.crate }}
-        run: cargo test --test '*' --all-features -- --nocapture
+        run: cargo test --locked --test '*' --all-features -- --nocapture
 
       - name: Prune Docker volumes
         run: docker volume prune -f
@@ -198,7 +198,7 @@ jobs:
 
       - name: Test ${{ matrix.crate }}
         working-directory: ${{ matrix.crate }}
-        run: cargo test --all-features -- --nocapture --include-ignored
+        run: cargo test --locked --all-features -- --nocapture --include-ignored
 
       - name: Prune Docker volumes
         run: docker volume prune -f
@@ -241,7 +241,7 @@ jobs:
           RUSTFLAGS: "-C instrument-coverage"
           LLVM_PROFILE_FILE: "coverage-%p-%m.profraw"
         run: |
-          cargo test --workspace --all-features --exclude smoking-tests --exclude staging-tests -- --nocapture --include-ignored
+          cargo test --locked --workspace --all-features --exclude smoking-tests --exclude staging-tests -- --nocapture --include-ignored
           grcov . --binary-path ./target/debug/deps/ -s . -t lcov --branch --ignore-not-existing --ignore "/*" --ignore "*/target/*" --ignore "*/.cargo/*" -o coverage.lcov
 
       - name: SonarCloud Scan
@@ -315,7 +315,7 @@ jobs:
 
       - name: Build Lambda binary
         working-directory: ${{ matrix.crate }}
-        run: cargo lambda build --release --target x86_64-unknown-linux-musl --output-format zip
+        run: cargo lambda build --locked --release --target x86_64-unknown-linux-musl --output-format zip
 
       - name: Copy Lambda zip artifact
         run: |
@@ -364,7 +364,7 @@ jobs:
 
       - name: Build EC2 binary
         working-directory: ${{ matrix.crate }}
-        run: cargo build --release
+        run: cargo build --locked --release
 
       - name: Copy EC2 binary to artifacts
         run: |
@@ -540,7 +540,7 @@ jobs:
           OPENSEARCH_ENDPOINT_URL: ${{ vars.OPENSEARCH_ENDPOINT_URL }}
           OPENSEARCH_USERNAME: ${{ secrets.OPENSEARCH_USERNAME }}
           OPENSEARCH_PASSWORD: ${{ secrets.OPENSEARCH_PASSWORD }}
-        run: cargo test --test '*' --all-features -- --ignored --nocapture
+        run: cargo test --locked --test '*' --all-features -- --ignored --nocapture
 
   aws-smoking-test:
     name: AWS Smoking-Test
@@ -582,7 +582,7 @@ jobs:
         working-directory: src/aws-tests/src/smoking-tests
         env:
           CFN_OUTPUT: ${{ steps.export-cfn-output.outputs.outputs_json }}
-        run: cargo test --test '*' --all-features -- --ignored --nocapture
+        run: cargo test --locked --test '*' --all-features -- --ignored --nocapture
 
   aws-put-staging-test-data:
     name: AWS Populate Test-Data
@@ -630,4 +630,4 @@ jobs:
           OPENSEARCH_ENDPOINT_URL: ${{ vars.OPENSEARCH_ENDPOINT_URL }}
           OPENSEARCH_USERNAME: ${{ secrets.OPENSEARCH_USERNAME }}
           OPENSEARCH_PASSWORD: ${{ secrets.OPENSEARCH_PASSWORD }}
-        run: cargo run --all-features -- --nocapture
+        run: cargo run --locked --all-features -- --nocapture
