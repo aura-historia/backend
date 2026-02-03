@@ -10,7 +10,9 @@ use product::core::product_event::domain::{
     ProductCreatedDomainEventPayload, ProductDomainEventPayload,
 };
 use product::dynamodb::product_event_record::ProductEventRecord;
-use product::dynamodb::product_event_record::domain::ProductDomainEventRecord;
+use product::dynamodb::product_event_record::domain::{
+    ProductDomainEventRecord, ProductDomainEventRecordSerdeField,
+};
 use product::dynamodb::product_record::ProductRecord;
 use product::dynamodb::repository::{ProductDynamoDbRepository, ProductDynamoDbRepositoryImpl};
 use product::service::get_service::GetProductServiceImpl;
@@ -67,12 +69,14 @@ impl PipeProcessor for AlwaysFailProcessor {
     }
 }
 
-async fn prepare_messages(count: u16) {
+async fn prepare_messages(count: u16) -> Vec<ProductId> {
     let sqs = get_sqs_client().await;
     let product_repository =
         ProductDynamoDbRepositoryImpl::new(get_dynamodb_client().await, "table_1");
 
+    let mut product_ids = vec![];
     for product_event_record in fake::vec![ProductEventRecord; count as usize] {
+        product_ids.push(*product_event_record.product_id());
         let mut product_created_event_payload: ProductCreatedDomainEventPayload = Faker.fake();
         product_created_event_payload.shop_id = product_event_record.key().shop_id;
         product_created_event_payload.shops_product_id =
@@ -99,6 +103,7 @@ async fn prepare_messages(count: u16) {
             .await
             .unwrap();
     }
+    product_ids
 }
 
 fn mk_event_bridge_payload(product_event_record: &ProductEventRecord) -> String {
@@ -126,30 +131,18 @@ fn mk_event_bridge_payload(product_event_record: &ProductEventRecord) -> String 
 #[test_attr(apply(test))]
 #[localstack_test(services = [DynamoDB(), SOURCE_QUEUE])]
 async fn should_handle_partial_processing_failures() {
+    let product_ids = prepare_messages(10).await;
+    let sqs = get_sqs_client().await;
     let product_repository =
         ProductDynamoDbRepositoryImpl::new(get_dynamodb_client().await, "table_1");
     let get_product_service = GetProductServiceImpl::new(&product_repository);
 
-    let products = fake::vec![Dummy; 10];
-    let fail_ids: HashSet<ProductId> = products.iter().take(3).map(|p| p.product_id).collect();
-
-    let sqs = get_sqs_client().await;
-    for val in &products {
-        sqs.send_message()
-            .queue_url(SOURCE_QUEUE.queue_url())
-            .message_body(serde_json::to_string(&val).unwrap())
-            .delay_seconds(0)
-            .send()
-            .await
-            .unwrap();
-    }
-
     let flow_in = PipeFlowInImpl::new(sqs, SOURCE_QUEUE.queue_url());
     let processor = FailingPipeProcessor {
-        fail_product_ids: fail_ids.clone(),
+        fail_product_ids: product_ids.iter().take(3).copied().collect(),
     };
     let flow_out = PipeFlowOutImpl::new(&product_repository);
-    let pipe = PipeImpl::new(
+    let pipe: PipeImpl = PipeImpl::new(
         &get_product_service,
         sqs,
         SOURCE_QUEUE.queue_url(),
@@ -162,19 +155,23 @@ async fn should_handle_partial_processing_failures() {
 
     pipe.pipe().await;
 
-    // Check target queue has only successes
-    let target_messages = sqs
-        .receive_message()
-        .queue_url(TARGET_QUEUE.queue_url())
-        .max_number_of_messages(10)
+    let actual_count = get_dynamodb_client()
+        .await
+        .scan()
+        .table_name("table_1")
         .send()
         .await
         .unwrap()
-        .messages
-        .unwrap_or_default();
-
-    // Should have 7 successful messages (10 - 3 failures)
-    assert_eq!(7, target_messages.len());
+        .items
+        .unwrap_or_default()
+        .into_iter()
+        .filter_map(|attr_value| {
+            attr_value
+                .get(ProductDomainEventRecordSerdeField::EventType.as_str())
+                .cloned()
+        })
+        .count();
+    assert_eq!(7, actual_count as u16);
 }
 
 #[rstest::rstest]
@@ -204,18 +201,23 @@ async fn should_handle_all_processing_failures() {
 
     pipe.pipe().await;
 
-    // Target queue should be empty (no successful processing)
-    let target_messages = sqs
-        .receive_message()
-        .queue_url(TARGET_QUEUE.queue_url())
-        .max_number_of_messages(10)
+    let actual_count = get_dynamodb_client()
+        .await
+        .scan()
+        .table_name("table_1")
         .send()
         .await
         .unwrap()
-        .messages
-        .unwrap_or_default();
-
-    assert!(target_messages.is_empty());
+        .items
+        .unwrap_or_default()
+        .into_iter()
+        .filter_map(|attr_value| {
+            attr_value
+                .get(ProductDomainEventRecordSerdeField::EventType.as_str())
+                .cloned()
+        })
+        .count();
+    assert_eq!(0, actual_count as u16);
 }
 
 #[rstest::rstest]
@@ -243,27 +245,21 @@ async fn should_handle_empty_queue_with_failing_processor() {
 
     pipe.pipe().await;
 
-    // Both queues should be empty
-    let source_messages = sqs
-        .receive_message()
-        .queue_url(SOURCE_QUEUE.queue_url())
-        .max_number_of_messages(10)
+    let actual_count = get_dynamodb_client()
+        .await
+        .scan()
+        .table_name("table_1")
         .send()
         .await
         .unwrap()
-        .messages
-        .unwrap_or_default();
-
-    let target_messages = sqs
-        .receive_message()
-        .queue_url(TARGET_QUEUE.queue_url())
-        .max_number_of_messages(10)
-        .send()
-        .await
-        .unwrap()
-        .messages
-        .unwrap_or_default();
-
-    assert!(source_messages.is_empty());
-    assert!(target_messages.is_empty());
+        .items
+        .unwrap_or_default()
+        .into_iter()
+        .filter_map(|attr_value| {
+            attr_value
+                .get(ProductDomainEventRecordSerdeField::EventType.as_str())
+                .cloned()
+        })
+        .count();
+    assert_eq!(0, actual_count as u16);
 }
