@@ -1,9 +1,7 @@
 use crate::adapter::EmbeddingAdapter;
 use common::batch::Batch;
-use product_pipeline_common::{
-    process::{PipeProcessor, ProcessResult},
-    types::{TextEmbeddedPipeProduct, TranslatedPipeProduct},
-};
+use product::core::product::Product;
+use product_pipeline_common::process::{PipeProcessor, ProcessResult};
 use std::{collections::HashSet, sync::Arc};
 use tracing::{error, info};
 
@@ -17,25 +15,23 @@ impl TextEmbeddingPipeProcesserImpl {
     }
 }
 
-impl PipeProcessor<TranslatedPipeProduct, TextEmbeddedPipeProduct>
-    for TextEmbeddingPipeProcesserImpl
-{
-    fn process(&self, ins: Vec<TranslatedPipeProduct>) -> ProcessResult<TextEmbeddedPipeProduct> {
+impl PipeProcessor for TextEmbeddingPipeProcesserImpl {
+    fn process(&self, ins: Vec<Product>) -> ProcessResult {
         let count = ins.len();
         let mut successes = Vec::with_capacity(ins.len());
         let mut failures = HashSet::new();
-        let batches: Vec<Batch<TranslatedPipeProduct, 64>> = Batch::chunked_from(ins.into_iter());
+        let batches: Vec<Batch<Product, 64>> = Batch::chunked_from(ins.into_iter());
 
         for in_batch in batches {
             let input_batch_iter = in_batch.iter().map(|in_product| {
                 format!(
                     "{} [SEP] {}",
-                    in_product.native_title.text.as_str(),
+                    in_product.native_title.payload,
                     in_product
                         .native_description
                         .as_ref()
-                        .map(|descr| descr.text.as_str())
-                        .unwrap_or("")
+                        .map(|descr| descr.payload.to_owned())
+                        .unwrap_or("".into())
                 )
             });
             let input_batch = Batch::try_from_iter(input_batch_iter)
@@ -48,19 +44,10 @@ impl PipeProcessor<TranslatedPipeProduct, TextEmbeddedPipeProduct>
                     failures.extend(&mut local_failed);
                 }
                 Ok(embeddings) => {
-                    let mut local_enriched = in_batch.into_iter().zip(embeddings.into_iter()).map(
-                        |(in_product, embedding)| TextEmbeddedPipeProduct {
-                            product_id: in_product.product_id,
-                            shop_id: in_product.shop_id,
-                            shops_product_id: in_product.shops_product_id,
-                            native_title: in_product.native_title,
-                            other_title: in_product.other_title,
-                            native_description: in_product.native_description,
-                            other_description: in_product.other_description,
-                            images: in_product.images,
-                            text_embedding: embedding,
-                        },
-                    );
+                    let mut local_enriched = in_batch
+                        .into_iter()
+                        .zip(embeddings.into_iter())
+                        .filter_map(|(mut product, embedding)| product.embed_text(embedding));
                     successes.extend(&mut local_enriched);
                 }
             }
@@ -83,7 +70,8 @@ impl PipeProcessor<TranslatedPipeProduct, TextEmbeddedPipeProduct>
 #[cfg(test)]
 pub mod tests {
     use crate::{adapter::MockEmbeddingAdapter, process::TextEmbeddingPipeProcesserImpl};
-    use product_pipeline_common::{process::PipeProcessor, types::TranslatedPipeProduct};
+    use product::core::product::Product;
+    use product_pipeline_common::process::PipeProcessor;
     use pyo3::{PyErr, exceptions::PyTypeError};
     use rstest;
     use std::sync::Arc;
@@ -103,11 +91,11 @@ pub mod tests {
             .return_once(move |_| Ok(expected_clone.try_into().unwrap()));
 
         let embedding_pipe = TextEmbeddingPipeProcesserImpl::new(Arc::new(delegate));
-        let res = embedding_pipe.process(fake::vec![TranslatedPipeProduct; 4]);
+        let res = embedding_pipe.process(fake::vec![Product; 4]);
         let actual = res
             .successes
             .into_iter()
-            .map(|out_product| out_product.text_embedding)
+            .map(|event| event.payload.as_embedded_text().unwrap().embedding.clone())
             .collect::<Vec<_>>();
 
         assert_eq!(expected, actual);
@@ -134,7 +122,7 @@ pub mod tests {
             .returning(move |_| Err(PyErr::new::<PyTypeError, _>("Something went wrong")));
 
         let embedding_pipe = TextEmbeddingPipeProcesserImpl::new(Arc::new(delegate));
-        let res = embedding_pipe.process(fake::vec![TranslatedPipeProduct; input_count]);
+        let res = embedding_pipe.process(fake::vec![Product; input_count]);
 
         assert!(res.successes.is_empty());
         assert_eq!(input_count, res.failures.len());

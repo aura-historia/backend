@@ -1,8 +1,10 @@
-use common::language::record::LanguageRecord;
-use common::{language::record::TextRecord, product_id::ProductId};
+use common::language::domain::Language;
+use common::localized::Localized;
+use common::product_id::ProductId;
 use fake::rand::seq::SliceRandom;
 use fake::{Fake, Faker};
-use product_pipeline_common::{process::PipeProcessor, types::TranslatedPipeProduct};
+use product::core::product::Product;
+use product_pipeline_common::process::PipeProcessor;
 use product_pipeline_embed_text::{
     adapter::EmbeddingAdapterImpl, process::TextEmbeddingPipeProcesserImpl,
 };
@@ -1057,14 +1059,14 @@ fn should_process_text_embedding(#[case] count: usize) {
     let translation_pipe_processor = TextEmbeddingPipeProcesserImpl::new(Arc::new(adapter));
 
     let product_id = ProductId::new();
-    let mut products = fake::vec![TranslatedPipeProduct; count];
-    let mut product = Faker.fake::<TranslatedPipeProduct>();
+    let mut products = fake::vec![Product; count];
+    let mut product = Faker.fake::<Product>();
     product.product_id = product_id;
-    product.native_title.text = "Foo".to_owned();
-    product.native_title.language = LanguageRecord::Es;
-    product.native_description = Some(TextRecord {
-        language: LanguageRecord::Es,
-        text: "Bar".to_owned(),
+    product.native_title.payload = "Foo".into();
+    product.native_title.localization = Language::Es;
+    product.native_description = Some(Localized {
+        localization: Language::Es,
+        payload: "Bar".into(),
     });
     products.push(product);
     products.shuffle(&mut fake::rand::rng());
@@ -1076,7 +1078,7 @@ fn should_process_text_embedding(#[case] count: usize) {
     let embedded = actual
         .successes
         .into_iter()
-        .find(|out_product| out_product.product_id == product_id)
+        .find(|event| event.aggregate_id == product_id)
         .unwrap();
 
     fn cosine_similarity(a: &[f32], b: &[f32]) -> f32 {
@@ -1088,7 +1090,12 @@ fn should_process_text_embedding(#[case] count: usize) {
 
     let sim = cosine_similarity(
         EXPECTED_TEXT_EMBEDDING.as_slice(),
-        embedded.text_embedding.as_slice(),
+        embedded
+            .payload
+            .as_embedded_text()
+            .unwrap()
+            .embedding
+            .as_slice(),
     );
 
     assert!(sim > 0.9999, "cosine similarity too low: {sim}");

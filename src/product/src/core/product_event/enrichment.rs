@@ -47,3 +47,37 @@ pub struct ExtractedAttributesProductEnrichmentEventPayload {
     pub provenance: Option<Provenance>,
     pub restoration: Option<Restoration>,
 }
+
+impl ProductEnrichmentEventPayload {
+    pub fn as_translated_title(&self) -> Option<&TranslationProductEnrichmentEventPayload<Title>> {
+        match self {
+            ProductEnrichmentEventPayload::TranslatedTitle(payload) => Some(payload),
+            _ => None,
+        }
+    }
+
+    pub fn as_translated_description(
+        &self,
+    ) -> Option<&TranslationProductEnrichmentEventPayload<Description>> {
+        match self {
+            ProductEnrichmentEventPayload::TranslatedDescription(payload) => Some(payload),
+            _ => None,
+        }
+    }
+
+    pub fn as_embedded_text(&self) -> Option<&EmbeddedTextProductEnrichmentEventPayload> {
+        match self {
+            ProductEnrichmentEventPayload::EmbeddedText(payload) => Some(payload),
+            _ => None,
+        }
+    }
+
+    pub fn as_extracted_attributes(
+        &self,
+    ) -> Option<&ExtractedAttributesProductEnrichmentEventPayload> {
+        match self {
+            ProductEnrichmentEventPayload::ExtractedAttributes(payload) => Some(payload),
+            _ => None,
+        }
+    }
+}
