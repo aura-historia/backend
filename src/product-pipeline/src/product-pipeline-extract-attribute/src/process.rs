@@ -170,7 +170,7 @@ pub mod tests {
         let mock_res = vec![
             r#"{"condition": "EXCELLENT"}"#.to_owned(),
             r#"{"condition": "POOR"}"#.to_owned(),
-            r#"{"condition": "UNKNOWN"}"#.to_owned(),
+            r#"{"condition": "GOOD"}"#.to_owned(),
             r#"{"condition": "FAIR"}"#.to_owned(),
             r#"{"condition": "GREAT"}"#.to_owned(),
         ];
@@ -180,7 +180,11 @@ pub mod tests {
             .return_once(move |_, _| Ok(mock_res.try_into().unwrap()));
 
         let embedding_pipe = AttributeExtractionPipeProcesserImpl::new(Arc::new(delegate));
-        let res = embedding_pipe.process(fake::vec![Product; 5]);
+        let mut products = fake::vec![Product; 5];
+        for product in &mut products {
+            product.condition = Default::default();
+        }
+        let res = embedding_pipe.process(products);
         let actual = res
             .successes
             .into_iter()
@@ -199,7 +203,7 @@ pub mod tests {
         let expected = vec![
             Condition::Excellent,
             Condition::Poor,
-            Condition::Unknown,
+            Condition::Good,
             Condition::Fair,
             Condition::Great,
         ];
@@ -231,7 +235,11 @@ pub mod tests {
             .return_once(move |_, _| Ok(mock_res.try_into().unwrap()));
 
         let embedding_pipe = AttributeExtractionPipeProcesserImpl::new(Arc::new(delegate));
-        let res = embedding_pipe.process(fake::vec![Product; 1]);
+        let mut products = fake::vec![Product; 1];
+        for product in &mut products {
+            product.condition = Default::default();
+        }
+        let res = embedding_pipe.process(products);
         let actual = res
             .successes
             .into_iter()
