@@ -22,3 +22,47 @@ pub enum ProductEventPayload {
 }
 
 pub type ProductEvent = Event<ProductId, ProductEventPayload>;
+
+impl From<ProductDomainEventPayload> for ProductEventPayload {
+    fn from(payload: ProductDomainEventPayload) -> Self {
+        ProductEventPayload::ProductDomainEvent(payload)
+    }
+}
+
+impl From<ProductEnrichmentEventPayload> for ProductEventPayload {
+    fn from(payload: ProductEnrichmentEventPayload) -> Self {
+        ProductEventPayload::ProductEnrichmentEvent(payload)
+    }
+}
+
+impl From<ProductPolicyEventPayload> for ProductEventPayload {
+    fn from(payload: ProductPolicyEventPayload) -> Self {
+        ProductEventPayload::ProductPolicyEvent(payload)
+    }
+}
+
+impl ProductEventPayload {
+    pub fn as_domain_event(&self) -> Option<&ProductDomainEventPayload> {
+        if let ProductEventPayload::ProductDomainEvent(payload) = self {
+            Some(payload)
+        } else {
+            None
+        }
+    }
+
+    pub fn as_enrichment_event(&self) -> Option<&ProductEnrichmentEventPayload> {
+        if let ProductEventPayload::ProductEnrichmentEvent(payload) = self {
+            Some(payload)
+        } else {
+            None
+        }
+    }
+
+    pub fn as_policy_event(&self) -> Option<&ProductPolicyEventPayload> {
+        if let ProductEventPayload::ProductPolicyEvent(payload) = self {
+            Some(payload)
+        } else {
+            None
+        }
+    }
+}

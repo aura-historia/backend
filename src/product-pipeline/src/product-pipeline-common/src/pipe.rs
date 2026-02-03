@@ -6,10 +6,7 @@ use crate::{
 use aws_sdk_sqs::{Client, types::DeleteMessageBatchRequestEntry};
 use common::{batch::Batch, product_id::ProductId};
 use product::{
-    core::product_event::ProductEnrichmentEvent,
-    dynamodb::product_event_record::{
-        ProductEventRecord, enrichment::ProductEnrichmentEventRecord,
-    },
+    core::product_event::ProductEvent, dynamodb::product_event_record::ProductEventRecord,
     service::get_service::GetProductService,
 };
 use std::collections::{HashMap, HashSet};
@@ -103,21 +100,20 @@ impl<'a> Pipe for PipeImpl<'a> {
             let outs = processed
                 .successes
                 .into_iter()
-                .flat_map(|enrichment_event| {
-                    match ProductEnrichmentEventRecord::try_from(enrichment_event) {
+                .flat_map(
+                    |product_event| match ProductEventRecord::try_from(product_event) {
                         Ok(enrichment_event_record) => Some(enrichment_event_record),
                         Err(err) => {
                             error!(
                                 error = %err,
-                                fromType = %std::any::type_name::<ProductEnrichmentEvent>(),
-                                toType = %std::any::type_name::<ProductEnrichmentEventRecord>(),
+                                fromType = %std::any::type_name::<ProductEvent>(),
+                                toType = %std::any::type_name::<ProductEventRecord>(),
                                 "Failed mapping"
                             );
                             None
                         }
-                    }
-                })
-                .map(ProductEventRecord::from)
+                    },
+                )
                 .collect();
             let out_res = self.flow_out.flow_out(outs).await;
             info!(

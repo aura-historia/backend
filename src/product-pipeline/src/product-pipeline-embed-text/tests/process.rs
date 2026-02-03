@@ -1092,6 +1092,8 @@ fn should_process_text_embedding(#[case] count: usize) {
         EXPECTED_TEXT_EMBEDDING.as_slice(),
         embedded
             .payload
+            .as_enrichment_event()
+            .unwrap()
             .as_embedded_text()
             .unwrap()
             .embedding

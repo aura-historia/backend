@@ -5,7 +5,7 @@ use common::event_id::EventId;
 use common::has_key::HasKey;
 use fake::{Fake, Faker};
 use product::core::product::Product;
-use product::core::product_event::ProductEnrichmentEvent;
+use product::core::product_event::ProductEvent;
 use product::core::product_event::domain::{
     ProductCreatedDomainEventPayload, ProductDomainEventPayload,
 };
@@ -42,7 +42,7 @@ impl PipeProcessor for Const42PipeProcessor {
         ProcessResult {
             successes: products
                 .into_iter()
-                .map(|product| ProductEnrichmentEvent {
+                .map(|product| ProductEvent {
                     aggregate_id: product.product_id,
                     event_id: product.event_id,
                     timestamp: OffsetDateTime::now_utc(),
@@ -54,7 +54,8 @@ impl PipeProcessor for Const42PipeProcessor {
                             target_language: common::language::domain::Language::En,
                             target: "42".into(),
                         },
-                    ),
+                    )
+                    .into(),
                 })
                 .collect(),
             failures: HashSet::new(),

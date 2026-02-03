@@ -506,6 +506,26 @@ impl Product {
             updated: self.updated,
         }
     }
+
+    pub fn titles(&self) -> HashMap<Language, Title> {
+        let mut titles: HashMap<Language, Title> = self.other_title.clone();
+        titles.insert(
+            self.native_title.localization,
+            self.native_title.payload.clone(),
+        );
+        titles
+    }
+
+    pub fn descriptions(&self) -> HashMap<Language, Description> {
+        let mut descriptions: HashMap<Language, Description> = self.other_description.clone();
+        if let Some(description_native) = &self.native_description {
+            descriptions.insert(
+                description_native.localization,
+                description_native.payload.clone(),
+            );
+        }
+        descriptions
+    }
 }
 
 impl HasKey for Product {

@@ -3427,6 +3427,7 @@ version = "0.1.0"
 dependencies = [
  "async-trait",
  "aws-config",
+ "aws-sdk-dynamodb",
  "aws-sdk-sqs",
  "common",
  "fake",

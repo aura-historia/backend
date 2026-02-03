@@ -1,6 +1,6 @@
 use crate::adapter::EmbeddingAdapter;
 use common::batch::Batch;
-use product::core::product::Product;
+use product::core::{product::Product, product_event::ProductEventPayload};
 use product_pipeline_common::process::{PipeProcessor, ProcessResult};
 use std::{collections::HashSet, sync::Arc};
 use tracing::{error, info};
@@ -47,7 +47,10 @@ impl PipeProcessor for TextEmbeddingPipeProcesserImpl {
                     let mut local_enriched = in_batch
                         .into_iter()
                         .zip(embeddings.into_iter())
-                        .filter_map(|(mut product, embedding)| product.embed_text(embedding));
+                        .filter_map(|(mut product, embedding)| product.embed_text(embedding))
+                        .map(|enrichment_event| {
+                            enrichment_event.map_payload(ProductEventPayload::from)
+                        });
                     successes.extend(&mut local_enriched);
                 }
             }
@@ -95,7 +98,16 @@ pub mod tests {
         let actual = res
             .successes
             .into_iter()
-            .map(|event| event.payload.as_embedded_text().unwrap().embedding.clone())
+            .map(|event| {
+                event
+                    .payload
+                    .as_enrichment_event()
+                    .unwrap()
+                    .as_embedded_text()
+                    .unwrap()
+                    .embedding
+                    .clone()
+            })
             .collect::<Vec<_>>();
 
         assert_eq!(expected, actual);
