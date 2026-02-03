@@ -142,7 +142,6 @@ jobs:
           - src/search-filter-api
           - src/product
           - src/product-pipeline/src/product-pipeline-common
-          - src/product-pipeline/src/product-pipeline-test
           - src/product-api
           - src/product-watchlist-api
           - src/shop
@@ -354,11 +353,9 @@ jobs:
     strategy:
       matrix:
         crate:
-          - src/product-pipeline/src/product-pipeline-init
           - src/product-pipeline/src/product-pipeline-translate
           - src/product-pipeline/src/product-pipeline-embed-text
           - src/product-pipeline/src/product-pipeline-extract-attribute
-          - src/product-pipeline/src/product-pipeline-complete
     steps:
       - uses: actions/checkout@v6
 
