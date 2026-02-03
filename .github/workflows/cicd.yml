@@ -11,6 +11,8 @@ concurrency:
 
 env:
   CARGO_TERM_COLOR: always
+  CARGO_INCREMENTAL: 0
+  CARGO_PROFILE_TEST_DEBUG: 0
   STAGE: ${{ github.event_name == 'pull_request' && 'ephemeral'
     || github.ref == 'refs/heads/prod' && 'prod'
     || github.ref == 'refs/heads/develop' && 'dev' }}
@@ -315,6 +317,9 @@ jobs:
 
       - name: Build Lambda binary
         working-directory: ${{ matrix.crate }}
+        env:
+          CARGO_PROFILE_RELEASE_LTO: true
+          CARGO_PROFILE_RELEASE_CODEGEN_UNITS: 1
         run: cargo lambda build --locked --release --target x86_64-unknown-linux-musl --output-format zip
 
       - name: Copy Lambda zip artifact
@@ -364,6 +369,9 @@ jobs:
 
       - name: Build EC2 binary
         working-directory: ${{ matrix.crate }}
+        env:
+          CARGO_PROFILE_RELEASE_LTO: true
+          CARGO_PROFILE_RELEASE_CODEGEN_UNITS: 1
         run: cargo build --locked --release
 
       - name: Copy EC2 binary to artifacts
