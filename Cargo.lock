@@ -3300,6 +3300,7 @@ name = "product-lambda-materialize-opensearch-update"
 version = "0.1.0"
 dependencies = [
  "aws-config",
+ "aws-sdk-dynamodb",
  "aws_lambda_events",
  "common",
  "fake",

@@ -1,6 +1,11 @@
+use aws_config::BehaviorVersion;
 use aws_lambda_events::sqs::SqsEvent;
+use aws_sdk_dynamodb::Client;
 use lambda_runtime::{Error, LambdaEvent, run, service_fn};
-use product::opensearch::repository::ProductOpenSearchRepositoryImpl;
+use product::{
+    dynamodb::repository::ProductDynamoDbRepositoryImpl,
+    opensearch::repository::ProductOpenSearchRepositoryImpl,
+};
 use product_lambda_materialize_opensearch_update::handler;
 use tracing::info;
 
@@ -14,13 +19,22 @@ async fn main() -> Result<(), Error> {
         .without_time()
         .init();
 
+    let aws_config = aws_config::defaults(BehaviorVersion::v2026_01_12())
+        .load()
+        .await;
+
+    let dynamodb_table_name = std::env::var("DYNAMODB_TABLE_NAME")?;
+    let dynamodb_client = Client::new(&aws_config);
+    let dynamodb_repository =
+        ProductDynamoDbRepositoryImpl::new(&dynamodb_client, &dynamodb_table_name);
+
     let opensearch_client = common::opensearch::client::load_client().await?;
-    let repository = ProductOpenSearchRepositoryImpl::new(&opensearch_client);
+    let opensearch_repository = ProductOpenSearchRepositoryImpl::new(&opensearch_client);
 
     info!("Lambda cold start completed, OpenSearch-Client initialized.");
 
     run(service_fn(|event: LambdaEvent<SqsEvent>| async {
-        handler(&repository, event).await
+        handler(&opensearch_repository, &dynamodb_repository, event).await
     }))
     .await
 }
