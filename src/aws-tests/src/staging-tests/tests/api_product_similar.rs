@@ -1,5 +1,6 @@
 use aws_tests_common::get_cfn_output;
 use common::currency::data::CurrencyData;
+use common::language::document::{LanguageDocument, TextDocument};
 use common::personalized::api::PersonalizedData;
 use common::user_id::UserId;
 use fake::{Fake, Faker};
@@ -1125,10 +1126,13 @@ async fn should_200_when_similar_products_have_been_computed_for_anon() {
             .is_empty()
     );
 
-    let mut product_document: ProductDocument = product_record.clone().into();
-    product_document.text_embedding = Some(EXAMPLE_EMBEDDING.into());
+    let product_document: ProductDocument = product_record.clone().into();
     let mut product_documents = fake::vec![ProductDocument; 10];
     for doc in &mut product_documents {
+        doc.title_native = TextDocument {
+            text: "My expected english title".into(),
+            language: LanguageDocument::En,
+        };
         doc.text_embedding = Some(EXAMPLE_EMBEDDING.into());
         doc.title_en = Some("My expected english title".into())
     }
@@ -1211,7 +1215,8 @@ async fn should_200_and_personalize_when_similar_products_have_been_computed_for
         &get_product_service,
     );
 
-    let product_record: ProductRecord = Faker.fake();
+    let mut product_record: ProductRecord = Faker.fake();
+    product_record.text_embedding = Some(EXAMPLE_EMBEDDING.into());
     let product_records = fake::vec![ProductRecord; 5];
     let ddb_insert_res = product_dynamodb_repository
         .put_product_records(
@@ -1240,14 +1245,17 @@ async fn should_200_and_personalize_when_similar_products_have_been_computed_for
             .unwrap();
     }
 
-    let mut product_document: ProductDocument = product_record.clone().into();
-    product_document.text_embedding = Some(EXAMPLE_EMBEDDING.into());
+    let product_document: ProductDocument = product_record.clone().into();
     let mut product_documents = product_records
         .clone()
         .into_iter()
         .map(ProductDocument::from)
         .collect::<Vec<_>>();
     for doc in &mut product_documents {
+        doc.title_native = TextDocument {
+            text: "My expected german title".into(),
+            language: LanguageDocument::De,
+        };
         doc.text_embedding = Some(EXAMPLE_EMBEDDING.into());
         doc.title_de = Some("My expected german title".into());
     }

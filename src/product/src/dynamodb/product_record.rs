@@ -485,7 +485,11 @@ mod faker {
                 ))
                 .unwrap(),
                 images: config.fake_with_rng(rng),
-                text_embedding: config.fake_with_rng(rng),
+                text_embedding: if config.fake_with_rng(rng) {
+                    Some(fake::vec![f32; 1024])
+                } else {
+                    None
+                },
                 origin_year_min: Some(origin_year_min),
                 origin_year,
                 origin_year_max: Some(origin_year_max),

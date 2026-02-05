@@ -214,7 +214,11 @@ mod faker {
                 description_en: Some(config.fake_with_rng::<Description, _>(rng).into()),
                 description_fr: Some(config.fake_with_rng::<Description, _>(rng).into()),
                 description_es: Some(config.fake_with_rng::<Description, _>(rng).into()),
-                text_embedding: config.fake_with_rng(rng),
+                text_embedding: if config.fake_with_rng(rng) {
+                    Some(fake::vec![f32; 1024])
+                } else {
+                    None
+                },
                 images: Some(config.fake_with_rng(rng)),
                 origin_year_min: config.fake_with_rng(rng),
                 origin_year: config.fake_with_rng(rng),

@@ -106,6 +106,10 @@ async fn should_200_when_following_search_after_from_previous_response_for_sort_
     let mut products = fake::vec![ProductDocument; 1370];
     for product in &mut products {
         product.title_de = Some("Der erwartete Titel".to_string());
+        product.title_native = TextDocument {
+            text: "Der erwartete Titel".to_string(),
+            language: LanguageDocument::De,
+        };
         product.price_eur = Some(rand::random_range(1..=10000000));
     }
     let create_res = opensearch_repository
@@ -250,6 +254,10 @@ async fn should_200_when_following_search_after_from_previous_response_for_sort_
     let mut products = fake::vec![ProductDocument; 1370];
     for product in &mut products {
         product.title_de = Some("Der erwartete Titel".to_string());
+        product.title_native = TextDocument {
+            text: "Der erwartete Titel".to_string(),
+            language: LanguageDocument::De,
+        };
         product.price_eur = Some(rand::random_range(1..=10000000));
     }
     let create_res = opensearch_repository
@@ -399,6 +407,10 @@ async fn should_200_when_following_search_after_from_previous_response_for_impli
     let mut products = fake::vec![ProductDocument; 1370];
     for product in &mut products {
         product.title_de = Some("Der erwartete Titel".to_string());
+        product.title_native = TextDocument {
+            text: "Der erwartete Titel".to_string(),
+            language: LanguageDocument::De,
+        };
     }
     let create_res = opensearch_repository
         .create_product_documents(products.clone())
@@ -510,6 +522,10 @@ async fn should_200_when_following_search_after_from_previous_response_for_expli
     let mut products = fake::vec![ProductDocument; 1370];
     for product in &mut products {
         product.title_de = Some("Der erwartete Titel".to_string());
+        product.title_native = TextDocument {
+            text: "Der erwartete Titel".to_string(),
+            language: LanguageDocument::De,
+        };
     }
     let create_res = opensearch_repository
         .create_product_documents(products.clone())
@@ -625,6 +641,10 @@ async fn should_200_when_following_search_after_from_previous_response_for_sort_
     let mut products = fake::vec![ProductDocument; 1370];
     for product in &mut products {
         product.title_de = Some("Der erwartete Titel".to_string());
+        product.title_native = TextDocument {
+            text: "Der erwartete Titel".to_string(),
+            language: LanguageDocument::De,
+        };
         product.origin_year = Some(rand::random_range(1300..=1925).into());
     }
     let create_res = opensearch_repository
@@ -741,6 +761,10 @@ async fn should_200_when_following_search_after_from_previous_response_for_sort_
     let mut products = fake::vec![ProductDocument; 1370];
     for product in &mut products {
         product.title_de = Some("Der erwartete Titel".to_string());
+        product.title_native = TextDocument {
+            text: "Der erwartete Titel".to_string(),
+            language: LanguageDocument::De,
+        };
     }
     let create_res = opensearch_repository
         .create_product_documents(products.clone())
@@ -874,6 +898,10 @@ async fn should_200_when_created_query(
     let mut products = fake::vec![ProductDocument; 1370];
     for product in &mut products {
         product.title_de = Some("Der erwartete Titel".to_string());
+        product.title_native = TextDocument {
+            text: "Der erwartete Titel".to_string(),
+            language: LanguageDocument::De,
+        };
     }
     let create_res = opensearch_repository
         .create_product_documents(products.clone())
@@ -971,6 +999,10 @@ async fn should_200_when_updated_query(
     let mut products = fake::vec![ProductDocument; 1370];
     for product in &mut products {
         product.title_de = Some("Der erwartete Titel".to_string());
+        product.title_native = TextDocument {
+            text: "Der erwartete Titel".to_string(),
+            language: LanguageDocument::De,
+        };
     }
     let create_res = opensearch_repository
         .create_product_documents(products.clone())
@@ -1068,6 +1100,10 @@ async fn should_200_when_year_query(#[case] min: Option<Year>, #[case] max: Opti
     let mut products = fake::vec![ProductDocument; 1370];
     for product in &mut products {
         product.title_de = Some("Der erwartete Titel".to_string());
+        product.title_native = TextDocument {
+            text: "Der erwartete Titel".to_string(),
+            language: LanguageDocument::De,
+        };
     }
     let create_res = opensearch_repository
         .create_product_documents(products.clone())
@@ -1147,6 +1183,10 @@ async fn should_200_when_authenticity_query(#[case] query: HashSet<AuthenticityD
     let mut products = fake::vec![ProductDocument; 1370];
     for product in &mut products {
         product.title_de = Some("Der erwartete Titel".to_string());
+        product.title_native = TextDocument {
+            text: "Der erwartete Titel".to_string(),
+            language: LanguageDocument::De,
+        };
     }
     let create_res = opensearch_repository
         .create_product_documents(products.clone())
@@ -1229,6 +1269,10 @@ async fn should_200_when_condition_query(#[case] query: HashSet<ConditionData>) 
     let mut products = fake::vec![ProductDocument; 1370];
     for product in &mut products {
         product.title_de = Some("Der erwartete Titel".to_string());
+        product.title_native = TextDocument {
+            text: "Der erwartete Titel".to_string(),
+            language: LanguageDocument::De,
+        };
     }
     let create_res = opensearch_repository
         .create_product_documents(products.clone())
@@ -1309,6 +1353,10 @@ async fn should_200_when_provenance_query(#[case] query: HashSet<ProvenanceData>
     let mut products = fake::vec![ProductDocument; 1370];
     for product in &mut products {
         product.title_de = Some("Der erwartete Titel".to_string());
+        product.title_native = TextDocument {
+            text: "Der erwartete Titel".to_string(),
+            language: LanguageDocument::De,
+        };
     }
     let create_res = opensearch_repository
         .create_product_documents(products.clone())
@@ -1389,6 +1437,10 @@ async fn should_200_when_restoration_query(#[case] query: HashSet<RestorationDat
     let mut products = fake::vec![ProductDocument; 1370];
     for product in &mut products {
         product.title_de = Some("Der erwartete Titel".to_string());
+        product.title_native = TextDocument {
+            text: "Der erwartete Titel".to_string(),
+            language: LanguageDocument::De,
+        };
     }
     let create_res = opensearch_repository
         .create_product_documents(products.clone())
@@ -1458,6 +1510,10 @@ async fn should_200_personalized_when_authenticated_and_not_watching() {
     let mut products = fake::vec![ProductDocument; 1370];
     for product in &mut products {
         product.title_de = Some("Der erwartete Titel".to_string());
+        product.title_native = TextDocument {
+            text: "Der erwartete Titel".to_string(),
+            language: LanguageDocument::De,
+        };
     }
     let create_res = opensearch_repository
         .create_product_documents(products.clone())
@@ -1739,6 +1795,10 @@ async fn should_200_when_shop_type_query(#[case] query: HashSet<ShopTypeData>) {
     let mut products = fake::vec![ProductDocument; 1370];
     for product in &mut products {
         product.title_de = Some("Der erwartete Titel".to_string());
+        product.title_native = TextDocument {
+            text: "Der erwartete Titel".to_string(),
+            language: LanguageDocument::De,
+        };
     }
     let create_res = opensearch_repository
         .create_product_documents(products.clone())
