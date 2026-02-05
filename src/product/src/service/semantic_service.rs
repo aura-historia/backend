@@ -82,27 +82,23 @@ impl<'a> SemanticSearchService for SemanticSearchServiceImpl<'a> {
         languages: &[Language],
         currency: &Currency,
     ) -> Result<Option<Vec<LocalizedProductView>>, SemanticSearchProductsError> {
-        let product_id = self
+        let record = self
             .dynamodb_repository
-            .get_product_id(shop_id, shops_product_id)
+            .get_product_record(shop_id, shops_product_id)
             .await?
             .ok_or(SemanticSearchProductsError::ProductNotFound(
                 *shop_id,
                 shops_product_id.clone(),
             ))?;
-        let document = self
-            .opensearch_repository
-            .get_product_document_by_id(&product_id)
-            .await?;
-        match document.text_embedding {
+        match record.text_embedding {
             None => {
-                if OffsetDateTime::now_utc().date() > document.created.date() {
+                if OffsetDateTime::now_utc().date() > record.created.date() {
                     warn!(
                         shopId = %shop_id,
                         shopProductId = %shops_product_id,
-                        productId = %product_id,
-                        "When trying to find similar products for given ProductId,
-                         ProductDocument for ProductId did not have a textEmbedding
+                        productId = %record.product_id,
+                        "When trying to find similar products for given ProductKey,
+                         ProductRecord for ProductKey did not have a textEmbedding
                          although it was created at least one day prior -
                          hence why the nightly product-enrichment SHOULD have run and embedded the text."
                     );
@@ -117,7 +113,7 @@ impl<'a> SemanticSearchService for SemanticSearchServiceImpl<'a> {
                     .hits
                     .hits
                     .into_iter()
-                    .filter(|hit| hit.source.product_id != document.product_id)
+                    .filter(|hit| hit.source.product_id != record.product_id)
                     .map(|hit| hit.source)
                     .map(Product::from)
                     .map(|product| product.localized(currency, languages))
@@ -130,10 +126,8 @@ impl<'a> SemanticSearchService for SemanticSearchServiceImpl<'a> {
 
 #[cfg(test)]
 mod tests {
-    use rstest;
-
     use crate::{
-        dynamodb::repository::MockProductDynamoDbRepository,
+        dynamodb::{product_record::ProductRecord, repository::MockProductDynamoDbRepository},
         opensearch::{
             product_document::ProductDocument, repository::MockProductOpenSearchRepository,
         },
@@ -153,6 +147,7 @@ mod tests {
         shops_product_id::ShopsProductId,
     };
     use fake::{Fake, Faker};
+    use rstest;
     use serde::ser::Error;
     use std::panic;
 
@@ -162,17 +157,12 @@ mod tests {
         let mut opensearch_repository = MockProductOpenSearchRepository::default();
 
         dynamodb_repository
-            .expect_get_product_id()
-            .return_once(|_, _| Box::pin(async { Ok(Some(Faker.fake())) }));
-        opensearch_repository
-            .expect_get_product_document_by_id()
-            .return_once(|product_id| {
-                let product_id = *product_id;
+            .expect_get_product_record()
+            .return_once(|_, _| {
                 Box::pin(async move {
-                    let mut doc = Faker.fake::<ProductDocument>();
-                    doc.product_id = product_id;
-                    doc.text_embedding = Some(Faker.fake());
-                    Ok(doc)
+                    let mut record = Faker.fake::<ProductRecord>();
+                    record.text_embedding = Some(Faker.fake());
+                    Ok(Some(record))
                 })
             });
         opensearch_repository
@@ -223,16 +213,12 @@ mod tests {
         let mut opensearch_repository = MockProductOpenSearchRepository::default();
 
         dynamodb_repository
-            .expect_get_product_id()
-            .return_once(|_, _| Box::pin(async { Ok(Some(Faker.fake())) }));
-        opensearch_repository
-            .expect_get_product_document_by_id()
-            .return_once(|product_id| {
-                let product_id = *product_id;
+            .expect_get_product_record()
+            .return_once(|_, _| {
                 Box::pin(async move {
-                    let mut doc = Faker.fake::<ProductDocument>();
-                    doc.product_id = product_id;
-                    Ok(doc)
+                    let mut record = Faker.fake::<ProductRecord>();
+                    record.text_embedding = None;
+                    Ok(Some(record))
                 })
             });
         opensearch_repository
@@ -283,7 +269,7 @@ mod tests {
         let opensearch_repository = MockProductOpenSearchRepository::default();
 
         dynamodb_repository
-            .expect_get_product_id()
+            .expect_get_product_record()
             .return_once(|_, _| Box::pin(async { Ok(None) }));
 
         let shop_id = ShopId::new();
@@ -309,23 +295,20 @@ mod tests {
         let mut opensearch_repository = MockProductOpenSearchRepository::default();
 
         let product_id = ProductId::new();
-        let mut root = Faker.fake::<ProductDocument>();
+        let mut root = Faker.fake::<ProductRecord>();
         root.product_id = product_id;
         root.text_embedding = Some(Faker.fake());
         let root_clone1 = root.clone();
         let root_clone2 = root.clone();
 
         dynamodb_repository
-            .expect_get_product_id()
-            .return_once(move |_, _| Box::pin(async move { Ok(Some(product_id)) }));
-        opensearch_repository
-            .expect_get_product_document_by_id()
-            .return_once(|_| Box::pin(async move { Ok(root_clone1) }));
+            .expect_get_product_record()
+            .return_once(|_, _| Box::pin(async move { Ok(Some(root_clone1)) }));
         opensearch_repository
             .expect_k_nn_text()
             .return_once(|_, _| {
                 let mut documents = fake::vec![ProductDocument; 42];
-                documents.push(root_clone2);
+                documents.push(root_clone2.into());
                 Box::pin(async move {
                     Ok(SearchResponse {
                         took: 187,
@@ -388,7 +371,7 @@ mod tests {
         let opensearch_repository = MockProductOpenSearchRepository::default();
 
         dynamodb_repository
-            .expect_get_product_id()
+            .expect_get_product_record()
             .return_once(|_, _| Box::pin(async { Err(expected) }));
 
         let service = SemanticSearchServiceImpl::new(&dynamodb_repository, &opensearch_repository);
@@ -404,25 +387,22 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn should_err_when_product_document_not_exists() {
+    async fn should_err_when_product_record_not_exists() {
         let mut dynamodb_repository = MockProductDynamoDbRepository::default();
-        let mut opensearch_repository = MockProductOpenSearchRepository::default();
+        let opensearch_repository = MockProductOpenSearchRepository::default();
 
         dynamodb_repository
-            .expect_get_product_id()
-            .return_once(|_, _| Box::pin(async { Ok(Some(Faker.fake())) }));
-        opensearch_repository
-            .expect_get_product_document_by_id()
-            .return_once(|_| Box::pin(async { Err(serde_json::Error::custom("foo").into()) }));
+            .expect_get_product_record()
+            .return_once(|_, _| Box::pin(async { Ok(None) }));
 
         let service = SemanticSearchServiceImpl::new(&dynamodb_repository, &opensearch_repository);
         let actual = service
             .similar_products(&Faker.fake(), &Faker.fake(), &[Faker.fake()], &Faker.fake())
             .await;
         match actual.unwrap_err() {
-            SemanticSearchProductsError::OpenSearchError(_) => {}
+            SemanticSearchProductsError::ProductNotFound(_, _) => {}
             other => {
-                panic!("Expected 'SemanticSearchProductsError::OpenSearchError' but got '{other}'")
+                panic!("Expected 'SemanticSearchProductsError::ProductNotFound' but got '{other}'")
             }
         }
     }
@@ -433,17 +413,12 @@ mod tests {
         let mut opensearch_repository = MockProductOpenSearchRepository::default();
 
         dynamodb_repository
-            .expect_get_product_id()
-            .return_once(|_, _| Box::pin(async { Ok(Some(Faker.fake())) }));
-        opensearch_repository
-            .expect_get_product_document_by_id()
-            .return_once(|product_id| {
-                let product_id = *product_id;
+            .expect_get_product_record()
+            .return_once(|_, _| {
                 Box::pin(async move {
-                    let mut doc = Faker.fake::<ProductDocument>();
-                    doc.product_id = product_id;
-                    doc.text_embedding = Some(Faker.fake());
-                    Ok(doc)
+                    let mut record = Faker.fake::<ProductRecord>();
+                    record.text_embedding = Some(Faker.fake());
+                    Ok(Some(record))
                 })
             });
         opensearch_repository
