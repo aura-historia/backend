@@ -1809,8 +1809,6 @@ Resources:
             Statement:
               - Effect: Allow
                 Action:
-                  - sqs:SendMessage
-                  - sqs:SendMessageBatch
                   - sqs:ReceiveMessage
                   - sqs:DeleteMessage
                   - sqs:DeleteMessageBatch
@@ -1819,7 +1817,6 @@ Resources:
                   - sqs:ChangeMessageVisibility
                 Resource:
                   - !GetAtt ProductPipelineTranslateQ.Arn
-                  - !GetAtt ProductPipelineEmbedTextQ.Arn
         - PolicyName: CloudWatchLogsCreate
           PolicyDocument:
             Version: "2012-10-17"
@@ -2047,8 +2044,6 @@ Resources:
             Statement:
               - Effect: Allow
                 Action:
-                  - sqs:SendMessage
-                  - sqs:SendMessageBatch
                   - sqs:ReceiveMessage
                   - sqs:DeleteMessage
                   - sqs:DeleteMessageBatch
@@ -2057,7 +2052,6 @@ Resources:
                   - sqs:ChangeMessageVisibility
                 Resource:
                   - !GetAtt ProductPipelineEmbedTextQ.Arn
-                  - !GetAtt ProductPipelineExtractAttributeQ.Arn
         - PolicyName: CloudWatchLogsCreate
           PolicyDocument:
             Version: "2012-10-17"
@@ -2285,8 +2279,6 @@ Resources:
             Statement:
               - Effect: Allow
                 Action:
-                  - sqs:SendMessage
-                  - sqs:SendMessageBatch
                   - sqs:ReceiveMessage
                   - sqs:DeleteMessage
                   - sqs:DeleteMessageBatch
@@ -2295,7 +2287,6 @@ Resources:
                   - sqs:ChangeMessageVisibility
                 Resource:
                   - !GetAtt ProductPipelineExtractAttributeQ.Arn
-                  - !GetAtt ProductPipelineCompleteQ.Arn
         - PolicyName: CloudWatchLogsCreate
           PolicyDocument:
             Version: "2012-10-17"
@@ -2526,9 +2517,6 @@ Resources:
         Size: 512
       Environment:
         Variables:
-          PRODUCT_PIPELINE_INIT_SQS_URL: !Ref ProductPipelineInitQ
-          PRODUCT_PIPELINE_INIT_SQS_NAME: !GetAtt ProductPipelineInitQ.QueueName
-          PRODUCT_PIPELINE_INIT_ASG_NAME: !Ref ProductPipelineInitASG
           PRODUCT_PIPELINE_TRANSLATE_SQS_URL: !Ref ProductPipelineTranslateQ
           PRODUCT_PIPELINE_TRANSLATE_SQS_NAME: !GetAtt ProductPipelineTranslateQ.QueueName
           PRODUCT_PIPELINE_TRANSLATE_ASG_NAME: !Ref ProductPipelineTranslateASG
@@ -2545,8 +2533,6 @@ Resources:
           RetryPolicy:
             MaximumRetryAttempts: 5
             MaximumEventAgeInSeconds: 3600
-          DeadLetterConfig:
-            Arn: !GetAtt ProductPipelineInitDlq.Arn
   ProductPipelineScaleControlStartSchedulePermission:
     Type: AWS::Lambda::Permission
     Properties:
