@@ -38,7 +38,7 @@ async fn should_write_all_products_to_dynamodb_as_created_when_none_exist() {
                 .unwrap()
                 .as_s()
                 .unwrap()
-                == "CREATED"
+                == "DOMAIN_CREATED"
         });
     assert!(all_event_records_created);
 }
@@ -161,6 +161,6 @@ async fn should_write_product_updates_when_all_exist_and_actual_changes() {
         .unwrap()
         .iter()
         .filter_map(|record| record.get(ProductDomainEventRecordSerdeField::EventType.as_str()))
-        .all(|val| val.as_s().unwrap() == "STATE_AVAILABLE");
+        .all(|val| val.as_s().unwrap() == "DOMAIN_STATE_AVAILABLE");
     assert!(all_event_records_update_state_available);
 }
