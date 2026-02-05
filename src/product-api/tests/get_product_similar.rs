@@ -1,5 +1,6 @@
 use cognito::access_token_verifier_service::MockAccessTokenVerifierService;
 use common::currency::data::CurrencyData;
+use common::language::document::{LanguageDocument, TextDocument};
 use common::language::domain::Language;
 use common::personalized::api::PersonalizedData;
 use fake::{Fake, Faker};
@@ -1428,6 +1429,10 @@ async fn should_respond_200_and_respect_accept_language_header(
         .collect::<Vec<_>>();
     for doc in &mut product_documents {
         doc.text_embedding = Some(EXAMPLE_EMBEDDING.into());
+        doc.title_native = TextDocument {
+            text: "German title".to_string(),
+            language: LanguageDocument::De,
+        };
         doc.title_de = Some("German title".to_string());
         doc.title_en = Some("English title".to_string());
         doc.title_fr = Some("French title".to_string());

@@ -1621,6 +1621,10 @@ async fn should_respond_200_and_respect_accept_language_header(
         .returning(|_| Box::pin(async { Ok(None) }));
 
     let mut document = Faker.fake::<ProductDocument>();
+    document.title_native = TextDocument {
+        text: "German title".to_string(),
+        language: LanguageDocument::De,
+    };
     document.title_de = Some("German title".to_string());
     document.title_en = Some("English title".to_string());
     document.title_fr = Some("French title".to_string());

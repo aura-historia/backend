@@ -1,4 +1,5 @@
 use common::language::domain::Language;
+use common::language::record::{LanguageRecord, TextRecord};
 use common::{pagination::cursor::api::TimeCursoredData, user_id::UserId};
 use fake::{Fake, Faker};
 use http::header::ACCEPT_LANGUAGE;
@@ -592,10 +593,18 @@ async fn should_respond_200_and_respect_accept_language_header(
 
     let mut product_records = fake::vec![ProductRecord; 23];
     for product_record in &mut product_records {
+        product_record.title_native = TextRecord {
+            text: "German title".to_string(),
+            language: LanguageRecord::De,
+        };
         product_record.title_de = Some("German title".to_string());
         product_record.title_en = Some("English title".to_string());
         product_record.title_fr = Some("French title".to_string());
         product_record.title_es = Some("Spanish title".to_string());
+        product_record.description_native = Some(TextRecord {
+            text: "German description".to_string(),
+            language: LanguageRecord::De,
+        });
         product_record.description_de = Some("German description".to_string());
         product_record.description_en = Some("English description".to_string());
         product_record.description_fr = Some("French description".to_string());

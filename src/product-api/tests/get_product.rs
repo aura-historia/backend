@@ -3,7 +3,7 @@ use common::{
     currency::domain::Currency,
     event::Event,
     event_id::EventId,
-    language::domain::Language,
+    language::{domain::Language, record::TextRecord},
     personalized::api::PersonalizedData,
     price::domain::{FixedFxRate, FxRate, Price},
     product_state::domain::ProductState,
@@ -600,6 +600,8 @@ async fn should_respond_200_and_respect_accept_language_header(
     #[case] expected_description: &str,
     #[case] expected_description_lang: Language,
 ) {
+    use common::language::record::LanguageRecord;
+
     let ddb_client = get_dynamodb_client().await;
     let product_repository = ProductDynamoDbRepositoryImpl::new(ddb_client, "table_1");
     let watchlist_repository = WatchlistProductDynamoDbRepositoryImpl::new(ddb_client, "table_1");
@@ -612,10 +614,18 @@ async fn should_respond_200_and_respect_accept_language_header(
         .return_once(|_| Box::pin(async { Ok(None) }));
 
     let mut record = Faker.fake::<ProductRecord>();
+    record.title_native = TextRecord {
+        text: "German title".to_string(),
+        language: LanguageRecord::De,
+    };
     record.title_de = Some("German title".to_string());
     record.title_en = Some("English title".to_string());
     record.title_fr = Some("French title".to_string());
     record.title_es = Some("Spanish title".to_string());
+    record.description_native = Some(TextRecord {
+        text: "German description".to_string(),
+        language: LanguageRecord::De,
+    });
     record.description_de = Some("German description".to_string());
     record.description_en = Some("English description".to_string());
     record.description_fr = Some("French description".to_string());
