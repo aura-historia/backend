@@ -272,7 +272,6 @@ jobs:
           - src/search-filter-api
           - src/product-api
           - src/product-watchlist-api
-          - src/product-pipeline/src/product-pipeline-asg-scale-persist-up
           - src/product-pipeline/src/product-pipeline-asg-scale-control
           - src/product-lambda/src/product-lambda-materialize-dynamodb-new
           - src/product-lambda/src/product-lambda-materialize-dynamodb-update
