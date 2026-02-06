@@ -1,7 +1,6 @@
-use crate::core::prohibited_content::ProhibitedContent;
+use crate::core::prohibited_content::{ProhibitedContent, ProhibitedContentReason};
 use common::{
-    has_key::HasKey, product_id::ProductKey, reason::Reason, shop_id::ShopId,
-    shops_product_id::ShopsProductId,
+    has_key::HasKey, product_id::ProductKey, shop_id::ShopId, shops_product_id::ShopsProductId,
 };
 
 #[cfg_attr(feature = "test-data", derive(fake::Dummy))]
@@ -27,7 +26,7 @@ pub struct ProhibitedContentProductPolicyEventPayload {
     pub shop_id: ShopId,
     pub shops_product_id: ShopsProductId,
     pub decision: ProhibitedContent,
-    pub reason: Reason,
+    pub reason: ProhibitedContentReason,
 }
 
 impl HasKey for ProhibitedContentProductPolicyEventPayload {

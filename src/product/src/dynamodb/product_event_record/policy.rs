@@ -3,7 +3,9 @@ use crate::core::product_event::policy::{
     ProductPolicyEventPayload, ProhibitedContentProductPolicyEventPayload,
 };
 use crate::dynamodb::product_event_type_record::policy::ProductPolicyEventTypeRecord;
-use crate::dynamodb::prohibited_content_record::ProhibitedContentRecord;
+use crate::dynamodb::prohibited_content_record::{
+    ProhibitedContentReasonRecord, ProhibitedContentRecord,
+};
 use common::event::Event;
 use common::event_id::EventId;
 use common::has_key::HasKey;
@@ -27,7 +29,7 @@ pub struct ProductPolicyEventRecord {
     pub shops_product_id: ShopsProductId,
 
     pub prohibited_content_decision: ProhibitedContentRecord,
-    pub prohibited_content_reason: String,
+    pub prohibited_content_reason: ProhibitedContentReasonRecord,
 
     #[serde(with = "time::serde::rfc3339")]
     pub timestamp: OffsetDateTime,

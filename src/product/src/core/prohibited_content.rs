@@ -6,3 +6,9 @@ pub enum ProhibitedContent {
     None,
     NaziGermany,
 }
+
+#[cfg_attr(feature = "test-data", derive(fake::Dummy))]
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub enum ProhibitedContentReason {
+    ProductText,
+}

@@ -16,7 +16,7 @@ use crate::core::product_event::policy::{
 };
 use crate::core::product_event::{ProductDomainEvent, ProductEnrichmentEvent, ProductPolicyEvent};
 use crate::core::product_image::ProductImage;
-use crate::core::prohibited_content::ProhibitedContent;
+use crate::core::prohibited_content::{ProhibitedContent, ProhibitedContentReason};
 use crate::core::provenance::Provenance;
 use crate::core::restoration::Restoration;
 use crate::core::title::Title;
@@ -29,7 +29,6 @@ use common::localized::Localized;
 use common::price::domain::{FxRate, MonetaryAmount, Price};
 use common::product_id::{ProductId, ProductKey};
 use common::product_state::domain::ProductState;
-use common::reason::Reason;
 use common::shop_id::ShopId;
 use common::shop_name::ShopName;
 use common::shops_product_id::ShopsProductId;
@@ -406,7 +405,7 @@ impl Product {
     pub fn prohibit_content(
         &mut self,
         decision: ProhibitedContent,
-        reason: Reason,
+        reason: ProhibitedContentReason,
     ) -> Option<ProductPolicyEvent> {
         let event_payload = ProductPolicyEventPayload::ProhibitedContentDecision(
             ProhibitedContentProductPolicyEventPayload {
@@ -1721,10 +1720,10 @@ mod tests {
     }
 
     mod policy {
-        use crate::core::product::Product;
         use crate::core::product_event::policy::ProductPolicyEventPayload;
         use crate::core::product_image::ProductImage;
         use crate::core::prohibited_content::ProhibitedContent;
+        use crate::core::{product::Product, prohibited_content::ProhibitedContentReason};
         use common::language::domain::Language;
         use common::localized::Localized;
         use common::product_state::domain::ProductState;
@@ -1771,7 +1770,10 @@ mod tests {
                 updated: OffsetDateTime::now_utc(),
             };
 
-            let actual = product.prohibit_content(ProhibitedContent::Unknown, "bar".into());
+            let actual = product.prohibit_content(
+                ProhibitedContent::Unknown,
+                ProhibitedContentReason::ProductText,
+            );
             assert!(actual.is_none());
             assert!(
                 product
@@ -1827,7 +1829,10 @@ mod tests {
             };
 
             let actual = product
-                .prohibit_content(ProhibitedContent::NaziGermany, "foo".into())
+                .prohibit_content(
+                    ProhibitedContent::NaziGermany,
+                    ProhibitedContentReason::ProductText,
+                )
                 .unwrap();
 
             match actual.payload {

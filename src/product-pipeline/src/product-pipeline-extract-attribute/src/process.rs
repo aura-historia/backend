@@ -1,8 +1,10 @@
 use crate::{adapter::ExtractionAdapter, types::ExtractedAttributes};
 use common::{batch::Batch, language::domain::Language, year::YearRange};
 use product::core::{
-    origin_year::OriginYear, product::Product, product_event::ProductEventPayload,
-    prohibited_content::ProhibitedContent,
+    origin_year::OriginYear,
+    product::Product,
+    product_event::ProductEventPayload,
+    prohibited_content::{ProhibitedContent, ProhibitedContentReason},
 };
 use product_pipeline_common::process::{PipeProcessor, ProcessResult};
 use std::{collections::HashSet, sync::Arc};
@@ -110,20 +112,18 @@ impl PipeProcessor for AttributeExtractionPipeProcesserImpl {
                                     successes
                                         .push(extract_event.map_payload(ProductEventPayload::from));
                                 }
-                                let prohibited_content_event_opt = match extracted_attributes
-                                    .is_from_nazi_germany_epoch
-                                {
-                                    None => None,
-                                    Some(false) => product
-                                        .prohibit_content(
+                                let prohibited_content_event_opt =
+                                    match extracted_attributes.is_from_nazi_germany_epoch {
+                                        None => None,
+                                        Some(false) => product.prohibit_content(
                                             ProhibitedContent::None,
-                                            "Product-title and -description suggest that this product does not contain any prohibited content.".into()
+                                            ProhibitedContentReason::ProductText,
                                         ),
-                                    Some(true) => product.prohibit_content(
-                                        ProhibitedContent::NaziGermany,
-                                        "Product-title and -description suggest that this product does contain prohibited content related to § 86a StGB.".into()
-                                    ),
-                                };
+                                        Some(true) => product.prohibit_content(
+                                            ProhibitedContent::NaziGermany,
+                                            ProhibitedContentReason::ProductText,
+                                        ),
+                                    };
                                 if let Some(prohibited_content_event) = prohibited_content_event_opt
                                 {
                                     successes.push(

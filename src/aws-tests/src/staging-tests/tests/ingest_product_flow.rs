@@ -9,18 +9,6 @@ use common::{
 use fake::{Fake, Faker};
 use opensearch::{GetParts, IndexParts, params::Refresh};
 use product::{
-    core::product_event::{
-        ProductEvent,
-        policy::{ProductPolicyEventPayload, ProhibitedContentProductPolicyEventPayload},
-    },
-    data::{product_state_data::ProductStateData, put_data::PutProductData},
-    dynamodb::{
-        product_image_record::ProductImageRecord,
-        prohibited_content_record::ProhibitedContentRecord,
-    },
-    opensearch::prohibited_content_document::ProhibitedContentDocument,
-};
-use product::{
     core::product_event::{ProductEventPayload, enrichment::ProductEnrichmentEventPayload},
     dynamodb::{
         product_record::ProductRecord,
@@ -41,6 +29,21 @@ use product::{
         product_document::ProductDocument,
         repository::{ProductOpenSearchRepository, ProductOpenSearchRepositoryImpl},
     },
+};
+use product::{
+    core::{
+        product_event::{
+            ProductEvent,
+            policy::{ProductPolicyEventPayload, ProhibitedContentProductPolicyEventPayload},
+        },
+        prohibited_content::ProhibitedContentReason,
+    },
+    data::{product_state_data::ProductStateData, put_data::PutProductData},
+    dynamodb::{
+        product_image_record::ProductImageRecord,
+        prohibited_content_record::ProhibitedContentRecord,
+    },
+    opensearch::prohibited_content_document::ProhibitedContentDocument,
 };
 use serde::de::DeserializeOwned;
 use shop::core::shop::Shop;
@@ -346,7 +349,7 @@ async fn should_materialize_product_in_dynamodb_for_policy_event() {
                     shop_id: materialized_old.shop_id,
                     shops_product_id: materialized_old.shops_product_id.clone(),
                     decision: ProhibitedContent::NaziGermany,
-                    reason: "Hatem".into(),
+                    reason: ProhibitedContentReason::ProductText,
                 },
             ),
         ),
@@ -773,7 +776,7 @@ async fn should_materialize_product_in_opensearch_for_policy_event() {
                     shop_id: materialized_ddb_old.shop_id,
                     shops_product_id: materialized_ddb_old.shops_product_id.clone(),
                     decision: ProhibitedContent::NaziGermany,
-                    reason: "Hatem".into(),
+                    reason: ProhibitedContentReason::ProductText,
                 },
             ),
         ),
