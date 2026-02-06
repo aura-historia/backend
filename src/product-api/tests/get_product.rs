@@ -3,7 +3,7 @@ use common::{
     currency::domain::Currency,
     event::Event,
     event_id::EventId,
-    language::domain::Language,
+    language::{domain::Language, record::TextRecord},
     personalized::api::PersonalizedData,
     price::domain::{FixedFxRate, FxRate, Price},
     product_state::domain::ProductState,
@@ -13,7 +13,11 @@ use http::header::ACCEPT_LANGUAGE;
 use lambda_runtime::LambdaEvent;
 use product::{
     core::product_event::{
-        ProductEventPayload, ProductPriceChangeEventPayload, ProductStateChangeEventPayload,
+        ProductEventPayload,
+        domain::{
+            ProductDomainEventPayload, ProductPriceChangeDomainEventPayload,
+            ProductStateChangeDomainEventPayload,
+        },
     },
     data::{get_data::GetProductData, user_state_data::ProductUserStateData},
     service::personalization_service::ProductPersonalizationServiceImpl,
@@ -67,21 +71,23 @@ async fn should_respond_200_without_history_when_anon() {
         aggregate_id: record.product_id,
         event_id: event_1_id,
         timestamp: SystemTime::now().into(),
-        payload: ProductEventPayload::PriceDropped(ProductPriceChangeEventPayload {
-            shop_id: record.shop_id,
-            shops_product_id: record.shops_product_id.clone(),
-            new_native_price: event_1_price,
-            new_other_price: FixedFxRate()
-                .exchange_all(event_1_price.currency, event_1_price.monetary_amount)
-                .unwrap(),
-            old_native_price: Price {
-                monetary_amount: 100000u64.into(),
-                currency: Currency::Eur,
+        payload: ProductEventPayload::ProductDomainEvent(ProductDomainEventPayload::PriceDropped(
+            ProductPriceChangeDomainEventPayload {
+                shop_id: record.shop_id,
+                shops_product_id: record.shops_product_id.clone(),
+                new_native_price: event_1_price,
+                new_other_price: FixedFxRate()
+                    .exchange_all(event_1_price.currency, event_1_price.monetary_amount)
+                    .unwrap(),
+                old_native_price: Price {
+                    monetary_amount: 100000u64.into(),
+                    currency: Currency::Eur,
+                },
+                old_other_price: FixedFxRate()
+                    .exchange_all(Currency::Eur, 100000u64.into())
+                    .unwrap(),
             },
-            old_other_price: FixedFxRate()
-                .exchange_all(Currency::Eur, 100000u64.into())
-                .unwrap(),
-        }),
+        )),
     };
     tokio::time::sleep(Duration::from_secs(1)).await;
     let event_2_id = EventId::new();
@@ -89,11 +95,13 @@ async fn should_respond_200_without_history_when_anon() {
         aggregate_id: record.product_id,
         event_id: event_2_id,
         timestamp: SystemTime::now().into(),
-        payload: ProductEventPayload::StateRemoved(ProductStateChangeEventPayload {
-            shop_id: record.shop_id,
-            shops_product_id: record.shops_product_id.clone(),
-            old_state: ProductState::Sold,
-        }),
+        payload: ProductEventPayload::ProductDomainEvent(ProductDomainEventPayload::StateRemoved(
+            ProductStateChangeDomainEventPayload {
+                shop_id: record.shop_id,
+                shops_product_id: record.shops_product_id.clone(),
+                old_state: ProductState::Sold,
+            },
+        )),
     };
     let insert_res = product_repository
         .put_product_event_records(
@@ -167,21 +175,23 @@ async fn should_respond_200_personalized_when_authenticated_and_not_watched() {
         aggregate_id: record.product_id,
         event_id: event_1_id,
         timestamp: SystemTime::now().into(),
-        payload: ProductEventPayload::PriceDropped(ProductPriceChangeEventPayload {
-            shop_id: record.shop_id,
-            shops_product_id: record.shops_product_id.clone(),
-            new_native_price: event_1_price,
-            new_other_price: FixedFxRate()
-                .exchange_all(event_1_price.currency, event_1_price.monetary_amount)
-                .unwrap(),
-            old_native_price: Price {
-                monetary_amount: 100000u64.into(),
-                currency: Currency::Eur,
+        payload: ProductEventPayload::ProductDomainEvent(ProductDomainEventPayload::PriceDropped(
+            ProductPriceChangeDomainEventPayload {
+                shop_id: record.shop_id,
+                shops_product_id: record.shops_product_id.clone(),
+                new_native_price: event_1_price,
+                new_other_price: FixedFxRate()
+                    .exchange_all(event_1_price.currency, event_1_price.monetary_amount)
+                    .unwrap(),
+                old_native_price: Price {
+                    monetary_amount: 100000u64.into(),
+                    currency: Currency::Eur,
+                },
+                old_other_price: FixedFxRate()
+                    .exchange_all(Currency::Eur, 100000u64.into())
+                    .unwrap(),
             },
-            old_other_price: FixedFxRate()
-                .exchange_all(Currency::Eur, 100000u64.into())
-                .unwrap(),
-        }),
+        )),
     };
     tokio::time::sleep(Duration::from_secs(1)).await;
     let event_2_id = EventId::new();
@@ -189,11 +199,13 @@ async fn should_respond_200_personalized_when_authenticated_and_not_watched() {
         aggregate_id: record.product_id,
         event_id: event_2_id,
         timestamp: SystemTime::now().into(),
-        payload: ProductEventPayload::StateRemoved(ProductStateChangeEventPayload {
-            shop_id: record.shop_id,
-            shops_product_id: record.shops_product_id.clone(),
-            old_state: ProductState::Sold,
-        }),
+        payload: ProductEventPayload::ProductDomainEvent(ProductDomainEventPayload::StateRemoved(
+            ProductStateChangeDomainEventPayload {
+                shop_id: record.shop_id,
+                shops_product_id: record.shops_product_id.clone(),
+                old_state: ProductState::Sold,
+            },
+        )),
     };
     let insert_res = product_repository
         .put_product_event_records(
@@ -301,21 +313,23 @@ async fn should_respond_200_personalized_when_authenticated_and_watched() {
         aggregate_id: record.product_id,
         event_id: event_1_id,
         timestamp: SystemTime::now().into(),
-        payload: ProductEventPayload::PriceDropped(ProductPriceChangeEventPayload {
-            shop_id: record.shop_id,
-            shops_product_id: record.shops_product_id.clone(),
-            new_native_price: event_1_price,
-            new_other_price: FixedFxRate()
-                .exchange_all(event_1_price.currency, event_1_price.monetary_amount)
-                .unwrap(),
-            old_native_price: Price {
-                monetary_amount: 100000u64.into(),
-                currency: Currency::Eur,
+        payload: ProductEventPayload::ProductDomainEvent(ProductDomainEventPayload::PriceDropped(
+            ProductPriceChangeDomainEventPayload {
+                shop_id: record.shop_id,
+                shops_product_id: record.shops_product_id.clone(),
+                new_native_price: event_1_price,
+                new_other_price: FixedFxRate()
+                    .exchange_all(event_1_price.currency, event_1_price.monetary_amount)
+                    .unwrap(),
+                old_native_price: Price {
+                    monetary_amount: 100000u64.into(),
+                    currency: Currency::Eur,
+                },
+                old_other_price: FixedFxRate()
+                    .exchange_all(Currency::Eur, 100000u64.into())
+                    .unwrap(),
             },
-            old_other_price: FixedFxRate()
-                .exchange_all(Currency::Eur, 100000u64.into())
-                .unwrap(),
-        }),
+        )),
     };
     tokio::time::sleep(Duration::from_secs(1)).await;
     let event_2_id = EventId::new();
@@ -323,11 +337,13 @@ async fn should_respond_200_personalized_when_authenticated_and_watched() {
         aggregate_id: record.product_id,
         event_id: event_2_id,
         timestamp: SystemTime::now().into(),
-        payload: ProductEventPayload::StateRemoved(ProductStateChangeEventPayload {
-            shop_id: record.shop_id,
-            shops_product_id: record.shops_product_id.clone(),
-            old_state: ProductState::Sold,
-        }),
+        payload: ProductEventPayload::ProductDomainEvent(ProductDomainEventPayload::StateRemoved(
+            ProductStateChangeDomainEventPayload {
+                shop_id: record.shop_id,
+                shops_product_id: record.shops_product_id.clone(),
+                old_state: ProductState::Sold,
+            },
+        )),
     };
     let insert_res = product_repository
         .put_product_event_records(
@@ -584,6 +600,8 @@ async fn should_respond_200_and_respect_accept_language_header(
     #[case] expected_description: &str,
     #[case] expected_description_lang: Language,
 ) {
+    use common::language::record::LanguageRecord;
+
     let ddb_client = get_dynamodb_client().await;
     let product_repository = ProductDynamoDbRepositoryImpl::new(ddb_client, "table_1");
     let watchlist_repository = WatchlistProductDynamoDbRepositoryImpl::new(ddb_client, "table_1");
@@ -596,10 +614,18 @@ async fn should_respond_200_and_respect_accept_language_header(
         .return_once(|_| Box::pin(async { Ok(None) }));
 
     let mut record = Faker.fake::<ProductRecord>();
+    record.title_native = TextRecord {
+        text: "German title".to_string(),
+        language: LanguageRecord::De,
+    };
     record.title_de = Some("German title".to_string());
     record.title_en = Some("English title".to_string());
     record.title_fr = Some("French title".to_string());
     record.title_es = Some("Spanish title".to_string());
+    record.description_native = Some(TextRecord {
+        text: "German description".to_string(),
+        language: LanguageRecord::De,
+    });
     record.description_de = Some("German description".to_string());
     record.description_en = Some("English description".to_string());
     record.description_fr = Some("French description".to_string());

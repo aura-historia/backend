@@ -1,6 +1,7 @@
 use crate::dynamodb::authenticity_record::AuthenticityRecord;
 use crate::dynamodb::condition_record::ConditionRecord;
-use crate::dynamodb::product_event_record::ProductEventRecord;
+use crate::dynamodb::product_event_record::domain::ProductDomainEventRecord;
+use crate::dynamodb::product_event_record::enrichment::ProductEnrichmentEventRecord;
 use crate::dynamodb::product_image_record::ProductImageRecord;
 use crate::dynamodb::product_state_record::ProductStateRecord;
 use crate::dynamodb::provenance_record::ProvenanceRecord;
@@ -56,6 +57,8 @@ pub struct ProductRecordUpdate {
 
     #[serde(skip_serializing_if = "Option::is_none", default)]
     pub images: Option<Vec<ProductImageRecord>>,
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub text_embedding: Option<Vec<f32>>,
 
     #[serde(skip_serializing_if = "Option::is_none", default)]
     pub origin_year_min: Option<Year>,
@@ -99,6 +102,7 @@ impl Default for ProductRecordUpdate {
             description_fr: None,
             description_es: None,
             images: None,
+            text_embedding: None,
             origin_year_min: None,
             origin_year: None,
             origin_year_max: None,
@@ -111,8 +115,8 @@ impl Default for ProductRecordUpdate {
     }
 }
 
-impl From<ProductEventRecord> for ProductRecordUpdate {
-    fn from(event: ProductEventRecord) -> Self {
+impl From<ProductDomainEventRecord> for ProductRecordUpdate {
+    fn from(event: ProductDomainEventRecord) -> Self {
         ProductRecordUpdate {
             event_id: Some(event.event_id),
             price_native: event.new_price_native,
@@ -132,6 +136,7 @@ impl From<ProductEventRecord> for ProductRecordUpdate {
             description_fr: event.description_fr,
             description_es: event.description_es,
             images: event.images,
+            text_embedding: None,
             origin_year_min: None,
             origin_year: None,
             origin_year_max: None,
@@ -144,11 +149,44 @@ impl From<ProductEventRecord> for ProductRecordUpdate {
     }
 }
 
+impl From<ProductEnrichmentEventRecord> for ProductRecordUpdate {
+    fn from(event: ProductEnrichmentEventRecord) -> Self {
+        ProductRecordUpdate {
+            event_id: Some(event.event_id),
+            price_native: None,
+            price_eur: None,
+            price_usd: None,
+            price_gbp: None,
+            price_aud: None,
+            price_cad: None,
+            price_nzd: None,
+            state: None,
+            title_de: None,
+            title_en: None,
+            title_fr: None,
+            title_es: None,
+            description_de: None,
+            description_en: None,
+            description_fr: None,
+            description_es: None,
+            images: None,
+            text_embedding: event.text_embedding,
+            origin_year_min: event.origin_year_min,
+            origin_year: event.origin_year,
+            origin_year_max: event.origin_year_max,
+            authenticity: event.authenticity,
+            condition: event.condition,
+            provenance: event.provenance,
+            restoration: event.restoration,
+            updated: event.timestamp,
+        }
+    }
+}
+
 #[cfg(feature = "test-data")]
 mod faker {
-    use crate::core::{description::Description, title::Title};
-
     use super::*;
+    use crate::core::{description::Description, title::Title};
     use common::price::domain::{MonetaryAmount, Price};
     use fake::{Dummy, Fake, Faker, Rng};
 
@@ -176,6 +214,11 @@ mod faker {
                 description_en: Some(config.fake_with_rng::<Description, _>(rng).into()),
                 description_fr: Some(config.fake_with_rng::<Description, _>(rng).into()),
                 description_es: Some(config.fake_with_rng::<Description, _>(rng).into()),
+                text_embedding: if config.fake_with_rng(rng) {
+                    Some(fake::vec![f32; 1024])
+                } else {
+                    None
+                },
                 images: Some(config.fake_with_rng(rng)),
                 origin_year_min: config.fake_with_rng(rng),
                 origin_year: config.fake_with_rng(rng),

@@ -1,9 +1,12 @@
-use crate::types::HasProductId;
 use aws_sdk_sqs::Client;
-use common::product_id::ProductId;
-use serde::de::DeserializeOwned;
+use common::{
+    dynamodb_stream::extract_sqs_event_bridge_dynamodb_record,
+    has_key::HasKey,
+    product_id::{ProductId, ProductKey},
+};
+use product::dynamodb::product_event_record::ProductEventRecord;
 use std::collections::HashMap;
-use tracing::{error, warn};
+use tracing::error;
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct MessageRef {
@@ -13,15 +16,15 @@ pub struct MessageRef {
 }
 
 #[derive(Debug, Clone, Default)]
-pub struct FlowInResult<InData> {
-    pub data: HashMap<MessageRef, InData>,
+pub struct FlowInResult {
+    pub data: HashMap<MessageRef, ProductKey>,
     pub aborted: bool,
 }
 
 #[async_trait::async_trait]
 #[mockall::automock]
-pub trait PipeFlowIn<InData: DeserializeOwned> {
-    async fn flow_in(&self, batch_in_count: u16, visibility_timeout: u16) -> FlowInResult<InData>;
+pub trait PipeFlowIn {
+    async fn flow_in(&self, batch_in_count: u16, visibility_timeout: u16) -> FlowInResult;
 }
 
 #[derive(Debug, Clone)]
@@ -40,10 +43,10 @@ impl<'a> PipeFlowInImpl<'a> {
 }
 
 #[async_trait::async_trait]
-impl<'a, InData: DeserializeOwned + HasProductId> PipeFlowIn<InData> for PipeFlowInImpl<'a> {
-    async fn flow_in(&self, batch_in_count: u16, visibility_timeout: u16) -> FlowInResult<InData> {
-        let mut messages = Vec::with_capacity(batch_in_count as usize);
+impl<'a> PipeFlowIn for PipeFlowInImpl<'a> {
+    async fn flow_in(&self, batch_in_count: u16, visibility_timeout: u16) -> FlowInResult {
         let mut aborted = false;
+        let mut messages = Vec::with_capacity(batch_in_count as usize);
         loop {
             let res = self
                 .sqs
@@ -75,47 +78,31 @@ impl<'a, InData: DeserializeOwned + HasProductId> PipeFlowIn<InData> for PipeFlo
             }
         }
 
-        let data = messages
-            .into_iter()
-            .filter_map(|message| {
-                let message_id = message.message_id.expect(
-                    "shouldn't receive an SQS-Message without 'message_id' because AWS sets it.",
-                );
-                let receipt_handle = message.receipt_handle.expect(
+        let mut data = HashMap::with_capacity(messages.len());
+        let mut failed_message_ids = Vec::new(); // ignore here as: no explicit sqs-succeed == failure
+        let mut skipped_count = 0;
+        for msg in messages {
+            let message_id = msg.message_id.clone().expect(
+                "shouldn't receive an SQS-Message without 'message_id' because AWS sets it.",
+            );
+            let receipt_handle = msg.receipt_handle.clone().expect(
                 "shouldn't receive an SQS-Message without 'receipt_handle' because AWS sets it.",
             );
-                match message.body {
-                    Some(body) => match serde_json::from_str::<InData>(&body) {
-                        Ok(deserialized) => {
-                            let message_ref = MessageRef {
-                                message_id,
-                                receipt_handle,
-                                product_id: deserialized.product_id(),
-                            };
-                            Some((message_ref, deserialized))
-                        }
-                        Err(err) => {
-                            error!(
-                                error = %err,
-                                messageId = message_id,
-                                receiptHandle = receipt_handle,
-                                type = %std::any::type_name::<InData>(),
-                                "Failed deserializing message-body."
-                            );
-                            None
-                        }
-                    },
-                    None => {
-                        warn!(
-                            messageId = message_id,
-                            receiptHandle = receipt_handle,
-                            "Message is missing body."
-                        );
-                        None
-                    }
-                }
-            })
-            .collect();
+            let extracted = extract_sqs_event_bridge_dynamodb_record::<ProductEventRecord>(
+                msg,
+                &mut failed_message_ids,
+                &mut skipped_count,
+            );
+            if let Some(event_record) = extracted {
+                let message_ref = MessageRef {
+                    message_id,
+                    receipt_handle,
+                    product_id: *event_record.product_id(),
+                };
+                data.insert(message_ref, event_record.key());
+            }
+        }
+
         FlowInResult { data, aborted }
     }
 }

@@ -306,8 +306,10 @@ Resources:
         - !Ref ProductMaterializeOpenSearchUpdateQ
         - !Ref ShopOpenSearchIndexQ
         - !Ref ProductUpdateNotifyUserQ
-        - !Ref ProductPipelineInitQ
         - !Ref UserLambdaFanoutUpdateWatchlistQ
+        - !Ref ProductPipelineTranslateQ
+        - !Ref ProductPipelineEmbedTextQ
+        - !Ref ProductPipelineExtractAttributeQ
       PolicyDocument:
         Version: "2012-10-17"
         Statement:
@@ -322,8 +324,10 @@ Resources:
               - !GetAtt ProductMaterializeOpenSearchUpdateQ.Arn
               - !GetAtt ShopOpenSearchIndexQ.Arn
               - !GetAtt ProductUpdateNotifyUserQ.Arn
-              - !GetAtt ProductPipelineInitQ.Arn
               - !GetAtt UserLambdaFanoutUpdateWatchlistQ.Arn
+              - !GetAtt ProductPipelineTranslateQ.Arn
+              - !GetAtt ProductPipelineEmbedTextQ.Arn
+              - !GetAtt ProductPipelineExtractAttributeQ.Arn
 
   Api:
     Type: AWS::ApiGatewayV2::Api
@@ -1192,6 +1196,14 @@ Resources:
       ManagedPolicyArns:
         - arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole
       Policies:
+        - PolicyName: DynamoDBAccess
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: Allow
+                Action:
+                  - dynamodb:GetItem
+                Resource: !GetAtt TableOne.Arn
         - PolicyName: SQSPollerAccess
           PolicyDocument:
             Version: "2012-10-17"
@@ -1219,6 +1231,7 @@ Resources:
         Size: 512
       Environment:
         Variables:
+          DYNAMODB_TABLE_NAME: !Ref TableOne
           STAGE: "dev"
           OPENSEARCH_ENDPOINT_URL: !Ref OpenSearchEndpointUrl
           OPENSEARCH_USERNAME: "{{resolve:ssm:/opensearch/dev/username}}"
@@ -1489,7 +1502,7 @@ Resources:
             NewImage:
               event_type:
                 S:
-                  - "CREATED"
+                  - "DOMAIN_CREATED"
       Targets:
         - Id: ProductMaterializeDynamoDbNewQ
           Arn: !GetAtt ProductMaterializeDynamoDbNewQ.Arn
@@ -1510,8 +1523,10 @@ Resources:
             NewImage:
               event_type:
                 S:
-                  - prefix: "PRICE_"
-                  - prefix: "STATE_"
+                  - prefix: "DOMAIN_PRICE_"
+                  - prefix: "DOMAIN_STATE_"
+                  - prefix: "ENRICHMENT_"
+                  - prefix: "POLICY_"
       Targets:
         - Id: ProductMaterializeDynamoDbUpdateQ
           Arn: !GetAtt ProductMaterializeDynamoDbUpdateQ.Arn
@@ -1532,7 +1547,7 @@ Resources:
             NewImage:
               event_type:
                 S:
-                  - "CREATED"
+                  - "DOMAIN_CREATED"
       Targets:
         - Id: ProductMaterializeOpenSearchNewQ
           Arn: !GetAtt ProductMaterializeOpenSearchNewQ.Arn
@@ -1553,8 +1568,10 @@ Resources:
             NewImage:
               event_type:
                 S:
-                  - prefix: "PRICE_"
-                  - prefix: "STATE_"
+                  - prefix: "DOMAIN_PRICE_"
+                  - prefix: "DOMAIN_STATE_"
+                  - prefix: "ENRICHMENT_"
+                  - prefix: "POLICY_"
       Targets:
         - Id: ProductMaterializeOpenSearchUpdateQ
           Arn: !GetAtt ProductMaterializeOpenSearchUpdateQ.Arn
@@ -1575,32 +1592,11 @@ Resources:
             NewImage:
               event_type:
                 S:
-                  - prefix: "PRICE_"
-                  - prefix: "STATE_"
+                  - prefix: "DOMAIN_PRICE_"
+                  - prefix: "DOMAIN_STATE_"
       Targets:
         - Id: ProductUpdateNotifyUserQ
           Arn: !GetAtt ProductUpdateNotifyUserQ.Arn
-  DynamoDbProductEventRecordCreatedProductPipelineInitEventRule:
-    Type: AWS::Events::Rule
-    Properties:
-      Name: "ddb-product-pipeline-dev"
-      EventBusName: !Ref DynamoDbEventBus
-      EventPattern:
-        source:
-          - !Ref TableOne
-        detail-type:
-          - "DynamoDBStreamRecord"
-        detail:
-          eventName:
-            - "INSERT"
-          dynamodb:
-            NewImage:
-              event_type:
-                S:
-                  - "CREATED"
-      Targets:
-        - Id: ProductPipelineInitQ
-          Arn: !GetAtt ProductPipelineInitQ.Arn
   DynamoDbPutShopRecordEventRule:
     Type: AWS::Events::Rule
     Properties:
@@ -2007,8 +2003,6 @@ Resources:
             Statement:
               - Effect: Allow
                 Action:
-                  - sqs:SendMessage
-                  - sqs:SendMessageBatch
                   - sqs:ReceiveMessage
                   - sqs:DeleteMessage
                   - sqs:DeleteMessageBatch
@@ -2017,7 +2011,6 @@ Resources:
                   - sqs:ChangeMessageVisibility
                 Resource:
                   - !GetAtt ProductPipelineTranslateQ.Arn
-                  - !GetAtt ProductPipelineEmbedTextQ.Arn
         - PolicyName: CloudWatchLogsCreate
           PolicyDocument:
             Version: "2012-10-17"
@@ -2028,6 +2021,24 @@ Resources:
                   - logs:CreateLogStream
                   - logs:PutLogEvents
                 Resource: "*"
+        - PolicyName: DynamoDBAccess
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: Allow
+                Action:
+                  - dynamodb:GetItem
+                  - dynamodb:Query
+                  - dynamodb:PutItem
+                  - dynamodb:DeleteItem
+                  - dynamodb:UpdateItem
+                  - dynamodb:BatchGetItem
+                  - dynamodb:BatchWriteItem
+                  - dynamodb:TransactGetItems
+                  - dynamodb:TransactWriteItems
+                Resource:
+                  - !GetAtt TableOne.Arn
+                  - !Sub "${TableOne.Arn}/index/*"
   ProductPipelineTranslateInstanceProfile:
     Type: AWS::IAM::InstanceProfile
     Properties:
@@ -2067,7 +2078,6 @@ Resources:
             export CommitSHA="${CommitSHA}"
             export ARTIFACT_BUCKET="${ArtifactBucket}"
             export SOURCE_QUEUE_URL="${ProductPipelineTranslateQ}"
-            export TARGET_QUEUE_URL="${ProductPipelineEmbedTextQ}"
             # Download and install binary
             sudo aws s3 cp "s3://${ArtifactBucket}/dev/${CommitSHA}/product-pipeline-translate" /opt/product-pipeline-translate/product-pipeline-translate --region eu-central-1
             sudo chmod +x /opt/product-pipeline-translate/product-pipeline-translate
@@ -2206,8 +2216,6 @@ Resources:
             Statement:
               - Effect: Allow
                 Action:
-                  - sqs:SendMessage
-                  - sqs:SendMessageBatch
                   - sqs:ReceiveMessage
                   - sqs:DeleteMessage
                   - sqs:DeleteMessageBatch
@@ -2216,7 +2224,6 @@ Resources:
                   - sqs:ChangeMessageVisibility
                 Resource:
                   - !GetAtt ProductPipelineEmbedTextQ.Arn
-                  - !GetAtt ProductPipelineExtractAttributeQ.Arn
         - PolicyName: CloudWatchLogsCreate
           PolicyDocument:
             Version: "2012-10-17"
@@ -2227,6 +2234,24 @@ Resources:
                   - logs:CreateLogStream
                   - logs:PutLogEvents
                 Resource: "*"
+        - PolicyName: DynamoDBAccess
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: Allow
+                Action:
+                  - dynamodb:GetItem
+                  - dynamodb:Query
+                  - dynamodb:PutItem
+                  - dynamodb:DeleteItem
+                  - dynamodb:UpdateItem
+                  - dynamodb:BatchGetItem
+                  - dynamodb:BatchWriteItem
+                  - dynamodb:TransactGetItems
+                  - dynamodb:TransactWriteItems
+                Resource:
+                  - !GetAtt TableOne.Arn
+                  - !Sub "${TableOne.Arn}/index/*"
   ProductPipelineEmbedTextInstanceProfile:
     Type: AWS::IAM::InstanceProfile
     Properties:
@@ -2266,7 +2291,6 @@ Resources:
             export CommitSHA="${CommitSHA}"
             export ARTIFACT_BUCKET="${ArtifactBucket}"
             export SOURCE_QUEUE_URL="${ProductPipelineEmbedTextQ}"
-            export TARGET_QUEUE_URL="${ProductPipelineExtractAttributeQ}"
             # Download and install binary
             sudo aws s3 cp "s3://${ArtifactBucket}/dev/${CommitSHA}/product-pipeline-embed-text" /opt/product-pipeline-embed-text/product-pipeline-embed-text --region eu-central-1
             sudo chmod +x /opt/product-pipeline-embed-text/product-pipeline-embed-text
@@ -2405,8 +2429,6 @@ Resources:
             Statement:
               - Effect: Allow
                 Action:
-                  - sqs:SendMessage
-                  - sqs:SendMessageBatch
                   - sqs:ReceiveMessage
                   - sqs:DeleteMessage
                   - sqs:DeleteMessageBatch
@@ -2415,7 +2437,6 @@ Resources:
                   - sqs:ChangeMessageVisibility
                 Resource:
                   - !GetAtt ProductPipelineExtractAttributeQ.Arn
-                  - !GetAtt ProductPipelineCompleteQ.Arn
         - PolicyName: CloudWatchLogsCreate
           PolicyDocument:
             Version: "2012-10-17"
@@ -2426,6 +2447,24 @@ Resources:
                   - logs:CreateLogStream
                   - logs:PutLogEvents
                 Resource: "*"
+        - PolicyName: DynamoDBAccess
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: Allow
+                Action:
+                  - dynamodb:GetItem
+                  - dynamodb:Query
+                  - dynamodb:PutItem
+                  - dynamodb:DeleteItem
+                  - dynamodb:UpdateItem
+                  - dynamodb:BatchGetItem
+                  - dynamodb:BatchWriteItem
+                  - dynamodb:TransactGetItems
+                  - dynamodb:TransactWriteItems
+                Resource:
+                  - !GetAtt TableOne.Arn
+                  - !Sub "${TableOne.Arn}/index/*"
   ProductPipelineExtractAttributeInstanceProfile:
     Type: AWS::IAM::InstanceProfile
     Properties:
@@ -2465,7 +2504,6 @@ Resources:
             export CommitSHA="${CommitSHA}"
             export ARTIFACT_BUCKET="${ArtifactBucket}"
             export SOURCE_QUEUE_URL="${ProductPipelineExtractAttributeQ}"
-            export TARGET_QUEUE_URL="${ProductPipelineCompleteQ}"
             # Download and install binary
             sudo aws s3 cp "s3://${ArtifactBucket}/dev/${CommitSHA}/product-pipeline-extract-attribute" /opt/product-pipeline-extract-attribute/product-pipeline-extract-attribute --region eu-central-1
             sudo chmod +x /opt/product-pipeline-extract-attribute/product-pipeline-extract-attribute
@@ -2557,6 +2595,69 @@ Resources:
           PropagateAtLaunch: true
       HealthCheckType: EC2
       HealthCheckGracePeriod: 120
+  ProductPipelineTranslateDynamoDbProductEventRecordCreatedEventRule:
+    Type: AWS::Events::Rule
+    Properties:
+      Name: "ddb-product-create-product-pipeline-translate-dev"
+      EventBusName: !Ref DynamoDbEventBus
+      EventPattern:
+        source:
+          - !Ref TableOne
+        detail-type:
+          - "DynamoDBStreamRecord"
+        detail:
+          eventName:
+            - "INSERT"
+          dynamodb:
+            NewImage:
+              event_type:
+                S:
+                  - "DOMAIN_CREATED"
+      Targets:
+        - Id: ProductPipelineTranslateQ
+          Arn: !GetAtt ProductPipelineTranslateQ.Arn
+  ProductPipelineEmbedTextDynamoDbProductEventRecordCreatedEventRule:
+    Type: AWS::Events::Rule
+    Properties:
+      Name: "ddb-product-create-product-pipeline-embed-text-dev"
+      EventBusName: !Ref DynamoDbEventBus
+      EventPattern:
+        source:
+          - !Ref TableOne
+        detail-type:
+          - "DynamoDBStreamRecord"
+        detail:
+          eventName:
+            - "INSERT"
+          dynamodb:
+            NewImage:
+              event_type:
+                S:
+                  - "DOMAIN_CREATED"
+      Targets:
+        - Id: ProductPipelineEmbedTextQ
+          Arn: !GetAtt ProductPipelineEmbedTextQ.Arn
+  ProductPipelineExtractAttributeDynamoDbProductEventRecordCreatedEventRule:
+    Type: AWS::Events::Rule
+    Properties:
+      Name: "ddb-product-embed-product-pipeline-extract-attr-dev"
+      EventBusName: !Ref DynamoDbEventBus
+      EventPattern:
+        source:
+          - !Ref TableOne
+        detail-type:
+          - "DynamoDBStreamRecord"
+        detail:
+          eventName:
+            - "INSERT"
+          dynamodb:
+            NewImage:
+              event_type:
+                S:
+                  - "ENRICHMENT_EMBEDDED_TEXT"
+      Targets:
+        - Id: ProductPipelineExtractAttributeQ
+          Arn: !GetAtt ProductPipelineExtractAttributeQ.Arn
 
   ProductPipelineCompleteDlq:
     Type: AWS::SQS::Queue
@@ -2893,15 +2994,15 @@ Resources:
         Size: 512
       Environment:
         Variables:
-          PRODUCT_PIPELINE_INIT_SQS_URL: !Ref ProductPipelineInitQ
-          PRODUCT_PIPELINE_INIT_SQS_NAME: !GetAtt ProductPipelineInitQ.QueueName
-          PRODUCT_PIPELINE_INIT_ASG_NAME: !Ref ProductPipelineInitASG
           PRODUCT_PIPELINE_TRANSLATE_SQS_URL: !Ref ProductPipelineTranslateQ
           PRODUCT_PIPELINE_TRANSLATE_SQS_NAME: !GetAtt ProductPipelineTranslateQ.QueueName
           PRODUCT_PIPELINE_TRANSLATE_ASG_NAME: !Ref ProductPipelineTranslateASG
           PRODUCT_PIPELINE_EMBED_TEXT_SQS_URL: !Ref ProductPipelineEmbedTextQ
           PRODUCT_PIPELINE_EMBED_TEXT_SQS_NAME: !GetAtt ProductPipelineEmbedTextQ.QueueName
           PRODUCT_PIPELINE_EMBED_TEXT_ASG_NAME: !Ref ProductPipelineEmbedTextASG
+          PRODUCT_PIPELINE_EXTRACT_ATTRIBUTE_SQS_URL: !Ref ProductPipelineExtractAttributeQ
+          PRODUCT_PIPELINE_EXTRACT_ATTRIBUTE_SQS_NAME: !GetAtt ProductPipelineExtractAttributeQ.QueueName
+          PRODUCT_PIPELINE_EXTRACT_ATTRIBUTE_ASG_NAME: !Ref ProductPipelineExtractAttributeASG
   ProductPipelineScaleControlStartSchedule:
     Type: AWS::Events::Rule
     Properties:
@@ -2912,8 +3013,6 @@ Resources:
           RetryPolicy:
             MaximumRetryAttempts: 5
             MaximumEventAgeInSeconds: 3600
-          DeadLetterConfig:
-            Arn: !GetAtt ProductPipelineInitDlq.Arn
   ProductPipelineScaleControlStartSchedulePermission:
     Type: AWS::Lambda::Permission
     Properties:

@@ -1,24 +1,50 @@
 use aws_tests_common::get_cfn_output;
 use common::{
     api::collection::PutCollectionData,
+    batch::Batch,
     language::data::LocalizedTextData,
     product_state::domain::ProductState,
     sort::{Sort, SortOrder},
 };
 use fake::{Fake, Faker};
 use opensearch::{GetParts, IndexParts, params::Refresh};
-use product::core::sort_product_field::SortProductField;
-use product::data::{product_state_data::ProductStateData, put_data::PutProductData};
-use product::dynamodb::{
-    product_record::ProductRecord,
-    product_state_record::ProductStateRecord,
-    repository::{ProductDynamoDbRepository, ProductDynamoDbRepositoryImpl},
-};
-use product::opensearch::{
-    product_document::ProductDocument,
-    repository::{ProductOpenSearchRepository, ProductOpenSearchRepositoryImpl},
+use product::{
+    core::product_event::{ProductEventPayload, enrichment::ProductEnrichmentEventPayload},
+    dynamodb::{
+        product_record::ProductRecord,
+        product_state_record::ProductStateRecord,
+        repository::{ProductDynamoDbRepository, ProductDynamoDbRepositoryImpl},
+    },
 };
 use product::{core::product_search::ProductSearch, dynamodb::product_record::mk_pk};
+use product::{
+    core::sort_product_field::SortProductField, dynamodb::product_event_record::ProductEventRecord,
+};
+use product::{
+    core::{
+        product_event::enrichment::EmbeddedTextProductEnrichmentEventPayload,
+        prohibited_content::ProhibitedContent,
+    },
+    opensearch::{
+        product_document::ProductDocument,
+        repository::{ProductOpenSearchRepository, ProductOpenSearchRepositoryImpl},
+    },
+};
+use product::{
+    core::{
+        product_event::{
+            ProductEvent,
+            policy::{ProductPolicyEventPayload, ProhibitedContentProductPolicyEventPayload},
+        },
+        prohibited_content::ProhibitedContentReason,
+    },
+    data::{product_state_data::ProductStateData, put_data::PutProductData},
+    dynamodb::{
+        product_image_record::ProductImageRecord,
+        prohibited_content_record::ProhibitedContentRecord,
+    },
+    opensearch::prohibited_content_document::ProhibitedContentDocument,
+};
 use serde::de::DeserializeOwned;
 use shop::core::shop::Shop;
 use shop::dynamodb::{
@@ -27,6 +53,7 @@ use shop::dynamodb::{
 };
 use staging_tests::{get_dynamodb_client, get_opensearch_client, staging_test};
 use std::time::{Duration, Instant};
+use time::OffsetDateTime;
 
 pub async fn read_by_id<T: DeserializeOwned>(index: &str, id: impl Into<String>) -> T {
     let get_response = get_opensearch_client()
@@ -121,7 +148,7 @@ async fn should_materialize_product_in_dynamodb_when_put_new_item() {
 }
 
 #[staging_test]
-async fn should_materialize_product_in_dynamodb_for_update_product_command() {
+async fn should_materialize_product_in_dynamodb_for_domain_event() {
     let stack = get_cfn_output();
     let dynamodb_client = get_dynamodb_client().await;
     let repository =
@@ -202,6 +229,169 @@ async fn should_materialize_product_in_dynamodb_for_update_product_command() {
                 "Timeout: ProductRecord with shop_id '{}' and shops_product_id '{}' \
                     has not been updated in DynamoDB or been updated with expected state after 60 seconds",
                 shop.shop_id, put_product_data.shops_product_id
+            );
+        }
+
+        tokio::time::sleep(Duration::from_secs(5)).await;
+    }
+}
+
+#[staging_test]
+async fn should_materialize_product_in_dynamodb_for_enrichment_event() {
+    let stack = get_cfn_output();
+    let dynamodb_client = get_dynamodb_client().await;
+    let repository =
+        ProductDynamoDbRepositoryImpl::new(dynamodb_client, &stack.dynamodb_table_1_name);
+    let shop = prepare_test_shop().await;
+
+    let mut materialized_old: ProductRecord = Faker.fake();
+    materialized_old.pk = mk_pk(&shop.shop_id, &materialized_old.shops_product_id);
+    materialized_old.shop_id = shop.shop_id;
+    materialized_old
+        .url
+        .set_host(Some(shop.domains.into_iter().next().unwrap().as_str()))
+        .unwrap();
+    materialized_old.text_embedding = None;
+    let insert_res = repository
+        .put_product_records([materialized_old.clone()].into())
+        .await
+        .unwrap();
+    assert!(insert_res.unprocessed_items.unwrap_or_default().is_empty());
+    tokio::time::sleep(Duration::from_secs(3)).await;
+
+    let product_events: [ProductEvent; 1] = [ProductEvent {
+        aggregate_id: materialized_old.product_id,
+        event_id: materialized_old.event_id,
+        timestamp: OffsetDateTime::now_utc(),
+        payload: ProductEventPayload::ProductEnrichmentEvent(
+            ProductEnrichmentEventPayload::EmbeddedText(
+                EmbeddedTextProductEnrichmentEventPayload {
+                    shop_id: materialized_old.shop_id,
+                    shops_product_id: materialized_old.shops_product_id.clone(),
+                    embedding: vec![0.4269f32; 1024],
+                },
+            ),
+        ),
+    }];
+    let product_event_records = Batch::try_from_iter(
+        product_events
+            .into_iter()
+            .map(|event| ProductEventRecord::try_from(event).unwrap()),
+    )
+    .unwrap();
+    let _ = repository
+        .put_product_event_records(product_event_records)
+        .await
+        .unwrap();
+
+    let deadline = Instant::now() + Duration::from_secs(60);
+    loop {
+        let materialized = repository
+            .get_product_record(&shop.shop_id, &materialized_old.shops_product_id)
+            .await
+            .unwrap();
+
+        if let Some(materialized) = materialized
+            && let Some(text_embedding) = materialized.text_embedding
+        {
+            assert_eq!(vec![0.4269f32; 1024], text_embedding);
+            break;
+        }
+
+        if Instant::now() >= deadline {
+            panic!(
+                "Timeout: ProductRecord with shop_id '{}' and shops_product_id '{}' \
+                    has not been updated in DynamoDB or been updated with expected state after 60 seconds",
+                materialized_old.shop_id, materialized_old.shops_product_id
+            );
+        }
+
+        tokio::time::sleep(Duration::from_secs(5)).await;
+    }
+}
+
+#[staging_test]
+async fn should_materialize_product_in_dynamodb_for_policy_event() {
+    let stack = get_cfn_output();
+    let dynamodb_client = get_dynamodb_client().await;
+    let repository =
+        ProductDynamoDbRepositoryImpl::new(dynamodb_client, &stack.dynamodb_table_1_name);
+    let shop = prepare_test_shop().await;
+
+    let mut materialized_old: ProductRecord = Faker.fake();
+    materialized_old.pk = mk_pk(&shop.shop_id, &materialized_old.shops_product_id);
+    materialized_old.shop_id = shop.shop_id;
+    materialized_old
+        .url
+        .set_host(Some(shop.domains.into_iter().next().unwrap().as_str()))
+        .unwrap();
+    materialized_old.images = fake::vec![ProductImageRecord; 3]
+        .into_iter()
+        .map(|mut img| {
+            img.prohibited_content = ProhibitedContentRecord::Unknown;
+            img
+        })
+        .collect();
+    let insert_res = repository
+        .put_product_records([materialized_old.clone()].into())
+        .await
+        .unwrap();
+    assert!(insert_res.unprocessed_items.unwrap_or_default().is_empty());
+    tokio::time::sleep(Duration::from_secs(3)).await;
+
+    let product_events: [ProductEvent; 1] = [ProductEvent {
+        aggregate_id: materialized_old.product_id,
+        event_id: materialized_old.event_id,
+        timestamp: OffsetDateTime::now_utc(),
+        payload: ProductEventPayload::ProductPolicyEvent(
+            ProductPolicyEventPayload::ProhibitedContentDecision(
+                ProhibitedContentProductPolicyEventPayload {
+                    shop_id: materialized_old.shop_id,
+                    shops_product_id: materialized_old.shops_product_id.clone(),
+                    decision: ProhibitedContent::NaziGermany,
+                    reason: ProhibitedContentReason::ProductText,
+                },
+            ),
+        ),
+    }];
+    let product_event_records = Batch::try_from_iter(
+        product_events
+            .into_iter()
+            .map(|event| ProductEventRecord::try_from(event).unwrap()),
+    )
+    .unwrap();
+    let _ = repository
+        .put_product_event_records(product_event_records)
+        .await
+        .unwrap();
+
+    let deadline = Instant::now() + Duration::from_secs(60);
+    loop {
+        let materialized = repository
+            .get_product_record(&shop.shop_id, &materialized_old.shops_product_id)
+            .await
+            .unwrap();
+
+        if let Some(materialized) = materialized
+            && materialized
+                .images
+                .iter()
+                .any(|img| img.prohibited_content == ProhibitedContentRecord::NaziGermany)
+        {
+            assert!(
+                materialized
+                    .images
+                    .iter()
+                    .all(|img| img.prohibited_content == ProhibitedContentRecord::NaziGermany)
+            );
+            break;
+        }
+
+        if Instant::now() >= deadline {
+            panic!(
+                "Timeout: ProductRecord with shop_id '{}' and shops_product_id '{}' \
+                    has not been updated in DynamoDB or been updated with expected state after 60 seconds",
+                materialized_old.shop_id, materialized_old.shops_product_id
             );
         }
 
@@ -297,7 +487,7 @@ async fn should_materialize_product_in_opensearch_for_create_product_command() {
 }
 
 #[staging_test]
-async fn should_materialize_product_in_opensearch_for_update_product_command() {
+async fn should_materialize_product_in_opensearch_for_domain_event() {
     let stack = get_cfn_output();
     let shop = prepare_test_shop().await;
 
@@ -420,6 +610,247 @@ async fn should_materialize_product_in_opensearch_for_update_product_command() {
                 "Timeout: ProductDocument with shop_id '{}' and shops_product_id '{}' \
                     has not been updated in OpenSearch or been updated with expected state after 60 seconds",
                 shop.shop_id, put_product_data.shops_product_id
+            );
+        }
+
+        tokio::time::sleep(Duration::from_secs(5)).await;
+    }
+}
+
+#[staging_test]
+async fn should_materialize_product_in_opensearch_for_enrichmment_event() {
+    let stack = get_cfn_output();
+    let shop = prepare_test_shop().await;
+
+    // we also need to ingest materialized into DynamoDB because product-write-lambda-update performs validity and existence checks in the primary data-store
+    let dynamodb_client = get_dynamodb_client().await;
+    let dynamodb_repository =
+        ProductDynamoDbRepositoryImpl::new(dynamodb_client, &stack.dynamodb_table_1_name);
+    let mut materialized_ddb_old: ProductRecord = Faker.fake();
+    materialized_ddb_old.pk = mk_pk(&shop.shop_id, &materialized_ddb_old.shops_product_id);
+    materialized_ddb_old.shop_id = shop.shop_id;
+    materialized_ddb_old.title_en = Some("Exactly the expected title".to_string());
+    materialized_ddb_old
+        .url
+        .set_host(Some(shop.domains.into_iter().next().unwrap().as_str()))
+        .unwrap();
+    let insert_res = dynamodb_repository
+        .put_product_records([materialized_ddb_old.clone()].into())
+        .await
+        .unwrap();
+    assert!(insert_res.unprocessed_items.unwrap_or_default().is_empty());
+
+    let opensearch_client = get_opensearch_client().await;
+    let opensearch_repository = ProductOpenSearchRepositoryImpl::new(opensearch_client);
+    let materialized_os_old: ProductDocument = materialized_ddb_old.clone().into();
+    let insert_res = opensearch_repository
+        .create_product_documents(vec![materialized_os_old.clone()])
+        .await
+        .unwrap();
+    assert!(!insert_res.errors);
+    refresh_index("products").await;
+    tokio::time::sleep(Duration::from_secs(10)).await;
+
+    let product_events: [ProductEvent; 1] = [ProductEvent {
+        aggregate_id: materialized_ddb_old.product_id,
+        event_id: materialized_ddb_old.event_id,
+        timestamp: OffsetDateTime::now_utc(),
+        payload: ProductEventPayload::ProductEnrichmentEvent(
+            ProductEnrichmentEventPayload::EmbeddedText(
+                EmbeddedTextProductEnrichmentEventPayload {
+                    shop_id: materialized_ddb_old.shop_id,
+                    shops_product_id: materialized_ddb_old.shops_product_id.clone(),
+                    embedding: vec![0.4269f32; 1024],
+                },
+            ),
+        ),
+    }];
+    let product_event_records = Batch::try_from_iter(
+        product_events
+            .into_iter()
+            .map(|event| ProductEventRecord::try_from(event).unwrap()),
+    )
+    .unwrap();
+    let _ = dynamodb_repository
+        .put_product_event_records(product_event_records)
+        .await
+        .unwrap();
+
+    let deadline = Instant::now() + Duration::from_secs(60);
+    loop {
+        refresh_index("products").await;
+        let materialized = opensearch_repository
+            .search_product_documents(
+                &ProductSearch {
+                    language: common::language::domain::Language::En,
+                    currency: common::currency::domain::Currency::Usd,
+                    product_query: "Exactly the expected title".try_into().unwrap(),
+                    shop_name_query: Default::default(),
+                    exclude_shop_name_query: Default::default(),
+                    shop_type_query: Default::default(),
+                    price_query: None,
+                    state_query: Default::default(),
+                    origin_year_query: None,
+                    authenticity_query: Default::default(),
+                    condition_query: Default::default(),
+                    provenance_query: Default::default(),
+                    restoration_query: Default::default(),
+                    auction_start_query: None,
+                    auction_end_query: None,
+                    created_query: None,
+                    updated_query: None,
+                },
+                &Sort {
+                    sort: SortProductField::Score,
+                    order: SortOrder::Desc,
+                },
+                &None,
+            )
+            .await
+            .unwrap()
+            .hits
+            .hits
+            .first()
+            .cloned();
+
+        if let Some(materialized) = materialized
+            && let Some(text_embedding) = materialized.source.text_embedding
+        {
+            assert_eq!(vec![0.4269f32; 1024], text_embedding);
+            break;
+        }
+
+        if Instant::now() >= deadline {
+            panic!(
+                "Timeout: ProductDocument with shop_id '{}' and shops_product_id '{}' \
+                    has not been updated in OpenSearch or been updated with expected state after 60 seconds",
+                materialized_ddb_old.shop_id, materialized_ddb_old.shops_product_id
+            );
+        }
+
+        tokio::time::sleep(Duration::from_secs(5)).await;
+    }
+}
+
+#[staging_test]
+async fn should_materialize_product_in_opensearch_for_policy_event() {
+    let stack = get_cfn_output();
+    let shop = prepare_test_shop().await;
+
+    // we also need to ingest materialized into DynamoDB because product-write-lambda-update performs validity and existence checks in the primary data-store
+    let dynamodb_client = get_dynamodb_client().await;
+    let dynamodb_repository =
+        ProductDynamoDbRepositoryImpl::new(dynamodb_client, &stack.dynamodb_table_1_name);
+    let mut materialized_ddb_old: ProductRecord = Faker.fake();
+    materialized_ddb_old.pk = mk_pk(&shop.shop_id, &materialized_ddb_old.shops_product_id);
+    materialized_ddb_old.shop_id = shop.shop_id;
+    materialized_ddb_old.title_en = Some("Exactly the expected title".to_string());
+    materialized_ddb_old
+        .url
+        .set_host(Some(shop.domains.into_iter().next().unwrap().as_str()))
+        .unwrap();
+    let insert_res = dynamodb_repository
+        .put_product_records([materialized_ddb_old.clone()].into())
+        .await
+        .unwrap();
+    assert!(insert_res.unprocessed_items.unwrap_or_default().is_empty());
+
+    let opensearch_client = get_opensearch_client().await;
+    let opensearch_repository = ProductOpenSearchRepositoryImpl::new(opensearch_client);
+    let materialized_os_old: ProductDocument = materialized_ddb_old.clone().into();
+    let insert_res = opensearch_repository
+        .create_product_documents(vec![materialized_os_old.clone()])
+        .await
+        .unwrap();
+    assert!(!insert_res.errors);
+    refresh_index("products").await;
+    tokio::time::sleep(Duration::from_secs(10)).await;
+
+    let product_events: [ProductEvent; 1] = [ProductEvent {
+        aggregate_id: materialized_ddb_old.product_id,
+        event_id: materialized_ddb_old.event_id,
+        timestamp: OffsetDateTime::now_utc(),
+        payload: ProductEventPayload::ProductPolicyEvent(
+            ProductPolicyEventPayload::ProhibitedContentDecision(
+                ProhibitedContentProductPolicyEventPayload {
+                    shop_id: materialized_ddb_old.shop_id,
+                    shops_product_id: materialized_ddb_old.shops_product_id.clone(),
+                    decision: ProhibitedContent::NaziGermany,
+                    reason: ProhibitedContentReason::ProductText,
+                },
+            ),
+        ),
+    }];
+    let product_event_records = Batch::try_from_iter(
+        product_events
+            .into_iter()
+            .map(|event| ProductEventRecord::try_from(event).unwrap()),
+    )
+    .unwrap();
+    let _ = dynamodb_repository
+        .put_product_event_records(product_event_records)
+        .await
+        .unwrap();
+
+    let deadline = Instant::now() + Duration::from_secs(60);
+    loop {
+        refresh_index("products").await;
+        let materialized = opensearch_repository
+            .search_product_documents(
+                &ProductSearch {
+                    language: common::language::domain::Language::En,
+                    currency: common::currency::domain::Currency::Usd,
+                    product_query: "Exactly the expected title".try_into().unwrap(),
+                    shop_name_query: Default::default(),
+                    exclude_shop_name_query: Default::default(),
+                    shop_type_query: Default::default(),
+                    price_query: None,
+                    state_query: Default::default(),
+                    origin_year_query: None,
+                    authenticity_query: Default::default(),
+                    condition_query: Default::default(),
+                    provenance_query: Default::default(),
+                    restoration_query: Default::default(),
+                    auction_start_query: None,
+                    auction_end_query: None,
+                    created_query: None,
+                    updated_query: None,
+                },
+                &Sort {
+                    sort: SortProductField::Score,
+                    order: SortOrder::Desc,
+                },
+                &None,
+            )
+            .await
+            .unwrap()
+            .hits
+            .hits
+            .first()
+            .cloned();
+
+        if let Some(materialized) = materialized
+            && materialized
+                .source
+                .images
+                .iter()
+                .any(|img| img.prohibited_content == ProhibitedContentDocument::NaziGermany)
+        {
+            assert!(
+                materialized
+                    .source
+                    .images
+                    .iter()
+                    .all(|img| img.prohibited_content == ProhibitedContentDocument::NaziGermany)
+            );
+            break;
+        }
+
+        if Instant::now() >= deadline {
+            panic!(
+                "Timeout: ProductDocument with shop_id '{}' and shops_product_id '{}' \
+                    has not been updated in OpenSearch or been updated with expected state after 60 seconds",
+                materialized_ddb_old.shop_id, materialized_ddb_old.shops_product_id
             );
         }
 

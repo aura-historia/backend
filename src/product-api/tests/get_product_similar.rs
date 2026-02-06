@@ -1,5 +1,6 @@
 use cognito::access_token_verifier_service::MockAccessTokenVerifierService;
 use common::currency::data::CurrencyData;
+use common::language::document::{LanguageDocument, TextDocument};
 use common::language::domain::Language;
 use common::personalized::api::PersonalizedData;
 use fake::{Fake, Faker};
@@ -1072,7 +1073,8 @@ async fn should_202_when_similar_products_have_not_been_computed_for_anon() {
         .expect_verify_extract_user_id()
         .return_once(|_| Box::pin(async { Ok(None) }));
 
-    let product_record: ProductRecord = Faker.fake();
+    let mut product_record: ProductRecord = Faker.fake();
+    product_record.text_embedding = None;
     let ddb_insert_res = product_dynamodb_repository
         .put_product_records([product_record.clone()].into())
         .await
@@ -1138,7 +1140,8 @@ async fn should_200_when_similar_products_have_been_computed_for_anon() {
         .expect_verify_extract_user_id()
         .return_once(|_| Box::pin(async { Ok(None) }));
 
-    let product_record: ProductRecord = Faker.fake();
+    let mut product_record: ProductRecord = Faker.fake();
+    product_record.text_embedding = Some(EXAMPLE_EMBEDDING.into());
     let ddb_insert_res = product_dynamodb_repository
         .put_product_records([product_record.clone()].into())
         .await
@@ -1150,11 +1153,14 @@ async fn should_200_when_similar_products_have_been_computed_for_anon() {
             .is_empty()
     );
 
-    let mut product_document: ProductDocument = product_record.clone().into();
-    product_document.text_embedding = Some(EXAMPLE_EMBEDDING.into());
+    let product_document: ProductDocument = product_record.clone().into();
     let mut product_documents = fake::vec![ProductDocument; 10];
     for doc in &mut product_documents {
         doc.text_embedding = Some(EXAMPLE_EMBEDDING.into());
+        doc.title_native = TextDocument {
+            text: "My expected english title".into(),
+            language: LanguageDocument::En,
+        };
         doc.title_en = Some("My expected english title".into())
     }
     product_documents.push(product_document);
@@ -1242,7 +1248,8 @@ async fn should_200_and_personalize_when_similar_products_have_been_computed_for
 
     let _ = user_repository.put_user_record(user_record).await.unwrap();
 
-    let product_record: ProductRecord = Faker.fake();
+    let mut product_record: ProductRecord = Faker.fake();
+    product_record.text_embedding = Some(EXAMPLE_EMBEDDING.into());
     let product_records = fake::vec![ProductRecord; 5];
     let ddb_insert_res = product_dynamodb_repository
         .put_product_records(
@@ -1271,14 +1278,17 @@ async fn should_200_and_personalize_when_similar_products_have_been_computed_for
             .unwrap();
     }
 
-    let mut product_document: ProductDocument = product_record.clone().into();
-    product_document.text_embedding = Some(EXAMPLE_EMBEDDING.into());
+    let product_document: ProductDocument = product_record.clone().into();
     let mut product_documents = product_records
         .clone()
         .into_iter()
         .map(ProductDocument::from)
         .collect::<Vec<_>>();
     for doc in &mut product_documents {
+        doc.title_native = TextDocument {
+            text: "My expected german title".into(),
+            language: LanguageDocument::De,
+        };
         doc.text_embedding = Some(EXAMPLE_EMBEDDING.into());
         doc.title_de = Some("My expected german title".into());
     }
@@ -1401,7 +1411,8 @@ async fn should_respond_200_and_respect_accept_language_header(
 
     let _ = user_repository.put_user_record(user_record).await.unwrap();
 
-    let product_record: ProductRecord = Faker.fake();
+    let mut product_record: ProductRecord = Faker.fake();
+    product_record.text_embedding = Some(EXAMPLE_EMBEDDING.into());
     let product_records = fake::vec![ProductRecord; 12];
     let ddb_insert_res = product_dynamodb_repository
         .put_product_records(
@@ -1419,8 +1430,7 @@ async fn should_respond_200_and_respect_accept_language_header(
             .is_empty()
     );
 
-    let mut product_document: ProductDocument = product_record.clone().into();
-    product_document.text_embedding = Some(EXAMPLE_EMBEDDING.into());
+    let product_document: ProductDocument = product_record.clone().into();
     let mut product_documents = product_records
         .clone()
         .into_iter()
@@ -1428,6 +1438,10 @@ async fn should_respond_200_and_respect_accept_language_header(
         .collect::<Vec<_>>();
     for doc in &mut product_documents {
         doc.text_embedding = Some(EXAMPLE_EMBEDDING.into());
+        doc.title_native = TextDocument {
+            text: "German title".to_string(),
+            language: LanguageDocument::De,
+        };
         doc.title_de = Some("German title".to_string());
         doc.title_en = Some("English title".to_string());
         doc.title_fr = Some("French title".to_string());

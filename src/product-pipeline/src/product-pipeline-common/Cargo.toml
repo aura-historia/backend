@@ -24,7 +24,14 @@ product-pipeline-common = { workspace = true, features = ["test-data"] }
 product = { workspace = true, features = ["test-data"] }
 rstest = { workspace = true }
 serial_test = { workspace = true }
-test-api = { workspace = true, features = ["sqs"] }
+uuid = { workspace = true }
+test-api = { workspace = true, features = ["sqs", "dynamodb"] }
+serde_dynamo = { workspace = true, features = ["aws-sdk-dynamodb+1"] }
+aws_lambda_events = { workspace = true, features = [
+    "sqs",
+    "dynamodb",
+    "eventbridge",
+] }
 
 [features]
 default = []

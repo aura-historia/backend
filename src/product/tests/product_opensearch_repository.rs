@@ -85,10 +85,10 @@ async fn should_create_product_document() {
         origin_year_min: None,
         origin_year: None,
         origin_year_max: None,
-        authenticity: None,
-        condition: None,
-        provenance: None,
-        restoration: None,
+        authenticity: Default::default(),
+        condition: Default::default(),
+        provenance: Default::default(),
+        restoration: Default::default(),
         created: OffsetDateTime::now_utc(),
         updated: OffsetDateTime::now_utc(),
         auction_start: None,
@@ -156,10 +156,10 @@ async fn should_create_product_documents() {
         origin_year_min: None,
         origin_year: None,
         origin_year_max: None,
-        authenticity: None,
-        condition: None,
-        provenance: None,
-        restoration: None,
+        authenticity: Default::default(),
+        condition: Default::default(),
+        provenance: Default::default(),
+        restoration: Default::default(),
         created: OffsetDateTime::now_utc(),
         updated: OffsetDateTime::now_utc(),
         auction_start: None,
@@ -212,10 +212,10 @@ async fn should_create_product_documents() {
         origin_year_min: None,
         origin_year: None,
         origin_year_max: None,
-        authenticity: None,
-        condition: None,
-        provenance: None,
-        restoration: None,
+        authenticity: Default::default(),
+        condition: Default::default(),
+        provenance: Default::default(),
+        restoration: Default::default(),
         created: OffsetDateTime::now_utc(),
         updated: OffsetDateTime::now_utc(),
         auction_start: None,
@@ -285,10 +285,10 @@ async fn should_update_product_document() {
         origin_year_min: None,
         origin_year: None,
         origin_year_max: None,
-        authenticity: None,
-        condition: None,
-        provenance: None,
-        restoration: None,
+        authenticity: Default::default(),
+        condition: Default::default(),
+        provenance: Default::default(),
+        restoration: Default::default(),
         created: OffsetDateTime::now_utc(),
         updated: OffsetDateTime::now_utc(),
         auction_start: None,
@@ -327,10 +327,10 @@ async fn should_update_product_document() {
         origin_year_min: None,
         origin_year: None,
         origin_year_max: None,
-        authenticity: None,
-        condition: None,
-        provenance: None,
-        restoration: None,
+        authenticity: Default::default(),
+        condition: Default::default(),
+        provenance: Default::default(),
+        restoration: Default::default(),
         updated: updated_update_ts,
     };
     let repository = ProductOpenSearchRepositoryImpl::new(client);
@@ -399,10 +399,10 @@ async fn should_search_product_documents() {
         origin_year_min: None,
         origin_year: None,
         origin_year_max: None,
-        authenticity: None,
-        condition: None,
-        provenance: None,
-        restoration: None,
+        authenticity: Default::default(),
+        condition: Default::default(),
+        provenance: Default::default(),
+        restoration: Default::default(),
         created: OffsetDateTime::now_utc(),
         updated: OffsetDateTime::now_utc(),
         auction_start: None,
@@ -509,10 +509,10 @@ async fn should_omit_descriptions_in_response_for_search_product_documents() {
         origin_year_min: None,
         origin_year: None,
         origin_year_max: None,
-        authenticity: None,
-        condition: None,
-        provenance: None,
-        restoration: None,
+        authenticity: Default::default(),
+        condition: Default::default(),
+        provenance: Default::default(),
+        restoration: Default::default(),
         created: OffsetDateTime::now_utc(),
         updated: OffsetDateTime::now_utc(),
         auction_start: None,
@@ -1087,10 +1087,10 @@ async fn should_get_product_document() {
         origin_year_min: None,
         origin_year: None,
         origin_year_max: None,
-        authenticity: None,
-        condition: None,
-        provenance: None,
-        restoration: None,
+        authenticity: Default::default(),
+        condition: Default::default(),
+        provenance: Default::default(),
+        restoration: Default::default(),
         created: OffsetDateTime::now_utc(),
         updated: OffsetDateTime::now_utc(),
         auction_start: None,
@@ -2886,12 +2886,13 @@ async fn should_search_product_documents_when_authenticity_filter_is_given(
         .unwrap();
 
     assert!(response.hits.total.value > 0);
-    assert!(response.hits.hits.iter().all(|hit| {
-        hit.source
-            .authenticity
-            .map(|a| authenticities.contains(&Authenticity::from(a)))
-            .unwrap_or(false)
-    }));
+    assert!(
+        response
+            .hits
+            .hits
+            .iter()
+            .all(|hit| { authenticities.contains(&Authenticity::from(hit.source.authenticity)) })
+    );
 }
 
 #[rstest::rstest]
@@ -2958,12 +2959,13 @@ async fn should_search_product_documents_when_condition_filter_is_given(
         .unwrap();
 
     assert!(response.hits.total.value > 0);
-    assert!(response.hits.hits.iter().all(|hit| {
-        hit.source
-            .condition
-            .map(|c| conditions.contains(&Condition::from(c)))
-            .unwrap_or(false)
-    }));
+    assert!(
+        response
+            .hits
+            .hits
+            .iter()
+            .all(|hit| { conditions.contains(&Condition::from(hit.source.condition)) })
+    );
 }
 
 #[rstest::rstest]
@@ -3029,12 +3031,13 @@ async fn should_search_product_documents_when_provenance_filter_is_given(
         .unwrap();
 
     assert!(response.hits.total.value > 0);
-    assert!(response.hits.hits.iter().all(|hit| {
-        hit.source
-            .provenance
-            .map(|p| provenances.contains(&Provenance::from(p)))
-            .unwrap_or(false)
-    }));
+    assert!(
+        response
+            .hits
+            .hits
+            .iter()
+            .all(|hit| { provenances.contains(&Provenance::from(hit.source.provenance)) })
+    );
 }
 
 #[rstest::rstest]
@@ -3099,12 +3102,13 @@ async fn should_search_product_documents_when_restoration_filter_is_given(
         .unwrap();
 
     assert!(response.hits.total.value > 0);
-    assert!(response.hits.hits.iter().all(|hit| {
-        hit.source
-            .restoration
-            .map(|r| restorations.contains(&Restoration::from(r)))
-            .unwrap_or(false)
-    }));
+    assert!(
+        response
+            .hits
+            .hits
+            .iter()
+            .all(|hit| { restorations.contains(&Restoration::from(hit.source.restoration)) })
+    );
 }
 
 #[rstest::rstest]

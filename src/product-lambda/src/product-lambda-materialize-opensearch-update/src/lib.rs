@@ -4,14 +4,17 @@ use common::opensearch::bulk_response::{BulkItemResult, BulkResponse};
 use common::product_id::ProductId;
 use lambda_runtime::LambdaEvent;
 use product::dynamodb::product_event_record::ProductEventRecord;
+use product::dynamodb::repository::ProductDynamoDbRepository;
+use product::opensearch::product_image_document::ProductImageDocument;
 use product::opensearch::product_update_document::ProductUpdateDocument;
 use product::opensearch::repository::ProductOpenSearchRepository;
 use std::collections::HashMap;
 use tracing::{error, info, warn};
 
-#[tracing::instrument(skip(repository, event), fields(requestId = %event.context.request_id))]
+#[tracing::instrument(skip(opensearch_repository, dynamodb_repository, event), fields(requestId = %event.context.request_id))]
 pub async fn handler(
-    repository: &impl ProductOpenSearchRepository,
+    opensearch_repository: &impl ProductOpenSearchRepository,
+    dynamodb_repository: &impl ProductDynamoDbRepository,
     event: LambdaEvent<SqsEvent>,
 ) -> Result<SqsBatchResponse, lambda_runtime::Error> {
     let records_count = event.payload.records.len();
@@ -28,12 +31,17 @@ pub async fn handler(
             &mut failed_message_ids,
             &mut skipped_count,
             &mut message_ids,
-        ) {
+            dynamodb_repository,
+        )
+        .await
+        {
             update_documents.insert(product_id, product_document);
         }
     }
 
-    let result = repository.update_product_documents(update_documents).await;
+    let result = opensearch_repository
+        .update_product_documents(update_documents)
+        .await;
     match result {
         Ok(response) => handle_bulk_response(response, &mut failed_message_ids, &mut message_ids),
         Err(err) => {
@@ -61,11 +69,12 @@ pub async fn handler(
     Ok(sqs_batch_response)
 }
 
-fn extract_message_data(
+async fn extract_message_data(
     message: SqsMessage,
     failed_message_ids: &mut Vec<String>,
     skipped_count: &mut usize,
     message_ids: &mut HashMap<ProductId, String>,
+    repository: &impl ProductDynamoDbRepository,
 ) -> Option<(ProductId, ProductUpdateDocument)> {
     let message_id = message
         .message_id
@@ -73,10 +82,54 @@ fn extract_message_data(
         .expect("shouldn't receive an SQS-Message without 'message_id' because AWS sets it.");
     let product_event_record: ProductEventRecord =
         extract_sqs_event_bridge_dynamodb_record(message, failed_message_ids, skipped_count)?;
-    let product_id = product_event_record.product_id;
-    let update_document = ProductUpdateDocument::from(product_event_record);
+    let product_id = *product_event_record.product_id();
+    let update_document = match product_event_record {
+        ProductEventRecord::Domain(event_record) => Some(ProductUpdateDocument::from(event_record)),
+        ProductEventRecord::Enrichment(event_record) => {
+            Some(ProductUpdateDocument::from(event_record))
+        }
+        ProductEventRecord::Policy(event_record) => {
+            let record_res = repository
+                .get_product_record(&event_record.shop_id, &event_record.shops_product_id)
+                .await;
+            match record_res {
+                Ok(Some(record)) => {
+                    let mut update_record = ProductUpdateDocument::default();
+                    let prohibited_images = record
+                        .images
+                        .into_iter()
+                        .map(|mut image| {
+                            image.prohibited_content = event_record.prohibited_content_decision;
+                            image
+                        })
+                        .map(ProductImageDocument::from)
+                        .collect();
+                    update_record.images = Some(prohibited_images);
+                    Some(update_record)
+                }
+                Ok(None) => {
+                    error!(
+                        shopId = %event_record.shop_id,
+                        shopsProductId = %event_record.shops_product_id,
+                        "ProductRecord doesn't exist. This is a logic error. Impossible to apply policy to non-existent product."
+                    );
+                    failed_message_ids.push(message_id.clone());
+                    None
+                }
+                Err(err) => {
+                    error!(
+                        error = ?err,
+                        shopId = %event_record.shop_id,
+                        "Failed getting ProductRecord"
+                    );
+                    failed_message_ids.push(message_id.clone());
+                    None
+                }
+            }
+        }
+    };
     message_ids.insert(product_id, message_id);
-    Some((product_id, update_document))
+    Some((product_id, update_document?))
 }
 
 fn handle_bulk_response(
@@ -146,8 +199,9 @@ mod tests {
     use fake::Faker;
     use lambda_runtime::LambdaEvent;
     use product::core::product_event::ProductEvent;
-    use product::core::product_event::{ProductCreatedEventPayload, ProductEventPayload};
+    use product::core::product_event::ProductEventPayload;
     use product::dynamodb::product_event_record::ProductEventRecord;
+    use product::dynamodb::repository::MockProductDynamoDbRepository;
     use product::opensearch::repository::MockProductOpenSearchRepository;
     use std::collections::HashMap;
     use std::time::SystemTime;
@@ -203,8 +257,12 @@ mod tests {
     #[case(10874)]
     #[trace]
     async fn should_handle_message(#[case] record_count: usize) {
-        let mut repository = MockProductOpenSearchRepository::default();
-        repository
+        let mut dynamodb_repository = MockProductDynamoDbRepository::default();
+        dynamodb_repository
+            .expect_get_product_record() // if policy event
+            .returning(move |_, _| Box::pin(async move { Ok(Some(Faker.fake())) }));
+        let mut opensearch_repository = MockProductOpenSearchRepository::default();
+        opensearch_repository
             .expect_update_product_documents()
             .return_once(|_| {
                 Box::pin(async move {
@@ -216,9 +274,8 @@ mod tests {
                 })
             });
 
-        let records = fake::vec![ProductCreatedEventPayload; record_count]
+        let records = fake::vec![ProductEventPayload; record_count]
             .into_iter()
-            .map(ProductEventPayload::Created)
             .map(|event_payload| Event {
                 aggregate_id: Faker.fake(),
                 event_id: Faker.fake(),
@@ -236,7 +293,9 @@ mod tests {
             context: Default::default(),
         };
 
-        let actual = handler(&repository, lambda_event).await.unwrap();
+        let actual = handler(&opensearch_repository, &dynamodb_repository, lambda_event)
+            .await
+            .unwrap();
         assert!(actual.batch_item_failures.is_empty())
     }
 
@@ -272,7 +331,7 @@ mod tests {
             .map(Result::unwrap)
             .map(|event_record| {
                 let uuid = Uuid::new_v4().to_string();
-                message_ids.insert(event_record.product_id, uuid.clone());
+                message_ids.insert(*event_record.product_id(), uuid.clone());
                 mk_sqs_message_with_id(&event_record, uuid)
             })
             .collect();
@@ -282,8 +341,12 @@ mod tests {
             payload: sqs_event,
             context: Default::default(),
         };
-        let mut repository = MockProductOpenSearchRepository::default();
-        repository
+        let mut dynamodb_repository = MockProductDynamoDbRepository::default();
+        dynamodb_repository
+            .expect_get_product_record() // if policy event
+            .returning(move |_, _| Box::pin(async move { Ok(Some(Faker.fake())) }));
+        let mut opensearch_repository = MockProductOpenSearchRepository::default();
+        opensearch_repository
             .expect_update_product_documents()
             .return_once(move |batch| {
                 let failures: Vec<_> = batch
@@ -335,13 +398,14 @@ mod tests {
                 })
             });
 
-        let mut actual_failed_message_ids = handler(&repository, lambda_event)
-            .await
-            .unwrap()
-            .batch_item_failures
-            .into_iter()
-            .map(|failure| failure.item_identifier)
-            .collect::<Vec<_>>();
+        let mut actual_failed_message_ids =
+            handler(&opensearch_repository, &dynamodb_repository, lambda_event)
+                .await
+                .unwrap()
+                .batch_item_failures
+                .into_iter()
+                .map(|failure| failure.item_identifier)
+                .collect::<Vec<_>>();
         actual_failed_message_ids.sort();
         let mut expected_failed_message_ids = expected_failures
             .into_iter()

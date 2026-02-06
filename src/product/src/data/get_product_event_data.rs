@@ -1,4 +1,4 @@
-use crate::core::product_event::LocalizedProductEventPayloadView;
+use crate::core::product_event::domain::LocalizedProductDomainEventPayloadView;
 use crate::data::product_state_data::ProductStateData;
 use common::{
     event::Event, event_id::EventId, price::data::PriceData, product_id::ProductId,
@@ -88,10 +88,10 @@ pub struct GetProductEventData {
     pub timestamp: OffsetDateTime,
 }
 
-impl From<Event<ProductId, LocalizedProductEventPayloadView>> for GetProductEventData {
-    fn from(event: Event<ProductId, LocalizedProductEventPayloadView>) -> Self {
+impl From<Event<ProductId, LocalizedProductDomainEventPayloadView>> for GetProductEventData {
+    fn from(event: Event<ProductId, LocalizedProductDomainEventPayloadView>) -> Self {
         let (event_type, shop_id, shops_product_id, payload) = match event.payload {
-            LocalizedProductEventPayloadView::Created(payload) => (
+            LocalizedProductDomainEventPayloadView::Created(payload) => (
                 ProductEventTypeData::Created,
                 payload.shop_id,
                 payload.shops_product_id,
@@ -100,7 +100,7 @@ impl From<Event<ProductId, LocalizedProductEventPayloadView>> for GetProductEven
                     state: payload.state.into(),
                 }),
             ),
-            LocalizedProductEventPayloadView::StateListed(payload) => (
+            LocalizedProductDomainEventPayloadView::StateListed(payload) => (
                 ProductEventTypeData::StateListed,
                 payload.shop_id,
                 payload.shops_product_id,
@@ -109,7 +109,7 @@ impl From<Event<ProductId, LocalizedProductEventPayloadView>> for GetProductEven
                     new_state: ProductStateData::Listed,
                 }),
             ),
-            LocalizedProductEventPayloadView::StateAvailable(payload) => (
+            LocalizedProductDomainEventPayloadView::StateAvailable(payload) => (
                 ProductEventTypeData::StateAvailable,
                 payload.shop_id,
                 payload.shops_product_id,
@@ -118,7 +118,7 @@ impl From<Event<ProductId, LocalizedProductEventPayloadView>> for GetProductEven
                     new_state: ProductStateData::Available,
                 }),
             ),
-            LocalizedProductEventPayloadView::StateReserved(payload) => (
+            LocalizedProductDomainEventPayloadView::StateReserved(payload) => (
                 ProductEventTypeData::StateReserved,
                 payload.shop_id,
                 payload.shops_product_id,
@@ -127,7 +127,7 @@ impl From<Event<ProductId, LocalizedProductEventPayloadView>> for GetProductEven
                     new_state: ProductStateData::Reserved,
                 }),
             ),
-            LocalizedProductEventPayloadView::StateSold(payload) => (
+            LocalizedProductDomainEventPayloadView::StateSold(payload) => (
                 ProductEventTypeData::StateSold,
                 payload.shop_id,
                 payload.shops_product_id,
@@ -136,7 +136,7 @@ impl From<Event<ProductId, LocalizedProductEventPayloadView>> for GetProductEven
                     new_state: ProductStateData::Sold,
                 }),
             ),
-            LocalizedProductEventPayloadView::StateRemoved(payload) => (
+            LocalizedProductDomainEventPayloadView::StateRemoved(payload) => (
                 ProductEventTypeData::StateRemoved,
                 payload.shop_id,
                 payload.shops_product_id,
@@ -145,7 +145,7 @@ impl From<Event<ProductId, LocalizedProductEventPayloadView>> for GetProductEven
                     new_state: ProductStateData::Removed,
                 }),
             ),
-            LocalizedProductEventPayloadView::StateUnknown(payload) => (
+            LocalizedProductDomainEventPayloadView::StateUnknown(payload) => (
                 ProductEventTypeData::StateUnknown,
                 payload.shop_id,
                 payload.shops_product_id,
@@ -154,7 +154,7 @@ impl From<Event<ProductId, LocalizedProductEventPayloadView>> for GetProductEven
                     new_state: ProductStateData::Unknown,
                 }),
             ),
-            LocalizedProductEventPayloadView::PriceDiscovered(payload) => (
+            LocalizedProductDomainEventPayloadView::PriceDiscovered(payload) => (
                 ProductEventTypeData::PriceDiscovered,
                 payload.shop_id,
                 payload.shops_product_id,
@@ -162,7 +162,7 @@ impl From<Event<ProductId, LocalizedProductEventPayloadView>> for GetProductEven
                     new_price: payload.price.into(),
                 }),
             ),
-            LocalizedProductEventPayloadView::PriceDropped(payload) => (
+            LocalizedProductDomainEventPayloadView::PriceDropped(payload) => (
                 ProductEventTypeData::PriceDropped,
                 payload.shop_id,
                 payload.shops_product_id,
@@ -171,7 +171,7 @@ impl From<Event<ProductId, LocalizedProductEventPayloadView>> for GetProductEven
                     new_price: payload.new_price.into(),
                 }),
             ),
-            LocalizedProductEventPayloadView::PriceIncreased(payload) => (
+            LocalizedProductDomainEventPayloadView::PriceIncreased(payload) => (
                 ProductEventTypeData::PriceIncreased,
                 payload.shop_id,
                 payload.shops_product_id,
@@ -180,7 +180,7 @@ impl From<Event<ProductId, LocalizedProductEventPayloadView>> for GetProductEven
                     new_price: payload.new_price.into(),
                 }),
             ),
-            LocalizedProductEventPayloadView::PriceRemoved(payload) => (
+            LocalizedProductDomainEventPayloadView::PriceRemoved(payload) => (
                 ProductEventTypeData::PriceRemoved,
                 payload.shop_id,
                 payload.shops_product_id,
@@ -204,11 +204,11 @@ impl From<Event<ProductId, LocalizedProductEventPayloadView>> for GetProductEven
 
 #[cfg(test)]
 mod tests {
-    use crate::core::product_event::{
-        LocalizedProductCreatedEventPayloadView, LocalizedProductEventPayloadView,
-        LocalizedProductPriceChangeEventPayloadView,
-        LocalizedProductPriceDiscoveryEventPayloadView,
-        LocalizedProductStateChangeEventPayloadView,
+    use crate::core::product_event::domain::{
+        LocalizedProductCreatedDomainEventPayloadView, LocalizedProductDomainEventPayloadView,
+        LocalizedProductPriceChangeDomainEventPayloadView,
+        LocalizedProductPriceDiscoveryDomainEventPayloadView,
+        LocalizedProductStateChangeDomainEventPayloadView,
     };
     use crate::data::{
         get_product_event_data::{
@@ -233,7 +233,7 @@ mod tests {
 
     #[rstest::rstest]
     #[case::created(
-        LocalizedProductEventPayloadView::Created(LocalizedProductCreatedEventPayloadView {
+        LocalizedProductDomainEventPayloadView::Created(LocalizedProductCreatedDomainEventPayloadView {
             shop_id: "569c809e-b9e0-48c0-8c52-ac37d82a0959".try_into().unwrap(),
             shops_product_id: "bar".into(),
             shop_name: "baz".into(),
@@ -256,7 +256,7 @@ mod tests {
         }
     )]
     #[case::state_listed(
-        LocalizedProductEventPayloadView::StateListed(LocalizedProductStateChangeEventPayloadView {
+        LocalizedProductDomainEventPayloadView::StateListed(LocalizedProductStateChangeDomainEventPayloadView {
             shop_id: "569c809e-b9e0-48c0-8c52-ac37d82a0959".try_into().unwrap(),
             shops_product_id: "bar".into(),
             old_state: ProductState::Available
@@ -272,7 +272,7 @@ mod tests {
         }
     )]
     #[case::state_available(
-        LocalizedProductEventPayloadView::StateAvailable(LocalizedProductStateChangeEventPayloadView {
+        LocalizedProductDomainEventPayloadView::StateAvailable(LocalizedProductStateChangeDomainEventPayloadView {
             shop_id: "569c809e-b9e0-48c0-8c52-ac37d82a0959".try_into().unwrap(),
             shops_product_id: "bar".into(),
             old_state: ProductState::Listed
@@ -288,7 +288,7 @@ mod tests {
         }
     )]
     #[case::state_reserved(
-        LocalizedProductEventPayloadView::StateReserved(LocalizedProductStateChangeEventPayloadView {
+        LocalizedProductDomainEventPayloadView::StateReserved(LocalizedProductStateChangeDomainEventPayloadView {
             shop_id: "569c809e-b9e0-48c0-8c52-ac37d82a0959".try_into().unwrap(),
             shops_product_id: "bar".into(),
             old_state: ProductState::Available
@@ -304,7 +304,7 @@ mod tests {
         }
     )]
     #[case::state_sold(
-        LocalizedProductEventPayloadView::StateSold(LocalizedProductStateChangeEventPayloadView {
+        LocalizedProductDomainEventPayloadView::StateSold(LocalizedProductStateChangeDomainEventPayloadView {
             shop_id: "569c809e-b9e0-48c0-8c52-ac37d82a0959".try_into().unwrap(),
             shops_product_id: "bar".into(),
             old_state: ProductState::Reserved
@@ -320,7 +320,7 @@ mod tests {
         }
     )]
     #[case::state_removed(
-        LocalizedProductEventPayloadView::StateRemoved(LocalizedProductStateChangeEventPayloadView {
+        LocalizedProductDomainEventPayloadView::StateRemoved(LocalizedProductStateChangeDomainEventPayloadView {
             shop_id: "569c809e-b9e0-48c0-8c52-ac37d82a0959".try_into().unwrap(),
             shops_product_id: "bar".into(),
             old_state: ProductState::Sold
@@ -336,7 +336,7 @@ mod tests {
         }
     )]
     #[case::state_unknown(
-        LocalizedProductEventPayloadView::StateUnknown(LocalizedProductStateChangeEventPayloadView {
+        LocalizedProductDomainEventPayloadView::StateUnknown(LocalizedProductStateChangeDomainEventPayloadView {
             shop_id: "569c809e-b9e0-48c0-8c52-ac37d82a0959".try_into().unwrap(),
             shops_product_id: "bar".into(),
             old_state: ProductState::Removed
@@ -352,7 +352,7 @@ mod tests {
         }
     )]
     #[case::price_discovered(
-        LocalizedProductEventPayloadView::PriceDiscovered(LocalizedProductPriceDiscoveryEventPayloadView {
+        LocalizedProductDomainEventPayloadView::PriceDiscovered(LocalizedProductPriceDiscoveryDomainEventPayloadView {
             shop_id: "569c809e-b9e0-48c0-8c52-ac37d82a0959".try_into().unwrap(),
             shops_product_id: "bar".into(),
             price: Price::new(500u64.into(), Currency::Eur),
@@ -370,7 +370,7 @@ mod tests {
         }
     )]
     #[case::price_dropped(
-        LocalizedProductEventPayloadView::PriceDropped(LocalizedProductPriceChangeEventPayloadView {
+        LocalizedProductDomainEventPayloadView::PriceDropped(LocalizedProductPriceChangeDomainEventPayloadView {
             shop_id: "569c809e-b9e0-48c0-8c52-ac37d82a0959".try_into().unwrap(),
             shops_product_id: "bar".into(),
             new_price: Price::new(500u64.into(), Currency::Eur),
@@ -387,7 +387,7 @@ mod tests {
         }
     )]
     #[case::price_increased(
-        LocalizedProductEventPayloadView::PriceIncreased(LocalizedProductPriceChangeEventPayloadView {
+        LocalizedProductDomainEventPayloadView::PriceIncreased(LocalizedProductPriceChangeDomainEventPayloadView {
             shop_id: "569c809e-b9e0-48c0-8c52-ac37d82a0959".try_into().unwrap(),
             shops_product_id: "bar".into(),
             new_price: Price::new(777u64.into(), Currency::Eur),
@@ -405,7 +405,7 @@ mod tests {
     )]
     #[trace]
     fn should_from_event_localized_product_event_payload_for_get_product_event_data(
-        #[case] payload_view: LocalizedProductEventPayloadView,
+        #[case] payload_view: LocalizedProductDomainEventPayloadView,
         #[case] expected: GetProductEventData,
     ) {
         let event = Event {

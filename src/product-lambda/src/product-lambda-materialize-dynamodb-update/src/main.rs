@@ -24,10 +24,7 @@ async fn main() -> Result<(), Error> {
     let client = Client::new(&aws_config);
     let repository = ProductDynamoDbRepositoryImpl::new(&client, &table_name);
 
-    info!(
-        dynamoDbTableName = %table_name,
-        "Lambda cold start completed, client initialized."
-    );
+    info!("Lambda cold start completed, client initialized.");
 
     run(service_fn(|event: LambdaEvent<SqsEvent>| async {
         handler(&repository, event).await

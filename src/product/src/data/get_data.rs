@@ -58,14 +58,11 @@ pub struct GetProductData {
     pub origin_year: Option<Year>,
     #[serde(skip_serializing_if = "Option::is_none", default)]
     pub origin_year_max: Option<Year>,
-    #[serde(skip_serializing_if = "Option::is_none", default)]
-    pub authenticity: Option<AuthenticityData>,
-    #[serde(skip_serializing_if = "Option::is_none", default)]
-    pub condition: Option<ConditionData>,
-    #[serde(skip_serializing_if = "Option::is_none", default)]
-    pub provenance: Option<ProvenanceData>,
-    #[serde(skip_serializing_if = "Option::is_none", default)]
-    pub restoration: Option<RestorationData>,
+
+    pub authenticity: AuthenticityData,
+    pub condition: ConditionData,
+    pub provenance: ProvenanceData,
+    pub restoration: RestorationData,
 
     #[serde(
         with = "time::serde::rfc3339::option",
@@ -125,10 +122,10 @@ impl From<LocalizedProductView> for GetProductData {
             origin_year_min: product_view.origin_year.and_then(|oy| oy.min()),
             origin_year: product_view.origin_year.and_then(|oy| oy.exact()),
             origin_year_max: product_view.origin_year.and_then(|oy| oy.max()),
-            authenticity: product_view.authenticity.map(AuthenticityData::from),
-            condition: product_view.condition.map(ConditionData::from),
-            provenance: product_view.provenance.map(ProvenanceData::from),
-            restoration: product_view.restoration.map(RestorationData::from),
+            authenticity: product_view.authenticity.into(),
+            condition: product_view.condition.into(),
+            provenance: product_view.provenance.into(),
+            restoration: product_view.restoration.into(),
             auction_start: product_view.auction_start,
             auction_end: product_view.auction_end,
             created: product_view.created,
@@ -218,10 +215,10 @@ mod tests {
             origin_year_min: Some(1900.into()),
             origin_year: Some(1900.into()),
             origin_year_max: Some(1903.into()),
-            authenticity: Some(AuthenticityData::Original),
-            condition: Some(ConditionData::Excellent),
-            provenance: Some(ProvenanceData::Partial),
-            restoration: Some(RestorationData::None),
+            authenticity: AuthenticityData::Original,
+            condition: ConditionData::Excellent,
+            provenance: ProvenanceData::Partial,
+            restoration: RestorationData::None,
             auction_start: None,
             auction_end: None,
             created: utc_datetime!(2025 - 05 - 05 0:00).into(),

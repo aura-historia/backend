@@ -329,8 +329,10 @@ Resources:
         - !Ref ProductMaterializeOpenSearchUpdateQ
         - !Ref ShopOpenSearchIndexQ
         - !Ref ProductUpdateNotifyUserQ
-        - !Ref ProductPipelineInitQ
         - !Ref UserLambdaFanoutUpdateWatchlistQ
+        - !Ref ProductPipelineTranslateQ
+        - !Ref ProductPipelineEmbedTextQ
+        - !Ref ProductPipelineExtractAttributeQ
       PolicyDocument:
         Version: "2012-10-17"
         Statement:
@@ -345,8 +347,10 @@ Resources:
               - !GetAtt ProductMaterializeOpenSearchUpdateQ.Arn
               - !GetAtt ShopOpenSearchIndexQ.Arn
               - !GetAtt ProductUpdateNotifyUserQ.Arn
-              - !GetAtt ProductPipelineInitQ.Arn
               - !GetAtt UserLambdaFanoutUpdateWatchlistQ.Arn
+              - !GetAtt ProductPipelineTranslateQ.Arn
+              - !GetAtt ProductPipelineEmbedTextQ.Arn
+              - !GetAtt ProductPipelineExtractAttributeQ.Arn
 
   Api:
     Type: AWS::ApiGatewayV2::Api
@@ -1249,6 +1253,14 @@ Resources:
                 Action:
                   - es:*
                 Resource: !Sub "arn:aws:es:${AWS::Region}:${AWS::AccountId}:domain/application-${StageName}/*"
+        - PolicyName: DynamoDBAccess
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: Allow
+                Action:
+                  - dynamodb:GetItem
+                Resource: !GetAtt TableOne.Arn
         - PolicyName: SQSPollerAccess
           PolicyDocument:
             Version: "2012-10-17"
@@ -1276,6 +1288,7 @@ Resources:
         Size: 512
       Environment:
         Variables:
+          DYNAMODB_TABLE_NAME: !Ref TableOne
           OPENSEARCH_ENDPOINT_URL: !Sub "https://${OpenSearchDomain.DomainEndpoint}"
           STAGE: "ephemeral"
   ProductMaterializeOpenSearchDbUpdateMapping:
@@ -1550,7 +1563,7 @@ Resources:
             NewImage:
               event_type:
                 S:
-                  - "CREATED"
+                  - "DOMAIN_CREATED"
       Targets:
         - Id: ProductMaterializeDynamoDbNewQ
           Arn: !GetAtt ProductMaterializeDynamoDbNewQ.Arn
@@ -1571,8 +1584,10 @@ Resources:
             NewImage:
               event_type:
                 S:
-                  - prefix: "PRICE_"
-                  - prefix: "STATE_"
+                  - prefix: "DOMAIN_PRICE_"
+                  - prefix: "DOMAIN_STATE_"
+                  - prefix: "ENRICHMENT_"
+                  - prefix: "POLICY_"
       Targets:
         - Id: ProductMaterializeDynamoDbUpdateQ
           Arn: !GetAtt ProductMaterializeDynamoDbUpdateQ.Arn
@@ -1593,7 +1608,7 @@ Resources:
             NewImage:
               event_type:
                 S:
-                  - "CREATED"
+                  - "DOMAIN_CREATED"
       Targets:
         - Id: ProductMaterializeOpenSearchNewQ
           Arn: !GetAtt ProductMaterializeOpenSearchNewQ.Arn
@@ -1614,8 +1629,10 @@ Resources:
             NewImage:
               event_type:
                 S:
-                  - prefix: "PRICE_"
-                  - prefix: "STATE_"
+                  - prefix: "DOMAIN_PRICE_"
+                  - prefix: "DOMAIN_STATE_"
+                  - prefix: "ENRICHMENT_"
+                  - prefix: "POLICY_"
       Targets:
         - Id: ProductMaterializeOpenSearchUpdateQ
           Arn: !GetAtt ProductMaterializeOpenSearchUpdateQ.Arn
@@ -1636,32 +1653,11 @@ Resources:
             NewImage:
               event_type:
                 S:
-                  - prefix: "PRICE_"
-                  - prefix: "STATE_"
+                  - prefix: "DOMAIN_PRICE_"
+                  - prefix: "DOMAIN_STATE_"
       Targets:
         - Id: ProductUpdateNotifyUserQ
           Arn: !GetAtt ProductUpdateNotifyUserQ.Arn
-  DynamoDbProductEventRecordCreatedProductEnrichmentEventRule:
-    Type: AWS::Events::Rule
-    Properties:
-      Name: !Sub "ddb-product-enrichment-${StageName}"
-      EventBusName: !Ref DynamoDbEventBus
-      EventPattern:
-        source:
-          - !Ref TableOne
-        detail-type:
-          - "DynamoDBStreamRecord"
-        detail:
-          eventName:
-            - "INSERT"
-          dynamodb:
-            NewImage:
-              event_type:
-                S:
-                  - "CREATED"
-      Targets:
-        - Id: ProductPipelineInit
-          Arn: !GetAtt ProductPipelineInitQ.Arn
   DynamoDbPutShopRecordEventRule:
     Type: AWS::Events::Rule
     Properties:
@@ -1767,262 +1763,6 @@ Resources:
         - Key: Name
           Value: !Sub "product-pipeline-sg-${StageName}"
 
-  ProductPipelineInitDlq:
-    Type: AWS::SQS::Queue
-    Properties:
-      QueueName: !Sub "product-pipeline-init-dlq-${StageName}"
-      MessageRetentionPeriod: 1209600
-  ProductPipelineInitQ:
-    Type: AWS::SQS::Queue
-    Properties:
-      QueueName: !Sub "product-pipeline-init-queue-${StageName}"
-      RedrivePolicy:
-        deadLetterTargetArn: !GetAtt ProductPipelineInitDlq.Arn
-        maxReceiveCount: 5
-      VisibilityTimeout: 60
-  ProductPipelineInitRole:
-    Type: AWS::IAM::Role
-    Properties:
-      RoleName: !Sub "product-pipeline-init-role-${StageName}"
-      AssumeRolePolicyDocument:
-        Version: "2012-10-17"
-        Statement:
-          - Effect: Allow
-            Principal:
-              Service: ec2.amazonaws.com
-            Action: sts:AssumeRole
-          - Effect: Allow
-            Principal:
-              Service: spot.amazonaws.com
-            Action: sts:AssumeRole
-      ManagedPolicyArns:
-        - arn:aws:iam::aws:policy/CloudWatchAgentServerPolicy
-        - arn:aws:iam::aws:policy/AmazonS3ReadOnlyAccess
-        - arn:aws:iam::aws:policy/AmazonSSMManagedInstanceCore
-      Policies:
-        - PolicyName: AllowTerminateInASG
-          PolicyDocument:
-            Version: "2012-10-17"
-            Statement:
-              - Effect: Allow
-                Action: autoscaling:TerminateInstanceInAutoScalingGroup
-                Resource: "*"
-        - PolicyName: SQSPollerAccess
-          PolicyDocument:
-            Version: "2012-10-17"
-            Statement:
-              - Effect: Allow
-                Action:
-                  - sqs:SendMessage
-                  - sqs:SendMessageBatch
-                  - sqs:ReceiveMessage
-                  - sqs:DeleteMessage
-                  - sqs:DeleteMessageBatch
-                  - sqs:GetQueueAttributes
-                  - sqs:GetQueueUrl
-                  - sqs:ChangeMessageVisibility
-                Resource:
-                  - !GetAtt ProductPipelineInitQ.Arn
-                  - !GetAtt ProductPipelineTranslateQ.Arn
-        - PolicyName: CloudWatchLogsCreate
-          PolicyDocument:
-            Version: "2012-10-17"
-            Statement:
-              - Effect: Allow
-                Action:
-                  - logs:CreateLogGroup
-                  - logs:CreateLogStream
-                  - logs:PutLogEvents
-                Resource: "*"
-  ProductPipelineInitInstanceProfile:
-    Type: AWS::IAM::InstanceProfile
-    Properties:
-      InstanceProfileName: !Sub "product-pipeline-init-profile-${StageName}"
-      Roles:
-        - !Ref ProductPipelineInitRole
-  ProductPipelineInitLaunchTemplate:
-    Type: AWS::EC2::LaunchTemplate
-    Properties:
-      LaunchTemplateName: !Sub "product-pipeline-init-template-${StageName}"
-      LaunchTemplateData:
-        IamInstanceProfile:
-          Name: !Ref ProductPipelineInitInstanceProfile
-        InstanceType: c7i.large
-        ImageId: ami-004e960cde33f9146
-        SecurityGroupIds: [!Ref ProductPipelineSecurityGroup]
-        BlockDeviceMappings:
-          - DeviceName: /dev/sda1
-            Ebs:
-              VolumeSize: 50
-              VolumeType: gp3
-              DeleteOnTermination: true
-        TagSpecifications:
-          - ResourceType: instance
-            Tags:
-              - Key: Name
-                Value: !Sub "product-pipeline-init-${StageName}"
-              - Key: Fleet
-                Value: product-pipeline-init
-        UserData:
-          Fn::Base64: !Sub |
-            #!/bin/bash
-            set -euxo pipefail
-            sudo -i
-            # Export required vars for binary
-            export STAGE="ephemeral"
-            export STAGE_NAME=${StageName}
-            export CommitSHA="${CommitSHA}"
-            export ARTIFACT_BUCKET="${ArtifactBucket}"
-            export SOURCE_QUEUE_URL="${ProductPipelineInitQ}"
-            export TARGET_QUEUE_URL="${ProductPipelineTranslateQ}"
-            # Install awscli
-            apt -y install unzip
-            curl "https://awscli.amazonaws.com/awscli-exe-linux-x86_64.zip" -o "awscliv2.zip"
-            unzip awscliv2.zip
-            sudo ./aws/install
-            # Install cloudwatch-agent
-            sudo wget https://s3.amazonaws.com/amazoncloudwatch-agent/debian/amd64/latest/amazon-cloudwatch-agent.deb
-            sudo dpkg -i -E ./amazon-cloudwatch-agent.deb
-            # Download and install binary
-            sudo aws s3 cp "s3://${ArtifactBucket}/${StageName}/${CommitSHA}/product-pipeline-init" /opt/product-pipeline-init --region eu-central-1
-            sudo chmod +x /opt/product-pipeline-init
-            # Configure CloudWatchAgent
-            cat << EOF | sudo tee /opt/aws/amazon-cloudwatch-agent.json > /dev/null
-            {
-              "metrics": {
-                "namespace": "CWAgent",
-                "metrics_collected": {
-                  "cpu": {
-                    "measurement": [
-                      {
-                        "name": "cpu_usage_idle",
-                        "rename": "CPU_IDLE",
-                        "unit": "Percent"
-                      },
-                      {
-                        "name": "cpu_usage_iowait",
-                        "rename": "CPU_IOWAIT",
-                        "unit": "Percent"
-                      },
-                      "cpu_time_guest"
-                    ],
-                    "metrics_collection_interval": 60,
-                    "resources": ["*"],
-                    "totalcpu": false
-                  },
-                  "disk": {
-                    "measurement": [
-                      {
-                        "name": "used_percent",
-                        "rename": "DISK_USED_PERCENT",
-                        "unit": "Percent"
-                      },
-                      "used",
-                      "free"
-                    ],
-                    "metrics_collection_interval": 60,
-                    "resources": ["*"]
-                  },
-                  "diskio": {
-                    "measurement": [
-                      "io_time",
-                      "read_bytes",
-                      "write_bytes",
-                      "reads",
-                      "writes"
-                    ],
-                    "metrics_collection_interval": 60,
-                    "resources": ["*"]
-                  },
-                  "mem": {
-                    "measurement": [
-                      {
-                        "name": "mem_used_percent",
-                        "rename": "MEM_USED_PERCENT",
-                        "unit": "Percent"
-                      },
-                      "mem_used",
-                      "mem_available"
-                    ],
-                    "metrics_collection_interval": 60
-                  },
-                  "netstat": {
-                    "measurement": [
-                      "tcp_established",
-                      "tcp_time_wait"
-                    ],
-                    "metrics_collection_interval": 60
-                  },
-                  "net": {
-                    "measurement": [
-                      "bytes_sent",
-                      "bytes_recv",
-                      "packets_sent",
-                      "packets_recv"
-                    ],
-                    "metrics_collection_interval": 60,
-                    "resources": ["*"]
-                  }
-                }
-              },
-              "logs": {
-                "logs_collected": {
-                  "files": {
-                    "collect_list": [
-                      {
-                        "file_path": "/var/log/product-pipeline-init.log",
-                        "log_group_name": "/aws/ec2/$STAGE-product-pipeline-init",
-                        "log_stream_name": "{instance_id}",
-                        "timestamp_format": "%Y-%m-%dT%H:%M:%S.%f%z",
-                        "timezone": "UTC",
-                        "multi_line_start_pattern": "^{"
-                      }
-                    ]
-                  }
-                }
-              }
-            }
-            EOF
-            amazon-cloudwatch-agent-ctl -a fetch-config -m ec2 -c file:/opt/aws/amazon-cloudwatch-agent.json -s
-            LOG_PATH="/var/log/product-pipeline-init.log"
-            sudo touch "$LOG_PATH"
-            sudo chmod 666 "$LOG_PATH"
-            # Run binary
-            echo "[$(date)] Running product-pipeline-init..." | tee -a "$LOG_PATH"
-            /opt/product-pipeline-init >> "$LOG_PATH" 2>&1
-            EXIT_CODE=$?
-            echo "[$(date)] Job finished with code $EXIT_CODE" | tee -a "$LOG_PATH"
-            sleep 5
-            aws autoscaling terminate-instance-in-auto-scaling-group \
-              --instance-id $(ec2metadata --instance-id) \
-              --should-decrement-desired-capacity
-            exit $EXIT_CODE
-  ProductPipelineInitASG:
-    Type: AWS::AutoScaling::AutoScalingGroup
-    Properties:
-      VPCZoneIdentifier:
-        - !Ref ProductPipelineSubnetA
-      MinSize: 0
-      MaxSize: 1
-      DesiredCapacity: 0
-      MixedInstancesPolicy:
-        LaunchTemplate:
-          LaunchTemplateSpecification:
-            LaunchTemplateId: !Ref ProductPipelineInitLaunchTemplate
-            Version: !GetAtt ProductPipelineInitLaunchTemplate.LatestVersionNumber
-          Overrides:
-            - InstanceType: c7i.large
-            - InstanceType: c6i.large
-        InstancesDistribution:
-          OnDemandPercentageAboveBaseCapacity: 0
-          SpotAllocationStrategy: price-capacity-optimized
-      Tags:
-        - Key: Name
-          Value: !Sub "product-pipeline-init-${StageName}"
-          PropagateAtLaunch: true
-      HealthCheckType: EC2
-      HealthCheckGracePeriod: 120
-
   ProductPipelineTranslateDlq:
     Type: AWS::SQS::Queue
     Properties:
@@ -2069,8 +1809,6 @@ Resources:
             Statement:
               - Effect: Allow
                 Action:
-                  - sqs:SendMessage
-                  - sqs:SendMessageBatch
                   - sqs:ReceiveMessage
                   - sqs:DeleteMessage
                   - sqs:DeleteMessageBatch
@@ -2079,7 +1817,6 @@ Resources:
                   - sqs:ChangeMessageVisibility
                 Resource:
                   - !GetAtt ProductPipelineTranslateQ.Arn
-                  - !GetAtt ProductPipelineEmbedTextQ.Arn
         - PolicyName: CloudWatchLogsCreate
           PolicyDocument:
             Version: "2012-10-17"
@@ -2090,6 +1827,24 @@ Resources:
                   - logs:CreateLogStream
                   - logs:PutLogEvents
                 Resource: "*"
+        - PolicyName: DynamoDBAccess
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: Allow
+                Action:
+                  - dynamodb:GetItem
+                  - dynamodb:Query
+                  - dynamodb:PutItem
+                  - dynamodb:DeleteItem
+                  - dynamodb:UpdateItem
+                  - dynamodb:BatchGetItem
+                  - dynamodb:BatchWriteItem
+                  - dynamodb:TransactGetItems
+                  - dynamodb:TransactWriteItems
+                Resource:
+                  - !GetAtt TableOne.Arn
+                  - !Sub "${TableOne.Arn}/index/*"
   ProductPipelineTranslateInstanceProfile:
     Type: AWS::IAM::InstanceProfile
     Properties:
@@ -2129,7 +1884,6 @@ Resources:
             export CommitSHA="${CommitSHA}"
             export ARTIFACT_BUCKET="${ArtifactBucket}"
             export SOURCE_QUEUE_URL="${ProductPipelineTranslateQ}"
-            export TARGET_QUEUE_URL="${ProductPipelineEmbedTextQ}"
             # Download and install binary
             sudo aws s3 cp "s3://${ArtifactBucket}/${StageName}/${CommitSHA}/product-pipeline-translate" /opt/product-pipeline-translate/product-pipeline-translate --region eu-central-1
             sudo chmod +x /opt/product-pipeline-translate/product-pipeline-translate
@@ -2221,6 +1975,27 @@ Resources:
           PropagateAtLaunch: true
       HealthCheckType: EC2
       HealthCheckGracePeriod: 120
+  ProductPipelineTranslateDynamoDbProductEventRecordCreatedEventRule:
+    Type: AWS::Events::Rule
+    Properties:
+      Name: !Sub "ddb-product-create-product-pipeline-translate-${StageName}"
+      EventBusName: !Ref DynamoDbEventBus
+      EventPattern:
+        source:
+          - !Ref TableOne
+        detail-type:
+          - "DynamoDBStreamRecord"
+        detail:
+          eventName:
+            - "INSERT"
+          dynamodb:
+            NewImage:
+              event_type:
+                S:
+                  - "DOMAIN_CREATED"
+      Targets:
+        - Id: ProductPipelineTranslateQ
+          Arn: !GetAtt ProductPipelineTranslateQ.Arn
 
   ProductPipelineEmbedTextDlq:
     Type: AWS::SQS::Queue
@@ -2268,8 +2043,6 @@ Resources:
             Statement:
               - Effect: Allow
                 Action:
-                  - sqs:SendMessage
-                  - sqs:SendMessageBatch
                   - sqs:ReceiveMessage
                   - sqs:DeleteMessage
                   - sqs:DeleteMessageBatch
@@ -2278,7 +2051,6 @@ Resources:
                   - sqs:ChangeMessageVisibility
                 Resource:
                   - !GetAtt ProductPipelineEmbedTextQ.Arn
-                  - !GetAtt ProductPipelineExtractAttributeQ.Arn
         - PolicyName: CloudWatchLogsCreate
           PolicyDocument:
             Version: "2012-10-17"
@@ -2289,6 +2061,24 @@ Resources:
                   - logs:CreateLogStream
                   - logs:PutLogEvents
                 Resource: "*"
+        - PolicyName: DynamoDBAccess
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: Allow
+                Action:
+                  - dynamodb:GetItem
+                  - dynamodb:Query
+                  - dynamodb:PutItem
+                  - dynamodb:DeleteItem
+                  - dynamodb:UpdateItem
+                  - dynamodb:BatchGetItem
+                  - dynamodb:BatchWriteItem
+                  - dynamodb:TransactGetItems
+                  - dynamodb:TransactWriteItems
+                Resource:
+                  - !GetAtt TableOne.Arn
+                  - !Sub "${TableOne.Arn}/index/*"
   ProductPipelineEmbedTextInstanceProfile:
     Type: AWS::IAM::InstanceProfile
     Properties:
@@ -2328,7 +2118,6 @@ Resources:
             export CommitSHA="${CommitSHA}"
             export ARTIFACT_BUCKET="${ArtifactBucket}"
             export SOURCE_QUEUE_URL="${ProductPipelineEmbedTextQ}"
-            export TARGET_QUEUE_URL="${ProductPipelineExtractAttributeQ}"
             # Download and install binary
             sudo aws s3 cp "s3://${ArtifactBucket}/${StageName}/${CommitSHA}/product-pipeline-embed-text" /opt/product-pipeline-embed-text/product-pipeline-embed-text --region eu-central-1
             sudo chmod +x /opt/product-pipeline-embed-text/product-pipeline-embed-text
@@ -2420,6 +2209,27 @@ Resources:
           PropagateAtLaunch: true
       HealthCheckType: EC2
       HealthCheckGracePeriod: 120
+  ProductPipelineEmbedTextDynamoDbProductEventRecordCreatedEventRule:
+    Type: AWS::Events::Rule
+    Properties:
+      Name: !Sub "ddb-product-create-product-pipeline-embed-text-${StageName}"
+      EventBusName: !Ref DynamoDbEventBus
+      EventPattern:
+        source:
+          - !Ref TableOne
+        detail-type:
+          - "DynamoDBStreamRecord"
+        detail:
+          eventName:
+            - "INSERT"
+          dynamodb:
+            NewImage:
+              event_type:
+                S:
+                  - "DOMAIN_CREATED"
+      Targets:
+        - Id: ProductPipelineEmbedTextQ
+          Arn: !GetAtt ProductPipelineEmbedTextQ.Arn
 
   ProductPipelineExtractAttributeDlq:
     Type: AWS::SQS::Queue
@@ -2467,8 +2277,6 @@ Resources:
             Statement:
               - Effect: Allow
                 Action:
-                  - sqs:SendMessage
-                  - sqs:SendMessageBatch
                   - sqs:ReceiveMessage
                   - sqs:DeleteMessage
                   - sqs:DeleteMessageBatch
@@ -2477,7 +2285,6 @@ Resources:
                   - sqs:ChangeMessageVisibility
                 Resource:
                   - !GetAtt ProductPipelineExtractAttributeQ.Arn
-                  - !GetAtt ProductPipelineCompleteQ.Arn
         - PolicyName: CloudWatchLogsCreate
           PolicyDocument:
             Version: "2012-10-17"
@@ -2488,6 +2295,24 @@ Resources:
                   - logs:CreateLogStream
                   - logs:PutLogEvents
                 Resource: "*"
+        - PolicyName: DynamoDBAccess
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: Allow
+                Action:
+                  - dynamodb:GetItem
+                  - dynamodb:Query
+                  - dynamodb:PutItem
+                  - dynamodb:DeleteItem
+                  - dynamodb:UpdateItem
+                  - dynamodb:BatchGetItem
+                  - dynamodb:BatchWriteItem
+                  - dynamodb:TransactGetItems
+                  - dynamodb:TransactWriteItems
+                Resource:
+                  - !GetAtt TableOne.Arn
+                  - !Sub "${TableOne.Arn}/index/*"
   ProductPipelineExtractAttributeInstanceProfile:
     Type: AWS::IAM::InstanceProfile
     Properties:
@@ -2527,7 +2352,6 @@ Resources:
             export CommitSHA="${CommitSHA}"
             export ARTIFACT_BUCKET="${ArtifactBucket}"
             export SOURCE_QUEUE_URL="${ProductPipelineExtractAttributeQ}"
-            export TARGET_QUEUE_URL="${ProductPipelineCompleteQ}"
             # Download and install binary
             sudo aws s3 cp "s3://${ArtifactBucket}/${StageName}/${CommitSHA}/product-pipeline-extract-attribute" /opt/product-pipeline-extract-attribute/product-pipeline-extract-attribute --region eu-central-1
             sudo chmod +x /opt/product-pipeline-extract-attribute/product-pipeline-extract-attribute
@@ -2619,286 +2443,27 @@ Resources:
           PropagateAtLaunch: true
       HealthCheckType: EC2
       HealthCheckGracePeriod: 120
-
-  ProductPipelineCompleteDlq:
-    Type: AWS::SQS::Queue
+  ProductPipelineExtractAttributeDynamoDbProductEventRecordCreatedEventRule:
+    Type: AWS::Events::Rule
     Properties:
-      QueueName: !Sub "product-pipeline-complete-dlq-${StageName}"
-      MessageRetentionPeriod: 1209600
-  ProductPipelineCompleteQ:
-    Type: AWS::SQS::Queue
-    Properties:
-      QueueName: !Sub "product-pipeline-complete-queue-${StageName}"
-      RedrivePolicy:
-        deadLetterTargetArn: !GetAtt ProductPipelineCompleteDlq.Arn
-        maxReceiveCount: 5
-      VisibilityTimeout: 60
-  ProductPipelineCompleteRole:
-    Type: AWS::IAM::Role
-    Properties:
-      RoleName: !Sub "product-pipeline-complete-role-${StageName}"
-      AssumeRolePolicyDocument:
-        Version: "2012-10-17"
-        Statement:
-          - Effect: Allow
-            Principal:
-              Service: ec2.amazonaws.com
-            Action: sts:AssumeRole
-          - Effect: Allow
-            Principal:
-              Service: spot.amazonaws.com
-            Action: sts:AssumeRole
-      ManagedPolicyArns:
-        - arn:aws:iam::aws:policy/CloudWatchAgentServerPolicy
-        - arn:aws:iam::aws:policy/AmazonS3ReadOnlyAccess
-        - arn:aws:iam::aws:policy/AmazonSSMManagedInstanceCore
-      Policies:
-        - PolicyName: AllowTerminateInASG
-          PolicyDocument:
-            Version: "2012-10-17"
-            Statement:
-              - Effect: Allow
-                Action: autoscaling:TerminateInstanceInAutoScalingGroup
-                Resource: "*"
-        - PolicyName: DynamoDBAccess
-          PolicyDocument:
-            Version: "2012-10-17"
-            Statement:
-              - Effect: Allow
-                Action:
-                  - dynamodb:GetItem
-                  - dynamodb:Query
-                  - dynamodb:PutItem
-                  - dynamodb:DeleteItem
-                  - dynamodb:UpdateItem
-                  - dynamodb:BatchGetItem
-                  - dynamodb:BatchWriteItem
-                  - dynamodb:TransactGetItems
-                  - dynamodb:TransactWriteItems
-                Resource:
-                  - !GetAtt TableOne.Arn
-                  - !Sub "${TableOne.Arn}/index/*"
-        - PolicyName: OpenSearchAccess
-          PolicyDocument:
-            Version: "2012-10-17"
-            Statement:
-              - Effect: Allow
-                Action:
-                  - es:*
-                Resource: !Sub "arn:aws:es:${AWS::Region}:${AWS::AccountId}:domain/application-${StageName}/*"
-        - PolicyName: SQSPollerAccess
-          PolicyDocument:
-            Version: "2012-10-17"
-            Statement:
-              - Effect: Allow
-                Action:
-                  - sqs:SendMessage
-                  - sqs:SendMessageBatch
-                  - sqs:ReceiveMessage
-                  - sqs:DeleteMessage
-                  - sqs:DeleteMessageBatch
-                  - sqs:GetQueueAttributes
-                  - sqs:GetQueueUrl
-                  - sqs:ChangeMessageVisibility
-                Resource: !GetAtt ProductPipelineCompleteQ.Arn
-        - PolicyName: CloudWatchLogsCreate
-          PolicyDocument:
-            Version: "2012-10-17"
-            Statement:
-              - Effect: Allow
-                Action:
-                  - logs:CreateLogGroup
-                  - logs:CreateLogStream
-                  - logs:PutLogEvents
-                Resource: "*"
-  ProductPipelineCompleteInstanceProfile:
-    Type: AWS::IAM::InstanceProfile
-    Properties:
-      InstanceProfileName: !Sub "product-pipeline-complete-profile-${StageName}"
-      Roles:
-        - !Ref ProductPipelineCompleteRole
-  ProductPipelineCompleteLaunchTemplate:
-    Type: AWS::EC2::LaunchTemplate
-    Properties:
-      LaunchTemplateName: !Sub "product-pipeline-complete-template-${StageName}"
-      LaunchTemplateData:
-        IamInstanceProfile:
-          Name: !Ref ProductPipelineCompleteInstanceProfile
-        InstanceType: c7i.large
-        ImageId: ami-004e960cde33f9146
-        SecurityGroupIds: [!Ref ProductPipelineSecurityGroup]
-        BlockDeviceMappings:
-          - DeviceName: /dev/sda1
-            Ebs:
-              VolumeSize: 50
-              VolumeType: gp3
-              DeleteOnTermination: true
-        TagSpecifications:
-          - ResourceType: instance
-            Tags:
-              - Key: Name
-                Value: !Sub "product-pipeline-complete-${StageName}"
-              - Key: Fleet
-                Value: product-pipeline-complete
-        UserData:
-          Fn::Base64: !Sub |
-            #!/bin/bash
-            set -euxo pipefail
-            sudo -i
-            export STAGE="ephemeral"
-            export STAGE_NAME=${StageName}
-            export CommitSHA="${CommitSHA}"
-            export ARTIFACT_BUCKET="${ArtifactBucket}"
-            export SOURCE_QUEUE_URL="${ProductPipelineCompleteQ}"
-            export DYNAMODB_TABLE_NAME="${TableOne}"
-            export OPENSEARCH_ENDPOINT_URL="https://${OpenSearchDomain.DomainEndpoint}"
-            # Install awscli
-            apt -y install unzip
-            curl "https://awscli.amazonaws.com/awscli-exe-linux-x86_64.zip" -o "awscliv2.zip"
-            unzip awscliv2.zip
-            sudo ./aws/install
-            # Install cloudwatch-agent
-            sudo wget https://s3.amazonaws.com/amazoncloudwatch-agent/debian/amd64/latest/amazon-cloudwatch-agent.deb
-            sudo dpkg -i -E ./amazon-cloudwatch-agent.deb
-            # Download and install binary
-            sudo aws s3 cp "s3://${ArtifactBucket}/${StageName}/${CommitSHA}/product-pipeline-complete" /opt/product-pipeline-complete --region eu-central-1
-            sudo chmod +x /opt/product-pipeline-complete
-            # Configure CloudWatchAgent
-            cat << EOF | sudo tee /opt/aws/amazon-cloudwatch-agent.json > /dev/null
-            {
-              "metrics": {
-                "namespace": "CWAgent",
-                "metrics_collected": {
-                  "cpu": {
-                    "measurement": [
-                      {
-                        "name": "cpu_usage_idle",
-                        "rename": "CPU_IDLE",
-                        "unit": "Percent"
-                      },
-                      {
-                        "name": "cpu_usage_iowait",
-                        "rename": "CPU_IOWAIT",
-                        "unit": "Percent"
-                      },
-                      "cpu_time_guest"
-                    ],
-                    "metrics_collection_interval": 60,
-                    "resources": ["*"],
-                    "totalcpu": false
-                  },
-                  "disk": {
-                    "measurement": [
-                      {
-                        "name": "used_percent",
-                        "rename": "DISK_USED_PERCENT",
-                        "unit": "Percent"
-                      },
-                      "used",
-                      "free"
-                    ],
-                    "metrics_collection_interval": 60,
-                    "resources": ["*"]
-                  },
-                  "diskio": {
-                    "measurement": [
-                      "io_time",
-                      "read_bytes",
-                      "write_bytes",
-                      "reads",
-                      "writes"
-                    ],
-                    "metrics_collection_interval": 60,
-                    "resources": ["*"]
-                  },
-                  "mem": {
-                    "measurement": [
-                      {
-                        "name": "mem_used_percent",
-                        "rename": "MEM_USED_PERCENT",
-                        "unit": "Percent"
-                      },
-                      "mem_used",
-                      "mem_available"
-                    ],
-                    "metrics_collection_interval": 60
-                  },
-                  "netstat": {
-                    "measurement": [
-                      "tcp_established",
-                      "tcp_time_wait"
-                    ],
-                    "metrics_collection_interval": 60
-                  },
-                  "net": {
-                    "measurement": [
-                      "bytes_sent",
-                      "bytes_recv",
-                      "packets_sent",
-                      "packets_recv"
-                    ],
-                    "metrics_collection_interval": 60,
-                    "resources": ["*"]
-                  }
-                }
-              },
-              "logs": {
-                "logs_collected": {
-                  "files": {
-                    "collect_list": [
-                      {
-                        "file_path": "/var/log/product-pipeline-complete.log",
-                        "log_group_name": "/aws/ec2/$STAGE-product-pipeline-complete",
-                        "log_stream_name": "{instance_id}",
-                        "timestamp_format": "%Y-%m-%dT%H:%M:%S.%f%z",
-                        "timezone": "UTC",
-                        "multi_line_start_pattern": "^{"
-                      }
-                    ]
-                  }
-                }
-              }
-            }
-            EOF
-            amazon-cloudwatch-agent-ctl -a fetch-config -m ec2 -c file:/opt/aws/amazon-cloudwatch-agent.json -s
-            LOG_PATH="/var/log/product-pipeline-complete.log"
-            sudo touch "$LOG_PATH"
-            sudo chmod 666 "$LOG_PATH"
-            # Run binary
-            echo "[$(date)] Running product-pipeline-complete..." | tee -a "$LOG_PATH"
-            /opt/product-pipeline-complete >> "$LOG_PATH" 2>&1
-            EXIT_CODE=$?
-            echo "[$(date)] Job finished with code $EXIT_CODE" | tee -a "$LOG_PATH"
-            sleep 5
-            aws autoscaling terminate-instance-in-auto-scaling-group \
-              --instance-id $(ec2metadata --instance-id) \
-              --should-decrement-desired-capacity
-            exit $EXIT_CODE
-  ProductPipelineCompleteASG:
-    Type: AWS::AutoScaling::AutoScalingGroup
-    Properties:
-      VPCZoneIdentifier:
-        - !Ref ProductPipelineSubnetA
-      MinSize: 0
-      MaxSize: 1
-      DesiredCapacity: 0
-      MixedInstancesPolicy:
-        LaunchTemplate:
-          LaunchTemplateSpecification:
-            LaunchTemplateId: !Ref ProductPipelineCompleteLaunchTemplate
-            Version: !GetAtt ProductPipelineCompleteLaunchTemplate.LatestVersionNumber
-          Overrides:
-            - InstanceType: c7i.large
-            - InstanceType: c6i.large
-        InstancesDistribution:
-          OnDemandPercentageAboveBaseCapacity: 0
-          SpotAllocationStrategy: price-capacity-optimized
-      Tags:
-        - Key: Name
-          Value: !Sub "product-pipeline-complete-${StageName}"
-          PropagateAtLaunch: true
-      HealthCheckType: EC2
-      HealthCheckGracePeriod: 120
+      Name: !Sub "ddb-product-embed-product-pipeline-extract-attr-${StageName}"
+      EventBusName: !Ref DynamoDbEventBus
+      EventPattern:
+        source:
+          - !Ref TableOne
+        detail-type:
+          - "DynamoDBStreamRecord"
+        detail:
+          eventName:
+            - "INSERT"
+          dynamodb:
+            NewImage:
+              event_type:
+                S:
+                  - "ENRICHMENT_EMBEDDED_TEXT"
+      Targets:
+        - Id: ProductPipelineExtractAttributeQ
+          Arn: !GetAtt ProductPipelineExtractAttributeQ.Arn
 
   ProductPipelineScaleControlRole:
     Type: AWS::IAM::Role
@@ -2949,15 +2514,15 @@ Resources:
         Size: 512
       Environment:
         Variables:
-          PRODUCT_PIPELINE_INIT_SQS_URL: !Ref ProductPipelineInitQ
-          PRODUCT_PIPELINE_INIT_SQS_NAME: !GetAtt ProductPipelineInitQ.QueueName
-          PRODUCT_PIPELINE_INIT_ASG_NAME: !Ref ProductPipelineInitASG
           PRODUCT_PIPELINE_TRANSLATE_SQS_URL: !Ref ProductPipelineTranslateQ
           PRODUCT_PIPELINE_TRANSLATE_SQS_NAME: !GetAtt ProductPipelineTranslateQ.QueueName
           PRODUCT_PIPELINE_TRANSLATE_ASG_NAME: !Ref ProductPipelineTranslateASG
           PRODUCT_PIPELINE_EMBED_TEXT_SQS_URL: !Ref ProductPipelineEmbedTextQ
           PRODUCT_PIPELINE_EMBED_TEXT_SQS_NAME: !GetAtt ProductPipelineEmbedTextQ.QueueName
           PRODUCT_PIPELINE_EMBED_TEXT_ASG_NAME: !Ref ProductPipelineEmbedTextASG
+          PRODUCT_PIPELINE_EXTRACT_ATTRIBUTE_SQS_URL: !Ref ProductPipelineExtractAttributeQ
+          PRODUCT_PIPELINE_EXTRACT_ATTRIBUTE_SQS_NAME: !GetAtt ProductPipelineExtractAttributeQ.QueueName
+          PRODUCT_PIPELINE_EXTRACT_ATTRIBUTE_ASG_NAME: !Ref ProductPipelineExtractAttributeASG
   ProductPipelineScaleControlStartSchedule:
     Type: AWS::Events::Rule
     Properties:
@@ -2968,8 +2533,6 @@ Resources:
           RetryPolicy:
             MaximumRetryAttempts: 5
             MaximumEventAgeInSeconds: 3600
-          DeadLetterConfig:
-            Arn: !GetAtt ProductPipelineInitDlq.Arn
   ProductPipelineScaleControlStartSchedulePermission:
     Type: AWS::Lambda::Permission
     Properties:
@@ -2977,66 +2540,6 @@ Resources:
       Action: "lambda:InvokeFunction"
       Principal: "events.amazonaws.com"
       SourceArn: !GetAtt ProductPipelineScaleControlStartSchedule.Arn
-
-  ProductPipelineScalePersistUpRole:
-    Type: AWS::IAM::Role
-    Properties:
-      RoleName: !Sub "product-pipeline-asg-scale-persist-up-role-${StageName}"
-      AssumeRolePolicyDocument:
-        Version: "2012-10-17"
-        Statement:
-          - Effect: Allow
-            Principal:
-              Service: lambda.amazonaws.com
-            Action: sts:AssumeRole
-      ManagedPolicyArns:
-        - arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole
-      Policies:
-        - PolicyName: ScalePersistUpASG
-          PolicyDocument:
-            Version: "2012-10-17"
-            Statement:
-              - Effect: Allow
-                Action:
-                  - autoscaling:UpdateAutoScalingGroup
-                  - autoscaling:DescribeAutoScalingGroups
-                Resource: !Sub "arn:aws:autoscaling:${AWS::Region}:${AWS::AccountId}:autoScalingGroup:*:autoScalingGroupName/${ProductPipelineCompleteASG}"
-  ProductPipelineScalePersistUpLambda:
-    Type: AWS::Lambda::Function
-    Properties:
-      FunctionName: !Sub "product-pipeline-asg-scale-persist-up-${StageName}"
-      Runtime: provided.al2023
-      Handler: lib.handler
-      Role: !GetAtt ProductPipelineScalePersistUpRole.Arn
-      Code:
-        S3Bucket: !Ref ArtifactBucket
-        S3Key: !Sub "product-pipeline-asg-scale-persist-up-${StageName}-${CommitSHA}.zip"
-      MemorySize: 128
-      Timeout: 60
-      EphemeralStorage:
-        Size: 512
-      Environment:
-        Variables:
-          PRODUCT_PIPELINE_COMPLETE_ASG_NAME: !Ref ProductPipelineCompleteASG
-  ProductPipelineScalePersistUpStartSchedule:
-    Type: AWS::Events::Rule
-    Properties:
-      ScheduleExpression: "cron(0 1 * * ? *)" # every day at 01:00 UTC
-      Targets:
-        - Arn: !GetAtt ProductPipelineScalePersistUpLambda.Arn
-          Id: "ProductPipelineScalePersistUpStartSchedule"
-          RetryPolicy:
-            MaximumRetryAttempts: 5
-            MaximumEventAgeInSeconds: 3600
-          DeadLetterConfig:
-            Arn: !GetAtt ProductPipelineCompleteDlq.Arn
-  ProductPipelineScalePersistUpStartSchedulePermission:
-    Type: AWS::Lambda::Permission
-    Properties:
-      FunctionName: !Ref ProductPipelineScalePersistUpLambda
-      Action: "lambda:InvokeFunction"
-      Principal: "events.amazonaws.com"
-      SourceArn: !GetAtt ProductPipelineScalePersistUpStartSchedule.Arn
 
 Outputs:
   CognitoHostedUIDomain:
@@ -3091,11 +2594,6 @@ Outputs:
   ProductUpdateNotifyUserDeadLetterQueueUrl:
     Value: !Ref ProductUpdateNotifyUserDlq
 
-  ProductPipelineInitQueueUrl:
-    Value: !Ref ProductPipelineInitQ
-  ProductPipelineInitDeadLetterQueueUrl:
-    Value: !Ref ProductPipelineInitDlq
-
   ProductPipelineTranslateQueueUrl:
     Value: !Ref ProductPipelineTranslateQ
   ProductPipelineTranslateDeadLetterQueueUrl:
@@ -3105,8 +2603,3 @@ Outputs:
     Value: !Ref ProductPipelineEmbedTextQ
   ProductPipelineEmbedTextDeadLetterQueueUrl:
     Value: !Ref ProductPipelineEmbedTextDlq
-
-  ProductPipelineCompleteQueueUrl:
-    Value: !Ref ProductPipelineCompleteQ
-  ProductPipelineCompleteDeadLetterQueueUrl:
-    Value: !Ref ProductPipelineCompleteDlq

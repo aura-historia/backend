@@ -5,7 +5,7 @@ use common::{
     batch::Batch, batch::dynamodb::handle_dynamodb_batch_write_put_product_output, has_key::HasKey,
 };
 use lambda_runtime::LambdaEvent;
-use product::dynamodb::product_event_record::ProductEventRecord;
+use product::dynamodb::product_event_record::domain::ProductDomainEventRecord;
 use product::dynamodb::product_record::ProductRecord;
 use product::dynamodb::repository::ProductDynamoDbRepository;
 use std::collections::HashMap;
@@ -94,7 +94,7 @@ fn extract_message_data(
         .message_id
         .clone()
         .expect("shouldn't receive an SQS-Message without 'message_id' because AWS sets it.");
-    let product_event_record: ProductEventRecord =
+    let product_event_record: ProductDomainEventRecord =
         extract_sqs_event_bridge_dynamodb_record(message, failed_message_ids, skipped_count)?;
     match ProductRecord::try_from(product_event_record) {
         Ok(record) => {
@@ -104,7 +104,7 @@ fn extract_message_data(
         Err(err) => {
             error!(
                 error = %err,
-                fromType = %std::any::type_name::<ProductEventRecord>(),
+                fromType = %std::any::type_name::<ProductDomainEventRecord>(),
                 toType = %std::any::type_name::<ProductRecord>(),
                 "Failed mapping types."
             );
@@ -127,8 +127,10 @@ mod tests {
     use common::product_id::ProductKey;
     use fake::{Fake, Faker};
     use lambda_runtime::{Context, LambdaEvent};
-    use product::core::product_event::{ProductCreatedEventPayload, ProductEventPayload};
-    use product::dynamodb::product_event_record::ProductEventRecord;
+    use product::core::product_event::domain::{
+        ProductCreatedDomainEventPayload, ProductDomainEventPayload,
+    };
+    use product::dynamodb::product_event_record::domain::ProductDomainEventRecord;
     use product::dynamodb::repository::MockProductDynamoDbRepository;
     use std::collections::HashMap;
     use std::sync::{Arc, Mutex};
@@ -137,7 +139,7 @@ mod tests {
     use time::OffsetDateTime;
     use uuid::Uuid;
 
-    fn mk_event_bridge_payload(product_event_record: &ProductEventRecord) -> String {
+    fn mk_event_bridge_payload(product_event_record: &ProductDomainEventRecord) -> String {
         let mut stream_record = StreamRecord::default();
         stream_record.approximate_creation_date_time = SystemTime::now().into();
         stream_record.new_image = serde_dynamo::to_item(product_event_record).unwrap();
@@ -157,14 +159,14 @@ mod tests {
         serde_json::to_string(&event).unwrap()
     }
 
-    fn mk_sqs_message(record: &ProductEventRecord) -> SqsMessage {
+    fn mk_sqs_message(record: &ProductDomainEventRecord) -> SqsMessage {
         let mut msg = SqsMessage::default();
         msg.message_id = Some(Faker.fake());
         msg.body = Some(mk_event_bridge_payload(record));
         msg
     }
 
-    fn mk_sqs_message_with_id(record: &ProductEventRecord, message_id: String) -> SqsMessage {
+    fn mk_sqs_message_with_id(record: &ProductDomainEventRecord, message_id: String) -> SqsMessage {
         let mut msg = SqsMessage::default();
         msg.message_id = Some(message_id);
         msg.body = Some(mk_event_bridge_payload(record));
@@ -186,16 +188,16 @@ mod tests {
     #[case(10874)]
     #[trace]
     async fn should_handle_sqs_message(#[case] record_count: usize) {
-        let records = fake::vec![ProductCreatedEventPayload; record_count]
+        let records = fake::vec![ProductCreatedDomainEventPayload; record_count]
             .into_iter()
-            .map(ProductEventPayload::Created)
+            .map(ProductDomainEventPayload::Created)
             .map(|event_payload| Event {
                 aggregate_id: Faker.fake(),
                 event_id: Faker.fake(),
                 timestamp: OffsetDateTime::now_utc(),
                 payload: event_payload,
             })
-            .map(ProductEventRecord::try_from)
+            .map(ProductDomainEventRecord::try_from)
             .map(Result::unwrap)
             .map(|record| mk_sqs_message(&record))
             .collect();
@@ -232,16 +234,16 @@ mod tests {
         #[case] record_count: usize,
     ) {
         let mut message_ids = HashMap::with_capacity(record_count);
-        let records = fake::vec![ProductCreatedEventPayload; record_count]
+        let records = fake::vec![ProductCreatedDomainEventPayload; record_count]
             .into_iter()
-            .map(ProductEventPayload::Created)
+            .map(ProductDomainEventPayload::Created)
             .map(|event_payload| Event {
                 aggregate_id: Faker.fake(),
                 event_id: Faker.fake(),
                 timestamp: OffsetDateTime::now_utc(),
                 payload: event_payload,
             })
-            .map(ProductEventRecord::try_from)
+            .map(ProductDomainEventRecord::try_from)
             .map(Result::unwrap)
             .map(|record| {
                 let uuid = Uuid::new_v4().to_string();
@@ -319,16 +321,16 @@ mod tests {
             .cloned()
             .collect::<Vec<_>>();
         let expected_failures_clone = expected_failures.clone();
-        let records = fake::vec![ProductCreatedEventPayload; record_count]
+        let records = fake::vec![ProductCreatedDomainEventPayload; record_count]
             .into_iter()
-            .map(ProductEventPayload::Created)
+            .map(ProductDomainEventPayload::Created)
             .map(|event_payload| Event {
                 aggregate_id: Faker.fake(),
                 event_id: Faker.fake(),
                 timestamp: OffsetDateTime::now_utc(),
                 payload: event_payload,
             })
-            .map(ProductEventRecord::try_from)
+            .map(ProductDomainEventRecord::try_from)
             .map(Result::unwrap)
             .map(|record| {
                 let uuid = Uuid::new_v4().to_string();

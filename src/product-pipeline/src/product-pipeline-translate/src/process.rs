@@ -1,14 +1,9 @@
 use crate::adapter::TranslationAdapter;
-use common::{
-    batch::Batch,
-    language::{domain::Language, record::LanguageRecord},
-    product_id::ProductId,
-};
+use common::language::domain::Language;
+use common::{batch::Batch, product_id::ProductId};
 use itertools::{Chunk, Itertools};
-use product_pipeline_common::{
-    process::{PipeProcessor, ProcessResult},
-    types::{CleansedPipeProduct, TranslatedPipeProduct},
-};
+use product::core::{product::Product, product_event::ProductEventPayload};
+use product_pipeline_common::process::{PipeProcessor, ProcessResult};
 use std::{
     collections::{HashMap, HashSet},
     sync::Arc,
@@ -33,44 +28,30 @@ impl TranslationPipeProcesserImpl {
 const TITLE_BATCH_SIZE: usize = 32;
 const DESCRIPTION_BATCH_SIZE: usize = 8;
 
-impl PipeProcessor<CleansedPipeProduct, TranslatedPipeProduct> for TranslationPipeProcesserImpl {
-    fn process(&self, ins: Vec<CleansedPipeProduct>) -> ProcessResult<TranslatedPipeProduct> {
+impl PipeProcessor for TranslationPipeProcesserImpl {
+    fn process(&self, ins: Vec<Product>) -> ProcessResult {
         let count = ins.len();
-        let mut out_products = ins
+        let mut products = ins
             .into_iter()
-            .map(|in_product| {
-                let out_product = TranslatedPipeProduct {
-                    product_id: in_product.product_id,
-                    shop_id: in_product.shop_id,
-                    shops_product_id: in_product.shops_product_id,
-                    native_title: in_product.native_title,
-                    other_title: HashMap::with_capacity(Language::COUNT),
-                    native_description: in_product.native_description,
-                    other_description: HashMap::with_capacity(Language::COUNT),
-                    images: in_product.images,
-                };
-                (out_product.product_id, out_product)
-            })
+            .map(|product| (product.product_id, product))
             .collect::<HashMap<_, _>>();
+        let mut successes = Vec::with_capacity((Language::COUNT - 1) * count);
         let mut failures = HashSet::new();
 
-        let mut all_titles: HashMap<LanguageRecord, Vec<(ProductId, String)>> =
-            HashMap::with_capacity(out_products.len());
-        let mut all_descriptions: HashMap<LanguageRecord, Vec<(ProductId, String)>> =
-            HashMap::with_capacity(out_products.len());
-        for out_product in out_products.values() {
+        let mut all_titles: HashMap<Language, Vec<(ProductId, String)>> =
+            HashMap::with_capacity(products.len());
+        let mut all_descriptions: HashMap<Language, Vec<(ProductId, String)>> =
+            HashMap::with_capacity(products.len());
+        for product in products.values() {
             all_titles
-                .entry(out_product.native_title.language)
+                .entry(product.native_title.localization)
                 .or_default()
-                .push((
-                    out_product.product_id,
-                    out_product.native_title.text.clone(),
-                ));
-            if let Some(ref native_description) = out_product.native_description {
+                .push((product.product_id, product.native_title.payload.to_string()));
+            if let Some(ref native_description) = product.native_description {
                 all_descriptions
-                    .entry(native_description.language)
+                    .entry(native_description.localization)
                     .or_default()
-                    .push((out_product.product_id, native_description.text.clone()));
+                    .push((product.product_id, native_description.payload.to_string()));
             }
         }
 
@@ -81,10 +62,15 @@ impl PipeProcessor<CleansedPipeProduct, TranslatedPipeProduct> for TranslationPi
             for titles_chunk in chunks.into_iter() {
                 let chunk_failures = self.handle_translation_chunk(
                     titles_chunk,
-                    &lang.into(),
-                    &mut out_products,
-                    |out_product, tgt_lang, translation| {
-                        out_product.other_title.insert(tgt_lang, translation);
+                    &lang,
+                    &mut products,
+                    |product, tgt_lang, translation| {
+                        if let Some(translation_event) =
+                            product.translate_title(lang, tgt_lang, translation.into())
+                        {
+                            successes
+                                .push(translation_event.map_payload(ProductEventPayload::from));
+                        }
                     },
                 );
                 failures.extend(chunk_failures);
@@ -98,17 +84,22 @@ impl PipeProcessor<CleansedPipeProduct, TranslatedPipeProduct> for TranslationPi
             for descriptions_chunk in chunks.into_iter() {
                 let chunk_failures = self.handle_translation_chunk(
                     descriptions_chunk,
-                    &lang.into(),
-                    &mut out_products,
-                    |out_product, tgt_lang, translation| {
-                        out_product.other_description.insert(tgt_lang, translation);
+                    &lang,
+                    &mut products,
+                    |product, tgt_lang, translation| {
+                        if let Some(translation_event) =
+                            product.translate_description(lang, tgt_lang, translation.into())
+                        {
+                            successes
+                                .push(translation_event.map_payload(ProductEventPayload::from));
+                        }
                     },
                 );
                 failures.extend(chunk_failures);
             }
         }
 
-        out_products.retain(|product_id, _| !failures.contains(product_id));
+        products.retain(|product_id, _| !failures.contains(product_id));
 
         info!(
             count = count,
@@ -118,7 +109,7 @@ impl PipeProcessor<CleansedPipeProduct, TranslatedPipeProduct> for TranslationPi
         );
 
         ProcessResult {
-            successes: out_products.into_values().collect(),
+            successes,
             failures,
         }
     }
@@ -129,8 +120,8 @@ impl TranslationPipeProcesserImpl {
         &self,
         chunk: Chunk<'_, IntoIter<(ProductId, String)>>,
         src_lang: &Language,
-        out_products: &mut HashMap<ProductId, TranslatedPipeProduct>,
-        apply_translation: impl Fn(&mut TranslatedPipeProduct, LanguageRecord, String),
+        products: &mut HashMap<ProductId, Product>,
+        mut apply_translation: impl FnMut(&mut Product, Language, String),
     ) -> HashSet<ProductId> {
         let mut failures = HashSet::new();
 
@@ -157,8 +148,8 @@ impl TranslationPipeProcesserImpl {
                         .zip(translated.into_iter())
                         .collect::<HashMap<_, _>>();
                     for (product_id, translated) in translateds {
-                        if let Some(out_product) = out_products.get_mut(product_id) {
-                            apply_translation(out_product, tgt_lang.into(), translated);
+                        if let Some(product) = products.get_mut(product_id) {
+                            apply_translation(product, tgt_lang, translated);
                         } else {
                             error!(productId = %product_id, "Expected to find PipeProduct but didn't.");
                         }
@@ -179,14 +170,18 @@ impl TranslationPipeProcesserImpl {
 mod tests {
     use crate::process::{DESCRIPTION_BATCH_SIZE, TITLE_BATCH_SIZE};
     use crate::{adapter::MockTranslationAdapter, process::TranslationPipeProcesserImpl};
-    use common::language::record::{LanguageRecord, TextRecord};
+    use common::language::domain::Language;
+    use common::localized::Localized;
     use common::product_id::ProductId;
     use fake::rand::seq::SliceRandom;
     use fake::{Fake, Faker};
+    use product::core::product::Product;
+    use product::core::product_event::ProductEventPayload;
+    use product::core::product_event::enrichment::ProductEnrichmentEventPayload;
     use product_pipeline_common::process::PipeProcessor;
-    use product_pipeline_common::types::CleansedPipeProduct;
     use pyo3::{PyErr, exceptions::PyTypeError};
     use rstest;
+    use std::collections::HashSet;
     use std::sync::Arc;
 
     #[test]
@@ -199,15 +194,26 @@ mod tests {
         let translation_pipe_processor =
             TranslationPipeProcesserImpl::new(Arc::new(translation_delegate));
 
-        let in_products = fake::vec![CleansedPipeProduct; 1];
-        let actuals = translation_pipe_processor.process(in_products);
+        let products = fake::vec![Product; 1];
+        let actuals = translation_pipe_processor.process(products);
 
         assert!(actuals.failures.is_empty());
-        assert_eq!(1, actuals.successes.len());
 
-        let actual = actuals.successes[0].clone();
-        assert!(!actual.other_title.is_empty());
-        assert!(actual.other_title.iter().all(|(_, title)| title == "Foo"));
+        let actual = actuals.successes;
+        assert!(!actual.is_empty());
+        assert!(actual.iter().all(|event| match event.payload.clone() {
+            ProductEventPayload::ProductEnrichmentEvent(
+                ProductEnrichmentEventPayload::TranslatedTitle(payload),
+            ) => {
+                "Foo" == payload.target.to_string()
+            }
+            ProductEventPayload::ProductEnrichmentEvent(
+                ProductEnrichmentEventPayload::TranslatedDescription(payload),
+            ) => {
+                "Foo" == payload.target.to_string()
+            }
+            _ => true,
+        }));
     }
 
     #[test]
@@ -220,19 +226,40 @@ mod tests {
         let translation_pipe_processor =
             TranslationPipeProcesserImpl::new(Arc::new(translation_delegate));
 
-        let in_product: CleansedPipeProduct = Faker.fake();
-        let in_products = vec![in_product.clone()];
-        let actuals = translation_pipe_processor.process(in_products);
+        let product: Product = Faker.fake();
+        let products = vec![product.clone()];
+        let actuals = translation_pipe_processor.process(products);
 
         assert!(actuals.failures.is_empty());
-        assert_eq!(1, actuals.successes.len());
 
-        let actual = actuals.successes[0].clone();
+        let actual = actuals.successes;
         assert!(
-            !actual
-                .other_title
+            actual
                 .iter()
-                .any(|(other_lang, _)| other_lang == &in_product.native_title.language)
+                .find_map(|event| match event.payload.clone() {
+                    ProductEventPayload::ProductEnrichmentEvent(
+                        ProductEnrichmentEventPayload::TranslatedTitle(payload),
+                    ) => {
+                        if payload.target_language == product.native_title.localization {
+                            Some(())
+                        } else {
+                            None
+                        }
+                    }
+                    ProductEventPayload::ProductEnrichmentEvent(
+                        ProductEnrichmentEventPayload::TranslatedDescription(payload),
+                    ) => {
+                        if payload.target_language
+                            == product.native_description.as_ref().unwrap().localization
+                        {
+                            Some(())
+                        } else {
+                            None
+                        }
+                    }
+                    _ => None,
+                })
+                .is_none()
         );
     }
 
@@ -246,22 +273,28 @@ mod tests {
         let translation_pipe_processor =
             TranslationPipeProcesserImpl::new(Arc::new(translation_delegate));
 
-        let mut in_product: CleansedPipeProduct = Faker.fake();
-        in_product.native_description = Some(Faker.fake());
-        let in_products = vec![in_product];
-        let actuals = translation_pipe_processor.process(in_products);
+        let mut product: Product = Faker.fake();
+        product.native_description = Some(Faker.fake());
+        let products = vec![product];
+        let actuals = translation_pipe_processor.process(products);
 
         assert!(actuals.failures.is_empty());
-        assert_eq!(1, actuals.successes.len());
 
-        let actual = actuals.successes[0].clone();
-        assert!(!actual.other_description.is_empty());
-        assert!(
-            actual
-                .other_description
-                .iter()
-                .all(|(_, title)| title == "Foo")
-        );
+        let actual = actuals.successes;
+        assert!(!actual.is_empty());
+        assert!(actual.iter().all(|event| match event.payload.clone() {
+            ProductEventPayload::ProductEnrichmentEvent(
+                ProductEnrichmentEventPayload::TranslatedTitle(payload),
+            ) => {
+                "Foo" == payload.target.to_string()
+            }
+            ProductEventPayload::ProductEnrichmentEvent(
+                ProductEnrichmentEventPayload::TranslatedDescription(payload),
+            ) => {
+                "Foo" == payload.target.to_string()
+            }
+            _ => true,
+        }));
     }
 
     #[test]
@@ -274,21 +307,41 @@ mod tests {
         let translation_pipe_processor =
             TranslationPipeProcesserImpl::new(Arc::new(translation_delegate));
 
-        let mut in_product: CleansedPipeProduct = Faker.fake();
-        in_product.native_description = Some(Faker.fake());
-        let in_products = vec![in_product.clone()];
-        let actuals = translation_pipe_processor.process(in_products);
+        let mut product: Product = Faker.fake();
+        product.native_description = Some(Faker.fake());
+        let products = vec![product.clone()];
+        let actuals = translation_pipe_processor.process(products);
 
         assert!(actuals.failures.is_empty());
-        assert_eq!(1, actuals.successes.len());
 
-        let actual = actuals.successes[0].clone();
+        let actual = actuals.successes;
         assert!(
-            !actual
-                .other_description
+            actual
                 .iter()
-                .any(|(other_lang, _)| other_lang
-                    == &in_product.native_description.clone().unwrap().language)
+                .find_map(|event| match event.payload.clone() {
+                    ProductEventPayload::ProductEnrichmentEvent(
+                        ProductEnrichmentEventPayload::TranslatedTitle(payload),
+                    ) => {
+                        if payload.target_language == product.native_title.localization {
+                            Some(())
+                        } else {
+                            None
+                        }
+                    }
+                    ProductEventPayload::ProductEnrichmentEvent(
+                        ProductEnrichmentEventPayload::TranslatedDescription(payload),
+                    ) => {
+                        if payload.target_language
+                            == product.native_description.as_ref().unwrap().localization
+                        {
+                            Some(())
+                        } else {
+                            None
+                        }
+                    }
+                    _ => None,
+                })
+                .is_none()
         );
     }
 
@@ -316,50 +369,56 @@ mod tests {
         let translation_pipe_processor = TranslationPipeProcesserImpl::new(Arc::new(adapter));
 
         let product_id = ProductId::new();
-        let mut products = fake::vec![CleansedPipeProduct; count];
-        let product = CleansedPipeProduct {
-            product_id,
-            shop_id: Faker.fake(),
-            shops_product_id: Faker.fake(),
-            native_title: TextRecord {
-                text: "blue".to_owned(),
-                language: LanguageRecord::En,
-            },
-            native_description: Some(TextRecord {
-                text: "Hallo Welt!".to_owned(),
-                language: LanguageRecord::De,
-            }),
-            images: Faker.fake(),
+        let mut products = fake::vec![Product; count];
+        let mut product = Faker.fake::<Product>();
+        product.product_id = product_id;
+        product.native_title = Localized {
+            payload: "blue".into(),
+            localization: Language::En,
         };
+        product.native_description = Some(Localized {
+            payload: "Hallo Welt!".into(),
+            localization: Language::De,
+        });
         products.push(product);
         products.shuffle(&mut fake::rand::rng());
 
         let actual = translation_pipe_processor.process(products);
         assert!(actual.failures.is_empty());
-        assert_eq!(count + 1, actual.successes.len());
 
-        let expected = actual
+        let title_languages = actual
             .successes
-            .into_iter()
-            .find(|out_product| out_product.product_id == product_id)
-            .unwrap();
+            .iter()
+            .filter(|event| event.aggregate_id == product_id)
+            .filter_map(|event| {
+                event
+                    .payload
+                    .as_enrichment_event()
+                    .unwrap()
+                    .as_translated_title()
+            })
+            .map(|payload| payload.target_language)
+            .collect::<HashSet<_>>();
+        assert_eq!(3, title_languages.len());
+        assert!(title_languages.contains(&Language::De));
+        assert!(title_languages.contains(&Language::Fr));
+        assert!(title_languages.contains(&Language::Es));
 
-        assert_eq!(LanguageRecord::En, expected.native_title.language);
-        assert_eq!("blue", &expected.native_title.text);
-        assert!(expected.other_title.contains_key(&LanguageRecord::De));
-        assert!(expected.other_title.contains_key(&LanguageRecord::Fr));
-        assert!(expected.other_title.contains_key(&LanguageRecord::Es));
-        assert_eq!(
-            LanguageRecord::De,
-            expected.native_description.as_ref().unwrap().language
-        );
-        assert_eq!(
-            "Hallo Welt!",
-            expected.native_description.as_ref().unwrap().text
-        );
-        assert!(expected.other_description.contains_key(&LanguageRecord::En));
-        assert!(expected.other_description.contains_key(&LanguageRecord::Fr));
-        assert!(expected.other_description.contains_key(&LanguageRecord::Es));
+        let description_languages = actual
+            .successes
+            .iter()
+            .filter(|event| event.aggregate_id == product_id)
+            .filter_map(|event| {
+                event
+                    .payload
+                    .as_enrichment_event()
+                    .unwrap()
+                    .as_translated_description()
+            })
+            .map(|payload| payload.target_language)
+            .collect::<HashSet<_>>();
+        assert!(description_languages.contains(&Language::Fr));
+        assert!(description_languages.contains(&Language::Es));
     }
 
     #[rstest::rstest]
@@ -390,25 +449,24 @@ mod tests {
 
         let translation_pipe_processor =
             TranslationPipeProcesserImpl::new(Arc::new(translation_delegate));
-        let mut products = fake::vec![CleansedPipeProduct; count];
+        let mut products = fake::vec![Product; count];
 
         // we need to force the values of each title/description to have the same language
         // due to the grouping into a HashMap<Language, _> which varies batch_len
         // together with the expectation this now only ever fails the very last non-full batch
-        for in_product in &mut products {
-            in_product.native_title = TextRecord {
-                language: LanguageRecord::Es,
-                text: Faker.fake(),
+        for product in &mut products {
+            product.native_title = Localized {
+                localization: Language::Es,
+                payload: Faker.fake(),
             };
-            in_product.native_description = Some(TextRecord {
-                language: LanguageRecord::De,
-                text: Faker.fake(),
+            product.native_description = Some(Localized {
+                localization: Language::De,
+                payload: Faker.fake(),
             });
         }
 
         let actual = translation_pipe_processor.process(products);
 
-        assert_eq!(count - (count % 32), actual.successes.len());
         assert_eq!(count % 32, actual.failures.len());
     }
 
@@ -430,7 +488,7 @@ mod tests {
 
         let translation_pipe_processor =
             TranslationPipeProcesserImpl::new(Arc::new(translation_delegate));
-        let actual = translation_pipe_processor.process(fake::vec![CleansedPipeProduct; count]);
+        let actual = translation_pipe_processor.process(fake::vec![Product; count]);
 
         assert!(actual.successes.is_empty());
         assert_eq!(count, actual.failures.len());

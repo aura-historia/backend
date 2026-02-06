@@ -9,7 +9,7 @@ mod get_product_record {
     use crate::get_repository;
     use common::shop_id::ShopId;
     use fake::{Fake, Faker};
-    use product::dynamodb::product_event_record::ProductEventRecord;
+    use product::dynamodb::product_event_record::domain::ProductDomainEventRecord;
     use product::dynamodb::product_record::ProductRecord;
     use product::dynamodb::repository::ProductDynamoDbRepository;
     use test_api::*;
@@ -73,7 +73,7 @@ mod get_product_record {
     #[localstack_test(services = [DynamoDB()])]
     async fn should_return_nothing_for_get_product_record_when_only_others_exist_mix() {
         let other1 = Faker.fake::<ProductRecord>();
-        let other2 = Faker.fake::<ProductEventRecord>();
+        let other2 = Faker.fake::<ProductDomainEventRecord>();
 
         let repository = get_repository().await;
         get_dynamodb_client()
@@ -109,13 +109,14 @@ mod query_product_record_and_event_records {
     use common::shop_id::ShopId;
     use common::shops_product_id::ShopsProductId;
     use fake::{Fake, Faker};
-    use product::core::product_event::{
-        ProductCreatedEventPayload, ProductEvent, ProductEventPayload,
-        ProductStateChangeEventPayload,
+    use product::core::product_event::ProductDomainEvent;
+    use product::core::product_event::domain::{
+        ProductCreatedDomainEventPayload, ProductDomainEventPayload,
+        ProductStateChangeDomainEventPayload,
     };
     use product::core::product_image::ProductImage;
-    use product::dynamodb::product_event_record::ProductEventRecord;
-    use product::dynamodb::product_event_type_record::ProductEventTypeRecord;
+    use product::dynamodb::product_event_record::domain::ProductDomainEventRecord;
+    use product::dynamodb::product_event_type_record::domain::ProductDomainEventTypeRecord;
     use product::dynamodb::product_record::ProductRecord;
     use product::dynamodb::repository::ProductDynamoDbRepository;
     use test_api::*;
@@ -126,7 +127,7 @@ mod query_product_record_and_event_records {
         let repository = get_repository().await;
 
         let actual = repository
-            .query_product_record_and_event_records(&ShopId::new(), &ShopsProductId::new())
+            .query_product_record_and_domain_event_records(&ShopId::new(), &ShopsProductId::new())
             .await
             .unwrap();
 
@@ -135,23 +136,23 @@ mod query_product_record_and_event_records {
 
     #[localstack_test(services = [DynamoDB()])]
     async fn should_return_none_when_events_exist_but_materialized_does_not() {
-        let event: ProductEventRecord = ProductEvent {
+        let event: ProductDomainEventRecord = ProductDomainEvent {
             aggregate_id: Default::default(),
             event_id: Default::default(),
             timestamp: OffsetDateTime::now_utc(),
-            payload: ProductEventPayload::Created(Faker.fake()),
+            payload: ProductDomainEventPayload::Created(Faker.fake()),
         }
         .try_into()
         .unwrap();
         let repository = get_repository().await;
         let insert_res = repository
-            .put_product_event_records([event.clone()].into())
+            .put_product_event_records([event.clone().into()].into())
             .await
             .unwrap();
         assert!(insert_res.unprocessed_items.unwrap_or_default().is_empty());
 
         let actual = repository
-            .query_product_record_and_event_records(&event.shop_id, &event.shops_product_id)
+            .query_product_record_and_domain_event_records(&event.shop_id, &event.shops_product_id)
             .await
             .unwrap();
 
@@ -169,7 +170,10 @@ mod query_product_record_and_event_records {
         assert!(insert_res.unprocessed_items.unwrap_or_default().is_empty());
 
         let (actual, events) = repository
-            .query_product_record_and_event_records(&expected.shop_id, &expected.shops_product_id)
+            .query_product_record_and_domain_event_records(
+                &expected.shop_id,
+                &expected.shops_product_id,
+            )
             .await
             .unwrap()
             .unwrap();
@@ -188,11 +192,11 @@ mod query_product_record_and_event_records {
             .unwrap();
         assert!(insert_res.unprocessed_items.unwrap_or_default().is_empty());
 
-        let created_event: ProductEventRecord = ProductEvent {
+        let created_event: ProductDomainEventRecord = ProductDomainEvent {
             aggregate_id: Default::default(),
             event_id: Default::default(),
             timestamp: OffsetDateTime::now_utc(),
-            payload: ProductEventPayload::Created(ProductCreatedEventPayload {
+            payload: ProductDomainEventPayload::Created(ProductCreatedDomainEventPayload {
                 product_slug_id: expected_materialized.product_slug_id.clone(),
                 shop_slug_id: expected_materialized.shop_slug_id.clone(),
                 shop_id: expected_materialized.shop_id,
@@ -221,26 +225,30 @@ mod query_product_record_and_event_records {
         }
         .try_into()
         .unwrap();
-        let updated_event: ProductEventRecord = ProductEvent {
+        let updated_event: ProductDomainEventRecord = ProductDomainEvent {
             aggregate_id: Default::default(),
             event_id: Default::default(),
             timestamp: OffsetDateTime::now_utc(),
-            payload: ProductEventPayload::StateAvailable(ProductStateChangeEventPayload {
-                shop_id: expected_materialized.shop_id,
-                shops_product_id: expected_materialized.shops_product_id.clone(),
-                old_state: ProductState::Listed,
-            }),
+            payload: ProductDomainEventPayload::StateAvailable(
+                ProductStateChangeDomainEventPayload {
+                    shop_id: expected_materialized.shop_id,
+                    shops_product_id: expected_materialized.shops_product_id.clone(),
+                    old_state: ProductState::Listed,
+                },
+            ),
         }
         .try_into()
         .unwrap();
         let insert_res = repository
-            .put_product_event_records([created_event.clone(), updated_event.clone()].into())
+            .put_product_event_records(
+                [created_event.clone().into(), updated_event.clone().into()].into(),
+            )
             .await
             .unwrap();
         assert!(insert_res.unprocessed_items.unwrap_or_default().is_empty());
 
         let (actual_materialized, actual_events) = repository
-            .query_product_record_and_event_records(
+            .query_product_record_and_domain_event_records(
                 &expected_materialized.shop_id,
                 &expected_materialized.shops_product_id,
             )
@@ -262,11 +270,11 @@ mod query_product_record_and_event_records {
             .unwrap();
         assert!(insert_res.unprocessed_items.unwrap_or_default().is_empty());
 
-        let created_event: ProductEventRecord = ProductEvent {
+        let created_event: ProductDomainEventRecord = ProductDomainEvent {
             aggregate_id: Default::default(),
             event_id: Default::default(),
             timestamp: OffsetDateTime::now_utc(),
-            payload: ProductEventPayload::Created(ProductCreatedEventPayload {
+            payload: ProductDomainEventPayload::Created(ProductCreatedDomainEventPayload {
                 product_slug_id: expected_materialized.product_slug_id.clone(),
                 shop_slug_id: expected_materialized.shop_slug_id.clone(),
                 shop_id: expected_materialized.shop_id,
@@ -295,26 +303,30 @@ mod query_product_record_and_event_records {
         }
         .try_into()
         .unwrap();
-        let updated_event: ProductEventRecord = ProductEvent {
+        let updated_event: ProductDomainEventRecord = ProductDomainEvent {
             aggregate_id: Default::default(),
             event_id: Default::default(),
             timestamp: OffsetDateTime::now_utc(),
-            payload: ProductEventPayload::StateAvailable(ProductStateChangeEventPayload {
-                shop_id: expected_materialized.shop_id,
-                shops_product_id: expected_materialized.shops_product_id.clone(),
-                old_state: ProductState::Listed,
-            }),
+            payload: ProductDomainEventPayload::StateAvailable(
+                ProductStateChangeDomainEventPayload {
+                    shop_id: expected_materialized.shop_id,
+                    shops_product_id: expected_materialized.shops_product_id.clone(),
+                    old_state: ProductState::Listed,
+                },
+            ),
         }
         .try_into()
         .unwrap();
         let insert_res = repository
-            .put_product_event_records([created_event.clone(), updated_event.clone()].into())
+            .put_product_event_records(
+                [created_event.clone().into(), updated_event.clone().into()].into(),
+            )
             .await
             .unwrap();
         assert!(insert_res.unprocessed_items.unwrap_or_default().is_empty());
 
         let (actual_materialized, actual_events) = repository
-            .query_product_record_and_event_records(
+            .query_product_record_and_domain_event_records(
                 &expected_materialized.shop_id,
                 &expected_materialized.shops_product_id,
             )
@@ -324,9 +336,12 @@ mod query_product_record_and_event_records {
 
         assert_eq!(expected_materialized, actual_materialized);
         assert_eq!(2, actual_events.len());
-        assert_eq!(ProductEventTypeRecord::Created, actual_events[0].event_type);
         assert_eq!(
-            ProductEventTypeRecord::StateAvailable,
+            ProductDomainEventTypeRecord::DomainCreated,
+            actual_events[0].event_type
+        );
+        assert_eq!(
+            ProductDomainEventTypeRecord::DomainStateAvailable,
             actual_events[1].event_type
         );
     }
@@ -407,13 +422,14 @@ mod batch_get_product_records {
                 state: ProductStateRecord::Available,
                 url: Url::parse(&format!("https://foo.bar/{n}")).unwrap(),
                 images: Faker.fake(),
+                text_embedding: None,
                 origin_year_min: None,
                 origin_year: None,
                 origin_year_max: None,
-                authenticity: None,
-                condition: None,
-                provenance: None,
-                restoration: None,
+                authenticity: Default::default(),
+                condition: Default::default(),
+                provenance: Default::default(),
+                restoration: Default::default(),
                 auction_start: None,
                 auction_end: None,
                 created: now,
@@ -513,13 +529,14 @@ mod batch_get_product_records {
                 state: ProductStateRecord::Available,
                 url: Url::parse(&format!("https://foo.bar/{n}")).unwrap(),
                 images: Faker.fake(),
+                text_embedding: None,
                 origin_year_min: None,
                 origin_year: None,
                 origin_year_max: None,
-                authenticity: None,
-                condition: None,
-                provenance: None,
-                restoration: None,
+                authenticity: Default::default(),
+                condition: Default::default(),
+                provenance: Default::default(),
+                restoration: Default::default(),
                 auction_start: None,
                 auction_end: None,
                 created: now,
@@ -620,13 +637,14 @@ mod batch_get_product_records {
                 state: ProductStateRecord::Available,
                 url: Url::parse(&format!("https://foo.bar/{n}")).unwrap(),
                 images: Faker.fake(),
+                text_embedding: None,
                 origin_year_min: None,
                 origin_year: None,
                 origin_year_max: None,
-                authenticity: None,
-                condition: None,
-                provenance: None,
-                restoration: None,
+                authenticity: Default::default(),
+                condition: Default::default(),
+                provenance: Default::default(),
+                restoration: Default::default(),
                 auction_start: None,
                 auction_end: None,
                 created: now,
@@ -748,13 +766,14 @@ mod batch_exist_product_records {
                 state: ProductStateRecord::Available,
                 url: Url::parse(&format!("https://foo.bar/{n}")).unwrap(),
                 images: Faker.fake(),
+                text_embedding: None,
                 origin_year_min: None,
                 origin_year: None,
                 origin_year_max: None,
-                authenticity: None,
-                condition: None,
-                provenance: None,
-                restoration: None,
+                authenticity: Default::default(),
+                condition: Default::default(),
+                provenance: Default::default(),
+                restoration: Default::default(),
                 auction_start: None,
                 auction_end: None,
                 created: now,
@@ -852,13 +871,14 @@ mod batch_exist_product_records {
                 state: ProductStateRecord::Available,
                 url: Url::parse(&format!("https://foo.bar/{n}")).unwrap(),
                 images: Faker.fake(),
+                text_embedding: None,
                 origin_year_min: None,
                 origin_year: None,
                 origin_year_max: None,
-                authenticity: None,
-                condition: None,
-                provenance: None,
-                restoration: None,
+                authenticity: Default::default(),
+                condition: Default::default(),
+                provenance: Default::default(),
+                restoration: Default::default(),
                 auction_start: None,
                 auction_end: None,
                 created: now,
@@ -956,13 +976,14 @@ mod batch_exist_product_records {
                 state: ProductStateRecord::Available,
                 url: Url::parse(&format!("https://foo.bar/{n}")).unwrap(),
                 images: Faker.fake(),
+                text_embedding: None,
                 origin_year_min: None,
                 origin_year: None,
                 origin_year_max: None,
-                authenticity: None,
-                condition: None,
-                provenance: None,
-                restoration: None,
+                authenticity: Default::default(),
+                condition: Default::default(),
+                provenance: Default::default(),
+                restoration: Default::default(),
                 auction_start: None,
                 auction_end: None,
                 created: now,
@@ -1079,13 +1100,14 @@ mod get_product_id {
             state: ProductStateRecord::Available,
             url: Url::parse("https://foo.bar/123456").unwrap(),
             images: Faker.fake(),
+            text_embedding: None,
             origin_year_min: None,
             origin_year: None,
             origin_year_max: None,
-            authenticity: None,
-            condition: None,
-            provenance: None,
-            restoration: None,
+            authenticity: Default::default(),
+            condition: Default::default(),
+            provenance: Default::default(),
+            restoration: Default::default(),
             auction_start: None,
             auction_end: None,
             created: now,
@@ -1166,13 +1188,14 @@ mod get_product_id {
             state: ProductStateRecord::Available,
             url: Url::parse("https://foo.bar/123456").unwrap(),
             images: Faker.fake(),
+            text_embedding: None,
             origin_year_min: None,
             origin_year: None,
             origin_year_max: None,
-            authenticity: None,
-            condition: None,
-            provenance: None,
-            restoration: None,
+            authenticity: Default::default(),
+            condition: Default::default(),
+            provenance: Default::default(),
+            restoration: Default::default(),
             auction_start: None,
             auction_end: None,
             created: now,
@@ -1245,13 +1268,14 @@ mod query_product_event_records {
     use common::shop_id::ShopId;
     use common::shops_product_id::ShopsProductId;
     use fake::{Fake, Faker};
-    use product::core::product_event::{
-        ProductCreatedEventPayload, ProductEvent, ProductEventPayload,
-        ProductStateChangeEventPayload,
+    use product::core::product_event::ProductDomainEvent;
+    use product::core::product_event::domain::{
+        ProductCreatedDomainEventPayload, ProductDomainEventPayload,
+        ProductStateChangeDomainEventPayload,
     };
     use product::core::product_image::ProductImage;
-    use product::dynamodb::product_event_record::ProductEventRecord;
-    use product::dynamodb::product_event_type_record::ProductEventTypeRecord;
+    use product::dynamodb::product_event_record::domain::ProductDomainEventRecord;
+    use product::dynamodb::product_event_type_record::domain::ProductDomainEventTypeRecord;
     use product::dynamodb::product_record::ProductRecord;
     use product::dynamodb::repository::ProductDynamoDbRepository;
     use test_api::*;
@@ -1262,7 +1286,7 @@ mod query_product_event_records {
         let repository = get_repository().await;
 
         let actual = repository
-            .query_product_event_records(&ShopId::new(), &ShopsProductId::new())
+            .query_product_domain_event_records(&ShopId::new(), &ShopsProductId::new())
             .await
             .unwrap();
 
@@ -1274,11 +1298,11 @@ mod query_product_event_records {
         let repository = get_repository().await;
 
         let expected_materialized = Faker.fake::<ProductRecord>();
-        let created_event: ProductEventRecord = ProductEvent {
+        let created_event: ProductDomainEventRecord = ProductDomainEvent {
             aggregate_id: Default::default(),
             event_id: Default::default(),
             timestamp: OffsetDateTime::now_utc(),
-            payload: ProductEventPayload::Created(ProductCreatedEventPayload {
+            payload: ProductDomainEventPayload::Created(ProductCreatedDomainEventPayload {
                 product_slug_id: expected_materialized.product_slug_id.clone(),
                 shop_slug_id: expected_materialized.shop_slug_id.clone(),
                 shop_id: expected_materialized.shop_id,
@@ -1307,26 +1331,30 @@ mod query_product_event_records {
         }
         .try_into()
         .unwrap();
-        let updated_event: ProductEventRecord = ProductEvent {
+        let updated_event: ProductDomainEventRecord = ProductDomainEvent {
             aggregate_id: Default::default(),
             event_id: Default::default(),
             timestamp: OffsetDateTime::now_utc(),
-            payload: ProductEventPayload::StateAvailable(ProductStateChangeEventPayload {
-                shop_id: expected_materialized.shop_id,
-                shops_product_id: expected_materialized.shops_product_id.clone(),
-                old_state: ProductState::Listed,
-            }),
+            payload: ProductDomainEventPayload::StateAvailable(
+                ProductStateChangeDomainEventPayload {
+                    shop_id: expected_materialized.shop_id,
+                    shops_product_id: expected_materialized.shops_product_id.clone(),
+                    old_state: ProductState::Listed,
+                },
+            ),
         }
         .try_into()
         .unwrap();
         let insert_res = repository
-            .put_product_event_records([created_event.clone(), updated_event.clone()].into())
+            .put_product_event_records(
+                [created_event.clone().into(), updated_event.clone().into()].into(),
+            )
             .await
             .unwrap();
         assert!(insert_res.unprocessed_items.unwrap_or_default().is_empty());
 
         let actual_events = repository
-            .query_product_event_records(
+            .query_product_domain_event_records(
                 &expected_materialized.shop_id,
                 &expected_materialized.shops_product_id,
             )
@@ -1334,9 +1362,12 @@ mod query_product_event_records {
             .unwrap();
 
         assert_eq!(2, actual_events.len());
-        assert_eq!(ProductEventTypeRecord::Created, actual_events[0].event_type);
         assert_eq!(
-            ProductEventTypeRecord::StateAvailable,
+            ProductDomainEventTypeRecord::DomainCreated,
+            actual_events[0].event_type
+        );
+        assert_eq!(
+            ProductDomainEventTypeRecord::DomainStateAvailable,
             actual_events[1].event_type
         );
     }

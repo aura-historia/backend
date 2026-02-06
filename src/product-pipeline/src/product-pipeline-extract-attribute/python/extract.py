@@ -15,6 +15,7 @@ model = AutoModelForCausalLM.from_pretrained(
     MODEL_NAME,
     device_map=DEVICE,
     dtype=torch.float32 if DEVICE == "cpu" else torch.float16,
+    tie_word_embeddings=False,
 )
 
 

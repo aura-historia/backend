@@ -1,8 +1,9 @@
-use common::language::record::LanguageRecord;
-use common::{language::record::TextRecord, product_id::ProductId};
+use common::product_id::ProductId;
+use common::{language::domain::Language, localized::Localized};
 use fake::rand::seq::SliceRandom;
 use fake::{Fake, Faker};
-use product_pipeline_common::{process::PipeProcessor, types::TextEmbeddedPipeProduct};
+use product::core::product::Product;
+use product_pipeline_common::process::PipeProcessor;
 use product_pipeline_extract_attribute::{
     adapter::ExtractionAdapterImpl, process::AttributeExtractionPipeProcesserImpl,
 };
@@ -17,33 +18,40 @@ fn should_process_extraction(#[case] count: usize) {
     let extraction_pipe_processor = AttributeExtractionPipeProcesserImpl::new(Arc::new(adapter));
 
     let product_id = ProductId::new();
-    let mut products = fake::vec![TextEmbeddedPipeProduct; count];
-    let mut product = Faker.fake::<TextEmbeddedPipeProduct>();
+    let mut products = fake::vec![Product; count];
+    let mut product = Faker.fake::<Product>();
     product.product_id = product_id;
-    product.native_title.text = "Antique Chair".to_owned();
-    product.native_title.language = LanguageRecord::En;
-    product.native_description = Some(TextRecord {
-        language: LanguageRecord::En,
-        text: "1845 oak".to_owned(),
+    product.native_title.payload = "Antique Chair".into();
+    product.native_title.localization = Language::En;
+    product.native_description = Some(Localized {
+        localization: Language::En,
+        payload: "oak 1845. no nazi".into(),
     });
+
     products.push(product);
     products.shuffle(&mut fake::rand::rng());
 
     let actual = extraction_pipe_processor.process(products);
     assert!(actual.failures.is_empty());
-    assert_eq!(count + 1, actual.successes.len());
+    // 1 enrichment + 1 policy (no nazi)
+    assert_eq!(count + 2, actual.successes.len());
 
-    let extracted = actual
+    let event = actual
         .successes
         .into_iter()
-        .find(|out_product| out_product.product_id == product_id)
+        .find(|event| {
+            event.aggregate_id == product_id && event.payload.as_enrichment_event().is_some()
+        })
         .unwrap();
 
-    let has_extracted_data = extracted.origin_year.is_some_and(|y| y == 1845.into())
+    let extracted = event
+        .payload
+        .as_enrichment_event()
+        .unwrap()
+        .as_extracted_attributes()
+        .unwrap();
+    let has_extracted_year = extracted.origin_year.is_some_and(|y| y == 1845.into())
         || extracted.origin_year_min.is_some_and(|y| y == 1845.into())
         || extracted.origin_year_max.is_some_and(|y| y == 1845.into());
-
-    assert!(has_extracted_data);
-    assert_eq!("Antique Chair", extracted.native_title.text);
-    assert_eq!(LanguageRecord::En, extracted.native_title.language);
+    assert!(has_extracted_year);
 }

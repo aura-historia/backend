@@ -1,14 +1,13 @@
 use crate::{adapter::ExtractionAdapter, types::ExtractedAttributes};
-use common::{batch::Batch, language::domain::Language};
-use product::dynamodb::prohibited_content_record::ProhibitedContentRecord;
-use product_pipeline_common::{
-    process::{PipeProcessor, ProcessResult},
-    types::{AttributeExtractedPipeProduct, TextEmbeddedPipeProduct},
+use common::{batch::Batch, year::YearRange};
+use product::core::{
+    origin_year::OriginYear,
+    product::Product,
+    product_event::ProductEventPayload,
+    prohibited_content::{ProhibitedContent, ProhibitedContentReason},
 };
-use std::{
-    collections::{HashMap, HashSet},
-    sync::Arc,
-};
+use product_pipeline_common::process::{PipeProcessor, ProcessResult};
+use std::{collections::HashSet, sync::Arc};
 use tracing::{error, info};
 
 pub struct AttributeExtractionPipeProcesserImpl {
@@ -23,50 +22,23 @@ impl AttributeExtractionPipeProcesserImpl {
     }
 }
 
-impl PipeProcessor<TextEmbeddedPipeProduct, AttributeExtractedPipeProduct>
-    for AttributeExtractionPipeProcesserImpl
-{
-    fn process(
-        &self,
-        ins: Vec<TextEmbeddedPipeProduct>,
-    ) -> ProcessResult<AttributeExtractedPipeProduct> {
+impl PipeProcessor for AttributeExtractionPipeProcesserImpl {
+    fn process(&self, ins: Vec<Product>) -> ProcessResult {
         let count = ins.len();
-        let mut successes = Vec::with_capacity(ins.len());
+        let mut successes = Vec::with_capacity(2 * count);
         let mut failures = HashSet::new();
-        let batches: Vec<Batch<TextEmbeddedPipeProduct, 8>> = Batch::chunked_from(ins.into_iter());
+        let batches: Vec<Batch<Product, 8>> = Batch::chunked_from(ins.into_iter());
 
         for in_batch in batches {
-            let input_batch_iter = in_batch.iter().map(|in_product| {
-                let mut titles: HashMap<Language, String> = in_product
-                    .other_title
-                    .iter()
-                    .map(|(lang, s)| (Language::from(*lang), s.clone()))
-                    .collect();
-                titles.insert(
-                    in_product.native_title.language.into(),
-                    in_product.native_title.text.clone(),
-                );
-                let mut descriptions: HashMap<Language, String> = in_product
-                    .other_description
-                    .iter()
-                    .map(|(lang, s)| (Language::from(*lang), s.clone()))
-                    .collect();
-                if let Some(ref native_description) = in_product.native_description {
-                    descriptions.insert(
-                        native_description.language.into(),
-                        native_description.text.clone(),
-                    );
-                }
+            let input_batch_iter = in_batch.iter().map(|product| {
                 format!(
                     "{}: {}",
-                    Language::resolve(&[Language::En, Language::De], titles)
-                        .as_ref()
-                        .map(|localized| localized.payload.as_str())
-                        .unwrap_or(""),
-                    Language::resolve(&[Language::En, Language::De], descriptions)
-                        .as_ref()
-                        .map(|localized| localized.payload.as_str())
-                        .unwrap_or(""),
+                    product.native_title.payload,
+                    product
+                        .native_description
+                        .clone()
+                        .map(|description| description.payload)
+                        .unwrap_or("".into()),
                 )
             });
             let input_batch = Batch::try_from_iter(input_batch_iter)
@@ -96,56 +68,74 @@ impl PipeProcessor<TextEmbeddedPipeProduct, AttributeExtractedPipeProduct>
                     failures.extend(&mut local_failed);
                 }
                 Ok(extractions) => {
-                    let mut local_enriched = in_batch.into_iter().zip(extractions.into_iter()).filter_map(
-                        |(in_product, extraction_str)| {
-                            let cleaned_extraction_str = extraction_str
-                                .chars()
-                                .skip_while(|c| c != &'{')
-                                .collect::<String>();
-                            match serde_json::from_str::<ExtractedAttributes>(&cleaned_extraction_str) {
-                                Ok(mut extracted_attributes) => {
-                                    if let Some(origin_year_min) = extracted_attributes.origin_year_min
-                                        && extracted_attributes.origin_year_min
-                                            == extracted_attributes.origin_year_max
-                                    {
-                                        extracted_attributes.origin_year = Some(origin_year_min);
+                    let zipped = in_batch.into_iter().zip(extractions.into_iter());
+                    for (mut product, extraction_str) in zipped {
+                        let cleaned_extraction_str = extraction_str
+                            .chars()
+                            .skip_while(|c| c != &'{')
+                            .collect::<String>();
+                        match serde_json::from_str::<ExtractedAttributes>(&cleaned_extraction_str) {
+                            Ok(extracted_attributes) => {
+                                let origin_year = match (
+                                    extracted_attributes.origin_year_min,
+                                    extracted_attributes.origin_year,
+                                    extracted_attributes.origin_year_max,
+                                ) {
+                                    (_, Some(exact), _) => Some(OriginYear::ExactYear(exact)),
+                                    (Some(min), None, Some(max)) => {
+                                        if min == max {
+                                            Some(OriginYear::ExactYear(min))
+                                        } else {
+                                            Some(OriginYear::EstimatedRange(YearRange {
+                                                min: Some(min),
+                                                max: Some(max),
+                                            }))
+                                        }
                                     }
-                                    if let Some(origin_year) = extracted_attributes.origin_year {
-                                        extracted_attributes.origin_year_min = Some(origin_year);
-                                        extracted_attributes.origin_year_max = Some(origin_year);
+                                    (min @ Some(_), None, max) => {
+                                        Some(OriginYear::EstimatedRange(YearRange { min, max }))
                                     }
-                                    let attribute_extracted_pipe_product = AttributeExtractedPipeProduct {
-                                        product_id: in_product.product_id,
-                                        shop_id: in_product.shop_id,
-                                        shops_product_id: in_product.shops_product_id,
-                                        native_title: in_product.native_title,
-                                        other_title: in_product.other_title,
-                                        native_description: in_product.native_description,
-                                        other_description: in_product.other_description,
-                                        images: in_product.images.into_iter().map(|mut image| {
-                                            image.prohibited_content = if extracted_attributes.is_from_nazi_germany_epoch.unwrap_or_default() { ProhibitedContentRecord::NaziGermany } else { ProhibitedContentRecord::None };
-                                            image
-                                        }).collect(),
-                                        text_embedding: in_product.text_embedding,
-                                        origin_year_min: extracted_attributes.origin_year_min,
-                                        origin_year: extracted_attributes.origin_year,
-                                        origin_year_max: extracted_attributes.origin_year_max,
-                                        authenticity: extracted_attributes.authenticity.unwrap_or_default(),
-                                        condition: extracted_attributes.condition.unwrap_or_default(),
-                                        provenance: extracted_attributes.provenance.unwrap_or_default(),
-                                        restoration: extracted_attributes.restoration.unwrap_or_default(),
-                                    };
-                                    Some(attribute_extracted_pipe_product)
+                                    (min, None, max @ Some(_)) => {
+                                        Some(OriginYear::EstimatedRange(YearRange { min, max }))
+                                    }
+                                    (None, None, None) => None,
+                                };
+                                if let Some(extract_event) = product.extract_attributes(
+                                    origin_year,
+                                    extracted_attributes.authenticity.map(Into::into),
+                                    extracted_attributes.condition.map(Into::into),
+                                    extracted_attributes.provenance.map(Into::into),
+                                    extracted_attributes.restoration.map(Into::into),
+                                ) {
+                                    successes
+                                        .push(extract_event.map_payload(ProductEventPayload::from));
                                 }
-                                Err(err) => {
-                                    error!(error = %err, adapterResponse = extraction_str, "Failed extracting attributes.");
-                                    failures.insert(in_product.product_id);
-                                    None
+                                let prohibited_content_event_opt =
+                                    match extracted_attributes.is_from_nazi_germany_epoch {
+                                        None => None,
+                                        Some(false) => product.prohibit_content(
+                                            ProhibitedContent::None,
+                                            ProhibitedContentReason::ProductText,
+                                        ),
+                                        Some(true) => product.prohibit_content(
+                                            ProhibitedContent::NaziGermany,
+                                            ProhibitedContentReason::ProductText,
+                                        ),
+                                    };
+                                if let Some(prohibited_content_event) = prohibited_content_event_opt
+                                {
+                                    successes.push(
+                                        prohibited_content_event
+                                            .map_payload(ProductEventPayload::from),
+                                    );
                                 }
                             }
-                        },
-                    );
-                    successes.extend(&mut local_enriched);
+                            Err(err) => {
+                                error!(error = %err, adapterResponse = extraction_str, "Failed extracting attributes.");
+                                failures.insert(product.product_id);
+                            }
+                        }
+                    }
                 }
             }
         }
@@ -168,8 +158,8 @@ impl PipeProcessor<TextEmbeddedPipeProduct, AttributeExtractedPipeProduct>
 pub mod tests {
     use crate::{adapter::MockExtractionAdapter, process::AttributeExtractionPipeProcesserImpl};
     use common::batch::Batch;
-    use product::dynamodb::condition_record::ConditionRecord;
-    use product_pipeline_common::{process::PipeProcessor, types::TextEmbeddedPipeProduct};
+    use product::core::{condition::Condition, product::Product};
+    use product_pipeline_common::process::PipeProcessor;
     use pyo3::{PyErr, exceptions::PyTypeError};
     use std::sync::Arc;
 
@@ -178,7 +168,7 @@ pub mod tests {
         let mock_res = vec![
             r#"{"condition": "EXCELLENT"}"#.to_owned(),
             r#"{"condition": "POOR"}"#.to_owned(),
-            r#"{"condition": "UNKNOWN"}"#.to_owned(),
+            r#"{"condition": "GOOD"}"#.to_owned(),
             r#"{"condition": "FAIR"}"#.to_owned(),
             r#"{"condition": "GREAT"}"#.to_owned(),
         ];
@@ -188,19 +178,32 @@ pub mod tests {
             .return_once(move |_, _| Ok(mock_res.try_into().unwrap()));
 
         let embedding_pipe = AttributeExtractionPipeProcesserImpl::new(Arc::new(delegate));
-        let res = embedding_pipe.process(fake::vec![TextEmbeddedPipeProduct; 5]);
+        let mut products = fake::vec![Product; 5];
+        for product in &mut products {
+            product.condition = Default::default();
+        }
+        let res = embedding_pipe.process(products);
         let actual = res
             .successes
             .into_iter()
-            .map(|out_product| out_product.condition)
+            .map(|event| {
+                event
+                    .payload
+                    .as_enrichment_event()
+                    .unwrap()
+                    .as_extracted_attributes()
+                    .unwrap()
+                    .condition
+                    .unwrap()
+            })
             .collect::<Vec<_>>();
 
         let expected = vec![
-            ConditionRecord::Excellent,
-            ConditionRecord::Poor,
-            ConditionRecord::Unknown,
-            ConditionRecord::Fair,
-            ConditionRecord::Great,
+            Condition::Excellent,
+            Condition::Poor,
+            Condition::Good,
+            Condition::Fair,
+            Condition::Great,
         ];
         assert_eq!(expected, actual);
         assert!(res.failures.is_empty());
@@ -230,14 +233,27 @@ pub mod tests {
             .return_once(move |_, _| Ok(mock_res.try_into().unwrap()));
 
         let embedding_pipe = AttributeExtractionPipeProcesserImpl::new(Arc::new(delegate));
-        let res = embedding_pipe.process(fake::vec![TextEmbeddedPipeProduct; 1]);
+        let mut products = fake::vec![Product; 1];
+        for product in &mut products {
+            product.condition = Default::default();
+        }
+        let res = embedding_pipe.process(products);
         let actual = res
             .successes
             .into_iter()
-            .map(|out_product| out_product.condition)
+            .map(|event| {
+                event
+                    .payload
+                    .as_enrichment_event()
+                    .unwrap()
+                    .as_extracted_attributes()
+                    .unwrap()
+                    .condition
+                    .unwrap()
+            })
             .collect::<Vec<_>>();
 
-        let expected = vec![ConditionRecord::Excellent];
+        let expected = vec![Condition::Excellent];
         assert_eq!(expected, actual);
         assert!(res.failures.is_empty());
     }
@@ -262,7 +278,7 @@ pub mod tests {
             .returning(move |_, _| Err(PyErr::new::<PyTypeError, _>("Something went wrong")));
 
         let embedding_pipe = AttributeExtractionPipeProcesserImpl::new(Arc::new(delegate));
-        let res = embedding_pipe.process(fake::vec![TextEmbeddedPipeProduct; input_count]);
+        let res = embedding_pipe.process(fake::vec![Product; input_count]);
 
         assert!(res.successes.is_empty());
         assert_eq!(input_count, res.failures.len());
@@ -300,7 +316,7 @@ pub mod tests {
         });
 
         let embedding_pipe = AttributeExtractionPipeProcesserImpl::new(Arc::new(delegate));
-        let res = embedding_pipe.process(fake::vec![TextEmbeddedPipeProduct; input_count]);
+        let res = embedding_pipe.process(fake::vec![Product; input_count]);
 
         let expected_failures = input_count.div_ceil(8);
         assert_eq!(expected_failures, res.failures.len());

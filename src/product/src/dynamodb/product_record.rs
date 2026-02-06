@@ -1,13 +1,9 @@
-use crate::core::authenticity::Authenticity;
-use crate::core::condition::Condition;
 use crate::core::origin_year::OriginYear;
 use crate::core::product::Product;
 use crate::core::product_image::ProductImage;
-use crate::core::provenance::Provenance;
-use crate::core::restoration::Restoration;
 use crate::dynamodb::authenticity_record::AuthenticityRecord;
 use crate::dynamodb::condition_record::ConditionRecord;
-use crate::dynamodb::product_event_record::ProductEventRecord;
+use crate::dynamodb::product_event_record::domain::ProductDomainEventRecord;
 use crate::dynamodb::product_image_record::ProductImageRecord;
 use crate::dynamodb::product_state_record::ProductStateRecord;
 use crate::dynamodb::provenance_record::ProvenanceRecord;
@@ -121,6 +117,8 @@ pub struct ProductRecord {
     pub url: Url,
     #[serde(skip_serializing_if = "Vec::is_empty", default)]
     pub images: Vec<ProductImageRecord>,
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub text_embedding: Option<Vec<f32>>,
 
     #[serde(skip_serializing_if = "Option::is_none", default)]
     pub origin_year_min: Option<Year>,
@@ -128,14 +126,15 @@ pub struct ProductRecord {
     pub origin_year: Option<Year>,
     #[serde(skip_serializing_if = "Option::is_none", default)]
     pub origin_year_max: Option<Year>,
-    #[serde(skip_serializing_if = "Option::is_none", default)]
-    pub authenticity: Option<AuthenticityRecord>,
-    #[serde(skip_serializing_if = "Option::is_none", default)]
-    pub condition: Option<ConditionRecord>,
-    #[serde(skip_serializing_if = "Option::is_none", default)]
-    pub provenance: Option<ProvenanceRecord>,
-    #[serde(skip_serializing_if = "Option::is_none", default)]
-    pub restoration: Option<RestorationRecord>,
+
+    #[serde(default)]
+    pub authenticity: AuthenticityRecord,
+    #[serde(default)]
+    pub condition: ConditionRecord,
+    #[serde(default)]
+    pub provenance: ProvenanceRecord,
+    #[serde(default)]
+    pub restoration: RestorationRecord,
 
     #[serde(
         with = "time::serde::rfc3339::option",
@@ -192,6 +191,12 @@ impl From<ProductRecord> for Product {
         if let Some(title_de) = record.title_de {
             other_title.insert(Language::De, title_de.into());
         }
+        if let Some(title_fr) = record.title_fr {
+            other_title.insert(Language::Fr, title_fr.into());
+        }
+        if let Some(title_es) = record.title_es {
+            other_title.insert(Language::Es, title_es.into());
+        }
 
         let mut other_description = HashMap::with_capacity(2);
         if let Some(description_en) = record.description_en {
@@ -199,6 +204,12 @@ impl From<ProductRecord> for Product {
         }
         if let Some(description_de) = record.description_de {
             other_description.insert(Language::De, description_de.into());
+        }
+        if let Some(description_fr) = record.description_fr {
+            other_description.insert(Language::Fr, description_fr.into());
+        }
+        if let Some(description_es) = record.description_es {
+            other_description.insert(Language::Es, description_es.into());
         }
 
         let mut other_price = HashMap::with_capacity(2);
@@ -288,6 +299,7 @@ impl From<ProductRecord> for Product {
             state: record.state.into(),
             url: record.url,
             images: record.images.into_iter().map(ProductImage::from).collect(),
+            text_embedding: record.text_embedding,
             origin_year: match record.origin_year {
                 Some(exact_year) => Some(OriginYear::ExactYear(exact_year)),
                 None => match (record.origin_year_min, record.origin_year_max) {
@@ -295,10 +307,10 @@ impl From<ProductRecord> for Product {
                     (min, max) => Some(OriginYear::EstimatedRange(YearRange { min, max })),
                 },
             },
-            authenticity: record.authenticity.map(Authenticity::from),
-            condition: record.condition.map(Condition::from),
-            provenance: record.provenance.map(Provenance::from),
-            restoration: record.restoration.map(Restoration::from),
+            authenticity: record.authenticity.into(),
+            condition: record.condition.into(),
+            provenance: record.provenance.into(),
+            restoration: record.restoration.into(),
             auction_start: record.auction_start,
             auction_end: record.auction_end,
             created: record.created,
@@ -307,16 +319,16 @@ impl From<ProductRecord> for Product {
     }
 }
 
-impl TryFrom<ProductEventRecord> for ProductRecord {
+impl TryFrom<ProductDomainEventRecord> for ProductRecord {
     type Error = PersistenceMappingError;
 
-    fn try_from(event_record: ProductEventRecord) -> Result<Self, Self::Error> {
+    fn try_from(event_record: ProductDomainEventRecord) -> Result<Self, Self::Error> {
         let product_slug_id = event_record.product_slug_id.ok_or_else(|| {
-            MissingPersistenceField::new(field!(product_slug_id@ProductEventRecord))
+            MissingPersistenceField::new(field!(product_slug_id@ProductDomainEventRecord))
         })?;
-        let shop_slug_id = event_record
-            .shop_slug_id
-            .ok_or_else(|| MissingPersistenceField::new(field!(shop_slug_id@ProductEventRecord)))?;
+        let shop_slug_id = event_record.shop_slug_id.ok_or_else(|| {
+            MissingPersistenceField::new(field!(shop_slug_id@ProductDomainEventRecord))
+        })?;
         let record = ProductRecord {
             pk: event_record.pk,
             sk: mk_sk().to_string(),
@@ -329,13 +341,13 @@ impl TryFrom<ProductEventRecord> for ProductRecord {
             shop_id: event_record.shop_id,
             shops_product_id: event_record.shops_product_id,
             shop_name: event_record.shop_name.ok_or_else(|| {
-                MissingPersistenceField::new(field!(shop_name@ProductEventRecord))
+                MissingPersistenceField::new(field!(shop_name@ProductDomainEventRecord))
             })?,
             shop_type: event_record.shop_type.ok_or_else(|| {
-                MissingPersistenceField::new(field!(shop_type@ProductEventRecord))
+                MissingPersistenceField::new(field!(shop_type@ProductDomainEventRecord))
             })?,
             title_native: event_record.title_native.ok_or_else(|| {
-                MissingPersistenceField::new(field!(title_native@ProductEventRecord))
+                MissingPersistenceField::new(field!(title_native@ProductDomainEventRecord))
             })?,
             title_de: event_record.title_de,
             title_en: event_record.title_en,
@@ -368,19 +380,20 @@ impl TryFrom<ProductEventRecord> for ProductRecord {
             price_estimate_max_cad: event_record.new_price_estimate_max_cad,
             price_estimate_max_nzd: event_record.new_price_estimate_max_nzd,
             state: event_record.new_state.ok_or_else(|| {
-                MissingPersistenceField::new(field!(new_state@ProductEventRecord))
+                MissingPersistenceField::new(field!(new_state@ProductDomainEventRecord))
             })?,
-            url: event_record
-                .url
-                .ok_or_else(|| MissingPersistenceField::new(field!(url@ProductEventRecord)))?,
+            url: event_record.url.ok_or_else(|| {
+                MissingPersistenceField::new(field!(url@ProductDomainEventRecord))
+            })?,
             images: event_record.images.unwrap_or_default(),
+            text_embedding: None,
             origin_year_min: None,
             origin_year: None,
             origin_year_max: None,
-            authenticity: None,
-            condition: None,
-            provenance: None,
-            restoration: None,
+            authenticity: Default::default(),
+            condition: Default::default(),
+            provenance: Default::default(),
+            restoration: Default::default(),
             auction_start: event_record.auction_start,
             auction_end: event_record.auction_end,
             created: event_record.timestamp,
@@ -476,6 +489,11 @@ mod faker {
                 ))
                 .unwrap(),
                 images: config.fake_with_rng(rng),
+                text_embedding: if config.fake_with_rng(rng) {
+                    Some(fake::vec![f32; 1024])
+                } else {
+                    None
+                },
                 origin_year_min: Some(origin_year_min),
                 origin_year,
                 origin_year_max: Some(origin_year_max),

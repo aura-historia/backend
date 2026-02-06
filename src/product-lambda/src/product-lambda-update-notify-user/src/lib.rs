@@ -5,8 +5,8 @@ use aws_lambda_events::sqs::{BatchItemFailure, SqsBatchResponse, SqsEvent};
 use common::dynamodb_stream::extract_sqs_event_bridge_dynamodb_record;
 use lambda_runtime::LambdaEvent;
 use mail_core::{payload::MailPayload, queue_service::QueueMailService};
-use product::core::product_event::ProductEvent;
-use product::dynamodb::product_event_record::ProductEventRecord;
+use product::core::product_event::ProductDomainEvent;
+use product::dynamodb::product_event_record::domain::ProductDomainEventRecord;
 use tracing::{error, info};
 
 #[tracing::instrument(skip(queue_mail_service, product_event_mail_payload_service, event), fields(requestId = %event.context.request_id))]
@@ -27,11 +27,11 @@ pub async fn handler(
             .clone()
             .expect("shouldn't receive an SQS-Message without 'message_id' because AWS sets it.");
         if let Some(product_event_record) = extract_sqs_event_bridge_dynamodb_record::<
-            ProductEventRecord,
+            ProductDomainEventRecord,
         >(
             message, &mut failed_message_ids, &mut skipped_count
         ) {
-            match ProductEvent::try_from(product_event_record) {
+            match ProductDomainEvent::try_from(product_event_record) {
                 Ok(product_event) => {
                     let mail_payloads_res = product_event_mail_payload_service
                         .create_mail_payloads(product_event)
@@ -49,8 +49,8 @@ pub async fn handler(
                 Err(err) => {
                     error!(
                         error = %err,
-                        fromType = %std::any::type_name::<ProductEventRecord>(),
-                        toType = %std::any::type_name::<ProductEvent>(),
+                        fromType = %std::any::type_name::<ProductDomainEventRecord>(),
+                        toType = %std::any::type_name::<ProductDomainEvent>(),
                         "Failed mapping types. Skipping event."
                     );
                     skipped_count += 1;
@@ -124,14 +124,14 @@ mod tests {
     use lambda_runtime::{Context, LambdaEvent};
     use mail_core::payload::MailPayload;
     use mail_core::queue_service::MockQueueMailService;
-    use product::core::product_event::ProductEvent;
-    use product::dynamodb::product_event_record::ProductEventRecord;
+    use product::core::product_event::ProductDomainEvent;
+    use product::dynamodb::product_event_record::domain::ProductDomainEventRecord;
     use std::ops::SubAssign;
     use std::sync::Arc;
     use std::time::SystemTime;
     use uuid::Uuid;
 
-    fn mk_event_bridge_payload(product_event_record: &ProductEventRecord) -> String {
+    fn mk_event_bridge_payload(product_event_record: &ProductDomainEventRecord) -> String {
         let mut stream_record = StreamRecord::default();
         stream_record.approximate_creation_date_time = SystemTime::now().into();
         stream_record.new_image = serde_dynamo::to_item(product_event_record).unwrap();
@@ -151,7 +151,7 @@ mod tests {
         serde_json::to_string(&event).unwrap()
     }
 
-    fn mk_sqs_message(product_event_record: &ProductEventRecord) -> SqsMessage {
+    fn mk_sqs_message(product_event_record: &ProductDomainEventRecord) -> SqsMessage {
         let mut msg = SqsMessage::default();
         msg.message_id = Some(Faker.fake());
         msg.body = Some(mk_event_bridge_payload(product_event_record));
@@ -173,9 +173,9 @@ mod tests {
     #[case(10874)]
     #[trace]
     async fn should_handle_sqs_message(#[case] record_count: usize) {
-        let records = fake::vec![ProductEvent; record_count]
+        let records = fake::vec![ProductDomainEvent; record_count]
             .into_iter()
-            .map(ProductEventRecord::try_from)
+            .map(ProductDomainEventRecord::try_from)
             .map(Result::unwrap)
             .map(|product_event_record| mk_sqs_message(&product_event_record))
             .collect();
@@ -225,9 +225,9 @@ mod tests {
     ) {
         use std::sync::Mutex;
 
-        let records = fake::vec![ProductEvent; record_count]
+        let records = fake::vec![ProductDomainEvent; record_count]
             .into_iter()
-            .map(ProductEventRecord::try_from)
+            .map(ProductDomainEventRecord::try_from)
             .map(Result::unwrap)
             .map(|product_event_record| mk_sqs_message(&product_event_record))
             .collect();

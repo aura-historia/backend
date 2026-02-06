@@ -1,4 +1,5 @@
-use crate::dynamodb::product_event_record::ProductEventRecord;
+use crate::dynamodb::product_event_record::domain::ProductDomainEventRecord;
+use crate::dynamodb::product_event_record::enrichment::ProductEnrichmentEventRecord;
 use crate::opensearch::authenticity_document::AuthenticityDocument;
 use crate::opensearch::condition_document::ConditionDocument;
 use crate::opensearch::product_image_document::ProductImageDocument;
@@ -109,8 +110,8 @@ impl Default for ProductUpdateDocument {
     }
 }
 
-impl From<ProductEventRecord> for ProductUpdateDocument {
-    fn from(event_record: ProductEventRecord) -> Self {
+impl From<ProductDomainEventRecord> for ProductUpdateDocument {
+    fn from(event_record: ProductDomainEventRecord) -> Self {
         let state = event_record.new_state.map(ProductStateDocument::from);
         ProductUpdateDocument {
             event_id: Some(event_record.event_id),
@@ -140,6 +141,39 @@ impl From<ProductEventRecord> for ProductUpdateDocument {
             condition: None,
             provenance: None,
             restoration: None,
+            updated: event_record.timestamp,
+        }
+    }
+}
+
+impl From<ProductEnrichmentEventRecord> for ProductUpdateDocument {
+    fn from(event_record: ProductEnrichmentEventRecord) -> Self {
+        ProductUpdateDocument {
+            event_id: Some(event_record.event_id),
+            price_eur: None,
+            price_usd: None,
+            price_gbp: None,
+            price_aud: None,
+            price_cad: None,
+            price_nzd: None,
+            title_de: None,
+            title_en: None,
+            title_fr: None,
+            title_es: None,
+            description_de: None,
+            description_en: None,
+            description_fr: None,
+            description_es: None,
+            images: None,
+            state: None,
+            text_embedding: event_record.text_embedding,
+            origin_year_min: event_record.origin_year_min,
+            origin_year: event_record.origin_year,
+            origin_year_max: event_record.origin_year_max,
+            authenticity: event_record.authenticity.map(Into::into),
+            condition: event_record.condition.map(Into::into),
+            provenance: event_record.provenance.map(Into::into),
+            restoration: event_record.restoration.map(Into::into),
             updated: event_record.timestamp,
         }
     }

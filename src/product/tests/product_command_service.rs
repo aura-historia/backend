@@ -1,8 +1,8 @@
 use common::{price::domain::FixedFxRate, product_state::domain::ProductState};
 use product::core::product::Product;
-use product::dynamodb::product_event_record::ProductEventRecordSerdeField;
+use product::dynamodb::product_event_record::domain::ProductDomainEventRecordSerdeField;
 use product::dynamodb::{
-    product_event_record::ProductEventRecord,
+    product_event_record::domain::ProductDomainEventRecord,
     product_record::ProductRecord,
     repository::{ProductDynamoDbRepository, ProductDynamoDbRepositoryImpl},
 };
@@ -34,11 +34,11 @@ async fn should_write_all_products_to_dynamodb_as_created_when_none_exist() {
         .iter()
         .all(|record| {
             record
-                .get(ProductEventRecordSerdeField::EventType.as_str())
+                .get(ProductDomainEventRecordSerdeField::EventType.as_str())
                 .unwrap()
                 .as_s()
                 .unwrap()
-                == "CREATED"
+                == "DOMAIN_CREATED"
         });
     assert!(all_event_records_created);
 }
@@ -50,7 +50,7 @@ async fn should_write_no_product_events_when_all_exist_and_no_changes() {
 
     let cmds = fake::vec![UpsertProductCommand; 400];
     for cmd in cmds.clone() {
-        let event_record: ProductEventRecord = Product::create(
+        let event_record: ProductDomainEventRecord = Product::create(
             cmd.shop_id,
             cmd.shops_product_id,
             cmd.shop_name,
@@ -104,7 +104,7 @@ async fn should_write_product_updates_when_all_exist_and_actual_changes() {
 
     let mut cmds = fake::vec![UpsertProductCommand; 400];
     for cmd in cmds.clone() {
-        let event_record: ProductEventRecord = Product::create(
+        let event_record: ProductDomainEventRecord = Product::create(
             cmd.shop_id,
             cmd.shops_product_id,
             cmd.shop_name,
@@ -160,7 +160,7 @@ async fn should_write_product_updates_when_all_exist_and_actual_changes() {
         .items
         .unwrap()
         .iter()
-        .filter_map(|record| record.get(ProductEventRecordSerdeField::EventType.as_str()))
-        .all(|val| val.as_s().unwrap() == "STATE_AVAILABLE");
+        .filter_map(|record| record.get(ProductDomainEventRecordSerdeField::EventType.as_str()))
+        .all(|val| val.as_s().unwrap() == "DOMAIN_STATE_AVAILABLE");
     assert!(all_event_records_update_state_available);
 }

@@ -1,4 +1,5 @@
 use crate::dynamodb::product_event_record::ProductEventRecord;
+use crate::dynamodb::product_event_record::domain::ProductDomainEventRecord;
 use crate::dynamodb::product_record::{self, ProductRecord};
 use crate::dynamodb::product_update_record::ProductRecordUpdate;
 use async_trait::async_trait;
@@ -25,6 +26,8 @@ use tracing::{error, warn};
 #[allow(clippy::result_large_err)]
 #[mockall::automock]
 pub trait ProductDynamoDbRepository {
+    fn table(&self) -> &str;
+
     async fn put_product_event_records(
         &self,
         product_event_records: Batch<ProductEventRecord, 25>,
@@ -48,17 +51,20 @@ pub trait ProductDynamoDbRepository {
         shops_product_id: &ShopsProductId,
     ) -> Result<Option<ProductRecord>, SdkError<GetItemError, HttpResponse>>;
 
-    async fn query_product_record_and_event_records(
+    async fn query_product_record_and_domain_event_records(
         &self,
         shop_id: &ShopId,
         shops_product_id: &ShopsProductId,
-    ) -> Result<Option<(ProductRecord, Vec<ProductEventRecord>)>, SdkError<QueryError, HttpResponse>>;
+    ) -> Result<
+        Option<(ProductRecord, Vec<ProductDomainEventRecord>)>,
+        SdkError<QueryError, HttpResponse>,
+    >;
 
-    async fn query_product_event_records(
+    async fn query_product_domain_event_records(
         &self,
         shop_id: &ShopId,
         shops_product_id: &ShopsProductId,
-    ) -> Result<Vec<ProductEventRecord>, SdkError<QueryError, HttpResponse>>;
+    ) -> Result<Vec<ProductDomainEventRecord>, SdkError<QueryError, HttpResponse>>;
 
     async fn get_product_records(
         &self,
@@ -103,6 +109,10 @@ impl<'a> ProductDynamoDbRepositoryImpl<'a> {
 
 #[async_trait]
 impl<'a> ProductDynamoDbRepository for ProductDynamoDbRepositoryImpl<'a> {
+    fn table(&self) -> &str {
+        &self.table
+    }
+
     async fn put_product_event_records(
         &self,
         product_event_records: Batch<ProductEventRecord, 25>,
@@ -179,12 +189,14 @@ impl<'a> ProductDynamoDbRepository for ProductDynamoDbRepositoryImpl<'a> {
         Ok(rec)
     }
 
-    async fn query_product_record_and_event_records(
+    async fn query_product_record_and_domain_event_records(
         &self,
         shop_id: &ShopId,
         shops_product_id: &ShopsProductId,
-    ) -> Result<Option<(ProductRecord, Vec<ProductEventRecord>)>, SdkError<QueryError, HttpResponse>>
-    {
+    ) -> Result<
+        Option<(ProductRecord, Vec<ProductDomainEventRecord>)>,
+        SdkError<QueryError, HttpResponse>,
+    > {
         let composite = self
             .client
             .query()
@@ -223,17 +235,17 @@ impl<'a> ProductDynamoDbRepository for ProductDynamoDbRepositoryImpl<'a> {
                         },
                     }
                 },
-                Some(sk) if sk.starts_with("product#event#") => {
-                    match serde_dynamo::from_item::<_, ProductEventRecord>(record) {
+                Some(sk) if sk.starts_with("product#event#domain#") => {
+                    match serde_dynamo::from_item::<_, ProductDomainEventRecord>(record) {
                         Ok(event) => {
-                            let mut events: Vec<ProductEventRecord> = events.unwrap_or_default();
+                            let mut events: Vec<ProductDomainEventRecord> = events.unwrap_or_default();
                             events.push(event);
                             (materialized, Some(events))
                         },
                         Err(err) => {
                             error!(
                                 error = %err,
-                                type = %std::any::type_name::<ProductEventRecord>(),
+                                type = %std::any::type_name::<ProductDomainEventRecord>(),
                                 "Failed deserializing ProductEventRecord."
                             );
                             (materialized, events)
@@ -267,11 +279,11 @@ impl<'a> ProductDynamoDbRepository for ProductDynamoDbRepositoryImpl<'a> {
         }
     }
 
-    async fn query_product_event_records(
+    async fn query_product_domain_event_records(
         &self,
         shop_id: &ShopId,
         shops_product_id: &ShopsProductId,
-    ) -> Result<Vec<ProductEventRecord>, SdkError<QueryError, HttpResponse>> {
+    ) -> Result<Vec<ProductDomainEventRecord>, SdkError<QueryError, HttpResponse>> {
         let event_records = self
             .client
             .query()
@@ -285,7 +297,7 @@ impl<'a> ProductDynamoDbRepository for ProductDynamoDbRepositoryImpl<'a> {
             )
             .expression_attribute_values(
                 ":sk_prefix",
-                AttributeValue::S("product#event#".to_string()),
+                AttributeValue::S("product#event#domain#".to_string()),
             )
             .scan_index_forward(true)
             .into_paginator()
@@ -295,12 +307,13 @@ impl<'a> ProductDynamoDbRepository for ProductDynamoDbRepositoryImpl<'a> {
             .into_iter()
             .flat_map(|query_output| query_output.items.unwrap_or_default())
             .filter_map(|event_record_attr_map| {
-                match serde_dynamo::from_item::<_, ProductEventRecord>(event_record_attr_map) {
+                match serde_dynamo::from_item::<_, ProductDomainEventRecord>(event_record_attr_map)
+                {
                     Ok(event_record) => Some(event_record),
                     Err(err) => {
                         error!(
                             error = %err,
-                            type = %std::any::type_name::<ProductEventRecord>(),
+                            type = %std::any::type_name::<ProductDomainEventRecord>(),
                             "Failed deserializing."
                         );
                         None

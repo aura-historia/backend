@@ -1,14 +1,12 @@
-use std::collections::HashMap;
-
 use aws_lambda_events::sqs::{BatchItemFailure, SqsBatchResponse, SqsEvent, SqsMessage};
 use common::dynamodb_stream::extract_sqs_event_bridge_dynamodb_record;
 use common::has_key::HasKey;
 use common::product_id::ProductKey;
 use lambda_runtime::LambdaEvent;
+use product::dynamodb::product_event_record::ProductEventRecord;
+use product::dynamodb::product_update_record::ProductRecordUpdate;
 use product::dynamodb::repository::ProductDynamoDbRepository;
-use product::dynamodb::{
-    product_event_record::ProductEventRecord, product_update_record::ProductRecordUpdate,
-};
+use std::collections::HashMap;
 use tracing::{error, info};
 
 #[tracing::instrument(skip(repository, event), fields(requestId = %event.context.request_id))]
@@ -30,7 +28,10 @@ pub async fn handler(
             &mut failed_message_ids,
             &mut skipped_count,
             &mut message_ids,
-        ) {
+            repository,
+        )
+        .await
+        {
             updates.push(update);
         }
     }
@@ -72,11 +73,12 @@ pub async fn handler(
     Ok(sqs_batch_response)
 }
 
-fn extract_message_data(
+async fn extract_message_data(
     message: SqsMessage,
     failed_message_ids: &mut Vec<String>,
     skipped_count: &mut usize,
     message_ids: &mut HashMap<ProductKey, String>,
+    repository: &impl ProductDynamoDbRepository,
 ) -> Option<(ProductKey, ProductRecordUpdate)> {
     let message_id = message
         .message_id
@@ -85,9 +87,52 @@ fn extract_message_data(
     let product_event_record: ProductEventRecord =
         extract_sqs_event_bridge_dynamodb_record(message, failed_message_ids, skipped_count)?;
     let key = product_event_record.key();
-    let update_record = ProductRecordUpdate::from(product_event_record);
+    let update_record = match product_event_record {
+        ProductEventRecord::Domain(event_record) => Some(ProductRecordUpdate::from(event_record)),
+        ProductEventRecord::Enrichment(event_record) => {
+            Some(ProductRecordUpdate::from(event_record))
+        }
+        ProductEventRecord::Policy(event_record) => {
+            let record_res = repository
+                .get_product_record(&event_record.shop_id, &event_record.shops_product_id)
+                .await;
+            match record_res {
+                Ok(Some(record)) => {
+                    let mut update_record = ProductRecordUpdate::default();
+                    let prohibited_images = record
+                        .images
+                        .into_iter()
+                        .map(|mut image| {
+                            image.prohibited_content = event_record.prohibited_content_decision;
+                            image
+                        })
+                        .collect();
+                    update_record.images = Some(prohibited_images);
+                    Some(update_record)
+                }
+                Ok(None) => {
+                    error!(
+                        shopId = %event_record.shop_id,
+                        shopsProductId = %event_record.shops_product_id,
+                        "ProductRecord doesn't exist. This is a logic error. Impossible to apply policy to non-existent product."
+                    );
+                    failed_message_ids.push(message_id.clone());
+                    None
+                }
+                Err(err) => {
+                    error!(
+                        error = ?err,
+                        shopId = %event_record.shop_id,
+                        "Failed getting ProductRecord"
+                    );
+                    failed_message_ids.push(message_id.clone());
+                    None
+                }
+            }
+        }
+    };
     message_ids.insert(key.clone(), message_id);
-    Some((key, update_record))
+    Some((key, update_record?))
 }
 
 #[cfg(test)]
@@ -98,9 +143,10 @@ mod tests {
     use aws_lambda_events::sqs::{SqsEvent, SqsMessage};
     use aws_sdk_dynamodb::error::SdkError;
     use aws_sdk_dynamodb::operation::update_item::UpdateItemOutput;
+    use common::has_key::HasKey;
     use fake::{Fake, Faker};
     use lambda_runtime::{Context, LambdaEvent};
-    use product::core::product_event::{ProductCommonEventPayload, ProductEvent};
+    use product::core::product_event::ProductEvent;
     use product::dynamodb::product_event_record::ProductEventRecord;
     use product::dynamodb::repository::MockProductDynamoDbRepository;
     use std::time::SystemTime;
@@ -172,6 +218,9 @@ mod tests {
         };
         let mut repository = MockProductDynamoDbRepository::default();
         repository
+            .expect_get_product_record() // if policy event
+            .returning(move |_, _| Box::pin(async move { Ok(Some(Faker.fake())) }));
+        repository
             .expect_update_product_record()
             .returning(move |_, _, _| {
                 Box::pin(async move { Ok(UpdateItemOutput::builder().build()) })
@@ -213,10 +262,10 @@ mod tests {
             .map(Result::unwrap)
             .map(|event_record| {
                 let message_id = Uuid::new_v4().to_string();
-                if expected_failed_events.iter().any(|event| {
-                    event.payload.shop_id() == &event_record.shop_id
-                        && event.payload.shops_product_id() == &event_record.shops_product_id
-                }) {
+                if expected_failed_events
+                    .iter()
+                    .any(|event| event.payload.key() == event_record.key())
+                {
                     expected_failed_message_ids.push(message_id.clone());
                 }
                 mk_sqs_message_with_id(&event_record, message_id)
@@ -230,11 +279,14 @@ mod tests {
         };
         let mut repository = MockProductDynamoDbRepository::default();
         repository
+            .expect_get_product_record() // if policy event
+            .returning(move |_, _| Box::pin(async move { Ok(Some(Faker.fake())) }));
+        repository
             .expect_update_product_record()
             .returning(move |shop_id, shops_product_id, _| {
                 if expected_failed_events.iter().any(|event| {
-                    event.payload.shop_id() == shop_id
-                        && event.payload.shops_product_id() == shops_product_id
+                    &event.payload.key().shop_id == shop_id
+                        && &event.payload.key().shops_product_id == shops_product_id
                 }) {
                     Box::pin(
                         async move { Err(SdkError::construction_failure("Something went wrong.")) },

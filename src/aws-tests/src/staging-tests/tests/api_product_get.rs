@@ -10,7 +10,11 @@ use common::{
 use fake::{Fake, Faker};
 use product::{
     core::product_event::{
-        ProductEventPayload, ProductPriceChangeEventPayload, ProductStateChangeEventPayload,
+        ProductEventPayload,
+        domain::{
+            ProductDomainEventPayload, ProductPriceChangeDomainEventPayload,
+            ProductStateChangeDomainEventPayload,
+        },
     },
     dynamodb::{
         product_record::ProductRecord,
@@ -207,21 +211,23 @@ async fn should_respond_200_for_history() {
         aggregate_id: record.product_id,
         event_id: event_1_id,
         timestamp: SystemTime::now().into(),
-        payload: ProductEventPayload::PriceDropped(ProductPriceChangeEventPayload {
-            shop_id: record.shop_id,
-            shops_product_id: record.shops_product_id.clone(),
-            new_native_price: event_1_price,
-            new_other_price: FixedFxRate()
-                .exchange_all(event_1_price.currency, event_1_price.monetary_amount)
-                .unwrap(),
-            old_native_price: Price {
-                monetary_amount: 100000u64.into(),
-                currency: Currency::Eur,
+        payload: ProductEventPayload::ProductDomainEvent(ProductDomainEventPayload::PriceDropped(
+            ProductPriceChangeDomainEventPayload {
+                shop_id: record.shop_id,
+                shops_product_id: record.shops_product_id.clone(),
+                new_native_price: event_1_price,
+                new_other_price: FixedFxRate()
+                    .exchange_all(event_1_price.currency, event_1_price.monetary_amount)
+                    .unwrap(),
+                old_native_price: Price {
+                    monetary_amount: 100000u64.into(),
+                    currency: Currency::Eur,
+                },
+                old_other_price: FixedFxRate()
+                    .exchange_all(Currency::Eur, 100000u64.into())
+                    .unwrap(),
             },
-            old_other_price: FixedFxRate()
-                .exchange_all(Currency::Eur, 100000u64.into())
-                .unwrap(),
-        }),
+        )),
     };
     tokio::time::sleep(Duration::from_secs(1)).await;
     let event_2_id = EventId::new();
@@ -229,11 +235,13 @@ async fn should_respond_200_for_history() {
         aggregate_id: record.product_id,
         event_id: event_2_id,
         timestamp: SystemTime::now().into(),
-        payload: ProductEventPayload::StateRemoved(ProductStateChangeEventPayload {
-            shop_id: record.shop_id,
-            shops_product_id: record.shops_product_id.clone(),
-            old_state: ProductState::Sold,
-        }),
+        payload: ProductEventPayload::ProductDomainEvent(ProductDomainEventPayload::StateRemoved(
+            ProductStateChangeDomainEventPayload {
+                shop_id: record.shop_id,
+                shops_product_id: record.shops_product_id.clone(),
+                old_state: ProductState::Sold,
+            },
+        )),
     };
     let insert_res = product_repository
         .put_product_event_records(

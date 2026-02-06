@@ -5,7 +5,10 @@ use crate::{
 };
 use aws_sdk_sqs::{Client, types::DeleteMessageBatchRequestEntry};
 use common::{batch::Batch, product_id::ProductId};
-use serde::{Serialize, de::DeserializeOwned};
+use product::{
+    core::product_event::ProductEvent, dynamodb::product_event_record::ProductEventRecord,
+    service::get_service::GetProductService,
+};
 use std::collections::{HashMap, HashSet};
 use tracing::{error, info, warn};
 
@@ -14,27 +17,31 @@ pub trait Pipe {
     async fn pipe(&self);
 }
 
-pub struct PipeImpl<'a, InData, In, Out, OutData> {
+pub struct PipeImpl<'a> {
+    get_product_service: &'a (dyn GetProductService + Send + Sync),
     sqs: &'a Client,
     source_queue: String,
     batch_in_count: u16,
     visibility_timeout: u16,
-    flow_in: &'a (dyn PipeFlowIn<InData> + Send + Sync),
-    processor: &'a (dyn PipeProcessor<In, Out> + Send + Sync),
-    flow_out: &'a (dyn PipeFlowOut<'a, OutData> + Send + Sync),
+    flow_in: &'a (dyn PipeFlowIn + Send + Sync),
+    processor: &'a (dyn PipeProcessor + Send + Sync),
+    flow_out: &'a (dyn PipeFlowOut + Send + Sync),
 }
 
-impl<'a, InData, In, Out, OutData> PipeImpl<'a, InData, In, Out, OutData> {
+impl<'a> PipeImpl<'a> {
+    #[allow(clippy::too_many_arguments)]
     pub fn new(
+        get_product_service: &'a (dyn GetProductService + Send + Sync),
         sqs: &'a Client,
         source_queue: String,
         batch_in_count: u16,
         visibility_timeout: u16,
-        flow_in: &'a (dyn PipeFlowIn<InData> + Send + Sync),
-        processor: &'a (dyn PipeProcessor<In, Out> + Send + Sync),
-        flow_out: &'a (dyn PipeFlowOut<'a, OutData> + Send + Sync),
+        flow_in: &'a (dyn PipeFlowIn + Send + Sync),
+        processor: &'a (dyn PipeProcessor + Send + Sync),
+        flow_out: &'a (dyn PipeFlowOut + Send + Sync),
     ) -> Self {
         Self {
+            get_product_service,
             sqs,
             source_queue,
             batch_in_count,
@@ -47,21 +54,9 @@ impl<'a, InData, In, Out, OutData> PipeImpl<'a, InData, In, Out, OutData> {
 }
 
 #[async_trait::async_trait]
-impl<'a, InData, In, Out, OutData> Pipe for PipeImpl<'a, InData, In, Out, OutData>
-where
-    InData: DeserializeOwned + Send + Sync,
-    In: From<InData> + Send + Sync,
-    Out: Send + Sync,
-    OutData: From<Out> + Serialize + Send + Sync,
-{
+impl<'a> Pipe for PipeImpl<'a> {
     async fn pipe(&self) {
-        info!(
-            inDataType = %std::any::type_name::<InData>(),
-            inType = %std::any::type_name::<In>(),
-            outType = %std::any::type_name::<Out>(),
-            outDataType = %std::any::type_name::<OutData>(),
-            "Start piping..."
-        );
+        info!("Start piping...");
         loop {
             info!("Start piping iteration...");
             let in_res = self
@@ -83,15 +78,43 @@ where
                 .cloned()
                 .map(|message_ref| (message_ref.product_id, message_ref))
                 .collect::<HashMap<_, _>>();
-            let ins = in_res.data.into_values().map(In::from).collect();
-            let processed = self.processor.process(ins);
+            let get_products_res = self
+                .get_product_service
+                .find_products(in_res.data.into_values().collect())
+                .await;
+            let products = match get_products_res {
+                Ok(products) => products,
+                Err(err) => {
+                    error!(error = %err, "Failed finding products. Continuing with no products");
+                    vec![]
+                }
+            };
+
+            let processed = self.processor.process(products);
             info!(
                 successes = processed.successes.len(),
                 failures = processed.failures.len(),
                 "Processed products."
             );
 
-            let outs = processed.successes.into_iter().map(OutData::from).collect();
+            let outs = processed
+                .successes
+                .into_iter()
+                .flat_map(
+                    |product_event| match ProductEventRecord::try_from(product_event) {
+                        Ok(enrichment_event_record) => Some(enrichment_event_record),
+                        Err(err) => {
+                            error!(
+                                error = %err,
+                                fromType = %std::any::type_name::<ProductEvent>(),
+                                toType = %std::any::type_name::<ProductEventRecord>(),
+                                "Failed mapping"
+                            );
+                            None
+                        }
+                    },
+                )
+                .collect();
             let out_res = self.flow_out.flow_out(outs).await;
             info!(
                 successes = out_res.successes.len(),
@@ -149,7 +172,7 @@ where
     }
 }
 
-impl<'a, InData, In, Out, OutData> PipeImpl<'a, InData, In, Out, OutData> {
+impl<'a> PipeImpl<'a> {
     async fn handle_delete_messages_with_retry(
         &self,
         deletes: HashSet<MessageRef>,

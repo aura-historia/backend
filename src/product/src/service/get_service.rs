@@ -1,20 +1,7 @@
-use crate::core::authenticity::Authenticity;
-use crate::core::condition::Condition;
-use crate::core::description::Description;
-use crate::core::origin_year::OriginYear;
 use crate::core::product::{LocalizedProductView, Product};
-use crate::core::product_event::{
-    LocalizedProductCreatedEventPayloadView, LocalizedProductEventPayloadView,
-    LocalizedProductPriceChangeEventPayloadView, LocalizedProductPriceDiscoveryEventPayloadView,
-    LocalizedProductPriceRemovedEventPayloadView, LocalizedProductStateChangeEventPayloadView,
-    ProductEvent, ProductEventPayload,
-};
-use crate::core::product_image::ProductImage;
-use crate::core::provenance::Provenance;
-use crate::core::restoration::Restoration;
-use crate::core::title::Title;
-use crate::dynamodb::product_event_record::ProductEventRecord;
-use crate::dynamodb::product_record::ProductRecord;
+use crate::core::product_event::ProductDomainEvent;
+use crate::core::product_event::domain::LocalizedProductDomainEventPayloadView;
+use crate::dynamodb::product_event_record::domain::ProductDomainEventRecord;
 use crate::dynamodb::repository::ProductDynamoDbRepository;
 use async_trait::async_trait;
 use aws_sdk_dynamodb::config::http::HttpResponse;
@@ -23,15 +10,11 @@ use common::batch::Batch;
 use common::currency::domain::Currency;
 use common::event::Event;
 use common::language::domain::Language;
-use common::localized::Localized;
-use common::price::domain::{MonetaryAmountOverflowError, Price};
+use common::price::domain::MonetaryAmountOverflowError;
 use common::product_id::{ProductId, ProductKey};
 use common::shop_id::ShopId;
 use common::shops_product_id::ShopsProductId;
 use common::slug_id::SlugId;
-use common::year::YearRange;
-use std::collections::HashMap;
-use strum::EnumCount;
 use tracing::error;
 
 #[derive(thiserror::Error, Debug)]
@@ -109,6 +92,8 @@ pub trait GetProductService {
         product_slug_id: &SlugId<6>,
     ) -> Result<Product, GetProductError>;
 
+    async fn find_products(&self, items: Vec<ProductKey>) -> Result<Vec<Product>, GetProductError>;
+
     async fn view_product(
         &self,
         shop_id: &ShopId,
@@ -138,7 +123,7 @@ pub trait GetProductService {
         shops_product_id: &ShopsProductId,
         languages: &[Language],
         currency: &Currency,
-    ) -> Result<Vec<Event<ProductId, LocalizedProductEventPayloadView>>, GetProductError>;
+    ) -> Result<Vec<Event<ProductId, LocalizedProductDomainEventPayloadView>>, GetProductError>;
 }
 
 pub struct GetProductServiceImpl<'a> {
@@ -206,8 +191,8 @@ impl<'a> GetProductService for GetProductServiceImpl<'a> {
                 *shop_id,
                 shops_product_id.clone(),
             ))?;
-
-        let product_view = localize_product_record(product_record, currency, preferred_languages);
+        let product: Product = product_record.into();
+        let product_view = product.localized(currency, preferred_languages);
 
         Ok(product_view)
     }
@@ -242,21 +227,30 @@ impl<'a> GetProductService for GetProductServiceImpl<'a> {
 
     async fn view_products(
         &self,
-        items: Vec<ProductKey>,
+        product_keys: Vec<ProductKey>,
         languages: &[Language],
         currency: &Currency,
     ) -> Result<Vec<LocalizedProductView>, GetProductError> {
+        let products = self.find_products(product_keys).await?;
+        let product_views = products
+            .into_iter()
+            .map(|product| product.localized(currency, languages))
+            .collect();
+
+        Ok(product_views)
+    }
+
+    async fn find_products(&self, items: Vec<ProductKey>) -> Result<Vec<Product>, GetProductError> {
         const MAX_RETRIES: u32 = 3;
         const BASE_DELAY_MS: u64 = 100;
 
-        let mut views = Vec::with_capacity(items.len());
+        let mut products = Vec::with_capacity(items.len());
         let mut unprocessed = items;
         let mut retry_count = 0;
         loop {
-            let (mut local_views, local_unprocessed) = self
-                .view_products_with_unprocessed(unprocessed, languages, currency)
-                .await?;
-            views.append(&mut local_views);
+            let (mut local_views, local_unprocessed) =
+                self.view_products_with_unprocessed(unprocessed).await?;
+            products.append(&mut local_views);
 
             if local_unprocessed.is_empty() {
                 break;
@@ -271,7 +265,7 @@ impl<'a> GetProductService for GetProductServiceImpl<'a> {
             unprocessed = local_unprocessed;
         }
 
-        Ok(views)
+        Ok(products)
     }
 
     async fn view_product_history(
@@ -280,25 +274,28 @@ impl<'a> GetProductService for GetProductServiceImpl<'a> {
         shops_product_id: &ShopsProductId,
         _languages: &[Language],
         currency: &Currency,
-    ) -> Result<Vec<Event<ProductId, LocalizedProductEventPayloadView>>, GetProductError> {
-        let events: Vec<Event<ProductId, LocalizedProductEventPayloadView>> = self
+    ) -> Result<Vec<Event<ProductId, LocalizedProductDomainEventPayloadView>>, GetProductError>
+    {
+        let events: Vec<Event<ProductId, LocalizedProductDomainEventPayloadView>> = self
             .repository
-            .query_product_event_records(shop_id, shops_product_id)
+            .query_product_domain_event_records(shop_id, shops_product_id)
             .await?
             .into_iter()
-            .filter_map(|event_record| match ProductEvent::try_from(event_record) {
-                Ok(event) => Some(event),
-                Err(err) => {
-                    error!(
-                        error = %err,
-                        fromtype = %std::any::type_name::<ProductEventRecord>(),
-                        totype = %std::any::type_name::<ProductEvent>(),
-                        "Failed mapping"
-                    );
-                    None
-                }
-            })
-            .map(|event| localize_product_event(event, currency))
+            .filter_map(
+                |event_record| match ProductDomainEvent::try_from(event_record) {
+                    Ok(event) => Some(event),
+                    Err(err) => {
+                        error!(
+                            error = %err,
+                            fromtype = %std::any::type_name::<ProductDomainEventRecord>(),
+                            totype = %std::any::type_name::<ProductDomainEvent>(),
+                            "Failed mapping"
+                        );
+                        None
+                    }
+                },
+            )
+            .map(|event| event.map_payload(|payload| payload.localized(currency)))
             .collect();
 
         if events.is_empty() {
@@ -316,346 +313,19 @@ impl<'a> GetProductServiceImpl<'a> {
     async fn view_products_with_unprocessed(
         &self,
         items: Vec<ProductKey>,
-        languages: &[Language],
-        currency: &Currency,
-    ) -> Result<(Vec<LocalizedProductView>, Vec<ProductKey>), GetProductError> {
-        let mut views = Vec::with_capacity(items.len());
+    ) -> Result<(Vec<Product>, Vec<ProductKey>), GetProductError> {
+        let mut products = Vec::with_capacity(items.len());
         let mut unprocessed = Vec::new();
         for batch in Batch::chunked_from(items.into_iter()) {
             let result = self.repository.get_product_records(&batch).await?;
             if let Some(up) = result.unprocessed {
                 unprocessed.extend(up);
             }
-            let local_views = result
-                .items
-                .into_iter()
-                .map(|record| localize_product_record(record, currency, languages));
-            views.extend(local_views);
+            let local_products = result.items.into_iter().map(Product::from);
+            products.extend(local_products);
         }
 
-        Ok((views, unprocessed))
-    }
-}
-
-fn localize_product_record(
-    product_record: ProductRecord,
-    currency: &Currency,
-    preferred_languages: &[Language],
-) -> LocalizedProductView {
-    let mut available_titles: HashMap<Language, Title> = HashMap::with_capacity(Language::COUNT);
-    available_titles.insert(
-        product_record.title_native.language.into(),
-        product_record.title_native.text.into(),
-    );
-    if let Some(title_de) = product_record.title_de {
-        available_titles.insert(Language::De, title_de.into());
-    }
-    if let Some(title_en) = product_record.title_en {
-        available_titles.insert(Language::En, title_en.into());
-    }
-    if let Some(title_fr) = product_record.title_fr {
-        available_titles.insert(Language::Fr, title_fr.into());
-    }
-    if let Some(title_es) = product_record.title_es {
-        available_titles.insert(Language::Es, title_es.into());
-    }
-
-    let mut available_descriptions: HashMap<Language, Description> =
-        HashMap::with_capacity(Language::COUNT);
-    if let Some(description_native) = product_record.description_native {
-        available_descriptions.insert(
-            description_native.language.into(),
-            description_native.text.into(),
-        );
-    }
-    if let Some(description_de) = product_record.description_de {
-        available_descriptions.insert(Language::De, description_de.into());
-    }
-    if let Some(description_en) = product_record.description_en {
-        available_descriptions.insert(Language::En, description_en.into());
-    }
-    if let Some(description_fr) = product_record.description_fr {
-        available_descriptions.insert(Language::Fr, description_fr.into());
-    }
-    if let Some(description_es) = product_record.description_es {
-        available_descriptions.insert(Language::Es, description_es.into());
-    }
-
-    let title = Language::resolve(preferred_languages, available_titles).unwrap_or_else(|| {
-        error!("Failed resolving title. This SHOULD be impossible because the native title always exists.");
-        Localized::new(Language::En, "Unknown title".into())
-    });
-    let description = Language::resolve(preferred_languages, available_descriptions);
-
-    let price = match currency {
-        Currency::Eur => product_record
-            .price_eur
-            .map(|amount| Price::new(amount.into(), Currency::Eur)),
-        Currency::Gbp => product_record
-            .price_gbp
-            .map(|amount| Price::new(amount.into(), Currency::Gbp)),
-        Currency::Usd => product_record
-            .price_usd
-            .map(|amount| Price::new(amount.into(), Currency::Usd)),
-        Currency::Aud => product_record
-            .price_aud
-            .map(|amount| Price::new(amount.into(), Currency::Aud)),
-        Currency::Cad => product_record
-            .price_cad
-            .map(|amount| Price::new(amount.into(), Currency::Cad)),
-        Currency::Nzd => product_record
-            .price_nzd
-            .map(|amount| Price::new(amount.into(), Currency::Nzd)),
-    };
-
-    let price_estimate_min = match currency {
-        Currency::Eur => product_record
-            .price_estimate_min_eur
-            .map(|amount| Price::new(amount.into(), Currency::Eur)),
-        Currency::Gbp => product_record
-            .price_estimate_min_gbp
-            .map(|amount| Price::new(amount.into(), Currency::Gbp)),
-        Currency::Usd => product_record
-            .price_estimate_min_usd
-            .map(|amount| Price::new(amount.into(), Currency::Usd)),
-        Currency::Aud => product_record
-            .price_estimate_min_aud
-            .map(|amount| Price::new(amount.into(), Currency::Aud)),
-        Currency::Cad => product_record
-            .price_estimate_min_cad
-            .map(|amount| Price::new(amount.into(), Currency::Cad)),
-        Currency::Nzd => product_record
-            .price_estimate_min_nzd
-            .map(|amount| Price::new(amount.into(), Currency::Nzd)),
-    };
-
-    let price_estimate_max = match currency {
-        Currency::Eur => product_record
-            .price_estimate_max_eur
-            .map(|amount| Price::new(amount.into(), Currency::Eur)),
-        Currency::Gbp => product_record
-            .price_estimate_max_gbp
-            .map(|amount| Price::new(amount.into(), Currency::Gbp)),
-        Currency::Usd => product_record
-            .price_estimate_max_usd
-            .map(|amount| Price::new(amount.into(), Currency::Usd)),
-        Currency::Aud => product_record
-            .price_estimate_max_aud
-            .map(|amount| Price::new(amount.into(), Currency::Aud)),
-        Currency::Cad => product_record
-            .price_estimate_max_cad
-            .map(|amount| Price::new(amount.into(), Currency::Cad)),
-        Currency::Nzd => product_record
-            .price_estimate_max_nzd
-            .map(|amount| Price::new(amount.into(), Currency::Nzd)),
-    };
-
-    LocalizedProductView {
-        product_id: product_record.product_id,
-        product_slug_id: product_record.product_slug_id,
-        shop_slug_id: product_record.shop_slug_id,
-        event_id: product_record.event_id,
-        shop_id: product_record.shop_id,
-        shops_product_id: product_record.shops_product_id,
-        shop_name: product_record.shop_name.into(),
-        shop_type: product_record.shop_type.into(),
-        title,
-        description,
-        price,
-        price_estimate_min,
-        price_estimate_max,
-        state: product_record.state.into(),
-        url: product_record.url,
-        images: product_record
-            .images
-            .into_iter()
-            .map(ProductImage::from)
-            .collect(),
-        origin_year: match (
-            product_record.origin_year,
-            product_record.origin_year_min,
-            product_record.origin_year_max,
-        ) {
-            (None, None, None) => None,
-            (Some(exact_year), _, _) => Some(OriginYear::ExactYear(exact_year)),
-            (_, min, max) => Some(OriginYear::EstimatedRange(YearRange { min, max })),
-        },
-        authenticity: product_record.authenticity.map(Authenticity::from),
-        condition: product_record.condition.map(Condition::from),
-        provenance: product_record.provenance.map(Provenance::from),
-        restoration: product_record.restoration.map(Restoration::from),
-        auction_start: product_record.auction_start,
-        auction_end: product_record.auction_end,
-        created: product_record.created,
-        updated: product_record.updated,
-    }
-}
-
-fn localize_product_event(
-    event: ProductEvent,
-    currency: &Currency,
-) -> Event<ProductId, LocalizedProductEventPayloadView> {
-    let payload = match event.payload {
-        ProductEventPayload::Created(payload) => {
-            let mut prices = payload.other_price;
-            if let Some(native_price) = payload.native_price {
-                prices.insert(native_price.currency, native_price.monetary_amount);
-            }
-            LocalizedProductEventPayloadView::Created(LocalizedProductCreatedEventPayloadView {
-                shop_id: payload.shop_id,
-                shops_product_id: payload.shops_product_id,
-                shop_name: payload.shop_name,
-                shop_type: payload.shop_type,
-                title: payload.native_title,
-                description: payload.native_description,
-                price: prices
-                    .remove(currency)
-                    .map(|amount| Price::new(amount, *currency)),
-                state: payload.state,
-                url: payload.url,
-                images: payload.images,
-            })
-        }
-        ProductEventPayload::StateListed(payload) => LocalizedProductEventPayloadView::StateListed(
-            LocalizedProductStateChangeEventPayloadView {
-                shop_id: payload.shop_id,
-                shops_product_id: payload.shops_product_id,
-                old_state: payload.old_state,
-            },
-        ),
-        ProductEventPayload::StateAvailable(payload) => {
-            LocalizedProductEventPayloadView::StateAvailable(
-                LocalizedProductStateChangeEventPayloadView {
-                    shop_id: payload.shop_id,
-                    shops_product_id: payload.shops_product_id,
-                    old_state: payload.old_state,
-                },
-            )
-        }
-        ProductEventPayload::StateReserved(payload) => {
-            LocalizedProductEventPayloadView::StateReserved(
-                LocalizedProductStateChangeEventPayloadView {
-                    shop_id: payload.shop_id,
-                    shops_product_id: payload.shops_product_id,
-                    old_state: payload.old_state,
-                },
-            )
-        }
-        ProductEventPayload::StateSold(payload) => LocalizedProductEventPayloadView::StateSold(
-            LocalizedProductStateChangeEventPayloadView {
-                shop_id: payload.shop_id,
-                shops_product_id: payload.shops_product_id,
-                old_state: payload.old_state,
-            },
-        ),
-        ProductEventPayload::StateRemoved(payload) => {
-            LocalizedProductEventPayloadView::StateRemoved(
-                LocalizedProductStateChangeEventPayloadView {
-                    shop_id: payload.shop_id,
-                    shops_product_id: payload.shops_product_id,
-                    old_state: payload.old_state,
-                },
-            )
-        }
-        ProductEventPayload::StateUnknown(payload) => {
-            LocalizedProductEventPayloadView::StateUnknown(
-                LocalizedProductStateChangeEventPayloadView {
-                    shop_id: payload.shop_id,
-                    shops_product_id: payload.shops_product_id,
-                    old_state: payload.old_state,
-                },
-            )
-        }
-        ProductEventPayload::PriceDiscovered(payload) => {
-            let mut prices = payload.other_price;
-            prices.insert(
-                payload.native_price.currency,
-                payload.native_price.monetary_amount,
-            );
-            LocalizedProductEventPayloadView::PriceDiscovered(
-                LocalizedProductPriceDiscoveryEventPayloadView {
-                        shop_id: payload.shop_id,
-                        shops_product_id: payload.shops_product_id,
-                        price: Currency::resolve(&[*currency], prices).unwrap_or_else(|| {
-                            error!("Failed resolving price. This SHOULD be impossible because the native price always exists.");
-                            Price::new(0u64.into(), *currency)
-                        }),
-                    },
-                )
-        }
-        ProductEventPayload::PriceDropped(payload) => {
-            let mut new_prices = payload.new_other_price;
-            new_prices.insert(
-                payload.new_native_price.currency,
-                payload.new_native_price.monetary_amount,
-            );
-            let mut old_prices = payload.old_other_price;
-            old_prices.insert(
-                payload.old_native_price.currency,
-                payload.old_native_price.monetary_amount,
-            );
-            LocalizedProductEventPayloadView::PriceDropped(
-                LocalizedProductPriceChangeEventPayloadView {
-                        shop_id: payload.shop_id,
-                        shops_product_id: payload.shops_product_id,
-                        new_price: Currency::resolve(&[*currency], new_prices).unwrap_or_else(|| {
-                            error!("Failed resolving price. This SHOULD be impossible because the native price always exists.");
-                            Price::new(0u64.into(), *currency)
-                        }),
-                        old_price: Currency::resolve(&[*currency], old_prices).unwrap_or_else(|| {
-                            error!("Failed resolving price. This SHOULD be impossible because the native price always exists.");
-                            Price::new(0u64.into(), *currency)
-                        }),
-                    },
-                )
-        }
-        ProductEventPayload::PriceIncreased(payload) => {
-            let mut new_prices = payload.new_other_price;
-            new_prices.insert(
-                payload.new_native_price.currency,
-                payload.new_native_price.monetary_amount,
-            );
-            let mut old_prices = payload.old_other_price;
-            old_prices.insert(
-                payload.old_native_price.currency,
-                payload.old_native_price.monetary_amount,
-            );
-            LocalizedProductEventPayloadView::PriceIncreased(
-                LocalizedProductPriceChangeEventPayloadView {
-                        shop_id: payload.shop_id,
-                        shops_product_id: payload.shops_product_id,
-                        new_price: Currency::resolve(&[*currency], new_prices).unwrap_or_else(|| {
-                            error!("Failed resolving price. This SHOULD be impossible because the native price always exists.");
-                            Price::new(0u64.into(), *currency)
-                        }),
-                        old_price: Currency::resolve(&[*currency], old_prices).unwrap_or_else(|| {
-                            error!("Failed resolving price. This SHOULD be impossible because the native price always exists.");
-                            Price::new(0u64.into(), *currency)
-                        }),
-                    },
-                )
-        }
-        ProductEventPayload::PriceRemoved(payload) => {
-            let mut old_prices = payload.old_other_price;
-            old_prices.insert(
-                payload.old_native_price.currency,
-                payload.old_native_price.monetary_amount,
-            );
-            LocalizedProductEventPayloadView::PriceRemoved(LocalizedProductPriceRemovedEventPayloadView {
-                shop_id: payload.shop_id,
-                shops_product_id: payload.shops_product_id,
-                old_price: Currency::resolve(&[*currency], old_prices).unwrap_or_else(|| {
-                    error!("Failed resolving price. This SHOULD be impossible because the native price always exists.");
-                    Price::new(0u64.into(), *currency)
-                }),
-            })
-        }
-    };
-    Event {
-        aggregate_id: event.aggregate_id,
-        event_id: event.event_id,
-        timestamp: event.timestamp,
-        payload,
+        Ok((products, unprocessed))
     }
 }
 
@@ -934,6 +604,7 @@ mod tests {
         async fn should_respect_currency(#[case] currency: Currency, #[case] expected_amount: u64) {
             let mut repository = MockProductDynamoDbRepository::default();
             let mut expected_record: ProductRecord = Faker.fake();
+            expected_record.price_native = None;
             expected_record.price_eur = Some(2);
             expected_record.price_gbp = Some(4);
             expected_record.price_usd = Some(10);
@@ -1355,7 +1026,8 @@ mod tests {
     mod view_product_events {
         use crate::{
             dynamodb::{
-                product_event_record::ProductEventRecord, repository::MockProductDynamoDbRepository,
+                product_event_record::domain::ProductDomainEventRecord,
+                repository::MockProductDynamoDbRepository,
             },
             service::get_service::{GetProductError, GetProductService, GetProductServiceImpl},
         };
@@ -1367,7 +1039,7 @@ mod tests {
         #[tokio::test]
         async fn should_keep_history_in_exact_order_as_dynamodb_read() {
             let mut repository = MockProductDynamoDbRepository::default();
-            let mut events = fake::vec![ProductEventRecord; 100];
+            let mut events = fake::vec![ProductDomainEventRecord; 100];
             events.sort_by(|l, r| l.product_id.cmp(&r.product_id));
             let expected = events
                 .clone()
@@ -1375,7 +1047,7 @@ mod tests {
                 .map(|record| record.product_id)
                 .collect_vec();
             repository
-                .expect_query_product_event_records()
+                .expect_query_product_domain_event_records()
                 .return_once(|_, _| Box::pin(async { Ok(events) }));
             let service = GetProductServiceImpl {
                 repository: &repository,
@@ -1395,7 +1067,7 @@ mod tests {
         async fn should_err_product_not_found_when_events_empty() {
             let mut repository = MockProductDynamoDbRepository::default();
             repository
-                .expect_query_product_event_records()
+                .expect_query_product_domain_event_records()
                 .return_once(|_, _| Box::pin(async { Ok(vec![]) }));
             let service = GetProductServiceImpl {
                 repository: &repository,
