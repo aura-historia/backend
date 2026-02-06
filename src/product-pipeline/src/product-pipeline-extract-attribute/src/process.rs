@@ -1,5 +1,5 @@
 use crate::{adapter::ExtractionAdapter, types::ExtractedAttributes};
-use common::{batch::Batch, language::domain::Language, year::YearRange};
+use common::{batch::Batch, year::YearRange};
 use product::core::{
     origin_year::OriginYear,
     product::Product,
@@ -31,15 +31,13 @@ impl PipeProcessor for AttributeExtractionPipeProcesserImpl {
 
         for in_batch in batches {
             let input_batch_iter = in_batch.iter().map(|product| {
-                let titles = product.titles();
-                let descriptions = product.descriptions();
                 format!(
                     "{}: {}",
-                    Language::resolve(&[Language::En, Language::De], titles)
-                        .map(|localized| localized.payload)
-                        .unwrap_or("".into()),
-                    Language::resolve(&[Language::En, Language::De], descriptions)
-                        .map(|localized| localized.payload)
+                    product.native_title.payload,
+                    product
+                        .native_description
+                        .clone()
+                        .map(|description| description.payload)
                         .unwrap_or("".into()),
                 )
             });
