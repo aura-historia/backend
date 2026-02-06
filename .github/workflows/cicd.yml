@@ -239,6 +239,7 @@ jobs:
 
       - name: Generate coverage
         env:
+          CARGO_PROFILE_TEST_DEBUG: 1
           RUSTFLAGS: "-C instrument-coverage"
           LLVM_PROFILE_FILE: "coverage-%p-%m.profraw"
         run: |
