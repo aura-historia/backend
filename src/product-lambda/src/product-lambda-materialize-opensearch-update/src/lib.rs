@@ -83,7 +83,7 @@ async fn extract_message_data(
     let product_event_record: ProductEventRecord =
         extract_sqs_event_bridge_dynamodb_record(message, failed_message_ids, skipped_count)?;
     let product_id = *product_event_record.product_id();
-    let update_record = match product_event_record {
+    let update_document = match product_event_record {
         ProductEventRecord::Domain(event_record) => Some(ProductUpdateDocument::from(event_record)),
         ProductEventRecord::Enrichment(event_record) => {
             Some(ProductUpdateDocument::from(event_record))
@@ -119,7 +119,6 @@ async fn extract_message_data(
                 Err(err) => {
                     error!(
                         error = ?err,
-                        error = ?err,
                         shopId = %event_record.shop_id,
                         "Failed getting ProductRecord"
                     );
@@ -130,7 +129,7 @@ async fn extract_message_data(
         }
     };
     message_ids.insert(product_id, message_id);
-    Some((product_id, update_record?))
+    Some((product_id, update_document?))
 }
 
 fn handle_bulk_response(

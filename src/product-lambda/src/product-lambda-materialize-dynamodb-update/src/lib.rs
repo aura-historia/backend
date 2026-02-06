@@ -122,7 +122,6 @@ async fn extract_message_data(
                 Err(err) => {
                     error!(
                         error = ?err,
-                        error = ?err,
                         shopId = %event_record.shop_id,
                         "Failed getting ProductRecord"
                     );

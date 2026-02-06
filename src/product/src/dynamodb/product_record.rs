@@ -127,9 +127,13 @@ pub struct ProductRecord {
     #[serde(skip_serializing_if = "Option::is_none", default)]
     pub origin_year_max: Option<Year>,
 
+    #[serde(default)]
     pub authenticity: AuthenticityRecord,
+    #[serde(default)]
     pub condition: ConditionRecord,
+    #[serde(default)]
     pub provenance: ProvenanceRecord,
+    #[serde(default)]
     pub restoration: RestorationRecord,
 
     #[serde(
