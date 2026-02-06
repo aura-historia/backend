@@ -26,14 +26,10 @@ pub struct CloudFormationOutput {
     pub shop_opensearch_index_dead_letter_queue_url: String,
     pub product_update_notify_user_queue_url: String,
     pub product_update_notify_user_dead_letter_queue_url: String,
-    pub product_pipeline_init_queue_url: String,
-    pub product_pipeline_init_dead_letter_queue_url: String,
     pub product_pipeline_translate_queue_url: String,
     pub product_pipeline_translate_dead_letter_queue_url: String,
     pub product_pipeline_embed_text_queue_url: String,
     pub product_pipeline_embed_text_dead_letter_queue_url: String,
-    pub product_pipeline_complete_queue_url: String,
-    pub product_pipeline_complete_dead_letter_queue_url: String,
 }
 
 static CFN_OUTPUT: OnceLock<CloudFormationOutput> = OnceLock::new();
