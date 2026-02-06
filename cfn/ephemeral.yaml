@@ -2520,6 +2520,9 @@ Resources:
           PRODUCT_PIPELINE_EMBED_TEXT_SQS_URL: !Ref ProductPipelineEmbedTextQ
           PRODUCT_PIPELINE_EMBED_TEXT_SQS_NAME: !GetAtt ProductPipelineEmbedTextQ.QueueName
           PRODUCT_PIPELINE_EMBED_TEXT_ASG_NAME: !Ref ProductPipelineEmbedTextASG
+          PRODUCT_PIPELINE_EXTRACT_ATTRIBUTE_SQS_URL: !Ref ProductPipelineExtractAttributeQ
+          PRODUCT_PIPELINE_EXTRACT_ATTRIBUTE_SQS_NAME: !GetAtt ProductPipelineExtractAttributeQ.QueueName
+          PRODUCT_PIPELINE_EXTRACT_ATTRIBUTE_ASG_NAME: !Ref ProductPipelineExtractAttributeASG
   ProductPipelineScaleControlStartSchedule:
     Type: AWS::Events::Rule
     Properties:
