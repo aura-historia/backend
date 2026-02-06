@@ -439,33 +439,36 @@ impl Product {
         preferred_languages: &[Language],
     ) -> LocalizedProductView {
         let mut available_titles: HashMap<Language, Title> = self.other_title;
-        available_titles.insert(self.native_title.localization, self.native_title.payload);
+        available_titles
+            .entry(self.native_title.localization)
+            .or_insert(self.native_title.payload);
 
         let mut available_descriptions: HashMap<Language, Description> = self.other_description;
         if let Some(description_native) = self.native_description {
             available_descriptions
-                .insert(description_native.localization, description_native.payload);
+                .entry(description_native.localization)
+                .or_insert(description_native.payload);
         }
 
         let mut available_prices = self.other_price;
         if let Some(native_price) = self.native_price {
-            available_prices.insert(native_price.currency, native_price.monetary_amount);
+            available_prices
+                .entry(native_price.currency)
+                .or_insert(native_price.monetary_amount);
         }
 
         let mut available_price_estimates_min = self.other_price_estimate_min;
         if let Some(price_estimates_min) = self.native_price_estimate_min {
-            available_price_estimates_min.insert(
-                price_estimates_min.currency,
-                price_estimates_min.monetary_amount,
-            );
+            available_price_estimates_min
+                .entry(price_estimates_min.currency)
+                .or_insert(price_estimates_min.monetary_amount);
         }
 
         let mut available_price_estimates_max = self.other_price_estimate_max;
         if let Some(price_estimates_max) = self.native_price_estimate_max {
-            available_price_estimates_max.insert(
-                price_estimates_max.currency,
-                price_estimates_max.monetary_amount,
-            );
+            available_price_estimates_max
+                .entry(price_estimates_max.currency)
+                .or_insert(price_estimates_max.monetary_amount);
         }
 
         let title = Language::resolve(preferred_languages, available_titles).unwrap_or_else(|| {
@@ -508,20 +511,18 @@ impl Product {
 
     pub fn titles(&self) -> HashMap<Language, Title> {
         let mut titles: HashMap<Language, Title> = self.other_title.clone();
-        titles.insert(
-            self.native_title.localization,
-            self.native_title.payload.clone(),
-        );
+        titles
+            .entry(self.native_title.localization)
+            .or_insert(self.native_title.payload.clone());
         titles
     }
 
     pub fn descriptions(&self) -> HashMap<Language, Description> {
         let mut descriptions: HashMap<Language, Description> = self.other_description.clone();
         if let Some(description_native) = &self.native_description {
-            descriptions.insert(
-                description_native.localization,
-                description_native.payload.clone(),
-            );
+            descriptions
+                .entry(description_native.localization)
+                .or_insert(description_native.payload.clone());
         }
         descriptions
     }
