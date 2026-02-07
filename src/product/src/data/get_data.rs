@@ -1,6 +1,9 @@
 use crate::core::product::LocalizedProductView;
+use crate::data::auction_data::AuctionData;
 use crate::data::authenticity_data::AuthenticityData;
 use crate::data::condition_data::ConditionData;
+use crate::data::origin_year_data::OriginYearData;
+use crate::data::price_composite_data::{PriceEstimateData, PricingData};
 use crate::data::product_image_data::ProductImageData;
 use crate::data::product_state_data::ProductStateData;
 use crate::data::provenance_data::ProvenanceData;
@@ -8,12 +11,10 @@ use crate::data::restoration_data::RestorationData;
 use common::event_id::EventId;
 use common::has_key::HasKey;
 use common::language::data::LocalizedTextData;
-use common::price::data::PriceData;
 use common::product_id::{ProductId, ProductKey};
 use common::shop_id::ShopId;
 use common::shops_product_id::ShopsProductId;
 use common::slug_id::SlugId;
-use common::year::Year;
 use serde::{Deserialize, Serialize};
 use shop::data::shop_type_data::ShopTypeData;
 use time::OffsetDateTime;
@@ -37,13 +38,7 @@ pub struct GetProductData {
     pub description: Option<LocalizedTextData>,
 
     #[serde(skip_serializing_if = "Option::is_none", default)]
-    pub price: Option<PriceData>,
-
-    #[serde(skip_serializing_if = "Option::is_none", default)]
-    pub price_estimate_min: Option<PriceData>,
-
-    #[serde(skip_serializing_if = "Option::is_none", default)]
-    pub price_estimate_max: Option<PriceData>,
+    pub price: Option<PricingData>,
 
     pub state: ProductStateData,
 
@@ -53,30 +48,15 @@ pub struct GetProductData {
     pub images: Vec<ProductImageData>,
 
     #[serde(skip_serializing_if = "Option::is_none", default)]
-    pub origin_year_min: Option<Year>,
-    #[serde(skip_serializing_if = "Option::is_none", default)]
-    pub origin_year: Option<Year>,
-    #[serde(skip_serializing_if = "Option::is_none", default)]
-    pub origin_year_max: Option<Year>,
+    pub origin_year: Option<OriginYearData>,
 
     pub authenticity: AuthenticityData,
     pub condition: ConditionData,
     pub provenance: ProvenanceData,
     pub restoration: RestorationData,
 
-    #[serde(
-        with = "time::serde::rfc3339::option",
-        skip_serializing_if = "Option::is_none",
-        default
-    )]
-    pub auction_start: Option<OffsetDateTime>,
-
-    #[serde(
-        with = "time::serde::rfc3339::option",
-        skip_serializing_if = "Option::is_none",
-        default
-    )]
-    pub auction_end: Option<OffsetDateTime>,
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub auction: Option<AuctionData>,
 
     #[serde(with = "time::serde::rfc3339")]
     pub created: OffsetDateTime,
@@ -98,6 +78,33 @@ impl HasKey for GetProductData {
 
 impl From<LocalizedProductView> for GetProductData {
     fn from(product_view: LocalizedProductView) -> Self {
+        let estimate = if product_view.price_estimate_min.is_some()
+            || product_view.price_estimate_max.is_some()
+        {
+            Some(PriceEstimateData {
+                min: product_view.price_estimate_min.map(Into::into),
+                max: product_view.price_estimate_max.map(Into::into),
+            })
+        } else {
+            None
+        };
+        let price = match product_view.price {
+            Some(offer) => Some(PricingData {
+                offer: Some(offer.into()),
+                estimate,
+            }),
+            None => {
+                if estimate.is_some() {
+                    Some(PricingData {
+                        offer: None,
+                        estimate,
+                    })
+                } else {
+                    None
+                }
+            }
+        };
+
         GetProductData {
             product_id: product_view.product_id,
             product_slug_id: product_view.product_slug_id,
@@ -109,9 +116,7 @@ impl From<LocalizedProductView> for GetProductData {
             shop_type: product_view.shop_type.into(),
             title: product_view.title.into(),
             description: product_view.description.map(LocalizedTextData::from),
-            price: product_view.price.map(PriceData::from),
-            price_estimate_min: product_view.price_estimate_min.map(PriceData::from),
-            price_estimate_max: product_view.price_estimate_max.map(PriceData::from),
+            price,
             state: product_view.state.into(),
             url: product_view.url,
             images: product_view
@@ -119,15 +124,16 @@ impl From<LocalizedProductView> for GetProductData {
                 .into_iter()
                 .map(ProductImageData::from)
                 .collect(),
-            origin_year_min: product_view.origin_year.and_then(|oy| oy.min()),
-            origin_year: product_view.origin_year.and_then(|oy| oy.exact()),
-            origin_year_max: product_view.origin_year.and_then(|oy| oy.max()),
+            origin_year: product_view.origin_year.map(Into::into),
             authenticity: product_view.authenticity.into(),
             condition: product_view.condition.into(),
             provenance: product_view.provenance.into(),
             restoration: product_view.restoration.into(),
-            auction_start: product_view.auction_start,
-            auction_end: product_view.auction_end,
+            auction: match (product_view.auction_start, product_view.auction_end) {
+                (start, end @ Some(_)) => Some(AuctionData { start, end }),
+                (start @ Some(_), end) => Some(AuctionData { start, end }),
+                _ => None,
+            },
             created: product_view.created,
             updated: product_view.updated,
         }
@@ -160,10 +166,17 @@ mod faker {
 #[cfg(test)]
 mod tests {
     use crate::data::{
-        authenticity_data::AuthenticityData, condition_data::ConditionData,
-        get_data::GetProductData, product_image_data::ProductImageData,
-        product_state_data::ProductStateData, prohibited_content_data::ProhibitedContentData,
-        provenance_data::ProvenanceData, restoration_data::RestorationData,
+        auction_data::AuctionData,
+        authenticity_data::AuthenticityData,
+        condition_data::ConditionData,
+        get_data::GetProductData,
+        origin_year_data::OriginYearData,
+        price_composite_data::{PriceEstimateData, PricingData},
+        product_image_data::ProductImageData,
+        product_state_data::ProductStateData,
+        prohibited_content_data::ProhibitedContentData,
+        provenance_data::ProvenanceData,
+        restoration_data::RestorationData,
     };
     use common::{
         currency::data::CurrencyData,
@@ -197,9 +210,22 @@ mod tests {
             shop_type: ShopTypeData::AuctionHouse,
             title: LocalizedTextData::new("Mein titel", LanguageData::De),
             description: Some(LocalizedTextData::new("My description", LanguageData::En)),
-            price: Some(PriceData::new(CurrencyData::Eur, 50000)),
-            price_estimate_min: Some(PriceData::new(CurrencyData::Eur, 42)),
-            price_estimate_max: Some(PriceData::new(CurrencyData::Eur, 69)),
+            price: Some(PricingData {
+                estimate: Some(PriceEstimateData {
+                    min: Some(PriceData {
+                        currency: CurrencyData::Eur,
+                        amount: 42u32.into(),
+                    }),
+                    max: Some(PriceData {
+                        currency: CurrencyData::Eur,
+                        amount: 69u32.into(),
+                    }),
+                }),
+                offer: Some(PriceData {
+                    currency: CurrencyData::Eur,
+                    amount: 50000u32.into(),
+                }),
+            }),
             state: ProductStateData::Reserved,
             url: Url::parse("https://my-shop.de/item").unwrap(),
             images: vec![
@@ -212,15 +238,19 @@ mod tests {
                     prohibited_content: ProhibitedContentData::NaziGermany,
                 },
             ],
-            origin_year_min: Some(1900.into()),
-            origin_year: Some(1900.into()),
-            origin_year_max: Some(1903.into()),
+            origin_year: Some(OriginYearData {
+                min: Some(1900.into()),
+                year: Some(1900.into()),
+                max: Some(1903.into()),
+            }),
             authenticity: AuthenticityData::Original,
             condition: ConditionData::Excellent,
             provenance: ProvenanceData::Partial,
             restoration: RestorationData::None,
-            auction_start: None,
-            auction_end: None,
+            auction: Some(AuctionData {
+                start: Some(utc_datetime!(2025 - 05 - 01 12:00).into()),
+                end: Some(utc_datetime!(2025 - 05 - 10 12:00).into()),
+            }),
             created: utc_datetime!(2025 - 05 - 05 0:00).into(),
             updated: utc_datetime!(2025 - 05 - 05 0:00).into(),
         };
@@ -243,16 +273,20 @@ mod tests {
                 "language": "en"
             },
             "price": {
-                "currency": "EUR",
-                "amount": 50000
-            },
-            "priceEstimateMin": {
-                "currency": "EUR",
-                "amount": 42
-            },
-            "priceEstimateMax": {
-                "currency": "EUR",
-                "amount": 69
+                "offer": {
+                    "currency": "EUR",
+                    "amount": 50000
+                },
+                "estimate": {
+                    "min": {
+                        "currency": "EUR",
+                        "amount": 42
+                    },
+                    "max": {
+                        "currency": "EUR",
+                        "amount": 69
+                    }
+                }
             },
             "state": "RESERVED",
             "url": "https://my-shop.de/item",
@@ -266,13 +300,19 @@ mod tests {
                     "prohibitedContent": "NAZI_GERMANY"
                 }
             ],
-            "originYearMin": 1900,
-            "originYear": 1900,
-            "originYearMax": 1903,
+            "originYear": {
+                "min": 1900,
+                "year": 1900,
+                "max": 1903
+            },
             "authenticity": "ORIGINAL",
             "condition": "EXCELLENT",
             "provenance": "PARTIAL",
             "restoration": "NONE",
+            "auction": {
+                "start": "2025-05-01T12:00:00Z",
+                "end": "2025-05-10T12:00:00Z"
+            },
             "created": "2025-05-05T00:00:00Z",
             "updated": "2025-05-05T00:00:00Z",
         });
