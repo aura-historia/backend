@@ -22,13 +22,17 @@ async fn main() -> Result<(), Error> {
         .load()
         .await;
 
-    let s3_bucket_name_templates = std::env::var("S3_BUCKET_NAME_TEMPLATES")?;
-    let stage_name = std::env::var("STAGE_NAME")?;
-    let commit_sha = std::env::var("COMMIT_SHA")?;
+    let s3_bucket_name_templates = std::env::var("S3_BUCKET_NAME_TEMPLATES")
+        .expect("shouldn't fail loading env-var 'S3_BUCKET_NAME_TEMPLATES'");
+    let stage_name =
+        std::env::var("STAGE_NAME").expect("shouldn't fail loading env-var 'STAGE_NAME'");
+    let commit_sha =
+        std::env::var("COMMIT_SHA").expect("shouldn't fail loading env-var 'COMMIT_SHA'");
     let ses_client = aws_sdk_sesv2::Client::new(&aws_config);
     let s3_client = aws_sdk_s3::Client::new(&aws_config);
     let dynamodb_client = aws_sdk_dynamodb::Client::new(&aws_config);
-    let table_name = std::env::var("DYNAMODB_TABLE_NAME")?;
+    let table_name = std::env::var("DYNAMODB_TABLE_NAME")
+        .expect("shouldn't fail loading env-var 'DYNAMODB_TABLE_NAME'");
     let mail_repository = MailDynamoDbRepositoryImpl::new(&dynamodb_client, table_name);
     let s3_adapter = S3AdapterImpl::new(&s3_client);
     let ses_adapter = SesAdapterImpl::new(&ses_client);

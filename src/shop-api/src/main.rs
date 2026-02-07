@@ -24,7 +24,8 @@ async fn main() -> Result<(), Error> {
         .load()
         .await;
 
-    let table_name = std::env::var("DYNAMODB_TABLE_NAME")?;
+    let table_name = std::env::var("DYNAMODB_TABLE_NAME")
+        .expect("shouldn't fail loading env-var 'DYNAMODB_TABLE_NAME'");
     let dynamodb = Client::new(&aws_config);
     let shop_dynamodb_repository = ShopDynamoDbRepositoryImpl::new(&dynamodb, &table_name);
     let get_shop_service = GetShopServiceImpl::new(&shop_dynamodb_repository);
