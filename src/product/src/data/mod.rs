@@ -1,3 +1,4 @@
+pub mod auction_data;
 pub mod authenticity_data;
 pub mod condition_data;
 pub mod get_data;

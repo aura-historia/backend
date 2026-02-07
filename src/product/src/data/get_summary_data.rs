@@ -1,4 +1,5 @@
 use crate::core::product::LocalizedProductView;
+use crate::data::auction_data::AuctionData;
 use crate::data::product_image_data::ProductImageData;
 use crate::data::product_state_data::ProductStateData;
 use common::event_id::EventId;
@@ -33,6 +34,8 @@ pub struct GetProductSummaryData {
     pub url: Url,
     #[serde(default)]
     pub images: Vec<ProductImageData>,
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub auction: Option<AuctionData>,
 
     #[serde(with = "time::serde::rfc3339")]
     pub created: OffsetDateTime,
@@ -71,6 +74,11 @@ impl From<LocalizedProductView> for GetProductSummaryData {
                 .into_iter()
                 .map(ProductImageData::from)
                 .collect(),
+            auction: match (product_view.auction_start, product_view.auction_end) {
+                (start, end @ Some(_)) => Some(AuctionData { start, end }),
+                (start @ Some(_), end) => Some(AuctionData { start, end }),
+                _ => None,
+            },
             created: product_view.created,
             updated: product_view.updated,
         }
@@ -103,8 +111,9 @@ mod faker {
 #[cfg(test)]
 mod tests {
     use crate::data::{
-        get_summary_data::GetProductSummaryData, product_image_data::ProductImageData,
-        product_state_data::ProductStateData, prohibited_content_data::ProhibitedContentData,
+        auction_data::AuctionData, get_summary_data::GetProductSummaryData,
+        product_image_data::ProductImageData, product_state_data::ProductStateData,
+        prohibited_content_data::ProhibitedContentData,
     };
     use common::{
         currency::data::CurrencyData,
@@ -150,6 +159,10 @@ mod tests {
                     prohibited_content: ProhibitedContentData::NaziGermany,
                 },
             ],
+            auction: Some(AuctionData {
+                start: Some(utc_datetime!(2025 - 05 - 01 12:00).into()),
+                end: Some(utc_datetime!(2025 - 05 - 10 12:00).into()),
+            }),
             created: utc_datetime!(2025 - 05 - 05 0:00).into(),
             updated: utc_datetime!(2025 - 05 - 05 0:00).into(),
         };
@@ -183,6 +196,10 @@ mod tests {
                     "prohibitedContent": "NAZI_GERMANY"
                 }
             ],
+            "auction": {
+                "start": "2025-05-01T12:00:00Z",
+                "end": "2025-05-10T12:00:00Z"
+            },
             "created": "2025-05-05T00:00:00Z",
             "updated": "2025-05-05T00:00:00Z",
         });
