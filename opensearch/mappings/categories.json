@@ -1,0 +1,46 @@
+{
+    "settings": {
+        "index.knn": true,
+        "knn.algo_param.ef_search": 512
+    },
+    "mappings": {
+        "properties": {
+            "categoryKey": {
+                "type": "keyword"
+            },
+            "categorySlugId": {
+                "type": "keyword"
+            },
+            "metaName": {
+                "type": "keyword"
+            },
+            "metaDescription": {
+                "type": "keyword"
+            },
+            "metaKeywords": {
+                "type": "keyword"
+            },
+            "embedding": {
+                "type": "knn_vector",
+                "dimension": 1024,
+                "method": {
+                    "engine": "faiss",
+                    "space_type": "cosinesimil",
+                    "name": "hnsw",
+                    "parameters": {
+                        "m": 128,
+                        "ef_construction": 1024
+                    }
+                }
+            },
+            "created": {
+                "type": "date",
+                "format": "strict_date_time"
+            },
+            "updated": {
+                "type": "date",
+                "format": "strict_date_time"
+            }
+        }
+    }
+}

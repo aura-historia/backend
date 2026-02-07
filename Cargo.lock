@@ -3243,6 +3243,7 @@ name = "product-classification"
 version = "0.1.0"
 dependencies = [
  "common",
+ "time",
 ]
 
 [[package]]

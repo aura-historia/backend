@@ -2,6 +2,7 @@ use common::{
     category_key::{CategoryKey, CategorySlugId},
     string_newtype,
 };
+use time::OffsetDateTime;
 
 string_newtype!(CategoryMetaName);
 string_newtype!(CategoryMetaDescription);
@@ -14,6 +15,8 @@ pub struct Category {
     pub meta_description: CategoryMetaDescription,
     pub meta_keywords: Vec<CategoryMetaKeyword>,
     pub embedding: Vec<f32>,
+    pub created: OffsetDateTime,
+    pub updated: OffsetDateTime,
 }
 
 impl Category {
