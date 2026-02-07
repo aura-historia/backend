@@ -63,7 +63,7 @@ pub fn mk_gsi1_pk(product_id: &ProductId) -> String {
 }
 
 pub fn mk_gsi1_sk(user_id: &UserId) -> String {
-    format!("user#{user_id}")
+    format!("watch#user#{user_id}")
 }
 
 impl From<WatchlistProductRecord> for WatchlistProduct {
