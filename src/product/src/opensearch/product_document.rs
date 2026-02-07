@@ -116,9 +116,13 @@ pub struct ProductDocument {
     #[serde(skip_serializing_if = "Option::is_none", default)]
     pub origin_year_max: Option<Year>,
 
+    #[serde(default)]
     pub authenticity: AuthenticityDocument,
+    #[serde(default)]
     pub condition: ConditionDocument,
+    #[serde(default)]
     pub provenance: ProvenanceDocument,
+    #[serde(default)]
     pub restoration: RestorationDocument,
 
     #[serde(
