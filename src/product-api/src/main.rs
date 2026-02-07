@@ -33,10 +33,14 @@ async fn main() -> Result<(), Error> {
         .load()
         .await;
 
-    let table_name = std::env::var("DYNAMODB_TABLE_NAME")?;
-    let user_pool_id = std::env::var("USER_POOL_ID")?;
-    let user_pool_public_client_id = std::env::var("USER_POOL_PUBLIC_CLIENT_ID")?;
-    let user_pool_admin_client_id = std::env::var("USER_POOL_ADMIN_CLIENT_ID")?;
+    let table_name = std::env::var("DYNAMODB_TABLE_NAME")
+        .expect("shouldn't fail loading env-var 'DYNAMODB_TABLE_NAME'");
+    let user_pool_id =
+        std::env::var("USER_POOL_ID").expect("shouldn't fail loading env-var 'USER_POOL_ID'");
+    let user_pool_public_client_id = std::env::var("USER_POOL_PUBLIC_CLIENT_ID")
+        .expect("shouldn't fail loading env-var 'USER_POOL_PUBLIC_CLIENT_ID'");
+    let user_pool_admin_client_id = std::env::var("USER_POOL_ADMIN_CLIENT_ID")
+        .expect("shouldn't fail loading env-var 'USER_POOL_ADMIN_CLIENT_ID'");
     let user_pool_client_ids = [
         user_pool_public_client_id.as_str(),
         user_pool_admin_client_id.as_str(),

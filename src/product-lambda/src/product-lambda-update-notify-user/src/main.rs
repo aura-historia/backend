@@ -30,10 +30,12 @@ async fn main() -> Result<(), Error> {
     let sqs_client = aws_sdk_sqs::Client::new(&aws_config);
     let dynamodb_client = aws_sdk_dynamodb::Client::new(&aws_config);
 
-    let mail_queue_url = std::env::var("MAIL_QUEUE_URL")?;
+    let mail_queue_url =
+        std::env::var("MAIL_QUEUE_URL").expect("shouldn't fail loading env-var 'MAIL_QUEUE_URL'");
     let queue_mail_service = QueueMailServiceImpl::new(&sqs_client, &mail_queue_url);
 
-    let table_name = std::env::var("DYNAMODB_TABLE_NAME")?;
+    let table_name = std::env::var("DYNAMODB_TABLE_NAME")
+        .expect("shouldn't fail loading env-var 'DYNAMODB_TABLE_NAME'");
     let watchlist_repository =
         WatchlistProductDynamoDbRepositoryImpl::new(&dynamodb_client, &table_name);
     let user_repository = UserDynamoDbRepositoryImpl::new(&dynamodb_client, &table_name);
@@ -47,7 +49,8 @@ async fn main() -> Result<(), Error> {
         &get_product_service,
     );
 
-    let sender_mail_str = std::env::var("SENDER_MAIL")?;
+    let sender_mail_str =
+        std::env::var("SENDER_MAIL").expect("shouldn't fail loading env-var 'SENDER_MAIL'");
     let sender_mail = Email::try_from(sender_mail_str)?;
     let product_event_mail_payload_service = ProductEventMailPayloadServiceImpl::new(
         &watchlist_service,

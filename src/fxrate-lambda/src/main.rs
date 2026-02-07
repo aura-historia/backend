@@ -21,8 +21,10 @@ async fn main() -> Result<(), Error> {
         .load()
         .await;
 
-    let table_name = std::env::var("DYNAMODB_TABLE_NAME")?;
-    let fxrates_api_token = std::env::var("FXRATES_API_TOKEN")?;
+    let table_name = std::env::var("DYNAMODB_TABLE_NAME")
+        .expect("shouldn't fail loading env-var 'DYNAMODB_TABLE_NAME'");
+    let fxrates_api_token = std::env::var("FXRATES_API_TOKEN")
+        .expect("shouldn't fail loading env-var 'FXRATES_API_TOKEN'");
     let dynamodb = aws_sdk_dynamodb::Client::new(&aws_config);
     let reqwest = reqwest::Client::new();
     let repository = FxRateDynamoDbRepositoryImpl::new(&dynamodb, &table_name);
