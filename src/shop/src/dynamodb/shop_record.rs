@@ -61,7 +61,7 @@ pub fn mk_gsi2_pk(shop_slug_id: &SlugId<0>) -> String {
 }
 
 pub fn mk_gsi2_sk() -> &'static str {
-    "lookup#shop_id"
+    "shop#lookup#shop_id"
 }
 
 impl ShopRecord {

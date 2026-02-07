@@ -168,7 +168,7 @@ pub fn mk_gsi2_pk(shop_slug_id: &SlugId<0>, product_slug_id: &SlugId<6>) -> Stri
 }
 
 pub fn mk_gsi2_sk() -> &'static str {
-    "lookup#shop_id#shops_product_id"
+    "product#lookup#shop_id#shops_product_id"
 }
 
 impl HasKey for ProductRecord {
