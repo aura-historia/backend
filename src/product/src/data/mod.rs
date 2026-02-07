@@ -4,6 +4,8 @@ pub mod condition_data;
 pub mod get_data;
 pub mod get_product_event_data;
 pub mod get_summary_data;
+pub mod origin_year_data;
+pub mod price_composite_data;
 pub mod product_image_data;
 pub mod product_search_data;
 pub mod product_state_data;
