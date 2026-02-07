@@ -65,8 +65,11 @@ async fn should_respond_200_when_anon_and_product_does_exist_for_ids() {
     assert_eq!(record.product_id.to_string(), body["item"]["productId"]);
     assert_eq!(record.event_id.to_string(), body["item"]["eventId"]);
     assert_eq!(record.url.to_string(), body["item"]["url"]);
-    assert_eq!(record.price_gbp.unwrap(), body["item"]["price"]["amount"]);
-    assert_eq!("GBP", body["item"]["price"]["currency"]);
+    assert_eq!(
+        record.price_gbp.unwrap(),
+        body["item"]["price"]["offer"]["amount"]
+    );
+    assert_eq!("GBP", body["item"]["price"]["offer"]["currency"]);
 }
 
 #[staging_test]
@@ -101,8 +104,11 @@ async fn should_respond_200_when_anon_and_product_does_exist_for_slug_ids() {
     assert_eq!(record.product_id.to_string(), body["item"]["productId"]);
     assert_eq!(record.event_id.to_string(), body["item"]["eventId"]);
     assert_eq!(record.url.to_string(), body["item"]["url"]);
-    assert_eq!(record.price_gbp.unwrap(), body["item"]["price"]["amount"]);
-    assert_eq!("GBP", body["item"]["price"]["currency"]);
+    assert_eq!(
+        record.price_gbp.unwrap(),
+        body["item"]["price"]["offer"]["amount"]
+    );
+    assert_eq!("GBP", body["item"]["price"]["offer"]["currency"]);
 }
 
 #[staging_test]
@@ -161,8 +167,11 @@ async fn should_respond_200_personalized_when_authenticated_and_product_does_exi
     assert_eq!(record.product_id.to_string(), body["item"]["productId"]);
     assert_eq!(record.event_id.to_string(), body["item"]["eventId"]);
     assert_eq!(record.url.to_string(), body["item"]["url"]);
-    assert_eq!(record.price_gbp.unwrap(), body["item"]["price"]["amount"]);
-    assert_eq!("GBP", body["item"]["price"]["currency"]);
+    assert_eq!(
+        record.price_gbp.unwrap(),
+        body["item"]["price"]["offer"]["amount"]
+    );
+    assert_eq!("GBP", body["item"]["price"]["offer"]["currency"]);
     assert!(
         body["userState"]["watchlist"]["watching"]
             .as_bool()

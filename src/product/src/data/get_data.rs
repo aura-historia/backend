@@ -3,7 +3,7 @@ use crate::data::auction_data::AuctionData;
 use crate::data::authenticity_data::AuthenticityData;
 use crate::data::condition_data::ConditionData;
 use crate::data::origin_year_data::OriginYearData;
-use crate::data::price_composite_data::PriceCompositeData;
+use crate::data::price_composite_data::{PriceEstimateData, PricingData};
 use crate::data::product_image_data::ProductImageData;
 use crate::data::product_state_data::ProductStateData;
 use crate::data::provenance_data::ProvenanceData;
@@ -38,7 +38,7 @@ pub struct GetProductData {
     pub description: Option<LocalizedTextData>,
 
     #[serde(skip_serializing_if = "Option::is_none", default)]
-    pub price: Option<PriceCompositeData>,
+    pub price: Option<PricingData>,
 
     pub state: ProductStateData,
 
@@ -78,6 +78,33 @@ impl HasKey for GetProductData {
 
 impl From<LocalizedProductView> for GetProductData {
     fn from(product_view: LocalizedProductView) -> Self {
+        let estimate = if product_view.price_estimate_min.is_some()
+            || product_view.price_estimate_max.is_some()
+        {
+            Some(PriceEstimateData {
+                min: product_view.price_estimate_min.map(Into::into),
+                max: product_view.price_estimate_max.map(Into::into),
+            })
+        } else {
+            None
+        };
+        let price = match product_view.price {
+            Some(offer) => Some(PricingData {
+                offer: Some(offer.into()),
+                estimate,
+            }),
+            None => {
+                if estimate.is_some() {
+                    Some(PricingData {
+                        offer: None,
+                        estimate,
+                    })
+                } else {
+                    None
+                }
+            }
+        };
+
         GetProductData {
             product_id: product_view.product_id,
             product_slug_id: product_view.product_slug_id,
@@ -89,28 +116,7 @@ impl From<LocalizedProductView> for GetProductData {
             shop_type: product_view.shop_type.into(),
             title: product_view.title.into(),
             description: product_view.description.map(LocalizedTextData::from),
-            price: match (
-                product_view.price_estimate_min,
-                product_view.price,
-                product_view.price_estimate_max,
-            ) {
-                (min @ Some(_), price, max) => Some(PriceCompositeData {
-                    estimate_min: min.map(Into::into),
-                    offer: price.map(Into::into),
-                    estimate_max: max.map(Into::into),
-                }),
-                (min, price @ Some(_), max) => Some(PriceCompositeData {
-                    estimate_min: min.map(Into::into),
-                    offer: price.map(Into::into),
-                    estimate_max: max.map(Into::into),
-                }),
-                (min, price, max @ Some(_)) => Some(PriceCompositeData {
-                    estimate_min: min.map(Into::into),
-                    offer: price.map(Into::into),
-                    estimate_max: max.map(Into::into),
-                }),
-                _ => None,
-            },
+            price,
             state: product_view.state.into(),
             url: product_view.url,
             images: product_view
@@ -160,11 +166,17 @@ mod faker {
 #[cfg(test)]
 mod tests {
     use crate::data::{
-        auction_data::AuctionData, authenticity_data::AuthenticityData,
-        condition_data::ConditionData, get_data::GetProductData, origin_year_data::OriginYearData,
-        price_composite_data::PriceCompositeData, product_image_data::ProductImageData,
-        product_state_data::ProductStateData, prohibited_content_data::ProhibitedContentData,
-        provenance_data::ProvenanceData, restoration_data::RestorationData,
+        auction_data::AuctionData,
+        authenticity_data::AuthenticityData,
+        condition_data::ConditionData,
+        get_data::GetProductData,
+        origin_year_data::OriginYearData,
+        price_composite_data::{PriceEstimateData, PricingData},
+        product_image_data::ProductImageData,
+        product_state_data::ProductStateData,
+        prohibited_content_data::ProhibitedContentData,
+        provenance_data::ProvenanceData,
+        restoration_data::RestorationData,
     };
     use common::{
         currency::data::CurrencyData,
@@ -198,18 +210,20 @@ mod tests {
             shop_type: ShopTypeData::AuctionHouse,
             title: LocalizedTextData::new("Mein titel", LanguageData::De),
             description: Some(LocalizedTextData::new("My description", LanguageData::En)),
-            price: Some(PriceCompositeData {
-                estimate_min: Some(PriceData {
-                    currency: CurrencyData::Eur,
-                    amount: 42u32.into(),
+            price: Some(PricingData {
+                estimate: Some(PriceEstimateData {
+                    min: Some(PriceData {
+                        currency: CurrencyData::Eur,
+                        amount: 42u32.into(),
+                    }),
+                    max: Some(PriceData {
+                        currency: CurrencyData::Eur,
+                        amount: 69u32.into(),
+                    }),
                 }),
                 offer: Some(PriceData {
                     currency: CurrencyData::Eur,
                     amount: 50000u32.into(),
-                }),
-                estimate_max: Some(PriceData {
-                    currency: CurrencyData::Eur,
-                    amount: 69u32.into(),
                 }),
             }),
             state: ProductStateData::Reserved,
@@ -259,17 +273,19 @@ mod tests {
                 "language": "en"
             },
             "price": {
-                "estimateMin": {
-                    "currency": "EUR",
-                    "amount": 42
-                },
                 "offer": {
                     "currency": "EUR",
                     "amount": 50000
                 },
-                "estimateMax": {
-                    "currency": "EUR",
-                    "amount": 69
+                "estimate": {
+                    "min": {
+                        "currency": "EUR",
+                        "amount": 42
+                    },
+                    "max": {
+                        "currency": "EUR",
+                        "amount": 69
+                    }
                 }
             },
             "state": "RESERVED",
