@@ -356,7 +356,7 @@ impl<'a> WatchlistProductDynamoDbRepository for WatchlistProductDynamoDbReposito
             )
             .expression_attribute_values(
                 ":gsi1_sk_val",
-                AttributeValue::S("user#".to_owned()),
+                AttributeValue::S("watch#user#".to_owned()),
             )
             .into_paginator()
             .send()

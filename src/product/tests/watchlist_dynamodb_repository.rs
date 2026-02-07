@@ -1,5 +1,3 @@
-use std::time::Duration;
-
 use common::{pagination::cursor::Cursor, product_id::ProductId, user_id::UserId};
 use fake::{Fake, Faker};
 use product::watchlist::dynamodb::{
@@ -7,6 +5,7 @@ use product::watchlist::dynamodb::{
     record_update::WatchlistProductRecordUpdate,
     repository::{WatchlistProductDynamoDbRepository, WatchlistProductDynamoDbRepositoryImpl},
 };
+use std::time::Duration;
 use test_api::*;
 use time::OffsetDateTime;
 
