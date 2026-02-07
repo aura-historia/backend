@@ -125,6 +125,7 @@ dependencies = [
  "mail-lambda-send",
  "product",
  "product-api",
+ "product-classification",
  "product-lambda",
  "product-pipeline",
  "product-watchlist-api",
@@ -3235,6 +3236,13 @@ dependencies = [
  "tracing-subscriber",
  "url",
  "user",
+]
+
+[[package]]
+name = "product-classification"
+version = "0.1.0"
+dependencies = [
+ "common",
 ]
 
 [[package]]

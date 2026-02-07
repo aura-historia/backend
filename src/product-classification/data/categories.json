@@ -1,0 +1,470 @@
+[
+    {
+        "categoryKey": "FURNITURE",
+        "categorySlugId": "furniture",
+        "metaName": "Furniture",
+        "metaDescription": "Objects intended to support, store, or structure human activity in interiors, including seating, tables, storage units, and cabinets.",
+        "metaKeywords": [
+            "chair",
+            "table",
+            "cabinet",
+            "wardrobe",
+            "sofa",
+            "desk",
+            "bench",
+            "chest",
+            "sideboard",
+            "stool"
+        ]
+    },
+    {
+        "categoryKey": "VISUAL_ART",
+        "categorySlugId": "visual-art",
+        "metaName": "Visual Art",
+        "metaDescription": "Objects created primarily for visual expression, aesthetic contemplation, or artistic representation, including paintings, sculptures, and other fine art forms.",
+        "metaKeywords": [
+            "painting",
+            "sculpture",
+            "drawing",
+            "print",
+            "installation",
+            "bust",
+            "relief",
+            "mixed media",
+            "panel",
+            "canvas"
+        ]
+    },
+    {
+        "categoryKey": "DECORATIVE_OBJECTS",
+        "categorySlugId": "decorative-objects",
+        "metaName": "Decorative Objects",
+        "metaDescription": "Objects primarily produced for decoration, aesthetic display, or ornamentation, without functional utility beyond visual or symbolic purposes.",
+        "metaKeywords": [
+            "figurine",
+            "vase",
+            "ornament",
+            "ceramic",
+            "brass sculpture",
+            "decorative bowl",
+            "statuette",
+            "centerpiece",
+            "carved object",
+            "decorative box"
+        ]
+    },
+    {
+        "categoryKey": "JEWELRY_PERSONAL_ADORNMENT",
+        "categorySlugId": "jewelry-personal-adornment",
+        "metaName": "Jewelry & Personal Adornment",
+        "metaDescription": "Objects intended to be worn on the body for aesthetic, symbolic, or social purposes, including rings, necklaces, brooches, and other personal ornaments.",
+        "metaKeywords": [
+            "ring",
+            "necklace",
+            "bracelet",
+            "earrings",
+            "brooch",
+            "pin",
+            "belt buckle",
+            "hair ornament",
+            "pendant",
+            "amulet"
+        ]
+    },
+    {
+        "categoryKey": "TEXTILES",
+        "categorySlugId": "textiles",
+        "metaName": "Textiles",
+        "metaDescription": "Flexible objects made from woven, knitted, or felted materials, including tapestries, rugs, garments, and banners, used for decoration, covering, or wear.",
+        "metaKeywords": [
+            "tapestry",
+            "rug",
+            "garment",
+            "quilt",
+            "banner",
+            "blanket",
+            "curtain",
+            "costume",
+            "shawl",
+            "textile fragment"
+        ]
+    },
+    {
+        "categoryKey": "CLOCKS_TIMEKEEPING",
+        "categorySlugId": "clocks-timekeeping",
+        "metaName": "Clocks & Timekeeping Objects",
+        "metaDescription": "Objects whose primary function is to measure, display, or track the passage of time, including clocks, watches, hourglasses, and sundials.",
+        "metaKeywords": [
+            "clock",
+            "watch",
+            "hourglass",
+            "sundial",
+            "pocket watch",
+            "wall clock",
+            "mantel clock",
+            "pendulum clock",
+            "table clock",
+            "chronometer"
+        ]
+    },
+    {
+        "categoryKey": "LIGHTING_OBJECTS",
+        "categorySlugId": "lighting-objects",
+        "metaName": "Lighting Objects",
+        "metaDescription": "Objects whose primary function is the production, control, or diffusion of light, including lamps, chandeliers, lanterns, and candle holders.",
+        "metaKeywords": [
+            "lamp",
+            "chandelier",
+            "lantern",
+            "candle holder",
+            "torch",
+            "sconce",
+            "ceiling lamp",
+            "oil lamp",
+            "hurricane lamp",
+            "table lamp"
+        ]
+    },
+    {
+        "categoryKey": "BOOKS_MANUSCRIPTS_PRINTED_MEDIA",
+        "categorySlugId": "books-manuscripts-printed-media",
+        "metaName": "Books, Manuscripts & Printed Media",
+        "metaDescription": "Objects whose primary function is to store, transmit, or display symbolic or recorded information, including printed books, manuscripts, maps, and prints.",
+        "metaKeywords": [
+            "book",
+            "manuscript",
+            "map",
+            "print",
+            "sheet music",
+            "folio",
+            "pamphlet",
+            "letter",
+            "document",
+            "atlas"
+        ]
+    },
+    {
+        "categoryKey": "COINS_CURRENCY_MEDALS",
+        "categorySlugId": "coins-currency-medals",
+        "metaName": "Coins, Currency & Medals",
+        "metaDescription": "Objects intended as instruments of exchange, official currency, or tokens of value, including coins, medals, and tokens.",
+        "metaKeywords": [
+            "coin",
+            "banknote",
+            "medal",
+            "token",
+            "currency",
+            "commemorative medal",
+            "minted coin",
+            "token coin",
+            "silver coin",
+            "gold coin"
+        ]
+    },
+    {
+        "categoryKey": "MILITARIA",
+        "categorySlugId": "militaria",
+        "metaName": "Militaria",
+        "metaDescription": "Objects produced for warfare, defense, or military organization, including weapons, armor, uniforms, insignia, and field equipment.",
+        "metaKeywords": [
+            "sword",
+            "armor",
+            "helmet",
+            "uniform",
+            "insignia",
+            "rifle",
+            "musket",
+            "bayonet",
+            "shield",
+            "medal bar"
+        ]
+    },
+    {
+        "categoryKey": "RELIGIOUS_RITUAL_CEREMONIAL",
+        "categorySlugId": "religious-ritual-ceremonial",
+        "metaName": "Religious, Ritual & Ceremonial Objects",
+        "metaDescription": "Objects intended primarily for religious, spiritual, or formal ceremonial use, including ritual vessels, altars, masks, and symbolic artifacts.",
+        "metaKeywords": [
+            "altar",
+            "cross",
+            "ritual mask",
+            "ceremonial vessel",
+            "offering bowl",
+            "icon",
+            "candlestick",
+            "religious sculpture",
+            "prayer book",
+            "statue"
+        ]
+    },
+    {
+        "categoryKey": "SCIENTIFIC_MEDICAL_TECHNICAL",
+        "categorySlugId": "scientific-medical-technical",
+        "metaName": "Scientific, Medical & Technical Instruments",
+        "metaDescription": "Objects designed to observe, measure, calculate, or demonstrate natural phenomena, including instruments, devices, and experimental apparatus.",
+        "metaKeywords": [
+            "astrolabe",
+            "telescope",
+            "microscope",
+            "sextant",
+            "barometer",
+            "scale",
+            "thermometer",
+            "compass",
+            "instrument",
+            "calculating device"
+        ]
+    },
+    {
+        "categoryKey": "TOOLS_IMPLEMENTS",
+        "categorySlugId": "tools-implements",
+        "metaName": "Tools & Implements",
+        "metaDescription": "Objects intended to perform mechanical, domestic, or craft actions, including hand tools, implements, and devices for manual work.",
+        "metaKeywords": [
+            "hammer",
+            "chisel",
+            "anvil",
+            "sickle",
+            "lathe",
+            "spade",
+            "knife",
+            "trowel",
+            "awl",
+            "plane"
+        ]
+    },
+    {
+        "categoryKey": "CULTURAL_ETHNOGRAPHIC",
+        "categorySlugId": "cultural-ethnographic",
+        "metaName": "Cultural & Ethnographic Objects",
+        "metaDescription": "Objects produced within a cultural system for symbolic, traditional, or social purposes, reflecting the practices and identity of a community.",
+        "metaKeywords": [
+            "ceremonial mask",
+            "ritual textile",
+            "cultural figurine",
+            "dance costume",
+            "traditional ornament",
+            "tribal vessel",
+            "ritual drum",
+            "ethnographic object",
+            "totem",
+            "symbolic item"
+        ]
+    },
+    {
+        "categoryKey": "ARCHAEOLOGICAL_ARTIFACTS",
+        "categorySlugId": "archaeological-artifacts",
+        "metaName": "Archaeological Artifacts",
+        "metaDescription": "Objects primarily known or categorized through archaeological context, including artifacts, fragments, and material remains from past cultures.",
+        "metaKeywords": [
+            "pottery shard",
+            "stone tool",
+            "bronze fragment",
+            "ceramic fragment",
+            "bone artifact",
+            "archaeological tool",
+            "ancient figurine",
+            "coin fragment",
+            "metal tool",
+            "grave goods"
+        ]
+    },
+    {
+        "categoryKey": "ARCHITECTURAL_ELEMENTS",
+        "categorySlugId": "architectural-elements",
+        "metaName": "Architectural Elements",
+        "metaDescription": "Objects originally integrated into buildings or built environments, including columns, reliefs, doors, and decorative architectural components.",
+        "metaKeywords": [
+            "column",
+            "door",
+            "relief panel",
+            "staircase baluster",
+            "window frame",
+            "molding",
+            "cornice",
+            "arch",
+            "pillar",
+            "capitals"
+        ]
+    },
+    {
+        "categoryKey": "WEAPONS",
+        "categorySlugId": "weapons",
+        "metaName": "Weapons",
+        "metaDescription": "Objects intended primarily for combat or defense, including bladed weapons, firearms, polearms, and ranged weapons.",
+        "metaKeywords": [
+            "sword",
+            "dagger",
+            "axe",
+            "musket",
+            "rifle",
+            "pistol",
+            "bow",
+            "crossbow",
+            "spear",
+            "polearm"
+        ]
+    },
+    {
+        "categoryKey": "MUSICAL_INSTRUMENTS",
+        "categorySlugId": "musical-instruments",
+        "metaName": "Musical Instruments",
+        "metaDescription": "Objects designed to produce musical sounds, including string, wind, percussion, and keyboard instruments.",
+        "metaKeywords": [
+            "violin",
+            "piano",
+            "flute",
+            "trumpet",
+            "drum",
+            "cello",
+            "guitar",
+            "harpsichord",
+            "clarinet",
+            "organ"
+        ]
+    },
+    {
+        "categoryKey": "TOYS_GAMES_RECREATIONAL",
+        "categorySlugId": "toys-games-recreational",
+        "metaName": "Toys, Games & Recreational Objects",
+        "metaDescription": "Objects designed for play, amusement, or recreational activity, including dolls, board games, puzzles, and sporting items.",
+        "metaKeywords": [
+            "doll",
+            "puzzle",
+            "board game",
+            "toy horse",
+            "miniature",
+            "figurine toy",
+            "marble set",
+            "spinning top",
+            "game pieces",
+            "toy soldier"
+        ]
+    },
+    {
+        "categoryKey": "WRITING_COMMUNICATION_INSTRUMENTS",
+        "categorySlugId": "writing-communication-instruments",
+        "metaName": "Writing & Communication Instruments",
+        "metaDescription": "Objects used for writing, drawing, or transmitting information, including pens, inkwells, typewriters, and early telecommunication devices.",
+        "metaKeywords": [
+            "pen",
+            "quill",
+            "inkwell",
+            "typewriter",
+            "writing set",
+            "sealing stamp",
+            "letter opener",
+            "telephone",
+            "telegraph",
+            "chalkboard"
+        ]
+    },
+    {
+        "categoryKey": "STORAGE_CONTAINERS",
+        "categorySlugId": "storage-containers",
+        "metaName": "Storage & Containers",
+        "metaDescription": "Objects designed to hold, store, or protect items, including boxes, trunks, jars, chests, and caskets.",
+        "metaKeywords": [
+            "box",
+            "trunk",
+            "jar",
+            "casket",
+            "chest",
+            "bottle",
+            "canister",
+            "container",
+            "crate",
+            "vessel"
+        ]
+    },
+    {
+        "categoryKey": "TRANSPORTATION_TRAVEL_OBJECTS",
+        "categorySlugId": "transportation-travel-objects",
+        "metaName": "Transportation & Travel Objects",
+        "metaDescription": "Objects designed for travel or transport, including luggage, saddles, carriages, and navigational aids.",
+        "metaKeywords": [
+            "saddle",
+            "carriage",
+            "luggage",
+            "travel trunk",
+            "compass",
+            "map case",
+            "pocket compass",
+            "coach accessory",
+            "trunk",
+            "navigation instrument"
+        ]
+    },
+    {
+        "categoryKey": "INDUSTRIAL_TRADE_EQUIPMENT",
+        "categorySlugId": "industrial-trade-equipment",
+        "metaName": "Industrial & Trade Equipment",
+        "metaDescription": "Objects used for manufacturing, industrial processes, or trade, including scales, tools, weighing devices, and workshop equipment.",
+        "metaKeywords": [
+            "scale",
+            "weighing machine",
+            "lathe",
+            "workshop tool",
+            "forge equipment",
+            "measuring device",
+            "grinding wheel",
+            "plow",
+            "press",
+            "industrial instrument"
+        ]
+    },
+    {
+        "categoryKey": "NATURAL_HISTORY_CURIOSITIES",
+        "categorySlugId": "natural-history-curiosities",
+        "metaName": "Natural History & Curiosities",
+        "metaDescription": "Objects collected for their natural, scientific, or unusual qualities, including taxidermy, minerals, fossils, and curiosities.",
+        "metaKeywords": [
+            "taxidermy",
+            "fossil",
+            "mineral",
+            "shell",
+            "botanical specimen",
+            "oddity",
+            "curio",
+            "natural artifact",
+            "skull",
+            "skeleton"
+        ]
+    },
+    {
+        "categoryKey": "PHOTOGRAPHY_OPTICAL_MEDIA",
+        "categorySlugId": "photography-optical-media",
+        "metaName": "Photography & Optical Media",
+        "metaDescription": "Objects related to photography, film, or optical viewing, including cameras, lenses, photographic prints, and optical devices.",
+        "metaKeywords": [
+            "camera",
+            "lens",
+            "photograph",
+            "photographic print",
+            "viewfinder",
+            "slide",
+            "projector",
+            "microscope",
+            "telescope",
+            "optical instrument"
+        ]
+    },
+    {
+        "categoryKey": "EPHEMERA_MEMORABILIA",
+        "categorySlugId": "ephemera-memorabilia",
+        "metaName": "Ephemera & Memorabilia",
+        "metaDescription": "Transient or collectible objects associated with events, persons, or publications, including tickets, posters, letters, and program sheets.",
+        "metaKeywords": [
+            "ticket",
+            "poster",
+            "program",
+            "letter",
+            "flyer",
+            "menu",
+            "advertisement",
+            "postcard",
+            "pamphlet",
+            "document"
+        ]
+    }
+]
