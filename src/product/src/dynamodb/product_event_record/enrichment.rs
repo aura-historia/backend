@@ -1,13 +1,15 @@
 use crate::core::product_event::ProductEnrichmentEvent;
 use crate::core::product_event::enrichment::{
-    EmbeddedTextProductEnrichmentEventPayload, ExtractedAttributesProductEnrichmentEventPayload,
-    ProductEnrichmentEventPayload, TranslationProductEnrichmentEventPayload,
+    ClassifyCategoryProductEnrichmentEventPayload, EmbeddedTextProductEnrichmentEventPayload,
+    ExtractedAttributesProductEnrichmentEventPayload, ProductEnrichmentEventPayload,
+    TranslationProductEnrichmentEventPayload,
 };
 use crate::dynamodb::authenticity_record::AuthenticityRecord;
 use crate::dynamodb::condition_record::ConditionRecord;
 use crate::dynamodb::product_event_type_record::enrichment::ProductEnrichmentEventTypeRecord;
 use crate::dynamodb::provenance_record::ProvenanceRecord;
 use crate::dynamodb::restoration_record::RestorationRecord;
+use common::category_key::CategoryId;
 use common::error::missing_field::MissingPersistenceField;
 use common::event::Event;
 use common::event_id::EventId;
@@ -33,10 +35,16 @@ pub struct ProductEnrichmentEventRecord {
     pub shop_id: ShopId,
     pub shops_product_id: ShopsProductId,
 
+    // classification:category
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub category_id: Option<CategoryId>,
+
     // translation
     #[serde(skip_serializing_if = "Option::is_none", default)]
     pub source_language: Option<LanguageRecord>,
+    #[serde(skip_serializing_if = "Option::is_none", default)]
     pub target_language: Option<LanguageRecord>,
+    #[serde(skip_serializing_if = "Option::is_none", default)]
     pub target: Option<String>,
 
     // text-embedding
@@ -100,6 +108,7 @@ impl TryFrom<ProductEnrichmentEvent> for ProductEnrichmentEventRecord {
                     event_type_schema_version: 0,
                     shop_id: payload.shop_id,
                     shops_product_id: payload.shops_product_id,
+                    category_id: None,
                     source_language: Some(payload.source_language.into()),
                     target_language: Some(payload.target_language.into()),
                     target: Some(payload.target.into()),
@@ -124,6 +133,7 @@ impl TryFrom<ProductEnrichmentEvent> for ProductEnrichmentEventRecord {
                     event_type_schema_version: 0,
                     shop_id: payload.shop_id,
                     shops_product_id: payload.shops_product_id,
+                    category_id: None,
                     source_language: Some(payload.source_language.into()),
                     target_language: Some(payload.target_language.into()),
                     target: Some(payload.target.into()),
@@ -147,6 +157,7 @@ impl TryFrom<ProductEnrichmentEvent> for ProductEnrichmentEventRecord {
                 event_type_schema_version: 0,
                 shop_id: payload.shop_id,
                 shops_product_id: payload.shops_product_id,
+                category_id: None,
                 source_language: None,
                 target_language: None,
                 target: None,
@@ -170,6 +181,7 @@ impl TryFrom<ProductEnrichmentEvent> for ProductEnrichmentEventRecord {
                     event_type_schema_version: 0,
                     shop_id: payload.shop_id,
                     shops_product_id: payload.shops_product_id,
+                    category_id: None,
                     source_language: None,
                     target_language: None,
                     target: None,
@@ -181,6 +193,31 @@ impl TryFrom<ProductEnrichmentEvent> for ProductEnrichmentEventRecord {
                     condition: payload.condition.map(Into::into),
                     provenance: payload.provenance.map(Into::into),
                     restoration: payload.restoration.map(Into::into),
+                    timestamp: event.timestamp,
+                }
+            }
+            ProductEnrichmentEventPayload::ClassifyCategory(payload) => {
+                ProductEnrichmentEventRecord {
+                    pk: mk_pk(&payload.shop_id, &payload.shops_product_id),
+                    sk: mk_sk(&event.timestamp)?,
+                    product_id: event.aggregate_id,
+                    event_id: event.event_id,
+                    event_type: ProductEnrichmentEventTypeRecord::EnrichmentClassifyCategory,
+                    event_type_schema_version: 0,
+                    shop_id: payload.shop_id,
+                    shops_product_id: payload.shops_product_id,
+                    category_id: Some(payload.category_id),
+                    source_language: None,
+                    target_language: None,
+                    target: None,
+                    text_embedding: None,
+                    origin_year_min: None,
+                    origin_year: None,
+                    origin_year_max: None,
+                    authenticity: None,
+                    condition: None,
+                    provenance: None,
+                    restoration: None,
                     timestamp: event.timestamp,
                 }
             }
@@ -294,6 +331,23 @@ impl TryFrom<ProductEnrichmentEventRecord> for ProductEnrichmentEvent {
                             condition: record.condition.map(Into::into),
                             provenance: record.provenance.map(Into::into),
                             restoration: record.restoration.map(Into::into),
+                        },
+                    ),
+                };
+                Ok(event)
+            }
+            ProductEnrichmentEventTypeRecord::EnrichmentClassifyCategory => {
+                let event = Event {
+                    aggregate_id: record.product_id,
+                    event_id: record.event_id,
+                    timestamp: record.timestamp,
+                    payload: ProductEnrichmentEventPayload::ClassifyCategory(
+                        ClassifyCategoryProductEnrichmentEventPayload {
+                            shop_id: record.shop_id,
+                            shops_product_id: record.shops_product_id,
+                            category_id: record.category_id.ok_or(MissingPersistenceField::new(
+                                field::field!(category_id@ProductEnrichmentEventRecord),
+                            ))?,
                         },
                     ),
                 };

@@ -9,6 +9,7 @@ pub enum ProductEnrichmentEventTypeRecord {
     EnrichmentTranslatedDescription,
     EnrichmentEmbeddedText,
     EnrichmentExtractedAttributes,
+    EnrichmentClassifyCategory,
 }
 
 impl From<&ProductEnrichmentEventPayload> for ProductEnrichmentEventTypeRecord {
@@ -25,6 +26,9 @@ impl From<&ProductEnrichmentEventPayload> for ProductEnrichmentEventTypeRecord {
             }
             ProductEnrichmentEventPayload::ExtractedAttributes(_) => {
                 ProductEnrichmentEventTypeRecord::EnrichmentExtractedAttributes
+            }
+            ProductEnrichmentEventPayload::ClassifyCategory(_) => {
+                ProductEnrichmentEventTypeRecord::EnrichmentClassifyCategory
             }
         }
     }
