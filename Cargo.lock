@@ -3251,6 +3251,7 @@ dependencies = [
  "product-classification",
  "serde",
  "serde_dynamo",
+ "serde_fields",
  "serde_json",
  "serial_test",
  "test-api",

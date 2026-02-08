@@ -97,6 +97,10 @@ impl IntegrationTestService for OpenSearch {
             .await
             .expect("shouldn't fail clearing OpenSearch index data from 'shops'");
         refresh_index("shops").await;
+        clear_index_data("categories")
+            .await
+            .expect("shouldn't fail clearing OpenSearch index data from 'categories'");
+        refresh_index("categories").await;
         debug!("Cleared OpenSearch index data for test isolation");
     }
 }
@@ -189,6 +193,11 @@ static SHOPS_INDEX_MAPPING_STR: &str = include_str!(concat!(
     "opensearch/mappings/shops.json"
 ));
 
+static CATEGORIES_INDEX_MAPPING_STR: &str = include_str!(concat!(
+    env!("CARGO_WORKSPACE_DIR"),
+    "opensearch/mappings/categories.json"
+));
+
 async fn set_up_indices() -> Result<Response, Error> {
     let client = get_opensearch_client().await;
 
@@ -240,6 +249,32 @@ async fn set_up_indices() -> Result<Response, Error> {
         .body(
             serde_json::from_str::<serde_json::Value>(SHOPS_INDEX_MAPPING_STR)
                 .expect("shouldn't fail parsing SHOPS_INDEX_MAPPING_STR as serde_json::Value"),
+        )
+        .send()
+        .await?;
+
+    // Index 'categories'
+    let exists_response = client
+        .indices()
+        .exists(IndicesExistsParts::Index(&["categories"]))
+        .send()
+        .await?;
+
+    if exists_response.status_code().is_success() {
+        debug!("OpenSearch index 'categories' already exists, skipping creation");
+        // Return a mock response since index exists
+        return Ok(exists_response);
+    }
+
+    debug!("OpenSearch index 'categories' does not exist, creating it");
+
+    get_opensearch_client()
+        .await
+        .indices()
+        .create(opensearch::indices::IndicesCreateParts::Index("categories"))
+        .body(
+            serde_json::from_str::<serde_json::Value>(CATEGORIES_INDEX_MAPPING_STR)
+                .expect("shouldn't fail parsing CATEGORIES_INDEX_MAPPING_STR as serde_json::Value"),
         )
         .send()
         .await

@@ -1,9 +1,10 @@
 use crate::category::core::Category;
 use common::category_key::{CategoryId, CategoryKey};
 use serde::{Deserialize, Serialize};
+use serde_fields::SerdeField;
 use time::OffsetDateTime;
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, SerdeField)]
 #[serde(rename_all = "camelCase")]
 pub struct CategoryDocument {
     pub category_id: CategoryId,
