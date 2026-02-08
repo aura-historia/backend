@@ -69,16 +69,18 @@ Since this is a serverless backend, manual testing involves:
   - `opensearch`: Data access layer for products in OpenSearch
   - `service`: Business services for product operations
   - `watchlist`: User product watchlist functionality
-- **src/product-api**: API Gateway handlers for product operations (8 handlers)
-- **src/product-lambda**: Lambda function implementations for product event processing (6 lambdas)
-- **src/product-pipeline**: Product data pipeline and auto-scaling
+- **src/product-api**: API Gateway handlers for product operations (5 handlers)
+- **src/product-watchlist-api**: API Gateway handlers for product watchlist operations (4 handlers)
+- **src/product-lambda**: Lambda function implementations for product event processing (5 lambdas)
+- **src/product-pipeline**: Product data pipeline with auto-scaling and processing (4 modules)
 - **src/shop**: Shop/store management system:
   - `core`: Shop domain models and business logic
   - `data`: Shop data models
   - `dynamodb`: Shop data access layer for DynamoDB
   - `opensearch`: Shop data access layer for OpenSearch
   - `service`: Shop business services
-- **src/shop-api**: API Gateway handlers for shop operations (2 handlers)
+- **src/shop-api**: API Gateway handlers for shop operations (4 handlers)
+- **src/shop-lambda**: Lambda function implementations for shop operations (1 lambda)
 - **src/search-filter**: User search filter management:
   - `core`: Search filter domain models
   - `data`: Search filter data models
@@ -89,6 +91,12 @@ Since this is a serverless backend, manual testing involves:
   - `core`: User domain models
   - `dynamodb`: User data access layer
   - `service`: User business services
+- **src/user-api**: API Gateway handlers for user operations (2 handlers)
+- **src/user-lambda**: Lambda function implementations for user operations (1 lambda)
+- **src/fxrate**: Foreign exchange rate management system:
+  - `service`: FX rate business services
+  - `dynamodb`: FX rate data access layer
+- **src/fxrate-lambda**: Lambda for foreign exchange rate updates
 - **src/cognito**: AWS Cognito integration utilities
 - **src/cognito-post-confirmation**: Lambda for Cognito post-confirmation trigger
 - **src/mail**: Email notification system:
@@ -111,8 +119,18 @@ Located in various directories:
 - `product-lambda-materialize-opensearch-update`: Materialize product updates to OpenSearch
 - `product-lambda-update-notify-user`: Notify users about product updates
 
-**Product Pipeline Lambda Functions** (`src/product-pipeline/src/`):
-- `product-pipeline-asg-scale-up`: Scale up Auto Scaling Group for pipeline
+**Product Pipeline Modules** (`src/product-pipeline/src/`):
+- `product-pipeline-asg-scale-control`: Auto Scaling Group control for pipeline (Lambda)
+- `product-pipeline-embed-text`: Embed text for product search (EC2 binary)
+- `product-pipeline-translate`: Translate product data (EC2 binary)
+- `product-pipeline-extract-attribute`: Extract product attributes (EC2 binary)
+- `product-pipeline-common`: Common utilities for product pipeline
+
+**Shop Lambda Functions** (`src/shop-lambda/src/`):
+- `shop-lambda-opensearch-index`: Index shops to OpenSearch
+
+**User Lambda Functions** (`src/user-lambda/src/`):
+- `user-lambda-fanout-update-watchlist`: Fanout user watchlist updates
 
 **Cognito Lambda Functions**:
 - `cognito-post-confirmation`: Handle Cognito user post-confirmation trigger (`src/cognito-post-confirmation`)
@@ -120,43 +138,58 @@ Located in various directories:
 **Mail Lambda Functions**:
 - `mail-lambda-send`: Send emails via AWS SES (`src/mail-lambda-send`)
 
+**FX Rate Lambda Functions**:
+- `fxrate-lambda`: Update foreign exchange rates (`src/fxrate-lambda`)
+
 ### API Handlers
 **Product API Handlers** (`src/product-api/src/`):
 - `product-api-get-product`: Retrieve a single product by ID
+- `product-api-get-product-history`: Get product price/state history
 - `product-api-get-product-similar`: Get similar products
 - `product-api-search`: Search products with filters
 - `product-api-put-products`: Bulk update/create products
-- `product-api-watchlist-get`: Get user's product watchlist
-- `product-api-watchlist-post`: Add product to watchlist
-- `product-api-watchlist-patch`: Update watchlist entry
-- `product-api-watchlist-delete`: Remove product from watchlist
+
+**Product Watchlist API Handlers** (`src/product-watchlist-api/src/`):
+- `product-watchlist-api-get`: Get user's product watchlist
+- `product-watchlist-api-post`: Add product to watchlist
+- `product-watchlist-api-patch`: Update watchlist entry
+- `product-watchlist-api-delete`: Remove product from watchlist
 
 **Shop API Handlers** (`src/shop-api/src/`):
-- `shop-api-get-shop`: Retrieve shop details by ID
+- `shop-api-get`: Retrieve shop details by ID
+- `shop-api-post`: Create a new shop
+- `shop-api-patch`: Update shop details
 - `shop-api-search`: Search shops
 
 **Search Filter API Handlers** (`src/search-filter-api/src/`):
-- `search-filter-api-get-search-filter`: Get a single search filter
-- `search-filter-api-get-search-filters`: List user's search filters
-- `search-filter-api-post-search-filter`: Create a new search filter
-- `search-filter-api-patch-search-filter`: Update a search filter
-- `search-filter-api-delete-search-filter`: Delete a search filter
+- `search-filter-api-get-one`: Get a single search filter
+- `search-filter-api-get-all`: List user's search filters
+- `search-filter-api-post`: Create a new search filter
+- `search-filter-api-patch`: Update a search filter
+- `search-filter-api-delete`: Delete a search filter
+
+**User API Handlers** (`src/user-api/src/`):
+- `user-api-get`: Get user details
+- `user-api-patch`: Update user details
 
 ## Common Tasks
 
 ### Building Specific Components
 - Build all Lambda functions: `cargo build --workspace`
 - Build specific Lambda: `cd src/product-lambda/src/product-lambda-materialize-dynamodb-new && cargo build --all-features`
-- Build API handlers: `cd src/product-api/src/product-api-get-product && cargo build --all-features`
+- Build API handlers: `cd src/product-api && cargo build --all-features`
 - Build specific module: `cd src/product && cargo build --all-features`
+- Build product pipeline binaries: `cd src/product-pipeline/src/product-pipeline-embed-text && cargo build --all-features`
 
 ### Testing Specific Components
 - Test core logic: `cd src/product && cargo test --lib --all-features`
-- Test API layer: `cd src/product-api/src/product-api-get-product && cargo test --lib --all-features`
+- Test API layer: `cd src/product-api && cargo test --lib --all-features`
 - Test shop module: `cd src/shop && cargo test --lib --all-features`
 - Test search filters: `cd src/search-filter && cargo test --lib --all-features`
 - Test user module: `cd src/user && cargo test --lib --all-features`
+- Test FX rate module: `cd src/fxrate && cargo test --lib --all-features`
 - **Integration tests**: `cd src/product && cargo test --test '*' --all-features` (requires LocalStack containers)
+- **Product pipeline tests**: `cd src/product-pipeline/src/product-pipeline-embed-text && cargo test --all-features -- --include-ignored` (requires Python deps and runs on self-hosted runners)
 
 ### Code Quality
 - Format all code: `cargo fmt --all`
@@ -183,32 +216,44 @@ src/
 │   ├── src/opensearch/     # Product search and indexing
 │   ├── src/service/        # Product business services
 │   └── src/watchlist/      # User product watchlist
-├── product-api/     # API Gateway handlers for products (8 handlers)
-│   └── src/         # Individual API handler crates
-├── product-lambda/  # Lambda function implementations (6 lambdas)
+├── product-api/     # API Gateway handlers for products (5 handlers)
+├── product-watchlist-api/  # API Gateway handlers for product watchlist (4 handlers)
+├── product-lambda/  # Lambda function implementations (5 lambdas)
 │   └── src/         # Individual lambda crates
 ├── product-pipeline/  # Product pipeline
 │   ├── python/      # Python pipeline scripts
-│   └── src/         # Lambda functions for auto-scaling
+│   └── src/         # Pipeline modules and binaries
+│       ├── product-pipeline-asg-scale-control/  # Lambda for ASG control
+│       ├── product-pipeline-embed-text/         # EC2 binary for text embedding
+│       ├── product-pipeline-translate/          # EC2 binary for translation
+│       ├── product-pipeline-extract-attribute/  # EC2 binary for attribute extraction
+│       └── product-pipeline-common/             # Common pipeline utilities
 ├── shop/           # Shop/store management system
 │   ├── src/core/           # Shop domain models
 │   ├── src/data/           # Shop data models
 │   ├── src/dynamodb/       # Shop data access for DynamoDB
 │   ├── src/opensearch/     # Shop search and indexing
 │   └── src/service/        # Shop business services
-├── shop-api/       # API Gateway handlers for shops (2 handlers)
-│   └── src/        # Individual API handler crates
+├── shop-api/       # API Gateway handlers for shops (4 handlers)
+├── shop-lambda/    # Shop Lambda functions
+│   └── src/shop-lambda-opensearch-index/  # Lambda for indexing shops
 ├── search-filter/  # User search filter management
 │   ├── src/core/           # Search filter domain models
 │   ├── src/data/           # Search filter data models
 │   ├── src/dynamodb/       # Search filter data access
 │   └── src/service/        # Search filter business services
 ├── search-filter-api/  # API Gateway handlers for search filters (5 handlers)
-│   └── src/        # Individual API handler crates
 ├── user/           # User management system
 │   ├── src/core/           # User domain models
 │   ├── src/dynamodb/       # User data access
 │   └── src/service/        # User business services
+├── user-api/       # API Gateway handlers for user operations (2 handlers)
+├── user-lambda/    # User Lambda functions
+│   └── src/user-lambda-fanout-update-watchlist/  # Lambda for watchlist updates
+├── fxrate/         # Foreign exchange rate management
+│   ├── src/service/        # FX rate business services
+│   └── src/dynamodb/       # FX rate data access
+├── fxrate-lambda/  # Lambda for FX rate updates
 ├── cognito/        # AWS Cognito integration utilities
 ├── cognito-post-confirmation/  # Cognito post-confirmation Lambda
 ├── mail/           # Email notification system
@@ -224,9 +269,20 @@ src/
 ```
 
 ### CI/CD Configuration
-- `.github/workflows/cicd.yml`: Complete CI/CD pipeline with lint, build, test, and deploy phases
+- `.github/workflows/cicd.yml`: Complete CI/CD pipeline with lint, build, test, deploy, and AWS integration phases
 - `.github/workflows/delete_pr_cfn_stack.yml`: CloudFormation stack cleanup for closed PRs
+- `.github/workflows/golden-ami-product-pipeline-embed-text.yml`: Golden AMI workflow for embed-text pipeline
+- `.github/workflows/golden-ami-product-pipeline-extract-attribute.yml`: Golden AMI workflow for extract-attribute pipeline
+- `.github/workflows/golden-ami-product-pipeline-translate.yml`: Golden AMI workflow for translate pipeline
 - `sonar-project.properties`: SonarQube configuration for code quality analysis
+- `cfn/`: CloudFormation templates for different stages (dev, prod, ephemeral, golden-ami)
+
+### Additional Resources
+- `ami/`: Packer configuration files for golden AMIs (product-pipeline EC2 instances)
+- `docs/`: Documentation including DynamoDB schema documentation
+- `opensearch/mappings/`: OpenSearch index mappings for products and shops
+- `mjml/`: MJML email templates for watchlist notifications (price/state updates in multiple languages)
+- `ci/`: CI/CD helper scripts (e.g., OpenSearch index setup)
 
 ## Troubleshooting
 
