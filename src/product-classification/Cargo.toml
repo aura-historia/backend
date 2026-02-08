@@ -12,6 +12,7 @@ serde_fields = { workspace = true }
 async-trait = { workspace = true }
 mockall = { workspace = true }
 tracing = { workspace = true }
+thiserror = { workspace = true }
 aws-sdk-dynamodb = { workspace = true }
 serde_dynamo = { workspace = true, features = ["aws-sdk-dynamodb+1"] }
 opensearch = { workspace = true }
@@ -25,6 +26,8 @@ common = { workspace = true, features = ["test-data"] }
 test-api = { workspace = true, features = ["dynamodb", "opensearch"] }
 fake = { workspace = true }
 serial_test = { workspace = true }
+rstest = { workspace = true }
+tokio = { workspace = true, features = ["macros"] }
 
 [features]
 default = []

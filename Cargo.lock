@@ -3249,13 +3249,16 @@ dependencies = [
  "mockall",
  "opensearch",
  "product-classification",
+ "rstest",
  "serde",
  "serde_dynamo",
  "serde_fields",
  "serde_json",
  "serial_test",
  "test-api",
+ "thiserror",
  "time",
+ "tokio",
  "tracing",
 ]
 
