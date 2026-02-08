@@ -277,6 +277,13 @@ src/
 - `sonar-project.properties`: SonarQube configuration for code quality analysis
 - `cfn/`: CloudFormation templates for different stages (dev, prod, ephemeral, golden-ami)
 
+### Additional Resources
+- `ami/`: Packer configuration files for golden AMIs (product-pipeline EC2 instances)
+- `docs/`: Documentation including DynamoDB schema documentation
+- `opensearch/mappings/`: OpenSearch index mappings for products and shops
+- `mjml/`: MJML email templates for watchlist notifications (price/state updates in multiple languages)
+- `ci/`: CI/CD helper scripts (e.g., OpenSearch index setup)
+
 ## Troubleshooting
 
 ### Build Issues
