@@ -8,7 +8,7 @@
             "categoryKey": {
                 "type": "keyword"
             },
-            "categorySlugId": {
+            "categoryId": {
                 "type": "keyword"
             },
             "metaName": {

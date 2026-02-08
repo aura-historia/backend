@@ -3245,11 +3245,17 @@ dependencies = [
  "async-trait",
  "aws-sdk-dynamodb",
  "common",
+ "fake",
  "mockall",
  "opensearch",
+ "product-classification",
  "serde",
  "serde_dynamo",
+ "serde_json",
+ "serial_test",
+ "test-api",
  "time",
+ "tracing",
 ]
 
 [[package]]

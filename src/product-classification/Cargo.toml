@@ -7,8 +7,24 @@ edition = "2024"
 common = { workspace = true }
 time = { workspace = true }
 serde = { workspace = true }
+serde_json = { workspace = true }
 async-trait = { workspace = true }
 mockall = { workspace = true }
+tracing = { workspace = true }
 aws-sdk-dynamodb = { workspace = true }
 serde_dynamo = { workspace = true, features = ["aws-sdk-dynamodb+1"] }
 opensearch = { workspace = true }
+
+# Optional
+fake = { workspace = true, optional = true }
+
+[dev-dependencies]
+product-classification = { workspace = true, features = ["test-data"] }
+common = { workspace = true, features = ["test-data"] }
+test-api = { workspace = true, features = ["dynamodb", "opensearch"] }
+fake = { workspace = true }
+serial_test = { workspace = true }
+
+[features]
+default = []
+test-data = ["common/test-data", "fake"]
