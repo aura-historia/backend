@@ -29,6 +29,21 @@
             "shopType": {
                 "type": "keyword"
             },
+            "categoryId": {
+                "type": "keyword"
+            },
+            "categoryNameDe": {
+                "type": "keyword"
+            },
+            "categoryNameEn": {
+                "type": "keyword"
+            },
+            "categoryNameFr": {
+                "type": "keyword"
+            },
+            "categoryNameEs": {
+                "type": "keyword"
+            },
             "titleNative": {
                 "type": "object",
                 "properties": {

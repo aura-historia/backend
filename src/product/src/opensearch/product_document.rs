@@ -11,6 +11,7 @@ use crate::opensearch::product_image_document::ProductImageDocument;
 use crate::opensearch::product_state_document::ProductStateDocument;
 use crate::opensearch::provenance_document::ProvenanceDocument;
 use crate::opensearch::restoration_document::RestorationDocument;
+use common::category_key::CategoryId;
 use common::currency::domain::Currency;
 use common::error::mapping_error::PersistenceMappingError;
 use common::error::missing_field::MissingPersistenceField;
@@ -27,6 +28,7 @@ use field::field;
 use serde::{Deserialize, Serialize};
 use serde_fields::SerdeField;
 use shop::opensearch::shop_type_document::ShopTypeDocument;
+use strum::EnumCount;
 use time::OffsetDateTime;
 use url::Url;
 
@@ -41,6 +43,17 @@ pub struct ProductDocument {
     pub shops_product_id: ShopsProductId,
     pub shop_name: String,
     pub shop_type: ShopTypeDocument,
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub category_id: Option<CategoryId>,
+
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub category_name_de: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub category_name_en: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub category_name_fr: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub category_name_es: Option<String>,
 
     pub title_native: TextDocument,
     #[serde(skip_serializing_if = "Option::is_none", default)]
@@ -191,6 +204,11 @@ impl TryFrom<ProductDomainEventRecord> for ProductDocument {
                 .ok_or_else(|| {
                     MissingPersistenceField::new(field!(shop_type@ProductDomainEventRecord))
                 })?,
+            category_id: None,
+            category_name_de: None,
+            category_name_en: None,
+            category_name_fr: None,
+            category_name_es: None,
             title_native: event_product_document
                 .title_native
                 .map(TextDocument::from)
@@ -261,6 +279,11 @@ impl From<ProductRecord> for ProductDocument {
             shops_product_id: product_document.shops_product_id,
             shop_name: product_document.shop_name,
             shop_type: product_document.shop_type.into(),
+            category_id: product_document.category_id,
+            category_name_de: product_document.category_name_de,
+            category_name_en: product_document.category_name_en,
+            category_name_fr: product_document.category_name_fr,
+            category_name_es: product_document.category_name_es,
             title_native: product_document.title_native.into(),
             title_de: product_document.title_de,
             title_en: product_document.title_en,
@@ -325,7 +348,21 @@ impl ProductDocumentSerdeField {
 
 impl From<ProductDocument> for Product {
     fn from(product_document: ProductDocument) -> Self {
-        let mut other_title = HashMap::with_capacity(2);
+        let mut category_name = HashMap::with_capacity(Language::COUNT);
+        if let Some(category_en) = product_document.category_name_en {
+            category_name.insert(Language::En, category_en.into());
+        }
+        if let Some(category_de) = product_document.category_name_de {
+            category_name.insert(Language::De, category_de.into());
+        }
+        if let Some(category_fr) = product_document.category_name_fr {
+            category_name.insert(Language::Fr, category_fr.into());
+        }
+        if let Some(category_es) = product_document.category_name_es {
+            category_name.insert(Language::Es, category_es.into());
+        }
+
+        let mut other_title = HashMap::with_capacity(Language::COUNT);
         if let Some(title_en) = product_document.title_en {
             other_title.insert(Language::En, title_en.into());
         }
@@ -339,7 +376,7 @@ impl From<ProductDocument> for Product {
             other_title.insert(Language::Es, title_es.into());
         }
 
-        let mut other_description = HashMap::with_capacity(2);
+        let mut other_description = HashMap::with_capacity(Language::COUNT);
         if let Some(description_en) = product_document.description_en {
             other_description.insert(Language::En, description_en.into());
         }
@@ -353,7 +390,7 @@ impl From<ProductDocument> for Product {
             other_description.insert(Language::Es, description_es.into());
         }
 
-        let mut other_price = HashMap::with_capacity(2);
+        let mut other_price = HashMap::with_capacity(Currency::COUNT);
         if let Some(price_eur) = product_document.price_eur {
             other_price.insert(Currency::Eur, price_eur.into());
         }
@@ -373,7 +410,7 @@ impl From<ProductDocument> for Product {
             other_price.insert(Currency::Nzd, price_eur.into());
         }
 
-        let mut other_price_estimate_min = HashMap::with_capacity(2);
+        let mut other_price_estimate_min = HashMap::with_capacity(Currency::COUNT);
         if let Some(price_eur) = product_document.price_estimate_min_eur {
             other_price_estimate_min.insert(Currency::Eur, price_eur.into());
         }
@@ -393,7 +430,7 @@ impl From<ProductDocument> for Product {
             other_price_estimate_min.insert(Currency::Nzd, price_eur.into());
         }
 
-        let mut other_price_estimate_max = HashMap::with_capacity(2);
+        let mut other_price_estimate_max = HashMap::with_capacity(Currency::COUNT);
         if let Some(price_eur) = product_document.price_estimate_max_eur {
             other_price_estimate_max.insert(Currency::Eur, price_eur.into());
         }
@@ -422,6 +459,8 @@ impl From<ProductDocument> for Product {
             shops_product_id: product_document.shops_product_id,
             shop_name: product_document.shop_name.into(),
             shop_type: product_document.shop_type.into(),
+            category_id: product_document.category_id,
+            category_name,
             native_title: Localized::new(
                 product_document.title_native.language.into(),
                 product_document.title_native.text.into(),
@@ -495,6 +534,11 @@ mod faker {
                 event_id: config.fake_with_rng(rng),
                 shop_id: config.fake_with_rng(rng),
                 shops_product_id: config.fake_with_rng(rng),
+                category_id: config.fake_with_rng(rng),
+                category_name_de: config.fake_with_rng(rng),
+                category_name_en: config.fake_with_rng(rng),
+                category_name_fr: config.fake_with_rng(rng),
+                category_name_es: config.fake_with_rng(rng),
                 shop_name,
                 shop_type: config.fake_with_rng(rng),
                 title_native,

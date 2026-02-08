@@ -20,6 +20,7 @@ use crate::core::prohibited_content::{ProhibitedContent, ProhibitedContentReason
 use crate::core::provenance::Provenance;
 use crate::core::restoration::Restoration;
 use crate::core::title::Title;
+use common::category_key::CategoryId;
 use common::currency::domain::Currency;
 use common::event::Event;
 use common::event_id::EventId;
@@ -33,11 +34,14 @@ use common::shop_id::ShopId;
 use common::shop_name::ShopName;
 use common::shops_product_id::ShopsProductId;
 use common::slug_id::SlugId;
+use common::string_newtype;
 use shop::core::shop_type::ShopType;
 use std::collections::HashMap;
 use time::OffsetDateTime;
 use tracing::error;
 use url::Url;
+
+string_newtype!(ProductCategory);
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct Product {
@@ -49,6 +53,8 @@ pub struct Product {
     pub shops_product_id: ShopsProductId,
     pub shop_name: ShopName,
     pub shop_type: ShopType,
+    pub category_id: Option<CategoryId>,
+    pub category_name: HashMap<Language, ProductCategory>,
     pub native_title: Localized<Language, Title>,
     pub other_title: HashMap<Language, Title>,
     pub native_description: Option<Localized<Language, Description>>,
@@ -489,6 +495,8 @@ impl Product {
             shops_product_id: self.shops_product_id,
             shop_name: self.shop_name,
             shop_type: self.shop_type,
+            category_id: self.category_id,
+            category_name: Language::resolve(preferred_languages, self.category_name),
             title,
             description,
             price,
@@ -549,6 +557,8 @@ pub struct LocalizedProductView {
     pub shops_product_id: ShopsProductId,
     pub shop_name: ShopName,
     pub shop_type: ShopType,
+    pub category_id: Option<CategoryId>,
+    pub category_name: Option<Localized<Language, ProductCategory>>,
     pub title: Localized<Language, Title>,
     pub description: Option<Localized<Language, Description>>,
     pub price: Option<Price>,
@@ -609,6 +619,8 @@ mod faker {
                 shops_product_id: config.fake_with_rng(rng),
                 shop_name,
                 shop_type: config.fake_with_rng(rng),
+                category_id: config.fake_with_rng(rng),
+                category_name: config.fake_with_rng(rng),
                 native_title,
                 other_title: config.fake_with_rng(rng),
                 native_description: config.fake_with_rng(rng),
@@ -661,6 +673,8 @@ mod faker {
                 shops_product_id: config.fake_with_rng(rng),
                 shop_name,
                 shop_type: config.fake_with_rng(rng),
+                category_id: config.fake_with_rng(rng),
+                category_name: config.fake_with_rng(rng),
                 title,
                 description: config.fake_with_rng(rng),
                 price: config.fake_with_rng(rng),
@@ -744,6 +758,8 @@ mod tests {
                 shops_product_id: Default::default(),
                 shop_name: "Boop".into(),
                 shop_type: fake::Faker.fake(),
+                category_id: Faker.fake(),
+                category_name: Faker.fake(),
                 native_title: Localized {
                     localization: Language::De,
                     payload: "Boop".into(),
@@ -802,6 +818,8 @@ mod tests {
                 shops_product_id: Default::default(),
                 shop_name: "Boop".into(),
                 shop_type: fake::Faker.fake(),
+                category_id: Faker.fake(),
+                category_name: Faker.fake(),
                 native_title: Localized {
                     localization: Language::De,
                     payload: "Boop".into(),
@@ -860,6 +878,8 @@ mod tests {
                 shops_product_id: Default::default(),
                 shop_name: "Boop".into(),
                 shop_type: fake::Faker.fake(),
+                category_id: Faker.fake(),
+                category_name: Faker.fake(),
                 native_title: Localized {
                     localization: Language::De,
                     payload: "Boop".into(),
@@ -951,6 +971,8 @@ mod tests {
                 shops_product_id: Default::default(),
                 shop_name: "Boop".into(),
                 shop_type: fake::Faker.fake(),
+                category_id: Faker.fake(),
+                category_name: Faker.fake(),
                 native_title: Localized {
                     localization: Language::De,
                     payload: "Boop".into(),
@@ -1012,6 +1034,8 @@ mod tests {
                 shops_product_id: Default::default(),
                 shop_name: "Boop".into(),
                 shop_type: fake::Faker.fake(),
+                category_id: Faker.fake(),
+                category_name: Faker.fake(),
                 native_title: Localized {
                     localization: Language::De,
                     payload: "Boop".into(),
@@ -1080,6 +1104,8 @@ mod tests {
                 shops_product_id: Default::default(),
                 shop_name: "Boop".into(),
                 shop_type: fake::Faker.fake(),
+                category_id: Faker.fake(),
+                category_name: Faker.fake(),
                 native_title: Localized {
                     localization: Language::De,
                     payload: "Boop".into(),
@@ -1152,6 +1178,8 @@ mod tests {
                 shops_product_id: Default::default(),
                 shop_name: "Boop".into(),
                 shop_type: fake::Faker.fake(),
+                category_id: Faker.fake(),
+                category_name: Faker.fake(),
                 native_title: Localized {
                     localization: Language::De,
                     payload: "Boop".into(),
@@ -1225,6 +1253,8 @@ mod tests {
                 shop_id: Default::default(),
                 shops_product_id: Default::default(),
                 shop_type: fake::Faker.fake(),
+                category_id: Faker.fake(),
+                category_name: Faker.fake(),
                 shop_name: "Boop".into(),
                 native_title: Localized {
                     localization: Language::De,
@@ -1307,6 +1337,8 @@ mod tests {
                 shops_product_id: Default::default(),
                 shop_name: "Boop".into(),
                 shop_type: fake::Faker.fake(),
+                category_id: Faker.fake(),
+                category_name: Faker.fake(),
                 native_title: Localized::new(Language::De, "Titel".into()),
                 other_title: Default::default(),
                 native_description: None,
@@ -1359,6 +1391,8 @@ mod tests {
                 shops_product_id: Default::default(),
                 shop_name: "Boop".into(),
                 shop_type: fake::Faker.fake(),
+                category_id: Faker.fake(),
+                category_name: Faker.fake(),
                 native_title: Localized::new(Language::De, "Titel".into()),
                 other_title: {
                     let mut m = std::collections::HashMap::new();
@@ -1403,6 +1437,8 @@ mod tests {
                 shops_product_id: Default::default(),
                 shop_name: "Boop".into(),
                 shop_type: fake::Faker.fake(),
+                category_id: Faker.fake(),
+                category_name: Faker.fake(),
                 native_title: Localized::new(Language::De, "Titel".into()),
                 other_title: Default::default(),
                 native_description: None,
@@ -1455,6 +1491,8 @@ mod tests {
                 shops_product_id: Default::default(),
                 shop_name: "Boop".into(),
                 shop_type: fake::Faker.fake(),
+                category_id: Faker.fake(),
+                category_name: Faker.fake(),
                 native_title: Localized::new(Language::De, "Titel".into()),
                 other_title: Default::default(),
                 native_description: None,
@@ -1499,6 +1537,8 @@ mod tests {
                 shops_product_id: Default::default(),
                 shop_name: "Boop".into(),
                 shop_type: fake::Faker.fake(),
+                category_id: Faker.fake(),
+                category_name: Faker.fake(),
                 native_title: Localized::new(Language::De, "Titel".into()),
                 other_title: Default::default(),
                 native_description: None,
@@ -1563,6 +1603,8 @@ mod tests {
                 shops_product_id: Default::default(),
                 shop_name: "Boop".into(),
                 shop_type: fake::Faker.fake(),
+                category_id: Faker.fake(),
+                category_name: Faker.fake(),
                 native_title: Localized::new(Language::De, "Titel".into()),
                 other_title: Default::default(),
                 native_description: None,
@@ -1604,6 +1646,8 @@ mod tests {
                 shops_product_id: Default::default(),
                 shop_name: "Boop".into(),
                 shop_type: fake::Faker.fake(),
+                category_id: Faker.fake(),
+                category_name: Faker.fake(),
                 native_title: Localized::new(Language::De, "Titel".into()),
                 other_title: Default::default(),
                 native_description: None,
@@ -1661,6 +1705,8 @@ mod tests {
                 shops_product_id: Default::default(),
                 shop_name: "Boop".into(),
                 shop_type: fake::Faker.fake(),
+                category_id: Faker.fake(),
+                category_name: Faker.fake(),
                 native_title: Localized::new(Language::De, "Titel".into()),
                 other_title: Default::default(),
                 native_description: None,
@@ -1743,6 +1789,8 @@ mod tests {
                 shops_product_id: Default::default(),
                 shop_name: "Boop".into(),
                 shop_type: fake::Faker.fake(),
+                category_id: Faker.fake(),
+                category_name: Faker.fake(),
                 native_title: Localized::new(Language::De, "Titel".into()),
                 other_title: Default::default(),
                 native_description: None,
@@ -1795,6 +1843,8 @@ mod tests {
                 shops_product_id: Default::default(),
                 shop_name: "Boop".into(),
                 shop_type: fake::Faker.fake(),
+                category_id: Faker.fake(),
+                category_name: Faker.fake(),
                 native_title: Localized::new(Language::De, "Titel".into()),
                 other_title: Default::default(),
                 native_description: None,
@@ -1872,6 +1922,8 @@ mod tests {
                 shops_product_id: Default::default(),
                 shop_name: "Boop".into(),
                 shop_type: fake::Faker.fake(),
+                category_id: Faker.fake(),
+                category_name: Faker.fake(),
                 native_title: Localized::new(Language::De, "Titel".into()),
                 other_title: {
                     let mut m = std::collections::HashMap::new();
@@ -1954,6 +2006,8 @@ mod tests {
                 shops_product_id: Default::default(),
                 shop_name: "Boop".into(),
                 shop_type: fake::Faker.fake(),
+                category_id: Faker.fake(),
+                category_name: Faker.fake(),
                 native_title: Localized::new(Language::De, "Titel".into()),
                 other_title: Default::default(),
                 native_description: Some(Localized::new(Language::De, "Beschreibung".into())),

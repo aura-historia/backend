@@ -2,6 +2,7 @@
 macro_rules! string_newtype {
     // Case with serde enabled
     ($name:ident, serde) => {
+        #[cfg_attr(feature = "test-data", derive(fake::Dummy))]
         #[derive(Debug, Clone, PartialEq, PartialOrd, Eq, Ord, Hash, serde::Serialize, serde::Deserialize)]
         #[serde(transparent)]
         pub struct $name(String);
@@ -45,6 +46,7 @@ macro_rules! string_newtype {
 
     // Case without serde
     ($name:ident) => {
+        #[cfg_attr(feature = "test-data", derive(fake::Dummy))]
         #[derive(Debug, Clone, PartialEq, PartialOrd, Eq, Ord, Hash)]
         pub struct $name(String);
 
