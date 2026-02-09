@@ -1,20 +1,27 @@
 use aws_lambda_events::sqs::{BatchItemFailure, SqsBatchResponse, SqsEvent, SqsMessage};
+use common::category_key::CategoryId;
 use common::dynamodb_stream::extract_sqs_event_bridge_dynamodb_record;
 use common::opensearch::bulk_response::{BulkItemResult, BulkResponse};
 use common::product_id::ProductId;
 use lambda_runtime::LambdaEvent;
+use once_cell::sync::OnceCell;
 use product::dynamodb::product_event_record::ProductEventRecord;
+use product::dynamodb::product_event_type_record::enrichment::ProductEnrichmentEventTypeRecord;
 use product::dynamodb::repository::ProductDynamoDbRepository;
 use product::opensearch::product_image_document::ProductImageDocument;
 use product::opensearch::product_update_document::ProductUpdateDocument;
 use product::opensearch::repository::ProductOpenSearchRepository;
+use product_classification::category::dynamodb_repository::CategoryDynamoDbRepository;
 use std::collections::HashMap;
+use std::sync::Arc;
+use tokio::sync::RwLock;
 use tracing::{error, info, warn};
 
-#[tracing::instrument(skip(opensearch_repository, dynamodb_repository, event), fields(requestId = %event.context.request_id))]
+#[tracing::instrument(skip(opensearch_repository, product_dynamodb_repository, category_dynamodb_repository, event), fields(requestId = %event.context.request_id))]
 pub async fn handler(
     opensearch_repository: &impl ProductOpenSearchRepository,
-    dynamodb_repository: &impl ProductDynamoDbRepository,
+    product_dynamodb_repository: &impl ProductDynamoDbRepository,
+    category_dynamodb_repository: &impl CategoryDynamoDbRepository,
     event: LambdaEvent<SqsEvent>,
 ) -> Result<SqsBatchResponse, lambda_runtime::Error> {
     let records_count = event.payload.records.len();
@@ -31,7 +38,8 @@ pub async fn handler(
             &mut failed_message_ids,
             &mut skipped_count,
             &mut message_ids,
-            dynamodb_repository,
+            product_dynamodb_repository,
+            category_dynamodb_repository,
         )
         .await
         {
@@ -69,12 +77,21 @@ pub async fn handler(
     Ok(sqs_batch_response)
 }
 
+struct CategoryNames {
+    category_name_de: String,
+    category_name_en: String,
+    category_name_fr: String,
+    category_name_es: String,
+}
+static CATEGORY_CACHE: OnceCell<Arc<RwLock<HashMap<CategoryId, CategoryNames>>>> = OnceCell::new();
+
 async fn extract_message_data(
     message: SqsMessage,
     failed_message_ids: &mut Vec<String>,
     skipped_count: &mut usize,
     message_ids: &mut HashMap<ProductId, String>,
-    repository: &impl ProductDynamoDbRepository,
+    product_dynamodb_repository: &impl ProductDynamoDbRepository,
+    category_dynamodb_repository: &impl CategoryDynamoDbRepository,
 ) -> Option<(ProductId, ProductUpdateDocument)> {
     let message_id = message
         .message_id
@@ -85,11 +102,93 @@ async fn extract_message_data(
     let product_id = *product_event_record.product_id();
     let update_document = match product_event_record {
         ProductEventRecord::Domain(event_record) => Some(ProductUpdateDocument::from(event_record)),
-        ProductEventRecord::Enrichment(event_record) => {
-            Some(ProductUpdateDocument::from(event_record))
-        }
+        ProductEventRecord::Enrichment(event_record) => match event_record.event_type {
+            ProductEnrichmentEventTypeRecord::EnrichmentClassifyCategory => {
+                let category_cache_rw =
+                    CATEGORY_CACHE.get_or_init(|| Arc::new(RwLock::new(HashMap::new())));
+                match event_record.category_id {
+                    Some(ref category_id) => {
+                        let category_id = category_id.clone();
+                        let mut update_document = ProductUpdateDocument::from(event_record);
+                        {
+                            let category_cache_r = category_cache_rw.read().await;
+                            if let Some(resolved) = category_cache_r.get(&category_id) {
+                                update_document.category_name_de =
+                                    Some(resolved.category_name_de.clone());
+                                update_document.category_name_en =
+                                    Some(resolved.category_name_en.clone());
+                                update_document.category_name_fr =
+                                    Some(resolved.category_name_fr.clone());
+                                update_document.category_name_es =
+                                    Some(resolved.category_name_es.clone());
+                            }
+                        }
+                        if update_document.category_name_de.is_none() {
+                            {
+                                let mut category_cache_w = category_cache_rw.write().await;
+                                let category_res = category_dynamodb_repository
+                                    .get_category_record(&category_id)
+                                    .await;
+                                match category_res {
+                                    Ok(Some(category_record)) => {
+                                        let category_names = CategoryNames {
+                                            category_name_de: category_record
+                                                .display_name_de
+                                                .clone(),
+                                            category_name_en: category_record
+                                                .display_name_en
+                                                .clone(),
+                                            category_name_fr: category_record
+                                                .display_name_fr
+                                                .clone(),
+                                            category_name_es: category_record
+                                                .display_name_es
+                                                .clone(),
+                                        };
+                                        update_document.category_name_de =
+                                            Some(category_names.category_name_de.clone());
+                                        update_document.category_name_en =
+                                            Some(category_names.category_name_en.clone());
+                                        update_document.category_name_fr =
+                                            Some(category_names.category_name_fr.clone());
+                                        update_document.category_name_es =
+                                            Some(category_names.category_name_es.clone());
+
+                                        category_cache_w
+                                            .insert(category_id.clone(), category_names);
+                                    }
+                                    Ok(None) => {
+                                        error!(
+                                            categoryId = %category_id                                            ,
+                                            "Failed to find category name for category_id because no CategoryRecord exists for this category_id.",
+                                        );
+                                    }
+                                    Err(err) => {
+                                        error!(
+                                            error = ?err,
+                                            categoryId = %category_id                                            ,
+                                            "Failed to find category name for category_id.",
+                                        );
+                                    }
+                                }
+                            }
+                        }
+                        Some(update_document)
+                    }
+                    None => {
+                        error!(
+                            "Failed to resolve category name because category_id is None.
+                             This is a logic error.
+                             EnrichmentClassifyCategory event should always contain category_id."
+                        );
+                        Some(ProductUpdateDocument::from(event_record))
+                    }
+                }
+            }
+            _ => Some(ProductUpdateDocument::from(event_record)),
+        },
         ProductEventRecord::Policy(event_record) => {
-            let record_res = repository
+            let record_res = product_dynamodb_repository
                 .get_product_record(&event_record.shop_id, &event_record.shops_product_id)
                 .await;
             match record_res {
@@ -203,6 +302,7 @@ mod tests {
     use product::dynamodb::product_event_record::ProductEventRecord;
     use product::dynamodb::repository::MockProductDynamoDbRepository;
     use product::opensearch::repository::MockProductOpenSearchRepository;
+    use product_classification::category::dynamodb_repository::MockCategoryDynamoDbRepository;
     use std::collections::HashMap;
     use std::time::SystemTime;
     use time::OffsetDateTime;
@@ -273,6 +373,10 @@ mod tests {
                     })
                 })
             });
+        let mut category_repository = MockCategoryDynamoDbRepository::default();
+        category_repository
+            .expect_get_category_record()
+            .returning(|_| Box::pin(async { Ok(Some(Faker.fake())) }));
 
         let records = fake::vec![ProductEventPayload; record_count]
             .into_iter()
@@ -293,9 +397,14 @@ mod tests {
             context: Default::default(),
         };
 
-        let actual = handler(&opensearch_repository, &dynamodb_repository, lambda_event)
-            .await
-            .unwrap();
+        let actual = handler(
+            &opensearch_repository,
+            &dynamodb_repository,
+            &category_repository,
+            lambda_event,
+        )
+        .await
+        .unwrap();
         assert!(actual.batch_item_failures.is_empty())
     }
 
@@ -397,15 +506,23 @@ mod tests {
                     })
                 })
             });
+        let mut category_repository = MockCategoryDynamoDbRepository::default();
+        category_repository
+            .expect_get_category_record()
+            .returning(|_| Box::pin(async { Ok(Some(Faker.fake())) }));
 
-        let mut actual_failed_message_ids =
-            handler(&opensearch_repository, &dynamodb_repository, lambda_event)
-                .await
-                .unwrap()
-                .batch_item_failures
-                .into_iter()
-                .map(|failure| failure.item_identifier)
-                .collect::<Vec<_>>();
+        let mut actual_failed_message_ids = handler(
+            &opensearch_repository,
+            &dynamodb_repository,
+            &category_repository,
+            lambda_event,
+        )
+        .await
+        .unwrap()
+        .batch_item_failures
+        .into_iter()
+        .map(|failure| failure.item_identifier)
+        .collect::<Vec<_>>();
         actual_failed_message_ids.sort();
         let mut expected_failed_message_ids = expected_failures
             .into_iter()

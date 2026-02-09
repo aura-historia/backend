@@ -6,6 +6,7 @@ use crate::opensearch::product_image_document::ProductImageDocument;
 use crate::opensearch::product_state_document::ProductStateDocument;
 use crate::opensearch::provenance_document::ProvenanceDocument;
 use crate::opensearch::restoration_document::RestorationDocument;
+use common::category_key::CategoryId;
 use common::event_id::EventId;
 use common::year::Year;
 use serde::Serialize;
@@ -33,6 +34,17 @@ pub struct ProductUpdateDocument {
 
     #[serde(skip_serializing_if = "Option::is_none", default)]
     pub state: Option<ProductStateDocument>,
+
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub category_id: Option<CategoryId>,
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub category_name_de: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub category_name_en: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub category_name_fr: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub category_name_es: Option<String>,
 
     #[serde(skip_serializing_if = "Option::is_none", default)]
     pub title_de: Option<String>,
@@ -88,6 +100,11 @@ impl Default for ProductUpdateDocument {
             price_cad: None,
             price_nzd: None,
             state: None,
+            category_id: None,
+            category_name_de: None,
+            category_name_en: None,
+            category_name_fr: None,
+            category_name_es: None,
             title_de: None,
             title_en: None,
             title_fr: None,
@@ -133,6 +150,11 @@ impl From<ProductDomainEventRecord> for ProductUpdateDocument {
                 .images
                 .map(|images| images.into_iter().map(ProductImageDocument::from).collect()),
             state,
+            category_id: None,
+            category_name_de: None,
+            category_name_en: None,
+            category_name_fr: None,
+            category_name_es: None,
             text_embedding: None,
             origin_year_min: None,
             origin_year: None,
@@ -166,6 +188,11 @@ impl From<ProductEnrichmentEventRecord> for ProductUpdateDocument {
             description_es: None,
             images: None,
             state: None,
+            category_id: event_record.category_id,
+            category_name_de: None,
+            category_name_en: None,
+            category_name_fr: None,
+            category_name_es: None,
             text_embedding: event_record.text_embedding,
             origin_year_min: event_record.origin_year_min,
             origin_year: event_record.origin_year,
@@ -207,6 +234,11 @@ mod faker {
                 description_es: Some(config.fake_with_rng::<Description, _>(rng).into()),
                 images: Some(config.fake_with_rng(rng)),
                 state,
+                category_id: Some(config.fake_with_rng(rng)),
+                category_name_de: Some(config.fake_with_rng(rng)),
+                category_name_en: Some(config.fake_with_rng(rng)),
+                category_name_fr: Some(config.fake_with_rng(rng)),
+                category_name_es: Some(config.fake_with_rng(rng)),
                 text_embedding: None,
                 origin_year_min: config.fake_with_rng(rng),
                 origin_year: config.fake_with_rng(rng),
