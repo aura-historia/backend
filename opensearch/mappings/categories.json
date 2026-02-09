@@ -33,6 +33,38 @@
                     }
                 }
             },
+            "displayNameDe": {
+                "type": "text",
+                "analyzer": "german"
+            },
+            "displayNameEn": {
+                "type": "text",
+                "analyzer": "english"
+            },
+            "displayNameFr": {
+                "type": "text",
+                "analyzer": "french"
+            },
+            "displayNameEs": {
+                "type": "text",
+                "analyzer": "spanish"
+            },
+            "displayDescriptionDe": {
+                "type": "text",
+                "analyzer": "german"
+            },
+            "displayDescriptionEn": {
+                "type": "text",
+                "analyzer": "english"
+            },
+            "displayDescriptionFr": {
+                "type": "text",
+                "analyzer": "french"
+            },
+            "displayDescriptionEs": {
+                "type": "text",
+                "analyzer": "spanish"
+            },
             "created": {
                 "type": "date",
                 "format": "strict_date_time"

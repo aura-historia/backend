@@ -39,4 +39,3 @@ pub mod sort;
 pub mod string_newtype;
 pub mod user_id;
 pub mod year;
-

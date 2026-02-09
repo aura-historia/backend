@@ -6,7 +6,7 @@ use aws_sdk_dynamodb::{
     error::SdkError,
     operation::{get_item::GetItemError, put_item::PutItemError, query::QueryError},
 };
-use common::category_key::CategoryId;
+use common::{category_key::CategoryId, error::missing_field::MissingRequiredField};
 
 #[derive(Debug, thiserror::Error)]
 pub enum CategoryServiceError {
@@ -24,6 +24,9 @@ pub enum CategoryServiceError {
 
     #[error("DynamoDbSdkQueryError: {0}")]
     DynamoDbSdkQueryError(#[from] SdkError<QueryError>),
+
+    #[error("MappingError: Missing required field '{0}'")]
+    MappingError(#[from] MissingRequiredField),
 }
 
 #[async_trait::async_trait]
@@ -64,10 +67,10 @@ impl<'a> CategoryServiceImpl<'a> {
 impl<'a> CategoryService for CategoryServiceImpl<'a> {
     async fn upsert_category(&self, category: Category) -> Result<Category, CategoryServiceError> {
         self.dynamodb_repository
-            .put_category_record(category.clone().into())
+            .put_category_record(category.clone().try_into()?)
             .await?;
         self.opensearch_search
-            .index_category_document(category.clone().into())
+            .index_category_document(category.clone().try_into()?)
             .await?;
 
         Ok(category)
@@ -254,7 +257,9 @@ mod tests {
             dynamodb_repository
                 .expect_get_category_record()
                 .once()
-                .return_once(move |_| Box::pin(async move { Ok(Some(category.into())) }));
+                .return_once(move |_| {
+                    Box::pin(async move { Ok(Some(category.try_into().unwrap())) })
+                });
 
             let opensearch_repository = MockCategoryOpenSearchRepository::default();
             let service = CategoryServiceImpl::new(&dynamodb_repository, &opensearch_repository);
@@ -327,8 +332,9 @@ mod tests {
         async fn should_return_similar_categories_when_opensearch_succeeds_for_category_service() {
             let category: Category = Faker.fake();
             let other_category: Category = Faker.fake();
-            let category_document: CategoryDocument = category.clone().into();
-            let other_category_document: CategoryDocument = other_category.clone().into();
+            let category_document: CategoryDocument = category.clone().try_into().unwrap();
+            let other_category_document: CategoryDocument =
+                other_category.clone().try_into().unwrap();
             let mut opensearch_repository = MockCategoryOpenSearchRepository::default();
             opensearch_repository
                 .expect_exact_k_nn()
