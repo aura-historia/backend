@@ -16,6 +16,7 @@ shop-lambda = { workspace = true }
 product = { workspace = true }
 product-api = { workspace = true }
 product-classification = { workspace = true }
+product-classification-lambda = { workspace = true }
 product-watchlist-api = { workspace = true }
 product-lambda = { workspace = true }
 test-api = { workspace = true }
@@ -39,6 +40,7 @@ members = [
     "src/product",
     "src/product-api",
     "src/product-classification",
+    "src/product-classification-lambda",
     "src/product-watchlist-api",
     "src/product-lambda",
     "src/test-api",
@@ -90,6 +92,7 @@ httpdate = "1.0.3"
 product = { path = "src/product" }
 product-api = { path = "src/product-api" }
 product-classification = { path = "src/product-classification" }
+product-classification-lambda = { path = "src/product-classification-lambda" }
 product-watchlist-api = { path = "src/product-watchlist-api" }
 product-lambda = { path = "src/product-lambda" }
 product-pipeline-common = { path = "src/product-pipeline/src/product-pipeline-common" }
