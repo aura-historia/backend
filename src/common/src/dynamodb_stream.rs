@@ -1,7 +1,8 @@
+use std::collections::HashMap;
+
 use aws_lambda_events::eventbridge::EventBridgeEvent;
-use aws_sdk_sqs::operation::tag_queue::TagQueueInput;
 use serde::de::DeserializeOwned;
-use tracing::{error, info};
+use tracing::{error, info, warn};
 
 #[derive(Debug, Clone)]
 pub struct SqsMessage {
@@ -57,7 +58,7 @@ pub fn extract_sqs_event_bridge_dynamodb_record<T: DeserializeOwned>(
                     Err(e) => {
                         error!(
                             error = %e,
-                            type = %std::any::type_name::<TagQueueInput>(),
+                            type = %std::any::type_name::<T>(),
                             payload = %event_bridge_event_json,
                             "Failed deserializing 'detail.new_image'."
                         );
@@ -74,6 +75,73 @@ pub fn extract_sqs_event_bridge_dynamodb_record<T: DeserializeOwned>(
                     );
                     failed_message_ids.push(message_id);
                     None
+                }
+            }
+        }
+    }
+}
+
+// TODO: Delete above fun and migrate all usages to below variant
+pub type MessageId = String;
+pub fn extract_from_dynamodb_stream<T: DeserializeOwned>(
+    messages: Vec<impl Into<SqsMessage>>,
+) -> (HashMap<MessageId, T>, Vec<MessageId>) {
+    let count = messages.len();
+    messages.into_iter().fold(
+        (HashMap::with_capacity(count), vec![]),
+        |(mut event_records, mut failed_message_ids), msg| {
+            match extract_event_bridge_sqs_dynamodb_record::<T>(msg) {
+                Ok((message_id, Some(event_record))) => {
+                    event_records.insert(message_id, event_record);
+                    (event_records, failed_message_ids)
+                }
+                Ok((_, None)) => (event_records, failed_message_ids),
+                Err(message_id) => {
+                    failed_message_ids.push(message_id);
+                    (event_records, failed_message_ids)
+                }
+            }
+        },
+    )
+}
+
+pub fn extract_event_bridge_sqs_dynamodb_record<T: DeserializeOwned>(
+    message: impl Into<SqsMessage>,
+) -> Result<(MessageId, Option<T>), MessageId> {
+    let message: SqsMessage = message.into();
+    let message_id = message.message_id;
+
+    match message.body {
+        None => {
+            warn!("Received empty body. Skipping message.");
+            Ok((message_id, None))
+        }
+        Some(event_bridge_event_json) => {
+            match serde_json::from_str::<EventBridgeEvent<aws_lambda_events::dynamodb::EventRecord>>(
+                &event_bridge_event_json,
+            ) {
+                Ok(event_bridge_event) => match serde_dynamo::from_item::<_, T>(
+                    event_bridge_event.detail.change.new_image,
+                ) {
+                    Ok(record) => Ok((message_id, Some(record))),
+                    Err(e) => {
+                        error!(
+                            error = %e,
+                            type = %std::any::type_name::<T>(),
+                            payload = %event_bridge_event_json,
+                            "Failed deserializing 'detail.new_image'."
+                        );
+                        Err(message_id)
+                    }
+                },
+                Err(e) => {
+                    error!(
+                        error = %e,
+                        type = %std::any::type_name::<EventBridgeEvent<aws_lambda_events::dynamodb::EventRecord>>(),
+                        payload = %event_bridge_event_json,
+                        "Failed deserializing."
+                    );
+                    Err(message_id)
                 }
             }
         }

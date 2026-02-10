@@ -592,7 +592,7 @@ pub fn extract_product_key(map: HashMap<String, AttributeValue>) -> Result<Produ
     }
 }
 
-fn extract_product_id(
+pub fn extract_product_id(
     map: HashMap<String, AttributeValue>,
 ) -> Result<ProductId, Box<dyn std::error::Error + Send + Sync>> {
     let mut map = map;

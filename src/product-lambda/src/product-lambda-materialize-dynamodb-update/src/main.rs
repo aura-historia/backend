@@ -3,6 +3,7 @@ use aws_lambda_events::sqs::SqsEvent;
 use aws_sdk_dynamodb::Client;
 use lambda_runtime::{Error, LambdaEvent, run, service_fn};
 use product::dynamodb::repository::ProductDynamoDbRepositoryImpl;
+use product_classification::category::dynamodb_repository::CategoryDynamoDbRepositoryImpl;
 use product_lambda_materialize_dynamodb_update::handler;
 use tracing::info;
 
@@ -23,12 +24,13 @@ async fn main() -> Result<(), Error> {
     let table_name = std::env::var("DYNAMODB_TABLE_NAME")
         .expect("shouldn't fail loading env-var 'DYNAMODB_TABLE_NAME'");
     let client = Client::new(&aws_config);
-    let repository = ProductDynamoDbRepositoryImpl::new(&client, &table_name);
+    let product_repository = ProductDynamoDbRepositoryImpl::new(&client, &table_name);
+    let category_repository = CategoryDynamoDbRepositoryImpl::new(&client, &table_name);
 
     info!("Lambda cold start completed, client initialized.");
 
     run(service_fn(|event: LambdaEvent<SqsEvent>| async {
-        handler(&repository, event).await
+        handler(&product_repository, &category_repository, event).await
     }))
     .await
 }

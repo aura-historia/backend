@@ -8,6 +8,7 @@ use crate::data::product_image_data::ProductImageData;
 use crate::data::product_state_data::ProductStateData;
 use crate::data::provenance_data::ProvenanceData;
 use crate::data::restoration_data::RestorationData;
+use common::category_key::CategoryId;
 use common::event_id::EventId;
 use common::has_key::HasKey;
 use common::language::data::LocalizedTextData;
@@ -31,6 +32,10 @@ pub struct GetProductData {
     pub shops_product_id: ShopsProductId,
     pub shop_name: String,
     pub shop_type: ShopTypeData,
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub category_id: Option<CategoryId>,
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub category: Option<LocalizedTextData>,
 
     pub title: LocalizedTextData,
 
@@ -114,6 +119,8 @@ impl From<LocalizedProductView> for GetProductData {
             shops_product_id: product_view.shops_product_id,
             shop_name: product_view.shop_name.into(),
             shop_type: product_view.shop_type.into(),
+            category_id: product_view.category_id,
+            category: product_view.category_name.map(LocalizedTextData::from),
             title: product_view.title.into(),
             description: product_view.description.map(LocalizedTextData::from),
             price,
@@ -208,6 +215,8 @@ mod tests {
             shops_product_id: shops_product_id.clone(),
             shop_name: "My shop".into(),
             shop_type: ShopTypeData::AuctionHouse,
+            category_id: Some("musical-instruments".into()),
+            category: Some(LocalizedTextData::new("Musikinstrumente", LanguageData::De)),
             title: LocalizedTextData::new("Mein titel", LanguageData::De),
             description: Some(LocalizedTextData::new("My description", LanguageData::En)),
             price: Some(PricingData {
@@ -264,6 +273,11 @@ mod tests {
             "shopsProductId": shops_product_id,
             "shopName": "My shop",
             "shopType": "AUCTION_HOUSE",
+            "categoryId": "musical-instruments",
+            "category": {
+                "text": "Musikinstrumente",
+                "language": "de"
+            },
             "title": {
                 "text": "Mein titel",
                 "language": "de"

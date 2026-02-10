@@ -8,6 +8,7 @@ use crate::dynamodb::product_image_record::ProductImageRecord;
 use crate::dynamodb::product_state_record::ProductStateRecord;
 use crate::dynamodb::provenance_record::ProvenanceRecord;
 use crate::dynamodb::restoration_record::RestorationRecord;
+use common::category_key::CategoryId;
 use common::currency::domain::Currency;
 use common::error::mapping_error::PersistenceMappingError;
 use common::error::missing_field::MissingPersistenceField;
@@ -28,6 +29,7 @@ use serde::{Deserialize, Serialize};
 use serde_fields::SerdeField;
 use shop::dynamodb::shop_type_record::ShopTypeRecord;
 use std::collections::HashMap;
+use strum::EnumCount;
 use time::OffsetDateTime;
 use url::Url;
 
@@ -46,6 +48,16 @@ pub struct ProductRecord {
     pub shops_product_id: ShopsProductId,
     pub shop_name: String,
     pub shop_type: ShopTypeRecord,
+    pub category_id: Option<CategoryId>,
+
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub category_name_de: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub category_name_en: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub category_name_fr: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub category_name_es: Option<String>,
 
     pub title_native: TextRecord,
     #[serde(skip_serializing_if = "Option::is_none", default)]
@@ -184,7 +196,21 @@ impl HasKey for ProductRecord {
 
 impl From<ProductRecord> for Product {
     fn from(record: ProductRecord) -> Self {
-        let mut other_title = HashMap::with_capacity(2);
+        let mut category_name = HashMap::with_capacity(Language::COUNT);
+        if let Some(category_en) = record.category_name_en {
+            category_name.insert(Language::En, category_en.into());
+        }
+        if let Some(category_de) = record.category_name_de {
+            category_name.insert(Language::De, category_de.into());
+        }
+        if let Some(category_fr) = record.category_name_fr {
+            category_name.insert(Language::Fr, category_fr.into());
+        }
+        if let Some(category_es) = record.category_name_es {
+            category_name.insert(Language::Es, category_es.into());
+        }
+
+        let mut other_title = HashMap::with_capacity(Language::COUNT);
         if let Some(title_en) = record.title_en {
             other_title.insert(Language::En, title_en.into());
         }
@@ -198,7 +224,7 @@ impl From<ProductRecord> for Product {
             other_title.insert(Language::Es, title_es.into());
         }
 
-        let mut other_description = HashMap::with_capacity(2);
+        let mut other_description = HashMap::with_capacity(Language::COUNT);
         if let Some(description_en) = record.description_en {
             other_description.insert(Language::En, description_en.into());
         }
@@ -212,7 +238,7 @@ impl From<ProductRecord> for Product {
             other_description.insert(Language::Es, description_es.into());
         }
 
-        let mut other_price = HashMap::with_capacity(2);
+        let mut other_price = HashMap::with_capacity(Currency::COUNT);
         if let Some(price_eur) = record.price_eur {
             other_price.insert(Currency::Eur, price_eur.into());
         }
@@ -232,7 +258,7 @@ impl From<ProductRecord> for Product {
             other_price.insert(Currency::Nzd, price_eur.into());
         }
 
-        let mut other_price_estimate_min = HashMap::with_capacity(2);
+        let mut other_price_estimate_min = HashMap::with_capacity(Currency::COUNT);
         if let Some(price_eur) = record.price_estimate_min_eur {
             other_price_estimate_min.insert(Currency::Eur, price_eur.into());
         }
@@ -252,7 +278,7 @@ impl From<ProductRecord> for Product {
             other_price_estimate_min.insert(Currency::Nzd, price_eur.into());
         }
 
-        let mut other_price_estimate_max = HashMap::with_capacity(2);
+        let mut other_price_estimate_max = HashMap::with_capacity(Currency::COUNT);
         if let Some(price_eur) = record.price_estimate_max_eur {
             other_price_estimate_max.insert(Currency::Eur, price_eur.into());
         }
@@ -281,6 +307,8 @@ impl From<ProductRecord> for Product {
             shops_product_id: record.shops_product_id,
             shop_name: record.shop_name.into(),
             shop_type: record.shop_type.into(),
+            category_id: record.category_id,
+            category_name,
             native_title: Localized::new(
                 record.title_native.language.into(),
                 record.title_native.text.into(),
@@ -346,6 +374,11 @@ impl TryFrom<ProductDomainEventRecord> for ProductRecord {
             shop_type: event_record.shop_type.ok_or_else(|| {
                 MissingPersistenceField::new(field!(shop_type@ProductDomainEventRecord))
             })?,
+            category_id: None,
+            category_name_de: None,
+            category_name_en: None,
+            category_name_fr: None,
+            category_name_es: None,
             title_native: event_record.title_native.ok_or_else(|| {
                 MissingPersistenceField::new(field!(title_native@ProductDomainEventRecord))
             })?,
@@ -448,6 +481,11 @@ mod faker {
                 shops_product_id: shops_product_id.clone(),
                 shop_name,
                 shop_type: config.fake_with_rng(rng),
+                category_id: config.fake_with_rng(rng),
+                category_name_de: config.fake_with_rng(rng),
+                category_name_en: config.fake_with_rng(rng),
+                category_name_fr: config.fake_with_rng(rng),
+                category_name_es: config.fake_with_rng(rng),
                 title_native,
                 title_de: Some(config.fake_with_rng::<Title, _>(rng).to_string()),
                 title_en: Some(config.fake_with_rng::<Title, _>(rng).to_string()),

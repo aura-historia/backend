@@ -125,6 +125,8 @@ dependencies = [
  "mail-lambda-send",
  "product",
  "product-api",
+ "product-classification",
+ "product-classification-lambda",
  "product-lambda",
  "product-pipeline",
  "product-watchlist-api",
@@ -3238,6 +3240,55 @@ dependencies = [
 ]
 
 [[package]]
+name = "product-classification"
+version = "0.1.0"
+dependencies = [
+ "async-trait",
+ "aws-sdk-dynamodb",
+ "common",
+ "fake",
+ "mockall",
+ "opensearch",
+ "product-classification",
+ "rstest",
+ "serde",
+ "serde_dynamo",
+ "serde_fields",
+ "serde_json",
+ "serial_test",
+ "strum",
+ "strum_macros",
+ "test-api",
+ "thiserror",
+ "time",
+ "tokio",
+ "tracing",
+]
+
+[[package]]
+name = "product-classification-lambda"
+version = "0.1.0"
+dependencies = [
+ "aws-config",
+ "aws-sdk-dynamodb",
+ "aws_lambda_events",
+ "common",
+ "fake",
+ "lambda_runtime",
+ "product",
+ "product-classification",
+ "rstest",
+ "serde_dynamo",
+ "serde_json",
+ "time",
+ "tokio",
+ "tracing",
+ "tracing-subscriber",
+ "url",
+ "uuid",
+]
+
+[[package]]
 name = "product-lambda"
 version = "0.1.0"
 dependencies = [
@@ -3282,7 +3333,9 @@ dependencies = [
  "common",
  "fake",
  "lambda_runtime",
+ "once_cell",
  "product",
+ "product-classification",
  "rstest",
  "serde_dynamo",
  "serde_json",
@@ -3325,8 +3378,10 @@ dependencies = [
  "common",
  "fake",
  "lambda_runtime",
+ "once_cell",
  "opensearch",
  "product",
+ "product-classification",
  "rstest",
  "serde_dynamo",
  "serde_json",
@@ -4689,7 +4744,9 @@ dependencies = [
  "aws-tests-common",
  "common",
  "fake",
+ "opensearch",
  "product",
+ "product-classification",
  "reqwest 0.12.28",
  "serde",
  "serde_json",
@@ -4714,6 +4771,7 @@ dependencies = [
  "opensearch",
  "product",
  "product-api",
+ "product-classification",
  "product-watchlist-api",
  "reqwest 0.12.28",
  "search-filter",

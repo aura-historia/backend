@@ -6,6 +6,7 @@ use product::{
     dynamodb::repository::ProductDynamoDbRepositoryImpl,
     opensearch::repository::ProductOpenSearchRepositoryImpl,
 };
+use product_classification::category::dynamodb_repository::CategoryDynamoDbRepositoryImpl;
 use product_lambda_materialize_opensearch_update::handler;
 use tracing::info;
 
@@ -28,6 +29,8 @@ async fn main() -> Result<(), Error> {
     let dynamodb_client = Client::new(&aws_config);
     let dynamodb_repository =
         ProductDynamoDbRepositoryImpl::new(&dynamodb_client, &dynamodb_table_name);
+    let category_repository =
+        CategoryDynamoDbRepositoryImpl::new(&dynamodb_client, &dynamodb_table_name);
 
     let opensearch_client = common::opensearch::client::load_client().await?;
     let opensearch_repository = ProductOpenSearchRepositoryImpl::new(&opensearch_client);
@@ -35,7 +38,13 @@ async fn main() -> Result<(), Error> {
     info!("Lambda cold start completed, OpenSearch-Client initialized.");
 
     run(service_fn(|event: LambdaEvent<SqsEvent>| async {
-        handler(&opensearch_repository, &dynamodb_repository, event).await
+        handler(
+            &opensearch_repository,
+            &dynamodb_repository,
+            &category_repository,
+            event,
+        )
+        .await
     }))
     .await
 }

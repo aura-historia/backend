@@ -3,6 +3,7 @@ pub mod currency;
 #[cfg(feature = "api")]
 pub mod api;
 pub mod batch;
+pub mod category_key;
 pub mod domain;
 
 #[cfg(feature = "dynamodb")]
@@ -35,5 +36,6 @@ pub mod shop_name;
 pub mod shops_product_id;
 pub mod slug_id;
 pub mod sort;
+pub mod string_newtype;
 pub mod user_id;
 pub mod year;
