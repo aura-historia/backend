@@ -6,6 +6,8 @@ PRODUCTS_INDEX_NAME="products"
 PRODUCTS_MAPPING_FILE="opensearch/mappings/products.json"
 SHOPS_INDEX_NAME="shops"
 SHOPS_MAPPING_FILE="opensearch/mappings/shops.json"
+CATEGORIES_INDEX_NAME="categories"
+CATEGORIES_MAPPING_FILE="opensearch/mappings/categories.json"
 
 # Resolve OpenSearch domain name + endpoint from CloudFormation Outputs
 DOMAIN_NAME=$(aws cloudformation describe-stacks \
@@ -57,14 +59,14 @@ echo -e "\n es" | opensearch-cli profile create --name "ci" \
 create_index_if_not_exists() {
   local index_name="$1"
   local mapping_file="$2"
-  
+
   echo "🔍 Checking if index '$index_name' exists..."
-  
+
   # Try to get the index; if it exists, the command succeeds and returns index info
   # If it doesn't exist, it returns an error with "index_not_found_exception"
   local response
   response=$(opensearch-cli curl get --path "$index_name" --profile ci 2>&1)
-  
+
   if echo "$response" | grep -q "index_not_found_exception"; then
     echo "📦 Creating index '$index_name' with mapping from '$mapping_file'..."
     opensearch-cli curl put \
@@ -80,3 +82,4 @@ create_index_if_not_exists() {
 # Create indices
 create_index_if_not_exists "$PRODUCTS_INDEX_NAME" "$PRODUCTS_MAPPING_FILE"
 create_index_if_not_exists "$SHOPS_INDEX_NAME" "$SHOPS_MAPPING_FILE"
+create_index_if_not_exists "$CATEGORIES_INDEX_NAME" "$CATEGORIES_MAPPING_FILE"

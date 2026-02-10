@@ -2699,6 +2699,11 @@ Outputs:
   ProductMaterializeOpensearchUpdateDeadLetterQueueUrl:
     Value: !Ref ProductMaterializeOpenSearchUpdateDlq
 
+  ProductClassificationQueueUrl:
+    Value: !Ref ProductClassificationQ
+  ProductClassificationDeadLetterQueueUrl:
+    Value: !Ref ProductClassificationDlq
+
   ShopOpensearchIndexQueueUrl:
     Value: !Ref ShopOpenSearchIndexQ
   ShopOpensearchIndexDeadLetterQueueUrl:

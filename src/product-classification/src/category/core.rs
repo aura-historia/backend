@@ -64,7 +64,7 @@ pub struct LocalizedCategory {
 }
 
 #[cfg(feature = "test-data")]
-mod faker {
+pub mod faker {
     use super::*;
     use fake::{Dummy, Faker, Rng, rand::seq::IndexedRandom};
     use serde::{Deserialize, Serialize};
@@ -136,13 +136,19 @@ mod faker {
         }
     }
 
-    impl Dummy<Faker> for Category {
-        fn dummy_with_rng<R: Rng + ?Sized>(_config: &Faker, rng: &mut R) -> Self {
-            let categories = serde_json::from_str::<Vec<CategoryTestPayload>>(CATEGORIES_DATA)
+    impl Category {
+        pub fn load_categories() -> Vec<Self> {
+            serde_json::from_str::<Vec<CategoryTestPayload>>(CATEGORIES_DATA)
                 .expect("shouldn't fail parsing categories data")
                 .into_iter()
                 .map(Category::from)
-                .collect::<Vec<_>>();
+                .collect()
+        }
+    }
+
+    impl Dummy<Faker> for Category {
+        fn dummy_with_rng<R: Rng + ?Sized>(_config: &Faker, rng: &mut R) -> Self {
+            let categories = Category::load_categories();
             categories
                 .choose(rng)
                 .expect("shouldn't fail picking random category")
