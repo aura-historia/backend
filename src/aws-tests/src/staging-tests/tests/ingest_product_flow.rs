@@ -245,6 +245,7 @@ async fn should_materialize_product_in_dynamodb_for_enrichment_event() {
     let shop = prepare_test_shop().await;
 
     let mut materialized_old: ProductRecord = Faker.fake();
+    materialized_old.text_embedding = None;
     materialized_old.pk = mk_pk(&shop.shop_id, &materialized_old.shops_product_id);
     materialized_old.shop_id = shop.shop_id;
     materialized_old
@@ -627,6 +628,7 @@ async fn should_materialize_product_in_opensearch_for_enrichmment_event() {
     let dynamodb_repository =
         ProductDynamoDbRepositoryImpl::new(dynamodb_client, &stack.dynamodb_table_1_name);
     let mut materialized_ddb_old: ProductRecord = Faker.fake();
+    materialized_ddb_old.text_embedding = None;
     materialized_ddb_old.pk = mk_pk(&shop.shop_id, &materialized_ddb_old.shops_product_id);
     materialized_ddb_old.shop_id = shop.shop_id;
     materialized_ddb_old.title_en = Some("Exactly the expected title".to_string());
@@ -742,6 +744,13 @@ async fn should_materialize_product_in_opensearch_for_policy_event() {
     let dynamodb_repository =
         ProductDynamoDbRepositoryImpl::new(dynamodb_client, &stack.dynamodb_table_1_name);
     let mut materialized_ddb_old: ProductRecord = Faker.fake();
+    materialized_ddb_old.images = fake::vec![ProductImageRecord; 3]
+        .into_iter()
+        .map(|mut img| {
+            img.prohibited_content = ProhibitedContentRecord::Unknown;
+            img
+        })
+        .collect();
     materialized_ddb_old.pk = mk_pk(&shop.shop_id, &materialized_ddb_old.shops_product_id);
     materialized_ddb_old.shop_id = shop.shop_id;
     materialized_ddb_old.title_en = Some("Exactly the expected title".to_string());
