@@ -88,6 +88,8 @@ jobs:
           - src/aws-tests
           - src/product
           - src/product-api
+          - src/product-classification
+          - src/product-classification-lambda
           - src/product-watchlist-api
           - src/product-pipeline
           - src/product-lambda
@@ -272,6 +274,7 @@ jobs:
         crate:
           - src/search-filter-api
           - src/product-api
+          - src/product-classification-lambda
           - src/product-watchlist-api
           - src/product-pipeline/src/product-pipeline-asg-scale-control
           - src/product-lambda/src/product-lambda-materialize-dynamodb-new
