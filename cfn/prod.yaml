@@ -390,6 +390,7 @@ Resources:
         - !Ref ProductMaterializeDynamoDbUpdateQ
         - !Ref ProductMaterializeOpenSearchNewQ
         - !Ref ProductMaterializeOpenSearchUpdateQ
+        - !Ref ProductClassificationQ
         - !Ref ShopOpenSearchIndexQ
         - !Ref ProductUpdateNotifyUserQ
         - !Ref UserLambdaFanoutUpdateWatchlistQ
@@ -408,6 +409,7 @@ Resources:
               - !GetAtt ProductMaterializeDynamoDbUpdateQ.Arn
               - !GetAtt ProductMaterializeOpenSearchNewQ.Arn
               - !GetAtt ProductMaterializeOpenSearchUpdateQ.Arn
+              - !GetAtt ProductClassificationQ.Arn
               - !GetAtt ShopOpenSearchIndexQ.Arn
               - !GetAtt ProductUpdateNotifyUserQ.Arn
               - !GetAtt UserLambdaFanoutUpdateWatchlistQ.Arn
@@ -1686,6 +1688,113 @@ Resources:
       AlarmActions:
         - !Ref AlarmNotificationTopic
 
+  ProductClassificationDlq:
+    Type: AWS::SQS::Queue
+    Properties:
+      QueueName: "product-classification-dlq-prod"
+      MessageRetentionPeriod: 1209600
+      SqsManagedSseEnabled: true
+  ProductClassificationQ:
+    Type: AWS::SQS::Queue
+    Properties:
+      QueueName: "product-classification-queue-prod"
+      RedrivePolicy:
+        deadLetterTargetArn: !GetAtt ProductClassificationDlq.Arn
+        maxReceiveCount: 5
+      VisibilityTimeout: 360
+      SqsManagedSseEnabled: true
+  ProductClassificationRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: "product-classification-role-prod"
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: lambda.amazonaws.com
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole
+      Policies:
+        - PolicyName: DynamoDBAccess
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: Allow
+                Action:
+                  - dynamodb:GetItem
+                  - dynamodb:Query
+                  - dynamodb:PutItem
+                  - dynamodb:BatchGetItem
+                  - dynamodb:BatchWriteItem
+                  - dynamodb:TransactGetItems
+                  - dynamodb:TransactWriteItems
+                Resource:
+                  - !GetAtt TableOne.Arn
+                  - !Sub "${TableOne.Arn}/index/*"
+        - PolicyName: SQSPollerAccess
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: Allow
+                Action:
+                  - sqs:ReceiveMessage
+                  - sqs:DeleteMessage
+                  - sqs:GetQueueAttributes
+                  - sqs:GetQueueUrl
+                Resource: !GetAtt ProductClassificationQ.Arn
+  ProductClassificationLambda:
+    Type: AWS::Lambda::Function
+    Properties:
+      FunctionName: "product-classification-lambda-prod"
+      Runtime: provided.al2023
+      Handler: lib.handler
+      Role: !GetAtt ProductClassificationRole.Arn
+      Code:
+        S3Bucket: !Ref ArtifactBucket
+        S3Key: !Sub "product-classification-lambda-prod-${CommitSHA}.zip"
+      MemorySize: 512
+      Timeout: 60
+      ReservedConcurrentExecutions: 10
+      EphemeralStorage:
+        Size: 512
+      Environment:
+        Variables:
+          DYNAMODB_TABLE_NAME: !Ref TableOne
+          OPENSEARCH_ENDPOINT_URL: !Ref OpenSearchEndpointUrl
+          STAGE: "prod"
+          OPENSEARCH_USERNAME: "{{resolve:ssm:/opensearch/prod/username}}"
+          OPENSEARCH_PASSWORD: "{{resolve:ssm:/opensearch/prod/password}}"
+  ProductClassificationMapping:
+    Type: AWS::Lambda::EventSourceMapping
+    Properties:
+      FunctionName: !Ref ProductClassificationLambda
+      EventSourceArn: !GetAtt ProductClassificationQ.Arn
+      Enabled: true
+      BatchSize: 200
+      MaximumBatchingWindowInSeconds: 60
+      FunctionResponseTypes:
+        - ReportBatchItemFailures
+  ProductClassificationLambdaErrorAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      AlarmName: "prod-product-classification-lambda-errors"
+      AlarmDescription: "Alarm when product-classification Lambda has errors"
+      MetricName: Errors
+      Namespace: AWS/Lambda
+      Statistic: Sum
+      Period: 300
+      EvaluationPeriods: 1
+      Threshold: 5
+      ComparisonOperator: GreaterThanOrEqualToThreshold
+      Dimensions:
+        - Name: FunctionName
+          Value: !Ref ProductClassificationLambda
+      TreatMissingData: notBreaching
+      AlarmActions:
+        - !Ref AlarmNotificationTopic
+
   ShopOpenSearchIndexDlq:
     Type: AWS::SQS::Queue
     Properties:
@@ -2074,6 +2183,27 @@ Resources:
       Targets:
         - Id: ProductMaterializeOpenSearchUpdateQ
           Arn: !GetAtt ProductMaterializeOpenSearchUpdateQ.Arn
+  DynamoDbProductEnrichmentEmbedTextEventRecordClassifyProductEventRule:
+    Type: AWS::Events::Rule
+    Properties:
+      Name: "ddb-product-embed-text-ddb-classify-prod"
+      EventBusName: !Ref DynamoDbEventBus
+      EventPattern:
+        source:
+          - !Ref TableOne
+        detail-type:
+          - "DynamoDBStreamRecord"
+        detail:
+          eventName:
+            - "INSERT"
+          dynamodb:
+            NewImage:
+              event_type:
+                S:
+                  - "ENRICHMENT_EMBEDDED_TEXT"
+      Targets:
+        - Id: ProductClassificationQ
+          Arn: !GetAtt ProductClassificationQ.Arn
   DynamoDbProductEventRecordUpdatedNotifyUserEventRule:
     Type: AWS::Events::Rule
     Properties:
@@ -3850,6 +3980,11 @@ Outputs:
     Value: !Ref ProductMaterializeOpenSearchUpdateQ
   ProductMaterializeOpensearchUpdateDeadLetterQueueUrl:
     Value: !Ref ProductMaterializeOpenSearchUpdateDlq
+
+  ProductClassificationQueueUrl:
+    Value: !Ref ProductClassificationQ
+  ProductClassificationDeadLetterQueueUrl:
+    Value: !Ref ProductClassificationDlq
 
   ProductUpdateNotifyUserQueueUrl:
     Value: !Ref ProductUpdateNotifyUserQ
