@@ -224,7 +224,7 @@ impl From<ProductRecord> for Product {
             other_title.insert(Language::Es, title_es.into());
         }
 
-        let mut other_description = HashMap::with_capacity(Currency::COUNT);
+        let mut other_description = HashMap::with_capacity(Language::COUNT);
         if let Some(description_en) = record.description_en {
             other_description.insert(Language::En, description_en.into());
         }

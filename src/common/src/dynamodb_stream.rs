@@ -1,7 +1,6 @@
 use std::collections::HashMap;
 
 use aws_lambda_events::eventbridge::EventBridgeEvent;
-use aws_sdk_sqs::operation::tag_queue::TagQueueInput;
 use serde::de::DeserializeOwned;
 use tracing::{error, info, warn};
 
@@ -59,7 +58,7 @@ pub fn extract_sqs_event_bridge_dynamodb_record<T: DeserializeOwned>(
                     Err(e) => {
                         error!(
                             error = %e,
-                            type = %std::any::type_name::<TagQueueInput>(),
+                            type = %std::any::type_name::<T>(),
                             payload = %event_bridge_event_json,
                             "Failed deserializing 'detail.new_image'."
                         );
@@ -128,7 +127,7 @@ pub fn extract_event_bridge_sqs_dynamodb_record<T: DeserializeOwned>(
                     Err(e) => {
                         error!(
                             error = %e,
-                            type = %std::any::type_name::<TagQueueInput>(),
+                            type = %std::any::type_name::<T>(),
                             payload = %event_bridge_event_json,
                             "Failed deserializing 'detail.new_image'."
                         );

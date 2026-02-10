@@ -49,6 +49,12 @@ impl From<CategoryDocument> for Category {
         display_name.insert(Language::En, document.display_name_en.into());
         display_name.insert(Language::Fr, document.display_name_fr.into());
         display_name.insert(Language::Es, document.display_name_es.into());
+        let mut display_description = HashMap::with_capacity(Language::COUNT);
+        display_description.insert(Language::De, document.display_description_de.into());
+        display_description.insert(Language::En, document.display_description_en.into());
+        display_description.insert(Language::Fr, document.display_description_fr.into());
+        display_description.insert(Language::Es, document.display_description_es.into());
+
         Self {
             category_id: document.category_id,
             category_key: document.category_key,
@@ -57,7 +63,7 @@ impl From<CategoryDocument> for Category {
             meta_keywords: document.meta_keywords.into_iter().map(Into::into).collect(),
             embedding: document.embedding,
             display_name,
-            display_description: HashMap::new(),
+            display_description,
             created: document.created,
             updated: document.updated,
         }

@@ -294,7 +294,7 @@ impl From<ProductRecord> for ProductDocument {
             description_fr: product_document.description_fr,
             description_es: product_document.description_es,
             price_eur: product_document.price_eur,
-            price_usd: product_document.price_gbp,
+            price_usd: product_document.price_usd,
             price_gbp: product_document.price_gbp,
             price_aud: product_document.price_aud,
             price_cad: product_document.price_cad,

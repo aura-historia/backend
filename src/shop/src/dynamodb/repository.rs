@@ -195,7 +195,7 @@ impl<'a> ShopDynamoDbRepository for ShopDynamoDbRepositoryImpl<'a> {
             .item
             .map(serde_dynamo::from_item::<_, ShopRecord>)
             .and_then(|shop_record_res| match shop_record_res {
-                Ok(product_record) => Some(product_record),
+                Ok(shop_record) => Some(shop_record),
                 Err(err) => {
                     error!(error = %err, type = %std::any::type_name::<ShopRecord>(), "Failed deserializing.");
                     None

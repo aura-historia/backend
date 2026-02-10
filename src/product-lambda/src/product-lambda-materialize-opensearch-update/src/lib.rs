@@ -124,11 +124,11 @@ async fn extract_message_data(
                             }
                         }
                         if update_document.category_name_de.is_none() {
+                            let category_res = category_dynamodb_repository
+                                .get_category_record(&category_id)
+                                .await;
                             {
                                 let mut category_cache_w = category_cache_rw.write().await;
-                                let category_res = category_dynamodb_repository
-                                    .get_category_record(&category_id)
-                                    .await;
                                 match category_res {
                                     Ok(Some(category_record)) => {
                                         let category_names = CategoryNames {
@@ -159,14 +159,14 @@ async fn extract_message_data(
                                     }
                                     Ok(None) => {
                                         error!(
-                                            categoryId = %category_id                                            ,
+                                            categoryId = %category_id,
                                             "Failed to find category name for category_id because no CategoryRecord exists for this category_id.",
                                         );
                                     }
                                     Err(err) => {
                                         error!(
                                             error = ?err,
-                                            categoryId = %category_id                                            ,
+                                            categoryId = %category_id,
                                             "Failed to find category name for category_id.",
                                         );
                                     }
