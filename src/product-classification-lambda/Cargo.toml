@@ -4,7 +4,7 @@ version = "0.1.0"
 edition = "2024"
 
 [dependencies]
-common = { workspace = true, features = ["dynamodb", "event_bridge", "opensearch"] }
+common = { workspace = true, features = ["dynamodb", "event_bridge", "opensearch", "api"] }
 product = { workspace = true, features = ["dynamodb"] }
 product-classification = { workspace = true }
 lambda_runtime = { workspace = true }
