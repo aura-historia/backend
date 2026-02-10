@@ -59,6 +59,7 @@ mod faker {
 mod tests {
     use crate::core::user_search_filter_id::UserSearchFilterId;
     use crate::data::user_search_filter_data::UserSearchFilterData;
+    use common::category_key::CategoryId;
     use common::query::range_query::RangeQuery;
     use common::{currency::data::CurrencyData, language::data::LanguageData, user_id::UserId};
     use product::data::authenticity_data::AuthenticityData;
@@ -83,6 +84,7 @@ mod tests {
                 language: LanguageData::De,
                 currency: CurrencyData::Eur,
                 product_query: "Boop".try_into().unwrap(),
+                category_id: Some(CategoryId::from("furniture")),
                 shop_name_query: ["Baap".into()].into(),
                 exclude_shop_name_query: ["baddlebap".into()].into(),
                 shop_type_query: HashSet::from_iter([
@@ -129,6 +131,7 @@ mod tests {
                 "language": "de",
                 "currency": "EUR",
                 "productQuery": "Boop",
+                "categoryId": "furniture",
                 "shopName": ["Baap"],
                 "excludeShopName": ["baddlebap"],
                 "shopType": ["COMMERCIAL_DEALER"],
@@ -183,6 +186,7 @@ mod tests {
                 "language": "de",
                 "currency": "EUR",
                 "productQuery": "Boop",
+                "categoryId": "furniture",
                 "shopName": ["Baap"],
                 "excludeShopName": ["baddlebap"],
                 "shopType": ["COMMERCIAL_DEALER"],
@@ -228,6 +232,7 @@ mod tests {
                 language: LanguageData::De,
                 currency: CurrencyData::Eur,
                 product_query: "Boop".try_into().unwrap(),
+                category_id: Some(CategoryId::from("furniture")),
                 shop_name_query: ["Baap".into()].into(),
                 exclude_shop_name_query: ["baddlebap".into()].into(),
                 shop_type_query: HashSet::from_iter([

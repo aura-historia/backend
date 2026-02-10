@@ -27,6 +27,7 @@ mod faker {
 #[cfg(test)]
 mod tests {
     use crate::post_types::PostUserSearchFilterData;
+    use common::category_key::CategoryId;
     use common::query::range_query::RangeQuery;
     use common::{currency::data::CurrencyData, language::data::LanguageData};
     use product::data::authenticity_data::AuthenticityData;
@@ -47,6 +48,7 @@ mod tests {
                 "language": "de",
                 "currency": "EUR",
                 "productQuery": "Boop",
+                "categoryId": "furniture",
                 "shopName": ["Baap"],
                 "excludeShopName": ["baddlebap"],
                 "price": {
@@ -86,6 +88,7 @@ mod tests {
                 language: LanguageData::De,
                 currency: CurrencyData::Eur,
                 product_query: "Boop".try_into().unwrap(),
+                category_id: Some(CategoryId::from("furniture")),
                 shop_name_query: ["Baap".into()].into(),
                 exclude_shop_name_query: ["baddlebap".into()].into(),
                 shop_type_query: HashSet::new(),

@@ -92,6 +92,7 @@ async fn should_create_and_get_and_delete_and_verify_not_exists() {
             language: Some(LanguageData::Fr),
             currency: None,
             product_query: Some("weesl bee wuff".try_into().unwrap()),
+            category_id: None,
             shop_name_query: None,
             shop_type_query: None,
             price_query: None,

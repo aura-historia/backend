@@ -31,6 +31,7 @@ async fn should_update_search_filter() {
             language: None,
             currency: None,
             product_query: None,
+            category_id: None,
             shop_name_query: Some(HashSet::from_iter([ShopName::from("Whoop boop woah")])),
             shop_type_query: None,
             price_query: Some(RangeQuery {

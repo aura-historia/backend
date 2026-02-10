@@ -198,6 +198,14 @@ impl<'a> ProductOpenSearchRepository for ProductOpenSearchRepositoryImpl<'a> {
             filter.push(json!({ "range": { price_field: { "lte": max.deref() } } }));
         }
 
+        if let Some(category_id) = &search.category_id {
+            filter.push(json!({
+                "term": {
+                    ProductDocumentSerdeField::CategoryId.as_str(): category_id
+                }
+            }));
+        }
+
         // ---------- Origin year (overlap semantics) ----------
         if let Some(origin_query) = &search.origin_year_query {
             let mut should = Vec::new();
