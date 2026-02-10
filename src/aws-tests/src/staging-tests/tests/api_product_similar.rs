@@ -1062,7 +1062,8 @@ async fn should_202_when_similar_products_have_not_been_computed_for_anon() {
     let product_opensearch_repository =
         ProductOpenSearchRepositoryImpl::new(get_opensearch_client().await);
 
-    let product_record: ProductRecord = Faker.fake();
+    let mut product_record: ProductRecord = Faker.fake();
+    product_record.text_embedding = None;
     let ddb_insert_res = product_dynamodb_repository
         .put_product_records([product_record.clone()].into())
         .await
