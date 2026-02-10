@@ -1,3 +1,4 @@
+use common::category_key::CategoryId;
 use common::query::range_query::RangeQuery;
 use common::query::text_query::TextQuery;
 use common::shop_name::ShopName;
@@ -51,6 +52,12 @@ pub struct PatchProductSearchData {
         default
     )]
     pub product_query: Option<TextQuery<3>>,
+    #[serde(
+        rename = "categoryId",
+        skip_serializing_if = "Option::is_none",
+        default
+    )]
+    pub category_id: Option<CategoryId>,
 
     #[serde(rename = "shopName", skip_serializing_if = "Option::is_none", default)]
     pub shop_name_query: Option<HashSet<ShopName>>,
@@ -124,6 +131,7 @@ impl From<PatchUserSearchFilterData> for UserSearchFilterUpdate {
                 .search
                 .as_ref()
                 .and_then(|sf| sf.product_query.clone()),
+            category_id: patch.search.as_ref().and_then(|sf| sf.category_id.clone()),
             shop_name_query: patch
                 .search
                 .as_ref()
@@ -182,6 +190,7 @@ mod faker {
                 language: config.fake_with_rng(rng),
                 currency: config.fake_with_rng(rng),
                 product_query: config.fake_with_rng(rng),
+                category_id: config.fake_with_rng(rng),
                 shop_name_query: config.fake_with_rng(rng),
                 shop_type_query: config.fake_with_rng(rng),
                 price_query: config.fake_with_rng(rng),
@@ -201,6 +210,7 @@ mod faker {
 #[cfg(test)]
 mod tests {
     use crate::patch_types::{PatchProductSearchData, PatchUserSearchFilterData};
+    use common::category_key::CategoryId;
     use common::query::range_query::RangeQuery;
     use common::shop_name::ShopName;
     use common::{currency::data::CurrencyData, language::data::LanguageData};
@@ -219,6 +229,7 @@ mod tests {
             "language": "de",
             "currency": "EUR",
             "productQuery": "Boop",
+            "categoryId": "furniture",
             "shopName": ["Baap"],
             "price": {
                 "min": 37,
@@ -246,6 +257,7 @@ mod tests {
             language: Some(LanguageData::De),
             currency: Some(CurrencyData::Eur),
             product_query: Some("Boop".try_into().unwrap()),
+            category_id: Some(CategoryId::from("furniture")),
             shop_name_query: Some(HashSet::from_iter([ShopName::from("Baap")])),
             shop_type_query: None,
             price_query: Some(RangeQuery {
@@ -284,6 +296,7 @@ mod tests {
                 "language": "de",
                 "currency": "EUR",
                 "productQuery": "Boop",
+                "categoryId": "furniture",
                 "shopName": ["Baap"],
                 "price": {
                     "min": 37,
@@ -314,6 +327,7 @@ mod tests {
                 language: Some(LanguageData::De),
                 currency: Some(CurrencyData::Eur),
                 product_query: Some("Boop".try_into().unwrap()),
+                category_id: Some(CategoryId::from("furniture")),
                 shop_name_query: Some(["Baap".into()].into()),
                 shop_type_query: None,
                 price_query: Some(RangeQuery {

@@ -2,6 +2,7 @@ use crate::core::authenticity::Authenticity;
 use crate::core::condition::Condition;
 use crate::core::provenance::Provenance;
 use crate::core::restoration::Restoration;
+use common::category_key::CategoryId;
 use common::currency::domain::Currency;
 use common::language::domain::Language;
 use common::price::domain::MonetaryAmount;
@@ -19,6 +20,7 @@ pub struct ProductSearch {
     pub language: Language,
     pub currency: Currency,
     pub product_query: TextQuery<3>,
+    pub category_id: Option<CategoryId>,
     pub shop_name_query: AnyOfQuery<ShopName>,
     pub exclude_shop_name_query: AnyOfQuery<ShopName>,
     pub shop_type_query: AnyOfQuery<ShopType>,
@@ -46,6 +48,7 @@ pub mod faker {
                 language: config.fake_with_rng(rng),
                 currency: config.fake_with_rng(rng),
                 product_query: config.fake_with_rng(rng),
+                category_id: config.fake_with_rng(rng),
                 shop_name_query: config.fake_with_rng(rng),
                 exclude_shop_name_query: config.fake_with_rng(rng),
                 shop_type_query: config.fake_with_rng(rng),
