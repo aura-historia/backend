@@ -90,6 +90,7 @@ async fn should_materialize_product_in_dynamodb_for_embed_text_triggering_classi
         .set_host(Some(shop.domains.into_iter().next().unwrap().as_str()))
         .unwrap();
     materialized_old.text_embedding = None;
+    materialized_old.category_id = None;
     let insert_res = repository
         .put_product_records([materialized_old.clone()].into())
         .await
