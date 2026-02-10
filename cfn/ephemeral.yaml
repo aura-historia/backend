@@ -1749,8 +1749,8 @@ Resources:
                 S:
                   - "ENRICHMENT_EMBEDDED_TEXT"
       Targets:
-        - Id: ProductMaterializeDynamoDbUpdateQ
-          Arn: !GetAtt ProductMaterializeDynamoDbUpdateQ.Arn
+        - Id: ProductClassificationQ
+          Arn: !GetAtt ProductClassificationQ.Arn
   DynamoDbProductEventRecordUpdatedNotifyUserEventRule:
     Type: AWS::Events::Rule
     Properties:
