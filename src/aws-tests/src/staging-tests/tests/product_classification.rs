@@ -51,8 +51,8 @@ async fn prepare_categories() -> Category {
         get_dynamodb_client().await,
         &get_cfn_output().dynamodb_table_1_name,
     );
-    let opensearch = common::opensearch::client::load_client().await.unwrap();
-    let opensearch_repository = CategoryOpenSearchRepositoryImpl::new(&opensearch);
+    let opensearch = get_opensearch_client().await;
+    let opensearch_repository = CategoryOpenSearchRepositoryImpl::new(opensearch);
     let category_service = CategoryServiceImpl::new(&dynamodb_repository, &opensearch_repository);
 
     let categories = Category::load_categories();
