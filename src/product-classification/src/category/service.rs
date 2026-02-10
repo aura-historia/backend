@@ -331,7 +331,14 @@ mod tests {
         #[tokio::test]
         async fn should_return_similar_categories_when_opensearch_succeeds_for_category_service() {
             let category: Category = Faker.fake();
-            let other_category: Category = Faker.fake();
+            let mut other_category: Category = Faker.fake();
+            loop {
+                if other_category.category_id != category.category_id {
+                    break;
+                }
+                other_category = Faker.fake();
+            }
+
             let category_document: CategoryDocument = category.clone().try_into().unwrap();
             let other_category_document: CategoryDocument =
                 other_category.clone().try_into().unwrap();
@@ -383,9 +390,9 @@ mod tests {
             let actual = service.find_similar(&[0.1, 0.2], 2).await.unwrap();
 
             assert_eq!(actual.len(), 2);
-            assert_eq!(actual[0].0, category);
+            assert_eq!(actual[0].0.category_id, category.category_id);
             assert_eq!(actual[0].1, 0.42);
-            assert_eq!(actual[1].0, other_category);
+            assert_eq!(actual[1].0.category_id, other_category.category_id);
             assert_eq!(actual[1].1, 0.0);
         }
 
