@@ -6,6 +6,7 @@ pub struct Description(String);
 
 impl From<&str> for Description {
     fn from(s: &str) -> Self {
+        let s = s.trim();
         if s.len() > 4000 {
             match s.split_at_checked(4000) {
                 Some((truncated, _)) => Self(truncated.into()),
@@ -66,5 +67,30 @@ mod tests {
     #[test]
     fn should_fake_description() {
         let _ = Faker.fake::<Description>();
+    }
+
+    #[test]
+    fn should_truncate_description() {
+        let long_string = "a".repeat(5000);
+        let description = Description::from(long_string.as_str());
+        assert_eq!(description.len(), 4000);
+    }
+
+    #[test]
+    fn should_handle_empty_description() {
+        let description = Description::from("");
+        assert_eq!(description.as_ref(), "");
+    }
+
+    #[test]
+    fn should_handle_whitespace_description() {
+        let description = Description::from("   ");
+        assert_eq!(description.as_ref(), "");
+    }
+
+    #[test]
+    fn should_trim_description() {
+        let description = Description::from("   Hello, World!   ");
+        assert_eq!(description.as_ref(), "Hello, World!");
     }
 }
