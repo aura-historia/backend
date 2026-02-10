@@ -548,7 +548,7 @@ jobs:
           OPENSEARCH_ENDPOINT_URL: ${{ vars.OPENSEARCH_ENDPOINT_URL }}
           OPENSEARCH_USERNAME: ${{ secrets.OPENSEARCH_USERNAME }}
           OPENSEARCH_PASSWORD: ${{ secrets.OPENSEARCH_PASSWORD }}
-        run: cargo test --locked --test 'product_classification' --all-features -- --ignored --nocapture
+        run: cargo test --locked --test 'ingest_product_flow' --all-features -- --ignored --nocapture
 
   aws-smoking-test:
     name: AWS Smoking-Test
