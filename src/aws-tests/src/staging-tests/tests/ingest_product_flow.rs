@@ -651,7 +651,7 @@ async fn should_materialize_product_in_opensearch_for_enrichmment_event() {
         .unwrap();
     assert!(!insert_res.errors);
     refresh_index("products").await;
-    tokio::time::sleep(Duration::from_secs(10)).await;
+    tokio::time::sleep(Duration::from_secs(20)).await;
 
     let product_events: [ProductEvent; 1] = [ProductEvent {
         aggregate_id: materialized_ddb_old.product_id,
