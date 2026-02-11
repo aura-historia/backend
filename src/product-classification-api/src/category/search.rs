@@ -6,7 +6,7 @@ use common::language::data::api::extract_languages_header;
 use common::language::domain::Language;
 use common::sort::api::extract_sort_query;
 use lambda_runtime::LambdaEvent;
-use product_classification::category::category_search::{CategorySearch, CategorySearchData};
+use product_classification::category::category_search::CategorySearchData;
 use product_classification::category::data::get_category_summary_data::GetCategorySummaryData;
 use product_classification::category::data::sort_category_field_data::SortCategoryFieldData;
 use product_classification::category::service::CategoryService;
@@ -38,16 +38,9 @@ pub async fn handle(
         ApiError::bad_request(BAD_BODY_VALUE, Box::new(err)).with_detail(err_msg)
     })?;
 
-    let language = languages.first().copied().unwrap_or_default();
-    let search = CategorySearch {
-        language,
-        name_query: search_data.name_query,
-    };
-
     let categories = service
-        .search_categories(&search, &sort, &languages)
+        .search_categories(&search_data.into(), &sort, &languages)
         .await?;
-
     let categories_data: Vec<GetCategorySummaryData> = categories
         .into_iter()
         .map(GetCategorySummaryData::from)
@@ -81,6 +74,7 @@ mod tests {
                 Box::pin(async move { Ok(localized) })
             });
         let search_data = CategorySearchData {
+            language: common::language::data::LanguageData::Es,
             name_query: Some("Furniture".try_into().unwrap()),
         };
         let lambda_event = LambdaEvent {

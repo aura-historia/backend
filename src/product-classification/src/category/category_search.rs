@@ -1,4 +1,4 @@
-use common::language::domain::Language;
+use common::language::{data::LanguageData, domain::Language};
 use common::query::text_query::TextQuery;
 use serde::{Deserialize, Serialize};
 
@@ -14,9 +14,28 @@ impl CategorySearch {
     }
 }
 
+impl From<CategorySearchData> for CategorySearch {
+    fn from(data: CategorySearchData) -> Self {
+        CategorySearch {
+            language: data.language.into(),
+            name_query: data.name_query,
+        }
+    }
+}
+
+impl From<&CategorySearchData> for CategorySearch {
+    fn from(data: &CategorySearchData) -> Self {
+        CategorySearch {
+            language: data.language.into(),
+            name_query: data.name_query.clone(),
+        }
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct CategorySearchData {
+    pub language: LanguageData,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub name_query: Option<TextQuery<0>>,
 }
@@ -29,6 +48,7 @@ mod faker {
     impl Dummy<Faker> for CategorySearchData {
         fn dummy_with_rng<R: Rng + ?Sized>(_config: &Faker, _rng: &mut R) -> Self {
             CategorySearchData {
+                language: Faker.fake(),
                 name_query: Faker.fake(),
             }
         }
@@ -54,9 +74,11 @@ mod tests {
     #[test]
     fn should_deserialize_when_name_query_present() {
         let json = json!({
+            "language": "en",
             "nameQuery": "Furniture",
         });
         let expected = CategorySearchData {
+            language: LanguageData::En,
             name_query: Some("Furniture".try_into().unwrap()),
         };
 
@@ -67,8 +89,13 @@ mod tests {
 
     #[test]
     fn should_deserialize_when_empty() {
-        let json = json!({});
-        let expected = CategorySearchData { name_query: None };
+        let json = json!({
+            "language": "de",
+        });
+        let expected = CategorySearchData {
+            name_query: None,
+            language: LanguageData::De,
+        };
 
         let actual: CategorySearchData = serde_json::from_value(json).unwrap();
 
@@ -96,6 +123,7 @@ mod tests {
     #[test]
     fn should_convert_from_data_to_domain() {
         let data = CategorySearchData {
+            language: LanguageData::En,
             name_query: Some("Furniture".try_into().unwrap()),
         };
         let domain = CategorySearch {
