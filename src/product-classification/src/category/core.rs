@@ -6,6 +6,7 @@ use common::{
 };
 use std::collections::HashMap;
 use time::OffsetDateTime;
+use tracing::error;
 
 string_newtype!(CategoryMetaName);
 string_newtype!(CategoryMetaDescription);
@@ -45,8 +46,23 @@ impl Category {
         LocalizedCategory {
             category_id: self.category_id.clone(),
             category_key: self.category_key.clone(),
-            display_name: Language::resolve(preferred_languages, self.display_name),
-            display_description: Language::resolve(preferred_languages, self.display_description),
+            display_name: Language::resolve(preferred_languages, self.display_name).unwrap_or_else(
+                || {
+                    error!(field = "display_name", "Failed resolving field.");
+                    Localized {
+                        localization: Language::En,
+                        payload: "category-name temporarily unavailable".into(),
+                    }
+                },
+            ),
+            display_description: Language::resolve(preferred_languages, self.display_description)
+                .unwrap_or_else(|| {
+                    error!(field = "display_description", "Failed resolving field.");
+                    Localized {
+                        localization: Language::En,
+                        payload: "category-name temporarily unavailable".into(),
+                    }
+                }),
             created: self.created,
             updated: self.updated,
         }
@@ -57,8 +73,8 @@ impl Category {
 pub struct LocalizedCategory {
     pub category_id: CategoryId,
     pub category_key: CategoryKey,
-    pub display_name: Option<Localized<Language, CategoryName>>,
-    pub display_description: Option<Localized<Language, CategoryDescription>>,
+    pub display_name: Localized<Language, CategoryName>,
+    pub display_description: Localized<Language, CategoryDescription>,
     pub created: OffsetDateTime,
     pub updated: OffsetDateTime,
 }

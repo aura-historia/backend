@@ -11,12 +11,8 @@ use time::OffsetDateTime;
 pub struct GetCategoryData {
     pub category_id: CategoryId,
     pub category_key: CategoryKey,
-
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub name: Option<LocalizedTextData>,
-
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub description: Option<LocalizedTextData>,
+    pub name: LocalizedTextData,
+    pub description: LocalizedTextData,
 
     #[serde(with = "time::serde::rfc3339")]
     pub created: OffsetDateTime,
@@ -30,8 +26,8 @@ impl From<LocalizedCategory> for GetCategoryData {
         GetCategoryData {
             category_id: category.category_id,
             category_key: category.category_key,
-            name: category.display_name.map(LocalizedTextData::from),
-            description: category.display_description.map(LocalizedTextData::from),
+            name: category.display_name.into(),
+            description: category.display_description.into(),
             created: category.created,
             updated: category.updated,
         }
@@ -50,8 +46,8 @@ mod tests {
         let datum = GetCategoryData {
             category_id: "furniture".into(),
             category_key: "furniture-key".into(),
-            name: Some(LocalizedTextData::new("Furniture", LanguageData::En)),
-            description: Some(LocalizedTextData::new("All furniture", LanguageData::En)),
+            name: LocalizedTextData::new("Furniture", LanguageData::En),
+            description: LocalizedTextData::new("All furniture", LanguageData::En),
             created: datetime!(2020 - 01 - 01 0:00 UTC),
             updated: datetime!(2020 - 06 - 01 0:00 UTC),
         };
@@ -68,22 +64,5 @@ mod tests {
         let actual = serde_json::to_value(&datum).unwrap();
 
         assert_eq!(expected, actual);
-    }
-
-    #[test]
-    fn should_serialize_without_optional_fields() {
-        let datum = GetCategoryData {
-            category_id: "furniture".into(),
-            category_key: "furniture-key".into(),
-            name: None,
-            description: None,
-            created: datetime!(2020 - 01 - 01 0:00 UTC),
-            updated: datetime!(2020 - 06 - 01 0:00 UTC),
-        };
-
-        let actual = serde_json::to_value(&datum).unwrap();
-
-        assert!(actual.get("name").is_none());
-        assert!(actual.get("description").is_none());
     }
 }

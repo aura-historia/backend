@@ -556,7 +556,6 @@ mod tests {
                 .unwrap();
 
             assert_eq!(actual.category_id, category_id);
-            assert!(actual.display_name.is_some());
         }
 
         #[tokio::test]
@@ -635,7 +634,6 @@ mod tests {
 
             assert_eq!(actual.len(), 1);
             assert_eq!(actual[0].category_id, expected_category_id);
-            assert!(actual[0].display_name.is_some());
         }
 
         #[tokio::test]
@@ -809,7 +807,6 @@ mod tests {
 
             assert_eq!(actual.len(), 1);
             assert_eq!(actual[0].category_id, expected_category_id);
-            assert!(actual[0].display_name.is_some());
         }
 
         #[tokio::test]

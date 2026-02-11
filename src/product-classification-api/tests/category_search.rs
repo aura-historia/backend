@@ -48,10 +48,7 @@ async fn should_sort_by_name_ascending_when_name_asc_for_search_api() {
         serde_json::from_value(extract_apigw_response_json_body!(response)).unwrap();
     assert_eq!(3, payload.len());
 
-    let names: Vec<_> = payload
-        .iter()
-        .map(|c| c.name.as_ref().unwrap().text.clone())
-        .collect();
+    let names: Vec<_> = payload.iter().map(|c| c.name.text.as_str()).collect();
     assert_eq!(vec!["Alpha", "Bravo", "Charlie"], names);
 }
 

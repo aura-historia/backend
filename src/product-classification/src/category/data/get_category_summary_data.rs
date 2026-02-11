@@ -11,9 +11,7 @@ use time::OffsetDateTime;
 pub struct GetCategorySummaryData {
     pub category_id: CategoryId,
     pub category_key: CategoryKey,
-
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub name: Option<LocalizedTextData>,
+    pub name: LocalizedTextData,
 
     #[serde(with = "time::serde::rfc3339")]
     pub created: OffsetDateTime,
@@ -27,7 +25,7 @@ impl From<LocalizedCategory> for GetCategorySummaryData {
         GetCategorySummaryData {
             category_id: category.category_id,
             category_key: category.category_key,
-            name: category.display_name.map(LocalizedTextData::from),
+            name: category.display_name.into(),
             created: category.created,
             updated: category.updated,
         }
@@ -46,7 +44,7 @@ mod tests {
         let datum = GetCategorySummaryData {
             category_id: "furniture".into(),
             category_key: "furniture-key".into(),
-            name: Some(LocalizedTextData::new("Furniture", LanguageData::En)),
+            name: LocalizedTextData::new("Furniture", LanguageData::En),
             created: datetime!(2020 - 01 - 01 0:00 UTC),
             updated: datetime!(2020 - 06 - 01 0:00 UTC),
         };
@@ -62,20 +60,5 @@ mod tests {
         let actual = serde_json::to_value(&datum).unwrap();
 
         assert_eq!(expected, actual);
-    }
-
-    #[test]
-    fn should_serialize_without_optional_name() {
-        let datum = GetCategorySummaryData {
-            category_id: "furniture".into(),
-            category_key: "furniture-key".into(),
-            name: None,
-            created: datetime!(2020 - 01 - 01 0:00 UTC),
-            updated: datetime!(2020 - 06 - 01 0:00 UTC),
-        };
-
-        let actual = serde_json::to_value(&datum).unwrap();
-
-        assert!(actual.get("name").is_none());
     }
 }
