@@ -170,10 +170,6 @@ impl<'a> CategoryService for CategoryServiceImpl<'a> {
         sort: &Option<Sort<SortCategoryField>>,
         languages: &[Language],
     ) -> Result<Vec<LocalizedCategory>, CategoryServiceError> {
-        if search.is_empty() {
-            return self.view_categories(languages).await;
-        }
-
         let sort = (*sort).unwrap_or(Sort {
             sort: SortCategoryField::Score,
             order: SortOrder::Desc,
@@ -679,22 +675,45 @@ mod tests {
         }
 
         #[tokio::test]
-        async fn should_fallback_to_view_categories_when_empty_search_for_category_service() {
+        async fn should_search_via_opensearch_when_empty_search_for_category_service() {
             let category: Category = Faker.fake();
+            let category_document: CategoryDocument = category.clone().try_into().unwrap();
             let expected_category_id = category.category_id.clone();
-            let record = category.try_into().unwrap();
-
-            let mut dynamodb_repository = MockCategoryDynamoDbRepository::default();
-            dynamodb_repository
-                .expect_query_category_records()
-                .once()
-                .return_once(move || Box::pin(async move { Ok(vec![record]) }));
 
             let mut opensearch_repository = MockCategoryOpenSearchRepository::default();
             opensearch_repository
                 .expect_search_category_documents()
-                .never();
+                .once()
+                .return_once(move |_, _| {
+                    let response = SearchResponse {
+                        took: 12,
+                        timed_out: false,
+                        shards: ShardStats {
+                            total: 1,
+                            successful: 1,
+                            skipped: 0,
+                            failed: 0,
+                        },
+                        hits: HitsMetadata {
+                            total: TotalHits {
+                                value: 1,
+                                relation: "eq".to_string(),
+                            },
+                            max_score: Some(1.0),
+                            hits: vec![SearchHit {
+                                index: "categories".to_string(),
+                                id: category_document.category_id.to_string(),
+                                score: Some(1.0),
+                                source: category_document,
+                                sort: None,
+                            }],
+                        },
+                    };
 
+                    Box::pin(async { Ok(response) })
+                });
+
+            let dynamodb_repository = MockCategoryDynamoDbRepository::default();
             let service = CategoryServiceImpl::new(&dynamodb_repository, &opensearch_repository);
 
             let search = CategorySearch {

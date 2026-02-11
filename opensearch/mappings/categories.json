@@ -35,19 +35,43 @@
             },
             "displayNameDe": {
                 "type": "text",
-                "analyzer": "german"
+                "analyzer": "german",
+                "fields": {
+                    "keyword": {
+                        "type": "keyword",
+                        "ignore_above": 256
+                    }
+                }
             },
             "displayNameEn": {
                 "type": "text",
-                "analyzer": "english"
+                "analyzer": "english",
+                "fields": {
+                    "keyword": {
+                        "type": "keyword",
+                        "ignore_above": 256
+                    }
+                }
             },
             "displayNameFr": {
                 "type": "text",
-                "analyzer": "french"
+                "analyzer": "french",
+                "fields": {
+                    "keyword": {
+                        "type": "keyword",
+                        "ignore_above": 256
+                    }
+                }
             },
             "displayNameEs": {
                 "type": "text",
-                "analyzer": "spanish"
+                "analyzer": "spanish",
+                "fields": {
+                    "keyword": {
+                        "type": "keyword",
+                        "ignore_above": 256
+                    }
+                }
             },
             "displayDescriptionDe": {
                 "type": "text",

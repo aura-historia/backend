@@ -38,7 +38,7 @@ pub async fn handle(
         ApiError::bad_request(BAD_BODY_VALUE, Box::new(err)).with_detail(err_msg)
     })?;
 
-    let language = languages.first().copied().unwrap_or(Language::En);
+    let language = languages.first().copied().unwrap_or_default();
     let search = CategorySearch {
         language,
         name_query: search_data.name_query,
@@ -98,7 +98,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn should_use_find_categories_when_empty_search_for_search() {
+    async fn should_search_categories_when_empty_search_for_search() {
         let mut service = MockCategoryService::default();
         service
             .expect_search_categories()

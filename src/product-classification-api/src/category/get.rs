@@ -1,13 +1,13 @@
 use aws_lambda_events::apigw::{ApiGatewayV2httpRequest, ApiGatewayV2httpResponse};
 use common::api::api_gateway_v2_http_response_builder::ApiGatewayV2HttpResponseBuilder;
 use common::api::error::ApiError;
-use common::api::error_code::{BAD_PATH_PARAMETER_VALUE, NOT_FOUND};
+use common::api::error_code::BAD_PATH_PARAMETER_VALUE;
 use common::error::missing_field::MissingRequiredField;
 use common::language::data::api::extract_languages_header;
 use common::language::domain::Language;
 use lambda_runtime::LambdaEvent;
 use product_classification::category::data::get_category_data::GetCategoryData;
-use product_classification::category::service::{CategoryService, CategoryServiceError};
+use product_classification::category::service::CategoryService;
 
 pub async fn handle(
     event: LambdaEvent<ApiGatewayV2httpRequest>,
@@ -32,17 +32,7 @@ pub async fn handle(
         .map(Language::from)
         .collect();
 
-    let category = service
-        .view_category(&category_id, &languages)
-        .await
-        .map_err(|err| match err {
-            CategoryServiceError::CategoryNotExists(id) => {
-                ApiError::not_found(NOT_FOUND, format!("Category '{id}' not found").into())
-                    .with_path_field("categoryId")
-                    .with_detail(format!("Category '{id}' not found"))
-            }
-            other => ApiError::from(other),
-        })?;
+    let category = service.view_category(&category_id, &languages).await?;
 
     let category_data = GetCategoryData::from(category);
 
