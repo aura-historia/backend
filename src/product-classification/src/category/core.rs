@@ -60,7 +60,7 @@ impl Category {
                     error!(field = "display_description", "Failed resolving field.");
                     Localized {
                         localization: Language::En,
-                        payload: "category-name temporarily unavailable".into(),
+                        payload: "category-description temporarily unavailable".into(),
                     }
                 }),
             created: self.created,
