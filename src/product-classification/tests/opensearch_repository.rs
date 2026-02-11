@@ -62,7 +62,9 @@ async fn should_search_category_documents_when_name_query_supplied() {
         .await
         .unwrap();
 
-    for doc in fake::vec![CategoryDocument; 20] {
+    for mut doc in fake::vec![CategoryDocument; 20] {
+        doc.display_name_en = Faker.fake();
+        doc.display_description_en = Faker.fake();
         let _ = repository.index_category_document(doc).await.unwrap();
     }
     refresh_index("categories").await;
