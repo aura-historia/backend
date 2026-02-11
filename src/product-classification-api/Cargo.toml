@@ -4,8 +4,8 @@ version = "0.1.0"
 edition = "2024"
 
 [dependencies]
-common = { workspace = true, features = ["api", "dynamodb", "opensearch"] }
-product-classification = { workspace = true }
+common = { workspace = true, features = ["api"] }
+product-classification = { workspace = true, features = ["data"] }
 tracing = { workspace = true }
 tracing-subscriber = { workspace = true, features = ["json"] }
 tokio = { workspace = true, features = ["macros"] }

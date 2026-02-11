@@ -1,16 +1,19 @@
 use crate::category::{
+    category_search::CategorySearch,
     core::{Category, LocalizedCategory},
-    data::category_search::CategorySearch,
     dynamodb_repository::CategoryDynamoDbRepository,
     opensearch_repository::CategoryOpenSearchRepository,
+    sort_category_field::SortCategoryField,
 };
 use aws_sdk_dynamodb::{
     error::SdkError,
     operation::{get_item::GetItemError, put_item::PutItemError, query::QueryError},
 };
 use common::{
-    category_key::CategoryId, error::missing_field::MissingRequiredField,
+    category_key::CategoryId,
+    error::missing_field::MissingRequiredField,
     language::domain::Language,
+    sort::{Sort, SortOrder},
 };
 
 #[derive(Debug, thiserror::Error)]
@@ -32,6 +35,30 @@ pub enum CategoryServiceError {
 
     #[error("MappingError: Missing required field '{0}'")]
     MappingError(#[from] MissingRequiredField),
+}
+
+#[cfg(feature = "data")]
+pub mod api {
+    use super::CategoryServiceError;
+    use common::api::error::ApiError;
+    use common::api::error_code::{INTERNAL_SERVER_ERROR, NOT_FOUND};
+
+    impl From<CategoryServiceError> for ApiError {
+        fn from(err: CategoryServiceError) -> Self {
+            match err {
+                CategoryServiceError::CategoryNotExists(_) => {
+                    ApiError::not_found(NOT_FOUND, Box::new(err))
+                }
+                CategoryServiceError::OpenSearchError(e) => e.into(),
+                CategoryServiceError::DynamoDbSdkPutItemError(e) => e.into(),
+                CategoryServiceError::DynamoDbSdkGetItemError(e) => e.into(),
+                CategoryServiceError::DynamoDbSdkQueryError(e) => e.into(),
+                CategoryServiceError::MappingError(e) => {
+                    ApiError::internal_server_error(INTERNAL_SERVER_ERROR, Box::new(e))
+                }
+            }
+        }
+    }
 }
 
 #[async_trait::async_trait]
@@ -59,6 +86,7 @@ pub trait CategoryService {
     async fn search_categories(
         &self,
         search: &CategorySearch,
+        sort: &Option<Sort<SortCategoryField>>,
         languages: &[Language],
     ) -> Result<Vec<LocalizedCategory>, CategoryServiceError>;
 
@@ -139,11 +167,29 @@ impl<'a> CategoryService for CategoryServiceImpl<'a> {
     async fn search_categories(
         &self,
         search: &CategorySearch,
+        sort: &Option<Sort<SortCategoryField>>,
         languages: &[Language],
     ) -> Result<Vec<LocalizedCategory>, CategoryServiceError> {
+        if search.is_empty() {
+            return self.view_categories(languages).await;
+        }
+
+        let sort = (*sort).unwrap_or(Sort {
+            sort: SortCategoryField::Score,
+            order: SortOrder::Desc,
+        });
+        let sort = if search.name_query.is_none() && matches!(sort.sort, SortCategoryField::Score) {
+            Sort {
+                sort: SortCategoryField::Name,
+                order: SortOrder::Asc,
+            }
+        } else {
+            sort
+        };
+
         let search_response = self
             .opensearch_search
-            .search_category_documents(search)
+            .search_category_documents(search, &sort)
             .await?;
 
         let categories = search_response
@@ -542,7 +588,7 @@ mod tests {
 
     mod search_categories {
         use super::*;
-        use crate::category::data::category_search::CategorySearch;
+        use crate::category::category_search::CategorySearch;
 
         #[tokio::test]
         async fn should_return_localized_categories_when_opensearch_succeeds_for_category_service()
@@ -555,7 +601,7 @@ mod tests {
             opensearch_repository
                 .expect_search_category_documents()
                 .once()
-                .return_once(move |_| {
+                .return_once(move |_, _| {
                     let response = SearchResponse {
                         took: 12,
                         timed_out: false,
@@ -588,10 +634,11 @@ mod tests {
             let service = CategoryServiceImpl::new(&dynamodb_repository, &opensearch_repository);
 
             let search = CategorySearch {
+                language: Language::En,
                 name_query: Some("test".try_into().unwrap()),
             };
             let actual = service
-                .search_categories(&search, &[Language::En])
+                .search_categories(&search, &None, &[Language::En])
                 .await
                 .unwrap();
 
@@ -606,7 +653,7 @@ mod tests {
             opensearch_repository
                 .expect_search_category_documents()
                 .once()
-                .return_once(|_| {
+                .return_once(|_, _| {
                     Box::pin(async {
                         Err(opensearch::Error::from(serde_json::Error::custom(
                             "Something went wrong",
@@ -618,14 +665,49 @@ mod tests {
             let service = CategoryServiceImpl::new(&dynamodb_repository, &opensearch_repository);
 
             let search = CategorySearch {
+                language: Language::En,
                 name_query: Some("test".try_into().unwrap()),
             };
-            let actual = service.search_categories(&search, &[Language::En]).await;
+            let actual = service
+                .search_categories(&search, &None, &[Language::En])
+                .await;
 
             assert!(matches!(
                 actual.unwrap_err(),
                 CategoryServiceError::OpenSearchError(_)
             ));
+        }
+
+        #[tokio::test]
+        async fn should_fallback_to_view_categories_when_empty_search_for_category_service() {
+            let category: Category = Faker.fake();
+            let expected_category_id = category.category_id.clone();
+            let record = category.try_into().unwrap();
+
+            let mut dynamodb_repository = MockCategoryDynamoDbRepository::default();
+            dynamodb_repository
+                .expect_query_category_records()
+                .once()
+                .return_once(move || Box::pin(async move { Ok(vec![record]) }));
+
+            let mut opensearch_repository = MockCategoryOpenSearchRepository::default();
+            opensearch_repository
+                .expect_search_category_documents()
+                .never();
+
+            let service = CategoryServiceImpl::new(&dynamodb_repository, &opensearch_repository);
+
+            let search = CategorySearch {
+                language: Language::En,
+                name_query: None,
+            };
+            let actual = service
+                .search_categories(&search, &None, &[Language::En])
+                .await
+                .unwrap();
+
+            assert_eq!(actual.len(), 1);
+            assert_eq!(actual[0].category_id, expected_category_id);
         }
     }
 

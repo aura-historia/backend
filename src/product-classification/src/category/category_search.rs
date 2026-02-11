@@ -1,8 +1,10 @@
+use common::language::domain::Language;
 use common::query::text_query::TextQuery;
 use serde::{Deserialize, Serialize};
 
-#[derive(Debug, Clone, PartialEq, Eq, Default)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct CategorySearch {
+    pub language: Language,
     pub name_query: Option<TextQuery<0>>,
 }
 
@@ -17,14 +19,6 @@ impl CategorySearch {
 pub struct CategorySearchData {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub name_query: Option<TextQuery<0>>,
-}
-
-impl From<CategorySearchData> for CategorySearch {
-    fn from(data: CategorySearchData) -> Self {
-        CategorySearch {
-            name_query: data.name_query,
-        }
-    }
 }
 
 #[cfg(feature = "test-data")]
@@ -83,13 +77,17 @@ mod tests {
 
     #[test]
     fn should_be_empty_when_no_name_query() {
-        let search = CategorySearch { name_query: None };
+        let search = CategorySearch {
+            language: Language::En,
+            name_query: None,
+        };
         assert!(search.is_empty());
     }
 
     #[test]
     fn should_not_be_empty_when_name_query_present() {
         let search = CategorySearch {
+            language: Language::En,
             name_query: Some("Furniture".try_into().unwrap()),
         };
         assert!(!search.is_empty());
@@ -100,7 +98,11 @@ mod tests {
         let data = CategorySearchData {
             name_query: Some("Furniture".try_into().unwrap()),
         };
-        let domain: CategorySearch = data.into();
+        let domain = CategorySearch {
+            language: Language::En,
+            name_query: data.name_query,
+        };
         assert_eq!(domain.name_query, Some("Furniture".try_into().unwrap()));
+        assert_eq!(domain.language, Language::En);
     }
 }

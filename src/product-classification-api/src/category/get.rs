@@ -41,7 +41,7 @@ pub async fn handle(
                     .with_path_field("categoryId")
                     .with_detail(format!("Category '{id}' not found"))
             }
-            other => crate::category_service_error_to_api_error(other),
+            other => ApiError::from(other),
         })?;
 
     let category_data = GetCategoryData::from(category);

@@ -23,7 +23,7 @@ strum_macros = { workspace = true }
 fake = { workspace = true, optional = true }
 
 [dev-dependencies]
-product-classification = { workspace = true, features = ["test-data"] }
+product-classification = { workspace = true, features = ["test-data", "data"] }
 common = { workspace = true, features = ["test-data"] }
 test-api = { workspace = true, features = ["dynamodb", "opensearch"] }
 fake = { workspace = true }
@@ -33,4 +33,5 @@ tokio = { workspace = true, features = ["macros"] }
 
 [features]
 default = []
+data = ["common/api", "common/dynamodb"]
 test-data = ["common/test-data", "fake"]

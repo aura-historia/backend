@@ -1,23 +1,10 @@
 use aws_lambda_events::apigw::{ApiGatewayV2httpRequest, ApiGatewayV2httpResponse};
 use common::api::error::{ApiError, log_api_error};
-use common::api::error_code::{INTERNAL_SERVER_ERROR, NOT_FOUND};
+use common::api::error_code::INTERNAL_SERVER_ERROR;
 use lambda_runtime::LambdaEvent;
-use product_classification::category::service::{CategoryService, CategoryServiceError};
+use product_classification::category::service::CategoryService;
 
 pub mod category;
-
-pub(crate) fn category_service_error_to_api_error(err: CategoryServiceError) -> ApiError {
-    match err {
-        CategoryServiceError::CategoryNotExists(_) => ApiError::not_found(NOT_FOUND, Box::new(err)),
-        CategoryServiceError::OpenSearchError(e) => e.into(),
-        CategoryServiceError::DynamoDbSdkPutItemError(e) => e.into(),
-        CategoryServiceError::DynamoDbSdkGetItemError(e) => e.into(),
-        CategoryServiceError::DynamoDbSdkQueryError(e) => e.into(),
-        CategoryServiceError::MappingError(e) => {
-            ApiError::internal_server_error(INTERNAL_SERVER_ERROR, Box::new(e))
-        }
-    }
-}
 
 #[tracing::instrument(
     skip(event, category_service),

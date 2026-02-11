@@ -16,10 +16,7 @@ pub async fn handle(
         .map(Language::from)
         .collect();
 
-    let categories = service
-        .view_categories(&languages)
-        .await
-        .map_err(crate::category_service_error_to_api_error)?;
+    let categories = service.view_categories(&languages).await?;
 
     let categories_data: Vec<GetCategorySummaryData> = categories
         .into_iter()

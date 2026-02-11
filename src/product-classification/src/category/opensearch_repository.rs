@@ -1,7 +1,10 @@
-use crate::category::data::category_search::CategorySearch;
+use crate::category::category_search::CategorySearch;
 use crate::category::document::{CategoryDocument, CategoryDocumentSerdeField};
+use crate::category::sort_category_field::SortCategoryField;
+use common::language::domain::Language;
 use common::opensearch::index_response::IndexResponse;
 use common::opensearch::search_response::SearchResponse;
+use common::sort::{Sort, SortOrder};
 use opensearch::{IndexParts, SearchParts};
 use serde::ser::Error;
 use serde_json::json;
@@ -23,6 +26,7 @@ pub trait CategoryOpenSearchRepository {
     async fn search_category_documents(
         &self,
         search: &CategorySearch,
+        sort: &Sort<SortCategoryField>,
     ) -> Result<SearchResponse<CategoryDocument>, opensearch::Error>;
 }
 
@@ -101,19 +105,23 @@ impl<'a> CategoryOpenSearchRepository for CategoryOpenSearchRepositoryImpl<'a> {
     async fn search_category_documents(
         &self,
         search: &CategorySearch,
+        sort: &Sort<SortCategoryField>,
     ) -> Result<SearchResponse<CategoryDocument>, opensearch::Error> {
         let mut must = Vec::with_capacity(1);
 
         if let Some(query) = search.name_query.as_ref() {
+            let name_field = match search.language {
+                Language::De => CategoryDocumentSerdeField::DisplayNameDe.as_str(),
+                Language::En => CategoryDocumentSerdeField::DisplayNameEn.as_str(),
+                Language::Fr => CategoryDocumentSerdeField::DisplayNameFr.as_str(),
+                Language::Es => CategoryDocumentSerdeField::DisplayNameEs.as_str(),
+            };
             must.push(json!({
                 "multi_match": {
                     "query": query,
                     "fields": [
                         CategoryDocumentSerdeField::MetaName.as_str(),
-                        CategoryDocumentSerdeField::DisplayNameDe.as_str(),
-                        CategoryDocumentSerdeField::DisplayNameEn.as_str(),
-                        CategoryDocumentSerdeField::DisplayNameFr.as_str(),
-                        CategoryDocumentSerdeField::DisplayNameEs.as_str(),
+                        name_field,
                     ],
                     "fuzziness": "AUTO",
                     "minimum_should_match": "70%"
@@ -121,13 +129,38 @@ impl<'a> CategoryOpenSearchRepository for CategoryOpenSearchRepositoryImpl<'a> {
             }));
         }
 
+        let sort_field = match sort.sort {
+            SortCategoryField::Score => "_score",
+            SortCategoryField::Name => match search.language {
+                Language::De => "displayNameDe.keyword",
+                Language::En => "displayNameEn.keyword",
+                Language::Fr => "displayNameFr.keyword",
+                Language::Es => "displayNameEs.keyword",
+            },
+            SortCategoryField::Created => CategoryDocumentSerdeField::Created.as_str(),
+            SortCategoryField::Updated => CategoryDocumentSerdeField::Updated.as_str(),
+        };
+        let order = match sort.order {
+            SortOrder::Asc => "asc",
+            SortOrder::Desc => "desc",
+        };
+        let primary_sort = if matches!(sort.sort, SortCategoryField::Score) {
+            json!({ sort_field: { "order": order } })
+        } else {
+            json!({ sort_field: { "order": order, "missing": "_last" } })
+        };
+
         let body = json!({
             "size": 1000,
             "query": {
                 "bool": {
                     "must": must,
                 }
-            }
+            },
+            "sort": [
+                primary_sort,
+                { CategoryDocumentSerdeField::CategoryId.as_str(): { "order": "asc" } }
+            ]
         });
 
         let response = self

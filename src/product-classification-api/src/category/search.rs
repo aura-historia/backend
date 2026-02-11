@@ -4,10 +4,13 @@ use common::api::error::ApiError;
 use common::api::error_code::BAD_BODY_VALUE;
 use common::language::data::api::extract_languages_header;
 use common::language::domain::Language;
+use common::sort::api::extract_sort_query;
 use lambda_runtime::LambdaEvent;
-use product_classification::category::data::category_search::{CategorySearch, CategorySearchData};
+use product_classification::category::category_search::{CategorySearch, CategorySearchData};
 use product_classification::category::data::get_category_summary_data::GetCategorySummaryData;
+use product_classification::category::data::sort_category_field_data::SortCategoryFieldData;
 use product_classification::category::service::CategoryService;
+use product_classification::category::sort_category_field::SortCategoryField;
 
 pub async fn handle(
     event: LambdaEvent<ApiGatewayV2httpRequest>,
@@ -17,6 +20,9 @@ pub async fn handle(
         .into_iter()
         .map(Language::from)
         .collect();
+
+    let sort = extract_sort_query::<SortCategoryFieldData>(&event.payload.query_string_parameters)?
+        .map(|sort_data| sort_data.map(SortCategoryField::from));
 
     let body = event
         .payload
@@ -32,19 +38,15 @@ pub async fn handle(
         ApiError::bad_request(BAD_BODY_VALUE, Box::new(err)).with_detail(err_msg)
     })?;
 
-    let search: CategorySearch = search_data.into();
-
-    let categories = if search.is_empty() {
-        service
-            .view_categories(&languages)
-            .await
-            .map_err(crate::category_service_error_to_api_error)?
-    } else {
-        service
-            .search_categories(&search, &languages)
-            .await
-            .map_err(crate::category_service_error_to_api_error)?
+    let language = languages.first().copied().unwrap_or(Language::En);
+    let search = CategorySearch {
+        language,
+        name_query: search_data.name_query,
     };
+
+    let categories = service
+        .search_categories(&search, &sort, &languages)
+        .await?;
 
     let categories_data: Vec<GetCategorySummaryData> = categories
         .into_iter()
@@ -60,8 +62,8 @@ pub async fn handle(
 mod tests {
     use crate::handle;
     use lambda_runtime::LambdaEvent;
+    use product_classification::category::category_search::CategorySearchData;
     use product_classification::category::core::Category;
-    use product_classification::category::data::category_search::CategorySearchData;
     use product_classification::category::service::MockCategoryService;
     use test_api::ApiGatewayV2httpRequestProxy;
 
@@ -70,7 +72,7 @@ mod tests {
         let mut service = MockCategoryService::default();
         service
             .expect_search_categories()
-            .return_once(move |_, languages| {
+            .return_once(move |_, _, languages| {
                 let categories: Vec<Category> = fake::vec![Category; 2];
                 let localized = categories
                     .into_iter()
@@ -98,10 +100,9 @@ mod tests {
     #[tokio::test]
     async fn should_use_find_categories_when_empty_search_for_search() {
         let mut service = MockCategoryService::default();
-        service.expect_search_categories().never();
         service
-            .expect_view_categories()
-            .return_once(move |languages| {
+            .expect_search_categories()
+            .return_once(move |_, _, languages| {
                 let categories: Vec<Category> = fake::vec![Category; 3];
                 let localized = categories
                     .into_iter()
@@ -127,7 +128,6 @@ mod tests {
     async fn should_400_when_body_is_missing_for_search() {
         let mut service = MockCategoryService::default();
         service.expect_search_categories().never();
-        service.expect_view_categories().never();
         let lambda_event = LambdaEvent {
             payload: ApiGatewayV2httpRequestProxy::builder()
                 .http_method(http::Method::POST)
@@ -145,7 +145,6 @@ mod tests {
     async fn should_400_when_body_is_invalid_json_for_search() {
         let mut service = MockCategoryService::default();
         service.expect_search_categories().never();
-        service.expect_view_categories().never();
         let mut payload: aws_lambda_events::apigw::ApiGatewayV2httpRequest =
             ApiGatewayV2httpRequestProxy::builder()
                 .http_method(http::Method::POST)
