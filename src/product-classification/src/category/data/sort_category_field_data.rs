@@ -57,8 +57,6 @@ impl From<SortCategoryFieldData> for SortCategoryField {
 
 #[cfg(test)]
 mod tests {
-    use rstest;
-
     use crate::category::data::sort_category_field_data::SortCategoryFieldData;
 
     #[rstest::rstest]
