@@ -9,9 +9,8 @@ use aws_sdk_opensearch::types::DomainEndpointOptions;
 use opensearch::http::Url;
 use opensearch::http::response::Response;
 use opensearch::http::transport::{SingleNodeConnectionPool, TransportBuilder};
-use opensearch::indices::IndicesExistsParts;
-use opensearch::params::Refresh;
-use opensearch::{DeleteByQueryParts, Error, GetParts, IndexParts, OpenSearch as Client};
+use opensearch::indices::{IndicesExistsParts, IndicesRefreshParts};
+use opensearch::{DeleteByQueryParts, Error, GetParts, OpenSearch as Client};
 use serde::de::DeserializeOwned;
 use serde_json::json;
 use std::time::Duration;
@@ -316,8 +315,8 @@ pub async fn read_by_id<T: DeserializeOwned>(index: &str, id: impl Into<String>)
 pub async fn refresh_index(index: &str) {
     get_opensearch_client()
         .await
-        .index(IndexParts::Index(index))
-        .refresh(Refresh::True)
+        .indices()
+        .refresh(IndicesRefreshParts::Index(&[index]))
         .send()
         .await
         .unwrap();
