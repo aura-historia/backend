@@ -2,8 +2,6 @@ use aws_lambda_events::apigw::{ApiGatewayV2httpRequest, ApiGatewayV2httpResponse
 use common::api::api_gateway_v2_http_response_builder::ApiGatewayV2HttpResponseBuilder;
 use common::api::error::ApiError;
 use common::api::error_code::BAD_BODY_VALUE;
-use common::language::data::api::extract_languages_header;
-use common::language::domain::Language;
 use common::sort::api::extract_sort_query;
 use lambda_runtime::LambdaEvent;
 use product_classification::category::category_search::CategorySearchData;
@@ -16,11 +14,6 @@ pub async fn handle(
     event: LambdaEvent<ApiGatewayV2httpRequest>,
     service: &impl CategoryService,
 ) -> Result<ApiGatewayV2httpResponse, ApiError> {
-    let languages: Vec<Language> = extract_languages_header(&event.payload.headers)?
-        .into_iter()
-        .map(Language::from)
-        .collect();
-
     let sort = extract_sort_query::<SortCategoryFieldData>(&event.payload.query_string_parameters)?
         .map(|sort_data| sort_data.map(SortCategoryField::from));
 
@@ -39,7 +32,7 @@ pub async fn handle(
     })?;
 
     let categories = service
-        .search_categories(&search_data.into(), &sort, &languages)
+        .search_categories(&search_data.into(), &sort)
         .await?;
     let categories_data: Vec<GetCategorySummaryData> = categories
         .into_iter()
@@ -65,11 +58,11 @@ mod tests {
         let mut service = MockCategoryService::default();
         service
             .expect_search_categories()
-            .return_once(move |_, _, languages| {
+            .return_once(move |search, _| {
                 let categories: Vec<Category> = fake::vec![Category; 2];
                 let localized = categories
                     .into_iter()
-                    .map(|c| c.localized(languages))
+                    .map(|c| c.localized(&[search.language]))
                     .collect();
                 Box::pin(async move { Ok(localized) })
             });
@@ -96,11 +89,11 @@ mod tests {
         let mut service = MockCategoryService::default();
         service
             .expect_search_categories()
-            .return_once(move |_, _, languages| {
+            .return_once(move |search, _| {
                 let categories: Vec<Category> = fake::vec![Category; 3];
                 let localized = categories
                     .into_iter()
-                    .map(|c| c.localized(languages))
+                    .map(|c| c.localized(&[search.language]))
                     .collect();
                 Box::pin(async move { Ok(localized) })
             });

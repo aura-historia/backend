@@ -87,7 +87,6 @@ pub trait CategoryService {
         &self,
         search: &CategorySearch,
         sort: &Option<Sort<SortCategoryField>>,
-        languages: &[Language],
     ) -> Result<Vec<LocalizedCategory>, CategoryServiceError>;
 
     async fn find_categories(&self) -> Result<Vec<Category>, CategoryServiceError>;
@@ -168,7 +167,6 @@ impl<'a> CategoryService for CategoryServiceImpl<'a> {
         &self,
         search: &CategorySearch,
         sort: &Option<Sort<SortCategoryField>>,
-        languages: &[Language],
     ) -> Result<Vec<LocalizedCategory>, CategoryServiceError> {
         let sort = (*sort).unwrap_or(Sort {
             sort: SortCategoryField::Score,
@@ -192,7 +190,7 @@ impl<'a> CategoryService for CategoryServiceImpl<'a> {
             .hits
             .hits
             .into_iter()
-            .map(|hit| Category::from(hit.source).localized(languages))
+            .map(|hit| Category::from(hit.source).localized(&[search.language]))
             .collect();
 
         Ok(categories)
@@ -633,10 +631,7 @@ mod tests {
                 language: Language::En,
                 name_query: Some("test".try_into().unwrap()),
             };
-            let actual = service
-                .search_categories(&search, &None, &[Language::En])
-                .await
-                .unwrap();
+            let actual = service.search_categories(&search, &None).await.unwrap();
 
             assert_eq!(actual.len(), 1);
             assert_eq!(actual[0].category_id, expected_category_id);
@@ -664,9 +659,7 @@ mod tests {
                 language: Language::En,
                 name_query: Some("test".try_into().unwrap()),
             };
-            let actual = service
-                .search_categories(&search, &None, &[Language::En])
-                .await;
+            let actual = service.search_categories(&search, &None).await;
 
             assert!(matches!(
                 actual.unwrap_err(),
@@ -720,10 +713,7 @@ mod tests {
                 language: Language::En,
                 name_query: None,
             };
-            let actual = service
-                .search_categories(&search, &None, &[Language::En])
-                .await
-                .unwrap();
+            let actual = service.search_categories(&search, &None).await.unwrap();
 
             assert_eq!(actual.len(), 1);
             assert_eq!(actual[0].category_id, expected_category_id);
