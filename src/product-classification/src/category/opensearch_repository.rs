@@ -132,7 +132,7 @@ impl<'a> CategoryOpenSearchRepository for CategoryOpenSearchRepositoryImpl<'a> {
                 "multi_match": {
                     "query": query,
                     "fields": [
-                        name_field,
+                        format!("{name_field}^3"),
                         description_field,
                     ],
                     "fuzziness": "AUTO",
