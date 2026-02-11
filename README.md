@@ -1,4 +1,4 @@
-# Aura Historia Operational Backend
+# Aura Historia Backend
 
 ## GitHub
 
