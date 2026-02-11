@@ -132,8 +132,8 @@ impl<'a> CategoryOpenSearchRepository for CategoryOpenSearchRepositoryImpl<'a> {
                 "multi_match": {
                     "query": query,
                     "fields": [
-                        format!("{name_field}^3"),
-                        description_field,
+                        format!("{name_field}^5"),
+                        format!("{description_field}^1"),
                     ],
                     "fuzziness": "AUTO",
                     "minimum_should_match": "70%"
@@ -163,7 +163,7 @@ impl<'a> CategoryOpenSearchRepository for CategoryOpenSearchRepositoryImpl<'a> {
         };
 
         let body = json!({
-            "size": 1000,
+            "size": 1000, // big-enough catch-all
             "query": {
                 "bool": {
                     "must": must,
@@ -180,7 +180,8 @@ impl<'a> CategoryOpenSearchRepository for CategoryOpenSearchRepositoryImpl<'a> {
             .search(SearchParts::Index(&["categories"]))
             .body(body)
             .send()
-            .await?;
+            .await?
+            .error_for_status_code()?;
         let payload = response.text().await?;
         let search_response =
             serde_json::from_str::<SearchResponse<CategoryDocument>>(&payload).map_err(|err| {
