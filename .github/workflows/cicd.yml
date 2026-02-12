@@ -89,6 +89,7 @@ jobs:
           - src/product
           - src/product-api
           - src/product-classification
+          - src/product-classification-api
           - src/product-classification-lambda
           - src/product-watchlist-api
           - src/product-pipeline
@@ -145,6 +146,8 @@ jobs:
           - src/product
           - src/product-pipeline/src/product-pipeline-common
           - src/product-api
+          - src/product-classification
+          - src/product-classification-api
           - src/product-watchlist-api
           - src/shop
           - src/shop-api
@@ -274,6 +277,7 @@ jobs:
         crate:
           - src/search-filter-api
           - src/product-api
+          - src/product-classification-api
           - src/product-classification-lambda
           - src/product-watchlist-api
           - src/product-pipeline/src/product-pipeline-asg-scale-control

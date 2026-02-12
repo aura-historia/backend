@@ -1,6 +1,10 @@
+use crate::category::category_search::CategorySearch;
 use crate::category::document::{CategoryDocument, CategoryDocumentSerdeField};
+use crate::category::sort_category_field::SortCategoryField;
+use common::language::domain::Language;
 use common::opensearch::index_response::IndexResponse;
 use common::opensearch::search_response::SearchResponse;
+use common::sort::{Sort, SortOrder};
 use opensearch::{IndexParts, SearchParts};
 use serde::ser::Error;
 use serde_json::json;
@@ -17,6 +21,12 @@ pub trait CategoryOpenSearchRepository {
         &self,
         embedding: &[f32],
         k: u16,
+    ) -> Result<SearchResponse<CategoryDocument>, opensearch::Error>;
+
+    async fn search_category_documents(
+        &self,
+        search: &CategorySearch,
+        sort: &Sort<SortCategoryField>,
     ) -> Result<SearchResponse<CategoryDocument>, opensearch::Error>;
 }
 
@@ -90,5 +100,96 @@ impl<'a> CategoryOpenSearchRepository for CategoryOpenSearchRepositoryImpl<'a> {
 
         let response_body = response.json::<SearchResponse<CategoryDocument>>().await?;
         Ok(response_body)
+    }
+
+    async fn search_category_documents(
+        &self,
+        search: &CategorySearch,
+        sort: &Sort<SortCategoryField>,
+    ) -> Result<SearchResponse<CategoryDocument>, opensearch::Error> {
+        let mut must = Vec::with_capacity(1);
+
+        if let Some(query) = search.name_query.as_ref() {
+            let (name_field, description_field) = match search.language {
+                Language::De => (
+                    CategoryDocumentSerdeField::DisplayNameDe.as_str(),
+                    CategoryDocumentSerdeField::DisplayDescriptionDe.as_str(),
+                ),
+                Language::En => (
+                    CategoryDocumentSerdeField::DisplayNameEn.as_str(),
+                    CategoryDocumentSerdeField::DisplayDescriptionEn.as_str(),
+                ),
+                Language::Fr => (
+                    CategoryDocumentSerdeField::DisplayNameFr.as_str(),
+                    CategoryDocumentSerdeField::DisplayDescriptionFr.as_str(),
+                ),
+                Language::Es => (
+                    CategoryDocumentSerdeField::DisplayNameEs.as_str(),
+                    CategoryDocumentSerdeField::DisplayDescriptionEs.as_str(),
+                ),
+            };
+            must.push(json!({
+                "multi_match": {
+                    "query": query,
+                    "fields": [
+                        format!("{name_field}^5"),
+                        format!("{description_field}^1"),
+                    ],
+                    "fuzziness": "AUTO",
+                    "minimum_should_match": "70%"
+                }
+            }));
+        }
+
+        let sort_field = match sort.sort {
+            SortCategoryField::Score => "_score",
+            SortCategoryField::Name => match search.language {
+                Language::De => "displayNameDe.keyword",
+                Language::En => "displayNameEn.keyword",
+                Language::Fr => "displayNameFr.keyword",
+                Language::Es => "displayNameEs.keyword",
+            },
+            SortCategoryField::Created => CategoryDocumentSerdeField::Created.as_str(),
+            SortCategoryField::Updated => CategoryDocumentSerdeField::Updated.as_str(),
+        };
+        let order = match sort.order {
+            SortOrder::Asc => "asc",
+            SortOrder::Desc => "desc",
+        };
+        let primary_sort = if matches!(sort.sort, SortCategoryField::Score) {
+            json!({ sort_field: { "order": order } })
+        } else {
+            json!({ sort_field: { "order": order, "missing": "_last" } })
+        };
+
+        let body = json!({
+            "size": 1000, // big-enough catch-all
+            "query": {
+                "bool": {
+                    "must": must,
+                }
+            },
+            "sort": [
+                primary_sort,
+                { CategoryDocumentSerdeField::CategoryId.as_str(): { "order": "asc" } }
+            ]
+        });
+
+        let response = self
+            .client
+            .search(SearchParts::Index(&["categories"]))
+            .body(body)
+            .send()
+            .await?
+            .error_for_status_code()?;
+        let payload = response.text().await?;
+        let search_response =
+            serde_json::from_str::<SearchResponse<CategoryDocument>>(&payload).map_err(|err| {
+                serde_json::Error::custom(format!(
+                    "Failed deserializing 'SearchResponse<CategoryDocument>' with error '{err}'. Received payload: {payload}"
+                ))
+            })?;
+
+        Ok(search_response)
     }
 }
