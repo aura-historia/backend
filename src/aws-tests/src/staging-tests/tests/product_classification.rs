@@ -72,6 +72,8 @@ pub async fn refresh_index(index: &str) {
         .refresh(IndicesRefreshParts::Index(&[index]))
         .send()
         .await
+        .unwrap()
+        .error_for_status_code()
         .unwrap();
 }
 

@@ -12,7 +12,9 @@ async fn should_set_up_indices() {
         .exists(IndicesExistsParts::Index(&["products"]))
         .send()
         .await
-        .expect("shouldn't fail retrieving indices-exist query");
+        .expect("shouldn't fail retrieving indices-exist query")
+        .error_for_status_code()
+        .expect("shouldn't fail verifying indices-exist status");
 
     assert!(exists_response.status_code().is_success())
 }
