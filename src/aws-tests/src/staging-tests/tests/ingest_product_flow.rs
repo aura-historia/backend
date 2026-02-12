@@ -7,6 +7,7 @@ use common::{
     sort::{Sort, SortOrder},
 };
 use fake::{Fake, Faker};
+use opensearch::indices::IndicesRefreshParts;
 use opensearch::{GetParts, IndexParts, params::Refresh};
 use product::{
     core::product_event::{ProductEventPayload, enrichment::ProductEnrichmentEventPayload},
@@ -1098,8 +1099,8 @@ pub async fn read_by_id<T: DeserializeOwned>(index: &str, id: impl Into<String>)
 pub async fn refresh_index(index: &str) {
     get_opensearch_client()
         .await
-        .index(IndexParts::Index(index))
-        .refresh(Refresh::True)
+        .indices()
+        .refresh(IndicesRefreshParts::Index(&[index]))
         .send()
         .await
         .unwrap();

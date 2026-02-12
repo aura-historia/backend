@@ -1,6 +1,7 @@
 use aws_tests_common::get_cfn_output;
 use common::batch::Batch;
 use fake::{Fake, Faker};
+use opensearch::indices::IndicesRefreshParts;
 use opensearch::{IndexParts, params::Refresh};
 use product::{
     core::product_event::{
@@ -67,8 +68,8 @@ async fn prepare_categories() -> Category {
 pub async fn refresh_index(index: &str) {
     get_opensearch_client()
         .await
-        .index(IndexParts::Index(index))
-        .refresh(Refresh::True)
+        .indices()
+        .refresh(IndicesRefreshParts::Index(&[index]))
         .send()
         .await
         .unwrap();

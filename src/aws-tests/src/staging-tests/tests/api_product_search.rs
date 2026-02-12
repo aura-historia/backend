@@ -10,7 +10,7 @@ use common::{
     product_id::ProductId, shop_id::ShopId, shops_product_id::ShopsProductId,
 };
 use fake::{Fake, Faker};
-use opensearch::{IndexParts, params::Refresh};
+use opensearch::indices::IndicesRefreshParts;
 use product::data::product_search_data::ProductSearchData;
 use product::data::product_state_data::ProductStateData;
 use product::dynamodb::product_record::{self, ProductRecord, mk_gsi2_pk, mk_gsi2_sk};
@@ -127,8 +127,8 @@ async fn should_respond_200_when_hits_authenticated() {
         .unwrap();
     assert!(!insert_res.errors);
     os_client
-        .index(IndexParts::Index("products"))
-        .refresh(Refresh::True)
+        .indices()
+        .refresh(IndicesRefreshParts::Index(&["products"]))
         .send()
         .await
         .unwrap();
@@ -359,8 +359,8 @@ async fn should_respond_200_when_hits_anon() {
     let insert_res = repository.create_product_documents(all).await.unwrap();
     assert!(!insert_res.errors);
     os_client
-        .index(IndexParts::Index("products"))
-        .refresh(Refresh::True)
+        .indices()
+        .refresh(IndicesRefreshParts::Index(&["products"]))
         .send()
         .await
         .unwrap();

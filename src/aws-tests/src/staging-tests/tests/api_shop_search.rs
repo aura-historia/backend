@@ -1,7 +1,7 @@
 use aws_tests_common::get_cfn_output;
 use common::query::range_query::RangeQuery;
 use fake::{Fake, Faker};
-use opensearch::{IndexParts, params::Refresh};
+use opensearch::indices::IndicesRefreshParts;
 use shop::data::shop_search_data::ShopSearchData;
 use shop::opensearch::{
     repository::{ShopOpenSearchRepository, ShopOpenSearchRepositoryImpl},
@@ -23,8 +23,8 @@ async fn should_respond_200_when_hits() {
         let _ = repository.index_shop_document(shop).await.unwrap();
     }
     os_client
-        .index(IndexParts::Index("shops"))
-        .refresh(Refresh::True)
+        .indices()
+        .refresh(IndicesRefreshParts::Index(&["shops"]))
         .send()
         .await
         .unwrap();

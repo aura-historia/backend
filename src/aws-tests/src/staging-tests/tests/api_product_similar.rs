@@ -5,8 +5,7 @@ use common::personalized::api::PersonalizedData;
 use common::user_id::UserId;
 use fake::{Fake, Faker};
 use http::header::ACCEPT_LANGUAGE;
-use opensearch::IndexParts;
-use opensearch::params::Refresh;
+use opensearch::indices::IndicesRefreshParts;
 use product::data::get_summary_data::GetProductSummaryData;
 use product::data::user_state_data::ProductUserStateData;
 use product::dynamodb::product_record::ProductRecord;
@@ -1089,8 +1088,8 @@ async fn should_202_when_similar_products_have_not_been_computed_for_anon() {
 
     get_opensearch_client()
         .await
-        .index(IndexParts::Index("products"))
-        .refresh(Refresh::True)
+        .indices()
+        .refresh(IndicesRefreshParts::Index(&["products"]))
         .send()
         .await
         .unwrap();
@@ -1147,8 +1146,8 @@ async fn should_200_when_similar_products_have_been_computed_for_anon() {
 
     get_opensearch_client()
         .await
-        .index(IndexParts::Index("products"))
-        .refresh(Refresh::True)
+        .indices()
+        .refresh(IndicesRefreshParts::Index(&["products"]))
         .send()
         .await
         .unwrap();
@@ -1269,8 +1268,8 @@ async fn should_200_and_personalize_when_similar_products_have_been_computed_for
     assert!(!os_insert_res.errors);
     get_opensearch_client()
         .await
-        .index(IndexParts::Index("products"))
-        .refresh(Refresh::True)
+        .indices()
+        .refresh(IndicesRefreshParts::Index(&["products"]))
         .send()
         .await
         .unwrap();

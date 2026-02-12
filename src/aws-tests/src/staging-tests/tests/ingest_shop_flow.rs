@@ -1,5 +1,6 @@
 use aws_tests_common::get_cfn_output;
 use fake::{Fake, Faker};
+use opensearch::indices::IndicesRefreshParts;
 use opensearch::{GetParts, IndexParts, params::Refresh};
 use serde::de::DeserializeOwned;
 use shop::data::patch_shop_data::PatchShopData;
@@ -29,8 +30,8 @@ pub async fn read_by_id<T: DeserializeOwned>(index: &str, id: impl Into<String>)
 pub async fn refresh_index(index: &str) {
     get_opensearch_client()
         .await
-        .index(IndexParts::Index(index))
-        .refresh(Refresh::True)
+        .indices()
+        .refresh(IndicesRefreshParts::Index(&[index]))
         .send()
         .await
         .unwrap();
