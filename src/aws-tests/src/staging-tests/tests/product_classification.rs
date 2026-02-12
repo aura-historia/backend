@@ -2,7 +2,6 @@ use aws_tests_common::get_cfn_output;
 use common::batch::Batch;
 use fake::{Fake, Faker};
 use opensearch::indices::IndicesRefreshParts;
-use opensearch::{IndexParts, params::Refresh};
 use product::{
     core::product_event::{
         ProductEvent, ProductEventPayload,

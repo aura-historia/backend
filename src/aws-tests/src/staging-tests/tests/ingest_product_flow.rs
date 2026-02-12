@@ -7,8 +7,8 @@ use common::{
     sort::{Sort, SortOrder},
 };
 use fake::{Fake, Faker};
+use opensearch::GetParts;
 use opensearch::indices::IndicesRefreshParts;
-use opensearch::{GetParts, IndexParts, params::Refresh};
 use product::{
     core::product_event::{ProductEventPayload, enrichment::ProductEnrichmentEventPayload},
     dynamodb::{

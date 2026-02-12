@@ -1,7 +1,7 @@
 use aws_tests_common::get_cfn_output;
 use fake::{Fake, Faker};
+use opensearch::GetParts;
 use opensearch::indices::IndicesRefreshParts;
-use opensearch::{GetParts, IndexParts, params::Refresh};
 use serde::de::DeserializeOwned;
 use shop::data::patch_shop_data::PatchShopData;
 use shop::data::post_shop_data::PostShopData;
