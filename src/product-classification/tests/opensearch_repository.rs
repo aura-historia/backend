@@ -93,3 +93,173 @@ async fn should_search_category_documents_when_name_query_supplied() {
             .any(|hit| hit.source.category_id == expected.category_id)
     );
 }
+
+#[localstack_test(services = [OpenSearch()])]
+async fn should_sort_by_name_ascending_when_name_asc_for_search() {
+    let repository = CategoryOpenSearchRepositoryImpl::new(get_opensearch_client().await);
+    let mut doc_a = Faker.fake::<CategoryDocument>();
+    doc_a.display_name_en = "Alpha".to_string();
+    let mut doc_b = Faker.fake::<CategoryDocument>();
+    doc_b.display_name_en = "Bravo".to_string();
+    let mut doc_c = Faker.fake::<CategoryDocument>();
+    doc_c.display_name_en = "Charlie".to_string();
+
+    for doc in [doc_b.clone(), doc_c.clone(), doc_a.clone()] {
+        let _ = repository.index_category_document(doc).await.unwrap();
+    }
+    refresh_index("categories").await;
+    tokio::time::sleep(Duration::from_secs(3)).await;
+
+    let search = CategorySearch {
+        language: Language::En,
+        name_query: None,
+    };
+    let actual: Vec<_> = repository
+        .search_category_documents(
+            &search,
+            &Sort {
+                sort: SortCategoryField::Name,
+                order: SortOrder::Asc,
+            },
+        )
+        .await
+        .unwrap()
+        .hits
+        .hits
+        .into_iter()
+        .map(|hit| hit.source.display_name_en)
+        .collect();
+
+    assert_eq!(vec!["Alpha", "Bravo", "Charlie"], actual);
+}
+
+#[localstack_test(services = [OpenSearch()])]
+async fn should_sort_by_name_descending_when_name_desc_for_search() {
+    let repository = CategoryOpenSearchRepositoryImpl::new(get_opensearch_client().await);
+    let mut doc_a = Faker.fake::<CategoryDocument>();
+    doc_a.display_name_en = "Alpha".to_string();
+    let mut doc_b = Faker.fake::<CategoryDocument>();
+    doc_b.display_name_en = "Bravo".to_string();
+    let mut doc_c = Faker.fake::<CategoryDocument>();
+    doc_c.display_name_en = "Charlie".to_string();
+
+    for doc in [doc_b.clone(), doc_a.clone(), doc_c.clone()] {
+        let _ = repository.index_category_document(doc).await.unwrap();
+    }
+    refresh_index("categories").await;
+    tokio::time::sleep(Duration::from_secs(3)).await;
+
+    let search = CategorySearch {
+        language: Language::En,
+        name_query: None,
+    };
+    let actual: Vec<_> = repository
+        .search_category_documents(
+            &search,
+            &Sort {
+                sort: SortCategoryField::Name,
+                order: SortOrder::Desc,
+            },
+        )
+        .await
+        .unwrap()
+        .hits
+        .hits
+        .into_iter()
+        .map(|hit| hit.source.display_name_en)
+        .collect();
+
+    assert_eq!(vec!["Charlie", "Bravo", "Alpha"], actual);
+}
+
+#[localstack_test(services = [OpenSearch()])]
+async fn should_sort_by_created_ascending_when_created_asc_for_search() {
+    let repository = CategoryOpenSearchRepositoryImpl::new(get_opensearch_client().await);
+    let mut doc_old = Faker.fake::<CategoryDocument>();
+    doc_old.created = time::macros::datetime!(2020-01-01 0:00 UTC);
+    let mut doc_mid = Faker.fake::<CategoryDocument>();
+    doc_mid.created = time::macros::datetime!(2022-06-15 0:00 UTC);
+    let mut doc_new = Faker.fake::<CategoryDocument>();
+    doc_new.created = time::macros::datetime!(2024-12-01 0:00 UTC);
+
+    for doc in [doc_mid.clone(), doc_new.clone(), doc_old.clone()] {
+        let _ = repository.index_category_document(doc).await.unwrap();
+    }
+    refresh_index("categories").await;
+    tokio::time::sleep(Duration::from_secs(3)).await;
+
+    let search = CategorySearch {
+        language: Language::En,
+        name_query: None,
+    };
+    let actual: Vec<_> = repository
+        .search_category_documents(
+            &search,
+            &Sort {
+                sort: SortCategoryField::Created,
+                order: SortOrder::Asc,
+            },
+        )
+        .await
+        .unwrap()
+        .hits
+        .hits
+        .into_iter()
+        .map(|hit| hit.source.created)
+        .collect();
+
+    assert_eq!(
+        vec![
+            time::macros::datetime!(2020-01-01 0:00 UTC),
+            time::macros::datetime!(2022-06-15 0:00 UTC),
+            time::macros::datetime!(2024-12-01 0:00 UTC),
+        ],
+        actual
+    );
+}
+
+#[localstack_test(services = [OpenSearch()])]
+async fn should_sort_by_updated_descending_when_updated_desc_for_search() {
+    let repository = CategoryOpenSearchRepositoryImpl::new(get_opensearch_client().await);
+    let mut doc_old = Faker.fake::<CategoryDocument>();
+    doc_old.updated = time::macros::datetime!(2020-01-01 0:00 UTC);
+    let mut doc_mid = Faker.fake::<CategoryDocument>();
+    doc_mid.updated = time::macros::datetime!(2022-06-15 0:00 UTC);
+    let mut doc_new = Faker.fake::<CategoryDocument>();
+    doc_new.updated = time::macros::datetime!(2024-12-01 0:00 UTC);
+
+    for doc in [doc_mid.clone(), doc_old.clone(), doc_new.clone()] {
+        let _ = repository.index_category_document(doc).await.unwrap();
+    }
+    refresh_index("categories").await;
+    tokio::time::sleep(Duration::from_secs(3)).await;
+
+    let search = CategorySearch {
+        language: Language::En,
+        name_query: None,
+    };
+    let actual: Vec<_> = repository
+        .search_category_documents(
+            &search,
+            &Sort {
+                sort: SortCategoryField::Updated,
+                order: SortOrder::Desc,
+            },
+        )
+        .await
+        .unwrap()
+        .hits
+        .hits
+        .into_iter()
+        .map(|hit| hit.source.updated)
+        .collect();
+
+    assert_eq!(
+        vec![
+            time::macros::datetime!(2024-12-01 0:00 UTC),
+            time::macros::datetime!(2022-06-15 0:00 UTC),
+            time::macros::datetime!(2020-01-01 0:00 UTC),
+        ],
+        actual
+    );
+}

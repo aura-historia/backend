@@ -82,9 +82,9 @@ pub struct LocalizedCategory {
 #[cfg(feature = "test-data")]
 pub mod faker {
     use super::*;
-    use fake::{Dummy, Faker, Rng, rand::seq::IndexedRandom};
+    use fake::{Dummy, Fake, Faker, Rng};
     use serde::{Deserialize, Serialize};
-    use strum::EnumCount;
+    use strum::{EnumCount, IntoEnumIterator};
 
     static CATEGORIES_DATA: &str = include_str!(concat!(
         env!("CARGO_WORKSPACE_DIR"),
@@ -163,12 +163,27 @@ pub mod faker {
     }
 
     impl Dummy<Faker> for Category {
-        fn dummy_with_rng<R: Rng + ?Sized>(_config: &Faker, rng: &mut R) -> Self {
-            let categories = Category::load_categories();
-            categories
-                .choose(rng)
-                .expect("shouldn't fail picking random category")
-                .clone()
+        fn dummy_with_rng<R: Rng + ?Sized>(config: &Faker, rng: &mut R) -> Self {
+            let mut display_name = HashMap::new();
+            for language in Language::iter() {
+                display_name.insert(language, config.fake_with_rng(rng));
+            }
+            let mut display_description = HashMap::new();
+            for language in Language::iter() {
+                display_description.insert(language, config.fake_with_rng(rng));
+            }
+            Category {
+                category_id: config.fake_with_rng(rng),
+                category_key: config.fake_with_rng(rng),
+                meta_name: config.fake_with_rng(rng),
+                meta_description: config.fake_with_rng(rng),
+                meta_keywords: config.fake_with_rng(rng),
+                embedding: fake::vec![f32; 1024],
+                display_name,
+                display_description,
+                created: OffsetDateTime::now_utc(),
+                updated: OffsetDateTime::now_utc(),
+            }
         }
     }
 
