@@ -2084,6 +2084,7 @@ Resources:
             #!/bin/bash
             set -euxo pipefail
             sudo -i
+            export DYNAMODB_TABLE_NAME="${TableOne}"
             export STAGE="ephemeral"
             export STAGE_NAME=${StageName}
             export CommitSHA="${CommitSHA}"
@@ -2318,6 +2319,7 @@ Resources:
             #!/bin/bash
             set -euxo pipefail
             sudo -i
+            export DYNAMODB_TABLE_NAME="${TableOne}"
             export STAGE="ephemeral"
             export STAGE_NAME=${StageName}
             export CommitSHA="${CommitSHA}"
@@ -2552,6 +2554,7 @@ Resources:
             #!/bin/bash
             set -euxo pipefail
             sudo -i
+            export DYNAMODB_TABLE_NAME="${TableOne}"
             export STAGE="ephemeral"
             export STAGE_NAME=${StageName}
             export CommitSHA="${CommitSHA}"
