@@ -293,7 +293,8 @@ async fn clear_os_index_data(index: &str) -> Result<Response, opensearch::Error>
         .body(query)
         .refresh(true)
         .send()
-        .await?;
+        .await?
+        .error_for_status_code()?;
 
     debug!("Cleared index '{index}'.");
 

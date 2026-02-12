@@ -55,7 +55,8 @@ impl<'a> CategoryOpenSearchRepository for CategoryOpenSearchRepositoryImpl<'a> {
             ))
             .body(document)
             .send()
-            .await?;
+            .await?
+            .error_for_status_code()?;
 
         let payload = response.text().await?;
         let index_response = serde_json::from_str::<IndexResponse>(&payload)
@@ -93,10 +94,11 @@ impl<'a> CategoryOpenSearchRepository for CategoryOpenSearchRepositoryImpl<'a> {
                        }
                      }
                    }
-                 }
+                  }
             }))
             .send()
-            .await?;
+            .await?
+            .error_for_status_code()?;
 
         let response_body = response.json::<SearchResponse<CategoryDocument>>().await?;
         Ok(response_body)
