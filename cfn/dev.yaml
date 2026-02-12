@@ -352,7 +352,7 @@ Resources:
           - Effect: Deny
             Principal: "*"
             Action: execute-api:Invoke
-            Resource: !Sub "arn:aws:execute-api:${AWS::Region}:${AWS::AccountId}:${Api}/*/*/*"
+            Resource: "*"
             Condition:
               NotIpAddress:
                 aws:SourceIp: # cloudflare IP ranges as of 2023-09-28
@@ -2436,13 +2436,13 @@ Resources:
   ProductPipelineExtractAttributeInstanceProfile:
     Type: AWS::IAM::InstanceProfile
     Properties:
-      InstanceProfileName: !Sub "product-pipeline-extract-attribute-profile-dev"
+      InstanceProfileName: "product-pipeline-extract-attribute-profile-dev"
       Roles:
         - !Ref ProductPipelineExtractAttributeRole
   ProductPipelineExtractAttributeLaunchTemplate:
     Type: AWS::EC2::LaunchTemplate
     Properties:
-      LaunchTemplateName: !Sub "product-pipeline-extract-attribute-template-dev"
+      LaunchTemplateName: "product-pipeline-extract-attribute-template-dev"
       LaunchTemplateData:
         IamInstanceProfile:
           Name: !Ref ProductPipelineExtractAttributeInstanceProfile
@@ -2459,7 +2459,7 @@ Resources:
           - ResourceType: instance
             Tags:
               - Key: Name
-                Value: !Sub "product-pipeline-extract-attribute-dev"
+                Value: "product-pipeline-extract-attribute-dev"
               - Key: Fleet
                 Value: product-pipeline-extract-attribute
         UserData:
@@ -2560,7 +2560,7 @@ Resources:
           SpotAllocationStrategy: price-capacity-optimized
       Tags:
         - Key: Name
-          Value: !Sub "product-pipeline-extract-attribute-dev"
+          Value: "product-pipeline-extract-attribute-dev"
           PropagateAtLaunch: true
       HealthCheckType: EC2
       HealthCheckGracePeriod: 120
@@ -2707,7 +2707,7 @@ Resources:
   FxRateSyncRole:
     Type: AWS::IAM::Role
     Properties:
-      RoleName: !Sub "fxrate-lambda-role-dev"
+      RoleName: "fxrate-lambda-role-dev"
       AssumeRolePolicyDocument:
         Version: "2012-10-17"
         Statement:
@@ -2731,7 +2731,7 @@ Resources:
   FxRateSyncLambda:
     Type: AWS::Lambda::Function
     Properties:
-      FunctionName: !Sub "fxrate-lambda-dev"
+      FunctionName: "fxrate-lambda-dev"
       Runtime: provided.al2023
       Handler: lib.handler
       Role: !GetAtt FxRateSyncRole.Arn
