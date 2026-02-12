@@ -6,9 +6,9 @@ use aws_sdk_opensearch::error::SdkError;
 use aws_sdk_opensearch::operation::create_domain::{CreateDomainError, CreateDomainOutput};
 use aws_sdk_opensearch::operation::describe_domain::DescribeDomainError;
 use aws_sdk_opensearch::types::DomainEndpointOptions;
-use opensearch::http::Url;
 use opensearch::http::response::Response;
 use opensearch::http::transport::{SingleNodeConnectionPool, TransportBuilder};
+use opensearch::http::{StatusCode, Url};
 use opensearch::indices::{IndicesExistsParts, IndicesRefreshParts};
 use opensearch::{DeleteByQueryParts, Error, GetParts, OpenSearch as Client};
 use serde::de::DeserializeOwned;
@@ -206,6 +206,11 @@ async fn set_up_indices() -> Result<Response, Error> {
         .exists(IndicesExistsParts::Index(&["products"]))
         .send()
         .await?;
+    if let Err(err) = exists_response.error_for_status_code_ref()
+        && err.status_code() != Some(StatusCode::NOT_FOUND)
+    {
+        return Err(err);
+    }
 
     if exists_response.status_code().is_success() {
         debug!("OpenSearch index 'products' already exists, skipping creation");
@@ -224,7 +229,8 @@ async fn set_up_indices() -> Result<Response, Error> {
                 .expect("shouldn't fail parsing PRODUCTS_INDEX_MAPPING_STR as serde_json::Value"),
         )
         .send()
-        .await?;
+        .await?
+        .error_for_status_code()?;
 
     // Index 'shops'
     let exists_response = client
@@ -232,6 +238,11 @@ async fn set_up_indices() -> Result<Response, Error> {
         .exists(IndicesExistsParts::Index(&["shops"]))
         .send()
         .await?;
+    if let Err(err) = exists_response.error_for_status_code_ref()
+        && err.status_code() != Some(StatusCode::NOT_FOUND)
+    {
+        return Err(err);
+    }
 
     if exists_response.status_code().is_success() {
         debug!("OpenSearch index 'shops' already exists, skipping creation");
@@ -250,7 +261,8 @@ async fn set_up_indices() -> Result<Response, Error> {
                 .expect("shouldn't fail parsing SHOPS_INDEX_MAPPING_STR as serde_json::Value"),
         )
         .send()
-        .await?;
+        .await?
+        .error_for_status_code()?;
 
     // Index 'categories'
     let exists_response = client
@@ -258,6 +270,11 @@ async fn set_up_indices() -> Result<Response, Error> {
         .exists(IndicesExistsParts::Index(&["categories"]))
         .send()
         .await?;
+    if let Err(err) = exists_response.error_for_status_code_ref()
+        && err.status_code() != Some(StatusCode::NOT_FOUND)
+    {
+        return Err(err);
+    }
 
     if exists_response.status_code().is_success() {
         debug!("OpenSearch index 'categories' already exists, skipping creation");
@@ -276,7 +293,8 @@ async fn set_up_indices() -> Result<Response, Error> {
                 .expect("shouldn't fail parsing CATEGORIES_INDEX_MAPPING_STR as serde_json::Value"),
         )
         .send()
-        .await
+        .await?
+        .error_for_status_code()
 }
 
 /// Clears all documents from the specified OpenSearch index.
@@ -296,7 +314,8 @@ async fn clear_index_data(index: &str) -> Result<Response, Error> {
         .body(query)
         .refresh(true)
         .send()
-        .await
+        .await?
+        .error_for_status_code()
 }
 
 pub async fn read_by_id<T: DeserializeOwned>(index: &str, id: impl Into<String>) -> T {
@@ -305,6 +324,8 @@ pub async fn read_by_id<T: DeserializeOwned>(index: &str, id: impl Into<String>)
         .get(GetParts::IndexId(index, &id.into()))
         .send()
         .await
+        .unwrap()
+        .error_for_status_code()
         .unwrap();
     assert!(get_response.status_code().is_success());
 
@@ -319,5 +340,7 @@ pub async fn refresh_index(index: &str) {
         .refresh(IndicesRefreshParts::Index(&[index]))
         .send()
         .await
+        .unwrap()
+        .error_for_status_code()
         .unwrap();
 }

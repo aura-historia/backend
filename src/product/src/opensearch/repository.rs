@@ -85,7 +85,8 @@ impl<'a> ProductOpenSearchRepository for ProductOpenSearchRepositoryImpl<'a> {
             .bulk(BulkParts::Index("products"))
             .body(vec![ops])
             .send()
-            .await?;
+            .await?
+            .error_for_status_code()?;
 
         let payload = response.text().await?;
         let bulk_response = serde_json::from_str::<BulkResponse>(&payload)
@@ -117,7 +118,8 @@ impl<'a> ProductOpenSearchRepository for ProductOpenSearchRepositoryImpl<'a> {
             .bulk(BulkParts::Index("products"))
             .body(vec![ops])
             .send()
-            .await?;
+            .await?
+            .error_for_status_code()?;
 
         let payload = response.text().await?;
         let bulk_response = serde_json::from_str::<BulkResponse>(&payload)
@@ -409,7 +411,8 @@ impl<'a> ProductOpenSearchRepository for ProductOpenSearchRepositoryImpl<'a> {
             .search(SearchParts::Index(&["products"]))
             .body(body)
             .send()
-            .await?;
+            .await?
+            .error_for_status_code()?;
         let payload = response.text().await?;
         let res = serde_json::from_str(&payload).map_err(|err| {
             serde_json::Error::custom(format!(
@@ -462,7 +465,8 @@ impl<'a> ProductOpenSearchRepository for ProductOpenSearchRepositoryImpl<'a> {
             .search(SearchParts::Index(&["products"]))
             .body(body)
             .send()
-            .await?;
+            .await?
+            .error_for_status_code()?;
         let payload = response.text().await?;
         let knn_response = serde_json::from_str::<SearchResponse<ProductDocument>>(&payload)
             .map_err(|err| {

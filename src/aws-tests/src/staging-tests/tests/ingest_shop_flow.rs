@@ -19,6 +19,8 @@ pub async fn read_by_id<T: DeserializeOwned>(index: &str, id: impl Into<String>)
         .get(GetParts::IndexId(index, &id.into()))
         .send()
         .await
+        .unwrap()
+        .error_for_status_code()
         .unwrap();
     assert!(get_response.status_code().is_success());
 
@@ -33,6 +35,8 @@ pub async fn refresh_index(index: &str) {
         .refresh(Refresh::True)
         .send()
         .await
+        .unwrap()
+        .error_for_status_code()
         .unwrap();
 }
 

@@ -131,6 +131,8 @@ async fn should_respond_200_when_hits_authenticated() {
         .refresh(Refresh::True)
         .send()
         .await
+        .unwrap()
+        .error_for_status_code()
         .unwrap();
     tokio::time::sleep(Duration::from_secs(3)).await;
 
@@ -363,6 +365,8 @@ async fn should_respond_200_when_hits_anon() {
         .refresh(Refresh::True)
         .send()
         .await
+        .unwrap()
+        .error_for_status_code()
         .unwrap();
     tokio::time::sleep(Duration::from_secs(3)).await;
 

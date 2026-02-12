@@ -27,6 +27,8 @@ async fn should_respond_200_when_hits() {
         .refresh(Refresh::True)
         .send()
         .await
+        .unwrap()
+        .error_for_status_code()
         .unwrap();
     tokio::time::sleep(Duration::from_secs(3)).await;
 

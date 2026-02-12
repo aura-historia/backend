@@ -1093,6 +1093,8 @@ async fn should_202_when_similar_products_have_not_been_computed_for_anon() {
         .refresh(Refresh::True)
         .send()
         .await
+        .unwrap()
+        .error_for_status_code()
         .unwrap();
     tokio::time::sleep(Duration::from_secs(20)).await;
 
@@ -1151,6 +1153,8 @@ async fn should_200_when_similar_products_have_been_computed_for_anon() {
         .refresh(Refresh::True)
         .send()
         .await
+        .unwrap()
+        .error_for_status_code()
         .unwrap();
     tokio::time::sleep(Duration::from_secs(20)).await;
 
@@ -1273,6 +1277,8 @@ async fn should_200_and_personalize_when_similar_products_have_been_computed_for
         .refresh(Refresh::True)
         .send()
         .await
+        .unwrap()
+        .error_for_status_code()
         .unwrap();
     tokio::time::sleep(Duration::from_secs(20)).await;
 

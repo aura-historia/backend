@@ -60,7 +60,8 @@ impl<'a> ShopOpenSearchRepository for ShopOpenSearchRepositoryImpl<'a> {
             .index(IndexParts::IndexId("shops", &document._id().to_string()))
             .body(document)
             .send()
-            .await?;
+            .await?
+            .error_for_status_code()?;
 
         let payload = response.text().await?;
         let index_response = serde_json::from_str::<IndexResponse>(&payload)
@@ -85,7 +86,8 @@ impl<'a> ShopOpenSearchRepository for ShopOpenSearchRepositoryImpl<'a> {
                 "doc": update
             }))
             .send()
-            .await?;
+            .await?
+            .error_for_status_code()?;
 
         let payload = response.text().await?;
         let update_response = serde_json::from_str::<UpdateResponse>(&payload)
@@ -216,7 +218,8 @@ impl<'a> ShopOpenSearchRepository for ShopOpenSearchRepositoryImpl<'a> {
             .search(SearchParts::Index(&["shops"]))
             .body(body)
             .send()
-            .await?;
+            .await?
+            .error_for_status_code()?;
         let payload = response.text().await?;
         let search_response = serde_json::from_str::<SearchResponse<ShopDocument>>(&payload)
             .map_err(|err| {
