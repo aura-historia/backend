@@ -4,7 +4,7 @@ use fake::{
     Fake, Faker,
     rand::{self, seq::IndexedRandom},
 };
-use opensearch::{IndexParts, params::Refresh};
+use opensearch::indices::IndicesRefreshParts;
 use product::data::put_data::PutProductData;
 use product_classification::category::{
     core::Category,
@@ -13,7 +13,7 @@ use product_classification::category::{
     service::{CategoryService, CategoryServiceImpl},
 };
 use shop::data::{get_shop_data::GetShopData, post_shop_data::PostShopData};
-use staging_tests::{get_dynamodb_client, get_opensearch_client};
+use staging_tests::get_dynamodb_client;
 use std::time::Duration;
 
 #[tokio::main]
@@ -112,8 +112,10 @@ async fn populate_categories() -> Vec<Category> {
         get_dynamodb_client().await,
         &get_cfn_output().dynamodb_table_1_name,
     );
-    let opensearch = get_opensearch_client().await;
-    let opensearch_repository = CategoryOpenSearchRepositoryImpl::new(opensearch);
+    let opensearch = common::opensearch::client::load_client()
+        .await
+        .expect("shouldn't fail loading OpenSearch-Client");
+    let opensearch_repository = CategoryOpenSearchRepositoryImpl::new(&opensearch);
     let category_service = CategoryServiceImpl::new(&dynamodb_repository, &opensearch_repository);
 
     let categories = Category::load_categories();
@@ -128,10 +130,11 @@ async fn populate_categories() -> Vec<Category> {
 }
 
 pub async fn refresh_index(index: &str) {
-    get_opensearch_client()
+    common::opensearch::client::load_client()
         .await
-        .index(IndexParts::Index(index))
-        .refresh(Refresh::True)
+        .expect("shouldn't fail loading OpenSearch-Client")
+        .indices()
+        .refresh(IndicesRefreshParts::Index(&[index]))
         .send()
         .await
         .unwrap();
