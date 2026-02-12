@@ -197,6 +197,15 @@ static CATEGORIES_INDEX_MAPPING_STR: &str = include_str!(concat!(
     "opensearch/mappings/categories.json"
 ));
 
+fn check_status_allow_not_found(response: &Response) -> Result<(), Error> {
+    if let Err(err) = response.error_for_status_code_ref()
+        && err.status_code() != Some(StatusCode::NOT_FOUND)
+    {
+        return Err(err);
+    }
+    Ok(())
+}
+
 async fn set_up_indices() -> Result<Response, Error> {
     let client = get_opensearch_client().await;
 
@@ -206,11 +215,7 @@ async fn set_up_indices() -> Result<Response, Error> {
         .exists(IndicesExistsParts::Index(&["products"]))
         .send()
         .await?;
-    if let Err(err) = exists_response.error_for_status_code_ref()
-        && err.status_code() != Some(StatusCode::NOT_FOUND)
-    {
-        return Err(err);
-    }
+    check_status_allow_not_found(&exists_response)?;
 
     if exists_response.status_code().is_success() {
         debug!("OpenSearch index 'products' already exists, skipping creation");
@@ -238,11 +243,7 @@ async fn set_up_indices() -> Result<Response, Error> {
         .exists(IndicesExistsParts::Index(&["shops"]))
         .send()
         .await?;
-    if let Err(err) = exists_response.error_for_status_code_ref()
-        && err.status_code() != Some(StatusCode::NOT_FOUND)
-    {
-        return Err(err);
-    }
+    check_status_allow_not_found(&exists_response)?;
 
     if exists_response.status_code().is_success() {
         debug!("OpenSearch index 'shops' already exists, skipping creation");
@@ -270,11 +271,7 @@ async fn set_up_indices() -> Result<Response, Error> {
         .exists(IndicesExistsParts::Index(&["categories"]))
         .send()
         .await?;
-    if let Err(err) = exists_response.error_for_status_code_ref()
-        && err.status_code() != Some(StatusCode::NOT_FOUND)
-    {
-        return Err(err);
-    }
+    check_status_allow_not_found(&exists_response)?;
 
     if exists_response.status_code().is_success() {
         debug!("OpenSearch index 'categories' already exists, skipping creation");
