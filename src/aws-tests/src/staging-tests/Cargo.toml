@@ -4,6 +4,7 @@ version = "0.1.0"
 edition = "2024"
 
 [dependencies]
+common = { workspace = true, features = ["opensearch"] }
 staging-tests-macros = { workspace = true }
 aws-tests-common = { workspace = true }
 tokio = { workspace = true, features = ["full"] }
