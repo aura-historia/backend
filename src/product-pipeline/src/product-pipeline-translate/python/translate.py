@@ -1,8 +1,8 @@
 import torch
 from transformers import AutoModelForCausalLM, AutoTokenizer
 
-MODEL_NAME = "tencent/HY-MT1.5-7B"
 DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
+MODEL_NAME = "tencent/HY-MT1.5-7B" if DEVICE == "cuda" else "tencent/HY-MT1.5-1.8B"
 
 tokenizer = AutoTokenizer.from_pretrained(
     MODEL_NAME,
