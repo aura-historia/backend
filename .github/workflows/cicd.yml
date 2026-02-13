@@ -547,7 +547,6 @@ jobs:
           TEST_MAIL_APP_NAMESPACE: ${{ vars.TEST_MAIL_APP_NAMESPACE }}
           TEST_MAIL_APP_API_KEY: ${{ secrets.TEST_MAIL_APP_API_KEY }}
           STAGE: ${{ env.STAGE }}
-          OPENSEARCH_ENDPOINT_URL: ${{ vars.OPENSEARCH_ENDPOINT_URL }}
           OPENSEARCH_USERNAME: ${{ secrets.OPENSEARCH_USERNAME }}
           OPENSEARCH_PASSWORD: ${{ secrets.OPENSEARCH_PASSWORD }}
         run: cargo test --locked --test '*' --all-features -- --ignored --nocapture

@@ -44,14 +44,12 @@ static OPENSEARCH_CLIENT: OnceCell<opensearch::OpenSearch> = OnceCell::const_new
 pub async fn get_opensearch_client() -> &'static opensearch::OpenSearch {
     OPENSEARCH_CLIENT
         .get_or_init(|| async {
-            if std::env::var("OPENSEARCH_ENDPOINT_URL").is_err() {
-                unsafe {
-                    std::env::set_var(
-                        "OPENSEARCH_ENDPOINT_URL",
-                        get_cfn_output().opensearch_endpoint_url.clone(),
-                    )
-                };
-            }
+            unsafe {
+                std::env::set_var(
+                    "OPENSEARCH_ENDPOINT_URL",
+                    get_cfn_output().opensearch_endpoint_url.clone(),
+                )
+            };
             common::opensearch::client::load_client()
                 .await
                 .expect("shouldn't fail loading OpenSearch-Client")
