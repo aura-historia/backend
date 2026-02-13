@@ -196,6 +196,11 @@ Located in various directories:
 - Check formatting: `cargo fmt --all -- --check`
 - Lint all code: `cargo clippy --workspace --all-targets --all-features -- -D warnings`
 
+### Logging
+- Initialize application logging via `common::logging::init_logging()` from each executable `main.rs`.
+- Configure log-level through `LOG_LEVEL`; fallback to `INFO` when not provided or invalid.
+- Keep startup logs at `debug` level and avoid logging infrastructure identifiers (for example table names or OpenSearch endpoints) in initialization messages.
+
 ## Frequently Referenced Files
 
 ### Workspace Configuration

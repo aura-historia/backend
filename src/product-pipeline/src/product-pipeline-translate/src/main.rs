@@ -15,13 +15,7 @@ use std::sync::Arc;
 
 #[tokio::main]
 async fn main() {
-    tracing_subscriber::fmt()
-        .json()
-        .with_max_level(tracing::Level::INFO)
-        .with_current_span(true)
-        .with_ansi(false)
-        .without_time()
-        .init();
+    common::logging::init_logging();
 
     let aws_config = aws_config::defaults(BehaviorVersion::v2026_01_12())
         .load()

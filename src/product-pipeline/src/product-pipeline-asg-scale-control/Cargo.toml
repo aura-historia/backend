@@ -4,6 +4,7 @@ version = "0.1.0"
 edition = "2024"
 
 [dependencies]
+common = { workspace = true }
 lambda_runtime = { workspace = true }
 aws-config = { workspace = true }
 aws-sdk-autoscaling = { workspace = true }
