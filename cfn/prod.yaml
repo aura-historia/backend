@@ -2037,9 +2037,7 @@ Resources:
             NewImage:
               event_type:
                 S:
-                  - "DOMAIN_CREATED"
-                  - prefix: "DOMAIN_PRICE_"
-                  - prefix: "DOMAIN_STATE_"
+                  - prefix: "DOMAIN_"
                   - prefix: "ENRICHMENT_"
                   - prefix: "POLICY_"
       Targets:
@@ -2062,9 +2060,7 @@ Resources:
             NewImage:
               event_type:
                 S:
-                  - "DOMAIN_CREATED"
-                  - prefix: "DOMAIN_PRICE_"
-                  - prefix: "DOMAIN_STATE_"
+                  - prefix: "DOMAIN_"
                   - prefix: "ENRICHMENT_"
                   - prefix: "POLICY_"
       Targets:
