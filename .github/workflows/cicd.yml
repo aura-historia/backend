@@ -281,10 +281,8 @@ jobs:
           - src/product-classification-lambda
           - src/product-watchlist-api
           - src/product-pipeline/src/product-pipeline-asg-scale-control
-          - src/product-lambda/src/product-lambda-materialize-dynamodb-new
-          - src/product-lambda/src/product-lambda-materialize-dynamodb-update
-          - src/product-lambda/src/product-lambda-materialize-opensearch-new
-          - src/product-lambda/src/product-lambda-materialize-opensearch-update
+          - src/product-lambda/src/product-lambda-materialize-dynamodb
+          - src/product-lambda/src/product-lambda-materialize-opensearch
           - src/product-lambda/src/product-lambda-update-notify-user
           - src/shop-api
           - src/shop-lambda/src/shop-lambda-opensearch-index
@@ -549,7 +547,6 @@ jobs:
           TEST_MAIL_APP_NAMESPACE: ${{ vars.TEST_MAIL_APP_NAMESPACE }}
           TEST_MAIL_APP_API_KEY: ${{ secrets.TEST_MAIL_APP_API_KEY }}
           STAGE: ${{ env.STAGE }}
-          OPENSEARCH_ENDPOINT_URL: ${{ vars.OPENSEARCH_ENDPOINT_URL }}
           OPENSEARCH_USERNAME: ${{ secrets.OPENSEARCH_USERNAME }}
           OPENSEARCH_PASSWORD: ${{ secrets.OPENSEARCH_PASSWORD }}
         run: cargo test --locked --test '*' --all-features -- --ignored --nocapture

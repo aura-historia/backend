@@ -44,14 +44,12 @@ static OPENSEARCH_CLIENT: OnceCell<opensearch::OpenSearch> = OnceCell::const_new
 pub async fn get_opensearch_client() -> &'static opensearch::OpenSearch {
     OPENSEARCH_CLIENT
         .get_or_init(|| async {
-            if std::env::var("OPENSEARCH_ENDPOINT_URL").is_err() {
-                unsafe {
-                    std::env::set_var(
-                        "OPENSEARCH_ENDPOINT_URL",
-                        get_cfn_output().opensearch_endpoint_url.clone(),
-                    )
-                };
-            }
+            unsafe {
+                std::env::set_var(
+                    "OPENSEARCH_ENDPOINT_URL",
+                    get_cfn_output().opensearch_endpoint_url.clone(),
+                )
+            };
             common::opensearch::client::load_client()
                 .await
                 .expect("shouldn't fail loading OpenSearch-Client")
@@ -172,14 +170,10 @@ pub async fn reset() {
     clear_qs(vec![
         cfn_output.send_mail_queue_url,
         cfn_output.send_mail_dead_letter_queue_url,
-        cfn_output.product_materialize_dynamodb_new_queue_url,
-        cfn_output.product_materialize_dynamodb_new_dead_letter_queue_url,
-        cfn_output.product_materialize_dynamodb_update_queue_url,
-        cfn_output.product_materialize_dynamodb_update_dead_letter_queue_url,
-        cfn_output.product_materialize_opensearch_new_queue_url,
-        cfn_output.product_materialize_opensearch_new_dead_letter_queue_url,
-        cfn_output.product_materialize_opensearch_update_queue_url,
-        cfn_output.product_materialize_opensearch_update_dead_letter_queue_url,
+        cfn_output.product_materialize_dynamodb_queue_url,
+        cfn_output.product_materialize_dynamodb_dead_letter_queue_url,
+        cfn_output.product_materialize_opensearch_queue_url,
+        cfn_output.product_materialize_opensearch_dead_letter_queue_url,
         cfn_output.product_classification_queue_url,
         cfn_output.product_classification_dead_letter_queue_url,
         cfn_output.shop_opensearch_index_queue_url,

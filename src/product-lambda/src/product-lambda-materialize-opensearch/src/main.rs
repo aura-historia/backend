@@ -7,7 +7,7 @@ use product::{
     opensearch::repository::ProductOpenSearchRepositoryImpl,
 };
 use product_classification::category::dynamodb_repository::CategoryDynamoDbRepositoryImpl;
-use product_lambda_materialize_opensearch_update::handler;
+use product_lambda_materialize_opensearch::handler;
 use tracing::info;
 
 #[tokio::main]
@@ -35,7 +35,10 @@ async fn main() -> Result<(), Error> {
     let opensearch_client = common::opensearch::client::load_client().await?;
     let opensearch_repository = ProductOpenSearchRepositoryImpl::new(&opensearch_client);
 
-    info!("Lambda cold start completed, OpenSearch-Client initialized.");
+    info!(
+        dynamoDbTableName = %dynamodb_table_name,
+        "Lambda cold start completed, clients initialized."
+    );
 
     run(service_fn(|event: LambdaEvent<SqsEvent>| async {
         handler(
