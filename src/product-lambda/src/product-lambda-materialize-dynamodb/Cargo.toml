@@ -1,5 +1,5 @@
 [package]
-name = "product-lambda-materialize-dynamodb-update"
+name = "product-lambda-materialize-dynamodb"
 version = "0.1.0"
 edition = "2024"
 
@@ -10,8 +10,13 @@ product-classification = { workspace = true }
 lambda_runtime = { workspace = true }
 aws-config = { workspace = true }
 aws-sdk-dynamodb = { workspace = true }
-aws_lambda_events = { workspace = true, features = ["sqs"] }
+aws_lambda_events = { workspace = true, features = [
+    "sqs",
+    "dynamodb",
+    "eventbridge",
+] }
 serde_json = { workspace = true }
+serde_dynamo = { workspace = true }
 tokio = { workspace = true, features = ["macros", "sync"] }
 tracing-subscriber = { workspace = true, features = ["json"] }
 tracing = { workspace = true }
@@ -20,8 +25,11 @@ once_cell = { workspace = true }
 [dev-dependencies]
 product-classification = { workspace = true, features = ["test-data"] }
 product = { workspace = true, features = ["test-data"] }
+test-api = { workspace = true, features = ["dynamodb"] }
+serial_test = { workspace = true }
 rstest = { workspace = true }
+serde = { workspace = true }
 url = { workspace = true }
-serde_dynamo = { workspace = true }
 fake = { workspace = true }
+time = { workspace = true }
 uuid = { workspace = true }

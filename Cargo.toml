@@ -104,10 +104,8 @@ product-pipeline-embed-text = { path = "src/product-pipeline/src/product-pipelin
 product-pipeline-extract-attribute = { path = "src/product-pipeline/src/product-pipeline-extract-attribute" }
 product-pipeline = { path = "src/product-pipeline" }
 product-pipeline-asg-scale-control = { path = "src/product-pipeline/src/product-pipeline-asg-scale-control" }
-product-lambda-materialize-dynamodb-new = { path = "src/product-lambda/src/product-lambda-materialize-dynamodb-new" }
-product-lambda-materialize-dynamodb-update = { path = "src/product-lambda/src/product-lambda-materialize-dynamodb-update" }
-product-lambda-materialize-opensearch-new = { path = "src/product-lambda/src/product-lambda-materialize-opensearch-new" }
-product-lambda-materialize-opensearch-update = { path = "src/product-lambda/src/product-lambda-materialize-opensearch-update" }
+product-lambda-materialize-dynamodb = { path = "src/product-lambda/src/product-lambda-materialize-dynamodb" }
+product-lambda-materialize-opensearch = { path = "src/product-lambda/src/product-lambda-materialize-opensearch" }
 product-lambda-update-notify-user = { path = "src/product-lambda/src/product-lambda-update-notify-user" }
 itertools = "0.14.0"
 lambda_runtime = "1.0.2"
