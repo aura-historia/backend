@@ -1,17 +1,11 @@
 use aws_config::BehaviorVersion;
 use lambda_runtime::{Error, LambdaEvent, run, service_fn};
 use product_pipeline_asg_scale_control::{SqsAsgComponent, handler};
-use tracing::info;
+use tracing::debug;
 
 #[tokio::main]
 async fn main() -> Result<(), Error> {
-    tracing_subscriber::fmt()
-        .json()
-        .with_max_level(tracing::Level::INFO)
-        .with_current_span(true)
-        .with_ansi(false)
-        .without_time()
-        .init();
+    common::logging::init_logging();
 
     let aws_config = aws_config::defaults(BehaviorVersion::v2026_01_12())
         .load()
@@ -50,7 +44,7 @@ async fn main() -> Result<(), Error> {
         },
     ];
 
-    info!("Lambda cold start completed, client initialized.");
+    debug!("Lambda initialized.");
 
     run(service_fn(|event: LambdaEvent<serde_json::Value>| async {
         handler(&autoscaling, &sqs, &cloudwatch, &components, event).await

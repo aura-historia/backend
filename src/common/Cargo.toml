@@ -15,6 +15,7 @@ uuid = { workspace = true, features = ["v4"] }
 thiserror = { workspace = true }
 url = { workspace = true }
 tracing = { workspace = true }
+tracing-subscriber = { workspace = true, features = ["json"] }
 itertools = { workspace = true }
 strum = { workspace = true }
 strum_macros = { workspace = true }

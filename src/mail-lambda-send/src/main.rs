@@ -6,17 +6,11 @@ use mail_core::{
     send_service::SendMailServiceImpl, ses_adapter::SesAdapterImpl,
 };
 use mail_lambda_send::handler;
-use tracing::info;
+use tracing::debug;
 
 #[tokio::main]
 async fn main() -> Result<(), Error> {
-    tracing_subscriber::fmt()
-        .json()
-        .with_max_level(tracing::Level::INFO)
-        .with_current_span(true)
-        .with_ansi(false)
-        .without_time()
-        .init();
+    common::logging::init_logging();
 
     let aws_config = aws_config::defaults(BehaviorVersion::v2026_01_12())
         .load()
@@ -45,10 +39,7 @@ async fn main() -> Result<(), Error> {
         &commit_sha,
     );
 
-    info!(
-        dynamoDbTableName = %s3_bucket_name_templates,
-        "Lambda cold start completed, client initialized."
-    );
+    debug!("Lambda initialized.");
 
     run(service_fn(|event: LambdaEvent<SqsEvent>| async {
         handler(&service, event).await

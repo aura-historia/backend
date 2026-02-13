@@ -1155,6 +1155,7 @@ dependencies = [
  "thiserror",
  "time",
  "tracing",
+ "tracing-subscriber",
  "url",
  "uuid",
 ]
@@ -2621,6 +2622,7 @@ dependencies = [
  "aws-sdk-s3",
  "aws-sdk-sesv2",
  "aws_lambda_events",
+ "common",
  "lambda_runtime",
  "mail-core",
  "serde_json",
@@ -3421,6 +3423,7 @@ dependencies = [
  "aws-sdk-autoscaling",
  "aws-sdk-cloudwatch",
  "aws-sdk-sqs",
+ "common",
  "lambda_runtime",
  "rstest",
  "serde_json",

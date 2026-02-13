@@ -4,7 +4,7 @@ use cognito::access_token_verifier_service::AccessTokenVerifierServiceImpl;
 use common::price::domain::FixedFxRate;
 use fxrate::dynamodb::record::FxRatesRecord;
 use fxrate::dynamodb::repository::{FxRateDynamoDbRepository, FxRateDynamoDbRepositoryImpl};
-use lambda_runtime::tracing::info;
+use lambda_runtime::tracing::debug;
 use lambda_runtime::{Error, LambdaEvent, run, service_fn};
 use product::dynamodb::repository::ProductDynamoDbRepositoryImpl;
 use product::opensearch::repository::ProductOpenSearchRepositoryImpl;
@@ -21,13 +21,7 @@ use tracing::{error, warn};
 
 #[tokio::main]
 async fn main() -> Result<(), Error> {
-    tracing_subscriber::fmt()
-        .json()
-        .with_max_level(tracing::Level::INFO)
-        .with_current_span(true)
-        .with_ansi(false)
-        .without_time()
-        .init();
+    common::logging::init_logging();
 
     let aws_config = aws_config::defaults(BehaviorVersion::v2026_01_12())
         .load()
@@ -87,7 +81,7 @@ async fn main() -> Result<(), Error> {
     )
     .expect("shouldn't fail creating 'AccessTokenVerifierServiceImpl'");
 
-    info!("Lambda cold start completed, client initialized.");
+    debug!("Lambda initialized.");
 
     run(service_fn(
         |event: LambdaEvent<ApiGatewayV2httpRequest>| async {
