@@ -112,7 +112,6 @@ async fn should_return_actual_search_filters_sortet_latest_for_order_desc() {
     assert_eq!(81, json["total"]);
 }
 
-
 #[localstack_test(services = [DynamoDB()])]
 async fn should_include_no_store_cache_control_header() {
     let repository =

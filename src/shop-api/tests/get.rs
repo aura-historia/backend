@@ -105,7 +105,6 @@ async fn should_200_respond_shop_for_slug() {
     assert_eq!(GetShopData::from(expected), actual)
 }
 
-
 #[localstack_test(services = [DynamoDB()])]
 async fn should_include_public_cache_control_header() {
     let repository = ShopDynamoDbRepositoryImpl::new(get_dynamodb_client().await, "table_1");

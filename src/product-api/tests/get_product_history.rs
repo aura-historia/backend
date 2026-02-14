@@ -130,7 +130,7 @@ async fn should_include_public_cache_control_header() {
 
     let record = Faker.fake::<ProductRecord>();
     let insert_res = product_repository
-        .put_product_records([record.clone()].try_into().unwrap())
+        .put_product_records([record.clone()].into())
         .await
         .unwrap();
     assert!(insert_res.unprocessed_items.unwrap_or_default().is_empty());
