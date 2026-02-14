@@ -152,7 +152,12 @@ mod tests {
         assert_eq!(200, response.status_code);
         assert_eq!(
             "public, max-age=3600, s-maxage=86400",
-            response.headers.get(CACHE_CONTROL).unwrap().to_str().unwrap()
+            response
+                .headers
+                .get(CACHE_CONTROL)
+                .unwrap()
+                .to_str()
+                .unwrap()
         );
     }
 }

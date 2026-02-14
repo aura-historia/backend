@@ -141,14 +141,17 @@ mod tests {
             .expect_view_product_history()
             .return_once(move |_, _, _, _| Box::pin(async move { Ok(vec![]) }));
 
-        let response = handle(lambda_event, &get_product_service)
-            .await
-            .unwrap();
+        let response = handle(lambda_event, &get_product_service).await.unwrap();
 
         assert_eq!(200, response.status_code);
         assert_eq!(
             "public, max-age=180, s-maxage=900",
-            response.headers.get(CACHE_CONTROL).unwrap().to_str().unwrap()
+            response
+                .headers
+                .get(CACHE_CONTROL)
+                .unwrap()
+                .to_str()
+                .unwrap()
         );
     }
 }

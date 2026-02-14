@@ -319,8 +319,8 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn should_set_cache_control_to_no_store_when_user_is_authenticated_for_get_product_similar(
-    ) {
+    async fn should_set_cache_control_to_no_store_when_user_is_authenticated_for_get_product_similar()
+     {
         let mut cognito_service = MockAccessTokenVerifierService::default();
         cognito_service
             .expect_verify_extract_user_id()
@@ -365,7 +365,12 @@ mod tests {
         assert_eq!(200, response.status_code);
         assert_eq!(
             "no-store",
-            response.headers.get(CACHE_CONTROL).unwrap().to_str().unwrap()
+            response
+                .headers
+                .get(CACHE_CONTROL)
+                .unwrap()
+                .to_str()
+                .unwrap()
         );
     }
 
@@ -402,13 +407,18 @@ mod tests {
         assert_eq!(200, response.status_code);
         assert_eq!(
             "public, max-age=180, s-maxage=900",
-            response.headers.get(CACHE_CONTROL).unwrap().to_str().unwrap()
+            response
+                .headers
+                .get(CACHE_CONTROL)
+                .unwrap()
+                .to_str()
+                .unwrap()
         );
     }
 
     #[tokio::test]
-    async fn should_set_cache_control_to_public_when_similar_products_not_computed_for_get_product_similar(
-    ) {
+    async fn should_set_cache_control_to_public_when_similar_products_not_computed_for_get_product_similar()
+     {
         let mut cognito_service = MockAccessTokenVerifierService::default();
         cognito_service
             .expect_verify_extract_user_id()
@@ -440,7 +450,12 @@ mod tests {
         assert_eq!(202, response.status_code);
         assert_eq!(
             "public, max-age=300, s-maxage=900",
-            response.headers.get(CACHE_CONTROL).unwrap().to_str().unwrap()
+            response
+                .headers
+                .get(CACHE_CONTROL)
+                .unwrap()
+                .to_str()
+                .unwrap()
         );
     }
 }

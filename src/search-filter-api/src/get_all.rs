@@ -95,7 +95,12 @@ mod tests {
         assert_eq!(200, response.status_code);
         assert_eq!(
             "no-store",
-            response.headers.get(CACHE_CONTROL).unwrap().to_str().unwrap()
+            response
+                .headers
+                .get(CACHE_CONTROL)
+                .unwrap()
+                .to_str()
+                .unwrap()
         );
     }
 }
