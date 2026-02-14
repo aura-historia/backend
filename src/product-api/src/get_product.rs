@@ -15,6 +15,7 @@ use lambda_runtime::LambdaEvent;
 use product::core::product::LocalizedProductView;
 use product::core::user_state::ProductUserState;
 use product::data::get_data::GetProductData;
+use product::data::product_state_data::ProductStateData;
 use product::data::user_state_data::ProductUserStateData;
 use product::service::get_service::GetProductService;
 use product::service::personalization_service::ProductPersonalizationService;
@@ -90,11 +91,25 @@ pub async fn handle(
                 .into(),
         };
 
+    let (cache_control_directive, cache_control_max_age, cache_control_x_max_age) =
+        if personalized_product_data.user_state.is_some() {
+            ("no-store", None, None)
+        } else if personalized_product_data.item.state == ProductStateData::Sold {
+            ("public", Some(180), Some(86400))
+        } else {
+            ("public", Some(180), Some(900))
+        };
+
     let content_language = personalized_product_data.item.title.language;
     Ok(ApiGatewayV2HttpResponseBuilder::json(200)
         .content_language(content_language)
         .e_tag(personalized_product_data.item.event_id.to_string().as_str())
         .last_modified(personalized_product_data.item.updated)
+        .cache_control(
+            cache_control_directive,
+            cache_control_max_age,
+            cache_control_x_max_age,
+        )
         .body_serde(personalized_product_data)?
         .build())
 }
@@ -107,12 +122,14 @@ mod tests {
     use common::language::data::LanguageData;
     use common::language::domain::Language;
     use common::localized::Localized;
+    use common::personalized::Personalized;
     use common::product_state::domain::ProductState;
     use common::shop_id::ShopId;
     use common::shops_product_id::ShopsProductId;
+    use common::user_id::UserId;
     use fake::Fake;
     use fake::Faker;
-    use http::header::{ACCEPT_LANGUAGE, CONTENT_LANGUAGE, ETAG, LAST_MODIFIED};
+    use http::header::{ACCEPT_LANGUAGE, CACHE_CONTROL, CONTENT_LANGUAGE, ETAG, LAST_MODIFIED};
     use lambda_runtime::LambdaEvent;
     use product::core::product::LocalizedProductView;
     use product::service::get_service::{GetProductError, MockGetProductService};
@@ -443,5 +460,245 @@ mod tests {
         .await
         .unwrap_err();
         assert_eq!(404, actual.status);
+    }
+
+    #[tokio::test]
+    async fn should_set_cache_control_to_no_store_when_user_state_present_for_get_product() {
+        let mut cognito_service = MockAccessTokenVerifierService::default();
+        cognito_service
+            .expect_verify_extract_user_id()
+            .return_once(|_| Box::pin(async { Ok(Some(UserId::new())) }));
+        let mut product_personalization_service = MockProductPersonalizationService::default();
+        product_personalization_service
+            .expect_personalize_watchlist()
+            .return_once(|_, product| {
+                use product::core::user_state::WatchlistUserState;
+                let personalized = Personalized {
+                    item: product,
+                    user_state: Some(WatchlistUserState {
+                        watching: true,
+                        notifications: false,
+                    }),
+                };
+                Box::pin(async move { Ok(personalized) })
+            });
+        let mut get_product_service = MockGetProductService::default();
+        get_product_service.expect_view_product().return_once(
+            move |shop_id, shops_product_id, _, _| {
+                let product = LocalizedProductView {
+                    product_id: Default::default(),
+                    product_slug_id: Faker.fake(),
+                    shop_slug_id: Faker.fake(),
+                    event_id: EventId::new(),
+                    shop_id: *shop_id,
+                    shops_product_id: shops_product_id.clone(),
+                    shop_name: "".into(),
+                    shop_type: fake::Faker.fake(),
+                    category_id: fake::Faker.fake(),
+                    category_name: fake::Faker.fake(),
+                    title: Localized::new(Language::En, "Native title".into()),
+                    description: None,
+                    price: None,
+                    price_estimate_min: None,
+                    price_estimate_max: None,
+                    state: ProductState::Listed,
+                    url: Url::parse("https://foo.com/boop").unwrap(),
+                    images: vec![],
+                    origin_year: None,
+                    authenticity: Default::default(),
+                    condition: Default::default(),
+                    provenance: Default::default(),
+                    restoration: Default::default(),
+                    auction_start: None,
+                    auction_end: None,
+                    created: OffsetDateTime::now_utc(),
+                    updated: OffsetDateTime::now_utc(),
+                };
+                Box::pin(async move { Ok(product) })
+            },
+        );
+        let shop_id = ShopId::new();
+        let shops_product_id = ShopsProductId::new();
+        let lambda_event = LambdaEvent {
+            payload: ApiGatewayV2httpRequestProxy::builder()
+                .http_method(http::Method::GET)
+                .route_key("GET /api/v1/shops/{shopId}/products/{shopsProductId}".to_owned())
+                .path_parameter("shopId", shop_id)
+                .path_parameter("shopsProductId", shops_product_id)
+                .header("Authorization", "Bearer token")
+                .build(),
+            context: Default::default(),
+        };
+
+        let response = handle(
+            lambda_event,
+            &get_product_service,
+            &cognito_service,
+            &product_personalization_service,
+        )
+        .await
+        .unwrap();
+
+        assert_eq!(200, response.status_code);
+        assert_eq!(
+            "no-store",
+            response
+                .headers
+                .get(CACHE_CONTROL)
+                .unwrap()
+                .to_str()
+                .unwrap()
+        );
+    }
+
+    #[tokio::test]
+    async fn should_set_cache_control_with_long_s_maxage_when_product_is_sold_for_get_product() {
+        let mut cognito_service = MockAccessTokenVerifierService::default();
+        cognito_service
+            .expect_verify_extract_user_id()
+            .return_once(|_| Box::pin(async { Ok(None) }));
+        let product_personalization_service = MockProductPersonalizationService::default();
+        let mut get_product_service = MockGetProductService::default();
+        get_product_service.expect_view_product().return_once(
+            move |shop_id, shops_product_id, _, _| {
+                let product = LocalizedProductView {
+                    product_id: Default::default(),
+                    product_slug_id: Faker.fake(),
+                    shop_slug_id: Faker.fake(),
+                    event_id: EventId::new(),
+                    shop_id: *shop_id,
+                    shops_product_id: shops_product_id.clone(),
+                    shop_name: "".into(),
+                    shop_type: fake::Faker.fake(),
+                    category_id: fake::Faker.fake(),
+                    category_name: fake::Faker.fake(),
+                    title: Localized::new(Language::En, "Native title".into()),
+                    description: None,
+                    price: None,
+                    price_estimate_min: None,
+                    price_estimate_max: None,
+                    state: ProductState::Sold,
+                    url: Url::parse("https://foo.com/boop").unwrap(),
+                    images: vec![],
+                    origin_year: None,
+                    authenticity: Default::default(),
+                    condition: Default::default(),
+                    provenance: Default::default(),
+                    restoration: Default::default(),
+                    auction_start: None,
+                    auction_end: None,
+                    created: OffsetDateTime::now_utc(),
+                    updated: OffsetDateTime::now_utc(),
+                };
+                Box::pin(async move { Ok(product) })
+            },
+        );
+        let shop_id = ShopId::new();
+        let shops_product_id = ShopsProductId::new();
+        let lambda_event = LambdaEvent {
+            payload: ApiGatewayV2httpRequestProxy::builder()
+                .http_method(http::Method::GET)
+                .route_key("GET /api/v1/shops/{shopId}/products/{shopsProductId}".to_owned())
+                .path_parameter("shopId", shop_id)
+                .path_parameter("shopsProductId", shops_product_id)
+                .build(),
+            context: Default::default(),
+        };
+
+        let response = handle(
+            lambda_event,
+            &get_product_service,
+            &cognito_service,
+            &product_personalization_service,
+        )
+        .await
+        .unwrap();
+
+        assert_eq!(200, response.status_code);
+        assert_eq!(
+            "public, max-age=180, s-maxage=86400",
+            response
+                .headers
+                .get(CACHE_CONTROL)
+                .unwrap()
+                .to_str()
+                .unwrap()
+        );
+    }
+
+    #[tokio::test]
+    async fn should_set_cache_control_with_standard_s_maxage_when_product_is_not_sold_for_get_product()
+     {
+        let mut cognito_service = MockAccessTokenVerifierService::default();
+        cognito_service
+            .expect_verify_extract_user_id()
+            .return_once(|_| Box::pin(async { Ok(None) }));
+        let product_personalization_service = MockProductPersonalizationService::default();
+        let mut get_product_service = MockGetProductService::default();
+        get_product_service.expect_view_product().return_once(
+            move |shop_id, shops_product_id, _, _| {
+                let product = LocalizedProductView {
+                    product_id: Default::default(),
+                    product_slug_id: Faker.fake(),
+                    shop_slug_id: Faker.fake(),
+                    event_id: EventId::new(),
+                    shop_id: *shop_id,
+                    shops_product_id: shops_product_id.clone(),
+                    shop_name: "".into(),
+                    shop_type: fake::Faker.fake(),
+                    category_id: fake::Faker.fake(),
+                    category_name: fake::Faker.fake(),
+                    title: Localized::new(Language::En, "Native title".into()),
+                    description: None,
+                    price: None,
+                    price_estimate_min: None,
+                    price_estimate_max: None,
+                    state: ProductState::Listed,
+                    url: Url::parse("https://foo.com/boop").unwrap(),
+                    images: vec![],
+                    origin_year: None,
+                    authenticity: Default::default(),
+                    condition: Default::default(),
+                    provenance: Default::default(),
+                    restoration: Default::default(),
+                    auction_start: None,
+                    auction_end: None,
+                    created: OffsetDateTime::now_utc(),
+                    updated: OffsetDateTime::now_utc(),
+                };
+                Box::pin(async move { Ok(product) })
+            },
+        );
+        let shop_id = ShopId::new();
+        let shops_product_id = ShopsProductId::new();
+        let lambda_event = LambdaEvent {
+            payload: ApiGatewayV2httpRequestProxy::builder()
+                .http_method(http::Method::GET)
+                .route_key("GET /api/v1/shops/{shopId}/products/{shopsProductId}".to_owned())
+                .path_parameter("shopId", shop_id)
+                .path_parameter("shopsProductId", shops_product_id)
+                .build(),
+            context: Default::default(),
+        };
+
+        let response = handle(
+            lambda_event,
+            &get_product_service,
+            &cognito_service,
+            &product_personalization_service,
+        )
+        .await
+        .unwrap();
+
+        assert_eq!(200, response.status_code);
+        assert_eq!(
+            "public, max-age=180, s-maxage=900",
+            response
+                .headers
+                .get(CACHE_CONTROL)
+                .unwrap()
+                .to_str()
+                .unwrap()
+        );
     }
 }

@@ -160,6 +160,32 @@ impl ApiGatewayV2HttpResponseBuilder {
         self
     }
 
+    pub fn cache_control(
+        mut self,
+        directive: &'static str,
+        max_age: Option<u64>,
+        s_max_age: Option<u64>,
+    ) -> Self {
+        let mut parts = vec![directive.to_string()];
+
+        if let Some(age) = max_age {
+            parts.push(format!("max-age={age}"));
+        }
+
+        if let Some(age) = s_max_age {
+            parts.push(format!("s-maxage={age}"));
+        }
+
+        let val = parts.join(", ");
+
+        self.headers.insert(
+            http::header::CACHE_CONTROL,
+            HeaderValue::from_str(&val).expect("invalid Cache-Control header value"),
+        );
+
+        self
+    }
+
     pub fn body<T: Into<Body>>(mut self, body: T) -> Self {
         self.body = Some(body.into());
         self
@@ -278,5 +304,31 @@ pub mod tests {
         let actual = response.headers.get(LOCATION).unwrap().to_str().unwrap();
 
         assert_eq!(&expected_location, actual);
+    }
+
+    #[rstest::rstest]
+    #[case("public", Some(60), Some(900), "public, max-age=60, s-maxage=900")]
+    #[case("public", Some(120), None, "public, max-age=120")]
+    #[case("public", None, Some(300), "public, s-maxage=300")]
+    #[case("no-store", None, None, "no-store")]
+    #[trace]
+    fn should_build_cache_control_correctly(
+        #[case] directive: &'static str,
+        #[case] max_age: Option<u64>,
+        #[case] s_max_age: Option<u64>,
+        #[case] expected: &'static str,
+    ) {
+        let response = ApiGatewayV2HttpResponseBuilder::new(200)
+            .cache_control(directive, max_age, s_max_age)
+            .build();
+
+        let actual = response
+            .headers
+            .get(http::header::CACHE_CONTROL)
+            .unwrap()
+            .to_str()
+            .unwrap();
+
+        assert_eq!(expected, actual);
     }
 }

@@ -68,6 +68,7 @@ pub async fn handle(
         .map_item(WatchlistProductDataView::from);
 
     Ok(ApiGatewayV2HttpResponseBuilder::json(200)
+        .cache_control("no-store", None, None)
         .body_serde(TimeCursoredData::from(products))?
         .build())
 }
@@ -77,6 +78,7 @@ mod tests {
     use super::handle;
     use common::user_id::UserId;
     use fake::{Fake, Faker};
+    use http::header::CACHE_CONTROL;
     use lambda_runtime::LambdaEvent;
     use product::watchlist::service::product_watchlist_service::MockProductWatchListService;
     use test_api::ApiGatewayV2httpRequestProxy;
@@ -126,5 +128,40 @@ mod tests {
 
         let actual = handle(lambda_event, &service).await.unwrap_err();
         assert_eq!(401, actual.status);
+    }
+
+    #[tokio::test]
+    async fn should_set_cache_control_to_no_store_for_get_watchlist() {
+        let mut service = MockProductWatchListService::default();
+        service
+            .expect_view_watchlist()
+            .return_once(|_, _, _, _, _| Box::pin(async { Ok(Faker.fake()) }));
+
+        let lambda_event = LambdaEvent {
+            payload: ApiGatewayV2httpRequestProxy::builder()
+                .http_method(http::Method::GET)
+                .jwt_claim("sub", UserId::new())
+                .header("accept-language", "de")
+                .query_string_parameter("currency", "EUR")
+                .query_string_parameter("sort", "created")
+                .query_string_parameter("order", "asc")
+                .query_string_parameter("from", OffsetDateTime::now_utc().format(&Rfc3339).unwrap())
+                .query_string_parameter("size", "10")
+                .build(),
+            context: Default::default(),
+        };
+
+        let response = handle(lambda_event, &service).await.unwrap();
+
+        assert_eq!(200, response.status_code);
+        assert_eq!(
+            "no-store",
+            response
+                .headers
+                .get(CACHE_CONTROL)
+                .unwrap()
+                .to_str()
+                .unwrap()
+        );
     }
 }

@@ -46,6 +46,7 @@ pub async fn handle(
 
     Ok(ApiGatewayV2HttpResponseBuilder::json(200)
         .last_modified(shop_data.updated)
+        .cache_control("public", Some(3600), Some(86400))
         .body_serde(shop_data)?
         .build())
 }
@@ -56,7 +57,7 @@ mod tests {
     use common::domain::Domain;
     use common::shop_id::ShopId;
     use fake::{Fake, Faker};
-    use http::header::LAST_MODIFIED;
+    use http::header::{CACHE_CONTROL, LAST_MODIFIED};
     use lambda_runtime::LambdaEvent;
     use shop::core::shop::Shop;
     use shop::service::command_service::MockCommandShopService;
@@ -235,5 +236,43 @@ mod tests {
         .await
         .unwrap_err();
         assert_eq!(404, response.status);
+    }
+
+    #[tokio::test]
+    async fn should_set_cache_control_to_public_with_long_max_ages_for_get_shop() {
+        let mut service = MockGetShopService::default();
+        service.expect_find_shop().return_once(move |_| {
+            let shop: Shop = Faker.fake();
+            Box::pin(async move { Ok(shop) })
+        });
+        let shop_id = ShopId::new();
+        let lambda_event = LambdaEvent {
+            payload: ApiGatewayV2httpRequestProxy::builder()
+                .http_method(http::Method::GET)
+                .route_key("GET /api/v1/shops/{shopId}")
+                .path_parameter("shopId", shop_id)
+                .build(),
+            context: Default::default(),
+        };
+
+        let response = handle(
+            lambda_event,
+            &service,
+            &MockQueryShopService::default(),
+            &MockCommandShopService::default(),
+        )
+        .await
+        .unwrap();
+
+        assert_eq!(200, response.status_code);
+        assert_eq!(
+            "public, max-age=3600, s-maxage=86400",
+            response
+                .headers
+                .get(CACHE_CONTROL)
+                .unwrap()
+                .to_str()
+                .unwrap()
+        );
     }
 }

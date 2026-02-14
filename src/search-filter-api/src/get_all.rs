@@ -38,6 +38,7 @@ pub async fn handle(
     };
 
     Ok(ApiGatewayV2HttpResponseBuilder::json(200)
+        .cache_control("no-store", None, None)
         .body_serde(collection)?
         .build())
 }
@@ -46,6 +47,7 @@ pub async fn handle(
 mod tests {
     use crate::handle;
     use common::user_id::UserId;
+    use http::header::CACHE_CONTROL;
     use lambda_runtime::LambdaEvent;
     use search_filter::core::user_search_filter::UserSearchFilter;
     use search_filter::service::user_search_filter_service::MockUserSearchFilterService;
@@ -70,5 +72,35 @@ mod tests {
         let response = handle(lambda_event, &service).await.unwrap();
 
         assert_eq!(200, response.status_code);
+    }
+
+    #[tokio::test]
+    async fn should_set_cache_control_to_no_store_for_get_all_search_filters() {
+        let lambda_event = LambdaEvent {
+            payload: ApiGatewayV2httpRequestProxy::builder()
+                .http_method(http::Method::GET)
+                .route_key("GET /api/v1/me/search-filters")
+                .jwt_claim("sub", UserId::new())
+                .build(),
+            context: Default::default(),
+        };
+
+        let mut service = MockUserSearchFilterService::default();
+        service
+            .expect_find_user_search_filters()
+            .return_once(|_, _| Box::pin(async { Ok(fake::vec![UserSearchFilter; 42]) }));
+
+        let response = handle(lambda_event, &service).await.unwrap();
+
+        assert_eq!(200, response.status_code);
+        assert_eq!(
+            "no-store",
+            response
+                .headers
+                .get(CACHE_CONTROL)
+                .unwrap()
+                .to_str()
+                .unwrap()
+        );
     }
 }
