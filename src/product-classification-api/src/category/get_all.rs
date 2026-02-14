@@ -81,4 +81,37 @@ mod tests {
 
         assert_eq!(200, response.status_code);
     }
+
+    #[tokio::test]
+    async fn should_include_public_cache_control_header_for_get_all() {
+        let mut service = MockCategoryService::default();
+        service
+            .expect_view_categories()
+            .return_once(move |languages| {
+                let categories: Vec<Category> = fake::vec![Category; 3];
+                let localized = categories
+                    .into_iter()
+                    .map(|c| c.localized(languages))
+                    .collect();
+                Box::pin(async move { Ok(localized) })
+            });
+        let lambda_event = LambdaEvent {
+            payload: ApiGatewayV2httpRequestProxy::builder()
+                .http_method(http::Method::GET)
+                .route_key("GET /api/v1/categories")
+                .build(),
+            context: Default::default(),
+        };
+
+        let response = handle(lambda_event, &service).await.unwrap();
+
+        assert_eq!(200, response.status_code);
+        let cache_control = response
+            .headers
+            .get(http::header::CACHE_CONTROL)
+            .expect("Cache-Control header should be present")
+            .to_str()
+            .unwrap();
+        assert_eq!("public, max-age=3600, s-maxage=86400", cache_control);
+    }
 }

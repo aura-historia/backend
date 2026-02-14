@@ -723,3 +723,108 @@ async fn should_respond_200_for_path_params_slugs() {
     assert_eq!(record.shop_id, actual.item.shop_id);
     assert_eq!(record.shops_product_id, actual.item.shops_product_id);
 }
+
+#[localstack_test(services = [DynamoDB()])]
+async fn should_include_public_cache_control_header_when_anonymous() {
+    let ddb_client = get_dynamodb_client().await;
+    let product_repository = ProductDynamoDbRepositoryImpl::new(ddb_client, "table_1");
+    let watchlist_repository = WatchlistProductDynamoDbRepositoryImpl::new(ddb_client, "table_1");
+    let get_product_service = GetProductServiceImpl::new(&product_repository);
+    let product_personalization_service =
+        ProductPersonalizationServiceImpl::new(&watchlist_repository);
+    let mut access_token_verifier_service = MockAccessTokenVerifierService::default();
+    access_token_verifier_service
+        .expect_verify_extract_user_id()
+        .return_once(|_| Box::pin(async { Ok(None) }));
+
+    let record = Faker.fake::<ProductRecord>();
+    let insert_res = product_repository
+        .put_product_records([record.clone()].into())
+        .await
+        .unwrap();
+    assert!(insert_res.unprocessed_items.unwrap().is_empty());
+    tokio::time::sleep(Duration::from_secs(1)).await;
+
+    let lambda_event = LambdaEvent {
+        payload: ApiGatewayV2httpRequestProxy::builder()
+            .http_method(http::Method::GET)
+            .route_key("GET /api/v1/shops/{shopId}/products/{shopsProductId}".to_owned())
+            .path_parameter("shopId", record.shop_id)
+            .path_parameter("shopsProductId", record.shops_product_id)
+            .build(),
+        context: Default::default(),
+    };
+    let response = handle(
+        lambda_event,
+        &get_product_service,
+        &access_token_verifier_service,
+        &product_personalization_service,
+    )
+    .await
+    .unwrap();
+
+    assert_eq!(200, response.status_code);
+    let cache_control = response
+        .headers
+        .get(http::header::CACHE_CONTROL)
+        .expect("Cache-Control header should be present")
+        .to_str()
+        .unwrap();
+    assert_eq!("public, max-age=180, s-maxage=900", cache_control);
+}
+
+#[localstack_test(services = [DynamoDB()])]
+async fn should_include_no_store_cache_control_header_when_authenticated() {
+    let ddb_client = get_dynamodb_client().await;
+    let user_repository = UserDynamoDbRepositoryImpl::new(ddb_client, "table_1");
+    let product_repository = ProductDynamoDbRepositoryImpl::new(ddb_client, "table_1");
+    let watchlist_repository = WatchlistProductDynamoDbRepositoryImpl::new(ddb_client, "table_1");
+    let get_product_service = GetProductServiceImpl::new(&product_repository);
+    let product_personalization_service =
+        ProductPersonalizationServiceImpl::new(&watchlist_repository);
+
+    let user_record = Faker.fake::<UserRecord>();
+    let _ = user_repository
+        .put_user_record(user_record.clone())
+        .await
+        .unwrap();
+    let mut access_token_verifier_service = MockAccessTokenVerifierService::default();
+    access_token_verifier_service
+        .expect_verify_extract_user_id()
+        .return_once(move |_| Box::pin(async move { Ok(Some(user_record.user_id)) }));
+
+    let record = Faker.fake::<ProductRecord>();
+    let insert_res = product_repository
+        .put_product_records([record.clone()].into())
+        .await
+        .unwrap();
+    assert!(insert_res.unprocessed_items.unwrap().is_empty());
+    tokio::time::sleep(Duration::from_secs(1)).await;
+
+    let lambda_event = LambdaEvent {
+        payload: ApiGatewayV2httpRequestProxy::builder()
+            .http_method(http::Method::GET)
+            .route_key("GET /api/v1/shops/{shopId}/products/{shopsProductId}".to_owned())
+            .path_parameter("shopId", record.shop_id)
+            .path_parameter("shopsProductId", record.shops_product_id)
+            .build(),
+        context: Default::default(),
+    };
+    let response = handle(
+        lambda_event,
+        &get_product_service,
+        &access_token_verifier_service,
+        &product_personalization_service,
+    )
+    .await
+    .unwrap();
+
+    assert_eq!(200, response.status_code);
+    let cache_control = response
+        .headers
+        .get(http::header::CACHE_CONTROL)
+        .expect("Cache-Control header should be present")
+        .to_str()
+        .unwrap();
+    assert_eq!("no-store", cache_control);
+}

@@ -1492,3 +1492,214 @@ async fn should_respond_200_and_respect_accept_language_header(
             .all(|actual| actual.item.title.language == expected_title_lang.into())
     );
 }
+
+#[localstack_test(services = [OpenSearch(), DynamoDB()])]
+async fn should_include_public_cache_control_header_when_no_embeddings_for_anon() {
+    let product_dynamodb_repository =
+        ProductDynamoDbRepositoryImpl::new(get_dynamodb_client().await, "table_1");
+    let watchlist_repository =
+        WatchlistProductDynamoDbRepositoryImpl::new(get_dynamodb_client().await, "table_1");
+    let product_opensearch_repository =
+        ProductOpenSearchRepositoryImpl::new(get_opensearch_client().await);
+    let product_personalization_service =
+        ProductPersonalizationServiceImpl::new(&watchlist_repository);
+    let semantic_search_service = SemanticSearchServiceImpl::new(
+        &product_dynamodb_repository,
+        &product_opensearch_repository,
+    );
+    let mut cognito_service = MockAccessTokenVerifierService::default();
+    cognito_service
+        .expect_verify_extract_user_id()
+        .return_once(|_| Box::pin(async { Ok(None) }));
+
+    let mut product_record: ProductRecord = Faker.fake();
+    product_record.text_embedding = None;
+    let ddb_insert_res = product_dynamodb_repository
+        .put_product_records([product_record.clone()].into())
+        .await
+        .unwrap();
+    assert!(
+        ddb_insert_res
+            .unprocessed_items
+            .unwrap_or_default()
+            .is_empty()
+    );
+
+    let lambda_event = LambdaEvent {
+        payload: ApiGatewayV2httpRequestProxy::builder()
+            .http_method(http::Method::GET)
+            .path_parameter("shopId", product_record.shop_id)
+            .path_parameter("shopsProductId", product_record.shops_product_id.clone())
+            .build(),
+        context: Default::default(),
+    };
+
+    let response = handle(
+        lambda_event,
+        &semantic_search_service,
+        &cognito_service,
+        &product_personalization_service,
+    )
+    .await
+    .unwrap();
+    assert_eq!(202, response.status_code);
+    let cache_control = response
+        .headers
+        .get(http::header::CACHE_CONTROL)
+        .expect("Cache-Control header should be present")
+        .to_str()
+        .unwrap();
+    assert_eq!("public, max-age=300, s-maxage=900", cache_control);
+}
+
+#[localstack_test(services = [OpenSearch(), DynamoDB()])]
+async fn should_include_public_cache_control_header_when_anonymous() {
+    let product_dynamodb_repository =
+        ProductDynamoDbRepositoryImpl::new(get_dynamodb_client().await, "table_1");
+    let watchlist_repository =
+        WatchlistProductDynamoDbRepositoryImpl::new(get_dynamodb_client().await, "table_1");
+    let product_opensearch_repository =
+        ProductOpenSearchRepositoryImpl::new(get_opensearch_client().await);
+    let product_personalization_service =
+        ProductPersonalizationServiceImpl::new(&watchlist_repository);
+    let semantic_search_service = SemanticSearchServiceImpl::new(
+        &product_dynamodb_repository,
+        &product_opensearch_repository,
+    );
+    let mut cognito_service = MockAccessTokenVerifierService::default();
+    cognito_service
+        .expect_verify_extract_user_id()
+        .return_once(|_| Box::pin(async { Ok(None) }));
+
+    let mut product_record: ProductRecord = Faker.fake();
+    product_record.text_embedding = Some(EXAMPLE_EMBEDDING.into());
+    let ddb_insert_res = product_dynamodb_repository
+        .put_product_records([product_record.clone()].into())
+        .await
+        .unwrap();
+    assert!(
+        ddb_insert_res
+            .unprocessed_items
+            .unwrap_or_default()
+            .is_empty()
+    );
+
+    let product_document: ProductDocument = product_record.clone().into();
+    let mut product_documents = fake::vec![ProductDocument; 10];
+    for doc in &mut product_documents {
+        doc.text_embedding = Some(EXAMPLE_EMBEDDING.into());
+    }
+    product_documents.push(product_document);
+    let os_insert_res = product_opensearch_repository
+        .create_product_documents(product_documents.clone())
+        .await
+        .unwrap();
+    assert!(!os_insert_res.errors);
+
+    refresh_index("products").await;
+    tokio::time::sleep(Duration::from_secs(10)).await;
+
+    let lambda_event = LambdaEvent {
+        payload: ApiGatewayV2httpRequestProxy::builder()
+            .http_method(http::Method::GET)
+            .path_parameter("shopId", product_record.shop_id)
+            .path_parameter("shopsProductId", product_record.shops_product_id.clone())
+            .build(),
+        context: Default::default(),
+    };
+
+    let response = handle(
+        lambda_event,
+        &semantic_search_service,
+        &cognito_service,
+        &product_personalization_service,
+    )
+    .await
+    .unwrap();
+    assert_eq!(200, response.status_code);
+    let cache_control = response
+        .headers
+        .get(http::header::CACHE_CONTROL)
+        .expect("Cache-Control header should be present")
+        .to_str()
+        .unwrap();
+    assert_eq!("public, max-age=180, s-maxage=900", cache_control);
+}
+
+#[localstack_test(services = [OpenSearch(), DynamoDB()])]
+async fn should_include_no_store_cache_control_header_when_authenticated() {
+    let user_record = Faker.fake::<UserRecord>();
+    let user_id = user_record.user_id;
+    let product_dynamodb_repository =
+        ProductDynamoDbRepositoryImpl::new(get_dynamodb_client().await, "table_1");
+    let watchlist_repository =
+        WatchlistProductDynamoDbRepositoryImpl::new(get_dynamodb_client().await, "table_1");
+    let product_opensearch_repository =
+        ProductOpenSearchRepositoryImpl::new(get_opensearch_client().await);
+    let product_personalization_service =
+        ProductPersonalizationServiceImpl::new(&watchlist_repository);
+    let semantic_search_service = SemanticSearchServiceImpl::new(
+        &product_dynamodb_repository,
+        &product_opensearch_repository,
+    );
+    let mut cognito_service = MockAccessTokenVerifierService::default();
+    cognito_service
+        .expect_verify_extract_user_id()
+        .return_once(move |_| Box::pin(async move { Ok(Some(user_id)) }));
+    let user_repository = UserDynamoDbRepositoryImpl::new(get_dynamodb_client().await, "table_1");
+
+    let _ = user_repository.put_user_record(user_record).await.unwrap();
+
+    let mut product_record: ProductRecord = Faker.fake();
+    product_record.text_embedding = Some(EXAMPLE_EMBEDDING.into());
+    let ddb_insert_res = product_dynamodb_repository
+        .put_product_records([product_record.clone()].into())
+        .await
+        .unwrap();
+    assert!(
+        ddb_insert_res
+            .unprocessed_items
+            .unwrap_or_default()
+            .is_empty()
+    );
+
+    let product_document: ProductDocument = product_record.clone().into();
+    let mut product_documents = fake::vec![ProductDocument; 10];
+    for doc in &mut product_documents {
+        doc.text_embedding = Some(EXAMPLE_EMBEDDING.into());
+    }
+    product_documents.push(product_document);
+    let os_insert_res = product_opensearch_repository
+        .create_product_documents(product_documents.clone())
+        .await
+        .unwrap();
+    assert!(!os_insert_res.errors);
+    refresh_index("products").await;
+    tokio::time::sleep(Duration::from_secs(10)).await;
+
+    let lambda_event = LambdaEvent {
+        payload: ApiGatewayV2httpRequestProxy::builder()
+            .http_method(http::Method::GET)
+            .path_parameter("shopId", product_record.shop_id)
+            .path_parameter("shopsProductId", product_record.shops_product_id.clone())
+            .build(),
+        context: Default::default(),
+    };
+
+    let response = handle(
+        lambda_event,
+        &semantic_search_service,
+        &cognito_service,
+        &product_personalization_service,
+    )
+    .await
+    .unwrap();
+    assert_eq!(200, response.status_code);
+    let cache_control = response
+        .headers
+        .get(http::header::CACHE_CONTROL)
+        .expect("Cache-Control header should be present")
+        .to_str()
+        .unwrap();
+    assert_eq!("no-store", cache_control);
+}

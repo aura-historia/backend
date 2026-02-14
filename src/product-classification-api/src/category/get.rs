@@ -126,4 +126,38 @@ mod tests {
 
         assert_eq!(404, response.status);
     }
+
+    #[tokio::test]
+    async fn should_include_public_cache_control_header_for_get_category() {
+        let timestamp = datetime!(2020-01-01 0:00 UTC);
+        let mut service = MockCategoryService::default();
+        service
+            .expect_view_category()
+            .return_once(move |_, languages| {
+                let mut category: Category = Faker.fake();
+                category.updated = timestamp;
+                let localized = category.localized(languages);
+                Box::pin(async move { Ok(localized) })
+            });
+        let category_id: CategoryId = "test-category".into();
+        let lambda_event = LambdaEvent {
+            payload: ApiGatewayV2httpRequestProxy::builder()
+                .http_method(http::Method::GET)
+                .route_key("GET /api/v1/categories/{categoryId}")
+                .path_parameter("categoryId", category_id.to_string())
+                .build(),
+            context: Default::default(),
+        };
+
+        let response = handle(lambda_event, &service).await.unwrap();
+
+        assert_eq!(200, response.status_code);
+        let cache_control = response
+            .headers
+            .get(http::header::CACHE_CONTROL)
+            .expect("Cache-Control header should be present")
+            .to_str()
+            .unwrap();
+        assert_eq!("public, max-age=3600, s-maxage=86400", cache_control);
+    }
 }

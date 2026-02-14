@@ -682,3 +682,68 @@ async fn should_respond_200_and_respect_accept_language_header(
                 == expected_description_lang.into())
     );
 }
+
+#[localstack_test(services = [DynamoDB()])]
+async fn should_include_no_store_cache_control_header() {
+    let client = get_dynamodb_client().await;
+    let user_repository = UserDynamoDbRepositoryImpl::new(client, "table_1");
+    let product_repository = ProductDynamoDbRepositoryImpl::new(client, "table_1");
+    let watchlist_repository = WatchlistProductDynamoDbRepositoryImpl::new(client, "table_1");
+    let get_product_service = GetProductServiceImpl::new(&product_repository);
+    let service = ProductWatchListServiceImpl::new(
+        &watchlist_repository,
+        &user_repository,
+        &product_repository,
+        &get_product_service,
+    );
+
+    let product_records = fake::vec![ProductRecord; 5];
+    let put_res = product_repository
+        .put_product_records(product_records.clone().try_into().unwrap())
+        .await
+        .unwrap();
+    assert!(put_res.unprocessed_items.unwrap_or_default().is_empty());
+
+    let user_id = UserId::new();
+    for product_record in product_records.clone() {
+        let created = OffsetDateTime::now_utc();
+        let watchlist_record = WatchlistProductRecord {
+            pk: mk_pk(&user_id),
+            sk: mk_sk(&product_record.shop_id, &product_record.shops_product_id),
+            lsi1_sk: mk_lsi1_sk(&created).unwrap(),
+            gsi1_pk: None,
+            gsi1_sk: None,
+            user_id,
+            product_id: product_record.product_id,
+            shop_id: product_record.shop_id,
+            shops_product_id: product_record.shops_product_id,
+            notifications: false,
+            user_record: Faker.fake(),
+            created,
+            updated: created,
+        };
+        watchlist_repository
+            .put_watchlist_record(watchlist_record)
+            .await
+            .unwrap();
+    }
+
+    let lambda_event = LambdaEvent {
+        payload: ApiGatewayV2httpRequestProxy::builder()
+            .http_method(http::Method::GET)
+            .jwt_claim("sub", user_id)
+            .query_string_parameter("currency", "EUR")
+            .build(),
+        context: Default::default(),
+    };
+
+    let response = handle(lambda_event, &service).await.unwrap();
+    assert_eq!(200, response.status_code);
+    let cache_control = response
+        .headers
+        .get(http::header::CACHE_CONTROL)
+        .expect("Cache-Control header should be present")
+        .to_str()
+        .unwrap();
+    assert_eq!("no-store", cache_control);
+}

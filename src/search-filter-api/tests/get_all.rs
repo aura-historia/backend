@@ -111,3 +111,33 @@ async fn should_return_actual_search_filters_sortet_latest_for_order_desc() {
     assert_eq!(81, json["size"]);
     assert_eq!(81, json["total"]);
 }
+
+
+#[localstack_test(services = [DynamoDB()])]
+async fn should_include_no_store_cache_control_header() {
+    let repository =
+        UserSearchFilterDynamoDbRepositoryImpl::new(get_dynamodb_client().await, "table_1");
+    let service = UserSearchFilterServiceImpl::new(&repository);
+
+    let user_id = UserId::new();
+    let lambda_event = LambdaEvent {
+        payload: ApiGatewayV2httpRequestProxy::builder()
+            .http_method(http::Method::GET)
+            .route_key("GET /api/v1/me/search-filters")
+            .query_string_parameter("sort", "created")
+            .query_string_parameter("order", "asc")
+            .jwt_claim("sub", user_id)
+            .build(),
+        context: Default::default(),
+    };
+
+    let response = handle(lambda_event, &service).await.unwrap();
+    assert_eq!(200, response.status_code);
+    let cache_control = response
+        .headers
+        .get(http::header::CACHE_CONTROL)
+        .expect("Cache-Control header should be present")
+        .to_str()
+        .unwrap();
+    assert_eq!("no-store", cache_control);
+}

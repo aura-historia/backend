@@ -121,3 +121,70 @@ async fn should_respond_200() {
     assert_eq!(event_2_id.to_string(), history[1]["eventId"]);
     assert_eq!("STATE_REMOVED", history[1]["eventType"]);
 }
+
+#[localstack_test(services = [DynamoDB()])]
+async fn should_include_public_cache_control_header() {
+    let ddb_client = get_dynamodb_client().await;
+    let product_repository = ProductDynamoDbRepositoryImpl::new(ddb_client, "table_1");
+    let get_product_service = GetProductServiceImpl::new(&product_repository);
+
+    let record = Faker.fake::<ProductRecord>();
+    let insert_res = product_repository
+        .put_product_records([record.clone()].try_into().unwrap())
+        .await
+        .unwrap();
+    assert!(insert_res.unprocessed_items.unwrap_or_default().is_empty());
+    tokio::time::sleep(Duration::from_secs(1)).await;
+
+    let event_1_id = EventId::new();
+    let event_1_price = Price::new(1000u64.into(), Currency::Eur);
+    let event_1 = Event {
+        aggregate_id: record.product_id,
+        event_id: event_1_id,
+        timestamp: SystemTime::now().into(),
+        payload: ProductEventPayload::ProductDomainEvent(ProductDomainEventPayload::PriceDropped(
+            ProductPriceChangeDomainEventPayload {
+                shop_id: record.shop_id,
+                shops_product_id: record.shops_product_id.clone(),
+                new_native_price: event_1_price,
+                new_other_price: FixedFxRate()
+                    .exchange_all(event_1_price.currency, event_1_price.monetary_amount)
+                    .unwrap(),
+                old_native_price: Price {
+                    monetary_amount: 100000u64.into(),
+                    currency: Currency::Eur,
+                },
+                old_other_price: FixedFxRate()
+                    .exchange_all(Currency::Eur, 100000u64.into())
+                    .unwrap(),
+            },
+        )),
+    };
+    let insert_res = product_repository
+        .put_product_event_records([event_1.clone().try_into().unwrap()].into())
+        .await
+        .unwrap();
+    assert!(insert_res.unprocessed_items.unwrap_or_default().is_empty());
+    tokio::time::sleep(Duration::from_secs(1)).await;
+
+    let lambda_event = LambdaEvent {
+        payload: ApiGatewayV2httpRequestProxy::builder()
+            .http_method(http::Method::GET)
+            .route_key("GET /api/v1/shops/{shopId}/products/{shopsProductId}/history".to_owned())
+            .path_parameter("shopId", record.shop_id)
+            .path_parameter("shopsProductId", record.shops_product_id)
+            .query_string_parameter("currency", "USD")
+            .build(),
+        context: Default::default(),
+    };
+    let response = handle(lambda_event, &get_product_service).await.unwrap();
+
+    assert_eq!(200, response.status_code);
+    let cache_control = response
+        .headers
+        .get(http::header::CACHE_CONTROL)
+        .expect("Cache-Control header should be present")
+        .to_str()
+        .unwrap();
+    assert_eq!("public, max-age=180, s-maxage=900", cache_control);
+}

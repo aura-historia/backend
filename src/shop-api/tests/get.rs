@@ -104,3 +104,39 @@ async fn should_200_respond_shop_for_slug() {
     assert_eq!(200, response.status_code);
     assert_eq!(GetShopData::from(expected), actual)
 }
+
+
+#[localstack_test(services = [DynamoDB()])]
+async fn should_include_public_cache_control_header() {
+    let repository = ShopDynamoDbRepositoryImpl::new(get_dynamodb_client().await, "table_1");
+    let get_service = GetShopServiceImpl::new(&repository);
+    let command_service = CommandShopServiceImpl::new(&repository);
+
+    let create_cmd = Faker.fake();
+    let expected = command_service.create(create_cmd).await.unwrap();
+    let lambda_event = LambdaEvent {
+        payload: ApiGatewayV2httpRequestProxy::builder()
+            .http_method(http::Method::GET)
+            .route_key("GET /api/v1/shops/{shopId}")
+            .path_parameter("shopId", expected.shop_id)
+            .build(),
+        context: Default::default(),
+    };
+
+    let response = handle(
+        lambda_event,
+        &get_service,
+        &MockQueryShopService::default(),
+        &MockCommandShopService::default(),
+    )
+    .await
+    .unwrap();
+    assert_eq!(200, response.status_code);
+    let cache_control = response
+        .headers
+        .get(http::header::CACHE_CONTROL)
+        .expect("Cache-Control header should be present")
+        .to_str()
+        .unwrap();
+    assert_eq!("public, max-age=3600, s-maxage=86400", cache_control);
+}
