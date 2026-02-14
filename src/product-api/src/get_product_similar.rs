@@ -109,10 +109,13 @@ pub async fn handle(
 mod tests {
     use super::handle;
     use cognito::access_token_verifier_service::MockAccessTokenVerifierService;
+    use common::personalized::Personalized;
     use common::shop_id::ShopId;
     use common::shops_product_id::ShopsProductId;
+    use common::user_id::UserId;
     use fake::Fake;
     use fake::Faker;
+    use http::header::CACHE_CONTROL;
     use lambda_runtime::LambdaEvent;
     use product::service::personalization_service::MockProductPersonalizationService;
     use product::service::semantic_service::MockSemanticSearchService;
@@ -313,5 +316,131 @@ mod tests {
         .await
         .unwrap_err();
         assert_eq!(404, actual.status);
+    }
+
+    #[tokio::test]
+    async fn should_set_cache_control_to_no_store_when_user_is_authenticated_for_get_product_similar(
+    ) {
+        let mut cognito_service = MockAccessTokenVerifierService::default();
+        cognito_service
+            .expect_verify_extract_user_id()
+            .return_once(|_| Box::pin(async { Ok(Some(UserId::new())) }));
+        let mut product_personalization_service = MockProductPersonalizationService::default();
+        product_personalization_service
+            .expect_personalize_all_watchlist()
+            .return_once(|_, products| {
+                let personalized: Vec<_> = products
+                    .into_iter()
+                    .map(|item| Personalized {
+                        item,
+                        user_state: None,
+                    })
+                    .collect();
+                Box::pin(async move { Ok(personalized) })
+            });
+        let mut semantic_search_service = MockSemanticSearchService::default();
+        semantic_search_service
+            .expect_similar_products()
+            .return_once(|_, _, _, _| Box::pin(async { Ok(Some(vec![Faker.fake()])) }));
+
+        let lambda_event = LambdaEvent {
+            payload: ApiGatewayV2httpRequestProxy::builder()
+                .http_method(http::Method::GET)
+                .path_parameter("shopId", ShopId::new())
+                .path_parameter("shopsProductId", ShopsProductId::new())
+                .header("Authorization", "Bearer token")
+                .build(),
+            context: Default::default(),
+        };
+
+        let response = handle(
+            lambda_event,
+            &semantic_search_service,
+            &cognito_service,
+            &product_personalization_service,
+        )
+        .await
+        .unwrap();
+
+        assert_eq!(200, response.status_code);
+        assert_eq!(
+            "no-store",
+            response.headers.get(CACHE_CONTROL).unwrap().to_str().unwrap()
+        );
+    }
+
+    #[tokio::test]
+    async fn should_set_cache_control_to_public_when_no_user_for_get_product_similar() {
+        let mut cognito_service = MockAccessTokenVerifierService::default();
+        cognito_service
+            .expect_verify_extract_user_id()
+            .return_once(|_| Box::pin(async { Ok(None) }));
+        let product_personalization_service = MockProductPersonalizationService::default();
+        let mut semantic_search_service = MockSemanticSearchService::default();
+        semantic_search_service
+            .expect_similar_products()
+            .return_once(|_, _, _, _| Box::pin(async { Ok(Some(vec![Faker.fake()])) }));
+
+        let lambda_event = LambdaEvent {
+            payload: ApiGatewayV2httpRequestProxy::builder()
+                .http_method(http::Method::GET)
+                .path_parameter("shopId", ShopId::new())
+                .path_parameter("shopsProductId", ShopsProductId::new())
+                .build(),
+            context: Default::default(),
+        };
+
+        let response = handle(
+            lambda_event,
+            &semantic_search_service,
+            &cognito_service,
+            &product_personalization_service,
+        )
+        .await
+        .unwrap();
+
+        assert_eq!(200, response.status_code);
+        assert_eq!(
+            "public, max-age=180, s-maxage=900",
+            response.headers.get(CACHE_CONTROL).unwrap().to_str().unwrap()
+        );
+    }
+
+    #[tokio::test]
+    async fn should_set_cache_control_to_public_when_similar_products_not_computed_for_get_product_similar(
+    ) {
+        let mut cognito_service = MockAccessTokenVerifierService::default();
+        cognito_service
+            .expect_verify_extract_user_id()
+            .return_once(|_| Box::pin(async { Ok(None) }));
+        let product_personalization_service = MockProductPersonalizationService::default();
+        let mut semantic_search_service = MockSemanticSearchService::default();
+        semantic_search_service
+            .expect_similar_products()
+            .return_once(|_, _, _, _| Box::pin(async { Ok(None) }));
+
+        let lambda_event = LambdaEvent {
+            payload: ApiGatewayV2httpRequestProxy::builder()
+                .http_method(http::Method::GET)
+                .path_parameter("shopId", ShopId::new())
+                .path_parameter("shopsProductId", ShopsProductId::new())
+                .build(),
+            context: Default::default(),
+        };
+
+        let response = handle(
+            lambda_event,
+            &semantic_search_service,
+            &cognito_service,
+            &product_personalization_service,
+        )
+        .await
+        .unwrap();
+
+        assert_eq!(202, response.status_code);
+        assert_eq!(
+            "public, max-age=300, s-maxage=900",
+            response.headers.get(CACHE_CONTROL).unwrap().to_str().unwrap()
+        );
     }
 }

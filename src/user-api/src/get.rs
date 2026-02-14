@@ -27,7 +27,7 @@ mod tests {
     use crate::handle;
     use common::user_id::UserId;
     use fake::{Fake, Faker};
-    use http::header::LAST_MODIFIED;
+    use http::header::{CACHE_CONTROL, LAST_MODIFIED};
     use lambda_runtime::LambdaEvent;
     use test_api::ApiGatewayV2httpRequestProxy;
     use time::macros::datetime;
@@ -96,5 +96,30 @@ mod tests {
 
         let response = handle(lambda_event, &service).await.unwrap_err();
         assert_eq!(404, response.status);
+    }
+
+    #[tokio::test]
+    async fn should_set_cache_control_to_no_store_for_get_user_account() {
+        let mut service = MockUserService::default();
+        service.expect_find_user().return_once(move |_| {
+            let user: User = Faker.fake();
+            Box::pin(async move { Ok(user) })
+        });
+        let lambda_event = LambdaEvent {
+            payload: ApiGatewayV2httpRequestProxy::builder()
+                .http_method(http::Method::GET)
+                .route_key("GET /api/v1/me/account")
+                .jwt_claim("sub", UserId::new())
+                .build(),
+            context: Default::default(),
+        };
+
+        let response = handle(lambda_event, &service).await.unwrap();
+
+        assert_eq!(200, response.status_code);
+        assert_eq!(
+            "no-store",
+            response.headers.get(CACHE_CONTROL).unwrap().to_str().unwrap()
+        );
     }
 }
