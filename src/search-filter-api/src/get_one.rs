@@ -37,6 +37,7 @@ mod tests {
     use crate::handle;
     use common::user_id::UserId;
     use fake::{Fake, Faker};
+    use http::header::CACHE_CONTROL;
     use lambda_runtime::LambdaEvent;
     use search_filter::core::user_search_filter_id::UserSearchFilterId;
     use search_filter::service::user_search_filter_service::{
@@ -138,5 +139,36 @@ mod tests {
 
         let expected = handle(lambda_event, &service).await.unwrap_err();
         assert_eq!(404, expected.status);
+    }
+
+    #[tokio::test]
+    async fn should_set_cache_control_to_no_store_for_get_one_search_filter() {
+        let lambda_event = LambdaEvent {
+            payload: ApiGatewayV2httpRequestProxy::builder()
+                .http_method(http::Method::GET)
+                .route_key("GET /api/v1/me/search-filters/{userSearchFilterId}")
+                .path_parameter("userSearchFilterId", UserSearchFilterId::new())
+                .jwt_claim("sub", UserId::new())
+                .build(),
+            context: Default::default(),
+        };
+
+        let mut service = MockUserSearchFilterService::default();
+        service
+            .expect_find_user_search_filter()
+            .return_once(|_, _| Box::pin(async { Ok(Faker.fake()) }));
+
+        let response = handle(lambda_event, &service).await.unwrap();
+
+        assert_eq!(200, response.status_code);
+        assert_eq!(
+            "no-store",
+            response
+                .headers
+                .get(CACHE_CONTROL)
+                .unwrap()
+                .to_str()
+                .unwrap()
+        );
     }
 }

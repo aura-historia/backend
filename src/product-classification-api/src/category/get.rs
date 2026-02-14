@@ -48,7 +48,7 @@ mod tests {
     use crate::handle;
     use common::category_key::CategoryId;
     use fake::{Fake, Faker};
-    use http::header::LAST_MODIFIED;
+    use http::header::{CACHE_CONTROL, LAST_MODIFIED};
     use lambda_runtime::LambdaEvent;
     use product_classification::category::core::Category;
     use product_classification::category::service::{CategoryServiceError, MockCategoryService};
@@ -125,5 +125,39 @@ mod tests {
         let response = handle(lambda_event, &service).await.unwrap_err();
 
         assert_eq!(404, response.status);
+    }
+
+    #[tokio::test]
+    async fn should_set_cache_control_to_public_with_long_max_ages_for_get_category() {
+        let category_id: CategoryId = "test-category".into();
+        let mut service = MockCategoryService::default();
+        service
+            .expect_view_category()
+            .return_once(move |_, languages| {
+                let category: Category = Faker.fake();
+                let localized = category.localized(languages);
+                Box::pin(async move { Ok(localized) })
+            });
+        let lambda_event = LambdaEvent {
+            payload: ApiGatewayV2httpRequestProxy::builder()
+                .http_method(http::Method::GET)
+                .route_key("GET /api/v1/categories/{categoryId}")
+                .path_parameter("categoryId", category_id.to_string())
+                .build(),
+            context: Default::default(),
+        };
+
+        let response = handle(lambda_event, &service).await.unwrap();
+
+        assert_eq!(200, response.status_code);
+        assert_eq!(
+            "public, max-age=3600, s-maxage=86400",
+            response
+                .headers
+                .get(CACHE_CONTROL)
+                .unwrap()
+                .to_str()
+                .unwrap()
+        );
     }
 }

@@ -40,6 +40,7 @@ mod tests {
     use super::handle;
     use common::shop_id::ShopId;
     use common::shops_product_id::ShopsProductId;
+    use http::header::CACHE_CONTROL;
     use lambda_runtime::LambdaEvent;
     use product::service::get_service::{GetProductError, MockGetProductService};
     use test_api::ApiGatewayV2httpRequestProxy;
@@ -117,5 +118,40 @@ mod tests {
             .await
             .unwrap_err();
         assert_eq!(404, actual.status);
+    }
+
+    #[tokio::test]
+    async fn should_set_cache_control_to_public_with_max_ages_for_get_product_history() {
+        let shop_id = ShopId::new();
+        let shops_product_id = ShopsProductId::new();
+        let lambda_event = LambdaEvent {
+            payload: ApiGatewayV2httpRequestProxy::builder()
+                .http_method(http::Method::GET)
+                .route_key(
+                    "GET /api/v1/shops/{shopId}/products/{shopsProductId}/history".to_owned(),
+                )
+                .path_parameter("shopId", shop_id)
+                .path_parameter("shopsProductId", shops_product_id)
+                .build(),
+            context: Default::default(),
+        };
+
+        let mut get_product_service = MockGetProductService::default();
+        get_product_service
+            .expect_view_product_history()
+            .return_once(move |_, _, _, _| Box::pin(async move { Ok(vec![]) }));
+
+        let response = handle(lambda_event, &get_product_service).await.unwrap();
+
+        assert_eq!(200, response.status_code);
+        assert_eq!(
+            "public, max-age=180, s-maxage=900",
+            response
+                .headers
+                .get(CACHE_CONTROL)
+                .unwrap()
+                .to_str()
+                .unwrap()
+        );
     }
 }
