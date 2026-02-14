@@ -17,6 +17,7 @@ pub async fn handle(
 
     Ok(ApiGatewayV2HttpResponseBuilder::json(200)
         .last_modified(user_account_data.updated)
+        .cache_control("no-store", None, None)
         .body_serde(user_account_data)?
         .build())
 }

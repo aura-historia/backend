@@ -90,11 +90,32 @@ pub async fn handle(
                 .into(),
         };
 
+    let cache_control_directive = if personalized_product_data.user_state.is_some() {
+        "no-store"
+    } else {
+        "public"
+    };
+    let cache_control_max_age = if personalized_product_data.user_state.is_some() {
+        None
+    } else {
+        Some(180)
+    };
+    let cache_control_x_max_age = if personalized_product_data.user_state.is_some() {
+        None
+    } else {
+        Some(900)
+    };
+
     let content_language = personalized_product_data.item.title.language;
     Ok(ApiGatewayV2HttpResponseBuilder::json(200)
         .content_language(content_language)
         .e_tag(personalized_product_data.item.event_id.to_string().as_str())
         .last_modified(personalized_product_data.item.updated)
+        .cache_control(
+            cache_control_directive,
+            cache_control_max_age,
+            cache_control_x_max_age,
+        )
         .body_serde(personalized_product_data)?
         .build())
 }

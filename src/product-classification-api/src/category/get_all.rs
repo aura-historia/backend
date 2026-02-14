@@ -24,6 +24,7 @@ pub async fn handle(
         .collect();
 
     Ok(ApiGatewayV2HttpResponseBuilder::json(200)
+        .cache_control("public", Some(3600), Some(86400))
         .body_serde(categories_data)?
         .build())
 }

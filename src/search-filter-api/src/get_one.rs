@@ -27,6 +27,7 @@ pub async fn handle(
     Ok(ApiGatewayV2HttpResponseBuilder::json(200)
         .content_language(content_language)
         .last_modified(user_search_filter_data.updated)
+        .cache_control("no-store", None, None)
         .body_serde(user_search_filter_data)?
         .build())
 }

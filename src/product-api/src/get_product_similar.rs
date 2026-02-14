@@ -46,6 +46,7 @@ pub async fn handle(
                 &format!("shops/{shop_id}/products/{shops_product_id}/similar"),
                 &event.payload.request_context,
             )
+            .cache_control("public", Some(300), Some(900))
             .build()),
         Some(localized_similar_products) => {
             let personalized_similar_products = match user_id_opt {
@@ -76,7 +77,28 @@ pub async fn handle(
                 .map(PersonalizedData::from)
                 .collect();
 
+            let cache_control_directive = if user_id_opt.is_some() {
+                "no-store"
+            } else {
+                "public"
+            };
+            let cache_control_max_age = if user_id_opt.is_some() {
+                None
+            } else {
+                Some(180)
+            };
+            let cache_control_x_max_age = if user_id_opt.is_some() {
+                None
+            } else {
+                Some(900)
+            };
+
             Ok(ApiGatewayV2HttpResponseBuilder::json(200)
+                .cache_control(
+                    cache_control_directive,
+                    cache_control_max_age,
+                    cache_control_x_max_age,
+                )
                 .body_serde(similar_products_data)?
                 .build())
         }

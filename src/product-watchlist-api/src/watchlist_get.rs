@@ -68,6 +68,7 @@ pub async fn handle(
         .map_item(WatchlistProductDataView::from);
 
     Ok(ApiGatewayV2HttpResponseBuilder::json(200)
+        .cache_control("no-store", None, None)
         .body_serde(TimeCursoredData::from(products))?
         .build())
 }

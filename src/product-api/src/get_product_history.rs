@@ -31,6 +31,7 @@ pub async fn handle(
 
     Ok(ApiGatewayV2HttpResponseBuilder::json(200)
         .body_serde(product_events_data)?
+        .cache_control("public", Some(180), Some(900))
         .build())
 }
 

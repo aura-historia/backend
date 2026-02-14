@@ -46,6 +46,7 @@ pub async fn handle(
 
     Ok(ApiGatewayV2HttpResponseBuilder::json(200)
         .last_modified(shop_data.updated)
+        .cache_control("public", Some(3600), Some(86400))
         .body_serde(shop_data)?
         .build())
 }
