@@ -15,6 +15,7 @@ use lambda_runtime::LambdaEvent;
 use product::core::product::LocalizedProductView;
 use product::core::user_state::ProductUserState;
 use product::data::get_data::GetProductData;
+use product::data::product_state_data::ProductStateData;
 use product::data::user_state_data::ProductUserStateData;
 use product::service::get_service::GetProductService;
 use product::service::personalization_service::ProductPersonalizationService;
@@ -90,21 +91,14 @@ pub async fn handle(
                 .into(),
         };
 
-    let cache_control_directive = if personalized_product_data.user_state.is_some() {
-        "no-store"
-    } else {
-        "public"
-    };
-    let cache_control_max_age = if personalized_product_data.user_state.is_some() {
-        None
-    } else {
-        Some(180)
-    };
-    let cache_control_x_max_age = if personalized_product_data.user_state.is_some() {
-        None
-    } else {
-        Some(900)
-    };
+    let (cache_control_directive, cache_control_max_age, cache_control_x_max_age) =
+        if personalized_product_data.user_state.is_some() {
+            ("no-store", None, None)
+        } else if personalized_product_data.item.state == ProductStateData::Sold {
+            ("public", Some(180), Some(86400))
+        } else {
+            ("public", Some(180), Some(900))
+        };
 
     let content_language = personalized_product_data.item.title.language;
     Ok(ApiGatewayV2HttpResponseBuilder::json(200)
