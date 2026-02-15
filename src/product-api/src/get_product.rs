@@ -94,7 +94,9 @@ pub async fn handle(
     let (cache_control_directive, cache_control_max_age, cache_control_x_max_age) =
         if personalized_product_data.user_state.is_some() {
             ("no-store", None, None)
-        } else if personalized_product_data.item.state == ProductStateData::Sold {
+        } else if personalized_product_data.item.state == ProductStateData::Sold
+            || personalized_product_data.item.state == ProductStateData::Removed
+        {
             ("public", Some(180), Some(86400))
         } else {
             ("public", Some(180), Some(900))
@@ -578,6 +580,81 @@ mod tests {
                     price_estimate_min: None,
                     price_estimate_max: None,
                     state: ProductState::Sold,
+                    url: Url::parse("https://foo.com/boop").unwrap(),
+                    images: vec![],
+                    origin_year: None,
+                    authenticity: Default::default(),
+                    condition: Default::default(),
+                    provenance: Default::default(),
+                    restoration: Default::default(),
+                    auction_start: None,
+                    auction_end: None,
+                    created: OffsetDateTime::now_utc(),
+                    updated: OffsetDateTime::now_utc(),
+                };
+                Box::pin(async move { Ok(product) })
+            },
+        );
+        let shop_id = ShopId::new();
+        let shops_product_id = ShopsProductId::new();
+        let lambda_event = LambdaEvent {
+            payload: ApiGatewayV2httpRequestProxy::builder()
+                .http_method(http::Method::GET)
+                .route_key("GET /api/v1/shops/{shopId}/products/{shopsProductId}".to_owned())
+                .path_parameter("shopId", shop_id)
+                .path_parameter("shopsProductId", shops_product_id)
+                .build(),
+            context: Default::default(),
+        };
+
+        let response = handle(
+            lambda_event,
+            &get_product_service,
+            &cognito_service,
+            &product_personalization_service,
+        )
+        .await
+        .unwrap();
+
+        assert_eq!(200, response.status_code);
+        assert_eq!(
+            "public, max-age=180, s-maxage=86400",
+            response
+                .headers
+                .get(CACHE_CONTROL)
+                .unwrap()
+                .to_str()
+                .unwrap()
+        );
+    }
+
+    #[tokio::test]
+    async fn should_set_cache_control_with_long_s_maxage_when_product_is_removed_for_get_product() {
+        let mut cognito_service = MockAccessTokenVerifierService::default();
+        cognito_service
+            .expect_verify_extract_user_id()
+            .return_once(|_| Box::pin(async { Ok(None) }));
+        let product_personalization_service = MockProductPersonalizationService::default();
+        let mut get_product_service = MockGetProductService::default();
+        get_product_service.expect_view_product().return_once(
+            move |shop_id, shops_product_id, _, _| {
+                let product = LocalizedProductView {
+                    product_id: Default::default(),
+                    product_slug_id: Faker.fake(),
+                    shop_slug_id: Faker.fake(),
+                    event_id: EventId::new(),
+                    shop_id: *shop_id,
+                    shops_product_id: shops_product_id.clone(),
+                    shop_name: "".into(),
+                    shop_type: fake::Faker.fake(),
+                    category_id: fake::Faker.fake(),
+                    category_name: fake::Faker.fake(),
+                    title: Localized::new(Language::En, "Native title".into()),
+                    description: None,
+                    price: None,
+                    price_estimate_min: None,
+                    price_estimate_max: None,
+                    state: ProductState::Removed,
                     url: Url::parse("https://foo.com/boop").unwrap(),
                     images: vec![],
                     origin_year: None,
