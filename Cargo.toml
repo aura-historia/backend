@@ -147,7 +147,7 @@ typed-builder = "0.23.2"
 url = "2.5.8"
 uuid = "1.20.0"
 walkdir = "2.5.0"
-futures-util = "0.3.31"
+futures-util = "0.3.32"
 proc-macro2 = "1.0.106"
 smoking-tests-macros = { path = "src/aws-tests/src/smoking-tests/src/smoking-tests-macros" }
 staging-tests-macros = { path = "src/aws-tests/src/staging-tests/src/staging-tests-macros" }
