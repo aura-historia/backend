@@ -72,7 +72,7 @@ aws-sdk-opensearch = "1.113.0"
 aws-sdk-sqs = "1.94.0"
 aws-sdk-sesv2 = "1.113.0"
 aws-sdk-s3 = "1.123.0"
-aws-sdk-cloudwatch = "1.103.0"
+aws-sdk-cloudwatch = "1.104.0"
 aws_lambda_events = { version = "1.0.3", default-features = false }
 common = { path = "src/common" }
 derive_builder = "0.20.2"
