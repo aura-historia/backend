@@ -27,3 +27,4 @@ product-pipeline-common = { workspace = true, features = ["test-data"] }
 rstest = { workspace = true }
 fake = { workspace = true }
 serial_test = { workspace = true }
+opensearch = { workspace = true }

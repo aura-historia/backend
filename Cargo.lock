@@ -3445,6 +3445,7 @@ dependencies = [
  "common",
  "fake",
  "mockall",
+ "opensearch",
  "product",
  "product-classification",
  "product-pipeline-common",
