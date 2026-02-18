@@ -87,7 +87,7 @@ shop-api = { path = "src/shop-api" }
 mail = { path = "src/mail" }
 mail-core = { path = "src/mail/src/mail-core" }
 mail-lambda-send = { path = "src/mail-lambda-send" }
-futures = { version = "0.3.31", default-features = false }
+futures = { version = "0.3.32", default-features = false }
 hex = "0.4.3"
 http = "1.4.0"
 httpdate = "1.0.3"
