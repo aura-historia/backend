@@ -107,7 +107,7 @@ if __name__ == "__main__":
     batch = [
         (
             """Musealer Kabinettschrank 1742, süddeutsch  Art.Nr. 6948""",
-            ["muscial-instruments", "furniture", "decorative-objects"],
+            ["musical-instruments", "furniture", "decorative-objects"],
         ),
     ]
 

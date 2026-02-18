@@ -45,24 +45,24 @@ async fn main() {
         &category_opensearch_repository,
     );
 
-    let extract_attribute_flow_in = PipeFlowInImpl::new(&sqs, &source_queue_url);
-    let extract_attribute_processor = ClassifyCategoryPipeProcesserImpl::new(
+    let classify_category_flow_in = PipeFlowInImpl::new(&sqs, &source_queue_url);
+    let classify_category_processor = ClassifyCategoryPipeProcesserImpl::new(
         Arc::new(
             ClassifyCategoryAdapterImpl::new()
                 .expect("shouldn't fail creating ClassifyCategoryAdapterImpl"),
         ),
         &category_service,
     );
-    let extract_attribute_flow_out = PipeFlowOutImpl::new(&product_dynamodb_repository);
-    let extract_attribute_pipe = PipeImpl::new(
+    let classify_category_flow_out = PipeFlowOutImpl::new(&product_dynamodb_repository);
+    let classify_category_pipe = PipeImpl::new(
         &get_product_service,
         &sqs,
         source_queue_url,
         64,
         300,
-        &extract_attribute_flow_in,
-        &extract_attribute_processor,
-        &extract_attribute_flow_out,
+        &classify_category_flow_in,
+        &classify_category_processor,
+        &classify_category_flow_out,
     );
-    extract_attribute_pipe.pipe().await;
+    classify_category_pipe.pipe().await;
 }
