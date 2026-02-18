@@ -174,8 +174,6 @@ pub async fn reset() {
         cfn_output.product_materialize_dynamodb_dead_letter_queue_url,
         cfn_output.product_materialize_opensearch_queue_url,
         cfn_output.product_materialize_opensearch_dead_letter_queue_url,
-        cfn_output.product_classification_queue_url,
-        cfn_output.product_classification_dead_letter_queue_url,
         cfn_output.shop_opensearch_index_queue_url,
         cfn_output.shop_opensearch_index_dead_letter_queue_url,
         cfn_output.product_update_notify_user_queue_url,

@@ -2485,6 +2485,7 @@ Resources:
             export CommitSHA="${CommitSHA}"
             export ARTIFACT_BUCKET="${ArtifactBucket}"
             export SOURCE_QUEUE_URL="${ProductPipelineClassifyCategoryQ}"
+            export OPENSEARCH_ENDPOINT_URL="https://${OpenSearchDomain.DomainEndpoint}"
             # Download and install binary
             sudo aws s3 cp "s3://${ArtifactBucket}/ephemeral/${CommitSHA}/product-pipeline-classify-category" /opt/product-pipeline-classify-category/product-pipeline-classify-category --region eu-central-1
             sudo chmod +x /opt/product-pipeline-classify-category/product-pipeline-classify-category
