@@ -37,8 +37,9 @@ const SOURCE_QUEUE: Sqs = Sqs {
 };
 
 struct Const42PipeProcessor();
+#[async_trait::async_trait]
 impl PipeProcessor for Const42PipeProcessor {
-    fn process(&self, products: Vec<Product>) -> ProcessResult {
+    async fn process(&self, products: Vec<Product>) -> ProcessResult {
         ProcessResult {
             successes: products
                 .into_iter()

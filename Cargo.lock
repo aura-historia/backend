@@ -133,7 +133,6 @@ dependencies = [
  "product-api",
  "product-classification",
  "product-classification-api",
- "product-classification-lambda",
  "product-lambda",
  "product-pipeline",
  "product-watchlist-api",
@@ -3332,29 +3331,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "product-classification-lambda"
-version = "0.1.0"
-dependencies = [
- "aws-config",
- "aws-sdk-dynamodb",
- "aws_lambda_events",
- "common",
- "fake",
- "lambda_runtime",
- "product",
- "product-classification",
- "rstest",
- "serde_dynamo",
- "serde_json",
- "time",
- "tokio",
- "tracing",
- "tracing-subscriber",
- "url",
- "uuid",
-]
-
-[[package]]
 name = "product-lambda"
 version = "0.1.0"
 dependencies = [
@@ -3448,6 +3424,7 @@ name = "product-pipeline"
 version = "0.1.0"
 dependencies = [
  "product-pipeline-asg-scale-control",
+ "product-pipeline-classify-category",
  "product-pipeline-common",
  "product-pipeline-embed-text",
  "product-pipeline-extract-attribute",
@@ -3466,6 +3443,33 @@ dependencies = [
  "lambda_runtime",
  "rstest",
  "serde_json",
+ "time",
+ "tokio",
+ "tracing",
+ "tracing-subscriber",
+]
+
+[[package]]
+name = "product-pipeline-classify-category"
+version = "0.1.0"
+dependencies = [
+ "async-trait",
+ "aws-config",
+ "aws-sdk-dynamodb",
+ "aws-sdk-sqs",
+ "common",
+ "fake",
+ "mockall",
+ "opensearch",
+ "product",
+ "product-classification",
+ "product-pipeline-common",
+ "pyo3",
+ "pyo3-ffi",
+ "rstest",
+ "serde",
+ "serde_json",
+ "serial_test",
  "time",
  "tokio",
  "tracing",

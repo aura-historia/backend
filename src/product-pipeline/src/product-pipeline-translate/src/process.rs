@@ -28,8 +28,9 @@ impl TranslationPipeProcesserImpl {
 const TITLE_BATCH_SIZE: usize = 32;
 const DESCRIPTION_BATCH_SIZE: usize = 8;
 
+#[async_trait::async_trait]
 impl PipeProcessor for TranslationPipeProcesserImpl {
-    fn process(&self, ins: Vec<Product>) -> ProcessResult {
+    async fn process(&self, ins: Vec<Product>) -> ProcessResult {
         let count = ins.len();
         let mut products = ins
             .into_iter()
@@ -184,8 +185,8 @@ mod tests {
     use std::collections::HashSet;
     use std::sync::Arc;
 
-    #[test]
-    fn should_enrich_titles_for_other_langs() {
+    #[tokio::test]
+    async fn should_enrich_titles_for_other_langs() {
         let mut translation_delegate = MockTranslationAdapter::default();
         translation_delegate
             .expect_translate_batch()
@@ -195,7 +196,7 @@ mod tests {
             TranslationPipeProcesserImpl::new(Arc::new(translation_delegate));
 
         let products = fake::vec![Product; 1];
-        let actuals = translation_pipe_processor.process(products);
+        let actuals = translation_pipe_processor.process(products).await;
 
         assert!(actuals.failures.is_empty());
 
@@ -216,8 +217,8 @@ mod tests {
         }));
     }
 
-    #[test]
-    fn should_not_enrich_title_for_id_lang() {
+    #[tokio::test]
+    async fn should_not_enrich_title_for_id_lang() {
         let mut translation_delegate = MockTranslationAdapter::default();
         translation_delegate
             .expect_translate_batch()
@@ -228,7 +229,7 @@ mod tests {
 
         let product: Product = Faker.fake();
         let products = vec![product.clone()];
-        let actuals = translation_pipe_processor.process(products);
+        let actuals = translation_pipe_processor.process(products).await;
 
         assert!(actuals.failures.is_empty());
 
@@ -263,8 +264,8 @@ mod tests {
         );
     }
 
-    #[test]
-    fn should_enrich_description_for_other_langs() {
+    #[tokio::test]
+    async fn should_enrich_description_for_other_langs() {
         let mut translation_delegate = MockTranslationAdapter::default();
         translation_delegate
             .expect_translate_batch()
@@ -276,7 +277,7 @@ mod tests {
         let mut product: Product = Faker.fake();
         product.native_description = Some(Faker.fake());
         let products = vec![product];
-        let actuals = translation_pipe_processor.process(products);
+        let actuals = translation_pipe_processor.process(products).await;
 
         assert!(actuals.failures.is_empty());
 
@@ -297,8 +298,8 @@ mod tests {
         }));
     }
 
-    #[test]
-    fn should_not_enrich_description_for_id_lang() {
+    #[tokio::test]
+    async fn should_not_enrich_description_for_id_lang() {
         let mut translation_delegate = MockTranslationAdapter::default();
         translation_delegate
             .expect_translate_batch()
@@ -310,7 +311,7 @@ mod tests {
         let mut product: Product = Faker.fake();
         product.native_description = Some(Faker.fake());
         let products = vec![product.clone()];
-        let actuals = translation_pipe_processor.process(products);
+        let actuals = translation_pipe_processor.process(products).await;
 
         assert!(actuals.failures.is_empty());
 
@@ -361,7 +362,8 @@ mod tests {
     #[case(65)]
     #[case(69)]
     #[case(144)]
-    fn should_process_translation(#[case] count: usize) {
+    #[tokio::test]
+    async fn should_process_translation(#[case] count: usize) {
         let mut adapter = MockTranslationAdapter::default();
         adapter
             .expect_translate_batch()
@@ -383,7 +385,7 @@ mod tests {
         products.push(product);
         products.shuffle(&mut fake::rand::rng());
 
-        let actual = translation_pipe_processor.process(products);
+        let actual = translation_pipe_processor.process(products).await;
         assert!(actual.failures.is_empty());
 
         let title_languages = actual
@@ -435,7 +437,8 @@ mod tests {
     #[case(141)]
     #[case(500)]
     #[case(10001)]
-    fn should_partially_fail(#[case] count: usize) {
+    #[tokio::test]
+    async fn should_partially_fail(#[case] count: usize) {
         let mut translation_delegate = MockTranslationAdapter::default();
         translation_delegate
             .expect_translate_batch()
@@ -465,7 +468,7 @@ mod tests {
             });
         }
 
-        let actual = translation_pipe_processor.process(products);
+        let actual = translation_pipe_processor.process(products).await;
 
         assert_eq!(count % 32, actual.failures.len());
     }
@@ -480,7 +483,8 @@ mod tests {
     #[case(42)]
     #[case(500)]
     #[case(1000)]
-    fn should_partially_fail_all(#[case] count: usize) {
+    #[tokio::test]
+    async fn should_partially_fail_all(#[case] count: usize) {
         let mut translation_delegate = MockTranslationAdapter::default();
         translation_delegate
             .expect_translate_batch()
@@ -488,7 +492,9 @@ mod tests {
 
         let translation_pipe_processor =
             TranslationPipeProcesserImpl::new(Arc::new(translation_delegate));
-        let actual = translation_pipe_processor.process(fake::vec![Product; count]);
+        let actual = translation_pipe_processor
+            .process(fake::vec![Product; count])
+            .await;
 
         assert!(actual.successes.is_empty());
         assert_eq!(count, actual.failures.len());

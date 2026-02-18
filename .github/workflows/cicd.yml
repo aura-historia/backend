@@ -90,7 +90,6 @@ jobs:
           - src/product-api
           - src/product-classification
           - src/product-classification-api
-          - src/product-classification-lambda
           - src/product-watchlist-api
           - src/product-pipeline
           - src/product-lambda
@@ -180,6 +179,7 @@ jobs:
     strategy:
       matrix:
         crate:
+          - src/product-pipeline/src/product-pipeline-classify-category
           - src/product-pipeline/src/product-pipeline-embed-text
           - src/product-pipeline/src/product-pipeline-extract-attribute
           - src/product-pipeline/src/product-pipeline-translate
@@ -278,7 +278,6 @@ jobs:
           - src/search-filter-api
           - src/product-api
           - src/product-classification-api
-          - src/product-classification-lambda
           - src/product-watchlist-api
           - src/product-pipeline/src/product-pipeline-asg-scale-control
           - src/product-lambda/src/product-lambda-materialize-dynamodb
@@ -306,7 +305,7 @@ jobs:
             ~/.cargo/bin/cargo-lambda
             ~/.cargo/registry
             ~/.cargo/git
-          key: ${{ runner.os }}-cargo-lambda-1.8.6
+          key: ${{ runner.os }}-cargo-lambda-1.9.0
 
       - name: Set up Zig
         uses: mlugg/setup-zig@v2
@@ -316,7 +315,7 @@ jobs:
       - name: Install cargo-lambda
         run: |
           if ! command -v cargo-lambda &> /dev/null; then
-            cargo install cargo-lambda --version 1.8.6
+            cargo install cargo-lambda --version 1.9.0
           fi
 
       - name: Build Lambda binary
@@ -358,9 +357,10 @@ jobs:
     strategy:
       matrix:
         crate:
-          - src/product-pipeline/src/product-pipeline-translate
+          - src/product-pipeline/src/product-pipeline-classify-category
           - src/product-pipeline/src/product-pipeline-embed-text
           - src/product-pipeline/src/product-pipeline-extract-attribute
+          - src/product-pipeline/src/product-pipeline-translate
     steps:
       - uses: actions/checkout@v6
 

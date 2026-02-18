@@ -37,8 +37,9 @@ struct FailingPipeProcessor {
     fail_product_ids: HashSet<ProductId>,
 }
 
+#[async_trait::async_trait]
 impl PipeProcessor for FailingPipeProcessor {
-    fn process(&self, products: Vec<Product>) -> ProcessResult {
+    async fn process(&self, products: Vec<Product>) -> ProcessResult {
         let mut successes = Vec::new();
         let mut failures = HashSet::new();
 
@@ -59,8 +60,9 @@ impl PipeProcessor for FailingPipeProcessor {
 
 struct AlwaysFailProcessor();
 
+#[async_trait::async_trait]
 impl PipeProcessor for AlwaysFailProcessor {
-    fn process(&self, products: Vec<Product>) -> ProcessResult {
+    async fn process(&self, products: Vec<Product>) -> ProcessResult {
         let failures = products.iter().map(|p| p.product_id).collect();
         ProcessResult {
             successes: Vec::new(),

@@ -13,7 +13,8 @@ use std::sync::Arc;
 #[trace]
 #[case(0)]
 #[serial_test::serial]
-fn should_process_extraction(#[case] count: usize) {
+#[tokio::test]
+async fn should_process_extraction(#[case] count: usize) {
     let adapter = ExtractionAdapterImpl::new().unwrap();
     let extraction_pipe_processor = AttributeExtractionPipeProcesserImpl::new(Arc::new(adapter));
 
@@ -31,7 +32,7 @@ fn should_process_extraction(#[case] count: usize) {
     products.push(product);
     products.shuffle(&mut fake::rand::rng());
 
-    let actual = extraction_pipe_processor.process(products);
+    let actual = extraction_pipe_processor.process(products).await;
     assert!(actual.failures.is_empty());
     // 1 enrichment + 1 policy (no nazi)
     assert_eq!(count + 2, actual.successes.len());

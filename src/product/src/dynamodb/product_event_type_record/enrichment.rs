@@ -27,7 +27,7 @@ impl From<&ProductEnrichmentEventPayload> for ProductEnrichmentEventTypeRecord {
             ProductEnrichmentEventPayload::ExtractedAttributes(_) => {
                 ProductEnrichmentEventTypeRecord::EnrichmentExtractedAttributes
             }
-            ProductEnrichmentEventPayload::ClassifyCategory(_) => {
+            ProductEnrichmentEventPayload::ClassifiedCategory(_) => {
                 ProductEnrichmentEventTypeRecord::EnrichmentClassifyCategory
             }
         }

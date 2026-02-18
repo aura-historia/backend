@@ -199,8 +199,9 @@ impl TextEmbeddingPipeProcesserImpl {
     }
 }
 
+#[async_trait::async_trait]
 impl PipeProcessor for TextEmbeddingPipeProcesserImpl {
-    fn process(&self, ins: Vec<Product>) -> ProcessResult {
+    async fn process(&self, ins: Vec<Product>) -> ProcessResult {
         let count = ins.len();
         let mut successes = Vec::with_capacity(ins.len());
         let mut failures = HashSet::new();
@@ -261,8 +262,8 @@ pub mod tests {
     use rstest;
     use std::sync::Arc;
 
-    #[test]
-    fn should_keep_order_of_delegate_returned_embeddings() {
+    #[tokio::test]
+    async fn should_keep_order_of_delegate_returned_embeddings() {
         let expected = vec![
             vec![1.234, 5.6789],
             vec![1.234, -5.6789],
@@ -276,7 +277,7 @@ pub mod tests {
             .return_once(move |_| Ok(expected_clone.try_into().unwrap()));
 
         let embedding_pipe = TextEmbeddingPipeProcesserImpl::new(Arc::new(delegate));
-        let res = embedding_pipe.process(fake::vec![Product; 4]);
+        let res = embedding_pipe.process(fake::vec![Product; 4]).await;
         let actual = res
             .successes
             .into_iter()
@@ -309,14 +310,17 @@ pub mod tests {
     #[case(256)]
     #[case(1000)]
     #[case(1500)]
-    fn should_partially_fail_entire_batches(#[case] input_count: usize) {
+    #[tokio::test]
+    async fn should_partially_fail_entire_batches(#[case] input_count: usize) {
         let mut delegate = MockEmbeddingAdapter::default();
         delegate
             .expect_embed()
             .returning(move |_| Err(PyErr::new::<PyTypeError, _>("Something went wrong")));
 
         let embedding_pipe = TextEmbeddingPipeProcesserImpl::new(Arc::new(delegate));
-        let res = embedding_pipe.process(fake::vec![Product; input_count]);
+        let res = embedding_pipe
+            .process(fake::vec![Product; input_count])
+            .await;
 
         assert!(res.successes.is_empty());
         assert_eq!(input_count, res.failures.len());
