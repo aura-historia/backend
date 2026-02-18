@@ -305,7 +305,7 @@ jobs:
             ~/.cargo/bin/cargo-lambda
             ~/.cargo/registry
             ~/.cargo/git
-          key: ${{ runner.os }}-cargo-lambda-1.8.6
+          key: ${{ runner.os }}-cargo-lambda-1.9.0
 
       - name: Set up Zig
         uses: mlugg/setup-zig@v2
@@ -315,7 +315,7 @@ jobs:
       - name: Install cargo-lambda
         run: |
           if ! command -v cargo-lambda &> /dev/null; then
-            cargo install cargo-lambda --version 1.8.6
+            cargo install cargo-lambda --version 1.9.0
           fi
 
       - name: Build Lambda binary
