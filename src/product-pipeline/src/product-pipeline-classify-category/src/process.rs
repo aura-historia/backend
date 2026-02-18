@@ -15,15 +15,15 @@ use std::{collections::HashSet, sync::Arc};
 use time::OffsetDateTime;
 use tracing::{error, warn};
 
-pub struct ClassifyCategoryPipeProcesserImpl {
+pub struct ClassifyCategoryPipeProcesserImpl<'a> {
     classify_category_delegate: Arc<dyn ClassifyCategoryAdapter + Send + Sync>,
-    category_service: Arc<dyn CategoryService + Send + Sync>,
+    category_service: &'a (dyn CategoryService + Send + Sync),
 }
 
-impl ClassifyCategoryPipeProcesserImpl {
+impl<'a> ClassifyCategoryPipeProcesserImpl<'a> {
     pub fn new(
         classify_category_delegate: Arc<dyn ClassifyCategoryAdapter + Send + Sync>,
-        category_service: Arc<dyn CategoryService + Send + Sync>,
+        category_service: &'a (dyn CategoryService + Send + Sync),
     ) -> Self {
         Self {
             classify_category_delegate,
@@ -33,7 +33,7 @@ impl ClassifyCategoryPipeProcesserImpl {
 }
 
 #[async_trait::async_trait]
-impl PipeProcessor for ClassifyCategoryPipeProcesserImpl {
+impl<'a> PipeProcessor for ClassifyCategoryPipeProcesserImpl<'a> {
     async fn process(&self, products: Vec<Product>) -> ProcessResult {
         let mut successes = Vec::with_capacity(products.len());
         let mut failures = HashSet::new();
@@ -214,7 +214,7 @@ mod tests {
         });
 
         let processor =
-            ClassifyCategoryPipeProcesserImpl::new(Arc::new(adapter), Arc::new(category_service));
+            ClassifyCategoryPipeProcesserImpl::new(Arc::new(adapter), &category_service);
 
         let product = mk_product_with_embedding();
         let product_id = product.product_id;
@@ -249,7 +249,7 @@ mod tests {
         category_service.expect_find_similar().never();
 
         let processor =
-            ClassifyCategoryPipeProcesserImpl::new(Arc::new(adapter), Arc::new(category_service));
+            ClassifyCategoryPipeProcesserImpl::new(Arc::new(adapter), &category_service);
 
         let mut product: Product = Faker.fake();
         product.text_embedding = None;
@@ -276,7 +276,7 @@ mod tests {
         });
 
         let processor =
-            ClassifyCategoryPipeProcesserImpl::new(Arc::new(adapter), Arc::new(category_service));
+            ClassifyCategoryPipeProcesserImpl::new(Arc::new(adapter), &category_service);
 
         let product = mk_product_with_embedding();
         let product_id = product.product_id;
@@ -298,7 +298,7 @@ mod tests {
             .returning(|_, _| Box::pin(async move { Ok(vec![]) }));
 
         let processor =
-            ClassifyCategoryPipeProcesserImpl::new(Arc::new(adapter), Arc::new(category_service));
+            ClassifyCategoryPipeProcesserImpl::new(Arc::new(adapter), &category_service);
 
         let product = mk_product_with_embedding();
         let product_id = product.product_id;
@@ -327,7 +327,7 @@ mod tests {
             .returning(|_| Ok(Batch::try_from(vec!["decorative-objects".to_string()]).unwrap()));
 
         let processor =
-            ClassifyCategoryPipeProcesserImpl::new(Arc::new(adapter), Arc::new(category_service));
+            ClassifyCategoryPipeProcesserImpl::new(Arc::new(adapter), &category_service);
 
         let product = mk_product_with_embedding();
         let product_id = product.product_id;
@@ -356,7 +356,7 @@ mod tests {
             .returning(|_| Err(PyErr::new::<PyTypeError, _>("Something went wrong")));
 
         let processor =
-            ClassifyCategoryPipeProcesserImpl::new(Arc::new(adapter), Arc::new(category_service));
+            ClassifyCategoryPipeProcesserImpl::new(Arc::new(adapter), &category_service);
 
         let products = vec![mk_product_with_embedding(), mk_product_with_embedding()];
         let product_ids = products.iter().map(|p| p.product_id).collect::<Vec<_>>();
@@ -392,7 +392,7 @@ mod tests {
         });
 
         let processor =
-            ClassifyCategoryPipeProcesserImpl::new(Arc::new(adapter), Arc::new(category_service));
+            ClassifyCategoryPipeProcesserImpl::new(Arc::new(adapter), &category_service);
 
         let mut products = vec![mk_product_with_embedding(), mk_product_with_embedding()];
         let mut missing = mk_product_with_embedding();
@@ -437,7 +437,7 @@ mod tests {
         });
 
         let processor =
-            ClassifyCategoryPipeProcesserImpl::new(Arc::new(adapter), Arc::new(category_service));
+            ClassifyCategoryPipeProcesserImpl::new(Arc::new(adapter), &category_service);
 
         let products = fake::vec![Product; count]
             .into_iter()
@@ -490,7 +490,7 @@ mod tests {
         });
 
         let processor =
-            ClassifyCategoryPipeProcesserImpl::new(Arc::new(adapter), Arc::new(category_service));
+            ClassifyCategoryPipeProcesserImpl::new(Arc::new(adapter), &category_service);
 
         let products = fake::vec![Product; count]
             .into_iter()
@@ -533,7 +533,7 @@ mod tests {
             .returning(|_| Err(PyErr::new::<PyTypeError, _>("Something went wrong")));
 
         let processor =
-            ClassifyCategoryPipeProcesserImpl::new(Arc::new(adapter), Arc::new(category_service));
+            ClassifyCategoryPipeProcesserImpl::new(Arc::new(adapter), &category_service);
 
         let products = fake::vec![Product; count]
             .into_iter()

@@ -55,8 +55,7 @@ async fn should_process_classification() {
             })
         });
 
-    let processor =
-        ClassifyCategoryPipeProcesserImpl::new(Arc::new(adapter), Arc::new(category_service));
+    let processor = ClassifyCategoryPipeProcesserImpl::new(Arc::new(adapter), &category_service);
 
     let mut product = Faker.fake::<Product>();
     product.native_title.payload = "Antique Chair".into();

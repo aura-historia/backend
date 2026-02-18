@@ -7,7 +7,7 @@ edition = "2024"
 product-classification = { workspace = true }
 product-pipeline-common = { workspace = true }
 product = { workspace = true, features = ["dynamodb"] }
-common = { workspace = true, features = ["dynamodb", "event_bridge"] }
+common = { workspace = true, features = ["dynamodb", "event_bridge", "opensearch", "api"] }
 async-trait = { workspace = true }
 tracing = { workspace = true }
 tracing-subscriber = { workspace = true, features = ["json"] }
