@@ -302,13 +302,13 @@ Resources:
       Queues:
         - !Ref ProductMaterializeDynamoDbQ
         - !Ref ProductMaterializeOpenSearchQ
-        - !Ref ProductClassificationQ
         - !Ref ShopOpenSearchIndexQ
         - !Ref ProductUpdateNotifyUserQ
         - !Ref UserLambdaFanoutUpdateWatchlistQ
         - !Ref ProductPipelineTranslateQ
         - !Ref ProductPipelineEmbedTextQ
         - !Ref ProductPipelineExtractAttributeQ
+        - !Ref ProductPipelineClassifyCategoryQ
       PolicyDocument:
         Version: "2012-10-17"
         Statement:
@@ -319,13 +319,13 @@ Resources:
             Resource:
               - !GetAtt ProductMaterializeDynamoDbQ.Arn
               - !GetAtt ProductMaterializeOpenSearchQ.Arn
-              - !GetAtt ProductClassificationQ.Arn
               - !GetAtt ShopOpenSearchIndexQ.Arn
               - !GetAtt ProductUpdateNotifyUserQ.Arn
               - !GetAtt UserLambdaFanoutUpdateWatchlistQ.Arn
               - !GetAtt ProductPipelineTranslateQ.Arn
               - !GetAtt ProductPipelineEmbedTextQ.Arn
               - !GetAtt ProductPipelineExtractAttributeQ.Arn
+              - !GetAtt ProductPipelineClassifyCategoryQ.Arn
 
   Api:
     Type: AWS::ApiGatewayV2::Api
@@ -1182,92 +1182,6 @@ Resources:
       FunctionResponseTypes:
         - ReportBatchItemFailures
 
-  ProductClassificationDlq:
-    Type: AWS::SQS::Queue
-    Properties:
-      QueueName: "product-classification-dlq-dev"
-      MessageRetentionPeriod: 1209600
-  ProductClassificationQ:
-    Type: AWS::SQS::Queue
-    Properties:
-      QueueName: "product-classification-queue-dev"
-      RedrivePolicy:
-        deadLetterTargetArn: !GetAtt ProductClassificationDlq.Arn
-        maxReceiveCount: 5
-      VisibilityTimeout: 360
-  ProductClassificationRole:
-    Type: AWS::IAM::Role
-    Properties:
-      RoleName: "product-classification-role-dev"
-      AssumeRolePolicyDocument:
-        Version: "2012-10-17"
-        Statement:
-          - Effect: Allow
-            Principal:
-              Service: lambda.amazonaws.com
-            Action: sts:AssumeRole
-      ManagedPolicyArns:
-        - arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole
-      Policies:
-        - PolicyName: DynamoDBAccess
-          PolicyDocument:
-            Version: "2012-10-17"
-            Statement:
-              - Effect: Allow
-                Action:
-                  - dynamodb:GetItem
-                  - dynamodb:Query
-                  - dynamodb:PutItem
-                  - dynamodb:BatchGetItem
-                  - dynamodb:BatchWriteItem
-                  - dynamodb:TransactGetItems
-                  - dynamodb:TransactWriteItems
-                Resource:
-                  - !GetAtt TableOne.Arn
-                  - !Sub "${TableOne.Arn}/index/*"
-        - PolicyName: SQSPollerAccess
-          PolicyDocument:
-            Version: "2012-10-17"
-            Statement:
-              - Effect: Allow
-                Action:
-                  - sqs:ReceiveMessage
-                  - sqs:DeleteMessage
-                  - sqs:GetQueueAttributes
-                  - sqs:GetQueueUrl
-                Resource: !GetAtt ProductClassificationQ.Arn
-  ProductClassificationLambda:
-    Type: AWS::Lambda::Function
-    Properties:
-      FunctionName: "product-classification-lambda-dev"
-      Runtime: provided.al2023
-      Handler: lib.handler
-      Role: !GetAtt ProductClassificationRole.Arn
-      Code:
-        S3Bucket: !Ref ArtifactBucket
-        S3Key: !Sub "product-classification-lambda-dev-${CommitSHA}.zip"
-      MemorySize: 512
-      Timeout: 60
-      EphemeralStorage:
-        Size: 512
-      Environment:
-        Variables:
-          DYNAMODB_TABLE_NAME: !Ref TableOne
-          OPENSEARCH_ENDPOINT_URL: !Ref OpenSearchEndpointUrl
-          STAGE: "dev"
-          OPENSEARCH_USERNAME: "{{resolve:ssm:/opensearch/dev/username}}"
-          OPENSEARCH_PASSWORD: "{{resolve:ssm:/opensearch/dev/password}}"
-  ProductClassificationMapping:
-    Type: AWS::Lambda::EventSourceMapping
-    Properties:
-      FunctionName: !Ref ProductClassificationLambda
-      EventSourceArn: !GetAtt ProductClassificationQ.Arn
-      Enabled: true
-      BatchSize: 200
-      MaximumBatchingWindowInSeconds: 1
-      FunctionResponseTypes:
-        - ReportBatchItemFailures
-
   ShopOpenSearchIndexDlq:
     Type: AWS::SQS::Queue
     Properties:
@@ -1552,27 +1466,6 @@ Resources:
       Targets:
         - Id: ProductMaterializeOpenSearchQ
           Arn: !GetAtt ProductMaterializeOpenSearchQ.Arn
-  DynamoDbProductEnrichmentEmbedTextEventRecordClassifyProductEventRule:
-    Type: AWS::Events::Rule
-    Properties:
-      Name: "ddb-product-embed-text-ddb-classify-dev"
-      EventBusName: !Ref DynamoDbEventBus
-      EventPattern:
-        source:
-          - !Ref TableOne
-        detail-type:
-          - "DynamoDBStreamRecord"
-        detail:
-          eventName:
-            - "INSERT"
-          dynamodb:
-            NewImage:
-              event_type:
-                S:
-                  - "ENRICHMENT_EMBEDDED_TEXT"
-      Targets:
-        - Id: ProductClassificationQ
-          Arn: !GetAtt ProductClassificationQ.Arn
   DynamoDbProductEventRecordUpdatedNotifyUserEventRule:
     Type: AWS::Events::Rule
     Properties:
@@ -2405,6 +2298,241 @@ Resources:
         - Id: ProductPipelineExtractAttributeQ
           Arn: !GetAtt ProductPipelineExtractAttributeQ.Arn
 
+  ProductPipelineClassifyCategoryDlq:
+    Type: AWS::SQS::Queue
+    Properties:
+      QueueName: !Sub "product-pipeline-classify-category-dlq-dev"
+      MessageRetentionPeriod: 1209600
+  ProductPipelineClassifyCategoryQ:
+    Type: AWS::SQS::Queue
+    Properties:
+      QueueName: !Sub "product-pipeline-classify-category-queue-dev"
+      RedrivePolicy:
+        deadLetterTargetArn: !GetAtt ProductPipelineClassifyCategoryDlq.Arn
+        maxReceiveCount: 3
+      VisibilityTimeout: 300
+  ProductPipelineClassifyCategoryRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Sub "product-pipeline-classify-category-role-dev"
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: ec2.amazonaws.com
+            Action: sts:AssumeRole
+          - Effect: Allow
+            Principal:
+              Service: spot.amazonaws.com
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/CloudWatchAgentServerPolicy
+        - arn:aws:iam::aws:policy/AmazonS3ReadOnlyAccess
+        - arn:aws:iam::aws:policy/AmazonSSMManagedInstanceCore
+      Policies:
+        - PolicyName: AllowTerminateInASG
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: Allow
+                Action: autoscaling:TerminateInstanceInAutoScalingGroup
+                Resource: "*"
+        - PolicyName: SQSPollerAccess
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: Allow
+                Action:
+                  - sqs:ReceiveMessage
+                  - sqs:DeleteMessage
+                  - sqs:DeleteMessageBatch
+                  - sqs:GetQueueAttributes
+                  - sqs:GetQueueUrl
+                  - sqs:ChangeMessageVisibility
+                Resource:
+                  - !GetAtt ProductPipelineClassifyCategoryQ.Arn
+        - PolicyName: CloudWatchLogsCreate
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: Allow
+                Action:
+                  - logs:CreateLogGroup
+                  - logs:CreateLogStream
+                  - logs:PutLogEvents
+                Resource: "*"
+        - PolicyName: DynamoDBAccess
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: Allow
+                Action:
+                  - dynamodb:GetItem
+                  - dynamodb:Query
+                  - dynamodb:PutItem
+                  - dynamodb:DeleteItem
+                  - dynamodb:UpdateItem
+                  - dynamodb:BatchGetItem
+                  - dynamodb:BatchWriteItem
+                  - dynamodb:TransactGetItems
+                  - dynamodb:TransactWriteItems
+                Resource:
+                  - !GetAtt TableOne.Arn
+                  - !Sub "${TableOne.Arn}/index/*"
+  ProductPipelineClassifyCategoryInstanceProfile:
+    Type: AWS::IAM::InstanceProfile
+    Properties:
+      InstanceProfileName: !Sub "product-pipeline-classify-category-profile-dev"
+      Roles:
+        - !Ref ProductPipelineClassifyCategoryRole
+  ProductPipelineClassifyCategoryLaunchTemplate:
+    Type: AWS::EC2::LaunchTemplate
+    Properties:
+      LaunchTemplateName: !Sub "product-pipeline-classify-category-template-dev"
+      LaunchTemplateData:
+        IamInstanceProfile:
+          Name: !Ref ProductPipelineClassifyCategoryInstanceProfile
+        InstanceType: g6.xlarge # Placeholder - ASG overrides this
+        ImageId: "{{resolve:ssm:/amis/dev/product-pipeline-classify-category/latest}}"
+        SecurityGroupIds: [!Ref ProductPipelineSecurityGroup]
+        BlockDeviceMappings:
+          - DeviceName: /dev/sda1
+            Ebs:
+              VolumeSize: 80
+              VolumeType: gp3
+              DeleteOnTermination: true
+        TagSpecifications:
+          - ResourceType: instance
+            Tags:
+              - Key: Name
+                Value: !Sub "product-pipeline-classify-category-dev"
+              - Key: Fleet
+                Value: product-pipeline-classify-category
+        UserData:
+          Fn::Base64: !Sub |
+            #!/bin/bash
+            set -euxo pipefail
+            sudo -i
+            export DYNAMODB_TABLE_NAME="${TableOne}"
+            export STAGE="dev"
+            export STAGE_NAME=dev
+            export CommitSHA="${CommitSHA}"
+            export ARTIFACT_BUCKET="${ArtifactBucket}"
+            export SOURCE_QUEUE_URL="${ProductPipelineClassifyCategoryQ}"
+            # Download and install binary
+            sudo aws s3 cp "s3://${ArtifactBucket}/dev/${CommitSHA}/product-pipeline-classify-category" /opt/product-pipeline-classify-category/product-pipeline-classify-category --region eu-central-1
+            sudo chmod +x /opt/product-pipeline-classify-category/product-pipeline-classify-category
+            # Prepare (preconfigured via custom ami) python venv
+            cd /opt/product-pipeline-classify-category
+            source .venv/bin/activate
+            # ----------------------------
+            # INSTANCE STORE (CORRECT ZERO-COPY HF CACHE)
+            # ----------------------------
+            set -euxo pipefail
+
+            ROOT_DEV=$(lsblk -ndo PKNAME "$(findmnt -n -o SOURCE /)")
+            DEVICE=""
+
+            echo "Waiting for instance store NVMe..."
+
+            for i in {1..30}; do
+              DEVICE=$(lsblk -ndo NAME,TYPE | awk '$2=="disk"{print "/dev/"$1}' | grep -v "$ROOT_DEV" | head -n1 || true)
+              [ -n "$DEVICE" ] && break
+              sleep 1
+            done
+
+            if [ -z "$DEVICE" ]; then
+              echo "❌ No instance store detected — using EBS"
+              export HF_HOME=/opt/huggingface
+              export TRANSFORMERS_CACHE=/opt/huggingface
+              export SENTENCE_TRANSFORMERS_HOME=/opt/huggingface
+            else
+              echo "✅ Found instance store: $DEVICE"
+
+              if ! blkid "$DEVICE" >/dev/null 2>&1; then
+                mkfs.xfs -f "$DEVICE"
+              fi
+
+              mkdir -p /mnt/instance-store
+              mount -o noatime,nodiratime "$DEVICE" /mnt/instance-store
+
+              mkdir -p /mnt/instance-store/huggingface
+
+              # If /opt/huggingface is NOT already a symlink, replace it
+              if [ ! -L /opt/huggingface ]; then
+                echo "🔁 Moving HF cache pointer to NVMe (no copy)"
+                rm -rf /opt/huggingface
+                ln -s /mnt/instance-store/huggingface /opt/huggingface
+              fi
+
+              export HF_HOME=/opt/huggingface
+              export TRANSFORMERS_CACHE=/opt/huggingface
+              export SENTENCE_TRANSFORMERS_HOME=/opt/huggingface
+
+              echo "🔥 HuggingFace cache now lives on NVMe"
+            fi
+
+            # Run binary
+            LOG_PATH="/var/log/product-pipeline-classify-category.log"
+            echo "[$(date)] Running product-pipeline-classify-category..." | tee -a "$LOG_PATH"
+            ./product-pipeline-classify-category >> "$LOG_PATH" 2>&1
+            EXIT_CODE=$?
+            echo "[$(date)] Job finished with code $EXIT_CODE" | tee -a "$LOG_PATH"
+            sleep 5
+            aws autoscaling terminate-instance-in-auto-scaling-group \
+              --instance-id $(ec2metadata --instance-id) \
+              --should-decrement-desired-capacity
+            exit $EXIT_CODE
+  ProductPipelineClassifyCategoryASG:
+    Type: AWS::AutoScaling::AutoScalingGroup
+    Properties:
+      VPCZoneIdentifier:
+        - !Ref ProductPipelineSubnetA
+      MinSize: 0
+      MaxSize: 1
+      DesiredCapacity: 0
+      MixedInstancesPolicy:
+        LaunchTemplate:
+          LaunchTemplateSpecification:
+            LaunchTemplateId: !Ref ProductPipelineClassifyCategoryLaunchTemplate
+            Version: !GetAtt ProductPipelineClassifyCategoryLaunchTemplate.LatestVersionNumber
+          Overrides:
+            - InstanceType: g6.xlarge
+            - InstanceType: g6.2xlarge
+            - InstanceType: g5.xlarge
+            - InstanceType: g5.2xlarge
+        InstancesDistribution:
+          OnDemandPercentageAboveBaseCapacity: 0
+          SpotAllocationStrategy: price-capacity-optimized
+      Tags:
+        - Key: Name
+          Value: !Sub "product-pipeline-classify-category-dev"
+          PropagateAtLaunch: true
+      HealthCheckType: EC2
+      HealthCheckGracePeriod: 120
+  ProductPipelineClassifyCategoryDynamoDbProductEventRecordCreatedEventRule:
+    Type: AWS::Events::Rule
+    Properties:
+      Name: "ddb-product-embed-product-pipeline-classify-dev"
+      EventBusName: !Ref DynamoDbEventBus
+      EventPattern:
+        source:
+          - !Ref TableOne
+        detail-type:
+          - "DynamoDBStreamRecord"
+        detail:
+          eventName:
+            - "INSERT"
+          dynamodb:
+            NewImage:
+              event_type:
+                S:
+                  - "ENRICHMENT_EMBEDDED_TEXT"
+      Targets:
+        - Id: ProductPipelineClassifyCategoryQ
+          Arn: !GetAtt ProductPipelineClassifyCategoryQ.Arn
+
   ProductPipelineScaleControlRole:
     Type: AWS::IAM::Role
     Properties:
@@ -2463,6 +2591,9 @@ Resources:
           PRODUCT_PIPELINE_EXTRACT_ATTRIBUTE_SQS_URL: !Ref ProductPipelineExtractAttributeQ
           PRODUCT_PIPELINE_EXTRACT_ATTRIBUTE_SQS_NAME: !GetAtt ProductPipelineExtractAttributeQ.QueueName
           PRODUCT_PIPELINE_EXTRACT_ATTRIBUTE_ASG_NAME: !Ref ProductPipelineExtractAttributeASG
+          PRODUCT_PIPELINE_CLASSIFY_CATEGORY_SQS_URL: !Ref ProductPipelineClassifyCategoryQ
+          PRODUCT_PIPELINE_CLASSIFY_CATEGORY_SQS_NAME: !GetAtt ProductPipelineClassifyCategoryQ.QueueName
+          PRODUCT_PIPELINE_CLASSIFY_CATEGORY_ASG_NAME: !Ref ProductPipelineClassifyCategoryASG
   ProductPipelineScaleControlStartSchedule:
     Type: AWS::Events::Rule
     Properties:
@@ -2573,11 +2704,6 @@ Outputs:
     Value: !Ref ProductMaterializeOpenSearchQ
   ProductMaterializeOpensearchDeadLetterQueueUrl:
     Value: !Ref ProductMaterializeOpenSearchDlq
-
-  ProductClassificationQueueUrl:
-    Value: !Ref ProductClassificationQ
-  ProductClassificationDeadLetterQueueUrl:
-    Value: !Ref ProductClassificationDlq
 
   ProductUpdateNotifyUserQueueUrl:
     Value: !Ref ProductUpdateNotifyUserQ
