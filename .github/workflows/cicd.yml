@@ -90,7 +90,6 @@ jobs:
           - src/product-api
           - src/product-classification
           - src/product-classification-api
-          - src/product-classification-lambda
           - src/product-watchlist-api
           - src/product-pipeline
           - src/product-lambda
@@ -279,7 +278,6 @@ jobs:
           - src/search-filter-api
           - src/product-api
           - src/product-classification-api
-          - src/product-classification-lambda
           - src/product-watchlist-api
           - src/product-pipeline/src/product-pipeline-asg-scale-control
           - src/product-lambda/src/product-lambda-materialize-dynamodb
@@ -359,9 +357,10 @@ jobs:
     strategy:
       matrix:
         crate:
-          - src/product-pipeline/src/product-pipeline-translate
+          - src/product-pipeline/src/product-pipeline-classify-category
           - src/product-pipeline/src/product-pipeline-embed-text
           - src/product-pipeline/src/product-pipeline-extract-attribute
+          - src/product-pipeline/src/product-pipeline-translate
     steps:
       - uses: actions/checkout@v6
 

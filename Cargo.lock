@@ -127,7 +127,6 @@ dependencies = [
  "product-api",
  "product-classification",
  "product-classification-api",
- "product-classification-lambda",
  "product-lambda",
  "product-pipeline",
  "product-watchlist-api",
@@ -3290,29 +3289,6 @@ dependencies = [
  "tokio",
  "tracing",
  "tracing-subscriber",
-]
-
-[[package]]
-name = "product-classification-lambda"
-version = "0.1.0"
-dependencies = [
- "aws-config",
- "aws-sdk-dynamodb",
- "aws_lambda_events",
- "common",
- "fake",
- "lambda_runtime",
- "product",
- "product-classification",
- "rstest",
- "serde_dynamo",
- "serde_json",
- "time",
- "tokio",
- "tracing",
- "tracing-subscriber",
- "url",
- "uuid",
 ]
 
 [[package]]
