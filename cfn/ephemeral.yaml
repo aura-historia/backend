@@ -2407,6 +2407,7 @@ Resources:
                   - es:ESHttpGet
                   - es:ESHttpHead
                   - es:ESHttpPost
+                Resource: !Sub "${OpenSearchDomain.Arn}/*"
         - PolicyName: AllowTerminateInASG
           PolicyDocument:
             Version: "2012-10-17"
