@@ -1,6 +1,6 @@
 use crate::core::product_event::ProductEnrichmentEvent;
 use crate::core::product_event::enrichment::{
-    ClassifyCategoryProductEnrichmentEventPayload, EmbeddedTextProductEnrichmentEventPayload,
+    ClassifiedCategoryProductEnrichmentEventPayload, EmbeddedTextProductEnrichmentEventPayload,
     ExtractedAttributesProductEnrichmentEventPayload, ProductEnrichmentEventPayload,
     TranslationProductEnrichmentEventPayload,
 };
@@ -196,7 +196,7 @@ impl TryFrom<ProductEnrichmentEvent> for ProductEnrichmentEventRecord {
                     timestamp: event.timestamp,
                 }
             }
-            ProductEnrichmentEventPayload::ClassifyCategory(payload) => {
+            ProductEnrichmentEventPayload::ClassifiedCategory(payload) => {
                 ProductEnrichmentEventRecord {
                     pk: mk_pk(&payload.shop_id, &payload.shops_product_id),
                     sk: mk_sk(&event.timestamp)?,
@@ -341,8 +341,8 @@ impl TryFrom<ProductEnrichmentEventRecord> for ProductEnrichmentEvent {
                     aggregate_id: record.product_id,
                     event_id: record.event_id,
                     timestamp: record.timestamp,
-                    payload: ProductEnrichmentEventPayload::ClassifyCategory(
-                        ClassifyCategoryProductEnrichmentEventPayload {
+                    payload: ProductEnrichmentEventPayload::ClassifiedCategory(
+                        ClassifiedCategoryProductEnrichmentEventPayload {
                             shop_id: record.shop_id,
                             shops_product_id: record.shops_product_id,
                             category_id: record.category_id.ok_or(MissingPersistenceField::new(

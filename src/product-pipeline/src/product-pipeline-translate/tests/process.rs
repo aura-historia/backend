@@ -9,9 +9,9 @@ use product_pipeline_translate::{
 };
 use std::sync::Arc;
 
-#[test]
+#[tokio::test]
 #[serial_test::serial]
-fn should_process_translation() {
+async fn should_process_translation() {
     let adapter = TranslationAdapterImpl::new().unwrap();
     let translation_pipe_processor = TranslationPipeProcesserImpl::new(Arc::new(adapter));
 
@@ -25,7 +25,7 @@ fn should_process_translation() {
         payload: "Beispiel".into(),
     });
 
-    let actual = translation_pipe_processor.process(vec![product]);
+    let actual = translation_pipe_processor.process(vec![product]).await;
     assert!(actual.failures.is_empty());
     assert_eq!(6, actual.successes.len());
 }

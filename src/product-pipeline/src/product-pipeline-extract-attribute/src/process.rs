@@ -22,8 +22,9 @@ impl AttributeExtractionPipeProcesserImpl {
     }
 }
 
+#[async_trait::async_trait]
 impl PipeProcessor for AttributeExtractionPipeProcesserImpl {
-    fn process(&self, ins: Vec<Product>) -> ProcessResult {
+    async fn process(&self, ins: Vec<Product>) -> ProcessResult {
         let count = ins.len();
         let mut successes = Vec::with_capacity(2 * count);
         let mut failures = HashSet::new();
@@ -163,8 +164,8 @@ pub mod tests {
     use pyo3::{PyErr, exceptions::PyTypeError};
     use std::sync::Arc;
 
-    #[test]
-    fn should_keep_order_of_delegate_returned_extractions() {
+    #[tokio::test]
+    async fn should_keep_order_of_delegate_returned_extractions() {
         let mock_res = vec![
             r#"{"condition": "EXCELLENT"}"#.to_owned(),
             r#"{"condition": "POOR"}"#.to_owned(),
@@ -182,7 +183,7 @@ pub mod tests {
         for product in &mut products {
             product.condition = Default::default();
         }
-        let res = embedding_pipe.process(products);
+        let res = embedding_pipe.process(products).await;
         let actual = res
             .successes
             .into_iter()
@@ -223,7 +224,8 @@ pub mod tests {
     #[case("Whatever bro might be yapping here. I don't care.")]
     #[case("Whatever bro might be yapping here. I don't care.\n")]
     #[case("Whatever bro might be yapping here. I don't care.\n\n")]
-    fn should_extract_when_model_response_contains_anything_before_actual_json(
+    #[tokio::test]
+    async fn should_extract_when_model_response_contains_anything_before_actual_json(
         #[case] prefix: String,
     ) {
         let mock_res = vec![format!("{prefix}{}", r#"{"condition": "EXCELLENT"}"#)];
@@ -237,7 +239,7 @@ pub mod tests {
         for product in &mut products {
             product.condition = Default::default();
         }
-        let res = embedding_pipe.process(products);
+        let res = embedding_pipe.process(products).await;
         let actual = res
             .successes
             .into_iter()
@@ -271,14 +273,17 @@ pub mod tests {
     #[case(256)]
     #[case(1000)]
     #[case(1500)]
-    fn should_partially_fail_entire_batches_when_py_err(#[case] input_count: usize) {
+    #[tokio::test]
+    async fn should_partially_fail_entire_batches_when_py_err(#[case] input_count: usize) {
         let mut delegate = MockExtractionAdapter::default();
         delegate
             .expect_extract()
             .returning(move |_, _| Err(PyErr::new::<PyTypeError, _>("Something went wrong")));
 
         let embedding_pipe = AttributeExtractionPipeProcesserImpl::new(Arc::new(delegate));
-        let res = embedding_pipe.process(fake::vec![Product; input_count]);
+        let res = embedding_pipe
+            .process(fake::vec![Product; input_count])
+            .await;
 
         assert!(res.successes.is_empty());
         assert_eq!(input_count, res.failures.len());
@@ -297,7 +302,8 @@ pub mod tests {
     #[case(256)]
     #[case(1000)]
     #[case(1500)]
-    fn should_partially_fail_batch_elements_when_parse_err(#[case] input_count: usize) {
+    #[tokio::test]
+    async fn should_partially_fail_batch_elements_when_parse_err(#[case] input_count: usize) {
         let mut delegate = MockExtractionAdapter::default();
         delegate.expect_extract().returning(move |_, batch| {
             let mock_res = vec![
@@ -316,7 +322,9 @@ pub mod tests {
         });
 
         let embedding_pipe = AttributeExtractionPipeProcesserImpl::new(Arc::new(delegate));
-        let res = embedding_pipe.process(fake::vec![Product; input_count]);
+        let res = embedding_pipe
+            .process(fake::vec![Product; input_count])
+            .await;
 
         let expected_failures = input_count.div_ceil(8);
         assert_eq!(expected_failures, res.failures.len());

@@ -4,7 +4,7 @@ use common::dynamodb_stream::extract_from_dynamodb_stream;
 use common::event_id::EventId;
 use lambda_runtime::LambdaEvent;
 use product::core::product_event::enrichment::{
-    ClassifyCategoryProductEnrichmentEventPayload, ProductEnrichmentEventPayload,
+    ClassifiedCategoryProductEnrichmentEventPayload, ProductEnrichmentEventPayload,
 };
 use product::core::product_event::{ProductEvent, ProductEventPayload};
 use product::dynamodb::product_event_record::ProductEventRecord;
@@ -148,8 +148,8 @@ async fn classify_category(
         event_id: EventId::new(),
         timestamp: OffsetDateTime::now_utc(),
         payload: ProductEventPayload::ProductEnrichmentEvent(
-            ProductEnrichmentEventPayload::ClassifyCategory(
-                ClassifyCategoryProductEnrichmentEventPayload {
+            ProductEnrichmentEventPayload::ClassifiedCategory(
+                ClassifiedCategoryProductEnrichmentEventPayload {
                     shop_id: event_record.shop_id,
                     shops_product_id: event_record.shops_product_id.clone(),
                     category_id: category.category_id,

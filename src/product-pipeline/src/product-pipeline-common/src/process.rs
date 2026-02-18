@@ -8,7 +8,8 @@ pub struct ProcessResult {
     pub failures: HashSet<ProductId>,
 }
 
+#[async_trait::async_trait]
 #[mockall::automock]
 pub trait PipeProcessor {
-    fn process(&self, products: Vec<Product>) -> ProcessResult;
+    async fn process(&self, products: Vec<Product>) -> ProcessResult;
 }

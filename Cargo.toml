@@ -99,6 +99,7 @@ product-classification-lambda = { path = "src/product-classification-lambda" }
 product-watchlist-api = { path = "src/product-watchlist-api" }
 product-lambda = { path = "src/product-lambda" }
 product-pipeline-common = { path = "src/product-pipeline/src/product-pipeline-common" }
+product-pipeline-classify-category = { path = "src/product-pipeline/src/product-pipeline-classify-category" }
 product-pipeline-translate = { path = "src/product-pipeline/src/product-pipeline-translate" }
 product-pipeline-embed-text = { path = "src/product-pipeline/src/product-pipeline-embed-text" }
 product-pipeline-extract-attribute = { path = "src/product-pipeline/src/product-pipeline-extract-attribute" }

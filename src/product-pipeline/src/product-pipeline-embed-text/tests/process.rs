@@ -1054,7 +1054,8 @@ const EXPECTED_TEXT_EMBEDDING: [f32; 1024] = [
 #[case(69)]
 #[case(144)]
 #[serial_test::serial]
-fn should_process_text_embedding(#[case] count: usize) {
+#[tokio::test]
+async fn should_process_text_embedding(#[case] count: usize) {
     let adapter = EmbeddingAdapterImpl::new().unwrap();
     let translation_pipe_processor = TextEmbeddingPipeProcesserImpl::new(Arc::new(adapter));
 
@@ -1071,7 +1072,7 @@ fn should_process_text_embedding(#[case] count: usize) {
     products.push(product);
     products.shuffle(&mut fake::rand::rng());
 
-    let actual = translation_pipe_processor.process(products);
+    let actual = translation_pipe_processor.process(products).await;
     assert!(actual.failures.is_empty());
     assert_eq!(count + 1, actual.successes.len());
 

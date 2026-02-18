@@ -90,7 +90,7 @@ impl<'a> Pipe for PipeImpl<'a> {
                 }
             };
 
-            let processed = self.processor.process(products);
+            let processed = self.processor.process(products).await;
             info!(
                 successes = processed.successes.len(),
                 failures = processed.failures.len(),

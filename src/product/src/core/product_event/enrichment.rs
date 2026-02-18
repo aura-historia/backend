@@ -15,7 +15,7 @@ pub enum ProductEnrichmentEventPayload {
     TranslatedDescription(TranslationProductEnrichmentEventPayload<Description>),
     EmbeddedText(EmbeddedTextProductEnrichmentEventPayload),
     ExtractedAttributes(ExtractedAttributesProductEnrichmentEventPayload),
-    ClassifyCategory(ClassifyCategoryProductEnrichmentEventPayload),
+    ClassifiedCategory(ClassifiedCategoryProductEnrichmentEventPayload),
 }
 
 #[cfg_attr(feature = "test-data", derive(fake::Dummy))]
@@ -52,7 +52,7 @@ pub struct ExtractedAttributesProductEnrichmentEventPayload {
 
 #[cfg_attr(feature = "test-data", derive(fake::Dummy))]
 #[derive(Debug, Clone, PartialEq)]
-pub struct ClassifyCategoryProductEnrichmentEventPayload {
+pub struct ClassifiedCategoryProductEnrichmentEventPayload {
     pub shop_id: ShopId,
     pub shops_product_id: ShopsProductId,
     pub category_id: CategoryId,
@@ -67,7 +67,7 @@ impl HasKey for ProductEnrichmentEventPayload {
             ProductEnrichmentEventPayload::TranslatedDescription(payload) => payload.key(),
             ProductEnrichmentEventPayload::EmbeddedText(payload) => payload.key(),
             ProductEnrichmentEventPayload::ExtractedAttributes(payload) => payload.key(),
-            ProductEnrichmentEventPayload::ClassifyCategory(payload) => payload.key(),
+            ProductEnrichmentEventPayload::ClassifiedCategory(payload) => payload.key(),
         }
     }
 }
@@ -99,7 +99,7 @@ impl HasKey for ExtractedAttributesProductEnrichmentEventPayload {
     }
 }
 
-impl HasKey for ClassifyCategoryProductEnrichmentEventPayload {
+impl HasKey for ClassifiedCategoryProductEnrichmentEventPayload {
     type Key = ProductKey;
 
     fn key(&self) -> Self::Key {
@@ -140,9 +140,11 @@ impl ProductEnrichmentEventPayload {
         }
     }
 
-    pub fn as_classify_category(&self) -> Option<&ClassifyCategoryProductEnrichmentEventPayload> {
+    pub fn as_classified_category(
+        &self,
+    ) -> Option<&ClassifiedCategoryProductEnrichmentEventPayload> {
         match self {
-            ProductEnrichmentEventPayload::ClassifyCategory(payload) => Some(payload),
+            ProductEnrichmentEventPayload::ClassifiedCategory(payload) => Some(payload),
             _ => None,
         }
     }
