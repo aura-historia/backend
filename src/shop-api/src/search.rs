@@ -30,18 +30,39 @@ pub async fn handle(
             size: 21,
             search_after: None,
         });
-    let body = event
-        .payload
-        .body
-        .filter(|str| !str.is_empty())
-        .ok_or_else(|| {
-            let err_msg = "Body cannot be empty. If you want to search without any restrictions, supply the body '{}'.";
-            ApiError::bad_request(BAD_BODY_VALUE, err_msg.into()).with_detail(err_msg)
-        })?;
-    let search_data: ShopSearchData = serde_json::from_str(&body).map_err(|err| {
-        let err_msg = err.to_string();
-        ApiError::bad_request(BAD_BODY_VALUE, Box::new(err)).with_detail(err_msg)
-    })?;
+    let search_data: ShopSearchData = if event.payload.route_key.as_deref()
+        == Some("GET /api/v1/shops")
+    {
+        let query = event
+            .payload
+            .raw_query_string
+            .clone()
+            .filter(|query| !query.is_empty())
+            .unwrap_or_else(|| {
+                let mut serializer = url::form_urlencoded::Serializer::new(String::new());
+                for (key, value) in event.payload.query_string_parameters.iter() {
+                    serializer.append_pair(key, value);
+                }
+                serializer.finish()
+            });
+        serde_qs::from_str(&query).map_err(|err| {
+            let err_msg = err.to_string();
+            ApiError::bad_request(BAD_BODY_VALUE, Box::new(err)).with_detail(err_msg)
+        })?
+    } else {
+        let body = event
+            .payload
+            .body
+            .filter(|str| !str.is_empty())
+            .ok_or_else(|| {
+                let err_msg = "Body cannot be empty. If you want to search without any restrictions, supply the body '{}'.";
+                ApiError::bad_request(BAD_BODY_VALUE, err_msg.into()).with_detail(err_msg)
+            })?;
+        serde_json::from_str(&body).map_err(|err| {
+            let err_msg = err.to_string();
+            ApiError::bad_request(BAD_BODY_VALUE, Box::new(err)).with_detail(err_msg)
+        })?
+    };
 
     let search = ShopSearch {
         shop_name_query: search_data.shop_name_query,
@@ -59,9 +80,14 @@ pub async fn handle(
         .map_item(GetShopData::from);
     let search_result_data: JsonCursoredData<GetShopData> = JsonCursoredData::from(search_result);
 
-    Ok(ApiGatewayV2HttpResponseBuilder::json(200)
-        .body_serde(search_result_data)?
-        .build())
+    let response_builder = ApiGatewayV2HttpResponseBuilder::json(200);
+    let response_builder = if event.payload.route_key.as_deref() == Some("GET /api/v1/shops") {
+        response_builder.cache_control("public", Some(3600), Some(86400))
+    } else {
+        response_builder
+    };
+
+    Ok(response_builder.body_serde(search_result_data)?.build())
 }
 
 #[cfg(test)]
@@ -123,6 +149,54 @@ mod tests {
         .unwrap();
 
         assert_eq!(200, response.status_code);
+    }
+
+    #[tokio::test]
+    async fn should_handle_get_simple_search_with_query_params() {
+        let lambda_event = LambdaEvent {
+            payload: ApiGatewayV2httpRequestProxy::builder()
+                .http_method(http::Method::GET)
+                .route_key("GET /api/v1/shops")
+                .query_string_parameter("shopNameQuery", "House")
+                .query_string_parameter("sort", "name")
+                .query_string_parameter("order", "asc")
+                .build(),
+            context: Default::default(),
+        };
+
+        let mut service = MockQueryShopService::default();
+        service.expect_search_shops().return_once(|search, _, _| {
+            assert_eq!(Some("House".try_into().unwrap()), search.shop_name_query);
+            Box::pin(async move {
+                Ok(CursoredResult {
+                    items: vec![],
+                    total: Some(0),
+                    cursor: Cursor {
+                        size: 21,
+                        search_after: None,
+                    },
+                })
+            })
+        });
+        let response = handle(
+            lambda_event,
+            &MockGetShopService::default(),
+            &service,
+            &MockCommandShopService::default(),
+        )
+        .await
+        .unwrap();
+
+        assert_eq!(200, response.status_code);
+        assert_eq!(
+            "public, max-age=3600, s-maxage=86400",
+            response
+                .headers
+                .get(http::header::CACHE_CONTROL)
+                .unwrap()
+                .to_str()
+                .unwrap()
+        );
     }
 
     #[tokio::test]

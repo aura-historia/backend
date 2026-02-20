@@ -104,7 +104,7 @@ pub async fn handle(
         Some("PUT /api/v1/products") => {
             put_products::handle(event, upsert_service, enrich_service).await
         }
-        Some("POST /api/v1/products/search") => {
+        Some("POST /api/v1/products/search") | Some("GET /api/v1/products") => {
             search::handle(
                 event,
                 query_product_service,

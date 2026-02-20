@@ -3269,6 +3269,7 @@ dependencies = [
  "rstest",
  "serde",
  "serde_json",
+ "serde_qs",
  "serial_test",
  "shop",
  "test-api",
@@ -3322,12 +3323,14 @@ dependencies = [
  "product-classification",
  "rstest",
  "serde_json",
+ "serde_qs",
  "serial_test",
  "test-api",
  "time",
  "tokio",
  "tracing",
  "tracing-subscriber",
+ "url",
 ]
 
 [[package]]
@@ -4435,6 +4438,18 @@ dependencies = [
 ]
 
 [[package]]
+name = "serde_qs"
+version = "1.0.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "ac22439301a0b6f45a037681518e3169e8db1db76080e2e9600a08d1027df037"
+dependencies = [
+ "itoa",
+ "percent-encoding",
+ "ryu",
+ "serde",
+]
+
+[[package]]
 name = "serde_repr"
 version = "0.1.20"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -4601,6 +4616,7 @@ dependencies = [
  "opensearch",
  "rstest",
  "serde_json",
+ "serde_qs",
  "serial_test",
  "shop",
  "test-api",

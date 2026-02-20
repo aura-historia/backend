@@ -441,3 +441,13 @@ async fn should_respond_200_when_no_hits_anon() {
         .unwrap();
     assert_eq!(200, response.status());
 }
+
+#[staging_test]
+async fn should_respond_200_when_hits_with_get_simple_search() {
+    let url = format!(
+        "{}/api/v1/products?language=de&currency=EUR&productQuery=test&size=5",
+        get_cfn_output().api_gateway_endpoint_url
+    );
+    let response = reqwest::get(url).await.unwrap();
+    assert_eq!(200, response.status());
+}

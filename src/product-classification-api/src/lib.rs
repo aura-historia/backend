@@ -39,7 +39,19 @@ pub async fn handle(
         Some("GET /api/v1/categories/{categoryId}") => {
             category::get::handle(event, category_service).await
         }
-        Some("GET /api/v1/categories") => category::get_all::handle(event, category_service).await,
+        Some("GET /api/v1/categories") => {
+            let is_simple_search = event
+                .payload
+                .query_string_parameters
+                .iter()
+                .next()
+                .is_some();
+            if is_simple_search {
+                category::search::handle(event, category_service).await
+            } else {
+                category::get_all::handle(event, category_service).await
+            }
+        }
         Some("POST /api/v1/categories/search") => {
             category::search::handle(event, category_service).await
         }
@@ -51,5 +63,36 @@ pub async fn handle(
             INTERNAL_SERVER_ERROR,
             "Missing route-key in AWS-Payload".into(),
         )),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::handle;
+    use lambda_runtime::LambdaEvent;
+    use product_classification::category::service::MockCategoryService;
+    use test_api::ApiGatewayV2httpRequestProxy;
+
+    #[tokio::test]
+    async fn should_route_to_simple_search_when_any_query_params_for_categories_get() {
+        let mut service = MockCategoryService::default();
+        service.expect_view_categories().never();
+        service
+            .expect_search_categories()
+            .once()
+            .return_once(|_, _| Box::pin(async { Ok(vec![]) }));
+
+        let lambda_event = LambdaEvent {
+            payload: ApiGatewayV2httpRequestProxy::builder()
+                .http_method(http::Method::GET)
+                .route_key("GET /api/v1/categories")
+                .query_string_parameter("language", "de")
+                .build(),
+            context: Default::default(),
+        };
+
+        let response = handle(lambda_event, &service).await.unwrap();
+
+        assert_eq!(200, response.status_code);
     }
 }

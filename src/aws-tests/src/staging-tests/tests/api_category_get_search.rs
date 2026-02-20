@@ -86,3 +86,13 @@ async fn should_search_categories_with_name_query() {
         .unwrap();
     assert!(body.is_empty());
 }
+
+#[staging_test]
+async fn should_search_categories_with_get_simple_search() {
+    let url = format!(
+        "{}/api/v1/categories?language=de&nameQuery=furniture",
+        get_cfn_output().api_gateway_endpoint_url
+    );
+    let response = reqwest::get(url).await.unwrap();
+    assert_eq!(200, response.status());
+}
