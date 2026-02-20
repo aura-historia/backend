@@ -17,6 +17,7 @@ serde_json = { workspace = true }
 serde_qs = { workspace = true }
 http = { workspace = true }
 opensearch = { workspace = true }
+url = { workspace = true }
 
 [dev-dependencies]
 test-api = { workspace = true, features = ["api-gateway", "dynamodb", "opensearch"] }
@@ -24,6 +25,5 @@ serial_test = { workspace = true }
 rstest = { workspace = true }
 time = { workspace = true }
 http = { workspace = true }
-url = { workspace = true }
 shop = { workspace = true, features = ["test-data"] }
 fake = { workspace = true }

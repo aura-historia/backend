@@ -22,11 +22,16 @@ pub async fn handle(
     {
         let query = event
             .payload
-            .query_string_parameters
-            .iter()
-            .map(|(key, value)| format!("{key}={value}"))
-            .collect::<Vec<_>>()
-            .join("&");
+            .raw_query_string
+            .clone()
+            .filter(|query| !query.is_empty())
+            .unwrap_or_else(|| {
+                let mut serializer = url::form_urlencoded::Serializer::new(String::new());
+                for (key, value) in event.payload.query_string_parameters.iter() {
+                    serializer.append_pair(key, value);
+                }
+                serializer.finish()
+            });
         serde_qs::from_str(&query).map_err(|err| {
             let err_msg = err.to_string();
             ApiError::bad_request(BAD_BODY_VALUE, Box::new(err)).with_detail(err_msg)

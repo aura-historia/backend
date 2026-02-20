@@ -17,6 +17,7 @@ serde_json = { workspace = true }
 serde_qs = { workspace = true }
 http = { workspace = true }
 opensearch = { workspace = true }
+url = { workspace = true }
 
 [dev-dependencies]
 test-api = { workspace = true, features = ["api-gateway", "dynamodb", "opensearch"] }
