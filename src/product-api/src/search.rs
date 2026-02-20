@@ -43,18 +43,33 @@ pub async fn handle(
         .map(|sort_data| sort_data.map(SortProductField::from));
     let cursor =
         extract_json_cursor_query(&event.payload.query_string_parameters)?.unwrap_or_default();
-    let body = event
-        .payload
-        .body
-        .filter(|str| !str.is_empty())
-        .ok_or_else(|| {
-            let err_msg = "Body cannot be empty";
-            ApiError::bad_request(BAD_BODY_VALUE, err_msg.into()).with_detail(err_msg)
-        })?;
-    let product_search_data: ProductSearchData = serde_json::from_str(&body).map_err(|err| {
-        let err_msg = err.to_string();
-        ApiError::bad_request(BAD_BODY_VALUE, Box::new(err)).with_detail(err_msg)
-    })?;
+    let product_search_data: ProductSearchData =
+        if event.payload.route_key.as_deref() == Some("GET /api/v1/products") {
+            let query = event
+                .payload
+                .query_string_parameters
+                .iter()
+                .map(|(key, value)| format!("{key}={value}"))
+                .collect::<Vec<_>>()
+                .join("&");
+            serde_qs::from_str(&query).map_err(|err| {
+                let err_msg = err.to_string();
+                ApiError::bad_request(BAD_BODY_VALUE, Box::new(err)).with_detail(err_msg)
+            })?
+        } else {
+            let body = event
+                .payload
+                .body
+                .filter(|str| !str.is_empty())
+                .ok_or_else(|| {
+                    let err_msg = "Body cannot be empty";
+                    ApiError::bad_request(BAD_BODY_VALUE, err_msg.into()).with_detail(err_msg)
+                })?;
+            serde_json::from_str(&body).map_err(|err| {
+                let err_msg = err.to_string();
+                ApiError::bad_request(BAD_BODY_VALUE, Box::new(err)).with_detail(err_msg)
+            })?
+        };
 
     let product_search = product_search_data.into();
     let search_result = service
@@ -89,9 +104,14 @@ pub async fn handle(
         PersonalizedData<GetProductSummaryData, ProductUserStateData>,
     > = JsonCursoredData::from(cursored_result);
 
-    Ok(ApiGatewayV2HttpResponseBuilder::json(200)
-        .body_serde(json_cursored_data)?
-        .build())
+    let response_builder = ApiGatewayV2HttpResponseBuilder::json(200);
+    let response_builder = if event.payload.route_key.as_deref() == Some("GET /api/v1/products") {
+        response_builder.cache_control("public", Some(60), Some(300))
+    } else {
+        response_builder
+    };
+
+    Ok(response_builder.body_serde(json_cursored_data)?.build())
 }
 
 #[cfg(test)]
@@ -126,6 +146,7 @@ mod tests {
         let lambda_event = LambdaEvent {
             payload: ApiGatewayV2httpRequestProxy::builder()
                 .http_method(http::Method::POST)
+                .route_key("POST /api/v1/products/search")
                 .try_query_string_parameter("sort", sort)
                 .try_query_string_parameter("order", order)
                 .body_serde(&Faker.fake::<ProductSearchData>())
@@ -163,5 +184,79 @@ mod tests {
         .unwrap();
 
         assert_eq!(200, response.status_code);
+    }
+
+    #[tokio::test]
+    async fn should_handle_get_simple_search_with_query_params() {
+        let search = ProductSearchData {
+            language: common::language::data::LanguageData::En,
+            currency: common::currency::data::CurrencyData::Eur,
+            product_query: "chair".try_into().unwrap(),
+            category_id: None,
+            shop_name_query: Default::default(),
+            exclude_shop_name_query: Default::default(),
+            shop_type_query: Default::default(),
+            price_query: None,
+            state_query: Default::default(),
+            origin_year_query: None,
+            authenticity_query: Default::default(),
+            condition_query: Default::default(),
+            provenance_query: Default::default(),
+            restoration_query: Default::default(),
+            created_query: None,
+            updated_query: None,
+            auction_start_query: None,
+            auction_end_query: None,
+        };
+        let lambda_event = LambdaEvent {
+            payload: ApiGatewayV2httpRequestProxy::builder()
+                .http_method(http::Method::GET)
+                .route_key("GET /api/v1/products")
+                .raw_query_string("language=en&currency=EUR&productQuery=chair".to_string())
+                .query_string_parameter("language", "en")
+                .query_string_parameter("currency", "EUR")
+                .query_string_parameter("productQuery", "chair")
+                .build(),
+            context: Default::default(),
+        };
+
+        let product_personalization_service = MockProductPersonalizationService::default();
+        let mut access_token_verifier_service = MockAccessTokenVerifierService::default();
+        access_token_verifier_service
+            .expect_verify_extract_user_id()
+            .return_once(|_| Box::pin(async { Ok(None) }));
+        let mut query_product_service = MockQueryProductService::default();
+        query_product_service
+            .expect_search_products()
+            .withf(move |actual, _, _| actual == &search.clone().into())
+            .return_once(|_, _, _| {
+                Box::pin(async move {
+                    Ok(CursoredResult {
+                        items: vec![],
+                        cursor: Cursor::default(),
+                        total: Some(0),
+                    })
+                })
+            });
+
+        let response = handle(
+            lambda_event,
+            &query_product_service,
+            &access_token_verifier_service,
+            &product_personalization_service,
+        )
+        .await
+        .unwrap();
+
+        assert_eq!(200, response.status_code);
+        assert_eq!(
+            "public, max-age=60, s-maxage=300",
+            response
+                .headers
+                .get(http::header::CACHE_CONTROL)
+                .unwrap()
+                .to_str()
+                .unwrap()
+        );
     }
 }

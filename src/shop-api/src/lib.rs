@@ -62,7 +62,9 @@ pub async fn handle(
             patch::handle(event, command_shop_service).await
         }
         Some("POST /api/v1/shops") => post::handle(event, command_shop_service).await,
-        Some("POST /api/v1/shops/search") => search::handle(event, query_shop_service).await,
+        Some("POST /api/v1/shops/search") | Some("GET /api/v1/shops") => {
+            search::handle(event, query_shop_service).await
+        }
         Some(unknown) => Err(ApiError::internal_server_error(
             INTERNAL_SERVER_ERROR,
             format!("Unknown route-key '{unknown}' in AWS-Payload").into(),

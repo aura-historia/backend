@@ -17,19 +17,35 @@ pub async fn handle(
     let sort = extract_sort_query::<SortCategoryFieldData>(&event.payload.query_string_parameters)?
         .map(|sort_data| sort_data.map(SortCategoryField::from));
 
-    let body = event
-        .payload
-        .body
-        .filter(|str| !str.is_empty())
-        .ok_or_else(|| {
-            let err_msg = "Body cannot be empty. If you want to search without any restrictions, supply the body '{}'.";
-            ApiError::bad_request(BAD_BODY_VALUE, err_msg.into()).with_detail(err_msg)
-        })?;
+    let search_data: CategorySearchData = if event.payload.route_key.as_deref()
+        == Some("GET /api/v1/categories")
+    {
+        let query = event
+            .payload
+            .query_string_parameters
+            .iter()
+            .map(|(key, value)| format!("{key}={value}"))
+            .collect::<Vec<_>>()
+            .join("&");
+        serde_qs::from_str(&query).map_err(|err| {
+            let err_msg = err.to_string();
+            ApiError::bad_request(BAD_BODY_VALUE, Box::new(err)).with_detail(err_msg)
+        })?
+    } else {
+        let body = event
+            .payload
+            .body
+            .filter(|str| !str.is_empty())
+            .ok_or_else(|| {
+                let err_msg = "Body cannot be empty. If you want to search without any restrictions, supply the body '{}'.";
+                ApiError::bad_request(BAD_BODY_VALUE, err_msg.into()).with_detail(err_msg)
+            })?;
 
-    let search_data: CategorySearchData = serde_json::from_str(&body).map_err(|err| {
-        let err_msg = err.to_string();
-        ApiError::bad_request(BAD_BODY_VALUE, Box::new(err)).with_detail(err_msg)
-    })?;
+        serde_json::from_str(&body).map_err(|err| {
+            let err_msg = err.to_string();
+            ApiError::bad_request(BAD_BODY_VALUE, Box::new(err)).with_detail(err_msg)
+        })?
+    };
 
     let categories = service
         .search_categories(&search_data.into(), &sort)
@@ -39,9 +55,14 @@ pub async fn handle(
         .map(GetCategorySummaryData::from)
         .collect();
 
-    Ok(ApiGatewayV2HttpResponseBuilder::json(200)
-        .body_serde(categories_data)?
-        .build())
+    let response_builder = ApiGatewayV2HttpResponseBuilder::json(200);
+    let response_builder = if event.payload.route_key.as_deref() == Some("GET /api/v1/categories") {
+        response_builder.cache_control("public", Some(86400), Some(604800))
+    } else {
+        response_builder
+    };
+
+    Ok(response_builder.body_serde(categories_data)?.build())
 }
 
 #[cfg(test)]
@@ -82,6 +103,40 @@ mod tests {
         let response = handle(lambda_event, &service).await.unwrap();
 
         assert_eq!(200, response.status_code);
+    }
+
+    #[tokio::test]
+    async fn should_search_categories_when_get_query_params_for_search() {
+        let mut service = MockCategoryService::default();
+        service
+            .expect_search_categories()
+            .return_once(move |search, _| {
+                assert_eq!(common::language::domain::Language::Es, search.language);
+                assert_eq!(Some("Furniture".try_into().unwrap()), search.name_query);
+                Box::pin(async move { Ok(vec![]) })
+            });
+        let lambda_event = LambdaEvent {
+            payload: ApiGatewayV2httpRequestProxy::builder()
+                .http_method(http::Method::GET)
+                .route_key("GET /api/v1/categories")
+                .query_string_parameter("language", "es")
+                .query_string_parameter("nameQuery", "Furniture")
+                .build(),
+            context: Default::default(),
+        };
+
+        let response = handle(lambda_event, &service).await.unwrap();
+
+        assert_eq!(200, response.status_code);
+        assert_eq!(
+            "public, max-age=86400, s-maxage=604800",
+            response
+                .headers
+                .get(http::header::CACHE_CONTROL)
+                .unwrap()
+                .to_str()
+                .unwrap()
+        );
     }
 
     #[tokio::test]

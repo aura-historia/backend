@@ -14,6 +14,7 @@ lambda_runtime = { workspace = true }
 aws-config = { workspace = true }
 aws-sdk-dynamodb = { workspace = true }
 serde_json = { workspace = true }
+serde_qs = { workspace = true }
 http = { workspace = true }
 opensearch = { workspace = true }
 

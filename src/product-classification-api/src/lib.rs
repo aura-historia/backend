@@ -39,7 +39,18 @@ pub async fn handle(
         Some("GET /api/v1/categories/{categoryId}") => {
             category::get::handle(event, category_service).await
         }
-        Some("GET /api/v1/categories") => category::get_all::handle(event, category_service).await,
+        Some("GET /api/v1/categories") => {
+            let is_simple_search = event
+                .payload
+                .query_string_parameters
+                .iter()
+                .any(|(key, _)| key == "language" || key == "nameQuery");
+            if is_simple_search {
+                category::search::handle(event, category_service).await
+            } else {
+                category::get_all::handle(event, category_service).await
+            }
+        }
         Some("POST /api/v1/categories/search") => {
             category::search::handle(event, category_service).await
         }
