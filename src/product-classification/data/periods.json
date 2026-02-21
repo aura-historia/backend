@@ -1,0 +1,44 @@
+[
+    {
+        "periodId": "renaissance",
+        "periodKey": "RENAISSANCE",
+        "metaName": "Renaissance",
+        "metaDescription": "The Renaissance period spanning roughly from the 14th to the 17th century, marked by a revival of classical learning, art, and architecture across Europe.",
+        "displayNameDe": "Renaissance",
+        "displayNameEn": "Renaissance",
+        "displayNameFr": "Renaissance",
+        "displayNameEs": "Renacimiento",
+        "displayDescriptionDe": "Die Renaissance war eine kulturelle Bewegung vom 14. bis 17. Jahrhundert, die eine Wiedergeburt der klassischen Kunst, Architektur und des Wissens in Europa brachte.",
+        "displayDescriptionEn": "The Renaissance was a cultural movement from the 14th to 17th century that brought a rebirth of classical art, architecture, and learning across Europe.",
+        "displayDescriptionFr": "La Renaissance fut un mouvement culturel du XIVe au XVIIe siècle qui a apporté une renaissance de l art, de l architecture et du savoir classiques en Europe.",
+        "displayDescriptionEs": "El Renacimiento fue un movimiento cultural del siglo XIV al XVII que trajo un renacimiento del arte, la arquitectura y el saber clásicos en Europa.",
+        "metaKeywords": [
+            "art",
+            "architecture",
+            "humanism",
+            "classical",
+            "rebirth"
+        ]
+    },
+    {
+        "periodId": "baroque",
+        "periodKey": "BAROQUE",
+        "metaName": "Baroque",
+        "metaDescription": "The Baroque period from the late 16th to the early 18th century, characterized by grandeur, dramatic contrast, and ornate detail in art and architecture.",
+        "displayNameDe": "Barock",
+        "displayNameEn": "Baroque",
+        "displayNameFr": "Baroque",
+        "displayNameEs": "Barroco",
+        "displayDescriptionDe": "Der Barock war eine Kunstepoche vom späten 16. bis frühen 18. Jahrhundert, gekennzeichnet durch Pracht, dramatische Kontraste und reiche Verzierungen.",
+        "displayDescriptionEn": "The Baroque was an art period from the late 16th to early 18th century, characterized by grandeur, dramatic contrasts, and rich ornamentation.",
+        "displayDescriptionFr": "Le Baroque fut une période artistique de la fin du XVIe au début du XVIIIe siècle, caractérisée par la grandeur, les contrastes dramatiques et l ornementation riche.",
+        "displayDescriptionEs": "El Barroco fue un período artístico de finales del siglo XVI a principios del XVIII, caracterizado por la grandeza, los contrastes dramáticos y la rica ornamentación.",
+        "metaKeywords": [
+            "grandeur",
+            "ornate",
+            "dramatic",
+            "opulent",
+            "contrast"
+        ]
+    }
+]
