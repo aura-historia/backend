@@ -1,8 +1,8 @@
 use crate::core::product_event::ProductEnrichmentEvent;
 use crate::core::product_event::enrichment::{
-    ClassifiedCategoryProductEnrichmentEventPayload, EmbeddedTextProductEnrichmentEventPayload,
-    ExtractedAttributesProductEnrichmentEventPayload, ProductEnrichmentEventPayload,
-    TranslationProductEnrichmentEventPayload,
+    ClassifiedCategoryProductEnrichmentEventPayload, ClassifiedPeriodProductEnrichmentEventPayload,
+    EmbeddedTextProductEnrichmentEventPayload, ExtractedAttributesProductEnrichmentEventPayload,
+    ProductEnrichmentEventPayload, TranslationProductEnrichmentEventPayload,
 };
 use crate::dynamodb::authenticity_record::AuthenticityRecord;
 use crate::dynamodb::condition_record::ConditionRecord;
@@ -15,6 +15,7 @@ use common::event::Event;
 use common::event_id::EventId;
 use common::has_key::HasKey;
 use common::language::record::LanguageRecord;
+use common::period_key::PeriodId;
 use common::product_id::{ProductId, ProductKey};
 use common::shop_id::ShopId;
 use common::shops_product_id::ShopsProductId;
@@ -38,6 +39,10 @@ pub struct ProductEnrichmentEventRecord {
     // classification:category
     #[serde(skip_serializing_if = "Option::is_none", default)]
     pub category_id: Option<CategoryId>,
+
+    // classification:period
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub period_id: Option<PeriodId>,
 
     // translation
     #[serde(skip_serializing_if = "Option::is_none", default)]
@@ -109,6 +114,7 @@ impl TryFrom<ProductEnrichmentEvent> for ProductEnrichmentEventRecord {
                     shop_id: payload.shop_id,
                     shops_product_id: payload.shops_product_id,
                     category_id: None,
+                    period_id: None,
                     source_language: Some(payload.source_language.into()),
                     target_language: Some(payload.target_language.into()),
                     target: Some(payload.target.into()),
@@ -134,6 +140,7 @@ impl TryFrom<ProductEnrichmentEvent> for ProductEnrichmentEventRecord {
                     shop_id: payload.shop_id,
                     shops_product_id: payload.shops_product_id,
                     category_id: None,
+                    period_id: None,
                     source_language: Some(payload.source_language.into()),
                     target_language: Some(payload.target_language.into()),
                     target: Some(payload.target.into()),
@@ -158,6 +165,7 @@ impl TryFrom<ProductEnrichmentEvent> for ProductEnrichmentEventRecord {
                 shop_id: payload.shop_id,
                 shops_product_id: payload.shops_product_id,
                 category_id: None,
+                period_id: None,
                 source_language: None,
                 target_language: None,
                 target: None,
@@ -182,6 +190,7 @@ impl TryFrom<ProductEnrichmentEvent> for ProductEnrichmentEventRecord {
                     shop_id: payload.shop_id,
                     shops_product_id: payload.shops_product_id,
                     category_id: None,
+                    period_id: None,
                     source_language: None,
                     target_language: None,
                     target: None,
@@ -207,6 +216,33 @@ impl TryFrom<ProductEnrichmentEvent> for ProductEnrichmentEventRecord {
                     shop_id: payload.shop_id,
                     shops_product_id: payload.shops_product_id,
                     category_id: Some(payload.category_id),
+                    period_id: None,
+                    source_language: None,
+                    target_language: None,
+                    target: None,
+                    text_embedding: None,
+                    origin_year_min: None,
+                    origin_year: None,
+                    origin_year_max: None,
+                    authenticity: None,
+                    condition: None,
+                    provenance: None,
+                    restoration: None,
+                    timestamp: event.timestamp,
+                }
+            }
+            ProductEnrichmentEventPayload::ClassifiedPeriod(payload) => {
+                ProductEnrichmentEventRecord {
+                    pk: mk_pk(&payload.shop_id, &payload.shops_product_id),
+                    sk: mk_sk(&event.timestamp)?,
+                    product_id: event.aggregate_id,
+                    event_id: event.event_id,
+                    event_type: ProductEnrichmentEventTypeRecord::EnrichmentClassifyPeriod,
+                    event_type_schema_version: 0,
+                    shop_id: payload.shop_id,
+                    shops_product_id: payload.shops_product_id,
+                    category_id: None,
+                    period_id: Some(payload.period_id),
                     source_language: None,
                     target_language: None,
                     target: None,
@@ -347,6 +383,23 @@ impl TryFrom<ProductEnrichmentEventRecord> for ProductEnrichmentEvent {
                             shops_product_id: record.shops_product_id,
                             category_id: record.category_id.ok_or(MissingPersistenceField::new(
                                 field::field!(category_id@ProductEnrichmentEventRecord),
+                            ))?,
+                        },
+                    ),
+                };
+                Ok(event)
+            }
+            ProductEnrichmentEventTypeRecord::EnrichmentClassifyPeriod => {
+                let event = Event {
+                    aggregate_id: record.product_id,
+                    event_id: record.event_id,
+                    timestamp: record.timestamp,
+                    payload: ProductEnrichmentEventPayload::ClassifiedPeriod(
+                        ClassifiedPeriodProductEnrichmentEventPayload {
+                            shop_id: record.shop_id,
+                            shops_product_id: record.shops_product_id,
+                            period_id: record.period_id.ok_or(MissingPersistenceField::new(
+                                field::field!(period_id@ProductEnrichmentEventRecord),
                             ))?,
                         },
                     ),
