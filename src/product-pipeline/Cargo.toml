@@ -7,6 +7,7 @@ edition = "2024"
 product-pipeline-asg-scale-control = { workspace = true }
 product-pipeline-common = { workspace = true }
 product-pipeline-classify-category = { workspace = true }
+product-pipeline-classify-period = { workspace = true }
 product-pipeline-translate = { workspace = true }
 product-pipeline-embed-text = { workspace = true }
 product-pipeline-extract-attribute = { workspace = true }
