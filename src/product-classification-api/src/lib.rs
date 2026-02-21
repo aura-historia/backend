@@ -3,11 +3,13 @@ use common::api::error::{ApiError, log_api_error};
 use common::api::error_code::INTERNAL_SERVER_ERROR;
 use lambda_runtime::LambdaEvent;
 use product_classification::category::service::CategoryService;
+use product_classification::period::service::PeriodService;
 
 pub mod category;
+pub mod period;
 
 #[tracing::instrument(
-    skip(event, category_service),
+    skip(event, category_service, period_service),
     fields(
         requestId = %event.context.request_id,
         method = event.payload.request_context.http.method.as_str(),
@@ -21,8 +23,9 @@ pub mod category;
 pub async fn handler(
     event: LambdaEvent<ApiGatewayV2httpRequest>,
     category_service: &impl CategoryService,
+    period_service: &impl PeriodService,
 ) -> Result<ApiGatewayV2httpResponse, lambda_runtime::Error> {
-    match handle(event, category_service).await {
+    match handle(event, category_service, period_service).await {
         Ok(response) => Ok(response),
         Err(err) => {
             log_api_error(&err);
@@ -34,6 +37,7 @@ pub async fn handler(
 pub async fn handle(
     event: LambdaEvent<ApiGatewayV2httpRequest>,
     category_service: &impl CategoryService,
+    period_service: &impl PeriodService,
 ) -> Result<ApiGatewayV2httpResponse, ApiError> {
     match event.payload.route_key.as_deref() {
         Some("GET /api/v1/categories/{categoryId}") => {
@@ -55,6 +59,21 @@ pub async fn handle(
         Some("POST /api/v1/categories/search") => {
             category::search::handle(event, category_service).await
         }
+        Some("GET /api/v1/periods/{periodId}") => period::get::handle(event, period_service).await,
+        Some("GET /api/v1/periods") => {
+            let is_simple_search = event
+                .payload
+                .query_string_parameters
+                .iter()
+                .next()
+                .is_some();
+            if is_simple_search {
+                period::search::handle(event, period_service).await
+            } else {
+                period::get_all::handle(event, period_service).await
+            }
+        }
+        Some("POST /api/v1/periods/search") => period::search::handle(event, period_service).await,
         Some(unknown) => Err(ApiError::internal_server_error(
             INTERNAL_SERVER_ERROR,
             format!("Unknown route-key '{unknown}' in AWS-Payload").into(),
@@ -71,16 +90,18 @@ mod tests {
     use super::handle;
     use lambda_runtime::LambdaEvent;
     use product_classification::category::service::MockCategoryService;
+    use product_classification::period::service::MockPeriodService;
     use test_api::ApiGatewayV2httpRequestProxy;
 
     #[tokio::test]
     async fn should_route_to_simple_search_when_any_query_params_for_categories_get() {
-        let mut service = MockCategoryService::default();
-        service.expect_view_categories().never();
-        service
+        let mut category_service = MockCategoryService::default();
+        category_service.expect_view_categories().never();
+        category_service
             .expect_search_categories()
             .once()
             .return_once(|_, _| Box::pin(async { Ok(vec![]) }));
+        let period_service = MockPeriodService::default();
 
         let lambda_event = LambdaEvent {
             payload: ApiGatewayV2httpRequestProxy::builder()
@@ -91,7 +112,35 @@ mod tests {
             context: Default::default(),
         };
 
-        let response = handle(lambda_event, &service).await.unwrap();
+        let response = handle(lambda_event, &category_service, &period_service)
+            .await
+            .unwrap();
+
+        assert_eq!(200, response.status_code);
+    }
+
+    #[tokio::test]
+    async fn should_route_to_simple_search_when_any_query_params_for_periods_get() {
+        let category_service = MockCategoryService::default();
+        let mut period_service = MockPeriodService::default();
+        period_service.expect_view_periods().never();
+        period_service
+            .expect_search_periods()
+            .once()
+            .return_once(|_, _| Box::pin(async { Ok(vec![]) }));
+
+        let lambda_event = LambdaEvent {
+            payload: ApiGatewayV2httpRequestProxy::builder()
+                .http_method(http::Method::GET)
+                .route_key("GET /api/v1/periods")
+                .query_string_parameter("language", "de")
+                .build(),
+            context: Default::default(),
+        };
+
+        let response = handle(lambda_event, &category_service, &period_service)
+            .await
+            .unwrap();
 
         assert_eq!(200, response.status_code);
     }

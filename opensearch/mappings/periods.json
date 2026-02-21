@@ -1,0 +1,102 @@
+{
+    "settings": {
+        "index.knn": true,
+        "knn.algo_param.ef_search": 512
+    },
+    "mappings": {
+        "properties": {
+            "periodKey": {
+                "type": "keyword"
+            },
+            "periodId": {
+                "type": "keyword"
+            },
+            "metaName": {
+                "type": "keyword"
+            },
+            "metaDescription": {
+                "type": "keyword"
+            },
+            "metaKeywords": {
+                "type": "keyword"
+            },
+            "embedding": {
+                "type": "knn_vector",
+                "dimension": 1024,
+                "method": {
+                    "engine": "faiss",
+                    "space_type": "cosinesimil",
+                    "name": "hnsw",
+                    "parameters": {
+                        "m": 128,
+                        "ef_construction": 1024
+                    }
+                }
+            },
+            "displayNameDe": {
+                "type": "text",
+                "analyzer": "german",
+                "fields": {
+                    "keyword": {
+                        "type": "keyword",
+                        "ignore_above": 256
+                    }
+                }
+            },
+            "displayNameEn": {
+                "type": "text",
+                "analyzer": "english",
+                "fields": {
+                    "keyword": {
+                        "type": "keyword",
+                        "ignore_above": 256
+                    }
+                }
+            },
+            "displayNameFr": {
+                "type": "text",
+                "analyzer": "french",
+                "fields": {
+                    "keyword": {
+                        "type": "keyword",
+                        "ignore_above": 256
+                    }
+                }
+            },
+            "displayNameEs": {
+                "type": "text",
+                "analyzer": "spanish",
+                "fields": {
+                    "keyword": {
+                        "type": "keyword",
+                        "ignore_above": 256
+                    }
+                }
+            },
+            "displayDescriptionDe": {
+                "type": "text",
+                "analyzer": "german"
+            },
+            "displayDescriptionEn": {
+                "type": "text",
+                "analyzer": "english"
+            },
+            "displayDescriptionFr": {
+                "type": "text",
+                "analyzer": "french"
+            },
+            "displayDescriptionEs": {
+                "type": "text",
+                "analyzer": "spanish"
+            },
+            "created": {
+                "type": "date",
+                "format": "strict_date_time"
+            },
+            "updated": {
+                "type": "date",
+                "format": "strict_date_time"
+            }
+        }
+    }
+}
