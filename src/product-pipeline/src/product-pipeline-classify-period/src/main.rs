@@ -40,10 +40,8 @@ async fn main() {
     let period_dynamodb_repository =
         PeriodDynamoDbRepositoryImpl::new(&dynamodb, &dynamodb_table_name);
     let period_opensearch_repository = PeriodOpenSearchRepositoryImpl::new(&opensearch);
-    let period_service = PeriodServiceImpl::new(
-        &period_dynamodb_repository,
-        &period_opensearch_repository,
-    );
+    let period_service =
+        PeriodServiceImpl::new(&period_dynamodb_repository, &period_opensearch_repository);
 
     let classify_period_flow_in = PipeFlowInImpl::new(&sqs, &source_queue_url);
     let classify_period_processor = ClassifyPeriodPipeProcesserImpl::new(

@@ -87,10 +87,7 @@ impl<'a> PipeProcessor for ClassifyPeriodPipeProcesserImpl<'a> {
         for batch in Batch::chunked_from(tie_breaker_inputs.into_iter()) {
             let batch: Batch<_, 64> = batch;
             let in_iter = batch.iter().map(|(product, period_ids)| {
-                (
-                    product.native_title.payload.to_string(),
-                    period_ids.clone(),
-                )
+                (product.native_title.payload.to_string(), period_ids.clone())
             });
             let in_batch = Batch::try_from_iter(in_iter)
                 .expect("shouldn't fail re-collecting batch of same size");
@@ -197,12 +194,10 @@ mod tests {
         let period = mk_period("baroque");
 
         let mut period_service = MockPeriodService::default();
-        period_service
-            .expect_find_similar()
-            .returning(move |_, _| {
-                let period = period.clone();
-                Box::pin(async move { Ok(vec![(period, 0.9)]) })
-            });
+        period_service.expect_find_similar().returning(move |_, _| {
+            let period = period.clone();
+            Box::pin(async move { Ok(vec![(period, 0.9)]) })
+        });
 
         let mut adapter = MockClassifyPeriodAdapter::default();
         adapter.expect_classify_period().returning(|batch| {
@@ -213,8 +208,7 @@ mod tests {
             Ok(Batch::try_from(chosen).unwrap())
         });
 
-        let processor =
-            ClassifyPeriodPipeProcesserImpl::new(Arc::new(adapter), &period_service);
+        let processor = ClassifyPeriodPipeProcesserImpl::new(Arc::new(adapter), &period_service);
 
         let product = mk_product_with_embedding();
         let product_id = product.product_id;
@@ -248,8 +242,7 @@ mod tests {
         let mut period_service = MockPeriodService::default();
         period_service.expect_find_similar().never();
 
-        let processor =
-            ClassifyPeriodPipeProcesserImpl::new(Arc::new(adapter), &period_service);
+        let processor = ClassifyPeriodPipeProcesserImpl::new(Arc::new(adapter), &period_service);
 
         let mut product: Product = Faker.fake();
         product.text_embedding = None;
@@ -275,8 +268,7 @@ mod tests {
             })
         });
 
-        let processor =
-            ClassifyPeriodPipeProcesserImpl::new(Arc::new(adapter), &period_service);
+        let processor = ClassifyPeriodPipeProcesserImpl::new(Arc::new(adapter), &period_service);
 
         let product = mk_product_with_embedding();
         let product_id = product.product_id;
@@ -297,8 +289,7 @@ mod tests {
             .expect_find_similar()
             .returning(|_, _| Box::pin(async move { Ok(vec![]) }));
 
-        let processor =
-            ClassifyPeriodPipeProcesserImpl::new(Arc::new(adapter), &period_service);
+        let processor = ClassifyPeriodPipeProcesserImpl::new(Arc::new(adapter), &period_service);
 
         let product = mk_product_with_embedding();
         let product_id = product.product_id;
@@ -314,20 +305,17 @@ mod tests {
         let period = mk_period("baroque");
 
         let mut period_service = MockPeriodService::default();
-        period_service
-            .expect_find_similar()
-            .returning(move |_, _| {
-                let period = period.clone();
-                Box::pin(async move { Ok(vec![(period, 0.9)]) })
-            });
+        period_service.expect_find_similar().returning(move |_, _| {
+            let period = period.clone();
+            Box::pin(async move { Ok(vec![(period, 0.9)]) })
+        });
 
         let mut adapter = MockClassifyPeriodAdapter::default();
         adapter
             .expect_classify_period()
             .returning(|_| Ok(Batch::try_from(vec!["art-deco".to_string()]).unwrap()));
 
-        let processor =
-            ClassifyPeriodPipeProcesserImpl::new(Arc::new(adapter), &period_service);
+        let processor = ClassifyPeriodPipeProcesserImpl::new(Arc::new(adapter), &period_service);
 
         let product = mk_product_with_embedding();
         let product_id = product.product_id;
@@ -343,20 +331,17 @@ mod tests {
         let period = mk_period("baroque");
 
         let mut period_service = MockPeriodService::default();
-        period_service
-            .expect_find_similar()
-            .returning(move |_, _| {
-                let period = period.clone();
-                Box::pin(async move { Ok(vec![(period, 0.9)]) })
-            });
+        period_service.expect_find_similar().returning(move |_, _| {
+            let period = period.clone();
+            Box::pin(async move { Ok(vec![(period, 0.9)]) })
+        });
 
         let mut adapter = MockClassifyPeriodAdapter::default();
         adapter
             .expect_classify_period()
             .returning(|_| Err(PyErr::new::<PyTypeError, _>("Something went wrong")));
 
-        let processor =
-            ClassifyPeriodPipeProcesserImpl::new(Arc::new(adapter), &period_service);
+        let processor = ClassifyPeriodPipeProcesserImpl::new(Arc::new(adapter), &period_service);
 
         let products = vec![mk_product_with_embedding(), mk_product_with_embedding()];
         let product_ids = products.iter().map(|p| p.product_id).collect::<Vec<_>>();
@@ -391,8 +376,7 @@ mod tests {
             Ok(Batch::try_from(chosen).unwrap())
         });
 
-        let processor =
-            ClassifyPeriodPipeProcesserImpl::new(Arc::new(adapter), &period_service);
+        let processor = ClassifyPeriodPipeProcesserImpl::new(Arc::new(adapter), &period_service);
 
         let mut products = vec![mk_product_with_embedding(), mk_product_with_embedding()];
         let mut missing = mk_product_with_embedding();
@@ -420,12 +404,10 @@ mod tests {
         let period = mk_period("baroque");
 
         let mut period_service = MockPeriodService::default();
-        period_service
-            .expect_find_similar()
-            .returning(move |_, _| {
-                let period = period.clone();
-                Box::pin(async move { Ok(vec![(period, 0.9)]) })
-            });
+        period_service.expect_find_similar().returning(move |_, _| {
+            let period = period.clone();
+            Box::pin(async move { Ok(vec![(period, 0.9)]) })
+        });
 
         let mut adapter = MockClassifyPeriodAdapter::default();
         adapter.expect_classify_period().returning(|batch| {
@@ -436,8 +418,7 @@ mod tests {
             Ok(Batch::try_from(chosen).unwrap())
         });
 
-        let processor =
-            ClassifyPeriodPipeProcesserImpl::new(Arc::new(adapter), &period_service);
+        let processor = ClassifyPeriodPipeProcesserImpl::new(Arc::new(adapter), &period_service);
 
         let products = fake::vec![Product; count]
             .into_iter()
@@ -469,12 +450,10 @@ mod tests {
         let period = mk_period("baroque");
 
         let mut period_service = MockPeriodService::default();
-        period_service
-            .expect_find_similar()
-            .returning(move |_, _| {
-                let period = period.clone();
-                Box::pin(async move { Ok(vec![(period, 0.9)]) })
-            });
+        period_service.expect_find_similar().returning(move |_, _| {
+            let period = period.clone();
+            Box::pin(async move { Ok(vec![(period, 0.9)]) })
+        });
 
         let mut adapter = MockClassifyPeriodAdapter::default();
         adapter.expect_classify_period().returning(|batch| {
@@ -489,8 +468,7 @@ mod tests {
             }
         });
 
-        let processor =
-            ClassifyPeriodPipeProcesserImpl::new(Arc::new(adapter), &period_service);
+        let processor = ClassifyPeriodPipeProcesserImpl::new(Arc::new(adapter), &period_service);
 
         let products = fake::vec![Product; count]
             .into_iter()
@@ -520,20 +498,17 @@ mod tests {
         let period = mk_period("baroque");
 
         let mut period_service = MockPeriodService::default();
-        period_service
-            .expect_find_similar()
-            .returning(move |_, _| {
-                let period = period.clone();
-                Box::pin(async move { Ok(vec![(period, 0.9)]) })
-            });
+        period_service.expect_find_similar().returning(move |_, _| {
+            let period = period.clone();
+            Box::pin(async move { Ok(vec![(period, 0.9)]) })
+        });
 
         let mut adapter = MockClassifyPeriodAdapter::default();
         adapter
             .expect_classify_period()
             .returning(|_| Err(PyErr::new::<PyTypeError, _>("Something went wrong")));
 
-        let processor =
-            ClassifyPeriodPipeProcesserImpl::new(Arc::new(adapter), &period_service);
+        let processor = ClassifyPeriodPipeProcesserImpl::new(Arc::new(adapter), &period_service);
 
         let products = fake::vec![Product; count]
             .into_iter()
