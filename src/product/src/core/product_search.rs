@@ -5,6 +5,7 @@ use crate::core::restoration::Restoration;
 use common::category_key::CategoryId;
 use common::currency::domain::Currency;
 use common::language::domain::Language;
+use common::period_key::PeriodId;
 use common::price::domain::MonetaryAmount;
 use common::product_state::domain::ProductState;
 use common::query::any_of_query::AnyOfQuery;
@@ -21,6 +22,7 @@ pub struct ProductSearch {
     pub currency: Currency,
     pub product_query: TextQuery<3>,
     pub category_id: Option<CategoryId>,
+    pub period_id: Option<PeriodId>,
     pub shop_name_query: AnyOfQuery<ShopName>,
     pub exclude_shop_name_query: AnyOfQuery<ShopName>,
     pub shop_type_query: AnyOfQuery<ShopType>,
@@ -49,6 +51,7 @@ pub mod faker {
                 currency: config.fake_with_rng(rng),
                 product_query: config.fake_with_rng(rng),
                 category_id: config.fake_with_rng(rng),
+                period_id: config.fake_with_rng(rng),
                 shop_name_query: config.fake_with_rng(rng),
                 exclude_shop_name_query: config.fake_with_rng(rng),
                 shop_type_query: config.fake_with_rng(rng),

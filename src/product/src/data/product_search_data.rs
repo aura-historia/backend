@@ -9,6 +9,7 @@ use crate::data::product_state_data::ProductStateData;
 use crate::data::provenance_data::ProvenanceData;
 use crate::data::restoration_data::RestorationData;
 use common::category_key::CategoryId;
+use common::period_key::PeriodId;
 use common::query::range_query::RangeQuery;
 use common::query::text_query::TextQuery;
 use common::shop_name::ShopName;
@@ -35,6 +36,8 @@ pub struct ProductSearchData {
         default
     )]
     pub category_id: Option<CategoryId>,
+    #[serde(rename = "periodId", skip_serializing_if = "Option::is_none", default)]
+    pub period_id: Option<PeriodId>,
     #[serde(
         rename = "shopName",
         skip_serializing_if = "HashSet::is_empty",
@@ -129,6 +132,7 @@ impl From<ProductSearch> for ProductSearchData {
             currency: search_filter.currency.into(),
             product_query: search_filter.product_query,
             category_id: search_filter.category_id,
+            period_id: search_filter.period_id,
             shop_name_query: search_filter.shop_name_query.into(),
             exclude_shop_name_query: search_filter.exclude_shop_name_query.into(),
             shop_type_query: search_filter
@@ -180,6 +184,7 @@ impl From<ProductSearchData> for ProductSearch {
             currency: data.currency.into(),
             product_query: data.product_query,
             category_id: data.category_id,
+            period_id: data.period_id,
             shop_name_query: data.shop_name_query.into(),
             exclude_shop_name_query: data.exclude_shop_name_query.into(),
             shop_type_query: data
@@ -237,6 +242,7 @@ mod faker {
                 currency: config.fake_with_rng(rng),
                 product_query: config.fake_with_rng(rng),
                 category_id: config.fake_with_rng(rng),
+                period_id: config.fake_with_rng(rng),
                 shop_name_query: config.fake_with_rng(rng),
                 exclude_shop_name_query: config.fake_with_rng(rng),
                 shop_type_query: config.fake_with_rng(rng),
@@ -267,6 +273,7 @@ mod tests {
     use crate::data::provenance_data::ProvenanceData;
     use crate::data::restoration_data::RestorationData;
     use common::category_key::CategoryId;
+    use common::period_key::PeriodId;
     use common::query::range_query::RangeQuery;
     use common::{currency::data::CurrencyData, language::data::LanguageData};
     use serde_json::json;
@@ -281,6 +288,7 @@ mod tests {
             currency: CurrencyData::Eur,
             product_query: "Boop".try_into().unwrap(),
             category_id: Some(CategoryId::from("furniture")),
+            period_id: Some(PeriodId::from("baroque")),
             shop_name_query: ["Baap".into()].into(),
             exclude_shop_name_query: ["Meow".into()].into(),
             shop_type_query: HashSet::from_iter([ShopTypeData::CommercialDealer]),
@@ -313,6 +321,7 @@ mod tests {
             "currency": "EUR",
             "productQuery": "Boop",
             "categoryId": "furniture",
+            "periodId": "baroque",
             "shopName": ["Baap"],
             "excludeShopName": ["Meow"],
             "shopType": ["COMMERCIAL_DEALER"],
@@ -351,6 +360,7 @@ mod tests {
             "currency": "EUR",
             "productQuery": "Boop",
             "categoryId": "furniture",
+            "periodId": "baroque",
             "shopName": ["Baap"],
             "excludeShopName": ["Meow"],
             "shopType": ["COMMERCIAL_DEALER"],
@@ -381,6 +391,7 @@ mod tests {
             currency: CurrencyData::Eur,
             product_query: "Boop".try_into().unwrap(),
             category_id: Some(CategoryId::from("furniture")),
+            period_id: Some(PeriodId::from("baroque")),
             shop_name_query: ["Baap".into()].into(),
             exclude_shop_name_query: ["Meow".into()].into(),
             shop_type_query: HashSet::from_iter([ShopTypeData::CommercialDealer]),
@@ -421,6 +432,7 @@ mod tests {
             currency: CurrencyData::Eur,
             product_query: "Boop".try_into().unwrap(),
             category_id: None,
+            period_id: None,
             shop_name_query: Default::default(),
             exclude_shop_name_query: Default::default(),
             shop_type_query: Default::default(),
@@ -459,6 +471,7 @@ mod tests {
             currency: CurrencyData::Eur,
             product_query: "Boop".try_into().unwrap(),
             category_id: None,
+            period_id: None,
             shop_name_query: Default::default(),
             exclude_shop_name_query: Default::default(),
             shop_type_query: Default::default(),

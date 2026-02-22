@@ -199,6 +199,7 @@ mod tests {
             currency: common::currency::data::CurrencyData::Eur,
             product_query: "chair".try_into().unwrap(),
             category_id: None,
+            period_id: None,
             shop_name_query: Default::default(),
             exclude_shop_name_query: Default::default(),
             shop_type_query: Default::default(),

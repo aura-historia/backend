@@ -208,6 +208,14 @@ impl<'a> ProductOpenSearchRepository for ProductOpenSearchRepositoryImpl<'a> {
             }));
         }
 
+        if let Some(period_id) = &search.period_id {
+            filter.push(json!({
+                "term": {
+                    ProductDocumentSerdeField::PeriodId.as_str(): period_id
+                }
+            }));
+        }
+
         // ---------- Origin year (overlap semantics) ----------
         if let Some(origin_query) = &search.origin_year_query {
             let mut should = Vec::new();
