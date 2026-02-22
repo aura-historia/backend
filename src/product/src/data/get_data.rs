@@ -12,6 +12,7 @@ use common::category_key::CategoryId;
 use common::event_id::EventId;
 use common::has_key::HasKey;
 use common::language::data::LocalizedTextData;
+use common::period_key::PeriodId;
 use common::product_id::{ProductId, ProductKey};
 use common::shop_id::ShopId;
 use common::shops_product_id::ShopsProductId;
@@ -36,6 +37,10 @@ pub struct GetProductData {
     pub category_id: Option<CategoryId>,
     #[serde(skip_serializing_if = "Option::is_none", default)]
     pub category: Option<LocalizedTextData>,
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub period_id: Option<PeriodId>,
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub period: Option<LocalizedTextData>,
 
     pub title: LocalizedTextData,
 
@@ -121,6 +126,8 @@ impl From<LocalizedProductView> for GetProductData {
             shop_type: product_view.shop_type.into(),
             category_id: product_view.category_id,
             category: product_view.category_name.map(LocalizedTextData::from),
+            period_id: product_view.period_id,
+            period: product_view.period_name.map(LocalizedTextData::from),
             title: product_view.title.into(),
             description: product_view.description.map(LocalizedTextData::from),
             price,
@@ -217,6 +224,8 @@ mod tests {
             shop_type: ShopTypeData::AuctionHouse,
             category_id: Some("musical-instruments".into()),
             category: Some(LocalizedTextData::new("Musikinstrumente", LanguageData::De)),
+            period_id: Some("baroque".into()),
+            period: Some(LocalizedTextData::new("Barock", LanguageData::De)),
             title: LocalizedTextData::new("Mein titel", LanguageData::De),
             description: Some(LocalizedTextData::new("My description", LanguageData::En)),
             price: Some(PricingData {
@@ -276,6 +285,11 @@ mod tests {
             "categoryId": "musical-instruments",
             "category": {
                 "text": "Musikinstrumente",
+                "language": "de"
+            },
+            "periodId": "baroque",
+            "period": {
+                "text": "Barock",
                 "language": "de"
             },
             "title": {

@@ -9,6 +9,7 @@ use crate::dynamodb::restoration_record::RestorationRecord;
 use common::category_key::CategoryId;
 use common::dynamodb_update::DynamoDbUpdate;
 use common::event_id::EventId;
+use common::period_key::PeriodId;
 use common::price::record::PriceRecord;
 use common::year::Year;
 use serde::Serialize;
@@ -41,6 +42,8 @@ pub struct ProductRecordUpdate {
     #[serde(skip_serializing_if = "Option::is_none", default)]
     pub category_id: Option<CategoryId>,
     #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub period_id: Option<PeriodId>,
+    #[serde(skip_serializing_if = "Option::is_none", default)]
     pub category_name_de: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none", default)]
     pub category_name_en: Option<String>,
@@ -48,6 +51,14 @@ pub struct ProductRecordUpdate {
     pub category_name_fr: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none", default)]
     pub category_name_es: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub period_name_de: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub period_name_en: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub period_name_fr: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub period_name_es: Option<String>,
 
     #[serde(skip_serializing_if = "Option::is_none", default)]
     pub title_de: Option<String>,
@@ -106,10 +117,15 @@ impl Default for ProductRecordUpdate {
             price_nzd: None,
             state: None,
             category_id: None,
+            period_id: None,
             category_name_de: None,
             category_name_en: None,
             category_name_fr: None,
             category_name_es: None,
+            period_name_de: None,
+            period_name_en: None,
+            period_name_fr: None,
+            period_name_es: None,
             title_de: None,
             title_en: None,
             title_fr: None,
@@ -145,10 +161,15 @@ impl From<ProductDomainEventRecord> for ProductRecordUpdate {
             price_nzd: event.new_price_nzd,
             state: event.new_state,
             category_id: None,
+            period_id: None,
             category_name_de: None,
             category_name_en: None,
             category_name_fr: None,
             category_name_es: None,
+            period_name_de: None,
+            period_name_en: None,
+            period_name_fr: None,
+            period_name_es: None,
             title_de: event.title_de,
             title_en: event.title_en,
             title_fr: event.title_fr,
@@ -184,10 +205,15 @@ impl From<ProductEnrichmentEventRecord> for ProductRecordUpdate {
             price_nzd: None,
             state: None,
             category_id: event.category_id,
+            period_id: event.period_id,
             category_name_de: None,
             category_name_en: None,
             category_name_fr: None,
             category_name_es: None,
+            period_name_de: None,
+            period_name_en: None,
+            period_name_fr: None,
+            period_name_es: None,
             title_de: None,
             title_en: None,
             title_fr: None,
@@ -234,10 +260,15 @@ mod faker {
                 price_nzd: Some(config.fake_with_rng::<MonetaryAmount, _>(rng).into()),
                 state: Some(state),
                 category_id: Some(config.fake_with_rng(rng)),
+                period_id: Some(config.fake_with_rng(rng)),
                 category_name_de: Some(config.fake_with_rng(rng)),
                 category_name_en: Some(config.fake_with_rng(rng)),
                 category_name_fr: Some(config.fake_with_rng(rng)),
                 category_name_es: Some(config.fake_with_rng(rng)),
+                period_name_de: Some(config.fake_with_rng(rng)),
+                period_name_en: Some(config.fake_with_rng(rng)),
+                period_name_fr: Some(config.fake_with_rng(rng)),
+                period_name_es: Some(config.fake_with_rng(rng)),
                 title_de: Some(config.fake_with_rng::<Title, _>(rng).into()),
                 title_en: Some(config.fake_with_rng::<Title, _>(rng).into()),
                 title_fr: Some(config.fake_with_rng::<Title, _>(rng).into()),
