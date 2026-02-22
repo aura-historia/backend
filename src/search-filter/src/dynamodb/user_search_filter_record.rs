@@ -3,6 +3,7 @@ use crate::core::{
     user_search_filter::UserSearchFilter, user_search_filter_id::UserSearchFilterId,
 };
 use common::category_key::CategoryId;
+use common::period_key::PeriodId;
 use common::query::range_query::RangeQuery;
 use common::query::text_query::TextQuery;
 use common::shop_name::ShopName;
@@ -36,10 +37,10 @@ pub struct UserSearchFilterRecord {
     pub user_search_filter_id: UserSearchFilterId,
     pub name: UserSearchFilterName,
     pub product_query: TextQuery<3>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub category_id: Option<CategoryId>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub period_id: Option<CategoryId>,
+    #[serde(default, skip_serializing_if = "HashSet::is_empty")]
+    pub category_id: HashSet<CategoryId>,
+    #[serde(default, skip_serializing_if = "HashSet::is_empty")]
+    pub period_id: HashSet<PeriodId>,
     #[serde(default, skip_serializing_if = "HashSet::is_empty")]
     pub shop_name_query: HashSet<ShopName>,
     #[serde(default, skip_serializing_if = "HashSet::is_empty")]
@@ -114,8 +115,8 @@ impl From<UserSearchFilterRecord> for UserSearchFilter {
                 language: record.language.into(),
                 currency: record.currency.into(),
                 product_query: record.product_query,
-                category_id: record.category_id,
-                period_id: record.period_id,
+                category_id: record.category_id.into(),
+                period_id: record.period_id.into(),
                 shop_name_query: record.shop_name_query.into(),
                 exclude_shop_name_query: record.exclude_shop_name_query.into(),
                 shop_type_query: record
@@ -172,8 +173,8 @@ impl From<UserSearchFilter> for UserSearchFilterRecord {
             user_search_filter_id: user_search_filter.user_search_filter_id,
             name: user_search_filter.name,
             product_query: user_search_filter.search.product_query,
-            category_id: user_search_filter.search.category_id,
-            period_id: user_search_filter.search.period_id,
+            category_id: user_search_filter.search.category_id.into(),
+            period_id: user_search_filter.search.period_id.into(),
             shop_name_query: user_search_filter.search.shop_name_query.into(),
             exclude_shop_name_query: user_search_filter.search.exclude_shop_name_query.into(),
             shop_type_query: user_search_filter

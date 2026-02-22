@@ -32,12 +32,16 @@ pub struct ProductSearchData {
     pub product_query: TextQuery<3>,
     #[serde(
         rename = "categoryId",
-        skip_serializing_if = "Option::is_none",
+        skip_serializing_if = "HashSet::is_empty",
         default
     )]
-    pub category_id: Option<CategoryId>,
-    #[serde(rename = "periodId", skip_serializing_if = "Option::is_none", default)]
-    pub period_id: Option<PeriodId>,
+    pub category_id: HashSet<CategoryId>,
+    #[serde(
+        rename = "periodId",
+        skip_serializing_if = "HashSet::is_empty",
+        default
+    )]
+    pub period_id: HashSet<PeriodId>,
     #[serde(
         rename = "shopName",
         skip_serializing_if = "HashSet::is_empty",
@@ -131,8 +135,8 @@ impl From<ProductSearch> for ProductSearchData {
             language: search_filter.language.into(),
             currency: search_filter.currency.into(),
             product_query: search_filter.product_query,
-            category_id: search_filter.category_id,
-            period_id: search_filter.period_id,
+            category_id: search_filter.category_id.into(),
+            period_id: search_filter.period_id.into(),
             shop_name_query: search_filter.shop_name_query.into(),
             exclude_shop_name_query: search_filter.exclude_shop_name_query.into(),
             shop_type_query: search_filter
@@ -183,8 +187,8 @@ impl From<ProductSearchData> for ProductSearch {
             language: data.language.into(),
             currency: data.currency.into(),
             product_query: data.product_query,
-            category_id: data.category_id,
-            period_id: data.period_id,
+            category_id: data.category_id.into(),
+            period_id: data.period_id.into(),
             shop_name_query: data.shop_name_query.into(),
             exclude_shop_name_query: data.exclude_shop_name_query.into(),
             shop_type_query: data
@@ -287,8 +291,8 @@ mod tests {
             language: LanguageData::De,
             currency: CurrencyData::Eur,
             product_query: "Boop".try_into().unwrap(),
-            category_id: Some(CategoryId::from("furniture")),
-            period_id: Some(PeriodId::from("baroque")),
+            category_id: HashSet::from_iter([CategoryId::from("furniture")]),
+            period_id: HashSet::from_iter([PeriodId::from("baroque")]),
             shop_name_query: ["Baap".into()].into(),
             exclude_shop_name_query: ["Meow".into()].into(),
             shop_type_query: HashSet::from_iter([ShopTypeData::CommercialDealer]),
@@ -320,8 +324,8 @@ mod tests {
             "language": "de",
             "currency": "EUR",
             "productQuery": "Boop",
-            "categoryId": "furniture",
-            "periodId": "baroque",
+            "categoryId": ["furniture"],
+            "periodId": ["baroque"],
             "shopName": ["Baap"],
             "excludeShopName": ["Meow"],
             "shopType": ["COMMERCIAL_DEALER"],
@@ -359,8 +363,8 @@ mod tests {
             "language": "de",
             "currency": "EUR",
             "productQuery": "Boop",
-            "categoryId": "furniture",
-            "periodId": "baroque",
+            "categoryId": ["furniture"],
+            "periodId": ["baroque"],
             "shopName": ["Baap"],
             "excludeShopName": ["Meow"],
             "shopType": ["COMMERCIAL_DEALER"],
@@ -390,8 +394,8 @@ mod tests {
             language: LanguageData::De,
             currency: CurrencyData::Eur,
             product_query: "Boop".try_into().unwrap(),
-            category_id: Some(CategoryId::from("furniture")),
-            period_id: Some(PeriodId::from("baroque")),
+            category_id: HashSet::from_iter([CategoryId::from("furniture")]),
+            period_id: HashSet::from_iter([PeriodId::from("baroque")]),
             shop_name_query: ["Baap".into()].into(),
             exclude_shop_name_query: ["Meow".into()].into(),
             shop_type_query: HashSet::from_iter([ShopTypeData::CommercialDealer]),
@@ -426,13 +430,38 @@ mod tests {
     }
 
     #[test]
+    fn should_deserialize_multiple_category_and_period_ids() {
+        let json = json!({
+            "language": "de",
+            "currency": "EUR",
+            "productQuery": "Boop",
+            "categoryId": ["furniture", "decorative-objects"],
+            "periodId": ["baroque", "renaissance"],
+        });
+
+        let actual: ProductSearchData = serde_json::from_value(json).unwrap();
+
+        assert_eq!(
+            HashSet::from_iter([
+                CategoryId::from("furniture"),
+                CategoryId::from("decorative-objects")
+            ]),
+            actual.category_id
+        );
+        assert_eq!(
+            HashSet::from_iter([PeriodId::from("baroque"), PeriodId::from("renaissance")]),
+            actual.period_id
+        );
+    }
+
+    #[test]
     fn should_serialize_minimal() {
         let search_filter = ProductSearchData {
             language: LanguageData::De,
             currency: CurrencyData::Eur,
             product_query: "Boop".try_into().unwrap(),
-            category_id: None,
-            period_id: None,
+            category_id: Default::default(),
+            period_id: Default::default(),
             shop_name_query: Default::default(),
             exclude_shop_name_query: Default::default(),
             shop_type_query: Default::default(),
@@ -470,8 +499,8 @@ mod tests {
             language: LanguageData::De,
             currency: CurrencyData::Eur,
             product_query: "Boop".try_into().unwrap(),
-            category_id: None,
-            period_id: None,
+            category_id: Default::default(),
+            period_id: Default::default(),
             shop_name_query: Default::default(),
             exclude_shop_name_query: Default::default(),
             shop_type_query: Default::default(),
