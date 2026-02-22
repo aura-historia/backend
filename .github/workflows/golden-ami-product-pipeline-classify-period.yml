@@ -1,22 +1,18 @@
-name: Build Golden AMI for product-pipeline-classify
+name: Build Golden AMI for product-pipeline-classify-period
 
 on:
   push:
     branches: [prod, develop]
     paths:
-      - ".github/workflows/golden-ami-product-pipeline-classify.yml"
+      - ".github/workflows/golden-ami-product-pipeline-classify-period.yml"
       - "cfn/golden-ami.yaml"
-      - "ami/product-pipeline-classify-category.yml"
       - "ami/product-pipeline-classify-period.yml"
-      - "src/product-pipeline/src/product-pipeline-classify-category/python/requirements.txt"
       - "src/product-pipeline/src/product-pipeline-classify-period/python/requirements.txt"
   pull_request:
     paths:
-      - ".github/workflows/golden-ami-product-pipeline-classify.yml"
+      - ".github/workflows/golden-ami-product-pipeline-classify-period.yml"
       - "cfn/golden-ami.yaml"
-      - "ami/product-pipeline-classify-category.yml"
       - "ami/product-pipeline-classify-period.yml"
-      - "src/product-pipeline/src/product-pipeline-classify-category/python/requirements.txt"
       - "src/product-pipeline/src/product-pipeline-classify-period/python/requirements.txt"
 
 concurrency:
@@ -61,8 +57,6 @@ jobs:
     strategy:
       matrix:
         resource:
-          - src/product-pipeline/src/product-pipeline-classify-category/python/requirements.txt
-          - ami/product-pipeline-classify-category.yml
           - src/product-pipeline/src/product-pipeline-classify-period/python/requirements.txt
           - ami/product-pipeline-classify-period.yml
     steps:
@@ -83,17 +77,12 @@ jobs:
             --tagging "stage=${{ env.STAGE }}"
 
   build-ami:
-    name: Build & deploy AMI ${{ matrix.component }}
+    name: Build & deploy AMI
     needs: [aws-push-resource-artifacts]
     runs-on: ubuntu-latest
     permissions:
       contents: read
       id-token: write
-    strategy:
-      matrix:
-        component:
-          - product-pipeline-classify-category
-          - product-pipeline-classify-period
 
     steps:
       - name: Checkout code
@@ -110,7 +99,7 @@ jobs:
         run: |
           VERSION="$(date -u +'%Y.%m%d.%H%M%S')"
           aws cloudformation deploy \
-            --stack-name ${{ env.STAGE }}-imagebuilder-${{ matrix.component }} \
+            --stack-name ${{ env.STAGE }}-imagebuilder-product-pipeline-classify-period \
             --template-file cfn/golden-ami.yaml \
             --s3-bucket ${{ vars.S3_CFN_ARTIFACTS_BUCKET_NAME }} \
             --s3-prefix ${{ env.STAGE }} \
@@ -118,16 +107,16 @@ jobs:
             --parameter-overrides \
                 Version=$VERSION \
                 Stage=${{ env.STAGE }} \
-                ImageName="${{ matrix.component }}" \
+                ImageName="product-pipeline-classify-period" \
                 ResourceBucket=${{ vars.S3_RESOURCE_ARTIFACTS_BUCKET_NAME }} \
-                ImageBuilderComponentS3BlobUrl="s3://${{ vars.S3_RESOURCE_ARTIFACTS_BUCKET_NAME }}/${{ env.STAGE }}/ami/${{ matrix.component }}.yml" \
+                ImageBuilderComponentS3BlobUrl="s3://${{ vars.S3_RESOURCE_ARTIFACTS_BUCKET_NAME }}/${{ env.STAGE }}/ami/product-pipeline-classify-period.yml" \
                 ParentAmi="{{resolve:ssm:/aws/service/deeplearning/ami/x86_64/oss-nvidia-driver-gpu-pytorch-2.9-ubuntu-24.04/latest/ami-id}}"
 
       - name: Get Image Pipeline ARN
         id: get_pipeline_arn
         run: |
           PIPELINE_ARN=$(aws cloudformation describe-stacks \
-            --stack-name ${{ env.STAGE }}-imagebuilder-${{ matrix.component }} \
+            --stack-name ${{ env.STAGE }}-imagebuilder-product-pipeline-classify-period \
             --query "Stacks[0].Outputs[?OutputKey=='ImagePipelineArn'].OutputValue" \
             --output text)
 
@@ -187,7 +176,7 @@ jobs:
       - name: Store AMI ID in SSM Parameter Store
         run: |
           aws ssm put-parameter \
-            --name /amis/${{ env.STAGE }}/${{ matrix.component }}/latest \
+            --name /amis/${{ env.STAGE }}/product-pipeline-classify-period/latest \
             --value ${{ steps.get_ami.outputs.ami_id }} \
             --type String \
             --overwrite
