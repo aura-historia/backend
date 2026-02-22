@@ -2940,7 +2940,7 @@ Outputs:
   CognitoUserPoolClientAdminId:
     Value: !Ref PrimaryUserPoolClientAdmin
   ApiGatewayEndpointUrl:
-    Value: !Sub "https://${Api}.execute-api.${AWS::Region}.amazonaws.com/dev"
+    Value: !Sub "https://api.dev.aura-historia.com"
   OpensearchEndpointUrl:
     Value: !Ref OpenSearchEndpointUrl
   OpensearchDomainName:
