@@ -17,6 +17,7 @@ use common::has_key::HasKey;
 use common::language::domain::Language;
 use common::language::record::TextRecord;
 use common::localized::Localized;
+use common::period_key::PeriodId;
 use common::price::domain::Price;
 use common::price::record::PriceRecord;
 use common::product_id::{ProductId, ProductKey};
@@ -49,6 +50,7 @@ pub struct ProductRecord {
     pub shop_name: String,
     pub shop_type: ShopTypeRecord,
     pub category_id: Option<CategoryId>,
+    pub period_id: Option<PeriodId>,
 
     #[serde(skip_serializing_if = "Option::is_none", default)]
     pub category_name_de: Option<String>,
@@ -58,6 +60,14 @@ pub struct ProductRecord {
     pub category_name_fr: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none", default)]
     pub category_name_es: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub period_name_de: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub period_name_en: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub period_name_fr: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub period_name_es: Option<String>,
 
     pub title_native: TextRecord,
     #[serde(skip_serializing_if = "Option::is_none", default)]
@@ -209,6 +219,19 @@ impl From<ProductRecord> for Product {
         if let Some(category_es) = record.category_name_es {
             category_name.insert(Language::Es, category_es.into());
         }
+        let mut period_name = HashMap::with_capacity(Language::COUNT);
+        if let Some(period_en) = record.period_name_en {
+            period_name.insert(Language::En, period_en.into());
+        }
+        if let Some(period_de) = record.period_name_de {
+            period_name.insert(Language::De, period_de.into());
+        }
+        if let Some(period_fr) = record.period_name_fr {
+            period_name.insert(Language::Fr, period_fr.into());
+        }
+        if let Some(period_es) = record.period_name_es {
+            period_name.insert(Language::Es, period_es.into());
+        }
 
         let mut other_title = HashMap::with_capacity(Language::COUNT);
         if let Some(title_en) = record.title_en {
@@ -309,6 +332,8 @@ impl From<ProductRecord> for Product {
             shop_type: record.shop_type.into(),
             category_id: record.category_id,
             category_name,
+            period_id: record.period_id,
+            period_name,
             native_title: Localized::new(
                 record.title_native.language.into(),
                 record.title_native.text.into(),
@@ -375,10 +400,15 @@ impl TryFrom<ProductDomainEventRecord> for ProductRecord {
                 MissingPersistenceField::new(field!(shop_type@ProductDomainEventRecord))
             })?,
             category_id: None,
+            period_id: None,
             category_name_de: None,
             category_name_en: None,
             category_name_fr: None,
             category_name_es: None,
+            period_name_de: None,
+            period_name_en: None,
+            period_name_fr: None,
+            period_name_es: None,
             title_native: event_record.title_native.ok_or_else(|| {
                 MissingPersistenceField::new(field!(title_native@ProductDomainEventRecord))
             })?,
@@ -482,10 +512,15 @@ mod faker {
                 shop_name,
                 shop_type: config.fake_with_rng(rng),
                 category_id: config.fake_with_rng(rng),
+                period_id: config.fake_with_rng(rng),
                 category_name_de: config.fake_with_rng(rng),
                 category_name_en: config.fake_with_rng(rng),
                 category_name_fr: config.fake_with_rng(rng),
                 category_name_es: config.fake_with_rng(rng),
+                period_name_de: config.fake_with_rng(rng),
+                period_name_en: config.fake_with_rng(rng),
+                period_name_fr: config.fake_with_rng(rng),
+                period_name_es: config.fake_with_rng(rng),
                 title_native,
                 title_de: Some(config.fake_with_rng::<Title, _>(rng).to_string()),
                 title_en: Some(config.fake_with_rng::<Title, _>(rng).to_string()),

@@ -44,6 +44,21 @@
             "categoryNameEs": {
                 "type": "keyword"
             },
+            "periodId": {
+                "type": "keyword"
+            },
+            "periodNameDe": {
+                "type": "keyword"
+            },
+            "periodNameEn": {
+                "type": "keyword"
+            },
+            "periodNameFr": {
+                "type": "keyword"
+            },
+            "periodNameEs": {
+                "type": "keyword"
+            },
             "titleNative": {
                 "type": "object",
                 "properties": {

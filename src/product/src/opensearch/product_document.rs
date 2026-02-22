@@ -18,6 +18,7 @@ use common::error::missing_field::MissingPersistenceField;
 use common::language::document::TextDocument;
 use common::language::domain::Language;
 use common::localized::Localized;
+use common::period_key::PeriodId;
 use common::product_id::{ProductId, ProductKey};
 use common::shop_id::ShopId;
 use common::shops_product_id::ShopsProductId;
@@ -45,6 +46,8 @@ pub struct ProductDocument {
     pub shop_type: ShopTypeDocument,
     #[serde(skip_serializing_if = "Option::is_none", default)]
     pub category_id: Option<CategoryId>,
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub period_id: Option<PeriodId>,
 
     #[serde(skip_serializing_if = "Option::is_none", default)]
     pub category_name_de: Option<String>,
@@ -54,6 +57,14 @@ pub struct ProductDocument {
     pub category_name_fr: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none", default)]
     pub category_name_es: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub period_name_de: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub period_name_en: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub period_name_fr: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub period_name_es: Option<String>,
 
     pub title_native: TextDocument,
     #[serde(skip_serializing_if = "Option::is_none", default)]
@@ -205,10 +216,15 @@ impl TryFrom<ProductDomainEventRecord> for ProductDocument {
                     MissingPersistenceField::new(field!(shop_type@ProductDomainEventRecord))
                 })?,
             category_id: None,
+            period_id: None,
             category_name_de: None,
             category_name_en: None,
             category_name_fr: None,
             category_name_es: None,
+            period_name_de: None,
+            period_name_en: None,
+            period_name_fr: None,
+            period_name_es: None,
             title_native: event_product_document
                 .title_native
                 .map(TextDocument::from)
@@ -280,10 +296,15 @@ impl From<ProductRecord> for ProductDocument {
             shop_name: product_document.shop_name,
             shop_type: product_document.shop_type.into(),
             category_id: product_document.category_id,
+            period_id: product_document.period_id,
             category_name_de: product_document.category_name_de,
             category_name_en: product_document.category_name_en,
             category_name_fr: product_document.category_name_fr,
             category_name_es: product_document.category_name_es,
+            period_name_de: product_document.period_name_de,
+            period_name_en: product_document.period_name_en,
+            period_name_fr: product_document.period_name_fr,
+            period_name_es: product_document.period_name_es,
             title_native: product_document.title_native.into(),
             title_de: product_document.title_de,
             title_en: product_document.title_en,
@@ -360,6 +381,19 @@ impl From<ProductDocument> for Product {
         }
         if let Some(category_es) = product_document.category_name_es {
             category_name.insert(Language::Es, category_es.into());
+        }
+        let mut period_name = HashMap::with_capacity(Language::COUNT);
+        if let Some(period_en) = product_document.period_name_en {
+            period_name.insert(Language::En, period_en.into());
+        }
+        if let Some(period_de) = product_document.period_name_de {
+            period_name.insert(Language::De, period_de.into());
+        }
+        if let Some(period_fr) = product_document.period_name_fr {
+            period_name.insert(Language::Fr, period_fr.into());
+        }
+        if let Some(period_es) = product_document.period_name_es {
+            period_name.insert(Language::Es, period_es.into());
         }
 
         let mut other_title = HashMap::with_capacity(Language::COUNT);
@@ -461,6 +495,8 @@ impl From<ProductDocument> for Product {
             shop_type: product_document.shop_type.into(),
             category_id: product_document.category_id,
             category_name,
+            period_id: product_document.period_id,
+            period_name,
             native_title: Localized::new(
                 product_document.title_native.language.into(),
                 product_document.title_native.text.into(),
@@ -535,10 +571,15 @@ mod faker {
                 shop_id: config.fake_with_rng(rng),
                 shops_product_id: config.fake_with_rng(rng),
                 category_id: config.fake_with_rng(rng),
+                period_id: config.fake_with_rng(rng),
                 category_name_de: config.fake_with_rng(rng),
                 category_name_en: config.fake_with_rng(rng),
                 category_name_fr: config.fake_with_rng(rng),
                 category_name_es: config.fake_with_rng(rng),
+                period_name_de: config.fake_with_rng(rng),
+                period_name_en: config.fake_with_rng(rng),
+                period_name_fr: config.fake_with_rng(rng),
+                period_name_es: config.fake_with_rng(rng),
                 shop_name,
                 shop_type: config.fake_with_rng(rng),
                 title_native,

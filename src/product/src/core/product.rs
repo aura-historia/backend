@@ -27,6 +27,7 @@ use common::event_id::EventId;
 use common::has_key::HasKey;
 use common::language::domain::Language;
 use common::localized::Localized;
+use common::period_key::PeriodId;
 use common::price::domain::{FxRate, MonetaryAmount, Price};
 use common::product_id::{ProductId, ProductKey};
 use common::product_state::domain::ProductState;
@@ -42,6 +43,7 @@ use tracing::error;
 use url::Url;
 
 string_newtype!(ProductCategory);
+string_newtype!(ProductPeriod);
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct Product {
@@ -55,6 +57,8 @@ pub struct Product {
     pub shop_type: ShopType,
     pub category_id: Option<CategoryId>,
     pub category_name: HashMap<Language, ProductCategory>,
+    pub period_id: Option<PeriodId>,
+    pub period_name: HashMap<Language, ProductPeriod>,
     pub native_title: Localized<Language, Title>,
     pub other_title: HashMap<Language, Title>,
     pub native_description: Option<Localized<Language, Description>>,
@@ -497,6 +501,8 @@ impl Product {
             shop_type: self.shop_type,
             category_id: self.category_id,
             category_name: Language::resolve(preferred_languages, self.category_name),
+            period_id: self.period_id,
+            period_name: Language::resolve(preferred_languages, self.period_name),
             title,
             description,
             price,
@@ -559,6 +565,8 @@ pub struct LocalizedProductView {
     pub shop_type: ShopType,
     pub category_id: Option<CategoryId>,
     pub category_name: Option<Localized<Language, ProductCategory>>,
+    pub period_id: Option<PeriodId>,
+    pub period_name: Option<Localized<Language, ProductPeriod>>,
     pub title: Localized<Language, Title>,
     pub description: Option<Localized<Language, Description>>,
     pub price: Option<Price>,
@@ -621,6 +629,8 @@ mod faker {
                 shop_type: config.fake_with_rng(rng),
                 category_id: config.fake_with_rng(rng),
                 category_name: config.fake_with_rng(rng),
+                period_id: config.fake_with_rng(rng),
+                period_name: config.fake_with_rng(rng),
                 native_title,
                 other_title: config.fake_with_rng(rng),
                 native_description: config.fake_with_rng(rng),
@@ -675,6 +685,8 @@ mod faker {
                 shop_type: config.fake_with_rng(rng),
                 category_id: config.fake_with_rng(rng),
                 category_name: config.fake_with_rng(rng),
+                period_id: config.fake_with_rng(rng),
+                period_name: config.fake_with_rng(rng),
                 title,
                 description: config.fake_with_rng(rng),
                 price: config.fake_with_rng(rng),
@@ -760,6 +772,8 @@ mod tests {
                 shop_type: fake::Faker.fake(),
                 category_id: Faker.fake(),
                 category_name: Faker.fake(),
+                period_id: Faker.fake(),
+                period_name: Faker.fake(),
                 native_title: Localized {
                     localization: Language::De,
                     payload: "Boop".into(),
@@ -820,6 +834,8 @@ mod tests {
                 shop_type: fake::Faker.fake(),
                 category_id: Faker.fake(),
                 category_name: Faker.fake(),
+                period_id: Faker.fake(),
+                period_name: Faker.fake(),
                 native_title: Localized {
                     localization: Language::De,
                     payload: "Boop".into(),
@@ -880,6 +896,8 @@ mod tests {
                 shop_type: fake::Faker.fake(),
                 category_id: Faker.fake(),
                 category_name: Faker.fake(),
+                period_id: Faker.fake(),
+                period_name: Faker.fake(),
                 native_title: Localized {
                     localization: Language::De,
                     payload: "Boop".into(),
@@ -973,6 +991,8 @@ mod tests {
                 shop_type: fake::Faker.fake(),
                 category_id: Faker.fake(),
                 category_name: Faker.fake(),
+                period_id: Faker.fake(),
+                period_name: Faker.fake(),
                 native_title: Localized {
                     localization: Language::De,
                     payload: "Boop".into(),
@@ -1036,6 +1056,8 @@ mod tests {
                 shop_type: fake::Faker.fake(),
                 category_id: Faker.fake(),
                 category_name: Faker.fake(),
+                period_id: Faker.fake(),
+                period_name: Faker.fake(),
                 native_title: Localized {
                     localization: Language::De,
                     payload: "Boop".into(),
@@ -1106,6 +1128,8 @@ mod tests {
                 shop_type: fake::Faker.fake(),
                 category_id: Faker.fake(),
                 category_name: Faker.fake(),
+                period_id: Faker.fake(),
+                period_name: Faker.fake(),
                 native_title: Localized {
                     localization: Language::De,
                     payload: "Boop".into(),
@@ -1180,6 +1204,8 @@ mod tests {
                 shop_type: fake::Faker.fake(),
                 category_id: Faker.fake(),
                 category_name: Faker.fake(),
+                period_id: Faker.fake(),
+                period_name: Faker.fake(),
                 native_title: Localized {
                     localization: Language::De,
                     payload: "Boop".into(),
@@ -1255,6 +1281,8 @@ mod tests {
                 shop_type: fake::Faker.fake(),
                 category_id: Faker.fake(),
                 category_name: Faker.fake(),
+                period_id: Faker.fake(),
+                period_name: Faker.fake(),
                 shop_name: "Boop".into(),
                 native_title: Localized {
                     localization: Language::De,
@@ -1339,6 +1367,8 @@ mod tests {
                 shop_type: fake::Faker.fake(),
                 category_id: Faker.fake(),
                 category_name: Faker.fake(),
+                period_id: Faker.fake(),
+                period_name: Faker.fake(),
                 native_title: Localized::new(Language::De, "Titel".into()),
                 other_title: Default::default(),
                 native_description: None,
@@ -1393,6 +1423,8 @@ mod tests {
                 shop_type: fake::Faker.fake(),
                 category_id: Faker.fake(),
                 category_name: Faker.fake(),
+                period_id: Faker.fake(),
+                period_name: Faker.fake(),
                 native_title: Localized::new(Language::De, "Titel".into()),
                 other_title: {
                     let mut m = std::collections::HashMap::new();
@@ -1439,6 +1471,8 @@ mod tests {
                 shop_type: fake::Faker.fake(),
                 category_id: Faker.fake(),
                 category_name: Faker.fake(),
+                period_id: Faker.fake(),
+                period_name: Faker.fake(),
                 native_title: Localized::new(Language::De, "Titel".into()),
                 other_title: Default::default(),
                 native_description: None,
@@ -1493,6 +1527,8 @@ mod tests {
                 shop_type: fake::Faker.fake(),
                 category_id: Faker.fake(),
                 category_name: Faker.fake(),
+                period_id: Faker.fake(),
+                period_name: Faker.fake(),
                 native_title: Localized::new(Language::De, "Titel".into()),
                 other_title: Default::default(),
                 native_description: None,
@@ -1539,6 +1575,8 @@ mod tests {
                 shop_type: fake::Faker.fake(),
                 category_id: Faker.fake(),
                 category_name: Faker.fake(),
+                period_id: Faker.fake(),
+                period_name: Faker.fake(),
                 native_title: Localized::new(Language::De, "Titel".into()),
                 other_title: Default::default(),
                 native_description: None,
@@ -1605,6 +1643,8 @@ mod tests {
                 shop_type: fake::Faker.fake(),
                 category_id: Faker.fake(),
                 category_name: Faker.fake(),
+                period_id: Faker.fake(),
+                period_name: Faker.fake(),
                 native_title: Localized::new(Language::De, "Titel".into()),
                 other_title: Default::default(),
                 native_description: None,
@@ -1648,6 +1688,8 @@ mod tests {
                 shop_type: fake::Faker.fake(),
                 category_id: Faker.fake(),
                 category_name: Faker.fake(),
+                period_id: Faker.fake(),
+                period_name: Faker.fake(),
                 native_title: Localized::new(Language::De, "Titel".into()),
                 other_title: Default::default(),
                 native_description: None,
@@ -1707,6 +1749,8 @@ mod tests {
                 shop_type: fake::Faker.fake(),
                 category_id: Faker.fake(),
                 category_name: Faker.fake(),
+                period_id: Faker.fake(),
+                period_name: Faker.fake(),
                 native_title: Localized::new(Language::De, "Titel".into()),
                 other_title: Default::default(),
                 native_description: None,
@@ -1791,6 +1835,8 @@ mod tests {
                 shop_type: fake::Faker.fake(),
                 category_id: Faker.fake(),
                 category_name: Faker.fake(),
+                period_id: Faker.fake(),
+                period_name: Faker.fake(),
                 native_title: Localized::new(Language::De, "Titel".into()),
                 other_title: Default::default(),
                 native_description: None,
@@ -1845,6 +1891,8 @@ mod tests {
                 shop_type: fake::Faker.fake(),
                 category_id: Faker.fake(),
                 category_name: Faker.fake(),
+                period_id: Faker.fake(),
+                period_name: Faker.fake(),
                 native_title: Localized::new(Language::De, "Titel".into()),
                 other_title: Default::default(),
                 native_description: None,
@@ -1924,6 +1972,8 @@ mod tests {
                 shop_type: fake::Faker.fake(),
                 category_id: Faker.fake(),
                 category_name: Faker.fake(),
+                period_id: Faker.fake(),
+                period_name: Faker.fake(),
                 native_title: Localized::new(Language::De, "Titel".into()),
                 other_title: {
                     let mut m = std::collections::HashMap::new();
@@ -2008,6 +2058,8 @@ mod tests {
                 shop_type: fake::Faker.fake(),
                 category_id: Faker.fake(),
                 category_name: Faker.fake(),
+                period_id: Faker.fake(),
+                period_name: Faker.fake(),
                 native_title: Localized::new(Language::De, "Titel".into()),
                 other_title: Default::default(),
                 native_description: Some(Localized::new(Language::De, "Beschreibung".into())),
