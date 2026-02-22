@@ -58,7 +58,7 @@ async fn should_process_classification() {
     let processor = ClassifyPeriodPipeProcesserImpl::new(Arc::new(adapter), &period_service);
 
     let mut product = Faker.fake::<Product>();
-    product.native_title.payload = "Antique Chair".into();
+    product.native_title.payload = "Baroque Chair".into();
     product.text_embedding = Some(vec![0.1; 1024]);
 
     let actual = processor.process(vec![product]).await;
