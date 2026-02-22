@@ -12,6 +12,12 @@ use product_classification::category::{
     opensearch_repository::CategoryOpenSearchRepositoryImpl,
     service::{CategoryService, CategoryServiceImpl},
 };
+use product_classification::period::{
+    core::Period,
+    dynamodb_repository::PeriodDynamoDbRepositoryImpl,
+    opensearch_repository::PeriodOpenSearchRepositoryImpl,
+    service::{PeriodService, PeriodServiceImpl},
+};
 use shop::data::{get_shop_data::GetShopData, post_shop_data::PostShopData};
 use staging_tests::get_dynamodb_client;
 use std::time::Duration;
@@ -22,6 +28,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let shops = populate_shops().await;
     populate_products(shops).await;
     let _ = populate_categories().await;
+    let _ = populate_periods().await;
 
     Ok(())
 }
@@ -127,6 +134,25 @@ async fn populate_categories() -> Vec<Category> {
     }
     refresh_index("categories").await;
     categories
+}
+
+async fn populate_periods() -> Vec<Period> {
+    let dynamodb_repository = PeriodDynamoDbRepositoryImpl::new(
+        get_dynamodb_client().await,
+        &get_cfn_output().dynamodb_table_1_name,
+    );
+    let opensearch = common::opensearch::client::load_client()
+        .await
+        .expect("shouldn't fail loading OpenSearch-Client");
+    let opensearch_repository = PeriodOpenSearchRepositoryImpl::new(&opensearch);
+    let period_service = PeriodServiceImpl::new(&dynamodb_repository, &opensearch_repository);
+
+    let periods = Period::load_periods();
+    for period in &periods {
+        let _ = period_service.upsert_period(period.clone()).await.unwrap();
+    }
+    refresh_index("periods").await;
+    periods
 }
 
 pub async fn refresh_index(index: &str) {

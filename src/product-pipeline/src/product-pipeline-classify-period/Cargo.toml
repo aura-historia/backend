@@ -23,6 +23,7 @@ pyo3-ffi = { workspace = true }
 time = { workspace = true }
 
 [dev-dependencies]
+product-classification = { workspace = true, features = ["test-data"] }
 product-pipeline-common = { workspace = true, features = ["test-data"] }
 rstest = { workspace = true }
 fake = { workspace = true }
