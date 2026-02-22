@@ -4,21 +4,21 @@ use common::api::error::ApiError;
 use common::api::error_code::BAD_BODY_VALUE;
 use common::sort::api::extract_sort_query;
 use lambda_runtime::LambdaEvent;
-use product_classification::category::category_search::CategorySearchData;
-use product_classification::category::data::get_category_summary_data::GetCategorySummaryData;
-use product_classification::category::data::sort_category_field_data::SortCategoryFieldData;
-use product_classification::category::service::CategoryService;
-use product_classification::category::sort_category_field::SortCategoryField;
+use product_classification::period::data::get_period_summary_data::GetPeriodSummaryData;
+use product_classification::period::data::sort_period_field_data::SortPeriodFieldData;
+use product_classification::period::period_search::PeriodSearchData;
+use product_classification::period::service::PeriodService;
+use product_classification::period::sort_period_field::SortPeriodField;
 
 pub async fn handle(
     event: LambdaEvent<ApiGatewayV2httpRequest>,
-    service: &impl CategoryService,
+    service: &impl PeriodService,
 ) -> Result<ApiGatewayV2httpResponse, ApiError> {
-    let sort = extract_sort_query::<SortCategoryFieldData>(&event.payload.query_string_parameters)?
-        .map(|sort_data| sort_data.map(SortCategoryField::from));
+    let sort = extract_sort_query::<SortPeriodFieldData>(&event.payload.query_string_parameters)?
+        .map(|sort_data| sort_data.map(SortPeriodField::from));
 
-    let search_data: CategorySearchData = if event.payload.route_key.as_deref()
-        == Some("GET /api/v1/categories")
+    let search_data: PeriodSearchData = if event.payload.route_key.as_deref()
+        == Some("GET /api/v1/periods")
     {
         let query = event
             .payload
@@ -52,56 +52,54 @@ pub async fn handle(
         })?
     };
 
-    let categories = service
-        .search_categories(&search_data.into(), &sort)
-        .await?;
-    let categories_data: Vec<GetCategorySummaryData> = categories
+    let periods = service.search_periods(&search_data.into(), &sort).await?;
+    let periods_data: Vec<GetPeriodSummaryData> = periods
         .into_iter()
-        .map(GetCategorySummaryData::from)
+        .map(GetPeriodSummaryData::from)
         .collect();
 
     let response_builder = ApiGatewayV2HttpResponseBuilder::json(200);
-    let response_builder = if event.payload.route_key.as_deref() == Some("GET /api/v1/categories") {
+    let response_builder = if event.payload.route_key.as_deref() == Some("GET /api/v1/periods") {
         response_builder.cache_control("public", Some(86400), Some(604800))
     } else {
         response_builder
     };
 
-    Ok(response_builder.body_serde(categories_data)?.build())
+    Ok(response_builder.body_serde(periods_data)?.build())
 }
 
 #[cfg(test)]
 mod tests {
     use crate::handle;
     use lambda_runtime::LambdaEvent;
-    use product_classification::category::category_search::CategorySearchData;
-    use product_classification::category::core::Category;
     use product_classification::category::service::MockCategoryService;
+    use product_classification::period::core::Period;
+    use product_classification::period::period_search::PeriodSearchData;
     use product_classification::period::service::MockPeriodService;
     use test_api::ApiGatewayV2httpRequestProxy;
 
     #[tokio::test]
-    async fn should_search_categories_when_name_query_present_for_search() {
-        let mut category_service = MockCategoryService::default();
-        category_service
-            .expect_search_categories()
+    async fn should_search_periods_when_name_query_present_for_search() {
+        let category_service = MockCategoryService::default();
+        let mut period_service = MockPeriodService::default();
+        period_service
+            .expect_search_periods()
             .return_once(move |search, _| {
-                let categories: Vec<Category> = fake::vec![Category; 2];
-                let localized = categories
+                let periods: Vec<Period> = fake::vec![Period; 2];
+                let localized = periods
                     .into_iter()
-                    .map(|c| c.localized(&[search.language]))
+                    .map(|p| p.localized(&[search.language]))
                     .collect();
                 Box::pin(async move { Ok(localized) })
             });
-        let period_service = MockPeriodService::default();
-        let search_data = CategorySearchData {
+        let search_data = PeriodSearchData {
             language: common::language::data::LanguageData::Es,
-            name_query: Some("Furniture".try_into().unwrap()),
+            name_query: Some("Renaissance".try_into().unwrap()),
         };
         let lambda_event = LambdaEvent {
             payload: ApiGatewayV2httpRequestProxy::builder()
                 .http_method(http::Method::POST)
-                .route_key("POST /api/v1/categories/search")
+                .route_key("POST /api/v1/periods/search")
                 .body_serde(&search_data)
                 .build(),
             context: Default::default(),
@@ -115,22 +113,22 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn should_search_categories_when_get_query_params_for_search() {
-        let mut category_service = MockCategoryService::default();
-        category_service
-            .expect_search_categories()
+    async fn should_search_periods_when_get_query_params_for_search() {
+        let category_service = MockCategoryService::default();
+        let mut period_service = MockPeriodService::default();
+        period_service
+            .expect_search_periods()
             .return_once(move |search, _| {
                 assert_eq!(common::language::domain::Language::Es, search.language);
-                assert_eq!(Some("Furniture".try_into().unwrap()), search.name_query);
+                assert_eq!(Some("Renaissance".try_into().unwrap()), search.name_query);
                 Box::pin(async move { Ok(vec![]) })
             });
-        let period_service = MockPeriodService::default();
         let lambda_event = LambdaEvent {
             payload: ApiGatewayV2httpRequestProxy::builder()
                 .http_method(http::Method::GET)
-                .route_key("GET /api/v1/categories")
+                .route_key("GET /api/v1/periods")
                 .query_string_parameter("language", "es")
-                .query_string_parameter("nameQuery", "Furniture")
+                .query_string_parameter("nameQuery", "Renaissance")
                 .build(),
             context: Default::default(),
         };
@@ -152,24 +150,24 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn should_search_categories_when_empty_search_for_search() {
-        let mut category_service = MockCategoryService::default();
-        category_service
-            .expect_search_categories()
+    async fn should_search_periods_when_empty_search_for_search() {
+        let category_service = MockCategoryService::default();
+        let mut period_service = MockPeriodService::default();
+        period_service
+            .expect_search_periods()
             .return_once(move |search, _| {
-                let categories: Vec<Category> = fake::vec![Category; 3];
-                let localized = categories
+                let periods: Vec<Period> = fake::vec![Period; 3];
+                let localized = periods
                     .into_iter()
-                    .map(|c| c.localized(&[search.language]))
+                    .map(|p| p.localized(&[search.language]))
                     .collect();
                 Box::pin(async move { Ok(localized) })
             });
-        let period_service = MockPeriodService::default();
         let lambda_event = LambdaEvent {
             payload: ApiGatewayV2httpRequestProxy::builder()
                 .http_method(http::Method::POST)
-                .route_key("POST /api/v1/categories/search")
-                .body_serde(&CategorySearchData::default())
+                .route_key("POST /api/v1/periods/search")
+                .body_serde(&PeriodSearchData::default())
                 .build(),
             context: Default::default(),
         };
@@ -183,13 +181,13 @@ mod tests {
 
     #[tokio::test]
     async fn should_400_when_body_is_missing_for_search() {
-        let mut category_service = MockCategoryService::default();
-        category_service.expect_search_categories().never();
-        let period_service = MockPeriodService::default();
+        let category_service = MockCategoryService::default();
+        let mut period_service = MockPeriodService::default();
+        period_service.expect_search_periods().never();
         let lambda_event = LambdaEvent {
             payload: ApiGatewayV2httpRequestProxy::builder()
                 .http_method(http::Method::POST)
-                .route_key("POST /api/v1/categories/search")
+                .route_key("POST /api/v1/periods/search")
                 .build(),
             context: Default::default(),
         };
@@ -203,13 +201,13 @@ mod tests {
 
     #[tokio::test]
     async fn should_400_when_body_is_invalid_json_for_search() {
-        let mut category_service = MockCategoryService::default();
-        category_service.expect_search_categories().never();
-        let period_service = MockPeriodService::default();
+        let category_service = MockCategoryService::default();
+        let mut period_service = MockPeriodService::default();
+        period_service.expect_search_periods().never();
         let mut payload: aws_lambda_events::apigw::ApiGatewayV2httpRequest =
             ApiGatewayV2httpRequestProxy::builder()
                 .http_method(http::Method::POST)
-                .route_key("POST /api/v1/categories/search")
+                .route_key("POST /api/v1/periods/search")
                 .build();
         payload.body = Some("invalid-json".to_string());
         let lambda_event = LambdaEvent {

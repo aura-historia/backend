@@ -6,6 +6,9 @@ use lambda_runtime::{Error, LambdaEvent, run, service_fn};
 use product_classification::category::dynamodb_repository::CategoryDynamoDbRepositoryImpl;
 use product_classification::category::opensearch_repository::CategoryOpenSearchRepositoryImpl;
 use product_classification::category::service::CategoryServiceImpl;
+use product_classification::period::dynamodb_repository::PeriodDynamoDbRepositoryImpl;
+use product_classification::period::opensearch_repository::PeriodOpenSearchRepositoryImpl;
+use product_classification::period::service::PeriodServiceImpl;
 use product_classification_api::handler;
 
 #[tokio::main]
@@ -20,20 +23,24 @@ async fn main() -> Result<(), Error> {
         .expect("shouldn't fail loading env-var 'DYNAMODB_TABLE_NAME'");
     let dynamodb = Client::new(&aws_config);
     let category_dynamodb_repository = CategoryDynamoDbRepositoryImpl::new(&dynamodb, &table_name);
+    let period_dynamodb_repository = PeriodDynamoDbRepositoryImpl::new(&dynamodb, &table_name);
 
     let opensearch = common::opensearch::client::load_client().await?;
     let category_opensearch_repository = CategoryOpenSearchRepositoryImpl::new(&opensearch);
+    let period_opensearch_repository = PeriodOpenSearchRepositoryImpl::new(&opensearch);
 
     let category_service = CategoryServiceImpl::new(
         &category_dynamodb_repository,
         &category_opensearch_repository,
     );
+    let period_service =
+        PeriodServiceImpl::new(&period_dynamodb_repository, &period_opensearch_repository);
 
     debug!("Lambda initialized.");
 
     run(service_fn(
         |event: LambdaEvent<ApiGatewayV2httpRequest>| async {
-            handler(event, &category_service).await
+            handler(event, &category_service, &period_service).await
         },
     ))
     .await

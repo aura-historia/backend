@@ -395,6 +395,7 @@ Resources:
         - !Ref ProductPipelineEmbedTextQ
         - !Ref ProductPipelineExtractAttributeQ
         - !Ref ProductPipelineClassifyCategoryQ
+        - !Ref ProductPipelineClassifyPeriodQ
       PolicyDocument:
         Version: "2012-10-17"
         Statement:
@@ -412,6 +413,7 @@ Resources:
               - !GetAtt ProductPipelineEmbedTextQ.Arn
               - !GetAtt ProductPipelineExtractAttributeQ.Arn
               - !GetAtt ProductPipelineClassifyCategoryQ.Arn
+              - !GetAtt ProductPipelineClassifyPeriodQ.Arn
 
   ApiLogGroup:
     Type: AWS::Logs::LogGroup
@@ -3195,6 +3197,283 @@ Resources:
       AlarmActions:
         - !Ref AlarmNotificationTopic
 
+  ProductPipelineClassifyPeriodDlq:
+    Type: AWS::SQS::Queue
+    Properties:
+      QueueName: !Sub "product-pipeline-classify-period-dlq-prod"
+      MessageRetentionPeriod: 1209600
+      SqsManagedSseEnabled: true
+  ProductPipelineClassifyPeriodQ:
+    Type: AWS::SQS::Queue
+    Properties:
+      QueueName: !Sub "product-pipeline-classify-period-queue-prod"
+      RedrivePolicy:
+        deadLetterTargetArn: !GetAtt ProductPipelineClassifyPeriodDlq.Arn
+        maxReceiveCount: 3
+      VisibilityTimeout: 300
+      SqsManagedSseEnabled: true
+  ProductPipelineClassifyPeriodRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Sub "product-pipeline-classify-period-role-prod"
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: ec2.amazonaws.com
+            Action: sts:AssumeRole
+          - Effect: Allow
+            Principal:
+              Service: spot.amazonaws.com
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/CloudWatchAgentServerPolicy
+        - arn:aws:iam::aws:policy/AmazonS3ReadOnlyAccess
+        - arn:aws:iam::aws:policy/AmazonSSMManagedInstanceCore
+      Policies:
+        - PolicyName: AllowTerminateInASG
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: Allow
+                Action: autoscaling:TerminateInstanceInAutoScalingGroup
+                Resource: "*"
+        - PolicyName: SQSPollerAccess
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: Allow
+                Action:
+                  - sqs:ReceiveMessage
+                  - sqs:DeleteMessage
+                  - sqs:DeleteMessageBatch
+                  - sqs:GetQueueAttributes
+                  - sqs:GetQueueUrl
+                  - sqs:ChangeMessageVisibility
+                Resource:
+                  - !GetAtt ProductPipelineClassifyPeriodQ.Arn
+        - PolicyName: CloudWatchLogsCreate
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: Allow
+                Action:
+                  - logs:CreateLogGroup
+                  - logs:CreateLogStream
+                  - logs:PutLogEvents
+                Resource: "*"
+        - PolicyName: DynamoDBAccess
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: Allow
+                Action:
+                  - dynamodb:GetItem
+                  - dynamodb:Query
+                  - dynamodb:PutItem
+                  - dynamodb:DeleteItem
+                  - dynamodb:UpdateItem
+                  - dynamodb:BatchGetItem
+                  - dynamodb:BatchWriteItem
+                  - dynamodb:TransactGetItems
+                  - dynamodb:TransactWriteItems
+                Resource:
+                  - !GetAtt TableOne.Arn
+                  - !Sub "${TableOne.Arn}/index/*"
+  ProductPipelineClassifyPeriodInstanceProfile:
+    Type: AWS::IAM::InstanceProfile
+    Properties:
+      InstanceProfileName: !Sub "product-pipeline-classify-period-profile-prod"
+      Roles:
+        - !Ref ProductPipelineClassifyPeriodRole
+  ProductPipelineClassifyPeriodLaunchTemplate:
+    Type: AWS::EC2::LaunchTemplate
+    Properties:
+      LaunchTemplateName: !Sub "product-pipeline-classify-period-template-prod"
+      LaunchTemplateData:
+        IamInstanceProfile:
+          Name: !Ref ProductPipelineClassifyPeriodInstanceProfile
+        InstanceType: g6.xlarge # Placeholder - ASG overrides this
+        ImageId: "{{resolve:ssm:/amis/prod/product-pipeline-classify-period/latest}}"
+        SecurityGroupIds: [!Ref ProductPipelineSecurityGroup]
+        BlockDeviceMappings:
+          - DeviceName: /dev/sda1
+            Ebs:
+              VolumeSize: 80
+              VolumeType: gp3
+              DeleteOnTermination: true
+        TagSpecifications:
+          - ResourceType: instance
+            Tags:
+              - Key: Name
+                Value: !Sub "product-pipeline-classify-period-prod"
+              - Key: Fleet
+                Value: product-pipeline-classify-period
+        UserData:
+          Fn::Base64: !Sub |
+            #!/bin/bash
+            set -euxo pipefail
+            sudo -i
+            export DYNAMODB_TABLE_NAME="${TableOne}"
+            export STAGE="prod"
+            export STAGE_NAME=prod
+            export CommitSHA="${CommitSHA}"
+            export ARTIFACT_BUCKET="${ArtifactBucket}"
+            export SOURCE_QUEUE_URL="${ProductPipelineClassifyPeriodQ}"
+            export OPENSEARCH_ENDPOINT_URL="${OpenSearchEndpointUrl}"
+            export OPENSEARCH_USERNAME="{{resolve:ssm:/opensearch/prod/username}}"
+            export OPENSEARCH_PASSWORD="{{resolve:ssm:/opensearch/prod/password}}"
+            # Download and install binary
+            sudo aws s3 cp "s3://${ArtifactBucket}/prod/${CommitSHA}/product-pipeline-classify-period" /opt/product-pipeline-classify-period/product-pipeline-classify-period --region eu-central-1
+            sudo chmod +x /opt/product-pipeline-classify-period/product-pipeline-classify-period
+            # Prepare (preconfigured via custom ami) python venv
+            cd /opt/product-pipeline-classify-period
+            source .venv/bin/activate
+            # ----------------------------
+            # INSTANCE STORE (CORRECT ZERO-COPY HF CACHE)
+            # ----------------------------
+            set -euxo pipefail
+
+            ROOT_DEV=$(lsblk -ndo PKNAME "$(findmnt -n -o SOURCE /)")
+            DEVICE=""
+
+            echo "Waiting for instance store NVMe..."
+
+            for i in {1..30}; do
+              DEVICE=$(lsblk -ndo NAME,TYPE | awk '$2=="disk"{print "/dev/"$1}' | grep -v "$ROOT_DEV" | head -n1 || true)
+              [ -n "$DEVICE" ] && break
+              sleep 1
+            done
+
+            if [ -z "$DEVICE" ]; then
+              echo "❌ No instance store detected — using EBS"
+              export HF_HOME=/opt/huggingface
+              export TRANSFORMERS_CACHE=/opt/huggingface
+              export SENTENCE_TRANSFORMERS_HOME=/opt/huggingface
+            else
+              echo "✅ Found instance store: $DEVICE"
+
+              if ! blkid "$DEVICE" >/dev/null 2>&1; then
+                mkfs.xfs -f "$DEVICE"
+              fi
+
+              mkdir -p /mnt/instance-store
+              mount -o noatime,nodiratime "$DEVICE" /mnt/instance-store
+
+              mkdir -p /mnt/instance-store/huggingface
+
+              # If /opt/huggingface is NOT already a symlink, replace it
+              if [ ! -L /opt/huggingface ]; then
+                echo "🔁 Moving HF cache pointer to NVMe (no copy)"
+                rm -rf /opt/huggingface
+                ln -s /mnt/instance-store/huggingface /opt/huggingface
+              fi
+
+              export HF_HOME=/opt/huggingface
+              export TRANSFORMERS_CACHE=/opt/huggingface
+              export SENTENCE_TRANSFORMERS_HOME=/opt/huggingface
+
+              echo "🔥 HuggingFace cache now lives on NVMe"
+            fi
+
+            # Run binary
+            LOG_PATH="/var/log/product-pipeline-classify-period.log"
+            echo "[$(date)] Running product-pipeline-classify-period..." | tee -a "$LOG_PATH"
+            ./product-pipeline-classify-period >> "$LOG_PATH" 2>&1
+            EXIT_CODE=$?
+            echo "[$(date)] Job finished with code $EXIT_CODE" | tee -a "$LOG_PATH"
+            sleep 5
+            aws autoscaling terminate-instance-in-auto-scaling-group \
+              --instance-id $(ec2metadata --instance-id) \
+              --should-decrement-desired-capacity
+            exit $EXIT_CODE
+  ProductPipelineClassifyPeriodASG:
+    Type: AWS::AutoScaling::AutoScalingGroup
+    Properties:
+      VPCZoneIdentifier:
+        - !Ref ProductPipelineSubnetA
+      MinSize: 0
+      MaxSize: 1
+      DesiredCapacity: 0
+      MixedInstancesPolicy:
+        LaunchTemplate:
+          LaunchTemplateSpecification:
+            LaunchTemplateId: !Ref ProductPipelineClassifyPeriodLaunchTemplate
+            Version: !GetAtt ProductPipelineClassifyPeriodLaunchTemplate.LatestVersionNumber
+          Overrides:
+            - InstanceType: g6.xlarge
+            - InstanceType: g6.2xlarge
+            - InstanceType: g5.xlarge
+            - InstanceType: g5.2xlarge
+        InstancesDistribution:
+          OnDemandPercentageAboveBaseCapacity: 0
+          SpotAllocationStrategy: price-capacity-optimized
+      Tags:
+        - Key: Name
+          Value: !Sub "product-pipeline-classify-period-prod"
+          PropagateAtLaunch: true
+      HealthCheckType: EC2
+      HealthCheckGracePeriod: 120
+  ProductPipelineClassifyPeriodDynamoDbProductEventRecordCreatedEventRule:
+    Type: AWS::Events::Rule
+    Properties:
+      Name: "ddb-product-embed-product-pipeline-classify-period-prod"
+      EventBusName: !Ref DynamoDbEventBus
+      EventPattern:
+        source:
+          - !Ref TableOne
+        detail-type:
+          - "DynamoDBStreamRecord"
+        detail:
+          eventName:
+            - "INSERT"
+          dynamodb:
+            NewImage:
+              event_type:
+                S:
+                  - "ENRICHMENT_EMBEDDED_TEXT"
+      Targets:
+        - Id: ProductPipelineClassifyPeriodQ
+          Arn: !GetAtt ProductPipelineClassifyPeriodQ.Arn
+
+  ProductPipelineClassifyPeriodCPUAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      AlarmName: "prod-pipeline-classify-period-high-cpu"
+      AlarmDescription: "Alarm when pipeline-classify-period instances have high CPU"
+      MetricName: CPUUtilization
+      Namespace: AWS/EC2
+      Statistic: Average
+      Period: 300
+      EvaluationPeriods: 2
+      Threshold: 90
+      ComparisonOperator: GreaterThanThreshold
+      Dimensions:
+        - Name: AutoScalingGroupName
+          Value: !Ref ProductPipelineClassifyPeriodASG
+      TreatMissingData: notBreaching
+      AlarmActions:
+        - !Ref AlarmNotificationTopic
+  ProductPipelineClassifyPeriodStatusCheckAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      AlarmName: "prod-pipeline-classify-period-status-check-failed"
+      AlarmDescription: "Alarm when pipeline-classify-period instances fail status checks"
+      MetricName: StatusCheckFailed
+      Namespace: AWS/EC2
+      Statistic: Maximum
+      Period: 60
+      EvaluationPeriods: 2
+      Threshold: 0
+      ComparisonOperator: GreaterThanThreshold
+      Dimensions:
+        - Name: AutoScalingGroupName
+          Value: !Ref ProductPipelineClassifyPeriodASG
+      TreatMissingData: notBreaching
+      AlarmActions:
+        - !Ref AlarmNotificationTopic
+
   ProductPipelineScaleControlRole:
     Type: AWS::IAM::Role
     Properties:
@@ -3256,6 +3535,9 @@ Resources:
           PRODUCT_PIPELINE_CLASSIFY_CATEGORY_SQS_URL: !Ref ProductPipelineClassifyCategoryQ
           PRODUCT_PIPELINE_CLASSIFY_CATEGORY_SQS_NAME: !GetAtt ProductPipelineClassifyCategoryQ.QueueName
           PRODUCT_PIPELINE_CLASSIFY_CATEGORY_ASG_NAME: !Ref ProductPipelineClassifyCategoryASG
+          PRODUCT_PIPELINE_CLASSIFY_PERIOD_SQS_URL: !Ref ProductPipelineClassifyPeriodQ
+          PRODUCT_PIPELINE_CLASSIFY_PERIOD_SQS_NAME: !GetAtt ProductPipelineClassifyPeriodQ.QueueName
+          PRODUCT_PIPELINE_CLASSIFY_PERIOD_ASG_NAME: !Ref ProductPipelineClassifyPeriodASG
   ProductPipelineScaleControlStartSchedule:
     Type: AWS::Events::Rule
     Properties:

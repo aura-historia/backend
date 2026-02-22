@@ -5,6 +5,7 @@ pub mod api;
 pub mod batch;
 pub mod category_key;
 pub mod domain;
+pub mod period_key;
 
 #[cfg(feature = "dynamodb")]
 pub mod dynamodb_update;

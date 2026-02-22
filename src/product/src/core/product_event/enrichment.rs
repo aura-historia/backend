@@ -3,8 +3,8 @@ use crate::core::{
     provenance::Provenance, restoration::Restoration, title::Title,
 };
 use common::{
-    category_key::CategoryId, has_key::HasKey, language::domain::Language, product_id::ProductKey,
-    shop_id::ShopId, shops_product_id::ShopsProductId, year::Year,
+    category_key::CategoryId, has_key::HasKey, language::domain::Language, period_key::PeriodId,
+    product_id::ProductKey, shop_id::ShopId, shops_product_id::ShopsProductId, year::Year,
 };
 
 #[cfg_attr(feature = "test-data", derive(fake::Dummy))]
@@ -16,6 +16,7 @@ pub enum ProductEnrichmentEventPayload {
     EmbeddedText(EmbeddedTextProductEnrichmentEventPayload),
     ExtractedAttributes(ExtractedAttributesProductEnrichmentEventPayload),
     ClassifiedCategory(ClassifiedCategoryProductEnrichmentEventPayload),
+    ClassifiedPeriod(ClassifiedPeriodProductEnrichmentEventPayload),
 }
 
 #[cfg_attr(feature = "test-data", derive(fake::Dummy))]
@@ -58,6 +59,14 @@ pub struct ClassifiedCategoryProductEnrichmentEventPayload {
     pub category_id: CategoryId,
 }
 
+#[cfg_attr(feature = "test-data", derive(fake::Dummy))]
+#[derive(Debug, Clone, PartialEq)]
+pub struct ClassifiedPeriodProductEnrichmentEventPayload {
+    pub shop_id: ShopId,
+    pub shops_product_id: ShopsProductId,
+    pub period_id: PeriodId,
+}
+
 impl HasKey for ProductEnrichmentEventPayload {
     type Key = ProductKey;
 
@@ -68,6 +77,7 @@ impl HasKey for ProductEnrichmentEventPayload {
             ProductEnrichmentEventPayload::EmbeddedText(payload) => payload.key(),
             ProductEnrichmentEventPayload::ExtractedAttributes(payload) => payload.key(),
             ProductEnrichmentEventPayload::ClassifiedCategory(payload) => payload.key(),
+            ProductEnrichmentEventPayload::ClassifiedPeriod(payload) => payload.key(),
         }
     }
 }
@@ -100,6 +110,14 @@ impl HasKey for ExtractedAttributesProductEnrichmentEventPayload {
 }
 
 impl HasKey for ClassifiedCategoryProductEnrichmentEventPayload {
+    type Key = ProductKey;
+
+    fn key(&self) -> Self::Key {
+        ProductKey::new(self.shop_id, self.shops_product_id.clone())
+    }
+}
+
+impl HasKey for ClassifiedPeriodProductEnrichmentEventPayload {
     type Key = ProductKey;
 
     fn key(&self) -> Self::Key {
@@ -145,6 +163,13 @@ impl ProductEnrichmentEventPayload {
     ) -> Option<&ClassifiedCategoryProductEnrichmentEventPayload> {
         match self {
             ProductEnrichmentEventPayload::ClassifiedCategory(payload) => Some(payload),
+            _ => None,
+        }
+    }
+
+    pub fn as_classified_period(&self) -> Option<&ClassifiedPeriodProductEnrichmentEventPayload> {
+        match self {
+            ProductEnrichmentEventPayload::ClassifiedPeriod(payload) => Some(payload),
             _ => None,
         }
     }

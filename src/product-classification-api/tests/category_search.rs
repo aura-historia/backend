@@ -8,6 +8,7 @@ use product_classification::category::opensearch_repository::{
     CategoryOpenSearchRepository, CategoryOpenSearchRepositoryImpl,
 };
 use product_classification::category::service::CategoryServiceImpl;
+use product_classification::period::service::MockPeriodService;
 use product_classification_api::handle;
 use test_api::*;
 
@@ -17,7 +18,8 @@ async fn should_sort_by_name_ascending_when_name_asc_for_search_api() {
         CategoryOpenSearchRepositoryImpl::new(get_opensearch_client().await);
     let dynamodb_repository =
         CategoryDynamoDbRepositoryImpl::new(get_dynamodb_client().await, "table_1");
-    let service = CategoryServiceImpl::new(&dynamodb_repository, &opensearch_repository);
+    let category_service = CategoryServiceImpl::new(&dynamodb_repository, &opensearch_repository);
+    let period_service = MockPeriodService::default();
 
     let names = ["Charlie", "Alpha", "Bravo"];
     for name in &names {
@@ -41,7 +43,9 @@ async fn should_sort_by_name_ascending_when_name_asc_for_search_api() {
             .build(),
         context: Default::default(),
     };
-    let response = handle(lambda_event, &service).await.unwrap();
+    let response = handle(lambda_event, &category_service, &period_service)
+        .await
+        .unwrap();
 
     assert_eq!(200, response.status_code);
     let payload: Vec<GetCategorySummaryData> =
@@ -58,7 +62,8 @@ async fn should_sort_by_created_descending_when_created_desc_for_search_api() {
         CategoryOpenSearchRepositoryImpl::new(get_opensearch_client().await);
     let dynamodb_repository =
         CategoryDynamoDbRepositoryImpl::new(get_dynamodb_client().await, "table_1");
-    let service = CategoryServiceImpl::new(&dynamodb_repository, &opensearch_repository);
+    let category_service = CategoryServiceImpl::new(&dynamodb_repository, &opensearch_repository);
+    let period_service = MockPeriodService::default();
 
     let timestamps = [
         time::macros::datetime!(2024-12-01 0:00 UTC),
@@ -86,7 +91,9 @@ async fn should_sort_by_created_descending_when_created_desc_for_search_api() {
             .build(),
         context: Default::default(),
     };
-    let response = handle(lambda_event, &service).await.unwrap();
+    let response = handle(lambda_event, &category_service, &period_service)
+        .await
+        .unwrap();
 
     assert_eq!(200, response.status_code);
     let payload: Vec<GetCategorySummaryData> =
