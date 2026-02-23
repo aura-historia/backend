@@ -921,25 +921,43 @@ Resources:
     Properties:
       ApiId: !Ref Api
       RouteKey: "GET /api/v1/categories/{categoryId}"
-      Target: !Sub "integrations/${CategoryApiLambdaIntegration}"
+      Target: !Sub "integrations/${ProductClassificationApiLambdaIntegration}"
   CategoryApiGetAllCategoriesRoute:
     Type: AWS::ApiGatewayV2::Route
     Properties:
       ApiId: !Ref Api
       RouteKey: "GET /api/v1/categories"
-      Target: !Sub "integrations/${CategoryApiLambdaIntegration}"
+      Target: !Sub "integrations/${ProductClassificationApiLambdaIntegration}"
   CategoryApiSearchRoute:
     Type: AWS::ApiGatewayV2::Route
     Properties:
       ApiId: !Ref Api
       RouteKey: "POST /api/v1/categories/search"
-      Target: !Sub "integrations/${CategoryApiLambdaIntegration}"
-  CategoryApiLambdaIntegration:
+      Target: !Sub "integrations/${ProductClassificationApiLambdaIntegration}"
+  PeriodApiGetPeriodByIdRoute:
+    Type: AWS::ApiGatewayV2::Route
+    Properties:
+      ApiId: !Ref Api
+      RouteKey: "GET /api/v1/periods/{periodId}"
+      Target: !Sub "integrations/${ProductClassificationApiLambdaIntegration}"
+  PeriodApiGetAllPeriodsRoute:
+    Type: AWS::ApiGatewayV2::Route
+    Properties:
+      ApiId: !Ref Api
+      RouteKey: "GET /api/v1/periods"
+      Target: !Sub "integrations/${ProductClassificationApiLambdaIntegration}"
+  PeriodApiSearchRoute:
+    Type: AWS::ApiGatewayV2::Route
+    Properties:
+      ApiId: !Ref Api
+      RouteKey: "POST /api/v1/periods/search"
+      Target: !Sub "integrations/${ProductClassificationApiLambdaIntegration}"
+  ProductClassificationApiLambdaIntegration:
     Type: AWS::ApiGatewayV2::Integration
     Properties:
       ApiId: !Ref Api
       IntegrationType: AWS_PROXY
-      IntegrationUri: !Sub "arn:aws:lambda:${AWS::Region}:${AWS::AccountId}:function:${CategoryApiLambda}"
+      IntegrationUri: !Sub "arn:aws:lambda:${AWS::Region}:${AWS::AccountId}:function:${ProductClassificationApiLambda}"
       PayloadFormatVersion: "2.0"
   CategoryApiRole:
     Type: AWS::IAM::Role
@@ -967,7 +985,7 @@ Resources:
                 Resource:
                   - !GetAtt TableOne.Arn
                   - !Sub "${TableOne.Arn}/index/*"
-  CategoryApiLambda:
+  ProductClassificationApiLambda:
     Type: AWS::Lambda::Function
     Properties:
       FunctionName: "category-api-prod"
@@ -988,11 +1006,11 @@ Resources:
           OPENSEARCH_ENDPOINT_URL: !Ref OpenSearchEndpointUrl
           OPENSEARCH_USERNAME: "{{resolve:ssm:/opensearch/prod/username}}"
           OPENSEARCH_PASSWORD: "{{resolve:ssm:/opensearch/prod/password}}"
-  CategoryApiLambdaPermission:
+  ProductClassificationApiLambdaPermission:
     Type: AWS::Lambda::Permission
     Properties:
       Action: lambda:InvokeFunction
-      FunctionName: !Ref CategoryApiLambda
+      FunctionName: !Ref ProductClassificationApiLambda
       Principal: apigateway.amazonaws.com
       SourceArn: !Sub "arn:aws:execute-api:${AWS::Region}:${AWS::AccountId}:${Api}/*/*/api/v1*"
 
@@ -1255,7 +1273,7 @@ Resources:
       ComparisonOperator: GreaterThanOrEqualToThreshold
       Dimensions:
         - Name: FunctionName
-          Value: !Ref CategoryApiLambda
+          Value: !Ref ProductClassificationApiLambda
       TreatMissingData: notBreaching
       AlarmActions:
         - !Ref AlarmNotificationTopic
@@ -1273,7 +1291,7 @@ Resources:
       ComparisonOperator: GreaterThanOrEqualToThreshold
       Dimensions:
         - Name: FunctionName
-          Value: !Ref CategoryApiLambda
+          Value: !Ref ProductClassificationApiLambda
       TreatMissingData: notBreaching
       AlarmActions:
         - !Ref AlarmNotificationTopic
