@@ -988,7 +988,7 @@ Resources:
   ProductClassificationApiLambda:
     Type: AWS::Lambda::Function
     Properties:
-      FunctionName: "category-api-prod"
+      FunctionName: "product-classification-api-prod"
       Runtime: provided.al2023
       Handler: lib.handler
       Role: !GetAtt CategoryApiRole.Arn
