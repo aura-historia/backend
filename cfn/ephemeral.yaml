@@ -810,25 +810,43 @@ Resources:
     Properties:
       ApiId: !Ref Api
       RouteKey: "GET /api/v1/categories/{categoryId}"
-      Target: !Sub "integrations/${CategoryApiLambdaIntegration}"
+      Target: !Sub "integrations/${ProductClassificationApiLambdaIntegration}"
   CategoryApiGetAllCategoriesRoute:
     Type: AWS::ApiGatewayV2::Route
     Properties:
       ApiId: !Ref Api
       RouteKey: "GET /api/v1/categories"
-      Target: !Sub "integrations/${CategoryApiLambdaIntegration}"
+      Target: !Sub "integrations/${ProductClassificationApiLambdaIntegration}"
   CategoryApiSearchRoute:
     Type: AWS::ApiGatewayV2::Route
     Properties:
       ApiId: !Ref Api
       RouteKey: "POST /api/v1/categories/search"
-      Target: !Sub "integrations/${CategoryApiLambdaIntegration}"
-  CategoryApiLambdaIntegration:
+      Target: !Sub "integrations/${ProductClassificationApiLambdaIntegration}"
+  PeriodApiGetPeriodByIdRoute:
+    Type: AWS::ApiGatewayV2::Route
+    Properties:
+      ApiId: !Ref Api
+      RouteKey: "GET /api/v1/periods/{periodId}"
+      Target: !Sub "integrations/${ProductClassificationApiLambdaIntegration}"
+  PeriodApiGetAllPeriodsRoute:
+    Type: AWS::ApiGatewayV2::Route
+    Properties:
+      ApiId: !Ref Api
+      RouteKey: "GET /api/v1/periods"
+      Target: !Sub "integrations/${ProductClassificationApiLambdaIntegration}"
+  PeriodApiSearchRoute:
+    Type: AWS::ApiGatewayV2::Route
+    Properties:
+      ApiId: !Ref Api
+      RouteKey: "POST /api/v1/periods/search"
+      Target: !Sub "integrations/${ProductClassificationApiLambdaIntegration}"
+  ProductClassificationApiLambdaIntegration:
     Type: AWS::ApiGatewayV2::Integration
     Properties:
       ApiId: !Ref Api
       IntegrationType: AWS_PROXY
-      IntegrationUri: !Sub "arn:aws:lambda:${AWS::Region}:${AWS::AccountId}:function:${CategoryApiLambda}"
+      IntegrationUri: !Sub "arn:aws:lambda:${AWS::Region}:${AWS::AccountId}:function:${ProductClassificationApiLambda}"
       PayloadFormatVersion: "2.0"
   CategoryApiRole:
     Type: AWS::IAM::Role
@@ -868,10 +886,10 @@ Resources:
                   - es:ESHttpHead
                   - es:ESHttpPost
                 Resource: !Sub "${OpenSearchDomain.Arn}/*"
-  CategoryApiLambda:
+  ProductClassificationApiLambda:
     Type: AWS::Lambda::Function
     Properties:
-      FunctionName: !Sub "category-api-${StageName}"
+      FunctionName: !Sub "product-classification-api-${StageName}"
       Runtime: provided.al2023
       Handler: lib.handler
       Role: !GetAtt CategoryApiRole.Arn
@@ -887,11 +905,11 @@ Resources:
           STAGE: !Ref Stage
           DYNAMODB_TABLE_NAME: !Ref TableOne
           OPENSEARCH_ENDPOINT_URL: !Sub "https://${OpenSearchDomain.DomainEndpoint}"
-  CategoryApiLambdaPermission:
+  ProductClassificationApiLambdaPermission:
     Type: AWS::Lambda::Permission
     Properties:
       Action: lambda:InvokeFunction
-      FunctionName: !Ref CategoryApiLambda
+      FunctionName: !Ref ProductClassificationApiLambda
       Principal: apigateway.amazonaws.com
       SourceArn: !Sub "arn:aws:execute-api:${AWS::Region}:${AWS::AccountId}:${Api}/*/*/api/v1*"
 
