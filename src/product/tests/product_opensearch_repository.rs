@@ -356,8 +356,8 @@ async fn should_update_product_document() {
         price_cad: None,
         price_nzd: None,
         state: Some(ProductStateDocument::Sold),
-        category_id: None,
-        period_id: None,
+        category_id: Default::default(),
+        period_id: Default::default(),
         category_name_de: None,
         category_name_en: None,
         category_name_fr: None,
@@ -485,8 +485,8 @@ async fn should_search_product_documents() {
         language: Language::De,
         currency: Currency::Eur,
         product_query: "Hallo Welt".try_into().unwrap(),
-        category_id: None,
-        period_id: None,
+        category_id: Default::default(),
+        period_id: Default::default(),
         shop_name_query: Default::default(),
         exclude_shop_name_query: Default::default(),
         shop_type_query: Default::default(),
@@ -607,8 +607,8 @@ async fn should_omit_descriptions_in_response_for_search_product_documents() {
         language: Language::De,
         currency: Currency::Eur,
         product_query: "Hallo Welt".try_into().unwrap(),
-        category_id: None,
-        period_id: None,
+        category_id: Default::default(),
+        period_id: Default::default(),
         shop_name_query: Default::default(),
         exclude_shop_name_query: Default::default(),
         shop_type_query: Default::default(),
@@ -669,8 +669,8 @@ async fn should_search_product_documents_when_all_arguments_are_given() {
         language: Language::De,
         currency: Currency::Eur,
         product_query: "Lorem".try_into().unwrap(),
-        category_id: None,
-        period_id: None,
+        category_id: Default::default(),
+        period_id: Default::default(),
         shop_type_query: Default::default(),
         shop_name_query: HashSet::from_iter(["Wyoming LLC".into()]).into(),
         exclude_shop_name_query: HashSet::from_iter(["Berlin GmbH".into()]).into(),
@@ -752,8 +752,8 @@ async fn should_search_product_documents_when_states_are_given(#[case] states: &
         language: Language::De,
         currency: Currency::Eur,
         product_query: "The same title".try_into().unwrap(),
-        category_id: None,
-        period_id: None,
+        category_id: Default::default(),
+        period_id: Default::default(),
         shop_name_query: Default::default(),
         exclude_shop_name_query: Default::default(),
         shop_type_query: Default::default(),
@@ -814,8 +814,8 @@ async fn should_search_product_documents_when_no_states_are_given() {
         language: Language::De,
         currency: Currency::Eur,
         product_query: "The same title".try_into().unwrap(),
-        category_id: None,
-        period_id: None,
+        category_id: Default::default(),
+        period_id: Default::default(),
         shop_name_query: Default::default(),
         exclude_shop_name_query: Default::default(),
         shop_type_query: Default::default(),
@@ -899,8 +899,8 @@ async fn should_search_product_documents_when_price_range_is_given(
         language: Language::De,
         currency: Currency::Eur,
         product_query: "The same title".try_into().unwrap(),
-        category_id: None,
-        period_id: None,
+        category_id: Default::default(),
+        period_id: Default::default(),
         shop_name_query: Default::default(),
         exclude_shop_name_query: Default::default(),
         shop_type_query: Default::default(),
@@ -986,8 +986,8 @@ async fn should_search_product_documents_respecting_paging_when_sorted_by_price(
         language: Language::En,
         currency: Currency::Usd,
         product_query: "The same title".try_into().unwrap(),
-        category_id: None,
-        period_id: None,
+        category_id: Default::default(),
+        period_id: Default::default(),
         shop_name_query: Default::default(),
         exclude_shop_name_query: Default::default(),
         shop_type_query: Default::default(),
@@ -1077,8 +1077,8 @@ async fn should_search_product_documents_respecting_search_after_when_sorted_by_
         language: Language::En,
         currency: Currency::Usd,
         product_query: "The same title".try_into().unwrap(),
-        category_id: None,
-        period_id: None,
+        category_id: Default::default(),
+        period_id: Default::default(),
         shop_name_query: Default::default(),
         exclude_shop_name_query: Default::default(),
         shop_type_query: Default::default(),
@@ -2307,8 +2307,8 @@ async fn should_search_product_documents_when_exact_year_is_given_for_stored_exa
         language: Language::De,
         currency: Currency::Eur,
         product_query: "The same title".try_into().unwrap(),
-        category_id: None,
-        period_id: None,
+        category_id: Default::default(),
+        period_id: Default::default(),
         shop_name_query: Default::default(),
         exclude_shop_name_query: Default::default(),
         shop_type_query: Default::default(),
@@ -2403,8 +2403,8 @@ async fn should_search_product_documents_when_only_min_year_is_given_for_stored_
         language: Language::De,
         currency: Currency::Eur,
         product_query: "The same title".try_into().unwrap(),
-        category_id: None,
-        period_id: None,
+        category_id: Default::default(),
+        period_id: Default::default(),
         shop_name_query: Default::default(),
         exclude_shop_name_query: Default::default(),
         shop_type_query: Default::default(),
@@ -2499,8 +2499,8 @@ async fn should_search_product_documents_when_only_max_year_is_given_for_stored_
         language: Language::De,
         currency: Currency::Eur,
         product_query: "The same title".try_into().unwrap(),
-        category_id: None,
-        period_id: None,
+        category_id: Default::default(),
+        period_id: Default::default(),
         shop_name_query: Default::default(),
         exclude_shop_name_query: Default::default(),
         shop_type_query: Default::default(),
@@ -2595,8 +2595,8 @@ async fn should_search_product_documents_when_min_and_max_year_is_given_for_stor
         language: Language::De,
         currency: Currency::Eur,
         product_query: "The same title".try_into().unwrap(),
-        category_id: None,
-        period_id: None,
+        category_id: Default::default(),
+        period_id: Default::default(),
         shop_name_query: Default::default(),
         exclude_shop_name_query: Default::default(),
         shop_type_query: Default::default(),
@@ -2693,8 +2693,8 @@ async fn should_search_product_documents_when_only_min_year_is_given_for_stored_
         language: Language::De,
         currency: Currency::Eur,
         product_query: "The same title".try_into().unwrap(),
-        category_id: None,
-        period_id: None,
+        category_id: Default::default(),
+        period_id: Default::default(),
         shop_name_query: Default::default(),
         exclude_shop_name_query: Default::default(),
         shop_type_query: Default::default(),
@@ -2789,8 +2789,8 @@ async fn should_search_product_documents_when_only_max_year_is_given_for_stored_
         language: Language::De,
         currency: Currency::Eur,
         product_query: "The same title".try_into().unwrap(),
-        category_id: None,
-        period_id: None,
+        category_id: Default::default(),
+        period_id: Default::default(),
         shop_name_query: Default::default(),
         exclude_shop_name_query: Default::default(),
         shop_type_query: Default::default(),
@@ -2885,8 +2885,8 @@ async fn should_search_product_documents_when_min_and_max_year_is_given_for_stor
         language: Language::De,
         currency: Currency::Eur,
         product_query: "The same title".try_into().unwrap(),
-        category_id: None,
-        period_id: None,
+        category_id: Default::default(),
+        period_id: Default::default(),
         shop_name_query: Default::default(),
         exclude_shop_name_query: Default::default(),
         shop_type_query: Default::default(),
@@ -2970,8 +2970,8 @@ async fn should_search_product_documents_when_authenticity_filter_is_given(
         language: Language::De,
         currency: Currency::Eur,
         product_query: "The same title".try_into().unwrap(),
-        category_id: None,
-        period_id: None,
+        category_id: Default::default(),
+        period_id: Default::default(),
         shop_name_query: Default::default(),
         exclude_shop_name_query: Default::default(),
         shop_type_query: Default::default(),
@@ -3045,8 +3045,8 @@ async fn should_search_product_documents_when_condition_filter_is_given(
         language: Language::De,
         currency: Currency::Eur,
         product_query: "The same title".try_into().unwrap(),
-        category_id: None,
-        period_id: None,
+        category_id: Default::default(),
+        period_id: Default::default(),
         shop_name_query: Default::default(),
         exclude_shop_name_query: Default::default(),
         shop_type_query: Default::default(),
@@ -3119,8 +3119,8 @@ async fn should_search_product_documents_when_provenance_filter_is_given(
         language: Language::De,
         currency: Currency::Eur,
         product_query: "The same title".try_into().unwrap(),
-        category_id: None,
-        period_id: None,
+        category_id: Default::default(),
+        period_id: Default::default(),
         shop_name_query: Default::default(),
         exclude_shop_name_query: Default::default(),
         shop_type_query: Default::default(),
@@ -3192,8 +3192,8 @@ async fn should_search_product_documents_when_restoration_filter_is_given(
         language: Language::De,
         currency: Currency::Eur,
         product_query: "The same title".try_into().unwrap(),
-        category_id: None,
-        period_id: None,
+        category_id: Default::default(),
+        period_id: Default::default(),
         shop_name_query: Default::default(),
         exclude_shop_name_query: Default::default(),
         shop_type_query: Default::default(),
@@ -3263,8 +3263,8 @@ async fn should_search_product_documents_when_shop_types_are_given(
         language: Language::De,
         currency: Currency::Eur,
         product_query: "Test product for shop type filter".try_into().unwrap(),
-        category_id: None,
-        period_id: None,
+        category_id: Default::default(),
+        period_id: Default::default(),
         shop_name_query: Default::default(),
         exclude_shop_name_query: Default::default(),
         shop_type_query: AnyOfQuery::from(HashSet::from_iter(shop_types.iter().copied())),
@@ -3340,8 +3340,8 @@ async fn should_search_product_documents_when_category_id_is_given() {
         language: Language::De,
         currency: Currency::Eur,
         product_query: "Test product for category filter".try_into().unwrap(),
-        category_id: Some(category_id.clone()),
-        period_id: None,
+        category_id: HashSet::from_iter([category_id.clone(), other_category_id.clone()]).into(),
+        period_id: Default::default(),
         shop_name_query: Default::default(),
         exclude_shop_name_query: Default::default(),
         shop_type_query: Default::default(),
@@ -3369,14 +3369,17 @@ async fn should_search_product_documents_when_category_id_is_given() {
         .await
         .unwrap();
 
+    let expected_category_ids = [category_id, other_category_id]
+        .into_iter()
+        .collect::<HashSet<_>>();
+
     assert!(response.hits.total.value > 0);
-    assert!(
-        response
-            .hits
-            .hits
-            .iter()
-            .all(|hit| hit.source.category_id.as_ref() == Some(&category_id))
-    );
+    assert!(response.hits.hits.iter().all(|hit| {
+        hit.source
+            .category_id
+            .as_ref()
+            .is_some_and(|value| expected_category_ids.contains(value))
+    }));
 }
 
 #[localstack_test(services = [OpenSearch()])]
@@ -3417,8 +3420,8 @@ async fn should_search_product_documents_when_period_id_is_given() {
         language: Language::De,
         currency: Currency::Eur,
         product_query: "Test product for category filter".try_into().unwrap(),
-        category_id: None,
-        period_id: Some(period_id.clone()),
+        category_id: Default::default(),
+        period_id: HashSet::from_iter([period_id.clone(), other_period_id.clone()]).into(),
         shop_name_query: Default::default(),
         exclude_shop_name_query: Default::default(),
         shop_type_query: Default::default(),
@@ -3446,14 +3449,17 @@ async fn should_search_product_documents_when_period_id_is_given() {
         .await
         .unwrap();
 
+    let expected_period_ids = [period_id, other_period_id]
+        .into_iter()
+        .collect::<HashSet<_>>();
+
     assert!(response.hits.total.value > 0);
-    assert!(
-        response
-            .hits
-            .hits
-            .iter()
-            .all(|hit| hit.source.period_id.as_ref() == Some(&period_id))
-    );
+    assert!(response.hits.hits.iter().all(|hit| {
+        hit.source
+            .period_id
+            .as_ref()
+            .is_some_and(|value| expected_period_ids.contains(value))
+    }));
 }
 
 #[rstest::rstest]
@@ -3503,8 +3509,8 @@ async fn should_search_product_documents_when_shop_names_are_given_for_keyword_f
         language: Language::De,
         currency: Currency::Eur,
         product_query: "Test product for shop name filter".try_into().unwrap(),
-        category_id: None,
-        period_id: None,
+        category_id: Default::default(),
+        period_id: Default::default(),
         shop_name_query: AnyOfQuery::from(HashSet::from_iter(
             shop_names.iter().map(|name| name.to_string().into()),
         )),
@@ -3592,8 +3598,8 @@ async fn should_search_product_documents_when_excluded_shop_names_are_given(
         language: Language::De,
         currency: Currency::Eur,
         product_query: "Test product for shop name filter".try_into().unwrap(),
-        category_id: None,
-        period_id: None,
+        category_id: Default::default(),
+        period_id: Default::default(),
         shop_name_query: Default::default(),
         exclude_shop_name_query: AnyOfQuery::from(HashSet::from_iter(
             exclude_shop_names
@@ -3705,8 +3711,8 @@ async fn should_search_product_documents_when_auction_start_range_is_given(
         language: Language::De,
         currency: Currency::Eur,
         product_query: "Auction product".try_into().unwrap(),
-        category_id: None,
-        period_id: None,
+        category_id: Default::default(),
+        period_id: Default::default(),
         shop_name_query: Default::default(),
         exclude_shop_name_query: Default::default(),
         shop_type_query: Default::default(),
@@ -3837,8 +3843,8 @@ async fn should_search_product_documents_when_auction_end_range_is_given(
         language: Language::De,
         currency: Currency::Eur,
         product_query: "Auction item".try_into().unwrap(),
-        category_id: None,
-        period_id: None,
+        category_id: Default::default(),
+        period_id: Default::default(),
         shop_name_query: Default::default(),
         exclude_shop_name_query: Default::default(),
         shop_type_query: Default::default(),

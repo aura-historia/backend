@@ -200,18 +200,18 @@ impl<'a> ProductOpenSearchRepository for ProductOpenSearchRepositoryImpl<'a> {
             filter.push(json!({ "range": { price_field: { "lte": max.deref() } } }));
         }
 
-        if let Some(category_id) = &search.category_id {
+        if !search.category_id.is_empty() {
             filter.push(json!({
-                "term": {
-                    ProductDocumentSerdeField::CategoryId.as_str(): category_id
+                "terms": {
+                    ProductDocumentSerdeField::CategoryId.as_str(): search.category_id.iter().collect::<Vec<_>>()
                 }
             }));
         }
 
-        if let Some(period_id) = &search.period_id {
+        if !search.period_id.is_empty() {
             filter.push(json!({
-                "term": {
-                    ProductDocumentSerdeField::PeriodId.as_str(): period_id
+                "terms": {
+                    ProductDocumentSerdeField::PeriodId.as_str(): search.period_id.iter().collect::<Vec<_>>()
                 }
             }));
         }
