@@ -3,6 +3,7 @@ use std::collections::HashSet;
 use crate::core::user_search_filter_name::UserSearchFilterName;
 use crate::dynamodb::user_search_filter_record_update::UserSearchFilterRecordUpdate;
 use common::category_key::CategoryId;
+use common::period_key::PeriodId;
 use common::query::any_of_query::AnyOfQuery;
 use common::query::range_query::RangeQuery;
 use common::query::text_query::TextQuery;
@@ -31,7 +32,8 @@ use time::OffsetDateTime;
 pub struct UserSearchFilterUpdate {
     pub name: Option<UserSearchFilterName>,
     pub product_query: Option<TextQuery<3>>,
-    pub category_id: Option<CategoryId>,
+    pub category_id: Option<AnyOfQuery<CategoryId>>,
+    pub period_id: Option<AnyOfQuery<PeriodId>>,
     pub shop_name_query: Option<HashSet<ShopName>>,
     pub shop_type_query: Option<AnyOfQuery<ShopType>>,
     pub price_query: Option<RangeQuery<MonetaryAmount>>,
@@ -54,6 +56,7 @@ impl UserSearchFilterUpdate {
             name: search_filter_name,
             product_query,
             category_id,
+            period_id,
             shop_name_query,
             shop_type_query,
             price_query,
@@ -73,6 +76,7 @@ impl UserSearchFilterUpdate {
         search_filter_name.is_none()
             && product_query.is_none()
             && category_id.is_none()
+            && period_id.is_none()
             && shop_name_query.is_none()
             && shop_type_query.is_none()
             && price_query.is_none()
@@ -94,7 +98,8 @@ impl From<UserSearchFilterUpdate> for UserSearchFilterRecordUpdate {
         UserSearchFilterRecordUpdate {
             name: update.name,
             product_query: update.product_query,
-            category_id: update.category_id,
+            category_id: update.category_id.map(HashSet::from),
+            period_id: update.period_id.map(HashSet::from),
             shop_name_query: update.shop_name_query,
             shop_type_query: update
                 .shop_type_query
@@ -140,6 +145,7 @@ mod fake {
                 name: config.fake_with_rng(rng),
                 product_query: config.fake_with_rng(rng),
                 category_id: config.fake_with_rng(rng),
+                period_id: config.fake_with_rng(rng),
                 shop_name_query: config.fake_with_rng(rng),
                 shop_type_query: config.fake_with_rng(rng),
                 price_query: config.fake_with_rng(rng),
