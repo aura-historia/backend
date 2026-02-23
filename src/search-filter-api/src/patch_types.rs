@@ -1,4 +1,5 @@
 use common::category_key::CategoryId;
+use common::period_key::PeriodId;
 use common::query::range_query::RangeQuery;
 use common::query::text_query::TextQuery;
 use common::shop_name::ShopName;
@@ -57,7 +58,9 @@ pub struct PatchProductSearchData {
         skip_serializing_if = "Option::is_none",
         default
     )]
-    pub category_id: Option<CategoryId>,
+    pub category_id: Option<HashSet<CategoryId>>,
+    #[serde(rename = "periodId", skip_serializing_if = "Option::is_none", default)]
+    pub period_id: Option<HashSet<PeriodId>>,
 
     #[serde(rename = "shopName", skip_serializing_if = "Option::is_none", default)]
     pub shop_name_query: Option<HashSet<ShopName>>,
@@ -131,7 +134,14 @@ impl From<PatchUserSearchFilterData> for UserSearchFilterUpdate {
                 .search
                 .as_ref()
                 .and_then(|sf| sf.product_query.clone()),
-            category_id: patch.search.as_ref().and_then(|sf| sf.category_id.clone()),
+            category_id: patch
+                .search
+                .as_ref()
+                .and_then(|sf| sf.category_id.clone().map(Into::into)),
+            period_id: patch
+                .search
+                .as_ref()
+                .and_then(|sf| sf.period_id.clone().map(Into::into)),
             shop_name_query: patch
                 .search
                 .as_ref()
@@ -191,6 +201,7 @@ mod faker {
                 currency: config.fake_with_rng(rng),
                 product_query: config.fake_with_rng(rng),
                 category_id: config.fake_with_rng(rng),
+                period_id: config.fake_with_rng(rng),
                 shop_name_query: config.fake_with_rng(rng),
                 shop_type_query: config.fake_with_rng(rng),
                 price_query: config.fake_with_rng(rng),
@@ -211,6 +222,7 @@ mod faker {
 mod tests {
     use crate::patch_types::{PatchProductSearchData, PatchUserSearchFilterData};
     use common::category_key::CategoryId;
+    use common::period_key::PeriodId;
     use common::query::range_query::RangeQuery;
     use common::shop_name::ShopName;
     use common::{currency::data::CurrencyData, language::data::LanguageData};
@@ -229,7 +241,8 @@ mod tests {
             "language": "de",
             "currency": "EUR",
             "productQuery": "Boop",
-            "categoryId": "furniture",
+            "categoryId": ["furniture"],
+            "periodId": ["baroque"],
             "shopName": ["Baap"],
             "price": {
                 "min": 37,
@@ -257,7 +270,8 @@ mod tests {
             language: Some(LanguageData::De),
             currency: Some(CurrencyData::Eur),
             product_query: Some("Boop".try_into().unwrap()),
-            category_id: Some(CategoryId::from("furniture")),
+            category_id: Some(HashSet::from_iter([CategoryId::from("furniture")])),
+            period_id: Some(HashSet::from_iter([PeriodId::from("baroque")])),
             shop_name_query: Some(HashSet::from_iter([ShopName::from("Baap")])),
             shop_type_query: None,
             price_query: Some(RangeQuery {
@@ -296,7 +310,8 @@ mod tests {
                 "language": "de",
                 "currency": "EUR",
                 "productQuery": "Boop",
-                "categoryId": "furniture",
+                "categoryId": ["furniture"],
+                "periodId": ["baroque"],
                 "shopName": ["Baap"],
                 "price": {
                     "min": 37,
@@ -327,7 +342,8 @@ mod tests {
                 language: Some(LanguageData::De),
                 currency: Some(CurrencyData::Eur),
                 product_query: Some("Boop".try_into().unwrap()),
-                category_id: Some(CategoryId::from("furniture")),
+                category_id: Some(HashSet::from_iter([CategoryId::from("furniture")])),
+                period_id: Some(HashSet::from_iter([PeriodId::from("baroque")])),
                 shop_name_query: Some(["Baap".into()].into()),
                 shop_type_query: None,
                 price_query: Some(RangeQuery {

@@ -1,6 +1,7 @@
 use crate::core::user_search_filter_name::UserSearchFilterName;
 use common::category_key::CategoryId;
 use common::dynamodb_update::DynamoDbUpdate;
+use common::period_key::PeriodId;
 use common::query::range_query::RangeQuery;
 use common::query::text_query::TextQuery;
 use common::shop_name::ShopName;
@@ -24,7 +25,9 @@ pub struct UserSearchFilterRecordUpdate {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub product_query: Option<TextQuery<3>>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub category_id: Option<CategoryId>,
+    pub category_id: Option<HashSet<CategoryId>>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub period_id: Option<HashSet<PeriodId>>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub shop_name_query: Option<HashSet<ShopName>>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -79,6 +82,7 @@ mod fake {
                 name: config.fake_with_rng(rng),
                 product_query: config.fake_with_rng(rng),
                 category_id: config.fake_with_rng(rng),
+                period_id: config.fake_with_rng(rng),
                 shop_name_query: config.fake_with_rng(rng),
                 shop_type_query: config.fake_with_rng(rng),
                 price_query: config.fake_with_rng(rng),

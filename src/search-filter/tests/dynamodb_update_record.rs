@@ -23,6 +23,7 @@ async fn should_update_search_filter_record() {
         name: Some("my cool name".into()),
         product_query: Some("boopel boop doop".try_into().unwrap()),
         category_id: None,
+        period_id: None,
         shop_name_query: None,
         shop_type_query: None,
         price_query: None,
