@@ -132,7 +132,7 @@ smoking-tests = { path = "src/aws-tests/src/smoking-tests" }
 staging-data = { path = "src/aws-tests/src/staging-data" }
 staging-tests = { path = "src/aws-tests/src/staging-tests" }
 strum = "0.28.0"
-strum_macros = "0.27.2"
+strum_macros = "0.28.0"
 syn = "2.0.117"
 test-api = { path = "src/test-api" }
 test-api-macros = { path = "src/test-api/src/test-api-macros" }
