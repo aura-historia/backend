@@ -22,6 +22,13 @@ use shop::data::{get_shop_data::GetShopData, post_shop_data::PostShopData};
 use staging_tests::get_dynamodb_client;
 use std::time::Duration;
 
+fn http_client() -> reqwest::Client {
+    reqwest::Client::builder()
+        .user_agent("aura-historia-staging-data")
+        .build()
+        .unwrap()
+}
+
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     staging_tests::reset().await;
@@ -51,7 +58,7 @@ async fn populate_products(shops: Vec<GetShopData>) {
     }
 
     let mut payload = PutCollectionData { items: products };
-    let response = reqwest::Client::new()
+    let response = http_client()
         .put(&put_products_url)
         .json(&payload)
         .send()
@@ -73,7 +80,7 @@ async fn populate_products(shops: Vec<GetShopData>) {
         let collection = PutCollectionData {
             items: payload.items.clone(),
         };
-        let response = reqwest::Client::new()
+        let response = http_client()
             .put(&put_products_url)
             .json(&collection)
             .send()
@@ -90,7 +97,7 @@ async fn populate_shops() -> Vec<GetShopData> {
     println!("Populating shops...");
     let stack = get_cfn_output();
 
-    let http = reqwest::Client::new();
+    let http = http_client();
     let post_shop_url = format!("{}/api/v1/shops", stack.api_gateway_endpoint_url);
     let mut shops = vec![];
     for _ in 0..42 {
