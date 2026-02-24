@@ -4,7 +4,7 @@ use common::api::api_gateway_v2_http_response_builder::ApiGatewayV2HttpResponseB
 use common::api::error::ApiError;
 use common::api::error_code::INTERNAL_SERVER_ERROR;
 use common::currency::data::api::extract_currency_query;
-use common::language::data::api::extract_languages_header;
+use common::language::data::api::extract_language_query;
 use common::language::domain::Language;
 use common::personalized::Personalized;
 use common::personalized::api::PersonalizedData;
@@ -33,10 +33,9 @@ pub async fn handle(
         tracing::Span::current().record("userId", user_id.to_string());
     }
 
-    let languages = extract_languages_header(&event.payload.headers)?
-        .into_iter()
-        .map(Language::from)
-        .collect::<Vec<_>>();
+    let languages = vec![Language::from(extract_language_query(
+        &event.payload.query_string_parameters,
+    )?)];
     let currency = extract_currency_query(&event.payload.query_string_parameters)?.into();
 
     let localized_product: LocalizedProductView = match event.payload.route_key.as_deref() {
@@ -131,7 +130,7 @@ mod tests {
     use common::user_id::UserId;
     use fake::Fake;
     use fake::Faker;
-    use http::header::{ACCEPT_LANGUAGE, CACHE_CONTROL, CONTENT_LANGUAGE, ETAG, LAST_MODIFIED};
+    use http::header::{CACHE_CONTROL, CONTENT_LANGUAGE, ETAG, LAST_MODIFIED};
     use lambda_runtime::LambdaEvent;
     use product::core::product::LocalizedProductView;
     use product::service::get_service::{GetProductError, MockGetProductService};
@@ -160,7 +159,7 @@ mod tests {
                 .route_key("GET /api/v1/shops/{shopId}/products/{shopsProductId}".to_owned())
                 .path_parameter("shopId", shop_id)
                 .path_parameter("shopsProductId", shops_product_id)
-                .header(ACCEPT_LANGUAGE.as_str(), expected_content_language)
+                .query_string_parameter("language", expected_content_language)
                 .build(),
             context: Default::default(),
         };

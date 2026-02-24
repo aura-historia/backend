@@ -4,7 +4,6 @@ use common::language::document::{LanguageDocument, TextDocument};
 use common::personalized::api::PersonalizedData;
 use common::user_id::UserId;
 use fake::{Fake, Faker};
-use http::header::ACCEPT_LANGUAGE;
 use opensearch::indices::IndicesRefreshParts;
 use product::data::get_summary_data::GetProductSummaryData;
 use product::data::user_state_data::ProductUserStateData;
@@ -1165,7 +1164,7 @@ async fn should_200_when_similar_products_have_been_computed_for_anon() {
     );
     let response = reqwest::Client::new()
         .get(url)
-        .header(ACCEPT_LANGUAGE.as_str(), "en-US")
+        .query(&[("language", "en-US")])
         .send()
         .await
         .unwrap();
@@ -1289,7 +1288,7 @@ async fn should_200_and_personalize_when_similar_products_have_been_computed_for
     );
     let response = reqwest::Client::new()
         .get(url)
-        .header(ACCEPT_LANGUAGE.as_str(), "de")
+        .query(&[("language", "de")])
         .bearer_auth(user.access_token)
         .send()
         .await

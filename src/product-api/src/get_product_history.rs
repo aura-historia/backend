@@ -2,7 +2,7 @@ use aws_lambda_events::apigw::{ApiGatewayV2httpRequest, ApiGatewayV2httpResponse
 use common::api::api_gateway_v2_http_response_builder::ApiGatewayV2HttpResponseBuilder;
 use common::api::error::ApiError;
 use common::currency::data::api::extract_currency_query;
-use common::language::data::api::extract_languages_header;
+use common::language::data::api::extract_language_query;
 use common::language::domain::Language;
 use common::shop_id::api::extract_shop_id_path;
 use common::shops_product_id::api::extract_shops_product_id_path;
@@ -14,10 +14,9 @@ pub async fn handle(
     event: LambdaEvent<ApiGatewayV2httpRequest>,
     get_product_service: &impl GetProductService,
 ) -> Result<ApiGatewayV2httpResponse, ApiError> {
-    let languages = extract_languages_header(&event.payload.headers)?
-        .into_iter()
-        .map(Language::from)
-        .collect::<Vec<_>>();
+    let languages = vec![Language::from(extract_language_query(
+        &event.payload.query_string_parameters,
+    )?)];
     let currency = extract_currency_query(&event.payload.query_string_parameters)?.into();
     let shop_id = extract_shop_id_path(&event.payload.path_parameters)?;
     let shops_product_id = extract_shops_product_id_path(&event.payload.path_parameters)?;

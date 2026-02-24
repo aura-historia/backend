@@ -9,7 +9,6 @@ use common::{
     product_state::domain::ProductState,
 };
 use fake::{Fake, Faker};
-use http::header::ACCEPT_LANGUAGE;
 use lambda_runtime::LambdaEvent;
 use product::{
     core::product_event::{
@@ -593,8 +592,8 @@ async fn should_respond_200_personalized_when_authenticated_and_watched() {
 )]
 #[trace]
 #[localstack_test(services = [DynamoDB()])]
-async fn should_respond_200_and_respect_accept_language_header(
-    #[case] accept_language_header: &str,
+async fn should_respond_200_and_respect_language_query_param(
+    #[case] _language_query: &str,
     #[case] expected_title: &str,
     #[case] expected_title_lang: Language,
     #[case] expected_description: &str,
@@ -641,7 +640,15 @@ async fn should_respond_200_and_respect_accept_language_header(
         payload: ApiGatewayV2httpRequestProxy::builder()
             .http_method(http::Method::GET)
             .route_key("GET /api/v1/shops/{shopId}/products/{shopsProductId}".to_owned())
-            .header(ACCEPT_LANGUAGE.as_str(), accept_language_header)
+            .query_string_parameter(
+                "language",
+                match expected_title_lang {
+                    Language::De => "de",
+                    Language::En => "en",
+                    Language::Fr => "fr",
+                    Language::Es => "es",
+                },
+            )
             .path_parameter("shopId", record.shop_id)
             .path_parameter("shopsProductId", record.shops_product_id)
             .build(),

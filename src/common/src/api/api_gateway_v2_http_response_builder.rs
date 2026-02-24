@@ -3,7 +3,7 @@ use crate::api::error_code::INTERNAL_SERVER_ERROR;
 use crate::language::data::LanguageData;
 use aws_lambda_events::apigw::{ApiGatewayV2httpRequestContext, ApiGatewayV2httpResponse};
 use aws_lambda_events::encodings::Body;
-use http::header::{CONTENT_LANGUAGE, CONTENT_TYPE, ETAG, LAST_MODIFIED, LOCATION, VARY};
+use http::header::{CONTENT_LANGUAGE, CONTENT_TYPE, ETAG, LAST_MODIFIED, LOCATION};
 use http::{HeaderMap, HeaderName, HeaderValue};
 use httpdate::fmt_http_date;
 use serde::Serialize;
@@ -21,12 +21,9 @@ pub struct ApiGatewayV2HttpResponseBuilder {
 
 impl ApiGatewayV2HttpResponseBuilder {
     pub fn new(status_code: i64) -> Self {
-        let mut headers = HeaderMap::new();
-        headers.insert(VARY, HeaderValue::from_static("Accept-Language"));
-
         Self {
             status_code,
-            headers,
+            headers: HeaderMap::new(),
             body: None,
             is_base64_encoded: false,
         }
@@ -242,30 +239,6 @@ pub mod tests {
     #[trace]
     fn should_build_api_gateway_proxy_response(#[case] builder: ApiGatewayV2HttpResponseBuilder) {
         let _ = builder.build();
-    }
-
-    #[rstest::rstest]
-    #[case::minimal_100(ApiGatewayV2HttpResponseBuilder::new(100))]
-    #[case::minimal_200(ApiGatewayV2HttpResponseBuilder::new(200))]
-    #[case::json(ApiGatewayV2HttpResponseBuilder::json(200))]
-    #[case::plain_text(ApiGatewayV2HttpResponseBuilder::plain(200))]
-    #[case::with_content_language(ApiGatewayV2HttpResponseBuilder::new(200).content_language(LanguageData::De))]
-    #[trace]
-    fn should_include_vary_header_for_accept_language_in_all_responses(
-        #[case] builder: ApiGatewayV2HttpResponseBuilder,
-    ) {
-        let response = builder.build();
-
-        let vary_header = response
-            .headers
-            .get(http::header::VARY)
-            .expect("Vary header should be present");
-
-        assert_eq!(
-            vary_header.to_str().unwrap(),
-            "Accept-Language",
-            "Vary header should contain Accept-Language"
-        );
     }
 
     #[rstest::rstest]

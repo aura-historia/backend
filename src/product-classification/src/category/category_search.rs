@@ -35,6 +35,7 @@ impl From<&CategorySearchData> for CategorySearch {
 #[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct CategorySearchData {
+    #[serde(default)]
     pub language: LanguageData,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub name_query: Option<TextQuery<0>>,
@@ -95,6 +96,19 @@ mod tests {
         let expected = CategorySearchData {
             name_query: None,
             language: LanguageData::De,
+        };
+
+        let actual: CategorySearchData = serde_json::from_value(json).unwrap();
+
+        assert_eq!(expected, actual);
+    }
+
+    #[test]
+    fn should_deserialize_when_empty_with_default_language() {
+        let json = json!({});
+        let expected = CategorySearchData {
+            name_query: None,
+            language: LanguageData::En,
         };
 
         let actual: CategorySearchData = serde_json::from_value(json).unwrap();

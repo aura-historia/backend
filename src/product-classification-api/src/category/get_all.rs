@@ -1,7 +1,7 @@
 use aws_lambda_events::apigw::{ApiGatewayV2httpRequest, ApiGatewayV2httpResponse};
 use common::api::api_gateway_v2_http_response_builder::ApiGatewayV2HttpResponseBuilder;
 use common::api::error::ApiError;
-use common::language::data::api::extract_languages_header;
+use common::language::data::api::extract_language_query;
 use common::language::domain::Language;
 use lambda_runtime::LambdaEvent;
 use product_classification::category::data::get_category_summary_data::GetCategorySummaryData;
@@ -11,10 +11,9 @@ pub async fn handle(
     event: LambdaEvent<ApiGatewayV2httpRequest>,
     service: &impl CategoryService,
 ) -> Result<ApiGatewayV2httpResponse, ApiError> {
-    let languages: Vec<Language> = extract_languages_header(&event.payload.headers)?
-        .into_iter()
-        .map(Language::from)
-        .collect();
+    let languages = vec![Language::from(extract_language_query(
+        &event.payload.query_string_parameters,
+    )?)];
 
     let categories = service.view_categories(&languages).await?;
 

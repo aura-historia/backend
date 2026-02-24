@@ -3,7 +3,7 @@ use common::api::api_gateway_v2_http_response_builder::ApiGatewayV2HttpResponseB
 use common::api::error::ApiError;
 use common::api::error_code::BAD_PATH_PARAMETER_VALUE;
 use common::error::missing_field::MissingRequiredField;
-use common::language::data::api::extract_languages_header;
+use common::language::data::api::extract_language_query;
 use common::language::domain::Language;
 use lambda_runtime::LambdaEvent;
 use product_classification::period::data::get_period_data::GetPeriodData;
@@ -27,10 +27,9 @@ pub async fn handle(
             .with_detail("Missing field 'periodId'.")
         })?;
 
-    let languages: Vec<Language> = extract_languages_header(&event.payload.headers)?
-        .into_iter()
-        .map(Language::from)
-        .collect();
+    let languages = vec![Language::from(extract_language_query(
+        &event.payload.query_string_parameters,
+    )?)];
 
     let period = service.view_period(&period_id, &languages).await?;
 

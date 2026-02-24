@@ -26,7 +26,9 @@ use time::OffsetDateTime;
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ProductSearchData {
+    #[serde(default)]
     pub language: LanguageData,
+    #[serde(default)]
     pub currency: CurrencyData,
     #[serde(rename = "productQuery")]
     pub product_query: TextQuery<3>,
@@ -497,6 +499,38 @@ mod tests {
         });
         let expected = ProductSearchData {
             language: LanguageData::De,
+            currency: CurrencyData::Eur,
+            product_query: "Boop".try_into().unwrap(),
+            category_id: Default::default(),
+            period_id: Default::default(),
+            shop_name_query: Default::default(),
+            exclude_shop_name_query: Default::default(),
+            shop_type_query: Default::default(),
+            price_query: None,
+            state_query: Default::default(),
+            origin_year_query: None,
+            authenticity_query: Default::default(),
+            condition_query: Default::default(),
+            provenance_query: Default::default(),
+            restoration_query: Default::default(),
+            created_query: None,
+            updated_query: None,
+            auction_start_query: None,
+            auction_end_query: None,
+        };
+
+        let actual: ProductSearchData = serde_json::from_value(json).unwrap();
+
+        assert_eq!(expected, actual);
+    }
+
+    #[test]
+    fn should_deserialize_minimal_with_default_language_and_currency() {
+        let json = json!({
+            "productQuery": "Boop",
+        });
+        let expected = ProductSearchData {
+            language: LanguageData::En,
             currency: CurrencyData::Eur,
             product_query: "Boop".try_into().unwrap(),
             category_id: Default::default(),
