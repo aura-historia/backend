@@ -72,7 +72,9 @@ Since this is a serverless backend, manual testing involves:
 - **src/product-api**: API Gateway handlers for product operations (5 handlers)
 - **src/product-watchlist-api**: API Gateway handlers for product watchlist operations (4 handlers)
 - **src/product-lambda**: Lambda function implementations for product event processing (5 lambdas)
-- **src/product-pipeline**: Product data pipeline with auto-scaling and processing (4 modules)
+- **src/product-pipeline**: Product data pipeline with auto-scaling and processing (7 modules)
+- **src/product-classification**: Product category and period classification system
+- **src/product-classification-api**: API Gateway handlers for product category and period operations (6 handlers)
 - **src/shop**: Shop/store management system:
   - `core`: Shop domain models and business logic
   - `data`: Shop data models
@@ -124,6 +126,8 @@ Located in various directories:
 - `product-pipeline-embed-text`: Embed text for product search (EC2 binary)
 - `product-pipeline-translate`: Translate product data (EC2 binary)
 - `product-pipeline-extract-attribute`: Extract product attributes (EC2 binary)
+- `product-pipeline-classify-category`: Classify product categories (EC2 binary)
+- `product-pipeline-classify-period`: Classify product periods (EC2 binary)
 - `product-pipeline-common`: Common utilities for product pipeline
 
 **Shop Lambda Functions** (`src/shop-lambda/src/`):
@@ -148,6 +152,14 @@ Located in various directories:
 - `product-api-get-product-similar`: Get similar products
 - `product-api-search`: Search products with filters
 - `product-api-put-products`: Bulk update/create products
+
+**Product Classification API Handlers** (`src/product-classification-api/src/`):
+- `product-classification-api-category-get`: Retrieve a single category by ID
+- `product-classification-api-category-get-all`: List categories
+- `product-classification-api-category-search`: Search categories
+- `product-classification-api-period-get`: Retrieve a single period by ID
+- `product-classification-api-period-get-all`: List periods
+- `product-classification-api-period-search`: Search periods
 
 **Product Watchlist API Handlers** (`src/product-watchlist-api/src/`):
 - `product-watchlist-api-get`: Get user's product watchlist
@@ -279,6 +291,8 @@ src/
 - `.github/workflows/golden-ami-product-pipeline-embed-text.yml`: Golden AMI workflow for embed-text pipeline
 - `.github/workflows/golden-ami-product-pipeline-extract-attribute.yml`: Golden AMI workflow for extract-attribute pipeline
 - `.github/workflows/golden-ami-product-pipeline-translate.yml`: Golden AMI workflow for translate pipeline
+- `.github/workflows/golden-ami-product-pipeline-classify-category.yml`: Golden AMI workflow for classify-category pipeline
+- `.github/workflows/golden-ami-product-pipeline-classify-period.yml`: Golden AMI workflow for classify-period pipeline
 - `sonar-project.properties`: SonarQube configuration for code quality analysis
 - `cfn/`: CloudFormation templates for different stages (dev, prod, ephemeral, golden-ami)
 
@@ -313,7 +327,7 @@ src/
 * Only comment when you have HIGH CONFIDENCE (>80%) that an issue exists
 * Be concise: one sentence per comment when possible
 * Focus on actionable feedback, not observations
-* When reviewing text, only comment on clarity issues if the text is genuinely
+* When reviewing text, only comment on clarity issues if the text is genuinely unclear or misleading
 
 #### Priority Areas (Review These)
 
@@ -348,7 +362,7 @@ src/
 
 ### Project-Specific Context
 
-* We use AWS Cloudformation to declare the Cloud-Stack for each of the stages: prod, dev, ephemeral (per Pull-Request).
+* We use AWS CloudFormation to declare the Cloud-Stack for each of the stages: prod, dev, ephemeral (per Pull-Request).
 * Whenever a Pull-Request changes any of the Cloudformation-Code, make sure it is done for ALL stages as long as relevant.
-* Stage ephemeral uses a manged AWS OpenSearch-Instance while dev and prod use a self-hosted variant.
+* Stage ephemeral uses a managed AWS OpenSearch-Instance while dev and prod use a self-hosted variant.
 * Cloudwatch Alarms are only used in prod.
