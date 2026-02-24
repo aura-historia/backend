@@ -28,7 +28,6 @@ aws-sdk-sqs = { workspace = true, optional = true }
 serde_dynamo = { workspace = true, features = [
     "aws-sdk-dynamodb+1",
 ], optional = true }
-accept-language = { workspace = true, optional = true }
 aws_lambda_events = { workspace = true, optional = true }
 lambda_runtime = { workspace = true, optional = true }
 http = { workspace = true, optional = true }
@@ -53,7 +52,6 @@ api = [
     "http",
     "serde_json",
     "httpdate",
-    "accept-language",
     "lambda_runtime"
 ]
 test-data = ["fake"]

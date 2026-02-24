@@ -97,48 +97,10 @@ impl<T: Into<String>> From<Localized<Language, T>> for LocalizedTextData {
 #[cfg(feature = "api")]
 pub mod api {
     use crate::{
-        api::{
-            error::ApiError,
-            error_code::{BAD_HEADER_VALUE, BAD_QUERY_PARAMETER_VALUE},
-        },
+        api::{error::ApiError, error_code::BAD_QUERY_PARAMETER_VALUE},
         language::data::LanguageData,
     };
     use aws_lambda_events::query_map::QueryMap;
-    use http::{HeaderMap, HeaderValue, header::ACCEPT_LANGUAGE};
-
-    pub fn extract_languages_header(headers: &HeaderMap) -> Result<Vec<LanguageData>, ApiError> {
-        let languages = headers
-            .get(ACCEPT_LANGUAGE)
-            .map(HeaderValue::to_str)
-            .map(|header_value_res| {
-                header_value_res.map_err(|err| {
-                    let msg = err.to_string();
-                    ApiError::bad_request(BAD_HEADER_VALUE, Box::new(err))
-                        .with_header_field(ACCEPT_LANGUAGE.as_str())
-                        .with_detail(msg)
-                })
-            })
-            .transpose()?
-            .map(accept_language::parse)
-            .unwrap_or_default()
-            .into_iter()
-            .map(|accept_language| {
-                serde_json::from_str::<LanguageData>(&format!(r#""{accept_language}""#))
-            })
-            .filter_map(Result::ok)
-            .collect::<Vec<_>>();
-
-        Ok(languages)
-    }
-
-    pub fn extract_language_header(headers: &HeaderMap) -> Result<LanguageData, ApiError> {
-        let language = extract_languages_header(headers)?
-            .into_iter()
-            .next()
-            .unwrap_or_default();
-
-        Ok(language)
-    }
 
     pub fn extract_language_query(query: &QueryMap) -> Result<LanguageData, ApiError> {
         let language = query
@@ -163,95 +125,10 @@ pub mod api {
     mod tests {
         use rstest;
 
-        use crate::language::data::LanguageData::{self, *};
+        use crate::language::data::LanguageData;
         use crate::language::data::api::extract_language_query;
-        use crate::language::data::api::{extract_language_header, extract_languages_header};
         use aws_lambda_events::query_map::QueryMap;
-        use http::HeaderMap;
-        use http::header::ACCEPT_LANGUAGE;
         use std::collections::HashMap;
-
-        #[rstest::rstest]
-        #[case("de", &[De])]
-        #[case("de-DE", &[De])]
-        #[case("en", &[En])]
-        #[case("en-US", &[En])]
-        #[case("en-GB", &[En])]
-        #[case("es", &[Es])]
-        #[case("es-ES", &[Es])]
-        #[case("de;q=0.9,en;q=0.8", &[De, En])]
-        #[case("en-GB,en;q=0.7,de;q=0.6", &[En, En, De])]
-        #[case("es-ES;q=0.9,en;q=0.8,de;q=0.7", &[Es, En, De])]
-        #[case("en,fr;q=0.5,de;q=0.3,es;q=0.2", &[En, Fr, De, Es])]
-        #[case("pt-BR", &[])]
-        #[case("ru", &[])]
-        #[case("ja", &[])]
-        #[case("zh-CN", &[])]
-        #[case("ko-KR", &[])]
-        #[case("*", &[])]
-        #[case("fr-FR; q=0", &[Fr])]
-        #[case("", &[])]
-        #[case("null", &[])]
-        #[case("undefined", &[])]
-        #[case("\"en-US\"", &[])]
-        #[case("123", &[])]
-        #[case("abcdefg", &[])]
-        #[trace]
-        fn should_extract_languages_from_header(
-            #[case] accept_language_header_value: &str,
-            #[case] expected: &[LanguageData],
-        ) {
-            let mut header_map = HeaderMap::new();
-            header_map.insert(
-                ACCEPT_LANGUAGE,
-                accept_language_header_value.try_into().unwrap(),
-            );
-
-            let actual = extract_languages_header(&header_map).unwrap();
-
-            assert_eq!(expected, actual.as_slice())
-        }
-
-        #[rstest::rstest]
-        #[case("de", De)]
-        #[case("de-DE", De)]
-        #[case("en", En)]
-        #[case("en-US", En)]
-        #[case("en-GB", En)]
-        #[case("es", Es)]
-        #[case("es-ES", Es)]
-        #[case("de;q=0.9,en;q=0.8", De)]
-        #[case("en-GB,en;q=0.7,de;q=0.6", En)]
-        #[case("es-ES;q=0.9,en;q=0.8,de;q=0.7", Es)]
-        #[case("en,fr;q=0.5,de;q=0.3,es;q=0.2", En)]
-        #[case("pt-BR", En)]
-        #[case("ru", En)]
-        #[case("ja", En)]
-        #[case("zh-CN", En)]
-        #[case("ko-KR", En)]
-        #[case("*", En)]
-        #[case("fr-FR; q=0", Fr)]
-        #[case("", En)]
-        #[case("null", En)]
-        #[case("undefined", En)]
-        #[case("\"en-US\"", En)]
-        #[case("123", En)]
-        #[case("abcdefg", En)]
-        #[trace]
-        fn should_extract_language_from_header(
-            #[case] accept_language_header_value: &str,
-            #[case] expected: LanguageData,
-        ) {
-            let mut header_map = HeaderMap::new();
-            header_map.insert(
-                ACCEPT_LANGUAGE,
-                accept_language_header_value.try_into().unwrap(),
-            );
-
-            let actual = extract_language_header(&header_map).unwrap();
-
-            assert_eq!(expected, actual)
-        }
 
         #[rstest::rstest]
         #[case("de", LanguageData::De)]

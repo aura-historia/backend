@@ -3,7 +3,7 @@ use cognito::access_token_verifier_service::AccessTokenVerifierService;
 use common::{
     api::{api_gateway_v2_http_response_builder::ApiGatewayV2HttpResponseBuilder, error::ApiError},
     currency::data::api::extract_currency_query,
-    language::{data::api::extract_languages_header, domain::Language},
+    language::{data::api::extract_language_query, domain::Language},
     personalized::{Personalized, api::PersonalizedData},
     shop_id::api::extract_shop_id_path,
     shops_product_id::api::extract_shops_product_id_path,
@@ -28,10 +28,9 @@ pub async fn handle(
         tracing::Span::current().record("userId", user_id.to_string());
     }
 
-    let languages = extract_languages_header(&event.payload.headers)?
-        .into_iter()
-        .map(Language::from)
-        .collect::<Vec<_>>();
+    let languages = vec![Language::from(extract_language_query(
+        &event.payload.query_string_parameters,
+    )?)];
     let currency = extract_currency_query(&event.payload.query_string_parameters)?;
     let shop_id = extract_shop_id_path(&event.payload.path_parameters)?;
     let shops_product_id = extract_shops_product_id_path(&event.payload.path_parameters)?;

@@ -1,7 +1,7 @@
 use aws_lambda_events::apigw::{ApiGatewayV2httpRequest, ApiGatewayV2httpResponse};
 use common::api::error::ApiError;
 use common::currency::data::api::extract_currency_query;
-use common::language::data::api::extract_language_header;
+use common::language::data::api::extract_language_query;
 use common::pagination::cursor::api::{TimeCursoredData, extract_time_cursor_query};
 use common::user_id::api::extract_user_id_request_context;
 use common::{
@@ -48,7 +48,7 @@ pub async fn handle(
 ) -> Result<ApiGatewayV2httpResponse, ApiError> {
     let user_id = extract_user_id_request_context(&event.payload.request_context)?;
     tracing::Span::current().record("userId", user_id.to_string());
-    let language = extract_language_header(&event.payload.headers)?;
+    let language = extract_language_query(&event.payload.query_string_parameters)?;
     let currency = extract_currency_query(&event.payload.query_string_parameters)?;
     let sort = extract_sort_query::<SortWatchlistProductFieldData>(
         &event.payload.query_string_parameters,
@@ -95,7 +95,7 @@ mod tests {
             payload: ApiGatewayV2httpRequestProxy::builder()
                 .http_method(http::Method::GET)
                 .jwt_claim("sub", UserId::new())
-                .header("accept-language", "de")
+                .query_string_parameter("language", "de")
                 .query_string_parameter("currency", "EUR")
                 .query_string_parameter("sort", "created")
                 .query_string_parameter("order", "asc")
@@ -118,7 +118,7 @@ mod tests {
         let lambda_event = LambdaEvent {
             payload: ApiGatewayV2httpRequestProxy::builder()
                 .http_method(http::Method::GET)
-                .header("accept-language", "de")
+                .query_string_parameter("language", "de")
                 .query_string_parameter("currency", "EUR")
                 .query_string_parameter("from", OffsetDateTime::now_utc().format(&Rfc3339).unwrap())
                 .query_string_parameter("size", "10")
@@ -141,7 +141,7 @@ mod tests {
             payload: ApiGatewayV2httpRequestProxy::builder()
                 .http_method(http::Method::GET)
                 .jwt_claim("sub", UserId::new())
-                .header("accept-language", "de")
+                .query_string_parameter("language", "de")
                 .query_string_parameter("currency", "EUR")
                 .query_string_parameter("sort", "created")
                 .query_string_parameter("order", "asc")

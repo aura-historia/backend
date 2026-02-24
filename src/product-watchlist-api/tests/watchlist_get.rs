@@ -2,7 +2,6 @@ use common::language::domain::Language;
 use common::language::record::{LanguageRecord, TextRecord};
 use common::{pagination::cursor::api::TimeCursoredData, user_id::UserId};
 use fake::{Fake, Faker};
-use http::header::ACCEPT_LANGUAGE;
 use lambda_runtime::LambdaEvent;
 use product::dynamodb::{
     product_record::ProductRecord,
@@ -75,7 +74,7 @@ async fn should_200_when_sort_created_asc() {
         payload: ApiGatewayV2httpRequestProxy::builder()
             .http_method(http::Method::GET)
             .jwt_claim("sub", user_id)
-            .header("accept-language", "de")
+            .query_string_parameter("language", "de")
             .query_string_parameter("currency", "EUR")
             .query_string_parameter("sort", "created")
             .query_string_parameter("order", "asc")
@@ -166,7 +165,7 @@ async fn should_200_when_sort_created_asc_search_after() {
         payload: ApiGatewayV2httpRequestProxy::builder()
             .http_method(http::Method::GET)
             .jwt_claim("sub", user_id)
-            .header("accept-language", "de")
+            .query_string_parameter("language", "de")
             .query_string_parameter("currency", "EUR")
             .query_string_parameter("sort", "created")
             .query_string_parameter("order", "asc")
@@ -250,7 +249,7 @@ async fn should_200_when_sort_created_desc() {
         payload: ApiGatewayV2httpRequestProxy::builder()
             .http_method(http::Method::GET)
             .jwt_claim("sub", user_id)
-            .header("accept-language", "de")
+            .query_string_parameter("language", "de")
             .query_string_parameter("currency", "EUR")
             .query_string_parameter("sort", "created")
             .query_string_parameter("order", "desc")
@@ -341,7 +340,7 @@ async fn should_200_when_sort_created_desc_search_after() {
         payload: ApiGatewayV2httpRequestProxy::builder()
             .http_method(http::Method::GET)
             .jwt_claim("sub", user_id)
-            .header("accept-language", "de")
+            .query_string_parameter("language", "de")
             .query_string_parameter("currency", "EUR")
             .query_string_parameter("sort", "created")
             .query_string_parameter("order", "desc")
@@ -572,8 +571,8 @@ async fn should_200_when_sort_created_desc_search_after() {
     Language::Es
 )]
 #[localstack_test(services = [DynamoDB()])]
-async fn should_respond_200_and_respect_accept_language_header(
-    #[case] accept_language_header: &str,
+async fn should_respond_200_and_respect_language_query_param(
+    #[case] _language_query: &str,
     #[case] expected_title: &str,
     #[case] expected_title_lang: Language,
     #[case] expected_description: &str,
@@ -644,7 +643,15 @@ async fn should_respond_200_and_respect_accept_language_header(
         payload: ApiGatewayV2httpRequestProxy::builder()
             .http_method(http::Method::GET)
             .jwt_claim("sub", user_id)
-            .header(ACCEPT_LANGUAGE.as_str(), accept_language_header)
+            .query_string_parameter(
+                "language",
+                match expected_title_lang {
+                    Language::De => "de",
+                    Language::En => "en",
+                    Language::Fr => "fr",
+                    Language::Es => "es",
+                },
+            )
             .build(),
         context: Default::default(),
     };

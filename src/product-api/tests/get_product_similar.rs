@@ -4,7 +4,6 @@ use common::language::document::{LanguageDocument, TextDocument};
 use common::language::domain::Language;
 use common::personalized::api::PersonalizedData;
 use fake::{Fake, Faker};
-use http::header::ACCEPT_LANGUAGE;
 use lambda_runtime::LambdaEvent;
 use product::data::get_summary_data::GetProductSummaryData;
 use product::data::user_state_data::ProductUserStateData;
@@ -1176,7 +1175,7 @@ async fn should_200_when_similar_products_have_been_computed_for_anon() {
     let lambda_event = LambdaEvent {
         payload: ApiGatewayV2httpRequestProxy::builder()
             .http_method(http::Method::GET)
-            .header(ACCEPT_LANGUAGE.as_str(), "en-US")
+            .query_string_parameter("language", "en-US")
             .path_parameter("shopId", product_record.shop_id)
             .path_parameter("shopsProductId", product_record.shops_product_id.clone())
             .query_string_parameter("currency", "USD")
@@ -1304,7 +1303,7 @@ async fn should_200_and_personalize_when_similar_products_have_been_computed_for
     let lambda_event = LambdaEvent {
         payload: ApiGatewayV2httpRequestProxy::builder()
             .http_method(http::Method::GET)
-            .header(ACCEPT_LANGUAGE.as_str(), "de")
+            .query_string_parameter("language", "de")
             .path_parameter("shopId", product_record.shop_id)
             .path_parameter("shopsProductId", product_record.shops_product_id.clone())
             .query_string_parameter("currency", "EUR")
@@ -1384,8 +1383,8 @@ async fn should_200_and_personalize_when_similar_products_have_been_computed_for
 #[case("fr;q=0.1,de;q=0.2,es;q=0.6", "Spanish title", Language::Es)]
 #[case("*,es;q=0.5", "Spanish title", Language::Es)]
 #[localstack_test(services = [OpenSearch(), DynamoDB()])]
-async fn should_respond_200_and_respect_accept_language_header(
-    #[case] accept_language_header: &str,
+async fn should_respond_200_and_respect_language_query_param(
+    #[case] _language_query: &str,
     #[case] expected_title: &str,
     #[case] expected_title_lang: Language,
 ) {
@@ -1461,7 +1460,15 @@ async fn should_respond_200_and_respect_accept_language_header(
     let lambda_event = LambdaEvent {
         payload: ApiGatewayV2httpRequestProxy::builder()
             .http_method(http::Method::GET)
-            .header(ACCEPT_LANGUAGE.as_str(), accept_language_header)
+            .query_string_parameter(
+                "language",
+                match expected_title_lang {
+                    Language::De => "de",
+                    Language::En => "en",
+                    Language::Fr => "fr",
+                    Language::Es => "es",
+                },
+            )
             .path_parameter("shopId", product_record.shop_id)
             .path_parameter("shopsProductId", product_record.shops_product_id.clone())
             .build(),
