@@ -65,11 +65,11 @@ aws-sdk-account = "1.98.0"
 aws-sdk-autoscaling = "1.110.0"
 aws-sdk-dynamodb = "1.107.0"
 aws-sdk-lambda = "1.100.0"
-aws-sdk-opensearch = "1.114.0"
+aws-sdk-opensearch = "1.115.0"
 aws-sdk-sqs = "1.95.0"
 aws-sdk-sesv2 = "1.114.0"
 aws-sdk-s3 = "1.124.0"
-aws-sdk-cloudwatch = "1.105.0"
+aws-sdk-cloudwatch = "1.106.0"
 aws_lambda_events = { version = "1.0.3", default-features = false }
 common = { path = "src/common" }
 derive_builder = "0.20.2"
