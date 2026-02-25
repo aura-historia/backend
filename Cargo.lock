@@ -291,9 +291,9 @@ dependencies = [
 
 [[package]]
 name = "aws-sdk-cloudwatch"
-version = "1.105.0"
+version = "1.106.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "2cdfd1f885e63922f2723a728dedc277dbee5578cb18b9ac8896692175e27021"
+checksum = "6030c488afbc740b22347947879f44f82231bf4c7c24d289aa5fbcb2151a5f75"
 dependencies = [
  "aws-credential-types",
  "aws-runtime",
@@ -367,9 +367,9 @@ dependencies = [
 
 [[package]]
 name = "aws-sdk-opensearch"
-version = "1.114.0"
+version = "1.115.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "edd6c9db366042d91b8b7bf4d299074717e995642f2f32d11562acf7f50a2a93"
+checksum = "fa6f2956cf6edac413738370766e52ee797a4d464e74e95170b477bcc916f705"
 dependencies = [
  "aws-credential-types",
  "aws-runtime",
