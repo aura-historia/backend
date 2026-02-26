@@ -57,6 +57,58 @@ echo -e "\n es" | opensearch-cli profile create --name "ci" \
   --endpoint "$RAW_ENDPOINT" \
   --auth-type "aws-iam"
 
+# Function to inline synonyms from external files into the mapping JSON
+# returning a path to a new temporary file with the inlined synonyms
+inline_synonyms() {
+  local mapping_file="$1"
+  local analysis_dir="./opensearch/analysis"
+
+  local tmp_file
+  tmp_file=$(mktemp)
+
+  cp "$mapping_file" "$tmp_file"
+
+  # If mapping has no analysis section, just return it unchanged
+  if ! jq -e '.settings.analysis.filter' "$tmp_file" >/dev/null 2>&1; then
+    echo "$tmp_file"
+    return
+  fi
+
+  for syn_path in "$analysis_dir"/*_synonyms.txt; do
+    [ -e "$syn_path" ] || continue
+
+    filename=$(basename "$syn_path")
+    lang="${filename%%_synonyms.txt}"
+    filter_name="${lang}_synonyms"
+
+    if ! jq -e ".settings.analysis.filter[\"$filter_name\"]" "$tmp_file" >/dev/null 2>&1; then
+      continue
+    fi
+
+    echo "🔄 Inlining synonyms for: $filter_name" >&2
+
+    syn_array=$(grep -v '^\s*#' "$syn_path" \
+      | grep -v '^\s*$' \
+      | jq -R . \
+      | jq -s .)
+
+    tmp2=$(mktemp)
+
+    jq \
+      --arg filter "$filter_name" \
+      --argjson synonyms "$syn_array" \
+      '
+      .settings.analysis.filter[$filter]
+      |= (del(.synonyms_path, .updateable) + {synonyms: $synonyms})
+      ' \
+      "$tmp_file" > "$tmp2"
+
+    mv "$tmp2" "$tmp_file"
+  done
+
+  echo "$tmp_file"
+}
+
 # Function to create index if it doesn't exist
 create_index_if_not_exists() {
   local index_name="$1"
@@ -71,10 +123,12 @@ create_index_if_not_exists() {
 
   if echo "$response" | grep -q "index_not_found_exception"; then
     echo "📦 Creating index '$index_name' with mapping from '$mapping_file'..."
+    temp_mapping=$(inline_synonyms "$mapping_file")
     opensearch-cli curl put \
       --path "$index_name" \
-      --data "@$mapping_file" \
+      --data "@$temp_mapping" \
       --profile ci
+    rm "$temp_mapping"
     echo "✅ Index '$index_name' created successfully."
   else
     echo "✅ Index '$index_name' already exists. Skipping creation."
