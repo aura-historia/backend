@@ -1,0 +1,99 @@
+# =============================
+# ENGLISH – Antiques Marketplace
+# synonym_graph / Solr format
+# =============================
+
+# === Core Furniture Types ===
+sideboard, buffet, credenza
+wardrobe, armoire
+writing desk, bureau, escritoire, secretary desk
+chest of drawers, dresser, commode
+bookcase, bookshelf
+display cabinet, vitrine, china cabinet
+hall stand, hallstand
+console table, pier table
+center table, centre table
+drop-leaf table, gateleg table
+refectory table, monastery table
+nesting tables, nest of tables
+whatnot, étagère
+secretaire, secrétaire
+
+# Seating
+settee, sofa
+armchair, easy chair
+wingback chair, wing chair
+slipper chair, bedroom chair
+chaise longue, chaise lounge
+stool, tabouret
+ottoman, footstool, hassock
+
+# Storage
+cabinet, cupboard
+linen press, press cupboard
+coffer, blanket chest
+trunk, chest
+strongbox, lockbox
+
+# === Lighting ===
+chandelier, lustre
+candelabra, girandole
+candelabrum, candlestick
+sconce, wall sconce, wall light
+oil lamp, kerosene lamp
+lantern, hanging lantern
+
+# === Decorative Arts ===
+tapestry, wall tapestry
+figurine, statuette
+bust, sculpture
+mirror, looking glass
+mantel clock, mantle clock
+longcase clock, grandfather clock
+bracket clock, table clock
+timepiece, horologe
+
+# === Ceramics & Glass ===
+porcelain, china
+faience, delftware
+stoneware, earthenware
+majolica, maiolica
+cut glass, crystal
+decanter, carafe
+ewer, pitcher, jug
+charger, serving plate
+
+# === Silver & Metalwork ===
+silver, sterling silver
+silverplate, silver plate
+gilt bronze, ormolu
+bronze, spelter
+brass, brassware
+pewter, pewterware
+
+# === Materials (Wood) ===
+mahogany, mahogany wood
+walnut, walnut wood
+rosewood, rosewood timber
+oak, oak wood
+ebony, ebonised
+
+# === Styles & Periods ===
+art deco, art-deco
+art nouveau, jugendstil
+arts and crafts, arts & crafts
+mid century, mid-century, midcentury
+baroque, rococo
+victorian, victorian era
+edwardian, edwardian era
+georgian, regency
+neoclassical, empire style
+gothic, gothic revival
+
+# === Market Terms ===
+antique, period piece
+vintage, retro
+patina, aged finish
+provenance, origin
+estate sale, estate auction
+collectible, collectable

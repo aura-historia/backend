@@ -71,52 +71,8 @@ jobs:
       - name: Clippy lint
         run: cargo clippy --locked --workspace --all-targets --all-features -- -D warnings
 
-  build:
-    name: Build ${{ matrix.crate }}
-    needs: lint
-    permissions:
-      contents: read
-    runs-on: ubuntu-latest
-    strategy:
-      matrix:
-        crate:
-          - src/cognito
-          - src/cognito-post-confirmation
-          - src/common
-          - src/search-filter
-          - src/search-filter-api
-          - src/aws-tests
-          - src/product
-          - src/product-api
-          - src/product-classification
-          - src/product-classification-api
-          - src/product-watchlist-api
-          - src/product-pipeline
-          - src/product-lambda
-          - src/shop
-          - src/shop-api
-          - src/shop-lambda
-          - src/test-api
-          - src/user
-          - src/user-api
-          - src/user-lambda
-          - src/mail
-          - src/mail-lambda-send
-    steps:
-      - uses: actions/checkout@v6
-
-      - name: Set up Rust
-        uses: dtolnay/rust-toolchain@stable
-
-      - uses: Swatinem/rust-cache@v2
-
-      - name: Build ${{ matrix.crate }}
-        working-directory: ${{ matrix.crate }}
-        run: cargo build --locked --all-features --all-targets
-
   unit-test:
     name: Unit-Test Workspace
-    needs: build
     permissions:
       contents: read
     runs-on: ubuntu-latest
@@ -133,7 +89,6 @@ jobs:
 
   integration-test:
     name: Integration-Test ${{ matrix.crate }}
-    needs: build
     permissions:
       contents: read
     runs-on: ubuntu-latest
@@ -172,7 +127,6 @@ jobs:
 
   test-product-pipeline:
     name: Test product-pipeline
-    needs: build
     permissions:
       contents: read
     runs-on: self-hosted

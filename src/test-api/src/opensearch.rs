@@ -187,6 +187,71 @@ static PRODUCTS_INDEX_MAPPING_STR: &str = include_str!(concat!(
     "opensearch/mappings/products.json"
 ));
 
+static ENGLISH_SYNONYMS_STR: &str = include_str!(concat!(
+    env!("CARGO_WORKSPACE_DIR"),
+    "opensearch/analysis/english_synonyms.txt"
+));
+
+static GERMAN_SYNONYMS_STR: &str = include_str!(concat!(
+    env!("CARGO_WORKSPACE_DIR"),
+    "opensearch/analysis/german_synonyms.txt"
+));
+
+static FRENCH_SYNONYMS_STR: &str = include_str!(concat!(
+    env!("CARGO_WORKSPACE_DIR"),
+    "opensearch/analysis/french_synonyms.txt"
+));
+
+static SPANISH_SYNONYMS_STR: &str = include_str!(concat!(
+    env!("CARGO_WORKSPACE_DIR"),
+    "opensearch/analysis/spanish_synonyms.txt"
+));
+
+/// Parses synonym file content into a list of synonym rules,
+/// filtering out comments and blank lines.
+fn parse_synonym_rules(content: &str) -> Vec<String> {
+    content
+        .lines()
+        .map(str::trim)
+        .filter(|line| !line.is_empty() && !line.starts_with('#'))
+        .map(String::from)
+        .collect()
+}
+
+/// Converts the products mapping from `synonyms_path` to inline `synonyms`
+/// so that LocalStack OpenSearch can create the index without needing
+/// synonym files on the cluster filesystem.
+fn products_mapping_with_inline_synonyms() -> serde_json::Value {
+    let mut mapping: serde_json::Value = serde_json::from_str(PRODUCTS_INDEX_MAPPING_STR)
+        .expect("shouldn't fail parsing PRODUCTS_INDEX_MAPPING_STR as serde_json::Value");
+
+    let synonym_files = [
+        ("english_synonyms", ENGLISH_SYNONYMS_STR),
+        ("german_synonyms", GERMAN_SYNONYMS_STR),
+        ("french_synonyms", FRENCH_SYNONYMS_STR),
+        ("spanish_synonyms", SPANISH_SYNONYMS_STR),
+    ];
+
+    for (filter_name, content) in synonym_files {
+        let rules = parse_synonym_rules(content);
+        if let Some(filter) =
+            mapping.pointer_mut(&format!("/settings/analysis/filter/{filter_name}"))
+        {
+            let obj = filter.as_object_mut().unwrap();
+            obj.remove("synonyms_path");
+            obj.remove("updateable");
+            obj.insert(
+                "synonyms".to_owned(),
+                serde_json::Value::Array(
+                    rules.into_iter().map(serde_json::Value::String).collect(),
+                ),
+            );
+        }
+    }
+
+    mapping
+}
+
 static SHOPS_INDEX_MAPPING_STR: &str = include_str!(concat!(
     env!("CARGO_WORKSPACE_DIR"),
     "opensearch/mappings/shops.json"
@@ -229,10 +294,7 @@ async fn set_up_indices() -> Result<Response, Error> {
         .await
         .indices()
         .create(opensearch::indices::IndicesCreateParts::Index("products"))
-        .body(
-            serde_json::from_str::<serde_json::Value>(PRODUCTS_INDEX_MAPPING_STR)
-                .expect("shouldn't fail parsing PRODUCTS_INDEX_MAPPING_STR as serde_json::Value"),
-        )
+        .body(products_mapping_with_inline_synonyms())
         .send()
         .await?
         .error_for_status_code()?;
@@ -340,4 +402,91 @@ pub async fn refresh_index(index: &str) {
         .unwrap()
         .error_for_status_code()
         .unwrap();
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn should_parse_synonym_rules_when_content_has_comments_and_blank_lines() {
+        let content = "# A comment\nsideboard, buffet\n\n# Another comment\nwardrobe, armoire\n";
+        let rules = parse_synonym_rules(content);
+        assert_eq!(rules, vec!["sideboard, buffet", "wardrobe, armoire"]);
+    }
+
+    #[test]
+    fn should_return_empty_rules_when_content_is_only_comments() {
+        let content = "# Comment only\n# Another comment\n\n";
+        let rules = parse_synonym_rules(content);
+        assert!(rules.is_empty());
+    }
+
+    #[test]
+    fn should_build_products_mapping_with_inline_synonyms_for_all_languages() {
+        let mapping = products_mapping_with_inline_synonyms();
+
+        let filter_names = [
+            "english_synonyms",
+            "german_synonyms",
+            "french_synonyms",
+            "spanish_synonyms",
+        ];
+
+        for filter_name in filter_names {
+            let filter = mapping
+                .pointer(&format!("/settings/analysis/filter/{filter_name}"))
+                .unwrap_or_else(|| panic!("filter '{filter_name}' should exist"));
+
+            assert!(
+                filter.get("synonyms_path").is_none(),
+                "'{filter_name}' should not contain 'synonyms_path'"
+            );
+            assert!(
+                filter.get("updateable").is_none(),
+                "'{filter_name}' should not contain 'updateable'"
+            );
+
+            let synonyms = filter
+                .get("synonyms")
+                .unwrap_or_else(|| panic!("'{filter_name}' should contain 'synonyms'"));
+            let rules = synonyms.as_array().unwrap();
+
+            assert!(
+                !rules.is_empty(),
+                "'{filter_name}' should have at least one synonym rule"
+            );
+        }
+    }
+
+    #[test]
+    fn should_set_search_analyzer_on_title_fields_in_products_mapping() {
+        let mapping = products_mapping_with_inline_synonyms();
+
+        let title_fields = ["titleEn", "titleDe", "titleFr", "titleEs"];
+        let expected_search_analyzers = [
+            "english_with_synonyms",
+            "german_with_synonyms",
+            "french_with_synonyms",
+            "spanish_with_synonyms",
+        ];
+
+        for (field, expected_analyzer) in title_fields.iter().zip(expected_search_analyzers.iter())
+        {
+            let field_mapping = mapping
+                .pointer(&format!("/mappings/properties/{field}"))
+                .unwrap_or_else(|| panic!("'{field}' should exist"));
+
+            assert_eq!(
+                field_mapping["search_analyzer"].as_str().unwrap(),
+                *expected_analyzer,
+                "'{field}' should use search_analyzer '{expected_analyzer}'"
+            );
+
+            assert!(
+                field_mapping.get("fields").is_none(),
+                "'{field}' should not have sub-fields"
+            );
+        }
+    }
 }

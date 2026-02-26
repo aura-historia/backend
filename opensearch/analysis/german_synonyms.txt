@@ -1,0 +1,71 @@
+# =============================
+# GERMAN – Antiken Marktplatz
+# =============================
+
+# === Möbelarten ===
+anrichte, sideboard
+schrank, kasten
+vitrine, schauvitrine
+sekretär, schreibtisch
+kommode, schubladenschrank
+bücherschrank, bücherregal
+truhe, kiste
+tischtruhe, kassette
+konsoltisch, wandtisch
+klapptisch, ausziehtisch
+refektoriumstisch, klostertisch
+
+# Sitzmöbel
+sessel, armlehnsessel
+ohrensessel, wing chair
+hocker, tabouret
+chaise longue, chaiselongue
+sofa, kanapee
+
+# Beleuchtung
+kronleuchter, kronleuchte
+wandleuchte, wandlampe
+tischlampe, lampe
+öllampe, petroleumlamp
+laterne, hängeleuchte
+
+# Keramik & Glas
+porzellan, china
+fayence, delfter ware
+steinzeug, irdenware
+majolika, maiolika
+karaffe, dekanter
+krug, henkelkrug
+
+# Metall
+silber, sterling
+versilbert, silberauflage
+bronze, bronzefigur
+messing, messingware
+zinn, zinnware
+vergoldet, feuervergoldet
+
+# Holzarten
+eiche, eichenholz
+nussbaum, nussbaumholz
+mahagoni, mahagoniholz
+palisander, palisanderholz
+ebenholz, ebonisiert
+
+# Stil & Epoche
+jugendstil, art nouveau
+art déco, art-deco
+barock, barockstil
+rokoko, rokoko stil
+biedermeier, biedermeierstil
+gründerzeit, gründerzeitstil
+klassizismus, empire
+gotik, neugotik
+
+# Marktbegriffe
+antik, antiquität
+vintage, retro
+patina, alterung
+provenienz, herkunft
+nachlass, haushaltsauflösung
+sammlerstück, sammelobjekt

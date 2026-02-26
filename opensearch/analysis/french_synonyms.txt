@@ -1,0 +1,66 @@
+# =============================
+# FRENCH – Antiquités
+# =============================
+
+# === Mobilier ===
+buffet, enfilade
+armoire, penderie
+commode, chiffonnier
+bureau, secrétaire
+bibliothèque, étagère
+vitrine, cabinet vitré
+coffre, malle
+console, table console
+table à abattant, table pliante
+
+# Sièges
+fauteuil, fauteuil à accoudoirs
+bergère, fauteuil bergère
+canapé, sofa
+chaise longue, méridienne
+tabouret, escabeau
+
+# Éclairage
+lustre, chandelier
+applique, applique murale
+lampe à huile, lampe pétrole
+lanterne, lanterne suspendue
+
+# Céramique & Verre
+porcelaine, china
+faïence, delft
+grès, terre cuite
+majolique, maiolica
+carafe, décanteur
+aiguière, pichet
+
+# Métal
+argent, argent sterling
+argenté, plaqué argent
+bronze, bronze doré
+laiton, ouvrage en laiton
+étain, objet en étain
+
+# Bois
+chêne, bois de chêne
+noyer, bois de noyer
+acajou, bois d'acajou
+palissandre, bois de palissandre
+ébène, ébénisé
+
+# Styles
+art déco, art-deco
+art nouveau, jugendstil
+baroque, rococo
+louis xv, louis quinze
+louis xvi, louis seize
+empire, style empire
+gothique, néogothique
+
+# Marché
+antiquité, objet ancien
+vintage, rétro
+patine, finition vieillie
+provenance, origine
+vente aux enchères, enchères
+pièce de collection, objet de collection
