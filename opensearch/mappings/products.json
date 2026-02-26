@@ -45,7 +45,21 @@
                 "french_elision": {
                     "type": "elision",
                     "articles_case": true,
-                    "articles": ["l", "m", "t", "qu", "n", "s", "j", "d", "c", "jusqu", "quoiqu", "lorsqu", "puisqu"]
+                    "articles": [
+                        "l",
+                        "m",
+                        "t",
+                        "qu",
+                        "n",
+                        "s",
+                        "j",
+                        "d",
+                        "c",
+                        "jusqu",
+                        "quoiqu",
+                        "lorsqu",
+                        "puisqu"
+                    ]
                 },
                 "french_synonyms": {
                     "type": "synonym_graph",
@@ -73,9 +87,9 @@
                     "filter": [
                         "english_possessive_stemmer",
                         "lowercase",
+                        "english_synonyms",
                         "english_stop",
-                        "english_stemmer",
-                        "english_synonyms"
+                        "english_stemmer"
                     ]
                 },
                 "german_with_synonyms": {
@@ -84,9 +98,9 @@
                     "filter": [
                         "lowercase",
                         "german_stop",
+                        "german_synonyms",
                         "german_normalization",
-                        "german_stemmer",
-                        "german_synonyms"
+                        "german_stemmer"
                     ]
                 },
                 "french_with_synonyms": {
@@ -95,9 +109,9 @@
                     "filter": [
                         "french_elision",
                         "lowercase",
+                        "french_synonyms",
                         "french_stop",
-                        "french_stemmer",
-                        "french_synonyms"
+                        "french_stemmer"
                     ]
                 },
                 "spanish_with_synonyms": {
@@ -105,9 +119,9 @@
                     "tokenizer": "standard",
                     "filter": [
                         "lowercase",
+                        "spanish_synonyms",
                         "spanish_stop",
-                        "spanish_stemmer",
-                        "spanish_synonyms"
+                        "spanish_stemmer"
                     ]
                 }
             }
