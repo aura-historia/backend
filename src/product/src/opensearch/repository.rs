@@ -167,6 +167,7 @@ impl<'a> ProductOpenSearchRepository for ProductOpenSearchRepositoryImpl<'a> {
                 "query": search.product_query.as_ref(),
                 "fields": [
                     format!("{title_field}^3"),
+                    format!("{title_field}.syn^2"),
                     format!("{description_field}^1"),
                 ],
                 "fuzziness": "AUTO",

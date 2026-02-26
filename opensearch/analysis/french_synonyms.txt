@@ -1,0 +1,65 @@
+# French synonyms for antiques e-commerce
+# Format: Solr (synonym_graph compatible)
+
+# === Meubles (Furniture) ===
+buffet, bahut, crédence, desserte
+armoire, garde-robe, penderie
+bureau, secrétaire, bonheur du jour, écritoire
+commode, chiffonnier, semainier
+bibliothèque, étagère, vitrine
+canapé, sofa, divan
+fauteuil, bergère, chauffeuse
+meuble, cabinet
+table de chevet, table de nuit
+chaise longue, méridienne, récamier
+pouf, tabouret, repose-pieds
+
+# === Arts de la table & Céramiques (Tableware & Ceramics) ===
+vase, urne, potiche
+pichet, cruche, aiguière
+théière, cafetière
+porcelaine, faïence fine
+grès, faïence, poterie, céramique
+assiette, plat
+calice, coupe, gobelet
+soupière, terrine
+
+# === Éclairage (Lighting) ===
+lustre, chandelier, candélabre
+lampe, lanterne, luminaire
+applique, applique murale
+bougeoir, chandelier, porte-bougie
+
+# === Arts décoratifs (Decorative Arts) ===
+tapisserie, tenture
+figurine, statuette
+miroir, glace, psyché
+horloge, pendule, cartel
+bijou, joaillerie
+broche, épingle
+collier, pendentif, sautoir
+bracelet, jonc, manchette
+
+# === Matériaux (Materials) ===
+acajou, noyer, palissandre
+argent, argent massif, métal argenté
+bronze, laiton
+ivoire, os
+marbre, albâtre, onyx
+doré, dorure, feuille d'or
+
+# === Styles & Époques (Styles & Periods) ===
+art déco, art moderne
+art nouveau, style nouille
+baroque, rococo, rocaille
+Louis XV, Louis XVI
+Empire, Restauration
+néoclassique, style Empire
+médiéval, gothique
+
+# === Termes généraux (General) ===
+antiquité, objet ancien, pièce de collection
+restauration, rénovation, réparation
+patine, vieillissement
+provenance, origine, historique
+vente aux enchères, enchère

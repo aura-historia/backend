@@ -1,7 +1,117 @@
 {
     "settings": {
         "index.knn": true,
-        "knn.algo_param.ef_search": 128
+        "knn.algo_param.ef_search": 128,
+        "analysis": {
+            "filter": {
+                "english_stop": {
+                    "type": "stop",
+                    "stopwords": "_english_"
+                },
+                "english_stemmer": {
+                    "type": "stemmer",
+                    "language": "english"
+                },
+                "english_possessive_stemmer": {
+                    "type": "stemmer",
+                    "language": "possessive_english"
+                },
+                "eng_synonyms": {
+                    "type": "synonym_graph",
+                    "synonyms_path": "analysis/english_synonyms.txt",
+                    "updateable": true
+                },
+                "german_stop": {
+                    "type": "stop",
+                    "stopwords": "_german_"
+                },
+                "german_stemmer": {
+                    "type": "stemmer",
+                    "language": "light_german"
+                },
+                "deu_synonyms": {
+                    "type": "synonym_graph",
+                    "synonyms_path": "analysis/german_synonyms.txt",
+                    "updateable": true
+                },
+                "french_stop": {
+                    "type": "stop",
+                    "stopwords": "_french_"
+                },
+                "french_stemmer": {
+                    "type": "stemmer",
+                    "language": "light_french"
+                },
+                "french_elision": {
+                    "type": "elision",
+                    "articles_case": true,
+                    "articles": ["l", "m", "t", "qu", "n", "s", "j", "d", "c", "jusqu", "quoiqu", "lorsqu", "puisqu"]
+                },
+                "fra_synonyms": {
+                    "type": "synonym_graph",
+                    "synonyms_path": "analysis/french_synonyms.txt",
+                    "updateable": true
+                },
+                "spanish_stop": {
+                    "type": "stop",
+                    "stopwords": "_spanish_"
+                },
+                "spanish_stemmer": {
+                    "type": "stemmer",
+                    "language": "light_spanish"
+                },
+                "spa_synonyms": {
+                    "type": "synonym_graph",
+                    "synonyms_path": "analysis/spanish_synonyms.txt",
+                    "updateable": true
+                }
+            },
+            "analyzer": {
+                "english_with_synonyms": {
+                    "type": "custom",
+                    "tokenizer": "standard",
+                    "filter": [
+                        "english_possessive_stemmer",
+                        "lowercase",
+                        "english_stop",
+                        "english_stemmer",
+                        "eng_synonyms"
+                    ]
+                },
+                "german_with_synonyms": {
+                    "type": "custom",
+                    "tokenizer": "standard",
+                    "filter": [
+                        "lowercase",
+                        "german_stop",
+                        "german_normalization",
+                        "german_stemmer",
+                        "deu_synonyms"
+                    ]
+                },
+                "french_with_synonyms": {
+                    "type": "custom",
+                    "tokenizer": "standard",
+                    "filter": [
+                        "french_elision",
+                        "lowercase",
+                        "french_stop",
+                        "french_stemmer",
+                        "fra_synonyms"
+                    ]
+                },
+                "spanish_with_synonyms": {
+                    "type": "custom",
+                    "tokenizer": "standard",
+                    "filter": [
+                        "lowercase",
+                        "spanish_stop",
+                        "spanish_stemmer",
+                        "spa_synonyms"
+                    ]
+                }
+            }
+        }
     },
     "mappings": {
         "properties": {
@@ -72,19 +182,43 @@
             },
             "titleDe": {
                 "type": "text",
-                "analyzer": "german"
+                "analyzer": "german",
+                "fields": {
+                    "syn": {
+                        "type": "text",
+                        "analyzer": "german_with_synonyms"
+                    }
+                }
             },
             "titleEn": {
                 "type": "text",
-                "analyzer": "english"
+                "analyzer": "english",
+                "fields": {
+                    "syn": {
+                        "type": "text",
+                        "analyzer": "english_with_synonyms"
+                    }
+                }
             },
             "titleFr": {
                 "type": "text",
-                "analyzer": "french"
+                "analyzer": "french",
+                "fields": {
+                    "syn": {
+                        "type": "text",
+                        "analyzer": "french_with_synonyms"
+                    }
+                }
             },
             "titleEs": {
                 "type": "text",
-                "analyzer": "spanish"
+                "analyzer": "spanish",
+                "fields": {
+                    "syn": {
+                        "type": "text",
+                        "analyzer": "spanish_with_synonyms"
+                    }
+                }
             },
             "descriptionDe": {
                 "type": "text",

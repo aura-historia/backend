@@ -1,0 +1,66 @@
+# Spanish synonyms for antiques e-commerce
+# Format: Solr (synonym_graph compatible)
+
+# === Muebles (Furniture) ===
+aparador, bufé, bufete, credencia
+armario, ropero, guardarropa
+escritorio, buró, secreter
+cómoda, cajonera, sinfonier
+estantería, librería, vitrina
+sofá, diván, canapé
+sillón, butaca, poltrona
+mueble, gabinete
+mesita de noche, mesilla
+chaise longue, tumbona, diván
+otomana, taburete, reposapiés
+
+# === Vajilla & Cerámica (Tableware & Ceramics) ===
+jarrón, ánfora, vasija
+jarra, cántaro, aguamanil
+tetera, cafetera
+porcelana, loza fina
+gres, loza, alfarería, cerámica
+plato, fuente, bandeja
+copa, cáliz
+sopera, terrina
+
+# === Iluminación (Lighting) ===
+araña, candelabro, lámpara de araña
+lámpara, farol, linterna
+aplique, lámpara de pared
+candelero, portavelas
+
+# === Artes decorativas (Decorative Arts) ===
+tapiz, tapicería, colgadura
+figurilla, estatuilla
+espejo, luna
+reloj, reloj de pared, reloj de péndulo
+joya, alhaja
+broche, prendedor, alfiler
+collar, colgante, gargantilla
+pulsera, brazalete
+
+# === Materiales (Materials) ===
+caoba, nogal, palisandro
+plata, plata de ley, plateado
+bronce, latón
+marfil, hueso
+mármol, alabastro, ónix
+dorado, pan de oro
+
+# === Estilos & Épocas (Styles & Periods) ===
+art déco, art decó
+art nouveau, modernismo
+barroco, rococó
+isabelino, alfonsino
+neoclásico, estilo imperio
+medieval, gótico
+renacentista, renacimiento
+
+# === Términos generales (General) ===
+antigüedad, pieza antigua, objeto de colección
+restauración, reparación, renovación
+pátina, envejecimiento
+procedencia, origen, proveniencia
+subasta, remate
+coleccionable, objeto de colección

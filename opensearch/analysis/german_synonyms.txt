@@ -1,0 +1,64 @@
+# German synonyms for antiques e-commerce
+# Format: Solr (synonym_graph compatible)
+
+# === Möbel (Furniture) ===
+Sideboard, Anrichte, Buffet, Kredenz
+Schrank, Kleiderschrank, Garderobenschrank
+Schreibtisch, Sekretär, Bureau
+Kommode, Schubladenkommode
+Bücherregal, Bücherschrank, Vitrine
+Sofa, Couch, Kanapee
+Sessel, Lehnstuhl, Ohrensessel
+Schränkchen, Kabinett, Nachttisch
+Chaiselongue, Récamière, Liegesofa
+Hocker, Fußbank, Schemel
+
+# === Geschirr & Keramik (Tableware & Ceramics) ===
+Vase, Urne, Blumenvase
+Krug, Kanne, Bierkrug
+Teekanne, Kaffeekanne
+Porzellan, Feinkeramik
+Steingut, Steinzeug, Tonware, Keramik
+Teller, Platte, Schale
+Pokal, Kelch, Becher
+Terrine, Suppenschüssel
+
+# === Beleuchtung (Lighting) ===
+Kronleuchter, Lüster, Kandelaber
+Lampe, Leuchte, Laterne
+Wandleuchte, Wandlampe
+Kerzenhalter, Kerzenständer, Kerzenleuchter
+
+# === Dekorative Künste (Decorative Arts) ===
+Wandteppich, Gobelin, Tapisserie
+Figur, Figurine, Statuette
+Spiegel, Wandspiegel
+Uhr, Standuhr, Pendeluhr, Kaminuhr
+Schmuck, Juwelen
+Brosche, Anstecknadel
+Halskette, Kette, Collier
+Armband, Armreif
+
+# === Materialien (Materials) ===
+Mahagoni, Nussbaum, Palisander
+Silber, Sterling, Versilbert
+Bronze, Messing
+Elfenbein, Bein
+Marmor, Alabaster, Onyx
+vergoldet, Blattgold, Goldauflage
+
+# === Stile & Epochen (Styles & Periods) ===
+Jugendstil, Art Nouveau
+Art Déco, Art Deco
+Barock, Rokoko
+Biedermeier, Klassizismus
+Gründerzeit, Historismus
+Renaissance, Gotik
+Empirestil, Neoklassizismus
+
+# === Allgemeine Antiquitätenbegriffe (General) ===
+Antiquität, Altertum, Sammlerstück
+Restaurierung, Restauration, Instandsetzung
+Patina, Altersspuren
+Provenienz, Herkunft
+Auktion, Versteigerung

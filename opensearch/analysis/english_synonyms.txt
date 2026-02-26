@@ -1,0 +1,68 @@
+# English synonyms for antiques e-commerce
+# Format: Solr (synonym_graph compatible)
+# Bidirectional synonyms (comma-separated): word1, word2 => both expand to each other
+# Lines starting with # are comments
+
+# === Furniture ===
+sideboard, buffet, credenza
+wardrobe, armoire, closet
+writing desk, bureau, secretary desk, escritoire
+chest of drawers, dresser, commode
+bookcase, bookshelf
+settee, sofa, couch
+armchair, easy chair, wing chair
+cabinet, cupboard
+nightstand, bedside table, night table
+chaise longue, chaise lounge, daybed
+ottoman, footstool, hassock
+
+# === Tableware & Ceramics ===
+vase, urn
+pitcher, jug, ewer
+teapot, tea pot
+porcelain, china, fine china
+stoneware, earthenware, pottery
+plate, dish, charger
+goblet, chalice
+tureen, soup bowl
+
+# === Lighting ===
+chandelier, candelabra, lustre
+lamp, lantern
+sconce, wall light, wall lamp
+candelabrum, candlestick, candle holder
+
+# === Decorative Arts ===
+tapestry, wall hanging
+figurine, statuette
+mirror, looking glass
+clock, timepiece, horologe
+jewelry, jewellery
+brooch, pin
+necklace, pendant, chain
+bracelet, bangle, cuff
+
+# === Materials ===
+mahogany, walnut, rosewood
+silver, sterling, silverplate
+bronze, brass
+ivory, bone
+marble, alabaster, onyx
+gilt, gilded, gold leaf
+
+# === Styles & Periods ===
+art deco, art moderne
+art nouveau, jugendstil
+baroque, rococo
+victorian, edwardian
+georgian, regency
+neoclassical, empire style
+medieval, gothic
+
+# === General Antiques Terms ===
+antique, vintage, period piece
+restoration, refurbishment, repair
+patina, aged finish
+provenance, history, origin
+auction, estate sale
+collectible, collectable
