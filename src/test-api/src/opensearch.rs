@@ -237,10 +237,14 @@ fn products_mapping_with_inline_synonyms() -> serde_json::Value {
         if let Some(filter) =
             mapping.pointer_mut(&format!("/settings/analysis/filter/{filter_name}"))
         {
-            filter.as_object_mut().unwrap().remove("synonyms_path");
-            filter.as_object_mut().unwrap().remove("updateable");
-            filter["synonyms"] = serde_json::Value::Array(
-                rules.into_iter().map(serde_json::Value::String).collect(),
+            let obj = filter.as_object_mut().unwrap();
+            obj.remove("synonyms_path");
+            obj.remove("updateable");
+            obj.insert(
+                "synonyms".to_owned(),
+                serde_json::Value::Array(
+                    rules.into_iter().map(serde_json::Value::String).collect(),
+                ),
             );
         }
     }
