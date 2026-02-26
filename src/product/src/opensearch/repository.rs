@@ -230,24 +230,28 @@ impl<'a> ProductOpenSearchRepository for ProductOpenSearchRepositoryImpl<'a> {
                     }));
                 }
                 (qmin, qmax) => {
+                    let mut must = Vec::new();
+                    if let Some(qmax) = qmax {
+                        must.push(json!({
+                            "range": {
+                                ProductDocumentSerdeField::OriginYearMin.as_str(): {
+                                    "lte": qmax
+                                }
+                            }
+                        }));
+                    }
+                    if let Some(qmin) = qmin {
+                        must.push(json!({
+                            "range": {
+                                ProductDocumentSerdeField::OriginYearMax.as_str(): {
+                                    "gte": qmin
+                                }
+                            }
+                        }));
+                    }
                     should.push(json!({
                         "bool": {
-                            "must": [
-                                {
-                                    "range": {
-                                        ProductDocumentSerdeField::OriginYearMin.as_str(): {
-                                            "lte": qmax
-                                        }
-                                    }
-                                },
-                                {
-                                    "range": {
-                                        ProductDocumentSerdeField::OriginYearMax.as_str(): {
-                                            "gte": qmin
-                                        }
-                                    }
-                                }
-                            ]
+                            "must": must
                         }
                     }));
                 }

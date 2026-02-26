@@ -108,7 +108,12 @@ pub mod range_rfc3339 {
         where
             D: Deserializer<'de>,
         {
-            Ok(Some(super::deserialize(deserializer)?))
+            let range = super::deserialize(deserializer)?;
+            if range.min.is_none() && range.max.is_none() {
+                Ok(None)
+            } else {
+                Ok(Some(range))
+            }
         }
     }
 }
@@ -243,23 +248,17 @@ mod tests {
     }
 
     #[rstest::rstest]
-    #[case(RangeQuery { min: None, max: None }, json!({"range": {}}))]
-    #[case(RangeQuery { min: None, max: None }, json!({"range": {"min": null}}))]
-    #[case(RangeQuery { min: None, max: None }, json!({"range": {"max": null}}))]
-    #[case(RangeQuery { min: None, max: None }, json!({"range": {"min": null, "max": null}}))]
-    #[case(RangeQuery { min: Some(datetime!(2021 - 01 - 01 0:00 UTC)), max: None }, json!({"range": { "min":"2021-01-01T00:00:00Z" }}))]
-    #[case(RangeQuery { min: Some(datetime!(2021 - 01 - 01 0:00 UTC)), max: None }, json!({"range": { "min":"2021-01-01T00:00:00Z", "max": null }}))]
-    #[case(RangeQuery { min: None, max: Some(datetime!(2021 - 01 - 01 0:00 UTC)) }, json!({"range": { "max":"2021-01-01T00:00:00Z" }}))]
-    #[case(RangeQuery { min: None, max: Some(datetime!(2021 - 01 - 01 0:00 UTC)) }, json!({"range": { "min": null, "max":"2021-01-01T00:00:00Z" }}))]
-    #[case(RangeQuery { min: Some(datetime!(2021 - 01 - 01 0:00 UTC)), max: Some(datetime!(2021 - 01 - 01 0:00 UTC)) }, json!({"range": { "min":"2021-01-01T00:00:00Z", "max":"2021-01-01T00:00:00Z" }}))]
+    #[case(Some(RangeQuery { min: Some(datetime!(2021 - 01 - 01 0:00 UTC)), max: None }), json!({"range": { "min":"2021-01-01T00:00:00Z" }}))]
+    #[case(Some(RangeQuery { min: Some(datetime!(2021 - 01 - 01 0:00 UTC)), max: None }), json!({"range": { "min":"2021-01-01T00:00:00Z", "max": null }}))]
+    #[case(Some(RangeQuery { min: None, max: Some(datetime!(2021 - 01 - 01 0:00 UTC)) }), json!({"range": { "max":"2021-01-01T00:00:00Z" }}))]
+    #[case(Some(RangeQuery { min: None, max: Some(datetime!(2021 - 01 - 01 0:00 UTC)) }), json!({"range": { "min": null, "max":"2021-01-01T00:00:00Z" }}))]
+    #[case(Some(RangeQuery { min: Some(datetime!(2021 - 01 - 01 0:00 UTC)), max: Some(datetime!(2021 - 01 - 01 0:00 UTC)) }), json!({"range": { "min":"2021-01-01T00:00:00Z", "max":"2021-01-01T00:00:00Z" }}))]
     #[trace]
     fn should_deserialize_rangequery_for_rfc3339_option(
-        #[case] expected: RangeQuery<OffsetDateTime>,
+        #[case] expected: Option<RangeQuery<OffsetDateTime>>,
         #[case] json: Value,
     ) {
-        let expected = WrapperOpt {
-            range: Some(expected),
-        };
+        let expected = WrapperOpt { range: expected };
 
         let actual: WrapperOpt = serde_json::from_value(json).unwrap();
         assert_eq!(expected, actual);
@@ -279,16 +278,16 @@ mod tests {
         assert_eq!(wrapper.range, None);
     }
 
-    #[test]
-    fn should_deserialize_rangequery_as_empty_some_when_empty_for_rfc3339_option() {
-        let json = json!({"range": {}});
+    #[rstest::rstest]
+    #[case(json!({"range": {}}))]
+    #[case(json!({"range": {"min": null}}))]
+    #[case(json!({"range": {"max": null}}))]
+    #[case(json!({"range": {"min": null, "max": null}}))]
+    #[trace]
+    fn should_deserialize_rangequery_as_none_when_both_bounds_absent_for_rfc3339_option(
+        #[case] json: Value,
+    ) {
         let wrapper: WrapperOpt = serde_json::from_value(json).unwrap();
-        assert_eq!(
-            wrapper.range,
-            Some(RangeQuery {
-                min: None,
-                max: None
-            })
-        );
+        assert_eq!(wrapper.range, None);
     }
 }
