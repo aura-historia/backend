@@ -401,10 +401,11 @@ mod tests {
             })
             .map(|payload| payload.target_language)
             .collect::<HashSet<_>>();
-        assert_eq!(3, title_languages.len());
+        assert_eq!(4, title_languages.len());
         assert!(title_languages.contains(&Language::De));
         assert!(title_languages.contains(&Language::Fr));
         assert!(title_languages.contains(&Language::Es));
+        assert!(title_languages.contains(&Language::It));
 
         let description_languages = actual
             .successes
@@ -421,6 +422,7 @@ mod tests {
             .collect::<HashSet<_>>();
         assert!(description_languages.contains(&Language::Fr));
         assert!(description_languages.contains(&Language::Es));
+        assert!(description_languages.contains(&Language::It));
     }
 
     #[rstest::rstest]

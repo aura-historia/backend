@@ -1467,6 +1467,7 @@ async fn should_respond_200_and_respect_language_query_param(
                     Language::En => "en",
                     Language::Fr => "fr",
                     Language::Es => "es",
+                    Language::It => "it",
                 },
             )
             .path_parameter("shopId", product_record.shop_id)

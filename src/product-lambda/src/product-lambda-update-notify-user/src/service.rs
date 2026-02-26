@@ -96,6 +96,7 @@ impl<'a> ProductEventMailPayloadServiceImpl<'a> {
             Language::En => format!("Antiques update on: {title}"),
             Language::Fr => format!("Mise à jour des antiquités : {title}"),
             Language::Es => format!("Actualización de antigüedades: {title}"),
+            Language::It => format!("Aggiornamento antiquariato: {title}"),
         };
 
         let template_type = if event.payload.is_price_event() {

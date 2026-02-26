@@ -14,6 +14,7 @@ pub enum Language {
     En,
     Fr,
     Es,
+    It,
 }
 
 impl Language {
@@ -49,6 +50,7 @@ impl Language {
             Language::En => "en",
             Language::Fr => "fr",
             Language::Es => "es",
+            Language::It => "it",
         }
     }
 
@@ -58,6 +60,7 @@ impl Language {
             Language::En => "English",
             Language::Fr => "French",
             Language::Es => "Spanish",
+            Language::It => "Italian",
         }
     }
 }
@@ -69,6 +72,7 @@ impl From<LanguageRecord> for Language {
             LanguageRecord::En => Language::En,
             LanguageRecord::Fr => Language::Fr,
             LanguageRecord::Es => Language::Es,
+            LanguageRecord::It => Language::It,
         }
     }
 }
@@ -80,6 +84,7 @@ impl From<LanguageDocument> for Language {
             LanguageDocument::En => Language::En,
             LanguageDocument::Fr => Language::Fr,
             LanguageDocument::Es => Language::Es,
+            LanguageDocument::It => Language::It,
         }
     }
 }
@@ -91,6 +96,7 @@ impl From<LanguageData> for Language {
             LanguageData::En => Language::En,
             LanguageData::Fr => Language::Fr,
             LanguageData::Es => Language::Es,
+            LanguageData::It => Language::It,
         }
     }
 }

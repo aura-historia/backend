@@ -231,6 +231,7 @@ impl TryFrom<ProductDomainEvent> for ProductDomainEventRecord {
                             None,
                             Some(payload.native_title.payload.to_string()),
                         ),
+                        Language::It => (None, None, None, None),
                     };
 
                 let (description_de, description_en, description_fr, description_es) =
@@ -260,6 +261,7 @@ impl TryFrom<ProductDomainEvent> for ProductDomainEventRecord {
                                 None,
                                 Some(native_description.payload.to_string()),
                             ),
+                            Language::It => (None, None, None, None),
                         },
                         None => (None, None, None, None),
                     };

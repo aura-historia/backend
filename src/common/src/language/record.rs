@@ -10,6 +10,7 @@ pub enum LanguageRecord {
     En,
     Fr,
     Es,
+    It,
 }
 
 impl LanguageRecord {
@@ -19,6 +20,7 @@ impl LanguageRecord {
             LanguageRecord::En => "en",
             LanguageRecord::Fr => "fr",
             LanguageRecord::Es => "es",
+            LanguageRecord::It => "it",
         }
     }
 }
@@ -30,6 +32,7 @@ impl From<Language> for LanguageRecord {
             Language::En => LanguageRecord::En,
             Language::Fr => LanguageRecord::Fr,
             Language::Es => LanguageRecord::Es,
+            Language::It => LanguageRecord::It,
         }
     }
 }
@@ -69,6 +72,7 @@ mod tests {
     #[case(LanguageRecord::En, "\"EN\"")]
     #[case(LanguageRecord::Fr, "\"FR\"")]
     #[case(LanguageRecord::Es, "\"ES\"")]
+    #[case(LanguageRecord::It, "\"IT\"")]
     #[trace]
     fn should_serialize_language_in_screaming_snake_case(
         #[case] language: LanguageRecord,
@@ -83,6 +87,7 @@ mod tests {
     #[case("\"EN\"", LanguageRecord::En)]
     #[case("\"FR\"", LanguageRecord::Fr)]
     #[case("\"ES\"", LanguageRecord::Es)]
+    #[case("\"IT\"", LanguageRecord::It)]
     #[trace]
     fn should_deserialize_language_in_screaming_snake_case(
         #[case] language: &str,

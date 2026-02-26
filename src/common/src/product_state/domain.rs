@@ -20,36 +20,42 @@ impl ProductState {
                 Language::En => "Listed",
                 Language::Fr => "Listé",
                 Language::Es => "Listado",
+                Language::It => "Inserito",
             },
             ProductState::Available => match language {
                 Language::De => "Verfügbar",
                 Language::En => "Available",
                 Language::Fr => "Disponible",
                 Language::Es => "Disponible",
+                Language::It => "Disponibile",
             },
             ProductState::Reserved => match language {
                 Language::De => "Reserviert",
                 Language::En => "Reserved",
                 Language::Fr => "Réservé",
                 Language::Es => "Reservado",
+                Language::It => "Riservato",
             },
             ProductState::Sold => match language {
                 Language::De => "Verkauft",
                 Language::En => "Sold",
                 Language::Fr => "Vendu",
                 Language::Es => "Vendido",
+                Language::It => "Venduto",
             },
             ProductState::Removed => match language {
                 Language::De => "Gelöscht",
                 Language::En => "Removed",
                 Language::Fr => "Supprimé",
                 Language::Es => "Eliminado",
+                Language::It => "Rimosso",
             },
             ProductState::Unknown => match language {
                 Language::De => "Unbekannt",
                 Language::En => "Unknown",
                 Language::Fr => "Inconnu",
                 Language::Es => "Desconocido",
+                Language::It => "Sconosciuto",
             },
         }
     }

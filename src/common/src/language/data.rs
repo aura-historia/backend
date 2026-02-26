@@ -45,6 +45,9 @@ pub enum LanguageData {
         alias = "es-VE"
     )]
     Es,
+
+    #[serde(alias = "it-IT", alias = "it-CH")]
+    It,
 }
 
 impl LanguageData {
@@ -54,6 +57,7 @@ impl LanguageData {
             LanguageData::En => "en",
             LanguageData::Fr => "fr",
             LanguageData::Es => "es",
+            LanguageData::It => "it",
         }
     }
 }
@@ -65,6 +69,7 @@ impl From<Language> for LanguageData {
             Language::En => LanguageData::En,
             Language::Fr => LanguageData::Fr,
             Language::Es => LanguageData::Es,
+            Language::It => LanguageData::It,
         }
     }
 }
@@ -138,6 +143,7 @@ pub mod api {
         #[case("en-US", LanguageData::En)]
         #[case("fr", LanguageData::Fr)]
         #[case("es", LanguageData::Es)]
+        #[case("it", LanguageData::It)]
         #[trace]
         fn should_extract_language_query(
             #[case] query_value: String,
@@ -188,6 +194,7 @@ mod tests {
     #[case(LanguageData::En, "\"en\"")]
     #[case(LanguageData::Fr, "\"fr\"")]
     #[case(LanguageData::Es, "\"es\"")]
+    #[case(LanguageData::It, "\"it\"")]
     #[trace]
     fn should_serialize_language_according_to_iso_639_1(
         #[case] language: LanguageData,
@@ -202,6 +209,7 @@ mod tests {
     #[case("\"en\"", LanguageData::En)]
     #[case("\"fr\"", LanguageData::Fr)]
     #[case("\"es\"", LanguageData::Es)]
+    #[case("\"it\"", LanguageData::It)]
     #[trace]
     fn should_deserialize_language_according_to_iso_639_1(
         #[case] language: &str,
