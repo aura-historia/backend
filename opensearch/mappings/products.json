@@ -52,11 +52,11 @@
                 "antique_synonyms": {
                     "type": "synonym_graph",
                     "synonyms": [
-                        "bureau, writing desk, secretary desk",
-                        "commode, chest of drawers",
-                        "armoire, wardrobe",
-                        "fauteuil, armchair",
-                        "canape, sofa, couch"
+                        "bureau desk, writing desk, secretary desk",
+                        "commode, chest of drawers, dresser",
+                        "armoire, wardrobe, clothes cabinet",
+                        "armchair, easy chair, lounge chair",
+                        "canapé, canape, sofa, couch, settee"
                     ]
                 }
             },
