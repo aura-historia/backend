@@ -226,10 +226,10 @@ fn products_mapping_with_inline_synonyms() -> serde_json::Value {
         .expect("shouldn't fail parsing PRODUCTS_INDEX_MAPPING_STR as serde_json::Value");
 
     let synonym_files = [
-        ("eng_synonyms", ENGLISH_SYNONYMS_STR),
-        ("deu_synonyms", GERMAN_SYNONYMS_STR),
-        ("fra_synonyms", FRENCH_SYNONYMS_STR),
-        ("spa_synonyms", SPANISH_SYNONYMS_STR),
+        ("english_synonyms", ENGLISH_SYNONYMS_STR),
+        ("german_synonyms", GERMAN_SYNONYMS_STR),
+        ("french_synonyms", FRENCH_SYNONYMS_STR),
+        ("spanish_synonyms", SPANISH_SYNONYMS_STR),
     ];
 
     for (filter_name, content) in synonym_files {
@@ -427,10 +427,10 @@ mod tests {
         let mapping = products_mapping_with_inline_synonyms();
 
         let filter_names = [
-            "eng_synonyms",
-            "deu_synonyms",
-            "fra_synonyms",
-            "spa_synonyms",
+            "english_synonyms",
+            "german_synonyms",
+            "french_synonyms",
+            "spanish_synonyms",
         ];
 
         for filter_name in filter_names {
@@ -460,31 +460,32 @@ mod tests {
     }
 
     #[test]
-    fn should_preserve_title_syn_subfield_mappings_in_products_mapping() {
+    fn should_set_search_analyzer_on_title_fields_in_products_mapping() {
         let mapping = products_mapping_with_inline_synonyms();
 
         let title_fields = ["titleEn", "titleDe", "titleFr", "titleEs"];
-        let expected_analyzers = [
+        let expected_search_analyzers = [
             "english_with_synonyms",
             "german_with_synonyms",
             "french_with_synonyms",
             "spanish_with_synonyms",
         ];
 
-        for (field, expected_analyzer) in title_fields.iter().zip(expected_analyzers.iter()) {
-            let syn_field = mapping
-                .pointer(&format!("/mappings/properties/{field}/fields/syn"))
-                .unwrap_or_else(|| panic!("'{field}.syn' sub-field should exist"));
+        for (field, expected_analyzer) in title_fields.iter().zip(expected_search_analyzers.iter())
+        {
+            let field_mapping = mapping
+                .pointer(&format!("/mappings/properties/{field}"))
+                .unwrap_or_else(|| panic!("'{field}' should exist"));
 
             assert_eq!(
-                syn_field["type"].as_str().unwrap(),
-                "text",
-                "'{field}.syn' should be of type 'text'"
-            );
-            assert_eq!(
-                syn_field["analyzer"].as_str().unwrap(),
+                field_mapping["search_analyzer"].as_str().unwrap(),
                 *expected_analyzer,
-                "'{field}.syn' should use analyzer '{expected_analyzer}'"
+                "'{field}' should use search_analyzer '{expected_analyzer}'"
+            );
+
+            assert!(
+                field_mapping.get("fields").is_none(),
+                "'{field}' should not have sub-fields"
             );
         }
     }
