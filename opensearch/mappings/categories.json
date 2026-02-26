@@ -1,7 +1,93 @@
 {
     "settings": {
         "index.knn": true,
-        "knn.algo_param.ef_search": 512
+        "knn.algo_param.ef_search": 512,
+        "analysis": {
+            "filter": {
+                "english_stop": {
+                    "type": "stop",
+                    "stopwords": "_english_"
+                },
+                "english_stemmer": {
+                    "type": "stemmer",
+                    "language": "english"
+                },
+                "english_possessive_stemmer": {
+                    "type": "stemmer",
+                    "language": "possessive_english"
+                },
+                "german_stop": {
+                    "type": "stop",
+                    "stopwords": "_german_"
+                },
+                "german_stemmer": {
+                    "type": "stemmer",
+                    "language": "light_german"
+                },
+                "french_elision": {
+                    "type": "elision",
+                    "articles_case": true,
+                    "articles": [
+                        "l", "m", "t", "qu", "n", "s",
+                        "j", "d", "c", "jusqu", "quoiqu",
+                        "lorsqu", "puisqu"
+                    ]
+                },
+                "french_stop": {
+                    "type": "stop",
+                    "stopwords": "_french_"
+                },
+                "french_stemmer": {
+                    "type": "stemmer",
+                    "language": "light_french"
+                },
+                "spanish_stop": {
+                    "type": "stop",
+                    "stopwords": "_spanish_"
+                },
+                "spanish_stemmer": {
+                    "type": "stemmer",
+                    "language": "light_spanish"
+                }
+            },
+            "analyzer": {
+                "classification_english": {
+                    "tokenizer": "standard",
+                    "filter": [
+                        "english_possessive_stemmer",
+                        "lowercase",
+                        "english_stop",
+                        "english_stemmer"
+                    ]
+                },
+                "classification_german": {
+                    "tokenizer": "standard",
+                    "filter": [
+                        "lowercase",
+                        "german_stop",
+                        "german_normalization",
+                        "german_stemmer"
+                    ]
+                },
+                "classification_french": {
+                    "tokenizer": "standard",
+                    "filter": [
+                        "french_elision",
+                        "lowercase",
+                        "french_stop",
+                        "french_stemmer"
+                    ]
+                },
+                "classification_spanish": {
+                    "tokenizer": "standard",
+                    "filter": [
+                        "lowercase",
+                        "spanish_stop",
+                        "spanish_stemmer"
+                    ]
+                }
+            }
+        }
     },
     "mappings": {
         "properties": {
@@ -35,7 +121,7 @@
             },
             "displayNameDe": {
                 "type": "text",
-                "analyzer": "german",
+                "analyzer": "classification_german",
                 "fields": {
                     "keyword": {
                         "type": "keyword",
@@ -45,7 +131,7 @@
             },
             "displayNameEn": {
                 "type": "text",
-                "analyzer": "english",
+                "analyzer": "classification_english",
                 "fields": {
                     "keyword": {
                         "type": "keyword",
@@ -55,7 +141,7 @@
             },
             "displayNameFr": {
                 "type": "text",
-                "analyzer": "french",
+                "analyzer": "classification_french",
                 "fields": {
                     "keyword": {
                         "type": "keyword",
@@ -65,7 +151,7 @@
             },
             "displayNameEs": {
                 "type": "text",
-                "analyzer": "spanish",
+                "analyzer": "classification_spanish",
                 "fields": {
                     "keyword": {
                         "type": "keyword",
@@ -75,19 +161,19 @@
             },
             "displayDescriptionDe": {
                 "type": "text",
-                "analyzer": "german"
+                "analyzer": "classification_german"
             },
             "displayDescriptionEn": {
                 "type": "text",
-                "analyzer": "english"
+                "analyzer": "classification_english"
             },
             "displayDescriptionFr": {
                 "type": "text",
-                "analyzer": "french"
+                "analyzer": "classification_french"
             },
             "displayDescriptionEs": {
                 "type": "text",
-                "analyzer": "spanish"
+                "analyzer": "classification_spanish"
             },
             "created": {
                 "type": "date",

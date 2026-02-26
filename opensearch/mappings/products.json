@@ -48,6 +48,16 @@
                 "spanish_stemmer": {
                     "type": "stemmer",
                     "language": "light_spanish"
+                },
+                "antique_synonyms": {
+                    "type": "synonym_graph",
+                    "synonyms": [
+                        "bureau, writing desk, secretary desk",
+                        "commode, chest of drawers",
+                        "armoire, wardrobe",
+                        "fauteuil, armchair",
+                        "canape, sofa, couch"
+                    ]
                 }
             },
             "analyzer": {
@@ -56,6 +66,7 @@
                     "filter": [
                         "english_possessive_stemmer",
                         "lowercase",
+                        "antique_synonyms",
                         "english_stop",
                         "english_stemmer"
                     ]
@@ -64,6 +75,7 @@
                     "tokenizer": "standard",
                     "filter": [
                         "lowercase",
+                        "antique_synonyms",
                         "german_stop",
                         "german_normalization",
                         "german_stemmer"
@@ -74,6 +86,7 @@
                     "filter": [
                         "french_elision",
                         "lowercase",
+                        "antique_synonyms",
                         "french_stop",
                         "french_stemmer"
                     ]
@@ -82,8 +95,20 @@
                     "tokenizer": "standard",
                     "filter": [
                         "lowercase",
+                        "antique_synonyms",
                         "spanish_stop",
                         "spanish_stemmer"
+                    ]
+                },
+                "product_native": {
+                    "tokenizer": "standard",
+                    "filter": [
+                        "lowercase",
+                        "antique_synonyms",
+                        "english_stop",
+                        "german_stop",
+                        "french_stop",
+                        "spanish_stop"
                     ]
                 }
             }
@@ -149,7 +174,8 @@
                 "type": "object",
                 "properties": {
                     "text": {
-                        "type": "text"
+                        "type": "text",
+                        "analyzer": "product_native"
                     },
                     "language": {
                         "type": "keyword"
