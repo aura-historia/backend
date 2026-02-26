@@ -1,65 +1,66 @@
-# French synonyms for antiques e-commerce
-# Format: Solr (synonym_graph compatible)
+# =============================
+# FRENCH – Antiquités
+# =============================
 
-# === Meubles (Furniture) ===
-buffet, bahut, crédence, desserte
-armoire, garde-robe, penderie
-bureau, secrétaire, bonheur du jour, écritoire
-commode, chiffonnier, semainier
-bibliothèque, étagère, vitrine
-canapé, sofa, divan
-fauteuil, bergère, chauffeuse
-meuble, cabinet
-table de chevet, table de nuit
-chaise longue, méridienne, récamier
-pouf, tabouret, repose-pieds
+# === Mobilier ===
+buffet, enfilade
+armoire, penderie
+commode, chiffonnier
+bureau, secrétaire
+bibliothèque, étagère
+vitrine, cabinet vitré
+coffre, malle
+console, table console
+table à abattant, table pliante
 
-# === Arts de la table & Céramiques (Tableware & Ceramics) ===
-vase, urne, potiche
-pichet, cruche, aiguière
-théière, cafetière
-porcelaine, faïence fine
-grès, faïence, poterie, céramique
-assiette, plat
-calice, coupe, gobelet
-soupière, terrine
+# Sièges
+fauteuil, fauteuil à accoudoirs
+bergère, fauteuil bergère
+canapé, sofa
+chaise longue, méridienne
+tabouret, escabeau
 
-# === Éclairage (Lighting) ===
-lustre, chandelier, candélabre
-lampe, lanterne, luminaire
+# Éclairage
+lustre, chandelier
 applique, applique murale
-bougeoir, chandelier, porte-bougie
+lampe à huile, lampe pétrole
+lanterne, lanterne suspendue
 
-# === Arts décoratifs (Decorative Arts) ===
-tapisserie, tenture
-figurine, statuette
-miroir, glace, psyché
-horloge, pendule, cartel
-bijou, joaillerie
-broche, épingle
-collier, pendentif, sautoir
-bracelet, jonc, manchette
+# Céramique & Verre
+porcelaine, china
+faïence, delft
+grès, terre cuite
+majolique, maiolica
+carafe, décanteur
+aiguière, pichet
 
-# === Matériaux (Materials) ===
-acajou, noyer, palissandre
-argent, argent massif, métal argenté
-bronze, laiton
-ivoire, os
-marbre, albâtre, onyx
-doré, dorure, feuille d'or
+# Métal
+argent, argent sterling
+argenté, plaqué argent
+bronze, bronze doré
+laiton, ouvrage en laiton
+étain, objet en étain
 
-# === Styles & Époques (Styles & Periods) ===
-art déco, art moderne
-art nouveau, style nouille
-baroque, rococo, rocaille
-Louis XV, Louis XVI
-Empire, Restauration
-néoclassique, style Empire
-médiéval, gothique
+# Bois
+chêne, bois de chêne
+noyer, bois de noyer
+acajou, bois d'acajou
+palissandre, bois de palissandre
+ébène, ébénisé
 
-# === Termes généraux (General) ===
-antiquité, objet ancien, pièce de collection
-restauration, rénovation, réparation
-patine, vieillissement
-provenance, origine, historique
-vente aux enchères, enchère
+# Styles
+art déco, art-deco
+art nouveau, jugendstil
+baroque, rococo
+louis xv, louis quinze
+louis xvi, louis seize
+empire, style empire
+gothique, néogothique
+
+# Marché
+antiquité, objet ancien
+vintage, rétro
+patine, finition vieillie
+provenance, origine
+vente aux enchères, enchères
+pièce de collection, objet de collection

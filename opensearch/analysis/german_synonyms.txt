@@ -1,64 +1,71 @@
-# German synonyms for antiques e-commerce
-# Format: Solr (synonym_graph compatible)
+# =============================
+# GERMAN – Antiken Marktplatz
+# =============================
 
-# === Möbel (Furniture) ===
-Sideboard, Anrichte, Buffet, Kredenz
-Schrank, Kleiderschrank, Garderobenschrank
-Schreibtisch, Sekretär, Bureau
-Kommode, Schubladenkommode
-Bücherregal, Bücherschrank, Vitrine
-Sofa, Couch, Kanapee
-Sessel, Lehnstuhl, Ohrensessel
-Schränkchen, Kabinett, Nachttisch
-Chaiselongue, Récamière, Liegesofa
-Hocker, Fußbank, Schemel
+# === Möbelarten ===
+anrichte, sideboard
+schrank, kasten
+vitrine, schauvitrine
+sekretär, schreibtisch
+kommode, schubladenschrank
+bücherschrank, bücherregal
+truhe, kiste
+tischtruhe, kassette
+konsoltisch, wandtisch
+klapptisch, ausziehtisch
+refektoriumstisch, klostertisch
 
-# === Geschirr & Keramik (Tableware & Ceramics) ===
-Vase, Urne, Blumenvase
-Krug, Kanne, Bierkrug
-Teekanne, Kaffeekanne
-Porzellan, Feinkeramik
-Steingut, Steinzeug, Tonware, Keramik
-Teller, Platte, Schale
-Pokal, Kelch, Becher
-Terrine, Suppenschüssel
+# Sitzmöbel
+sessel, armlehnsessel
+ohrensessel, wing chair
+hocker, tabouret
+chaise longue, chaiselongue
+sofa, kanapee
 
-# === Beleuchtung (Lighting) ===
-Kronleuchter, Lüster, Kandelaber
-Lampe, Leuchte, Laterne
-Wandleuchte, Wandlampe
-Kerzenhalter, Kerzenständer, Kerzenleuchter
+# Beleuchtung
+kronleuchter, kronleuchte
+wandleuchte, wandlampe
+tischlampe, lampe
+öllampe, petroleumlamp
+laterne, hängeleuchte
 
-# === Dekorative Künste (Decorative Arts) ===
-Wandteppich, Gobelin, Tapisserie
-Figur, Figurine, Statuette
-Spiegel, Wandspiegel
-Uhr, Standuhr, Pendeluhr, Kaminuhr
-Schmuck, Juwelen
-Brosche, Anstecknadel
-Halskette, Kette, Collier
-Armband, Armreif
+# Keramik & Glas
+porzellan, china
+fayence, delfter ware
+steinzeug, irdenware
+majolika, maiolika
+karaffe, dekanter
+krug, henkelkrug
 
-# === Materialien (Materials) ===
-Mahagoni, Nussbaum, Palisander
-Silber, Sterling, Versilbert
-Bronze, Messing
-Elfenbein, Bein
-Marmor, Alabaster, Onyx
-vergoldet, Blattgold, Goldauflage
+# Metall
+silber, sterling
+versilbert, silberauflage
+bronze, bronzefigur
+messing, messingware
+zinn, zinnware
+vergoldet, feuervergoldet
 
-# === Stile & Epochen (Styles & Periods) ===
-Jugendstil, Art Nouveau
-Art Déco, Art Deco
-Barock, Rokoko
-Biedermeier, Klassizismus
-Gründerzeit, Historismus
-Renaissance, Gotik
-Empirestil, Neoklassizismus
+# Holzarten
+eiche, eichenholz
+nussbaum, nussbaumholz
+mahagoni, mahagoniholz
+palisander, palisanderholz
+ebenholz, ebonisiert
 
-# === Allgemeine Antiquitätenbegriffe (General) ===
-Antiquität, Altertum, Sammlerstück
-Restaurierung, Restauration, Instandsetzung
-Patina, Altersspuren
-Provenienz, Herkunft
-Auktion, Versteigerung
+# Stil & Epoche
+jugendstil, art nouveau
+art déco, art-deco
+barock, barockstil
+rokoko, rokoko stil
+biedermeier, biedermeierstil
+gründerzeit, gründerzeitstil
+klassizismus, empire
+gotik, neugotik
+
+# Marktbegriffe
+antik, antiquität
+vintage, retro
+patina, alterung
+provenienz, herkunft
+nachlass, haushaltsauflösung
+sammlerstück, sammelobjekt

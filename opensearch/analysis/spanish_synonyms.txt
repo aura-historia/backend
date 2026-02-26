@@ -1,66 +1,64 @@
-# Spanish synonyms for antiques e-commerce
-# Format: Solr (synonym_graph compatible)
+# =============================
+# SPANISH – Antigüedades
+# =============================
 
-# === Muebles (Furniture) ===
-aparador, bufé, bufete, credencia
-armario, ropero, guardarropa
-escritorio, buró, secreter
-cómoda, cajonera, sinfonier
-estantería, librería, vitrina
-sofá, diván, canapé
-sillón, butaca, poltrona
-mueble, gabinete
-mesita de noche, mesilla
-chaise longue, tumbona, diván
-otomana, taburete, reposapiés
+# === Muebles ===
+aparador, buffet
+armario, ropero
+cómoda, tocador
+escritorio, secreter
+biblioteca, estantería
+vitrina, gabinete vitrina
+baúl, arcón
+consola, mesa consola
+mesa abatible, mesa plegable
 
-# === Vajilla & Cerámica (Tableware & Ceramics) ===
-jarrón, ánfora, vasija
-jarra, cántaro, aguamanil
-tetera, cafetera
-porcelana, loza fina
-gres, loza, alfarería, cerámica
-plato, fuente, bandeja
-copa, cáliz
-sopera, terrina
+# Asientos
+sillón, sillón con brazos
+butaca, sillón bajo
+sofá, canapé
+chaise longue, diván
+taburete, banquillo
 
-# === Iluminación (Lighting) ===
-araña, candelabro, lámpara de araña
-lámpara, farol, linterna
+# Iluminación
+candelabro, candelero
+lámpara de aceite, lámpara petróleo
+farol, linterna
 aplique, lámpara de pared
-candelero, portavelas
 
-# === Artes decorativas (Decorative Arts) ===
-tapiz, tapicería, colgadura
-figurilla, estatuilla
-espejo, luna
-reloj, reloj de pared, reloj de péndulo
-joya, alhaja
-broche, prendedor, alfiler
-collar, colgante, gargantilla
-pulsera, brazalete
+# Cerámica y Vidrio
+porcelana, china
+loza, fayenza
+gres, cerámica
+mayólica, majolica
+jarra, cántaro
+decantador, garrafa
 
-# === Materiales (Materials) ===
-caoba, nogal, palisandro
-plata, plata de ley, plateado
-bronce, latón
-marfil, hueso
-mármol, alabastro, ónix
-dorado, pan de oro
+# Metal
+plata, plata esterlina
+plateado, baño de plata
+bronce, bronce dorado
+latón, obra en latón
+estaño, objeto de estaño
 
-# === Estilos & Épocas (Styles & Periods) ===
-art déco, art decó
-art nouveau, modernismo
+# Maderas
+roble, madera de roble
+nogal, madera de nogal
+caoba, madera de caoba
+palosanto, palo santo
+ébano, ebanizado
+
+# Estilos
+art déco, art-deco
+modernismo, art nouveau
 barroco, rococó
-isabelino, alfonsino
-neoclásico, estilo imperio
-medieval, gótico
-renacentista, renacimiento
+imperio, estilo imperio
+gótico, neogótico
 
-# === Términos generales (General) ===
-antigüedad, pieza antigua, objeto de colección
-restauración, reparación, renovación
-pátina, envejecimiento
-procedencia, origen, proveniencia
-subasta, remate
-coleccionable, objeto de colección
+# Mercado
+antigüedad, objeto antiguo
+vintage, retro
+pátina, acabado envejecido
+procedencia, origen
+subasta, venta de herencia
+pieza de colección, objeto de colección
