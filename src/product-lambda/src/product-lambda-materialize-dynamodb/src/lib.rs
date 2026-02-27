@@ -25,6 +25,7 @@ struct CategoryNames {
     category_name_en: String,
     category_name_fr: String,
     category_name_es: String,
+    category_name_it: String,
 }
 static CATEGORY_CACHE: OnceCell<Arc<RwLock<HashMap<CategoryId, CategoryNames>>>> = OnceCell::new();
 
@@ -179,6 +180,8 @@ async fn build_enrichment_update(
                                 Some(resolved.category_name_fr.clone());
                             update_record.category_name_es =
                                 Some(resolved.category_name_es.clone());
+                            update_record.category_name_it =
+                                Some(resolved.category_name_it.clone());
                         }
                     }
                     if update_record.category_name_de.is_none() {
@@ -192,6 +195,7 @@ async fn build_enrichment_update(
                                     category_name_en: category_record.display_name_en.clone(),
                                     category_name_fr: category_record.display_name_fr.clone(),
                                     category_name_es: category_record.display_name_es.clone(),
+                                    category_name_it: category_record.display_name_it.clone(),
                                 };
                                 update_record.category_name_de =
                                     Some(category_names.category_name_de.clone());
@@ -201,6 +205,8 @@ async fn build_enrichment_update(
                                     Some(category_names.category_name_fr.clone());
                                 update_record.category_name_es =
                                     Some(category_names.category_name_es.clone());
+                                update_record.category_name_it =
+                                    Some(category_names.category_name_it.clone());
                                 category_cache_w.insert(category_id, category_names);
                             }
                             Ok(None) => {

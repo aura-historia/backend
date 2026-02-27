@@ -27,10 +27,12 @@ pub struct PeriodRecord {
     pub display_name_en: String,
     pub display_name_fr: String,
     pub display_name_es: String,
+    pub display_name_it: String,
     pub display_description_de: String,
     pub display_description_en: String,
     pub display_description_fr: String,
     pub display_description_es: String,
+    pub display_description_it: String,
 
     #[serde(with = "time::serde::rfc3339")]
     pub created: OffsetDateTime,
@@ -80,6 +82,11 @@ impl TryFrom<Period> for PeriodRecord {
                 .remove(&Language::Es)
                 .ok_or(MissingRequiredField::new("display_name_es"))?
                 .into(),
+            display_name_it: period
+                .display_name
+                .remove(&Language::It)
+                .ok_or(MissingRequiredField::new("display_name_it"))?
+                .into(),
             display_description_de: period
                 .display_description
                 .remove(&Language::De)
@@ -100,6 +107,11 @@ impl TryFrom<Period> for PeriodRecord {
                 .remove(&Language::Es)
                 .ok_or(MissingRequiredField::new("display_description_es"))?
                 .into(),
+            display_description_it: period
+                .display_description
+                .remove(&Language::It)
+                .ok_or(MissingRequiredField::new("display_description_it"))?
+                .into(),
             created: period.created,
             updated: period.updated,
         })
@@ -113,11 +125,13 @@ impl From<PeriodRecord> for Period {
         display_name.insert(Language::En, record.display_name_en.into());
         display_name.insert(Language::Fr, record.display_name_fr.into());
         display_name.insert(Language::Es, record.display_name_es.into());
+        display_name.insert(Language::It, record.display_name_it.into());
         let mut display_description = HashMap::with_capacity(Language::COUNT);
         display_description.insert(Language::De, record.display_description_de.into());
         display_description.insert(Language::En, record.display_description_en.into());
         display_description.insert(Language::Fr, record.display_description_fr.into());
         display_description.insert(Language::Es, record.display_description_es.into());
+        display_description.insert(Language::It, record.display_description_it.into());
         Self {
             period_id: record.period_id,
             period_key: record.period_key,

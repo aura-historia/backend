@@ -161,8 +161,8 @@ impl<'a> ProductOpenSearchRepository for ProductOpenSearchRepositoryImpl<'a> {
                 ProductDocumentSerdeField::DescriptionEs,
             ),
             Language::It => (
-                ProductDocumentSerdeField::TitleEn,
-                ProductDocumentSerdeField::DescriptionEn,
+                ProductDocumentSerdeField::TitleIt,
+                ProductDocumentSerdeField::DescriptionIt,
             ),
         };
 
