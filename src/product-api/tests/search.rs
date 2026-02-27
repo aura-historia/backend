@@ -1595,6 +1595,7 @@ async fn should_200_with_native_title_when_no_target_titles_exist_and_hit_due_to
     document.title_en = None;
     document.title_fr = None;
     document.title_es = None;
+    document.title_it = None;
     document.description_de = Some("Some german description that will result in a hit".to_string());
     let create_res = opensearch_repository
         .create_product_documents(vec![document])
@@ -1689,6 +1690,14 @@ async fn should_200_with_native_title_when_no_target_titles_exist_and_hit_due_to
 #[case("es-AR,es;q=0.9", "Spanish title", Language::Es)]
 #[case("fr;q=0.1,de;q=0.2,es;q=0.6", "Spanish title", Language::Es)]
 #[case("*,es;q=0.5", "Spanish title", Language::Es)]
+#[case("it", "Italian title", Language::It)]
+#[case("it-IT", "Italian title", Language::It)]
+#[case("it-CH", "Italian title", Language::It)]
+#[case("it;q=1.0", "Italian title", Language::It)]
+#[case("it,en;q=0.3", "Italian title", Language::It)]
+#[case("it-IT,it;q=0.9", "Italian title", Language::It)]
+#[case("de;q=0.1,fr;q=0.2,it;q=0.6", "Italian title", Language::It)]
+#[case("*,it;q=0.5", "Italian title", Language::It)]
 #[trace]
 #[localstack_test(services = [OpenSearch(), DynamoDB()])]
 async fn should_respond_200_and_respect_language_query_param(
@@ -1716,10 +1725,12 @@ async fn should_respond_200_and_respect_language_query_param(
     document.title_en = Some("English title".to_string());
     document.title_fr = Some("French title".to_string());
     document.title_es = Some("Spanish title".to_string());
+    document.title_it = Some("Italian title".to_string());
     document.description_de = Some("German description".to_string());
     document.description_en = Some("English description".to_string());
     document.description_fr = Some("French description".to_string());
     document.description_es = Some("Spanish description".to_string());
+    document.description_it = Some("Italian description".to_string());
     let create_res = opensearch_repository
         .create_product_documents(vec![document])
         .await

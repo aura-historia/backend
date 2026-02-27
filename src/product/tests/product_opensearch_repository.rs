@@ -55,11 +55,13 @@ async fn should_create_product_document() {
         category_name_en: Faker.fake(),
         category_name_fr: Faker.fake(),
         category_name_es: Faker.fake(),
+        category_name_it: Faker.fake(),
         period_id: Faker.fake(),
         period_name_de: Faker.fake(),
         period_name_en: Faker.fake(),
         period_name_fr: Faker.fake(),
         period_name_es: Faker.fake(),
+        period_name_it: Faker.fake(),
         title_native: TextDocument {
             text: "Foo".to_string(),
             language: LanguageDocument::Fr,
@@ -68,10 +70,12 @@ async fn should_create_product_document() {
         title_en: Some("Baz".to_string()),
         title_fr: Some("Bat".to_string()),
         title_es: Some("Bao".to_string()),
+        title_it: Some("Bao".to_string()),
         description_de: Some("Lorem ipsum dolor sit amet".to_string()),
         description_en: Some("Lorem ipsum dolor sit amet".to_string()),
         description_fr: Some("Lorem ipsum dolor sit amet".to_string()),
         description_es: Some("Lorem ipsum dolor sit amet".to_string()),
+        description_it: Some("Lorem ipsum dolor sit amet".to_string()),
         price_eur: Some(99),
         price_usd: None,
         price_gbp: None,
@@ -136,11 +140,13 @@ async fn should_create_product_documents() {
         category_name_en: Faker.fake(),
         category_name_fr: Faker.fake(),
         category_name_es: Faker.fake(),
+        category_name_it: Faker.fake(),
         period_id: Faker.fake(),
         period_name_de: Faker.fake(),
         period_name_en: Faker.fake(),
         period_name_fr: Faker.fake(),
         period_name_es: Faker.fake(),
+        period_name_it: Faker.fake(),
         title_native: TextDocument {
             text: "Foo".to_string(),
             language: LanguageDocument::Fr,
@@ -149,10 +155,12 @@ async fn should_create_product_documents() {
         title_en: Some("Baz".to_string()),
         title_fr: Some("Bat".to_string()),
         title_es: Some("Bao".to_string()),
+        title_it: Some("Bao".to_string()),
         description_de: Some("Lorem ipsum dolor sit amet".to_string()),
         description_en: Some("Lorem ipsum dolor sit amet".to_string()),
         description_fr: Some("Lorem ipsum dolor sit amet".to_string()),
         description_es: Some("Lorem ipsum dolor sit amet".to_string()),
+        description_it: Some("Lorem ipsum dolor sit amet".to_string()),
         price_eur: Some(99),
         price_usd: None,
         price_gbp: None,
@@ -202,11 +210,13 @@ async fn should_create_product_documents() {
         category_name_en: Faker.fake(),
         category_name_fr: Faker.fake(),
         category_name_es: Faker.fake(),
+        category_name_it: Faker.fake(),
         period_id: Faker.fake(),
         period_name_de: Faker.fake(),
         period_name_en: Faker.fake(),
         period_name_fr: Faker.fake(),
         period_name_es: Faker.fake(),
+        period_name_it: Faker.fake(),
         title_native: TextDocument {
             text: "Foo".to_string(),
             language: LanguageDocument::Fr,
@@ -215,10 +225,12 @@ async fn should_create_product_documents() {
         title_en: Some("Baz".to_string()),
         title_fr: Some("Bat".to_string()),
         title_es: Some("Bao".to_string()),
+        title_it: Some("Bao".to_string()),
         description_de: Some("Lorem ipsum dolor sit amet".to_string()),
         description_en: Some("Lorem ipsum dolor sit amet".to_string()),
         description_fr: Some("Lorem ipsum dolor sit amet".to_string()),
         description_es: Some("Lorem ipsum dolor sit amet".to_string()),
+        description_it: Some("Lorem ipsum dolor sit amet".to_string()),
         price_eur: Some(99),
         price_usd: None,
         price_gbp: None,
@@ -285,11 +297,13 @@ async fn should_update_product_document() {
         category_name_en: Faker.fake(),
         category_name_fr: Faker.fake(),
         category_name_es: Faker.fake(),
+        category_name_it: Faker.fake(),
         period_id: Faker.fake(),
         period_name_de: Faker.fake(),
         period_name_en: Faker.fake(),
         period_name_fr: Faker.fake(),
         period_name_es: Faker.fake(),
+        period_name_it: Faker.fake(),
         title_native: TextDocument {
             text: "Foo".to_string(),
             language: LanguageDocument::Fr,
@@ -298,10 +312,12 @@ async fn should_update_product_document() {
         title_en: Some("Baz".to_string()),
         title_fr: Some("Bat".to_string()),
         title_es: Some("Bao".to_string()),
+        title_it: Some("Bao".to_string()),
         description_de: Some("Lorem ipsum dolor sit amet".to_string()),
         description_en: Some("Lorem ipsum dolor sit amet".to_string()),
         description_fr: Some("Lorem ipsum dolor sit amet".to_string()),
         description_es: Some("Lorem ipsum dolor sit amet".to_string()),
+        description_it: Some("Lorem ipsum dolor sit amet".to_string()),
         price_eur: Some(99),
         price_usd: None,
         price_gbp: None,
@@ -362,18 +378,22 @@ async fn should_update_product_document() {
         category_name_en: None,
         category_name_fr: None,
         category_name_es: None,
+        category_name_it: None,
         period_name_de: None,
         period_name_en: None,
         period_name_fr: None,
         period_name_es: None,
+        period_name_it: None,
         title_de: None,
         title_en: None,
         title_fr: None,
         title_es: None,
+        title_it: None,
         description_de: None,
         description_en: None,
         description_fr: None,
         description_es: None,
+        description_it: None,
         images: None,
         text_embedding: None,
         origin_year_min: None,
@@ -419,11 +439,13 @@ async fn should_search_product_documents() {
         category_name_en: Faker.fake(),
         category_name_fr: Faker.fake(),
         category_name_es: Faker.fake(),
+        category_name_it: Faker.fake(),
         period_id: Faker.fake(),
         period_name_de: Faker.fake(),
         period_name_en: Faker.fake(),
         period_name_fr: Faker.fake(),
         period_name_es: Faker.fake(),
+        period_name_it: Faker.fake(),
         title_native: TextDocument {
             text: "Foo".to_string(),
             language: LanguageDocument::Fr,
@@ -432,10 +454,12 @@ async fn should_search_product_documents() {
         title_en: Some("Baz".to_string()),
         title_fr: Some("Bat".to_string()),
         title_es: None,
+        title_it: None,
         description_de: None,
         description_en: None,
         description_fr: None,
         description_es: None,
+        description_it: None,
         price_eur: Some(99),
         price_usd: None,
         price_gbp: None,
@@ -541,11 +565,13 @@ async fn should_omit_descriptions_in_response_for_search_product_documents() {
         category_name_en: Faker.fake(),
         category_name_fr: Faker.fake(),
         category_name_es: Faker.fake(),
+        category_name_it: Faker.fake(),
         period_id: Faker.fake(),
         period_name_de: Faker.fake(),
         period_name_en: Faker.fake(),
         period_name_fr: Faker.fake(),
         period_name_es: Faker.fake(),
+        period_name_it: Faker.fake(),
         title_native: TextDocument {
             text: "Foo".to_string(),
             language: LanguageDocument::Fr,
@@ -554,10 +580,12 @@ async fn should_omit_descriptions_in_response_for_search_product_documents() {
         title_en: Some("Baz".to_string()),
         title_fr: Some("Bat".to_string()),
         title_es: None,
+        title_it: None,
         description_de: Some("Hallo Welt".to_string()),
         description_en: Some("Baz".to_string()),
         description_fr: Some("Bat".to_string()),
         description_es: None,
+        description_it: None,
         price_eur: Some(99),
         price_usd: None,
         price_gbp: None,
@@ -640,6 +668,7 @@ async fn should_omit_descriptions_in_response_for_search_product_documents() {
     expected.description_en = None;
     expected.description_fr = None;
     expected.description_es = None;
+    expected.description_it = None;
 
     assert_eq!(
         vec![expected],
@@ -869,6 +898,7 @@ async fn should_search_product_documents_when_price_range_is_given(
             product.description_en = None;
             product.description_fr = None;
             product.description_es = None;
+            product.description_it = None;
             product
         })
         .collect::<Vec<_>>();
@@ -881,6 +911,7 @@ async fn should_search_product_documents_when_price_range_is_given(
             product.description_en = None;
             product.description_fr = None;
             product.description_es = None;
+            product.description_it = None;
             product
         })
         .collect::<Vec<_>>();
@@ -969,6 +1000,7 @@ async fn should_search_product_documents_respecting_paging_when_sorted_by_price(
             product.description_en = None;
             product.description_fr = None;
             product.description_es = None;
+            product.description_it = None;
             product
         })
         .collect::<Vec<_>>();
@@ -1051,6 +1083,7 @@ async fn should_search_product_documents_respecting_search_after_when_sorted_by_
             product.description_en = None;
             product.description_fr = None;
             product.description_es = None;
+            product.description_it = None;
             product
         })
         .collect::<Vec<_>>();
@@ -1143,11 +1176,13 @@ async fn should_get_product_document() {
         category_name_en: Faker.fake(),
         category_name_fr: Faker.fake(),
         category_name_es: Faker.fake(),
+        category_name_it: Faker.fake(),
         period_id: Faker.fake(),
         period_name_de: Faker.fake(),
         period_name_en: Faker.fake(),
         period_name_fr: Faker.fake(),
         period_name_es: Faker.fake(),
+        period_name_it: Faker.fake(),
         title_native: TextDocument {
             text: "Foo".to_string(),
             language: LanguageDocument::Fr,
@@ -1156,10 +1191,12 @@ async fn should_get_product_document() {
         title_en: Some("Baz".to_string()),
         title_fr: Some("Bat".to_string()),
         title_es: Some("Bao".to_string()),
+        title_it: Some("Bao".to_string()),
         description_de: Some("Lorem ipsum dolor sit amet".to_string()),
         description_en: Some("Lorem ipsum dolor sit amet".to_string()),
         description_fr: Some("Lorem ipsum dolor sit amet".to_string()),
         description_es: Some("Lorem ipsum dolor sit amet".to_string()),
+        description_it: Some("Lorem ipsum dolor sit amet".to_string()),
         price_eur: Some(99),
         price_usd: None,
         price_gbp: None,
@@ -2274,6 +2311,7 @@ async fn should_search_product_documents_when_exact_year_is_given_for_stored_exa
             product.description_en = None;
             product.description_fr = None;
             product.description_es = None;
+            product.description_it = None;
             product
         })
         .collect::<Vec<_>>();
@@ -2289,6 +2327,7 @@ async fn should_search_product_documents_when_exact_year_is_given_for_stored_exa
             product.description_en = None;
             product.description_fr = None;
             product.description_es = None;
+            product.description_it = None;
             product
         })
         .collect::<Vec<_>>();
@@ -2370,6 +2409,7 @@ async fn should_search_product_documents_when_only_min_year_is_given_for_stored_
             product.description_en = None;
             product.description_fr = None;
             product.description_es = None;
+            product.description_it = None;
             product
         })
         .collect::<Vec<_>>();
@@ -2385,6 +2425,7 @@ async fn should_search_product_documents_when_only_min_year_is_given_for_stored_
             product.description_en = None;
             product.description_fr = None;
             product.description_es = None;
+            product.description_it = None;
             product
         })
         .collect::<Vec<_>>();
@@ -2466,6 +2507,7 @@ async fn should_search_product_documents_when_only_max_year_is_given_for_stored_
             product.description_en = None;
             product.description_fr = None;
             product.description_es = None;
+            product.description_it = None;
             product
         })
         .collect::<Vec<_>>();
@@ -2481,6 +2523,7 @@ async fn should_search_product_documents_when_only_max_year_is_given_for_stored_
             product.description_en = None;
             product.description_fr = None;
             product.description_es = None;
+            product.description_it = None;
             product
         })
         .collect::<Vec<_>>();
@@ -2562,6 +2605,7 @@ async fn should_search_product_documents_when_min_and_max_year_is_given_for_stor
             product.description_en = None;
             product.description_fr = None;
             product.description_es = None;
+            product.description_it = None;
             product
         })
         .collect::<Vec<_>>();
@@ -2577,6 +2621,7 @@ async fn should_search_product_documents_when_min_and_max_year_is_given_for_stor
             product.description_en = None;
             product.description_fr = None;
             product.description_es = None;
+            product.description_it = None;
             product
         })
         .collect::<Vec<_>>();
@@ -2660,6 +2705,7 @@ async fn should_search_product_documents_when_only_min_year_is_given_for_stored_
             product.description_en = None;
             product.description_fr = None;
             product.description_es = None;
+            product.description_it = None;
             product
         })
         .collect::<Vec<_>>();
@@ -2675,6 +2721,7 @@ async fn should_search_product_documents_when_only_min_year_is_given_for_stored_
             product.description_en = None;
             product.description_fr = None;
             product.description_es = None;
+            product.description_it = None;
             product
         })
         .collect::<Vec<_>>();
@@ -2756,6 +2803,7 @@ async fn should_search_product_documents_when_only_max_year_is_given_for_stored_
             product.description_en = None;
             product.description_fr = None;
             product.description_es = None;
+            product.description_it = None;
             product
         })
         .collect::<Vec<_>>();
@@ -2771,6 +2819,7 @@ async fn should_search_product_documents_when_only_max_year_is_given_for_stored_
             product.description_en = None;
             product.description_fr = None;
             product.description_es = None;
+            product.description_it = None;
             product
         })
         .collect::<Vec<_>>();
@@ -2852,6 +2901,7 @@ async fn should_search_product_documents_when_min_and_max_year_is_given_for_stor
             product.description_en = None;
             product.description_fr = None;
             product.description_es = None;
+            product.description_it = None;
             product
         })
         .collect::<Vec<_>>();
@@ -2867,6 +2917,7 @@ async fn should_search_product_documents_when_min_and_max_year_is_given_for_stor
             product.description_en = None;
             product.description_fr = None;
             product.description_es = None;
+            product.description_it = None;
             product
         })
         .collect::<Vec<_>>();
@@ -3662,6 +3713,7 @@ async fn should_search_product_documents_when_auction_start_range_is_given(
             product.description_en = None;
             product.description_fr = None;
             product.description_es = None;
+            product.description_it = None;
             product
         })
         .collect::<Vec<_>>();
@@ -3675,6 +3727,7 @@ async fn should_search_product_documents_when_auction_start_range_is_given(
             product.description_en = None;
             product.description_fr = None;
             product.description_es = None;
+            product.description_it = None;
             product
         })
         .collect::<Vec<_>>();
@@ -3688,6 +3741,7 @@ async fn should_search_product_documents_when_auction_start_range_is_given(
             product.description_en = None;
             product.description_fr = None;
             product.description_es = None;
+            product.description_it = None;
             product
         })
         .collect::<Vec<_>>();
@@ -3794,6 +3848,7 @@ async fn should_search_product_documents_when_auction_end_range_is_given(
             product.description_en = None;
             product.description_fr = None;
             product.description_es = None;
+            product.description_it = None;
             product
         })
         .collect::<Vec<_>>();
@@ -3807,6 +3862,7 @@ async fn should_search_product_documents_when_auction_end_range_is_given(
             product.description_en = None;
             product.description_fr = None;
             product.description_es = None;
+            product.description_it = None;
             product
         })
         .collect::<Vec<_>>();
@@ -3820,6 +3876,7 @@ async fn should_search_product_documents_when_auction_end_range_is_given(
             product.description_en = None;
             product.description_fr = None;
             product.description_es = None;
+            product.description_it = None;
             product
         })
         .collect::<Vec<_>>();

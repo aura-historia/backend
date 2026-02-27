@@ -27,5 +27,5 @@ async fn should_process_translation() {
 
     let actual = translation_pipe_processor.process(vec![product]).await;
     assert!(actual.failures.is_empty());
-    assert_eq!(6, actual.successes.len());
+    assert_eq!(8, actual.successes.len());
 }

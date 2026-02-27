@@ -160,6 +160,10 @@ impl<'a> ProductOpenSearchRepository for ProductOpenSearchRepositoryImpl<'a> {
                 ProductDocumentSerdeField::TitleEs,
                 ProductDocumentSerdeField::DescriptionEs,
             ),
+            Language::It => (
+                ProductDocumentSerdeField::TitleIt,
+                ProductDocumentSerdeField::DescriptionIt,
+            ),
         };
 
         must.push(json!({

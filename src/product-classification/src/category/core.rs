@@ -103,10 +103,12 @@ pub mod faker {
         display_name_en: String,
         display_name_fr: String,
         display_name_es: String,
+        display_name_it: String,
         display_description_de: String,
         display_description_en: String,
         display_description_fr: String,
         display_description_es: String,
+        display_description_it: String,
     }
 
     impl From<CategoryTestPayload> for Category {
@@ -116,6 +118,7 @@ pub mod faker {
             display_name.insert(Language::En, CategoryName(payload.display_name_en));
             display_name.insert(Language::Fr, CategoryName(payload.display_name_fr));
             display_name.insert(Language::Es, CategoryName(payload.display_name_es));
+            display_name.insert(Language::It, CategoryName(payload.display_name_it));
             let mut display_description = HashMap::with_capacity(Language::COUNT);
             display_description.insert(
                 Language::De,
@@ -132,6 +135,10 @@ pub mod faker {
             display_description.insert(
                 Language::Es,
                 CategoryDescription(payload.display_description_es),
+            );
+            display_description.insert(
+                Language::It,
+                CategoryDescription(payload.display_description_it),
             );
             Category {
                 category_id: payload.category_id.into(),

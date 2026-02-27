@@ -590,6 +590,62 @@ async fn should_respond_200_personalized_when_authenticated_and_watched() {
     "Spanish description",
     Language::Es
 )]
+#[case(
+    "it",
+    "Italian title",
+    Language::It,
+    "Italian description",
+    Language::It
+)]
+#[case(
+    "it-IT",
+    "Italian title",
+    Language::It,
+    "Italian description",
+    Language::It
+)]
+#[case(
+    "it-CH",
+    "Italian title",
+    Language::It,
+    "Italian description",
+    Language::It
+)]
+#[case(
+    "it;q=1.0",
+    "Italian title",
+    Language::It,
+    "Italian description",
+    Language::It
+)]
+#[case(
+    "it,en;q=0.3",
+    "Italian title",
+    Language::It,
+    "Italian description",
+    Language::It
+)]
+#[case(
+    "it-IT,it;q=0.9",
+    "Italian title",
+    Language::It,
+    "Italian description",
+    Language::It
+)]
+#[case(
+    "de;q=0.1,fr;q=0.2,it;q=0.6",
+    "Italian title",
+    Language::It,
+    "Italian description",
+    Language::It
+)]
+#[case(
+    "*,it;q=0.5",
+    "Italian title",
+    Language::It,
+    "Italian description",
+    Language::It
+)]
 #[trace]
 #[localstack_test(services = [DynamoDB()])]
 async fn should_respond_200_and_respect_language_query_param(
@@ -621,6 +677,7 @@ async fn should_respond_200_and_respect_language_query_param(
     record.title_en = Some("English title".to_string());
     record.title_fr = Some("French title".to_string());
     record.title_es = Some("Spanish title".to_string());
+    record.title_it = Some("Italian title".to_string());
     record.description_native = Some(TextRecord {
         text: "German description".to_string(),
         language: LanguageRecord::De,
@@ -629,6 +686,7 @@ async fn should_respond_200_and_respect_language_query_param(
     record.description_en = Some("English description".to_string());
     record.description_fr = Some("French description".to_string());
     record.description_es = Some("Spanish description".to_string());
+    record.description_it = Some("Italian description".to_string());
     let insert_res = product_repository
         .put_product_records([record.clone()].into())
         .await
@@ -647,6 +705,7 @@ async fn should_respond_200_and_respect_language_query_param(
                     Language::En => "en",
                     Language::Fr => "fr",
                     Language::Es => "es",
+                    Language::It => "it",
                 },
             )
             .path_parameter("shopId", record.shop_id)

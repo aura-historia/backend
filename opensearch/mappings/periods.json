@@ -73,6 +73,16 @@
                     }
                 }
             },
+            "displayNameIt": {
+                "type": "text",
+                "analyzer": "italian",
+                "fields": {
+                    "keyword": {
+                        "type": "keyword",
+                        "ignore_above": 256
+                    }
+                }
+            },
             "displayDescriptionDe": {
                 "type": "text",
                 "analyzer": "german"
@@ -88,6 +98,10 @@
             "displayDescriptionEs": {
                 "type": "text",
                 "analyzer": "spanish"
+            },
+            "displayDescriptionIt": {
+                "type": "text",
+                "analyzer": "italian"
             },
             "created": {
                 "type": "date",

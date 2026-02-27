@@ -1,0 +1,89 @@
+# =============================
+# ITALIAN – Antiques Marketplace
+# synonym_graph / Solr format
+# =============================
+
+# === Core Furniture Types ===
+credenza, madia, buffet
+armadio, guardaroba
+scrivania, scrittoio, segretario
+cassettone, comò, cassettiera
+libreria, scaffale
+vetrina, cristalliera
+consolle, tavolo consolle
+tavolo a ribalta, tavolo pieghevole
+tavolini a incastro, tavolini estraibili
+étagère, scaffale a ripiani
+
+# Seating
+divano, sofà, canapè
+poltrona, sedia a braccioli
+poltrona a orecchioni, bergère
+chaise longue, lettino
+sgabello, panchetto
+pouf, ottomana, poggiapiedi
+
+# Storage
+armadio, credenza, mobile
+cassapanca, baule
+cofanetto, forziere
+
+# === Lighting ===
+lampadario, candelabro
+candelabro, girandola
+candeliere, portacandela
+applique, lampada da parete
+lampada a olio, lampada a cherosene
+lanterna, lampione
+
+# === Decorative Arts ===
+arazzo, tappezzeria
+figurina, statuetta
+busto, scultura
+specchio, specchiera
+orologio a pendolo, orologio da camino
+orologio a colonna, orologio a pendola
+segnatempo, orologio
+
+# === Ceramics & Glass ===
+porcellana, ceramica
+maiolica, faenza
+grès, terracotta
+cristallo, vetro tagliato
+decanter, caraffa
+brocca, caraffa, anfora
+piatto da portata, vassoio
+
+# === Silver & Metalwork ===
+argento, argento sterling
+argentato, placcato argento
+bronzo dorato, ormolu
+bronzo, metallo
+ottone, ramaio
+peltro, stagno
+
+# === Materials (Wood) ===
+mogano, legno di mogano
+noce, legno di noce
+palissandro, legno di rosa
+quercia, rovere
+ebano, ebanizzato
+
+# === Styles & Periods ===
+art déco, art deco
+art nouveau, liberty, stile floreale
+arti e mestieri, arts and crafts
+metà secolo, mid-century
+barocco, rococò
+vittoriano, epoca vittoriana
+edoardiano, epoca edoardiana
+neoclassico, stile impero
+gotico, neogotico
+
+# === Market Terms ===
+antiquariato, pezzo d'epoca
+vintage, retrò
+patina, finitura invecchiata
+provenienza, origine
+vendita immobiliare, asta immobiliare
+oggetto da collezione, pezzo da collezione

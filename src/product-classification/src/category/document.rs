@@ -25,10 +25,12 @@ pub struct CategoryDocument {
     pub display_name_en: String,
     pub display_name_fr: String,
     pub display_name_es: String,
+    pub display_name_it: String,
     pub display_description_de: String,
     pub display_description_en: String,
     pub display_description_fr: String,
     pub display_description_es: String,
+    pub display_description_it: String,
 
     #[serde(with = "time::serde::rfc3339")]
     pub created: OffsetDateTime,
@@ -49,11 +51,13 @@ impl From<CategoryDocument> for Category {
         display_name.insert(Language::En, document.display_name_en.into());
         display_name.insert(Language::Fr, document.display_name_fr.into());
         display_name.insert(Language::Es, document.display_name_es.into());
+        display_name.insert(Language::It, document.display_name_it.into());
         let mut display_description = HashMap::with_capacity(Language::COUNT);
         display_description.insert(Language::De, document.display_description_de.into());
         display_description.insert(Language::En, document.display_description_en.into());
         display_description.insert(Language::Fr, document.display_description_fr.into());
         display_description.insert(Language::Es, document.display_description_es.into());
+        display_description.insert(Language::It, document.display_description_it.into());
 
         Self {
             category_id: document.category_id,
@@ -102,6 +106,11 @@ impl TryFrom<Category> for CategoryDocument {
                 .remove(&Language::Es)
                 .ok_or(MissingRequiredField::new("display_name_es"))?
                 .into(),
+            display_name_it: category
+                .display_name
+                .remove(&Language::It)
+                .ok_or(MissingRequiredField::new("display_name_it"))?
+                .into(),
             display_description_de: category
                 .display_description
                 .remove(&Language::De)
@@ -121,6 +130,11 @@ impl TryFrom<Category> for CategoryDocument {
                 .display_description
                 .remove(&Language::Es)
                 .ok_or(MissingRequiredField::new("display_description_es"))?
+                .into(),
+            display_description_it: category
+                .display_description
+                .remove(&Language::It)
+                .ok_or(MissingRequiredField::new("display_description_it"))?
                 .into(),
             created: category.created,
             updated: category.updated,

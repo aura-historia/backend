@@ -1382,6 +1382,14 @@ async fn should_200_and_personalize_when_similar_products_have_been_computed_for
 #[case("es-AR,es;q=0.9", "Spanish title", Language::Es)]
 #[case("fr;q=0.1,de;q=0.2,es;q=0.6", "Spanish title", Language::Es)]
 #[case("*,es;q=0.5", "Spanish title", Language::Es)]
+#[case("it", "Italian title", Language::It)]
+#[case("it-IT", "Italian title", Language::It)]
+#[case("it-CH", "Italian title", Language::It)]
+#[case("it;q=1.0", "Italian title", Language::It)]
+#[case("it,en;q=0.3", "Italian title", Language::It)]
+#[case("it-IT,it;q=0.9", "Italian title", Language::It)]
+#[case("de;q=0.1,fr;q=0.2,it;q=0.6", "Italian title", Language::It)]
+#[case("*,it;q=0.5", "Italian title", Language::It)]
 #[localstack_test(services = [OpenSearch(), DynamoDB()])]
 async fn should_respond_200_and_respect_language_query_param(
     #[case] _language_query: &str,
@@ -1445,8 +1453,10 @@ async fn should_respond_200_and_respect_language_query_param(
         doc.title_en = Some("English title".to_string());
         doc.title_fr = Some("French title".to_string());
         doc.title_es = Some("Spanish title".to_string());
+        doc.title_it = Some("Italian title".to_string());
         doc.description_fr = Some("French description".to_string());
         doc.description_es = Some("Spanish description".to_string());
+        doc.description_it = Some("Italian description".to_string());
     }
     product_documents.push(product_document);
     let os_insert_res = product_opensearch_repository
@@ -1467,6 +1477,7 @@ async fn should_respond_200_and_respect_language_query_param(
                     Language::En => "en",
                     Language::Fr => "fr",
                     Language::Es => "es",
+                    Language::It => "it",
                 },
             )
             .path_parameter("shopId", product_record.shop_id)

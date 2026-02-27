@@ -61,6 +61,8 @@ pub struct ProductRecord {
     #[serde(skip_serializing_if = "Option::is_none", default)]
     pub category_name_es: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub category_name_it: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none", default)]
     pub period_name_de: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none", default)]
     pub period_name_en: Option<String>,
@@ -68,6 +70,8 @@ pub struct ProductRecord {
     pub period_name_fr: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none", default)]
     pub period_name_es: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub period_name_it: Option<String>,
 
     pub title_native: TextRecord,
     #[serde(skip_serializing_if = "Option::is_none", default)]
@@ -78,6 +82,8 @@ pub struct ProductRecord {
     pub title_fr: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none", default)]
     pub title_es: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub title_it: Option<String>,
 
     #[serde(skip_serializing_if = "Option::is_none", default)]
     pub description_native: Option<TextRecord>,
@@ -89,6 +95,8 @@ pub struct ProductRecord {
     pub description_fr: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none", default)]
     pub description_es: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub description_it: Option<String>,
 
     #[serde(skip_serializing_if = "Option::is_none", default)]
     pub price_native: Option<PriceRecord>,
@@ -219,6 +227,9 @@ impl From<ProductRecord> for Product {
         if let Some(category_es) = record.category_name_es {
             category_name.insert(Language::Es, category_es.into());
         }
+        if let Some(category_it) = record.category_name_it {
+            category_name.insert(Language::It, category_it.into());
+        }
         let mut period_name = HashMap::with_capacity(Language::COUNT);
         if let Some(period_en) = record.period_name_en {
             period_name.insert(Language::En, period_en.into());
@@ -231,6 +242,9 @@ impl From<ProductRecord> for Product {
         }
         if let Some(period_es) = record.period_name_es {
             period_name.insert(Language::Es, period_es.into());
+        }
+        if let Some(period_it) = record.period_name_it {
+            period_name.insert(Language::It, period_it.into());
         }
 
         let mut other_title = HashMap::with_capacity(Language::COUNT);
@@ -246,6 +260,9 @@ impl From<ProductRecord> for Product {
         if let Some(title_es) = record.title_es {
             other_title.insert(Language::Es, title_es.into());
         }
+        if let Some(title_it) = record.title_it {
+            other_title.insert(Language::It, title_it.into());
+        }
 
         let mut other_description = HashMap::with_capacity(Language::COUNT);
         if let Some(description_en) = record.description_en {
@@ -259,6 +276,9 @@ impl From<ProductRecord> for Product {
         }
         if let Some(description_es) = record.description_es {
             other_description.insert(Language::Es, description_es.into());
+        }
+        if let Some(description_it) = record.description_it {
+            other_description.insert(Language::It, description_it.into());
         }
 
         let mut other_price = HashMap::with_capacity(Currency::COUNT);
@@ -405,10 +425,12 @@ impl TryFrom<ProductDomainEventRecord> for ProductRecord {
             category_name_en: None,
             category_name_fr: None,
             category_name_es: None,
+            category_name_it: None,
             period_name_de: None,
             period_name_en: None,
             period_name_fr: None,
             period_name_es: None,
+            period_name_it: None,
             title_native: event_record.title_native.ok_or_else(|| {
                 MissingPersistenceField::new(field!(title_native@ProductDomainEventRecord))
             })?,
@@ -416,11 +438,13 @@ impl TryFrom<ProductDomainEventRecord> for ProductRecord {
             title_en: event_record.title_en,
             title_fr: event_record.title_fr,
             title_es: event_record.title_es,
+            title_it: event_record.title_it,
             description_native: event_record.description_native,
             description_de: event_record.description_de,
             description_en: event_record.description_en,
             description_fr: event_record.description_fr,
             description_es: event_record.description_es,
+            description_it: event_record.description_it,
             price_native: event_record.new_price_native,
             price_eur: event_record.new_price_eur,
             price_usd: event_record.new_price_usd,
@@ -517,15 +541,18 @@ mod faker {
                 category_name_en: config.fake_with_rng(rng),
                 category_name_fr: config.fake_with_rng(rng),
                 category_name_es: config.fake_with_rng(rng),
+                category_name_it: config.fake_with_rng(rng),
                 period_name_de: config.fake_with_rng(rng),
                 period_name_en: config.fake_with_rng(rng),
                 period_name_fr: config.fake_with_rng(rng),
                 period_name_es: config.fake_with_rng(rng),
+                period_name_it: config.fake_with_rng(rng),
                 title_native,
                 title_de: Some(config.fake_with_rng::<Title, _>(rng).to_string()),
                 title_en: Some(config.fake_with_rng::<Title, _>(rng).to_string()),
                 title_fr: Some(config.fake_with_rng::<Title, _>(rng).to_string()),
                 title_es: Some(config.fake_with_rng::<Title, _>(rng).to_string()),
+                title_it: Some(config.fake_with_rng::<Title, _>(rng).to_string()),
                 description_native: Some(TextRecord::new(
                     config.fake_with_rng::<Description, _>(rng).to_string(),
                     config.fake_with_rng(rng),
@@ -534,6 +561,7 @@ mod faker {
                 description_en: Some(config.fake_with_rng::<Description, _>(rng).to_string()),
                 description_fr: Some(config.fake_with_rng::<Description, _>(rng).to_string()),
                 description_es: Some(config.fake_with_rng::<Description, _>(rng).to_string()),
+                description_it: Some(config.fake_with_rng::<Description, _>(rng).to_string()),
                 price_native,
                 price_eur: Some(config.fake_with_rng::<MonetaryAmount, _>(rng).into()),
                 price_usd: Some(config.fake_with_rng::<MonetaryAmount, _>(rng).into()),
