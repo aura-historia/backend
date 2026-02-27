@@ -248,47 +248,52 @@ impl TryFrom<ProductDomainEvent> for ProductDomainEventRecord {
                         ),
                     };
 
-                let (description_de, description_en, description_fr, description_es, description_it) =
-                    match payload.native_description {
-                        Some(ref native_description) => match native_description.localization {
-                            Language::De => (
-                                Some(native_description.payload.to_string()),
-                                None,
-                                None,
-                                None,
-                                None,
-                            ),
-                            Language::En => (
-                                None,
-                                Some(native_description.payload.to_string()),
-                                None,
-                                None,
-                                None,
-                            ),
-                            Language::Fr => (
-                                None,
-                                None,
-                                Some(native_description.payload.to_string()),
-                                None,
-                                None,
-                            ),
-                            Language::Es => (
-                                None,
-                                None,
-                                None,
-                                Some(native_description.payload.to_string()),
-                                None,
-                            ),
-                            Language::It => (
-                                None,
-                                None,
-                                None,
-                                None,
-                                Some(native_description.payload.to_string()),
-                            ),
-                        },
-                        None => (None, None, None, None, None),
-                    };
+                let (
+                    description_de,
+                    description_en,
+                    description_fr,
+                    description_es,
+                    description_it,
+                ) = match payload.native_description {
+                    Some(ref native_description) => match native_description.localization {
+                        Language::De => (
+                            Some(native_description.payload.to_string()),
+                            None,
+                            None,
+                            None,
+                            None,
+                        ),
+                        Language::En => (
+                            None,
+                            Some(native_description.payload.to_string()),
+                            None,
+                            None,
+                            None,
+                        ),
+                        Language::Fr => (
+                            None,
+                            None,
+                            Some(native_description.payload.to_string()),
+                            None,
+                            None,
+                        ),
+                        Language::Es => (
+                            None,
+                            None,
+                            None,
+                            Some(native_description.payload.to_string()),
+                            None,
+                        ),
+                        Language::It => (
+                            None,
+                            None,
+                            None,
+                            None,
+                            Some(native_description.payload.to_string()),
+                        ),
+                    },
+                    None => (None, None, None, None, None),
+                };
 
                 let record = ProductDomainEventRecord {
                     pk,
