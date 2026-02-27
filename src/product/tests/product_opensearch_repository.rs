@@ -668,6 +668,7 @@ async fn should_omit_descriptions_in_response_for_search_product_documents() {
     expected.description_en = None;
     expected.description_fr = None;
     expected.description_es = None;
+    expected.description_it = None;
 
     assert_eq!(
         vec![expected],
@@ -897,6 +898,7 @@ async fn should_search_product_documents_when_price_range_is_given(
             product.description_en = None;
             product.description_fr = None;
             product.description_es = None;
+            product.description_it = None;
             product
         })
         .collect::<Vec<_>>();
@@ -909,6 +911,7 @@ async fn should_search_product_documents_when_price_range_is_given(
             product.description_en = None;
             product.description_fr = None;
             product.description_es = None;
+            product.description_it = None;
             product
         })
         .collect::<Vec<_>>();
@@ -997,6 +1000,7 @@ async fn should_search_product_documents_respecting_paging_when_sorted_by_price(
             product.description_en = None;
             product.description_fr = None;
             product.description_es = None;
+            product.description_it = None;
             product
         })
         .collect::<Vec<_>>();
@@ -1079,6 +1083,7 @@ async fn should_search_product_documents_respecting_search_after_when_sorted_by_
             product.description_en = None;
             product.description_fr = None;
             product.description_es = None;
+            product.description_it = None;
             product
         })
         .collect::<Vec<_>>();
@@ -2306,6 +2311,7 @@ async fn should_search_product_documents_when_exact_year_is_given_for_stored_exa
             product.description_en = None;
             product.description_fr = None;
             product.description_es = None;
+            product.description_it = None;
             product
         })
         .collect::<Vec<_>>();
@@ -2321,6 +2327,7 @@ async fn should_search_product_documents_when_exact_year_is_given_for_stored_exa
             product.description_en = None;
             product.description_fr = None;
             product.description_es = None;
+            product.description_it = None;
             product
         })
         .collect::<Vec<_>>();
@@ -2402,6 +2409,7 @@ async fn should_search_product_documents_when_only_min_year_is_given_for_stored_
             product.description_en = None;
             product.description_fr = None;
             product.description_es = None;
+            product.description_it = None;
             product
         })
         .collect::<Vec<_>>();
@@ -2417,6 +2425,7 @@ async fn should_search_product_documents_when_only_min_year_is_given_for_stored_
             product.description_en = None;
             product.description_fr = None;
             product.description_es = None;
+            product.description_it = None;
             product
         })
         .collect::<Vec<_>>();
@@ -2498,6 +2507,7 @@ async fn should_search_product_documents_when_only_max_year_is_given_for_stored_
             product.description_en = None;
             product.description_fr = None;
             product.description_es = None;
+            product.description_it = None;
             product
         })
         .collect::<Vec<_>>();
@@ -2513,6 +2523,7 @@ async fn should_search_product_documents_when_only_max_year_is_given_for_stored_
             product.description_en = None;
             product.description_fr = None;
             product.description_es = None;
+            product.description_it = None;
             product
         })
         .collect::<Vec<_>>();
@@ -2594,6 +2605,7 @@ async fn should_search_product_documents_when_min_and_max_year_is_given_for_stor
             product.description_en = None;
             product.description_fr = None;
             product.description_es = None;
+            product.description_it = None;
             product
         })
         .collect::<Vec<_>>();
@@ -2609,6 +2621,7 @@ async fn should_search_product_documents_when_min_and_max_year_is_given_for_stor
             product.description_en = None;
             product.description_fr = None;
             product.description_es = None;
+            product.description_it = None;
             product
         })
         .collect::<Vec<_>>();
@@ -2692,6 +2705,7 @@ async fn should_search_product_documents_when_only_min_year_is_given_for_stored_
             product.description_en = None;
             product.description_fr = None;
             product.description_es = None;
+            product.description_it = None;
             product
         })
         .collect::<Vec<_>>();
@@ -2707,6 +2721,7 @@ async fn should_search_product_documents_when_only_min_year_is_given_for_stored_
             product.description_en = None;
             product.description_fr = None;
             product.description_es = None;
+            product.description_it = None;
             product
         })
         .collect::<Vec<_>>();
@@ -2788,6 +2803,7 @@ async fn should_search_product_documents_when_only_max_year_is_given_for_stored_
             product.description_en = None;
             product.description_fr = None;
             product.description_es = None;
+            product.description_it = None;
             product
         })
         .collect::<Vec<_>>();
@@ -2803,6 +2819,7 @@ async fn should_search_product_documents_when_only_max_year_is_given_for_stored_
             product.description_en = None;
             product.description_fr = None;
             product.description_es = None;
+            product.description_it = None;
             product
         })
         .collect::<Vec<_>>();
@@ -2884,6 +2901,7 @@ async fn should_search_product_documents_when_min_and_max_year_is_given_for_stor
             product.description_en = None;
             product.description_fr = None;
             product.description_es = None;
+            product.description_it = None;
             product
         })
         .collect::<Vec<_>>();
@@ -2899,6 +2917,7 @@ async fn should_search_product_documents_when_min_and_max_year_is_given_for_stor
             product.description_en = None;
             product.description_fr = None;
             product.description_es = None;
+            product.description_it = None;
             product
         })
         .collect::<Vec<_>>();
@@ -3694,6 +3713,7 @@ async fn should_search_product_documents_when_auction_start_range_is_given(
             product.description_en = None;
             product.description_fr = None;
             product.description_es = None;
+            product.description_it = None;
             product
         })
         .collect::<Vec<_>>();
@@ -3707,6 +3727,7 @@ async fn should_search_product_documents_when_auction_start_range_is_given(
             product.description_en = None;
             product.description_fr = None;
             product.description_es = None;
+            product.description_it = None;
             product
         })
         .collect::<Vec<_>>();
@@ -3720,6 +3741,7 @@ async fn should_search_product_documents_when_auction_start_range_is_given(
             product.description_en = None;
             product.description_fr = None;
             product.description_es = None;
+            product.description_it = None;
             product
         })
         .collect::<Vec<_>>();
@@ -3826,6 +3848,7 @@ async fn should_search_product_documents_when_auction_end_range_is_given(
             product.description_en = None;
             product.description_fr = None;
             product.description_es = None;
+            product.description_it = None;
             product
         })
         .collect::<Vec<_>>();
@@ -3839,6 +3862,7 @@ async fn should_search_product_documents_when_auction_end_range_is_given(
             product.description_en = None;
             product.description_fr = None;
             product.description_es = None;
+            product.description_it = None;
             product
         })
         .collect::<Vec<_>>();
@@ -3852,6 +3876,7 @@ async fn should_search_product_documents_when_auction_end_range_is_given(
             product.description_en = None;
             product.description_fr = None;
             product.description_es = None;
+            product.description_it = None;
             product
         })
         .collect::<Vec<_>>();
