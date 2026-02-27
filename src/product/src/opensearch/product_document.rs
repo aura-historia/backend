@@ -58,6 +58,8 @@ pub struct ProductDocument {
     #[serde(skip_serializing_if = "Option::is_none", default)]
     pub category_name_es: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub category_name_it: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none", default)]
     pub period_name_de: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none", default)]
     pub period_name_en: Option<String>,
@@ -65,6 +67,8 @@ pub struct ProductDocument {
     pub period_name_fr: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none", default)]
     pub period_name_es: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub period_name_it: Option<String>,
 
     pub title_native: TextDocument,
     #[serde(skip_serializing_if = "Option::is_none", default)]
@@ -75,6 +79,8 @@ pub struct ProductDocument {
     pub title_fr: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none", default)]
     pub title_es: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub title_it: Option<String>,
 
     #[serde(skip_serializing_if = "Option::is_none", default)]
     pub description_de: Option<String>,
@@ -84,6 +90,8 @@ pub struct ProductDocument {
     pub description_fr: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none", default)]
     pub description_es: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub description_it: Option<String>,
 
     #[serde(skip_serializing_if = "Option::is_none", default)]
     pub price_eur: Option<u64>,
@@ -221,10 +229,12 @@ impl TryFrom<ProductDomainEventRecord> for ProductDocument {
             category_name_en: None,
             category_name_fr: None,
             category_name_es: None,
+            category_name_it: None,
             period_name_de: None,
             period_name_en: None,
             period_name_fr: None,
             period_name_es: None,
+            period_name_it: None,
             title_native: event_product_document
                 .title_native
                 .map(TextDocument::from)
@@ -235,10 +245,12 @@ impl TryFrom<ProductDomainEventRecord> for ProductDocument {
             title_en: event_product_document.title_en,
             title_fr: event_product_document.title_fr,
             title_es: event_product_document.title_es,
+            title_it: event_product_document.title_it,
             description_de: event_product_document.description_de,
             description_en: event_product_document.description_en,
             description_fr: event_product_document.description_fr,
             description_es: event_product_document.description_es,
+            description_it: event_product_document.description_it,
             price_eur: event_product_document.new_price_eur,
             price_usd: event_product_document.new_price_usd,
             price_gbp: event_product_document.new_price_gbp,
@@ -301,19 +313,23 @@ impl From<ProductRecord> for ProductDocument {
             category_name_en: product_document.category_name_en,
             category_name_fr: product_document.category_name_fr,
             category_name_es: product_document.category_name_es,
+            category_name_it: product_document.category_name_it,
             period_name_de: product_document.period_name_de,
             period_name_en: product_document.period_name_en,
             period_name_fr: product_document.period_name_fr,
             period_name_es: product_document.period_name_es,
+            period_name_it: product_document.period_name_it,
             title_native: product_document.title_native.into(),
             title_de: product_document.title_de,
             title_en: product_document.title_en,
             title_fr: product_document.title_fr,
             title_es: product_document.title_es,
+            title_it: product_document.title_it,
             description_de: product_document.description_de,
             description_en: product_document.description_en,
             description_fr: product_document.description_fr,
             description_es: product_document.description_es,
+            description_it: product_document.description_it,
             price_eur: product_document.price_eur,
             price_usd: product_document.price_usd,
             price_gbp: product_document.price_gbp,
@@ -362,6 +378,7 @@ impl ProductDocumentSerdeField {
             ProductDocumentSerdeField::DescriptionEn,
             ProductDocumentSerdeField::DescriptionFr,
             ProductDocumentSerdeField::DescriptionEs,
+            ProductDocumentSerdeField::DescriptionIt,
         ]
         .into()
     }
@@ -382,6 +399,9 @@ impl From<ProductDocument> for Product {
         if let Some(category_es) = product_document.category_name_es {
             category_name.insert(Language::Es, category_es.into());
         }
+        if let Some(category_it) = product_document.category_name_it {
+            category_name.insert(Language::It, category_it.into());
+        }
         let mut period_name = HashMap::with_capacity(Language::COUNT);
         if let Some(period_en) = product_document.period_name_en {
             period_name.insert(Language::En, period_en.into());
@@ -394,6 +414,9 @@ impl From<ProductDocument> for Product {
         }
         if let Some(period_es) = product_document.period_name_es {
             period_name.insert(Language::Es, period_es.into());
+        }
+        if let Some(period_it) = product_document.period_name_it {
+            period_name.insert(Language::It, period_it.into());
         }
 
         let mut other_title = HashMap::with_capacity(Language::COUNT);
@@ -409,6 +432,9 @@ impl From<ProductDocument> for Product {
         if let Some(title_es) = product_document.title_es {
             other_title.insert(Language::Es, title_es.into());
         }
+        if let Some(title_it) = product_document.title_it {
+            other_title.insert(Language::It, title_it.into());
+        }
 
         let mut other_description = HashMap::with_capacity(Language::COUNT);
         if let Some(description_en) = product_document.description_en {
@@ -422,6 +448,9 @@ impl From<ProductDocument> for Product {
         }
         if let Some(description_es) = product_document.description_es {
             other_description.insert(Language::Es, description_es.into());
+        }
+        if let Some(description_it) = product_document.description_it {
+            other_description.insert(Language::It, description_it.into());
         }
 
         let mut other_price = HashMap::with_capacity(Currency::COUNT);
@@ -576,10 +605,12 @@ mod faker {
                 category_name_en: config.fake_with_rng(rng),
                 category_name_fr: config.fake_with_rng(rng),
                 category_name_es: config.fake_with_rng(rng),
+                category_name_it: config.fake_with_rng(rng),
                 period_name_de: config.fake_with_rng(rng),
                 period_name_en: config.fake_with_rng(rng),
                 period_name_fr: config.fake_with_rng(rng),
                 period_name_es: config.fake_with_rng(rng),
+                period_name_it: config.fake_with_rng(rng),
                 shop_name,
                 shop_type: config.fake_with_rng(rng),
                 title_native,
@@ -587,10 +618,12 @@ mod faker {
                 title_en: Some(config.fake_with_rng::<Title, _>(rng).to_string()),
                 title_fr: Some(config.fake_with_rng::<Title, _>(rng).to_string()),
                 title_es: Some(config.fake_with_rng::<Title, _>(rng).to_string()),
+                title_it: Some(config.fake_with_rng::<Title, _>(rng).to_string()),
                 description_de: Some(config.fake_with_rng::<Description, _>(rng).to_string()),
                 description_en: Some(config.fake_with_rng::<Description, _>(rng).to_string()),
                 description_fr: Some(config.fake_with_rng::<Description, _>(rng).to_string()),
                 description_es: Some(config.fake_with_rng::<Description, _>(rng).to_string()),
+                description_it: Some(config.fake_with_rng::<Description, _>(rng).to_string()),
                 price_eur: Some(config.fake_with_rng::<MonetaryAmount, _>(rng).into()),
                 price_usd: Some(config.fake_with_rng::<MonetaryAmount, _>(rng).into()),
                 price_gbp: Some(config.fake_with_rng::<MonetaryAmount, _>(rng).into()),

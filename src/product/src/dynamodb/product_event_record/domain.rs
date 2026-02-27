@@ -63,6 +63,8 @@ pub struct ProductDomainEventRecord {
     pub title_fr: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none", default)]
     pub title_es: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub title_it: Option<String>,
 
     #[serde(skip_serializing_if = "Option::is_none", default)]
     pub description_native: Option<TextRecord>,
@@ -74,6 +76,8 @@ pub struct ProductDomainEventRecord {
     pub description_fr: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none", default)]
     pub description_es: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub description_it: Option<String>,
 
     #[serde(skip_serializing_if = "Option::is_none", default)]
     pub new_price_native: Option<PriceRecord>,
@@ -205,10 +209,11 @@ impl TryFrom<ProductDomainEvent> for ProductDomainEventRecord {
 
         match domain.payload {
             ProductDomainEventPayload::Created(payload) => {
-                let (title_de, title_en, title_fr, title_es) =
+                let (title_de, title_en, title_fr, title_es, title_it) =
                     match payload.native_title.localization {
                         Language::De => (
                             Some(payload.native_title.payload.to_string()),
+                            None,
                             None,
                             None,
                             None,
@@ -218,11 +223,13 @@ impl TryFrom<ProductDomainEvent> for ProductDomainEventRecord {
                             Some(payload.native_title.payload.to_string()),
                             None,
                             None,
+                            None,
                         ),
                         Language::Fr => (
                             None,
                             None,
                             Some(payload.native_title.payload.to_string()),
+                            None,
                             None,
                         ),
                         Language::Es => (
@@ -230,15 +237,23 @@ impl TryFrom<ProductDomainEvent> for ProductDomainEventRecord {
                             None,
                             None,
                             Some(payload.native_title.payload.to_string()),
+                            None,
                         ),
-                        Language::It => (None, None, None, None),
+                        Language::It => (
+                            None,
+                            None,
+                            None,
+                            None,
+                            Some(payload.native_title.payload.to_string()),
+                        ),
                     };
 
-                let (description_de, description_en, description_fr, description_es) =
+                let (description_de, description_en, description_fr, description_es, description_it) =
                     match payload.native_description {
                         Some(ref native_description) => match native_description.localization {
                             Language::De => (
                                 Some(native_description.payload.to_string()),
+                                None,
                                 None,
                                 None,
                                 None,
@@ -248,11 +263,13 @@ impl TryFrom<ProductDomainEvent> for ProductDomainEventRecord {
                                 Some(native_description.payload.to_string()),
                                 None,
                                 None,
+                                None,
                             ),
                             Language::Fr => (
                                 None,
                                 None,
                                 Some(native_description.payload.to_string()),
+                                None,
                                 None,
                             ),
                             Language::Es => (
@@ -260,10 +277,17 @@ impl TryFrom<ProductDomainEvent> for ProductDomainEventRecord {
                                 None,
                                 None,
                                 Some(native_description.payload.to_string()),
+                                None,
                             ),
-                            Language::It => (None, None, None, None),
+                            Language::It => (
+                                None,
+                                None,
+                                None,
+                                None,
+                                Some(native_description.payload.to_string()),
+                            ),
                         },
-                        None => (None, None, None, None),
+                        None => (None, None, None, None, None),
                     };
 
                 let record = ProductDomainEventRecord {
@@ -284,11 +308,13 @@ impl TryFrom<ProductDomainEvent> for ProductDomainEventRecord {
                     title_en,
                     title_fr,
                     title_es,
+                    title_it,
                     description_native: payload.native_description.map(TextRecord::from),
                     description_de,
                     description_en,
                     description_fr,
                     description_es,
+                    description_it,
                     new_price_native: payload.native_price.map(PriceRecord::from),
                     new_price_eur: payload
                         .other_price
@@ -499,11 +525,13 @@ impl TryFrom<ProductDomainEvent> for ProductDomainEventRecord {
                 title_en: None,
                 title_fr: None,
                 title_es: None,
+                title_it: None,
                 description_native: None,
                 description_de: None,
                 description_en: None,
                 description_fr: None,
                 description_es: None,
+                description_it: None,
                 new_price_native: Some(payload.native_price.into()),
                 new_price_eur: payload
                     .other_price
@@ -604,11 +632,13 @@ impl TryFrom<ProductDomainEvent> for ProductDomainEventRecord {
                 title_en: None,
                 title_fr: None,
                 title_es: None,
+                title_it: None,
                 description_native: None,
                 description_de: None,
                 description_en: None,
                 description_fr: None,
                 description_es: None,
+                description_it: None,
                 new_price_native: None,
                 new_price_eur: None,
                 new_price_usd: None,
@@ -704,11 +734,13 @@ fn mk_state_event_record(
         title_en: None,
         title_fr: None,
         title_es: None,
+        title_it: None,
         description_native: None,
         description_de: None,
         description_en: None,
         description_fr: None,
         description_es: None,
+        description_it: None,
         new_price_native: None,
         new_price_eur: None,
         new_price_usd: None,
@@ -777,11 +809,13 @@ fn mk_price_change_event_record(
         title_en: None,
         title_fr: None,
         title_es: None,
+        title_it: None,
         description_native: None,
         description_de: None,
         description_en: None,
         description_fr: None,
         description_es: None,
+        description_it: None,
         new_price_native: Some(product_price_change_event_payload.new_native_price.into()),
         new_price_eur: product_price_change_event_payload
             .new_other_price

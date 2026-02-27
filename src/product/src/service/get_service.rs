@@ -697,6 +697,7 @@ mod tests {
             expected_record.title_en = None;
             expected_record.title_fr = None;
             expected_record.title_es = None;
+            expected_record.title_it = None;
             repository
                 .expect_get_product_record()
                 .return_once(|_, _| Box::pin(async { Ok(Some(expected_record)) }));
@@ -790,6 +791,7 @@ mod tests {
             expected_record.description_en = None;
             expected_record.description_fr = None;
             expected_record.description_es = None;
+            expected_record.description_it = None;
             repository
                 .expect_get_product_record()
                 .return_once(|_, _| Box::pin(async { Ok(Some(expected_record)) }));
@@ -834,6 +836,7 @@ mod tests {
             expected_record.description_en = None;
             expected_record.description_fr = None;
             expected_record.description_es = None;
+            expected_record.description_it = None;
             repository
                 .expect_get_product_record()
                 .return_once(|_, _| Box::pin(async { Ok(Some(expected_record)) }));

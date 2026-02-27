@@ -52,6 +52,8 @@ pub struct ProductRecordUpdate {
     #[serde(skip_serializing_if = "Option::is_none", default)]
     pub category_name_es: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub category_name_it: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none", default)]
     pub period_name_de: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none", default)]
     pub period_name_en: Option<String>,
@@ -59,6 +61,8 @@ pub struct ProductRecordUpdate {
     pub period_name_fr: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none", default)]
     pub period_name_es: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub period_name_it: Option<String>,
 
     #[serde(skip_serializing_if = "Option::is_none", default)]
     pub title_de: Option<String>,
@@ -68,6 +72,8 @@ pub struct ProductRecordUpdate {
     pub title_fr: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none", default)]
     pub title_es: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub title_it: Option<String>,
 
     #[serde(skip_serializing_if = "Option::is_none", default)]
     pub description_de: Option<String>,
@@ -77,6 +83,8 @@ pub struct ProductRecordUpdate {
     pub description_fr: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none", default)]
     pub description_es: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub description_it: Option<String>,
 
     #[serde(skip_serializing_if = "Option::is_none", default)]
     pub images: Option<Vec<ProductImageRecord>>,
@@ -122,18 +130,22 @@ impl Default for ProductRecordUpdate {
             category_name_en: None,
             category_name_fr: None,
             category_name_es: None,
+            category_name_it: None,
             period_name_de: None,
             period_name_en: None,
             period_name_fr: None,
             period_name_es: None,
+            period_name_it: None,
             title_de: None,
             title_en: None,
             title_fr: None,
             title_es: None,
+            title_it: None,
             description_de: None,
             description_en: None,
             description_fr: None,
             description_es: None,
+            description_it: None,
             images: None,
             text_embedding: None,
             origin_year_min: None,
@@ -166,18 +178,22 @@ impl From<ProductDomainEventRecord> for ProductRecordUpdate {
             category_name_en: None,
             category_name_fr: None,
             category_name_es: None,
+            category_name_it: None,
             period_name_de: None,
             period_name_en: None,
             period_name_fr: None,
             period_name_es: None,
+            period_name_it: None,
             title_de: event.title_de,
             title_en: event.title_en,
             title_fr: event.title_fr,
             title_es: event.title_es,
+            title_it: event.title_it,
             description_de: event.description_de,
             description_en: event.description_en,
             description_fr: event.description_fr,
             description_es: event.description_es,
+            description_it: event.description_it,
             images: event.images,
             text_embedding: None,
             origin_year_min: None,
@@ -210,18 +226,22 @@ impl From<ProductEnrichmentEventRecord> for ProductRecordUpdate {
             category_name_en: None,
             category_name_fr: None,
             category_name_es: None,
+            category_name_it: None,
             period_name_de: None,
             period_name_en: None,
             period_name_fr: None,
             period_name_es: None,
+            period_name_it: None,
             title_de: None,
             title_en: None,
             title_fr: None,
             title_es: None,
+            title_it: None,
             description_de: None,
             description_en: None,
             description_fr: None,
             description_es: None,
+            description_it: None,
             images: None,
             text_embedding: event.text_embedding,
             origin_year_min: event.origin_year_min,
@@ -265,18 +285,22 @@ mod faker {
                 category_name_en: Some(config.fake_with_rng(rng)),
                 category_name_fr: Some(config.fake_with_rng(rng)),
                 category_name_es: Some(config.fake_with_rng(rng)),
+                category_name_it: Some(config.fake_with_rng(rng)),
                 period_name_de: Some(config.fake_with_rng(rng)),
                 period_name_en: Some(config.fake_with_rng(rng)),
                 period_name_fr: Some(config.fake_with_rng(rng)),
                 period_name_es: Some(config.fake_with_rng(rng)),
+                period_name_it: Some(config.fake_with_rng(rng)),
                 title_de: Some(config.fake_with_rng::<Title, _>(rng).into()),
                 title_en: Some(config.fake_with_rng::<Title, _>(rng).into()),
                 title_fr: Some(config.fake_with_rng::<Title, _>(rng).into()),
                 title_es: Some(config.fake_with_rng::<Title, _>(rng).into()),
+                title_it: Some(config.fake_with_rng::<Title, _>(rng).into()),
                 description_de: Some(config.fake_with_rng::<Description, _>(rng).into()),
                 description_en: Some(config.fake_with_rng::<Description, _>(rng).into()),
                 description_fr: Some(config.fake_with_rng::<Description, _>(rng).into()),
                 description_es: Some(config.fake_with_rng::<Description, _>(rng).into()),
+                description_it: Some(config.fake_with_rng::<Description, _>(rng).into()),
                 text_embedding: if config.fake_with_rng(rng) {
                     Some(fake::vec![f32; 1024])
                 } else {
