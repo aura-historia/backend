@@ -207,6 +207,11 @@ static SPANISH_SYNONYMS_STR: &str = include_str!(concat!(
     "opensearch/analysis/spanish_synonyms.txt"
 ));
 
+static ITALIAN_SYNONYMS_STR: &str = include_str!(concat!(
+    env!("CARGO_WORKSPACE_DIR"),
+    "opensearch/analysis/italian_synonyms.txt"
+));
+
 /// Parses synonym file content into a list of synonym rules,
 /// filtering out comments and blank lines.
 fn parse_synonym_rules(content: &str) -> Vec<String> {
@@ -230,6 +235,7 @@ fn products_mapping_with_inline_synonyms() -> serde_json::Value {
         ("german_synonyms", GERMAN_SYNONYMS_STR),
         ("french_synonyms", FRENCH_SYNONYMS_STR),
         ("spanish_synonyms", SPANISH_SYNONYMS_STR),
+        ("italian_synonyms", ITALIAN_SYNONYMS_STR),
     ];
 
     for (filter_name, content) in synonym_files {
@@ -431,6 +437,7 @@ mod tests {
             "german_synonyms",
             "french_synonyms",
             "spanish_synonyms",
+            "italian_synonyms",
         ];
 
         for filter_name in filter_names {
@@ -463,12 +470,13 @@ mod tests {
     fn should_set_search_analyzer_on_title_fields_in_products_mapping() {
         let mapping = products_mapping_with_inline_synonyms();
 
-        let title_fields = ["titleEn", "titleDe", "titleFr", "titleEs"];
+        let title_fields = ["titleEn", "titleDe", "titleFr", "titleEs", "titleIt"];
         let expected_search_analyzers = [
             "english_with_synonyms",
             "german_with_synonyms",
             "french_with_synonyms",
             "spanish_with_synonyms",
+            "italian_with_synonyms",
         ];
 
         for (field, expected_analyzer) in title_fields.iter().zip(expected_search_analyzers.iter())

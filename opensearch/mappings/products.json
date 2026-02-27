@@ -78,6 +78,19 @@
                     "type": "synonym_graph",
                     "synonyms_path": "analysis/spanish_synonyms.txt",
                     "updateable": true
+                },
+                "italian_stop": {
+                    "type": "stop",
+                    "stopwords": "_italian_"
+                },
+                "italian_stemmer": {
+                    "type": "stemmer",
+                    "language": "light_italian"
+                },
+                "italian_synonyms": {
+                    "type": "synonym_graph",
+                    "synonyms_path": "analysis/italian_synonyms.txt",
+                    "updateable": true
                 }
             },
             "analyzer": {
@@ -122,6 +135,16 @@
                         "spanish_synonyms",
                         "spanish_stop",
                         "spanish_stemmer"
+                    ]
+                },
+                "italian_with_synonyms": {
+                    "type": "custom",
+                    "tokenizer": "standard",
+                    "filter": [
+                        "lowercase",
+                        "italian_synonyms",
+                        "italian_stop",
+                        "italian_stemmer"
                     ]
                 }
             }
@@ -168,6 +191,9 @@
             "categoryNameEs": {
                 "type": "keyword"
             },
+            "categoryNameIt": {
+                "type": "keyword"
+            },
             "periodId": {
                 "type": "keyword"
             },
@@ -181,6 +207,9 @@
                 "type": "keyword"
             },
             "periodNameEs": {
+                "type": "keyword"
+            },
+            "periodNameIt": {
                 "type": "keyword"
             },
             "titleNative": {
@@ -214,6 +243,11 @@
                 "analyzer": "spanish",
                 "search_analyzer": "spanish_with_synonyms"
             },
+            "titleIt": {
+                "type": "text",
+                "analyzer": "italian",
+                "search_analyzer": "italian_with_synonyms"
+            },
             "descriptionDe": {
                 "type": "text",
                 "analyzer": "german"
@@ -229,6 +263,10 @@
             "descriptionEs": {
                 "type": "text",
                 "analyzer": "spanish"
+            },
+            "descriptionIt": {
+                "type": "text",
+                "analyzer": "italian"
             },
             "priceEur": {
                 "type": "unsigned_long"
