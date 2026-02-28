@@ -8,9 +8,13 @@ common = { workspace = true }
 scraper = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
+thiserror = { workspace = true }
 
 # Optional
 fake = { workspace = true, optional = true }
+
+[dev-dependencies]
+rstest = { workspace = true }
 
 [features]
 default = []

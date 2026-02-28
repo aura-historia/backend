@@ -1,4 +1,5 @@
 use common::string_newtype;
+use scraper::{Html, Selector};
 use serde::{Deserialize, Serialize};
 
 string_newtype!(CssSelector, serde);
@@ -7,7 +8,7 @@ pub struct ExtractionRule {
     pub selector: CssSelector,
 
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
-    pub fallback_selectors: Vec<CssSelector>,
+    pub additional_selectors: Vec<CssSelector>,
 
     #[serde(flatten)]
     pub extract: ExtractionKind,
@@ -30,4 +31,909 @@ pub enum ExtractionCardinality {
     #[default]
     First,
     All,
+}
+
+#[derive(Debug, thiserror::Error)]
+pub enum ExtractionError {
+    #[error("invalid CSS selector `{selector}`: {reason}")]
+    InvalidSelector { selector: String, reason: String },
+
+    #[error("no element matched selector `{selector}` (or any additional selectors)")]
+    NoElementMatched { selector: String },
+
+    #[error("element matched by `{selector}` does not have attribute `{attribute}`")]
+    MissingAttribute { selector: String, attribute: String },
+}
+
+impl ExtractionRule {
+    /// Apply this extraction rule to the given parsed HTML document.
+    ///
+    /// Every configured selector (primary + additional) is evaluated in order.
+    /// Results from each selector are aggregated into a single `Vec<String>`.
+    ///
+    /// - **`First` cardinality**: takes the first matched element per selector.
+    /// - **`All` cardinality**: takes all matched elements per selector.
+    ///
+    /// Returns `Err(NoElementMatched)` only when *no* selector produced any
+    /// match at all.
+    pub fn apply(&self, html: &Html) -> Result<Vec<String>, ExtractionError> {
+        let all_selectors = std::iter::once(&self.selector).chain(self.additional_selectors.iter());
+
+        let mut results: Vec<String> = Vec::new();
+
+        for css_selector in all_selectors {
+            let parsed = parse_selector(css_selector)?;
+            let mut elements = html.select(&parsed).peekable();
+
+            if elements.peek().is_none() {
+                continue;
+            }
+
+            match self.cardinality {
+                ExtractionCardinality::First => {
+                    let element = elements.next().expect("peek confirmed element exists");
+                    results.push(extract_from_element(
+                        &element,
+                        &self.extract,
+                        css_selector.as_ref(),
+                    )?);
+                }
+                ExtractionCardinality::All => {
+                    for el in elements {
+                        results.push(extract_from_element(
+                            &el,
+                            &self.extract,
+                            css_selector.as_ref(),
+                        )?);
+                    }
+                }
+            }
+        }
+
+        if results.is_empty() {
+            return Err(ExtractionError::NoElementMatched {
+                selector: self.selector.to_string(),
+            });
+        }
+
+        Ok(results)
+    }
+}
+
+fn parse_selector(css_selector: &CssSelector) -> Result<Selector, ExtractionError> {
+    Selector::parse(css_selector.as_ref()).map_err(|err| ExtractionError::InvalidSelector {
+        selector: css_selector.to_string(),
+        reason: format!("{err:?}"),
+    })
+}
+
+fn extract_from_element(
+    element: &scraper::ElementRef<'_>,
+    kind: &ExtractionKind,
+    selector_str: &str,
+) -> Result<String, ExtractionError> {
+    match kind {
+        ExtractionKind::Text => {
+            let text: String = element.text().collect::<Vec<_>>().join("");
+            Ok(text.trim().to_owned())
+        }
+        ExtractionKind::Attribute { name } => {
+            let attr_value = element.value().attr(name.as_ref()).ok_or_else(|| {
+                ExtractionError::MissingAttribute {
+                    selector: selector_str.to_owned(),
+                    attribute: name.to_string(),
+                }
+            })?;
+            Ok(attr_value.to_owned())
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use rstest::rstest;
+
+    // ─── helpers ───────────────────────────────────────────────────────
+
+    fn html(raw: &str) -> Html {
+        Html::parse_fragment(raw)
+    }
+
+    fn rule(
+        selector: &str,
+        kind: ExtractionKind,
+        cardinality: ExtractionCardinality,
+    ) -> ExtractionRule {
+        ExtractionRule {
+            selector: CssSelector::from(selector),
+            additional_selectors: vec![],
+            extract: kind,
+            cardinality,
+        }
+    }
+
+    fn rule_with_additional(
+        selector: &str,
+        additional: Vec<&str>,
+        kind: ExtractionKind,
+        cardinality: ExtractionCardinality,
+    ) -> ExtractionRule {
+        ExtractionRule {
+            selector: CssSelector::from(selector),
+            additional_selectors: additional.into_iter().map(CssSelector::from).collect(),
+            extract: kind,
+            cardinality,
+        }
+    }
+
+    fn text_kind() -> ExtractionKind {
+        ExtractionKind::Text
+    }
+
+    fn attr_kind(name: &str) -> ExtractionKind {
+        ExtractionKind::Attribute {
+            name: HtmlAttributeName::from(name),
+        }
+    }
+
+    // ─── Text / First ──────────────────────────────────────────────────
+
+    #[test]
+    fn should_extract_text_when_single_element_matched_for_first_cardinality() {
+        let doc = html("<div><h1>Hello World</h1></div>");
+        let r = rule("h1", text_kind(), ExtractionCardinality::First);
+        assert_eq!(r.apply(&doc).unwrap(), vec!["Hello World"]);
+    }
+
+    #[test]
+    fn should_extract_first_text_when_multiple_elements_matched_for_first_cardinality() {
+        let doc = html("<ul><li>Alpha</li><li>Beta</li><li>Gamma</li></ul>");
+        let r = rule("li", text_kind(), ExtractionCardinality::First);
+        assert_eq!(r.apply(&doc).unwrap(), vec!["Alpha"]);
+    }
+
+    #[test]
+    fn should_extract_nested_text_when_element_has_children_for_text_kind() {
+        let doc = html("<p>Hello, <em>beautiful</em> world!</p>");
+        let r = rule("p", text_kind(), ExtractionCardinality::First);
+        assert_eq!(r.apply(&doc).unwrap(), vec!["Hello, beautiful world!"]);
+    }
+
+    #[test]
+    fn should_extract_trimmed_text_when_whitespace_around_content_for_text_kind() {
+        let doc = html("<span>   padded   </span>");
+        let r = rule("span", text_kind(), ExtractionCardinality::First);
+        assert_eq!(r.apply(&doc).unwrap(), vec!["padded"]);
+    }
+
+    #[test]
+    fn should_extract_empty_string_when_element_has_no_text_for_text_kind() {
+        let doc = html("<div><br/></div>");
+        let r = rule("br", text_kind(), ExtractionCardinality::First);
+        assert_eq!(r.apply(&doc).unwrap(), vec![""]);
+    }
+
+    // ─── Text / All ────────────────────────────────────────────────────
+
+    #[test]
+    fn should_extract_all_text_when_multiple_elements_for_all_cardinality() {
+        let doc = html("<ul><li>Alpha</li><li>Beta</li><li>Gamma</li></ul>");
+        let r = rule("li", text_kind(), ExtractionCardinality::All);
+        assert_eq!(r.apply(&doc).unwrap(), vec!["Alpha", "Beta", "Gamma"]);
+    }
+
+    #[test]
+    fn should_extract_single_text_when_one_element_for_all_cardinality() {
+        let doc = html("<p>Only one</p>");
+        let r = rule("p", text_kind(), ExtractionCardinality::All);
+        assert_eq!(r.apply(&doc).unwrap(), vec!["Only one"]);
+    }
+
+    #[test]
+    fn should_extract_all_nested_text_when_elements_have_children_for_all_cardinality() {
+        let doc = html("<div><p>Hello <b>bold</b></p><p>World <i>italic</i></p></div>");
+        let r = rule("p", text_kind(), ExtractionCardinality::All);
+        assert_eq!(r.apply(&doc).unwrap(), vec!["Hello bold", "World italic"]);
+    }
+
+    // ─── Attribute / First ─────────────────────────────────────────────
+
+    #[test]
+    fn should_extract_attribute_when_element_has_attribute_for_first_cardinality() {
+        let doc = html(r#"<a href="https://example.com">Link</a>"#);
+        let r = rule("a", attr_kind("href"), ExtractionCardinality::First);
+        assert_eq!(r.apply(&doc).unwrap(), vec!["https://example.com"]);
+    }
+
+    #[test]
+    fn should_extract_first_attribute_when_multiple_elements_for_first_cardinality() {
+        let doc = html(r#"<div><img src="a.png"/><img src="b.png"/></div>"#);
+        let r = rule("img", attr_kind("src"), ExtractionCardinality::First);
+        assert_eq!(r.apply(&doc).unwrap(), vec!["a.png"]);
+    }
+
+    #[test]
+    fn should_extract_data_attribute_when_element_has_custom_attribute() {
+        let doc = html(r#"<div data-price="42.50">Product</div>"#);
+        let r = rule("div", attr_kind("data-price"), ExtractionCardinality::First);
+        assert_eq!(r.apply(&doc).unwrap(), vec!["42.50"]);
+    }
+
+    // ─── Attribute / All ───────────────────────────────────────────────
+
+    #[test]
+    fn should_extract_all_attributes_when_multiple_elements_for_all_cardinality() {
+        let doc = html(r#"<div><img src="a.png"/><img src="b.png"/><img src="c.png"/></div>"#);
+        let r = rule("img", attr_kind("src"), ExtractionCardinality::All);
+        assert_eq!(r.apply(&doc).unwrap(), vec!["a.png", "b.png", "c.png"]);
+    }
+
+    // ─── Additional selectors: aggregation ─────────────────────────────
+
+    #[test]
+    fn should_aggregate_results_from_primary_and_additional_selectors_in_order() {
+        let doc = html("<h1>Primary</h1><h2>Additional</h2>");
+        let r = rule_with_additional("h1", vec!["h2"], text_kind(), ExtractionCardinality::First);
+        assert_eq!(r.apply(&doc).unwrap(), vec!["Primary", "Additional"]);
+    }
+
+    #[test]
+    fn should_aggregate_results_from_all_three_selectors_in_order() {
+        let doc = html("<h1>First</h1><h2>Second</h2><h3>Third</h3>");
+        let r = rule_with_additional(
+            "h1",
+            vec!["h2", "h3"],
+            text_kind(),
+            ExtractionCardinality::First,
+        );
+        assert_eq!(r.apply(&doc).unwrap(), vec!["First", "Second", "Third"]);
+    }
+
+    #[test]
+    fn should_skip_non_matching_additional_selector_without_error() {
+        let doc = html("<h1>Primary</h1><h3>Third</h3>");
+        let r = rule_with_additional(
+            "h1",
+            vec!["h2", "h3"],
+            text_kind(),
+            ExtractionCardinality::First,
+        );
+        assert_eq!(r.apply(&doc).unwrap(), vec!["Primary", "Third"]);
+    }
+
+    #[test]
+    fn should_return_results_only_from_additional_when_primary_does_not_match() {
+        let doc = html("<h2>Additional only</h2>");
+        let r = rule_with_additional("h1", vec!["h2"], text_kind(), ExtractionCardinality::First);
+        assert_eq!(r.apply(&doc).unwrap(), vec!["Additional only"]);
+    }
+
+    #[test]
+    fn should_aggregate_attribute_results_from_multiple_selectors() {
+        let doc =
+            html(r#"<a href="link1.html">L1</a><img src="img1.png"/><a href="link2.html">L2</a>"#);
+        let r = rule_with_additional(
+            "a",
+            vec!["img"],
+            attr_kind("href"),
+            ExtractionCardinality::All,
+        );
+        // "a" matches both <a> elements → href extracted;
+        // "img" has no href → MissingAttribute error
+        let err = r.apply(&doc).unwrap_err();
+        assert!(matches!(err, ExtractionError::MissingAttribute { .. }));
+    }
+
+    #[test]
+    fn should_aggregate_all_elements_across_selectors_for_all_cardinality() {
+        let doc = html(
+            r#"<div class="gallery"><img src="a.png"/><img src="b.png"/></div><div class="extra"><img src="c.png"/></div>"#,
+        );
+        let r = rule_with_additional(
+            ".gallery img",
+            vec![".extra img"],
+            attr_kind("src"),
+            ExtractionCardinality::All,
+        );
+        assert_eq!(r.apply(&doc).unwrap(), vec!["a.png", "b.png", "c.png"]);
+    }
+
+    #[test]
+    fn should_aggregate_first_element_per_selector_for_first_cardinality() {
+        let doc = html(
+            r#"<div class="gallery"><img src="a.png"/><img src="b.png"/></div><div class="extra"><img src="c.png"/><img src="d.png"/></div>"#,
+        );
+        let r = rule_with_additional(
+            ".gallery img",
+            vec![".extra img"],
+            attr_kind("src"),
+            ExtractionCardinality::First,
+        );
+        assert_eq!(r.apply(&doc).unwrap(), vec!["a.png", "c.png"]);
+    }
+
+    #[test]
+    fn should_aggregate_text_across_selectors_with_all_cardinality() {
+        let doc = html("<ul><li>UL1</li><li>UL2</li></ul><ol><li>OL1</li></ol>");
+        let r = rule_with_additional(
+            "ul > li",
+            vec!["ol > li"],
+            text_kind(),
+            ExtractionCardinality::All,
+        );
+        assert_eq!(r.apply(&doc).unwrap(), vec!["UL1", "UL2", "OL1"]);
+    }
+
+    #[test]
+    fn should_preserve_order_across_selectors_not_document_order() {
+        // Even though <h2> appears before <h3> in the document,
+        // if additional_selectors lists "h3" before "h2", results
+        // follow selector order.
+        let doc = html("<h2>Two</h2><h3>Three</h3>");
+        let r = rule_with_additional("h3", vec!["h2"], text_kind(), ExtractionCardinality::First);
+        assert_eq!(r.apply(&doc).unwrap(), vec!["Three", "Two"]);
+    }
+
+    #[test]
+    fn should_return_single_result_when_only_additional_matches_with_first_cardinality() {
+        let doc = html(r#"<img src="only.png"/>"#);
+        let r = rule_with_additional(
+            "a",
+            vec!["img"],
+            attr_kind("src"),
+            ExtractionCardinality::First,
+        );
+        assert_eq!(r.apply(&doc).unwrap(), vec!["only.png"]);
+    }
+
+    // ─── Error: NoElementMatched ───────────────────────────────────────
+
+    #[test]
+    fn should_return_no_element_matched_when_selector_matches_nothing() {
+        let doc = html("<p>Hello</p>");
+        let r = rule("h1", text_kind(), ExtractionCardinality::First);
+        let err = r.apply(&doc).unwrap_err();
+        assert!(matches!(err, ExtractionError::NoElementMatched { .. }));
+    }
+
+    #[test]
+    fn should_return_no_element_matched_when_all_selectors_match_nothing() {
+        let doc = html("<p>Hello</p>");
+        let r = rule_with_additional(
+            "h1",
+            vec!["h2", "h3"],
+            text_kind(),
+            ExtractionCardinality::First,
+        );
+        let err = r.apply(&doc).unwrap_err();
+        assert!(matches!(err, ExtractionError::NoElementMatched { .. }));
+    }
+
+    #[test]
+    fn should_report_primary_selector_in_no_element_matched_error() {
+        let doc = html("<p>Hello</p>");
+        let r = rule_with_additional(
+            "h1.special",
+            vec!["h2"],
+            text_kind(),
+            ExtractionCardinality::First,
+        );
+        let err = r.apply(&doc).unwrap_err();
+        match err {
+            ExtractionError::NoElementMatched { selector } => {
+                assert_eq!(selector, "h1.special");
+            }
+            _ => panic!("expected NoElementMatched"),
+        }
+    }
+
+    #[test]
+    fn should_return_no_element_matched_when_empty_html_fragment() {
+        let doc = html("");
+        let r = rule("div", text_kind(), ExtractionCardinality::First);
+        let err = r.apply(&doc).unwrap_err();
+        assert!(matches!(err, ExtractionError::NoElementMatched { .. }));
+    }
+
+    #[test]
+    fn should_return_no_element_matched_for_all_cardinality_when_nothing_matches() {
+        let doc = html("<p>Hello</p>");
+        let r = rule("span", text_kind(), ExtractionCardinality::All);
+        let err = r.apply(&doc).unwrap_err();
+        assert!(matches!(err, ExtractionError::NoElementMatched { .. }));
+    }
+
+    // ─── Error: InvalidSelector ────────────────────────────────────────
+
+    #[test]
+    fn should_return_invalid_selector_when_primary_selector_is_malformed() {
+        let doc = html("<p>Hello</p>");
+        let r = rule("[[[invalid", text_kind(), ExtractionCardinality::First);
+        let err = r.apply(&doc).unwrap_err();
+        assert!(matches!(err, ExtractionError::InvalidSelector { .. }));
+    }
+
+    #[test]
+    fn should_report_selector_string_in_invalid_selector_error() {
+        let doc = html("<p>Hello</p>");
+        let r = rule("!!!", text_kind(), ExtractionCardinality::First);
+        let err = r.apply(&doc).unwrap_err();
+        match err {
+            ExtractionError::InvalidSelector { selector, .. } => {
+                assert_eq!(selector, "!!!");
+            }
+            _ => panic!("expected InvalidSelector"),
+        }
+    }
+
+    #[test]
+    fn should_return_invalid_selector_when_additional_is_malformed() {
+        let doc = html("<h1>Valid</h1>");
+        let r = rule_with_additional(
+            "h1",
+            vec!["[[[bad"],
+            text_kind(),
+            ExtractionCardinality::First,
+        );
+        // Primary matches, but the additional selector is still parsed → error
+        let err = r.apply(&doc).unwrap_err();
+        assert!(matches!(err, ExtractionError::InvalidSelector { .. }));
+    }
+
+    #[test]
+    fn should_return_invalid_selector_when_empty_selector_string() {
+        let doc = html("<p>Hello</p>");
+        let r = rule("", text_kind(), ExtractionCardinality::First);
+        let err = r.apply(&doc).unwrap_err();
+        assert!(matches!(err, ExtractionError::InvalidSelector { .. }));
+    }
+
+    #[test]
+    fn should_return_invalid_selector_for_malformed_additional_even_when_primary_has_no_match() {
+        let doc = html("<p>Hello</p>");
+        let r = rule_with_additional(
+            "h1",
+            vec!["[[[bad"],
+            text_kind(),
+            ExtractionCardinality::First,
+        );
+        let err = r.apply(&doc).unwrap_err();
+        assert!(matches!(err, ExtractionError::InvalidSelector { .. }));
+    }
+
+    // ─── Error: MissingAttribute ───────────────────────────────────────
+
+    #[test]
+    fn should_return_missing_attribute_when_element_lacks_requested_attribute() {
+        let doc = html(r#"<a>No href</a>"#);
+        let r = rule("a", attr_kind("href"), ExtractionCardinality::First);
+        let err = r.apply(&doc).unwrap_err();
+        assert!(matches!(err, ExtractionError::MissingAttribute { .. }));
+    }
+
+    #[test]
+    fn should_report_attribute_name_in_missing_attribute_error() {
+        let doc = html(r#"<img alt="pic"/>"#);
+        let r = rule("img", attr_kind("src"), ExtractionCardinality::First);
+        let err = r.apply(&doc).unwrap_err();
+        match err {
+            ExtractionError::MissingAttribute {
+                attribute,
+                selector,
+            } => {
+                assert_eq!(attribute, "src");
+                assert_eq!(selector, "img");
+            }
+            _ => panic!("expected MissingAttribute"),
+        }
+    }
+
+    #[test]
+    fn should_return_missing_attribute_when_first_of_all_lacks_attribute() {
+        let doc = html(r#"<div><span>no attr</span><span data-x="y">has attr</span></div>"#);
+        let r = rule("span", attr_kind("data-x"), ExtractionCardinality::All);
+        let err = r.apply(&doc).unwrap_err();
+        assert!(matches!(err, ExtractionError::MissingAttribute { .. }));
+    }
+
+    #[test]
+    fn should_return_missing_attribute_when_additional_selector_element_lacks_attribute() {
+        let doc = html(r#"<a href="ok.html">Link</a><span>No href</span>"#);
+        let r = rule_with_additional(
+            "a",
+            vec!["span"],
+            attr_kind("href"),
+            ExtractionCardinality::First,
+        );
+        let err = r.apply(&doc).unwrap_err();
+        assert!(matches!(err, ExtractionError::MissingAttribute { .. }));
+    }
+
+    // ─── Complex / realistic selectors ─────────────────────────────────
+
+    #[test]
+    fn should_extract_text_when_using_class_selector() {
+        let doc = html(r#"<div class="price">€42.00</div><div class="title">Widget</div>"#);
+        let r = rule(".price", text_kind(), ExtractionCardinality::First);
+        assert_eq!(r.apply(&doc).unwrap(), vec!["€42.00"]);
+    }
+
+    #[test]
+    fn should_extract_text_when_using_id_selector() {
+        let doc = html(r#"<span id="product-title">My Product</span>"#);
+        let r = rule("#product-title", text_kind(), ExtractionCardinality::First);
+        assert_eq!(r.apply(&doc).unwrap(), vec!["My Product"]);
+    }
+
+    #[test]
+    fn should_extract_attribute_when_using_descendant_selector() {
+        let doc =
+            html(r#"<div class="gallery"><a href="img1.jpg">1</a><a href="img2.jpg">2</a></div>"#);
+        let r = rule(".gallery a", attr_kind("href"), ExtractionCardinality::All);
+        assert_eq!(r.apply(&doc).unwrap(), vec!["img1.jpg", "img2.jpg"]);
+    }
+
+    #[test]
+    fn should_extract_text_when_using_attribute_selector() {
+        let doc =
+            html(r#"<input type="text" value="hello"/><input type="hidden" value="secret"/>"#);
+        let r = rule(
+            r#"input[type="hidden"]"#,
+            attr_kind("value"),
+            ExtractionCardinality::First,
+        );
+        assert_eq!(r.apply(&doc).unwrap(), vec!["secret"]);
+    }
+
+    #[test]
+    fn should_extract_text_when_using_child_combinator_selector() {
+        let doc = html("<div><ul><li>Direct</li></ul><li>Not direct</li></div>");
+        let r = rule("ul > li", text_kind(), ExtractionCardinality::First);
+        assert_eq!(r.apply(&doc).unwrap(), vec!["Direct"]);
+    }
+
+    // ─── Edge cases ────────────────────────────────────────────────────
+
+    #[test]
+    fn should_extract_empty_attribute_value_when_attribute_is_present_but_empty() {
+        let doc = html(r#"<div data-value="">Content</div>"#);
+        let r = rule("div", attr_kind("data-value"), ExtractionCardinality::First);
+        assert_eq!(r.apply(&doc).unwrap(), vec![""]);
+    }
+
+    #[test]
+    fn should_extract_text_with_special_characters() {
+        let doc = html("<p>&lt;script&gt;alert('xss')&lt;/script&gt;</p>");
+        let r = rule("p", text_kind(), ExtractionCardinality::First);
+        assert_eq!(
+            r.apply(&doc).unwrap(),
+            vec!["<script>alert('xss')</script>"]
+        );
+    }
+
+    #[test]
+    fn should_extract_text_with_unicode_content() {
+        let doc = html("<p>日本語テキスト</p>");
+        let r = rule("p", text_kind(), ExtractionCardinality::First);
+        assert_eq!(r.apply(&doc).unwrap(), vec!["日本語テキスト"]);
+    }
+
+    #[test]
+    fn should_extract_attribute_with_unicode_value() {
+        let doc = html(r#"<a href="https://example.com/café">Link</a>"#);
+        let r = rule("a", attr_kind("href"), ExtractionCardinality::First);
+        assert_eq!(r.apply(&doc).unwrap(), vec!["https://example.com/café"]);
+    }
+
+    #[test]
+    fn should_extract_text_from_deeply_nested_structure() {
+        let doc = html("<div><section><article><p><span>Deep</span></p></article></section></div>");
+        let r = rule(
+            "div section article p span",
+            text_kind(),
+            ExtractionCardinality::First,
+        );
+        assert_eq!(r.apply(&doc).unwrap(), vec!["Deep"]);
+    }
+
+    #[test]
+    fn should_handle_multiple_empty_text_nodes_for_all_cardinality() {
+        let doc = html("<ul><li>  </li><li></li><li>Real</li></ul>");
+        let r = rule("li", text_kind(), ExtractionCardinality::All);
+        let result = r.apply(&doc).unwrap();
+        assert_eq!(result.len(), 3);
+        assert_eq!(result[0], "");
+        assert_eq!(result[1], "");
+        assert_eq!(result[2], "Real");
+    }
+
+    #[test]
+    fn should_return_vec_with_single_element_for_single_match() {
+        let doc = html("<p>Only</p>");
+        let r = rule("p", text_kind(), ExtractionCardinality::First);
+        let result = r.apply(&doc).unwrap();
+        assert_eq!(result.len(), 1);
+        assert_eq!(result[0], "Only");
+    }
+
+    // ─── Product image URLs: realistic multi-selector scenario ─────────
+
+    #[test]
+    fn should_collect_all_image_urls_from_multiple_selectors_for_product_images() {
+        let doc = Html::parse_document(
+            r#"
+            <html><body>
+                <div class="main-image"><img src="main.jpg"/></div>
+                <div class="thumbnails">
+                    <img src="thumb1.jpg"/>
+                    <img src="thumb2.jpg"/>
+                </div>
+                <div class="zoom-gallery">
+                    <a data-full="zoom1.jpg">Z1</a>
+                    <a data-full="zoom2.jpg">Z2</a>
+                </div>
+            </body></html>
+            "#,
+        );
+
+        let r = rule_with_additional(
+            ".main-image img",
+            vec![".thumbnails img"],
+            attr_kind("src"),
+            ExtractionCardinality::All,
+        );
+        assert_eq!(
+            r.apply(&doc).unwrap(),
+            vec!["main.jpg", "thumb1.jpg", "thumb2.jpg"]
+        );
+    }
+
+    #[test]
+    fn should_collect_image_urls_from_different_attribute_kinds_requires_separate_rules() {
+        // This test demonstrates that a single rule uses one ExtractionKind for
+        // all selectors. Different attributes need separate rules.
+        let doc = Html::parse_document(
+            r#"
+            <html><body>
+                <div class="gallery">
+                    <img src="img1.jpg"/>
+                    <img src="img2.jpg"/>
+                </div>
+            </body></html>
+            "#,
+        );
+
+        let r = rule(".gallery img", attr_kind("src"), ExtractionCardinality::All);
+        assert_eq!(r.apply(&doc).unwrap(), vec!["img1.jpg", "img2.jpg"]);
+    }
+
+    // ─── rstest parameterized tests ────────────────────────────────────
+
+    #[rstest]
+    #[case::simple_tag("h1", "<h1>Title</h1>", vec!["Title"])]
+    #[case::class_selector(".info", r#"<span class="info">Info text</span>"#, vec!["Info text"])]
+    #[case::nested_text("div", "<div>Outer <b>Inner</b></div>", vec!["Outer Inner"])]
+    fn should_extract_text_for_various_selectors_when_first_cardinality(
+        #[case] selector: &str,
+        #[case] raw_html: &str,
+        #[case] expected: Vec<&str>,
+    ) {
+        let doc = html(raw_html);
+        let r = rule(selector, text_kind(), ExtractionCardinality::First);
+        assert_eq!(r.apply(&doc).unwrap(), expected);
+    }
+
+    #[rstest]
+    #[case::href("a", "href", r#"<a href="http://x.com">L</a>"#, vec!["http://x.com"])]
+    #[case::src("img", "src", r#"<img src="photo.jpg"/>"#, vec!["photo.jpg"])]
+    #[case::alt("img", "alt", r#"<img alt="description"/>"#, vec!["description"])]
+    #[case::data_attr("div", "data-id", r#"<div data-id="123">X</div>"#, vec!["123"])]
+    fn should_extract_attribute_for_various_attributes_when_first_cardinality(
+        #[case] selector: &str,
+        #[case] attr_name: &str,
+        #[case] raw_html: &str,
+        #[case] expected: Vec<&str>,
+    ) {
+        let doc = html(raw_html);
+        let r = rule(selector, attr_kind(attr_name), ExtractionCardinality::First);
+        assert_eq!(r.apply(&doc).unwrap(), expected);
+    }
+
+    #[rstest]
+    #[case::bad_bracket("[[[")]
+    #[case::bad_chars("!!!")]
+    #[case::empty("")]
+    #[case::unclosed_paren("div:nth-child(")]
+    fn should_return_invalid_selector_for_various_malformed_selectors(#[case] bad_selector: &str) {
+        let doc = html("<p>Test</p>");
+        let r = rule(bad_selector, text_kind(), ExtractionCardinality::First);
+        let err = r.apply(&doc).unwrap_err();
+        assert!(
+            matches!(err, ExtractionError::InvalidSelector { .. }),
+            "expected InvalidSelector for `{bad_selector}`, got: {err:?}"
+        );
+    }
+
+    #[rstest]
+    #[case::two_selectors_both_match(
+        "h1", vec!["h2"],
+        "<h1>A</h1><h2>B</h2>",
+        vec!["A", "B"],
+    )]
+    #[case::three_selectors_all_match(
+        "h1", vec!["h2", "h3"],
+        "<h1>A</h1><h2>B</h2><h3>C</h3>",
+        vec!["A", "B", "C"],
+    )]
+    #[case::middle_selector_does_not_match(
+        "h1", vec!["h2", "h3"],
+        "<h1>A</h1><h3>C</h3>",
+        vec!["A", "C"],
+    )]
+    #[case::only_additional_matches(
+        "h1", vec!["h2"],
+        "<h2>B</h2>",
+        vec!["B"],
+    )]
+    fn should_aggregate_results_for_various_selector_combinations_when_first_cardinality(
+        #[case] primary: &str,
+        #[case] additional: Vec<&str>,
+        #[case] raw_html: &str,
+        #[case] expected: Vec<&str>,
+    ) {
+        let doc = html(raw_html);
+        let r = rule_with_additional(
+            primary,
+            additional,
+            text_kind(),
+            ExtractionCardinality::First,
+        );
+        assert_eq!(r.apply(&doc).unwrap(), expected);
+    }
+
+    // ─── Error Display ─────────────────────────────────────────────────
+
+    #[test]
+    fn should_display_meaningful_message_for_invalid_selector_error() {
+        let err = ExtractionError::InvalidSelector {
+            selector: "[[[".to_owned(),
+            reason: "parse error".to_owned(),
+        };
+        let msg = format!("{err}");
+        assert!(msg.contains("[[["));
+        assert!(msg.contains("parse error"));
+    }
+
+    #[test]
+    fn should_display_meaningful_message_for_no_element_matched_error() {
+        let err = ExtractionError::NoElementMatched {
+            selector: "h1.missing".to_owned(),
+        };
+        let msg = format!("{err}");
+        assert!(msg.contains("h1.missing"));
+        assert!(msg.contains("no element matched"));
+    }
+
+    #[test]
+    fn should_display_meaningful_message_for_missing_attribute_error() {
+        let err = ExtractionError::MissingAttribute {
+            selector: "img".to_owned(),
+            attribute: "src".to_owned(),
+        };
+        let msg = format!("{err}");
+        assert!(msg.contains("img"));
+        assert!(msg.contains("src"));
+    }
+
+    // ─── Full document parsing ─────────────────────────────────────────
+
+    #[test]
+    fn should_work_with_full_html_document() {
+        let doc = Html::parse_document(
+            r#"
+            <!DOCTYPE html>
+            <html>
+            <head><title>Test</title></head>
+            <body>
+                <h1 class="main-title">Product Name</h1>
+                <div class="price">$99.99</div>
+                <div class="images">
+                    <img src="img1.jpg" alt="Front"/>
+                    <img src="img2.jpg" alt="Back"/>
+                </div>
+            </body>
+            </html>
+            "#,
+        );
+
+        let title_rule = rule(".main-title", text_kind(), ExtractionCardinality::First);
+        assert_eq!(title_rule.apply(&doc).unwrap(), vec!["Product Name"]);
+
+        let price_rule = rule(".price", text_kind(), ExtractionCardinality::First);
+        assert_eq!(price_rule.apply(&doc).unwrap(), vec!["$99.99"]);
+
+        let images_rule = rule(".images img", attr_kind("src"), ExtractionCardinality::All);
+        assert_eq!(
+            images_rule.apply(&doc).unwrap(),
+            vec!["img1.jpg", "img2.jpg"]
+        );
+    }
+
+    #[test]
+    fn should_aggregate_results_in_realistic_product_page_with_additional_selectors() {
+        let doc = Html::parse_document(
+            r#"
+            <html><body>
+                <span class="product-price">€19.90</span>
+                <span class="product-price-v2">€29.90</span>
+            </body></html>
+            "#,
+        );
+
+        let r = rule_with_additional(
+            ".product-price",
+            vec![".product-price-v2"],
+            text_kind(),
+            ExtractionCardinality::First,
+        );
+        assert_eq!(r.apply(&doc).unwrap(), vec!["€19.90", "€29.90"]);
+    }
+
+    #[test]
+    fn should_collect_images_from_multiple_gallery_sections() {
+        let doc = Html::parse_document(
+            r#"
+            <html><body>
+                <div class="primary-gallery">
+                    <img src="primary1.jpg"/>
+                    <img src="primary2.jpg"/>
+                </div>
+                <div class="secondary-gallery">
+                    <img src="secondary1.jpg"/>
+                </div>
+            </body></html>
+            "#,
+        );
+
+        let r = rule_with_additional(
+            ".primary-gallery img",
+            vec![".secondary-gallery img"],
+            attr_kind("src"),
+            ExtractionCardinality::All,
+        );
+        assert_eq!(
+            r.apply(&doc).unwrap(),
+            vec!["primary1.jpg", "primary2.jpg", "secondary1.jpg"]
+        );
+    }
+
+    #[test]
+    fn should_collect_first_image_per_gallery_section_with_first_cardinality() {
+        let doc = Html::parse_document(
+            r#"
+            <html><body>
+                <div class="primary-gallery">
+                    <img src="primary1.jpg"/>
+                    <img src="primary2.jpg"/>
+                </div>
+                <div class="secondary-gallery">
+                    <img src="secondary1.jpg"/>
+                    <img src="secondary2.jpg"/>
+                </div>
+            </body></html>
+            "#,
+        );
+
+        let r = rule_with_additional(
+            ".primary-gallery img",
+            vec![".secondary-gallery img"],
+            attr_kind("src"),
+            ExtractionCardinality::First,
+        );
+        assert_eq!(
+            r.apply(&doc).unwrap(),
+            vec!["primary1.jpg", "secondary1.jpg"]
+        );
+    }
 }
