@@ -1,4 +1,4 @@
-use crate::css_selector::types::ExtractionRule;
+use crate::css_selector::rule::ExtractionRule;
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
