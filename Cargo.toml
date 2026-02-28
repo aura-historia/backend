@@ -28,6 +28,7 @@ mail-lambda-send = { workspace = true }
 product-pipeline = { workspace = true }
 fxrate = { workspace = true }
 fxrate-lambda = { workspace = true }
+aura-scraper = { workspace = true }
 
 [workspace]
 members = [
@@ -55,6 +56,7 @@ members = [
     "src/product-pipeline",
     "src/fxrate",
     "src/fxrate-lambda",
+    "src/aura-scraper",
 ]
 
 [workspace.dependencies]
@@ -170,3 +172,5 @@ regex = "1.12.3"
 fxrate = { path = "src/fxrate" }
 fxrate-lambda = { path = "src/fxrate-lambda" }
 slug = "0.1.6"
+aura-scraper = { path = "src/aura-scraper" }
+scraper = "0.25.0"
