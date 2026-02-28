@@ -1,9 +1,3 @@
-<p align="center">
-  <a href="https://aura-historia.com">
-    <img src="https://aura-historia-public.s3.eu-central-1.amazonaws.com/branding/1080x1080_icon.png" alt="Aura Historia" width="96" />
-  </a>
-</p>
-
 <h1 align="center">Aura Historia — Backend</h1>
 
 <p align="center">
@@ -43,16 +37,6 @@
 
 Aura Historia Backend is a Rust-based serverless application on AWS. It provides the APIs, event-driven pipelines, and data services that power the Aura Historia antiques marketplace — from product search and shop discovery to user management and real-time notifications.
 
-## Tech Stack
-
-| Layer | Technologies |
-|---|---|
-| **Runtime** | Rust · AWS Lambda |
-| **Storage** | DynamoDB · OpenSearch |
-| **Messaging** | SQS |
-| **Email** | SES |
-| **Auth** | Cognito |
-
 ## Development
 
 ```sh
@@ -68,7 +52,7 @@ cargo test --workspace --lib --all-features
 
 ## License
 
-[PolyForm Noncommercial 1.0.0](LICENSE)
+[CC BY-NC-SA 4.0](LICENSE)
 
 ---
 
