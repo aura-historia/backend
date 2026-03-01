@@ -2,6 +2,7 @@ use crate::css_selector::rule::ExtractionRule;
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
+#[cfg_attr(feature = "test-data", derive(fake::Dummy))]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "snake_case")]
 #[schemars(

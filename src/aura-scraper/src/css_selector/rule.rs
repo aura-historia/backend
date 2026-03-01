@@ -4,6 +4,7 @@ use scraper::{Html, Selector};
 use serde::{Deserialize, Serialize};
 
 string_newtype!(CssSelector, derives(Serialize, Deserialize, JsonSchema));
+#[cfg_attr(feature = "test-data", derive(fake::Dummy))]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "snake_case")]
 pub struct ExtractionRule {
@@ -27,6 +28,7 @@ string_newtype!(
     HtmlAttributeName,
     derives(Serialize, Deserialize, JsonSchema)
 );
+#[cfg_attr(feature = "test-data", derive(fake::Dummy))]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]
 #[serde(tag = "type", rename_all = "snake_case")]
 pub enum ExtractionKind {
@@ -34,6 +36,7 @@ pub enum ExtractionKind {
     Attribute { name: HtmlAttributeName },
 }
 
+#[cfg_attr(feature = "test-data", derive(fake::Dummy))]
 #[derive(Debug, Clone, Copy, PartialEq, Default, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "snake_case")]
 pub enum ExtractionCardinality {
@@ -42,6 +45,7 @@ pub enum ExtractionCardinality {
     All,
 }
 
+#[cfg_attr(feature = "test-data", derive(fake::Dummy))]
 #[derive(Debug, thiserror::Error)]
 pub enum ExtractionError {
     #[error("invalid CSS selector `{selector}`: {reason}")]
