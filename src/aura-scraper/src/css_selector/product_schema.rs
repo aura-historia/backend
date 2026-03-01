@@ -58,8 +58,8 @@ mod tests {
     use crate::css_selector::product_schema::ProductCssSelectorSchema;
 
     #[test]
-    fn should_foo() {
-        let schema = schemars::schema_for!(ProductCssSelectorSchema);
-        println!("{}", serde_json::to_string_pretty(&schema).unwrap());
+    fn should_create_schema() {
+        let _schema = schemars::schema_for!(ProductCssSelectorSchema);
+        // println!("{}", serde_json::to_string_pretty(&_schema).unwrap());
     }
 }
