@@ -185,7 +185,7 @@ mod tests {
         let service = ProductSchemaServiceImpl::new(llm_builder).unwrap();
 
         let html = reqwest::Client::new()
-            .get("https://20thcenturymilitaria.com/shop.php?code=52012")
+            .get("https://nostalgie-palast.de/hochkommode-kommode-gruenderzeit-1880-kiefer-32/")
             .send()
             .await
             .unwrap()
@@ -206,7 +206,10 @@ mod tests {
         let normalized = ProductNormalizationServiceImpl::new()
             .normalize(
                 applied,
-                Url::parse("https://20thcenturymilitaria.com/shop.php?code=52012").unwrap(),
+                Url::parse(
+                    "https://nostalgie-palast.de/hochkommode-kommode-gruenderzeit-1880-kiefer-32/",
+                )
+                .unwrap(),
             )
             .unwrap();
         println!("{:#?}", normalized);

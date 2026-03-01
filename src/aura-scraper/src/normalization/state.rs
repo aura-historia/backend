@@ -32,6 +32,7 @@ fn state_map() -> &'static HashMap<&'static str, ProductState> {
             ("deleted", ProductState::Removed),
             ("unavailable", ProductState::Removed),
             // German
+            ("in den warenkorb", ProductState::Available),
             ("verfügbar", ProductState::Available),
             ("auf lager", ProductState::Available),
             ("gelistet", ProductState::Listed),
