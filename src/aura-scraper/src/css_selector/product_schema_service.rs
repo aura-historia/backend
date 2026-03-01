@@ -62,7 +62,8 @@ impl ProductSchemaService for ProductSchemaServiceImpl {
         html: &str,
     ) -> Result<ProductCssSelectorSchema, ProductSchemaServiceError> {
         let instruction = format!(
-            "Generate a robust Extraction-Schema for given HTML. Here is the HTML: \n\n {html}",
+            "Generate a robust Extraction-Schema for given HTML. Here is the HTML: \n\n {}",
+            clean_html_for_schema_generation(html),
         );
         let message = ChatMessage::user().content(instruction).build();
         let messages = vec![message];
