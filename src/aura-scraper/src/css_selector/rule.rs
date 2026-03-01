@@ -1,31 +1,40 @@
 use common::string_newtype;
+use schemars::JsonSchema;
 use scraper::{Html, Selector};
 use serde::{Deserialize, Serialize};
 
-string_newtype!(CssSelector, serde);
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+string_newtype!(CssSelector, derives(Serialize, Deserialize, JsonSchema));
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "snake_case")]
 pub struct ExtractionRule {
+    #[schemars(description = "Primary CSS-Selector for the value to extract")]
     pub selector: CssSelector,
 
+    #[schemars(description = "Additional CSS-Selectors for the values to extract")]
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub additional_selectors: Vec<CssSelector>,
 
+    #[schemars(description = "Kind value to extract with CSS-Selector")]
     #[serde(flatten)]
     pub extract: ExtractionKind,
 
+    #[schemars(description = "How many values to extract")]
     #[serde(default)]
     pub cardinality: ExtractionCardinality,
 }
 
-string_newtype!(HtmlAttributeName, serde);
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+string_newtype!(
+    HtmlAttributeName,
+    derives(Serialize, Deserialize, JsonSchema)
+);
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]
 #[serde(tag = "type", rename_all = "snake_case")]
 pub enum ExtractionKind {
     Text,
     Attribute { name: HtmlAttributeName },
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Default, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Default, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "snake_case")]
 pub enum ExtractionCardinality {
     #[default]

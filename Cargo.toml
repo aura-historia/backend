@@ -174,3 +174,4 @@ fxrate-lambda = { path = "src/fxrate-lambda" }
 slug = "0.1.6"
 aura-scraper = { path = "src/aura-scraper" }
 scraper = "0.25.0"
+schemars = "1.2.1"
