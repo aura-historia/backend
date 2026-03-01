@@ -133,6 +133,8 @@ fn state_patterns() -> &'static Vec<(Regex, ProductState)> {
             ),
             // English: "hurry, only 3 left!", "hurry! 2 remaining"
             (re(&format!(r"\bhurry\b.*{POS}")), ProductState::Available),
+            // German: "x vorrätig"
+            (re(&format!(r"{POS}\s+vorrätig\b")), ProductState::Available),
             // German: "nur noch 7 verfügbar", "noch 2 verfügbar", "3 verfügbar"
             (
                 re(&format!(r"(\bnur\s+)?(\bnoch\s+)?{POS}\s+verfügbar\b")),

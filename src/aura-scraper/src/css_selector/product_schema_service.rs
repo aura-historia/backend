@@ -185,7 +185,7 @@ mod tests {
         let service = ProductSchemaServiceImpl::new(llm_builder).unwrap();
 
         let html = reqwest::Client::new()
-            .get("https://nostalgie-palast.de/hochkommode-kommode-gruenderzeit-1880-kiefer-32/")
+            .get("https://www.antiquitaeten-tuebingen.de/augsburger-hinterglasbild-josef-mit-jesuskind-und-lilie-g1500/")
             .send()
             .await
             .unwrap()
@@ -207,7 +207,7 @@ mod tests {
             .normalize(
                 applied,
                 Url::parse(
-                    "https://nostalgie-palast.de/hochkommode-kommode-gruenderzeit-1880-kiefer-32/",
+                    "https://www.antiquitaeten-tuebingen.de/augsburger-hinterglasbild-josef-mit-jesuskind-und-lilie-g1500/",
                 )
                 .unwrap(),
             )
