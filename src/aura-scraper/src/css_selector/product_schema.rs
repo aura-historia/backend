@@ -1,4 +1,5 @@
 use crate::css_selector::rule::ExtractionRule;
+use llm::chat::StructuredOutputFormat;
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
@@ -54,6 +55,21 @@ pub struct ProductCssSelectorSchema {
     pub auction_end: Option<ExtractionRule>,
 }
 
+impl ProductCssSelectorSchema {
+    pub fn structured_output_format() -> StructuredOutputFormat {
+        let schema = schemars::schema_for!(ProductCssSelectorSchema);
+        let schema_json = serde_json::to_value(&schema).expect(
+            "shouldn't fail serializing schema-rs for ProductCssSelectorSchema to json-value",
+        );
+        StructuredOutputFormat {
+            name: "ProductCssSelectorSchema".to_string(),
+            description: None,
+            schema: Some(schema_json),
+            strict: Some(true),
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use crate::css_selector::product_schema::ProductCssSelectorSchema;
@@ -62,5 +78,10 @@ mod tests {
     fn should_create_schema() {
         let _schema = schemars::schema_for!(ProductCssSelectorSchema);
         // println!("{}", serde_json::to_string_pretty(&_schema).unwrap());
+    }
+
+    #[test]
+    fn should_create_structured_output_format() {
+        let _structured_output_format = ProductCssSelectorSchema::structured_output_format();
     }
 }

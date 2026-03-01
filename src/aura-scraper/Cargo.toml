@@ -10,6 +10,9 @@ serde = { workspace = true }
 serde_json = { workspace = true }
 thiserror = { workspace = true }
 schemars = { workspace = true }
+async-trait = { workspace = true }
+mockall = { workspace = true }
+llm = { workspace = true }
 
 # Optional
 fake = { workspace = true, optional = true }
