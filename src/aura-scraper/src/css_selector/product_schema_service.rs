@@ -162,11 +162,17 @@ fn strip_attributes(document: &NodeRef) {
 
 #[cfg(test)]
 mod tests {
-    use crate::css_selector::product_schema_service::{
-        ProductSchemaService, ProductSchemaServiceImpl, clean_html_for_schema_generation,
+    use crate::{
+        css_selector::product_schema_service::{
+            ProductSchemaService, ProductSchemaServiceImpl, clean_html_for_schema_generation,
+        },
+        normalization::product_normalization_service::{
+            ProductNormalizationService, ProductNormalizationServiceImpl,
+        },
     };
     use llm::builder::{LLMBackend, LLMBuilder};
     use scraper::Html;
+    use url::Url;
 
     #[tokio::test]
     #[ignore]
@@ -196,5 +202,13 @@ mod tests {
 
         let applied = schema.apply(&Html::parse_document(&html)).unwrap();
         println!("{:#?}", applied);
+
+        let normalized = ProductNormalizationServiceImpl::new()
+            .normalize(
+                applied,
+                Url::parse("https://20thcenturymilitaria.com/shop.php?code=52012").unwrap(),
+            )
+            .unwrap();
+        println!("{:#?}", normalized);
     }
 }

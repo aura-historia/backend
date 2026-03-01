@@ -20,6 +20,7 @@ fn state_map() -> &'static HashMap<&'static str, ProductState> {
             ("available", ProductState::Available),
             ("in stock", ProductState::Available),
             ("add to cart", ProductState::Available),
+            ("add to basket", ProductState::Available),
             ("buy now", ProductState::Available),
             ("listed", ProductState::Listed),
             ("reserved", ProductState::Reserved),
