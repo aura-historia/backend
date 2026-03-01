@@ -165,6 +165,7 @@ mod tests {
         ProductSchemaService, ProductSchemaServiceImpl, clean_html_for_schema_generation,
     };
     use llm::builder::{LLMBackend, LLMBuilder};
+    use scraper::Html;
 
     #[tokio::test]
     #[ignore]
@@ -176,7 +177,14 @@ mod tests {
             .max_tokens(8192);
         let service = ProductSchemaServiceImpl::new(llm_builder).unwrap();
 
-        let html = reqwest::Client::new().get("https://www.antiquitaeten-tuebingen.de/biedermeier-schaukelstuhl-nussbaum-um-1830-art-nr-6893/").send().await.unwrap().text().await.unwrap();
+        let html = reqwest::Client::new()
+            .get("https://20thcenturymilitaria.com/shop.php?code=52012")
+            .send()
+            .await
+            .unwrap()
+            .text()
+            .await
+            .unwrap();
         println!("Init HTML-Len: '{}'", html.len());
 
         let cleaned_html = clean_html_for_schema_generation(&html);
@@ -184,5 +192,8 @@ mod tests {
 
         let schema = service.create_product_schema(&cleaned_html).await.unwrap();
         println!("{:#?} \n\n\n", schema);
+
+        let applied = schema.apply(&Html::parse_document(&html)).unwrap();
+        println!("{:#?}", applied);
     }
 }
