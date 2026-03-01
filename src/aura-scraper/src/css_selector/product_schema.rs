@@ -4,6 +4,11 @@ use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "snake_case")]
+#[schemars(
+    description = "Schema of rules for extracting product information from a shop's website using CSS selectors.
+    Each field represents a specific piece of information about the product, and the value is an ExtractionRule that defines how to extract that information from the HTML of the shop's website.
+    The rules are intended to extract raw data from the HTML, not normalized data."
+)]
 pub struct ProductCssSelectorSchema {
     #[schemars(description = "ID of the product on the shop's website")]
     pub shops_product_id: ExtractionRule,
