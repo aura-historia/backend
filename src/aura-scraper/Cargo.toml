@@ -5,6 +5,7 @@ edition = "2024"
 
 [dependencies]
 common = { workspace = true }
+product = { workspace = true, features = ["dynamodb"] }
 scraper = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
@@ -16,6 +17,11 @@ llm = { workspace = true }
 kuchiki = { workspace = true }
 reqwest = { workspace = true, features = ["default", "json"] }
 tokio = { workspace = true, features = ["macros"] }
+time = { workspace = true }
+url = { workspace = true }
+once_cell = { workspace = true }
+regex = { workspace = true }
+whatlang = "0.18.0"
 
 # Optional
 fake = { workspace = true, optional = true }
