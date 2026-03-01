@@ -13,6 +13,9 @@ schemars = { workspace = true }
 async-trait = { workspace = true }
 mockall = { workspace = true }
 llm = { workspace = true }
+kuchiki = { workspace = true }
+reqwest = { workspace = true, features = ["default", "json"] }
+tokio = { workspace = true, features = ["macros"] }
 
 # Optional
 fake = { workspace = true, optional = true }

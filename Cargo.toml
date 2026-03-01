@@ -176,3 +176,4 @@ aura-scraper = { path = "src/aura-scraper" }
 scraper = "0.25.0"
 schemars = "1.2.1"
 llm = "1.3.7"
+kuchiki = "0.8.1"
