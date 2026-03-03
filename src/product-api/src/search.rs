@@ -110,10 +110,14 @@ pub async fn handle(
     > = JsonCursoredData::from(cursored_result);
 
     let response_builder = ApiGatewayV2HttpResponseBuilder::json(200);
-    let response_builder = if event.payload.route_key.as_deref() == Some("GET /api/v1/products") {
-        response_builder.cache_control("public", Some(60), Some(300))
-    } else {
-        response_builder
+    let response_builder = match (event.payload.route_key.as_deref(), user_id_opt) {
+        (Some("GET /api/v1/products"), Some(_)) => {
+            response_builder.cache_control("no-store", None, None)
+        }
+        (Some("GET /api/v1/products"), None) => {
+            response_builder.cache_control("public", Some(60), Some(300))
+        }
+        _ => response_builder,
     };
 
     Ok(response_builder.body_serde(json_cursored_data)?.build())
