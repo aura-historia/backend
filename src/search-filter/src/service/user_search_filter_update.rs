@@ -31,7 +31,7 @@ use time::OffsetDateTime;
 #[derive(Debug, Clone, PartialEq)]
 pub struct UserSearchFilterUpdate {
     pub name: Option<UserSearchFilterName>,
-    pub product_query: Option<TextQuery<3>>,
+    pub product_query: Option<TextQuery<1>>,
     pub category_id: Option<AnyOfQuery<CategoryId>>,
     pub period_id: Option<AnyOfQuery<PeriodId>>,
     pub shop_name_query: Option<HashSet<ShopName>>,

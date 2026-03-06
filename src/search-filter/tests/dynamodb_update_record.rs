@@ -46,7 +46,7 @@ async fn should_update_search_filter_record() {
 
     let mut expected = record.clone();
     expected.name = "my cool name".into();
-    expected.product_query = "boopel boop doop".try_into().unwrap();
+    expected.product_query = Some("boopel boop doop".try_into().unwrap());
     expected.updated = updated;
 
     let actual = repository

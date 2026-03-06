@@ -20,7 +20,7 @@ use time::OffsetDateTime;
 pub struct ProductSearch {
     pub language: Language,
     pub currency: Currency,
-    pub product_query: TextQuery<3>,
+    pub product_query: Option<TextQuery<1>>,
     pub category_id: AnyOfQuery<CategoryId>,
     pub period_id: AnyOfQuery<PeriodId>,
     pub shop_name_query: AnyOfQuery<ShopName>,
