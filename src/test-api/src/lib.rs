@@ -5,6 +5,8 @@ mod dynamodb;
 pub mod localstack;
 #[cfg(feature = "opensearch")]
 mod opensearch;
+#[cfg(feature = "rds")]
+mod rds;
 mod s3;
 #[cfg(feature = "sqs")]
 mod sqs;
@@ -16,6 +18,8 @@ use async_trait::async_trait;
 pub use dynamodb::{DynamoDB, get_dynamodb_client, mk_partial_put_batch_failure};
 #[cfg(feature = "opensearch")]
 pub use opensearch::{OpenSearch, get_opensearch_client, read_by_id, refresh_index};
+#[cfg(feature = "rds")]
+pub use rds::{Rds, get_postgres_client};
 pub use s3::S3;
 pub use serial_test::serial;
 #[cfg(feature = "sqs")]

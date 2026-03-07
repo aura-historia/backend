@@ -120,7 +120,11 @@ pub fn localstack_test(attr: TokenStream, item: TokenStream) -> TokenStream {
                 result
             };
 
-            let __localstack = test_api::localstack::get_localstack(&__services).await;
+            let __localstack = if !__services.is_empty() {
+                Some(test_api::localstack::get_localstack(&__services).await)
+            } else {
+                None
+            };
 
             #( #setup_calls )*
 
