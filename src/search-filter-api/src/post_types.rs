@@ -89,7 +89,7 @@ mod tests {
             search: ProductSearchData {
                 language: LanguageData::De,
                 currency: CurrencyData::Eur,
-                product_query: "Boop".try_into().unwrap(),
+                product_query: Some("Boop".try_into().unwrap()),
                 category_id: HashSet::from_iter([CategoryId::from("furniture")]),
                 period_id: HashSet::from_iter([PeriodId::from("baroque")]),
                 shop_name_query: ["Baap".into()].into(),

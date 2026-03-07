@@ -251,7 +251,7 @@ async fn should_respond_200_when_hits_authenticated() {
     let search_filter = ProductSearchData {
         language: LanguageData::De,
         currency: CurrencyData::Eur,
-        product_query: "Chopin Etudes Op.10".try_into().unwrap(),
+        product_query: Some("Chopin Etudes Op.10".try_into().unwrap()),
         category_id: Default::default(),
         period_id: Default::default(),
         shop_name_query: ["Hans Volkers Shop".into()].into(),
@@ -401,7 +401,7 @@ async fn should_respond_200_when_hits_anon() {
     let search_filter = ProductSearchData {
         language: LanguageData::De,
         currency: CurrencyData::Eur,
-        product_query: "Chopin Etudes Op.10".try_into().unwrap(),
+        product_query: Some("Chopin Etudes Op.10".try_into().unwrap()),
         category_id: Default::default(),
         period_id: Default::default(),
         shop_name_query: ["Hans Volkers Shop".into()].into(),

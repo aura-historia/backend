@@ -36,7 +36,8 @@ pub struct UserSearchFilterRecord {
     pub user_id: UserId,
     pub user_search_filter_id: UserSearchFilterId,
     pub name: UserSearchFilterName,
-    pub product_query: TextQuery<3>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub product_query: Option<TextQuery<1>>,
     #[serde(default, skip_serializing_if = "HashSet::is_empty")]
     pub category_id: HashSet<CategoryId>,
     #[serde(default, skip_serializing_if = "HashSet::is_empty")]

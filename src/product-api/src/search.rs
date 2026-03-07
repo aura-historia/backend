@@ -201,7 +201,7 @@ mod tests {
         let search = ProductSearchData {
             language: common::language::data::LanguageData::En,
             currency: common::currency::data::CurrencyData::Eur,
-            product_query: "chair".try_into().unwrap(),
+            product_query: Some("chair".try_into().unwrap()),
             category_id: Default::default(),
             period_id: Default::default(),
             shop_name_query: Default::default(),

@@ -508,7 +508,7 @@ async fn should_search_product_documents() {
     let search_filter = ProductSearch {
         language: Language::De,
         currency: Currency::Eur,
-        product_query: "Hallo Welt".try_into().unwrap(),
+        product_query: Some("Hallo Welt".try_into().unwrap()),
         category_id: Default::default(),
         period_id: Default::default(),
         shop_name_query: Default::default(),
@@ -634,7 +634,7 @@ async fn should_omit_descriptions_in_response_for_search_product_documents() {
     let search_filter = ProductSearch {
         language: Language::De,
         currency: Currency::Eur,
-        product_query: "Hallo Welt".try_into().unwrap(),
+        product_query: Some("Hallo Welt".try_into().unwrap()),
         category_id: Default::default(),
         period_id: Default::default(),
         shop_name_query: Default::default(),
@@ -697,7 +697,7 @@ async fn should_search_product_documents_when_all_arguments_are_given() {
     let search_filter = ProductSearch {
         language: Language::De,
         currency: Currency::Eur,
-        product_query: "Lorem".try_into().unwrap(),
+        product_query: Some("Lorem".try_into().unwrap()),
         category_id: Default::default(),
         period_id: Default::default(),
         shop_type_query: Default::default(),
@@ -780,7 +780,7 @@ async fn should_search_product_documents_when_states_are_given(#[case] states: &
     let search_filter = ProductSearch {
         language: Language::De,
         currency: Currency::Eur,
-        product_query: "The same title".try_into().unwrap(),
+        product_query: Some("The same title".try_into().unwrap()),
         category_id: Default::default(),
         period_id: Default::default(),
         shop_name_query: Default::default(),
@@ -842,7 +842,7 @@ async fn should_search_product_documents_when_no_states_are_given() {
     let search_filter = ProductSearch {
         language: Language::De,
         currency: Currency::Eur,
-        product_query: "The same title".try_into().unwrap(),
+        product_query: Some("The same title".try_into().unwrap()),
         category_id: Default::default(),
         period_id: Default::default(),
         shop_name_query: Default::default(),
@@ -929,7 +929,7 @@ async fn should_search_product_documents_when_price_range_is_given(
     let search_filter = ProductSearch {
         language: Language::De,
         currency: Currency::Eur,
-        product_query: "The same title".try_into().unwrap(),
+        product_query: Some("The same title".try_into().unwrap()),
         category_id: Default::default(),
         period_id: Default::default(),
         shop_name_query: Default::default(),
@@ -1017,7 +1017,7 @@ async fn should_search_product_documents_respecting_paging_when_sorted_by_price(
     let search_filter = ProductSearch {
         language: Language::En,
         currency: Currency::Usd,
-        product_query: "The same title".try_into().unwrap(),
+        product_query: Some("The same title".try_into().unwrap()),
         category_id: Default::default(),
         period_id: Default::default(),
         shop_name_query: Default::default(),
@@ -1109,7 +1109,7 @@ async fn should_search_product_documents_respecting_search_after_when_sorted_by_
     let search_filter = ProductSearch {
         language: Language::En,
         currency: Currency::Usd,
-        product_query: "The same title".try_into().unwrap(),
+        product_query: Some("The same title".try_into().unwrap()),
         category_id: Default::default(),
         period_id: Default::default(),
         shop_name_query: Default::default(),
@@ -2345,7 +2345,7 @@ async fn should_search_product_documents_when_exact_year_is_given_for_stored_exa
     let search_filter = ProductSearch {
         language: Language::De,
         currency: Currency::Eur,
-        product_query: "The same title".try_into().unwrap(),
+        product_query: Some("The same title".try_into().unwrap()),
         category_id: Default::default(),
         period_id: Default::default(),
         shop_name_query: Default::default(),
@@ -2443,7 +2443,7 @@ async fn should_search_product_documents_when_only_min_year_is_given_for_stored_
     let search_filter = ProductSearch {
         language: Language::De,
         currency: Currency::Eur,
-        product_query: "The same title".try_into().unwrap(),
+        product_query: Some("The same title".try_into().unwrap()),
         category_id: Default::default(),
         period_id: Default::default(),
         shop_name_query: Default::default(),
@@ -2541,7 +2541,7 @@ async fn should_search_product_documents_when_only_max_year_is_given_for_stored_
     let search_filter = ProductSearch {
         language: Language::De,
         currency: Currency::Eur,
-        product_query: "The same title".try_into().unwrap(),
+        product_query: Some("The same title".try_into().unwrap()),
         category_id: Default::default(),
         period_id: Default::default(),
         shop_name_query: Default::default(),
@@ -2639,7 +2639,7 @@ async fn should_search_product_documents_when_min_and_max_year_is_given_for_stor
     let search_filter = ProductSearch {
         language: Language::De,
         currency: Currency::Eur,
-        product_query: "The same title".try_into().unwrap(),
+        product_query: Some("The same title".try_into().unwrap()),
         category_id: Default::default(),
         period_id: Default::default(),
         shop_name_query: Default::default(),
@@ -2739,7 +2739,7 @@ async fn should_search_product_documents_when_only_min_year_is_given_for_stored_
     let search_filter = ProductSearch {
         language: Language::De,
         currency: Currency::Eur,
-        product_query: "The same title".try_into().unwrap(),
+        product_query: Some("The same title".try_into().unwrap()),
         category_id: Default::default(),
         period_id: Default::default(),
         shop_name_query: Default::default(),
@@ -2837,7 +2837,7 @@ async fn should_search_product_documents_when_only_max_year_is_given_for_stored_
     let search_filter = ProductSearch {
         language: Language::De,
         currency: Currency::Eur,
-        product_query: "The same title".try_into().unwrap(),
+        product_query: Some("The same title".try_into().unwrap()),
         category_id: Default::default(),
         period_id: Default::default(),
         shop_name_query: Default::default(),
@@ -2935,7 +2935,7 @@ async fn should_search_product_documents_when_min_and_max_year_is_given_for_stor
     let search_filter = ProductSearch {
         language: Language::De,
         currency: Currency::Eur,
-        product_query: "The same title".try_into().unwrap(),
+        product_query: Some("The same title".try_into().unwrap()),
         category_id: Default::default(),
         period_id: Default::default(),
         shop_name_query: Default::default(),
@@ -3020,7 +3020,7 @@ async fn should_search_product_documents_when_authenticity_filter_is_given(
     let search_filter = ProductSearch {
         language: Language::De,
         currency: Currency::Eur,
-        product_query: "The same title".try_into().unwrap(),
+        product_query: Some("The same title".try_into().unwrap()),
         category_id: Default::default(),
         period_id: Default::default(),
         shop_name_query: Default::default(),
@@ -3095,7 +3095,7 @@ async fn should_search_product_documents_when_condition_filter_is_given(
     let search_filter = ProductSearch {
         language: Language::De,
         currency: Currency::Eur,
-        product_query: "The same title".try_into().unwrap(),
+        product_query: Some("The same title".try_into().unwrap()),
         category_id: Default::default(),
         period_id: Default::default(),
         shop_name_query: Default::default(),
@@ -3169,7 +3169,7 @@ async fn should_search_product_documents_when_provenance_filter_is_given(
     let search_filter = ProductSearch {
         language: Language::De,
         currency: Currency::Eur,
-        product_query: "The same title".try_into().unwrap(),
+        product_query: Some("The same title".try_into().unwrap()),
         category_id: Default::default(),
         period_id: Default::default(),
         shop_name_query: Default::default(),
@@ -3242,7 +3242,7 @@ async fn should_search_product_documents_when_restoration_filter_is_given(
     let search_filter = ProductSearch {
         language: Language::De,
         currency: Currency::Eur,
-        product_query: "The same title".try_into().unwrap(),
+        product_query: Some("The same title".try_into().unwrap()),
         category_id: Default::default(),
         period_id: Default::default(),
         shop_name_query: Default::default(),
@@ -3313,7 +3313,7 @@ async fn should_search_product_documents_when_shop_types_are_given(
     let search_filter = ProductSearch {
         language: Language::De,
         currency: Currency::Eur,
-        product_query: "Test product for shop type filter".try_into().unwrap(),
+        product_query: Some("Test product for shop type filter".try_into().unwrap()),
         category_id: Default::default(),
         period_id: Default::default(),
         shop_name_query: Default::default(),
@@ -3390,7 +3390,7 @@ async fn should_search_product_documents_when_category_id_is_given() {
     let search_filter = ProductSearch {
         language: Language::De,
         currency: Currency::Eur,
-        product_query: "Test product for category filter".try_into().unwrap(),
+        product_query: Some("Test product for category filter".try_into().unwrap()),
         category_id: HashSet::from_iter([category_id.clone(), other_category_id.clone()]).into(),
         period_id: Default::default(),
         shop_name_query: Default::default(),
@@ -3470,7 +3470,7 @@ async fn should_search_product_documents_when_period_id_is_given() {
     let search_filter = ProductSearch {
         language: Language::De,
         currency: Currency::Eur,
-        product_query: "Test product for category filter".try_into().unwrap(),
+        product_query: Some("Test product for category filter".try_into().unwrap()),
         category_id: Default::default(),
         period_id: HashSet::from_iter([period_id.clone(), other_period_id.clone()]).into(),
         shop_name_query: Default::default(),
@@ -3559,7 +3559,7 @@ async fn should_search_product_documents_when_shop_names_are_given_for_keyword_f
     let search_filter = ProductSearch {
         language: Language::De,
         currency: Currency::Eur,
-        product_query: "Test product for shop name filter".try_into().unwrap(),
+        product_query: Some("Test product for shop name filter".try_into().unwrap()),
         category_id: Default::default(),
         period_id: Default::default(),
         shop_name_query: AnyOfQuery::from(HashSet::from_iter(
@@ -3648,7 +3648,7 @@ async fn should_search_product_documents_when_excluded_shop_names_are_given(
     let search_filter = ProductSearch {
         language: Language::De,
         currency: Currency::Eur,
-        product_query: "Test product for shop name filter".try_into().unwrap(),
+        product_query: Some("Test product for shop name filter".try_into().unwrap()),
         category_id: Default::default(),
         period_id: Default::default(),
         shop_name_query: Default::default(),
@@ -3764,7 +3764,7 @@ async fn should_search_product_documents_when_auction_start_range_is_given(
     let search_filter = ProductSearch {
         language: Language::De,
         currency: Currency::Eur,
-        product_query: "Auction product".try_into().unwrap(),
+        product_query: Some("Auction product".try_into().unwrap()),
         category_id: Default::default(),
         period_id: Default::default(),
         shop_name_query: Default::default(),
@@ -3899,7 +3899,142 @@ async fn should_search_product_documents_when_auction_end_range_is_given(
     let search_filter = ProductSearch {
         language: Language::De,
         currency: Currency::Eur,
-        product_query: "Auction item".try_into().unwrap(),
+        product_query: Some("Auction item".try_into().unwrap()),
+        category_id: Default::default(),
+        period_id: Default::default(),
+        shop_name_query: Default::default(),
+        exclude_shop_name_query: Default::default(),
+        shop_type_query: Default::default(),
+        price_query: None,
+        state_query: Default::default(),
+        origin_year_query: None,
+        authenticity_query: Default::default(),
+        condition_query: Default::default(),
+        provenance_query: Default::default(),
+        restoration_query: Default::default(),
+        created_query: None,
+        updated_query: None,
+        auction_start_query: None,
+        auction_end_query: Some(auction_end_query),
+    };
+    let response = repository
+        .search_product_documents(
+            &search_filter,
+            &Sort {
+                sort: SortProductField::Score,
+                order: SortOrder::Desc,
+            },
+            &Some(Cursor {
+                size: 200,
+                search_after: None,
+            }),
+        )
+        .await
+        .unwrap();
+    let actual_items = response
+        .hits
+        .hits
+        .into_iter()
+        .map(|hit| hit.source)
+        .collect::<Vec<_>>();
+    let expected_products = products
+        .into_iter()
+        .filter(|product| {
+            if let Some(auction_end) = product.auction_end {
+                let mut filter = true;
+                if let Some(min) = auction_end_query.min {
+                    filter = filter && auction_end >= min;
+                }
+                if let Some(max) = auction_end_query.max {
+                    filter = filter && auction_end <= max;
+                }
+                filter
+            } else {
+                false
+            }
+        })
+        .collect::<Vec<_>>();
+
+    assert_eq!(expected_products.len(), actual_items.len());
+    assert!(
+        expected_products
+            .iter()
+            .all(|product| actual_items.contains(product))
+    );
+}
+
+#[rstest::rstest]
+#[trace]
+#[test_attr(apply(test))]
+#[case(RangeQuery { min: Some(datetime!(2026-01-01 0:00 UTC)), max: Some(datetime!(2026-01-31 23:59 UTC)) })]
+#[case(RangeQuery { min: Some(datetime!(2026-06-01 0:00 UTC)), max: None })]
+#[case(RangeQuery { min: None, max: Some(datetime!(2026-12-31 23:59 UTC)) })]
+#[localstack_test(services = [OpenSearch()])]
+async fn should_search_product_documents_when_query_is_empty(
+    #[case] auction_end_query: RangeQuery<OffsetDateTime>,
+) {
+    let early_auction_products = fake::vec![ProductDocument; 50]
+        .into_iter()
+        .map(|mut product| {
+            product.title_de = Some("Auction item".into());
+            product.auction_start = Some(datetime!(2026-01-15 10:00 UTC));
+            product.auction_end = Some(datetime!(2026-01-15 14:00 UTC));
+            product.description_de = None;
+            product.description_en = None;
+            product.description_fr = None;
+            product.description_es = None;
+            product.description_it = None;
+            product
+        })
+        .collect::<Vec<_>>();
+    let late_auction_products = fake::vec![ProductDocument; 50]
+        .into_iter()
+        .map(|mut product| {
+            product.title_de = Some("Auction item".into());
+            product.auction_start = Some(datetime!(2026-06-20 10:00 UTC));
+            product.auction_end = Some(datetime!(2026-06-20 14:00 UTC));
+            product.description_de = None;
+            product.description_en = None;
+            product.description_fr = None;
+            product.description_es = None;
+            product.description_it = None;
+            product
+        })
+        .collect::<Vec<_>>();
+    let no_auction_products = fake::vec![ProductDocument; 50]
+        .into_iter()
+        .map(|mut product| {
+            product.title_de = Some("Auction item".into());
+            product.auction_start = None;
+            product.auction_end = None;
+            product.description_de = None;
+            product.description_en = None;
+            product.description_fr = None;
+            product.description_es = None;
+            product.description_it = None;
+            product
+        })
+        .collect::<Vec<_>>();
+    let products = [
+        early_auction_products,
+        late_auction_products,
+        no_auction_products,
+    ]
+    .concat();
+    let client = get_opensearch_client().await;
+    let repository = ProductOpenSearchRepositoryImpl::new(client);
+    let response = repository
+        .create_product_documents(products.clone())
+        .await
+        .unwrap();
+    assert!(!response.errors);
+    refresh_index("products").await;
+    tokio::time::sleep(Duration::from_millis(3000)).await;
+
+    let search_filter = ProductSearch {
+        language: Language::De,
+        currency: Currency::Eur,
+        product_query: None,
         category_id: Default::default(),
         period_id: Default::default(),
         shop_name_query: Default::default(),

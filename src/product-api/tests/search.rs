@@ -87,7 +87,7 @@ async fn should_200_when_following_search_after_from_previous_response_for_sort_
     let search = ProductSearchData {
         language: common::language::data::LanguageData::De,
         currency: common::currency::data::CurrencyData::Eur,
-        product_query: "Der erwartete Titel".try_into().unwrap(),
+        product_query: Some("Der erwartete Titel".try_into().unwrap()),
         category_id: Default::default(),
         period_id: Default::default(),
         shop_name_query: Default::default(),
@@ -237,7 +237,7 @@ async fn should_200_when_following_search_after_from_previous_response_for_sort_
     let search = ProductSearchData {
         language: common::language::data::LanguageData::De,
         currency: common::currency::data::CurrencyData::Eur,
-        product_query: "Der erwartete Titel".try_into().unwrap(),
+        product_query: Some("Der erwartete Titel".try_into().unwrap()),
         category_id: Default::default(),
         period_id: Default::default(),
         shop_name_query: Default::default(),
@@ -392,7 +392,7 @@ async fn should_200_when_following_search_after_from_previous_response_for_impli
     let search = ProductSearchData {
         language: common::language::data::LanguageData::De,
         currency: common::currency::data::CurrencyData::Usd,
-        product_query: "Der erwartete Titel".try_into().unwrap(),
+        product_query: Some("Der erwartete Titel".try_into().unwrap()),
         category_id: Default::default(),
         period_id: Default::default(),
         shop_name_query: Default::default(),
@@ -509,7 +509,7 @@ async fn should_200_when_following_search_after_from_previous_response_for_expli
     let search = ProductSearchData {
         language: common::language::data::LanguageData::De,
         currency: common::currency::data::CurrencyData::Usd,
-        product_query: "Der erwartete Titel".try_into().unwrap(),
+        product_query: Some("Der erwartete Titel".try_into().unwrap()),
         category_id: Default::default(),
         period_id: Default::default(),
         shop_name_query: Default::default(),
@@ -630,7 +630,7 @@ async fn should_200_when_following_search_after_from_previous_response_for_sort_
     let search = ProductSearchData {
         language: common::language::data::LanguageData::De,
         currency: common::currency::data::CurrencyData::Usd,
-        product_query: "Der erwartete Titel".try_into().unwrap(),
+        product_query: Some("Der erwartete Titel".try_into().unwrap()),
         category_id: Default::default(),
         period_id: Default::default(),
         shop_name_query: Default::default(),
@@ -752,7 +752,7 @@ async fn should_200_when_following_search_after_from_previous_response_for_sort_
     let search = ProductSearchData {
         language: common::language::data::LanguageData::De,
         currency: common::currency::data::CurrencyData::Usd,
-        product_query: "Der erwartete Titel".try_into().unwrap(),
+        product_query: Some("Der erwartete Titel".try_into().unwrap()),
         category_id: Default::default(),
         period_id: Default::default(),
         shop_name_query: Default::default(),
@@ -884,7 +884,7 @@ async fn should_200_when_created_query(
     let search = ProductSearchData {
         language: common::language::data::LanguageData::De,
         currency: common::currency::data::CurrencyData::Eur,
-        product_query: "Der erwartete Titel".try_into().unwrap(),
+        product_query: Some("Der erwartete Titel".try_into().unwrap()),
         category_id: Default::default(),
         period_id: Default::default(),
         shop_name_query: Default::default(),
@@ -987,7 +987,7 @@ async fn should_200_when_updated_query(
     let search = ProductSearchData {
         language: common::language::data::LanguageData::De,
         currency: common::currency::data::CurrencyData::Eur,
-        product_query: "Der erwartete Titel".try_into().unwrap(),
+        product_query: Some("Der erwartete Titel".try_into().unwrap()),
         category_id: Default::default(),
         period_id: Default::default(),
         shop_name_query: Default::default(),
@@ -1090,7 +1090,7 @@ async fn should_200_when_year_query(#[case] min: Option<Year>, #[case] max: Opti
     let search = ProductSearchData {
         language: common::language::data::LanguageData::De,
         currency: common::currency::data::CurrencyData::Eur,
-        product_query: "Der erwartete Titel".try_into().unwrap(),
+        product_query: Some("Der erwartete Titel".try_into().unwrap()),
         category_id: Default::default(),
         period_id: Default::default(),
         shop_name_query: Default::default(),
@@ -1175,7 +1175,7 @@ async fn should_200_when_authenticity_query(#[case] query: HashSet<AuthenticityD
     let search = ProductSearchData {
         language: common::language::data::LanguageData::De,
         currency: common::currency::data::CurrencyData::Eur,
-        product_query: "Der erwartete Titel".try_into().unwrap(),
+        product_query: Some("Der erwartete Titel".try_into().unwrap()),
         category_id: Default::default(),
         period_id: Default::default(),
         shop_name_query: Default::default(),
@@ -1263,7 +1263,7 @@ async fn should_200_when_condition_query(#[case] query: HashSet<ConditionData>) 
     let search = ProductSearchData {
         language: common::language::data::LanguageData::De,
         currency: common::currency::data::CurrencyData::Eur,
-        product_query: "Der erwartete Titel".try_into().unwrap(),
+        product_query: Some("Der erwartete Titel".try_into().unwrap()),
         category_id: Default::default(),
         period_id: Default::default(),
         shop_name_query: Default::default(),
@@ -1349,7 +1349,7 @@ async fn should_200_when_provenance_query(#[case] query: HashSet<ProvenanceData>
     let search = ProductSearchData {
         language: common::language::data::LanguageData::De,
         currency: common::currency::data::CurrencyData::Eur,
-        product_query: "Der erwartete Titel".try_into().unwrap(),
+        product_query: Some("Der erwartete Titel".try_into().unwrap()),
         category_id: Default::default(),
         period_id: Default::default(),
         shop_name_query: Default::default(),
@@ -1435,7 +1435,7 @@ async fn should_200_when_restoration_query(#[case] query: HashSet<RestorationDat
     let search = ProductSearchData {
         language: common::language::data::LanguageData::De,
         currency: common::currency::data::CurrencyData::Eur,
-        product_query: "Der erwartete Titel".try_into().unwrap(),
+        product_query: Some("Der erwartete Titel".try_into().unwrap()),
         category_id: Default::default(),
         period_id: Default::default(),
         shop_name_query: Default::default(),
@@ -1510,7 +1510,7 @@ async fn should_200_personalized_when_authenticated_and_not_watching() {
     let search = ProductSearchData {
         language: common::language::data::LanguageData::De,
         currency: common::currency::data::CurrencyData::Eur,
-        product_query: "Der erwartete Titel".try_into().unwrap(),
+        product_query: Some("Der erwartete Titel".try_into().unwrap()),
         category_id: Default::default(),
         period_id: Default::default(),
         shop_name_query: Default::default(),
@@ -1611,7 +1611,7 @@ async fn should_200_with_native_title_when_no_target_titles_exist_and_hit_due_to
             .body_serde(&ProductSearchData {
                 language: LanguageData::De,
                 currency: CurrencyData::Eur,
-                product_query: "german description".try_into().unwrap(),
+                product_query: Some("german description".try_into().unwrap()),
                 category_id: Default::default(),
                 period_id: Default::default(),
                 shop_name_query: Default::default(),
@@ -1745,7 +1745,7 @@ async fn should_respond_200_and_respect_language_query_param(
             .body_serde(&ProductSearchData {
                 language: expected_title_lang.into(),
                 currency: CurrencyData::Eur,
-                product_query: expected_title.try_into().unwrap(),
+                product_query: Some(expected_title.try_into().unwrap()),
                 category_id: Default::default(),
                 period_id: Default::default(),
                 shop_name_query: Default::default(),
@@ -1811,7 +1811,7 @@ async fn should_200_when_shop_type_query(#[case] query: HashSet<ShopTypeData>) {
     let search = ProductSearchData {
         language: common::language::data::LanguageData::De,
         currency: common::currency::data::CurrencyData::Eur,
-        product_query: "Der erwartete Titel".try_into().unwrap(),
+        product_query: Some("Der erwartete Titel".try_into().unwrap()),
         category_id: Default::default(),
         period_id: Default::default(),
         shop_name_query: Default::default(),
@@ -1901,7 +1901,7 @@ async fn should_200_when_shop_name_query_for_keyword_filter(#[case] query: HashS
     let search = ProductSearchData {
         language: common::language::data::LanguageData::De,
         currency: common::currency::data::CurrencyData::Eur,
-        product_query: "Der erwartete Titel".try_into().unwrap(),
+        product_query: Some("Der erwartete Titel".try_into().unwrap()),
         category_id: Default::default(),
         period_id: Default::default(),
         shop_name_query: query.iter().map(|s| s.to_string().into()).collect(),
@@ -1998,7 +1998,7 @@ async fn should_200_when_exclude_shop_name_query(#[case] query: HashSet<&str>) {
     let search = ProductSearchData {
         language: common::language::data::LanguageData::De,
         currency: common::currency::data::CurrencyData::Eur,
-        product_query: "Der erwartete Titel".try_into().unwrap(),
+        product_query: Some("Der erwartete Titel".try_into().unwrap()),
         category_id: Default::default(),
         period_id: Default::default(),
         shop_name_query: Default::default(),
@@ -2089,7 +2089,7 @@ async fn should_200_when_category_id_filter_is_given() {
     let search = ProductSearchData {
         language: common::language::data::LanguageData::De,
         currency: common::currency::data::CurrencyData::Eur,
-        product_query: "Der erwartete Titel".try_into().unwrap(),
+        product_query: Some("Der erwartete Titel".try_into().unwrap()),
         category_id: HashSet::from_iter([category_id.clone()]),
         period_id: Default::default(),
         shop_name_query: Default::default(),
@@ -2173,7 +2173,7 @@ async fn should_200_when_period_id_filter_is_given() {
     let search = ProductSearchData {
         language: common::language::data::LanguageData::De,
         currency: common::currency::data::CurrencyData::Eur,
-        product_query: "Der erwartete Titel".try_into().unwrap(),
+        product_query: Some("Der erwartete Titel".try_into().unwrap()),
         category_id: Default::default(),
         period_id: HashSet::from_iter([period_id.clone()]),
         shop_name_query: Default::default(),
@@ -2255,7 +2255,7 @@ async fn should_200_when_auction_start_range_is_given() {
     let search = ProductSearchData {
         language: LanguageData::De,
         currency: CurrencyData::Eur,
-        product_query: "Auction test product".try_into().unwrap(),
+        product_query: Some("Auction test product".try_into().unwrap()),
         category_id: Default::default(),
         period_id: Default::default(),
         shop_name_query: Default::default(),
@@ -2341,7 +2341,7 @@ async fn should_200_when_auction_end_range_is_given() {
     let search = ProductSearchData {
         language: LanguageData::De,
         currency: CurrencyData::Eur,
-        product_query: "Auction end test".try_into().unwrap(),
+        product_query: Some("Auction end test".try_into().unwrap()),
         category_id: Default::default(),
         period_id: Default::default(),
         shop_name_query: Default::default(),

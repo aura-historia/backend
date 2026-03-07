@@ -168,7 +168,7 @@ mod tests {
         ProductSearch {
             language: Language::De,
             currency: Currency::Eur,
-            product_query: "Hallo Welt".try_into().unwrap(),
+            product_query: Some("Hallo Welt".try_into().unwrap()),
             category_id: Default::default(),
             period_id: Default::default(),
             shop_name_query: HashSet::from_iter(["Hallo Shop".into()]).into(),
@@ -194,7 +194,7 @@ mod tests {
         ProductSearch {
             language: Language::En,
             currency: Currency::Usd,
-            product_query: "Hallo Welt".try_into().unwrap(),
+            product_query: Some("Hallo Welt".try_into().unwrap()),
             category_id: Default::default(),
             period_id: Default::default(),
             shop_name_query: HashSet::from_iter(["Hallo Shop".into()]).into(),
@@ -220,7 +220,7 @@ mod tests {
         ProductSearch {
             language: Language::En,
             currency: Currency::Gbp,
-            product_query: "Hallo Welten!".try_into().unwrap(),
+            product_query: Some("Hallo Welten!".try_into().unwrap()),
             category_id: Default::default(),
             period_id: Default::default(),
             shop_name_query: Default::default(),
@@ -246,7 +246,7 @@ mod tests {
         ProductSearch {
             language: Language::Fr,
             currency: Currency::Eur,
-            product_query: "Hallo Welten!".try_into().unwrap(),
+            product_query: Some("Hallo Welten!".try_into().unwrap()),
             category_id: Default::default(),
             period_id: Default::default(),
             shop_name_query: Default::default(),
@@ -272,7 +272,33 @@ mod tests {
         ProductSearch {
             language: Language::Es,
             currency: Currency::Eur,
-            product_query: "Hallo Welten!".try_into().unwrap(),
+            product_query: Some("Hallo Welten!".try_into().unwrap()),
+            category_id: Default::default(),
+            period_id: Default::default(),
+            shop_name_query: Default::default(),
+            exclude_shop_name_query: Default::default(),
+            shop_type_query: Default::default(),
+            price_query: None,
+            state_query: Default::default(),
+            origin_year_query: Some(RangeQuery { min: Some((-152).into()), max: None }),
+            authenticity_query: Default::default(),
+            condition_query: Default::default(),
+            provenance_query: Default::default(),
+            restoration_query: Default::default(),
+            created_query: None,
+            updated_query: None,
+            auction_start_query: None,
+            auction_end_query: None,
+        },
+        None,
+        None,
+        1234
+    )]
+    #[case(
+        ProductSearch {
+            language: Language::Es,
+            currency: Currency::Eur,
+            product_query: None,
             category_id: Default::default(),
             period_id: Default::default(),
             shop_name_query: Default::default(),
@@ -337,7 +363,7 @@ mod tests {
                 &ProductSearch {
                     language: Language::De,
                     currency: Currency::Cad,
-                    product_query: "Hallo Welten!".try_into().unwrap(),
+                    product_query: Some("Hallo Welten!".try_into().unwrap()),
                     category_id: Default::default(),
                     period_id: Default::default(),
                     shop_name_query: Default::default(),
@@ -398,7 +424,7 @@ mod tests {
                 &ProductSearch {
                     language: Language::De,
                     currency,
-                    product_query: "Hallo Welten!".try_into().unwrap(),
+                    product_query: Some("Hallo Welten!".try_into().unwrap()),
                     category_id: Default::default(),
                     period_id: Default::default(),
                     shop_name_query: Default::default(),
@@ -471,7 +497,7 @@ mod tests {
                 &ProductSearch {
                     language,
                     currency: Currency::Aud,
-                    product_query: "Hallo Welten!".try_into().unwrap(),
+                    product_query: Some("Hallo Welten!".try_into().unwrap()),
                     category_id: Default::default(),
                     period_id: Default::default(),
                     shop_name_query: Default::default(),

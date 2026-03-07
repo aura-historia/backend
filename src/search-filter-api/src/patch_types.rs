@@ -52,7 +52,7 @@ pub struct PatchProductSearchData {
         skip_serializing_if = "Option::is_none",
         default
     )]
-    pub product_query: Option<TextQuery<3>>,
+    pub product_query: Option<TextQuery<1>>,
     #[serde(
         rename = "categoryId",
         skip_serializing_if = "Option::is_none",

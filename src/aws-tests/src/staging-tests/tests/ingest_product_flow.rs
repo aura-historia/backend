@@ -1469,7 +1469,7 @@ async fn should_materialize_product_in_opensearch_for_create_product_command() {
                 &ProductSearch {
                     language: common::language::domain::Language::En,
                     currency: common::currency::domain::Currency::Eur,
-                    product_query: "Exactly the expected title".try_into().unwrap(),
+                    product_query: Some("Exactly the expected title".try_into().unwrap()),
                     category_id: Default::default(),
                     period_id: Default::default(),
                     shop_name_query: Default::default(),
@@ -1596,7 +1596,7 @@ async fn should_materialize_product_in_opensearch_for_domain_event() {
                 &ProductSearch {
                     language: common::language::domain::Language::En,
                     currency: common::currency::domain::Currency::Usd,
-                    product_query: "Exactly the expected title".try_into().unwrap(),
+                    product_query: Some("Exactly the expected title".try_into().unwrap()),
                     category_id: Default::default(),
                     period_id: Default::default(),
                     shop_name_query: Default::default(),
@@ -1722,7 +1722,7 @@ async fn should_materialize_product_in_opensearch_for_enrichmment_event() {
                 &ProductSearch {
                     language: common::language::domain::Language::En,
                     currency: common::currency::domain::Currency::Usd,
-                    product_query: "Exactly the expected title".try_into().unwrap(),
+                    product_query: Some("Exactly the expected title".try_into().unwrap()),
                     category_id: Default::default(),
                     period_id: Default::default(),
                     shop_name_query: Default::default(),
@@ -1847,7 +1847,7 @@ async fn should_materialize_product_in_opensearch_for_policy_event() {
                 &ProductSearch {
                     language: common::language::domain::Language::En,
                     currency: common::currency::domain::Currency::Usd,
-                    product_query: "Exactly the expected title".try_into().unwrap(),
+                    product_query: Some("Exactly the expected title".try_into().unwrap()),
                     category_id: Default::default(),
                     period_id: Default::default(),
                     shop_name_query: Default::default(),

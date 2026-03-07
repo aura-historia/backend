@@ -30,8 +30,12 @@ pub struct ProductSearchData {
     pub language: LanguageData,
     #[serde(default)]
     pub currency: CurrencyData,
-    #[serde(rename = "productQuery")]
-    pub product_query: TextQuery<3>,
+    #[serde(
+        rename = "productQuery",
+        skip_serializing_if = "Option::is_none",
+        default
+    )]
+    pub product_query: Option<TextQuery<1>>,
     #[serde(
         rename = "categoryId",
         skip_serializing_if = "HashSet::is_empty",
@@ -292,7 +296,7 @@ mod tests {
         let search_filter = ProductSearchData {
             language: LanguageData::De,
             currency: CurrencyData::Eur,
-            product_query: "Boop".try_into().unwrap(),
+            product_query: Some("Boop".try_into().unwrap()),
             category_id: HashSet::from_iter([CategoryId::from("furniture")]),
             period_id: HashSet::from_iter([PeriodId::from("baroque")]),
             shop_name_query: ["Baap".into()].into(),
@@ -395,7 +399,7 @@ mod tests {
         let expected = ProductSearchData {
             language: LanguageData::De,
             currency: CurrencyData::Eur,
-            product_query: "Boop".try_into().unwrap(),
+            product_query: Some("Boop".try_into().unwrap()),
             category_id: HashSet::from_iter([CategoryId::from("furniture")]),
             period_id: HashSet::from_iter([PeriodId::from("baroque")]),
             shop_name_query: ["Baap".into()].into(),
@@ -461,7 +465,7 @@ mod tests {
         let search_filter = ProductSearchData {
             language: LanguageData::De,
             currency: CurrencyData::Eur,
-            product_query: "Boop".try_into().unwrap(),
+            product_query: Some("Boop".try_into().unwrap()),
             category_id: Default::default(),
             period_id: Default::default(),
             shop_name_query: Default::default(),
@@ -500,7 +504,7 @@ mod tests {
         let expected = ProductSearchData {
             language: LanguageData::De,
             currency: CurrencyData::Eur,
-            product_query: "Boop".try_into().unwrap(),
+            product_query: Some("Boop".try_into().unwrap()),
             category_id: Default::default(),
             period_id: Default::default(),
             shop_name_query: Default::default(),
@@ -532,7 +536,7 @@ mod tests {
         let expected = ProductSearchData {
             language: LanguageData::En,
             currency: CurrencyData::Eur,
-            product_query: "Boop".try_into().unwrap(),
+            product_query: Some("Boop".try_into().unwrap()),
             category_id: Default::default(),
             period_id: Default::default(),
             shop_name_query: Default::default(),
