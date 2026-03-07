@@ -166,17 +166,19 @@ impl<'a> ProductOpenSearchRepository for ProductOpenSearchRepositoryImpl<'a> {
             ),
         };
 
-        must.push(json!({
-            "multi_match": {
-                "query": search.product_query.as_ref(),
-                "fields": [
-                    format!("{title_field}^3"),
-                    format!("{description_field}^1"),
-                ],
-                "fuzziness": "AUTO",
-                "minimum_should_match": "70%"
-            }
-        }));
+        if let Some(product_query) = search.product_query.as_ref() {
+            must.push(json!({
+                "multi_match": {
+                    "query": product_query,
+                    "fields": [
+                        format!("{title_field}^3"),
+                        format!("{description_field}^1"),
+                    ],
+                    "fuzziness": "AUTO",
+                    "minimum_should_match": "70%"
+                }
+            }));
+        }
 
         // ---------- Exclusions ----------
         if !search.exclude_shop_name_query.is_empty() {
