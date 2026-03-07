@@ -1,8 +1,22 @@
 use crate::css_selector::rule::{ExtractionError, ExtractionRule};
+use common::shop_id::ShopId;
 use llm::chat::StructuredOutputFormat;
 use schemars::JsonSchema;
 use scraper::Html;
 use serde::{Deserialize, Serialize};
+use time::OffsetDateTime;
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ShopsProductSchema {
+    pub shop_id: ShopId,
+    pub product_schema: ProductCssSelectorSchema,
+
+    #[serde(with = "time::serde::rfc3339")]
+    pub created: OffsetDateTime,
+
+    #[serde(with = "time::serde::rfc3339")]
+    pub updated: OffsetDateTime,
+}
 
 #[cfg_attr(feature = "test-data", derive(fake::Dummy))]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]
