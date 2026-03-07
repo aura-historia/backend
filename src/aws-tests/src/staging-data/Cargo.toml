@@ -13,6 +13,7 @@ serde_json = { workspace = true }
 serde = { workspace = true }
 fake = { workspace = true }
 reqwest = { workspace = true }
+time = { workspace = true }
 opensearch = { workspace = true }
 shop = { workspace = true, features = ["test-data"] }
 product-classification = { workspace = true, features = ["test-data"] }
