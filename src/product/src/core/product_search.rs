@@ -16,7 +16,7 @@ use common::year::Year;
 use shop::core::shop_type::ShopType;
 use time::OffsetDateTime;
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub struct ProductSearch {
     pub language: Language,
     pub currency: Currency,

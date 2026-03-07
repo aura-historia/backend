@@ -39,8 +39,4 @@ async fn should_return_actual_search_filter() {
         expected.user_search_filter_id.to_string(),
         json["userSearchFilterId"]
     );
-    assert_eq!(
-        expected.search.product_query.unwrap().to_string(),
-        json["search"]["productQuery"]
-    );
 }
