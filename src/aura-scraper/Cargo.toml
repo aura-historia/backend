@@ -9,7 +9,9 @@ product = { workspace = true, features = ["dynamodb"] }
 scraper = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
+sqlx = { workspace = true }
 thiserror = { workspace = true }
+tracing = { workspace = true }
 schemars = { workspace = true }
 async-trait = { workspace = true }
 mockall = { workspace = true }
@@ -19,6 +21,7 @@ reqwest = { workspace = true, features = ["default", "json"] }
 tokio = { workspace = true, features = ["macros"] }
 time = { workspace = true }
 url = { workspace = true }
+uuid = { workspace = true }
 once_cell = { workspace = true }
 regex = { workspace = true }
 whatlang = "0.18.0"

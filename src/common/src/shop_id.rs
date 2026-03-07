@@ -63,6 +63,12 @@ impl Display for ShopId {
     }
 }
 
+impl From<ShopId> for Uuid {
+    fn from(id: ShopId) -> Self {
+        id.0
+    }
+}
+
 impl From<Uuid> for ShopId {
     fn from(uuid: Uuid) -> Self {
         ShopId(uuid)
