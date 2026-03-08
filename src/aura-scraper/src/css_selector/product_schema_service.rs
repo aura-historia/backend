@@ -1105,8 +1105,12 @@ mod tests {
     #[tokio::test]
     #[ignore]
     async fn test_create_product_schema() {
-        use crate::normalization::product_normalization_service::{
-            ProductNormalizationService, ProductNormalizationServiceImpl,
+        use crate::normalization::{
+            product_normalization_service::{
+                ProductNormalizationService, ProductNormalizationServiceImpl,
+            },
+            state_mapping_repository::ProductStateMappingRepositoryImpl,
+            state_mapping_service::ProductStateMappingServiceImpl,
         };
         use llm::builder::{LLMBackend, LLMBuilder};
         use scraper::Html;
@@ -1118,7 +1122,15 @@ mod tests {
             .api_key("foo")
             .model("gemini-2.5-flash")
             .max_tokens(8192);
-        let service = ProductSchemaServiceImpl::new(llm_builder, Box::new(repository)).unwrap();
+        let service = ProductSchemaServiceImpl::new(
+            LLMBuilder::new()
+                .backend(LLMBackend::Google)
+                .api_key("foo")
+                .model("gemini-2.5-flash")
+                .max_tokens(8192),
+            Box::new(repository),
+        )
+        .unwrap();
 
         let html = reqwest::Client::new()
             .get("https://www.antiquitaeten-tuebingen.de/augsburger-hinterglasbild-josef-mit-jesuskind-und-lilie-g1500/")
@@ -1139,7 +1151,19 @@ mod tests {
         let applied = schema.apply(&Html::parse_document(&html)).unwrap();
         println!("{:#?}", applied);
 
-        let normalized = ProductNormalizationServiceImpl::new()
+        // NOTE: This ignored integration test requires a real Postgres DB at DATABASE_URL
+        // and a real LLM API key; the pool/repository wiring below is illustrative.
+        // In a real run you would supply an actual PgPool here.
+        let pool: &'static sqlx::PgPool = Box::leak(Box::new(
+            sqlx::PgPool::connect(&std::env::var("DATABASE_URL").unwrap())
+                .await
+                .unwrap(),
+        ));
+        let state_mapping_repo = ProductStateMappingRepositoryImpl::new(pool);
+        let state_mapping_svc =
+            ProductStateMappingServiceImpl::new(llm_builder, Box::new(state_mapping_repo)).unwrap();
+
+        let normalized = ProductNormalizationServiceImpl::new(Box::new(state_mapping_svc))
             .normalize(
                 applied,
                 Url::parse(
@@ -1147,6 +1171,7 @@ mod tests {
                 )
                 .unwrap(),
             )
+            .await
             .unwrap();
         println!("{:#?}", normalized);
     }

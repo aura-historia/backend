@@ -1,5 +1,10 @@
+use crate::normalization::state_mapping_service::StateMappingServiceError;
+
 #[derive(Debug, thiserror::Error)]
 pub enum NormalizationError {
+    #[error("failed to resolve product state: {0}")]
+    StateMappingError(#[from] StateMappingServiceError),
+
     #[error("failed to normalize `shops_product_id`: value is empty after trimming")]
     ShopsProductIdEmpty,
 
