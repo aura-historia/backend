@@ -27,7 +27,7 @@ url = { workspace = true }
 uuid = { workspace = true }
 once_cell = { workspace = true }
 regex = { workspace = true }
-whatlang = "0.18.0"
+lingua = { workspace = true }
 
 # Optional
 fake = { workspace = true, optional = true }

@@ -147,7 +147,7 @@ mod tests {
     fn minimal_raw() -> RawExtractedProduct {
         RawExtractedProduct {
             shops_product_id: "PROD-001".into(),
-            // Long enough for whatlang to reliably identify as English.
+            // Long enough for lingua to reliably identify as English.
             title: "Antique ceramic vase from the early twentieth century in excellent condition"
                 .into(),
             description: vec![],

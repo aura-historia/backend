@@ -142,8 +142,8 @@ mod tests {
 
     #[test]
     fn should_return_error_when_title_language_cannot_be_detected() {
-        // A single character cannot be language-detected reliably.
-        let err = normalize_title_localized("X").unwrap_err();
+        // Pure digits have no language signal — lingua returns None.
+        let err = normalize_title_localized("12345").unwrap_err();
         assert!(
             matches!(err, NormalizationError::TitleUnknownLanguage { .. }),
             "expected TitleUnknownLanguage, got: {:?}",
@@ -224,7 +224,7 @@ mod tests {
     }
 
     #[rstest]
-    #[case(vec!["X".into()])]
+    #[case(vec!["12345".into()])]
     fn should_return_error_when_description_language_cannot_be_detected(
         #[case] fragments: Vec<String>,
     ) {
