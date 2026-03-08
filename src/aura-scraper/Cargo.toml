@@ -30,7 +30,12 @@ whatlang = "0.18.0"
 fake = { workspace = true, optional = true }
 
 [dev-dependencies]
+aura-scraper = { workspace = true, features = ["test-data"] }
 rstest = { workspace = true }
+fake = { workspace = true }
+serial_test = { workspace = true }
+test-api = { workspace = true, features = ["rds"] }
+tokio = { workspace = true, features = ["macros", "time"] }
 
 [features]
 default = []

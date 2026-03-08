@@ -18,6 +18,23 @@ pub struct ShopsProductSchema {
     pub updated: OffsetDateTime,
 }
 
+#[cfg(feature = "test-data")]
+mod faker {
+    use super::*;
+    use fake::{Dummy, Fake, Faker, Rng};
+
+    impl Dummy<Faker> for ShopsProductSchema {
+        fn dummy_with_rng<R: Rng + ?Sized>(config: &Faker, rng: &mut R) -> Self {
+            ShopsProductSchema {
+                shop_id: config.fake_with_rng(rng),
+                product_schema: config.fake_with_rng(rng),
+                created: OffsetDateTime::now_utc(),
+                updated: OffsetDateTime::now_utc(),
+            }
+        }
+    }
+}
+
 #[cfg_attr(feature = "test-data", derive(fake::Dummy))]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "snake_case")]
