@@ -9,7 +9,7 @@ use test_api::*;
 use time::OffsetDateTime;
 
 const RDS: Rds = Rds {
-    sql_setup_file: "src/aura-scraper/tests/fixtures/schema.sql",
+    sql_setup_file: "src/aura-scraper/sql/schema.sql",
 };
 
 fn minimal_css_schema() -> ProductCssSelectorSchema {
