@@ -5,7 +5,7 @@ use llm::{LLMProvider, chat::ChatMessage, error::LLMError};
 use product::dynamodb::product_state_record::ProductStateRecord;
 use regex::Regex;
 use time::OffsetDateTime;
-use tracing::info;
+use tracing::{debug, info};
 
 // ---------------------------------------------------------------------------
 // Error
@@ -229,20 +229,35 @@ impl ProductStateMappingService for ProductStateMappingServiceImpl {
 
         let now = OffsetDateTime::now_utc();
         let record = match parsed {
-            LlmMappingResponse::State(normalized) => ProductStateMappingRecord {
-                raw: key,
-                normalized,
-                mapping_type: StateMappingType::Value,
-                created: now,
-                updated: now,
-            },
-            LlmMappingResponse::Regex { pattern, state } => ProductStateMappingRecord {
-                raw: pattern,
-                normalized: state,
-                mapping_type: StateMappingType::Regex,
-                created: now,
-                updated: now,
-            },
+            LlmMappingResponse::State(normalized) => {
+                info!(
+                    raw = %key,
+                    state = ?normalized,
+                    "LLM mapped raw state string to exact value"
+                );
+                ProductStateMappingRecord {
+                    raw: key,
+                    normalized,
+                    mapping_type: StateMappingType::Value,
+                    created: now,
+                    updated: now,
+                }
+            }
+            LlmMappingResponse::Regex { pattern, state } => {
+                info!(
+                    raw = %key,
+                    pattern = %pattern,
+                    state = ?state,
+                    "LLM mapped raw state string to regex pattern"
+                );
+                ProductStateMappingRecord {
+                    raw: pattern,
+                    normalized: state,
+                    mapping_type: StateMappingType::Regex,
+                    created: now,
+                    updated: now,
+                }
+            }
         };
 
         Ok(record)
@@ -276,14 +291,14 @@ impl ProductStateMappingService for ProductStateMappingServiceImpl {
 
         match existing {
             Some(_) => {
-                info!(raw = %key, "Updating existing state mapping...");
+                info!(raw = %key, state = ?normalized_record, mappingType = ?mapping_type, "Updating existing state mapping");
                 self.repository
                     .update_mapping(&key, &normalized_record, &mapping_type)
                     .await
                     .map_err(StateMappingServiceError::DatabaseError)
             }
             None => {
-                info!(raw = %key, "Inserting new state mapping...");
+                info!(raw = %key, state = ?normalized_record, mappingType = ?mapping_type, "Inserting new state mapping");
                 let now = OffsetDateTime::now_utc();
                 let record = ProductStateMappingRecord {
                     raw: key,
@@ -310,7 +325,7 @@ impl ProductStateMappingService for ProductStateMappingServiceImpl {
 
         // ── Step 1: exact DB lookup ──────────────────────────────────────
         if let Some(existing) = self.repository.find_mapping(&key).await? {
-            info!(raw = %key, "Found exact state mapping in DB.");
+            debug!(raw = %key, "Found exact state mapping in DB");
             return Ok(existing);
         }
 
@@ -322,7 +337,7 @@ impl ProductStateMappingService for ProductStateMappingServiceImpl {
             // not break all lookups.
             match Regex::new(&mapping.raw) {
                 Ok(re) if re.is_match(&key) => {
-                    info!(
+                    debug!(
                         raw = %key,
                         pattern = %mapping.raw,
                         "Matched state via DB regex pattern."

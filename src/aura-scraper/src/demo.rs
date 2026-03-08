@@ -141,6 +141,10 @@ async fn main() {
             shop_id: "8ded4706-dc72-4b0b-9357-9192e18e3d5c".try_into().unwrap(),
             url: "https://nostalgie-palast.de/couchtisch-uebersee-mit-glasplatte-113-m-x-053-m/",
         },
+        ScrapeTarget {
+            shop_id: "8ded4706-dc72-4b0b-9357-9192e18e3d5d".try_into().unwrap(),
+            url: "https://www.lot-tissimo.com/de-de/auction-catalogues/chiswick-auctions/catalogue-id-srchis11168/lot-61a5b754-6fc7-435b-80b3-b3fa0141c94e",
+        },
     ];
 
     // 1. Force info log level before init_logging reads LOG_LEVEL.

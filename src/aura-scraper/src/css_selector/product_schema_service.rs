@@ -8,7 +8,7 @@ use kuchiki::{NodeRef, parse_html};
 use llm::{LLMProvider, chat::ChatMessage, error::LLMError};
 use schemars::schema_for;
 use time::OffsetDateTime;
-use tracing::{info, warn};
+use tracing::{debug, info, warn};
 
 #[derive(Debug, thiserror::Error)]
 pub enum ProductSchemaServiceError {
@@ -109,8 +109,10 @@ impl ProductSchemaService for ProductSchemaServiceImpl {
             ProductSchemaServiceError::NoTextResponse("Expected text response".to_string())
         })?;
 
-        serde_json::from_str(strip_markdown_json_embedding(&res))
-            .map_err(ProductSchemaServiceError::JsonParsingTargetSchemaError)
+        let schema = serde_json::from_str(strip_markdown_json_embedding(&res))
+            .map_err(ProductSchemaServiceError::JsonParsingTargetSchemaError)?;
+        info!("LLM created new product CSS selector schema");
+        Ok(schema)
     }
 
     async fn fix_product_schema(
@@ -150,10 +152,10 @@ impl ProductSchemaService for ProductSchemaServiceImpl {
         let mut last_err: Option<ProductSchemaServiceError> = None;
 
         for attempt in 1..=MAX_RETRIES {
-            info!(
+            debug!(
                 attempt,
                 maxRetries = MAX_RETRIES,
-                "Attempting to fix product schema via LLM..."
+                "Attempting to fix product schema via LLM"
             );
 
             let message = ChatMessage::user().content(instruction.clone()).build();
@@ -181,7 +183,7 @@ impl ProductSchemaService for ProductSchemaServiceImpl {
                 &text,
             )) {
                 Ok(fixed_schema) => {
-                    info!(attempt, "Successfully fixed product schema via LLM");
+                    info!(attempt, "LLM successfully produced a fixed product schema");
                     return Ok(fixed_schema);
                 }
                 Err(parse_err) => {
@@ -227,14 +229,14 @@ impl ProductSchemaService for ProductSchemaServiceImpl {
 
         match existing {
             Some(_) => {
-                info!(shopId = %shop_id, "Updating existing product schema...");
+                info!(shopId = %shop_id, "Updating existing product schema");
                 self.repository
                     .update_product_schema(shop_id, &product_schema)
                     .await
                     .map_err(ProductSchemaServiceError::DatabaseError)
             }
             None => {
-                info!(shopId = %shop_id, "Inserting new product schema...");
+                info!(shopId = %shop_id, "Inserting new product schema");
                 let now = OffsetDateTime::now_utc();
                 let schema = ShopsProductSchema {
                     shop_id: *shop_id,
@@ -256,11 +258,11 @@ impl ProductSchemaService for ProductSchemaServiceImpl {
         html: &str,
     ) -> Result<ShopsProductSchema, ProductSchemaServiceError> {
         if let Some(existing) = self.find_product_schema(shop_id).await? {
-            info!(shopId = %shop_id, "Found existing product schema...");
+            debug!(shopId = %shop_id, "Found existing product schema");
             return Ok(existing);
         }
 
-        info!(shopId = %shop_id, "No existing product schema found, creating via LLM...");
+        info!(shopId = %shop_id, "No product schema found for shop, creating via LLM");
         let product_schema = self.create_product_schema(html).await?;
         self.save_product_schema(shop_id, product_schema).await
     }
