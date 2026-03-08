@@ -5,7 +5,8 @@ edition = "2024"
 
 [dependencies]
 common = { workspace = true }
-product = { workspace = true, features = ["dynamodb"] }
+product = { workspace = true, features = ["dynamodb", "service"] }
+shop = { workspace = true }
 scraper = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
