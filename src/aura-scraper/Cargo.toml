@@ -7,6 +7,8 @@ edition = "2024"
 common = { workspace = true }
 product = { workspace = true, features = ["dynamodb", "service"] }
 shop = { workspace = true }
+testcontainers = { workspace = true }
+testcontainers-modules = { workspace = true, features = ["postgres"] }
 scraper = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
@@ -38,6 +40,13 @@ serial_test = { workspace = true }
 test-api = { workspace = true, features = ["rds"] }
 tokio = { workspace = true, features = ["macros", "time"] }
 
+[[bin]]
+name = "demo"
+path = "src/demo.rs"
+
 [features]
 default = []
 test-data = ["common/test-data", "fake"]
+
+[target.'cfg(not(target_env = "msvc"))'.dependencies]
+libc = { workspace = true }
