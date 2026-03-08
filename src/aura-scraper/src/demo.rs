@@ -26,22 +26,31 @@
 //! OPENAI_API_KEY=sk-... cargo run --bin demo -p aura-scraper
 //! ```
 
+use std::fs::File;
+use std::io::BufWriter;
 use std::process::Command;
 use std::time::Duration;
 
 use aura_scraper::css_selector::product_schema_repository::ShopsProductSchemaRepositoryImpl;
 use aura_scraper::css_selector::product_schema_service::ProductSchemaServiceImpl;
+use aura_scraper::normalization::product::NormalizedProduct;
 use aura_scraper::normalization::product_normalization_service::ProductNormalizationServiceImpl;
 use aura_scraper::normalization::state_mapping_repository::ProductStateMappingRepositoryImpl;
 use aura_scraper::normalization::state_mapping_service::ProductStateMappingServiceImpl;
 use aura_scraper::scraper_service::{ReqwestHtmlFetcher, ScraperService, ScraperServiceImpl};
+use common::language::data::LocalizedTextData;
+use common::price::data::PriceData;
 use common::shop_id::ShopId;
+use common::shops_product_id::ShopsProductId;
 use llm::builder::{LLMBackend, LLMBuilder};
+use product::data::product_image_data::ProductImageData;
+use product::data::product_state_data::ProductStateData;
 use sqlx::PgPool;
 use testcontainers::ImageExt;
 use testcontainers::core::IntoContainerPort;
 use testcontainers::runners::AsyncRunner;
 use testcontainers_modules::postgres::Postgres as PgImage;
+use time::OffsetDateTime;
 use tracing::{error, info};
 use url::Url;
 
@@ -68,21 +77,50 @@ struct ScrapeTarget {
 // Entry point
 // ---------------------------------------------------------------------------
 
+#[derive(serde::Serialize)]
+pub struct DemoProduct {
+    pub shops_product_id: ShopsProductId,
+    pub title: LocalizedTextData,
+    pub description: Option<LocalizedTextData>,
+    pub price: Option<PriceData>,
+    pub price_estimate_min: Option<PriceData>,
+    pub price_estimate_max: Option<PriceData>,
+    pub state: ProductStateData,
+    pub url: Url,
+    pub images: Vec<ProductImageData>,
+    pub auction_start: Option<OffsetDateTime>,
+    pub auction_end: Option<OffsetDateTime>,
+}
+
+impl From<NormalizedProduct> for DemoProduct {
+    fn from(p: NormalizedProduct) -> Self {
+        Self {
+            shops_product_id: p.shops_product_id,
+            title: p.title.into(),
+            description: p.description.map(Into::into),
+            price: p.price.map(Into::into),
+            price_estimate_min: p.price_estimate_min.map(Into::into),
+            price_estimate_max: p.price_estimate_max.map(Into::into),
+            state: p.state.into(),
+            url: p.url,
+            images: p.images.into_iter().map(Into::into).collect(),
+            auction_start: p.auction_start,
+            auction_end: p.auction_end,
+        }
+    }
+}
+
 #[tokio::main]
 async fn main() {
     let targets: &[ScrapeTarget] = &[
-        //ScrapeTarget {
-        //    shop_id: "8ded4706-dc72-4b0b-9357-9192e18e3d5a".try_into().unwrap(),
-        //    url: "https://www.antiquitaeten-tuebingen.de/weichholzschrank-mit-orig-bemalung-salzburg-um-1800-art-7001/",
-        //},
-        //ScrapeTarget {
-        //    shop_id: "8ded4706-dc72-4b0b-9357-9192e18e3d5a".try_into().unwrap(),
-        //    url: "https://www.antiquitaeten-tuebingen.de/bildnis-in-oel-der-gattin-von-samuel-de-la-roche1947-art-g1475/",
-        //},
-        //ScrapeTarget {
-        //    shop_id: "8ded4706-dc72-4b0b-9357-9192e18e3d5a".try_into().unwrap(),
-        //    url: "https://www.antiquitaeten-tuebingen.de/https-www-antiquitaeten-tuebingen-de-gemaelde-artnr-g-58-oelgemaelde-landschaftsmalerei-mitte-19-jh/",
-        //},
+        ScrapeTarget {
+            shop_id: "8ded4706-dc72-4b0b-9357-9192e18e3d5a".try_into().unwrap(),
+            url: "https://www.antiquitaeten-tuebingen.de/weichholzschrank-mit-orig-bemalung-salzburg-um-1800-art-7001/",
+        },
+        ScrapeTarget {
+            shop_id: "8ded4706-dc72-4b0b-9357-9192e18e3d5a".try_into().unwrap(),
+            url: "https://www.antiquitaeten-tuebingen.de/bildnis-in-oel-der-gattin-von-samuel-de-la-roche1947-art-g1475/",
+        },
         ScrapeTarget {
             shop_id: "8ded4706-dc72-4b0b-9357-9192e18e3d5b".try_into().unwrap(),
             url: "https://20thcenturymilitaria.com/shop.php?code=51609",
@@ -95,14 +133,20 @@ async fn main() {
             shop_id: "8ded4706-dc72-4b0b-9357-9192e18e3d5b".try_into().unwrap(),
             url: "https://20thcenturymilitaria.com/shop.php?code=52014",
         },
+        ScrapeTarget {
+            shop_id: "8ded4706-dc72-4b0b-9357-9192e18e3d5a".try_into().unwrap(),
+            url: "https://www.antiquitaeten-tuebingen.de/https-www-antiquitaeten-tuebingen-de-gemaelde-artnr-g-58-oelgemaelde-landschaftsmalerei-mitte-19-jh/",
+        },
+        ScrapeTarget {
+            shop_id: "8ded4706-dc72-4b0b-9357-9192e18e3d5c".try_into().unwrap(),
+            url: "https://nostalgie-palast.de/couchtisch-uebersee-mit-glasplatte-113-m-x-053-m/",
+        },
     ];
 
     // 1. Force info log level before init_logging reads LOG_LEVEL.
     //    Safety: single-threaded at this point, no other threads have spawned.
     unsafe { std::env::set_var("LOG_LEVEL", "info") };
     common::logging::init_logging();
-
-    info!("=== aura-scraper demo ===");
 
     // 2. Spin up Postgres.
     let pool: &'static PgPool = start_postgres().await;
@@ -114,6 +158,7 @@ async fn main() {
     let service = build_scraper_service(pool);
 
     // 5. Run the scraper for each target.
+    let mut products: Vec<DemoProduct> = vec![];
     for target in targets {
         let shop_id = target.shop_id;
         let url = match Url::parse(target.url) {
@@ -131,9 +176,11 @@ async fn main() {
         match service.scrape(&shop_id, &url).await {
             Ok(product) => {
                 info!(
-                    product = ?product,
+                    title = %product.title.payload,
+                    shopsProductId = %product.shops_product_id,
                     "Scrape succeeded"
                 );
+                products.push(product.into());
             }
             Err(e) => {
                 error!(error = %e, "Scrape failed");
@@ -141,7 +188,12 @@ async fn main() {
         }
     }
 
-    info!("=== demo finished ===");
+    // Serialize products to JSON
+    info!("Scraping complete, writing output to 'scraper_output.json'…");
+    let file = File::create("scraper_output.json").unwrap();
+    let writer = BufWriter::new(file);
+    serde_json::to_writer_pretty(writer, &products).unwrap();
+    info!("Output written to 'scraper_output.json'.");
 }
 
 // ---------------------------------------------------------------------------

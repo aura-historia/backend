@@ -5,7 +5,7 @@ edition = "2024"
 
 [dependencies]
 common = { workspace = true }
-product = { workspace = true, features = ["dynamodb", "service"] }
+product = { workspace = true, features = ["dynamodb", "service", "data"] }
 shop = { workspace = true }
 testcontainers = { workspace = true }
 testcontainers-modules = { workspace = true, features = ["postgres"] }
