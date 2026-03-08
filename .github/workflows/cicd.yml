@@ -95,6 +95,7 @@ jobs:
     strategy:
       matrix:
         crate:
+          - src/aura-scraper
           - src/search-filter
           - src/search-filter-api
           - src/product
