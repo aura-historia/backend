@@ -28,6 +28,7 @@ mail-lambda-send = { workspace = true }
 product-pipeline = { workspace = true }
 fxrate = { workspace = true }
 fxrate-lambda = { workspace = true }
+aura-scraper = { workspace = true }
 
 [workspace]
 members = [
@@ -55,6 +56,7 @@ members = [
     "src/product-pipeline",
     "src/fxrate",
     "src/fxrate-lambda",
+    "src/aura-scraper",
 ]
 
 [workspace.dependencies]
@@ -122,6 +124,7 @@ serde = "1.0.228"
 serde_dynamo = "4.3.0"
 serde_json = "1.0.149"
 serde_qs = "1.0.0"
+sqlx = { version = "0.8.6", default-features = false, features = ["runtime-tokio", "tls-rustls", "postgres", "uuid", "time", "json", "macros"] }
 serde_fields = "0.1.0"
 serial_test = "3.4.0"
 sha2 = "0.10.9"
@@ -170,3 +173,9 @@ regex = "1.12.3"
 fxrate = { path = "src/fxrate" }
 fxrate-lambda = { path = "src/fxrate-lambda" }
 slug = "0.1.6"
+aura-scraper = { path = "src/aura-scraper" }
+scraper = "0.25.0"
+schemars = "1.2.1"
+llm = "1.3.7"
+kuchiki = "0.8.1"
+lingua = { version = "1.7.2", default-features = false, features = ["english", "german", "french", "spanish", "italian"] }

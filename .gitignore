@@ -35,3 +35,5 @@ coverage.lcov
 **/models_cache
 **/python/__pycache__
 **/.venv
+
+**/scraper_output.json

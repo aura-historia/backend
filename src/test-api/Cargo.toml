@@ -15,7 +15,8 @@ serde_json = { workspace = true }
 sha2 = { workspace = true }
 tokio = { workspace = true, features = ["full"] }
 testcontainers = { workspace = true }
-testcontainers-modules = { workspace = true, features = ["localstack"] }
+testcontainers-modules = { workspace = true, features = ["localstack", "postgres"] }
+sqlx = { workspace = true, optional = true }
 aws-config = { workspace = true }
 aws-sdk-account = { workspace = true }
 tracing-subscriber = { workspace = true, features = ["json"] }
@@ -39,6 +40,7 @@ test-api = { workspace = true, features = [
     "api-gateway",
     "dynamodb",
     "opensearch",
+    "rds",
     "sqs",
 ] }
 
@@ -47,4 +49,5 @@ default = []
 api-gateway = ["aws_lambda_events", "aws_lambda_events/apigw"]
 dynamodb = ["dep:aws-sdk-dynamodb", "serde_dynamo"]
 opensearch = ["dep:opensearch", "dep:aws-sdk-opensearch"]
+rds = ["dep:sqlx"]
 sqs = ["dep:aws-sdk-sqs"]
