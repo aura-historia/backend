@@ -5,11 +5,11 @@ use product::dynamodb::product_record::ProductRecord;
 use product::dynamodb::repository::ProductDynamoDbRepository;
 use product::dynamodb::repository::ProductDynamoDbRepositoryImpl;
 use product::service::get_service::GetProductServiceImpl;
-use product::watchlist::data::watchlist_product_data::WatchlistProductData;
-use product::watchlist::dynamodb::record::WatchlistProductRecord;
-use product::watchlist::dynamodb::repository::WatchlistProductDynamoDbRepository;
-use product::watchlist::dynamodb::repository::WatchlistProductDynamoDbRepositoryImpl;
-use product::watchlist::service::product_watchlist_service::ProductWatchListServiceImpl;
+use product_watchlist::data::watchlist_product_data::WatchlistProductData;
+use product_watchlist::dynamodb::record::WatchlistProductRecord;
+use product_watchlist::dynamodb::repository::WatchlistProductDynamoDbRepository;
+use product_watchlist::dynamodb::repository::WatchlistProductDynamoDbRepositoryImpl;
+use product_watchlist::service::product_watchlist_service::ProductWatchListServiceImpl;
 use product_watchlist_api::watchlist_patch::WatchlistProductPatch;
 use product_watchlist_api::watchlist_patch::handle;
 use test_api::*;
@@ -63,12 +63,12 @@ async fn should_respond_with_patched_notifications(
 
     let created = OffsetDateTime::now_utc();
     let watchlist_record = WatchlistProductRecord {
-        pk: product::watchlist::dynamodb::record::mk_pk(&user_record.user_id),
-        sk: product::watchlist::dynamodb::record::mk_sk(
+        pk: product_watchlist::dynamodb::record::mk_pk(&user_record.user_id),
+        sk: product_watchlist::dynamodb::record::mk_sk(
             &product_record.shop_id,
             &product_record.shops_product_id,
         ),
-        lsi1_sk: product::watchlist::dynamodb::record::mk_lsi1_sk(&created).unwrap(),
+        lsi1_sk: product_watchlist::dynamodb::record::mk_lsi1_sk(&created).unwrap(),
         gsi1_pk: None,
         gsi1_sk: None,
         user_id: user_record.user_id,

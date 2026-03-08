@@ -7,7 +7,7 @@ use mail_core::{
 use product::core::product_event::ProductDomainEvent;
 use product::core::{product::Product, product_event::domain::ProductCommonEventPayload};
 use product::service::get_service::{GetProductError, GetProductService};
-use product::watchlist::service::product_watchlist_service::{
+use product_watchlist::service::product_watchlist_service::{
     ProductWatchListService, WatchProductError,
 };
 use serde_email::Email;

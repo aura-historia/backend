@@ -1,6 +1,6 @@
 use crate::{
-    watchlist::dynamodb::record::{mk_gsi1_pk, mk_gsi1_sk},
-    watchlist::service::command::UpdateWatchlistProductCommand,
+    dynamodb::record::{mk_gsi1_pk, mk_gsi1_sk},
+    service::command::UpdateWatchlistProductCommand,
 };
 use aws_sdk_dynamodb::{
     error::SdkError, operation::update_item::UpdateItemError, types::AttributeValue,

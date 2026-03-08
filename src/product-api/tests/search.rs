@@ -21,10 +21,10 @@ use product::opensearch::{
     product_document::ProductDocument,
     repository::{ProductOpenSearchRepository, ProductOpenSearchRepositoryImpl},
 };
-use product::service::personalization_service::ProductPersonalizationServiceImpl;
 use product::service::query_service::QueryProductServiceImpl;
-use product::watchlist::dynamodb::repository::WatchlistProductDynamoDbRepositoryImpl;
 use product_api::search::handle;
+use product_watchlist::dynamodb::repository::WatchlistProductDynamoDbRepositoryImpl;
+use product_watchlist::service::personalization_service::ProductPersonalizationServiceImpl;
 use shop::data::shop_type_data::ShopTypeData;
 use std::collections::HashSet;
 use std::time::Duration;

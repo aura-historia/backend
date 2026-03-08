@@ -1,7 +1,7 @@
 use aws_lambda_events::sqs::{BatchItemFailure, SqsBatchResponse, SqsEvent};
 use common::dynamodb_stream::extract_sqs_event_bridge_dynamodb_record;
 use lambda_runtime::LambdaEvent;
-use product::watchlist::dynamodb::{
+use product_watchlist::dynamodb::{
     record_update::WatchlistProductRecordUpdate, repository::WatchlistProductDynamoDbRepository,
 };
 use time::OffsetDateTime;
@@ -101,8 +101,8 @@ mod tests {
     use aws_sdk_dynamodb::error::SdkError;
     use fake::{Fake, Faker};
     use lambda_runtime::{Context, LambdaEvent};
-    use product::watchlist::dynamodb::record::WatchlistProductRecord;
-    use product::watchlist::dynamodb::repository::MockWatchlistProductDynamoDbRepository;
+    use product_watchlist::dynamodb::record::WatchlistProductRecord;
+    use product_watchlist::dynamodb::repository::MockWatchlistProductDynamoDbRepository;
     use std::time::SystemTime;
     use user::dynamodb::user_record::UserRecord;
     use uuid::Uuid;

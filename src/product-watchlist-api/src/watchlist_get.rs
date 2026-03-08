@@ -10,10 +10,10 @@ use common::{
 };
 use lambda_runtime::LambdaEvent;
 use product::data::get_data::GetProductData;
-use product::watchlist::core::watchlist_product::LocalizedWatchlistProductView;
-use product::watchlist::data::sort_watchlist_product_field_data::SortWatchlistProductFieldData;
-use product::watchlist::service::product_watchlist_service::ProductWatchListService;
-use product::watchlist::service::sort_watchlist_product_field::SortWatchlistProductField;
+use product_watchlist::core::watchlist_product::LocalizedWatchlistProductView;
+use product_watchlist::data::sort_watchlist_product_field_data::SortWatchlistProductFieldData;
+use product_watchlist::service::product_watchlist_service::ProductWatchListService;
+use product_watchlist::service::sort_watchlist_product_field::SortWatchlistProductField;
 use serde::{Deserialize, Serialize};
 use time::OffsetDateTime;
 
@@ -80,7 +80,7 @@ mod tests {
     use fake::{Fake, Faker};
     use http::header::CACHE_CONTROL;
     use lambda_runtime::LambdaEvent;
-    use product::watchlist::service::product_watchlist_service::MockProductWatchListService;
+    use product_watchlist::service::product_watchlist_service::MockProductWatchListService;
     use test_api::ApiGatewayV2httpRequestProxy;
     use time::{OffsetDateTime, format_description::well_known::Rfc3339};
 

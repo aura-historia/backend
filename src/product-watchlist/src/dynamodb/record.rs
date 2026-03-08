@@ -1,4 +1,4 @@
-use crate::watchlist::core::watchlist_product::WatchlistProduct;
+use crate::core::watchlist_product::WatchlistProduct;
 use common::{
     product_id::ProductId, shop_id::ShopId, shops_product_id::ShopsProductId, user_id::UserId,
 };
@@ -136,7 +136,7 @@ mod faker {
 
     #[cfg(test)]
     mod tests {
-        use crate::watchlist::dynamodb::record::WatchlistProductRecord;
+        use crate::dynamodb::record::WatchlistProductRecord;
         use fake::{Fake, Faker};
 
         #[test]
@@ -148,7 +148,7 @@ mod faker {
 
 #[cfg(test)]
 mod tests {
-    use crate::watchlist::dynamodb::{
+    use crate::dynamodb::{
         record::WatchlistProductRecord, record_update::WatchlistProductRecordUpdate,
     };
 

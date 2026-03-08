@@ -5,7 +5,7 @@ use common::{
 use fake::{Fake, Faker};
 use product::data::{product_state_data::ProductStateData, put_data::PutProductData};
 use product::dynamodb::repository::{ProductDynamoDbRepository, ProductDynamoDbRepositoryImpl};
-use product::watchlist::{
+use product_watchlist::{
     data::watchlist_product_data::WatchlistProductData,
     dynamodb::repository::{
         WatchlistProductDynamoDbRepository, WatchlistProductDynamoDbRepositoryImpl,

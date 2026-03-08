@@ -1,5 +1,5 @@
-use crate::core::product::LocalizedProductView;
 use common::{product_id::ProductId, shop_id::ShopId, shops_product_id::ShopsProductId};
+use product::core::product::LocalizedProductView;
 use time::OffsetDateTime;
 
 #[derive(Debug, Clone, PartialEq)]
@@ -22,9 +22,7 @@ pub struct WatchlistProduct {
 
 #[cfg(feature = "test-data")]
 mod faker {
-    use crate::watchlist::core::watchlist_product::{
-        LocalizedWatchlistProductView, WatchlistProduct,
-    };
+    use crate::core::watchlist_product::{LocalizedWatchlistProductView, WatchlistProduct};
     use fake::{Dummy, Fake, Faker, Rng};
     use time::OffsetDateTime;
 

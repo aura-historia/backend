@@ -6,7 +6,7 @@ edition = "2024"
 [dependencies]
 common = { workspace = true, features = ["dynamodb", "event_bridge"] }
 user = { workspace = true, features = ["dynamodb"] }
-product = { workspace = true, features = ["dynamodb", "watchlist"] }
+product-watchlist = { workspace = true, features = ["dynamodb", "service"] }
 time = { workspace = true }
 lambda_runtime = { workspace = true }
 aws-config = { workspace = true }
@@ -28,4 +28,4 @@ rstest = { workspace = true }
 fake = { workspace = true }
 uuid = { workspace = true }
 user = { workspace = true, features = ["test-data"] }
-product = { workspace = true, features = ["test-data"] }
+product-watchlist = { workspace = true, features = ["test-data"] }

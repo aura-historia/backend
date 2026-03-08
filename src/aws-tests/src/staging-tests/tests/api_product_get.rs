@@ -8,6 +8,7 @@ use common::{
     shop_id::ShopId,
 };
 use fake::{Fake, Faker};
+use product::service::get_service::GetProductServiceImpl;
 use product::{
     core::product_event::{
         ProductEventPayload,
@@ -20,14 +21,10 @@ use product::{
         product_record::ProductRecord,
         repository::{ProductDynamoDbRepository, ProductDynamoDbRepositoryImpl},
     },
-    watchlist::service::product_watchlist_service::ProductWatchListService,
 };
-use product::{
-    service::get_service::GetProductServiceImpl,
-    watchlist::{
-        dynamodb::repository::WatchlistProductDynamoDbRepositoryImpl,
-        service::product_watchlist_service::ProductWatchListServiceImpl,
-    },
+use product_watchlist::{
+    dynamodb::repository::WatchlistProductDynamoDbRepositoryImpl,
+    service::product_watchlist_service::{ProductWatchListService, ProductWatchListServiceImpl},
 };
 use staging_tests::{create_random_test_user, get_dynamodb_client, staging_test};
 use std::time::{Duration, SystemTime};

@@ -1,4 +1,4 @@
-use crate::watchlist::core::watchlist_product::WatchlistProduct;
+use crate::core::watchlist_product::WatchlistProduct;
 use common::{product_id::ProductId, shop_id::ShopId, shops_product_id::ShopsProductId};
 use serde::{Deserialize, Serialize};
 use time::OffsetDateTime;
