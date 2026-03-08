@@ -5,7 +5,7 @@ use llm::{LLMProvider, chat::ChatMessage, error::LLMError};
 use product::dynamodb::product_state_record::ProductStateRecord;
 use regex::Regex;
 use time::OffsetDateTime;
-use tracing::{debug, info};
+use tracing::info;
 
 // ---------------------------------------------------------------------------
 // Error
@@ -111,7 +111,7 @@ Your task: map a raw product-state string scraped from a web page to one of \
 these normalised states:\n\n\
   LISTED, AVAILABLE, RESERVED, SOLD, REMOVED, UNKNOWN\n\n\
 State definitions:\n\
-  LISTED    — product is listed but purchase availability is not stated.\n\
+  LISTED    — product is listed but purchase availability is not stated, this is most common for auctions where items are visible before being sold\n\
   AVAILABLE — product is in stock / can be purchased.\n\
   RESERVED  — product is on hold for a buyer.\n\
   SOLD      — product has been sold or is out of stock.\n\
@@ -229,35 +229,20 @@ impl ProductStateMappingService for ProductStateMappingServiceImpl {
 
         let now = OffsetDateTime::now_utc();
         let record = match parsed {
-            LlmMappingResponse::State(normalized) => {
-                info!(
-                    raw = %key,
-                    state = ?normalized,
-                    "LLM mapped raw state string to exact value"
-                );
-                ProductStateMappingRecord {
-                    raw: key,
-                    normalized,
-                    mapping_type: StateMappingType::Value,
-                    created: now,
-                    updated: now,
-                }
-            }
-            LlmMappingResponse::Regex { pattern, state } => {
-                info!(
-                    raw = %key,
-                    pattern = %pattern,
-                    state = ?state,
-                    "LLM mapped raw state string to regex pattern"
-                );
-                ProductStateMappingRecord {
-                    raw: pattern,
-                    normalized: state,
-                    mapping_type: StateMappingType::Regex,
-                    created: now,
-                    updated: now,
-                }
-            }
+            LlmMappingResponse::State(normalized) => ProductStateMappingRecord {
+                raw: key,
+                normalized,
+                mapping_type: StateMappingType::Value,
+                created: now,
+                updated: now,
+            },
+            LlmMappingResponse::Regex { pattern, state } => ProductStateMappingRecord {
+                raw: pattern,
+                normalized: state,
+                mapping_type: StateMappingType::Regex,
+                created: now,
+                updated: now,
+            },
         };
 
         Ok(record)
@@ -291,14 +276,14 @@ impl ProductStateMappingService for ProductStateMappingServiceImpl {
 
         match existing {
             Some(_) => {
-                info!(raw = %key, state = ?normalized_record, mappingType = ?mapping_type, "Updating existing state mapping");
+                info!(raw = %key, "Updating existing state mapping...");
                 self.repository
                     .update_mapping(&key, &normalized_record, &mapping_type)
                     .await
                     .map_err(StateMappingServiceError::DatabaseError)
             }
             None => {
-                info!(raw = %key, state = ?normalized_record, mappingType = ?mapping_type, "Inserting new state mapping");
+                info!(raw = %key, "Inserting new state mapping...");
                 let now = OffsetDateTime::now_utc();
                 let record = ProductStateMappingRecord {
                     raw: key,
@@ -325,7 +310,7 @@ impl ProductStateMappingService for ProductStateMappingServiceImpl {
 
         // ── Step 1: exact DB lookup ──────────────────────────────────────
         if let Some(existing) = self.repository.find_mapping(&key).await? {
-            debug!(raw = %key, "Found exact state mapping in DB");
+            info!(raw = %key, "Found exact state mapping in DB.");
             return Ok(existing);
         }
 
@@ -337,7 +322,7 @@ impl ProductStateMappingService for ProductStateMappingServiceImpl {
             // not break all lookups.
             match Regex::new(&mapping.raw) {
                 Ok(re) if re.is_match(&key) => {
-                    debug!(
+                    info!(
                         raw = %key,
                         pattern = %mapping.raw,
                         "Matched state via DB regex pattern."
