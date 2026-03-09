@@ -14,8 +14,8 @@ use product::opensearch::repository::{
     ProductOpenSearchRepository, ProductOpenSearchRepositoryImpl,
 };
 use product::service::get_service::GetProductServiceImpl;
-use product::watchlist::dynamodb::repository::WatchlistProductDynamoDbRepositoryImpl;
-use product::watchlist::service::product_watchlist_service::{
+use product_watchlist::dynamodb::repository::WatchlistProductDynamoDbRepositoryImpl;
+use product_watchlist::service::product_watchlist_service::{
     ProductWatchListService, ProductWatchListServiceImpl,
 };
 use staging_tests::{

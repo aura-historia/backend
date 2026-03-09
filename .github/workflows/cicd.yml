@@ -103,6 +103,7 @@ jobs:
           - src/product-api
           - src/product-classification
           - src/product-classification-api
+          - src/product-watchlist
           - src/product-watchlist-api
           - src/shop
           - src/shop-api

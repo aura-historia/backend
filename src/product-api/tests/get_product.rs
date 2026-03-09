@@ -10,6 +10,11 @@ use common::{
 };
 use fake::{Fake, Faker};
 use lambda_runtime::LambdaEvent;
+use product::dynamodb::{
+    product_record::ProductRecord,
+    repository::{ProductDynamoDbRepository, ProductDynamoDbRepositoryImpl},
+};
+use product::service::get_service::GetProductServiceImpl;
 use product::{
     core::product_event::{
         ProductEventPayload,
@@ -19,23 +24,16 @@ use product::{
         },
     },
     data::{get_data::GetProductData, user_state_data::ProductUserStateData},
-    service::personalization_service::ProductPersonalizationServiceImpl,
-    watchlist::service::{
-        command::UpdateWatchlistProductCommand, product_watchlist_service::ProductWatchListService,
-    },
-};
-use product::{
-    dynamodb::{
-        product_record::ProductRecord,
-        repository::{ProductDynamoDbRepository, ProductDynamoDbRepositoryImpl},
-    },
-    watchlist::dynamodb::repository::WatchlistProductDynamoDbRepositoryImpl,
-};
-use product::{
-    service::get_service::GetProductServiceImpl,
-    watchlist::service::product_watchlist_service::ProductWatchListServiceImpl,
 };
 use product_api::get_product::handle;
+use product_watchlist::{
+    dynamodb::repository::WatchlistProductDynamoDbRepositoryImpl,
+    service::{
+        command::UpdateWatchlistProductCommand,
+        personalization_service::ProductPersonalizationServiceImpl,
+        product_watchlist_service::{ProductWatchListService, ProductWatchListServiceImpl},
+    },
+};
 use std::time::{Duration, SystemTime};
 use test_api::*;
 use user::dynamodb::{

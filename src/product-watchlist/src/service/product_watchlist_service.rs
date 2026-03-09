@@ -1,12 +1,10 @@
-use crate::dynamodb::repository::ProductDynamoDbRepository;
-use crate::service::get_service::{GetProductError, GetProductService};
 use crate::{
-    watchlist::core::watchlist_product::{LocalizedWatchlistProductView, WatchlistProduct},
-    watchlist::dynamodb::record::{WatchlistProductRecord, mk_lsi1_sk, mk_pk, mk_sk},
-    watchlist::dynamodb::record_update::WatchlistProductRecordUpdate,
-    watchlist::dynamodb::repository::WatchlistProductDynamoDbRepository,
-    watchlist::service::command::UpdateWatchlistProductCommand,
-    watchlist::service::sort_watchlist_product_field::SortWatchlistProductField,
+    core::watchlist_product::{LocalizedWatchlistProductView, WatchlistProduct},
+    dynamodb::record::{WatchlistProductRecord, mk_lsi1_sk, mk_pk, mk_sk},
+    dynamodb::record_update::WatchlistProductRecordUpdate,
+    dynamodb::repository::WatchlistProductDynamoDbRepository,
+    service::command::UpdateWatchlistProductCommand,
+    service::sort_watchlist_product_field::SortWatchlistProductField,
 };
 use aws_sdk_dynamodb::{
     config::http::HttpResponse, error::SdkError, operation::put_item::PutItemError,
@@ -23,6 +21,8 @@ use common::{
     sort::{Sort, SortOrder},
     user_id::UserId,
 };
+use product::dynamodb::repository::ProductDynamoDbRepository;
+use product::service::get_service::{GetProductError, GetProductService};
 use std::collections::HashMap;
 use time::OffsetDateTime;
 use user::core::user::User;
@@ -112,7 +112,7 @@ impl From<GetProductError> for WatchProductError {
 
 #[cfg(feature = "data")]
 pub mod api {
-    use crate::watchlist::service::product_watchlist_service::WatchProductError;
+    use crate::service::product_watchlist_service::WatchProductError;
     use common::api::error::ApiError;
     use common::api::error_code::{
         MONETARY_AMOUNT_OVERFLOW, PRODUCT_NOT_FOUND, UNPROCESSED_AFTER_MAX_RETRIES, USER_NOT_FOUND,
@@ -461,11 +461,9 @@ impl<'a> ProductWatchListService for ProductWatchListServiceImpl<'a> {
 #[cfg(test)]
 mod tests {
     mod find_watchlist_product {
-        use crate::dynamodb::repository::MockProductDynamoDbRepository;
-        use crate::service::get_service::GetProductServiceImpl;
         use crate::{
-            watchlist::dynamodb::repository::MockWatchlistProductDynamoDbRepository,
-            watchlist::service::product_watchlist_service::{
+            dynamodb::repository::MockWatchlistProductDynamoDbRepository,
+            service::product_watchlist_service::{
                 ProductWatchListService, ProductWatchListServiceImpl, WatchProductError,
             },
         };
@@ -475,6 +473,8 @@ mod tests {
         };
         use common::{shop_id::ShopId, shops_product_id::ShopsProductId, user_id::UserId};
         use fake::{Fake, Faker};
+        use product::dynamodb::repository::MockProductDynamoDbRepository;
+        use product::service::get_service::GetProductServiceImpl;
         use user::dynamodb::repository::MockUserDynamoDbRepository;
 
         #[tokio::test]
@@ -568,12 +568,10 @@ mod tests {
     }
 
     mod create_watchlist_product {
-        use crate::dynamodb::repository::MockProductDynamoDbRepository;
-        use crate::service::get_service::GetProductServiceImpl;
-        use crate::watchlist::service::product_watchlist_service::MAX_WATCHLIST_QUOTA;
+        use crate::service::product_watchlist_service::MAX_WATCHLIST_QUOTA;
         use crate::{
-            watchlist::dynamodb::repository::MockWatchlistProductDynamoDbRepository,
-            watchlist::service::product_watchlist_service::{
+            dynamodb::repository::MockWatchlistProductDynamoDbRepository,
+            service::product_watchlist_service::{
                 ProductWatchListService, ProductWatchListServiceImpl, WatchProductError,
             },
         };
@@ -584,6 +582,8 @@ mod tests {
         };
         use common::{shop_id::ShopId, shops_product_id::ShopsProductId};
         use fake::{Fake, Faker};
+        use product::dynamodb::repository::MockProductDynamoDbRepository;
+        use product::service::get_service::GetProductServiceImpl;
         use user::dynamodb::repository::MockUserDynamoDbRepository;
 
         #[tokio::test]
@@ -849,11 +849,9 @@ mod tests {
     }
 
     mod unwatch {
-        use crate::dynamodb::repository::MockProductDynamoDbRepository;
-        use crate::service::get_service::GetProductServiceImpl;
         use crate::{
-            watchlist::dynamodb::repository::MockWatchlistProductDynamoDbRepository,
-            watchlist::service::product_watchlist_service::{
+            dynamodb::repository::MockWatchlistProductDynamoDbRepository,
+            service::product_watchlist_service::{
                 ProductWatchListService, ProductWatchListServiceImpl, WatchProductError,
             },
         };
@@ -864,6 +862,8 @@ mod tests {
         };
         use common::{shop_id::ShopId, shops_product_id::ShopsProductId, user_id::UserId};
         use fake::{Fake, Faker};
+        use product::dynamodb::repository::MockProductDynamoDbRepository;
+        use product::service::get_service::GetProductServiceImpl;
         use user::dynamodb::repository::MockUserDynamoDbRepository;
 
         #[tokio::test]
@@ -1031,13 +1031,11 @@ mod tests {
     }
 
     mod toggle_notifications {
-        use crate::dynamodb::repository::MockProductDynamoDbRepository;
-        use crate::service::get_service::GetProductServiceImpl;
         use crate::{
-            watchlist::dynamodb::record::WatchlistProductRecord,
-            watchlist::dynamodb::repository::MockWatchlistProductDynamoDbRepository,
-            watchlist::service::command::UpdateWatchlistProductCommand,
-            watchlist::service::product_watchlist_service::{
+            dynamodb::record::WatchlistProductRecord,
+            dynamodb::repository::MockWatchlistProductDynamoDbRepository,
+            service::command::UpdateWatchlistProductCommand,
+            service::product_watchlist_service::{
                 ProductWatchListService, ProductWatchListServiceImpl, WatchProductError,
             },
         };
@@ -1047,6 +1045,8 @@ mod tests {
         };
         use common::{shop_id::ShopId, shops_product_id::ShopsProductId, user_id::UserId};
         use fake::{Fake, Faker};
+        use product::dynamodb::repository::MockProductDynamoDbRepository;
+        use product::service::get_service::GetProductServiceImpl;
         use user::dynamodb::repository::MockUserDynamoDbRepository;
 
         #[tokio::test]
@@ -1254,11 +1254,9 @@ mod tests {
     }
 
     mod view_watchlist {
-        use crate::dynamodb::repository::MockProductDynamoDbRepository;
-        use crate::service::get_service::MockGetProductService;
         use crate::{
-            watchlist::dynamodb::repository::MockWatchlistProductDynamoDbRepository,
-            watchlist::service::product_watchlist_service::{
+            dynamodb::repository::MockWatchlistProductDynamoDbRepository,
+            service::product_watchlist_service::{
                 ProductWatchListService, ProductWatchListServiceImpl, WatchProductError,
             },
         };
@@ -1268,6 +1266,8 @@ mod tests {
         };
         use common::{currency::domain::Currency, language::domain::Language};
         use fake::{Fake, Faker};
+        use product::dynamodb::repository::MockProductDynamoDbRepository;
+        use product::service::get_service::MockGetProductService;
         use user::dynamodb::repository::MockUserDynamoDbRepository;
 
         #[tokio::test]

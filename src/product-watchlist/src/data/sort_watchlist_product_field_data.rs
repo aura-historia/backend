@@ -1,4 +1,4 @@
-use crate::watchlist::service::sort_watchlist_product_field::SortWatchlistProductField;
+use crate::service::sort_watchlist_product_field::SortWatchlistProductField;
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -44,7 +44,7 @@ impl From<SortWatchlistProductFieldData> for SortWatchlistProductField {
 mod tests {
     use rstest;
 
-    use crate::watchlist::data::sort_watchlist_product_field_data::SortWatchlistProductFieldData;
+    use crate::data::sort_watchlist_product_field_data::SortWatchlistProductFieldData;
 
     #[rstest::rstest]
     #[case(SortWatchlistProductFieldData::Created)]

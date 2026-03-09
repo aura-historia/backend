@@ -5,8 +5,8 @@ use common::api::error_code::BAD_BODY_VALUE;
 use common::product_id::api::ProductKeyData;
 use common::user_id::api::extract_user_id_request_context;
 use lambda_runtime::LambdaEvent;
-use product::watchlist::data::watchlist_product_data::WatchlistProductData;
-use product::watchlist::service::product_watchlist_service::ProductWatchListService;
+use product_watchlist::data::watchlist_product_data::WatchlistProductData;
+use product_watchlist::service::product_watchlist_service::ProductWatchListService;
 
 pub async fn handle(
     event: LambdaEvent<ApiGatewayV2httpRequest>,
@@ -53,7 +53,7 @@ mod tests {
     use common::{product_id::api::ProductKeyData, user_id::UserId};
     use fake::{Fake, Faker};
     use lambda_runtime::LambdaEvent;
-    use product::watchlist::service::product_watchlist_service::MockProductWatchListService;
+    use product_watchlist::service::product_watchlist_service::MockProductWatchListService;
     use test_api::ApiGatewayV2httpRequestProxy;
 
     #[tokio::test]

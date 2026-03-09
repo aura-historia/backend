@@ -6,8 +6,8 @@ use product::dynamodb::{
     repository::{ProductDynamoDbRepository, ProductDynamoDbRepositoryImpl},
 };
 use product::service::get_service::GetProductServiceImpl;
-use product::watchlist::service::product_watchlist_service::MAX_WATCHLIST_QUOTA;
-use product::watchlist::{
+use product_watchlist::service::product_watchlist_service::MAX_WATCHLIST_QUOTA;
+use product_watchlist::{
     dynamodb::record::{WatchlistProductRecord, mk_lsi1_sk, mk_pk, mk_sk},
     dynamodb::repository::{
         WatchlistProductDynamoDbRepository, WatchlistProductDynamoDbRepositoryImpl,

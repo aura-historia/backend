@@ -9,6 +9,7 @@ staging-tests-macros = { workspace = true }
 aws-tests-common = { workspace = true }
 tokio = { workspace = true, features = ["full"] }
 product = { workspace = true, features = ["full"] }
+product-watchlist = { workspace = true, features = ["full"] }
 shop = { workspace = true, features = ["full"] }
 user = { workspace = true, features = ["full"] }
 search-filter = { workspace = true, features = ["full"] }

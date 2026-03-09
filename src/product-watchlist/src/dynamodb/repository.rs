@@ -1,6 +1,6 @@
 use crate::{
-    watchlist::dynamodb::record::{WatchlistProductRecord, mk_gsi1_pk, mk_lsi1_sk, mk_pk, mk_sk},
-    watchlist::dynamodb::record_update::WatchlistProductRecordUpdate,
+    dynamodb::record::{WatchlistProductRecord, mk_gsi1_pk, mk_lsi1_sk, mk_pk, mk_sk},
+    dynamodb::record_update::WatchlistProductRecordUpdate,
 };
 use aws_sdk_dynamodb::{
     Client,

@@ -14,13 +14,13 @@ use product::opensearch::repository::{
     ProductOpenSearchRepository, ProductOpenSearchRepositoryImpl,
 };
 use product::service::get_service::GetProductServiceImpl;
-use product::service::personalization_service::ProductPersonalizationServiceImpl;
 use product::service::semantic_service::SemanticSearchServiceImpl;
-use product::watchlist::dynamodb::repository::WatchlistProductDynamoDbRepositoryImpl;
-use product::watchlist::service::product_watchlist_service::{
+use product_api::get_product_similar::handle;
+use product_watchlist::dynamodb::repository::WatchlistProductDynamoDbRepositoryImpl;
+use product_watchlist::service::personalization_service::ProductPersonalizationServiceImpl;
+use product_watchlist::service::product_watchlist_service::{
     ProductWatchListService, ProductWatchListServiceImpl,
 };
-use product_api::get_product_similar::handle;
 use std::time::Duration;
 use test_api::*;
 use user::dynamodb::repository::{UserDynamoDbRepository, UserDynamoDbRepositoryImpl};

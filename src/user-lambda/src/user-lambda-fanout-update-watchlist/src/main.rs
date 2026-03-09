@@ -2,7 +2,7 @@ use aws_config::BehaviorVersion;
 use aws_lambda_events::sqs::SqsEvent;
 use aws_sdk_dynamodb::Client;
 use lambda_runtime::{Error, LambdaEvent, run, service_fn};
-use product::watchlist::dynamodb::repository::WatchlistProductDynamoDbRepositoryImpl;
+use product_watchlist::dynamodb::repository::WatchlistProductDynamoDbRepositoryImpl;
 use tracing::debug;
 use user_lambda_fanout_update_watchlist::handler;
 

@@ -4,7 +4,7 @@ use common::api::{
     error_code::INTERNAL_SERVER_ERROR,
 };
 use lambda_runtime::LambdaEvent;
-use product::watchlist::service::product_watchlist_service::ProductWatchListService;
+use product_watchlist::service::product_watchlist_service::ProductWatchListService;
 
 pub mod watchlist_delete;
 pub mod watchlist_get;

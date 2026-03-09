@@ -4,8 +4,8 @@ use lambda_runtime::tracing::debug;
 use lambda_runtime::{Error, LambdaEvent, run, service_fn};
 use product::dynamodb::repository::ProductDynamoDbRepositoryImpl;
 use product::service::get_service::GetProductServiceImpl;
-use product::watchlist::dynamodb::repository::WatchlistProductDynamoDbRepositoryImpl;
-use product::watchlist::service::product_watchlist_service::ProductWatchListServiceImpl;
+use product_watchlist::dynamodb::repository::WatchlistProductDynamoDbRepositoryImpl;
+use product_watchlist::service::product_watchlist_service::ProductWatchListServiceImpl;
 use product_watchlist_api::handler;
 use user::dynamodb::repository::UserDynamoDbRepositoryImpl;
 

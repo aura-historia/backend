@@ -8,9 +8,6 @@ pub mod enrichment_service;
 pub mod get_service;
 pub mod product_command;
 
-#[cfg(all(feature = "watchlist", feature = "dynamodb"))]
-pub mod personalization_service;
-
 #[cfg(feature = "opensearch")]
 pub mod query_service;
 
