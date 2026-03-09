@@ -8,7 +8,7 @@ use product::dynamodb::{
     repository::{ProductDynamoDbRepository, ProductDynamoDbRepositoryImpl},
 };
 use product::service::get_service::GetProductServiceImpl;
-use product::watchlist::{
+use product_watchlist::{
     dynamodb::record::{WatchlistProductRecord, mk_gsi1_pk, mk_gsi1_sk, mk_lsi1_sk, mk_pk, mk_sk},
     dynamodb::repository::{
         WatchlistProductDynamoDbRepository, WatchlistProductDynamoDbRepositoryImpl,

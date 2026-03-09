@@ -18,7 +18,7 @@ use product::data::get_data::GetProductData;
 use product::data::product_state_data::ProductStateData;
 use product::data::user_state_data::ProductUserStateData;
 use product::service::get_service::GetProductService;
-use product::service::personalization_service::ProductPersonalizationService;
+use product_watchlist::service::personalization_service::ProductPersonalizationService;
 
 pub async fn handle(
     event: LambdaEvent<ApiGatewayV2httpRequest>,
@@ -134,7 +134,7 @@ mod tests {
     use lambda_runtime::LambdaEvent;
     use product::core::product::LocalizedProductView;
     use product::service::get_service::{GetProductError, MockGetProductService};
-    use product::service::personalization_service::MockProductPersonalizationService;
+    use product_watchlist::service::personalization_service::MockProductPersonalizationService;
     use test_api::ApiGatewayV2httpRequestProxy;
     use time::OffsetDateTime;
     use time::macros::datetime;

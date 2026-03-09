@@ -5,7 +5,7 @@ use common::shop_id::api::extract_shop_id_path;
 use common::shops_product_id::api::extract_shops_product_id_path;
 use common::user_id::api::extract_user_id_request_context;
 use lambda_runtime::LambdaEvent;
-use product::watchlist::service::product_watchlist_service::ProductWatchListService;
+use product_watchlist::service::product_watchlist_service::ProductWatchListService;
 
 pub async fn handle(
     event: LambdaEvent<ApiGatewayV2httpRequest>,
@@ -28,7 +28,7 @@ mod tests {
     use super::handle;
     use common::{shop_id::ShopId, shops_product_id::ShopsProductId, user_id::UserId};
     use lambda_runtime::LambdaEvent;
-    use product::watchlist::service::product_watchlist_service::MockProductWatchListService;
+    use product_watchlist::service::product_watchlist_service::MockProductWatchListService;
     use test_api::ApiGatewayV2httpRequestProxy;
     use time::{OffsetDateTime, format_description::well_known::Rfc3339};
 

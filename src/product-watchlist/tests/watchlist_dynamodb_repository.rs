@@ -1,6 +1,6 @@
 use common::{pagination::cursor::Cursor, product_id::ProductId, user_id::UserId};
 use fake::{Fake, Faker};
-use product::watchlist::dynamodb::{
+use product_watchlist::dynamodb::{
     record::{WatchlistProductRecord, mk_gsi1_pk, mk_gsi1_sk, mk_pk},
     record_update::WatchlistProductRecordUpdate,
     repository::{WatchlistProductDynamoDbRepository, WatchlistProductDynamoDbRepositoryImpl},

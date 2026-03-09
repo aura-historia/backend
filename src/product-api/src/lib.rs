@@ -7,9 +7,10 @@ use common::api::{
 use lambda_runtime::LambdaEvent;
 use product::service::{
     enrichment_service::ProductCommandEnrichmentService, get_service::GetProductService,
-    personalization_service::ProductPersonalizationService, query_service::QueryProductService,
-    semantic_service::SemanticSearchService, upsert_service::UpsertProductsService,
+    query_service::QueryProductService, semantic_service::SemanticSearchService,
+    upsert_service::UpsertProductsService,
 };
+use product_watchlist::service::personalization_service::ProductPersonalizationService;
 
 pub mod get_product;
 pub mod get_product_history;

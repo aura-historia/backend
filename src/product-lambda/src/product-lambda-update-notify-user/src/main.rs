@@ -4,11 +4,11 @@ use lambda_runtime::{Error, LambdaEvent, run, service_fn};
 use mail_core::queue_service::QueueMailServiceImpl;
 use product::dynamodb::repository::ProductDynamoDbRepositoryImpl;
 use product::service::get_service::GetProductServiceImpl;
-use product::watchlist::{
+use product_lambda_update_notify_user::{handler, service::ProductEventMailPayloadServiceImpl};
+use product_watchlist::{
     dynamodb::repository::WatchlistProductDynamoDbRepositoryImpl,
     service::product_watchlist_service::ProductWatchListServiceImpl,
 };
-use product_lambda_update_notify_user::{handler, service::ProductEventMailPayloadServiceImpl};
 use serde_email::Email;
 use tracing::debug;
 use user::dynamodb::repository::UserDynamoDbRepositoryImpl;

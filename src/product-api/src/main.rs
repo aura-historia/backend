@@ -10,12 +10,12 @@ use product::dynamodb::repository::ProductDynamoDbRepositoryImpl;
 use product::opensearch::repository::ProductOpenSearchRepositoryImpl;
 use product::service::enrichment_service::ProductCommandEnrichmentServiceImpl;
 use product::service::get_service::GetProductServiceImpl;
-use product::service::personalization_service::ProductPersonalizationServiceImpl;
 use product::service::query_service::QueryProductServiceImpl;
 use product::service::semantic_service::SemanticSearchServiceImpl;
 use product::service::upsert_service::UpsertProductsServiceImpl;
-use product::watchlist::dynamodb::repository::WatchlistProductDynamoDbRepositoryImpl;
 use product_api::handler;
+use product_watchlist::dynamodb::repository::WatchlistProductDynamoDbRepositoryImpl;
+use product_watchlist::service::personalization_service::ProductPersonalizationServiceImpl;
 use shop::dynamodb::repository::ShopDynamoDbRepositoryImpl;
 use tracing::{error, warn};
 

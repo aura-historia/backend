@@ -6,14 +6,12 @@ use common::{
     user_id::UserId,
 };
 use fake::{Fake, Faker};
-use product::{
-    dynamodb::{
-        product_record::ProductRecord,
-        repository::{ProductDynamoDbRepository, ProductDynamoDbRepositoryImpl},
-    },
-    watchlist::dynamodb::repository::{
-        WatchlistProductDynamoDbRepository, WatchlistProductDynamoDbRepositoryImpl,
-    },
+use product::dynamodb::{
+    product_record::ProductRecord,
+    repository::{ProductDynamoDbRepository, ProductDynamoDbRepositoryImpl},
+};
+use product_watchlist::dynamodb::repository::{
+    WatchlistProductDynamoDbRepository, WatchlistProductDynamoDbRepositoryImpl,
 };
 use staging_tests::{
     create_random_test_user, get_cognito_client, get_dynamodb_client, staging_test,

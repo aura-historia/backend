@@ -17,6 +17,7 @@ product = { workspace = true }
 product-api = { workspace = true }
 product-classification = { workspace = true }
 product-classification-api = { workspace = true }
+product-watchlist = { workspace = true }
 product-watchlist-api = { workspace = true }
 product-lambda = { workspace = true }
 test-api = { workspace = true }
@@ -42,6 +43,7 @@ members = [
     "src/product-api",
     "src/product-classification",
     "src/product-classification-api",
+    "src/product-watchlist",
     "src/product-watchlist-api",
     "src/product-lambda",
     "src/test-api",
@@ -69,7 +71,7 @@ aws-sdk-dynamodb = "1.108.0"
 aws-sdk-lambda = "1.100.0"
 aws-sdk-opensearch = "1.116.0"
 aws-sdk-sqs = "1.96.0"
-aws-sdk-sesv2 = "1.115.0"
+aws-sdk-sesv2 = "1.116.0"
 aws-sdk-s3 = "1.125.0"
 aws-sdk-cloudwatch = "1.107.0"
 aws_lambda_events = { version = "1.0.3", default-features = false }
@@ -94,6 +96,7 @@ product = { path = "src/product" }
 product-api = { path = "src/product-api" }
 product-classification = { path = "src/product-classification" }
 product-classification-api = { path = "src/product-classification-api" }
+product-watchlist = { path = "src/product-watchlist" }
 product-watchlist-api = { path = "src/product-watchlist-api" }
 product-lambda = { path = "src/product-lambda" }
 product-pipeline-common = { path = "src/product-pipeline/src/product-pipeline-common" }
@@ -109,7 +112,7 @@ product-lambda-materialize-opensearch = { path = "src/product-lambda/src/product
 product-lambda-update-notify-user = { path = "src/product-lambda/src/product-lambda-update-notify-user" }
 itertools = "0.14.0"
 lambda_runtime = "1.0.2"
-libc = "0.2.182"
+libc = "0.2.183"
 mockall = "0.14.0"
 opensearch = { version = "2.3.0", default-features = false, features = [
     "aws-auth",

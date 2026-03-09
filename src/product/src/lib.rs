@@ -11,6 +11,3 @@ pub mod opensearch;
 
 #[cfg(feature = "service")]
 pub mod service;
-
-#[cfg(feature = "watchlist")]
-pub mod watchlist;

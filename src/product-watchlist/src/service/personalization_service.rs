@@ -1,11 +1,9 @@
 use crate::{
-    core::{product::LocalizedProductView, user_state::WatchlistUserState},
-    watchlist::{
-        dynamodb::repository::WatchlistProductDynamoDbRepository,
-        service::product_watchlist_service::WatchProductError,
-    },
+    dynamodb::repository::WatchlistProductDynamoDbRepository,
+    service::product_watchlist_service::WatchProductError,
 };
 use common::{personalized::Personalized, user_id::UserId};
+use product::core::{product::LocalizedProductView, user_state::WatchlistUserState};
 use std::collections::HashMap;
 
 #[derive(Debug, thiserror::Error)]
@@ -114,16 +112,16 @@ impl<'a> ProductPersonalizationService for ProductPersonalizationServiceImpl<'a>
 #[cfg(test)]
 mod tests {
     use crate::{
-        core::product::LocalizedProductView,
+        dynamodb::{
+            record::WatchlistProductRecord, repository::MockWatchlistProductDynamoDbRepository,
+        },
         service::personalization_service::{
             ProductPersonalizationService, ProductPersonalizationServiceImpl,
-        },
-        watchlist::dynamodb::{
-            record::WatchlistProductRecord, repository::MockWatchlistProductDynamoDbRepository,
         },
     };
     use common::product_id::ProductId;
     use fake::{Fake, Faker};
+    use product::core::product::LocalizedProductView;
     use time::OffsetDateTime;
 
     #[tokio::test]
