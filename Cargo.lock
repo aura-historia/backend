@@ -3989,6 +3989,7 @@ dependencies = [
  "fake",
  "mockall",
  "notification",
+ "product",
  "rstest",
  "serde",
  "serde-email",

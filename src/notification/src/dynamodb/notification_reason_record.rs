@@ -15,3 +15,21 @@ pub enum NotificationReasonRecord {
     WatchlistPriceIncreased,
     WatchlistPriceRemoved,
 }
+
+impl NotificationReasonRecord {
+    pub fn is_watchlist(&self) -> bool {
+        matches!(
+            self,
+            Self::WatchlistStateListed
+                | Self::WatchlistStateAvailable
+                | Self::WatchlistStateReserved
+                | Self::WatchlistStateSold
+                | Self::WatchlistStateRemoved
+                | Self::WatchlistStateUnknown
+                | Self::WatchlistPriceDiscovered
+                | Self::WatchlistPriceDropped
+                | Self::WatchlistPriceIncreased
+                | Self::WatchlistPriceRemoved
+        )
+    }
+}
