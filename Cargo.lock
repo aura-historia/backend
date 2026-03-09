@@ -7739,6 +7739,7 @@ dependencies = [
  "tokio",
  "tracing",
  "user",
+ "uuid",
 ]
 
 [[package]]
