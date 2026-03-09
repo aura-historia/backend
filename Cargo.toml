@@ -26,6 +26,7 @@ user-api = { workspace = true }
 user-lambda = { workspace = true }
 mail = { workspace = true }
 mail-lambda-send = { workspace = true }
+notification = { workspace = true }
 product-pipeline = { workspace = true }
 fxrate = { workspace = true }
 fxrate-lambda = { workspace = true }
@@ -55,6 +56,7 @@ members = [
     "src/user-lambda",
     "src/mail",
     "src/mail-lambda-send",
+    "src/notification",
     "src/product-pipeline",
     "src/fxrate",
     "src/fxrate-lambda",
@@ -88,6 +90,7 @@ shop-api = { path = "src/shop-api" }
 mail = { path = "src/mail" }
 mail-core = { path = "src/mail/src/mail-core" }
 mail-lambda-send = { path = "src/mail-lambda-send" }
+notification = { path = "src/notification" }
 futures = { version = "0.3.32", default-features = false }
 hex = "0.4.3"
 http = "1.4.0"

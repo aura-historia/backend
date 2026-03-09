@@ -1,4 +1,10 @@
-use crate::core::notification_id::NotificationId;
+use crate::{
+    core::notification_id::NotificationId,
+    dynamodb::{
+        notification_reason_record::NotificationReasonRecord,
+        notification_type_record::NotificationTypeRecord,
+    },
+};
 use common::user_id::UserId;
 use serde::{Deserialize, Serialize};
 use serde_fields::SerdeField;
@@ -17,7 +23,8 @@ pub struct NotificationWatchlistRecord {
     pub sk: String,
     pub user_id: UserId,
     pub notification_id: NotificationId,
-    pub notification_type: NotificationWatchlistTypeRecord,
+    pub notification_type: NotificationTypeRecord,
+    pub notification_reason: NotificationReasonRecord,
     pub seen: bool,
 
     #[serde(with = "time::serde::rfc3339")]
@@ -33,19 +40,4 @@ pub fn mk_pk(user_id: &UserId) -> String {
 
 pub fn mk_sk(notification_id: &NotificationId) -> String {
     format!("user#notification#{notification_id}")
-}
-
-#[cfg_attr(feature = "test-data", derive(fake::Dummy))]
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-pub enum NotificationWatchlistTypeRecord {
-    StateListed,
-    StateAvailable,
-    StateReserved,
-    StateSold,
-    StateRemoved,
-    StateUnknown,
-    PriceDiscovered,
-    PriceDropped,
-    PriceIncreased,
-    PriceRemoved,
 }
