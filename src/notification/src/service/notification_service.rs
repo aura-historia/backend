@@ -313,7 +313,7 @@ mod tests {
                 notification_payload: NotificationPayload::Watchlist {
                     product_id: Faker.fake(),
                     shop_id: Faker.fake(),
-                    shops_product_id: "test-product-123".to_string(),
+                    shops_product_id: "test-product-123".into(),
                     shop_slug_id: Faker.fake(),
                     product_slug_id: Faker.fake(),
                     shop_name: "Test Shop".into(),

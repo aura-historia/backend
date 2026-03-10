@@ -286,7 +286,7 @@ impl From<Notification> for NotificationRecord {
                     product_slug_id: Some(product_slug_id),
                     shop_slug_id: Some(shop_slug_id),
                     shop_id: Some(shop_id),
-                    shops_product_id: Some(ShopsProductId::from(shops_product_id)),
+                    shops_product_id: Some(shops_product_id),
                     shop_name: Some(String::from(shop_name)),
                     title_de: title.get(&Language::De).map(|t| String::from(t.clone())),
                     title_en: title.get(&Language::En).map(|t| String::from(t.clone())),
@@ -422,10 +422,7 @@ impl From<NotificationRecord> for Notification {
             notification_payload: NotificationPayload::Watchlist {
                 product_id: record.product_id.unwrap_or_default(),
                 shop_id: record.shop_id.unwrap_or_default(),
-                shops_product_id: record
-                    .shops_product_id
-                    .map(String::from)
-                    .unwrap_or_default(),
+                shops_product_id: record.shops_product_id.unwrap_or_default(),
                 shop_slug_id: record.shop_slug_id.unwrap_or_else(|| SlugId::raw("")),
                 product_slug_id: record.product_slug_id.unwrap_or_else(|| SlugId::raw("")),
                 shop_name: record

@@ -8,6 +8,7 @@ use common::{
     product_state::domain::ProductState,
     shop_id::ShopId,
     shop_name::ShopName,
+    shops_product_id::ShopsProductId,
     slug_id::SlugId,
     user_id::UserId,
 };
@@ -50,7 +51,7 @@ pub enum NotificationPayload {
     Watchlist {
         product_id: ProductId,
         shop_id: ShopId,
-        shops_product_id: String,
+        shops_product_id: ShopsProductId,
         shop_slug_id: SlugId<0>,
         product_slug_id: SlugId<6>,
         shop_name: ShopName,
@@ -140,7 +141,7 @@ pub enum LocalizedNotificationPayload {
     Watchlist {
         product_id: ProductId,
         shop_id: ShopId,
-        shops_product_id: String,
+        shops_product_id: ShopsProductId,
         shop_slug_id: SlugId<0>,
         product_slug_id: SlugId<6>,
         shop_name: ShopName,
