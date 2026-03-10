@@ -1,4 +1,4 @@
-use crate::core::{notification_id::NotificationId, notification_medium::NotificationMedium};
+use crate::core::notification_id::NotificationId;
 use common::{
     currency::domain::Currency,
     language::domain::Language,
@@ -20,7 +20,6 @@ use tracing::error;
 pub struct Notification {
     pub user_id: UserId,
     pub notification_id: NotificationId,
-    pub notification_medium: Option<NotificationMedium>,
     pub notification_payload: NotificationPayload,
     pub seen: bool,
     pub created: OffsetDateTime,
@@ -36,7 +35,6 @@ impl Notification {
         LocalizedNotification {
             user_id: self.user_id,
             notification_id: self.notification_id,
-            notification_medium: self.notification_medium,
             notification_payload: self
                 .notification_payload
                 .localized(currency, preferred_languages),
@@ -131,7 +129,6 @@ impl NotificationWatchlistPayload {
 pub struct LocalizedNotification {
     pub user_id: UserId,
     pub notification_id: NotificationId,
-    pub notification_medium: Option<NotificationMedium>,
     pub notification_payload: LocalizedNotificationPayload,
     pub seen: bool,
     pub created: OffsetDateTime,
