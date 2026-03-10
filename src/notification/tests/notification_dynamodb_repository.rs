@@ -149,8 +149,8 @@ fn should_query_notification_records_with_cursor_for_scan_index_forward_true() {
             .unwrap();
     }
 
-    // Sort records by lsi1_sk to match the lsi1 index ordering used by the repository
-    records.sort_by(|a, b| a.lsi1_sk.cmp(&b.lsi1_sk));
+    // Sort records by sk ordering used by the repository
+    records.sort_by(|a, b| a.sk.cmp(&b.sk));
 
     // Use 5th record's notification_id as cursor
     let cursor_notification_id = records[4].notification_id;
@@ -167,7 +167,7 @@ fn should_query_notification_records_with_cursor_for_scan_index_forward_true() {
         .await
         .unwrap();
 
-    // Should get records after the 5th one (lsi1_sk order, ascending)
+    // Should get records after the 5th one (sk order, ascending)
     let expected = records.into_iter().skip(5).collect::<Vec<_>>();
     assert_eq!(expected.len(), actual.len());
 }
@@ -187,8 +187,8 @@ fn should_query_notification_records_with_cursor_for_scan_index_forward_false() 
             .unwrap();
     }
 
-    // Sort records by lsi1_sk to match the lsi1 index ordering used by the repository
-    records.sort_by(|a, b| a.lsi1_sk.cmp(&b.lsi1_sk));
+    // Sort records by sk ordering used by the repository
+    records.sort_by(|a, b| a.sk.cmp(&b.sk));
 
     // Use 6th record's notification_id as cursor (0-indexed: index 5)
     let cursor_notification_id = records[5].notification_id;
@@ -205,7 +205,7 @@ fn should_query_notification_records_with_cursor_for_scan_index_forward_false() 
         .await
         .unwrap();
 
-    // Should get records before the 6th one in lsi1_sk order (reversed)
+    // Should get records before the 6th one in sk order (reversed)
     let expected = records.into_iter().take(5).rev().collect::<Vec<_>>();
     assert_eq!(expected.len(), actual.len());
 }

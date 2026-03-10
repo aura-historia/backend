@@ -71,12 +71,12 @@ impl<'a> NotificationDynamoDbRepositoryImpl<'a> {
 /// Builds the `lsi1_sk` cursor guard value for a given `NotificationId`.
 /// All notification reasons produce the same `"user#notification#watchlist#…"` prefix,
 /// so this is always the right shape for an exclusive-range comparison on `lsi1`.
-fn mk_lsi1_sk_cursor_value(notification_id: &NotificationId) -> String {
-    format!("user#notification#watchlist#{notification_id}")
+fn mk_sk_cursor_value(notification_id: &NotificationId) -> String {
+    format!("user#notification#{notification_id}")
 }
 
-const LSI1_SK_LOWER_BOUND: &str = "user#notification#watchlist#";
-const LSI1_SK_UPPER_BOUND: &str = "user#notification#watchlist#\u{ffff}";
+const SK_LOWER_BOUND: &str = "user#notification#";
+const SK_UPPER_BOUND: &str = "user#notification#\u{ffff}";
 
 #[async_trait::async_trait]
 impl<'a> NotificationDynamoDbRepository for NotificationDynamoDbRepositoryImpl<'a> {
@@ -89,31 +89,30 @@ impl<'a> NotificationDynamoDbRepository for NotificationDynamoDbRepositoryImpl<'
         let exclusive_guard = if scan_index_forward {
             cursor
                 .search_after
-                .map(|id| mk_lsi1_sk_cursor_value(&id))
-                .unwrap_or_else(|| LSI1_SK_LOWER_BOUND.to_string())
+                .map(|id| mk_sk_cursor_value(&id))
+                .unwrap_or_else(|| SK_LOWER_BOUND.to_string())
         } else {
             cursor
                 .search_after
-                .map(|id| mk_lsi1_sk_cursor_value(&id))
-                .unwrap_or_else(|| LSI1_SK_UPPER_BOUND.to_string())
+                .map(|id| mk_sk_cursor_value(&id))
+                .unwrap_or_else(|| SK_UPPER_BOUND.to_string())
         };
         let key_condition_expression = if scan_index_forward {
-            "#pk = :pk_val AND #lsi1_sk > :lsi1_sk_val_exclusive_guard"
+            "#pk = :pk_val AND #sk > :sk_val_exclusive_guard"
         } else {
-            "#pk = :pk_val AND #lsi1_sk < :lsi1_sk_val_exclusive_guard"
+            "#pk = :pk_val AND #sk < :sk_val_exclusive_guard"
         };
 
         let records = self
             .client
             .query()
             .table_name(&self.table)
-            .index_name("lsi1")
             .key_condition_expression(key_condition_expression)
             .expression_attribute_names("#pk", "pk")
-            .expression_attribute_names("#lsi1_sk", "lsi1_sk")
+            .expression_attribute_names("#sk", "sk")
             .expression_attribute_values(":pk_val", AttributeValue::S(mk_pk(user_id)))
             .expression_attribute_values(
-                ":lsi1_sk_val_exclusive_guard",
+                ":sk_val_exclusive_guard",
                 AttributeValue::S(exclusive_guard),
             )
             .limit(cursor.size as i32)
@@ -150,13 +149,13 @@ impl<'a> NotificationDynamoDbRepository for NotificationDynamoDbRepositoryImpl<'
         let exclusive_guard = if scan_index_forward {
             cursor
                 .search_after
-                .map(|id| mk_lsi1_sk_cursor_value(&id))
-                .unwrap_or_else(|| LSI1_SK_LOWER_BOUND.to_string())
+                .map(|id| mk_sk_cursor_value(&id))
+                .unwrap_or_else(|| SK_LOWER_BOUND.to_string())
         } else {
             cursor
                 .search_after
-                .map(|id| mk_lsi1_sk_cursor_value(&id))
-                .unwrap_or_else(|| LSI1_SK_UPPER_BOUND.to_string())
+                .map(|id| mk_sk_cursor_value(&id))
+                .unwrap_or_else(|| SK_UPPER_BOUND.to_string())
         };
         let key_condition_expression = if scan_index_forward {
             "#pk = :pk_val AND #lsi1_sk > :lsi1_sk_val_exclusive_guard"
