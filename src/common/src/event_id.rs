@@ -15,7 +15,7 @@ impl Default for EventId {
 
 impl EventId {
     pub fn new() -> Self {
-        Self(Uuid::new_v4())
+        Self(Uuid::now_v7())
     }
 }
 
