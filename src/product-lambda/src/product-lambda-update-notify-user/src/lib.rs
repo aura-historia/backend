@@ -7,7 +7,7 @@ use lambda_runtime::LambdaEvent;
 use notification::service::notification_service::NotificationService;
 use product::core::product_event::ProductDomainEvent;
 use product::dynamodb::product_event_record::domain::ProductDomainEventRecord;
-use tracing::{error, info};
+use tracing::{error, info, warn};
 
 #[tracing::instrument(skip(product_event_notification_service, notification_service, event), fields(requestId = %event.context.request_id))]
 pub async fn handler(
@@ -42,9 +42,20 @@ pub async fn handler(
                             let create_notifications_res = notification_service
                                 .create_notifications(&event_id, cmds)
                                 .await;
+                            // strictly fail on partial failure
+                            // this is fine as all downstream components dedup on origin_event_id
+                            // this enforces that all targets actually receive the notification for the event
+                            if !create_notifications_res.unprocessed.is_empty() {
+                                warn!(
+                                    messageId = message_id,
+                                    unprocessed = create_notifications_res.unprocessed.len(),
+                                    "Some CreateNotificationCommands were not processed. Marking message as failed to trigger retry for the entire batch.",
+                                );
+                                failed_message_ids.push(message_id);
+                            }
                         }
                         Err(err) => {
-                            error!(messageId = message_id, error = %err, "Failed creating MailPayloads.");
+                            error!(messageId = message_id, error = %err, "Failed creating CreateNotificationCommands.");
                             failed_message_ids.push(message_id);
                         }
                     }
