@@ -199,6 +199,9 @@ Resources:
               KeyType: RANGE
           Projection:
             ProjectionType: KEYS_ONLY
+      TimeToLiveSpecification:
+        AttributeName: "ttl"
+        Enabled: true
       BillingMode: PAY_PER_REQUEST
       TableClass: STANDARD
       StreamSpecification:
