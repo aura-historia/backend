@@ -94,7 +94,6 @@ Since this is a serverless backend, manual testing involves:
   - `dynamodb`: User data access layer
   - `service`: User business services
 - **src/user-api**: API Gateway handlers for user operations (2 handlers)
-- **src/user-lambda**: Lambda function implementations for user operations (1 lambda)
 - **src/fxrate**: Foreign exchange rate management system:
   - `service`: FX rate business services
   - `dynamodb`: FX rate data access layer
@@ -132,9 +131,6 @@ Located in various directories:
 
 **Shop Lambda Functions** (`src/shop-lambda/src/`):
 - `shop-lambda-opensearch-index`: Index shops to OpenSearch
-
-**User Lambda Functions** (`src/user-lambda/src/`):
-- `user-lambda-fanout-update-watchlist`: Fanout user watchlist updates
 
 **Cognito Lambda Functions**:
 - `cognito-post-confirmation`: Handle Cognito user post-confirmation trigger (`src/cognito-post-confirmation`)
@@ -265,8 +261,6 @@ src/
 │   ├── src/dynamodb/       # User data access
 │   └── src/service/        # User business services
 ├── user-api/       # API Gateway handlers for user operations (2 handlers)
-├── user-lambda/    # User Lambda functions
-│   └── src/user-lambda-fanout-update-watchlist/  # Lambda for watchlist updates
 ├── fxrate/         # Foreign exchange rate management
 │   ├── src/service/        # FX rate business services
 │   └── src/dynamodb/       # FX rate data access

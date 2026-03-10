@@ -143,12 +143,9 @@ async fn should_send_email_to_user_when_watched_product_has_update() {
         &stack.dynamodb_table_1_name,
     );
     let eligible = watchlist_repository
-        .query_user_records_with_notifications(&patched.product_id)
+        .query_user_ids_with_notifications(&patched.product_id)
         .await
-        .unwrap()
-        .into_iter()
-        .map(|user| user.user_id)
-        .collect::<Vec<_>>();
+        .unwrap();
     assert_eq!(vec![UserId::from(user.sub)], eligible);
     tokio::time::sleep(Duration::from_secs(10)).await;
 

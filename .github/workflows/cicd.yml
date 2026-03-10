@@ -243,7 +243,6 @@ jobs:
           - src/shop-api
           - src/shop-lambda/src/shop-lambda-opensearch-index
           - src/user-api
-          - src/user-lambda/src/user-lambda-fanout-update-watchlist
           - src/cognito-post-confirmation
           - src/mail-lambda-send
           - src/fxrate-lambda

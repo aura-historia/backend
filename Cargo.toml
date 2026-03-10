@@ -23,7 +23,6 @@ product-lambda = { workspace = true }
 test-api = { workspace = true }
 user = { workspace = true }
 user-api = { workspace = true }
-user-lambda = { workspace = true }
 mail = { workspace = true }
 mail-lambda-send = { workspace = true }
 notification = { workspace = true }
@@ -53,7 +52,6 @@ members = [
     "src/shop-lambda",
     "src/user",
     "src/user-api",
-    "src/user-lambda",
     "src/mail",
     "src/mail-lambda-send",
     "src/notification",
@@ -161,9 +159,7 @@ smoking-tests-macros = { path = "src/aws-tests/src/smoking-tests/src/smoking-tes
 staging-tests-macros = { path = "src/aws-tests/src/staging-tests/src/staging-tests-macros" }
 user = { path = "src/user" }
 user-api = { path = "src/user-api" }
-user-lambda = { path = "src/user-lambda" }
 cognito = { path = "src/cognito" }
-user-lambda-fanout-update-watchlist = { path = "src/user-lambda/src/user-lambda-fanout-update-watchlist" }
 cognito-post-confirmation = { path = "src/cognito-post-confirmation" }
 serde-email = "3.2.0"
 handlebars = "6.4.0"

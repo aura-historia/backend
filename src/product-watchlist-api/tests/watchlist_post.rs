@@ -17,26 +17,18 @@ use product_watchlist::{
 use product_watchlist_api::watchlist_post::handle;
 use test_api::*;
 use time::OffsetDateTime;
-use user::dynamodb::{
-    repository::{UserDynamoDbRepository, UserDynamoDbRepositoryImpl},
-    user_record::UserRecord,
-};
+use user::dynamodb::user_record::UserRecord;
 
 #[localstack_test(services = [DynamoDB()])]
 async fn should_201_when_new_watchlist_entry_would_not_exceed_quota() {
     let client = get_dynamodb_client().await;
-    let user_repository = UserDynamoDbRepositoryImpl::new(client, "table_1");
     let user_record = Faker.fake::<UserRecord>();
-    user_repository
-        .put_user_record(user_record.clone())
-        .await
-        .unwrap();
+
     let product_repository = ProductDynamoDbRepositoryImpl::new(client, "table_1");
     let watchlist_repository = WatchlistProductDynamoDbRepositoryImpl::new(client, "table_1");
     let get_product_service = GetProductServiceImpl::new(&product_repository);
     let service = ProductWatchListServiceImpl::new(
         &watchlist_repository,
-        &user_repository,
         &product_repository,
         &get_product_service,
     );
@@ -74,7 +66,6 @@ async fn should_201_when_new_watchlist_entry_would_not_exceed_quota() {
             shop_id: product_record.shop_id,
             shops_product_id: product_record.shops_product_id,
             notifications: false,
-            user_record: user_record.clone(),
             created,
             updated: created,
         };
@@ -103,18 +94,13 @@ async fn should_201_when_new_watchlist_entry_would_not_exceed_quota() {
 #[localstack_test(services = [DynamoDB()])]
 async fn should_422_when_new_watchlist_entry_would_exceed_quota() {
     let client = get_dynamodb_client().await;
-    let user_repository = UserDynamoDbRepositoryImpl::new(client, "table_1");
     let user_record = Faker.fake::<UserRecord>();
-    user_repository
-        .put_user_record(user_record.clone())
-        .await
-        .unwrap();
+
     let product_repository = ProductDynamoDbRepositoryImpl::new(client, "table_1");
     let watchlist_repository = WatchlistProductDynamoDbRepositoryImpl::new(client, "table_1");
     let get_product_service = GetProductServiceImpl::new(&product_repository);
     let service = ProductWatchListServiceImpl::new(
         &watchlist_repository,
-        &user_repository,
         &product_repository,
         &get_product_service,
     );
@@ -152,7 +138,6 @@ async fn should_422_when_new_watchlist_entry_would_exceed_quota() {
             shop_id: product_record.shop_id,
             shops_product_id: product_record.shops_product_id,
             notifications: false,
-            user_record: user_record.clone(),
             created,
             updated: created,
         };

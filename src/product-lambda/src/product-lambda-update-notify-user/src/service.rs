@@ -60,20 +60,20 @@ impl<'a> ProductEventMailPayloadService for ProductEventMailPayloadServiceImpl<'
     ) -> Result<Vec<MailPayload>, ProductEventMailPayloadServiceError> {
         let users = self
             .watchlist_service
-            .find_users_with_notifications(&event.aggregate_id)
+            .find_user_ids_with_notifications(&event.aggregate_id)
             .await?;
         if users.is_empty() {
             return Ok(vec![]);
         }
 
-        let product = self
+        let _product = self
             .get_product_service
             .find_product(event.payload.shop_id(), event.payload.shops_product_id())
             .await?;
 
         let mail_payloads = users
             .into_iter()
-            .map(|user| self.customize_mail(user, &product, &event))
+            .map(|_user| self.customize_mail(todo!(), &_product, &event))
             .collect();
         Ok(mail_payloads)
     }

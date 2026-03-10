@@ -259,7 +259,6 @@ async fn should_respond_200_personalized_when_authenticated_and_watched() {
     let watchlist_repository = WatchlistProductDynamoDbRepositoryImpl::new(ddb_client, "table_1");
     let watchlist_service = ProductWatchListServiceImpl::new(
         &watchlist_repository,
-        &user_repository,
         &product_repository,
         &get_product_service,
     );

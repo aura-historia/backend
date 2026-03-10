@@ -20,7 +20,6 @@ use common::{
 };
 use time::{OffsetDateTime, macros::datetime};
 use tracing::error;
-use user::dynamodb::user_record::UserRecord;
 
 #[async_trait::async_trait]
 #[mockall::automock]
@@ -72,10 +71,10 @@ pub trait WatchlistProductDynamoDbRepository {
         update: WatchlistProductRecordUpdate,
     ) -> Result<Option<WatchlistProductRecord>, SdkError<UpdateItemError>>;
 
-    async fn query_user_records_with_notifications(
+    async fn query_user_ids_with_notifications(
         &self,
         product_id: &ProductId,
-    ) -> Result<Vec<UserRecord>, SdkError<QueryError>>;
+    ) -> Result<Vec<UserId>, SdkError<QueryError>>;
 }
 
 #[derive(Debug, Clone)]
@@ -337,11 +336,10 @@ impl<'a> WatchlistProductDynamoDbRepository for WatchlistProductDynamoDbReposito
             })
     }
 
-    // this is why we heavily denormalize and store the entire user-record with every watchlist-entry
-    async fn query_user_records_with_notifications(
+    async fn query_user_ids_with_notifications(
         &self,
         product_id: &ProductId,
-    ) -> Result<Vec<UserRecord>, SdkError<QueryError>> {
+    ) -> Result<Vec<UserId>, SdkError<QueryError>> {
         let user_records = self
             .client
             .query()
@@ -366,7 +364,7 @@ impl<'a> WatchlistProductDynamoDbRepository for WatchlistProductDynamoDbReposito
             .flat_map(|qo| qo.items.unwrap_or_default())
             .map(serde_dynamo::from_item::<_, WatchlistProductRecord>)
             .filter_map(|res| match res {
-                Ok(record) => Some(record.user_record),
+                Ok(record) => Some(record.user_id),
                 Err(err) => {
                     error!(productId = %product_id, error = %err, type = %std::any::type_name::<WatchlistProductRecord>(), "Failed deserializing.");
                     None

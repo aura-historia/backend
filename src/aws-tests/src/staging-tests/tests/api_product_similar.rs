@@ -22,7 +22,6 @@ use staging_tests::{
     create_random_test_user, get_dynamodb_client, get_opensearch_client, staging_test,
 };
 use std::time::Duration;
-use user::dynamodb::repository::UserDynamoDbRepositoryImpl;
 
 const EXAMPLE_EMBEDDING: [f32; 1024] = [
     0.0003272566,
@@ -1208,13 +1207,8 @@ async fn should_200_and_personalize_when_similar_products_have_been_computed_for
     let product_opensearch_repository =
         ProductOpenSearchRepositoryImpl::new(get_opensearch_client().await);
     let get_product_service = GetProductServiceImpl::new(&product_dynamodb_repository);
-    let user_repository = UserDynamoDbRepositoryImpl::new(
-        get_dynamodb_client().await,
-        &get_cfn_output().dynamodb_table_1_name,
-    );
     let watchlist_service = ProductWatchListServiceImpl::new(
         &watchlist_repository,
-        &user_repository,
         &product_dynamodb_repository,
         &get_product_service,
     );

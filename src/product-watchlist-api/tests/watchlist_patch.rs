@@ -30,15 +30,14 @@ async fn should_respond_with_patched_notifications(
     #[case] old_notifications: bool,
     #[case] new_notifications: bool,
 ) {
+    let user_repository = UserDynamoDbRepositoryImpl::new(get_dynamodb_client().await, "table_1");
     let watchlist_repository =
         WatchlistProductDynamoDbRepositoryImpl::new(get_dynamodb_client().await, "table_1");
-    let user_repository = UserDynamoDbRepositoryImpl::new(get_dynamodb_client().await, "table_1");
     let product_repository =
         ProductDynamoDbRepositoryImpl::new(get_dynamodb_client().await, "table_1");
     let get_product_service = GetProductServiceImpl::new(&product_repository);
     let service = ProductWatchListServiceImpl::new(
         &watchlist_repository,
-        &user_repository,
         &product_repository,
         &get_product_service,
     );
@@ -76,7 +75,6 @@ async fn should_respond_with_patched_notifications(
         shop_id: product_record.shop_id,
         shops_product_id: product_record.shops_product_id.clone(),
         notifications: old_notifications,
-        user_record: user_record.clone(),
         created,
         updated: created,
     };

@@ -20,12 +20,10 @@ fake = { workspace = true, optional = true }
 aws-sdk-dynamodb = { workspace = true, optional = true }
 serde_dynamo = { workspace = true, features = ["aws-sdk-dynamodb+1"], optional = true }
 itertools = { workspace = true, optional = true }
-user = { workspace = true, optional = true }
 tokio = { workspace = true, optional = true }
 
 [dev-dependencies]
 product = { workspace = true, features = ["test-data"] }
-user = { workspace = true, features = ["test-data"] }
 test-api = { workspace = true, features = ["dynamodb"] }
 serial_test = { workspace = true }
 rstest = { workspace = true }
@@ -34,7 +32,7 @@ fake = { workspace = true }
 [features]
 default = []
 data = ["common/api", "product/data"]
-dynamodb = ["aws-sdk-dynamodb", "serde_dynamo", "common/dynamodb", "tracing", "product/dynamodb", "user/dynamodb"]
+dynamodb = ["aws-sdk-dynamodb", "serde_dynamo", "common/dynamodb", "tracing", "product/dynamodb"]
 service = ["dynamodb", "itertools", "tokio", "tokio/time", "product/service"]
-test-data = ["fake", "common/test-data", "product/test-data", "user/test-data"]
+test-data = ["fake", "common/test-data", "product/test-data"]
 full = ["data", "dynamodb", "service", "test-data"]

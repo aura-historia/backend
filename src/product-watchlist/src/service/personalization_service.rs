@@ -146,7 +146,6 @@ mod tests {
                         gsi1_pk: None,
                         gsi1_sk: None,
                         user_id,
-                        user_record: Faker.fake(),
                     };
                     Ok(Some(watched))
                 })
@@ -188,7 +187,6 @@ mod tests {
                         gsi1_pk: None,
                         gsi1_sk: None,
                         user_id,
-                        user_record: Faker.fake(),
                     };
                     Ok(Some(watched))
                 })
@@ -255,7 +253,6 @@ mod tests {
                             gsi1_pk: None,
                             gsi1_sk: None,
                             user_id,
-                            user_record: Faker.fake(),
                         },
                         WatchlistProductRecord {
                             shop_id: Faker.fake(),
@@ -270,7 +267,6 @@ mod tests {
                             gsi1_pk: None,
                             gsi1_sk: None,
                             user_id,
-                            user_record: Faker.fake(),
                         },
                         WatchlistProductRecord {
                             shop_id: Faker.fake(),
@@ -285,7 +281,6 @@ mod tests {
                             gsi1_pk: None,
                             gsi1_sk: None,
                             user_id,
-                            user_record: Faker.fake(),
                         },
                     ];
                     Ok(watched)

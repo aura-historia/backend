@@ -35,14 +35,11 @@ use std::{
 };
 use time::macros::datetime;
 use url::Url;
-use user::dynamodb::repository::UserDynamoDbRepositoryImpl;
 
 #[staging_test]
 async fn should_respond_200_when_hits_authenticated() {
     let cfn = get_cfn_output();
     let dynamodb_client = get_dynamodb_client().await;
-    let user_repository =
-        UserDynamoDbRepositoryImpl::new(dynamodb_client, &cfn.dynamodb_table_1_name);
     let watchlist_repository =
         WatchlistProductDynamoDbRepositoryImpl::new(dynamodb_client, &cfn.dynamodb_table_1_name);
     let product_repository =
@@ -50,7 +47,6 @@ async fn should_respond_200_when_hits_authenticated() {
     let get_product_service = GetProductServiceImpl::new(&product_repository);
     let product_watchlist_service = ProductWatchListServiceImpl::new(
         &watchlist_repository,
-        &user_repository,
         &product_repository,
         &get_product_service,
     );

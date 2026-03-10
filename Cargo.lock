@@ -331,7 +331,6 @@ dependencies = [
  "test-api",
  "user",
  "user-api",
- "user-lambda",
 ]
 
 [[package]]
@@ -5073,7 +5072,6 @@ dependencies = [
  "time",
  "tokio",
  "tracing",
- "user",
 ]
 
 [[package]]
@@ -7823,36 +7821,6 @@ dependencies = [
  "tracing",
  "tracing-subscriber",
  "user",
-]
-
-[[package]]
-name = "user-lambda"
-version = "0.1.0"
-dependencies = [
- "user-lambda-fanout-update-watchlist",
-]
-
-[[package]]
-name = "user-lambda-fanout-update-watchlist"
-version = "0.1.0"
-dependencies = [
- "aws-config",
- "aws-sdk-dynamodb",
- "aws_lambda_events",
- "common",
- "fake",
- "lambda_runtime",
- "mockall",
- "product-watchlist",
- "rstest",
- "serde_dynamo",
- "serde_json",
- "time",
- "tokio",
- "tracing",
- "tracing-subscriber",
- "user",
- "uuid",
 ]
 
 [[package]]

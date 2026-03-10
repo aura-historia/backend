@@ -11,7 +11,6 @@ use product_watchlist::{
 };
 use serde_email::Email;
 use tracing::debug;
-use user::dynamodb::repository::UserDynamoDbRepositoryImpl;
 
 #[tokio::main]
 async fn main() -> Result<(), Error> {
@@ -32,13 +31,11 @@ async fn main() -> Result<(), Error> {
         .expect("shouldn't fail loading env-var 'DYNAMODB_TABLE_NAME'");
     let watchlist_repository =
         WatchlistProductDynamoDbRepositoryImpl::new(&dynamodb_client, &table_name);
-    let user_repository = UserDynamoDbRepositoryImpl::new(&dynamodb_client, &table_name);
     let product_repository = ProductDynamoDbRepositoryImpl::new(&dynamodb_client, &table_name);
 
     let get_product_service = GetProductServiceImpl::new(&product_repository);
     let watchlist_service = ProductWatchListServiceImpl::new(
         &watchlist_repository,
-        &user_repository,
         &product_repository,
         &get_product_service,
     );

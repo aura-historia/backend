@@ -1,7 +1,6 @@
 use common::language::domain::Language;
 use common::language::record::{LanguageRecord, TextRecord};
 use common::{pagination::cursor::api::TimeCursoredData, user_id::UserId};
-use fake::{Fake, Faker};
 use lambda_runtime::LambdaEvent;
 use product::dynamodb::{
     product_record::ProductRecord,
@@ -18,18 +17,15 @@ use product_watchlist::{
 use product_watchlist_api::watchlist_get::{WatchlistProductDataView, handle};
 use test_api::*;
 use time::{OffsetDateTime, format_description::well_known::Rfc3339};
-use user::dynamodb::repository::UserDynamoDbRepositoryImpl;
 
 #[localstack_test(services = [DynamoDB()])]
 async fn should_200_when_sort_created_asc() {
     let client = get_dynamodb_client().await;
-    let user_repository = UserDynamoDbRepositoryImpl::new(client, "table_1");
     let product_repository = ProductDynamoDbRepositoryImpl::new(client, "table_1");
     let watchlist_repository = WatchlistProductDynamoDbRepositoryImpl::new(client, "table_1");
     let get_product_service = GetProductServiceImpl::new(&product_repository);
     let service = ProductWatchListServiceImpl::new(
         &watchlist_repository,
-        &user_repository,
         &product_repository,
         &get_product_service,
     );
@@ -55,7 +51,6 @@ async fn should_200_when_sort_created_asc() {
             shop_id: product_record.shop_id,
             shops_product_id: product_record.shops_product_id,
             notifications: false,
-            user_record: Faker.fake(),
             created,
             updated: created,
         };
@@ -105,13 +100,11 @@ async fn should_200_when_sort_created_asc() {
 #[localstack_test(services = [DynamoDB()])]
 async fn should_200_when_sort_created_asc_search_after() {
     let client = get_dynamodb_client().await;
-    let user_repository = UserDynamoDbRepositoryImpl::new(client, "table_1");
     let product_repository = ProductDynamoDbRepositoryImpl::new(client, "table_1");
     let watchlist_repository = WatchlistProductDynamoDbRepositoryImpl::new(client, "table_1");
     let get_product_service = GetProductServiceImpl::new(&product_repository);
     let service = ProductWatchListServiceImpl::new(
         &watchlist_repository,
-        &user_repository,
         &product_repository,
         &get_product_service,
     );
@@ -145,7 +138,6 @@ async fn should_200_when_sort_created_asc_search_after() {
             shop_id: product_record.shop_id,
             shops_product_id: product_record.shops_product_id,
             notifications: false,
-            user_record: Faker.fake(),
             created,
             updated: created,
         };
@@ -197,13 +189,11 @@ async fn should_200_when_sort_created_asc_search_after() {
 #[localstack_test(services = [DynamoDB()])]
 async fn should_200_when_sort_created_desc() {
     let client = get_dynamodb_client().await;
-    let user_repository = UserDynamoDbRepositoryImpl::new(client, "table_1");
     let product_repository = ProductDynamoDbRepositoryImpl::new(client, "table_1");
     let watchlist_repository = WatchlistProductDynamoDbRepositoryImpl::new(client, "table_1");
     let get_product_service = GetProductServiceImpl::new(&product_repository);
     let service = ProductWatchListServiceImpl::new(
         &watchlist_repository,
-        &user_repository,
         &product_repository,
         &get_product_service,
     );
@@ -229,7 +219,6 @@ async fn should_200_when_sort_created_desc() {
             shop_id: product_record.shop_id,
             shops_product_id: product_record.shops_product_id,
             notifications: false,
-            user_record: Faker.fake(),
             created,
             updated: created,
         };
@@ -280,13 +269,11 @@ async fn should_200_when_sort_created_desc() {
 #[localstack_test(services = [DynamoDB()])]
 async fn should_200_when_sort_created_desc_search_after() {
     let client = get_dynamodb_client().await;
-    let user_repository = UserDynamoDbRepositoryImpl::new(client, "table_1");
     let product_repository = ProductDynamoDbRepositoryImpl::new(client, "table_1");
     let watchlist_repository = WatchlistProductDynamoDbRepositoryImpl::new(client, "table_1");
     let get_product_service = GetProductServiceImpl::new(&product_repository);
     let service = ProductWatchListServiceImpl::new(
         &watchlist_repository,
-        &user_repository,
         &product_repository,
         &get_product_service,
     );
@@ -320,7 +307,6 @@ async fn should_200_when_sort_created_desc_search_after() {
             shop_id: product_record.shop_id,
             shops_product_id: product_record.shops_product_id,
             notifications: true,
-            user_record: Faker.fake(),
             created,
             updated: created,
         };
@@ -635,13 +621,11 @@ async fn should_respond_200_and_respect_language_query_param(
     #[case] expected_description_lang: Language,
 ) {
     let client = get_dynamodb_client().await;
-    let user_repository = UserDynamoDbRepositoryImpl::new(client, "table_1");
     let product_repository = ProductDynamoDbRepositoryImpl::new(client, "table_1");
     let watchlist_repository = WatchlistProductDynamoDbRepositoryImpl::new(client, "table_1");
     let get_product_service = GetProductServiceImpl::new(&product_repository);
     let service = ProductWatchListServiceImpl::new(
         &watchlist_repository,
-        &user_repository,
         &product_repository,
         &get_product_service,
     );
@@ -687,7 +671,6 @@ async fn should_respond_200_and_respect_language_query_param(
             shop_id: product_record.shop_id,
             shops_product_id: product_record.shops_product_id,
             notifications: false,
-            user_record: Faker.fake(),
             created,
             updated: created,
         };

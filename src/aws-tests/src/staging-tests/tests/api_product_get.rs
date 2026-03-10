@@ -28,7 +28,6 @@ use product_watchlist::{
 };
 use staging_tests::{create_random_test_user, get_dynamodb_client, staging_test};
 use std::time::{Duration, SystemTime};
-use user::dynamodb::repository::UserDynamoDbRepositoryImpl;
 
 #[staging_test]
 async fn should_respond_200_when_anon_and_product_does_exist_for_ids() {
@@ -118,12 +117,9 @@ async fn should_respond_200_personalized_when_authenticated_and_product_does_exi
         ddb_client,
         &get_cfn_output().dynamodb_table_1_name,
     );
-    let user_repository =
-        UserDynamoDbRepositoryImpl::new(ddb_client, &get_cfn_output().dynamodb_table_1_name);
     let get_product_service = GetProductServiceImpl::new(&product_repository);
     let watchlist_service = ProductWatchListServiceImpl::new(
         &watchlist_repository,
-        &user_repository,
         &product_repository,
         &get_product_service,
     );

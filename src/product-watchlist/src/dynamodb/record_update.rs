@@ -14,7 +14,6 @@ use serde::{Deserialize, Serialize};
 use serde_fields::SerdeField;
 use std::collections::HashMap;
 use time::OffsetDateTime;
-use user::dynamodb::user_record::UserRecord;
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, SerdeField)]
 pub struct WatchlistProductRecordUpdate {
@@ -26,9 +25,6 @@ pub struct WatchlistProductRecordUpdate {
 
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub notifications: Option<bool>,
-
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub user_record: Option<UserRecord>,
 
     #[serde(with = "time::serde::rfc3339")]
     pub updated: OffsetDateTime,
@@ -93,7 +89,6 @@ impl WatchlistProductRecordUpdate {
                 None
             },
             notifications: cmd.notifications,
-            user_record: None,
             updated: OffsetDateTime::now_utc(),
         }
     }

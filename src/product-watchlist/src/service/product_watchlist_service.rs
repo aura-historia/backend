@@ -25,8 +25,6 @@ use product::dynamodb::repository::ProductDynamoDbRepository;
 use product::service::get_service::{GetProductError, GetProductService};
 use std::collections::HashMap;
 use time::OffsetDateTime;
-use user::core::user::User;
-use user::dynamodb::repository::UserDynamoDbRepository;
 
 pub const MAX_WATCHLIST_QUOTA: usize = 5;
 
@@ -195,15 +193,14 @@ pub trait ProductWatchListService {
         cursor: &Option<Cursor<OffsetDateTime>>,
     ) -> Result<CursoredResult<LocalizedWatchlistProductView, OffsetDateTime>, WatchProductError>;
 
-    async fn find_users_with_notifications(
+    async fn find_user_ids_with_notifications(
         &self,
         product_id: &ProductId,
-    ) -> Result<Vec<User>, WatchProductError>;
+    ) -> Result<Vec<UserId>, WatchProductError>;
 }
 
 pub struct ProductWatchListServiceImpl<'a> {
     watchlist_repository: &'a (dyn WatchlistProductDynamoDbRepository + Sync),
-    user_repository: &'a (dyn UserDynamoDbRepository + Sync),
     product_repository: &'a (dyn ProductDynamoDbRepository + Sync),
     get_product_service: &'a (dyn GetProductService + Sync),
 }
@@ -211,13 +208,11 @@ pub struct ProductWatchListServiceImpl<'a> {
 impl<'a> ProductWatchListServiceImpl<'a> {
     pub fn new(
         watchlist_repository: &'a (dyn WatchlistProductDynamoDbRepository + Sync),
-        user_repository: &'a (dyn UserDynamoDbRepository + Sync),
         product_repository: &'a (dyn ProductDynamoDbRepository + Sync),
         get_product_service: &'a (dyn GetProductService + Sync),
     ) -> Self {
         Self {
             watchlist_repository,
-            user_repository,
             product_repository,
             get_product_service,
         }
@@ -261,11 +256,6 @@ impl<'a> ProductWatchListService for ProductWatchListServiceImpl<'a> {
             ))?;
 
         let now = OffsetDateTime::now_utc();
-        let user_record = self
-            .user_repository
-            .get_user_record(user_id)
-            .await?
-            .ok_or(WatchProductError::UserNotFound(*user_id))?;
 
         let watchlist_count = self
             .watchlist_repository
@@ -289,7 +279,6 @@ impl<'a> ProductWatchListService for ProductWatchListServiceImpl<'a> {
             shop_id: product_record.shop_id,
             shops_product_id: product_record.shops_product_id,
             notifications: false,
-            user_record,
             created: now,
             updated: now,
         };
@@ -442,19 +431,14 @@ impl<'a> ProductWatchListService for ProductWatchListServiceImpl<'a> {
         })
     }
 
-    async fn find_users_with_notifications(
+    async fn find_user_ids_with_notifications(
         &self,
         product_id: &ProductId,
-    ) -> Result<Vec<User>, WatchProductError> {
-        let users = self
-            .watchlist_repository
-            .query_user_records_with_notifications(product_id)
-            .await?
-            .into_iter()
-            .map(User::from)
-            .collect();
-
-        Ok(users)
+    ) -> Result<Vec<UserId>, WatchProductError> {
+        self.watchlist_repository
+            .query_user_ids_with_notifications(product_id)
+            .await
+            .map_err(WatchProductError::from)
     }
 }
 
@@ -475,12 +459,10 @@ mod tests {
         use fake::{Fake, Faker};
         use product::dynamodb::repository::MockProductDynamoDbRepository;
         use product::service::get_service::GetProductServiceImpl;
-        use user::dynamodb::repository::MockUserDynamoDbRepository;
 
         #[tokio::test]
         async fn should_err_watchlist_timestamp_not_found_when_no_watched_product_with_timestamp_exists()
          {
-            let user_repository = MockUserDynamoDbRepository::default();
             let product_repository = MockProductDynamoDbRepository::default();
             let mut watchlist_repository = MockWatchlistProductDynamoDbRepository::default();
             watchlist_repository
@@ -490,7 +472,6 @@ mod tests {
 
             let service = ProductWatchListServiceImpl::new(
                 &watchlist_repository,
-                &user_repository,
                 &product_repository,
                 &get_product_service,
             );
@@ -540,7 +521,6 @@ mod tests {
                 aws_sdk_dynamodb::config::http::HttpResponse,
             >,
         ) {
-            let user_repository = MockUserDynamoDbRepository::default();
             let product_repository = MockProductDynamoDbRepository::default();
             let mut watchlist_repository = MockWatchlistProductDynamoDbRepository::default();
             watchlist_repository
@@ -550,7 +530,6 @@ mod tests {
 
             let service = ProductWatchListServiceImpl::new(
                 &watchlist_repository,
-                &user_repository,
                 &product_repository,
                 &get_product_service,
             );
@@ -584,14 +563,9 @@ mod tests {
         use fake::{Fake, Faker};
         use product::dynamodb::repository::MockProductDynamoDbRepository;
         use product::service::get_service::GetProductServiceImpl;
-        use user::dynamodb::repository::MockUserDynamoDbRepository;
 
         #[tokio::test]
         async fn should_watch_when_success() {
-            let mut user_repository = MockUserDynamoDbRepository::default();
-            user_repository
-                .expect_get_user_record()
-                .return_once(|_| Box::pin(async { Ok(Some(Faker.fake())) }));
             let mut product_repository = MockProductDynamoDbRepository::default();
             product_repository
                 .expect_get_product_record()
@@ -608,7 +582,6 @@ mod tests {
 
             let service = ProductWatchListServiceImpl::new(
                 &watchlist_repository,
-                &user_repository,
                 &product_repository,
                 &get_product_service,
             );
@@ -620,7 +593,6 @@ mod tests {
 
         #[tokio::test]
         async fn should_err_product_not_found_when_product_not_exists() {
-            let user_repository = MockUserDynamoDbRepository::default();
             let mut product_repository = MockProductDynamoDbRepository::default();
             product_repository
                 .expect_get_product_record()
@@ -631,7 +603,6 @@ mod tests {
 
             let service = ProductWatchListServiceImpl::new(
                 &watchlist_repository,
-                &user_repository,
                 &product_repository,
                 &get_product_service,
             );
@@ -653,10 +624,6 @@ mod tests {
 
         #[tokio::test]
         async fn should_err_watchlist_quota_exceeded_when_exceeded() {
-            let mut user_repository = MockUserDynamoDbRepository::default();
-            user_repository
-                .expect_get_user_record()
-                .return_once(|_| Box::pin(async { Ok(Some(Faker.fake())) }));
             let mut product_repository = MockProductDynamoDbRepository::default();
             product_repository
                 .expect_get_product_record()
@@ -671,7 +638,6 @@ mod tests {
 
             let service = ProductWatchListServiceImpl::new(
                 &watchlist_repository,
-                &user_repository,
                 &product_repository,
                 &get_product_service,
             );
@@ -712,7 +678,6 @@ mod tests {
                 aws_sdk_dynamodb::config::http::HttpResponse,
             >,
         ) {
-            let user_repository = MockUserDynamoDbRepository::default();
             let mut product_repository = MockProductDynamoDbRepository::default();
             product_repository
                 .expect_get_product_record()
@@ -723,57 +688,6 @@ mod tests {
 
             let service = ProductWatchListServiceImpl::new(
                 &watchlist_repository,
-                &user_repository,
-                &product_repository,
-                &get_product_service,
-            );
-
-            let actual = service
-                .create_watchlist_product(&Faker.fake(), &Faker.fake(), &Faker.fake())
-                .await;
-
-            assert!(actual.is_err());
-            match actual.unwrap_err() {
-                WatchProductError::SdkGetItemError(_) => {}
-                err => panic!("Expected 'WatchProductError::SdkGetItemError', got '{err}'"),
-            }
-        }
-
-        #[tokio::test]
-        #[rstest::rstest]
-        #[case::construction_failure(SdkError::construction_failure("Something went wrong"))]
-        #[case::timeout(SdkError::timeout_error("Something went wrong"))]
-        #[case::dispatch_failure(SdkError::dispatch_failure(ConnectorError::user("Something went wrong".into())))]
-        #[case::response_error(SdkError::response_error(
-            "Something went wrong",
-            HttpResponse::new(500u16.try_into().unwrap(), "{}".into())
-        ))]
-        #[case::service_error(SdkError::service_error(
-            aws_sdk_dynamodb::operation::get_item::GetItemError::unhandled("Something went wrong"),
-            HttpResponse::new(500u16.try_into().unwrap(), "{}".into())
-        ))]
-        #[trace]
-        async fn should_propagate_sdk_error_get_user_record(
-            #[case] expected: SdkError<
-                aws_sdk_dynamodb::operation::get_item::GetItemError,
-                aws_sdk_dynamodb::config::http::HttpResponse,
-            >,
-        ) {
-            let mut user_repository = MockUserDynamoDbRepository::default();
-            user_repository
-                .expect_get_user_record()
-                .return_once(|_| Box::pin(async { Err(expected) }));
-            let mut product_repository = MockProductDynamoDbRepository::default();
-            product_repository
-                .expect_get_product_record()
-                .return_once(|_, _| Box::pin(async { Ok(Some(Faker.fake())) }));
-
-            let watchlist_repository = MockWatchlistProductDynamoDbRepository::default();
-            let get_product_service = GetProductServiceImpl::new(&product_repository);
-
-            let service = ProductWatchListServiceImpl::new(
-                &watchlist_repository,
-                &user_repository,
                 &product_repository,
                 &get_product_service,
             );
@@ -809,10 +723,6 @@ mod tests {
                 aws_sdk_dynamodb::config::http::HttpResponse,
             >,
         ) {
-            let mut user_repository = MockUserDynamoDbRepository::default();
-            user_repository
-                .expect_get_user_record()
-                .return_once(|_| Box::pin(async { Ok(Some(Faker.fake())) }));
             let mut product_repository = MockProductDynamoDbRepository::default();
             product_repository
                 .expect_get_product_record()
@@ -831,7 +741,6 @@ mod tests {
 
             let service = ProductWatchListServiceImpl::new(
                 &watchlist_repository,
-                &user_repository,
                 &product_repository,
                 &get_product_service,
             );
@@ -864,11 +773,9 @@ mod tests {
         use fake::{Fake, Faker};
         use product::dynamodb::repository::MockProductDynamoDbRepository;
         use product::service::get_service::GetProductServiceImpl;
-        use user::dynamodb::repository::MockUserDynamoDbRepository;
 
         #[tokio::test]
         async fn should_unwatch_when_success() {
-            let user_repository = MockUserDynamoDbRepository::default();
             let product_repository = MockProductDynamoDbRepository::default();
             let mut watchlist_repository = MockWatchlistProductDynamoDbRepository::default();
             watchlist_repository
@@ -881,7 +788,6 @@ mod tests {
 
             let service = ProductWatchListServiceImpl::new(
                 &watchlist_repository,
-                &user_repository,
                 &product_repository,
                 &get_product_service,
             );
@@ -894,7 +800,6 @@ mod tests {
         #[tokio::test]
         async fn should_err_watchlist_timestamp_not_found_when_no_watched_product_with_timestamp_exists()
          {
-            let user_repository = MockUserDynamoDbRepository::default();
             let product_repository = MockProductDynamoDbRepository::default();
             let mut watchlist_repository = MockWatchlistProductDynamoDbRepository::default();
             watchlist_repository
@@ -904,7 +809,6 @@ mod tests {
 
             let service = ProductWatchListServiceImpl::new(
                 &watchlist_repository,
-                &user_repository,
                 &product_repository,
                 &get_product_service,
             );
@@ -954,7 +858,6 @@ mod tests {
                 aws_sdk_dynamodb::config::http::HttpResponse,
             >,
         ) {
-            let user_repository = MockUserDynamoDbRepository::default();
             let product_repository = MockProductDynamoDbRepository::default();
             let mut watchlist_repository = MockWatchlistProductDynamoDbRepository::default();
             watchlist_repository
@@ -964,7 +867,6 @@ mod tests {
 
             let service = ProductWatchListServiceImpl::new(
                 &watchlist_repository,
-                &user_repository,
                 &product_repository,
                 &get_product_service,
             );
@@ -1000,7 +902,6 @@ mod tests {
                 aws_sdk_dynamodb::config::http::HttpResponse,
             >,
         ) {
-            let user_repository = MockUserDynamoDbRepository::default();
             let product_repository = MockProductDynamoDbRepository::default();
             let mut watchlist_repository = MockWatchlistProductDynamoDbRepository::default();
             watchlist_repository
@@ -1013,7 +914,6 @@ mod tests {
 
             let service = ProductWatchListServiceImpl::new(
                 &watchlist_repository,
-                &user_repository,
                 &product_repository,
                 &get_product_service,
             );
@@ -1047,11 +947,9 @@ mod tests {
         use fake::{Fake, Faker};
         use product::dynamodb::repository::MockProductDynamoDbRepository;
         use product::service::get_service::GetProductServiceImpl;
-        use user::dynamodb::repository::MockUserDynamoDbRepository;
 
         #[tokio::test]
         async fn should_toggle_notifications_when_success() {
-            let user_repository = MockUserDynamoDbRepository::default();
             let product_repository = MockProductDynamoDbRepository::default();
             let mut watchlist_repository = MockWatchlistProductDynamoDbRepository::default();
             watchlist_repository
@@ -1070,7 +968,6 @@ mod tests {
 
             let service = ProductWatchListServiceImpl::new(
                 &watchlist_repository,
-                &user_repository,
                 &product_repository,
                 &get_product_service,
             );
@@ -1090,7 +987,6 @@ mod tests {
         #[tokio::test]
         async fn should_err_watchlist_timestamp_not_found_when_no_watched_product_with_timestamp_exists()
          {
-            let user_repository = MockUserDynamoDbRepository::default();
             let product_repository = MockProductDynamoDbRepository::default();
             let mut watchlist_repository = MockWatchlistProductDynamoDbRepository::default();
             watchlist_repository
@@ -1100,7 +996,6 @@ mod tests {
 
             let service = ProductWatchListServiceImpl::new(
                 &watchlist_repository,
-                &user_repository,
                 &product_repository,
                 &get_product_service,
             );
@@ -1157,7 +1052,6 @@ mod tests {
                 aws_sdk_dynamodb::config::http::HttpResponse,
             >,
         ) {
-            let user_repository = MockUserDynamoDbRepository::default();
             let product_repository = MockProductDynamoDbRepository::default();
             let mut watchlist_repository = MockWatchlistProductDynamoDbRepository::default();
             watchlist_repository
@@ -1167,7 +1061,6 @@ mod tests {
 
             let service = ProductWatchListServiceImpl::new(
                 &watchlist_repository,
-                &user_repository,
                 &product_repository,
                 &get_product_service,
             );
@@ -1210,7 +1103,6 @@ mod tests {
                 aws_sdk_dynamodb::config::http::HttpResponse,
             >,
         ) {
-            let user_repository = MockUserDynamoDbRepository::default();
             let product_repository = MockProductDynamoDbRepository::default();
             let mut watchlist_repository = MockWatchlistProductDynamoDbRepository::default();
             watchlist_repository
@@ -1229,7 +1121,6 @@ mod tests {
 
             let service = ProductWatchListServiceImpl::new(
                 &watchlist_repository,
-                &user_repository,
                 &product_repository,
                 &get_product_service,
             );
@@ -1268,7 +1159,6 @@ mod tests {
         use fake::{Fake, Faker};
         use product::dynamodb::repository::MockProductDynamoDbRepository;
         use product::service::get_service::MockGetProductService;
-        use user::dynamodb::repository::MockUserDynamoDbRepository;
 
         #[tokio::test]
         #[rstest::rstest]
@@ -1290,7 +1180,6 @@ mod tests {
                 aws_sdk_dynamodb::config::http::HttpResponse,
             >,
         ) {
-            let user_repository = MockUserDynamoDbRepository::default();
             let product_repository = MockProductDynamoDbRepository::default();
             let mut watchlist_repository = MockWatchlistProductDynamoDbRepository::default();
             watchlist_repository
@@ -1299,7 +1188,6 @@ mod tests {
             let get_product_service = MockGetProductService::default();
             let service = ProductWatchListServiceImpl::new(
                 &watchlist_repository,
-                &user_repository,
                 &product_repository,
                 &get_product_service,
             );
