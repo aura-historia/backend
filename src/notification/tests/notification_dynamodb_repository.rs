@@ -1,4 +1,4 @@
-use common::{event_id::EventId, pagination::cursor::Cursor, user_id::UserId};
+use common::{batch::Batch, event_id::EventId, pagination::cursor::Cursor, user_id::UserId};
 use fake::{Fake, Faker};
 use notification::dynamodb::{
     notification_record::{NotificationRecord, mk_pk},
@@ -301,4 +301,118 @@ fn should_set_seen_false_for_update() {
         .unwrap();
 
     assert!(!actual.seen);
+}
+
+#[localstack_test(services = [DynamoDB()])]
+fn should_put_notification_records_when_single_batch() {
+    let repository = get_repository().await;
+    let user_id = UserId::new();
+
+    let mut records = fake::vec![NotificationRecord; 25];
+    for record in &mut records {
+        record.pk = mk_pk(&user_id);
+        record.user_id = user_id;
+    }
+
+    let batch: Batch<NotificationRecord, 25> = records.clone().try_into().unwrap();
+    let _ = repository.put_notification_records(batch).await.unwrap();
+
+    let actual = repository
+        .query_notification_records(
+            &user_id,
+            &Cursor {
+                size: 100,
+                search_after: None,
+            },
+            true,
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(25, actual.len());
+}
+
+#[localstack_test(services = [DynamoDB()])]
+fn should_put_notification_records_when_less_than_25_records() {
+    let repository = get_repository().await;
+    let user_id = UserId::new();
+
+    let mut records = fake::vec![NotificationRecord; 5];
+    for record in &mut records {
+        record.pk = mk_pk(&user_id);
+        record.user_id = user_id;
+    }
+
+    let batch: Batch<NotificationRecord, 25> = records.clone().try_into().unwrap();
+    let _ = repository.put_notification_records(batch).await.unwrap();
+
+    let actual = repository
+        .query_notification_records(
+            &user_id,
+            &Cursor {
+                size: 100,
+                search_after: None,
+            },
+            true,
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(5, actual.len());
+}
+
+#[localstack_test(services = [DynamoDB()])]
+fn should_put_notification_records_for_different_users() {
+    let repository = get_repository().await;
+    let user_id_1 = UserId::new();
+    let user_id_2 = UserId::new();
+
+    let mut records_user_1 = fake::vec![NotificationRecord; 10];
+    for record in &mut records_user_1 {
+        record.pk = mk_pk(&user_id_1);
+        record.user_id = user_id_1;
+    }
+
+    let mut records_user_2 = fake::vec![NotificationRecord; 8];
+    for record in &mut records_user_2 {
+        record.pk = mk_pk(&user_id_2);
+        record.user_id = user_id_2;
+    }
+
+    let mut mixed: Vec<NotificationRecord> = records_user_1
+        .iter()
+        .cloned()
+        .chain(records_user_2.iter().cloned())
+        .collect();
+    mixed.truncate(25);
+
+    let batch: Batch<NotificationRecord, 25> = mixed.try_into().unwrap();
+    let _ = repository.put_notification_records(batch).await.unwrap();
+
+    let actual_user_1 = repository
+        .query_notification_records(
+            &user_id_1,
+            &Cursor {
+                size: 100,
+                search_after: None,
+            },
+            true,
+        )
+        .await
+        .unwrap();
+
+    let actual_user_2 = repository
+        .query_notification_records(
+            &user_id_2,
+            &Cursor {
+                size: 100,
+                search_after: None,
+            },
+            true,
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(10, actual_user_1.len());
+    assert_eq!(8, actual_user_2.len());
 }

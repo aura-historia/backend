@@ -18,6 +18,7 @@ use common::{
     batch::Batch, dynamodb_update::DynamoDbUpdate, event_id::EventId, pagination::cursor::Cursor,
     user_id::UserId,
 };
+use std::collections::HashMap;
 use tracing::error;
 
 #[async_trait::async_trait]
@@ -204,7 +205,14 @@ impl<'a> NotificationDynamoDbRepository for NotificationDynamoDbRepositoryImpl<'
         &self,
         records: Batch<NotificationRecord, 25>,
     ) -> Result<BatchWriteItemOutput, SdkError<BatchWriteItemError>> {
-        todo!()
+        self.client
+            .batch_write_item()
+            .set_request_items(Some(HashMap::from([(
+                self.table.clone(),
+                records.into_dynamodb_write_requests(),
+            )])))
+            .send()
+            .await
     }
 
     async fn get_notification_record(

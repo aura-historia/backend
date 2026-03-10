@@ -12,12 +12,14 @@ use crate::{
 };
 use aws_sdk_dynamodb::{config::http::HttpResponse, error::SdkError};
 use common::{
+    batch::Batch,
     currency::domain::Currency,
     event_id::EventId,
     language::domain::Language,
     pagination::cursor::{Cursor, CursoredResult},
     user_id::UserId,
 };
+use std::collections::{HashMap, HashSet};
 use time::OffsetDateTime;
 
 #[derive(thiserror::Error, Debug)]
@@ -147,7 +149,117 @@ impl<'a> NotificationService for NotificationServiceImpl<'a> {
         origin_event_id: &EventId,
         cmds: Vec<CreateNotificationCommand>,
     ) -> CreateNotificationsResult {
-        todo!()
+        if cmds.is_empty() {
+            return CreateNotificationsResult {
+                unprocessed: vec![],
+                processed: vec![],
+            };
+        }
+
+        let now = OffsetDateTime::now_utc();
+
+        // Build (cmd, notification) pairs and keep a record clone for batching.
+        let pairs: Vec<(CreateNotificationCommand, Notification)> = cmds
+            .into_iter()
+            .map(|cmd| {
+                let notification = Notification {
+                    user_id: cmd.user_id,
+                    origin_event_id: *origin_event_id,
+                    notification_id: NotificationId::new(),
+                    notification_payload: cmd.notification_payload.clone(),
+                    seen: false,
+                    created: now,
+                    updated: now,
+                };
+                (cmd, notification)
+            })
+            .collect();
+
+        // Index by user_id so we can look up cmd/notification after batch responses.
+        let mut cmd_map: HashMap<UserId, (CreateNotificationCommand, Notification)> = pairs
+            .into_iter()
+            .map(|(cmd, notif)| (notif.user_id, (cmd, notif)))
+            .collect();
+
+        let records: Vec<NotificationRecord> = cmd_map
+            .values()
+            .map(|(_, notif)| NotificationRecord::from(notif.clone()))
+            .collect();
+
+        let mut processed = Vec::new();
+        let mut unprocessed = Vec::new();
+
+        let batches = Batch::<NotificationRecord, 25>::chunked_from(records.into_iter());
+        for batch in batches {
+            let user_ids_in_batch: Vec<UserId> = batch.iter().map(|r| r.user_id).collect();
+
+            match self
+                .notification_repository
+                .put_notification_records(batch)
+                .await
+            {
+                Ok(output) => {
+                    let failed_user_ids: HashSet<UserId> = output
+                        .unprocessed_items
+                        .unwrap_or_default()
+                        .into_iter()
+                        .flat_map(|(_, write_reqs)| write_reqs)
+                        .filter_map(|req| req.put_request)
+                        .filter_map(|put| {
+                            match serde_dynamo::from_item::<_, NotificationRecord>(put.item) {
+                                Ok(record) => Some(record.user_id),
+                                Err(err) => {
+                                    tracing::error!(
+                                        error = ?err,
+                                        r#type = std::any::type_name::<NotificationRecord>(),
+                                        "Failed parsing unprocessed item from BatchWriteItem output"
+                                    );
+                                    None
+                                }
+                            }
+                        })
+                        .collect();
+
+                    for user_id in user_ids_in_batch {
+                        if let Some((cmd, notif)) = cmd_map.remove(&user_id) {
+                            if failed_user_ids.contains(&user_id) {
+                                unprocessed.push((
+                                    cmd,
+                                    NotificationError::SdkPutItemError(
+                                        SdkError::construction_failure(
+                                            "Item returned as unprocessed in BatchWriteItem",
+                                        ),
+                                    ),
+                                ));
+                            } else {
+                                processed.push(notif);
+                            }
+                        }
+                    }
+                }
+                Err(err) => {
+                    tracing::error!(
+                        error = ?err,
+                        "Failed writing NotificationRecord batch due to SdkError."
+                    );
+                    for user_id in user_ids_in_batch {
+                        if let Some((cmd, _)) = cmd_map.remove(&user_id) {
+                            unprocessed.push((
+                                cmd,
+                                NotificationError::SdkPutItemError(SdkError::construction_failure(
+                                    "BatchWriteItem operation failed",
+                                )),
+                            ));
+                        }
+                    }
+                }
+            }
+        }
+
+        CreateNotificationsResult {
+            unprocessed,
+            processed,
+        }
     }
 
     async fn update_notification(
@@ -230,6 +342,159 @@ impl<'a> NotificationService for NotificationServiceImpl<'a> {
 
 #[cfg(test)]
 mod tests {
+    mod create_notifications {
+        use crate::{
+            core::notification::{NotificationPayload, NotificationWatchlistPayload},
+            dynamodb::repository::MockNotificationDynamoDbRepository,
+            service::{
+                command::CreateNotificationCommand,
+                notification_service::{
+                    CreateNotificationsResult, NotificationService, NotificationServiceImpl,
+                },
+            },
+        };
+        use aws_sdk_dynamodb::{
+            operation::batch_write_item::BatchWriteItemOutput,
+            types::{PutRequest, WriteRequest},
+        };
+        use common::{
+            language::domain::Language, product_state::domain::ProductState, user_id::UserId,
+        };
+        use fake::{Fake, Faker};
+        use std::collections::HashMap;
+
+        fn make_test_command() -> CreateNotificationCommand {
+            CreateNotificationCommand {
+                user_id: UserId::new(),
+                notification_payload: NotificationPayload::Watchlist {
+                    product_id: Faker.fake(),
+                    shop_id: Faker.fake(),
+                    shops_product_id: "test-product-123".into(),
+                    shop_slug_id: Faker.fake(),
+                    product_slug_id: Faker.fake(),
+                    shop_name: "Test Shop".into(),
+                    title: HashMap::from([(Language::En, "Test Title".into())]),
+                    watchlist_payload: NotificationWatchlistPayload::StateChange {
+                        old_state: ProductState::Listed,
+                        new_state: ProductState::Sold,
+                    },
+                },
+            }
+        }
+
+        #[tokio::test]
+        async fn should_return_empty_when_no_commands() {
+            // No mock expectations set — any call to the repository would cause a panic.
+            let repository = MockNotificationDynamoDbRepository::default();
+            let service = NotificationServiceImpl::new(&repository);
+
+            let CreateNotificationsResult {
+                processed,
+                unprocessed,
+            } = service.create_notifications(&Faker.fake(), vec![]).await;
+
+            assert!(processed.is_empty());
+            assert!(unprocessed.is_empty());
+        }
+
+        #[tokio::test]
+        async fn should_create_notifications_when_all_succeed() {
+            let cmds: Vec<CreateNotificationCommand> =
+                (0..3).map(|_| make_test_command()).collect();
+
+            let mut repository = MockNotificationDynamoDbRepository::default();
+            repository
+                .expect_put_notification_records()
+                .return_once(|_| Box::pin(async { Ok(BatchWriteItemOutput::builder().build()) }));
+
+            let service = NotificationServiceImpl::new(&repository);
+            let CreateNotificationsResult {
+                processed,
+                unprocessed,
+            } = service.create_notifications(&Faker.fake(), cmds).await;
+
+            assert_eq!(processed.len(), 3);
+            assert!(unprocessed.is_empty());
+        }
+
+        #[tokio::test]
+        async fn should_mark_unprocessed_when_batch_write_returns_unprocessed_items() {
+            use crate::dynamodb::notification_record::NotificationRecord;
+            use common::batch::Batch;
+
+            let cmd_to_fail = make_test_command();
+            let failing_user_id = cmd_to_fail.user_id;
+            let cmd_to_succeed = make_test_command();
+
+            let cmds = vec![cmd_to_fail, cmd_to_succeed];
+
+            // Capture the batch the service sends so we can pull out the exact serialised item
+            // for the failing user and return it as an unprocessed entry.  This ensures the
+            // DynamoDB attribute map we hand back is byte-for-byte what serde_dynamo produced.
+            let mut repository = MockNotificationDynamoDbRepository::default();
+            repository.expect_put_notification_records().return_once(
+                move |batch: Batch<NotificationRecord, 25>| {
+                    // Find the record belonging to the user we want to fail.
+                    let failing_item = batch
+                        .iter()
+                        .find(|r| r.user_id == failing_user_id)
+                        .and_then(|r| serde_dynamo::to_item(r).ok())
+                        .expect("failing record must be in the batch");
+
+                    let unprocessed_write_req = WriteRequest::builder()
+                        .put_request(
+                            PutRequest::builder()
+                                .set_item(Some(failing_item))
+                                .build()
+                                .unwrap(),
+                        )
+                        .build();
+                    let output = BatchWriteItemOutput::builder()
+                        .unprocessed_items("irrelevant_table", vec![unprocessed_write_req])
+                        .build();
+
+                    Box::pin(async move { Ok(output) })
+                },
+            );
+
+            let service = NotificationServiceImpl::new(&repository);
+            let CreateNotificationsResult {
+                processed,
+                unprocessed,
+            } = service.create_notifications(&Faker.fake(), cmds).await;
+
+            assert_eq!(processed.len(), 1);
+            assert_eq!(unprocessed.len(), 1);
+            assert_eq!(unprocessed[0].0.user_id, failing_user_id);
+        }
+
+        #[tokio::test]
+        async fn should_propagate_sdk_error_batch_write() {
+            let cmds: Vec<CreateNotificationCommand> =
+                (0..3).map(|_| make_test_command()).collect();
+
+            let mut repository = MockNotificationDynamoDbRepository::default();
+            repository
+                .expect_put_notification_records()
+                .return_once(|_| {
+                    Box::pin(async {
+                        Err(aws_sdk_dynamodb::error::SdkError::construction_failure(
+                            "Simulated BatchWriteItem failure",
+                        ))
+                    })
+                });
+
+            let service = NotificationServiceImpl::new(&repository);
+            let CreateNotificationsResult {
+                processed,
+                unprocessed,
+            } = service.create_notifications(&Faker.fake(), cmds).await;
+
+            assert!(processed.is_empty());
+            assert_eq!(unprocessed.len(), 3);
+        }
+    }
+
     mod find_notification {
         use crate::{
             dynamodb::repository::MockNotificationDynamoDbRepository,

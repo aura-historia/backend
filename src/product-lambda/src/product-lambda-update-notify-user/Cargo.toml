@@ -22,9 +22,12 @@ thiserror = { workspace = true }
 async-trait = { workspace = true }
 
 [dev-dependencies]
+product = { workspace = true, features = ["test-data"] }
 product-watchlist = { workspace = true, features = ["test-data"] }
 notification = { workspace = true, features = ["test-data"] }
 rstest = { workspace = true }
+serde = { workspace = true }
 serde_dynamo = { workspace = true }
 fake = { workspace = true }
+time = { workspace = true }
 uuid = { workspace = true }
