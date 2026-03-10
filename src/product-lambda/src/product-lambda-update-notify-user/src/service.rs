@@ -71,6 +71,7 @@ impl<'a> ProductEventMailPayloadService for ProductEventMailPayloadServiceImpl<'
             .find_product(event.payload.shop_id(), event.payload.shops_product_id())
             .await?;
 
+        #[allow(unreachable_code)]
         let mail_payloads = users
             .into_iter()
             .map(|_user| self.customize_mail(todo!(), &_product, &event))
