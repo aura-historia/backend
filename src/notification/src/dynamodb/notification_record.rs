@@ -27,7 +27,6 @@ use serde_fields::SerdeField;
 use std::collections::HashMap;
 use time::OffsetDateTime;
 
-// #[cfg_attr(feature = "test-data", derive(fake::Dummy))]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, SerdeField)]
 pub struct NotificationRecord {
     pub pk: String,

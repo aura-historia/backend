@@ -46,6 +46,7 @@ impl Notification {
     }
 }
 
+#[cfg_attr(feature = "test-data", derive(fake::Dummy))]
 #[derive(Debug, Clone, PartialEq)]
 pub enum NotificationPayload {
     Watchlist {
@@ -93,6 +94,7 @@ impl NotificationPayload {
     }
 }
 
+#[cfg_attr(feature = "test-data", derive(fake::Dummy))]
 #[derive(Debug, Clone, PartialEq)]
 pub enum NotificationWatchlistPayload {
     PriceChange {
@@ -126,6 +128,7 @@ impl NotificationWatchlistPayload {
     }
 }
 
+#[cfg_attr(feature = "test-data", derive(fake::Dummy))]
 #[derive(Debug, Clone, PartialEq)]
 pub struct LocalizedNotification {
     pub user_id: UserId,
@@ -136,6 +139,7 @@ pub struct LocalizedNotification {
     pub updated: OffsetDateTime,
 }
 
+#[cfg_attr(feature = "test-data", derive(fake::Dummy))]
 #[derive(Debug, Clone, PartialEq)]
 pub enum LocalizedNotificationPayload {
     Watchlist {
@@ -150,6 +154,7 @@ pub enum LocalizedNotificationPayload {
     },
 }
 
+#[cfg_attr(feature = "test-data", derive(fake::Dummy))]
 #[derive(Debug, Clone, PartialEq)]
 pub enum LocalizedNotificationWatchlistPayload {
     PriceChange {

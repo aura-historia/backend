@@ -44,6 +44,12 @@ pub enum NotificationError {
     ),
 }
 
+#[derive(Debug)]
+pub struct CreateNotificationsResult {
+    pub unprocessed: Vec<(CreateNotificationCommand, NotificationError)>,
+    pub processed: Vec<Notification>,
+}
+
 #[async_trait::async_trait]
 #[mockall::automock]
 pub trait NotificationService {
@@ -57,6 +63,11 @@ pub trait NotificationService {
         &self,
         cmd: CreateNotificationCommand,
     ) -> Result<Notification, NotificationError>;
+
+    async fn create_notifications(
+        &self,
+        cmds: Vec<CreateNotificationCommand>,
+    ) -> CreateNotificationsResult;
 
     async fn update_notification(
         &self,
@@ -124,6 +135,13 @@ impl<'a> NotificationService for NotificationServiceImpl<'a> {
             .await?;
 
         Ok(notification)
+    }
+
+    async fn create_notifications(
+        &self,
+        cmds: Vec<CreateNotificationCommand>,
+    ) -> CreateNotificationsResult {
+        todo!()
     }
 
     async fn update_notification(

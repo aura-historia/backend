@@ -1,21 +1,22 @@
-use common::{currency::domain::Currency, language::domain::Language, price::domain::Price};
-use mail_core::{
-    mail_id::MailId,
-    payload::MailPayload,
-    template::{MailTemplate, MailTemplateType},
-};
+use common::currency::domain::Currency;
+use common::price::domain::MonetaryAmount;
+use common::product_state::domain::ProductState;
+use notification::core::notification::{NotificationPayload, NotificationWatchlistPayload};
+use notification::service::command::CreateNotificationCommand;
+use product::core::product::Product;
 use product::core::product_event::ProductDomainEvent;
-use product::core::{product::Product, product_event::domain::ProductCommonEventPayload};
+use product::core::product_event::domain::{
+    ProductCommonEventPayload, ProductCreatedDomainEventPayload, ProductDomainEventPayload,
+    ProductStateChangeDomainEventPayload,
+};
 use product::service::get_service::{GetProductError, GetProductService};
 use product_watchlist::service::product_watchlist_service::{
     ProductWatchListService, WatchProductError,
 };
-use serde_email::Email;
-use serde_json::json;
-use user::core::user::User;
+use std::collections::HashMap;
 
 #[derive(Debug, thiserror::Error)]
-pub enum ProductEventMailPayloadServiceError {
+pub enum ProductEventWatchlistNotificationsServiceError {
     #[error("WatchProductError: {0}")]
     WatchProductError(#[from] WatchProductError),
 
@@ -25,161 +26,183 @@ pub enum ProductEventMailPayloadServiceError {
 
 #[async_trait::async_trait]
 #[mockall::automock]
-pub trait ProductEventMailPayloadService {
-    async fn create_mail_payloads(
+pub trait ProductEventWatchlistNotificationsService {
+    async fn determine_notification_commands(
         &self,
         event: ProductDomainEvent,
-    ) -> Result<Vec<MailPayload>, ProductEventMailPayloadServiceError>;
+    ) -> Result<Vec<CreateNotificationCommand>, ProductEventWatchlistNotificationsServiceError>;
 }
 
-pub struct ProductEventMailPayloadServiceImpl<'a> {
+pub struct ProductEventWatchlistNotificationsServiceImpl<'a> {
     watchlist_service: &'a (dyn ProductWatchListService + Sync),
     get_product_service: &'a (dyn GetProductService + Sync),
-    sender_email: Email,
 }
 
-impl<'a> ProductEventMailPayloadServiceImpl<'a> {
+impl<'a> ProductEventWatchlistNotificationsServiceImpl<'a> {
     pub fn new(
         watchlist_service: &'a (dyn ProductWatchListService + Sync),
         get_product_service: &'a (dyn GetProductService + Sync),
-        sender_email: Email,
     ) -> Self {
-        ProductEventMailPayloadServiceImpl {
+        ProductEventWatchlistNotificationsServiceImpl {
             watchlist_service,
             get_product_service,
-            sender_email,
         }
     }
 }
 
 #[async_trait::async_trait]
-impl<'a> ProductEventMailPayloadService for ProductEventMailPayloadServiceImpl<'a> {
-    async fn create_mail_payloads(
+impl<'a> ProductEventWatchlistNotificationsService
+    for ProductEventWatchlistNotificationsServiceImpl<'a>
+{
+    async fn determine_notification_commands(
         &self,
         event: ProductDomainEvent,
-    ) -> Result<Vec<MailPayload>, ProductEventMailPayloadServiceError> {
-        let users = self
+    ) -> Result<Vec<CreateNotificationCommand>, ProductEventWatchlistNotificationsServiceError>
+    {
+        let user_ids = self
             .watchlist_service
             .find_user_ids_with_notifications(&event.aggregate_id)
             .await?;
-        if users.is_empty() {
+        if user_ids.is_empty() {
             return Ok(vec![]);
         }
 
-        let _product = self
+        let product = self
             .get_product_service
             .find_product(event.payload.shop_id(), event.payload.shops_product_id())
             .await?;
 
-        #[allow(unreachable_code)]
-        let mail_payloads = users
+        let notifications = user_ids
             .into_iter()
-            .map(|_user| self.customize_mail(todo!(), &_product, &event))
+            .map(|user_id| CreateNotificationCommand {
+                user_id,
+                notification_payload: mk_notification_payload(&product, &event.payload),
+            })
             .collect();
-        Ok(mail_payloads)
+        Ok(notifications)
     }
 }
 
-impl<'a> ProductEventMailPayloadServiceImpl<'a> {
-    fn customize_mail(
-        &self,
-        user: User,
-        product: &Product,
-        event: &ProductDomainEvent,
-    ) -> MailPayload {
-        let title = product
-            .other_title
-            .get(&user.language.unwrap_or_default())
-            .unwrap_or(&product.native_title.payload);
-
-        let subject = match user.language.unwrap_or_default() {
-            Language::De => format!("Antiquitäten-Update für: {title}"),
-            Language::En => format!("Antiques update on: {title}"),
-            Language::Fr => format!("Mise à jour des antiquités : {title}"),
-            Language::Es => format!("Actualización de antigüedades: {title}"),
-            Language::It => format!("Aggiornamento antiquariato: {title}"),
-        };
-
-        let template_type = if event.payload.is_price_event() {
-            MailTemplateType::WatchlistUpdatePrice
-        } else {
-            MailTemplateType::WatchlistUpdateState
-        };
-        let template = MailTemplate {
-            template_type,
-            language: user.language.unwrap_or_default().into(),
-        };
-
-        let mut data = json!({
-            "productAuraHistoriaUrl": format!("https://aura-historia.com/product/{}/{}", product.shop_id, product.shops_product_id),
-            "productShopUrl": product.url,
-            "productTitle": title.to_string(),
-            "productShopName": product.shop_name,
-        });
-        let data_ref = data.as_object_mut().expect(
-            "shouldn't fail because it's initialized above as an object and not modified since",
-        );
-
-        if let Some(user_first_name) = user.first_name {
-            data_ref.insert("userFirstName".to_owned(), json!(user_first_name));
+fn mk_notification_payload(
+    product: &Product,
+    event_payload: &ProductDomainEventPayload,
+) -> NotificationPayload {
+    match event_payload {
+        ProductDomainEventPayload::Created(payload) => {
+            mk_created_watchlist_notification_payload(product, payload)
         }
-        if let Some(user_last_name) = user.last_name {
-            data_ref.insert("userLastName".to_owned(), json!(user_last_name));
+        ProductDomainEventPayload::StateListed(payload) => {
+            mk_state_change_watchlist_notification_payload(product, payload, &ProductState::Listed)
         }
+        ProductDomainEventPayload::StateAvailable(payload) => {
+            mk_state_change_watchlist_notification_payload(
+                product,
+                payload,
+                &ProductState::Available,
+            )
+        }
+        ProductDomainEventPayload::StateReserved(payload) => {
+            mk_state_change_watchlist_notification_payload(
+                product,
+                payload,
+                &ProductState::Reserved,
+            )
+        }
+        ProductDomainEventPayload::StateSold(payload) => {
+            mk_state_change_watchlist_notification_payload(product, payload, &ProductState::Sold)
+        }
+        ProductDomainEventPayload::StateRemoved(payload) => {
+            mk_state_change_watchlist_notification_payload(product, payload, &ProductState::Removed)
+        }
+        ProductDomainEventPayload::StateUnknown(payload) => {
+            mk_state_change_watchlist_notification_payload(product, payload, &ProductState::Unknown)
+        }
+        ProductDomainEventPayload::PriceDiscovered(payload) => {
+            mk_price_change_watchlist_notification_payload(
+                product,
+                Default::default(),
+                payload.prices(),
+            )
+        }
+        ProductDomainEventPayload::PriceDropped(payload) => {
+            mk_price_change_watchlist_notification_payload(
+                product,
+                payload.old_prices(),
+                payload.new_prices(),
+            )
+        }
+        ProductDomainEventPayload::PriceIncreased(payload) => {
+            mk_price_change_watchlist_notification_payload(
+                product,
+                payload.old_prices(),
+                payload.new_prices(),
+            )
+        }
+        ProductDomainEventPayload::PriceRemoved(payload) => {
+            mk_price_change_watchlist_notification_payload(
+                product,
+                payload.old_prices(),
+                Default::default(),
+            )
+        }
+    }
+}
 
-        if let Some(price_payload) = event.payload.as_price_changed() {
-            let (old_currency, old_amount) = price_payload
-                .old_other_price
-                .get_key_value(user.currency.as_ref().unwrap_or(&Currency::default()))
-                .unwrap_or((
-                    &price_payload.old_native_price.currency,
-                    &price_payload.old_native_price.monetary_amount,
-                ));
-            let old_price = Price::new(*old_amount, *old_currency);
-            data_ref.insert(
-                "productOldPrice".to_owned(),
-                json!(old_price.format_human_readable()),
-            );
+fn mk_created_watchlist_notification_payload(
+    product: &Product,
+    payload: &ProductCreatedDomainEventPayload,
+) -> NotificationPayload {
+    NotificationPayload::Watchlist {
+        product_id: product.product_id,
+        shop_id: product.shop_id,
+        shops_product_id: product.shops_product_id.clone(),
+        shop_slug_id: product.shop_slug_id.clone(),
+        product_slug_id: product.product_slug_id.clone(),
+        shop_name: product.shop_name.clone(),
+        title: product.titles(),
+        watchlist_payload: NotificationWatchlistPayload::StateChange {
+            old_state: ProductState::Unknown,
+            new_state: payload.state,
+        },
+    }
+}
 
-            let (new_currency, new_amount) = price_payload
-                .new_other_price
-                .get_key_value(user.currency.as_ref().unwrap_or(&Currency::default()))
-                .unwrap_or((
-                    &price_payload.new_native_price.currency,
-                    &price_payload.new_native_price.monetary_amount,
-                ));
-            let new_price = Price::new(*new_amount, *new_currency);
-            data_ref.insert(
-                "productNewPrice".to_owned(),
-                json!(new_price.format_human_readable()),
-            );
-        }
+fn mk_state_change_watchlist_notification_payload(
+    product: &Product,
+    payload: &ProductStateChangeDomainEventPayload,
+    new_state: &ProductState,
+) -> NotificationPayload {
+    NotificationPayload::Watchlist {
+        product_id: product.product_id,
+        shop_id: product.shop_id,
+        shops_product_id: product.shops_product_id.clone(),
+        shop_slug_id: product.shop_slug_id.clone(),
+        product_slug_id: product.product_slug_id.clone(),
+        shop_name: product.shop_name.clone(),
+        title: product.titles(),
+        watchlist_payload: NotificationWatchlistPayload::StateChange {
+            old_state: payload.old_state,
+            new_state: *new_state,
+        },
+    }
+}
 
-        if let Some(state_payload) = event.payload.as_state_changed() {
-            data_ref.insert(
-                "productOldState".to_owned(),
-                json!(
-                    state_payload
-                        .old_state
-                        .format_human_readable(&user.language.unwrap_or_default())
-                ),
-            );
-        }
-        if let Some(new_state) = event.payload.as_new_state() {
-            data_ref.insert(
-                "productNewState".to_owned(),
-                json!(new_state.format_human_readable(&user.language.unwrap_or_default())),
-            );
-        }
-
-        MailPayload {
-            user_id: user.user_id,
-            mail_id: MailId::new(),
-            sender: self.sender_email.clone(),
-            recipient: user.email,
-            subject,
-            template,
-            data,
-        }
+fn mk_price_change_watchlist_notification_payload(
+    product: &Product,
+    old_price: HashMap<Currency, MonetaryAmount>,
+    new_price: HashMap<Currency, MonetaryAmount>,
+) -> NotificationPayload {
+    NotificationPayload::Watchlist {
+        product_id: product.product_id,
+        shop_id: product.shop_id,
+        shops_product_id: product.shops_product_id.clone(),
+        shop_slug_id: product.shop_slug_id.clone(),
+        product_slug_id: product.product_slug_id.clone(),
+        shop_name: product.shop_name.clone(),
+        title: product.titles(),
+        watchlist_payload: NotificationWatchlistPayload::PriceChange {
+            old_price,
+            new_price,
+        },
     }
 }

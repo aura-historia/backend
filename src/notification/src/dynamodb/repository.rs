@@ -7,6 +7,7 @@ use aws_sdk_dynamodb::{
     Client,
     error::SdkError,
     operation::{
+        batch_write_item::{BatchWriteItemError, BatchWriteItemOutput},
         get_item::GetItemError,
         put_item::{PutItemError, PutItemOutput},
         query::QueryError,
@@ -14,7 +15,9 @@ use aws_sdk_dynamodb::{
     },
     types::{AttributeValue, ReturnValue},
 };
-use common::{dynamodb_update::DynamoDbUpdate, pagination::cursor::Cursor, user_id::UserId};
+use common::{
+    batch::Batch, dynamodb_update::DynamoDbUpdate, pagination::cursor::Cursor, user_id::UserId,
+};
 use tracing::error;
 
 #[async_trait::async_trait]
@@ -38,6 +41,11 @@ pub trait NotificationDynamoDbRepository {
         &self,
         record: NotificationRecord,
     ) -> Result<PutItemOutput, SdkError<PutItemError>>;
+
+    async fn put_notification_records(
+        &self,
+        records: Batch<NotificationRecord, 25>,
+    ) -> Result<BatchWriteItemOutput, SdkError<BatchWriteItemError>>;
 
     async fn get_notification_record(
         &self,
@@ -197,6 +205,13 @@ impl<'a> NotificationDynamoDbRepository for NotificationDynamoDbRepositoryImpl<'
             ))
             .send()
             .await
+    }
+
+    async fn put_notification_records(
+        &self,
+        records: Batch<NotificationRecord, 25>,
+    ) -> Result<BatchWriteItemOutput, SdkError<BatchWriteItemError>> {
+        todo!()
     }
 
     async fn get_notification_record(

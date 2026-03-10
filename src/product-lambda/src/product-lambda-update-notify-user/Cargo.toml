@@ -5,13 +5,12 @@ edition = "2024"
 
 [dependencies]
 common = { workspace = true, features = ["dynamodb", "event_bridge"] }
-mail-core = { workspace = true, features = ["queue"] }
 product = { workspace = true, features = ["dynamodb", "service"] }
 product-watchlist = { workspace = true, features = ["dynamodb", "service"] }
+notification = { workspace = true, features = ["dynamodb", "service"] }
 user = { workspace = true, features = ["dynamodb"] }
 lambda_runtime = { workspace = true }
 aws-config = { workspace = true }
-aws-sdk-sqs = { workspace = true }
 aws-sdk-dynamodb = { workspace = true }
 aws_lambda_events = { workspace = true, features = ["sqs"] }
 serde_json = { workspace = true }
@@ -21,12 +20,11 @@ tracing = { workspace = true }
 mockall = { workspace = true }
 thiserror = { workspace = true }
 async-trait = { workspace = true }
-serde-email = { workspace = true }
 
 [dev-dependencies]
 product-watchlist = { workspace = true, features = ["test-data"] }
+notification = { workspace = true, features = ["test-data"] }
 rstest = { workspace = true }
 serde_dynamo = { workspace = true }
-mail-core = { workspace = true, features = ["test-data"] }
 fake = { workspace = true }
 uuid = { workspace = true }
