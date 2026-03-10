@@ -33,13 +33,15 @@ pub async fn handler(
         ) {
             match ProductDomainEvent::try_from(product_event_record) {
                 Ok(product_event) => {
+                    let event_id = product_event.event_id;
                     let notification_cmds_res = product_event_notification_service
                         .determine_notification_commands(product_event)
                         .await;
                     match notification_cmds_res {
                         Ok(cmds) => {
-                            let create_notifications_res =
-                                notification_service.create_notifications(cmds).await;
+                            let create_notifications_res = notification_service
+                                .create_notifications(&event_id, cmds)
+                                .await;
                         }
                         Err(err) => {
                             error!(messageId = message_id, error = %err, "Failed creating MailPayloads.");

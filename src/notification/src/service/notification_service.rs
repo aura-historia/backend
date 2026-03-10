@@ -13,6 +13,7 @@ use crate::{
 use aws_sdk_dynamodb::{config::http::HttpResponse, error::SdkError};
 use common::{
     currency::domain::Currency,
+    event_id::EventId,
     language::domain::Language,
     pagination::cursor::{Cursor, CursoredResult},
     user_id::UserId,
@@ -22,8 +23,8 @@ use time::OffsetDateTime;
 #[derive(thiserror::Error, Debug)]
 #[allow(clippy::large_enum_variant)]
 pub enum NotificationError {
-    #[error("There exists no Notification for user '{0}' with notification-id '{1}'.")]
-    NotificationNotFound(UserId, NotificationId),
+    #[error("There exists no Notification for user '{0}' with origin-event-id '{1}'.")]
+    NotificationNotFound(UserId, EventId),
 
     #[error("Encountered DynamoDB SdkError for GetItem: {0}")]
     SdkGetItemError(
@@ -56,23 +57,25 @@ pub trait NotificationService {
     async fn find_notification(
         &self,
         user_id: &UserId,
-        notification_id: &NotificationId,
+        origin_event_id: &EventId,
     ) -> Result<Notification, NotificationError>;
 
     async fn create_notification(
         &self,
+        origin_event_id: &EventId,
         cmd: CreateNotificationCommand,
     ) -> Result<Notification, NotificationError>;
 
     async fn create_notifications(
         &self,
+        origin_event_id: &EventId,
         cmds: Vec<CreateNotificationCommand>,
     ) -> CreateNotificationsResult;
 
     async fn update_notification(
         &self,
         user_id: &UserId,
-        notification_id: &NotificationId,
+        origin_event_id: &EventId,
         update: UpdateNotificationCommand,
     ) -> Result<Notification, NotificationError>;
 
@@ -81,8 +84,8 @@ pub trait NotificationService {
         user_id: &UserId,
         languages: &[Language],
         currency: &Currency,
-        cursor: &Option<Cursor<NotificationId>>,
-    ) -> Result<CursoredResult<LocalizedNotification, NotificationId>, NotificationError>;
+        cursor: &Option<Cursor<EventId>>,
+    ) -> Result<CursoredResult<LocalizedNotification, EventId>, NotificationError>;
 }
 
 pub struct NotificationServiceImpl<'a> {
@@ -102,15 +105,15 @@ impl<'a> NotificationService for NotificationServiceImpl<'a> {
     async fn find_notification(
         &self,
         user_id: &UserId,
-        notification_id: &NotificationId,
+        origin_event_id: &EventId,
     ) -> Result<Notification, NotificationError> {
         let record = self
             .notification_repository
-            .get_notification_record(user_id, notification_id)
+            .get_notification_record(user_id, origin_event_id)
             .await?
             .ok_or(NotificationError::NotificationNotFound(
                 *user_id,
-                *notification_id,
+                *origin_event_id,
             ))?;
 
         Ok(record.into())
@@ -118,11 +121,13 @@ impl<'a> NotificationService for NotificationServiceImpl<'a> {
 
     async fn create_notification(
         &self,
+        origin_event_id: &EventId,
         cmd: CreateNotificationCommand,
     ) -> Result<Notification, NotificationError> {
         let now = OffsetDateTime::now_utc();
         let notification = Notification {
             user_id: cmd.user_id,
+            origin_event_id: *origin_event_id,
             notification_id: NotificationId::new(),
             notification_payload: cmd.notification_payload,
             seen: false,
@@ -139,6 +144,7 @@ impl<'a> NotificationService for NotificationServiceImpl<'a> {
 
     async fn create_notifications(
         &self,
+        origin_event_id: &EventId,
         cmds: Vec<CreateNotificationCommand>,
     ) -> CreateNotificationsResult {
         todo!()
@@ -147,16 +153,16 @@ impl<'a> NotificationService for NotificationServiceImpl<'a> {
     async fn update_notification(
         &self,
         user_id: &UserId,
-        notification_id: &NotificationId,
+        origin_event_id: &EventId,
         update: UpdateNotificationCommand,
     ) -> Result<Notification, NotificationError> {
         let existing_record = self
             .notification_repository
-            .get_notification_record(user_id, notification_id)
+            .get_notification_record(user_id, origin_event_id)
             .await?
             .ok_or(NotificationError::NotificationNotFound(
                 *user_id,
-                *notification_id,
+                *origin_event_id,
             ))?;
 
         if update.is_empty() {
@@ -169,7 +175,7 @@ impl<'a> NotificationService for NotificationServiceImpl<'a> {
 
             let updated_record = self
                 .notification_repository
-                .update_notification_record(user_id, notification_id, record_update)
+                .update_notification_record(user_id, origin_event_id, record_update)
                 .await?
                 .ok_or_else(|| {
                     NotificationError::SdkUpdateItemError(SdkError::construction_failure(
@@ -186,8 +192,8 @@ impl<'a> NotificationService for NotificationServiceImpl<'a> {
         user_id: &UserId,
         languages: &[Language],
         currency: &Currency,
-        cursor: &Option<Cursor<NotificationId>>,
-    ) -> Result<CursoredResult<LocalizedNotification, NotificationId>, NotificationError> {
+        cursor: &Option<Cursor<EventId>>,
+    ) -> Result<CursoredResult<LocalizedNotification, EventId>, NotificationError> {
         let cursor = (*cursor).unwrap_or_default();
         let scan_index_forward = false; // newest first
 
@@ -214,7 +220,7 @@ impl<'a> NotificationService for NotificationServiceImpl<'a> {
         Ok(CursoredResult {
             cursor: Cursor {
                 size: notifications.len() as u64,
-                search_after: last.map(|l| l.notification_id),
+                search_after: last.map(|l| l.origin_event_id),
             },
             items: notifications,
             total: Some(total),
@@ -226,7 +232,6 @@ impl<'a> NotificationService for NotificationServiceImpl<'a> {
 mod tests {
     mod find_notification {
         use crate::{
-            core::notification_id::NotificationId,
             dynamodb::repository::MockNotificationDynamoDbRepository,
             service::notification_service::{
                 NotificationError, NotificationService, NotificationServiceImpl,
@@ -236,7 +241,7 @@ mod tests {
             config::http::HttpResponse,
             error::{ConnectorError, SdkError},
         };
-        use common::user_id::UserId;
+        use common::{event_id::EventId, user_id::UserId};
         use fake::{Fake, Faker};
 
         #[tokio::test]
@@ -248,16 +253,16 @@ mod tests {
 
             let service = NotificationServiceImpl::new(&repository);
             let user_id = UserId::new();
-            let notification_id = NotificationId::new();
+            let origin_event_id = EventId::new();
             let actual = service
-                .find_notification(&user_id, &notification_id)
+                .find_notification(&user_id, &origin_event_id)
                 .await
                 .unwrap_err();
 
             match actual {
-                NotificationError::NotificationNotFound(err_user_id, err_notification_id) => {
+                NotificationError::NotificationNotFound(err_user_id, err_origin_event_id) => {
                     assert_eq!(user_id, err_user_id);
-                    assert_eq!(notification_id, err_notification_id);
+                    assert_eq!(origin_event_id, err_origin_event_id);
                 }
                 err => {
                     panic!("Expected 'NotificationError::NotificationNotFound' but got '{err}'")
@@ -353,7 +358,7 @@ mod tests {
 
             let service = NotificationServiceImpl::new(&repository);
             let result = service
-                .create_notification(make_test_command())
+                .create_notification(&Faker.fake(), make_test_command())
                 .await
                 .unwrap();
 
@@ -386,7 +391,9 @@ mod tests {
                 .return_once(|_| Box::pin(async { Err(expected) }));
 
             let service = NotificationServiceImpl::new(&repository);
-            let actual = service.create_notification(make_test_command()).await;
+            let actual = service
+                .create_notification(&Faker.fake(), make_test_command())
+                .await;
 
             assert!(actual.is_err());
             match actual.unwrap_err() {
@@ -398,7 +405,6 @@ mod tests {
 
     mod update_notification {
         use crate::{
-            core::notification_id::NotificationId,
             dynamodb::{
                 notification_record::NotificationRecord,
                 repository::MockNotificationDynamoDbRepository,
@@ -414,7 +420,7 @@ mod tests {
             config::http::HttpResponse,
             error::{ConnectorError, SdkError},
         };
-        use common::user_id::UserId;
+        use common::{event_id::EventId, user_id::UserId};
         use fake::{Fake, Faker};
 
         #[tokio::test]
@@ -461,20 +467,20 @@ mod tests {
 
             let service = NotificationServiceImpl::new(&repository);
             let user_id = UserId::new();
-            let notification_id = NotificationId::new();
+            let origin_event_id = EventId::new();
             let actual = service
                 .update_notification(
                     &user_id,
-                    &notification_id,
+                    &origin_event_id,
                     UpdateNotificationCommand { seen: Some(true) },
                 )
                 .await
                 .unwrap_err();
 
             match actual {
-                NotificationError::NotificationNotFound(err_user_id, err_notification_id) => {
+                NotificationError::NotificationNotFound(err_user_id, err_origin_event_id) => {
                     assert_eq!(user_id, err_user_id);
-                    assert_eq!(notification_id, err_notification_id);
+                    assert_eq!(origin_event_id, err_origin_event_id);
                 }
                 err => {
                     panic!("Expected 'NotificationError::NotificationNotFound' but got '{err}'")

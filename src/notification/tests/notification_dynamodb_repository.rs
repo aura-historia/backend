@@ -1,12 +1,9 @@
-use common::{pagination::cursor::Cursor, user_id::UserId};
+use common::{event_id::EventId, pagination::cursor::Cursor, user_id::UserId};
 use fake::{Fake, Faker};
-use notification::{
-    core::notification_id::NotificationId,
-    dynamodb::{
-        notification_record::{NotificationRecord, mk_pk},
-        notification_record_update::NotificationRecordUpdate,
-        repository::{NotificationDynamoDbRepository, NotificationDynamoDbRepositoryImpl},
-    },
+use notification::dynamodb::{
+    notification_record::{NotificationRecord, mk_pk},
+    notification_record_update::NotificationRecordUpdate,
+    repository::{NotificationDynamoDbRepository, NotificationDynamoDbRepositoryImpl},
 };
 use test_api::*;
 use time::OffsetDateTime;
@@ -26,7 +23,7 @@ fn should_put_notification_record() {
         .unwrap();
 
     let actual = repository
-        .get_notification_record(&expected.user_id, &expected.notification_id)
+        .get_notification_record(&expected.user_id, &expected.origin_event_id)
         .await
         .unwrap()
         .unwrap();
@@ -39,7 +36,7 @@ fn should_return_none_when_notification_record_not_exists() {
     let repository = get_repository().await;
 
     let actual = repository
-        .get_notification_record(&Faker.fake(), &NotificationId::new())
+        .get_notification_record(&Faker.fake(), &EventId::new())
         .await
         .unwrap();
 
@@ -152,15 +149,15 @@ fn should_query_notification_records_with_cursor_for_scan_index_forward_true() {
     // Sort records by sk ordering used by the repository
     records.sort_by(|a, b| a.sk.cmp(&b.sk));
 
-    // Use 5th record's notification_id as cursor
-    let cursor_notification_id = records[4].notification_id;
+    // Use 5th record's origin_event_id as cursor
+    let cursor_origin_event_id = records[4].origin_event_id;
 
     let actual = repository
         .query_notification_records(
             &user_id,
             &Cursor {
                 size: 100,
-                search_after: Some(cursor_notification_id),
+                search_after: Some(cursor_origin_event_id),
             },
             true,
         )
@@ -190,15 +187,15 @@ fn should_query_notification_records_with_cursor_for_scan_index_forward_false() 
     // Sort records by sk ordering used by the repository
     records.sort_by(|a, b| a.sk.cmp(&b.sk));
 
-    // Use 6th record's notification_id as cursor (0-indexed: index 5)
-    let cursor_notification_id = records[5].notification_id;
+    // Use 6th record's origin_event_id as cursor (0-indexed: index 5)
+    let cursor_origin_event_id = records[5].origin_event_id;
 
     let actual = repository
         .query_notification_records(
             &user_id,
             &Cursor {
                 size: 100,
-                search_after: Some(cursor_notification_id),
+                search_after: Some(cursor_origin_event_id),
             },
             false,
         )
@@ -255,7 +252,7 @@ fn should_set_seen_true_for_update() {
     let _ = repository
         .update_notification_record(
             &initial.user_id,
-            &initial.notification_id,
+            &initial.origin_event_id,
             NotificationRecordUpdate {
                 seen: Some(true),
                 updated,
@@ -265,7 +262,7 @@ fn should_set_seen_true_for_update() {
         .unwrap();
 
     let actual = repository
-        .get_notification_record(&initial.user_id, &initial.notification_id)
+        .get_notification_record(&initial.user_id, &initial.origin_event_id)
         .await
         .unwrap()
         .unwrap();
@@ -288,7 +285,7 @@ fn should_set_seen_false_for_update() {
     let _ = repository
         .update_notification_record(
             &initial.user_id,
-            &initial.notification_id,
+            &initial.origin_event_id,
             NotificationRecordUpdate {
                 seen: Some(false),
                 updated,
@@ -298,7 +295,7 @@ fn should_set_seen_false_for_update() {
         .unwrap();
 
     let actual = repository
-        .get_notification_record(&initial.user_id, &initial.notification_id)
+        .get_notification_record(&initial.user_id, &initial.origin_event_id)
         .await
         .unwrap()
         .unwrap();

@@ -7,9 +7,12 @@ use crate::{
 };
 use common::{
     currency::domain::Currency,
+    event_id::EventId,
     language::domain::Language,
-    price::domain::{MonetaryAmount, Price},
-    price::record::PriceRecord,
+    price::{
+        domain::{MonetaryAmount, Price},
+        record::PriceRecord,
+    },
     product_id::ProductId,
     product_state::domain::ProductState,
     shop_id::ShopId,
@@ -33,6 +36,7 @@ pub struct NotificationRecord {
     pub sk: String,
     pub lsi1_sk: String,
     pub user_id: UserId,
+    pub origin_event_id: EventId,
     pub notification_id: NotificationId,
     pub notification_reason: NotificationReasonRecord,
     pub seen: bool,
@@ -109,8 +113,8 @@ pub fn mk_pk(user_id: &UserId) -> String {
     format!("user#{user_id}")
 }
 
-pub fn mk_sk(notification_id: &NotificationId) -> String {
-    format!("user#notification#{notification_id}")
+pub fn mk_sk(origin_event_id: &EventId) -> String {
+    format!("user#notification#origin_event_id#{origin_event_id}")
 }
 
 pub fn mk_lsi1_sk(
@@ -274,9 +278,10 @@ impl From<Notification> for NotificationRecord {
 
                 NotificationRecord {
                     pk: mk_pk(&notification.user_id),
-                    sk: mk_sk(&notification.notification_id),
+                    sk: mk_sk(&notification.origin_event_id),
                     lsi1_sk,
                     user_id: notification.user_id,
+                    origin_event_id: notification.origin_event_id,
                     notification_id: notification.notification_id,
                     notification_reason,
                     seen: notification.seen,
@@ -417,6 +422,7 @@ impl From<NotificationRecord> for Notification {
 
         Notification {
             user_id: record.user_id,
+            origin_event_id: record.origin_event_id,
             notification_id: record.notification_id,
             notification_payload: NotificationPayload::Watchlist {
                 product_id: record.product_id.unwrap_or_default(),
@@ -446,15 +452,17 @@ mod faker {
     impl Dummy<Faker> for NotificationRecord {
         fn dummy_with_rng<R: Rng + ?Sized>(config: &Faker, rng: &mut R) -> Self {
             let user_id: UserId = config.fake_with_rng(rng);
+            let origin_event_id: EventId = config.fake_with_rng(rng);
             let notification_id = NotificationId::new();
             let notification_reason: NotificationReasonRecord = config.fake_with_rng(rng);
             let created = OffsetDateTime::now_utc();
 
             NotificationRecord {
                 pk: mk_pk(&user_id),
-                sk: mk_sk(&notification_id),
+                sk: mk_sk(&origin_event_id),
                 lsi1_sk: mk_lsi1_sk(&notification_id, &notification_reason),
                 user_id,
+                origin_event_id,
                 notification_id,
                 notification_reason,
                 seen: config.fake_with_rng(rng),

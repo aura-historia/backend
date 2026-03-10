@@ -1,6 +1,7 @@
 use crate::core::notification_id::NotificationId;
 use common::{
     currency::domain::Currency,
+    event_id::EventId,
     language::domain::Language,
     localized::Localized,
     price::domain::{MonetaryAmount, Price},
@@ -20,6 +21,7 @@ use tracing::error;
 #[derive(Debug, Clone, PartialEq)]
 pub struct Notification {
     pub user_id: UserId,
+    pub origin_event_id: EventId,
     pub notification_id: NotificationId,
     pub notification_payload: NotificationPayload,
     pub seen: bool,
@@ -35,6 +37,7 @@ impl Notification {
     ) -> LocalizedNotification {
         LocalizedNotification {
             user_id: self.user_id,
+            origin_event_id: self.origin_event_id,
             notification_id: self.notification_id,
             notification_payload: self
                 .notification_payload
@@ -132,6 +135,7 @@ impl NotificationWatchlistPayload {
 #[derive(Debug, Clone, PartialEq)]
 pub struct LocalizedNotification {
     pub user_id: UserId,
+    pub origin_event_id: EventId,
     pub notification_id: NotificationId,
     pub notification_payload: LocalizedNotificationPayload,
     pub seen: bool,

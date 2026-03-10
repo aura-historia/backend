@@ -1,5 +1,4 @@
 use crate::{
-    core::notification_id::NotificationId,
     dynamodb::notification_record::{NotificationRecord, mk_pk, mk_sk},
     dynamodb::notification_record_update::NotificationRecordUpdate,
 };
@@ -16,7 +15,8 @@ use aws_sdk_dynamodb::{
     types::{AttributeValue, ReturnValue},
 };
 use common::{
-    batch::Batch, dynamodb_update::DynamoDbUpdate, pagination::cursor::Cursor, user_id::UserId,
+    batch::Batch, dynamodb_update::DynamoDbUpdate, event_id::EventId, pagination::cursor::Cursor,
+    user_id::UserId,
 };
 use tracing::error;
 
@@ -26,14 +26,14 @@ pub trait NotificationDynamoDbRepository {
     async fn query_notification_records(
         &self,
         user_id: &UserId,
-        cursor: &Cursor<NotificationId>,
+        cursor: &Cursor<EventId>,
         scan_index_forward: bool,
     ) -> Result<Vec<NotificationRecord>, SdkError<QueryError>>;
 
     async fn count_notification_records(
         &self,
         user_id: &UserId,
-        cursor: &Cursor<NotificationId>,
+        cursor: &Cursor<EventId>,
         scan_index_forward: bool,
     ) -> Result<u64, SdkError<QueryError>>;
 
@@ -50,13 +50,13 @@ pub trait NotificationDynamoDbRepository {
     async fn get_notification_record(
         &self,
         user_id: &UserId,
-        notification_id: &NotificationId,
+        origin_event_id: &EventId,
     ) -> Result<Option<NotificationRecord>, SdkError<GetItemError>>;
 
     async fn update_notification_record(
         &self,
         user_id: &UserId,
-        notification_id: &NotificationId,
+        origin_event_id: &EventId,
         update: NotificationRecordUpdate,
     ) -> Result<Option<NotificationRecord>, SdkError<UpdateItemError>>;
 }
@@ -76,33 +76,26 @@ impl<'a> NotificationDynamoDbRepositoryImpl<'a> {
     }
 }
 
-/// Builds the `lsi1_sk` cursor guard value for a given `NotificationId`.
-/// All notification reasons produce the same `"user#notification#watchlist#…"` prefix,
-/// so this is always the right shape for an exclusive-range comparison on `lsi1`.
-fn mk_sk_cursor_value(notification_id: &NotificationId) -> String {
-    format!("user#notification#{notification_id}")
-}
-
-const SK_LOWER_BOUND: &str = "user#notification#";
-const SK_UPPER_BOUND: &str = "user#notification#\u{ffff}";
+const SK_LOWER_BOUND: &str = "user#notification#origin_event_id#";
+const SK_UPPER_BOUND: &str = "user#notification#origin_event_id#\u{ffff}";
 
 #[async_trait::async_trait]
 impl<'a> NotificationDynamoDbRepository for NotificationDynamoDbRepositoryImpl<'a> {
     async fn query_notification_records(
         &self,
         user_id: &UserId,
-        cursor: &Cursor<NotificationId>,
+        cursor: &Cursor<EventId>,
         scan_index_forward: bool,
     ) -> Result<Vec<NotificationRecord>, SdkError<QueryError>> {
         let exclusive_guard = if scan_index_forward {
             cursor
                 .search_after
-                .map(|id| mk_sk_cursor_value(&id))
+                .map(|id| mk_sk(&id))
                 .unwrap_or_else(|| SK_LOWER_BOUND.to_string())
         } else {
             cursor
                 .search_after
-                .map(|id| mk_sk_cursor_value(&id))
+                .map(|id| mk_sk(&id))
                 .unwrap_or_else(|| SK_UPPER_BOUND.to_string())
         };
         let key_condition_expression = if scan_index_forward {
@@ -151,18 +144,18 @@ impl<'a> NotificationDynamoDbRepository for NotificationDynamoDbRepositoryImpl<'
     async fn count_notification_records(
         &self,
         user_id: &UserId,
-        cursor: &Cursor<NotificationId>,
+        cursor: &Cursor<EventId>,
         scan_index_forward: bool,
     ) -> Result<u64, SdkError<QueryError>> {
         let exclusive_guard = if scan_index_forward {
             cursor
                 .search_after
-                .map(|id| mk_sk_cursor_value(&id))
+                .map(|id| mk_sk(&id))
                 .unwrap_or_else(|| SK_LOWER_BOUND.to_string())
         } else {
             cursor
                 .search_after
-                .map(|id| mk_sk_cursor_value(&id))
+                .map(|id| mk_sk(&id))
                 .unwrap_or_else(|| SK_UPPER_BOUND.to_string())
         };
         let key_condition_expression = if scan_index_forward {
@@ -217,14 +210,14 @@ impl<'a> NotificationDynamoDbRepository for NotificationDynamoDbRepositoryImpl<'
     async fn get_notification_record(
         &self,
         user_id: &UserId,
-        notification_id: &NotificationId,
+        origin_event_id: &EventId,
     ) -> Result<Option<NotificationRecord>, SdkError<GetItemError>> {
         let record = self
             .client
             .get_item()
             .table_name(&self.table)
             .key("pk", AttributeValue::S(mk_pk(user_id)))
-            .key("sk", AttributeValue::S(mk_sk(notification_id)))
+            .key("sk", AttributeValue::S(mk_sk(origin_event_id)))
             .send()
             .await?
             .item
@@ -234,7 +227,7 @@ impl<'a> NotificationDynamoDbRepository for NotificationDynamoDbRepositoryImpl<'
                 Err(err) => {
                     error!(
                         userId = %user_id,
-                        notificationId = %notification_id,
+                        originEventId = %origin_event_id,
                         error = %err,
                         r#type = %std::any::type_name::<NotificationRecord>(),
                         "Failed deserializing NotificationRecord."
@@ -249,7 +242,7 @@ impl<'a> NotificationDynamoDbRepository for NotificationDynamoDbRepositoryImpl<'
     async fn update_notification_record(
         &self,
         user_id: &UserId,
-        notification_id: &NotificationId,
+        origin_event_id: &EventId,
         update: NotificationRecordUpdate,
     ) -> Result<Option<NotificationRecord>, SdkError<UpdateItemError>> {
         let update_expr = update.into_update_expr()?;
@@ -258,7 +251,7 @@ impl<'a> NotificationDynamoDbRepository for NotificationDynamoDbRepositoryImpl<'
             .update_item()
             .table_name(&self.table)
             .key("pk", AttributeValue::S(mk_pk(user_id)))
-            .key("sk", AttributeValue::S(mk_sk(notification_id)))
+            .key("sk", AttributeValue::S(mk_sk(origin_event_id)))
             .update_expression(update_expr.update_expr)
             .set_expression_attribute_names(Some(update_expr.expr_attr_names))
             .set_expression_attribute_values(Some(update_expr.expr_attr_values))
@@ -274,7 +267,7 @@ impl<'a> NotificationDynamoDbRepository for NotificationDynamoDbRepositoryImpl<'
                         Err(err) => {
                             error!(
                                 userId = %user_id,
-                                notificationId = %notification_id,
+                                originEventId = %origin_event_id,
                                 error = %err,
                                 r#type = %std::any::type_name::<NotificationRecord>(),
                                 "Failed deserializing NotificationRecord."
