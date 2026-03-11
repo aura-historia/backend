@@ -21,6 +21,7 @@ async fn should_200_respond_user_when_exists() {
         last_name: Some("Hans".into()),
         language: Some(LanguageData::Fr),
         currency: Some(CurrencyData::Nzd),
+        prohibited_content_consent: None,
     };
     let lambda_event = LambdaEvent {
         payload: ApiGatewayV2httpRequestProxy::builder()
@@ -51,4 +52,35 @@ async fn should_200_respond_user_when_exists() {
         patch_user_account_data.currency.unwrap(),
         actual.currency.unwrap()
     );
+}
+
+#[localstack_test(services = [DynamoDB()])]
+async fn should_update_prohibited_content_consent_when_provided() {
+    let repository = UserDynamoDbRepositoryImpl::new(get_dynamodb_client().await, "table_1");
+    let service = UserServiceImpl::new(&repository);
+
+    let user = service.create_user(Faker.fake()).await.unwrap();
+    assert!(!user.prohibited_content_consent);
+
+    let patch_user_account_data = PatchUserAccountData {
+        first_name: None,
+        last_name: None,
+        language: None,
+        currency: None,
+        prohibited_content_consent: Some(true),
+    };
+    let lambda_event = LambdaEvent {
+        payload: ApiGatewayV2httpRequestProxy::builder()
+            .http_method(http::Method::PATCH)
+            .route_key("PATCH /api/v1/me/account")
+            .jwt_claim("sub", user.user_id)
+            .body_serde(&patch_user_account_data)
+            .build(),
+        context: Default::default(),
+    };
+    let response = handler(lambda_event, &service).await.unwrap();
+    let actual: GetUserAccountData =
+        serde_json::from_value(extract_apigw_response_json_body!(response)).unwrap();
+
+    assert!(actual.prohibited_content_consent);
 }

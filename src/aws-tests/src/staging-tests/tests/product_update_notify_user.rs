@@ -95,6 +95,7 @@ async fn should_send_email_to_user_when_watched_product_has_update() {
                 last_name: Some("Testperson".into()),
                 language: Some(common::language::record::LanguageRecord::De),
                 currency: Some(common::currency::record::CurrencyRecord::Eur),
+                prohibited_content_consent: None,
                 updated: OffsetDateTime::now_utc(),
             },
         )

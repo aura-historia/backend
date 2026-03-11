@@ -99,6 +99,7 @@ impl<'a> UserService for UserServiceImpl<'a> {
                     last_name: None,
                     language: None,
                     currency: None,
+                    prohibited_content_consent: false,
                     created: now,
                     updated: now,
                 };
@@ -125,6 +126,7 @@ impl<'a> UserService for UserServiceImpl<'a> {
                 last_name: cmd.last_name,
                 language: cmd.language.map(LanguageRecord::from),
                 currency: cmd.currency.map(CurrencyRecord::from),
+                prohibited_content_consent: cmd.prohibited_content_consent,
                 updated: OffsetDateTime::now_utc(),
             };
             let user = self.repository
@@ -319,6 +321,24 @@ mod tests {
                 _ => panic!("expected UserServiceError::SdkPutItemError"),
             }
         }
+
+        #[tokio::test]
+        async fn should_default_prohibited_content_consent_to_false_for_new_user() {
+            use aws_sdk_dynamodb::operation::put_item::PutItemOutput;
+            let mut repository = MockUserDynamoDbRepository::default();
+            repository
+                .expect_get_user_record()
+                .return_once(|_| Box::pin(async { Ok(None) }));
+            repository
+                .expect_put_user_record()
+                .return_once(|_| Box::pin(async { Ok(PutItemOutput::builder().build()) }));
+            let service = UserServiceImpl {
+                repository: &repository,
+            };
+            let actual = service.create_user(Faker.fake()).await.unwrap();
+
+            assert!(!actual.prohibited_content_consent);
+        }
     }
 
     mod update_user {
@@ -428,6 +448,7 @@ mod tests {
                 last_name: None,
                 language: None,
                 currency: None,
+                prohibited_content_consent: None,
             };
             let actual = service.update_user(&user_id, update).await;
 
@@ -438,6 +459,50 @@ mod tests {
                     panic!("expected UserServiceError::SdkUpdateItemError, got other: {other}")
                 }
             }
+        }
+
+        #[tokio::test]
+        async fn should_return_existing_user_when_command_is_empty() {
+            let user_id = UserId::new();
+            let mut existing_record = Faker.fake::<crate::dynamodb::user_record::UserRecord>();
+            existing_record.user_id = user_id;
+            let existing_user = crate::core::user::User::from(existing_record.clone());
+            let mut repository = MockUserDynamoDbRepository::default();
+            repository
+                .expect_get_user_record()
+                .return_once(move |_| Box::pin(async move { Ok(Some(existing_record)) }));
+            let service = UserServiceImpl {
+                repository: &repository,
+            };
+            let actual = service
+                .update_user(&user_id, UpdateUserCommand::default())
+                .await
+                .unwrap();
+
+            assert_eq!(existing_user, actual);
+        }
+
+        #[tokio::test]
+        async fn should_pass_prohibited_content_consent_to_update() {
+            let user_id = UserId::new();
+            let mut repository = MockUserDynamoDbRepository::default();
+            repository
+                .expect_get_user_record()
+                .return_once(|_| Box::pin(async { Ok(Some(Faker.fake())) }));
+            repository
+                .expect_update_user_record()
+                .return_once(|_, update| {
+                    assert_eq!(Some(true), update.prohibited_content_consent);
+                    Box::pin(async { Ok(Some(Faker.fake())) })
+                });
+            let service = UserServiceImpl {
+                repository: &repository,
+            };
+            let update = UpdateUserCommand {
+                prohibited_content_consent: Some(true),
+                ..Default::default()
+            };
+            let _ = service.update_user(&user_id, update).await.unwrap();
         }
     }
 }

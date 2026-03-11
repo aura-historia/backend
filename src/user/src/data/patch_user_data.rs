@@ -16,6 +16,9 @@ pub struct PatchUserAccountData {
 
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub currency: Option<CurrencyData>,
+
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub prohibited_content_consent: Option<bool>,
 }
 
 #[cfg(feature = "test-data")]
@@ -30,6 +33,7 @@ mod fake {
                 last_name: config.fake_with_rng(rng),
                 language: config.fake_with_rng(rng),
                 currency: config.fake_with_rng(rng),
+                prohibited_content_consent: config.fake_with_rng(rng),
             }
         }
     }
