@@ -102,7 +102,7 @@ Since this is a serverless backend, manual testing involves:
 - **src/cognito-post-confirmation**: Lambda for Cognito post-confirmation trigger
 - **src/mail**: Email notification system:
   - `mail-core`: Email templates and core logic
-- **src/mail-lambda-send**: Lambda for sending emails via SES
+- **src/notification-send**: Lambda for sending notifications externally via SES (triggered by DynamoDB Stream via EventBridge)
 - **src/test-api**: Testing utilities and integration test framework
 - **src/aws-tests**: AWS integration and end-to-end tests:
   - `aws-tests-common`: Common test utilities
@@ -136,7 +136,7 @@ Located in various directories:
 - `cognito-post-confirmation`: Handle Cognito user post-confirmation trigger (`src/cognito-post-confirmation`)
 
 **Mail Lambda Functions**:
-- `mail-lambda-send`: Send emails via AWS SES (`src/mail-lambda-send`)
+- `notification-send`: Send notifications externally via AWS SES (`src/notification-send`)
 
 **FX Rate Lambda Functions**:
 - `fxrate-lambda`: Update foreign exchange rates (`src/fxrate-lambda`)
@@ -269,7 +269,7 @@ src/
 ├── cognito-post-confirmation/  # Cognito post-confirmation Lambda
 ├── mail/           # Email notification system
 │   └── src/mail-core/      # Email templates and core logic
-├── mail-lambda-send/  # Lambda for sending emails via SES
+├── notification-send/  # Lambda for sending notifications externally via SES (DynamoDB Stream → EventBridge → SQS)
 ├── test-api/       # Testing framework and integration test utilities
 └── aws-tests/      # AWS integration and end-to-end tests
     └── src/

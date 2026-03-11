@@ -243,7 +243,7 @@ jobs:
           - src/shop-lambda/src/shop-lambda-opensearch-index
           - src/user-api
           - src/cognito-post-confirmation
-          - src/mail-lambda-send
+          - src/notification-send
           - src/fxrate-lambda
     steps:
       - uses: actions/checkout@v6

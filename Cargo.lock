@@ -313,8 +313,8 @@ dependencies = [
  "fxrate",
  "fxrate-lambda",
  "mail",
- "mail-lambda-send",
  "notification",
+ "notification-send",
  "product",
  "product-api",
  "product-classification",
@@ -3702,7 +3702,6 @@ name = "mail"
 version = "0.1.0"
 dependencies = [
  "mail-core",
- "mail-lambda-send",
 ]
 
 [[package]]
@@ -3732,24 +3731,6 @@ dependencies = [
  "tokio",
  "tracing",
  "uuid",
-]
-
-[[package]]
-name = "mail-lambda-send"
-version = "0.1.0"
-dependencies = [
- "aws-config",
- "aws-sdk-dynamodb",
- "aws-sdk-s3",
- "aws-sdk-sesv2",
- "aws_lambda_events",
- "common",
- "lambda_runtime",
- "mail-core",
- "serde_json",
- "tokio",
- "tracing",
- "tracing-subscriber",
 ]
 
 [[package]]
@@ -4006,6 +3987,33 @@ dependencies = [
  "time",
  "tokio",
  "tracing",
+ "user",
+ "uuid",
+]
+
+[[package]]
+name = "notification-send"
+version = "0.1.0"
+dependencies = [
+ "aws-config",
+ "aws-sdk-dynamodb",
+ "aws-sdk-s3",
+ "aws-sdk-sesv2",
+ "aws_lambda_events",
+ "common",
+ "fake",
+ "lambda_runtime",
+ "mail-core",
+ "notification",
+ "rstest",
+ "serde",
+ "serde-email",
+ "serde_dynamo",
+ "serde_json",
+ "time",
+ "tokio",
+ "tracing",
+ "tracing-subscriber",
  "user",
  "uuid",
 ]

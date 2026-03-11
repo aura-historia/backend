@@ -293,6 +293,20 @@ Resources:
                     }
                   }
                 }
+            - Pattern: |
+                {
+                  "eventName": ["INSERT"],
+                  "dynamodb": {
+                    "NewImage": {
+                      "pk": {
+                        "S": [{ "prefix": "user#" }]
+                      },
+                      "sk": {
+                        "S": [{ "prefix": "user#notification#origin_event_id#" }]
+                      }
+                    }
+                  }
+                }
       Target: !GetAtt DynamoDbEventBus.Arn
       TargetParameters:
         EventBridgeEventBusParameters:
@@ -312,6 +326,7 @@ Resources:
         - !Ref ProductPipelineExtractAttributeQ
         - !Ref ProductPipelineClassifyCategoryQ
         - !Ref ProductPipelineClassifyPeriodQ
+        - !Ref NotificationSendQ
       PolicyDocument:
         Version: "2012-10-17"
         Statement:
@@ -329,6 +344,7 @@ Resources:
               - !GetAtt ProductPipelineExtractAttributeQ.Arn
               - !GetAtt ProductPipelineClassifyCategoryQ.Arn
               - !GetAtt ProductPipelineClassifyPeriodQ.Arn
+              - !GetAtt NotificationSendQ.Arn
 
   Api:
     Type: AWS::ApiGatewayV2::Api
@@ -962,23 +978,23 @@ Resources:
       Principal: apigateway.amazonaws.com
       SourceArn: !Sub "arn:aws:execute-api:${AWS::Region}:${AWS::AccountId}:${Api}/*/*/api/v1*"
 
-  SendMailDlq:
+  NotificationSendDlq:
     Type: AWS::SQS::Queue
     Properties:
-      QueueName: "mail-lambda-send-dev"
+      QueueName: "notification-send-dlq-dev"
       MessageRetentionPeriod: 1209600
-  SendMailQ:
+  NotificationSendQ:
     Type: AWS::SQS::Queue
     Properties:
-      QueueName: "mail-lambda-send-queue-dev"
+      QueueName: "notification-send-queue-dev"
       RedrivePolicy:
-        deadLetterTargetArn: !GetAtt SendMailDlq.Arn
+        deadLetterTargetArn: !GetAtt NotificationSendDlq.Arn
         maxReceiveCount: 5
       VisibilityTimeout: 180
-  SendMailRole:
+  NotificationSendRole:
     Type: AWS::IAM::Role
     Properties:
-      RoleName: "mail-lambda-send-role-dev"
+      RoleName: "notification-send-role-dev"
       AssumeRolePolicyDocument:
         Version: "2012-10-17"
         Statement:
@@ -996,11 +1012,7 @@ Resources:
               - Effect: Allow
                 Action:
                   - dynamodb:GetItem
-                  - dynamodb:PutItem
-                  - dynamodb:BatchGetItem
-                  - dynamodb:BatchWriteItem
-                  - dynamodb:TransactGetItems
-                  - dynamodb:TransactWriteItems
+                  - dynamodb:UpdateItem
                 Resource:
                   - !GetAtt TableOne.Arn
         - PolicyName: SQSPollerAccess
@@ -1013,8 +1025,8 @@ Resources:
                   - sqs:DeleteMessage
                   - sqs:GetQueueAttributes
                   - sqs:GetQueueUrl
-                Resource: !GetAtt SendMailQ.Arn
-        - PolicyName: SESSendMailAccess
+                Resource: !GetAtt NotificationSendQ.Arn
+        - PolicyName: SESSendAccess
           PolicyDocument:
             Version: "2012-10-17"
             Statement:
@@ -1023,7 +1035,7 @@ Resources:
                   - ses:SendEmail
                   - ses:SendRawEmail
                 Resource: "*"
-        - PolicyName: S3Access
+        - PolicyName: S3TemplateAccess
           PolicyDocument:
             Version: "2012-10-17"
             Statement:
@@ -1031,16 +1043,16 @@ Resources:
                 Action:
                   - s3:GetObject
                 Resource: !Sub "arn:aws:s3:::${MailTemplateBucket}/*"
-  SendMailLambda:
+  NotificationSendLambda:
     Type: AWS::Lambda::Function
     Properties:
-      FunctionName: "mail-lambda-send-dev"
+      FunctionName: "notification-send-dev"
       Runtime: provided.al2023
       Handler: lib.handler
-      Role: !GetAtt SendMailRole.Arn
+      Role: !GetAtt NotificationSendRole.Arn
       Code:
         S3Bucket: !Ref ArtifactBucket
-        S3Key: !Sub "mail-lambda-send-dev-${CommitSHA}.zip"
+        S3Key: !Sub "notification-send-dev-${CommitSHA}.zip"
       MemorySize: 512
       Timeout: 60
       EphemeralStorage:
@@ -1051,11 +1063,12 @@ Resources:
           S3_BUCKET_NAME_TEMPLATES: !Ref MailTemplateBucket
           STAGE_NAME: "dev"
           COMMIT_SHA: !Sub "${CommitSHA}"
-  SendMailMapping:
+          SENDER_MAIL: "no-reply@aura-historia.com"
+  NotificationSendMapping:
     Type: AWS::Lambda::EventSourceMapping
     Properties:
-      FunctionName: !Ref SendMailLambda
-      EventSourceArn: !GetAtt SendMailQ.Arn
+      FunctionName: !Ref NotificationSendLambda
+      EventSourceArn: !GetAtt NotificationSendQ.Arn
       Enabled: true
       BatchSize: 25
       MaximumBatchingWindowInSeconds: 1
@@ -1316,6 +1329,8 @@ Resources:
                 Action:
                   - dynamodb:GetItem
                   - dynamodb:Query
+                  - dynamodb:PutItem
+                  - dynamodb:BatchWriteItem
                 Resource:
                   - !GetAtt TableOne.Arn
                   - !Sub "${TableOne.Arn}/index/*"
@@ -1330,14 +1345,6 @@ Resources:
                   - sqs:GetQueueAttributes
                   - sqs:GetQueueUrl
                 Resource: !GetAtt ProductUpdateNotifyUserQ.Arn
-        - PolicyName: SQSSendMessage
-          PolicyDocument:
-            Version: "2012-10-17"
-            Statement:
-              - Effect: Allow
-                Action:
-                  - sqs:SendMessage
-                Resource: !GetAtt SendMailQ.Arn
         - PolicyName: SESAccess
           PolicyDocument:
             Version: "2012-10-17"
@@ -1373,7 +1380,6 @@ Resources:
       Environment:
         Variables:
           DYNAMODB_TABLE_NAME: !Ref TableOne
-          MAIL_QUEUE_URL: !Ref SendMailQ
           SENDER_MAIL: "no-reply@aura-historia.com"
           S3_BUCKET_NAME_TEMPLATES: !Ref MailTemplateBucket
           STAGE_NAME: "dev"
@@ -1479,6 +1485,28 @@ Resources:
       Targets:
         - Id: ShopOpenSearchIndexQ
           Arn: !GetAtt ShopOpenSearchIndexQ.Arn
+
+  DynamoDbNotificationSendEventRule:
+    Type: AWS::Events::Rule
+    Properties:
+      Name: "ddb-notification-send-dev"
+      EventBusName: !Ref DynamoDbEventBus
+      EventPattern:
+        source:
+          - !Ref TableOne
+        detail-type:
+          - "DynamoDBStreamRecord"
+        detail:
+          eventName:
+            - "INSERT"
+          dynamodb:
+            NewImage:
+              sk:
+                S:
+                  - prefix: "user#notification#origin_event_id#"
+      Targets:
+        - Id: NotificationSendQ
+          Arn: !GetAtt NotificationSendQ.Arn
 
   ProductPipelineVpc:
     Type: AWS::EC2::VPC
@@ -2882,10 +2910,10 @@ Outputs:
   DynamodbTable1Name:
     Value: !Ref TableOne
 
-  SendMailQueueUrl:
-    Value: !Ref SendMailQ
-  SendMailDeadLetterQueueUrl:
-    Value: !Ref SendMailDlq
+  NotificationSendQueueUrl:
+    Value: !Ref NotificationSendQ
+  NotificationSendDeadLetterQueueUrl:
+    Value: !Ref NotificationSendDlq
 
   ProductMaterializeDynamodbQueueUrl:
     Value: !Ref ProductMaterializeDynamoDbQ

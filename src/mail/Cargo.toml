@@ -5,4 +5,3 @@ edition = "2024"
 
 [dependencies]
 mail-core = { workspace = true }
-mail-lambda-send = { workspace = true }
