@@ -111,7 +111,6 @@ jobs:
           - src/test-api
           - src/user
           - src/user-api
-          - src/mail/src/mail-core
     steps:
       - uses: actions/checkout@v6
 

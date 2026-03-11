@@ -1403,6 +1403,23 @@ Resources:
                 Action:
                   - sqs:SendMessage
                 Resource: !GetAtt SendMailQ.Arn
+        - PolicyName: SESAccess
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: Allow
+                Action:
+                  - ses:SendEmail
+                  - ses:SendRawEmail
+                Resource: !Sub "arn:aws:ses:${AWS::Region}:${AWS::AccountId}:identity/*"
+        - PolicyName: S3MailTemplateAccess
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: Allow
+                Action:
+                  - s3:GetObject
+                Resource: !Sub "arn:aws:s3:::${MailTemplateBucket}/*"
   ProductUpdateNotifyUserLambda:
     Type: AWS::Lambda::Function
     Properties:
@@ -1422,6 +1439,9 @@ Resources:
           DYNAMODB_TABLE_NAME: !Ref TableOne
           MAIL_QUEUE_URL: !Ref SendMailQ
           SENDER_MAIL: "no-reply@aura-historia.com"
+          S3_BUCKET_NAME_TEMPLATES: !Ref MailTemplateBucket
+          STAGE_NAME: !Sub "${StageName}"
+          COMMIT_SHA: !Sub "${CommitSHA}"
   ProductUpdateNotifyUserMapping:
     Type: AWS::Lambda::EventSourceMapping
     Properties:
