@@ -125,6 +125,7 @@ mod faker {
                     last_name: config.fake_with_rng(rng),
                     language: config.fake_with_rng(rng),
                     currency: config.fake_with_rng(rng),
+                    prohibited_content_consent: config.fake_with_rng(rng),
                     created: OffsetDateTime::now_utc(),
                     updated: OffsetDateTime::now_utc(),
                 },

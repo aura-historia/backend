@@ -73,6 +73,12 @@ async fn should_update_user_record(#[case] user_record_update: UserRecordUpdate)
     if let Some(ref currency) = user_record_update.currency {
         assert_eq!(currency, updated.currency.as_ref().unwrap());
     }
+    if let Some(prohibited_content_consent) = user_record_update.prohibited_content_consent {
+        assert_eq!(
+            prohibited_content_consent,
+            updated.prohibited_content_consent
+        );
+    }
 
     assert_eq!(updated, actual);
 }

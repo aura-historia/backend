@@ -11,6 +11,7 @@ pub struct User {
     pub last_name: Option<LastName>,
     pub language: Option<Language>,
     pub currency: Option<Currency>,
+    pub prohibited_content_consent: bool,
     pub created: OffsetDateTime,
     pub updated: OffsetDateTime,
 }
@@ -35,6 +36,7 @@ mod fake {
                 last_name: Some(last_name),
                 language: Faker.fake(),
                 currency: Faker.fake(),
+                prohibited_content_consent: Faker.fake(),
                 created: OffsetDateTime::now_utc(),
                 updated: OffsetDateTime::now_utc(),
             }

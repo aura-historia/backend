@@ -91,6 +91,7 @@ async fn should_200_for_get_patch_get() {
         last_name: Some("Hans".into()),
         language: Some(LanguageData::Fr),
         currency: Some(CurrencyData::Nzd),
+        prohibited_content_consent: None,
     };
     let patch_response = reqwest::Client::new()
         .patch(url.clone())
@@ -173,6 +174,7 @@ async fn should_200_update_all_denormalized_watchlist_entries_for_patch_user() {
         last_name: Some("Hans".into()),
         language: Some(LanguageData::Fr),
         currency: Some(CurrencyData::Nzd),
+        prohibited_content_consent: None,
     };
     let patch_response = reqwest::Client::new()
         .patch(account_url.clone())
