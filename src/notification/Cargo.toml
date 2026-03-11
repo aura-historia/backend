@@ -20,6 +20,14 @@ tracing = { workspace = true, optional = true }
 aws-sdk-dynamodb = { workspace = true, optional = true }
 fake = { workspace = true, optional = true }
 product = { workspace = true, optional = true }
+user = { workspace = true, optional = true }
+mail-core = { workspace = true, optional = true }
+aws-sdk-sesv2 = { workspace = true, optional = true }
+aws-sdk-s3 = { workspace = true, optional = true }
+handlebars = { workspace = true, optional = true }
+once_cell = { workspace = true, optional = true }
+serde_json = { workspace = true, optional = true }
+tokio = { workspace = true, optional = true, features = ["sync"] }
 
 [dev-dependencies]
 notification = { workspace = true, features = ["full"] }
@@ -32,6 +40,16 @@ tokio = { workspace = true, features = ["macros"] }
 default = []
 data = ["common/api"]
 dynamodb = ["aws-sdk-dynamodb", "serde_dynamo", "serde_dynamo/aws-sdk-dynamodb+1", "tracing", "common/dynamodb", "product", "product/dynamodb"]
-service = ["dynamodb"]
-test-data = ["fake", "common/test-data", "product", "product/test-data"]
+service = [
+    "dynamodb",
+    "user", "user/service",
+    "mail-core", "mail-core/send",
+    "aws-sdk-sesv2",
+    "aws-sdk-s3",
+    "handlebars",
+    "once_cell",
+    "serde_json",
+    "tokio", "tokio/sync",
+]
+test-data = ["fake", "common/test-data", "product", "product/test-data", "user/test-data"]
 full = ["data", "test-data", "dynamodb", "service"]
