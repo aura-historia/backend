@@ -3,7 +3,10 @@ use crate::{
         notification::{Notification, NotificationPayload, NotificationWatchlistPayload},
         notification_id::NotificationId,
     },
-    dynamodb::notification_reason_record::NotificationReasonRecord,
+    dynamodb::{
+        notification_reason_record::NotificationReasonRecord,
+        notification_type_record::NotificationTypeRecord,
+    },
 };
 use common::{
     currency::domain::Currency,
@@ -38,6 +41,8 @@ pub struct NotificationRecord {
     pub user_id: UserId,
     pub origin_event_id: EventId,
     pub notification_id: NotificationId,
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub notification_type: Option<NotificationTypeRecord>,
     pub notification_reason: NotificationReasonRecord,
     pub seen: bool,
     #[serde(skip_serializing_if = "Option::is_none", default)]
@@ -283,6 +288,7 @@ impl From<Notification> for NotificationRecord {
                     user_id: notification.user_id,
                     origin_event_id: notification.origin_event_id,
                     notification_id: notification.notification_id,
+                    notification_type: notification.notification_type.map(Into::into),
                     notification_reason,
                     seen: notification.seen,
                     image: None,
@@ -424,6 +430,7 @@ impl From<NotificationRecord> for Notification {
             user_id: record.user_id,
             origin_event_id: record.origin_event_id,
             notification_id: record.notification_id,
+            notification_type: record.notification_type.map(Into::into),
             notification_payload: NotificationPayload::Watchlist {
                 product_id: record.product_id.unwrap_or_default(),
                 shop_id: record.shop_id.unwrap_or_default(),
@@ -464,6 +471,7 @@ mod faker {
                 user_id,
                 origin_event_id,
                 notification_id,
+                notification_type: config.fake_with_rng(rng),
                 notification_reason,
                 seen: config.fake_with_rng(rng),
                 image: None,

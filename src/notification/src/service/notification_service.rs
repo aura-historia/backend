@@ -88,6 +88,12 @@ pub trait NotificationService {
         currency: &Currency,
         cursor: &Option<Cursor<EventId>>,
     ) -> Result<CursoredResult<LocalizedNotification, EventId>, NotificationError>;
+
+    async fn send_externally(
+        &self,
+        user_id: &UserId,
+        origin_event_id: &EventId,
+    ) -> Result<Notification, NotificationError>;
 }
 
 pub struct NotificationServiceImpl<'a> {
@@ -131,6 +137,7 @@ impl<'a> NotificationService for NotificationServiceImpl<'a> {
             user_id: cmd.user_id,
             origin_event_id: *origin_event_id,
             notification_id: NotificationId::new(),
+            notification_type: None,
             notification_payload: cmd.notification_payload,
             seen: false,
             created: now,
@@ -166,6 +173,7 @@ impl<'a> NotificationService for NotificationServiceImpl<'a> {
                     user_id: cmd.user_id,
                     origin_event_id: *origin_event_id,
                     notification_id: NotificationId::new(),
+                    notification_type: None,
                     notification_payload: cmd.notification_payload.clone(),
                     seen: false,
                     created: now,
@@ -282,6 +290,7 @@ impl<'a> NotificationService for NotificationServiceImpl<'a> {
         } else {
             let record_update = NotificationRecordUpdate {
                 seen: update.seen,
+                notification_type: None,
                 updated: OffsetDateTime::now_utc(),
             };
 
@@ -337,6 +346,14 @@ impl<'a> NotificationService for NotificationServiceImpl<'a> {
             items: notifications,
             total: Some(total),
         })
+    }
+
+    async fn send_externally(
+        &self,
+        user_id: &UserId,
+        origin_event_id: &EventId,
+    ) -> Result<Notification, NotificationError> {
+        todo!()
     }
 }
 

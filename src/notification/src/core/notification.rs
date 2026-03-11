@@ -1,4 +1,4 @@
-use crate::core::notification_id::NotificationId;
+use crate::core::{notification_id::NotificationId, notification_type::NotificationType};
 use common::{
     currency::domain::Currency,
     event_id::EventId,
@@ -23,6 +23,7 @@ pub struct Notification {
     pub user_id: UserId,
     pub origin_event_id: EventId,
     pub notification_id: NotificationId,
+    pub notification_type: Option<NotificationType>, // None if not yet sent, Some if sent
     pub notification_payload: NotificationPayload,
     pub seen: bool,
     pub created: OffsetDateTime,

@@ -3,6 +3,7 @@ use fake::{Fake, Faker};
 use notification::dynamodb::{
     notification_record::{NotificationRecord, mk_pk},
     notification_record_update::NotificationRecordUpdate,
+    notification_type_record::NotificationTypeRecord,
     repository::{NotificationDynamoDbRepository, NotificationDynamoDbRepositoryImpl},
 };
 use test_api::*;
@@ -255,6 +256,7 @@ fn should_set_seen_true_for_update() {
             &initial.origin_event_id,
             NotificationRecordUpdate {
                 seen: Some(true),
+                notification_type: None,
                 updated,
             },
         )
@@ -288,6 +290,7 @@ fn should_set_seen_false_for_update() {
             &initial.origin_event_id,
             NotificationRecordUpdate {
                 seen: Some(false),
+                notification_type: None,
                 updated,
             },
         )
@@ -301,6 +304,43 @@ fn should_set_seen_false_for_update() {
         .unwrap();
 
     assert!(!actual.seen);
+}
+
+#[localstack_test(services = [DynamoDB()])]
+fn should_set_type_email_for_update() {
+    let repository = get_repository().await;
+
+    let mut initial = Faker.fake::<NotificationRecord>();
+    initial.notification_type = None;
+    let _ = repository
+        .put_notification_record(initial.clone())
+        .await
+        .unwrap();
+
+    let updated = OffsetDateTime::now_utc();
+    let _ = repository
+        .update_notification_record(
+            &initial.user_id,
+            &initial.origin_event_id,
+            NotificationRecordUpdate {
+                seen: None,
+                notification_type: Some(NotificationTypeRecord::Email),
+                updated,
+            },
+        )
+        .await
+        .unwrap();
+
+    let actual = repository
+        .get_notification_record(&initial.user_id, &initial.origin_event_id)
+        .await
+        .unwrap()
+        .unwrap();
+
+    assert_eq!(
+        NotificationTypeRecord::Email,
+        actual.notification_type.unwrap()
+    );
 }
 
 #[localstack_test(services = [DynamoDB()])]

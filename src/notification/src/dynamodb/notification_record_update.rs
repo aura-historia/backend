@@ -1,3 +1,4 @@
+use crate::dynamodb::notification_type_record::NotificationTypeRecord;
 use common::dynamodb_update::DynamoDbUpdate;
 use serde::{Deserialize, Serialize};
 use serde_fields::SerdeField;
@@ -7,6 +8,9 @@ use time::OffsetDateTime;
 pub struct NotificationRecordUpdate {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub seen: Option<bool>,
+
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub notification_type: Option<NotificationTypeRecord>,
 
     #[serde(with = "time::serde::rfc3339")]
     pub updated: OffsetDateTime,
