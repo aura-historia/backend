@@ -1,8 +1,9 @@
 use aws_config::{BehaviorVersion, SdkConfig};
 use std::collections::HashMap;
+use std::net::TcpListener;
 use std::process::Command;
 use std::sync::OnceLock;
-use testcontainers::core::Mount;
+use testcontainers::core::{IntoContainerPort, Mount};
 use testcontainers::runners::AsyncRunner;
 use testcontainers::{ContainerAsync, ImageExt};
 use testcontainers_modules::localstack::LocalStack;
@@ -80,11 +81,7 @@ pub async fn get_localstack(services: &[&str]) -> &'static ContainerAsync<LocalS
             // Spins up with the first (!) supplied services only.
             // No dealbreaker for now as each test-suite has it's own OnceCell
             // And all tests within a test-suite require the same services
-            let container = spin_up_localstack_with_services(services).await;
-            let port = container
-                .get_host_port_ipv4(4566)
-                .await
-                .expect("shouldn't fail getting LocalStack host port");
+            let (container, port) = spin_up_localstack_with_services(services).await;
             ENDPOINT_URL
                 .set(format!("http://localhost:{port}"))
                 .expect("shouldn't fail setting LocalStack endpoint URL");
@@ -115,12 +112,25 @@ fn install_cleanup() {
     });
 }
 
+/// Picks a free TCP port on localhost by briefly binding to port 0, letting the OS
+/// assign an available port, then releasing the bind before returning the port number.
+///
+/// There is a small inherent race window between the release and Docker binding the port,
+/// but this is the standard approach and is reliable in practice.
+fn find_free_port() -> u16 {
+    TcpListener::bind("127.0.0.1:0")
+        .expect("shouldn't fail binding to a random port")
+        .local_addr()
+        .expect("shouldn't fail reading local address")
+        .port()
+}
+
 /// Spins up a LocalStack container with custom environment variables.
 ///
 /// This function uses [`testcontainers`] to start a LocalStack Docker container with:
 /// - Optional environment variables (e.g., AWS services to enable)
 /// - Mounted Docker socket (for container-in-container support)
-/// - A randomly assigned host port (to allow parallel test runs without port conflicts)
+/// - A pre-emptively selected free host port mapped to container port 4566
 ///
 /// It also sets up structured JSON tracing using `tracing_subscriber`.
 ///
@@ -130,12 +140,15 @@ fn install_cleanup() {
 ///
 /// # Returns
 ///
-/// A running [`ContainerAsync<LocalStack>`] instance, ready for AWS SDK interactions.
+/// A tuple of the running [`ContainerAsync<LocalStack>`] instance and the host port it
+/// is bound to, ready for AWS SDK interactions.
 ///
 /// # Panics
 ///
 /// Panics if the container fails to start.
-pub async fn spin_up_localstack(env_vars: HashMap<&str, &str>) -> ContainerAsync<LocalStack> {
+pub async fn spin_up_localstack(
+    env_vars: HashMap<&str, &str>,
+) -> (ContainerAsync<LocalStack>, u16) {
     let _ = tracing_subscriber::fmt()
         .json()
         .with_max_level(tracing::Level::INFO)
@@ -143,6 +156,8 @@ pub async fn spin_up_localstack(env_vars: HashMap<&str, &str>) -> ContainerAsync
         .with_ansi(false)
         .try_init();
     debug!("Successfully initialized tracing_subscriber.");
+
+    let port = find_free_port();
 
     let request = env_vars
         .iter()
@@ -155,7 +170,8 @@ pub async fn spin_up_localstack(env_vars: HashMap<&str, &str>) -> ContainerAsync
         .with_mount(Mount::bind_mount(
             "/var/run/docker.sock",
             "/var/run/docker.sock",
-        ));
+        ))
+        .with_mapped_port(port, 4566_u16.tcp());
 
     let container = request
         .start()
@@ -166,7 +182,7 @@ pub async fn spin_up_localstack(env_vars: HashMap<&str, &str>) -> ContainerAsync
         })
         .unwrap();
     debug!("Successfully started LocalStack-Container.");
-    container
+    (container, port)
 }
 
 /// Spins up a LocalStack container with the specified AWS services enabled.
@@ -180,7 +196,10 @@ pub async fn spin_up_localstack(env_vars: HashMap<&str, &str>) -> ContainerAsync
 ///
 /// # Returns
 ///
-/// A running [`ContainerAsync<LocalStack>`] with only the requested services enabled.
-pub async fn spin_up_localstack_with_services(services: &[&str]) -> ContainerAsync<LocalStack> {
+/// A tuple of the running [`ContainerAsync<LocalStack>`] with only the requested services
+/// enabled, and the host port it is bound to.
+pub async fn spin_up_localstack_with_services(
+    services: &[&str],
+) -> (ContainerAsync<LocalStack>, u16) {
     spin_up_localstack(HashMap::from([("SERVICES", services.join(",").as_str())])).await
 }
