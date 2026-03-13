@@ -71,7 +71,7 @@ pub trait WatchlistProductDynamoDbRepository {
         update: WatchlistProductRecordUpdate,
     ) -> Result<Option<WatchlistProductRecord>, SdkError<UpdateItemError>>;
 
-    async fn query_user_ids_with_notifications(
+    async fn query_user_ids_watching_product(
         &self,
         product_id: &ProductId,
     ) -> Result<Vec<UserId>, SdkError<QueryError>>;
@@ -336,7 +336,7 @@ impl<'a> WatchlistProductDynamoDbRepository for WatchlistProductDynamoDbReposito
             })
     }
 
-    async fn query_user_ids_with_notifications(
+    async fn query_user_ids_watching_product(
         &self,
         product_id: &ProductId,
     ) -> Result<Vec<UserId>, SdkError<QueryError>> {

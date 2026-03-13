@@ -5,11 +5,10 @@ use common::{
 use fake::{Fake, Faker};
 use product::data::{product_state_data::ProductStateData, put_data::PutProductData};
 use product::dynamodb::repository::{ProductDynamoDbRepository, ProductDynamoDbRepositoryImpl};
+use product_watchlist::dynamodb::repository::WatchlistProductDynamoDbRepository;
 use product_watchlist::{
     data::watchlist_product_data::WatchlistProductData,
-    dynamodb::repository::{
-        WatchlistProductDynamoDbRepository, WatchlistProductDynamoDbRepositoryImpl,
-    },
+    dynamodb::repository::WatchlistProductDynamoDbRepositoryImpl,
 };
 use product_watchlist_api::watchlist_patch::WatchlistProductPatch;
 use shop::core::shop::Shop;
@@ -143,7 +142,7 @@ async fn should_send_email_to_user_when_watched_product_has_update() {
         &stack.dynamodb_table_1_name,
     );
     let eligible = watchlist_repository
-        .query_user_ids_with_notifications(&patched.product_id)
+        .query_user_ids_watching_product(&patched.product_id)
         .await
         .unwrap();
     assert_eq!(vec![UserId::from(user.sub)], eligible);

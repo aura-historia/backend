@@ -61,7 +61,7 @@ impl<'a> ProductEventWatchlistNotificationsService
     {
         let user_ids = self
             .watchlist_service
-            .find_user_ids_with_notifications(&event.aggregate_id)
+            .find_user_ids_watching_product(&event.aggregate_id)
             .await?;
         if user_ids.is_empty() {
             return Ok(vec![]);
@@ -292,7 +292,7 @@ mod tests {
     async fn should_return_empty_when_no_users_watching_product() {
         let mut watchlist_mock = MockProductWatchListService::new();
         watchlist_mock
-            .expect_find_user_ids_with_notifications()
+            .expect_find_user_ids_watching_product()
             .return_once(|_| Box::pin(async { Ok(vec![]) }));
 
         let get_product_mock = MockGetProductService::new();
@@ -321,7 +321,7 @@ mod tests {
 
         let mut watchlist_mock = MockProductWatchListService::new();
         watchlist_mock
-            .expect_find_user_ids_with_notifications()
+            .expect_find_user_ids_watching_product()
             .return_once(move |_| Box::pin(async move { Ok(user_ids) }));
 
         let mut get_product_mock = MockGetProductService::new();
@@ -361,7 +361,7 @@ mod tests {
 
         let mut watchlist_mock = MockProductWatchListService::new();
         watchlist_mock
-            .expect_find_user_ids_with_notifications()
+            .expect_find_user_ids_watching_product()
             .return_once(|_| Box::pin(async { Ok(vec![UserId::new()]) }));
 
         let mut get_product_mock = MockGetProductService::new();
@@ -441,7 +441,7 @@ mod tests {
 
         let mut watchlist_mock = MockProductWatchListService::new();
         watchlist_mock
-            .expect_find_user_ids_with_notifications()
+            .expect_find_user_ids_watching_product()
             .return_once(|_| Box::pin(async { Ok(vec![UserId::new()]) }));
 
         let mut get_product_mock = MockGetProductService::new();
@@ -488,7 +488,7 @@ mod tests {
 
         let mut watchlist_mock = MockProductWatchListService::new();
         watchlist_mock
-            .expect_find_user_ids_with_notifications()
+            .expect_find_user_ids_watching_product()
             .return_once(|_| Box::pin(async { Ok(vec![UserId::new()]) }));
 
         let mut get_product_mock = MockGetProductService::new();
@@ -532,7 +532,7 @@ mod tests {
 
         let mut watchlist_mock = MockProductWatchListService::new();
         watchlist_mock
-            .expect_find_user_ids_with_notifications()
+            .expect_find_user_ids_watching_product()
             .return_once(|_| Box::pin(async { Ok(vec![UserId::new()]) }));
 
         let mut get_product_mock = MockGetProductService::new();
@@ -576,7 +576,7 @@ mod tests {
 
         let mut watchlist_mock = MockProductWatchListService::new();
         watchlist_mock
-            .expect_find_user_ids_with_notifications()
+            .expect_find_user_ids_watching_product()
             .return_once(|_| Box::pin(async { Ok(vec![UserId::new()]) }));
 
         let mut get_product_mock = MockGetProductService::new();
@@ -619,7 +619,7 @@ mod tests {
 
         let mut watchlist_mock = MockProductWatchListService::new();
         watchlist_mock
-            .expect_find_user_ids_with_notifications()
+            .expect_find_user_ids_watching_product()
             .return_once(|_| Box::pin(async { Ok(vec![UserId::new()]) }));
 
         let mut get_product_mock = MockGetProductService::new();
@@ -669,7 +669,7 @@ mod tests {
 
         let mut watchlist_mock = MockProductWatchListService::new();
         watchlist_mock
-            .expect_find_user_ids_with_notifications()
+            .expect_find_user_ids_watching_product()
             .return_once(|_| Box::pin(async { Ok(vec![UserId::new()]) }));
 
         let mut get_product_mock = MockGetProductService::new();
@@ -720,7 +720,7 @@ mod tests {
     async fn should_propagate_watch_product_error_when_find_user_ids_fails() {
         let mut watchlist_mock = MockProductWatchListService::new();
         watchlist_mock
-            .expect_find_user_ids_with_notifications()
+            .expect_find_user_ids_watching_product()
             .return_once(|_| {
                 Box::pin(async {
                     Err(WatchProductError::SdkGetItemError(
@@ -756,7 +756,7 @@ mod tests {
     async fn should_propagate_get_product_error_when_find_product_fails() {
         let mut watchlist_mock = MockProductWatchListService::new();
         watchlist_mock
-            .expect_find_user_ids_with_notifications()
+            .expect_find_user_ids_watching_product()
             .return_once(|_| Box::pin(async { Ok(vec![UserId::new()]) }));
 
         let mut get_product_mock = MockGetProductService::new();

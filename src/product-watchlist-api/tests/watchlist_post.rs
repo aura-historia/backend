@@ -6,13 +6,16 @@ use product::dynamodb::{
     repository::{ProductDynamoDbRepository, ProductDynamoDbRepositoryImpl},
 };
 use product::service::get_service::GetProductServiceImpl;
-use product_watchlist::service::product_watchlist_service::MAX_WATCHLIST_QUOTA;
 use product_watchlist::{
     dynamodb::record::{WatchlistProductRecord, mk_lsi1_sk, mk_pk, mk_sk},
     dynamodb::repository::{
         WatchlistProductDynamoDbRepository, WatchlistProductDynamoDbRepositoryImpl,
     },
     service::product_watchlist_service::ProductWatchListServiceImpl,
+};
+use product_watchlist::{
+    dynamodb::record::{mk_gsi1_pk, mk_gsi1_sk},
+    service::product_watchlist_service::MAX_WATCHLIST_QUOTA,
 };
 use product_watchlist_api::watchlist_post::handle;
 use test_api::*;
@@ -60,8 +63,8 @@ async fn should_201_when_new_watchlist_entry_would_not_exceed_quota() {
             sk: mk_sk(&product_record.shop_id, &product_record.shops_product_id),
             lsi1_sk: mk_lsi1_sk(&created).unwrap(),
             user_id,
-            gsi1_pk: None,
-            gsi1_sk: None,
+            gsi1_pk: mk_gsi1_pk(&product_record.product_id),
+            gsi1_sk: mk_gsi1_sk(&user_id),
             product_id: product_record.product_id,
             shop_id: product_record.shop_id,
             shops_product_id: product_record.shops_product_id,
@@ -132,8 +135,8 @@ async fn should_422_when_new_watchlist_entry_would_exceed_quota() {
             sk: mk_sk(&product_record.shop_id, &product_record.shops_product_id),
             lsi1_sk: mk_lsi1_sk(&created).unwrap(),
             user_id,
-            gsi1_pk: None,
-            gsi1_sk: None,
+            gsi1_pk: mk_gsi1_pk(&product_record.product_id),
+            gsi1_sk: mk_gsi1_sk(&user_id),
             product_id: product_record.product_id,
             shop_id: product_record.shop_id,
             shops_product_id: product_record.shops_product_id,

@@ -245,8 +245,6 @@ fn should_set_notifications_true_for_update() {
             &initial.shop_id,
             &initial.shops_product_id,
             WatchlistProductRecordUpdate {
-                gsi1_pk: Some(mk_gsi1_pk(&initial.product_id)),
-                gsi1_sk: Some(mk_gsi1_sk(&initial.user_id)),
                 notifications: Some(true),
                 updated,
             },
@@ -265,8 +263,8 @@ fn should_set_notifications_true_for_update() {
         .unwrap();
 
     assert!(actual.notifications);
-    assert!(actual.gsi1_pk.is_some());
-    assert!(actual.gsi1_sk.is_some());
+    assert!(!actual.gsi1_pk.is_empty());
+    assert!(!actual.gsi1_sk.is_empty());
 }
 
 #[localstack_test(services = [DynamoDB()])]
@@ -287,8 +285,6 @@ fn should_set_notifications_false_for_update() {
             &initial.shop_id,
             &initial.shops_product_id,
             WatchlistProductRecordUpdate {
-                gsi1_pk: None,
-                gsi1_sk: None,
                 notifications: Some(false),
                 updated,
             },
@@ -307,26 +303,24 @@ fn should_set_notifications_false_for_update() {
         .unwrap();
 
     assert!(!actual.notifications);
-    assert!(actual.gsi1_pk.is_none());
-    assert!(actual.gsi1_sk.is_none());
+    assert!(!actual.gsi1_pk.is_empty());
+    assert!(!actual.gsi1_sk.is_empty());
 }
 
 #[localstack_test(services = [DynamoDB()])]
-fn should_query_users_with_notifications_enabled() {
+fn should_query_all_users_watching_product() {
     let repository = get_repository().await;
 
     let product_id = ProductId::new();
     for mut record in fake::vec![WatchlistProductRecord; 42] {
-        record.notifications = true;
-        record.gsi1_pk = Some(mk_gsi1_pk(&product_id));
-        record.gsi1_sk = Some(mk_gsi1_sk(&record.user_id));
+        record.gsi1_pk = mk_gsi1_pk(&product_id);
+        record.gsi1_sk = mk_gsi1_sk(&record.user_id);
         record.product_id = product_id;
         let _ = repository.put_watchlist_record(record).await.unwrap();
     }
 
-    // civilians
-    for mut record in fake::vec![WatchlistProductRecord; 15] {
-        record.notifications = false;
+    // civilians with different product_ids — won't show up in query for product_id
+    for record in fake::vec![WatchlistProductRecord; 15] {
         let _ = repository.put_watchlist_record(record).await.unwrap();
     }
 
@@ -334,7 +328,7 @@ fn should_query_users_with_notifications_enabled() {
     tokio::time::sleep(Duration::from_secs(5)).await;
 
     let actual = repository
-        .query_user_ids_with_notifications(&product_id)
+        .query_user_ids_watching_product(&product_id)
         .await
         .unwrap();
 

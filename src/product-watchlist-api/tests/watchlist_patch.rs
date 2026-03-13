@@ -30,6 +30,8 @@ async fn should_respond_with_patched_notifications(
     #[case] old_notifications: bool,
     #[case] new_notifications: bool,
 ) {
+    use product_watchlist::dynamodb::record::{mk_gsi1_pk, mk_gsi1_sk};
+
     let user_repository = UserDynamoDbRepositoryImpl::new(get_dynamodb_client().await, "table_1");
     let watchlist_repository =
         WatchlistProductDynamoDbRepositoryImpl::new(get_dynamodb_client().await, "table_1");
@@ -68,8 +70,8 @@ async fn should_respond_with_patched_notifications(
             &product_record.shops_product_id,
         ),
         lsi1_sk: product_watchlist::dynamodb::record::mk_lsi1_sk(&created).unwrap(),
-        gsi1_pk: None,
-        gsi1_sk: None,
+        gsi1_pk: mk_gsi1_pk(&product_record.product_id),
+        gsi1_sk: mk_gsi1_sk(&user_record.user_id),
         user_id: user_record.user_id,
         product_id: product_record.product_id,
         shop_id: product_record.shop_id,

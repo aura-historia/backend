@@ -1,6 +1,6 @@
 use crate::{
     core::watchlist_product::{LocalizedWatchlistProductView, WatchlistProduct},
-    dynamodb::record::{WatchlistProductRecord, mk_lsi1_sk, mk_pk, mk_sk},
+    dynamodb::record::{WatchlistProductRecord, mk_gsi1_pk, mk_gsi1_sk, mk_lsi1_sk, mk_pk, mk_sk},
     dynamodb::record_update::WatchlistProductRecordUpdate,
     dynamodb::repository::WatchlistProductDynamoDbRepository,
     service::command::UpdateWatchlistProductCommand,
@@ -193,7 +193,7 @@ pub trait ProductWatchListService {
         cursor: &Option<Cursor<OffsetDateTime>>,
     ) -> Result<CursoredResult<LocalizedWatchlistProductView, OffsetDateTime>, WatchProductError>;
 
-    async fn find_user_ids_with_notifications(
+    async fn find_user_ids_watching_product(
         &self,
         product_id: &ProductId,
     ) -> Result<Vec<UserId>, WatchProductError>;
@@ -272,8 +272,8 @@ impl<'a> ProductWatchListService for ProductWatchListServiceImpl<'a> {
             sk: mk_sk(shop_id, shops_product_id),
             lsi1_sk: mk_lsi1_sk(&now)
                 .map_err::<SdkError<PutItemError>, _>(SdkError::construction_failure)?,
-            gsi1_pk: None,
-            gsi1_sk: None,
+            gsi1_pk: mk_gsi1_pk(&product_record.product_id),
+            gsi1_sk: mk_gsi1_sk(user_id),
             user_id: *user_id,
             product_id: product_record.product_id,
             shop_id: product_record.shop_id,
@@ -339,11 +339,7 @@ impl<'a> ProductWatchListService for ProductWatchListServiceImpl<'a> {
                     user_id,
                     shop_id,
                     shops_product_id,
-                    WatchlistProductRecordUpdate::from_cmd(
-                        update,
-                        user_id,
-                        &watchlist_record.product_id,
-                    ),
+                    WatchlistProductRecordUpdate::from_cmd(update),
                 )
                 .await?
                 .ok_or_else(|| {
@@ -431,12 +427,12 @@ impl<'a> ProductWatchListService for ProductWatchListServiceImpl<'a> {
         })
     }
 
-    async fn find_user_ids_with_notifications(
+    async fn find_user_ids_watching_product(
         &self,
         product_id: &ProductId,
     ) -> Result<Vec<UserId>, WatchProductError> {
         self.watchlist_repository
-            .query_user_ids_with_notifications(product_id)
+            .query_user_ids_watching_product(product_id)
             .await
             .map_err(WatchProductError::from)
     }

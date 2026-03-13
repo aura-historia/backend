@@ -14,13 +14,9 @@ pub struct WatchlistProductRecord {
 
     pub lsi1_sk: String,
 
-    // some if notifications, none else (conditional sparsity - only appears if notifications enabled
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub gsi1_pk: Option<String>,
+    pub gsi1_pk: String,
 
-    // some if notifications, none else (conditional sparsity - only appears if notifications enabled
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub gsi1_sk: Option<String>,
+    pub gsi1_sk: String,
 
     pub user_id: UserId,
 
@@ -93,16 +89,8 @@ mod faker {
                 pk: mk_pk(&user_id),
                 sk: mk_sk(&shop_id, &shops_product_id),
                 lsi1_sk: mk_lsi1_sk(&created).unwrap(),
-                gsi1_pk: if notifications {
-                    Some(mk_gsi1_pk(&product_id))
-                } else {
-                    None
-                },
-                gsi1_sk: if notifications {
-                    Some(mk_gsi1_sk(&user_id))
-                } else {
-                    None
-                },
+                gsi1_pk: mk_gsi1_pk(&product_id),
+                gsi1_sk: mk_gsi1_sk(&user_id),
                 user_id,
                 product_id: config.fake_with_rng(rng),
                 shop_id,
