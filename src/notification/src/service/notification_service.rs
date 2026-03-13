@@ -39,7 +39,7 @@ use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 use time::OffsetDateTime;
 use tokio::sync::RwLock;
-use tracing::{error, info};
+use tracing::{debug, error, info};
 use user::service::user_service::{UserService, UserServiceError};
 
 #[derive(thiserror::Error, Debug)]
@@ -420,6 +420,7 @@ impl<'a> NotificationService for NotificationServiceImpl<'a> {
             notification_type: None,
             notification_payload: cmd.notification_payload,
             seen: false,
+            external: cmd.external,
             created: now,
             updated: now,
         };
@@ -456,6 +457,7 @@ impl<'a> NotificationService for NotificationServiceImpl<'a> {
                     notification_type: None,
                     notification_payload: cmd.notification_payload.clone(),
                     seen: false,
+                    external: cmd.external,
                     created: now,
                     updated: now,
                 };
@@ -655,6 +657,16 @@ impl<'a> NotificationService for NotificationServiceImpl<'a> {
             return Ok(notification);
         }
 
+        // Only send externally if the user opted in.
+        if !notification.external {
+            debug!(
+                userId = %user_id,
+                originEventId = %origin_event_id,
+                "Notification has external=false. Skipping external send."
+            );
+            return Ok(notification);
+        }
+
         // Currently always send as email. Later the external type/target will
         // be determined by user-preferences.
         self.send_notification_as_email(&notification).await?;
@@ -782,6 +794,7 @@ mod tests {
                         new_state: ProductState::Sold,
                     },
                 },
+                external: false,
             }
         }
 
@@ -997,6 +1010,7 @@ mod tests {
                         new_state: ProductState::Sold,
                     },
                 },
+                external: false,
             }
         }
 
@@ -1287,7 +1301,9 @@ mod tests {
             user_id: UserId,
             origin_event_id: EventId,
         ) -> NotificationRecord {
-            make_notification_record_with_type(user_id, origin_event_id, None)
+            let mut record = make_notification_record_with_type(user_id, origin_event_id, None);
+            record.external = true;
+            record
         }
 
         fn make_already_sent_notification_record(
@@ -1348,6 +1364,40 @@ mod tests {
                 .unwrap();
 
             assert!(result.notification_type.is_some());
+        }
+
+        #[tokio::test]
+        async fn should_skip_sending_when_external_is_false() {
+            let user_id = UserId::new();
+            let origin_event_id = EventId::new();
+
+            let mut repository = MockNotificationDynamoDbRepository::default();
+            let mut record = make_notification_record_with_type(user_id, origin_event_id, None);
+            record.external = false;
+            repository
+                .expect_get_notification_record()
+                .return_once(move |_, _| Box::pin(async move { Ok(Some(record)) }));
+            // Must not update, call SES or S3 when external=false
+            repository.expect_update_notification_record().never();
+
+            let mut user_service = MockUserService::default();
+            user_service.expect_find_user().never();
+
+            let mut ses_adapter = MockSesAdapter::default();
+            ses_adapter.expect_send_email().never();
+
+            let mut s3_adapter = MockS3Adapter::default();
+            s3_adapter.expect_get_object().never();
+
+            let service = make_service(&repository, &user_service, &ses_adapter, &s3_adapter);
+            let result = service
+                .send_externally(&user_id, &origin_event_id)
+                .await
+                .unwrap();
+
+            // Returned as-is without sending
+            assert!(result.notification_type.is_none());
+            assert!(!result.external);
         }
 
         #[tokio::test]
@@ -2008,6 +2058,7 @@ mod tests {
                     },
                 },
                 seen: false,
+                external: false,
                 created: OffsetDateTime::now_utc(),
                 updated: OffsetDateTime::now_utc(),
             };
@@ -2042,6 +2093,7 @@ mod tests {
                     },
                 },
                 seen: false,
+                external: false,
                 created: OffsetDateTime::now_utc(),
                 updated: OffsetDateTime::now_utc(),
             };
@@ -2075,6 +2127,7 @@ mod tests {
                     },
                 },
                 seen: false,
+                external: false,
                 created: OffsetDateTime::now_utc(),
                 updated: OffsetDateTime::now_utc(),
             };
@@ -2106,6 +2159,7 @@ mod tests {
                     },
                 },
                 seen: false,
+                external: false,
                 created: OffsetDateTime::now_utc(),
                 updated: OffsetDateTime::now_utc(),
             };

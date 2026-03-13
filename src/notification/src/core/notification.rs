@@ -26,6 +26,7 @@ pub struct Notification {
     pub notification_type: Option<NotificationType>, // None if not yet sent, Some if sent
     pub notification_payload: NotificationPayload,
     pub seen: bool,
+    pub external: bool,
     pub created: OffsetDateTime,
     pub updated: OffsetDateTime,
 }
@@ -44,6 +45,7 @@ impl Notification {
                 .notification_payload
                 .localized(currency, preferred_languages),
             seen: self.seen,
+            external: self.external,
             created: self.created,
             updated: self.updated,
         }
@@ -140,6 +142,7 @@ pub struct LocalizedNotification {
     pub notification_id: NotificationId,
     pub notification_payload: LocalizedNotificationPayload,
     pub seen: bool,
+    pub external: bool,
     pub created: OffsetDateTime,
     pub updated: OffsetDateTime,
 }

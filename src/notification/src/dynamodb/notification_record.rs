@@ -45,6 +45,8 @@ pub struct NotificationRecord {
     pub notification_type: Option<NotificationTypeRecord>,
     pub notification_reason: NotificationReasonRecord,
     pub seen: bool,
+    #[serde(default)]
+    pub external: bool,
     #[serde(skip_serializing_if = "Option::is_none", default)]
     pub image: Option<ProductImageRecord>,
 
@@ -291,6 +293,7 @@ impl From<Notification> for NotificationRecord {
                     notification_type: notification.notification_type.map(Into::into),
                     notification_reason,
                     seen: notification.seen,
+                    external: notification.external,
                     image: None,
                     product_id: Some(product_id),
                     product_slug_id: Some(product_slug_id),
@@ -445,6 +448,7 @@ impl From<NotificationRecord> for Notification {
                 watchlist_payload,
             },
             seen: record.seen,
+            external: record.external,
             created: record.created,
             updated: record.updated,
         }
@@ -474,6 +478,7 @@ mod faker {
                 notification_type: config.fake_with_rng(rng),
                 notification_reason,
                 seen: config.fake_with_rng(rng),
+                external: config.fake_with_rng(rng),
                 image: None,
                 product_id: Some(config.fake_with_rng(rng)),
                 product_slug_id: Some(config.fake_with_rng(rng)),

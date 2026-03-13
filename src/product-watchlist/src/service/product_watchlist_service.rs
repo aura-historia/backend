@@ -196,7 +196,7 @@ pub trait ProductWatchListService {
     async fn find_user_ids_watching_product(
         &self,
         product_id: &ProductId,
-    ) -> Result<Vec<UserId>, WatchProductError>;
+    ) -> Result<Vec<(UserId, bool)>, WatchProductError>;
 }
 
 pub struct ProductWatchListServiceImpl<'a> {
@@ -430,7 +430,7 @@ impl<'a> ProductWatchListService for ProductWatchListServiceImpl<'a> {
     async fn find_user_ids_watching_product(
         &self,
         product_id: &ProductId,
-    ) -> Result<Vec<UserId>, WatchProductError> {
+    ) -> Result<Vec<(UserId, bool)>, WatchProductError> {
         self.watchlist_repository
             .query_user_ids_watching_product(product_id)
             .await

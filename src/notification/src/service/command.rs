@@ -6,6 +6,7 @@ use common::user_id::UserId;
 pub struct CreateNotificationCommand {
     pub user_id: UserId,
     pub notification_payload: NotificationPayload,
+    pub external: bool,
 }
 
 #[cfg_attr(feature = "test-data", derive(fake::Dummy))]

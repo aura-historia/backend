@@ -74,10 +74,13 @@ impl<'a> ProductEventWatchlistNotificationsService
 
         let notifications = user_ids
             .into_iter()
-            .map(|user_id| CreateNotificationCommand {
-                user_id,
-                notification_payload: mk_notification_payload(&product, &event.payload),
-            })
+            .map(
+                |(user_id, notifications_enabled)| CreateNotificationCommand {
+                    user_id,
+                    notification_payload: mk_notification_payload(&product, &event.payload),
+                    external: notifications_enabled,
+                },
+            )
             .collect();
         Ok(notifications)
     }
@@ -316,13 +319,18 @@ mod tests {
 
     #[tokio::test]
     async fn should_create_notification_commands_for_all_watching_users() {
-        let user_ids = vec![UserId::new(), UserId::new(), UserId::new()];
-        let expected_user_ids = user_ids.clone();
+        // (user_id, notifications_enabled)
+        let watching = vec![
+            (UserId::new(), true),
+            (UserId::new(), false),
+            (UserId::new(), true),
+        ];
+        let expected: Vec<(UserId, bool)> = watching.clone();
 
         let mut watchlist_mock = MockProductWatchListService::new();
         watchlist_mock
             .expect_find_user_ids_watching_product()
-            .return_once(move |_| Box::pin(async move { Ok(user_ids) }));
+            .return_once(move |_| Box::pin(async move { Ok(watching) }));
 
         let mut get_product_mock = MockGetProductService::new();
         get_product_mock
@@ -341,11 +349,16 @@ mod tests {
 
         assert_eq!(3, result.len());
 
-        let actual_user_ids: Vec<UserId> = result.iter().map(|cmd| cmd.user_id).collect();
-        for user_id in &expected_user_ids {
-            assert!(
-                actual_user_ids.contains(user_id),
-                "expected user_id {user_id} to be present in commands"
+        for (expected_user_id, expected_external) in &expected {
+            let cmd = result
+                .iter()
+                .find(|cmd| &cmd.user_id == expected_user_id)
+                .unwrap_or_else(|| {
+                    panic!("expected user_id {expected_user_id} to be present in commands")
+                });
+            assert_eq!(
+                cmd.external, *expected_external,
+                "expected external={expected_external} for user_id {expected_user_id}"
             );
         }
     }
@@ -362,7 +375,7 @@ mod tests {
         let mut watchlist_mock = MockProductWatchListService::new();
         watchlist_mock
             .expect_find_user_ids_watching_product()
-            .return_once(|_| Box::pin(async { Ok(vec![UserId::new()]) }));
+            .return_once(|_| Box::pin(async { Ok(vec![(UserId::new(), true)]) }));
 
         let mut get_product_mock = MockGetProductService::new();
         get_product_mock
@@ -442,7 +455,7 @@ mod tests {
         let mut watchlist_mock = MockProductWatchListService::new();
         watchlist_mock
             .expect_find_user_ids_watching_product()
-            .return_once(|_| Box::pin(async { Ok(vec![UserId::new()]) }));
+            .return_once(|_| Box::pin(async { Ok(vec![(UserId::new(), true)]) }));
 
         let mut get_product_mock = MockGetProductService::new();
         get_product_mock
@@ -489,7 +502,7 @@ mod tests {
         let mut watchlist_mock = MockProductWatchListService::new();
         watchlist_mock
             .expect_find_user_ids_watching_product()
-            .return_once(|_| Box::pin(async { Ok(vec![UserId::new()]) }));
+            .return_once(|_| Box::pin(async { Ok(vec![(UserId::new(), true)]) }));
 
         let mut get_product_mock = MockGetProductService::new();
         get_product_mock
@@ -533,7 +546,7 @@ mod tests {
         let mut watchlist_mock = MockProductWatchListService::new();
         watchlist_mock
             .expect_find_user_ids_watching_product()
-            .return_once(|_| Box::pin(async { Ok(vec![UserId::new()]) }));
+            .return_once(|_| Box::pin(async { Ok(vec![(UserId::new(), true)]) }));
 
         let mut get_product_mock = MockGetProductService::new();
         get_product_mock
@@ -577,7 +590,7 @@ mod tests {
         let mut watchlist_mock = MockProductWatchListService::new();
         watchlist_mock
             .expect_find_user_ids_watching_product()
-            .return_once(|_| Box::pin(async { Ok(vec![UserId::new()]) }));
+            .return_once(|_| Box::pin(async { Ok(vec![(UserId::new(), true)]) }));
 
         let mut get_product_mock = MockGetProductService::new();
         get_product_mock
@@ -620,7 +633,7 @@ mod tests {
         let mut watchlist_mock = MockProductWatchListService::new();
         watchlist_mock
             .expect_find_user_ids_watching_product()
-            .return_once(|_| Box::pin(async { Ok(vec![UserId::new()]) }));
+            .return_once(|_| Box::pin(async { Ok(vec![(UserId::new(), true)]) }));
 
         let mut get_product_mock = MockGetProductService::new();
         get_product_mock
@@ -670,7 +683,7 @@ mod tests {
         let mut watchlist_mock = MockProductWatchListService::new();
         watchlist_mock
             .expect_find_user_ids_watching_product()
-            .return_once(|_| Box::pin(async { Ok(vec![UserId::new()]) }));
+            .return_once(|_| Box::pin(async { Ok(vec![(UserId::new(), true)]) }));
 
         let mut get_product_mock = MockGetProductService::new();
         get_product_mock
@@ -757,7 +770,7 @@ mod tests {
         let mut watchlist_mock = MockProductWatchListService::new();
         watchlist_mock
             .expect_find_user_ids_watching_product()
-            .return_once(|_| Box::pin(async { Ok(vec![UserId::new()]) }));
+            .return_once(|_| Box::pin(async { Ok(vec![(UserId::new(), true)]) }));
 
         let mut get_product_mock = MockGetProductService::new();
         get_product_mock.expect_find_product().return_once(|_, _| {

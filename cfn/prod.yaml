@@ -1992,6 +1992,9 @@ Resources:
               sk:
                 S:
                   - prefix: "user#notification#origin_event_id#"
+              external:
+                BOOL:
+                  - true
       Targets:
         - Id: NotificationSendQ
           Arn: !GetAtt NotificationSendQ.Arn
