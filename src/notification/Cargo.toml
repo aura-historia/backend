@@ -21,7 +21,6 @@ aws-sdk-dynamodb = { workspace = true, optional = true }
 fake = { workspace = true, optional = true }
 product = { workspace = true, optional = true }
 user = { workspace = true, optional = true }
-mail-core = { workspace = true, optional = true }
 aws-sdk-sesv2 = { workspace = true, optional = true }
 aws-sdk-s3 = { workspace = true, optional = true }
 handlebars = { workspace = true, optional = true }
@@ -43,7 +42,6 @@ dynamodb = ["aws-sdk-dynamodb", "serde_dynamo", "serde_dynamo/aws-sdk-dynamodb+1
 service = [
     "dynamodb",
     "user", "user/service",
-    "mail-core", "mail-core/send",
     "aws-sdk-sesv2",
     "aws-sdk-s3",
     "handlebars",

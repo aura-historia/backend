@@ -9,7 +9,6 @@ product = { workspace = true, features = ["dynamodb", "service"] }
 product-watchlist = { workspace = true, features = ["dynamodb", "service"] }
 notification = { workspace = true, features = ["dynamodb", "service"] }
 user = { workspace = true, features = ["dynamodb", "service"] }
-mail-core = { workspace = true, features = ["send"] }
 aws-sdk-sesv2 = { workspace = true }
 aws-sdk-s3 = { workspace = true }
 serde-email = { workspace = true }

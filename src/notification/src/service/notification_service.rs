@@ -1,3 +1,5 @@
+use crate::core::mail_template::{MailTemplate, MailTemplateType};
+use crate::service::{s3_adapter::S3Adapter, ses_adapter::SesAdapter};
 use crate::{
     core::{
         notification::{
@@ -28,11 +30,6 @@ use common::{
     user_id::UserId,
 };
 use handlebars::Handlebars;
-use mail_core::{
-    s3_adapter::S3Adapter,
-    ses_adapter::SesAdapter,
-    template::{MailTemplate, MailTemplateType},
-};
 use once_cell::sync::OnceCell;
 use serde_email::Email;
 use std::collections::{HashMap, HashSet};
@@ -702,6 +699,7 @@ impl<'a> NotificationService for NotificationServiceImpl<'a> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::service::{s3_adapter::MockS3Adapter, ses_adapter::MockSesAdapter};
     use crate::{
         core::{
             notification::{NotificationPayload, NotificationWatchlistPayload},
@@ -722,7 +720,6 @@ mod tests {
         product_state::domain::ProductState, user_id::UserId,
     };
     use fake::{Fake, Faker};
-    use mail_core::{s3_adapter::MockS3Adapter, ses_adapter::MockSesAdapter};
     use std::collections::HashMap;
     use user::{core::user::User, service::user_service::MockUserService};
 

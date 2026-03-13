@@ -1,7 +1,7 @@
 use aws_config::BehaviorVersion;
 use aws_lambda_events::sqs::SqsEvent;
 use lambda_runtime::{Error, LambdaEvent, run, service_fn};
-use mail_core::{s3_adapter::S3AdapterImpl, ses_adapter::SesAdapterImpl};
+use notification::service::{s3_adapter::S3AdapterImpl, ses_adapter::SesAdapterImpl};
 use notification::{
     dynamodb::repository::NotificationDynamoDbRepositoryImpl,
     service::notification_service::NotificationServiceImpl,

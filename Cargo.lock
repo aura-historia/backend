@@ -312,7 +312,6 @@ dependencies = [
  "common",
  "fxrate",
  "fxrate-lambda",
- "mail",
  "notification",
  "notification-send",
  "product",
@@ -2276,7 +2275,6 @@ dependencies = [
  "dummy",
  "either",
  "rand 0.9.2",
- "serde_json",
  "time",
  "url",
  "uuid",
@@ -3698,42 +3696,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "c41e0c4fef86961ac6d6f8a82609f55f31b05e4fce149ac5710e439df7619ba4"
 
 [[package]]
-name = "mail"
-version = "0.1.0"
-dependencies = [
- "mail-core",
-]
-
-[[package]]
-name = "mail-core"
-version = "0.1.0"
-dependencies = [
- "async-trait",
- "aws-config",
- "aws-sdk-dynamodb",
- "aws-sdk-s3",
- "aws-sdk-sesv2",
- "aws-sdk-sqs",
- "common",
- "fake",
- "handlebars",
- "mail-core",
- "mockall",
- "once_cell",
- "serde",
- "serde-email",
- "serde_dynamo",
- "serde_json",
- "serial_test",
- "test-api",
- "thiserror",
- "time",
- "tokio",
- "tracing",
- "uuid",
-]
-
-[[package]]
 name = "maplit"
 version = "1.0.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3970,7 +3932,6 @@ dependencies = [
  "common",
  "fake",
  "handlebars",
- "mail-core",
  "mockall",
  "notification",
  "once_cell",
@@ -4003,7 +3964,6 @@ dependencies = [
  "common",
  "fake",
  "lambda_runtime",
- "mail-core",
  "notification",
  "rstest",
  "serde",
@@ -4865,7 +4825,6 @@ dependencies = [
  "common",
  "fake",
  "lambda_runtime",
- "mail-core",
  "mockall",
  "notification",
  "product",

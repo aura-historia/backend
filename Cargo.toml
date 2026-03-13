@@ -23,7 +23,6 @@ product-lambda = { workspace = true }
 test-api = { workspace = true }
 user = { workspace = true }
 user-api = { workspace = true }
-mail = { workspace = true }
 notification-send = { workspace = true }
 notification = { workspace = true }
 product-pipeline = { workspace = true }
@@ -52,7 +51,6 @@ members = [
     "src/shop-lambda",
     "src/user",
     "src/user-api",
-    "src/mail",
     "src/notification-send",
     "src/notification",
     "src/product-pipeline",
@@ -85,8 +83,6 @@ shop = { path = "src/shop" }
 shop-lambda = { path = "src/shop-lambda" }
 shop-lambda-opensearch-index = { path = "src/shop-lambda/src/shop-lambda-opensearch-index" }
 shop-api = { path = "src/shop-api" }
-mail = { path = "src/mail" }
-mail-core = { path = "src/mail/src/mail-core" }
 notification-send = { path = "src/notification-send" }
 notification = { path = "src/notification" }
 futures = { version = "0.3.32", default-features = false }
