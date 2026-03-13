@@ -1,14 +1,23 @@
 use aws_config::{BehaviorVersion, SdkConfig};
 use std::collections::HashMap;
 use std::process::Command;
-use testcontainers::core::{IntoContainerPort, Mount};
+use std::sync::OnceLock;
+use testcontainers::core::Mount;
 use testcontainers::runners::AsyncRunner;
 use testcontainers::{ContainerAsync, ImageExt};
 use testcontainers_modules::localstack::LocalStack;
 use tokio::sync::OnceCell;
 use tracing::{debug, error};
 
-const LOCALSTACK_CONTAINER_NAME: &str = "aura-historia-aws-backend-localstack-test";
+const LOCALSTACK_CONTAINER_NAME_PREFIX: &str = "aura-historia-aws-backend-localstack-test";
+
+/// Returns a unique container name for this test process, derived from the process ID.
+///
+/// Using the PID ensures that concurrent test processes on the same machine each
+/// manage their own LocalStack container without interfering with one another.
+fn localstack_container_name() -> String {
+    format!("{LOCALSTACK_CONTAINER_NAME_PREFIX}-{}", std::process::id())
+}
 
 /// A lazily-initialized, globally accessible AWS SDK configuration for integration tests.
 ///
@@ -17,6 +26,24 @@ const LOCALSTACK_CONTAINER_NAME: &str = "aura-historia-aws-backend-localstack-te
 ///
 /// Initialized once on first use via [`get_aws_config()`].
 static CONFIG: OnceCell<SdkConfig> = OnceCell::const_new();
+
+/// Stores the LocalStack endpoint URL (e.g. `http://localhost:54321`) once the container
+/// has started and its host-mapped port is known.
+///
+/// Set by [`get_localstack()`] during container startup. Must be initialized before
+/// [`get_aws_config()`] is called.
+static ENDPOINT_URL: OnceLock<String> = OnceLock::new();
+
+/// Returns the LocalStack endpoint URL (e.g. `http://localhost:54321`).
+///
+/// # Panics
+///
+/// Panics if called before [`get_localstack()`] has started the container.
+pub fn get_endpoint_url() -> &'static str {
+    ENDPOINT_URL
+        .get()
+        .expect("LocalStack endpoint URL not yet initialized; call `get_localstack()` first")
+}
 
 /// Loads and returns a static reference to the AWS SDK configuration for LocalStack.
 ///
@@ -35,7 +62,7 @@ pub async fn get_aws_config() -> &'static SdkConfig {
             aws_config::defaults(BehaviorVersion::latest())
                 .credentials_provider(aws_sdk_account::config::Credentials::for_tests())
                 .region("eu-central-1")
-                .endpoint_url("http://localhost:4566")
+                .endpoint_url(get_endpoint_url())
                 .load()
                 .await
         })
@@ -53,24 +80,26 @@ pub async fn get_localstack(services: &[&str]) -> &'static ContainerAsync<LocalS
             // Spins up with the first (!) supplied services only.
             // No dealbreaker for now as each test-suite has it's own OnceCell
             // And all tests within a test-suite require the same services
-            spin_up_localstack_with_services(services).await
+            let container = spin_up_localstack_with_services(services).await;
+            let port = container
+                .get_host_port_ipv4(4566)
+                .await
+                .expect("shouldn't fail getting LocalStack host port");
+            ENDPOINT_URL
+                .set(format!("http://localhost:{port}"))
+                .expect("shouldn't fail setting LocalStack endpoint URL");
+            container
         })
         .await
 }
 
 extern "C" fn cleanup() {
-    let _ = Command::new("docker")
-        .args(["rm", "-f", LOCALSTACK_CONTAINER_NAME])
-        .status();
+    let name = localstack_container_name();
+    let _ = Command::new("docker").args(["rm", "-f", &name]).status();
 
     // remove ephemeral containers spawned by localstack
     if let Ok(out) = Command::new("docker")
-        .args([
-            "ps",
-            "-aq",
-            "--filter",
-            &format!("name=^/{LOCALSTACK_CONTAINER_NAME}"),
-        ])
+        .args(["ps", "-aq", "--filter", &format!("name=^/{name}")])
         .output()
     {
         for id in String::from_utf8_lossy(&out.stdout).lines() {
@@ -91,7 +120,7 @@ fn install_cleanup() {
 /// This function uses [`testcontainers`] to start a LocalStack Docker container with:
 /// - Optional environment variables (e.g., AWS services to enable)
 /// - Mounted Docker socket (for container-in-container support)
-/// - Port 4566 mapped for API access
+/// - A randomly assigned host port (to allow parallel test runs without port conflicts)
 ///
 /// It also sets up structured JSON tracing using `tracing_subscriber`.
 ///
@@ -119,15 +148,14 @@ pub async fn spin_up_localstack(env_vars: HashMap<&str, &str>) -> ContainerAsync
         .iter()
         .fold(
             LocalStack::default()
-                .with_container_name(LOCALSTACK_CONTAINER_NAME)
+                .with_container_name(localstack_container_name())
                 .with_tag("latest"),
             |ls, (k, v)| ls.with_env_var(*k, *v),
         )
         .with_mount(Mount::bind_mount(
             "/var/run/docker.sock",
             "/var/run/docker.sock",
-        ))
-        .with_mapped_port(4566, 4566.tcp());
+        ));
 
     let container = request
         .start()
