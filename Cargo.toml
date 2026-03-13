@@ -59,6 +59,7 @@ members = [
     "src/fxrate",
     "src/fxrate-lambda",
     "src/aura-scraper",
+    "src/aura-spider",
 ]
 
 [workspace.dependencies]
