@@ -12,6 +12,13 @@ use tracing::{debug, error};
 
 const LOCALSTACK_CONTAINER_NAME_PREFIX: &str = "aura-historia-aws-backend-localstack-test";
 
+/// The fixed TCP port that LocalStack listens on **inside** the container.
+///
+/// The Docker host maps a random free port to this internal port. Use [`get_endpoint_url()`]
+/// to obtain the host-side URL. Use this constant only when constructing URLs that
+/// LocalStack itself will resolve from inside the container (e.g., domain custom endpoints).
+pub const LOCALSTACK_CONTAINER_PORT: u16 = 4566;
+
 /// Returns a unique container name for this test process, derived from the process ID.
 ///
 /// Using the PID ensures that concurrent test processes on the same machine each
@@ -171,7 +178,7 @@ pub async fn spin_up_localstack(
             "/var/run/docker.sock",
             "/var/run/docker.sock",
         ))
-        .with_mapped_port(port, 4566_u16.tcp());
+        .with_mapped_port(port, LOCALSTACK_CONTAINER_PORT.tcp());
 
     let container = request
         .start()
