@@ -14,6 +14,7 @@ pub struct UpdateUserCommand {
     pub last_name: Option<LastName>,
     pub language: Option<Language>,
     pub currency: Option<Currency>,
+    pub prohibited_content_consent: Option<bool>,
 }
 
 impl UpdateUserCommand {
@@ -22,6 +23,7 @@ impl UpdateUserCommand {
             && self.last_name.is_none()
             && self.language.is_none()
             && self.currency.is_none()
+            && self.prohibited_content_consent.is_none()
     }
 }
 
@@ -47,6 +49,7 @@ mod fake {
                 last_name: config.fake_with_rng(rng),
                 language: config.fake_with_rng(rng),
                 currency: config.fake_with_rng(rng),
+                prohibited_content_consent: config.fake_with_rng(rng),
             }
         }
     }

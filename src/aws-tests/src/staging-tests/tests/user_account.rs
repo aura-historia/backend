@@ -79,6 +79,7 @@ async fn should_200_for_get_patch_get() {
         last_name: Some("Hans".into()),
         language: Some(LanguageData::Fr),
         currency: Some(CurrencyData::Nzd),
+        prohibited_content_consent: None,
     };
     let patch_response = reqwest::Client::new()
         .patch(url.clone())

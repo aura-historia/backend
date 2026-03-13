@@ -28,6 +28,9 @@ pub struct UserRecord {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub currency: Option<CurrencyRecord>,
 
+    #[serde(default)]
+    pub prohibited_content_consent: bool,
+
     #[serde(with = "time::serde::rfc3339")]
     pub created: OffsetDateTime,
 
@@ -54,6 +57,7 @@ impl From<User> for UserRecord {
             last_name: user.last_name,
             language: user.language.map(LanguageRecord::from),
             currency: user.currency.map(CurrencyRecord::from),
+            prohibited_content_consent: user.prohibited_content_consent,
             created: user.created,
             updated: user.updated,
         }
@@ -69,6 +73,7 @@ impl From<UserRecord> for User {
             last_name: record.last_name,
             language: record.language.map(Language::from),
             currency: record.currency.map(Currency::from),
+            prohibited_content_consent: record.prohibited_content_consent,
             created: record.created,
             updated: record.updated,
         }

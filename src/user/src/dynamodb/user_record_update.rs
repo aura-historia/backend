@@ -21,6 +21,9 @@ pub struct UserRecordUpdate {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub currency: Option<CurrencyRecord>,
 
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub prohibited_content_consent: Option<bool>,
+
     #[serde(with = "time::serde::rfc3339")]
     pub updated: OffsetDateTime,
 }
@@ -40,6 +43,7 @@ mod fake {
                 last_name: config.fake_with_rng(rng),
                 language: config.fake_with_rng(rng),
                 currency: config.fake_with_rng(rng),
+                prohibited_content_consent: config.fake_with_rng(rng),
                 updated: OffsetDateTime::now_utc(),
             }
         }

@@ -22,6 +22,8 @@ pub struct GetUserAccountData {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub currency: Option<CurrencyData>,
 
+    pub prohibited_content_consent: bool,
+
     #[serde(with = "time::serde::rfc3339")]
     pub created: OffsetDateTime,
 
@@ -38,6 +40,7 @@ impl From<User> for GetUserAccountData {
             last_name: user.last_name,
             language: user.language.map(LanguageData::from),
             currency: user.currency.map(CurrencyData::from),
+            prohibited_content_consent: user.prohibited_content_consent,
             created: user.created,
             updated: user.updated,
         }

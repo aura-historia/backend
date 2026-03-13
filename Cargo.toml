@@ -69,12 +69,12 @@ aws-sdk-account = "1.99.0"
 aws-sdk-autoscaling = "1.111.0"
 aws-sdk-dynamodb = "1.108.0"
 aws-sdk-lambda = "1.100.0"
-aws-sdk-opensearch = "1.116.0"
+aws-sdk-opensearch = "1.117.0"
 aws-sdk-sqs = "1.96.0"
 aws-sdk-sesv2 = "1.116.0"
-aws-sdk-s3 = "1.125.0"
+aws-sdk-s3 = "1.126.0"
 aws-sdk-cloudwatch = "1.107.0"
-aws_lambda_events = { version = "1.0.3", default-features = false }
+aws_lambda_events = { version = "1.1.0", default-features = false }
 common = { path = "src/common" }
 derive_builder = "0.20.2"
 fake = { version = "4.4.0", features = ["derive", "time", "uuid", "url"] }
@@ -163,8 +163,8 @@ cognito = { path = "src/cognito" }
 cognito-post-confirmation = { path = "src/cognito-post-confirmation" }
 serde-email = "3.2.0"
 handlebars = "6.4.0"
-once_cell = "1.21.3"
-openssl = { version = "0.10.75", default-features = false }
+once_cell = "1.21.4"
+openssl = { version = "0.10.76", default-features = false }
 jsonwebtokens = "1.2.0"
 jsonwebtokens-cognito = "0.1.1"
 aws-sdk-cognitoidentityprovider = "1.112.0"
