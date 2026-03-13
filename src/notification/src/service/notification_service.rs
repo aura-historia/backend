@@ -756,6 +756,7 @@ mod tests {
             last_name: None,
             language: Some(Language::En),
             currency: Some(Currency::Eur),
+            prohibited_content_consent: false,
             created: OffsetDateTime::now_utc(),
             updated: OffsetDateTime::now_utc(),
         }
@@ -1709,6 +1710,7 @@ mod tests {
                 last_name: None,
                 language: None,
                 currency: None,
+                prohibited_content_consent: false,
                 created: OffsetDateTime::now_utc(),
                 updated: OffsetDateTime::now_utc(),
             };
