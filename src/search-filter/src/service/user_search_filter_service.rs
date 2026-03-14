@@ -60,12 +60,10 @@ pub mod api {
                 UserSearchFilterError::SdkDeleteItemError(err) => err.into(),
                 UserSearchFilterError::SdkUpdateItemError(err) => err.into(),
                 #[cfg(feature = "opensearch")]
-                UserSearchFilterError::OpenSearchError(err) => {
-                    ApiError::internal_server_error(
-                        common::api::error_code::INTERNAL_SERVER_ERROR,
-                        Box::new(err),
-                    )
-                }
+                UserSearchFilterError::OpenSearchError(err) => ApiError::internal_server_error(
+                    common::api::error_code::INTERNAL_SERVER_ERROR,
+                    Box::new(err),
+                ),
             }
         }
     }
@@ -115,8 +113,9 @@ pub trait UserSearchFilterService {
 pub struct UserSearchFilterServiceImpl<'a> {
     repository: &'a (dyn UserSearchFilterDynamoDbRepository + Sync),
     #[cfg(feature = "opensearch")]
-    opensearch_repository:
-        Option<&'a (dyn crate::opensearch::repository::UserSearchFilterOpenSearchRepository + Sync)>,
+    opensearch_repository: Option<
+        &'a (dyn crate::opensearch::repository::UserSearchFilterOpenSearchRepository + Sync),
+    >,
 }
 
 impl<'a> UserSearchFilterServiceImpl<'a> {
@@ -131,8 +130,9 @@ impl<'a> UserSearchFilterServiceImpl<'a> {
     #[cfg(feature = "opensearch")]
     pub fn with_opensearch(
         repository: &'a (dyn UserSearchFilterDynamoDbRepository + Sync),
-        opensearch_repository: &'a (dyn crate::opensearch::repository::UserSearchFilterOpenSearchRepository
-                  + Sync),
+        opensearch_repository: &'a (
+                dyn crate::opensearch::repository::UserSearchFilterOpenSearchRepository + Sync
+            ),
     ) -> Self {
         Self {
             repository,
@@ -305,9 +305,7 @@ mod tests {
                 .return_once(move |_, _| {
                     Box::pin(async move { Ok(fake::vec![UserSearchFilterRecord; count]) })
                 });
-            let service = UserSearchFilterServiceImpl {
-                repository: &repository,
-            };
+            let service = UserSearchFilterServiceImpl::new(&repository);
             let actual = service
                 .find_user_search_filters(&UserId::new(), &Some(SortOrder::Asc))
                 .await;
@@ -338,9 +336,7 @@ mod tests {
             repository
                 .expect_query_user_search_filter_records()
                 .return_once(|_, _| Box::pin(async { Err(expected) }));
-            let service = UserSearchFilterServiceImpl {
-                repository: &repository,
-            };
+            let service = UserSearchFilterServiceImpl::new(&repository);
             let actual = service
                 .find_user_search_filters(&UserId::new(), &Some(SortOrder::Desc))
                 .await;
@@ -372,9 +368,7 @@ mod tests {
             repository
                 .expect_get_user_search_filter_record()
                 .return_once(|_, _| Box::pin(async { Ok(Some(Faker.fake())) }));
-            let service = UserSearchFilterServiceImpl {
-                repository: &repository,
-            };
+            let service = UserSearchFilterServiceImpl::new(&repository);
             let actual = service
                 .find_user_search_filter(&UserId::new(), &UserSearchFilterId::new())
                 .await;
@@ -387,9 +381,7 @@ mod tests {
             repository
                 .expect_get_user_search_filter_record()
                 .return_once(|_, _| Box::pin(async { Ok(None) }));
-            let service = UserSearchFilterServiceImpl {
-                repository: &repository,
-            };
+            let service = UserSearchFilterServiceImpl::new(&repository);
             let user_id = UserId::new();
             let user_search_filter_id = UserSearchFilterId::new();
             let actual = service
@@ -433,9 +425,7 @@ mod tests {
             repository
                 .expect_get_user_search_filter_record()
                 .return_once(|_, _| Box::pin(async { Err(expected) }));
-            let service = UserSearchFilterServiceImpl {
-                repository: &repository,
-            };
+            let service = UserSearchFilterServiceImpl::new(&repository);
             let actual = service
                 .find_user_search_filter(&UserId::new(), &UserSearchFilterId::new())
                 .await;
@@ -467,9 +457,7 @@ mod tests {
             repository
                 .expect_put_user_search_filter_record()
                 .return_once(|_| Box::pin(async { Ok(PutItemOutput::builder().build()) }));
-            let service = UserSearchFilterServiceImpl {
-                repository: &repository,
-            };
+            let service = UserSearchFilterServiceImpl::new(&repository);
             let actual = service
                 .save_user_search_filter(&UserId::new(), Faker.fake(), Faker.fake())
                 .await;
@@ -500,9 +488,7 @@ mod tests {
             repository
                 .expect_put_user_search_filter_record()
                 .return_once(|_| Box::pin(async { Err(expected) }));
-            let service = UserSearchFilterServiceImpl {
-                repository: &repository,
-            };
+            let service = UserSearchFilterServiceImpl::new(&repository);
             let actual = service
                 .save_user_search_filter(&UserId::new(), Faker.fake(), Faker.fake())
                 .await;
@@ -538,9 +524,7 @@ mod tests {
             repository
                 .expect_delete_user_search_filter_record()
                 .return_once(|_, _| Box::pin(async { Ok(DeleteItemOutput::builder().build()) }));
-            let service = UserSearchFilterServiceImpl {
-                repository: &repository,
-            };
+            let service = UserSearchFilterServiceImpl::new(&repository);
             let actual = service
                 .delete_user_search_filter(&UserId::new(), &UserSearchFilterId::new())
                 .await;
@@ -553,9 +537,7 @@ mod tests {
             repository
                 .expect_get_user_search_filter_record()
                 .return_once(|_, _| Box::pin(async { Ok(None) }));
-            let service = UserSearchFilterServiceImpl {
-                repository: &repository,
-            };
+            let service = UserSearchFilterServiceImpl::new(&repository);
 
             let user_id = UserId::new();
             let user_search_filter_id = UserSearchFilterId::new();
@@ -600,9 +582,7 @@ mod tests {
             repository
                 .expect_get_user_search_filter_record()
                 .return_once(|_, _| Box::pin(async { Err(expected) }));
-            let service = UserSearchFilterServiceImpl {
-                repository: &repository,
-            };
+            let service = UserSearchFilterServiceImpl::new(&repository);
             let actual = service
                 .delete_user_search_filter(&UserId::new(), &UserSearchFilterId::new())
                 .await;
@@ -641,9 +621,7 @@ mod tests {
             repository
                 .expect_delete_user_search_filter_record()
                 .return_once(|_, _| Box::pin(async { Err(expected) }));
-            let service = UserSearchFilterServiceImpl {
-                repository: &repository,
-            };
+            let service = UserSearchFilterServiceImpl::new(&repository);
             let actual = service
                 .delete_user_search_filter(&UserId::new(), &UserSearchFilterId::new())
                 .await;
@@ -678,9 +656,7 @@ mod tests {
             repository
                 .expect_update_user_search_filter_record()
                 .return_once(|_, _, _| Box::pin(async { Ok(Some(Faker.fake())) }));
-            let service = UserSearchFilterServiceImpl {
-                repository: &repository,
-            };
+            let service = UserSearchFilterServiceImpl::new(&repository);
             let actual = service
                 .update_user_search_filter(&UserId::new(), &UserSearchFilterId::new(), Faker.fake())
                 .await;
@@ -693,9 +669,7 @@ mod tests {
             repository
                 .expect_get_user_search_filter_record()
                 .return_once(|_, _| Box::pin(async { Ok(None) }));
-            let service = UserSearchFilterServiceImpl {
-                repository: &repository,
-            };
+            let service = UserSearchFilterServiceImpl::new(&repository);
 
             let user_id = UserId::new();
             let user_search_filter_id = UserSearchFilterId::new();
@@ -740,9 +714,7 @@ mod tests {
             repository
                 .expect_get_user_search_filter_record()
                 .return_once(|_, _| Box::pin(async { Err(expected) }));
-            let service = UserSearchFilterServiceImpl {
-                repository: &repository,
-            };
+            let service = UserSearchFilterServiceImpl::new(&repository);
             let actual = service
                 .update_user_search_filter(&UserId::new(), &UserSearchFilterId::new(), Faker.fake())
                 .await;
@@ -781,9 +753,7 @@ mod tests {
             repository
                 .expect_update_user_search_filter_record()
                 .return_once(|_, _, _| Box::pin(async { Err(expected) }));
-            let service = UserSearchFilterServiceImpl {
-                repository: &repository,
-            };
+            let service = UserSearchFilterServiceImpl::new(&repository);
             let actual = service
                 .update_user_search_filter(&UserId::new(), &UserSearchFilterId::new(), Faker.fake())
                 .await;

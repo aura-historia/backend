@@ -140,43 +140,35 @@ mod tests {
     use lambda_runtime::Context;
     use search_filter::opensearch::repository::MockUserSearchFilterOpenSearchRepository;
     use std::collections::HashMap;
-    use std::time::SystemTime;
 
     fn mk_sqs_event(body: String) -> LambdaEvent<SqsEvent> {
-        let msg = SqsMessage {
-            body: Some(body),
-            ..Default::default()
-        };
+        let mut msg = SqsMessage::default();
+        msg.body = Some(body);
         LambdaEvent {
-            payload: SqsEvent {
-                records: vec![msg],
+            payload: {
+                let mut e = SqsEvent::default();
+                e.records = vec![msg];
+                e
             },
             context: Context::default(),
         }
     }
 
     fn mk_event_bridge_body(record: &UserSearchFilterRecord, event_name: &str) -> String {
-        let new_image: HashMap<String, serde_dynamo::AttributeValue> =
-            serde_dynamo::to_item(record.clone()).unwrap();
+        let new_image = serde_dynamo::to_item(record.clone()).unwrap();
 
-        let event = EventBridgeEvent {
-            detail: EventRecord {
-                event_name: Some(event_name.to_string()),
-                change: StreamRecord {
-                    new_image,
-                    ..Default::default()
-                },
-                ..Default::default()
-            },
-            account: Some("123456789012".to_string()),
-            detail_type: Some("DynamoDBStreamRecord".to_string()),
-            id: Some(uuid::Uuid::new_v4().to_string()),
-            region: Some("eu-central-1".to_string()),
-            resources: Some(vec![]),
-            source: Some("table_1".to_string()),
-            time: Some(SystemTime::now().into()),
-            replay_name: None,
-        };
+        let mut stream_record = StreamRecord::default();
+        stream_record.new_image = new_image;
+
+        let mut event_record = EventRecord::default();
+        event_record.event_name = event_name.to_string();
+        event_record.change = stream_record;
+
+        let mut event = EventBridgeEvent::<EventRecord>::default();
+        event.detail_type = "DynamoDBStreamRecord".to_string();
+        event.source = "table_1".to_string();
+        event.detail = event_record;
+
         serde_json::to_string(&event).unwrap()
     }
 
@@ -191,29 +183,21 @@ mod tests {
         );
         keys.insert(
             "sk".to_string(),
-            serde_dynamo::AttributeValue::S(format!(
-                "search_filter#{user_search_filter_id}"
-            )),
+            serde_dynamo::AttributeValue::S(format!("search_filter#{user_search_filter_id}")),
         );
 
-        let event = EventBridgeEvent {
-            detail: EventRecord {
-                event_name: Some("REMOVE".to_string()),
-                change: StreamRecord {
-                    keys,
-                    ..Default::default()
-                },
-                ..Default::default()
-            },
-            account: Some("123456789012".to_string()),
-            detail_type: Some("DynamoDBStreamRecord".to_string()),
-            id: Some(uuid::Uuid::new_v4().to_string()),
-            region: Some("eu-central-1".to_string()),
-            resources: Some(vec![]),
-            source: Some("table_1".to_string()),
-            time: Some(SystemTime::now().into()),
-            replay_name: None,
-        };
+        let mut stream_record = StreamRecord::default();
+        stream_record.keys = keys.into();
+
+        let mut event_record = EventRecord::default();
+        event_record.event_name = "REMOVE".to_string();
+        event_record.change = stream_record;
+
+        let mut event = EventBridgeEvent::<EventRecord>::default();
+        event.detail_type = "DynamoDBStreamRecord".to_string();
+        event.source = "table_1".to_string();
+        event.detail = event_record;
+
         serde_json::to_string(&event).unwrap()
     }
 
@@ -224,17 +208,16 @@ mod tests {
         let event = mk_sqs_event(body);
 
         let mut mock_repo = MockUserSearchFilterOpenSearchRepository::new();
-        mock_repo
-            .expect_index_document()
-            .times(1)
-            .returning(|_| {
+        mock_repo.expect_index_document().times(1).returning(|_| {
+            Box::pin(async {
                 Ok(common::opensearch::index_response::IndexResponse {
                     index: "user_search_filter".to_string(),
                     id: "test".to_string(),
                     version: Some(1),
                     result: "created".to_string(),
                 })
-            });
+            })
+        });
 
         let res = handler(&mock_repo, event).await;
         assert!(res.is_ok());
@@ -247,17 +230,16 @@ mod tests {
         let event = mk_sqs_event(body);
 
         let mut mock_repo = MockUserSearchFilterOpenSearchRepository::new();
-        mock_repo
-            .expect_index_document()
-            .times(1)
-            .returning(|_| {
+        mock_repo.expect_index_document().times(1).returning(|_| {
+            Box::pin(async {
                 Ok(common::opensearch::index_response::IndexResponse {
                     index: "user_search_filter".to_string(),
                     id: "test".to_string(),
                     version: Some(2),
                     result: "updated".to_string(),
                 })
-            });
+            })
+        });
 
         let res = handler(&mock_repo, event).await;
         assert!(res.is_ok());
@@ -272,17 +254,16 @@ mod tests {
         let event = mk_sqs_event(body);
 
         let mut mock_repo = MockUserSearchFilterOpenSearchRepository::new();
-        mock_repo
-            .expect_delete_document()
-            .times(1)
-            .returning(|_| {
+        mock_repo.expect_delete_document().times(1).returning(|_| {
+            Box::pin(async {
                 Ok(common::opensearch::delete_response::DeleteResponse {
                     index: "user_search_filter".to_string(),
                     id: "test".to_string(),
                     version: Some(1),
                     result: "deleted".to_string(),
                 })
-            });
+            })
+        });
 
         let res = handler(&mock_repo, event).await;
         assert!(res.is_ok());
@@ -290,13 +271,12 @@ mod tests {
 
     #[tokio::test]
     async fn should_skip_when_empty_body() {
-        let msg = SqsMessage {
-            body: None,
-            ..Default::default()
-        };
+        let msg = SqsMessage::default();
         let event = LambdaEvent {
-            payload: SqsEvent {
-                records: vec![msg],
+            payload: {
+                let mut e = SqsEvent::default();
+                e.records = vec![msg];
+                e
             },
             context: Context::default(),
         };

@@ -397,10 +397,9 @@ async fn set_up_indices() -> Result<Response, Error> {
             "user_search_filter",
         ))
         .body(
-            serde_json::from_str::<serde_json::Value>(USER_SEARCH_FILTER_INDEX_MAPPING_STR)
-                .expect(
-                    "shouldn't fail parsing USER_SEARCH_FILTER_INDEX_MAPPING_STR as serde_json::Value",
-                ),
+            serde_json::from_str::<serde_json::Value>(USER_SEARCH_FILTER_INDEX_MAPPING_STR).expect(
+                "shouldn't fail parsing USER_SEARCH_FILTER_INDEX_MAPPING_STR as serde_json::Value",
+            ),
         )
         .send()
         .await?

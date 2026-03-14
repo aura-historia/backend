@@ -433,6 +433,36 @@ Resources:
                     }
                   }
                 }
+            # FILTER 5: Search filter INSERT/MODIFY events
+            - Pattern: |
+                {
+                  "eventName": ["INSERT", "MODIFY"],
+                  "dynamodb": {
+                    "NewImage": {
+                      "pk": {
+                        "S": [{ "prefix": "user#" }]
+                      },
+                      "sk": {
+                        "S": [{ "prefix": "search_filter#" }]
+                      }
+                    }
+                  }
+                }
+            # FILTER 6: Search filter REMOVE events
+            - Pattern: |
+                {
+                  "eventName": ["REMOVE"],
+                  "dynamodb": {
+                    "Keys": {
+                      "pk": {
+                        "S": [{ "prefix": "user#" }]
+                      },
+                      "sk": {
+                        "S": [{ "prefix": "search_filter#" }]
+                      }
+                    }
+                  }
+                }
       Target: !GetAtt DynamoDbEventBus.Arn
       TargetParameters:
         EventBridgeEventBusParameters:
@@ -446,6 +476,7 @@ Resources:
         - !Ref ProductMaterializeDynamoDbQ
         - !Ref ProductMaterializeOpenSearchQ
         - !Ref ShopOpenSearchIndexQ
+        - !Ref SearchFilterOpenSearchSyncQ
         - !Ref ProductUpdateNotifyUserQ
         - !Ref ProductPipelineTranslateQ
         - !Ref ProductPipelineEmbedTextQ
@@ -464,6 +495,7 @@ Resources:
               - !GetAtt ProductMaterializeDynamoDbQ.Arn
               - !GetAtt ProductMaterializeOpenSearchQ.Arn
               - !GetAtt ShopOpenSearchIndexQ.Arn
+              - !GetAtt SearchFilterOpenSearchSyncQ.Arn
               - !GetAtt ProductUpdateNotifyUserQ.Arn
               - !GetAtt ProductPipelineTranslateQ.Arn
               - !GetAtt ProductPipelineEmbedTextQ.Arn
@@ -1924,6 +1956,93 @@ Resources:
       AlarmActions:
         - !Ref AlarmNotificationTopic
 
+  SearchFilterOpenSearchSyncDlq:
+    Type: AWS::SQS::Queue
+    Properties:
+      QueueName: "search-filter-opensearch-sync-dlq-prod"
+      MessageRetentionPeriod: 1209600
+      SqsManagedSseEnabled: true
+  SearchFilterOpenSearchSyncQ:
+    Type: AWS::SQS::Queue
+    Properties:
+      QueueName: "search-filter-opensearch-sync-queue-prod"
+      RedrivePolicy:
+        deadLetterTargetArn: !GetAtt SearchFilterOpenSearchSyncDlq.Arn
+        maxReceiveCount: 5
+      VisibilityTimeout: 360
+      SqsManagedSseEnabled: true
+  SearchFilterOpenSearchSyncRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: "search-filter-opensearch-sync-role-prod"
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: lambda.amazonaws.com
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole
+      Policies:
+        - PolicyName: SQSPollerAccess
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: Allow
+                Action:
+                  - sqs:ReceiveMessage
+                  - sqs:DeleteMessage
+                  - sqs:GetQueueAttributes
+                  - sqs:GetQueueUrl
+                Resource: !GetAtt SearchFilterOpenSearchSyncQ.Arn
+  SearchFilterOpenSearchSyncLambda:
+    Type: AWS::Lambda::Function
+    Properties:
+      FunctionName: "search-filter-opensearch-sync-prod"
+      Runtime: provided.al2023
+      Handler: lib.handler
+      Role: !GetAtt SearchFilterOpenSearchSyncRole.Arn
+      Code:
+        S3Bucket: !Ref ArtifactBucket
+        S3Key: !Sub "search-filter-lambda-opensearch-sync-prod-${CommitSHA}.zip"
+      MemorySize: 256
+      Timeout: 30
+      EphemeralStorage:
+        Size: 512
+      Environment:
+        Variables:
+          OPENSEARCH_ENDPOINT_URL: !Ref OpenSearchEndpointUrl
+          STAGE: "prod"
+          OPENSEARCH_USERNAME: "{{resolve:ssm:/opensearch/prod/username}}"
+          OPENSEARCH_PASSWORD: "{{resolve:ssm:/opensearch/prod/password}}"
+  SearchFilterOpenSearchSyncMapping:
+    Type: AWS::Lambda::EventSourceMapping
+    Properties:
+      FunctionName: !Ref SearchFilterOpenSearchSyncLambda
+      EventSourceArn: !GetAtt SearchFilterOpenSearchSyncQ.Arn
+      Enabled: true
+      BatchSize: 1
+      MaximumBatchingWindowInSeconds: 0
+  SearchFilterOpenSearchSyncLambdaErrorAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      AlarmName: "prod-search-filter-opensearch-sync-errors"
+      AlarmDescription: "Alarm when search-filter-opensearch-sync lambda has errors"
+      MetricName: Errors
+      Namespace: AWS/Lambda
+      Statistic: Sum
+      Period: 300
+      EvaluationPeriods: 1
+      Threshold: 1
+      ComparisonOperator: GreaterThanOrEqualToThreshold
+      Dimensions:
+        - Name: FunctionName
+          Value: !Ref SearchFilterOpenSearchSyncLambda
+      TreatMissingData: notBreaching
+      AlarmActions:
+        - !Ref AlarmNotificationTopic
+
   ProductUpdateNotifyUserDlq:
     Type: AWS::SQS::Queue
     Properties:
@@ -2130,6 +2249,52 @@ Resources:
       Targets:
         - Id: ShopOpenSearchIndexQ
           Arn: !GetAtt ShopOpenSearchIndexQ.Arn
+
+  DynamoDbSearchFilterUpsertEventRule:
+    Type: AWS::Events::Rule
+    Properties:
+      Name: "ddb-search-filter-upsert-prod"
+      EventBusName: !Ref DynamoDbEventBus
+      EventPattern:
+        source:
+          - !Ref TableOne
+        detail-type:
+          - "DynamoDBStreamRecord"
+        detail:
+          eventName:
+            - "INSERT"
+            - "MODIFY"
+          dynamodb:
+            NewImage:
+              sk:
+                S:
+                  - prefix: "search_filter#"
+      Targets:
+        - Id: SearchFilterOpenSearchSyncQ
+          Arn: !GetAtt SearchFilterOpenSearchSyncQ.Arn
+
+  DynamoDbSearchFilterDeleteEventRule:
+    Type: AWS::Events::Rule
+    Properties:
+      Name: "ddb-search-filter-delete-prod"
+      EventBusName: !Ref DynamoDbEventBus
+      EventPattern:
+        source:
+          - !Ref TableOne
+        detail-type:
+          - "DynamoDBStreamRecord"
+        detail:
+          eventName:
+            - "REMOVE"
+          dynamodb:
+            Keys:
+              sk:
+                S:
+                  - prefix: "search_filter#"
+      Targets:
+        - Id: SearchFilterOpenSearchSyncQ
+          Arn: !GetAtt SearchFilterOpenSearchSyncQ.Arn
+
   DynamoDbUserUpdatedFanoutWatchlistUpdateEventRule:
     Type: AWS::Events::Rule
     Properties:
@@ -3842,6 +4007,11 @@ Outputs:
     Value: !Ref ShopOpenSearchIndexQ
   ShopOpensearchIndexDeadLetterQueueUrl:
     Value: !Ref ShopOpenSearchIndexDlq
+
+  SearchFilterOpenSearchSyncQueueUrl:
+    Value: !Ref SearchFilterOpenSearchSyncQ
+  SearchFilterOpenSearchSyncDeadLetterQueueUrl:
+    Value: !Ref SearchFilterOpenSearchSyncDlq
 
   AlarmNotificationTopicArn:
     Value: !Ref AlarmNotificationTopic

@@ -46,10 +46,7 @@ impl<'a> UserSearchFilterOpenSearchRepository for UserSearchFilterOpenSearchRepo
     ) -> Result<IndexResponse, opensearch::Error> {
         let response = self
             .client
-            .index(IndexParts::IndexId(
-                INDEX_NAME,
-                &document._id().to_string(),
-            ))
+            .index(IndexParts::IndexId(INDEX_NAME, &document._id().to_string()))
             .body(document)
             .send()
             .await?

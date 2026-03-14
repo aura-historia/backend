@@ -369,23 +369,31 @@ pub fn build_percolation_document(
 
     // Date fields
     if let Some(auction_start) = product.auction_start {
-        doc["auctionStart"] = serde_json::json!(auction_start
-            .format(&time::format_description::well_known::Rfc3339)
-            .map_err(|e| serde_json::Error::custom(e))?);
+        doc["auctionStart"] = serde_json::json!(
+            auction_start
+                .format(&time::format_description::well_known::Rfc3339)
+                .map_err(serde_json::Error::custom)?
+        );
     }
     if let Some(auction_end) = product.auction_end {
-        doc["auctionEnd"] = serde_json::json!(auction_end
-            .format(&time::format_description::well_known::Rfc3339)
-            .map_err(|e| serde_json::Error::custom(e))?);
+        doc["auctionEnd"] = serde_json::json!(
+            auction_end
+                .format(&time::format_description::well_known::Rfc3339)
+                .map_err(serde_json::Error::custom)?
+        );
     }
-    doc["created"] = serde_json::json!(product
-        .created
-        .format(&time::format_description::well_known::Rfc3339)
-        .map_err(|e| serde_json::Error::custom(e))?);
-    doc["updated"] = serde_json::json!(product
-        .updated
-        .format(&time::format_description::well_known::Rfc3339)
-        .map_err(|e| serde_json::Error::custom(e))?);
+    doc["created"] = serde_json::json!(
+        product
+            .created
+            .format(&time::format_description::well_known::Rfc3339)
+            .map_err(serde_json::Error::custom)?
+    );
+    doc["updated"] = serde_json::json!(
+        product
+            .updated
+            .format(&time::format_description::well_known::Rfc3339)
+            .map_err(serde_json::Error::custom)?
+    );
 
     Ok(doc)
 }
@@ -398,7 +406,9 @@ mod faker {
 
     impl Dummy<Faker> for UserSearchFilterDocument {
         fn dummy_with_rng<R: Rng + ?Sized>(config: &Faker, rng: &mut R) -> Self {
-            config.fake_with_rng::<UserSearchFilterRecord, _>(rng).into()
+            config
+                .fake_with_rng::<UserSearchFilterRecord, _>(rng)
+                .into()
         }
     }
 }
@@ -465,9 +475,10 @@ mod tests {
         let filter = &query["bool"]["filter"];
         assert!(filter.is_array());
         let filter_array = filter.as_array().unwrap();
-        let has_category_terms = filter_array
-            .iter()
-            .any(|f| f.get("terms").is_some_and(|t| t.get("categoryId").is_some()));
+        let has_category_terms = filter_array.iter().any(|f| {
+            f.get("terms")
+                .is_some_and(|t| t.get("categoryId").is_some())
+        });
         if !original_categories.is_empty() {
             assert!(has_category_terms);
         }
