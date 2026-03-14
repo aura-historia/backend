@@ -60,7 +60,7 @@ async fn handle_upsert(
     record: UserSearchFilterRecord,
 ) -> Result<(), lambda_runtime::Error> {
     let filter_id = record.user_search_filter_id;
-    let document: UserSearchFilterDocument = record.into();
+    let document: UserSearchFilterDocument = record.try_into()?;
 
     match repository.index_document(document).await {
         Ok(response) => {
