@@ -53,9 +53,7 @@
 - User
   - PK is `ProductId`
   - SK is `UserId`
-  - Uses it to query all users that have notifications for a product on their watchlist activated
-  - SK is sparse locally - it's only set if a product is on the users watchlist **and** notifications are activated
-  - This invariant must always hold - crucial for inserts/updates of watchlist-products
+  - Uses it to query all users having a specific product on their watchlist
 
 ### GSI2: `gsi2`
 
