@@ -66,8 +66,9 @@ impl From<ProductPolicyEventRecord> for ProductEventRecord {
     }
 }
 
+#[allow(clippy::infallible_try_from)]
 impl TryFrom<ProductEvent> for ProductEventRecord {
-    type Error = time::error::Format;
+    type Error = std::convert::Infallible;
 
     fn try_from(event: ProductEvent) -> Result<Self, Self::Error> {
         match event.payload {
@@ -126,5 +127,23 @@ mod tests {
 
         assert!(actual["pk"].as_str().unwrap().starts_with("product#"));
         assert!(actual["sk"].as_str().unwrap().starts_with("product#event#"));
+    }
+
+    #[rstest::rstest]
+    #[case(Faker.fake::<ProductDomainEventRecord>())]
+    #[case(Faker.fake::<ProductEnrichmentEventRecord>())]
+    #[case(Faker.fake::<ProductPolicyEventRecord>())]
+    fn should_include_event_id_in_sort_key_when_converting_to_product_event_record(
+        #[case] event_record: impl Into<ProductEventRecord>,
+    ) {
+        let product_event_record = event_record.into();
+
+        let (sk, event_id) = match &product_event_record {
+            ProductEventRecord::Domain(record) => (&record.sk, record.event_id),
+            ProductEventRecord::Enrichment(record) => (&record.sk, record.event_id),
+            ProductEventRecord::Policy(record) => (&record.sk, record.event_id),
+        };
+
+        assert!(sk.ends_with(&event_id.to_string()));
     }
 }

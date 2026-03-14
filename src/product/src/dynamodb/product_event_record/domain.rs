@@ -29,8 +29,7 @@ use serde::{Deserialize, Serialize};
 use serde_fields::SerdeField;
 use shop::dynamodb::shop_type_record::ShopTypeRecord;
 use std::collections::HashMap;
-use time::format_description::well_known::Rfc3339;
-use time::{OffsetDateTime, error};
+use time::OffsetDateTime;
 use url::Url;
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, SerdeField)]
@@ -171,11 +170,8 @@ pub fn mk_pk(shop_id: &ShopId, shops_product_id: &ShopsProductId) -> String {
     format!("product#shop_id#{shop_id}#shops_product_id#{shops_product_id}")
 }
 
-pub fn mk_sk(timestamp: &OffsetDateTime) -> Result<String, error::Format> {
-    Ok(format!(
-        "product#event#domain#{}",
-        timestamp.format(&Rfc3339)?
-    ))
+pub fn mk_sk(event_id: &EventId) -> String {
+    format!("product#event#domain#{event_id}")
 }
 
 impl ProductDomainEventRecord {
@@ -195,13 +191,14 @@ impl HasKey for ProductDomainEventRecord {
     }
 }
 
+#[allow(clippy::infallible_try_from)]
 impl TryFrom<ProductDomainEvent> for ProductDomainEventRecord {
-    type Error = error::Format;
+    type Error = std::convert::Infallible;
     fn try_from(domain: ProductDomainEvent) -> Result<Self, Self::Error> {
         let shop_id = *domain.payload.shop_id();
         let shops_product_id = domain.payload.shops_product_id();
         let pk = mk_pk(&shop_id, shops_product_id);
-        let sk = mk_sk(&domain.timestamp)?;
+        let sk = mk_sk(&domain.event_id);
         let product_id = domain.aggregate_id;
         let event_id = domain.event_id;
         let event_type: ProductDomainEventTypeRecord = (&domain.payload).into();
