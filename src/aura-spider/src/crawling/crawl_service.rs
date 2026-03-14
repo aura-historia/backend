@@ -1,4 +1,5 @@
 use bloomfilter::Bloom;
+use sha2::{Digest, Sha256};
 use spider::compact_str::CompactString;
 use spider::tokio;
 use spider::website::Website;
@@ -19,6 +20,7 @@ const BLACKLIST_URL_SUBSTRINGS: &[&str] = &[
 #[derive(Debug, Clone)]
 pub struct CrawledPage {
     pub url: String,
+    pub main_hash: String,
 }
 
 fn is_junk_url(url: &str) -> bool {
@@ -34,6 +36,24 @@ fn build_blacklist_url_patterns() -> Vec<CompactString> {
         .collect()
 }
 
+fn hash_main_fragment(html: &str, fallback: &str) -> String {
+    let content_to_hash = extract_main_fragment(html).unwrap_or(fallback);
+    let mut hasher = Sha256::new();
+    hasher.update(content_to_hash.as_bytes());
+    let digest = hasher.finalize();
+    digest.iter().map(|byte| format!("{byte:02x}")).collect()
+}
+
+fn extract_main_fragment(html: &str) -> Option<&str> {
+    let lower = html.to_ascii_lowercase();
+    let main_start = lower.find("<main")?;
+    let tag_end_rel = lower[main_start..].find('>')?;
+    let content_start = main_start + tag_end_rel + 1;
+    let main_end_rel = lower[content_start..].find("</main>")?;
+    let content_end = content_start + main_end_rel;
+    Some(&html[content_start..content_end])
+}
+
 /// Starts crawling `shop_url` and streams deduplicated pages via an unbounded channel.
 pub async fn start_crawl(shop_url: &str) -> Result<mpsc::Receiver<CrawledPage>, SpiderError> {
     // Use a bounded channel to prevent memory exhaustion if consumer is slow
@@ -46,10 +66,8 @@ pub async fn start_crawl(shop_url: &str) -> Result<mpsc::Receiver<CrawledPage>, 
     let blacklist_regex = build_blacklist_url_patterns();
 
     website
-        .with_depth(10)
         .with_blacklist_url(Some(blacklist_regex)) // Prevent fetching junk
-        .with_budget(Some(spider::hashbrown::HashMap::from([("*", 10_000)])))
-        .with_respect_robots_txt(false);
+        .with_respect_robots_txt(true);
 
     let mut spider_rx = website
         .subscribe(512)
@@ -73,13 +91,21 @@ pub async fn start_crawl(shop_url: &str) -> Result<mpsc::Receiver<CrawledPage>, 
             }
 
             let normalized = normalize_url(raw_url);
+            let main_hash = hash_main_fragment(&page.get_html(), &normalized);
 
             // Deduplicate
             if !bloom.check(&normalized) {
                 bloom.set(&normalized);
 
                 // Send to consumer (waits if channel is full)
-                if tx.send(CrawledPage { url: normalized }).await.is_err() {
+                if tx
+                    .send(CrawledPage {
+                        url: normalized,
+                        main_hash,
+                    })
+                    .await
+                    .is_err()
+                {
                     break;
                 }
             }
@@ -128,17 +154,41 @@ mod tests {
     fn should_store_url_when_creating_crawled_page_for_product_path() {
         let page = CrawledPage {
             url: "https://example.com/product/1".to_string(),
+            main_hash: "abc123".to_string(),
         };
 
         assert_eq!(page.url, "https://example.com/product/1");
+        assert_eq!(page.main_hash, "abc123");
     }
 
     #[test]
     fn should_store_url_when_creating_crawled_page_for_non_product_path() {
         let page = CrawledPage {
             url: "https://example.com/about".to_string(),
+            main_hash: "def456".to_string(),
         };
 
         assert_eq!(page.url, "https://example.com/about");
+        assert_eq!(page.main_hash, "def456");
+    }
+
+    #[test]
+    fn should_extract_main_fragment_when_main_tag_exists_for_hashing() {
+        let html = "<html><body><main><h1>Hello</h1></main></body></html>";
+
+        let extracted = extract_main_fragment(html);
+
+        assert_eq!(extracted, Some("<h1>Hello</h1>"));
+    }
+
+    #[test]
+    fn should_use_fallback_when_main_tag_is_missing_for_hashing() {
+        let html = "<html><body><section>No main</section></body></html>";
+        let fallback = "https://example.com/fallback";
+
+        let hash = hash_main_fragment(html, fallback);
+        let fallback_hash = hash_main_fragment("", fallback);
+
+        assert_eq!(hash, fallback_hash);
     }
 }

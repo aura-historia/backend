@@ -20,10 +20,11 @@ bloomfilter = "3.0.1"
 async-trait = { workspace = true }
 mockall = { workspace = true }
 sqlx = { workspace = true }
-time = { workspace = true }
+time = { workspace = true, features = ["serde"] }
 uuid = { workspace = true }
 testcontainers = { workspace = true }
 testcontainers-modules = { workspace = true, features = ["postgres"] }
+sha2 = { workspace = true }
 
 [[bin]]
 name = "demo"

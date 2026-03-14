@@ -20,9 +20,10 @@ use std::process::Command;
 use std::sync::Arc;
 use std::time::Duration;
 
+use aura_spider::classification::link_metadata_repository::LinkMetadataRepositoryImpl;
 use aura_spider::classification::url_pattern_repository::ShopUrlPatternRepositoryImpl;
 use aura_spider::error::SpiderError;
-use aura_spider::spider_service::SpiderService;
+use aura_spider::spider_service::{SpiderRunResult, SpiderService};
 use sqlx::PgPool;
 use testcontainers::ImageExt;
 use testcontainers::core::IntoContainerPort;
@@ -65,14 +66,25 @@ async fn main() {
         return;
     }
 
-    let repository = build_repository(pool.clone());
+    let pattern_repository = build_pattern_repository(pool.clone());
+    let link_repository = build_link_repository(pool.clone());
 
-    let spider = SpiderService::new(shop_url, api_key, DEFAULT_CLASSIFY_THRESHOLD, repository);
+    let spider = SpiderService::new(
+        shop_url,
+        api_key,
+        DEFAULT_CLASSIFY_THRESHOLD,
+        pattern_repository,
+        link_repository,
+    );
 
     match spider.run().await {
-        Ok(products) => {
-            info!(count = products.len(), "Spider run finished successfully");
-            if let Err(error) = write_output(&products) {
+        Ok(result) => {
+            info!(
+                linkCount = result.links.len(),
+                productCount = result.product_urls.len(),
+                "Spider run finished successfully"
+            );
+            if let Err(error) = write_output(&result) {
                 error!(error = %error, "Failed to write demo output file");
             } else {
                 info!("Output written to 'spider_output.json'");
@@ -96,8 +108,12 @@ fn read_api_key() -> Result<String, SpiderError> {
     Ok(env::var("GEMINI_API_KEY")?)
 }
 
-fn build_repository(pool: PgPool) -> Arc<ShopUrlPatternRepositoryImpl> {
+fn build_pattern_repository(pool: PgPool) -> Arc<ShopUrlPatternRepositoryImpl> {
     Arc::new(ShopUrlPatternRepositoryImpl::new(pool))
+}
+
+fn build_link_repository(pool: PgPool) -> Arc<LinkMetadataRepositoryImpl> {
+    Arc::new(LinkMetadataRepositoryImpl::new(pool))
 }
 
 async fn apply_schema(pool: &PgPool) -> Result<(), SpiderError> {
@@ -176,10 +192,10 @@ fn init_logging() {
     tracing_subscriber::fmt().with_max_level(level).init();
 }
 
-fn write_output(products: &[String]) -> Result<(), std::io::Error> {
+fn write_output(result: &SpiderRunResult) -> Result<(), std::io::Error> {
     let file = File::create("spider_output.json")?;
     let writer = BufWriter::new(file);
-    serde_json::to_writer_pretty(writer, products)
+    serde_json::to_writer_pretty(writer, result)
         .map_err(|error| std::io::Error::other(error.to_string()))?;
     Ok(())
 }
