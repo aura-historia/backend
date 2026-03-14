@@ -6,6 +6,7 @@ use crate::service::user_search_filter_update::UserSearchFilterUpdate;
 use aws_sdk_dynamodb::{config::http::HttpResponse, error::SdkError};
 use common::{sort::SortOrder, user_id::UserId};
 use product::core::product_search::ProductSearch;
+use product::opensearch::product_document::ProductDocument;
 use time::OffsetDateTime;
 use tracing::info;
 
@@ -245,7 +246,7 @@ impl<'a> UserSearchFilterService for UserSearchFilterServiceImpl<'a> {
 
     async fn match_user_search_filters(
         &self,
-        product_document: &product::opensearch::product_document::ProductDocument,
+        product_document: &ProductDocument,
     ) -> Result<Vec<UserSearchFilterSummary>, UserSearchFilterError> {
         #[cfg(feature = "opensearch")]
         {
@@ -759,6 +760,539 @@ mod tests {
                 UserSearchFilterError::SdkUpdateItemError(_) => {}
                 _ => panic!("expected SearchFilterError::SdkUpdateItemError"),
             }
+        }
+    }
+
+    mod match_user_search_filters {
+        use crate::dynamodb::repository::MockUserSearchFilterDynamoDbRepository;
+        use crate::opensearch::repository::MockUserSearchFilterOpenSearchRepository;
+        use crate::opensearch::user_search_filter_document::UserSearchFilterDocument;
+        use crate::service::user_search_filter_service::{
+            UserSearchFilterError, UserSearchFilterService, UserSearchFilterServiceImpl,
+        };
+        use fake::{Fake, Faker};
+        use product::opensearch::product_document::ProductDocument;
+
+        #[tokio::test]
+        async fn should_return_matching_filters_when_product_matches_multiple_filters() {
+            let mut opensearch_repo = MockUserSearchFilterOpenSearchRepository::default();
+            let expected_count = 3;
+            opensearch_repo.expect_percolate().return_once(move |_| {
+                Box::pin(async move { Ok(fake::vec![UserSearchFilterDocument; expected_count]) })
+            });
+
+            let dynamodb_repo =
+                crate::dynamodb::repository::MockUserSearchFilterDynamoDbRepository::default();
+            let service =
+                UserSearchFilterServiceImpl::with_opensearch(&dynamodb_repo, &opensearch_repo);
+            let product_document: ProductDocument = Faker.fake();
+
+            let actual = service.match_user_search_filters(&product_document).await;
+
+            assert!(actual.is_ok());
+            let matched_filters = actual.unwrap();
+            assert_eq!(matched_filters.len(), expected_count);
+        }
+
+        #[tokio::test]
+        async fn should_return_single_matching_filter_when_product_matches_one_filter() {
+            let mut opensearch_repo = MockUserSearchFilterOpenSearchRepository::default();
+            let expected_document: UserSearchFilterDocument = Faker.fake();
+            let expected_summary_id = expected_document.user_search_filter_id;
+
+            opensearch_repo
+                .expect_percolate()
+                .return_once(|_| Box::pin(async move { Ok(vec![expected_document]) }));
+
+            let dynamodb_repo =
+                crate::dynamodb::repository::MockUserSearchFilterDynamoDbRepository::default();
+            let service =
+                UserSearchFilterServiceImpl::with_opensearch(&dynamodb_repo, &opensearch_repo);
+            let product_document: ProductDocument = Faker.fake();
+
+            let actual = service.match_user_search_filters(&product_document).await;
+
+            assert!(actual.is_ok());
+            let matched_filters = actual.unwrap();
+            assert_eq!(matched_filters.len(), 1);
+            assert_eq!(
+                matched_filters[0].user_search_filter_id,
+                expected_summary_id
+            );
+        }
+
+        #[tokio::test]
+        async fn should_return_empty_list_when_product_matches_no_filters() {
+            let mut opensearch_repo = MockUserSearchFilterOpenSearchRepository::default();
+            opensearch_repo
+                .expect_percolate()
+                .return_once(|_| Box::pin(async { Ok(Vec::new()) }));
+
+            let dynamodb_repo =
+                crate::dynamodb::repository::MockUserSearchFilterDynamoDbRepository::default();
+            let service =
+                UserSearchFilterServiceImpl::with_opensearch(&dynamodb_repo, &opensearch_repo);
+            let product_document: ProductDocument = Faker.fake();
+
+            let actual = service.match_user_search_filters(&product_document).await;
+
+            assert!(actual.is_ok());
+            let matched_filters = actual.unwrap();
+            assert!(matched_filters.is_empty());
+        }
+
+        #[tokio::test]
+        async fn should_return_error_when_opensearch_repository_not_configured() {
+            let dynamodb_repo =
+                crate::dynamodb::repository::MockUserSearchFilterDynamoDbRepository::default();
+            let service = UserSearchFilterServiceImpl::new(&dynamodb_repo);
+            let product_document: ProductDocument = Faker.fake();
+
+            let actual = service.match_user_search_filters(&product_document).await;
+
+            assert!(actual.is_err());
+            match actual.unwrap_err() {
+                UserSearchFilterError::OpenSearchError(_) => {}
+                other => panic!(
+                    "expected UserSearchFilterError::OpenSearchError, but got: {:?}",
+                    other
+                ),
+            }
+        }
+
+        #[tokio::test]
+        async fn should_propagate_opensearch_error_when_percolate_fails() {
+            let mut opensearch_repo = MockUserSearchFilterOpenSearchRepository::default();
+            use serde::ser::Error as _;
+            let expected_error =
+                opensearch::Error::from(serde_json::Error::custom("Percolate query failed"));
+            opensearch_repo
+                .expect_percolate()
+                .return_once(|_| Box::pin(async { Err(expected_error) }));
+
+            let dynamodb_repo =
+                crate::dynamodb::repository::MockUserSearchFilterDynamoDbRepository::default();
+            let service =
+                UserSearchFilterServiceImpl::with_opensearch(&dynamodb_repo, &opensearch_repo);
+            let product_document: ProductDocument = Faker.fake();
+
+            let actual = service.match_user_search_filters(&product_document).await;
+
+            assert!(actual.is_err());
+            match actual.unwrap_err() {
+                UserSearchFilterError::OpenSearchError(_) => {}
+                other => panic!(
+                    "expected UserSearchFilterError::OpenSearchError, but got: {:?}",
+                    other
+                ),
+            }
+        }
+
+        #[rstest::rstest]
+        #[case::empty(0)]
+        #[case::single(1)]
+        #[case::multiple(10)]
+        #[case::large_batch(100)]
+        #[tokio::test]
+        #[trace]
+        async fn should_convert_opensearch_documents_to_summaries(#[case] count: usize) {
+            let mut opensearch_repo = MockUserSearchFilterOpenSearchRepository::default();
+            let documents: Vec<UserSearchFilterDocument> =
+                fake::vec![UserSearchFilterDocument; count];
+            let expected_ids: Vec<_> = documents.iter().map(|d| d.user_search_filter_id).collect();
+
+            opensearch_repo
+                .expect_percolate()
+                .return_once(move |_| Box::pin(async move { Ok(documents) }));
+
+            let dynamodb_repo =
+                crate::dynamodb::repository::MockUserSearchFilterDynamoDbRepository::default();
+            let service =
+                UserSearchFilterServiceImpl::with_opensearch(&dynamodb_repo, &opensearch_repo);
+            let product_document: ProductDocument = Faker.fake();
+
+            let actual = service.match_user_search_filters(&product_document).await;
+
+            assert!(actual.is_ok());
+            let matched_filters = actual.unwrap();
+            assert_eq!(matched_filters.len(), count);
+            for (i, filter) in matched_filters.iter().enumerate() {
+                assert_eq!(filter.user_search_filter_id, expected_ids[i]);
+            }
+        }
+
+        #[tokio::test]
+        async fn should_preserve_user_id_when_converting_matching_documents() {
+            let mut opensearch_repo = MockUserSearchFilterOpenSearchRepository::default();
+            let expected_document: UserSearchFilterDocument = Faker.fake();
+            let expected_user_id = expected_document.user_id;
+
+            opensearch_repo
+                .expect_percolate()
+                .return_once(|_| Box::pin(async move { Ok(vec![expected_document]) }));
+
+            let dynamodb_repo =
+                crate::dynamodb::repository::MockUserSearchFilterDynamoDbRepository::default();
+            let service =
+                UserSearchFilterServiceImpl::with_opensearch(&dynamodb_repo, &opensearch_repo);
+            let product_document: ProductDocument = Faker.fake();
+
+            let actual = service.match_user_search_filters(&product_document).await;
+
+            assert!(actual.is_ok());
+            let matched_filters = actual.unwrap();
+            assert_eq!(matched_filters[0].user_id, expected_user_id);
+        }
+
+        #[tokio::test]
+        async fn should_preserve_filter_name_when_converting_matching_documents() {
+            let mut opensearch_repo = MockUserSearchFilterOpenSearchRepository::default();
+            let expected_document: UserSearchFilterDocument = Faker.fake();
+            let expected_name = expected_document.name.clone();
+
+            opensearch_repo
+                .expect_percolate()
+                .return_once(|_| Box::pin(async move { Ok(vec![expected_document]) }));
+
+            let dynamodb_repo =
+                crate::dynamodb::repository::MockUserSearchFilterDynamoDbRepository::default();
+            let service =
+                UserSearchFilterServiceImpl::with_opensearch(&dynamodb_repo, &opensearch_repo);
+            let product_document: ProductDocument = Faker.fake();
+
+            let actual = service.match_user_search_filters(&product_document).await;
+
+            assert!(actual.is_ok());
+            let matched_filters = actual.unwrap();
+            assert_eq!(matched_filters[0].name, expected_name);
+        }
+
+        #[tokio::test]
+        async fn should_preserve_timestamps_when_converting_matching_documents() {
+            let mut opensearch_repo = MockUserSearchFilterOpenSearchRepository::default();
+            let expected_document: UserSearchFilterDocument = Faker.fake();
+            let expected_created = expected_document.created;
+            let expected_updated = expected_document.updated;
+
+            opensearch_repo
+                .expect_percolate()
+                .return_once(|_| Box::pin(async move { Ok(vec![expected_document]) }));
+
+            let dynamodb_repo =
+                crate::dynamodb::repository::MockUserSearchFilterDynamoDbRepository::default();
+            let service =
+                UserSearchFilterServiceImpl::with_opensearch(&dynamodb_repo, &opensearch_repo);
+            let product_document: ProductDocument = Faker.fake();
+
+            let actual = service.match_user_search_filters(&product_document).await;
+
+            assert!(actual.is_ok());
+            let matched_filters = actual.unwrap();
+            assert_eq!(matched_filters[0].created, expected_created);
+            assert_eq!(matched_filters[0].updated, expected_updated);
+        }
+
+        #[tokio::test]
+        async fn should_accept_product_document_reference_without_consuming_it() {
+            let mut opensearch_repo = MockUserSearchFilterOpenSearchRepository::default();
+            let matched_document: UserSearchFilterDocument = Faker.fake();
+            let document_clone = matched_document.clone();
+
+            opensearch_repo
+                .expect_percolate()
+                .return_once(|_| Box::pin(async move { Ok(vec![matched_document]) }));
+
+            let dynamodb_repo =
+                crate::dynamodb::repository::MockUserSearchFilterDynamoDbRepository::default();
+            let service =
+                UserSearchFilterServiceImpl::with_opensearch(&dynamodb_repo, &opensearch_repo);
+            let product_document: ProductDocument = Faker.fake();
+
+            // Call the method with product_document reference
+            let result = service.match_user_search_filters(&product_document).await;
+
+            // Verify the result is OK and product_document reference wasn't consumed
+            assert!(result.is_ok());
+            let matched_filters = result.unwrap();
+            assert_eq!(matched_filters.len(), 1);
+            assert_eq!(
+                matched_filters[0].user_search_filter_id,
+                document_clone.user_search_filter_id
+            );
+        }
+
+        #[tokio::test]
+        async fn should_handle_large_batch_of_matching_filters() {
+            let mut opensearch_repo = MockUserSearchFilterOpenSearchRepository::default();
+            let documents: Vec<UserSearchFilterDocument> =
+                fake::vec![UserSearchFilterDocument; 500];
+            let expected_count = documents.len();
+
+            opensearch_repo
+                .expect_percolate()
+                .return_once(move |_| Box::pin(async move { Ok(documents) }));
+
+            let dynamodb_repo = MockUserSearchFilterDynamoDbRepository::default();
+            let service =
+                UserSearchFilterServiceImpl::with_opensearch(&dynamodb_repo, &opensearch_repo);
+            let product_document: ProductDocument = Faker.fake();
+
+            let actual = service.match_user_search_filters(&product_document).await;
+
+            assert!(actual.is_ok());
+            let matched_filters = actual.unwrap();
+            assert_eq!(matched_filters.len(), expected_count);
+        }
+
+        #[tokio::test]
+        async fn should_maintain_filter_order_from_opensearch_results() {
+            let mut opensearch_repo = MockUserSearchFilterOpenSearchRepository::default();
+            let documents: Vec<UserSearchFilterDocument> = fake::vec![UserSearchFilterDocument; 5];
+            let expected_ids: Vec<_> = documents.iter().map(|d| d.user_search_filter_id).collect();
+
+            opensearch_repo
+                .expect_percolate()
+                .return_once(move |_| Box::pin(async move { Ok(documents) }));
+
+            let dynamodb_repo = MockUserSearchFilterDynamoDbRepository::default();
+            let service =
+                UserSearchFilterServiceImpl::with_opensearch(&dynamodb_repo, &opensearch_repo);
+            let product_document: ProductDocument = Faker.fake();
+
+            let actual = service.match_user_search_filters(&product_document).await;
+
+            assert!(actual.is_ok());
+            let matched_filters = actual.unwrap();
+            for (i, summary) in matched_filters.iter().enumerate() {
+                assert_eq!(summary.user_search_filter_id, expected_ids[i]);
+            }
+        }
+
+        #[tokio::test]
+        async fn should_correctly_handle_single_filter_with_all_fields() {
+            let mut opensearch_repo = MockUserSearchFilterOpenSearchRepository::default();
+            let expected_document: UserSearchFilterDocument = Faker.fake();
+            let expected_id = expected_document.user_search_filter_id;
+            let expected_user_id = expected_document.user_id;
+            let expected_name = expected_document.name.clone();
+            let expected_created = expected_document.created;
+            let expected_updated = expected_document.updated;
+
+            opensearch_repo
+                .expect_percolate()
+                .return_once(|_| Box::pin(async move { Ok(vec![expected_document]) }));
+
+            let dynamodb_repo = MockUserSearchFilterDynamoDbRepository::default();
+            let service =
+                UserSearchFilterServiceImpl::with_opensearch(&dynamodb_repo, &opensearch_repo);
+            let product_document: ProductDocument = Faker.fake();
+
+            let actual = service.match_user_search_filters(&product_document).await;
+
+            assert!(actual.is_ok());
+            let matched_filters = actual.unwrap();
+            assert_eq!(matched_filters.len(), 1);
+
+            let summary = &matched_filters[0];
+            assert_eq!(summary.user_search_filter_id, expected_id);
+            assert_eq!(summary.user_id, expected_user_id);
+            assert_eq!(summary.name, expected_name);
+            assert_eq!(summary.created, expected_created);
+            assert_eq!(summary.updated, expected_updated);
+        }
+
+        #[tokio::test]
+        async fn should_return_summaries_with_all_required_fields() {
+            let mut opensearch_repo = MockUserSearchFilterOpenSearchRepository::default();
+            let documents = vec![Faker.fake::<UserSearchFilterDocument>()];
+
+            opensearch_repo
+                .expect_percolate()
+                .return_once(move |_| Box::pin(async move { Ok(documents) }));
+
+            let dynamodb_repo = MockUserSearchFilterDynamoDbRepository::default();
+            let service =
+                UserSearchFilterServiceImpl::with_opensearch(&dynamodb_repo, &opensearch_repo);
+            let product_document: ProductDocument = Faker.fake();
+
+            let actual = service.match_user_search_filters(&product_document).await;
+
+            assert!(actual.is_ok());
+            let matched_filters = actual.unwrap();
+            assert_eq!(matched_filters.len(), 1);
+
+            let summary = &matched_filters[0];
+            assert!(!summary.user_search_filter_id.to_string().is_empty());
+            assert!(!summary.user_id.to_string().is_empty());
+            assert!(!summary.name.to_string().is_empty());
+        }
+
+        #[tokio::test]
+        async fn should_not_modify_product_document_when_matching() {
+            let mut opensearch_repo = MockUserSearchFilterOpenSearchRepository::default();
+            let product_document_copy = Faker.fake::<ProductDocument>();
+
+            opensearch_repo
+                .expect_percolate()
+                .return_once(|_| Box::pin(async { Ok(Vec::new()) }));
+
+            let dynamodb_repo = MockUserSearchFilterDynamoDbRepository::default();
+            let service =
+                UserSearchFilterServiceImpl::with_opensearch(&dynamodb_repo, &opensearch_repo);
+            let product_document = product_document_copy.clone();
+
+            let _ = service.match_user_search_filters(&product_document).await;
+
+            assert_eq!(
+                product_document.product_id,
+                product_document_copy.product_id
+            );
+            assert_eq!(product_document.shop_id, product_document_copy.shop_id);
+        }
+
+        #[tokio::test]
+        async fn should_correctly_convert_all_fields_in_result() {
+            let mut opensearch_repo = MockUserSearchFilterOpenSearchRepository::default();
+            let mut documents = vec![];
+            for _ in 0..3 {
+                documents.push(Faker.fake::<UserSearchFilterDocument>());
+            }
+
+            let original_documents = documents.clone();
+            opensearch_repo
+                .expect_percolate()
+                .return_once(move |_| Box::pin(async move { Ok(documents) }));
+
+            let dynamodb_repo = MockUserSearchFilterDynamoDbRepository::default();
+            let service =
+                UserSearchFilterServiceImpl::with_opensearch(&dynamodb_repo, &opensearch_repo);
+            let product_document: ProductDocument = Faker.fake();
+
+            let actual = service.match_user_search_filters(&product_document).await;
+
+            assert!(actual.is_ok());
+            let matched_filters = actual.unwrap();
+
+            for (i, summary) in matched_filters.iter().enumerate() {
+                assert_eq!(
+                    summary.user_search_filter_id,
+                    original_documents[i].user_search_filter_id
+                );
+                assert_eq!(summary.user_id, original_documents[i].user_id);
+                assert_eq!(summary.name, original_documents[i].name);
+                assert_eq!(summary.created, original_documents[i].created);
+                assert_eq!(summary.updated, original_documents[i].updated);
+            }
+        }
+
+        #[tokio::test]
+        async fn should_return_result_type_on_success() {
+            let mut opensearch_repo = MockUserSearchFilterOpenSearchRepository::default();
+            opensearch_repo
+                .expect_percolate()
+                .return_once(|_| Box::pin(async { Ok(Vec::new()) }));
+
+            let dynamodb_repo = MockUserSearchFilterDynamoDbRepository::default();
+            let service =
+                UserSearchFilterServiceImpl::with_opensearch(&dynamodb_repo, &opensearch_repo);
+            let product_document: ProductDocument = Faker.fake();
+
+            let actual = service.match_user_search_filters(&product_document).await;
+
+            assert!(actual.is_ok());
+            assert!(actual.unwrap().is_empty());
+        }
+
+        #[tokio::test]
+        async fn should_return_error_type_on_missing_repository() {
+            let dynamodb_repo = MockUserSearchFilterDynamoDbRepository::default();
+            let service = UserSearchFilterServiceImpl::new(&dynamodb_repo);
+            let product_document: ProductDocument = Faker.fake();
+
+            let result = service.match_user_search_filters(&product_document).await;
+
+            assert!(result.is_err());
+            assert!(matches!(
+                result.unwrap_err(),
+                UserSearchFilterError::OpenSearchError(_)
+            ));
+        }
+
+        #[tokio::test]
+        async fn should_handle_multiple_documents_with_different_user_ids() {
+            let mut opensearch_repo = MockUserSearchFilterOpenSearchRepository::default();
+            let documents: Vec<UserSearchFilterDocument> = fake::vec![UserSearchFilterDocument; 4];
+            let user_ids: Vec<_> = documents.iter().map(|d| d.user_id).collect();
+
+            opensearch_repo
+                .expect_percolate()
+                .return_once(move |_| Box::pin(async move { Ok(documents) }));
+
+            let dynamodb_repo = MockUserSearchFilterDynamoDbRepository::default();
+            let service =
+                UserSearchFilterServiceImpl::with_opensearch(&dynamodb_repo, &opensearch_repo);
+            let product_document: ProductDocument = Faker.fake();
+
+            let actual = service.match_user_search_filters(&product_document).await;
+
+            assert!(actual.is_ok());
+            let matched_filters = actual.unwrap();
+            for (i, summary) in matched_filters.iter().enumerate() {
+                assert_eq!(summary.user_id, user_ids[i]);
+            }
+        }
+
+        #[tokio::test]
+        async fn should_properly_map_opensearch_document_to_summary_type() {
+            let mut opensearch_repo = MockUserSearchFilterOpenSearchRepository::default();
+            let doc: UserSearchFilterDocument = Faker.fake();
+            let doc_id = doc.user_search_filter_id;
+            let doc_user_id = doc.user_id;
+            let doc_name = doc.name.clone();
+
+            opensearch_repo
+                .expect_percolate()
+                .return_once(|_| Box::pin(async move { Ok(vec![doc]) }));
+
+            let dynamodb_repo = MockUserSearchFilterDynamoDbRepository::default();
+            let service =
+                UserSearchFilterServiceImpl::with_opensearch(&dynamodb_repo, &opensearch_repo);
+            let product_document: ProductDocument = Faker.fake();
+
+            let actual = service.match_user_search_filters(&product_document).await;
+
+            assert!(actual.is_ok());
+            let summaries = actual.unwrap();
+            assert_eq!(summaries.len(), 1);
+
+            // Verify that the type conversion happened correctly
+            let summary = &summaries[0];
+            assert_eq!(summary.user_search_filter_id, doc_id);
+            assert_eq!(summary.user_id, doc_user_id);
+            assert_eq!(summary.name, doc_name);
+        }
+
+        #[tokio::test]
+        async fn should_handle_percolate_returning_exact_count() {
+            let mut opensearch_repo = MockUserSearchFilterOpenSearchRepository::default();
+            let count = 7;
+            let documents: Vec<UserSearchFilterDocument> =
+                fake::vec![UserSearchFilterDocument; count];
+
+            opensearch_repo
+                .expect_percolate()
+                .return_once(move |_| Box::pin(async move { Ok(documents) }));
+
+            let dynamodb_repo = MockUserSearchFilterDynamoDbRepository::default();
+            let service =
+                UserSearchFilterServiceImpl::with_opensearch(&dynamodb_repo, &opensearch_repo);
+            let product_document: ProductDocument = Faker.fake();
+
+            let actual = service.match_user_search_filters(&product_document).await;
+
+            assert!(actual.is_ok());
+            let matched_filters = actual.unwrap();
+            assert_eq!(matched_filters.len(), count);
         }
     }
 }
