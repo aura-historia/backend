@@ -27,3 +27,4 @@ test-api = { workspace = true, features = ["api-gateway", "dynamodb"] }
 serial_test = { workspace = true }
 rstest = { workspace = true }
 fake = { workspace = true }
+serde-email = { workspace = true }

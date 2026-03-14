@@ -60,8 +60,8 @@ mod tests {
     use notification::service::notification_service::MockNotificationService;
     use test_api::ApiGatewayV2httpRequestProxy;
 
-    fn empty_result(
-    ) -> common::pagination::cursor::CursoredResult<Notification, common::event_id::EventId> {
+    fn empty_result()
+    -> common::pagination::cursor::CursoredResult<Notification, common::event_id::EventId> {
         common::pagination::cursor::CursoredResult {
             items: vec![],
             cursor: Default::default(),

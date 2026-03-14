@@ -3967,6 +3967,7 @@ dependencies = [
  "notification",
  "rstest",
  "serde",
+ "serde-email",
  "serde_json",
  "serial_test",
  "test-api",

@@ -178,22 +178,21 @@ impl<'a> NotificationDynamoDbRepository for NotificationDynamoDbRepositoryImpl<'
                 .unwrap_or_else(|| SK_UPPER_BOUND.to_string())
         };
         let key_condition_expression = if scan_index_forward {
-            "#pk = :pk_val AND #lsi1_sk > :lsi1_sk_val_exclusive_guard"
+            "#pk = :pk_val AND #sk > :sk_val_exclusive_guard"
         } else {
-            "#pk = :pk_val AND #lsi1_sk < :lsi1_sk_val_exclusive_guard"
+            "#pk = :pk_val AND #sk < :sk_val_exclusive_guard"
         };
 
         let count = self
             .client
             .query()
             .table_name(&self.table)
-            .index_name("lsi1")
             .key_condition_expression(key_condition_expression)
             .expression_attribute_names("#pk", "pk")
-            .expression_attribute_names("#lsi1_sk", "lsi1_sk")
+            .expression_attribute_names("#sk", "sk")
             .expression_attribute_values(":pk_val", AttributeValue::S(mk_pk(user_id)))
             .expression_attribute_values(
-                ":lsi1_sk_val_exclusive_guard",
+                ":sk_val_exclusive_guard",
                 AttributeValue::S(exclusive_guard),
             )
             .scan_index_forward(scan_index_forward)
