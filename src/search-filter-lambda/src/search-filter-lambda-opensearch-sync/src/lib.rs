@@ -33,11 +33,9 @@ pub async fn handler(
     match record {
         Some(record) => handle_upsert(repository, record).await,
         None => {
-            let body = body.ok_or_else(|| {
-                let msg = "Missing body in SQS message.";
-                error!(msg);
-                lambda_runtime::Error::from(msg)
-            })?;
+            // Record extraction failed — this is expected for REMOVE events since
+            // new_image is empty. Parse the raw body to handle deletion.
+            let body = body.expect("body must be Some when extract_sqs_event_bridge_dynamodb_record returns None with skipped_count == 0");
             let event_bridge_event = serde_json::from_str::<EventBridgeEvent<EventRecord>>(&body)
                 .map_err(|e| {
                 let msg = "Failed deserializing EventBridgeEvent<EventRecord>.";
@@ -48,8 +46,8 @@ pub async fn handler(
             match event_name {
                 "REMOVE" => handle_delete(repository, &event_bridge_event).await,
                 _ => {
-                    let msg = "Failed extracting UserSearchFilterRecord from Lambda-Event.";
-                    error!(msg);
+                    let msg = "Unexpected event: record extraction failed and event is not REMOVE.";
+                    error!(event_name = event_name, msg);
                     Err(msg.into())
                 }
             }
