@@ -1502,8 +1502,7 @@ Resources:
               - Effect: Allow
                 Action:
                   - s3:GetObject
-                Resource:
-                  - !Sub "${MailTemplateBucket.Arn}/*"
+                Resource: !Sub "arn:aws:s3:::${MailTemplateBucket}/*"
   ProductUpdateNotifyUserLambda:
     Type: AWS::Lambda::Function
     Properties:
