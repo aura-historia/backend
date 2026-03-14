@@ -8,13 +8,8 @@ use lambda_runtime::LambdaEvent;
 use notification::data::get_notification_data::GetNotificationData;
 use notification::service::command::UpdateNotificationCommand;
 use notification::service::notification_service::NotificationService;
-use serde::{Deserialize, Serialize};
 
 use crate::notification_get::EventIdCursoredData;
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct NotificationEventIdCollectionData;
 
 pub async fn handle(
     event: LambdaEvent<ApiGatewayV2httpRequest>,
