@@ -98,7 +98,6 @@ jobs:
           - src/aura-scraper
           - src/search-filter
           - src/search-filter-api
-          - src/search-filter-lambda/src/search-filter-lambda-opensearch-sync
           - src/product
           - src/product-pipeline/src/product-pipeline-common
           - src/product-api
