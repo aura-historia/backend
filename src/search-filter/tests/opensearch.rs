@@ -32,10 +32,7 @@ async fn should_index_user_search_filter_document() {
 
     let expected = exact_document();
 
-    let response = repository
-        .index_document(expected.clone())
-        .await
-        .unwrap();
+    let response = repository.index_document(expected.clone()).await.unwrap();
 
     assert_eq!(response.id, expected.user_search_filter_id.to_string());
 
@@ -368,7 +365,8 @@ async fn should_percolate_document_when_state_matches() {
 
     let mut record = base_record();
     record.product_query = None;
-    record.state_query = HashSet::from_iter([product::dynamodb::product_state_record::ProductStateRecord::Listed]);
+    record.state_query =
+        HashSet::from_iter([product::dynamodb::product_state_record::ProductStateRecord::Listed]);
 
     let expected = index_document(&repository, record).await;
     let actual = repository
@@ -386,7 +384,8 @@ async fn should_not_percolate_document_when_state_does_not_match() {
 
     let mut record = base_record();
     record.product_query = None;
-    record.state_query = HashSet::from_iter([product::dynamodb::product_state_record::ProductStateRecord::Sold]);
+    record.state_query =
+        HashSet::from_iter([product::dynamodb::product_state_record::ProductStateRecord::Sold]);
 
     index_document(&repository, record).await;
 
@@ -776,8 +775,9 @@ async fn should_not_percolate_document_when_authenticity_does_not_match() {
 
     let mut record = base_record();
     record.product_query = None;
-    record.authenticity_query =
-        HashSet::from_iter([product::dynamodb::authenticity_record::AuthenticityRecord::Questionable]);
+    record.authenticity_query = HashSet::from_iter([
+        product::dynamodb::authenticity_record::AuthenticityRecord::Questionable,
+    ]);
 
     index_document(&repository, record).await;
 
@@ -1079,7 +1079,8 @@ async fn should_not_percolate_document_when_auction_end_is_outside_range() {
 }
 
 #[localstack_test(services = [OpenSearch()])]
-async fn should_not_percolate_document_when_auction_start_query_is_given_but_product_has_no_auction_start() {
+async fn should_not_percolate_document_when_auction_start_query_is_given_but_product_has_no_auction_start()
+ {
     let client = get_opensearch_client().await;
     let repository = UserSearchFilterOpenSearchRepositoryImpl::new(client);
 
@@ -1101,7 +1102,8 @@ async fn should_not_percolate_document_when_auction_start_query_is_given_but_pro
 }
 
 #[localstack_test(services = [OpenSearch()])]
-async fn should_not_percolate_document_when_auction_end_query_is_given_but_product_has_no_auction_end() {
+async fn should_not_percolate_document_when_auction_end_query_is_given_but_product_has_no_auction_end()
+ {
     let client = get_opensearch_client().await;
     let repository = UserSearchFilterOpenSearchRepositoryImpl::new(client);
 
