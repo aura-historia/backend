@@ -236,9 +236,9 @@ Resources:
             - AttributeName: pk
               KeyType: HASH
             - AttributeName: lsi4_sk
-              KeyType: KEYS_ONLY
+              KeyType: RANGE
           Projection:
-            ProjectionType: ALL
+            ProjectionType: KEYS_ONLY
         - IndexName: lsi5
           KeySchema:
             - AttributeName: pk
