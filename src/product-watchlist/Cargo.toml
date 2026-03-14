@@ -23,6 +23,7 @@ itertools = { workspace = true, optional = true }
 tokio = { workspace = true, optional = true }
 
 [dev-dependencies]
+product-watchlist = { workspace = true, features = ["full"] }
 product = { workspace = true, features = ["test-data"] }
 test-api = { workspace = true, features = ["dynamodb"] }
 serial_test = { workspace = true }
