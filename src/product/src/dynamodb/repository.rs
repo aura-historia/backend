@@ -526,7 +526,8 @@ impl<'a> ProductDynamoDbRepository for ProductDynamoDbRepositoryImpl<'a> {
         shop_slug_id: &SlugId<0>,
         product_slug_id: &SlugId<6>,
     ) -> Result<Option<ProductKey>, SdkError<QueryError, HttpResponse>> {
-        self.client
+        let maybe_item = self
+            .client
             .query()
             .table_name(&self.table)
             .index_name("gsi2")
@@ -547,19 +548,28 @@ impl<'a> ProductDynamoDbRepository for ProductDynamoDbRepositoryImpl<'a> {
             .items
             .unwrap_or_default()
             .into_iter()
-            .next()
-            .map(|mut attr_map| {
-                attr_map
-                    .remove("pk")
-                    .ok_or(SdkError::construction_failure(format!(
-                    "DynamoDB Response attribute-map did not contain field 'pk' when querying gsi2
-                        for shop_slug_id '{shop_slug_id}' and product_slug_id '{product_slug_id}'"
-                )))
-            })
-            .transpose()?
-            .map(|v| v.as_s().expect("shouldn't fail extracting 'pk' as String because PKs are always Strings for us").clone())
-            .map(|s| ProductKey::try_from(s.as_str().trim_start_matches("product#")))
-            .transpose()
+            .next();
+
+        let Some(mut attr_map) = maybe_item else {
+            return Ok(None);
+        };
+
+        let pk_attr = attr_map.remove("pk").ok_or_else(|| {
+            SdkError::construction_failure(format!(
+                "DynamoDB Response attribute-map did not contain field 'pk' when querying gsi2 \
+                for shop_slug_id '{shop_slug_id}' and product_slug_id '{product_slug_id}'"
+            ))
+        })?;
+
+        let pk_str = pk_attr
+            .as_s()
+            .expect(
+                "shouldn't fail extracting 'pk' as String because PKs are always Strings for us",
+            )
+            .clone();
+
+        ProductKey::try_from(pk_str.trim_start_matches("product#"))
+            .map(Some)
             .map_err(SdkError::construction_failure)
     }
 }

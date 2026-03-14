@@ -148,6 +148,7 @@ pub struct ApiGatewayV2httpRequestProxy {
     pub is_base64_encoded: bool,
 }
 
+#[allow(deprecated)]
 impl From<ApiGatewayV2httpRequestProxy> for ApiGatewayV2httpRequest {
     fn from(val: ApiGatewayV2httpRequestProxy) -> Self {
         let mut request = ApiGatewayV2httpRequest::default();
