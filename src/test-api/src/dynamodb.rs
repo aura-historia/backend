@@ -111,6 +111,30 @@ async fn set_up_table_1() -> Result<(), Error> {
         )
         .attribute_definitions(
             AttributeDefinition::builder()
+                .attribute_name("lsi2_sk")
+                .attribute_type(S)
+                .build()?,
+        )
+        .attribute_definitions(
+            AttributeDefinition::builder()
+                .attribute_name("lsi3_sk")
+                .attribute_type(S)
+                .build()?,
+        )
+        .attribute_definitions(
+            AttributeDefinition::builder()
+                .attribute_name("lsi4_sk")
+                .attribute_type(S)
+                .build()?,
+        )
+        .attribute_definitions(
+            AttributeDefinition::builder()
+                .attribute_name("lsi5_sk")
+                .attribute_type(S)
+                .build()?,
+        )
+        .attribute_definitions(
+            AttributeDefinition::builder()
                 .attribute_name("gsi1_pk")
                 .attribute_type(S)
                 .build()?,
@@ -163,6 +187,94 @@ async fn set_up_table_1() -> Result<(), Error> {
                 .projection(
                     Projection::builder()
                         .projection_type(ProjectionType::All)
+                        .build(),
+                )
+                .build()?,
+        )
+        .local_secondary_indexes(
+            LocalSecondaryIndex::builder()
+                .index_name("lsi2")
+                .key_schema(
+                    KeySchemaElement::builder()
+                        .attribute_name("pk")
+                        .key_type(KeyType::Hash)
+                        .build()?,
+                )
+                .key_schema(
+                    KeySchemaElement::builder()
+                        .attribute_name("lsi2_sk")
+                        .key_type(KeyType::Range)
+                        .build()?,
+                )
+                .projection(
+                    Projection::builder()
+                        .projection_type(ProjectionType::KeysOnly)
+                        .build(),
+                )
+                .build()?,
+        )
+        .local_secondary_indexes(
+            LocalSecondaryIndex::builder()
+                .index_name("lsi3")
+                .key_schema(
+                    KeySchemaElement::builder()
+                        .attribute_name("pk")
+                        .key_type(KeyType::Hash)
+                        .build()?,
+                )
+                .key_schema(
+                    KeySchemaElement::builder()
+                        .attribute_name("lsi3_sk")
+                        .key_type(KeyType::Range)
+                        .build()?,
+                )
+                .projection(
+                    Projection::builder()
+                        .projection_type(ProjectionType::All)
+                        .build(),
+                )
+                .build()?,
+        )
+        .local_secondary_indexes(
+            LocalSecondaryIndex::builder()
+                .index_name("lsi4")
+                .key_schema(
+                    KeySchemaElement::builder()
+                        .attribute_name("pk")
+                        .key_type(KeyType::Hash)
+                        .build()?,
+                )
+                .key_schema(
+                    KeySchemaElement::builder()
+                        .attribute_name("lsi4_sk")
+                        .key_type(KeyType::Range)
+                        .build()?,
+                )
+                .projection(
+                    Projection::builder()
+                        .projection_type(ProjectionType::KeysOnly)
+                        .build(),
+                )
+                .build()?,
+        )
+        .local_secondary_indexes(
+            LocalSecondaryIndex::builder()
+                .index_name("lsi5")
+                .key_schema(
+                    KeySchemaElement::builder()
+                        .attribute_name("pk")
+                        .key_type(KeyType::Hash)
+                        .build()?,
+                )
+                .key_schema(
+                    KeySchemaElement::builder()
+                        .attribute_name("lsi5_sk")
+                        .key_type(KeyType::Range)
+                        .build()?,
+                )
+                .projection(
+                    Projection::builder()
+                        .projection_type(ProjectionType::KeysOnly)
                         .build(),
                 )
                 .build()?,
