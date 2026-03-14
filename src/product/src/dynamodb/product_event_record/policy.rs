@@ -14,8 +14,7 @@ use common::shop_id::ShopId;
 use common::shops_product_id::ShopsProductId;
 use serde::{Deserialize, Serialize};
 use serde_fields::SerdeField;
-use time::format_description::well_known::Rfc3339;
-use time::{OffsetDateTime, error};
+use time::OffsetDateTime;
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, SerdeField)]
 pub struct ProductPolicyEventRecord {
@@ -50,22 +49,17 @@ pub fn mk_pk(shop_id: &ShopId, shops_product_id: &ShopsProductId) -> String {
     format!("product#shop_id#{shop_id}#shops_product_id#{shops_product_id}")
 }
 
-pub fn mk_sk(timestamp: &OffsetDateTime) -> Result<String, error::Format> {
-    Ok(format!(
-        "product#event#policy#{}",
-        timestamp.format(&Rfc3339)?
-    ))
+pub fn mk_sk(event_id: &EventId) -> String {
+    format!("product#event#policy#{event_id}")
 }
 
-impl TryFrom<ProductPolicyEvent> for ProductPolicyEventRecord {
-    type Error = error::Format;
-
-    fn try_from(event: ProductPolicyEvent) -> Result<Self, Self::Error> {
-        let record = match event.payload {
+impl From<ProductPolicyEvent> for ProductPolicyEventRecord {
+    fn from(event: ProductPolicyEvent) -> Self {
+        match event.payload {
             ProductPolicyEventPayload::ProhibitedContentDecision(payload) => {
                 ProductPolicyEventRecord {
                     pk: mk_pk(&payload.shop_id, &payload.shops_product_id),
-                    sk: mk_sk(&event.timestamp)?,
+                    sk: mk_sk(&event.event_id),
                     product_id: event.aggregate_id,
                     event_id: event.event_id,
                     event_type: ProductPolicyEventTypeRecord::PolicyProhibitedContentDecision,
@@ -77,9 +71,7 @@ impl TryFrom<ProductPolicyEvent> for ProductPolicyEventRecord {
                     timestamp: event.timestamp,
                 }
             }
-        };
-
-        Ok(record)
+        }
     }
 }
 
@@ -110,10 +102,7 @@ mod faker {
 
     impl Dummy<Faker> for ProductPolicyEventRecord {
         fn dummy_with_rng<R: Rng + ?Sized>(config: &Faker, rng: &mut R) -> Self {
-            config
-                .fake_with_rng::<ProductPolicyEvent, _>(rng)
-                .try_into()
-                .unwrap()
+            config.fake_with_rng::<ProductPolicyEvent, _>(rng).into()
         }
     }
 

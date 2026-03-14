@@ -11,7 +11,7 @@
 #### Item
 
 - PK is composite of `ShopId` and `ShopsProductId`
-- Primary event-store - via timestamp in SK
+- Primary event-store - via EventId (UUIDv7) in SK
 - Contains a materialized view with extra SK
 
 #### Shop

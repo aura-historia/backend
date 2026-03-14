@@ -1306,12 +1306,8 @@ async fn should_materialize_product_in_dynamodb_for_enrichment_event() {
             ),
         ),
     }];
-    let product_event_records = Batch::try_from_iter(
-        product_events
-            .into_iter()
-            .map(|event| ProductEventRecord::try_from(event).unwrap()),
-    )
-    .unwrap();
+    let product_event_records =
+        Batch::try_from_iter(product_events.into_iter().map(ProductEventRecord::from)).unwrap();
     let _ = repository
         .put_product_event_records(product_event_records)
         .await
@@ -1387,12 +1383,8 @@ async fn should_materialize_product_in_dynamodb_for_policy_event() {
             ),
         ),
     }];
-    let product_event_records = Batch::try_from_iter(
-        product_events
-            .into_iter()
-            .map(|event| ProductEventRecord::try_from(event).unwrap()),
-    )
-    .unwrap();
+    let product_event_records =
+        Batch::try_from_iter(product_events.into_iter().map(ProductEventRecord::from)).unwrap();
     let _ = repository
         .put_product_event_records(product_event_records)
         .await
@@ -1703,12 +1695,8 @@ async fn should_materialize_product_in_opensearch_for_enrichmment_event() {
             ),
         ),
     }];
-    let product_event_records = Batch::try_from_iter(
-        product_events
-            .into_iter()
-            .map(|event| ProductEventRecord::try_from(event).unwrap()),
-    )
-    .unwrap();
+    let product_event_records =
+        Batch::try_from_iter(product_events.into_iter().map(ProductEventRecord::from)).unwrap();
     let _ = dynamodb_repository
         .put_product_event_records(product_event_records)
         .await
@@ -1828,12 +1816,8 @@ async fn should_materialize_product_in_opensearch_for_policy_event() {
             ),
         ),
     }];
-    let product_event_records = Batch::try_from_iter(
-        product_events
-            .into_iter()
-            .map(|event| ProductEventRecord::try_from(event).unwrap()),
-    )
-    .unwrap();
+    let product_event_records =
+        Batch::try_from_iter(product_events.into_iter().map(ProductEventRecord::from)).unwrap();
     let _ = dynamodb_repository
         .put_product_event_records(product_event_records)
         .await

@@ -29,8 +29,7 @@ use serde::{Deserialize, Serialize};
 use serde_fields::SerdeField;
 use shop::dynamodb::shop_type_record::ShopTypeRecord;
 use std::collections::HashMap;
-use time::format_description::well_known::Rfc3339;
-use time::{OffsetDateTime, error};
+use time::OffsetDateTime;
 use url::Url;
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, SerdeField)]
@@ -171,11 +170,8 @@ pub fn mk_pk(shop_id: &ShopId, shops_product_id: &ShopsProductId) -> String {
     format!("product#shop_id#{shop_id}#shops_product_id#{shops_product_id}")
 }
 
-pub fn mk_sk(timestamp: &OffsetDateTime) -> Result<String, error::Format> {
-    Ok(format!(
-        "product#event#domain#{}",
-        timestamp.format(&Rfc3339)?
-    ))
+pub fn mk_sk(event_id: &EventId) -> String {
+    format!("product#event#domain#{event_id}")
 }
 
 impl ProductDomainEventRecord {
@@ -195,13 +191,12 @@ impl HasKey for ProductDomainEventRecord {
     }
 }
 
-impl TryFrom<ProductDomainEvent> for ProductDomainEventRecord {
-    type Error = error::Format;
-    fn try_from(domain: ProductDomainEvent) -> Result<Self, Self::Error> {
+impl From<ProductDomainEvent> for ProductDomainEventRecord {
+    fn from(domain: ProductDomainEvent) -> Self {
         let shop_id = *domain.payload.shop_id();
         let shops_product_id = domain.payload.shops_product_id();
         let pk = mk_pk(&shop_id, shops_product_id);
-        let sk = mk_sk(&domain.timestamp)?;
+        let sk = mk_sk(&domain.event_id);
         let product_id = domain.aggregate_id;
         let event_id = domain.event_id;
         let event_type: ProductDomainEventTypeRecord = (&domain.payload).into();
@@ -295,7 +290,7 @@ impl TryFrom<ProductDomainEvent> for ProductDomainEventRecord {
                     None => (None, None, None, None, None),
                 };
 
-                let record = ProductDomainEventRecord {
+                ProductDomainEventRecord {
                     pk,
                     sk,
                     product_id,
@@ -437,10 +432,9 @@ impl TryFrom<ProductDomainEvent> for ProductDomainEventRecord {
                     auction_start: payload.auction_start,
                     auction_end: payload.auction_end,
                     timestamp: domain.timestamp,
-                };
-                Ok(record)
+                }
             }
-            ProductDomainEventPayload::StateListed(payload) => Ok(mk_state_event_record(
+            ProductDomainEventPayload::StateListed(payload) => mk_state_event_record(
                 ProductStateRecord::Listed,
                 payload.old_state.into(),
                 pk,
@@ -451,8 +445,8 @@ impl TryFrom<ProductDomainEvent> for ProductDomainEventRecord {
                 shop_id,
                 shops_product_id,
                 domain.timestamp,
-            )),
-            ProductDomainEventPayload::StateReserved(payload) => Ok(mk_state_event_record(
+            ),
+            ProductDomainEventPayload::StateReserved(payload) => mk_state_event_record(
                 ProductStateRecord::Reserved,
                 payload.old_state.into(),
                 pk,
@@ -463,8 +457,8 @@ impl TryFrom<ProductDomainEvent> for ProductDomainEventRecord {
                 shop_id,
                 shops_product_id,
                 domain.timestamp,
-            )),
-            ProductDomainEventPayload::StateAvailable(payload) => Ok(mk_state_event_record(
+            ),
+            ProductDomainEventPayload::StateAvailable(payload) => mk_state_event_record(
                 ProductStateRecord::Available,
                 payload.old_state.into(),
                 pk,
@@ -475,8 +469,8 @@ impl TryFrom<ProductDomainEvent> for ProductDomainEventRecord {
                 shop_id,
                 shops_product_id,
                 domain.timestamp,
-            )),
-            ProductDomainEventPayload::StateSold(payload) => Ok(mk_state_event_record(
+            ),
+            ProductDomainEventPayload::StateSold(payload) => mk_state_event_record(
                 ProductStateRecord::Sold,
                 payload.old_state.into(),
                 pk,
@@ -487,8 +481,8 @@ impl TryFrom<ProductDomainEvent> for ProductDomainEventRecord {
                 shop_id,
                 shops_product_id,
                 domain.timestamp,
-            )),
-            ProductDomainEventPayload::StateRemoved(payload) => Ok(mk_state_event_record(
+            ),
+            ProductDomainEventPayload::StateRemoved(payload) => mk_state_event_record(
                 ProductStateRecord::Removed,
                 payload.old_state.into(),
                 pk,
@@ -499,8 +493,8 @@ impl TryFrom<ProductDomainEvent> for ProductDomainEventRecord {
                 shop_id,
                 shops_product_id,
                 domain.timestamp,
-            )),
-            ProductDomainEventPayload::StateUnknown(payload) => Ok(mk_state_event_record(
+            ),
+            ProductDomainEventPayload::StateUnknown(payload) => mk_state_event_record(
                 ProductStateRecord::Unknown,
                 payload.old_state.into(),
                 pk,
@@ -511,8 +505,8 @@ impl TryFrom<ProductDomainEvent> for ProductDomainEventRecord {
                 shop_id,
                 shops_product_id,
                 domain.timestamp,
-            )),
-            ProductDomainEventPayload::PriceDiscovered(payload) => Ok(ProductDomainEventRecord {
+            ),
+            ProductDomainEventPayload::PriceDiscovered(payload) => ProductDomainEventRecord {
                 pk,
                 sk,
                 product_id,
@@ -596,8 +590,8 @@ impl TryFrom<ProductDomainEvent> for ProductDomainEventRecord {
                 auction_start: None,
                 auction_end: None,
                 timestamp: domain.timestamp,
-            }),
-            ProductDomainEventPayload::PriceIncreased(payload) => Ok(mk_price_change_event_record(
+            },
+            ProductDomainEventPayload::PriceIncreased(payload) => mk_price_change_event_record(
                 payload,
                 pk,
                 sk,
@@ -607,8 +601,8 @@ impl TryFrom<ProductDomainEvent> for ProductDomainEventRecord {
                 shop_id,
                 shops_product_id,
                 domain.timestamp,
-            )),
-            ProductDomainEventPayload::PriceDropped(payload) => Ok(mk_price_change_event_record(
+            ),
+            ProductDomainEventPayload::PriceDropped(payload) => mk_price_change_event_record(
                 payload,
                 pk,
                 sk,
@@ -618,8 +612,8 @@ impl TryFrom<ProductDomainEvent> for ProductDomainEventRecord {
                 shop_id,
                 shops_product_id,
                 domain.timestamp,
-            )),
-            ProductDomainEventPayload::PriceRemoved(payload) => Ok(ProductDomainEventRecord {
+            ),
+            ProductDomainEventPayload::PriceRemoved(payload) => ProductDomainEventRecord {
                 pk,
                 sk,
                 product_id,
@@ -703,7 +697,7 @@ impl TryFrom<ProductDomainEvent> for ProductDomainEventRecord {
                 auction_start: None,
                 auction_end: None,
                 timestamp: domain.timestamp,
-            }),
+            },
         }
     }
 }
@@ -1199,10 +1193,7 @@ mod faker {
 
     impl Dummy<Faker> for ProductDomainEventRecord {
         fn dummy_with_rng<R: Rng + ?Sized>(config: &Faker, rng: &mut R) -> Self {
-            config
-                .fake_with_rng::<ProductDomainEvent, _>(rng)
-                .try_into()
-                .unwrap()
+            config.fake_with_rng::<ProductDomainEvent, _>(rng).into()
         }
     }
 
