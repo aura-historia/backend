@@ -36,6 +36,10 @@ pub enum UserSearchFilterError {
     SdkUpdateItemError(
         #[from] SdkError<aws_sdk_dynamodb::operation::update_item::UpdateItemError, HttpResponse>,
     ),
+
+    #[cfg(feature = "opensearch")]
+    #[error("Encountered OpenSearch error: {0}")]
+    OpenSearchError(#[from] opensearch::Error),
 }
 
 #[cfg(feature = "data")]
@@ -55,6 +59,13 @@ pub mod api {
                 UserSearchFilterError::SdkPutItemError(err) => err.into(),
                 UserSearchFilterError::SdkDeleteItemError(err) => err.into(),
                 UserSearchFilterError::SdkUpdateItemError(err) => err.into(),
+                #[cfg(feature = "opensearch")]
+                UserSearchFilterError::OpenSearchError(err) => {
+                    ApiError::internal_server_error(
+                        common::api::error_code::INTERNAL_SERVER_ERROR,
+                        Box::new(err),
+                    )
+                }
             }
         }
     }
@@ -94,15 +105,39 @@ pub trait UserSearchFilterService {
         user_search_filter_id: &UserSearchFilterId,
         update: UserSearchFilterUpdate,
     ) -> Result<UserSearchFilter, UserSearchFilterError>;
+
+    async fn match_user_search_filters(
+        &self,
+        product: &product::core::product::Product,
+    ) -> Result<Vec<UserSearchFilter>, UserSearchFilterError>;
 }
 
 pub struct UserSearchFilterServiceImpl<'a> {
     repository: &'a (dyn UserSearchFilterDynamoDbRepository + Sync),
+    #[cfg(feature = "opensearch")]
+    opensearch_repository:
+        Option<&'a (dyn crate::opensearch::repository::UserSearchFilterOpenSearchRepository + Sync)>,
 }
 
 impl<'a> UserSearchFilterServiceImpl<'a> {
     pub fn new(repository: &'a (dyn UserSearchFilterDynamoDbRepository + Sync)) -> Self {
-        Self { repository }
+        Self {
+            repository,
+            #[cfg(feature = "opensearch")]
+            opensearch_repository: None,
+        }
+    }
+
+    #[cfg(feature = "opensearch")]
+    pub fn with_opensearch(
+        repository: &'a (dyn UserSearchFilterDynamoDbRepository + Sync),
+        opensearch_repository: &'a (dyn crate::opensearch::repository::UserSearchFilterOpenSearchRepository
+                  + Sync),
+    ) -> Self {
+        Self {
+            repository,
+            opensearch_repository: Some(opensearch_repository),
+        }
     }
 }
 
@@ -205,6 +240,40 @@ impl<'a> UserSearchFilterService for UserSearchFilterServiceImpl<'a> {
                 self.find_user_search_filter(user_id, user_search_filter_id)
                     .await
             }
+        }
+    }
+
+    async fn match_user_search_filters(
+        &self,
+        product: &product::core::product::Product,
+    ) -> Result<Vec<UserSearchFilter>, UserSearchFilterError> {
+        #[cfg(feature = "opensearch")]
+        {
+            use serde::ser::Error as _;
+
+            let opensearch_repo = self.opensearch_repository.ok_or_else(|| {
+                UserSearchFilterError::OpenSearchError(opensearch::Error::from(
+                    serde_json::Error::custom("OpenSearch repository not configured"),
+                ))
+            })?;
+            let product_document =
+                crate::opensearch::user_search_filter_document::build_percolation_document(product)
+                    .map_err(|err| {
+                        UserSearchFilterError::OpenSearchError(opensearch::Error::from(err))
+                    })?;
+            let matched_documents = opensearch_repo.percolate(product_document).await?;
+            let mut result = Vec::with_capacity(matched_documents.len());
+            for doc in matched_documents {
+                let user_id = doc.user_id;
+                let filter_id = doc.user_search_filter_id;
+                result.push(self.find_user_search_filter(&user_id, &filter_id).await?);
+            }
+            Ok(result)
+        }
+        #[cfg(not(feature = "opensearch"))]
+        {
+            let _ = product;
+            unimplemented!("match_user_search_filters requires the 'opensearch' feature")
         }
     }
 }

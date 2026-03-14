@@ -100,6 +100,10 @@ impl IntegrationTestService for OpenSearch {
             .await
             .expect("shouldn't fail clearing OpenSearch index data from 'categories'");
         refresh_index("categories").await;
+        clear_index_data("user_search_filter")
+            .await
+            .expect("shouldn't fail clearing OpenSearch index data from 'user_search_filter'");
+        refresh_index("user_search_filter").await;
         debug!("Cleared OpenSearch index data for test isolation");
     }
 }
@@ -273,6 +277,11 @@ static CATEGORIES_INDEX_MAPPING_STR: &str = include_str!(concat!(
     "opensearch/mappings/categories.json"
 ));
 
+static USER_SEARCH_FILTER_INDEX_MAPPING_STR: &str = include_str!(concat!(
+    env!("CARGO_WORKSPACE_DIR"),
+    "opensearch/mappings/user_search_filter.json"
+));
+
 fn check_status_allow_not_found(response: &Response) -> Result<(), Error> {
     if let Err(err) = response.error_for_status_code_ref()
         && err.status_code() != Some(StatusCode::NOT_FOUND)
@@ -361,6 +370,37 @@ async fn set_up_indices() -> Result<Response, Error> {
         .body(
             serde_json::from_str::<serde_json::Value>(CATEGORIES_INDEX_MAPPING_STR)
                 .expect("shouldn't fail parsing CATEGORIES_INDEX_MAPPING_STR as serde_json::Value"),
+        )
+        .send()
+        .await?
+        .error_for_status_code()?;
+
+    // Index 'user_search_filter'
+    let exists_response = client
+        .indices()
+        .exists(IndicesExistsParts::Index(&["user_search_filter"]))
+        .send()
+        .await?;
+    check_status_allow_not_found(&exists_response)?;
+
+    if exists_response.status_code().is_success() {
+        debug!("OpenSearch index 'user_search_filter' already exists, skipping creation");
+        return Ok(exists_response);
+    }
+
+    debug!("OpenSearch index 'user_search_filter' does not exist, creating it");
+
+    get_opensearch_client()
+        .await
+        .indices()
+        .create(opensearch::indices::IndicesCreateParts::Index(
+            "user_search_filter",
+        ))
+        .body(
+            serde_json::from_str::<serde_json::Value>(USER_SEARCH_FILTER_INDEX_MAPPING_STR)
+                .expect(
+                    "shouldn't fail parsing USER_SEARCH_FILTER_INDEX_MAPPING_STR as serde_json::Value",
+                ),
         )
         .send()
         .await?

@@ -1,0 +1,316 @@
+use aws_lambda_events::dynamodb::EventRecord;
+use aws_lambda_events::eventbridge::EventBridgeEvent;
+use aws_lambda_events::sqs::SqsEvent;
+use lambda_runtime::LambdaEvent;
+use search_filter::core::user_search_filter_id::UserSearchFilterId;
+use search_filter::dynamodb::user_search_filter_record::UserSearchFilterRecord;
+use search_filter::opensearch::repository::UserSearchFilterOpenSearchRepository;
+use search_filter::opensearch::user_search_filter_document::UserSearchFilterDocument;
+use tracing::{error, info, warn};
+
+#[tracing::instrument(skip(repository, event), fields(requestId = %event.context.request_id))]
+pub async fn handler(
+    repository: &impl UserSearchFilterOpenSearchRepository,
+    event: LambdaEvent<SqsEvent>,
+) -> Result<(), lambda_runtime::Error> {
+    let mut event = event;
+    let msg = event.payload.records.remove(0);
+
+    let body = match msg.body {
+        None => {
+            warn!("Received empty body. Skipping message.");
+            return Ok(());
+        }
+        Some(body) => body,
+    };
+
+    let event_bridge_event = match serde_json::from_str::<EventBridgeEvent<EventRecord>>(&body) {
+        Ok(event) => event,
+        Err(e) => {
+            let msg = "Failed deserializing EventBridgeEvent<EventRecord>.";
+            error!(error = %e, payload = %body, msg);
+            return Err(msg.into());
+        }
+    };
+
+    let event_name = event_bridge_event.detail.event_name.as_str();
+
+    match event_name {
+        "INSERT" | "MODIFY" => handle_upsert(repository, &event_bridge_event).await,
+        "REMOVE" => handle_delete(repository, &event_bridge_event).await,
+        _ => {
+            warn!(event_name = event_name, "Unknown event name. Skipping.");
+            Ok(())
+        }
+    }
+}
+
+async fn handle_upsert(
+    repository: &impl UserSearchFilterOpenSearchRepository,
+    event: &EventBridgeEvent<EventRecord>,
+) -> Result<(), lambda_runtime::Error> {
+    let record = match serde_dynamo::from_item::<_, UserSearchFilterRecord>(
+        event.detail.change.new_image.clone(),
+    ) {
+        Ok(record) => record,
+        Err(e) => {
+            let msg = "Failed deserializing UserSearchFilterRecord from new_image.";
+            error!(error = %e, msg);
+            return Err(msg.into());
+        }
+    };
+
+    let filter_id = record.user_search_filter_id;
+    let document: UserSearchFilterDocument = record.into();
+
+    match repository.index_document(document).await {
+        Ok(response) => {
+            info!(
+                userSearchFilterId = %filter_id,
+                result = response.result,
+                "Indexed UserSearchFilterRecord"
+            );
+            Ok(())
+        }
+        Err(err) => {
+            let msg = "Failed indexing UserSearchFilterRecord";
+            error!(error = %err, userSearchFilterId = %filter_id, msg);
+            Err(msg.into())
+        }
+    }
+}
+
+async fn handle_delete(
+    repository: &impl UserSearchFilterOpenSearchRepository,
+    event: &EventBridgeEvent<EventRecord>,
+) -> Result<(), lambda_runtime::Error> {
+    let sk: &str = event
+        .detail
+        .change
+        .keys
+        .get("sk")
+        .and_then(|v| {
+            if let serde_dynamo::AttributeValue::S(s) = v {
+                Some(s.as_str())
+            } else {
+                None
+            }
+        })
+        .ok_or_else(|| {
+            let msg = "Failed extracting 'sk' from keys.";
+            error!(msg);
+            lambda_runtime::Error::from(msg)
+        })?;
+
+    let filter_id_str = sk.strip_prefix("search_filter#").ok_or_else(|| {
+        let msg = "Failed parsing UserSearchFilterId from sk.";
+        error!(sk = %sk, msg);
+        lambda_runtime::Error::from(msg)
+    })?;
+
+    let filter_id = UserSearchFilterId::try_from(filter_id_str).map_err(|e| {
+        let msg = "Failed converting sk to UserSearchFilterId.";
+        error!(error = %e, sk = %sk, msg);
+        lambda_runtime::Error::from(msg)
+    })?;
+
+    match repository.delete_document(&filter_id).await {
+        Ok(response) => {
+            info!(
+                userSearchFilterId = %filter_id,
+                result = response.result,
+                "Deleted UserSearchFilterDocument"
+            );
+            Ok(())
+        }
+        Err(err) => {
+            let msg = "Failed deleting UserSearchFilterDocument";
+            error!(error = %err, userSearchFilterId = %filter_id, msg);
+            Err(msg.into())
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use aws_lambda_events::dynamodb::StreamRecord;
+    use aws_lambda_events::sqs::SqsMessage;
+    use fake::{Fake, Faker};
+    use lambda_runtime::Context;
+    use search_filter::opensearch::repository::MockUserSearchFilterOpenSearchRepository;
+    use std::collections::HashMap;
+    use std::time::SystemTime;
+
+    fn mk_sqs_event(body: String) -> LambdaEvent<SqsEvent> {
+        let msg = SqsMessage {
+            body: Some(body),
+            ..Default::default()
+        };
+        LambdaEvent {
+            payload: SqsEvent {
+                records: vec![msg],
+            },
+            context: Context::default(),
+        }
+    }
+
+    fn mk_event_bridge_body(record: &UserSearchFilterRecord, event_name: &str) -> String {
+        let new_image: HashMap<String, serde_dynamo::AttributeValue> =
+            serde_dynamo::to_item(record.clone()).unwrap();
+
+        let event = EventBridgeEvent {
+            detail: EventRecord {
+                event_name: Some(event_name.to_string()),
+                change: StreamRecord {
+                    new_image,
+                    ..Default::default()
+                },
+                ..Default::default()
+            },
+            account: Some("123456789012".to_string()),
+            detail_type: Some("DynamoDBStreamRecord".to_string()),
+            id: Some(uuid::Uuid::new_v4().to_string()),
+            region: Some("eu-central-1".to_string()),
+            resources: Some(vec![]),
+            source: Some("table_1".to_string()),
+            time: Some(SystemTime::now().into()),
+            replay_name: None,
+        };
+        serde_json::to_string(&event).unwrap()
+    }
+
+    fn mk_delete_event_bridge_body(
+        user_search_filter_id: &UserSearchFilterId,
+        user_id: &common::user_id::UserId,
+    ) -> String {
+        let mut keys = HashMap::new();
+        keys.insert(
+            "pk".to_string(),
+            serde_dynamo::AttributeValue::S(format!("user#{user_id}")),
+        );
+        keys.insert(
+            "sk".to_string(),
+            serde_dynamo::AttributeValue::S(format!(
+                "search_filter#{user_search_filter_id}"
+            )),
+        );
+
+        let event = EventBridgeEvent {
+            detail: EventRecord {
+                event_name: Some("REMOVE".to_string()),
+                change: StreamRecord {
+                    keys,
+                    ..Default::default()
+                },
+                ..Default::default()
+            },
+            account: Some("123456789012".to_string()),
+            detail_type: Some("DynamoDBStreamRecord".to_string()),
+            id: Some(uuid::Uuid::new_v4().to_string()),
+            region: Some("eu-central-1".to_string()),
+            resources: Some(vec![]),
+            source: Some("table_1".to_string()),
+            time: Some(SystemTime::now().into()),
+            replay_name: None,
+        };
+        serde_json::to_string(&event).unwrap()
+    }
+
+    #[tokio::test]
+    async fn should_index_document_when_insert_event() {
+        let record = Faker.fake::<UserSearchFilterRecord>();
+        let body = mk_event_bridge_body(&record, "INSERT");
+        let event = mk_sqs_event(body);
+
+        let mut mock_repo = MockUserSearchFilterOpenSearchRepository::new();
+        mock_repo
+            .expect_index_document()
+            .times(1)
+            .returning(|_| {
+                Ok(common::opensearch::index_response::IndexResponse {
+                    index: "user_search_filter".to_string(),
+                    id: "test".to_string(),
+                    version: Some(1),
+                    result: "created".to_string(),
+                })
+            });
+
+        let res = handler(&mock_repo, event).await;
+        assert!(res.is_ok());
+    }
+
+    #[tokio::test]
+    async fn should_index_document_when_modify_event() {
+        let record = Faker.fake::<UserSearchFilterRecord>();
+        let body = mk_event_bridge_body(&record, "MODIFY");
+        let event = mk_sqs_event(body);
+
+        let mut mock_repo = MockUserSearchFilterOpenSearchRepository::new();
+        mock_repo
+            .expect_index_document()
+            .times(1)
+            .returning(|_| {
+                Ok(common::opensearch::index_response::IndexResponse {
+                    index: "user_search_filter".to_string(),
+                    id: "test".to_string(),
+                    version: Some(2),
+                    result: "updated".to_string(),
+                })
+            });
+
+        let res = handler(&mock_repo, event).await;
+        assert!(res.is_ok());
+    }
+
+    #[tokio::test]
+    async fn should_delete_document_when_remove_event() {
+        let record = Faker.fake::<UserSearchFilterRecord>();
+        let filter_id = record.user_search_filter_id;
+        let user_id = record.user_id;
+        let body = mk_delete_event_bridge_body(&filter_id, &user_id);
+        let event = mk_sqs_event(body);
+
+        let mut mock_repo = MockUserSearchFilterOpenSearchRepository::new();
+        mock_repo
+            .expect_delete_document()
+            .times(1)
+            .returning(|_| {
+                Ok(common::opensearch::delete_response::DeleteResponse {
+                    index: "user_search_filter".to_string(),
+                    id: "test".to_string(),
+                    version: Some(1),
+                    result: "deleted".to_string(),
+                })
+            });
+
+        let res = handler(&mock_repo, event).await;
+        assert!(res.is_ok());
+    }
+
+    #[tokio::test]
+    async fn should_skip_when_empty_body() {
+        let msg = SqsMessage {
+            body: None,
+            ..Default::default()
+        };
+        let event = LambdaEvent {
+            payload: SqsEvent {
+                records: vec![msg],
+            },
+            context: Context::default(),
+        };
+
+        let mock_repo = MockUserSearchFilterOpenSearchRepository::new();
+        let res = handler(&mock_repo, event).await;
+        assert!(res.is_ok());
+    }
+
+    #[tokio::test]
+    async fn should_fail_when_invalid_json_body() {
+        let event = mk_sqs_event("not json".to_string());
+        let mock_repo = MockUserSearchFilterOpenSearchRepository::new();
+        let res = handler(&mock_repo, event).await;
+        assert!(res.is_err());
+    }
+}

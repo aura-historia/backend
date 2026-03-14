@@ -1,0 +1,64 @@
+{
+    "settings": {
+        "analysis": {
+            "normalizer": {
+                "lowercase_normalizer": {
+                    "type": "custom",
+                    "filter": ["lowercase"]
+                }
+            }
+        }
+    },
+    "mappings": {
+        "properties": {
+            "userSearchFilterId": { "type": "keyword" },
+            "userId": { "type": "keyword" },
+            "name": { "type": "keyword" },
+            "query": { "type": "percolator" },
+            "categoryId": { "type": "keyword" },
+            "periodId": { "type": "keyword" },
+            "shopName": { "type": "keyword" },
+            "shopType": { "type": "keyword" },
+            "priceEur": { "type": "unsigned_long" },
+            "priceUsd": { "type": "unsigned_long" },
+            "priceGbp": { "type": "unsigned_long" },
+            "priceAud": { "type": "unsigned_long" },
+            "priceCad": { "type": "unsigned_long" },
+            "priceNzd": { "type": "unsigned_long" },
+            "state": { "type": "keyword" },
+            "originYearMin": { "type": "integer" },
+            "originYear": { "type": "integer" },
+            "originYearMax": { "type": "integer" },
+            "authenticity": { "type": "keyword" },
+            "condition": { "type": "keyword" },
+            "provenance": { "type": "keyword" },
+            "restoration": { "type": "keyword" },
+            "titleDe": { "type": "text", "analyzer": "german" },
+            "titleEn": { "type": "text", "analyzer": "english" },
+            "titleFr": { "type": "text", "analyzer": "french" },
+            "titleEs": { "type": "text", "analyzer": "spanish" },
+            "titleIt": { "type": "text", "analyzer": "italian" },
+            "descriptionDe": { "type": "text", "analyzer": "german" },
+            "descriptionEn": { "type": "text", "analyzer": "english" },
+            "descriptionFr": { "type": "text", "analyzer": "french" },
+            "descriptionEs": { "type": "text", "analyzer": "spanish" },
+            "descriptionIt": { "type": "text", "analyzer": "italian" },
+            "auctionStart": {
+                "type": "date",
+                "format": "strict_date_time"
+            },
+            "auctionEnd": {
+                "type": "date",
+                "format": "strict_date_time"
+            },
+            "created": {
+                "type": "date",
+                "format": "strict_date_time"
+            },
+            "updated": {
+                "type": "date",
+                "format": "strict_date_time"
+            }
+        }
+    }
+}

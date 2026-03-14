@@ -325,6 +325,7 @@ dependencies = [
  "product-watchlist-api",
  "search-filter",
  "search-filter-api",
+ "search-filter-lambda",
  "shop",
  "shop-api",
  "shop-lambda",
@@ -5939,6 +5940,7 @@ dependencies = [
  "fake",
  "field",
  "mockall",
+ "opensearch",
  "product",
  "rstest",
  "search-filter",
@@ -5981,6 +5983,35 @@ dependencies = [
  "tracing",
  "tracing-subscriber",
  "url",
+]
+
+[[package]]
+name = "search-filter-lambda"
+version = "0.1.0"
+dependencies = [
+ "search-filter-lambda-opensearch-sync",
+]
+
+[[package]]
+name = "search-filter-lambda-opensearch-sync"
+version = "0.1.0"
+dependencies = [
+ "aws-config",
+ "aws_lambda_events",
+ "common",
+ "fake",
+ "lambda_runtime",
+ "opensearch",
+ "search-filter",
+ "serde_dynamo",
+ "serde_json",
+ "serial_test",
+ "test-api",
+ "tokio",
+ "tracing",
+ "tracing-subscriber",
+ "url",
+ "uuid",
 ]
 
 [[package]]
