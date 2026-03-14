@@ -1,5 +1,5 @@
 use crate::IntegrationTestService;
-use crate::localstack::get_aws_config;
+use crate::localstack::{LOCALSTACK_CONTAINER_PORT, get_aws_config, get_endpoint_url};
 use async_trait::async_trait;
 use aws_sdk_opensearch::config::http::HttpResponse;
 use aws_sdk_opensearch::error::SdkError;
@@ -37,7 +37,7 @@ static OPENSEARCH_CLIENT: OnceCell<Client> = OnceCell::const_new();
 pub async fn get_opensearch_client() -> &'static Client {
     let client = OPENSEARCH_CLIENT
         .get_or_init(|| async {
-            let endpoint_url = Url::parse(&format!("http://localhost:4566/{TEST_DOMAIN_NAME}"))
+            let endpoint_url = Url::parse(&format!("{}/{TEST_DOMAIN_NAME}", get_endpoint_url()))
                 .expect("shouldn't fail parsing OpenSearch endpoint URL");
             let transport = TransportBuilder::new(SingleNodeConnectionPool::new(endpoint_url))
                 .auth(
@@ -134,7 +134,12 @@ async fn set_up_domain() -> Result<CreateDomainOutput, SdkError<CreateDomainErro
         .domain_name(TEST_DOMAIN_NAME)
         .domain_endpoint_options(
             DomainEndpointOptions::builder()
-                .custom_endpoint(format!("http://localhost:4566/{TEST_DOMAIN_NAME}"))
+                // Must use the container-internal port (not the host-mapped port) so that
+                // LocalStack can resolve this URL from inside the container when registering
+                // the domain. The OpenSearch client uses get_endpoint_url() for host access.
+                .custom_endpoint(format!(
+                    "http://localhost:{LOCALSTACK_CONTAINER_PORT}/{TEST_DOMAIN_NAME}"
+                ))
                 .custom_endpoint_enabled(true)
                 .build(),
         )
