@@ -7,12 +7,13 @@ use aws_sdk_dynamodb::{
     error::SdkError,
     operation::{
         batch_write_item::{BatchWriteItemError, BatchWriteItemOutput},
+        delete_item::{DeleteItemError, DeleteItemOutput},
         get_item::GetItemError,
         put_item::{PutItemError, PutItemOutput},
         query::QueryError,
         update_item::UpdateItemError,
     },
-    types::{AttributeValue, ReturnValue},
+    types::{AttributeValue, DeleteRequest, ReturnValue, WriteRequest},
 };
 use common::{
     batch::Batch, dynamodb_update::DynamoDbUpdate, event_id::EventId, pagination::cursor::Cursor,
@@ -60,6 +61,23 @@ pub trait NotificationDynamoDbRepository {
         origin_event_id: &EventId,
         update: NotificationRecordUpdate,
     ) -> Result<Option<NotificationRecord>, SdkError<UpdateItemError>>;
+
+    async fn query_all_notification_records(
+        &self,
+        user_id: &UserId,
+    ) -> Result<Vec<NotificationRecord>, SdkError<QueryError>>;
+
+    async fn delete_notification_record(
+        &self,
+        user_id: &UserId,
+        origin_event_id: &EventId,
+    ) -> Result<DeleteItemOutput, SdkError<DeleteItemError>>;
+
+    async fn delete_notification_records(
+        &self,
+        user_id: &UserId,
+        origin_event_ids: &[EventId],
+    ) -> Result<BatchWriteItemOutput, SdkError<BatchWriteItemError>>;
 }
 
 #[derive(Debug, Clone)]
@@ -284,5 +302,109 @@ impl<'a> NotificationDynamoDbRepository for NotificationDynamoDbRepositoryImpl<'
                         }
                     })
             })
+    }
+
+    async fn query_all_notification_records(
+        &self,
+        user_id: &UserId,
+    ) -> Result<Vec<NotificationRecord>, SdkError<QueryError>> {
+        let mut records = Vec::new();
+        let mut exclusive_start_key = None;
+
+        loop {
+            let mut request = self
+                .client
+                .query()
+                .table_name(&self.table)
+                .key_condition_expression("#pk = :pk_val AND #sk BETWEEN :sk_lower AND :sk_upper")
+                .expression_attribute_names("#pk", "pk")
+                .expression_attribute_names("#sk", "sk")
+                .expression_attribute_values(":pk_val", AttributeValue::S(mk_pk(user_id)))
+                .expression_attribute_values(
+                    ":sk_lower",
+                    AttributeValue::S(SK_LOWER_BOUND.to_string()),
+                )
+                .expression_attribute_values(
+                    ":sk_upper",
+                    AttributeValue::S(SK_UPPER_BOUND.to_string()),
+                );
+
+            if let Some(start_key) = exclusive_start_key {
+                request = request.set_exclusive_start_key(Some(start_key));
+            }
+
+            let output = request.send().await?;
+
+            let page: Vec<NotificationRecord> = output
+                .items
+                .unwrap_or_default()
+                .into_iter()
+                .map(serde_dynamo::from_item::<_, NotificationRecord>)
+                .filter_map(|res| match res {
+                    Ok(record) => Some(record),
+                    Err(err) => {
+                        error!(
+                            userId = %user_id,
+                            error = %err,
+                            r#type = %std::any::type_name::<NotificationRecord>(),
+                            "Failed deserializing."
+                        );
+                        None
+                    }
+                })
+                .collect();
+
+            records.extend(page);
+
+            exclusive_start_key = output.last_evaluated_key;
+            if exclusive_start_key.is_none() {
+                break;
+            }
+        }
+
+        Ok(records)
+    }
+
+    async fn delete_notification_record(
+        &self,
+        user_id: &UserId,
+        origin_event_id: &EventId,
+    ) -> Result<DeleteItemOutput, SdkError<DeleteItemError>> {
+        self.client
+            .delete_item()
+            .table_name(&self.table)
+            .key("pk", AttributeValue::S(mk_pk(user_id)))
+            .key("sk", AttributeValue::S(mk_sk(origin_event_id)))
+            .send()
+            .await
+    }
+
+    async fn delete_notification_records(
+        &self,
+        user_id: &UserId,
+        origin_event_ids: &[EventId],
+    ) -> Result<BatchWriteItemOutput, SdkError<BatchWriteItemError>> {
+        let write_requests: Vec<WriteRequest> = origin_event_ids
+            .iter()
+            .map(|id| {
+                let mut key = HashMap::new();
+                key.insert("pk".to_string(), AttributeValue::S(mk_pk(user_id)));
+                key.insert("sk".to_string(), AttributeValue::S(mk_sk(id)));
+                WriteRequest::builder()
+                    .delete_request(
+                        DeleteRequest::builder()
+                            .set_key(Some(key))
+                            .build()
+                            .expect("key is always set"),
+                    )
+                    .build()
+            })
+            .collect();
+
+        self.client
+            .batch_write_item()
+            .set_request_items(Some(HashMap::from([(self.table.clone(), write_requests)])))
+            .send()
+            .await
     }
 }

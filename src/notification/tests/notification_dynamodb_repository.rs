@@ -456,3 +456,86 @@ fn should_put_notification_records_for_different_users() {
     assert_eq!(10, actual_user_1.len());
     assert_eq!(8, actual_user_2.len());
 }
+
+#[localstack_test(services = [DynamoDB()])]
+fn should_delete_notification_record() {
+    let repository = get_repository().await;
+
+    let record: NotificationRecord = Faker.fake();
+    let _ = repository
+        .put_notification_record(record.clone())
+        .await
+        .unwrap();
+
+    // Verify it exists before delete
+    let before = repository
+        .get_notification_record(&record.user_id, &record.origin_event_id)
+        .await
+        .unwrap();
+    assert!(before.is_some());
+
+    // Delete
+    let _ = repository
+        .delete_notification_record(&record.user_id, &record.origin_event_id)
+        .await
+        .unwrap();
+
+    // Verify it no longer exists
+    let after = repository
+        .get_notification_record(&record.user_id, &record.origin_event_id)
+        .await
+        .unwrap();
+    assert!(after.is_none());
+}
+
+#[localstack_test(services = [DynamoDB()])]
+fn should_query_all_notification_records() {
+    let repository = get_repository().await;
+    let user_id = UserId::new();
+
+    let mut records = fake::vec![NotificationRecord; 5];
+    for record in &mut records {
+        record.pk = mk_pk(&user_id);
+        record.user_id = user_id;
+        let _ = repository
+            .put_notification_record(record.clone())
+            .await
+            .unwrap();
+    }
+
+    let actual = repository
+        .query_all_notification_records(&user_id)
+        .await
+        .unwrap();
+
+    assert_eq!(5, actual.len());
+}
+
+#[localstack_test(services = [DynamoDB()])]
+fn should_delete_notification_records_batch() {
+    let repository = get_repository().await;
+    let user_id = UserId::new();
+
+    let mut records = fake::vec![NotificationRecord; 3];
+    for record in &mut records {
+        record.pk = mk_pk(&user_id);
+        record.user_id = user_id;
+        let _ = repository
+            .put_notification_record(record.clone())
+            .await
+            .unwrap();
+    }
+
+    let ids: Vec<EventId> = records.iter().map(|r| r.origin_event_id).collect();
+    let _ = repository
+        .delete_notification_records(&user_id, &ids)
+        .await
+        .unwrap();
+
+    // Verify all records are deleted
+    let remaining = repository
+        .query_all_notification_records(&user_id)
+        .await
+        .unwrap();
+    assert!(remaining.is_empty());
+}

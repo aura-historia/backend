@@ -63,6 +63,17 @@ pub enum NotificationError {
         #[from] SdkError<aws_sdk_dynamodb::operation::update_item::UpdateItemError, HttpResponse>,
     ),
 
+    #[error("Encountered DynamoDB SdkError for DeleteItem: {0}")]
+    SdkDeleteItemError(
+        #[from] SdkError<aws_sdk_dynamodb::operation::delete_item::DeleteItemError, HttpResponse>,
+    ),
+
+    #[error("Encountered DynamoDB SdkError for BatchWriteItem (delete): {0}")]
+    SdkBatchDeleteError(
+        #[from]
+        SdkError<aws_sdk_dynamodb::operation::batch_write_item::BatchWriteItemError, HttpResponse>,
+    ),
+
     #[error("User with UserId '{0}' not found.")]
     UserNotFound(UserId),
 
@@ -126,6 +137,22 @@ pub trait NotificationService {
         user_id: &UserId,
         origin_event_id: &EventId,
     ) -> Result<Notification, NotificationError>;
+
+    async fn mark_all_notifications_seen(
+        &self,
+        user_id: &UserId,
+        origin_event_ids: Option<&[EventId]>,
+        languages: &[Language],
+        currency: &Currency,
+    ) -> Result<CursoredResult<LocalizedNotification, EventId>, NotificationError>;
+
+    async fn delete_notification(
+        &self,
+        user_id: &UserId,
+        origin_event_id: &EventId,
+    ) -> Result<(), NotificationError>;
+
+    async fn delete_all_notifications(&self, user_id: &UserId) -> Result<(), NotificationError>;
 }
 
 static TEMPLATE_CACHE: OnceCell<Arc<RwLock<HashMap<MailTemplate, String>>>> = OnceCell::new();
@@ -693,6 +720,119 @@ impl<'a> NotificationService for NotificationServiceImpl<'a> {
         );
 
         Ok(updated_notification)
+    }
+
+    async fn mark_all_notifications_seen(
+        &self,
+        user_id: &UserId,
+        origin_event_ids: Option<&[EventId]>,
+        languages: &[Language],
+        currency: &Currency,
+    ) -> Result<CursoredResult<LocalizedNotification, EventId>, NotificationError> {
+        let all_records = self
+            .notification_repository
+            .query_all_notification_records(user_id)
+            .await?;
+
+        let ids_to_update: Vec<EventId> = match origin_event_ids {
+            Some(ids) => ids.to_vec(),
+            None => all_records.iter().map(|r| r.origin_event_id).collect(),
+        };
+
+        let update = NotificationRecordUpdate {
+            seen: Some(true),
+            notification_type: None,
+            updated: OffsetDateTime::now_utc(),
+        };
+
+        for id in &ids_to_update {
+            if let Err(err) = self
+                .notification_repository
+                .update_notification_record(user_id, id, update.clone())
+                .await
+            {
+                error!(
+                    userId = %user_id,
+                    originEventId = %id,
+                    error = %err,
+                    "Failed marking notification as seen."
+                );
+            }
+        }
+
+        self.view_notifications(user_id, languages, currency, &None)
+            .await
+    }
+
+    async fn delete_notification(
+        &self,
+        user_id: &UserId,
+        origin_event_id: &EventId,
+    ) -> Result<(), NotificationError> {
+        self.notification_repository
+            .get_notification_record(user_id, origin_event_id)
+            .await?
+            .ok_or(NotificationError::NotificationNotFound(
+                *user_id,
+                *origin_event_id,
+            ))?;
+
+        self.notification_repository
+            .delete_notification_record(user_id, origin_event_id)
+            .await?;
+
+        Ok(())
+    }
+
+    async fn delete_all_notifications(&self, user_id: &UserId) -> Result<(), NotificationError> {
+        let all_records = self
+            .notification_repository
+            .query_all_notification_records(user_id)
+            .await?;
+
+        if all_records.is_empty() {
+            return Ok(());
+        }
+
+        let ids: Vec<EventId> = all_records.iter().map(|r| r.origin_event_id).collect();
+
+        for chunk in ids.chunks(25) {
+            self.notification_repository
+                .delete_notification_records(user_id, chunk)
+                .await?;
+        }
+
+        Ok(())
+    }
+}
+
+#[cfg(feature = "data")]
+mod api_error_impls {
+    use super::NotificationError;
+    use common::api::error::ApiError;
+    use common::api::error_code::{INTERNAL_SERVER_ERROR, NOTIFICATION_NOT_FOUND};
+
+    impl From<NotificationError> for ApiError {
+        fn from(err: NotificationError) -> Self {
+            match err {
+                NotificationError::NotificationNotFound(_, _) => {
+                    ApiError::not_found(NOTIFICATION_NOT_FOUND, Box::new(err))
+                }
+                NotificationError::SdkGetItemError(e) => e.into(),
+                NotificationError::SdkQueryError(e) => e.into(),
+                NotificationError::SdkPutItemError(e) => e.into(),
+                NotificationError::SdkUpdateItemError(e) => e.into(),
+                NotificationError::SdkDeleteItemError(e) => e.into(),
+                NotificationError::SdkBatchDeleteError(e) => e.into(),
+                NotificationError::UserNotFound(_)
+                | NotificationError::UserLookupFailed(_)
+                | NotificationError::SdkSESSendMailError(_)
+                | NotificationError::SdkS3GetObjectError(_)
+                | NotificationError::TemplateRenderError(_) => {
+                    ApiError::internal_server_error(INTERNAL_SERVER_ERROR, Box::new(err))
+                }
+            }
+        }
     }
 }
 
@@ -2245,6 +2385,195 @@ mod tests {
             // Verify it's now cached
             let cached = cache.read().await.get(&template).cloned();
             assert_eq!(cached, Some("<html>State Template</html>".to_owned()));
+        }
+    }
+
+    mod mark_all_notifications_seen {
+        use super::*;
+
+        #[tokio::test]
+        async fn should_mark_all_when_no_ids_given() {
+            let user_id = UserId::new();
+            let mut record1: NotificationRecord = Faker.fake();
+            record1.user_id = user_id;
+            let mut record2: NotificationRecord = Faker.fake();
+            record2.user_id = user_id;
+
+            let mut repository = MockNotificationDynamoDbRepository::default();
+            repository
+                .expect_query_all_notification_records()
+                .return_once(move |_| {
+                    Box::pin(async move { Ok(vec![record1.clone(), record2.clone()]) })
+                });
+            repository
+                .expect_update_notification_record()
+                .times(2)
+                .returning(|_, _, _| Box::pin(async { Ok(Some(Faker.fake())) }));
+            repository
+                .expect_query_notification_records()
+                .return_once(|_, _, _| Box::pin(async { Ok(vec![]) }));
+            repository
+                .expect_count_notification_records()
+                .return_once(|_, _, _| Box::pin(async { Ok(0) }));
+
+            let user_service = MockUserService::default();
+            let ses_adapter = MockSesAdapter::default();
+            let s3_adapter = MockS3Adapter::default();
+            let service = make_service(&repository, &user_service, &ses_adapter, &s3_adapter);
+            let result = service
+                .mark_all_notifications_seen(&user_id, None, &[Language::En], &Currency::Eur)
+                .await;
+
+            assert!(result.is_ok());
+        }
+
+        #[tokio::test]
+        async fn should_mark_given_ids_only() {
+            let user_id = UserId::new();
+            let event_id = EventId::new();
+
+            let mut repository = MockNotificationDynamoDbRepository::default();
+            repository
+                .expect_query_all_notification_records()
+                .return_once(|_| Box::pin(async { Ok(vec![]) }));
+            repository
+                .expect_update_notification_record()
+                .times(1)
+                .returning(|_, _, _| Box::pin(async { Ok(Some(Faker.fake())) }));
+            repository
+                .expect_query_notification_records()
+                .return_once(|_, _, _| Box::pin(async { Ok(vec![]) }));
+            repository
+                .expect_count_notification_records()
+                .return_once(|_, _, _| Box::pin(async { Ok(0) }));
+
+            let user_service = MockUserService::default();
+            let ses_adapter = MockSesAdapter::default();
+            let s3_adapter = MockS3Adapter::default();
+            let service = make_service(&repository, &user_service, &ses_adapter, &s3_adapter);
+            let result = service
+                .mark_all_notifications_seen(
+                    &user_id,
+                    Some(&[event_id]),
+                    &[Language::En],
+                    &Currency::Eur,
+                )
+                .await;
+
+            assert!(result.is_ok());
+        }
+    }
+
+    mod delete_notification {
+        use super::*;
+
+        #[tokio::test]
+        async fn should_return_ok_when_exists() {
+            let user_id = UserId::new();
+            let event_id = EventId::new();
+            let mut record: NotificationRecord = Faker.fake();
+            record.user_id = user_id;
+            record.origin_event_id = event_id;
+
+            let mut repository = MockNotificationDynamoDbRepository::default();
+            repository
+                .expect_get_notification_record()
+                .return_once(move |_, _| Box::pin(async move { Ok(Some(record)) }));
+            repository
+                .expect_delete_notification_record()
+                .return_once(|_, _| {
+                    Box::pin(async {
+                        Ok(
+                            aws_sdk_dynamodb::operation::delete_item::DeleteItemOutput::builder()
+                                .build(),
+                        )
+                    })
+                });
+
+            let user_service = MockUserService::default();
+            let ses_adapter = MockSesAdapter::default();
+            let s3_adapter = MockS3Adapter::default();
+            let service = make_service(&repository, &user_service, &ses_adapter, &s3_adapter);
+            let result = service.delete_notification(&user_id, &event_id).await;
+
+            assert!(result.is_ok());
+        }
+
+        #[tokio::test]
+        async fn should_return_not_found_when_not_exists() {
+            let user_id = UserId::new();
+            let event_id = EventId::new();
+
+            let mut repository = MockNotificationDynamoDbRepository::default();
+            repository
+                .expect_get_notification_record()
+                .return_once(|_, _| Box::pin(async { Ok(None) }));
+            repository.expect_delete_notification_record().never();
+
+            let user_service = MockUserService::default();
+            let ses_adapter = MockSesAdapter::default();
+            let s3_adapter = MockS3Adapter::default();
+            let service = make_service(&repository, &user_service, &ses_adapter, &s3_adapter);
+            let result = service.delete_notification(&user_id, &event_id).await;
+
+            assert!(result.is_err());
+            match result.unwrap_err() {
+                NotificationError::NotificationNotFound(_, _) => {}
+                err => panic!("Expected NotificationNotFound, got '{err}'"),
+            }
+        }
+    }
+
+    mod delete_all_notifications {
+        use super::*;
+
+        #[tokio::test]
+        async fn should_delete_all_records() {
+            let user_id = UserId::new();
+            let mut record1: NotificationRecord = Faker.fake();
+            record1.user_id = user_id;
+            let mut record2: NotificationRecord = Faker.fake();
+            record2.user_id = user_id;
+
+            let mut repository = MockNotificationDynamoDbRepository::default();
+            repository
+                .expect_query_all_notification_records()
+                .return_once(move |_| Box::pin(async move { Ok(vec![record1, record2]) }));
+            repository
+                .expect_delete_notification_records()
+                .return_once(|_, _| {
+                    Box::pin(async {
+                        Ok(aws_sdk_dynamodb::operation::batch_write_item::BatchWriteItemOutput::builder()
+                            .build())
+                    })
+                });
+
+            let user_service = MockUserService::default();
+            let ses_adapter = MockSesAdapter::default();
+            let s3_adapter = MockS3Adapter::default();
+            let service = make_service(&repository, &user_service, &ses_adapter, &s3_adapter);
+            let result = service.delete_all_notifications(&user_id).await;
+
+            assert!(result.is_ok());
+        }
+
+        #[tokio::test]
+        async fn should_succeed_when_no_notifications() {
+            let user_id = UserId::new();
+
+            let mut repository = MockNotificationDynamoDbRepository::default();
+            repository
+                .expect_query_all_notification_records()
+                .return_once(|_| Box::pin(async { Ok(vec![]) }));
+            repository.expect_delete_notification_records().never();
+
+            let user_service = MockUserService::default();
+            let ses_adapter = MockSesAdapter::default();
+            let s3_adapter = MockS3Adapter::default();
+            let service = make_service(&repository, &user_service, &ses_adapter, &s3_adapter);
+            let result = service.delete_all_notifications(&user_id).await;
+
+            assert!(result.is_ok());
         }
     }
 }

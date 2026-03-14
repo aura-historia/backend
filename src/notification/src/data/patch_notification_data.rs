@@ -1,0 +1,8 @@
+use serde::{Deserialize, Serialize};
+
+#[cfg_attr(feature = "test-data", derive(fake::Dummy))]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PatchNotificationData {
+    pub seen: bool,
+}

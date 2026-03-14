@@ -2,7 +2,10 @@ use crate::language::domain::Language;
 use strum_macros::EnumCount;
 
 #[cfg_attr(feature = "test-data", derive(fake::Dummy))]
-#[derive(Copy, Clone, Eq, PartialEq, Debug, Hash, EnumCount)]
+#[derive(
+    Copy, Clone, Eq, PartialEq, Debug, Hash, EnumCount, serde::Serialize, serde::Deserialize,
+)]
+#[serde(rename_all = "SCREAMING_SNAKE_CASE")]
 pub enum ProductState {
     Listed,
     Available,

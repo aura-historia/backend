@@ -25,6 +25,7 @@ user = { workspace = true }
 user-api = { workspace = true }
 notification-send = { workspace = true }
 notification = { workspace = true }
+notification-api = { workspace = true }
 product-pipeline = { workspace = true }
 fxrate = { workspace = true }
 fxrate-lambda = { workspace = true }
@@ -53,6 +54,7 @@ members = [
     "src/user-api",
     "src/notification-send",
     "src/notification",
+    "src/notification-api",
     "src/product-pipeline",
     "src/fxrate",
     "src/fxrate-lambda",
@@ -85,6 +87,7 @@ shop-lambda-opensearch-index = { path = "src/shop-lambda/src/shop-lambda-opensea
 shop-api = { path = "src/shop-api" }
 notification-send = { path = "src/notification-send" }
 notification = { path = "src/notification" }
+notification-api = { path = "src/notification-api" }
 futures = { version = "0.3.32", default-features = false }
 hex = "0.4.3"
 http = "1.4.0"

@@ -260,4 +260,23 @@ mod faker {
             }
         }
     }
+
+    impl<T: Dummy<Faker>> Dummy<Faker> for CursoredResult<T, crate::event_id::EventId> {
+        fn dummy_with_rng<R: Rng + ?Sized>(config: &Faker, rng: &mut R) -> Self {
+            let items: Vec<T> = config.fake_with_rng(rng);
+            let cursor = Cursor {
+                search_after: if config.fake_with_rng::<bool, _>(rng) {
+                    Some(crate::event_id::EventId::new())
+                } else {
+                    None
+                },
+                size: config.fake_with_rng(rng),
+            };
+            CursoredResult {
+                items,
+                cursor,
+                total: config.fake_with_rng(rng),
+            }
+        }
+    }
 }

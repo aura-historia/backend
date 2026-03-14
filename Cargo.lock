@@ -313,6 +313,7 @@ dependencies = [
  "fxrate",
  "fxrate-lambda",
  "notification",
+ "notification-api",
  "notification-send",
  "product",
  "product-api",
@@ -3953,6 +3954,31 @@ dependencies = [
 ]
 
 [[package]]
+name = "notification-api"
+version = "0.1.0"
+dependencies = [
+ "aws-config",
+ "aws-sdk-dynamodb",
+ "aws_lambda_events",
+ "common",
+ "fake",
+ "http 1.4.0",
+ "lambda_runtime",
+ "notification",
+ "rstest",
+ "serde",
+ "serde_json",
+ "serial_test",
+ "test-api",
+ "thiserror",
+ "time",
+ "tokio",
+ "tracing",
+ "tracing-subscriber",
+ "user",
+]
+
+[[package]]
 name = "notification-send"
 version = "0.1.0"
 dependencies = [
@@ -6840,6 +6866,8 @@ dependencies = [
  "fake",
  "futures-util",
  "http 1.4.0",
+ "notification",
+ "notification-api",
  "opensearch",
  "product",
  "product-api",
