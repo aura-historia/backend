@@ -23,9 +23,8 @@ product-lambda = { workspace = true }
 test-api = { workspace = true }
 user = { workspace = true }
 user-api = { workspace = true }
-user-lambda = { workspace = true }
-mail = { workspace = true }
-mail-lambda-send = { workspace = true }
+notification-send = { workspace = true }
+notification = { workspace = true }
 product-pipeline = { workspace = true }
 fxrate = { workspace = true }
 fxrate-lambda = { workspace = true }
@@ -52,9 +51,8 @@ members = [
     "src/shop-lambda",
     "src/user",
     "src/user-api",
-    "src/user-lambda",
-    "src/mail",
-    "src/mail-lambda-send",
+    "src/notification-send",
+    "src/notification",
     "src/product-pipeline",
     "src/fxrate",
     "src/fxrate-lambda",
@@ -85,9 +83,8 @@ shop = { path = "src/shop" }
 shop-lambda = { path = "src/shop-lambda" }
 shop-lambda-opensearch-index = { path = "src/shop-lambda/src/shop-lambda-opensearch-index" }
 shop-api = { path = "src/shop-api" }
-mail = { path = "src/mail" }
-mail-core = { path = "src/mail/src/mail-core" }
-mail-lambda-send = { path = "src/mail-lambda-send" }
+notification-send = { path = "src/notification-send" }
+notification = { path = "src/notification" }
 futures = { version = "0.3.32", default-features = false }
 hex = "0.4.3"
 http = "1.4.0"
@@ -158,9 +155,7 @@ smoking-tests-macros = { path = "src/aws-tests/src/smoking-tests/src/smoking-tes
 staging-tests-macros = { path = "src/aws-tests/src/staging-tests/src/staging-tests-macros" }
 user = { path = "src/user" }
 user-api = { path = "src/user-api" }
-user-lambda = { path = "src/user-lambda" }
 cognito = { path = "src/cognito" }
-user-lambda-fanout-update-watchlist = { path = "src/user-lambda/src/user-lambda-fanout-update-watchlist" }
 cognito-post-confirmation = { path = "src/cognito-post-confirmation" }
 serde-email = "3.2.0"
 handlebars = "6.4.0"

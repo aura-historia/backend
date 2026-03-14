@@ -111,7 +111,6 @@ jobs:
           - src/test-api
           - src/user
           - src/user-api
-          - src/mail/src/mail-core
     steps:
       - uses: actions/checkout@v6
 
@@ -243,9 +242,8 @@ jobs:
           - src/shop-api
           - src/shop-lambda/src/shop-lambda-opensearch-index
           - src/user-api
-          - src/user-lambda/src/user-lambda-fanout-update-watchlist
           - src/cognito-post-confirmation
-          - src/mail-lambda-send
+          - src/notification-send
           - src/fxrate-lambda
     steps:
       - uses: actions/checkout@v6

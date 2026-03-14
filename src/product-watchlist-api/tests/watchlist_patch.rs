@@ -30,15 +30,16 @@ async fn should_respond_with_patched_notifications(
     #[case] old_notifications: bool,
     #[case] new_notifications: bool,
 ) {
+    use product_watchlist::dynamodb::record::{mk_gsi1_pk, mk_gsi1_sk};
+
+    let user_repository = UserDynamoDbRepositoryImpl::new(get_dynamodb_client().await, "table_1");
     let watchlist_repository =
         WatchlistProductDynamoDbRepositoryImpl::new(get_dynamodb_client().await, "table_1");
-    let user_repository = UserDynamoDbRepositoryImpl::new(get_dynamodb_client().await, "table_1");
     let product_repository =
         ProductDynamoDbRepositoryImpl::new(get_dynamodb_client().await, "table_1");
     let get_product_service = GetProductServiceImpl::new(&product_repository);
     let service = ProductWatchListServiceImpl::new(
         &watchlist_repository,
-        &user_repository,
         &product_repository,
         &get_product_service,
     );
@@ -69,14 +70,13 @@ async fn should_respond_with_patched_notifications(
             &product_record.shops_product_id,
         ),
         lsi1_sk: product_watchlist::dynamodb::record::mk_lsi1_sk(&created).unwrap(),
-        gsi1_pk: None,
-        gsi1_sk: None,
+        gsi1_pk: mk_gsi1_pk(&product_record.product_id),
+        gsi1_sk: mk_gsi1_sk(&user_record.user_id),
         user_id: user_record.user_id,
         product_id: product_record.product_id,
         shop_id: product_record.shop_id,
         shops_product_id: product_record.shops_product_id.clone(),
         notifications: old_notifications,
-        user_record: user_record.clone(),
         created,
         updated: created,
     };

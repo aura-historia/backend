@@ -1,31 +1,29 @@
 [package]
-name = "user-lambda-fanout-update-watchlist"
+name = "notification-send"
 version = "0.1.0"
 edition = "2024"
 
 [dependencies]
 common = { workspace = true, features = ["dynamodb", "event_bridge"] }
-user = { workspace = true, features = ["dynamodb"] }
-product-watchlist = { workspace = true, features = ["dynamodb", "service"] }
-time = { workspace = true }
+notification = { workspace = true, features = ["service"] }
+user = { workspace = true, features = ["dynamodb", "service"] }
 lambda_runtime = { workspace = true }
 aws-config = { workspace = true }
+aws_lambda_events = { workspace = true, features = ["sqs", "dynamodb", "eventbridge"] }
 aws-sdk-dynamodb = { workspace = true }
-aws_lambda_events = { workspace = true, features = [
-    "sqs",
-    "dynamodb",
-    "eventbridge",
-] }
+aws-sdk-sesv2 = { workspace = true }
+aws-sdk-s3 = { workspace = true }
 serde_json = { workspace = true }
 serde_dynamo = { workspace = true }
+serde-email = { workspace = true }
 tokio = { workspace = true, features = ["macros"] }
 tracing-subscriber = { workspace = true, features = ["json"] }
 tracing = { workspace = true }
 
 [dev-dependencies]
-mockall = { workspace = true }
-rstest = { workspace = true }
+notification = { workspace = true, features = ["test-data"] }
 fake = { workspace = true }
+rstest = { workspace = true }
+serde = { workspace = true }
+time = { workspace = true }
 uuid = { workspace = true }
-user = { workspace = true, features = ["test-data"] }
-product-watchlist = { workspace = true, features = ["test-data"] }

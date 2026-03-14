@@ -6,15 +6,7 @@ use notification::{
     dynamodb::repository::NotificationDynamoDbRepositoryImpl,
     service::notification_service::NotificationServiceImpl,
 };
-use product::dynamodb::repository::ProductDynamoDbRepositoryImpl;
-use product::service::get_service::GetProductServiceImpl;
-use product_lambda_update_notify_user::{
-    handler, service::ProductEventWatchlistNotificationsServiceImpl,
-};
-use product_watchlist::{
-    dynamodb::repository::WatchlistProductDynamoDbRepositoryImpl,
-    service::product_watchlist_service::ProductWatchListServiceImpl,
-};
+use notification_send::handler;
 use tracing::debug;
 use user::{
     dynamodb::repository::UserDynamoDbRepositoryImpl, service::user_service::UserServiceImpl,
@@ -46,24 +38,13 @@ async fn main() -> Result<(), Error> {
         .try_into()
         .expect("shouldn't fail parsing 'SENDER_MAIL' as email address");
 
-    let watchlist_repository =
-        WatchlistProductDynamoDbRepositoryImpl::new(&dynamodb_client, &table_name);
-    let product_repository = ProductDynamoDbRepositoryImpl::new(&dynamodb_client, &table_name);
     let notification_repository =
         NotificationDynamoDbRepositoryImpl::new(&dynamodb_client, &table_name);
     let user_repository = UserDynamoDbRepositoryImpl::new(&dynamodb_client, &table_name);
-
     let ses_adapter = SesAdapterImpl::new(&ses_client);
     let s3_adapter = S3AdapterImpl::new(&s3_client);
 
-    let get_product_service = GetProductServiceImpl::new(&product_repository);
-    let watchlist_service = ProductWatchListServiceImpl::new(
-        &watchlist_repository,
-        &product_repository,
-        &get_product_service,
-    );
     let user_service = UserServiceImpl::new(&user_repository);
-
     let notification_service = NotificationServiceImpl::new(
         &notification_repository,
         &user_service,
@@ -74,20 +55,11 @@ async fn main() -> Result<(), Error> {
         &commit_sha,
         sender_email,
     );
-    let product_event_mail_payload_service = ProductEventWatchlistNotificationsServiceImpl::new(
-        &watchlist_service,
-        &get_product_service,
-    );
 
     debug!("Lambda initialized.");
 
     run(service_fn(|event: LambdaEvent<SqsEvent>| async {
-        handler(
-            &product_event_mail_payload_service,
-            &notification_service,
-            event,
-        )
-        .await
+        handler(&notification_service, event).await
     }))
     .await
 }

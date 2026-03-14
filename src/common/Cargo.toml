@@ -11,7 +11,7 @@ time = { workspace = true, features = [
     "macros",
     "serde",
 ] }
-uuid = { workspace = true, features = ["v4"] }
+uuid = { workspace = true, features = ["v4", "v7"] }
 thiserror = { workspace = true }
 url = { workspace = true }
 tracing = { workspace = true }

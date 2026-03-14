@@ -143,10 +143,9 @@ mod tests {
                         pk: "dummy".to_owned(),
                         sk: "dummy".to_owned(),
                         lsi1_sk: "dummy".to_owned(),
-                        gsi1_pk: None,
-                        gsi1_sk: None,
+                        gsi1_pk: "dummy".to_owned(),
+                        gsi1_sk: "dummy".to_owned(),
                         user_id,
-                        user_record: Faker.fake(),
                     };
                     Ok(Some(watched))
                 })
@@ -185,10 +184,9 @@ mod tests {
                         pk: "dummy".to_owned(),
                         sk: "dummy".to_owned(),
                         lsi1_sk: "dummy".to_owned(),
-                        gsi1_pk: None,
-                        gsi1_sk: None,
+                        gsi1_pk: "dummy".to_owned(),
+                        gsi1_sk: "dummy".to_owned(),
                         user_id,
-                        user_record: Faker.fake(),
                     };
                     Ok(Some(watched))
                 })
@@ -252,10 +250,9 @@ mod tests {
                             pk: "dummy".to_owned(),
                             sk: "dummy".to_owned(),
                             lsi1_sk: "dummy".to_owned(),
-                            gsi1_pk: None,
-                            gsi1_sk: None,
+                            gsi1_pk: "dummy".to_owned(),
+                            gsi1_sk: "dummy".to_owned(),
                             user_id,
-                            user_record: Faker.fake(),
                         },
                         WatchlistProductRecord {
                             shop_id: Faker.fake(),
@@ -267,10 +264,9 @@ mod tests {
                             pk: "dummy".to_owned(),
                             sk: "dummy".to_owned(),
                             lsi1_sk: "dummy".to_owned(),
-                            gsi1_pk: None,
-                            gsi1_sk: None,
+                            gsi1_pk: "dummy".to_owned(),
+                            gsi1_sk: "dummy".to_owned(),
                             user_id,
-                            user_record: Faker.fake(),
                         },
                         WatchlistProductRecord {
                             shop_id: Faker.fake(),
@@ -282,10 +278,9 @@ mod tests {
                             pk: "dummy".to_owned(),
                             sk: "dummy".to_owned(),
                             lsi1_sk: "dummy".to_owned(),
-                            gsi1_pk: None,
-                            gsi1_sk: None,
+                            gsi1_pk: "dummy".to_owned(),
+                            gsi1_sk: "dummy".to_owned(),
                             user_id,
-                            user_record: Faker.fake(),
                         },
                     ];
                     Ok(watched)

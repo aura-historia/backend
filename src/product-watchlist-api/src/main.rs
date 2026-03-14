@@ -7,7 +7,6 @@ use product::service::get_service::GetProductServiceImpl;
 use product_watchlist::dynamodb::repository::WatchlistProductDynamoDbRepositoryImpl;
 use product_watchlist::service::product_watchlist_service::ProductWatchListServiceImpl;
 use product_watchlist_api::handler;
-use user::dynamodb::repository::UserDynamoDbRepositoryImpl;
 
 #[tokio::main]
 async fn main() -> Result<(), Error> {
@@ -22,13 +21,11 @@ async fn main() -> Result<(), Error> {
     let dynamodb = aws_sdk_dynamodb::Client::new(&aws_config);
 
     let watchlist_repository = WatchlistProductDynamoDbRepositoryImpl::new(&dynamodb, &table_name);
-    let user_repository = UserDynamoDbRepositoryImpl::new(&dynamodb, &table_name);
     let product_dynamodb_repository = ProductDynamoDbRepositoryImpl::new(&dynamodb, &table_name);
 
     let get_product_service = GetProductServiceImpl::new(&product_dynamodb_repository);
     let product_watchlist_service = ProductWatchListServiceImpl::new(
         &watchlist_repository,
-        &user_repository,
         &product_dynamodb_repository,
         &get_product_service,
     );

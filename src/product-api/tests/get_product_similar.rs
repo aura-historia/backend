@@ -1240,7 +1240,6 @@ async fn should_200_and_personalize_when_similar_products_have_been_computed_for
     let user_repository = UserDynamoDbRepositoryImpl::new(get_dynamodb_client().await, "table_1");
     let watchlist_service = ProductWatchListServiceImpl::new(
         &watchlist_repository,
-        &user_repository,
         &product_dynamodb_repository,
         &get_product_service,
     );

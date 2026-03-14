@@ -392,6 +392,17 @@ pub struct ProductPriceDiscoveryDomainEventPayload {
     pub other_price: HashMap<Currency, MonetaryAmount>,
 }
 
+impl ProductPriceDiscoveryDomainEventPayload {
+    pub fn prices(&self) -> HashMap<Currency, MonetaryAmount> {
+        let mut prices = self.other_price.clone();
+        prices.insert(
+            self.native_price.currency,
+            self.native_price.monetary_amount,
+        );
+        prices
+    }
+}
+
 impl ProductCommonEventPayload for ProductPriceDiscoveryDomainEventPayload {
     fn shop_id(&self) -> &ShopId {
         &self.shop_id
@@ -412,6 +423,26 @@ pub struct ProductPriceChangeDomainEventPayload {
     pub old_other_price: HashMap<Currency, MonetaryAmount>,
 }
 
+impl ProductPriceChangeDomainEventPayload {
+    pub fn new_prices(&self) -> HashMap<Currency, MonetaryAmount> {
+        let mut prices = self.new_other_price.clone();
+        prices.insert(
+            self.new_native_price.currency,
+            self.new_native_price.monetary_amount,
+        );
+        prices
+    }
+
+    pub fn old_prices(&self) -> HashMap<Currency, MonetaryAmount> {
+        let mut prices = self.old_other_price.clone();
+        prices.insert(
+            self.old_native_price.currency,
+            self.old_native_price.monetary_amount,
+        );
+        prices
+    }
+}
+
 impl ProductCommonEventPayload for ProductPriceChangeDomainEventPayload {
     fn shop_id(&self) -> &ShopId {
         &self.shop_id
@@ -428,6 +459,17 @@ pub struct ProductPriceRemovedDomainEventPayload {
     pub shops_product_id: ShopsProductId,
     pub old_native_price: Price,
     pub old_other_price: HashMap<Currency, MonetaryAmount>,
+}
+
+impl ProductPriceRemovedDomainEventPayload {
+    pub fn old_prices(&self) -> HashMap<Currency, MonetaryAmount> {
+        let mut prices = self.old_other_price.clone();
+        prices.insert(
+            self.old_native_price.currency,
+            self.old_native_price.monetary_amount,
+        );
+        prices
+    }
 }
 
 impl ProductCommonEventPayload for ProductPriceRemovedDomainEventPayload {

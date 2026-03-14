@@ -5,7 +5,6 @@ use common::{
 use serde::{Deserialize, Serialize};
 use serde_fields::SerdeField;
 use time::{OffsetDateTime, error::Format, format_description::well_known::Rfc3339};
-use user::dynamodb::user_record::UserRecord;
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, SerdeField)]
 pub struct WatchlistProductRecord {
@@ -15,13 +14,9 @@ pub struct WatchlistProductRecord {
 
     pub lsi1_sk: String,
 
-    // some if notifications, none else (conditional sparsity - only appears if notifications enabled
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub gsi1_pk: Option<String>,
+    pub gsi1_pk: String,
 
-    // some if notifications, none else (conditional sparsity - only appears if notifications enabled
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub gsi1_sk: Option<String>,
+    pub gsi1_sk: String,
 
     pub user_id: UserId,
 
@@ -32,9 +27,6 @@ pub struct WatchlistProductRecord {
     pub shops_product_id: ShopsProductId,
 
     pub notifications: bool,
-
-    // see WatchlistProductDynamoDbRepositoryImpl::query_user_records_with_notifications
-    pub user_record: UserRecord,
 
     #[serde(with = "time::serde::rfc3339")]
     pub created: OffsetDateTime,
@@ -82,8 +74,7 @@ impl From<WatchlistProductRecord> for WatchlistProduct {
 #[cfg(feature = "test-data")]
 mod faker {
     use super::*;
-    use fake::{Dummy, Fake, Faker, Rng, faker::internet::de_de::SafeEmail};
-    use user::dynamodb::user_record;
+    use fake::{Dummy, Fake, Faker, Rng};
 
     impl Dummy<Faker> for WatchlistProductRecord {
         fn dummy_with_rng<R: Rng + ?Sized>(config: &Faker, rng: &mut R) -> Self {
@@ -98,37 +89,13 @@ mod faker {
                 pk: mk_pk(&user_id),
                 sk: mk_sk(&shop_id, &shops_product_id),
                 lsi1_sk: mk_lsi1_sk(&created).unwrap(),
-                gsi1_pk: if notifications {
-                    Some(mk_gsi1_pk(&product_id))
-                } else {
-                    None
-                },
-                gsi1_sk: if notifications {
-                    Some(mk_gsi1_sk(&user_id))
-                } else {
-                    None
-                },
+                gsi1_pk: mk_gsi1_pk(&product_id),
+                gsi1_sk: mk_gsi1_sk(&user_id),
                 user_id,
                 product_id: config.fake_with_rng(rng),
                 shop_id,
                 shops_product_id: shops_product_id.clone(),
                 notifications,
-                user_record: UserRecord {
-                    pk: user_record::mk_pk(&user_id),
-                    sk: user_record::mk_sk().to_owned(),
-                    user_id,
-                    email: SafeEmail()
-                        .fake_with_rng::<String, R>(rng)
-                        .try_into()
-                        .unwrap(),
-                    first_name: config.fake_with_rng(rng),
-                    last_name: config.fake_with_rng(rng),
-                    language: config.fake_with_rng(rng),
-                    currency: config.fake_with_rng(rng),
-                    prohibited_content_consent: config.fake_with_rng(rng),
-                    created: OffsetDateTime::now_utc(),
-                    updated: OffsetDateTime::now_utc(),
-                },
                 created,
                 updated: created,
             }
