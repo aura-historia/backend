@@ -9,7 +9,6 @@ use common::user_id::api::extract_user_id_request_context;
 use lambda_runtime::LambdaEvent;
 use notification::data::get_notification_data::GetNotificationData;
 use notification::data::patch_notification_data::PatchNotificationData;
-use notification::service::command::UpdateNotificationCommand;
 use notification::service::notification_service::NotificationService;
 
 pub async fn handle(
@@ -35,11 +34,7 @@ pub async fn handle(
     })?;
 
     let notification = service
-        .update_notification(
-            &user_id,
-            &event_id,
-            UpdateNotificationCommand { seen: patch.seen },
-        )
+        .update_notification(&user_id, &event_id, patch.into())
         .await?;
 
     let localized = notification.localized(&currency.into(), &[language.into()]);

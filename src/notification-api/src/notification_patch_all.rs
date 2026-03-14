@@ -1,3 +1,4 @@
+use crate::notification_get::EventIdCursoredData;
 use aws_lambda_events::apigw::{ApiGatewayV2httpRequest, ApiGatewayV2httpResponse};
 use common::api::api_gateway_v2_http_response_builder::ApiGatewayV2HttpResponseBuilder;
 use common::api::error::ApiError;
@@ -8,10 +9,7 @@ use common::user_id::api::extract_user_id_request_context;
 use lambda_runtime::LambdaEvent;
 use notification::data::get_notification_data::GetNotificationData;
 use notification::data::patch_notification_data::PatchNotificationData;
-use notification::service::command::UpdateNotificationCommand;
 use notification::service::notification_service::NotificationService;
-
-use crate::notification_get::EventIdCursoredData;
 
 pub async fn handle(
     event: LambdaEvent<ApiGatewayV2httpRequest>,
@@ -36,7 +34,7 @@ pub async fn handle(
         .unwrap_or_default();
 
     let notifications = service
-        .update_notifications(&user_id, UpdateNotificationCommand { seen: patch.seen })
+        .update_notifications(&user_id, patch.into())
         .await?
         .map_item(|n| {
             let localized = n.localized(&currency.into(), &[language.into()]);

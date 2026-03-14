@@ -1,3 +1,4 @@
+use crate::service::command::UpdateNotificationCommand;
 use serde::{Deserialize, Serialize};
 
 #[cfg_attr(feature = "test-data", derive(fake::Dummy))]
@@ -6,4 +7,10 @@ use serde::{Deserialize, Serialize};
 pub struct PatchNotificationData {
     #[serde(default)]
     pub seen: Option<bool>,
+}
+
+impl From<PatchNotificationData> for UpdateNotificationCommand {
+    fn from(data: PatchNotificationData) -> Self {
+        Self { seen: data.seen }
+    }
 }

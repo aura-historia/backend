@@ -12,7 +12,7 @@ pub async fn handle(
     let user_id = extract_user_id_request_context(&event.payload.request_context)?;
     tracing::Span::current().record("userId", user_id.to_string());
 
-    service.delete_all_notifications(&user_id).await?;
+    service.delete_notifications(&user_id).await?;
 
     Ok(ApiGatewayV2HttpResponseBuilder::json(204).build())
 }
@@ -29,7 +29,7 @@ mod tests {
     async fn should_204_when_success() {
         let mut service = MockNotificationService::default();
         service
-            .expect_delete_all_notifications()
+            .expect_delete_notifications()
             .return_once(|_| Box::pin(async { Ok(()) }));
 
         let lambda_event = LambdaEvent {
@@ -48,7 +48,7 @@ mod tests {
     #[tokio::test]
     async fn should_401_when_sub_missing() {
         let mut service = MockNotificationService::default();
-        service.expect_delete_all_notifications().never();
+        service.expect_delete_notifications().never();
 
         let lambda_event = LambdaEvent {
             payload: ApiGatewayV2httpRequestProxy::builder()

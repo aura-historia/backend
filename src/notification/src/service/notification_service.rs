@@ -150,7 +150,7 @@ pub trait NotificationService {
         origin_event_id: &EventId,
     ) -> Result<(), NotificationError>;
 
-    async fn delete_all_notifications(&self, user_id: &UserId) -> Result<(), NotificationError>;
+    async fn delete_notifications(&self, user_id: &UserId) -> Result<(), NotificationError>;
 }
 
 static TEMPLATE_CACHE: OnceCell<Arc<RwLock<HashMap<MailTemplate, String>>>> = OnceCell::new();
@@ -804,7 +804,7 @@ impl<'a> NotificationService for NotificationServiceImpl<'a> {
         Ok(())
     }
 
-    async fn delete_all_notifications(&self, user_id: &UserId) -> Result<(), NotificationError> {
+    async fn delete_notifications(&self, user_id: &UserId) -> Result<(), NotificationError> {
         let all_records = self
             .notification_repository
             .query_all_notification_records(user_id)
@@ -2570,7 +2570,7 @@ mod tests {
             let ses_adapter = MockSesAdapter::default();
             let s3_adapter = MockS3Adapter::default();
             let service = make_service(&repository, &user_service, &ses_adapter, &s3_adapter);
-            let result = service.delete_all_notifications(&user_id).await;
+            let result = service.delete_notifications(&user_id).await;
 
             assert!(result.is_ok());
         }
@@ -2589,7 +2589,7 @@ mod tests {
             let ses_adapter = MockSesAdapter::default();
             let s3_adapter = MockS3Adapter::default();
             let service = make_service(&repository, &user_service, &ses_adapter, &s3_adapter);
-            let result = service.delete_all_notifications(&user_id).await;
+            let result = service.delete_notifications(&user_id).await;
 
             assert!(result.is_ok());
         }
