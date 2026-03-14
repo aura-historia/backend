@@ -1,4 +1,4 @@
-use crate::core::user_search_filter::UserSearchFilter;
+use crate::core::user_search_filter::{UserSearchFilter, UserSearchFilterSummary};
 use crate::core::user_search_filter_id::UserSearchFilterId;
 use crate::core::user_search_filter_name::UserSearchFilterName;
 use crate::dynamodb::repository::UserSearchFilterDynamoDbRepository;
@@ -107,7 +107,7 @@ pub trait UserSearchFilterService {
     async fn match_user_search_filters(
         &self,
         product_document: &product::opensearch::product_document::ProductDocument,
-    ) -> Result<Vec<UserSearchFilter>, UserSearchFilterError>;
+    ) -> Result<Vec<UserSearchFilterSummary>, UserSearchFilterError>;
 }
 
 pub struct UserSearchFilterServiceImpl<'a> {
@@ -246,7 +246,7 @@ impl<'a> UserSearchFilterService for UserSearchFilterServiceImpl<'a> {
     async fn match_user_search_filters(
         &self,
         product_document: &product::opensearch::product_document::ProductDocument,
-    ) -> Result<Vec<UserSearchFilter>, UserSearchFilterError> {
+    ) -> Result<Vec<UserSearchFilterSummary>, UserSearchFilterError> {
         #[cfg(feature = "opensearch")]
         {
             use serde::ser::Error as _;
@@ -258,14 +258,13 @@ impl<'a> UserSearchFilterService for UserSearchFilterServiceImpl<'a> {
                     ),
                 ))
             })?;
-            let matched_documents = opensearch_repo.percolate(product_document).await?;
-            let mut result = Vec::with_capacity(matched_documents.len());
-            for doc in matched_documents {
-                let user_id = doc.user_id;
-                let filter_id = doc.user_search_filter_id;
-                result.push(self.find_user_search_filter(&user_id, &filter_id).await?);
-            }
-            Ok(result)
+            let matched_documents = opensearch_repo
+                .percolate(product_document)
+                .await?
+                .into_iter()
+                .map(UserSearchFilterSummary::from)
+                .collect();
+            Ok(matched_documents)
         }
         #[cfg(not(feature = "opensearch"))]
         {

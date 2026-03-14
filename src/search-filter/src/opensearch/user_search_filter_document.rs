@@ -1,5 +1,7 @@
-use crate::core::user_search_filter_id::UserSearchFilterId;
 use crate::core::user_search_filter_name::UserSearchFilterName;
+use crate::core::{
+    user_search_filter::UserSearchFilterSummary, user_search_filter_id::UserSearchFilterId,
+};
 use crate::dynamodb::user_search_filter_record::UserSearchFilterRecord;
 use common::currency::record::CurrencyRecord;
 use common::language::record::LanguageRecord;
@@ -34,6 +36,18 @@ pub struct UserSearchFilterDocument {
 impl UserSearchFilterDocument {
     pub fn _id(&self) -> UserSearchFilterId {
         self.user_search_filter_id
+    }
+}
+
+impl From<UserSearchFilterDocument> for UserSearchFilterSummary {
+    fn from(document: UserSearchFilterDocument) -> Self {
+        UserSearchFilterSummary {
+            user_search_filter_id: document.user_search_filter_id,
+            user_id: document.user_id,
+            name: document.name,
+            created: document.created,
+            updated: document.updated,
+        }
     }
 }
 
