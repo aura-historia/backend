@@ -94,12 +94,9 @@ pub fn mk_sk(event_id: &EventId) -> String {
     format!("product#event#enrichment#{event_id}")
 }
 
-#[allow(clippy::infallible_try_from)]
-impl TryFrom<ProductEnrichmentEvent> for ProductEnrichmentEventRecord {
-    type Error = std::convert::Infallible;
-
-    fn try_from(event: ProductEnrichmentEvent) -> Result<Self, Self::Error> {
-        let record = match event.payload {
+impl From<ProductEnrichmentEvent> for ProductEnrichmentEventRecord {
+    fn from(event: ProductEnrichmentEvent) -> Self {
+        match event.payload {
             ProductEnrichmentEventPayload::TranslatedTitle(payload) => {
                 ProductEnrichmentEventRecord {
                     pk: mk_pk(&payload.shop_id, &payload.shops_product_id),
@@ -254,9 +251,7 @@ impl TryFrom<ProductEnrichmentEvent> for ProductEnrichmentEventRecord {
                     timestamp: event.timestamp,
                 }
             }
-        };
-
-        Ok(record)
+        }
     }
 }
 
@@ -416,8 +411,7 @@ mod faker {
         fn dummy_with_rng<R: Rng + ?Sized>(config: &Faker, rng: &mut R) -> Self {
             config
                 .fake_with_rng::<ProductEnrichmentEvent, _>(rng)
-                .try_into()
-                .unwrap()
+                .into()
         }
     }
 

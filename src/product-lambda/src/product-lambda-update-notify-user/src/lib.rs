@@ -162,7 +162,7 @@ mod tests {
                 Faker.fake::<ProductCreatedDomainEventPayload>(),
             ),
         };
-        ProductDomainEventRecord::try_from(event).unwrap()
+        ProductDomainEventRecord::from(event)
     }
 
     fn mk_watchlist_service_error() -> crate::service::ProductEventWatchlistNotificationsServiceError

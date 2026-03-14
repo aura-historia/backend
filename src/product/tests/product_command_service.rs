@@ -69,8 +69,7 @@ async fn should_write_no_product_events_when_all_exist_and_no_changes() {
             cmd.auction_start,
             cmd.auction_end,
         )
-        .try_into()
-        .unwrap();
+        .into();
         let product_record: ProductRecord = event_record.try_into().unwrap();
         let unprocessed = repository
             .put_product_records([product_record].into())
@@ -123,8 +122,7 @@ async fn should_write_product_updates_when_all_exist_and_actual_changes() {
             cmd.auction_start,
             cmd.auction_end,
         )
-        .try_into()
-        .unwrap();
+        .into();
         let product_record: ProductRecord = event_record.try_into().unwrap();
         let unprocessed = repository
             .put_product_records([product_record].into())

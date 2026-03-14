@@ -53,12 +53,9 @@ pub fn mk_sk(event_id: &EventId) -> String {
     format!("product#event#policy#{event_id}")
 }
 
-#[allow(clippy::infallible_try_from)]
-impl TryFrom<ProductPolicyEvent> for ProductPolicyEventRecord {
-    type Error = std::convert::Infallible;
-
-    fn try_from(event: ProductPolicyEvent) -> Result<Self, Self::Error> {
-        let record = match event.payload {
+impl From<ProductPolicyEvent> for ProductPolicyEventRecord {
+    fn from(event: ProductPolicyEvent) -> Self {
+        match event.payload {
             ProductPolicyEventPayload::ProhibitedContentDecision(payload) => {
                 ProductPolicyEventRecord {
                     pk: mk_pk(&payload.shop_id, &payload.shops_product_id),
@@ -74,9 +71,7 @@ impl TryFrom<ProductPolicyEvent> for ProductPolicyEventRecord {
                     timestamp: event.timestamp,
                 }
             }
-        };
-
-        Ok(record)
+        }
     }
 }
 
@@ -107,10 +102,7 @@ mod faker {
 
     impl Dummy<Faker> for ProductPolicyEventRecord {
         fn dummy_with_rng<R: Rng + ?Sized>(config: &Faker, rng: &mut R) -> Self {
-            config
-                .fake_with_rng::<ProductPolicyEvent, _>(rng)
-                .try_into()
-                .unwrap()
+            config.fake_with_rng::<ProductPolicyEvent, _>(rng).into()
         }
     }
 

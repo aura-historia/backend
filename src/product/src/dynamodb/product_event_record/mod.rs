@@ -66,11 +66,8 @@ impl From<ProductPolicyEventRecord> for ProductEventRecord {
     }
 }
 
-#[allow(clippy::infallible_try_from)]
-impl TryFrom<ProductEvent> for ProductEventRecord {
-    type Error = std::convert::Infallible;
-
-    fn try_from(event: ProductEvent) -> Result<Self, Self::Error> {
+impl From<ProductEvent> for ProductEventRecord {
+    fn from(event: ProductEvent) -> Self {
         match event.payload {
             ProductEventPayload::ProductDomainEvent(payload) => {
                 let helper = Event {
@@ -79,8 +76,8 @@ impl TryFrom<ProductEvent> for ProductEventRecord {
                     timestamp: event.timestamp,
                     payload,
                 };
-                let helper_record = helper.try_into()?;
-                Ok(ProductEventRecord::Domain(helper_record))
+                let helper_record = helper.into();
+                ProductEventRecord::Domain(helper_record)
             }
             ProductEventPayload::ProductEnrichmentEvent(payload) => {
                 let helper = Event {
@@ -89,8 +86,8 @@ impl TryFrom<ProductEvent> for ProductEventRecord {
                     timestamp: event.timestamp,
                     payload,
                 };
-                let helper_record = helper.try_into()?;
-                Ok(ProductEventRecord::Enrichment(helper_record))
+                let helper_record = helper.into();
+                ProductEventRecord::Enrichment(helper_record)
             }
             ProductEventPayload::ProductPolicyEvent(payload) => {
                 let helper = Event {
@@ -99,8 +96,8 @@ impl TryFrom<ProductEvent> for ProductEventRecord {
                     timestamp: event.timestamp,
                     payload,
                 };
-                let helper_record = helper.try_into()?;
-                Ok(ProductEventRecord::Policy(helper_record))
+                let helper_record = helper.into();
+                ProductEventRecord::Policy(helper_record)
             }
         }
     }

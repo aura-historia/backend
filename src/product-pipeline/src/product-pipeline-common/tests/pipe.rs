@@ -81,8 +81,7 @@ async fn prepare_messages(count: u16) {
             payload: ProductDomainEventPayload::Created(product_created_event_payload),
         };
         let product_record =
-            ProductRecord::try_from(ProductDomainEventRecord::try_from(created_event).unwrap())
-                .unwrap();
+            ProductRecord::try_from(ProductDomainEventRecord::from(created_event)).unwrap();
         product_repository
             .put_product_records([product_record].into())
             .await
