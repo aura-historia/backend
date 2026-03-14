@@ -235,9 +235,9 @@ fn parse_synonym_rules(content: &str) -> Vec<String> {
 /// Converts the products mapping from `synonyms_path` to inline `synonyms`
 /// so that LocalStack OpenSearch can create the index without needing
 /// synonym files on the cluster filesystem.
-fn products_mapping_with_inline_synonyms() -> serde_json::Value {
-    let mut mapping: serde_json::Value = serde_json::from_str(PRODUCTS_INDEX_MAPPING_STR)
-        .expect("shouldn't fail parsing PRODUCTS_INDEX_MAPPING_STR as serde_json::Value");
+fn mapping_with_inline_synonyms(mapping: &'static str) -> serde_json::Value {
+    let mut mapping: serde_json::Value = serde_json::from_str(mapping)
+        .unwrap_or_else(|_| panic!("shouldn't fail parsing {mapping} as serde_json::Value"));
 
     let synonym_files = [
         ("english_synonyms", ENGLISH_SYNONYMS_STR),
@@ -314,7 +314,7 @@ async fn set_up_indices() -> Result<Response, Error> {
         .await
         .indices()
         .create(opensearch::indices::IndicesCreateParts::Index("products"))
-        .body(products_mapping_with_inline_synonyms())
+        .body(mapping_with_inline_synonyms(PRODUCTS_INDEX_MAPPING_STR))
         .send()
         .await?
         .error_for_status_code()?;
@@ -396,11 +396,9 @@ async fn set_up_indices() -> Result<Response, Error> {
         .create(opensearch::indices::IndicesCreateParts::Index(
             "user_search_filter",
         ))
-        .body(
-            serde_json::from_str::<serde_json::Value>(USER_SEARCH_FILTER_INDEX_MAPPING_STR).expect(
-                "shouldn't fail parsing USER_SEARCH_FILTER_INDEX_MAPPING_STR as serde_json::Value",
-            ),
-        )
+        .body(mapping_with_inline_synonyms(
+            USER_SEARCH_FILTER_INDEX_MAPPING_STR,
+        ))
         .send()
         .await?
         .error_for_status_code()
@@ -472,9 +470,11 @@ mod tests {
         assert!(rules.is_empty());
     }
 
-    #[test]
-    fn should_build_products_mapping_with_inline_synonyms_for_all_languages() {
-        let mapping = products_mapping_with_inline_synonyms();
+    #[rstest::rstest]
+    #[case::product(PRODUCTS_INDEX_MAPPING_STR)]
+    #[case::product(USER_SEARCH_FILTER_INDEX_MAPPING_STR)]
+    fn should_build_mapping_with_inline_synonyms_for_all_languages(#[case] mapping: &'static str) {
+        let mapping = mapping_with_inline_synonyms(mapping);
 
         let filter_names = [
             "english_synonyms",
@@ -510,9 +510,13 @@ mod tests {
         }
     }
 
-    #[test]
-    fn should_set_search_analyzer_on_title_fields_in_products_mapping() {
-        let mapping = products_mapping_with_inline_synonyms();
+    #[rstest::rstest]
+    #[case::product(PRODUCTS_INDEX_MAPPING_STR)]
+    #[case::product(USER_SEARCH_FILTER_INDEX_MAPPING_STR)]
+    fn should_set_search_analyzer_on_title_fields_in_products_mapping(
+        #[case] mapping: &'static str,
+    ) {
+        let mapping = mapping_with_inline_synonyms(mapping);
 
         let title_fields = ["titleEn", "titleDe", "titleFr", "titleEs", "titleIt"];
         let expected_search_analyzers = [

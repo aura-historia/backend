@@ -7232,6 +7232,7 @@ dependencies = [
  "hex",
  "libc",
  "opensearch",
+ "rstest",
  "serde",
  "serde_dynamo",
  "serde_json",

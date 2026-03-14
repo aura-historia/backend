@@ -1,12 +1,6 @@
 {
     "settings": {
         "analysis": {
-            "normalizer": {
-                "lowercase_normalizer": {
-                    "type": "custom",
-                    "filter": ["lowercase"]
-                }
-            },
             "filter": {
                 "english_stop": {
                     "type": "stop",
@@ -20,6 +14,11 @@
                     "type": "stemmer",
                     "language": "possessive_english"
                 },
+                "english_synonyms": {
+                    "type": "synonym_graph",
+                    "synonyms_path": "analysis/english_synonyms.txt",
+                    "updateable": true
+                },
                 "german_stop": {
                     "type": "stop",
                     "stopwords": "_german_"
@@ -27,6 +26,11 @@
                 "german_stemmer": {
                     "type": "stemmer",
                     "language": "light_german"
+                },
+                "german_synonyms": {
+                    "type": "synonym_graph",
+                    "synonyms_path": "analysis/german_synonyms.txt",
+                    "updateable": true
                 },
                 "french_stop": {
                     "type": "stop",
@@ -55,6 +59,11 @@
                         "puisqu"
                     ]
                 },
+                "french_synonyms": {
+                    "type": "synonym_graph",
+                    "synonyms_path": "analysis/french_synonyms.txt",
+                    "updateable": true
+                },
                 "spanish_stop": {
                     "type": "stop",
                     "stopwords": "_spanish_"
@@ -63,6 +72,11 @@
                     "type": "stemmer",
                     "language": "light_spanish"
                 },
+                "spanish_synonyms": {
+                    "type": "synonym_graph",
+                    "synonyms_path": "analysis/spanish_synonyms.txt",
+                    "updateable": true
+                },
                 "italian_stop": {
                     "type": "stop",
                     "stopwords": "_italian_"
@@ -70,48 +84,66 @@
                 "italian_stemmer": {
                     "type": "stemmer",
                     "language": "light_italian"
+                },
+                "italian_synonyms": {
+                    "type": "synonym_graph",
+                    "synonyms_path": "analysis/italian_synonyms.txt",
+                    "updateable": true
                 }
             },
             "analyzer": {
-                "product_english": {
+                "english_with_synonyms": {
                     "type": "custom",
                     "tokenizer": "standard",
                     "filter": [
                         "english_possessive_stemmer",
                         "lowercase",
+                        "english_synonyms",
                         "english_stop",
                         "english_stemmer"
                     ]
                 },
-                "product_german": {
+                "german_with_synonyms": {
                     "type": "custom",
                     "tokenizer": "standard",
                     "filter": [
                         "lowercase",
                         "german_stop",
+                        "german_synonyms",
                         "german_normalization",
                         "german_stemmer"
                     ]
                 },
-                "product_french": {
+                "french_with_synonyms": {
                     "type": "custom",
                     "tokenizer": "standard",
                     "filter": [
                         "french_elision",
                         "lowercase",
+                        "french_synonyms",
                         "french_stop",
                         "french_stemmer"
                     ]
                 },
-                "product_spanish": {
+                "spanish_with_synonyms": {
                     "type": "custom",
                     "tokenizer": "standard",
-                    "filter": ["lowercase", "spanish_stop", "spanish_stemmer"]
+                    "filter": [
+                        "lowercase",
+                        "spanish_synonyms",
+                        "spanish_stop",
+                        "spanish_stemmer"
+                    ]
                 },
-                "product_italian": {
+                "italian_with_synonyms": {
                     "type": "custom",
                     "tokenizer": "standard",
-                    "filter": ["lowercase", "italian_stop", "italian_stemmer"]
+                    "filter": [
+                        "lowercase",
+                        "italian_synonyms",
+                        "italian_stop",
+                        "italian_stemmer"
+                    ]
                 }
             }
         }
@@ -140,16 +172,51 @@
             "condition": { "type": "keyword" },
             "provenance": { "type": "keyword" },
             "restoration": { "type": "keyword" },
-            "titleDe": { "type": "text", "analyzer": "product_german" },
-            "titleEn": { "type": "text", "analyzer": "product_english" },
-            "titleFr": { "type": "text", "analyzer": "product_french" },
-            "titleEs": { "type": "text", "analyzer": "product_spanish" },
-            "titleIt": { "type": "text", "analyzer": "product_italian" },
-            "descriptionDe": { "type": "text", "analyzer": "product_german" },
-            "descriptionEn": { "type": "text", "analyzer": "product_english" },
-            "descriptionFr": { "type": "text", "analyzer": "product_french" },
-            "descriptionEs": { "type": "text", "analyzer": "product_spanish" },
-            "descriptionIt": { "type": "text", "analyzer": "product_italian" },
+            "titleDe": {
+                "type": "text",
+                "analyzer": "german",
+                "search_analyzer": "german_with_synonyms"
+            },
+            "titleEn": {
+                "type": "text",
+                "analyzer": "english",
+                "search_analyzer": "english_with_synonyms"
+            },
+            "titleFr": {
+                "type": "text",
+                "analyzer": "french",
+                "search_analyzer": "french_with_synonyms"
+            },
+            "titleEs": {
+                "type": "text",
+                "analyzer": "spanish",
+                "search_analyzer": "spanish_with_synonyms"
+            },
+            "titleIt": {
+                "type": "text",
+                "analyzer": "italian",
+                "search_analyzer": "italian_with_synonyms"
+            },
+            "descriptionDe": {
+                "type": "text",
+                "analyzer": "german"
+            },
+            "descriptionEn": {
+                "type": "text",
+                "analyzer": "english"
+            },
+            "descriptionFr": {
+                "type": "text",
+                "analyzer": "french"
+            },
+            "descriptionEs": {
+                "type": "text",
+                "analyzer": "spanish"
+            },
+            "descriptionIt": {
+                "type": "text",
+                "analyzer": "italian"
+            },
             "auctionStart": {
                 "type": "date",
                 "format": "strict_date_time"
