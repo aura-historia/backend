@@ -185,6 +185,14 @@ Resources:
           AttributeType: S
         - AttributeName: lsi1_sk
           AttributeType: S
+        - AttributeName: lsi2_sk
+          AttributeType: S
+        - AttributeName: lsi3_sk
+          AttributeType: S
+        - AttributeName: lsi4_sk
+          AttributeType: S
+        - AttributeName: lsi5_sk
+          AttributeType: S
         - AttributeName: gsi1_pk
           AttributeType: S
         - AttributeName: gsi1_sk
@@ -207,6 +215,38 @@ Resources:
               KeyType: RANGE
           Projection:
             ProjectionType: ALL
+        - IndexName: lsi2
+          KeySchema:
+            - AttributeName: pk
+              KeyType: HASH
+            - AttributeName: lsi2_sk
+              KeyType: RANGE
+          Projection:
+            ProjectionType: ALL
+        - IndexName: lsi3
+          KeySchema:
+            - AttributeName: pk
+              KeyType: HASH
+            - AttributeName: lsi3_sk
+              KeyType: RANGE
+          Projection:
+            ProjectionType: ALL
+        - IndexName: lsi4
+          KeySchema:
+            - AttributeName: pk
+              KeyType: HASH
+            - AttributeName: lsi4_sk
+              KeyType: KEYS_ONLY
+          Projection:
+            ProjectionType: ALL
+        - IndexName: lsi5
+          KeySchema:
+            - AttributeName: pk
+              KeyType: HASH
+            - AttributeName: lsi5_sk
+              KeyType: RANGE
+          Projection:
+            ProjectionType: KEYS_ONLY
       GlobalSecondaryIndexes:
         - IndexName: gsi1
           KeySchema:
