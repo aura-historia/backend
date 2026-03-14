@@ -9,47 +9,50 @@ use url::Url;
 /// - trim trailing slash on paths (except bare root)
 /// - lowercase scheme and host
 pub fn normalize_url(raw: &str) -> String {
-    let trimmed = raw.trim();
-
-    let Ok(mut parsed) = Url::parse(trimmed) else {
-        return trimmed.trim_end_matches('/').to_string();
+    let Ok(mut parsed) = Url::parse(raw.trim()) else {
+        return raw.trim().trim_end_matches('/').to_string();
     };
 
-    if let Some(query) = parsed.query()
-        && !query.is_empty()
-    {
-        let mut pairs: Vec<(String, String)> = parsed
-            .query_pairs()
-            .map(|(key, value)| (key.into_owned(), value.into_owned()))
-            .collect();
-        pairs.sort();
+    // Query Parameter Handling
+    let blocklist = [
+        "add-to-cart",
+        "wp_customize",
+        "replytocom",
+        "utm_source",
+        "fbclid",
+    ];
 
-        let sorted_query = pairs
+    let mut pairs: Vec<(String, String)> = parsed
+        .query_pairs()
+        .filter(|(key, _)| !blocklist.contains(&key.as_ref()))
+        .map(|(key, value)| (key.into_owned(), value.into_owned()))
+        .collect();
+
+    if pairs.is_empty() {
+        parsed.set_query(None);
+    } else {
+        pairs.sort();
+        let sorted = pairs
             .iter()
-            .map(|(key, value)| format!("{key}={value}"))
+            .map(|(k, v)| format!("{k}={v}"))
             .collect::<Vec<_>>()
             .join("&");
-        parsed.set_query(Some(&sorted_query));
+        parsed.set_query(Some(&sorted));
     }
 
+    // Standard Cleaning
     parsed.set_fragment(None);
 
-    let normalized = parsed.to_string();
-
-    if normalized.ends_with('/') {
-        let without_trailing = normalized.trim_end_matches('/');
-        if without_trailing.contains("://") && without_trailing.contains('/') {
-            let after_scheme = without_trailing
-                .split_once("://")
-                .map(|(_, rhs)| rhs)
-                .unwrap_or("");
-            if after_scheme.contains('/') {
-                return without_trailing.to_string();
-            }
+    // Remove trailing slash from path if it exists and is not root
+    if parsed.path() != "/" {
+        let path = parsed.path().to_string();
+        if path.ends_with('/') {
+            let new_path = path.trim_end_matches('/');
+            parsed.set_path(new_path);
         }
     }
 
-    normalized
+    parsed.to_string()
 }
 
 #[cfg(test)]
@@ -72,6 +75,14 @@ mod tests {
         let normalized = normalize_url(input);
 
         assert_eq!(normalized, "https://www.example.com/products");
+    }
+
+    #[test]
+    fn should_trim_trailing_slash_with_query_params() {
+        // Test new behavior: ensures slash is removed even with query params
+        let input = "https://www.example.com/products/?q=1";
+        let normalized = normalize_url(input);
+        assert_eq!(normalized, "https://www.example.com/products?q=1");
     }
 
     #[test]

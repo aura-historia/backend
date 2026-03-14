@@ -385,6 +385,7 @@ dependencies = [
 name = "aura-spider"
 version = "0.1.0"
 dependencies = [
+ "bloomfilter",
  "dotenvy",
  "llm",
  "regex",
@@ -1330,6 +1331,16 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "3078c7629b62d3f0439517fa394996acacc5cbc91c5a20d8c658e77abd503a71"
 dependencies = [
  "generic-array",
+]
+
+[[package]]
+name = "bloomfilter"
+version = "3.0.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "1f6d7f06817e48ea4e17532fa61bc4e8b9a101437f0623f69d2ea54284f3a817"
+dependencies = [
+ "getrandom 0.2.16",
+ "siphasher 1.0.2",
 ]
 
 [[package]]
@@ -7030,7 +7041,7 @@ dependencies = [
  "auto_encoder",
  "bytes",
  "case_insensitive_string",
- "cookie 0.16.2",
+ "cookie 0.18.1",
  "fastrand",
  "h2 0.4.11",
  "hashbrown 0.16.1",

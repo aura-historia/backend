@@ -104,9 +104,9 @@ impl GeminiClient {
             }
         };
 
-        let response_text = response.text().ok_or_else(|| {
-            SpiderError::Gemini("Gemini returned no text response".to_string())
-        })?;
+        let response_text = response
+            .text()
+            .ok_or_else(|| SpiderError::Gemini("Gemini returned no text response".to_string()))?;
 
         parse_pattern_response(&response_text)
     }
