@@ -1,12 +1,13 @@
 use aws_lambda_events::dynamodb::EventRecord;
 use aws_lambda_events::eventbridge::EventBridgeEvent;
 use aws_lambda_events::sqs::SqsEvent;
+use common::dynamodb_stream::extract_sqs_event_bridge_dynamodb_record;
 use lambda_runtime::LambdaEvent;
 use search_filter::core::user_search_filter_id::UserSearchFilterId;
 use search_filter::dynamodb::user_search_filter_record::UserSearchFilterRecord;
 use search_filter::opensearch::repository::UserSearchFilterOpenSearchRepository;
 use search_filter::opensearch::user_search_filter_document::UserSearchFilterDocument;
-use tracing::{error, info, warn};
+use tracing::{error, info};
 
 #[tracing::instrument(skip(repository, event), fields(requestId = %event.context.request_id))]
 pub async fn handler(
@@ -15,51 +16,51 @@ pub async fn handler(
 ) -> Result<(), lambda_runtime::Error> {
     let mut event = event;
     let msg = event.payload.records.remove(0);
+    let body = msg.body.clone();
 
-    let body = match msg.body {
+    let mut failed_message_ids = Vec::new();
+    let mut skipped_count = 0;
+    let record = extract_sqs_event_bridge_dynamodb_record::<UserSearchFilterRecord>(
+        msg,
+        &mut failed_message_ids,
+        &mut skipped_count,
+    );
+
+    if skipped_count > 0 {
+        return Ok(());
+    }
+
+    match record {
+        Some(record) => handle_upsert(repository, record).await,
         None => {
-            warn!("Received empty body. Skipping message.");
-            return Ok(());
-        }
-        Some(body) => body,
-    };
-
-    let event_bridge_event = match serde_json::from_str::<EventBridgeEvent<EventRecord>>(&body) {
-        Ok(event) => event,
-        Err(e) => {
-            let msg = "Failed deserializing EventBridgeEvent<EventRecord>.";
-            error!(error = %e, payload = %body, msg);
-            return Err(msg.into());
-        }
-    };
-
-    let event_name = event_bridge_event.detail.event_name.as_str();
-
-    match event_name {
-        "INSERT" | "MODIFY" => handle_upsert(repository, &event_bridge_event).await,
-        "REMOVE" => handle_delete(repository, &event_bridge_event).await,
-        _ => {
-            warn!(event_name = event_name, "Unknown event name. Skipping.");
-            Ok(())
+            let body = body.ok_or_else(|| {
+                let msg = "Missing body in SQS message.";
+                error!(msg);
+                lambda_runtime::Error::from(msg)
+            })?;
+            let event_bridge_event = serde_json::from_str::<EventBridgeEvent<EventRecord>>(&body)
+                .map_err(|e| {
+                let msg = "Failed deserializing EventBridgeEvent<EventRecord>.";
+                error!(error = %e, payload = %body, msg);
+                lambda_runtime::Error::from(msg)
+            })?;
+            let event_name = event_bridge_event.detail.event_name.as_str();
+            match event_name {
+                "REMOVE" => handle_delete(repository, &event_bridge_event).await,
+                _ => {
+                    let msg = "Failed extracting UserSearchFilterRecord from Lambda-Event.";
+                    error!(msg);
+                    Err(msg.into())
+                }
+            }
         }
     }
 }
 
 async fn handle_upsert(
     repository: &impl UserSearchFilterOpenSearchRepository,
-    event: &EventBridgeEvent<EventRecord>,
+    record: UserSearchFilterRecord,
 ) -> Result<(), lambda_runtime::Error> {
-    let record = match serde_dynamo::from_item::<_, UserSearchFilterRecord>(
-        event.detail.change.new_image.clone(),
-    ) {
-        Ok(record) => record,
-        Err(e) => {
-            let msg = "Failed deserializing UserSearchFilterRecord from new_image.";
-            error!(error = %e, msg);
-            return Err(msg.into());
-        }
-    };
-
     let filter_id = record.user_search_filter_id;
     let document: UserSearchFilterDocument = record.into();
 
@@ -144,6 +145,7 @@ mod tests {
 
     fn mk_sqs_event(body: String) -> LambdaEvent<SqsEvent> {
         let mut msg = SqsMessage::default();
+        msg.message_id = Some("test-message-id".to_string());
         msg.body = Some(body);
         LambdaEvent {
             payload: {
@@ -272,7 +274,8 @@ mod tests {
 
     #[tokio::test]
     async fn should_skip_when_empty_body() {
-        let msg = SqsMessage::default();
+        let mut msg = SqsMessage::default();
+        msg.message_id = Some("test-message-id".to_string());
         let event = LambdaEvent {
             payload: {
                 let mut e = SqsEvent::default();

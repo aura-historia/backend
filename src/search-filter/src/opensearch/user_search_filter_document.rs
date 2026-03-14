@@ -14,13 +14,15 @@ use serde_fields::SerdeField;
 use shop::opensearch::shop_type_document::ShopTypeDocument;
 use time::OffsetDateTime;
 
+pub type ProductPercolatorQuery = serde_json::Value;
+
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, SerdeField)]
 #[serde(rename_all = "camelCase")]
 pub struct UserSearchFilterDocument {
     pub user_search_filter_id: UserSearchFilterId,
     pub user_id: UserId,
     pub name: UserSearchFilterName,
-    pub query: serde_json::Value,
+    pub query: ProductPercolatorQuery,
 
     #[serde(with = "time::serde::rfc3339")]
     pub created: OffsetDateTime,
@@ -49,7 +51,7 @@ impl From<UserSearchFilterRecord> for UserSearchFilterDocument {
     }
 }
 
-fn build_percolator_query(record: &UserSearchFilterRecord) -> serde_json::Value {
+fn build_percolator_query(record: &UserSearchFilterRecord) -> ProductPercolatorQuery {
     let mut must = Vec::new();
     let mut must_not = Vec::new();
     let mut filter = Vec::new();
@@ -257,145 +259,6 @@ fn build_percolator_query(record: &UserSearchFilterRecord) -> serde_json::Value 
             }
         })
     }
-}
-
-pub fn build_percolation_document(
-    product: &product::core::product::Product,
-) -> Result<serde_json::Value, serde_json::Error> {
-    use common::language::domain::Language;
-    use product::opensearch::authenticity_document::AuthenticityDocument;
-    use product::opensearch::condition_document::ConditionDocument;
-    use product::opensearch::product_state_document::ProductStateDocument;
-    use product::opensearch::provenance_document::ProvenanceDocument;
-    use product::opensearch::restoration_document::RestorationDocument;
-    use serde::ser::Error;
-    use shop::opensearch::shop_type_document::ShopTypeDocument;
-
-    let mut doc = serde_json::json!({
-        "shopName": product.shop_name.as_ref(),
-        "shopType": ShopTypeDocument::from(product.shop_type).as_str(),
-        "state": ProductStateDocument::from(product.state).as_str(),
-        "authenticity": AuthenticityDocument::from(product.authenticity).as_str(),
-        "condition": ConditionDocument::from(product.condition).as_str(),
-        "provenance": ProvenanceDocument::from(product.provenance).as_str(),
-        "restoration": RestorationDocument::from(product.restoration).as_str(),
-    });
-
-    if let Some(category_id) = &product.category_id {
-        doc["categoryId"] = serde_json::json!(category_id);
-    }
-    if let Some(period_id) = &product.period_id {
-        doc["periodId"] = serde_json::json!(period_id);
-    }
-
-    // Titles
-    for (lang, title) in &product.other_title {
-        let field = match lang {
-            Language::De => "titleDe",
-            Language::En => "titleEn",
-            Language::Fr => "titleFr",
-            Language::Es => "titleEs",
-            Language::It => "titleIt",
-        };
-        doc[field] = serde_json::json!(title.as_ref());
-    }
-    let native_title_field = match product.native_title.localization {
-        Language::De => "titleDe",
-        Language::En => "titleEn",
-        Language::Fr => "titleFr",
-        Language::Es => "titleEs",
-        Language::It => "titleIt",
-    };
-    doc[native_title_field] = serde_json::json!(product.native_title.payload.as_ref());
-
-    // Descriptions
-    if let Some(native_desc) = &product.native_description {
-        let field = match native_desc.localization {
-            Language::De => "descriptionDe",
-            Language::En => "descriptionEn",
-            Language::Fr => "descriptionFr",
-            Language::Es => "descriptionEs",
-            Language::It => "descriptionIt",
-        };
-        doc[field] = serde_json::json!(native_desc.payload.as_ref());
-    }
-    for (lang, desc) in &product.other_description {
-        let field = match lang {
-            Language::De => "descriptionDe",
-            Language::En => "descriptionEn",
-            Language::Fr => "descriptionFr",
-            Language::Es => "descriptionEs",
-            Language::It => "descriptionIt",
-        };
-        doc[field] = serde_json::json!(desc.as_ref());
-    }
-
-    // Prices
-    if let Some(price) = &product.native_price {
-        let field = match price.currency {
-            common::currency::domain::Currency::Eur => "priceEur",
-            common::currency::domain::Currency::Gbp => "priceGbp",
-            common::currency::domain::Currency::Usd => "priceUsd",
-            common::currency::domain::Currency::Aud => "priceAud",
-            common::currency::domain::Currency::Cad => "priceCad",
-            common::currency::domain::Currency::Nzd => "priceNzd",
-        };
-        doc[field] = serde_json::json!(u64::from(price.monetary_amount));
-    }
-    for (currency, amount) in &product.other_price {
-        let field = match currency {
-            common::currency::domain::Currency::Eur => "priceEur",
-            common::currency::domain::Currency::Gbp => "priceGbp",
-            common::currency::domain::Currency::Usd => "priceUsd",
-            common::currency::domain::Currency::Aud => "priceAud",
-            common::currency::domain::Currency::Cad => "priceCad",
-            common::currency::domain::Currency::Nzd => "priceNzd",
-        };
-        doc[field] = serde_json::json!(u64::from(*amount));
-    }
-
-    // Origin year
-    if let Some(origin_year) = &product.origin_year {
-        if let Some(exact) = origin_year.exact() {
-            doc["originYear"] = serde_json::json!(exact);
-        }
-        if let Some(min) = origin_year.min() {
-            doc["originYearMin"] = serde_json::json!(min);
-        }
-        if let Some(max) = origin_year.max() {
-            doc["originYearMax"] = serde_json::json!(max);
-        }
-    }
-
-    // Date fields
-    if let Some(auction_start) = product.auction_start {
-        doc["auctionStart"] = serde_json::json!(
-            auction_start
-                .format(&time::format_description::well_known::Rfc3339)
-                .map_err(serde_json::Error::custom)?
-        );
-    }
-    if let Some(auction_end) = product.auction_end {
-        doc["auctionEnd"] = serde_json::json!(
-            auction_end
-                .format(&time::format_description::well_known::Rfc3339)
-                .map_err(serde_json::Error::custom)?
-        );
-    }
-    doc["created"] = serde_json::json!(
-        product
-            .created
-            .format(&time::format_description::well_known::Rfc3339)
-            .map_err(serde_json::Error::custom)?
-    );
-    doc["updated"] = serde_json::json!(
-        product
-            .updated
-            .format(&time::format_description::well_known::Rfc3339)
-            .map_err(serde_json::Error::custom)?
-    );
-
-    Ok(doc)
 }
 
 #[cfg(feature = "test-data")]

@@ -347,34 +347,33 @@ Resources:
                     }
                   }
                 }
-            # FILTER 5: Search filter INSERT/MODIFY events
+            # FILTER 5: Search filter INSERT/MODIFY/REMOVE events
             - Pattern: |
                 {
-                  "eventName": ["INSERT", "MODIFY"],
+                  "eventName": ["INSERT", "MODIFY", "REMOVE"],
                   "dynamodb": {
-                    "NewImage": {
-                      "pk": {
-                        "S": [{ "prefix": "user#" }]
+                    "$or": [
+                      {
+                        "NewImage": {
+                          "pk": {
+                            "S": [{ "prefix": "user#" }]
+                          },
+                          "sk": {
+                            "S": [{ "prefix": "search_filter#" }]
+                          }
+                        }
                       },
-                      "sk": {
-                        "S": [{ "prefix": "search_filter#" }]
+                      {
+                        "Keys": {
+                          "pk": {
+                            "S": [{ "prefix": "user#" }]
+                          },
+                          "sk": {
+                            "S": [{ "prefix": "search_filter#" }]
+                          }
+                        }
                       }
-                    }
-                  }
-                }
-            # FILTER 6: Search filter REMOVE events
-            - Pattern: |
-                {
-                  "eventName": ["REMOVE"],
-                  "dynamodb": {
-                    "Keys": {
-                      "pk": {
-                        "S": [{ "prefix": "user#" }]
-                      },
-                      "sk": {
-                        "S": [{ "prefix": "search_filter#" }]
-                      }
-                    }
+                    ]
                   }
                 }
       Target: !GetAtt DynamoDbEventBus.Arn
@@ -1726,10 +1725,10 @@ Resources:
         - Id: ShopOpenSearchIndexQ
           Arn: !GetAtt ShopOpenSearchIndexQ.Arn
 
-  DynamoDbSearchFilterUpsertEventRule:
+  DynamoDbSearchFilterSyncEventRule:
     Type: AWS::Events::Rule
     Properties:
-      Name: "ddb-search-filter-upsert-dev"
+      Name: "ddb-search-filter-sync-dev"
       EventBusName: !Ref DynamoDbEventBus
       EventPattern:
         source:
@@ -1740,33 +1739,17 @@ Resources:
           eventName:
             - "INSERT"
             - "MODIFY"
-          dynamodb:
-            NewImage:
-              sk:
-                S:
-                  - prefix: "search_filter#"
-      Targets:
-        - Id: SearchFilterOpenSearchSyncQ
-          Arn: !GetAtt SearchFilterOpenSearchSyncQ.Arn
-
-  DynamoDbSearchFilterDeleteEventRule:
-    Type: AWS::Events::Rule
-    Properties:
-      Name: "ddb-search-filter-delete-dev"
-      EventBusName: !Ref DynamoDbEventBus
-      EventPattern:
-        source:
-          - !Ref TableOne
-        detail-type:
-          - "DynamoDBStreamRecord"
-        detail:
-          eventName:
             - "REMOVE"
           dynamodb:
-            Keys:
-              sk:
-                S:
-                  - prefix: "search_filter#"
+            $or:
+              - NewImage:
+                  sk:
+                    S:
+                      - prefix: "search_filter#"
+              - Keys:
+                  sk:
+                    S:
+                      - prefix: "search_filter#"
       Targets:
         - Id: SearchFilterOpenSearchSyncQ
           Arn: !GetAtt SearchFilterOpenSearchSyncQ.Arn

@@ -3,6 +3,7 @@ use crate::opensearch::user_search_filter_document::UserSearchFilterDocument;
 use common::opensearch::delete_response::DeleteResponse;
 use common::opensearch::index_response::IndexResponse;
 use opensearch::{DeleteParts, IndexParts, SearchParts};
+use product::opensearch::product_document::ProductDocument;
 use serde::ser::Error;
 use serde_json::json;
 
@@ -23,7 +24,7 @@ pub trait UserSearchFilterOpenSearchRepository {
 
     async fn percolate(
         &self,
-        product_document: serde_json::Value,
+        product_document: &ProductDocument,
     ) -> Result<Vec<UserSearchFilterDocument>, opensearch::Error>;
 }
 
@@ -86,13 +87,18 @@ impl<'a> UserSearchFilterOpenSearchRepository for UserSearchFilterOpenSearchRepo
 
     async fn percolate(
         &self,
-        product_document: serde_json::Value,
+        product_document: &ProductDocument,
     ) -> Result<Vec<UserSearchFilterDocument>, opensearch::Error> {
+        let document_value = serde_json::to_value(product_document).map_err(|err| {
+            serde_json::Error::custom(format!(
+                "Failed serializing ProductDocument with error '{err}'."
+            ))
+        })?;
         let body = json!({
             "query": {
                 "percolate": {
                     "field": "query",
-                    "document": product_document
+                    "document": document_value
                 }
             }
         });

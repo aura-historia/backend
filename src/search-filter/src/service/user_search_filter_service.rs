@@ -106,7 +106,7 @@ pub trait UserSearchFilterService {
 
     async fn match_user_search_filters(
         &self,
-        product: &product::core::product::Product,
+        product_document: &product::opensearch::product_document::ProductDocument,
     ) -> Result<Vec<UserSearchFilter>, UserSearchFilterError>;
 }
 
@@ -245,7 +245,7 @@ impl<'a> UserSearchFilterService for UserSearchFilterServiceImpl<'a> {
 
     async fn match_user_search_filters(
         &self,
-        product: &product::core::product::Product,
+        product_document: &product::opensearch::product_document::ProductDocument,
     ) -> Result<Vec<UserSearchFilter>, UserSearchFilterError> {
         #[cfg(feature = "opensearch")]
         {
@@ -258,11 +258,6 @@ impl<'a> UserSearchFilterService for UserSearchFilterServiceImpl<'a> {
                     ),
                 ))
             })?;
-            let product_document =
-                crate::opensearch::user_search_filter_document::build_percolation_document(product)
-                    .map_err(|err| {
-                        UserSearchFilterError::OpenSearchError(opensearch::Error::from(err))
-                    })?;
             let matched_documents = opensearch_repo.percolate(product_document).await?;
             let mut result = Vec::with_capacity(matched_documents.len());
             for doc in matched_documents {
@@ -274,7 +269,7 @@ impl<'a> UserSearchFilterService for UserSearchFilterServiceImpl<'a> {
         }
         #[cfg(not(feature = "opensearch"))]
         {
-            let _ = product;
+            let _ = product_document;
             unimplemented!("match_user_search_filters requires the 'opensearch' feature")
         }
     }

@@ -6,6 +6,110 @@
                     "type": "custom",
                     "filter": ["lowercase"]
                 }
+            },
+            "filter": {
+                "english_stop": {
+                    "type": "stop",
+                    "stopwords": "_english_"
+                },
+                "english_stemmer": {
+                    "type": "stemmer",
+                    "language": "english"
+                },
+                "english_possessive_stemmer": {
+                    "type": "stemmer",
+                    "language": "possessive_english"
+                },
+                "german_stop": {
+                    "type": "stop",
+                    "stopwords": "_german_"
+                },
+                "german_stemmer": {
+                    "type": "stemmer",
+                    "language": "light_german"
+                },
+                "french_stop": {
+                    "type": "stop",
+                    "stopwords": "_french_"
+                },
+                "french_stemmer": {
+                    "type": "stemmer",
+                    "language": "light_french"
+                },
+                "french_elision": {
+                    "type": "elision",
+                    "articles_case": true,
+                    "articles": [
+                        "l", "m", "t", "qu", "n", "s", "j", "d", "c",
+                        "jusqu", "quoiqu", "lorsqu", "puisqu"
+                    ]
+                },
+                "spanish_stop": {
+                    "type": "stop",
+                    "stopwords": "_spanish_"
+                },
+                "spanish_stemmer": {
+                    "type": "stemmer",
+                    "language": "light_spanish"
+                },
+                "italian_stop": {
+                    "type": "stop",
+                    "stopwords": "_italian_"
+                },
+                "italian_stemmer": {
+                    "type": "stemmer",
+                    "language": "light_italian"
+                }
+            },
+            "analyzer": {
+                "product_english": {
+                    "type": "custom",
+                    "tokenizer": "standard",
+                    "filter": [
+                        "english_possessive_stemmer",
+                        "lowercase",
+                        "english_stop",
+                        "english_stemmer"
+                    ]
+                },
+                "product_german": {
+                    "type": "custom",
+                    "tokenizer": "standard",
+                    "filter": [
+                        "lowercase",
+                        "german_stop",
+                        "german_normalization",
+                        "german_stemmer"
+                    ]
+                },
+                "product_french": {
+                    "type": "custom",
+                    "tokenizer": "standard",
+                    "filter": [
+                        "french_elision",
+                        "lowercase",
+                        "french_stop",
+                        "french_stemmer"
+                    ]
+                },
+                "product_spanish": {
+                    "type": "custom",
+                    "tokenizer": "standard",
+                    "filter": [
+                        "lowercase",
+                        "spanish_stop",
+                        "spanish_stemmer"
+                    ]
+                },
+                "product_italian": {
+                    "type": "custom",
+                    "tokenizer": "standard",
+                    "filter": [
+                        "lowercase",
+                        "italian_stop",
+                        "italian_stemmer"
+                    ]
+                }
             }
         }
     },
@@ -33,16 +137,16 @@
             "condition": { "type": "keyword" },
             "provenance": { "type": "keyword" },
             "restoration": { "type": "keyword" },
-            "titleDe": { "type": "text", "analyzer": "german" },
-            "titleEn": { "type": "text", "analyzer": "english" },
-            "titleFr": { "type": "text", "analyzer": "french" },
-            "titleEs": { "type": "text", "analyzer": "spanish" },
-            "titleIt": { "type": "text", "analyzer": "italian" },
-            "descriptionDe": { "type": "text", "analyzer": "german" },
-            "descriptionEn": { "type": "text", "analyzer": "english" },
-            "descriptionFr": { "type": "text", "analyzer": "french" },
-            "descriptionEs": { "type": "text", "analyzer": "spanish" },
-            "descriptionIt": { "type": "text", "analyzer": "italian" },
+            "titleDe": { "type": "text", "analyzer": "product_german" },
+            "titleEn": { "type": "text", "analyzer": "product_english" },
+            "titleFr": { "type": "text", "analyzer": "product_french" },
+            "titleEs": { "type": "text", "analyzer": "product_spanish" },
+            "titleIt": { "type": "text", "analyzer": "product_italian" },
+            "descriptionDe": { "type": "text", "analyzer": "product_german" },
+            "descriptionEn": { "type": "text", "analyzer": "product_english" },
+            "descriptionFr": { "type": "text", "analyzer": "product_french" },
+            "descriptionEs": { "type": "text", "analyzer": "product_spanish" },
+            "descriptionIt": { "type": "text", "analyzer": "product_italian" },
             "auctionStart": {
                 "type": "date",
                 "format": "strict_date_time"
