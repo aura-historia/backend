@@ -17,6 +17,13 @@ tracing = { workspace = true }
 tracing-subscriber = { workspace = true }
 url = { workspace = true }
 bloomfilter = "3.0.1"
+async-trait = { workspace = true }
+mockall = { workspace = true }
+sqlx = { workspace = true }
+time = { workspace = true }
+uuid = { workspace = true }
+testcontainers = { workspace = true }
+testcontainers-modules = { workspace = true, features = ["postgres"] }
 
 [[bin]]
 name = "demo"

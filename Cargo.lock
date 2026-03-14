@@ -385,19 +385,26 @@ dependencies = [
 name = "aura-spider"
 version = "0.1.0"
 dependencies = [
+ "async-trait",
  "bloomfilter",
  "dotenvy",
  "llm",
+ "mockall",
  "regex",
  "reqwest 0.12.28",
  "serde",
  "serde_json",
  "spider",
+ "sqlx",
+ "testcontainers",
+ "testcontainers-modules",
  "thiserror 2.0.18",
+ "time",
  "tokio",
  "tracing",
  "tracing-subscriber",
  "url",
+ "uuid",
 ]
 
 [[package]]

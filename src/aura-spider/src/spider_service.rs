@@ -1,42 +1,66 @@
 use regex::Regex;
-use tracing::{debug, info};
+use std::sync::Arc;
+use tracing::{debug, info, warn};
 
 use crate::classification::gemini_client::GeminiClient;
 use crate::classification::url_classification_service::{
-    filter_product_urls, find_product_url_pattern, matches_product_pattern,
+    filter_product_urls, matches_product_pattern,
 };
+use crate::classification::url_pattern_repository::ShopUrlPatternRepository;
+use crate::classification::url_pattern_service::UrlPatternService;
 use crate::crawling::crawl_service::start_crawl;
 use crate::error::SpiderError;
 
 pub struct SpiderService {
-    target_url: String,
+    shop_url: String,
     classify_threshold: usize,
     gemini_client: GeminiClient,
+    repository: Arc<dyn ShopUrlPatternRepository>,
 }
 
 impl SpiderService {
-    pub fn new(target_url: String, api_key: String, classify_threshold: usize) -> Self {
+    pub fn new(
+        shop_url: String,
+        api_key: String,
+        classify_threshold: usize,
+        repository: Arc<dyn ShopUrlPatternRepository>,
+    ) -> Self {
         let gemini_client = GeminiClient::new(api_key);
         Self {
-            target_url,
+            shop_url,
             classify_threshold,
             gemini_client,
+            repository,
         }
     }
 
     pub async fn run(&self) -> Result<Vec<String>, SpiderError> {
-        info!(targetUrl = %self.target_url, "Starting crawl");
+        info!(shopUrl = %self.shop_url, "Starting crawl");
         info!(
             classifyThreshold = self.classify_threshold,
             "Configured one-time classification threshold"
         );
 
-        let mut crawl_rx = start_crawl(&self.target_url).await?;
+        let mut crawl_rx = start_crawl(&self.shop_url).await?;
+
+        let pattern_service = UrlPatternService::new(self.repository.clone());
 
         let mut all_urls: Vec<String> = Vec::new();
         let mut total_crawled: usize = 0;
-        let mut classification_done = false;
-        let mut pattern: Option<Regex> = None;
+
+        // Check the store first; only fall back to Gemini when nothing is persisted.
+        let mut pattern: Option<Regex> = pattern_service
+            .load_pattern_for_shop_url(&self.shop_url)
+            .await?;
+        let mut classification_done = pattern.is_some();
+        let mut pattern_loaded_from_store = pattern.is_some();
+
+        if pattern_loaded_from_store {
+            info!(
+                shopUrl = %self.shop_url,
+                "Loaded persisted product URL pattern"
+            );
+        }
 
         while let Some(page) = crawl_rx.recv().await {
             total_crawled += 1;
@@ -47,7 +71,9 @@ impl SpiderService {
                     urlCount = all_urls.len(),
                     "Threshold reached, requesting Gemini URL pattern"
                 );
-                pattern = find_product_url_pattern(&self.gemini_client, &all_urls).await?;
+                pattern = pattern_service
+                    .classify_and_save(&self.shop_url, &all_urls, &self.gemini_client)
+                    .await?;
                 if pattern.is_none() {
                     return Err(SpiderError::NoProducts(
                         "Gemini found no consistent product URL pattern at threshold classification"
@@ -55,6 +81,7 @@ impl SpiderService {
                     ));
                 }
                 classification_done = true;
+                pattern_loaded_from_store = false;
 
                 let matched_count = all_urls
                     .iter()
@@ -101,7 +128,9 @@ impl SpiderService {
                 urlCount = all_urls.len(),
                 "Threshold not reached, classifying collected URLs"
             );
-            pattern = find_product_url_pattern(&self.gemini_client, &all_urls).await?;
+            pattern = pattern_service
+                .classify_and_save(&self.shop_url, &all_urls, &self.gemini_client)
+                .await?;
             if pattern.is_none() {
                 return Err(SpiderError::NoProducts(
                     "Gemini found no consistent product URL pattern in collected URLs".to_string(),
@@ -125,7 +154,27 @@ impl SpiderService {
             ));
         }
 
-        let confirmed_products = filter_product_urls(&pattern, &all_urls)?;
+        let mut confirmed_products = filter_product_urls(&pattern, &all_urls);
+
+        if pattern_loaded_from_store && confirmed_products.is_err() {
+            warn!(
+                shopUrl = %self.shop_url,
+                "Persisted product URL pattern did not match crawl results, reclassifying"
+            );
+            pattern = pattern_service
+                .classify_and_save(&self.shop_url, &all_urls, &self.gemini_client)
+                .await?;
+            if pattern.is_none() {
+                return Err(SpiderError::NoProducts(
+                    "Gemini found no consistent product URL pattern while refreshing persisted pattern"
+                        .to_string(),
+                ));
+            }
+
+            confirmed_products = filter_product_urls(&pattern, &all_urls);
+        }
+
+        let confirmed_products = confirmed_products?;
 
         info!(
             confirmedProductCount = confirmed_products.len(),

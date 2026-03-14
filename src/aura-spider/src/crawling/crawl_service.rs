@@ -34,12 +34,12 @@ fn build_blacklist_url_patterns() -> Vec<CompactString> {
         .collect()
 }
 
-/// Starts crawling `target_url` and streams deduplicated pages via an unbounded channel.
-pub async fn start_crawl(target_url: &str) -> Result<mpsc::Receiver<CrawledPage>, SpiderError> {
+/// Starts crawling `shop_url` and streams deduplicated pages via an unbounded channel.
+pub async fn start_crawl(shop_url: &str) -> Result<mpsc::Receiver<CrawledPage>, SpiderError> {
     // Use a bounded channel to prevent memory exhaustion if consumer is slow
     let (tx, rx) = mpsc::channel(1000);
 
-    let mut website = Website::new(target_url);
+    let mut website = Website::new(shop_url);
 
     // This tells the spider engine to ignore any link with these patterns
     // to stop the loop before it starts.

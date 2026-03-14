@@ -16,20 +16,34 @@
 use std::env;
 use std::fs::File;
 use std::io::BufWriter;
+use std::process::Command;
+use std::sync::Arc;
+use std::time::Duration;
 
+use aura_spider::classification::url_pattern_repository::ShopUrlPatternRepositoryImpl;
 use aura_spider::error::SpiderError;
 use aura_spider::spider_service::SpiderService;
+use sqlx::PgPool;
+use testcontainers::ImageExt;
+use testcontainers::core::IntoContainerPort;
+use testcontainers::runners::AsyncRunner;
+use testcontainers_modules::postgres::Postgres as PgImage;
 use tracing::{Level, error, info};
 
-const DEFAULT_TARGET_URL: &str = "https://www.christies.com/en";
+const DEFAULT_SHOP_URL: &str = "https://www.christies.com/en";
 const DEFAULT_CLASSIFY_THRESHOLD: usize = 200;
+const POSTGRES_USER: &str = "postgres";
+const POSTGRES_PASSWORD: &str = "postgres";
+const POSTGRES_DB: &str = "postgres";
+const POSTGRES_PORT: u16 = 5432;
+const DEMO_CONTAINER_NAME: &str = "aura-historia-spider-demo";
 
 #[tokio::main]
 async fn main() {
     dotenvy::dotenv().ok();
     init_logging();
 
-    let target_url = read_target_url();
+    let shop_url = read_shop_url();
     let api_key = match read_api_key() {
         Ok(api_key) => api_key,
         Err(error) => {
@@ -38,7 +52,22 @@ async fn main() {
         }
     };
 
-    let spider = SpiderService::new(target_url, api_key, DEFAULT_CLASSIFY_THRESHOLD);
+    let (_postgres_container, pool) = match start_postgres().await {
+        Ok(state) => state,
+        Err(error) => {
+            error!(error = %error, "Failed to start Postgres for demo");
+            return;
+        }
+    };
+
+    if let Err(error) = apply_schema(&pool).await {
+        error!(error = %error, "Failed to apply spider demo schema");
+        return;
+    }
+
+    let repository = build_repository(pool.clone());
+
+    let spider = SpiderService::new(shop_url, api_key, DEFAULT_CLASSIFY_THRESHOLD, repository);
 
     match spider.run().await {
         Ok(products) => {
@@ -55,16 +84,79 @@ async fn main() {
     }
 }
 
-fn read_target_url() -> String {
+fn read_shop_url() -> String {
     let raw_url = env::args()
         .nth(1)
-        .unwrap_or_else(|| DEFAULT_TARGET_URL.to_string());
+        .unwrap_or_else(|| DEFAULT_SHOP_URL.to_string());
 
     ensure_scheme(&raw_url)
 }
 
 fn read_api_key() -> Result<String, SpiderError> {
     Ok(env::var("GEMINI_API_KEY")?)
+}
+
+fn build_repository(pool: PgPool) -> Arc<ShopUrlPatternRepositoryImpl> {
+    Arc::new(ShopUrlPatternRepositoryImpl::new(pool))
+}
+
+async fn apply_schema(pool: &PgPool) -> Result<(), SpiderError> {
+    let workspace_root = env!("CARGO_WORKSPACE_DIR");
+    let sql_path = std::path::Path::new(workspace_root).join("src/aura-spider/sql/schema.sql");
+
+    let sql = std::fs::read_to_string(&sql_path).map_err(SpiderError::Io)?;
+    sqlx::raw_sql(&sql).execute(pool).await?;
+
+    info!(path = %sql_path.display(), "Applied spider demo schema");
+    Ok(())
+}
+
+async fn start_postgres() -> Result<(testcontainers::ContainerAsync<PgImage>, PgPool), SpiderError>
+{
+    let _ = Command::new("docker")
+        .args(["rm", "-f", DEMO_CONTAINER_NAME])
+        .output();
+
+    info!("Starting Postgres container '{DEMO_CONTAINER_NAME}'");
+
+    let container: testcontainers::ContainerAsync<PgImage> = PgImage::default()
+        .with_user(POSTGRES_USER)
+        .with_password(POSTGRES_PASSWORD)
+        .with_db_name(POSTGRES_DB)
+        .with_container_name(DEMO_CONTAINER_NAME)
+        .with_mapped_port(POSTGRES_PORT, POSTGRES_PORT.tcp())
+        .start()
+        .await
+        .map_err(|error| {
+            SpiderError::Spider(format!("Failed to start Postgres container: {error}"))
+        })?;
+
+    let connection_string = format!(
+        "postgres://{POSTGRES_USER}:{POSTGRES_PASSWORD}@localhost:{POSTGRES_PORT}/{POSTGRES_DB}"
+    );
+
+    let mut attempt = 0u32;
+    let mut delay = Duration::from_millis(100);
+
+    loop {
+        attempt += 1;
+        match PgPool::connect(&connection_string).await {
+            Ok(pool) => {
+                info!(attempt, "Connected to Postgres for spider demo");
+                return Ok((container, pool));
+            }
+            Err(error) if attempt < 20 => {
+                info!(attempt, error = %error, "Postgres not ready yet, retrying");
+                tokio::time::sleep(delay).await;
+                delay = (delay * 2).min(Duration::from_secs(2));
+            }
+            Err(error) => {
+                return Err(SpiderError::Spider(format!(
+                    "Could not connect to Postgres after {attempt} attempts: {error}"
+                )));
+            }
+        }
+    }
 }
 
 fn ensure_scheme(url: &str) -> String {
