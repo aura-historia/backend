@@ -10,6 +10,7 @@ aws-tests-common = { workspace = true }
 tokio = { workspace = true, features = ["full"] }
 product = { workspace = true, features = ["full"] }
 product-watchlist = { workspace = true, features = ["full"] }
+notification = { workspace = true, features = ["service", "dynamodb", "data", "test-data"] }
 shop = { workspace = true, features = ["full"] }
 user = { workspace = true, features = ["full"] }
 search-filter = { workspace = true, features = ["full"] }
@@ -34,6 +35,7 @@ http = { workspace = true }
 product-api = { workspace = true }
 product-classification = { workspace = true, features = ["test-data", "data"] }
 product-watchlist-api = { workspace = true }
+notification-api = { workspace = true }
 search-filter-api = { workspace = true, features = ["test-data"] }
 url = { workspace = true }
 futures-util = { workspace = true }

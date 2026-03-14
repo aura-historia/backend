@@ -105,6 +105,8 @@ jobs:
           - src/product-classification-api
           - src/product-watchlist
           - src/product-watchlist-api
+          - src/notification
+          - src/notification-api
           - src/shop
           - src/shop-api
           - src/shop-lambda/src/shop-lambda-opensearch-index
@@ -244,6 +246,7 @@ jobs:
           - src/user-api
           - src/cognito-post-confirmation
           - src/notification-send
+          - src/notification-api
           - src/fxrate-lambda
     steps:
       - uses: actions/checkout@v6

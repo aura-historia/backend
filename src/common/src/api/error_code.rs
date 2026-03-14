@@ -36,6 +36,7 @@ pub const PRODUCT_NOT_FOUND: ApiErrorCode = ApiErrorCode("PRODUCT_NOT_FOUND");
 pub const PRODUCT_ENRICHMENT_FAILED: ApiErrorCode = ApiErrorCode("PRODUCT_ENRICHMENT_FAILED");
 pub const WATCHLIST_ENTRY_NOT_FOUND: ApiErrorCode = ApiErrorCode("WATCHLIST_ENTRY_NOT_FOUND");
 pub const SEARCH_FILTER_NOT_FOUND: ApiErrorCode = ApiErrorCode("SEARCH_FILTER_NOT_FOUND");
+pub const NOTIFICATION_NOT_FOUND: ApiErrorCode = ApiErrorCode("NOTIFICATION_NOT_FOUND");
 pub const SHOP_NOT_FOUND: ApiErrorCode = ApiErrorCode("SHOP_NOT_FOUND");
 pub const SHOP_EXISTS_ALREADY: ApiErrorCode = ApiErrorCode("SHOP_EXISTS_ALREADY");
 pub const SHOP_TOO_MANY_DOMAINS: ApiErrorCode = ApiErrorCode("SHOP_TOO_MANY_DOMAINS");
