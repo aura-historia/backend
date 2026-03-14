@@ -2,7 +2,9 @@ use aws_lambda_events::apigw::{ApiGatewayV2httpRequest, ApiGatewayV2httpResponse
 use common::api::api_gateway_v2_http_response_builder::ApiGatewayV2HttpResponseBuilder;
 use common::api::error::ApiError;
 use common::api::error_code::BAD_BODY_VALUE;
+use common::currency::data::api::extract_currency_query;
 use common::event_id::api::extract_event_id_path;
+use common::language::data::api::extract_language_query;
 use common::user_id::api::extract_user_id_request_context;
 use lambda_runtime::LambdaEvent;
 use notification::data::get_notification_data::GetNotificationData;
@@ -16,6 +18,8 @@ pub async fn handle(
 ) -> Result<ApiGatewayV2httpResponse, ApiError> {
     let user_id = extract_user_id_request_context(&event.payload.request_context)?;
     tracing::Span::current().record("userId", user_id.to_string());
+    let language = extract_language_query(&event.payload.query_string_parameters)?;
+    let currency = extract_currency_query(&event.payload.query_string_parameters)?;
     let event_id = extract_event_id_path(&event.payload.path_parameters)?;
     let body = event
         .payload
@@ -38,9 +42,7 @@ pub async fn handle(
         )
         .await?;
 
-    let language = Default::default();
-    let currency = Default::default();
-    let localized = notification.localized(&currency, &[language]);
+    let localized = notification.localized(&currency.into(), &[language.into()]);
 
     Ok(ApiGatewayV2HttpResponseBuilder::json(200)
         .body_serde(GetNotificationData::from(localized))?

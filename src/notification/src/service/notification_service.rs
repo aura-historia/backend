@@ -730,12 +730,6 @@ impl<'a> NotificationService for NotificationServiceImpl<'a> {
             .query_all_notification_records(user_id)
             .await?;
 
-        info!(
-            userId = %user_id,
-            count = all_records.len(),
-            "Updating all notifications."
-        );
-
         let record_update = NotificationRecordUpdate {
             seen: cmd.seen,
             notification_type: None,
@@ -751,6 +745,7 @@ impl<'a> NotificationService for NotificationServiceImpl<'a> {
         info!(
             userId = %user_id,
             count = all_records.len(),
+            cmd = ?cmd,
             "All notifications updated."
         );
 
