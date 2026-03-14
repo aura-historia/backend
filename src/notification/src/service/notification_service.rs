@@ -746,18 +746,9 @@ impl<'a> NotificationService for NotificationServiceImpl<'a> {
         };
 
         for id in &ids_to_update {
-            if let Err(err) = self
-                .notification_repository
+            self.notification_repository
                 .update_notification_record(user_id, id, update.clone())
-                .await
-            {
-                error!(
-                    userId = %user_id,
-                    originEventId = %id,
-                    error = %err,
-                    "Failed marking notification as seen."
-                );
-            }
+                .await?;
         }
 
         self.view_notifications(user_id, languages, currency, &None)
@@ -796,6 +787,7 @@ impl<'a> NotificationService for NotificationServiceImpl<'a> {
 
         let ids: Vec<EventId> = all_records.iter().map(|r| r.origin_event_id).collect();
 
+        // DynamoDB BatchWriteItem supports at most 25 items per request
         for chunk in ids.chunks(25) {
             self.notification_repository
                 .delete_notification_records(user_id, chunk)

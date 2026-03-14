@@ -41,12 +41,10 @@ pub async fn handle(
         .transpose()?
         .and_then(|data| data.event_ids);
 
-    let event_ids_slice: Option<Vec<EventId>> = event_ids;
-
     let notifications = service
         .mark_all_notifications_seen(
             &user_id,
-            event_ids_slice.as_deref(),
+            event_ids.as_deref(),
             &[language.into()],
             &Default::default(),
         )
