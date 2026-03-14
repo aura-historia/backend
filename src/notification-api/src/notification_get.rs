@@ -1,6 +1,7 @@
 use aws_lambda_events::apigw::{ApiGatewayV2httpRequest, ApiGatewayV2httpResponse};
 use common::api::api_gateway_v2_http_response_builder::ApiGatewayV2HttpResponseBuilder;
 use common::api::error::ApiError;
+use common::currency::data::api::extract_currency_query;
 use common::event_id::EventId;
 use common::event_id::api::extract_event_id_cursor_query;
 use common::language::data::api::extract_language_query;
@@ -42,10 +43,11 @@ pub async fn handle(
     let user_id = extract_user_id_request_context(&event.payload.request_context)?;
     tracing::Span::current().record("userId", user_id.to_string());
     let language = extract_language_query(&event.payload.query_string_parameters)?;
+    let currency = extract_currency_query(&event.payload.query_string_parameters)?;
     let cursor = extract_event_id_cursor_query(&event.payload.query_string_parameters)?;
 
     let notifications = service
-        .view_notifications(&user_id, &[language.into()], &Default::default(), &cursor)
+        .view_notifications(&user_id, &[language.into()], &currency.into(), &cursor)
         .await?
         .map_item(GetNotificationData::from);
 
@@ -64,20 +66,23 @@ mod tests {
     use notification::service::notification_service::MockNotificationService;
     use test_api::ApiGatewayV2httpRequestProxy;
 
+    fn empty_result() -> common::pagination::cursor::CursoredResult<
+        notification::core::notification::LocalizedNotification,
+        common::event_id::EventId,
+    > {
+        common::pagination::cursor::CursoredResult {
+            items: vec![],
+            cursor: Default::default(),
+            total: Some(0),
+        }
+    }
+
     #[tokio::test]
     async fn should_200_when_success() {
         let mut service = MockNotificationService::default();
         service
             .expect_view_notifications()
-            .return_once(|_, _, _, _| {
-                Box::pin(async {
-                    Ok(common::pagination::cursor::CursoredResult {
-                        items: vec![],
-                        cursor: Default::default(),
-                        total: Some(0),
-                    })
-                })
-            });
+            .return_once(|_, _, _, _| Box::pin(async { Ok(empty_result()) }));
 
         let lambda_event = LambdaEvent {
             payload: ApiGatewayV2httpRequestProxy::builder()
@@ -115,15 +120,7 @@ mod tests {
         let mut service = MockNotificationService::default();
         service
             .expect_view_notifications()
-            .return_once(|_, _, _, _| {
-                Box::pin(async {
-                    Ok(common::pagination::cursor::CursoredResult {
-                        items: vec![],
-                        cursor: Default::default(),
-                        total: Some(0),
-                    })
-                })
-            });
+            .return_once(|_, _, _, _| Box::pin(async { Ok(empty_result()) }));
 
         let lambda_event = LambdaEvent {
             payload: ApiGatewayV2httpRequestProxy::builder()

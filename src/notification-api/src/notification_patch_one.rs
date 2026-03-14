@@ -34,9 +34,7 @@ pub async fn handle(
         .update_notification(
             &user_id,
             &event_id,
-            UpdateNotificationCommand {
-                seen: Some(patch.seen),
-            },
+            UpdateNotificationCommand { seen: patch.seen },
         )
         .await?;
 
@@ -71,7 +69,7 @@ mod tests {
             payload: ApiGatewayV2httpRequestProxy::builder()
                 .http_method(http::Method::PATCH)
                 .path_parameter("eventId", EventId::new())
-                .body_serde(&PatchNotificationData { seen: true })
+                .body_serde(&PatchNotificationData { seen: Some(true) })
                 .jwt_claim("sub", UserId::new())
                 .build(),
             context: Default::default(),
@@ -90,7 +88,7 @@ mod tests {
         let lambda_event = LambdaEvent {
             payload: ApiGatewayV2httpRequestProxy::builder()
                 .http_method(http::Method::PATCH)
-                .body_serde(&PatchNotificationData { seen: true })
+                .body_serde(&PatchNotificationData { seen: Some(true) })
                 .jwt_claim("sub", UserId::new())
                 .build(),
             context: Default::default(),
@@ -146,7 +144,7 @@ mod tests {
             payload: ApiGatewayV2httpRequestProxy::builder()
                 .http_method(http::Method::PATCH)
                 .path_parameter("eventId", EventId::new())
-                .body_serde(&PatchNotificationData { seen: false })
+                .body_serde(&PatchNotificationData { seen: None })
                 .build(),
             context: Default::default(),
         };

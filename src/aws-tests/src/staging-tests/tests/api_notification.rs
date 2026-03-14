@@ -8,7 +8,6 @@ use notification::dynamodb::repository::{
     NotificationDynamoDbRepository, NotificationDynamoDbRepositoryImpl,
 };
 use notification_api::notification_get::EventIdCursoredData;
-use notification_api::notification_patch_all::MarkAllSeenData;
 use staging_tests::{create_random_test_user, get_dynamodb_client, staging_test};
 
 async fn get_notification_repository() -> NotificationDynamoDbRepositoryImpl<'static> {
@@ -123,7 +122,7 @@ async fn should_get_and_patch_one_and_patch_all_and_delete_one_and_delete_all_no
     let patch_one_response = reqwest::Client::new()
         .patch(patch_one_url)
         .bearer_auth(&user.access_token)
-        .json(&PatchNotificationData { seen: true })
+        .json(&PatchNotificationData { seen: Some(true) })
         .send()
         .await
         .unwrap();
@@ -181,13 +180,10 @@ async fn should_get_and_patch_one_and_patch_all_and_delete_one_and_delete_all_no
         .unwrap();
     assert_eq!(1, after_delete_one.items.len());
 
-    // PATCH all with specific event IDs
+    // PATCH all (mark all as seen - no body needed since service updates all)
     let patch_all_specific_response = reqwest::Client::new()
         .patch(&patch_all_url)
         .bearer_auth(&user.access_token)
-        .json(&MarkAllSeenData {
-            event_ids: Some(vec![record2.origin_event_id]),
-        })
         .send()
         .await
         .unwrap();

@@ -1,24 +1,20 @@
 use aws_lambda_events::apigw::{ApiGatewayV2httpRequest, ApiGatewayV2httpResponse};
 use common::api::api_gateway_v2_http_response_builder::ApiGatewayV2HttpResponseBuilder;
 use common::api::error::ApiError;
-use common::api::error_code::BAD_BODY_VALUE;
-use common::event_id::EventId;
+use common::currency::data::api::extract_currency_query;
 use common::language::data::api::extract_language_query;
 use common::user_id::api::extract_user_id_request_context;
 use lambda_runtime::LambdaEvent;
 use notification::data::get_notification_data::GetNotificationData;
+use notification::service::command::UpdateNotificationCommand;
 use notification::service::notification_service::NotificationService;
-use notification_get::EventIdCursoredData;
 use serde::{Deserialize, Serialize};
 
-use crate::notification_get;
+use crate::notification_get::EventIdCursoredData;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
-pub struct MarkAllSeenData {
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub event_ids: Option<Vec<EventId>>,
-}
+pub struct NotificationEventIdCollectionData;
 
 pub async fn handle(
     event: LambdaEvent<ApiGatewayV2httpRequest>,
@@ -27,29 +23,15 @@ pub async fn handle(
     let user_id = extract_user_id_request_context(&event.payload.request_context)?;
     tracing::Span::current().record("userId", user_id.to_string());
     let language = extract_language_query(&event.payload.query_string_parameters)?;
-
-    let event_ids: Option<Vec<EventId>> = event
-        .payload
-        .body
-        .filter(|str| !str.is_empty())
-        .map(|body| {
-            serde_json::from_str::<MarkAllSeenData>(&body).map_err(|err| {
-                let err_msg = err.to_string();
-                ApiError::bad_request(BAD_BODY_VALUE, Box::new(err)).with_detail(err_msg)
-            })
-        })
-        .transpose()?
-        .and_then(|data| data.event_ids);
+    let currency = extract_currency_query(&event.payload.query_string_parameters)?;
 
     let notifications = service
-        .mark_all_notifications_seen(
-            &user_id,
-            event_ids.as_deref(),
-            &[language.into()],
-            &Default::default(),
-        )
+        .update_notifications(&user_id, UpdateNotificationCommand { seen: Some(true) })
         .await?
-        .map_item(GetNotificationData::from);
+        .map_item(|n| {
+            let localized = n.localized(&currency.into(), &[language.into()]);
+            GetNotificationData::from(localized)
+        });
 
     Ok(ApiGatewayV2HttpResponseBuilder::json(200)
         .cache_control("no-store", None, None)
@@ -62,13 +44,13 @@ mod tests {
     use super::handle;
     use common::user_id::UserId;
     use lambda_runtime::LambdaEvent;
+    use notification::core::notification::Notification;
+    use notification::dynamodb::notification_record::NotificationRecord;
     use notification::service::notification_service::MockNotificationService;
     use test_api::ApiGatewayV2httpRequestProxy;
 
-    fn empty_result() -> common::pagination::cursor::CursoredResult<
-        notification::core::notification::LocalizedNotification,
-        common::event_id::EventId,
-    > {
+    fn empty_result()
+    -> common::pagination::cursor::CursoredResult<Notification, common::event_id::EventId> {
         common::pagination::cursor::CursoredResult {
             items: vec![],
             cursor: Default::default(),
@@ -76,12 +58,22 @@ mod tests {
         }
     }
 
+    fn one_result(
+        record: NotificationRecord,
+    ) -> common::pagination::cursor::CursoredResult<Notification, common::event_id::EventId> {
+        common::pagination::cursor::CursoredResult {
+            items: vec![record.into()],
+            cursor: Default::default(),
+            total: Some(1),
+        }
+    }
+
     #[tokio::test]
-    async fn should_200_when_success_without_body() {
+    async fn should_200_when_success() {
         let mut service = MockNotificationService::default();
         service
-            .expect_mark_all_notifications_seen()
-            .return_once(|_, _, _, _| Box::pin(async { Ok(empty_result()) }));
+            .expect_update_notifications()
+            .return_once(|_, _| Box::pin(async { Ok(empty_result()) }));
 
         let lambda_event = LambdaEvent {
             payload: ApiGatewayV2httpRequestProxy::builder()
@@ -97,19 +89,23 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn should_200_when_success_with_event_ids() {
+    async fn should_200_with_localized_items() {
+        use fake::{Fake, Faker};
+        let mut record: NotificationRecord = Faker.fake();
+        // Use a fixed, valid timestamp so serialization doesn't fail
+        record.created = time::OffsetDateTime::from_unix_timestamp(1_700_000_000).unwrap();
+        record.updated = time::OffsetDateTime::from_unix_timestamp(1_700_000_000).unwrap();
+
         let mut service = MockNotificationService::default();
         service
-            .expect_mark_all_notifications_seen()
-            .return_once(|_, _, _, _| Box::pin(async { Ok(empty_result()) }));
+            .expect_update_notifications()
+            .return_once(move |_, _| Box::pin(async move { Ok(one_result(record)) }));
 
         let lambda_event = LambdaEvent {
             payload: ApiGatewayV2httpRequestProxy::builder()
                 .http_method(http::Method::PATCH)
                 .jwt_claim("sub", UserId::new())
-                .body_serde(&super::MarkAllSeenData {
-                    event_ids: Some(vec![]),
-                })
+                .query_string_parameter("language", "de")
                 .build(),
             context: Default::default(),
         };
@@ -117,30 +113,12 @@ mod tests {
         let response = handle(lambda_event, &service).await.unwrap();
 
         assert_eq!(200, response.status_code);
-    }
-
-    #[tokio::test]
-    async fn should_400_when_body_invalid() {
-        let mut service = MockNotificationService::default();
-        service.expect_mark_all_notifications_seen().never();
-
-        let lambda_event = LambdaEvent {
-            payload: ApiGatewayV2httpRequestProxy::builder()
-                .http_method(http::Method::PATCH)
-                .jwt_claim("sub", UserId::new())
-                .body_serde(&"not-an-object")
-                .build(),
-            context: Default::default(),
-        };
-
-        let actual = handle(lambda_event, &service).await.unwrap_err();
-        assert_eq!(400, actual.status);
     }
 
     #[tokio::test]
     async fn should_401_when_sub_missing() {
         let mut service = MockNotificationService::default();
-        service.expect_mark_all_notifications_seen().never();
+        service.expect_update_notifications().never();
 
         let lambda_event = LambdaEvent {
             payload: ApiGatewayV2httpRequestProxy::builder()

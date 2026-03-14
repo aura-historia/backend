@@ -3,10 +3,11 @@ use crate::core::notification::{
 };
 use crate::core::notification_id::NotificationId;
 use common::{
-    event_id::EventId, price::data::PriceData, product_id::ProductId,
-    product_state::domain::ProductState, shop_id::ShopId, shop_name::ShopName,
-    shops_product_id::ShopsProductId, slug_id::SlugId,
+    event_id::EventId, language::data::LocalizedTextData, price::data::PriceData,
+    product_id::ProductId, shop_id::ShopId, shop_name::ShopName, shops_product_id::ShopsProductId,
+    slug_id::SlugId,
 };
+use product::data::product_state_data::ProductStateData;
 use serde::{Deserialize, Serialize};
 use time::OffsetDateTime;
 
@@ -38,7 +39,7 @@ pub enum NotificationPayloadData {
         shop_slug_id: SlugId<0>,
         product_slug_id: SlugId<6>,
         shop_name: ShopName,
-        title: String,
+        title: LocalizedTextData,
         watchlist_payload: WatchlistPayloadData,
     },
 }
@@ -54,8 +55,8 @@ pub enum WatchlistPayloadData {
         new_price: Option<PriceData>,
     },
     StateChange {
-        old_state: ProductState,
-        new_state: ProductState,
+        old_state: ProductStateData,
+        new_state: ProductStateData,
     },
 }
 
@@ -73,8 +74,8 @@ impl From<LocalizedNotificationWatchlistPayload> for WatchlistPayloadData {
                 old_state,
                 new_state,
             } => WatchlistPayloadData::StateChange {
-                old_state,
-                new_state,
+                old_state: old_state.into(),
+                new_state: new_state.into(),
             },
         }
     }
@@ -99,7 +100,7 @@ impl From<LocalizedNotificationPayload> for NotificationPayloadData {
                 shop_slug_id,
                 product_slug_id,
                 shop_name,
-                title: title.payload.to_string(),
+                title: title.into(),
                 watchlist_payload: watchlist_payload.into(),
             },
         }

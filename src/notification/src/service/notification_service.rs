@@ -138,13 +138,11 @@ pub trait NotificationService {
         origin_event_id: &EventId,
     ) -> Result<Notification, NotificationError>;
 
-    async fn mark_all_notifications_seen(
+    async fn update_notifications(
         &self,
         user_id: &UserId,
-        origin_event_ids: Option<&[EventId]>,
-        languages: &[Language],
-        currency: &Currency,
-    ) -> Result<CursoredResult<LocalizedNotification, EventId>, NotificationError>;
+        cmd: UpdateNotificationCommand,
+    ) -> Result<CursoredResult<Notification, EventId>, NotificationError>;
 
     async fn delete_notification(
         &self,
@@ -722,37 +720,67 @@ impl<'a> NotificationService for NotificationServiceImpl<'a> {
         Ok(updated_notification)
     }
 
-    async fn mark_all_notifications_seen(
+    async fn update_notifications(
         &self,
         user_id: &UserId,
-        origin_event_ids: Option<&[EventId]>,
-        languages: &[Language],
-        currency: &Currency,
-    ) -> Result<CursoredResult<LocalizedNotification, EventId>, NotificationError> {
+        cmd: UpdateNotificationCommand,
+    ) -> Result<CursoredResult<Notification, EventId>, NotificationError> {
         let all_records = self
             .notification_repository
             .query_all_notification_records(user_id)
             .await?;
 
-        let ids_to_update: Vec<EventId> = match origin_event_ids {
-            Some(ids) => ids.to_vec(),
-            None => all_records.iter().map(|r| r.origin_event_id).collect(),
-        };
+        info!(
+            userId = %user_id,
+            count = all_records.len(),
+            "Updating all notifications."
+        );
 
-        let update = NotificationRecordUpdate {
-            seen: Some(true),
+        let record_update = NotificationRecordUpdate {
+            seen: cmd.seen,
             notification_type: None,
             updated: OffsetDateTime::now_utc(),
         };
 
-        for id in &ids_to_update {
+        for record in &all_records {
             self.notification_repository
-                .update_notification_record(user_id, id, update.clone())
+                .update_notification_record(user_id, &record.origin_event_id, record_update.clone())
                 .await?;
         }
 
-        self.view_notifications(user_id, languages, currency, &None)
-            .await
+        info!(
+            userId = %user_id,
+            count = all_records.len(),
+            "All notifications updated."
+        );
+
+        let cursor = Cursor::default();
+        let scan_index_forward = false;
+        let paged_records = self
+            .notification_repository
+            .query_notification_records(user_id, &cursor, scan_index_forward)
+            .await?;
+        let last = paged_records.last().cloned();
+
+        let notifications: Vec<Notification> =
+            paged_records.into_iter().map(Notification::from).collect();
+
+        let total = if notifications.is_empty() {
+            0
+        } else {
+            self.notification_repository
+                .count_notification_records(user_id, &cursor, scan_index_forward)
+                .await?
+        };
+
+        Ok(CursoredResult {
+            cursor: Cursor {
+                size: notifications.len() as u64,
+                search_after: last.map(|l| l.origin_event_id),
+            },
+            items: notifications,
+            total: Some(total),
+        })
     }
 
     async fn delete_notification(
@@ -772,6 +800,12 @@ impl<'a> NotificationService for NotificationServiceImpl<'a> {
             .delete_notification_record(user_id, origin_event_id)
             .await?;
 
+        info!(
+            userId = %user_id,
+            originEventId = %origin_event_id,
+            "Notification deleted."
+        );
+
         Ok(())
     }
 
@@ -787,12 +821,17 @@ impl<'a> NotificationService for NotificationServiceImpl<'a> {
 
         let ids: Vec<EventId> = all_records.iter().map(|r| r.origin_event_id).collect();
 
-        // DynamoDB BatchWriteItem supports at most 25 items per request
-        for chunk in ids.chunks(25) {
+        for batch in Batch::chunked_from(ids.into_iter()) {
             self.notification_repository
-                .delete_notification_records(user_id, chunk)
+                .delete_notification_records(user_id, &batch)
                 .await?;
         }
+
+        info!(
+            userId = %user_id,
+            count = all_records.len(),
+            "All notifications deleted."
+        );
 
         Ok(())
     }
@@ -2380,11 +2419,11 @@ mod tests {
         }
     }
 
-    mod mark_all_notifications_seen {
+    mod update_notifications {
         use super::*;
 
         #[tokio::test]
-        async fn should_mark_all_when_no_ids_given() {
+        async fn should_update_all_records() {
             let user_id = UserId::new();
             let mut record1: NotificationRecord = Faker.fake();
             record1.user_id = user_id;
@@ -2413,25 +2452,20 @@ mod tests {
             let s3_adapter = MockS3Adapter::default();
             let service = make_service(&repository, &user_service, &ses_adapter, &s3_adapter);
             let result = service
-                .mark_all_notifications_seen(&user_id, None, &[Language::En], &Currency::Eur)
+                .update_notifications(&user_id, UpdateNotificationCommand { seen: Some(true) })
                 .await;
 
             assert!(result.is_ok());
         }
 
         #[tokio::test]
-        async fn should_mark_given_ids_only() {
+        async fn should_return_first_page_of_notifications() {
             let user_id = UserId::new();
-            let event_id = EventId::new();
 
             let mut repository = MockNotificationDynamoDbRepository::default();
             repository
                 .expect_query_all_notification_records()
                 .return_once(|_| Box::pin(async { Ok(vec![]) }));
-            repository
-                .expect_update_notification_record()
-                .times(1)
-                .returning(|_, _, _| Box::pin(async { Ok(Some(Faker.fake())) }));
             repository
                 .expect_query_notification_records()
                 .return_once(|_, _, _| Box::pin(async { Ok(vec![]) }));
@@ -2444,15 +2478,12 @@ mod tests {
             let s3_adapter = MockS3Adapter::default();
             let service = make_service(&repository, &user_service, &ses_adapter, &s3_adapter);
             let result = service
-                .mark_all_notifications_seen(
-                    &user_id,
-                    Some(&[event_id]),
-                    &[Language::En],
-                    &Currency::Eur,
-                )
+                .update_notifications(&user_id, UpdateNotificationCommand::default())
                 .await;
 
             assert!(result.is_ok());
+            let page = result.unwrap();
+            assert_eq!(Some(0), page.total);
         }
     }
 

@@ -527,8 +527,9 @@ fn should_delete_notification_records_batch() {
     }
 
     let ids: Vec<EventId> = records.iter().map(|r| r.origin_event_id).collect();
+    let batch = Batch::try_from_iter(ids).unwrap();
     let _ = repository
-        .delete_notification_records(&user_id, &ids)
+        .delete_notification_records(&user_id, &batch)
         .await
         .unwrap();
 

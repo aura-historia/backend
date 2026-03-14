@@ -4,5 +4,6 @@ use serde::{Deserialize, Serialize};
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct PatchNotificationData {
-    pub seen: bool,
+    #[serde(default)]
+    pub seen: Option<bool>,
 }
