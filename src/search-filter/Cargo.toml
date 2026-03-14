@@ -37,7 +37,7 @@ tokio = { workspace = true, features = ["macros"] }
 default = []
 dynamodb = ["common/dynamodb", "product", "product/dynamodb", "shop/dynamodb", "field", "tracing", "aws-sdk-dynamodb", "serde_dynamo", "serde_dynamo/aws-sdk-dynamodb+1"]
 opensearch = ["common/opensearch", "dynamodb", "product/opensearch", "shop/opensearch", "serde_json", "dep:opensearch"]
-service = ["common/dynamodb", "product", "shop"]
+service = ["common/dynamodb", "product", "product/opensearch", "shop"]
 data = ["product", "product/data", "shop/data"]
 test-data = ["fake", "common/test-data", "product/test-data", "shop/test-data"]
 full = ["dynamodb", "opensearch", "service", "data", "test-data"]
