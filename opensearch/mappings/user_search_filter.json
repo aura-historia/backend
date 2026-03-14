@@ -40,8 +40,19 @@
                     "type": "elision",
                     "articles_case": true,
                     "articles": [
-                        "l", "m", "t", "qu", "n", "s", "j", "d", "c",
-                        "jusqu", "quoiqu", "lorsqu", "puisqu"
+                        "l",
+                        "m",
+                        "t",
+                        "qu",
+                        "n",
+                        "s",
+                        "j",
+                        "d",
+                        "c",
+                        "jusqu",
+                        "quoiqu",
+                        "lorsqu",
+                        "puisqu"
                     ]
                 },
                 "spanish_stop": {
@@ -95,20 +106,12 @@
                 "product_spanish": {
                     "type": "custom",
                     "tokenizer": "standard",
-                    "filter": [
-                        "lowercase",
-                        "spanish_stop",
-                        "spanish_stemmer"
-                    ]
+                    "filter": ["lowercase", "spanish_stop", "spanish_stemmer"]
                 },
                 "product_italian": {
                     "type": "custom",
                     "tokenizer": "standard",
-                    "filter": [
-                        "lowercase",
-                        "italian_stop",
-                        "italian_stemmer"
-                    ]
+                    "filter": ["lowercase", "italian_stop", "italian_stemmer"]
                 }
             }
         }
