@@ -97,13 +97,14 @@ async fn handle_delete(
             }
         })
         .ok_or_else(|| {
-            let msg = "Failed extracting 'sk' from keys.";
+            let msg = "Failed extracting 'sk' from keys. Expected a String attribute 'sk' in the DynamoDB stream record keys.";
             error!(msg);
             lambda_runtime::Error::from(msg)
         })?;
 
     let filter_id_str = sk.strip_prefix("search_filter#").ok_or_else(|| {
-        let msg = "Failed parsing UserSearchFilterId from sk.";
+        let msg =
+            "Failed parsing UserSearchFilterId from sk. Expected format 'search_filter#<uuid>'.";
         error!(sk = %sk, msg);
         lambda_runtime::Error::from(msg)
     })?;

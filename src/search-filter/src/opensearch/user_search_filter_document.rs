@@ -233,13 +233,13 @@ fn build_percolator_query(record: &UserSearchFilterRecord) -> serde_json::Value 
             if let Some(min) = range_query.min {
                 let v = min
                     .format(&time::format_description::well_known::Rfc3339)
-                    .unwrap_or_default();
+                    .expect("OffsetDateTime should format as RFC3339");
                 filter.push(serde_json::json!({ "range": { field: { "gte": v } } }));
             }
             if let Some(max) = range_query.max {
                 let v = max
                     .format(&time::format_description::well_known::Rfc3339)
-                    .unwrap_or_default();
+                    .expect("OffsetDateTime should format as RFC3339");
                 filter.push(serde_json::json!({ "range": { field: { "lte": v } } }));
             }
         }

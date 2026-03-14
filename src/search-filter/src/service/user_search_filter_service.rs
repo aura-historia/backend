@@ -253,7 +253,9 @@ impl<'a> UserSearchFilterService for UserSearchFilterServiceImpl<'a> {
 
             let opensearch_repo = self.opensearch_repository.ok_or_else(|| {
                 UserSearchFilterError::OpenSearchError(opensearch::Error::from(
-                    serde_json::Error::custom("OpenSearch repository not configured"),
+                    serde_json::Error::custom(
+                        "OpenSearch repository not configured. Use UserSearchFilterServiceImpl::with_opensearch() to construct the service.",
+                    ),
                 ))
             })?;
             let product_document =
