@@ -21,10 +21,13 @@ async-trait = { workspace = true }
 mockall = { workspace = true }
 sqlx = { workspace = true }
 time = { workspace = true, features = ["serde"] }
-uuid = { workspace = true }
 testcontainers = { workspace = true }
 testcontainers-modules = { workspace = true, features = ["postgres"] }
 sha2 = { workspace = true }
+
+[dev-dependencies]
+test-api = { workspace = true, features = ["rds"] }
+tokio = { workspace = true, features = ["macros", "time"] }
 
 [[bin]]
 name = "demo"

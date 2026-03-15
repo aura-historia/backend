@@ -398,6 +398,7 @@ dependencies = [
  "sha2",
  "spider",
  "sqlx",
+ "test-api",
  "testcontainers",
  "testcontainers-modules",
  "thiserror 2.0.18",
@@ -406,7 +407,6 @@ dependencies = [
  "tracing",
  "tracing-subscriber",
  "url",
- "uuid",
 ]
 
 [[package]]
