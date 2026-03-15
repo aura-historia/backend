@@ -28,6 +28,7 @@ sha2 = { workspace = true }
 [dev-dependencies]
 test-api = { workspace = true, features = ["rds"] }
 tokio = { workspace = true, features = ["macros", "time"] }
+serial_test = { workspace = true }
 
 [[bin]]
 name = "demo"
