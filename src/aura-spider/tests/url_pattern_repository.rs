@@ -1,5 +1,5 @@
 use aura_spider::classification::url_pattern_repository::{
-    ShopUrlPatternRepository, ShopUrlPatternRepositoryImpl
+    ShopUrlPatternRepository, ShopUrlPatternRepositoryImpl,
 };
 
 use test_api::*;
@@ -32,14 +32,13 @@ async fn should_return_pattern_when_exists_for_find() {
 
     let shop_url = "https://example.com";
     let pattern = r"/product/\d+";
-    
-    repository.save_pattern(shop_url, Some(pattern)).await.unwrap();
 
-    let result = repository
-        .find_pattern(shop_url)
+    repository
+        .save_pattern(shop_url, Some(pattern))
         .await
-        .unwrap()
         .unwrap();
+
+    let result = repository.find_pattern(shop_url).await.unwrap().unwrap();
 
     assert_eq!(result.shop_url, shop_url);
     assert_eq!(result.pattern.unwrap(), pattern);
@@ -56,8 +55,11 @@ async fn should_persist_and_return_pattern_for_insert() {
 
     let shop_url = "https://insert-example.com";
     let pattern = r"/item/\w+";
-    
-    repository.save_pattern(shop_url, Some(pattern)).await.unwrap();
+
+    repository
+        .save_pattern(shop_url, Some(pattern))
+        .await
+        .unwrap();
 
     let returned = repository.find_pattern(shop_url).await.unwrap().unwrap();
 
@@ -72,13 +74,19 @@ async fn should_preserve_created_and_updated_timestamps_for_insert() {
 
     let shop_url = "https://ts-example.com";
     let pattern = "/ts-item";
-    
-    repository.save_pattern(shop_url, Some(pattern)).await.unwrap();
+
+    repository
+        .save_pattern(shop_url, Some(pattern))
+        .await
+        .unwrap();
     let record1 = repository.find_pattern(shop_url).await.unwrap().unwrap();
-    
+
     tokio::time::sleep(std::time::Duration::from_millis(5)).await;
-    
-    repository.save_pattern(shop_url, Some("/ts-item-new")).await.unwrap();
+
+    repository
+        .save_pattern(shop_url, Some("/ts-item-new"))
+        .await
+        .unwrap();
     let record2 = repository.find_pattern(shop_url).await.unwrap().unwrap();
 
     assert!(
@@ -97,9 +105,12 @@ async fn should_allow_clearing_pattern() {
     let repository = ShopUrlPatternRepositoryImpl::new(pool);
 
     let shop_url = "https://clear-example.com";
-    
-    repository.save_pattern(shop_url, Some("/clear-item")).await.unwrap();
-    
+
+    repository
+        .save_pattern(shop_url, Some("/clear-item"))
+        .await
+        .unwrap();
+
     // Explicitly clear pattern
     repository.save_pattern(shop_url, None).await.unwrap();
 

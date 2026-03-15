@@ -416,11 +416,11 @@ mod tests {
 #[cfg(test)]
 mod service_tests {
     use super::*;
-    use crate::crawling::crawl_service::MockCrawler;
-    use crate::classification::url_pattern_service::MockUrlPatternService;
     use crate::classification::link_metadata_repository::MockLinkMetadataRepository;
-    use tokio::sync::mpsc;
     use crate::classification::link_metadata_repository::SpiderLinkRecord;
+    use crate::classification::url_pattern_service::MockUrlPatternService;
+    use crate::crawling::crawl_service::MockCrawler;
+    use tokio::sync::mpsc;
 
     #[tokio::test]
     async fn should_run_spider_and_classify_urls() {
@@ -438,14 +438,20 @@ mod service_tests {
                 // Send some mock pages
                 let tx_clone = tx.clone();
                 tokio::spawn(async move {
-                    tx_clone.send(CrawledPage {
-                        url: "https://example.com/product/1".to_string(),
-                        main_hash: "hash1".to_string(),
-                    }).await.unwrap();
-                    tx_clone.send(CrawledPage {
-                        url: "https://example.com/about".to_string(),
-                        main_hash: "hash2".to_string(),
-                    }).await.unwrap();
+                    tx_clone
+                        .send(CrawledPage {
+                            url: "https://example.com/product/1".to_string(),
+                            main_hash: "hash1".to_string(),
+                        })
+                        .await
+                        .unwrap();
+                    tx_clone
+                        .send(CrawledPage {
+                            url: "https://example.com/about".to_string(),
+                            main_hash: "hash2".to_string(),
+                        })
+                        .await
+                        .unwrap();
                 });
                 Box::pin(async { Ok(rx) })
             });
@@ -456,9 +462,7 @@ mod service_tests {
 
         mock_pattern_service
             .expect_classify_and_save()
-            .returning(|_, _| {
-                Box::pin(async { Ok(Some(Regex::new(r"/product/").unwrap())) })
-            });
+            .returning(|_, _| Box::pin(async { Ok(Some(Regex::new(r"/product/").unwrap())) }));
 
         mock_link_repo
             .expect_upsert_link()

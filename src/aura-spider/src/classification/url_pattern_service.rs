@@ -156,7 +156,9 @@ mod service_tests {
         let mock_client = MockPatternInferenceClient::new();
         let service = UrlPatternServiceImpl::new(Arc::new(mock_repo), Box::new(mock_client));
 
-        let result = service.load_pattern_for_shop_url("https://example.com").await;
+        let result = service
+            .load_pattern_for_shop_url("https://example.com")
+            .await;
         assert!(result.is_ok());
         let pattern = result.unwrap();
         assert!(pattern.is_some());
@@ -166,12 +168,16 @@ mod service_tests {
     #[tokio::test]
     async fn should_return_none_when_repo_has_no_pattern() {
         let mut mock_repo = MockShopUrlPatternRepository::new();
-        mock_repo.expect_find_pattern().returning(|_| Box::pin(async { Ok(None) }));
+        mock_repo
+            .expect_find_pattern()
+            .returning(|_| Box::pin(async { Ok(None) }));
 
         let mock_client = MockPatternInferenceClient::new();
         let service = UrlPatternServiceImpl::new(Arc::new(mock_repo), Box::new(mock_client));
 
-        let result = service.load_pattern_for_shop_url("https://example.com").await;
+        let result = service
+            .load_pattern_for_shop_url("https://example.com")
+            .await;
         assert!(result.is_ok());
         assert!(result.unwrap().is_none());
     }
@@ -179,27 +185,40 @@ mod service_tests {
     #[tokio::test]
     async fn should_save_pattern_to_repo() {
         let mut mock_repo = MockShopUrlPatternRepository::new();
-        mock_repo.expect_save_pattern().returning(|_, _| Box::pin(async { Ok(()) }));
+        mock_repo
+            .expect_save_pattern()
+            .returning(|_, _| Box::pin(async { Ok(()) }));
 
         let mock_client = MockPatternInferenceClient::new();
         let service = UrlPatternServiceImpl::new(Arc::new(mock_repo), Box::new(mock_client));
 
         let regex = Regex::new("/product/").unwrap();
-        let result = service.save_pattern_for_shop_url("https://example.com", &regex).await;
+        let result = service
+            .save_pattern_for_shop_url("https://example.com", &regex)
+            .await;
         assert!(result.is_ok());
     }
 
     #[tokio::test]
     async fn should_classify_and_save_pattern() {
         let mut mock_repo = MockShopUrlPatternRepository::new();
-        mock_repo.expect_save_pattern().returning(|_, _| Box::pin(async { Ok(()) }));
+        mock_repo
+            .expect_save_pattern()
+            .returning(|_, _| Box::pin(async { Ok(()) }));
 
         let mut mock_client = MockPatternInferenceClient::new();
-        mock_client.expect_infer_product_url_pattern().returning(|_| Box::pin(async { Ok(Some("/product/".to_string())) }));
+        mock_client
+            .expect_infer_product_url_pattern()
+            .returning(|_| Box::pin(async { Ok(Some("/product/".to_string())) }));
 
         let service = UrlPatternServiceImpl::new(Arc::new(mock_repo), Box::new(mock_client));
 
-        let result = service.classify_and_save("https://example.com", &["https://example.com/product/1".to_string()]).await;
+        let result = service
+            .classify_and_save(
+                "https://example.com",
+                &["https://example.com/product/1".to_string()],
+            )
+            .await;
         assert!(result.is_ok());
         let pattern = result.unwrap();
         assert!(pattern.is_some());
