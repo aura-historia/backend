@@ -76,13 +76,7 @@ async fn should_respond_200() {
         )),
     };
     let insert_res = product_repository
-        .put_product_event_records(
-            [
-                event_1.clone().try_into().unwrap(),
-                event_2.clone().try_into().unwrap(),
-            ]
-            .into(),
-        )
+        .put_product_event_records([event_1.clone().into(), event_2.clone().into()].into())
         .await
         .unwrap();
     assert!(insert_res.unprocessed_items.unwrap().is_empty());

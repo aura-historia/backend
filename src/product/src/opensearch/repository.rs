@@ -138,296 +138,10 @@ impl<'a> ProductOpenSearchRepository for ProductOpenSearchRepositoryImpl<'a> {
         sort: &Sort<SortProductField>,
         cursor: &Option<Cursor<serde_json::Value>>,
     ) -> Result<SearchResponse<ProductDocument>, opensearch::Error> {
-        let mut must = Vec::with_capacity(3);
-        let mut must_not = Vec::with_capacity(1);
-        let mut filter = Vec::with_capacity(16);
-
-        // ---------- Text search ----------
-        let (title_field, description_field) = match search.language {
-            Language::De => (
-                ProductDocumentSerdeField::TitleDe,
-                ProductDocumentSerdeField::DescriptionDe,
-            ),
-            Language::En => (
-                ProductDocumentSerdeField::TitleEn,
-                ProductDocumentSerdeField::DescriptionEn,
-            ),
-            Language::Fr => (
-                ProductDocumentSerdeField::TitleFr,
-                ProductDocumentSerdeField::DescriptionFr,
-            ),
-            Language::Es => (
-                ProductDocumentSerdeField::TitleEs,
-                ProductDocumentSerdeField::DescriptionEs,
-            ),
-            Language::It => (
-                ProductDocumentSerdeField::TitleIt,
-                ProductDocumentSerdeField::DescriptionIt,
-            ),
-        };
-
-        if let Some(product_query) = search.product_query.as_ref() {
-            must.push(json!({
-                "multi_match": {
-                    "query": product_query,
-                    "fields": [
-                        format!("{title_field}^3"),
-                        format!("{description_field}^1"),
-                    ],
-                    "fuzziness": "AUTO",
-                    "minimum_should_match": "70%"
-                }
-            }));
-        }
-
-        // ---------- Exclusions ----------
-        if !search.exclude_shop_name_query.is_empty() {
-            must_not.push(json!({
-                "terms": {
-                    "shopName": search.exclude_shop_name_query.iter().map(ShopName::as_ref).collect::<Vec<_>>()
-                }
-            }));
-        }
-
-        // ---------- Price ----------
-        let price_field = match search.currency {
-            Currency::Eur => ProductDocumentSerdeField::PriceEur.as_str(),
-            Currency::Gbp => ProductDocumentSerdeField::PriceGbp.as_str(),
-            Currency::Usd => ProductDocumentSerdeField::PriceUsd.as_str(),
-            Currency::Aud => ProductDocumentSerdeField::PriceAud.as_str(),
-            Currency::Cad => ProductDocumentSerdeField::PriceCad.as_str(),
-            Currency::Nzd => ProductDocumentSerdeField::PriceNzd.as_str(),
-        };
-
-        if let Some(min) = search.price_query.and_then(|q| q.min) {
-            filter.push(json!({ "range": { price_field: { "gte": min.deref() } } }));
-        }
-        if let Some(max) = search.price_query.and_then(|q| q.max) {
-            filter.push(json!({ "range": { price_field: { "lte": max.deref() } } }));
-        }
-
-        if !search.category_id.is_empty() {
-            filter.push(json!({
-                "terms": {
-                    ProductDocumentSerdeField::CategoryId.as_str(): search.category_id.iter().collect::<Vec<_>>()
-                }
-            }));
-        }
-
-        if !search.period_id.is_empty() {
-            filter.push(json!({
-                "terms": {
-                    ProductDocumentSerdeField::PeriodId.as_str(): search.period_id.iter().collect::<Vec<_>>()
-                }
-            }));
-        }
-
-        // ---------- Origin year (overlap semantics) ----------
-        if let Some(origin_query) = &search.origin_year_query {
-            let mut should = Vec::new();
-
-            match (origin_query.min, origin_query.max) {
-                (None, None) => {}
-                (Some(qmin), Some(qmax)) if qmin == qmax => {
-                    should.push(json!({
-                        "term": {
-                            ProductDocumentSerdeField::OriginYear.as_str(): qmin
-                        }
-                    }));
-                }
-                (qmin, qmax) => {
-                    let mut must = Vec::new();
-                    if let Some(qmax) = qmax {
-                        must.push(json!({
-                            "range": {
-                                ProductDocumentSerdeField::OriginYearMin.as_str(): {
-                                    "lte": qmax
-                                }
-                            }
-                        }));
-                    }
-                    if let Some(qmin) = qmin {
-                        must.push(json!({
-                            "range": {
-                                ProductDocumentSerdeField::OriginYearMax.as_str(): {
-                                    "gte": qmin
-                                }
-                            }
-                        }));
-                    }
-                    should.push(json!({
-                        "bool": {
-                            "must": must
-                        }
-                    }));
-                }
-            }
-
-            if !should.is_empty() {
-                filter.push(json!({
-                    "bool": {
-                        "should": should,
-                        "minimum_should_match": 1
-                    }
-                }));
-            }
-        }
-
-        // ---------- AnyOf filters ----------
-        apply_any_of_filter(
-            &mut filter,
-            &search.shop_name_query,
-            ProductDocumentSerdeField::ShopName,
-            |v| v.as_ref(),
-        );
-
-        apply_any_of_filter(
-            &mut filter,
-            &search
-                .state_query
-                .iter()
-                .map(|v| ProductStateDocument::from(*v))
-                .collect(),
-            ProductDocumentSerdeField::State,
-            |v| v.as_str(),
-        );
-
-        apply_any_of_filter(
-            &mut filter,
-            &search
-                .authenticity_query
-                .iter()
-                .map(|v| AuthenticityDocument::from(*v))
-                .collect(),
-            ProductDocumentSerdeField::Authenticity,
-            |v| v.as_str(),
-        );
-
-        apply_any_of_filter(
-            &mut filter,
-            &search
-                .condition_query
-                .iter()
-                .map(|v| ConditionDocument::from(*v))
-                .collect(),
-            ProductDocumentSerdeField::Condition,
-            |v| v.as_str(),
-        );
-
-        apply_any_of_filter(
-            &mut filter,
-            &search
-                .provenance_query
-                .iter()
-                .map(|v| ProvenanceDocument::from(*v))
-                .collect(),
-            ProductDocumentSerdeField::Provenance,
-            |v| v.as_str(),
-        );
-
-        apply_any_of_filter(
-            &mut filter,
-            &search
-                .restoration_query
-                .iter()
-                .map(|v| RestorationDocument::from(*v))
-                .collect(),
-            ProductDocumentSerdeField::Restoration,
-            |v| v.as_str(),
-        );
-
-        apply_any_of_filter(
-            &mut filter,
-            &search
-                .shop_type_query
-                .iter()
-                .map(|v| ShopTypeDocument::from(*v))
-                .collect(),
-            ProductDocumentSerdeField::ShopType,
-            |v| v.as_str(),
-        );
-
-        // ---------- Created / Updated / Auction ----------
-        for (query, field) in [
-            (&search.created_query, ProductDocumentSerdeField::Created),
-            (&search.updated_query, ProductDocumentSerdeField::Updated),
-            (
-                &search.auction_start_query,
-                ProductDocumentSerdeField::AuctionStart,
-            ),
-            (
-                &search.auction_end_query,
-                ProductDocumentSerdeField::AuctionEnd,
-            ),
-        ] {
-            if let Some(min) = query.and_then(|q| q.min) {
-                let v = min
-                    .format(&well_known::Rfc3339)
-                    .map_err(serde_json::Error::custom)?;
-                filter.push(json!({ "range": { field.as_str(): { "gte": v } } }));
-            }
-            if let Some(max) = query.and_then(|q| q.max) {
-                let v = max
-                    .format(&well_known::Rfc3339)
-                    .map_err(serde_json::Error::custom)?;
-                filter.push(json!({ "range": { field.as_str(): { "lte": v } } }));
-            }
-        }
-
-        // ---------- Source ----------
-        let mut source_excludes = ProductDocumentSerdeField::description_fields();
-        source_excludes.push(ProductDocumentSerdeField::TextEmbedding);
-
-        // ---------- Primary Body ----------
-        let mut body = json!({
-            "_source": { "excludes": source_excludes },
-            "query": {
-                "bool": {
-                    "must": must,
-                    "must_not": must_not,
-                    "filter": filter
-                }
-            }
-        });
-
-        // ---------- Pagination ----------
-        if let Some(c) = cursor {
-            body["size"] = json!(c.size);
-            if let Some(sa) = &c.search_after {
-                body["search_after"] = json!(sa);
-            }
-        }
-
-        // ---------- Sorting ----------
-        let sort_field = match sort.sort {
-            SortProductField::Score => "_score",
-            SortProductField::Price => price_field,
-            SortProductField::OriginYear => ProductDocumentSerdeField::OriginYear.as_str(),
-            SortProductField::Created => ProductDocumentSerdeField::Created.as_str(),
-            SortProductField::Updated => ProductDocumentSerdeField::Updated.as_str(),
-        };
-
-        let order = match sort.order {
-            SortOrder::Asc => "asc",
-            SortOrder::Desc => "desc",
-        };
-
-        let primary_sort = if matches!(sort.sort, SortProductField::Score) {
-            json!({ sort_field: { "order": order } })
-        } else {
-            json!({ sort_field: { "order": order, "missing": "_last" } })
-        };
-
-        body["sort"] = json!([
-            primary_sort,
-            { ProductDocumentSerdeField::ProductId.as_str(): { "order": "asc" } }
-        ]);
-
-        // ---------- Execute ----------
         let response = self
             .client
             .search(SearchParts::Index(&["products"]))
-            .body(body)
+            .body(build_search_request(search, sort, cursor)?)
             .send()
             .await?
             .error_for_status_code()?;
@@ -494,6 +208,308 @@ impl<'a> ProductOpenSearchRepository for ProductOpenSearchRepositoryImpl<'a> {
             })?;
         Ok(knn_response)
     }
+}
+
+pub fn build_search_request(
+    search: &ProductSearch,
+    sort: &Sort<SortProductField>,
+    cursor: &Option<Cursor<serde_json::Value>>,
+) -> Result<serde_json::Value, serde_json::Error> {
+    let mut source_excludes = ProductDocumentSerdeField::description_fields();
+    source_excludes.push(ProductDocumentSerdeField::TextEmbedding);
+    let mut body = json!({
+        "_source": { "excludes": source_excludes },
+        "query": build_search_query(search)?
+    });
+
+    // ---------- Pagination ----------
+    if let Some(c) = cursor {
+        body["size"] = json!(c.size);
+        if let Some(sa) = &c.search_after {
+            body["search_after"] = json!(sa);
+        }
+    }
+
+    // ---------- Sorting ----------
+    let price_field = match search.currency {
+        Currency::Eur => ProductDocumentSerdeField::PriceEur.as_str(),
+        Currency::Gbp => ProductDocumentSerdeField::PriceGbp.as_str(),
+        Currency::Usd => ProductDocumentSerdeField::PriceUsd.as_str(),
+        Currency::Aud => ProductDocumentSerdeField::PriceAud.as_str(),
+        Currency::Cad => ProductDocumentSerdeField::PriceCad.as_str(),
+        Currency::Nzd => ProductDocumentSerdeField::PriceNzd.as_str(),
+    };
+    let sort_field = match sort.sort {
+        SortProductField::Score => "_score",
+        SortProductField::Price => price_field,
+        SortProductField::OriginYear => ProductDocumentSerdeField::OriginYear.as_str(),
+        SortProductField::Created => ProductDocumentSerdeField::Created.as_str(),
+        SortProductField::Updated => ProductDocumentSerdeField::Updated.as_str(),
+    };
+
+    let order = match sort.order {
+        SortOrder::Asc => "asc",
+        SortOrder::Desc => "desc",
+    };
+
+    let primary_sort = if matches!(sort.sort, SortProductField::Score) {
+        json!({ sort_field: { "order": order } })
+    } else {
+        json!({ sort_field: { "order": order, "missing": "_last" } })
+    };
+
+    body["sort"] = json!([
+        primary_sort,
+        { ProductDocumentSerdeField::ProductId.as_str(): { "order": "asc" } }
+    ]);
+
+    Ok(body)
+}
+
+pub fn build_search_query(search: &ProductSearch) -> Result<serde_json::Value, serde_json::Error> {
+    let mut must = Vec::with_capacity(3);
+    let mut must_not = Vec::with_capacity(1);
+    let mut filter = Vec::with_capacity(16);
+
+    // ---------- Text search ----------
+    let (title_field, description_field) = match search.language {
+        Language::De => (
+            ProductDocumentSerdeField::TitleDe,
+            ProductDocumentSerdeField::DescriptionDe,
+        ),
+        Language::En => (
+            ProductDocumentSerdeField::TitleEn,
+            ProductDocumentSerdeField::DescriptionEn,
+        ),
+        Language::Fr => (
+            ProductDocumentSerdeField::TitleFr,
+            ProductDocumentSerdeField::DescriptionFr,
+        ),
+        Language::Es => (
+            ProductDocumentSerdeField::TitleEs,
+            ProductDocumentSerdeField::DescriptionEs,
+        ),
+        Language::It => (
+            ProductDocumentSerdeField::TitleIt,
+            ProductDocumentSerdeField::DescriptionIt,
+        ),
+    };
+
+    if let Some(product_query) = search.product_query.as_ref() {
+        must.push(json!({
+            "multi_match": {
+                "query": product_query,
+                "fields": [
+                    format!("{title_field}^3"),
+                    format!("{description_field}^1"),
+                ],
+                "fuzziness": "AUTO",
+                "minimum_should_match": "70%"
+            }
+        }));
+    }
+
+    // ---------- Exclusions ----------
+    if !search.exclude_shop_name_query.is_empty() {
+        must_not.push(json!({
+            "terms": {
+                "shopName": search.exclude_shop_name_query.iter().map(ShopName::as_ref).collect::<Vec<_>>()
+            }
+        }));
+    }
+
+    // ---------- Price ----------
+    let price_field = match search.currency {
+        Currency::Eur => ProductDocumentSerdeField::PriceEur.as_str(),
+        Currency::Gbp => ProductDocumentSerdeField::PriceGbp.as_str(),
+        Currency::Usd => ProductDocumentSerdeField::PriceUsd.as_str(),
+        Currency::Aud => ProductDocumentSerdeField::PriceAud.as_str(),
+        Currency::Cad => ProductDocumentSerdeField::PriceCad.as_str(),
+        Currency::Nzd => ProductDocumentSerdeField::PriceNzd.as_str(),
+    };
+
+    if let Some(min) = search.price_query.and_then(|q| q.min) {
+        filter.push(json!({ "range": { price_field: { "gte": min.deref() } } }));
+    }
+    if let Some(max) = search.price_query.and_then(|q| q.max) {
+        filter.push(json!({ "range": { price_field: { "lte": max.deref() } } }));
+    }
+
+    if !search.category_id.is_empty() {
+        filter.push(json!({
+            "terms": {
+                ProductDocumentSerdeField::CategoryId.as_str(): search.category_id.iter().collect::<Vec<_>>()
+            }
+        }));
+    }
+
+    if !search.period_id.is_empty() {
+        filter.push(json!({
+            "terms": {
+                ProductDocumentSerdeField::PeriodId.as_str(): search.period_id.iter().collect::<Vec<_>>()
+            }
+        }));
+    }
+
+    // ---------- Origin year (overlap semantics) ----------
+    if let Some(origin_query) = &search.origin_year_query {
+        let mut should = Vec::new();
+
+        match (origin_query.min, origin_query.max) {
+            (None, None) => {}
+            (Some(qmin), Some(qmax)) if qmin == qmax => {
+                should.push(json!({
+                    "term": {
+                        ProductDocumentSerdeField::OriginYear.as_str(): qmin
+                    }
+                }));
+            }
+            (qmin, qmax) => {
+                let mut must = Vec::new();
+                if let Some(qmax) = qmax {
+                    must.push(json!({
+                        "range": {
+                            ProductDocumentSerdeField::OriginYearMin.as_str(): {
+                                "lte": qmax
+                            }
+                        }
+                    }));
+                }
+                if let Some(qmin) = qmin {
+                    must.push(json!({
+                        "range": {
+                            ProductDocumentSerdeField::OriginYearMax.as_str(): {
+                                "gte": qmin
+                            }
+                        }
+                    }));
+                }
+                should.push(json!({
+                    "bool": {
+                        "must": must
+                    }
+                }));
+            }
+        }
+
+        if !should.is_empty() {
+            filter.push(json!({
+                "bool": {
+                    "should": should,
+                    "minimum_should_match": 1
+                }
+            }));
+        }
+    }
+
+    // ---------- AnyOf filters ----------
+    apply_any_of_filter(
+        &mut filter,
+        &search.shop_name_query,
+        ProductDocumentSerdeField::ShopName,
+        |v| v.as_ref(),
+    );
+
+    apply_any_of_filter(
+        &mut filter,
+        &search
+            .state_query
+            .iter()
+            .map(|v| ProductStateDocument::from(*v))
+            .collect(),
+        ProductDocumentSerdeField::State,
+        |v| v.as_str(),
+    );
+
+    apply_any_of_filter(
+        &mut filter,
+        &search
+            .authenticity_query
+            .iter()
+            .map(|v| AuthenticityDocument::from(*v))
+            .collect(),
+        ProductDocumentSerdeField::Authenticity,
+        |v| v.as_str(),
+    );
+
+    apply_any_of_filter(
+        &mut filter,
+        &search
+            .condition_query
+            .iter()
+            .map(|v| ConditionDocument::from(*v))
+            .collect(),
+        ProductDocumentSerdeField::Condition,
+        |v| v.as_str(),
+    );
+
+    apply_any_of_filter(
+        &mut filter,
+        &search
+            .provenance_query
+            .iter()
+            .map(|v| ProvenanceDocument::from(*v))
+            .collect(),
+        ProductDocumentSerdeField::Provenance,
+        |v| v.as_str(),
+    );
+
+    apply_any_of_filter(
+        &mut filter,
+        &search
+            .restoration_query
+            .iter()
+            .map(|v| RestorationDocument::from(*v))
+            .collect(),
+        ProductDocumentSerdeField::Restoration,
+        |v| v.as_str(),
+    );
+
+    apply_any_of_filter(
+        &mut filter,
+        &search
+            .shop_type_query
+            .iter()
+            .map(|v| ShopTypeDocument::from(*v))
+            .collect(),
+        ProductDocumentSerdeField::ShopType,
+        |v| v.as_str(),
+    );
+
+    // ---------- Created / Updated / Auction ----------
+    for (query, field) in [
+        (&search.created_query, ProductDocumentSerdeField::Created),
+        (&search.updated_query, ProductDocumentSerdeField::Updated),
+        (
+            &search.auction_start_query,
+            ProductDocumentSerdeField::AuctionStart,
+        ),
+        (
+            &search.auction_end_query,
+            ProductDocumentSerdeField::AuctionEnd,
+        ),
+    ] {
+        if let Some(min) = query.and_then(|q| q.min) {
+            let v = min
+                .format(&well_known::Rfc3339)
+                .map_err(serde_json::Error::custom)?;
+            filter.push(json!({ "range": { field.as_str(): { "gte": v } } }));
+        }
+        if let Some(max) = query.and_then(|q| q.max) {
+            let v = max
+                .format(&well_known::Rfc3339)
+                .map_err(serde_json::Error::custom)?;
+            filter.push(json!({ "range": { field.as_str(): { "lte": v } } }));
+        }
+    }
+
+    Ok(json!({
+        "bool": {
+            "must": must,
+            "must_not": must_not,
+            "filter": filter
+        }
+    }))
 }
 
 fn apply_any_of_filter<T: Hash + Eq + EnumCount>(

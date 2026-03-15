@@ -245,37 +245,31 @@ impl<T: FxRate + Sync> UpsertProductsServiceImpl<'_, T> {
         &self,
         create_chunk: Vec<UpsertProductCommand>,
     ) -> Vec<ProductDomainEventRecord> {
-        create_chunk.into_iter().map(|cmd| {
-            Product::create(
-                cmd.shop_id,
-                cmd.shops_product_id,
-                cmd.shop_name,
-                cmd.shop_type,
-                cmd.native_title,
-                cmd.native_description,
-                cmd.native_price,
-                cmd.other_price,
-                cmd.native_price_estimate_min,
-                cmd.other_price_estimate_min,
-                cmd.native_price_estimate_max,
-                cmd.other_price_estimate_max,
-                cmd.state,
-                cmd.url,
-                cmd.images,
-                cmd.auction_start,
-                cmd.auction_end,
-            )
-        })
-        .filter_map(|event| {
-            match ProductDomainEventRecord::try_from(event) {
-                Ok(record_event) => Some(record_event),
-                Err(err) => {
-                    error!(error = %err, "Failed converting ProductEvent to ProductEventRecord. This is a bug. Not retrying");
-                    None
-                }
-            }
-        })
-        .collect()
+        create_chunk
+            .into_iter()
+            .map(|cmd| {
+                Product::create(
+                    cmd.shop_id,
+                    cmd.shops_product_id,
+                    cmd.shop_name,
+                    cmd.shop_type,
+                    cmd.native_title,
+                    cmd.native_description,
+                    cmd.native_price,
+                    cmd.other_price,
+                    cmd.native_price_estimate_min,
+                    cmd.other_price_estimate_min,
+                    cmd.native_price_estimate_max,
+                    cmd.other_price_estimate_max,
+                    cmd.state,
+                    cmd.url,
+                    cmd.images,
+                    cmd.auction_start,
+                    cmd.auction_end,
+                )
+            })
+            .map(ProductDomainEventRecord::from)
+            .collect()
     }
 
     async fn extract_update_events(
@@ -285,16 +279,8 @@ impl<T: FxRate + Sync> UpsertProductsServiceImpl<'_, T> {
     ) -> Vec<ProductDomainEventRecord> {
         determine_update_events(update_chunk, skipped_count, self.fx_rate)
             .into_iter()
-            .filter_map(|event| {
-                match ProductDomainEventRecord::try_from(event) {
-                    Ok(record_event) => Some(record_event),
-                    Err(err) => {
-                        error!(error = %err, "Failed converting ProductEvent to ProductEventRecord. This is a bug. Not retriying.");
-                        None
-                    }
-                }
-            })
-        .collect()
+            .map(ProductDomainEventRecord::from)
+            .collect()
     }
 }
 

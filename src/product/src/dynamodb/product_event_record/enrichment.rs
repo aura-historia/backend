@@ -22,8 +22,7 @@ use common::shops_product_id::ShopsProductId;
 use common::year::Year;
 use serde::{Deserialize, Serialize};
 use serde_fields::SerdeField;
-use time::format_description::well_known::Rfc3339;
-use time::{OffsetDateTime, error};
+use time::OffsetDateTime;
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, SerdeField)]
 pub struct ProductEnrichmentEventRecord {
@@ -91,22 +90,17 @@ pub fn mk_pk(shop_id: &ShopId, shops_product_id: &ShopsProductId) -> String {
     format!("product#shop_id#{shop_id}#shops_product_id#{shops_product_id}")
 }
 
-pub fn mk_sk(timestamp: &OffsetDateTime) -> Result<String, error::Format> {
-    Ok(format!(
-        "product#event#enrichment#{}",
-        timestamp.format(&Rfc3339)?
-    ))
+pub fn mk_sk(event_id: &EventId) -> String {
+    format!("product#event#enrichment#{event_id}")
 }
 
-impl TryFrom<ProductEnrichmentEvent> for ProductEnrichmentEventRecord {
-    type Error = error::Format;
-
-    fn try_from(event: ProductEnrichmentEvent) -> Result<Self, Self::Error> {
-        let record = match event.payload {
+impl From<ProductEnrichmentEvent> for ProductEnrichmentEventRecord {
+    fn from(event: ProductEnrichmentEvent) -> Self {
+        match event.payload {
             ProductEnrichmentEventPayload::TranslatedTitle(payload) => {
                 ProductEnrichmentEventRecord {
                     pk: mk_pk(&payload.shop_id, &payload.shops_product_id),
-                    sk: mk_sk(&event.timestamp)?,
+                    sk: mk_sk(&event.event_id),
                     product_id: event.aggregate_id,
                     event_id: event.event_id,
                     event_type: ProductEnrichmentEventTypeRecord::EnrichmentTranslatedTitle,
@@ -132,7 +126,7 @@ impl TryFrom<ProductEnrichmentEvent> for ProductEnrichmentEventRecord {
             ProductEnrichmentEventPayload::TranslatedDescription(payload) => {
                 ProductEnrichmentEventRecord {
                     pk: mk_pk(&payload.shop_id, &payload.shops_product_id),
-                    sk: mk_sk(&event.timestamp)?,
+                    sk: mk_sk(&event.event_id),
                     product_id: event.aggregate_id,
                     event_id: event.event_id,
                     event_type: ProductEnrichmentEventTypeRecord::EnrichmentTranslatedDescription,
@@ -157,7 +151,7 @@ impl TryFrom<ProductEnrichmentEvent> for ProductEnrichmentEventRecord {
             }
             ProductEnrichmentEventPayload::EmbeddedText(payload) => ProductEnrichmentEventRecord {
                 pk: mk_pk(&payload.shop_id, &payload.shops_product_id),
-                sk: mk_sk(&event.timestamp)?,
+                sk: mk_sk(&event.event_id),
                 product_id: event.aggregate_id,
                 event_id: event.event_id,
                 event_type: ProductEnrichmentEventTypeRecord::EnrichmentEmbeddedText,
@@ -182,7 +176,7 @@ impl TryFrom<ProductEnrichmentEvent> for ProductEnrichmentEventRecord {
             ProductEnrichmentEventPayload::ExtractedAttributes(payload) => {
                 ProductEnrichmentEventRecord {
                     pk: mk_pk(&payload.shop_id, &payload.shops_product_id),
-                    sk: mk_sk(&event.timestamp)?,
+                    sk: mk_sk(&event.event_id),
                     product_id: event.aggregate_id,
                     event_id: event.event_id,
                     event_type: ProductEnrichmentEventTypeRecord::EnrichmentExtractedAttributes,
@@ -208,7 +202,7 @@ impl TryFrom<ProductEnrichmentEvent> for ProductEnrichmentEventRecord {
             ProductEnrichmentEventPayload::ClassifiedCategory(payload) => {
                 ProductEnrichmentEventRecord {
                     pk: mk_pk(&payload.shop_id, &payload.shops_product_id),
-                    sk: mk_sk(&event.timestamp)?,
+                    sk: mk_sk(&event.event_id),
                     product_id: event.aggregate_id,
                     event_id: event.event_id,
                     event_type: ProductEnrichmentEventTypeRecord::EnrichmentClassifyCategory,
@@ -234,7 +228,7 @@ impl TryFrom<ProductEnrichmentEvent> for ProductEnrichmentEventRecord {
             ProductEnrichmentEventPayload::ClassifiedPeriod(payload) => {
                 ProductEnrichmentEventRecord {
                     pk: mk_pk(&payload.shop_id, &payload.shops_product_id),
-                    sk: mk_sk(&event.timestamp)?,
+                    sk: mk_sk(&event.event_id),
                     product_id: event.aggregate_id,
                     event_id: event.event_id,
                     event_type: ProductEnrichmentEventTypeRecord::EnrichmentClassifyPeriod,
@@ -257,9 +251,7 @@ impl TryFrom<ProductEnrichmentEvent> for ProductEnrichmentEventRecord {
                     timestamp: event.timestamp,
                 }
             }
-        };
-
-        Ok(record)
+        }
     }
 }
 
@@ -419,8 +411,7 @@ mod faker {
         fn dummy_with_rng<R: Rng + ?Sized>(config: &Faker, rng: &mut R) -> Self {
             config
                 .fake_with_rng::<ProductEnrichmentEvent, _>(rng)
-                .try_into()
-                .unwrap()
+                .into()
         }
     }
 

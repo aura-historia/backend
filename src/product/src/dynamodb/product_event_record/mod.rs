@@ -66,10 +66,8 @@ impl From<ProductPolicyEventRecord> for ProductEventRecord {
     }
 }
 
-impl TryFrom<ProductEvent> for ProductEventRecord {
-    type Error = time::error::Format;
-
-    fn try_from(event: ProductEvent) -> Result<Self, Self::Error> {
+impl From<ProductEvent> for ProductEventRecord {
+    fn from(event: ProductEvent) -> Self {
         match event.payload {
             ProductEventPayload::ProductDomainEvent(payload) => {
                 let helper = Event {
@@ -78,8 +76,8 @@ impl TryFrom<ProductEvent> for ProductEventRecord {
                     timestamp: event.timestamp,
                     payload,
                 };
-                let helper_record = helper.try_into()?;
-                Ok(ProductEventRecord::Domain(helper_record))
+                let helper_record = helper.into();
+                ProductEventRecord::Domain(helper_record)
             }
             ProductEventPayload::ProductEnrichmentEvent(payload) => {
                 let helper = Event {
@@ -88,8 +86,8 @@ impl TryFrom<ProductEvent> for ProductEventRecord {
                     timestamp: event.timestamp,
                     payload,
                 };
-                let helper_record = helper.try_into()?;
-                Ok(ProductEventRecord::Enrichment(helper_record))
+                let helper_record = helper.into();
+                ProductEventRecord::Enrichment(helper_record)
             }
             ProductEventPayload::ProductPolicyEvent(payload) => {
                 let helper = Event {
@@ -98,8 +96,8 @@ impl TryFrom<ProductEvent> for ProductEventRecord {
                     timestamp: event.timestamp,
                     payload,
                 };
-                let helper_record = helper.try_into()?;
-                Ok(ProductEventRecord::Policy(helper_record))
+                let helper_record = helper.into();
+                ProductEventRecord::Policy(helper_record)
             }
         }
     }
@@ -126,5 +124,23 @@ mod tests {
 
         assert!(actual["pk"].as_str().unwrap().starts_with("product#"));
         assert!(actual["sk"].as_str().unwrap().starts_with("product#event#"));
+    }
+
+    #[rstest::rstest]
+    #[case(Faker.fake::<ProductDomainEventRecord>())]
+    #[case(Faker.fake::<ProductEnrichmentEventRecord>())]
+    #[case(Faker.fake::<ProductPolicyEventRecord>())]
+    fn should_include_event_id_in_sort_key_when_converting_to_product_event_record(
+        #[case] event_record: impl Into<ProductEventRecord>,
+    ) {
+        let product_event_record = event_record.into();
+
+        let (sk, event_id) = match &product_event_record {
+            ProductEventRecord::Domain(record) => (&record.sk, record.event_id),
+            ProductEventRecord::Enrichment(record) => (&record.sk, record.event_id),
+            ProductEventRecord::Policy(record) => (&record.sk, record.event_id),
+        };
+
+        assert!(sk.ends_with(&event_id.to_string()));
     }
 }

@@ -142,8 +142,7 @@ mod query_product_record_and_event_records {
             timestamp: OffsetDateTime::now_utc(),
             payload: ProductDomainEventPayload::Created(Faker.fake()),
         }
-        .try_into()
-        .unwrap();
+        .into();
         let repository = get_repository().await;
         let insert_res = repository
             .put_product_event_records([event.clone().into()].into())
@@ -223,8 +222,7 @@ mod query_product_record_and_event_records {
                 auction_end: expected_materialized.auction_end,
             }),
         }
-        .try_into()
-        .unwrap();
+        .into();
         let updated_event: ProductDomainEventRecord = ProductDomainEvent {
             aggregate_id: Default::default(),
             event_id: Default::default(),
@@ -237,8 +235,7 @@ mod query_product_record_and_event_records {
                 },
             ),
         }
-        .try_into()
-        .unwrap();
+        .into();
         let insert_res = repository
             .put_product_event_records(
                 [created_event.clone().into(), updated_event.clone().into()].into(),
@@ -301,8 +298,7 @@ mod query_product_record_and_event_records {
                 auction_end: expected_materialized.auction_end,
             }),
         }
-        .try_into()
-        .unwrap();
+        .into();
         let updated_event: ProductDomainEventRecord = ProductDomainEvent {
             aggregate_id: Default::default(),
             event_id: Default::default(),
@@ -315,8 +311,7 @@ mod query_product_record_and_event_records {
                 },
             ),
         }
-        .try_into()
-        .unwrap();
+        .into();
         let insert_res = repository
             .put_product_event_records(
                 [created_event.clone().into(), updated_event.clone().into()].into(),
@@ -1441,8 +1436,7 @@ mod query_product_event_records {
                 auction_end: expected_materialized.auction_end,
             }),
         }
-        .try_into()
-        .unwrap();
+        .into();
         let updated_event: ProductDomainEventRecord = ProductDomainEvent {
             aggregate_id: Default::default(),
             event_id: Default::default(),
@@ -1455,8 +1449,7 @@ mod query_product_event_records {
                 },
             ),
         }
-        .try_into()
-        .unwrap();
+        .into();
         let insert_res = repository
             .put_product_event_records(
                 [created_event.clone().into(), updated_event.clone().into()].into(),

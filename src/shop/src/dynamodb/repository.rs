@@ -234,7 +234,8 @@ impl<'a> ShopDynamoDbRepository for ShopDynamoDbRepositoryImpl<'a> {
         &self,
         shop_slug_id: &SlugId<0>,
     ) -> Result<Option<ShopId>, SdkError<QueryError, HttpResponse>> {
-        self.client
+        let maybe_item = self
+            .client
             .query()
             .table_name(&self.table)
             .index_name("gsi2")
@@ -255,19 +256,27 @@ impl<'a> ShopDynamoDbRepository for ShopDynamoDbRepositoryImpl<'a> {
             .items
             .unwrap_or_default()
             .into_iter()
-            .next()
-            .map(|mut attr_map| {
-                attr_map
-                    .remove("pk")
-                    .ok_or(SdkError::construction_failure(format!(
-                    "DynamoDB Response attribute-map did not contain field 'pk' when querying gsi2 for shop_slug_id '{shop_slug_id}'"
-                )))
-            })
-            .transpose()?
-            .map(|v| v.as_s().expect("shouldn't fail extracting 'pk' as String because PKs are always Strings for us").clone())
-            .map(|s| s.trim_start_matches("shop#shop_id#").to_owned())
-            .map(ShopId::try_from)
-            .transpose()
+            .next();
+
+        let Some(mut attr_map) = maybe_item else {
+            return Ok(None);
+        };
+
+        let pk_attr = attr_map
+            .remove("pk")
+            .ok_or_else(|| SdkError::construction_failure(format!(
+                "DynamoDB Response attribute-map did not contain field 'pk' when querying gsi2 for shop_slug_id '{shop_slug_id}'"
+            )))?;
+
+        let pk_str = pk_attr
+            .as_s()
+            .expect(
+                "shouldn't fail extracting 'pk' as String because PKs are always Strings for us",
+            )
+            .clone();
+
+        ShopId::try_from(pk_str.trim_start_matches("shop#shop_id#").to_owned())
+            .map(Some)
             .map_err(SdkError::construction_failure)
     }
 

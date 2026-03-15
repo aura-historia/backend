@@ -101,13 +101,7 @@ async fn should_respond_200_without_history_when_anon() {
         )),
     };
     let insert_res = product_repository
-        .put_product_event_records(
-            [
-                event_1.clone().try_into().unwrap(),
-                event_2.clone().try_into().unwrap(),
-            ]
-            .into(),
-        )
+        .put_product_event_records([event_1.clone().into(), event_2.clone().into()].into())
         .await
         .unwrap();
     assert!(insert_res.unprocessed_items.unwrap().is_empty());
@@ -205,13 +199,7 @@ async fn should_respond_200_personalized_when_authenticated_and_not_watched() {
         )),
     };
     let insert_res = product_repository
-        .put_product_event_records(
-            [
-                event_1.clone().try_into().unwrap(),
-                event_2.clone().try_into().unwrap(),
-            ]
-            .into(),
-        )
+        .put_product_event_records([event_1.clone().into(), event_2.clone().into()].into())
         .await
         .unwrap();
     assert!(insert_res.unprocessed_items.unwrap().is_empty());
@@ -259,7 +247,6 @@ async fn should_respond_200_personalized_when_authenticated_and_watched() {
     let watchlist_repository = WatchlistProductDynamoDbRepositoryImpl::new(ddb_client, "table_1");
     let watchlist_service = ProductWatchListServiceImpl::new(
         &watchlist_repository,
-        &user_repository,
         &product_repository,
         &get_product_service,
     );
@@ -343,13 +330,7 @@ async fn should_respond_200_personalized_when_authenticated_and_watched() {
         )),
     };
     let insert_res = product_repository
-        .put_product_event_records(
-            [
-                event_1.clone().try_into().unwrap(),
-                event_2.clone().try_into().unwrap(),
-            ]
-            .into(),
-        )
+        .put_product_event_records([event_1.clone().into(), event_2.clone().into()].into())
         .await
         .unwrap();
     assert!(insert_res.unprocessed_items.unwrap().is_empty());

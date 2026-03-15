@@ -28,7 +28,6 @@ use product_watchlist::{
 };
 use staging_tests::{create_random_test_user, get_dynamodb_client, staging_test};
 use std::time::{Duration, SystemTime};
-use user::dynamodb::repository::UserDynamoDbRepositoryImpl;
 
 #[staging_test]
 async fn should_respond_200_when_anon_and_product_does_exist_for_ids() {
@@ -118,12 +117,9 @@ async fn should_respond_200_personalized_when_authenticated_and_product_does_exi
         ddb_client,
         &get_cfn_output().dynamodb_table_1_name,
     );
-    let user_repository =
-        UserDynamoDbRepositoryImpl::new(ddb_client, &get_cfn_output().dynamodb_table_1_name);
     let get_product_service = GetProductServiceImpl::new(&product_repository);
     let watchlist_service = ProductWatchListServiceImpl::new(
         &watchlist_repository,
-        &user_repository,
         &product_repository,
         &get_product_service,
     );
@@ -250,13 +246,7 @@ async fn should_respond_200_for_history() {
         )),
     };
     let insert_res = product_repository
-        .put_product_event_records(
-            [
-                event_1.clone().try_into().unwrap(),
-                event_2.clone().try_into().unwrap(),
-            ]
-            .into(),
-        )
+        .put_product_event_records([event_1.clone().into(), event_2.clone().into()].into())
         .await
         .unwrap();
     assert!(insert_res.unprocessed_items.unwrap().is_empty());

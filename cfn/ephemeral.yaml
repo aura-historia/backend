@@ -161,6 +161,14 @@ Resources:
           AttributeType: S
         - AttributeName: lsi1_sk
           AttributeType: S
+        - AttributeName: lsi2_sk
+          AttributeType: S
+        - AttributeName: lsi3_sk
+          AttributeType: S
+        - AttributeName: lsi4_sk
+          AttributeType: S
+        - AttributeName: lsi5_sk
+          AttributeType: S
         - AttributeName: gsi1_pk
           AttributeType: S
         - AttributeName: gsi1_sk
@@ -183,6 +191,38 @@ Resources:
               KeyType: RANGE
           Projection:
             ProjectionType: ALL
+        - IndexName: lsi2
+          KeySchema:
+            - AttributeName: pk
+              KeyType: HASH
+            - AttributeName: lsi2_sk
+              KeyType: RANGE
+          Projection:
+            ProjectionType: ALL
+        - IndexName: lsi3
+          KeySchema:
+            - AttributeName: pk
+              KeyType: HASH
+            - AttributeName: lsi3_sk
+              KeyType: RANGE
+          Projection:
+            ProjectionType: ALL
+        - IndexName: lsi4
+          KeySchema:
+            - AttributeName: pk
+              KeyType: HASH
+            - AttributeName: lsi4_sk
+              KeyType: RANGE
+          Projection:
+            ProjectionType: KEYS_ONLY
+        - IndexName: lsi5
+          KeySchema:
+            - AttributeName: pk
+              KeyType: HASH
+            - AttributeName: lsi5_sk
+              KeyType: RANGE
+          Projection:
+            ProjectionType: KEYS_ONLY
       GlobalSecondaryIndexes:
         - IndexName: gsi1
           KeySchema:
@@ -200,6 +240,9 @@ Resources:
               KeyType: RANGE
           Projection:
             ProjectionType: KEYS_ONLY
+      TimeToLiveSpecification:
+        AttributeName: "ttl"
+        Enabled: true
       BillingMode: PAY_PER_REQUEST
       TableClass: STANDARD
       StreamSpecification:
@@ -313,6 +356,49 @@ Resources:
                     }
                   }
                 }
+            - Pattern: |
+                {
+                  "eventName": ["INSERT"],
+                  "dynamodb": {
+                    "NewImage": {
+                      "pk": {
+                        "S": [{ "prefix": "user#" }]
+                      },
+                      "sk": {
+                        "S": [{ "prefix": "user#notification#origin_event_id#" }]
+                      }
+                    }
+                  }
+                }
+            # FILTER 5: Search filter INSERT/MODIFY/REMOVE events
+            - Pattern: |
+                {
+                  "eventName": ["INSERT", "MODIFY", "REMOVE"],
+                  "dynamodb": {
+                    "$or": [
+                      {
+                        "NewImage": {
+                          "pk": {
+                            "S": [{ "prefix": "user#" }]
+                          },
+                          "sk": {
+                            "S": [{ "prefix": "search_filter#" }]
+                          }
+                        }
+                      },
+                      {
+                        "Keys": {
+                          "pk": {
+                            "S": [{ "prefix": "user#" }]
+                          },
+                          "sk": {
+                            "S": [{ "prefix": "search_filter#" }]
+                          }
+                        }
+                      }
+                    ]
+                  }
+                }
       Target: !GetAtt DynamoDbEventBus.Arn
       TargetParameters:
         EventBridgeEventBusParameters:
@@ -326,13 +412,14 @@ Resources:
         - !Ref ProductMaterializeDynamoDbQ
         - !Ref ProductMaterializeOpenSearchQ
         - !Ref ShopOpenSearchIndexQ
+        - !Ref SearchFilterOpenSearchSyncQ
         - !Ref ProductUpdateNotifyUserQ
-        - !Ref UserLambdaFanoutUpdateWatchlistQ
         - !Ref ProductPipelineTranslateQ
         - !Ref ProductPipelineEmbedTextQ
         - !Ref ProductPipelineExtractAttributeQ
         - !Ref ProductPipelineClassifyCategoryQ
         - !Ref ProductPipelineClassifyPeriodQ
+        - !Ref NotificationSendQ
       PolicyDocument:
         Version: "2012-10-17"
         Statement:
@@ -344,13 +431,14 @@ Resources:
               - !GetAtt ProductMaterializeDynamoDbQ.Arn
               - !GetAtt ProductMaterializeOpenSearchQ.Arn
               - !GetAtt ShopOpenSearchIndexQ.Arn
+              - !GetAtt SearchFilterOpenSearchSyncQ.Arn
               - !GetAtt ProductUpdateNotifyUserQ.Arn
-              - !GetAtt UserLambdaFanoutUpdateWatchlistQ.Arn
               - !GetAtt ProductPipelineTranslateQ.Arn
               - !GetAtt ProductPipelineEmbedTextQ.Arn
               - !GetAtt ProductPipelineExtractAttributeQ.Arn
               - !GetAtt ProductPipelineClassifyCategoryQ.Arn
               - !GetAtt ProductPipelineClassifyPeriodQ.Arn
+              - !GetAtt NotificationSendQ.Arn
 
   Api:
     Type: AWS::ApiGatewayV2::Api
@@ -603,6 +691,107 @@ Resources:
     Properties:
       Action: lambda:InvokeFunction
       FunctionName: !Ref ProductWatchlistApiLambda
+      Principal: apigateway.amazonaws.com
+      SourceArn: !Sub "arn:aws:execute-api:${AWS::Region}:${AWS::AccountId}:${Api}/*/*/api/v1*"
+
+  NotificationApiGetRoute:
+    Type: AWS::ApiGatewayV2::Route
+    Properties:
+      ApiId: !Ref Api
+      RouteKey: "GET /api/v1/me/notifications"
+      AuthorizationType: JWT
+      AuthorizerId: !Ref ApiCognitoAuthorizer
+      Target: !Sub "integrations/${NotificationApiLambdaIntegration}"
+  NotificationApiPatchAllRoute:
+    Type: AWS::ApiGatewayV2::Route
+    Properties:
+      ApiId: !Ref Api
+      RouteKey: "PATCH /api/v1/me/notifications"
+      AuthorizationType: JWT
+      AuthorizerId: !Ref ApiCognitoAuthorizer
+      Target: !Sub "integrations/${NotificationApiLambdaIntegration}"
+  NotificationApiPatchOneRoute:
+    Type: AWS::ApiGatewayV2::Route
+    Properties:
+      ApiId: !Ref Api
+      RouteKey: "PATCH /api/v1/me/notifications/{eventId}"
+      AuthorizationType: JWT
+      AuthorizerId: !Ref ApiCognitoAuthorizer
+      Target: !Sub "integrations/${NotificationApiLambdaIntegration}"
+  NotificationApiDeleteAllRoute:
+    Type: AWS::ApiGatewayV2::Route
+    Properties:
+      ApiId: !Ref Api
+      RouteKey: "DELETE /api/v1/me/notifications"
+      AuthorizationType: JWT
+      AuthorizerId: !Ref ApiCognitoAuthorizer
+      Target: !Sub "integrations/${NotificationApiLambdaIntegration}"
+  NotificationApiDeleteOneRoute:
+    Type: AWS::ApiGatewayV2::Route
+    Properties:
+      ApiId: !Ref Api
+      RouteKey: "DELETE /api/v1/me/notifications/{eventId}"
+      AuthorizationType: JWT
+      AuthorizerId: !Ref ApiCognitoAuthorizer
+      Target: !Sub "integrations/${NotificationApiLambdaIntegration}"
+  NotificationApiLambdaIntegration:
+    Type: AWS::ApiGatewayV2::Integration
+    Properties:
+      ApiId: !Ref Api
+      IntegrationType: AWS_PROXY
+      IntegrationUri: !Sub "arn:aws:lambda:${AWS::Region}:${AWS::AccountId}:function:${NotificationApiLambda}"
+      PayloadFormatVersion: "2.0"
+  NotificationApiRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Sub "notification-api-role-${StageName}"
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: lambda.amazonaws.com
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole
+      Policies:
+        - PolicyName: DynamoDBAccess
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: Allow
+                Action:
+                  - dynamodb:GetItem
+                  - dynamodb:UpdateItem
+                  - dynamodb:DeleteItem
+                  - dynamodb:BatchWriteItem
+                  - dynamodb:Query
+                Resource:
+                  - !GetAtt TableOne.Arn
+                  - !Sub "${TableOne.Arn}/index/*"
+  NotificationApiLambda:
+    Type: AWS::Lambda::Function
+    Properties:
+      FunctionName: !Sub "notification-api-${StageName}"
+      Runtime: provided.al2023
+      Handler: lib.handler
+      Role: !GetAtt NotificationApiRole.Arn
+      Code:
+        S3Bucket: !Ref ArtifactBucket
+        S3Key: !Sub "notification-api-${StageName}-${CommitSHA}.zip"
+      MemorySize: 256
+      Timeout: 10
+      EphemeralStorage:
+        Size: 512
+      Environment:
+        Variables:
+          STAGE: !Ref Stage
+          DYNAMODB_TABLE_NAME: !Ref TableOne
+  NotificationApiLambdaPermission:
+    Type: AWS::Lambda::Permission
+    Properties:
+      Action: lambda:InvokeFunction
+      FunctionName: !Ref NotificationApiLambda
       Principal: apigateway.amazonaws.com
       SourceArn: !Sub "arn:aws:execute-api:${AWS::Region}:${AWS::AccountId}:${Api}/*/*/api/v1*"
 
@@ -1014,23 +1203,23 @@ Resources:
       Principal: apigateway.amazonaws.com
       SourceArn: !Sub "arn:aws:execute-api:${AWS::Region}:${AWS::AccountId}:${Api}/*/*/api/v1*"
 
-  SendMailDlq:
+  NotificationSendDlq:
     Type: AWS::SQS::Queue
     Properties:
-      QueueName: !Sub "mail-lambda-send-${StageName}"
+      QueueName: !Sub "notification-send-dlq-${StageName}"
       MessageRetentionPeriod: 1209600
-  SendMailQ:
+  NotificationSendQ:
     Type: AWS::SQS::Queue
     Properties:
-      QueueName: !Sub "mail-lambda-send-queue-${StageName}"
+      QueueName: !Sub "notification-send-queue-${StageName}"
       RedrivePolicy:
-        deadLetterTargetArn: !GetAtt SendMailDlq.Arn
+        deadLetterTargetArn: !GetAtt NotificationSendDlq.Arn
         maxReceiveCount: 5
       VisibilityTimeout: 180
-  SendMailRole:
+  NotificationSendRole:
     Type: AWS::IAM::Role
     Properties:
-      RoleName: !Sub "mail-lambda-send-role-${StageName}"
+      RoleName: !Sub "notification-send-role-${StageName}"
       AssumeRolePolicyDocument:
         Version: "2012-10-17"
         Statement:
@@ -1048,11 +1237,7 @@ Resources:
               - Effect: Allow
                 Action:
                   - dynamodb:GetItem
-                  - dynamodb:PutItem
-                  - dynamodb:BatchGetItem
-                  - dynamodb:BatchWriteItem
-                  - dynamodb:TransactGetItems
-                  - dynamodb:TransactWriteItems
+                  - dynamodb:UpdateItem
                 Resource:
                   - !GetAtt TableOne.Arn
         - PolicyName: SQSPollerAccess
@@ -1065,8 +1250,8 @@ Resources:
                   - sqs:DeleteMessage
                   - sqs:GetQueueAttributes
                   - sqs:GetQueueUrl
-                Resource: !GetAtt SendMailQ.Arn
-        - PolicyName: SESSendMailAccess
+                Resource: !GetAtt NotificationSendQ.Arn
+        - PolicyName: SESSendAccess
           PolicyDocument:
             Version: "2012-10-17"
             Statement:
@@ -1075,7 +1260,7 @@ Resources:
                   - ses:SendEmail
                   - ses:SendRawEmail
                 Resource: "*"
-        - PolicyName: S3Access
+        - PolicyName: S3TemplateAccess
           PolicyDocument:
             Version: "2012-10-17"
             Statement:
@@ -1083,16 +1268,16 @@ Resources:
                 Action:
                   - s3:GetObject
                 Resource: !Sub "arn:aws:s3:::${MailTemplateBucket}/*"
-  SendMailLambda:
+  NotificationSendLambda:
     Type: AWS::Lambda::Function
     Properties:
-      FunctionName: !Sub "mail-lambda-send-${StageName}"
+      FunctionName: !Sub "notification-send-${StageName}"
       Runtime: provided.al2023
       Handler: lib.handler
-      Role: !GetAtt SendMailRole.Arn
+      Role: !GetAtt NotificationSendRole.Arn
       Code:
         S3Bucket: !Ref ArtifactBucket
-        S3Key: !Sub "mail-lambda-send-${StageName}-${CommitSHA}.zip"
+        S3Key: !Sub "notification-send-${StageName}-${CommitSHA}.zip"
       MemorySize: 512
       Timeout: 60
       EphemeralStorage:
@@ -1103,11 +1288,12 @@ Resources:
           S3_BUCKET_NAME_TEMPLATES: !Ref MailTemplateBucket
           STAGE_NAME: !Sub "${StageName}"
           COMMIT_SHA: !Sub "${CommitSHA}"
-  SendMailMapping:
+          SENDER_MAIL: "no-reply@aura-historia.com"
+  NotificationSendMapping:
     Type: AWS::Lambda::EventSourceMapping
     Properties:
-      FunctionName: !Ref SendMailLambda
-      EventSourceArn: !GetAtt SendMailQ.Arn
+      FunctionName: !Ref NotificationSendLambda
+      EventSourceArn: !GetAtt NotificationSendQ.Arn
       Enabled: true
       BatchSize: 25
       MaximumBatchingWindowInSeconds: 1
@@ -1345,6 +1531,79 @@ Resources:
       BatchSize: 1
       MaximumBatchingWindowInSeconds: 0
 
+  SearchFilterOpenSearchSyncDlq:
+    Type: AWS::SQS::Queue
+    Properties:
+      QueueName: !Sub "search-filter-opensearch-sync-dlq-${StageName}"
+      MessageRetentionPeriod: 1209600
+  SearchFilterOpenSearchSyncQ:
+    Type: AWS::SQS::Queue
+    Properties:
+      QueueName: !Sub "search-filter-opensearch-sync-queue-${StageName}"
+      RedrivePolicy:
+        deadLetterTargetArn: !GetAtt SearchFilterOpenSearchSyncDlq.Arn
+        maxReceiveCount: 5
+      VisibilityTimeout: 360
+  SearchFilterOpenSearchSyncRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Sub "search-filter-opensearch-sync-role-${StageName}"
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: lambda.amazonaws.com
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole
+      Policies:
+        - PolicyName: OpenSearchAccess
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: Allow
+                Action:
+                  - es:*
+                Resource: !Sub "arn:aws:es:${AWS::Region}:${AWS::AccountId}:domain/application-${StageName}/*"
+        - PolicyName: SQSPollerAccess
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: Allow
+                Action:
+                  - sqs:ReceiveMessage
+                  - sqs:DeleteMessage
+                  - sqs:GetQueueAttributes
+                  - sqs:GetQueueUrl
+                Resource: !GetAtt SearchFilterOpenSearchSyncQ.Arn
+  SearchFilterOpenSearchSyncLambda:
+    Type: AWS::Lambda::Function
+    Properties:
+      FunctionName: !Sub "search-filter-opensearch-sync-${StageName}"
+      Runtime: provided.al2023
+      Handler: lib.handler
+      Role: !GetAtt SearchFilterOpenSearchSyncRole.Arn
+      Code:
+        S3Bucket: !Ref ArtifactBucket
+        S3Key: !Sub "search-filter-lambda-opensearch-sync-${StageName}-${CommitSHA}.zip"
+      MemorySize: 256
+      Timeout: 30
+      EphemeralStorage:
+        Size: 512
+      Environment:
+        Variables:
+          OPENSEARCH_ENDPOINT_URL: !Sub "https://${OpenSearchDomain.DomainEndpoint}"
+          STAGE: "ephemeral"
+  SearchFilterOpenSearchSyncMapping:
+    Type: AWS::Lambda::EventSourceMapping
+    Properties:
+      FunctionName: !Ref SearchFilterOpenSearchSyncLambda
+      EventSourceArn: !GetAtt SearchFilterOpenSearchSyncQ.Arn
+      Enabled: true
+      BatchSize: 1
+      MaximumBatchingWindowInSeconds: 0
+
   ProductUpdateNotifyUserDlq:
     Type: AWS::SQS::Queue
     Properties:
@@ -1380,6 +1639,8 @@ Resources:
                 Action:
                   - dynamodb:GetItem
                   - dynamodb:Query
+                  - dynamodb:PutItem
+                  - dynamodb:BatchWriteItem
                 Resource:
                   - !GetAtt TableOne.Arn
                   - !Sub "${TableOne.Arn}/index/*"
@@ -1394,14 +1655,23 @@ Resources:
                   - sqs:GetQueueAttributes
                   - sqs:GetQueueUrl
                 Resource: !GetAtt ProductUpdateNotifyUserQ.Arn
-        - PolicyName: SQSSendMessage
+        - PolicyName: SESAccess
           PolicyDocument:
             Version: "2012-10-17"
             Statement:
               - Effect: Allow
                 Action:
-                  - sqs:SendMessage
-                Resource: !GetAtt SendMailQ.Arn
+                  - ses:SendEmail
+                  - ses:SendRawEmail
+                Resource: !Sub "arn:aws:ses:${AWS::Region}:${AWS::AccountId}:identity/*"
+        - PolicyName: S3MailTemplateAccess
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: Allow
+                Action:
+                  - s3:GetObject
+                Resource: !Sub "arn:aws:s3:::${MailTemplateBucket}/*"
   ProductUpdateNotifyUserLambda:
     Type: AWS::Lambda::Function
     Properties:
@@ -1419,97 +1689,15 @@ Resources:
       Environment:
         Variables:
           DYNAMODB_TABLE_NAME: !Ref TableOne
-          MAIL_QUEUE_URL: !Ref SendMailQ
           SENDER_MAIL: "no-reply@aura-historia.com"
+          S3_BUCKET_NAME_TEMPLATES: !Ref MailTemplateBucket
+          STAGE_NAME: !Sub "${StageName}"
+          COMMIT_SHA: !Sub "${CommitSHA}"
   ProductUpdateNotifyUserMapping:
     Type: AWS::Lambda::EventSourceMapping
     Properties:
       FunctionName: !Ref ProductUpdateNotifyUserLambda
       EventSourceArn: !GetAtt ProductUpdateNotifyUserQ.Arn
-      Enabled: true
-      BatchSize: 10
-      MaximumBatchingWindowInSeconds: 1
-      FunctionResponseTypes:
-        - ReportBatchItemFailures
-
-  UserLambdaFanoutUpdateWatchlistDlq:
-    Type: AWS::SQS::Queue
-    Properties:
-      QueueName: !Sub "user-lambda-fanout-update-watchlist-dlq-${StageName}"
-      MessageRetentionPeriod: 1209600
-  UserLambdaFanoutUpdateWatchlistQ:
-    Type: AWS::SQS::Queue
-    Properties:
-      QueueName: !Sub "user-lambda-fanout-update-watchlist-queue-${StageName}"
-      RedrivePolicy:
-        deadLetterTargetArn: !GetAtt UserLambdaFanoutUpdateWatchlistDlq.Arn
-        maxReceiveCount: 5
-      VisibilityTimeout: 360
-  UserLambdaFanoutUpdateWatchlistRole:
-    Type: AWS::IAM::Role
-    Properties:
-      RoleName: !Sub "user-lambda-fanout-update-watchlist-role-${StageName}"
-      AssumeRolePolicyDocument:
-        Version: "2012-10-17"
-        Statement:
-          - Effect: Allow
-            Principal:
-              Service: lambda.amazonaws.com
-            Action: sts:AssumeRole
-      ManagedPolicyArns:
-        - arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole
-      Policies:
-        - PolicyName: DynamoDBAccess
-          PolicyDocument:
-            Version: "2012-10-17"
-            Statement:
-              - Effect: Allow
-                Action:
-                  - dynamodb:GetItem
-                  - dynamodb:Query
-                  - dynamodb:PutItem
-                  - dynamodb:DeleteItem
-                  - dynamodb:UpdateItem
-                  - dynamodb:BatchGetItem
-                  - dynamodb:BatchWriteItem
-                  - dynamodb:TransactGetItems
-                  - dynamodb:TransactWriteItems
-                Resource:
-                  - !GetAtt TableOne.Arn
-                  - !Sub "${TableOne.Arn}/index/*"
-        - PolicyName: SQSPollerAccess
-          PolicyDocument:
-            Version: "2012-10-17"
-            Statement:
-              - Effect: Allow
-                Action:
-                  - sqs:ReceiveMessage
-                  - sqs:DeleteMessage
-                  - sqs:GetQueueAttributes
-                  - sqs:GetQueueUrl
-                Resource: !GetAtt UserLambdaFanoutUpdateWatchlistQ.Arn
-  UserLambdaFanoutUpdateWatchlistLambda:
-    Type: AWS::Lambda::Function
-    Properties:
-      FunctionName: !Sub "user-lambda-fanout-update-watchlist-${StageName}"
-      Runtime: provided.al2023
-      Handler: lib.handler
-      Role: !GetAtt UserLambdaFanoutUpdateWatchlistRole.Arn
-      Code:
-        S3Bucket: !Ref ArtifactBucket
-        S3Key: !Sub "user-lambda-fanout-update-watchlist-${StageName}-${CommitSHA}.zip"
-      MemorySize: 512
-      Timeout: 60
-      EphemeralStorage:
-        Size: 512
-      Environment:
-        Variables:
-          DYNAMODB_TABLE_NAME: !Ref TableOne
-  UserLambdaFanoutUpdateWatchlistMapping:
-    Type: AWS::Lambda::EventSourceMapping
-    Properties:
-      FunctionName: !Ref UserLambdaFanoutUpdateWatchlistLambda
-      EventSourceArn: !GetAtt UserLambdaFanoutUpdateWatchlistQ.Arn
       Enabled: true
       BatchSize: 10
       MaximumBatchingWindowInSeconds: 1
@@ -1606,10 +1794,11 @@ Resources:
       Targets:
         - Id: ShopOpenSearchIndexQ
           Arn: !GetAtt ShopOpenSearchIndexQ.Arn
-  DynamoDbUserUpdatedFanoutWatchlistUpdateEventRule:
+
+  DynamoDbSearchFilterSyncEventRule:
     Type: AWS::Events::Rule
     Properties:
-      Name: !Sub "ddb-user-update-fanout-watchlist-${StageName}"
+      Name: !Sub "ddb-search-filter-sync-${StageName}"
       EventBusName: !Ref DynamoDbEventBus
       EventPattern:
         source:
@@ -1618,15 +1807,47 @@ Resources:
           - "DynamoDBStreamRecord"
         detail:
           eventName:
+            - "INSERT"
             - "MODIFY"
+            - "REMOVE"
+          dynamodb:
+            $or:
+              - NewImage:
+                  sk:
+                    S:
+                      - prefix: "search_filter#"
+              - Keys:
+                  sk:
+                    S:
+                      - prefix: "search_filter#"
+      Targets:
+        - Id: SearchFilterOpenSearchSyncQ
+          Arn: !GetAtt SearchFilterOpenSearchSyncQ.Arn
+
+  DynamoDbNotificationSendEventRule:
+    Type: AWS::Events::Rule
+    Properties:
+      Name: !Sub "ddb-notification-send-${StageName}"
+      EventBusName: !Ref DynamoDbEventBus
+      EventPattern:
+        source:
+          - !Ref TableOne
+        detail-type:
+          - "DynamoDBStreamRecord"
+        detail:
+          eventName:
+            - "INSERT"
           dynamodb:
             NewImage:
               sk:
                 S:
-                  - "user#details"
+                  - prefix: "user#notification#origin_event_id#"
+              external:
+                BOOL:
+                  - true
       Targets:
-        - Id: UserLambdaFanoutUpdateWatchlistQ
-          Arn: !GetAtt UserLambdaFanoutUpdateWatchlistQ.Arn
+        - Id: NotificationSendQ
+          Arn: !GetAtt NotificationSendQ.Arn
 
   ProductPipelineVpc:
     Type: AWS::EC2::VPC
@@ -2990,10 +3211,10 @@ Outputs:
   DynamodbTable1Name:
     Value: !Ref TableOne
 
-  SendMailQueueUrl:
-    Value: !Ref SendMailQ
-  SendMailDeadLetterQueueUrl:
-    Value: !Ref SendMailDlq
+  NotificationSendQueueUrl:
+    Value: !Ref NotificationSendQ
+  NotificationSendDeadLetterQueueUrl:
+    Value: !Ref NotificationSendDlq
 
   ProductMaterializeDynamodbQueueUrl:
     Value: !Ref ProductMaterializeDynamoDbQ
@@ -3009,6 +3230,11 @@ Outputs:
     Value: !Ref ShopOpenSearchIndexQ
   ShopOpensearchIndexDeadLetterQueueUrl:
     Value: !Ref ShopOpenSearchIndexDlq
+
+  SearchFilterOpenSearchSyncQueueUrl:
+    Value: !Ref SearchFilterOpenSearchSyncQ
+  SearchFilterOpenSearchSyncDeadLetterQueueUrl:
+    Value: !Ref SearchFilterOpenSearchSyncDlq
 
   ProductUpdateNotifyUserQueueUrl:
     Value: !Ref ProductUpdateNotifyUserQ

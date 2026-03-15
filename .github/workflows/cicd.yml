@@ -105,13 +105,14 @@ jobs:
           - src/product-classification-api
           - src/product-watchlist
           - src/product-watchlist-api
+          - src/notification
+          - src/notification-api
           - src/shop
           - src/shop-api
           - src/shop-lambda/src/shop-lambda-opensearch-index
           - src/test-api
           - src/user
           - src/user-api
-          - src/mail/src/mail-core
     steps:
       - uses: actions/checkout@v6
 
@@ -233,6 +234,7 @@ jobs:
       matrix:
         crate:
           - src/search-filter-api
+          - src/search-filter-lambda/src/search-filter-lambda-opensearch-sync
           - src/product-api
           - src/product-classification-api
           - src/product-watchlist-api
@@ -243,9 +245,9 @@ jobs:
           - src/shop-api
           - src/shop-lambda/src/shop-lambda-opensearch-index
           - src/user-api
-          - src/user-lambda/src/user-lambda-fanout-update-watchlist
           - src/cognito-post-confirmation
-          - src/mail-lambda-send
+          - src/notification-send
+          - src/notification-api
           - src/fxrate-lambda
     steps:
       - uses: actions/checkout@v6

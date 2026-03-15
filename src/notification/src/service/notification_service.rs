@@ -1,0 +1,2597 @@
+use crate::core::mail_template::{MailTemplate, MailTemplateType};
+use crate::service::{s3_adapter::S3Adapter, ses_adapter::SesAdapter};
+use crate::{
+    core::{
+        notification::{
+            LocalizedNotification, Notification, NotificationPayload, NotificationWatchlistPayload,
+        },
+        notification_id::NotificationId,
+    },
+    dynamodb::{
+        notification_record::NotificationRecord,
+        notification_record_update::NotificationRecordUpdate,
+        notification_type_record::NotificationTypeRecord,
+        repository::NotificationDynamoDbRepository,
+    },
+    service::command::{CreateNotificationCommand, UpdateNotificationCommand},
+};
+use aws_sdk_dynamodb::{config::http::HttpResponse, error::SdkError};
+use aws_sdk_s3::operation::get_object::GetObjectError;
+use aws_sdk_sesv2::{
+    operation::send_email::SendEmailError,
+    types::{Body, Content, EmailContent, Message},
+};
+use common::{
+    batch::Batch,
+    currency::domain::Currency,
+    event_id::EventId,
+    language::domain::Language,
+    pagination::cursor::{Cursor, CursoredResult},
+    user_id::UserId,
+};
+use handlebars::Handlebars;
+use once_cell::sync::OnceCell;
+use serde_email::Email;
+use std::collections::{HashMap, HashSet};
+use std::sync::Arc;
+use time::OffsetDateTime;
+use tokio::sync::RwLock;
+use tracing::{debug, error, info};
+use user::service::user_service::{UserService, UserServiceError};
+
+#[derive(thiserror::Error, Debug)]
+#[allow(clippy::large_enum_variant)]
+pub enum NotificationError {
+    #[error("There exists no Notification for user '{0}' with origin-event-id '{1}'.")]
+    NotificationNotFound(UserId, EventId),
+
+    #[error("Encountered DynamoDB SdkError for GetItem: {0}")]
+    SdkGetItemError(
+        #[from] SdkError<aws_sdk_dynamodb::operation::get_item::GetItemError, HttpResponse>,
+    ),
+
+    #[error("Encountered DynamoDB SdkError for QueryItem: {0}")]
+    SdkQueryError(#[from] SdkError<aws_sdk_dynamodb::operation::query::QueryError, HttpResponse>),
+
+    #[error("Encountered DynamoDB SdkError for PutItem: {0}")]
+    SdkPutItemError(
+        #[from] SdkError<aws_sdk_dynamodb::operation::put_item::PutItemError, HttpResponse>,
+    ),
+
+    #[error("Encountered DynamoDB SdkError for UpdateItem: {0}")]
+    SdkUpdateItemError(
+        #[from] SdkError<aws_sdk_dynamodb::operation::update_item::UpdateItemError, HttpResponse>,
+    ),
+
+    #[error("Encountered DynamoDB SdkError for DeleteItem: {0}")]
+    SdkDeleteItemError(
+        #[from] SdkError<aws_sdk_dynamodb::operation::delete_item::DeleteItemError, HttpResponse>,
+    ),
+
+    #[error("Encountered DynamoDB SdkError for BatchWriteItem (delete): {0}")]
+    SdkBatchDeleteError(
+        #[from]
+        SdkError<aws_sdk_dynamodb::operation::batch_write_item::BatchWriteItemError, HttpResponse>,
+    ),
+
+    #[error("User with UserId '{0}' not found.")]
+    UserNotFound(UserId),
+
+    #[error("Failed looking up user: {0}")]
+    UserLookupFailed(#[source] UserServiceError),
+
+    #[error("Encountered SES SdkError for SendMail: {0:?}")]
+    SdkSESSendMailError(SdkError<SendEmailError>),
+
+    #[error("Encountered S3 SdkError for GetObject: {0:?}")]
+    SdkS3GetObjectError(SdkError<GetObjectError>),
+
+    #[error("Encountered Handlebars-Error for Render: {0}")]
+    TemplateRenderError(#[from] handlebars::RenderError),
+}
+
+#[derive(Debug)]
+pub struct CreateNotificationsResult {
+    pub unprocessed: Vec<(CreateNotificationCommand, NotificationError)>,
+    pub processed: Vec<Notification>,
+}
+
+#[async_trait::async_trait]
+#[mockall::automock]
+pub trait NotificationService {
+    async fn find_notification(
+        &self,
+        user_id: &UserId,
+        origin_event_id: &EventId,
+    ) -> Result<Notification, NotificationError>;
+
+    async fn create_notification(
+        &self,
+        origin_event_id: &EventId,
+        cmd: CreateNotificationCommand,
+    ) -> Result<Notification, NotificationError>;
+
+    async fn create_notifications(
+        &self,
+        origin_event_id: &EventId,
+        cmds: Vec<CreateNotificationCommand>,
+    ) -> CreateNotificationsResult;
+
+    async fn update_notification(
+        &self,
+        user_id: &UserId,
+        origin_event_id: &EventId,
+        update: UpdateNotificationCommand,
+    ) -> Result<Notification, NotificationError>;
+
+    async fn view_notifications(
+        &self,
+        user_id: &UserId,
+        languages: &[Language],
+        currency: &Currency,
+        cursor: &Option<Cursor<EventId>>,
+    ) -> Result<CursoredResult<LocalizedNotification, EventId>, NotificationError>;
+
+    async fn send_externally(
+        &self,
+        user_id: &UserId,
+        origin_event_id: &EventId,
+    ) -> Result<Notification, NotificationError>;
+
+    async fn update_notifications(
+        &self,
+        user_id: &UserId,
+        cmd: UpdateNotificationCommand,
+    ) -> Result<CursoredResult<Notification, EventId>, NotificationError>;
+
+    async fn delete_notification(
+        &self,
+        user_id: &UserId,
+        origin_event_id: &EventId,
+    ) -> Result<(), NotificationError>;
+
+    async fn delete_notifications(&self, user_id: &UserId) -> Result<(), NotificationError>;
+}
+
+static TEMPLATE_CACHE: OnceCell<Arc<RwLock<HashMap<MailTemplate, String>>>> = OnceCell::new();
+
+pub struct NotificationServiceImpl<'a> {
+    notification_repository: &'a (dyn NotificationDynamoDbRepository + Sync),
+    user_service: &'a (dyn UserService + Sync),
+    ses_adapter: &'a (dyn SesAdapter + Send + Sync),
+    s3_adapter: &'a (dyn S3Adapter + Send + Sync),
+    s3_bucket: &'a str,
+    stage_name: &'a str,
+    commit_sha: &'a str,
+    sender_email: Email,
+    handlebars: Handlebars<'a>,
+}
+
+impl<'a> NotificationServiceImpl<'a> {
+    #[allow(clippy::too_many_arguments)]
+    pub fn new(
+        notification_repository: &'a (dyn NotificationDynamoDbRepository + Sync),
+        user_service: &'a (dyn UserService + Sync),
+        ses_adapter: &'a (dyn SesAdapter + Send + Sync),
+        s3_adapter: &'a (dyn S3Adapter + Send + Sync),
+        s3_bucket: &'a str,
+        stage_name: &'a str,
+        commit_sha: &'a str,
+        sender_email: Email,
+    ) -> Self {
+        Self {
+            notification_repository,
+            user_service,
+            ses_adapter,
+            s3_adapter,
+            s3_bucket,
+            stage_name,
+            commit_sha,
+            sender_email,
+            handlebars: Handlebars::new(),
+        }
+    }
+
+    async fn resolve_template(
+        &self,
+        template: MailTemplate,
+    ) -> Result<String, SdkError<GetObjectError>> {
+        let template_cache_rw =
+            TEMPLATE_CACHE.get_or_init(|| Arc::new(RwLock::new(HashMap::new())));
+
+        {
+            let template_cache_r = template_cache_rw.read().await;
+            if let Some(resolved) = template_cache_r.get(&template) {
+                return Ok(resolved.clone());
+            }
+        }
+
+        let s3_key = format!(
+            "{}/{}/{}.html",
+            self.stage_name,
+            self.commit_sha,
+            template.as_s3_blob_str()
+        );
+        let resp = self.s3_adapter.get_object(self.s3_bucket, &s3_key).await?;
+        let bytes = resp
+            .body
+            .collect()
+            .await
+            .map_err(SdkError::construction_failure)?
+            .into_bytes();
+        let template_html = String::from_utf8_lossy(&bytes).to_string();
+
+        {
+            let mut template_cache_w = template_cache_rw.write().await;
+            template_cache_w.insert(template, template_html.clone());
+        }
+
+        Ok(template_html)
+    }
+
+    async fn send_notification_as_email(
+        &self,
+        notification: &Notification,
+    ) -> Result<(), NotificationError> {
+        let user = self
+            .user_service
+            .find_user(&notification.user_id)
+            .await
+            .map_err(|err| match &err {
+                UserServiceError::UserNotFound(uid) => NotificationError::UserNotFound(*uid),
+                _ => NotificationError::UserLookupFailed(err),
+            })?;
+
+        let language = user.language.unwrap_or(Language::En);
+        let currency = user.currency.unwrap_or(Currency::Eur);
+
+        let mail_template = derive_mail_template(&notification.notification_payload, &language);
+        let subject = build_email_subject(&notification.notification_payload, &language);
+        let template_data = build_email_template_data(notification, &language, &currency);
+
+        let template_html = self
+            .resolve_template(mail_template)
+            .await
+            .map_err(NotificationError::SdkS3GetObjectError)?;
+
+        let rendered_html = self
+            .handlebars
+            .render_template(&template_html, &template_data)?;
+
+        let subject_content = Content::builder()
+            .data(subject)
+            .build()
+            .expect("shouldn't fail because 'data' was set explicitly");
+        let body = Body::builder()
+            .html(
+                Content::builder()
+                    .data(rendered_html)
+                    .build()
+                    .expect("shouldn't fail because 'data' was set explicitly"),
+            )
+            .build();
+        let message = Message::builder()
+            .subject(subject_content)
+            .body(body)
+            .build();
+        let content = EmailContent::builder().simple(message).build();
+
+        self.ses_adapter
+            .send_email(self.sender_email.clone(), user.email, content)
+            .await
+            .map_err(NotificationError::SdkSESSendMailError)?;
+
+        Ok(())
+    }
+}
+
+fn derive_mail_template(payload: &NotificationPayload, language: &Language) -> MailTemplate {
+    let template_type = match payload {
+        NotificationPayload::Watchlist {
+            watchlist_payload, ..
+        } => match watchlist_payload {
+            NotificationWatchlistPayload::PriceChange { .. } => {
+                MailTemplateType::WatchlistUpdatePrice
+            }
+            NotificationWatchlistPayload::StateChange { .. } => {
+                MailTemplateType::WatchlistUpdateState
+            }
+        },
+    };
+    MailTemplate {
+        template_type,
+        language: (*language).into(),
+    }
+}
+
+fn build_email_subject(payload: &NotificationPayload, language: &Language) -> String {
+    match payload {
+        NotificationPayload::Watchlist {
+            title,
+            watchlist_payload,
+            ..
+        } => {
+            let resolved_title = Language::resolve(&[*language], title.clone())
+                .map(|l| l.payload.to_string())
+                .unwrap_or_else(|| "Unknown".to_owned());
+
+            match watchlist_payload {
+                NotificationWatchlistPayload::PriceChange { .. } => match language {
+                    Language::De => format!("Preisänderung: {resolved_title}"),
+                    Language::Fr => format!("Changement de prix : {resolved_title}"),
+                    Language::Es => format!("Cambio de precio: {resolved_title}"),
+                    Language::It => format!("Variazione di prezzo: {resolved_title}"),
+                    _ => format!("Price change: {resolved_title}"),
+                },
+                NotificationWatchlistPayload::StateChange { new_state, .. } => {
+                    let state_str = new_state.format_human_readable(language);
+                    match language {
+                        Language::De => {
+                            format!("Statusänderung ({state_str}): {resolved_title}")
+                        }
+                        Language::Fr => {
+                            format!("Changement de statut ({state_str}) : {resolved_title}")
+                        }
+                        Language::Es => {
+                            format!("Cambio de estado ({state_str}): {resolved_title}")
+                        }
+                        Language::It => {
+                            format!("Cambio di stato ({state_str}): {resolved_title}")
+                        }
+                        _ => format!("Status change ({state_str}): {resolved_title}"),
+                    }
+                }
+            }
+        }
+    }
+}
+
+fn build_email_template_data(
+    notification: &Notification,
+    language: &Language,
+    currency: &Currency,
+) -> serde_json::Value {
+    match &notification.notification_payload {
+        NotificationPayload::Watchlist {
+            product_id,
+            shop_id,
+            shops_product_id,
+            shop_slug_id,
+            product_slug_id,
+            shop_name,
+            title,
+            watchlist_payload,
+        } => {
+            let resolved_title = Language::resolve(&[*language], title.clone())
+                .map(|l| l.payload.to_string())
+                .unwrap_or_else(|| "Unknown".to_owned());
+
+            let mut data = serde_json::json!({
+                "product_id": product_id.to_string(),
+                "shop_id": shop_id.to_string(),
+                "shops_product_id": shops_product_id.to_string(),
+                "shop_slug_id": shop_slug_id.to_string(),
+                "product_slug_id": product_slug_id.to_string(),
+                "shop_name": shop_name.to_string(),
+                "title": resolved_title,
+                "language": format!("{language:?}"),
+            });
+
+            match watchlist_payload {
+                NotificationWatchlistPayload::PriceChange {
+                    old_price,
+                    new_price,
+                } => {
+                    let old = Currency::resolve(&[*currency], old_price.clone());
+                    let new = Currency::resolve(&[*currency], new_price.clone());
+
+                    if let Some(p) = &old {
+                        data["old_price"] = serde_json::json!(p.format_human_readable());
+                    }
+                    if let Some(p) = &new {
+                        data["new_price"] = serde_json::json!(p.format_human_readable());
+                    }
+                    data["notification_type"] = serde_json::json!("price_change");
+                }
+                NotificationWatchlistPayload::StateChange {
+                    old_state,
+                    new_state,
+                } => {
+                    data["old_state"] =
+                        serde_json::json!(old_state.format_human_readable(language));
+                    data["new_state"] =
+                        serde_json::json!(new_state.format_human_readable(language));
+                    data["notification_type"] = serde_json::json!("state_change");
+                }
+            }
+
+            data
+        }
+    }
+}
+
+#[async_trait::async_trait]
+impl<'a> NotificationService for NotificationServiceImpl<'a> {
+    async fn find_notification(
+        &self,
+        user_id: &UserId,
+        origin_event_id: &EventId,
+    ) -> Result<Notification, NotificationError> {
+        let record = self
+            .notification_repository
+            .get_notification_record(user_id, origin_event_id)
+            .await?
+            .ok_or(NotificationError::NotificationNotFound(
+                *user_id,
+                *origin_event_id,
+            ))?;
+
+        Ok(record.into())
+    }
+
+    async fn create_notification(
+        &self,
+        origin_event_id: &EventId,
+        cmd: CreateNotificationCommand,
+    ) -> Result<Notification, NotificationError> {
+        let now = OffsetDateTime::now_utc();
+        let notification = Notification {
+            user_id: cmd.user_id,
+            origin_event_id: *origin_event_id,
+            notification_id: NotificationId::new(),
+            notification_type: None,
+            notification_payload: cmd.notification_payload,
+            seen: false,
+            external: cmd.external,
+            created: now,
+            updated: now,
+        };
+        let record = NotificationRecord::from(notification.clone());
+        self.notification_repository
+            .put_notification_record(record)
+            .await?;
+
+        Ok(notification)
+    }
+
+    async fn create_notifications(
+        &self,
+        origin_event_id: &EventId,
+        cmds: Vec<CreateNotificationCommand>,
+    ) -> CreateNotificationsResult {
+        if cmds.is_empty() {
+            return CreateNotificationsResult {
+                unprocessed: vec![],
+                processed: vec![],
+            };
+        }
+
+        let now = OffsetDateTime::now_utc();
+
+        // Build (cmd, notification) pairs and keep a record clone for batching.
+        let pairs: Vec<(CreateNotificationCommand, Notification)> = cmds
+            .into_iter()
+            .map(|cmd| {
+                let notification = Notification {
+                    user_id: cmd.user_id,
+                    origin_event_id: *origin_event_id,
+                    notification_id: NotificationId::new(),
+                    notification_type: None,
+                    notification_payload: cmd.notification_payload.clone(),
+                    seen: false,
+                    external: cmd.external,
+                    created: now,
+                    updated: now,
+                };
+                (cmd, notification)
+            })
+            .collect();
+
+        // Index by user_id so we can look up cmd/notification after batch responses.
+        let mut cmd_map: HashMap<UserId, (CreateNotificationCommand, Notification)> = pairs
+            .into_iter()
+            .map(|(cmd, notif)| (notif.user_id, (cmd, notif)))
+            .collect();
+
+        let records: Vec<NotificationRecord> = cmd_map
+            .values()
+            .map(|(_, notif)| NotificationRecord::from(notif.clone()))
+            .collect();
+
+        let mut processed = Vec::new();
+        let mut unprocessed = Vec::new();
+
+        let batches = Batch::<NotificationRecord, 25>::chunked_from(records.into_iter());
+        for batch in batches {
+            let user_ids_in_batch: Vec<UserId> = batch.iter().map(|r| r.user_id).collect();
+
+            match self
+                .notification_repository
+                .put_notification_records(batch)
+                .await
+            {
+                Ok(output) => {
+                    let failed_user_ids: HashSet<UserId> = output
+                        .unprocessed_items
+                        .unwrap_or_default()
+                        .into_iter()
+                        .flat_map(|(_, write_reqs)| write_reqs)
+                        .filter_map(|req| req.put_request)
+                        .filter_map(|put| {
+                            match serde_dynamo::from_item::<_, NotificationRecord>(put.item) {
+                                Ok(record) => Some(record.user_id),
+                                Err(err) => {
+                                    error!(
+                                        error = ?err,
+                                        r#type = std::any::type_name::<NotificationRecord>(),
+                                        "Failed parsing unprocessed item from BatchWriteItem output"
+                                    );
+                                    None
+                                }
+                            }
+                        })
+                        .collect();
+
+                    for user_id in user_ids_in_batch {
+                        if let Some((cmd, notif)) = cmd_map.remove(&user_id) {
+                            if failed_user_ids.contains(&user_id) {
+                                unprocessed.push((
+                                    cmd,
+                                    NotificationError::SdkPutItemError(
+                                        SdkError::construction_failure(
+                                            "Item returned as unprocessed in BatchWriteItem",
+                                        ),
+                                    ),
+                                ));
+                            } else {
+                                processed.push(notif);
+                            }
+                        }
+                    }
+                }
+                Err(err) => {
+                    error!(
+                        error = ?err,
+                        "Failed writing NotificationRecord batch due to SdkError."
+                    );
+                    for user_id in user_ids_in_batch {
+                        if let Some((cmd, _)) = cmd_map.remove(&user_id) {
+                            unprocessed.push((
+                                cmd,
+                                NotificationError::SdkPutItemError(SdkError::construction_failure(
+                                    "BatchWriteItem operation failed",
+                                )),
+                            ));
+                        }
+                    }
+                }
+            }
+        }
+
+        CreateNotificationsResult {
+            unprocessed,
+            processed,
+        }
+    }
+
+    async fn update_notification(
+        &self,
+        user_id: &UserId,
+        origin_event_id: &EventId,
+        update: UpdateNotificationCommand,
+    ) -> Result<Notification, NotificationError> {
+        let existing_record = self
+            .notification_repository
+            .get_notification_record(user_id, origin_event_id)
+            .await?
+            .ok_or(NotificationError::NotificationNotFound(
+                *user_id,
+                *origin_event_id,
+            ))?;
+
+        if update.is_empty() {
+            Ok(existing_record.into())
+        } else {
+            let record_update = NotificationRecordUpdate {
+                seen: update.seen,
+                notification_type: None,
+                updated: OffsetDateTime::now_utc(),
+            };
+
+            let updated_record = self
+                .notification_repository
+                .update_notification_record(user_id, origin_event_id, record_update)
+                .await?
+                .ok_or_else(|| {
+                    NotificationError::SdkUpdateItemError(SdkError::construction_failure(
+                        "Failed parsing DynamoDB UpdateItem Response-Payload",
+                    ))
+                })?;
+
+            Ok(updated_record.into())
+        }
+    }
+
+    async fn view_notifications(
+        &self,
+        user_id: &UserId,
+        languages: &[Language],
+        currency: &Currency,
+        cursor: &Option<Cursor<EventId>>,
+    ) -> Result<CursoredResult<LocalizedNotification, EventId>, NotificationError> {
+        let cursor = (*cursor).unwrap_or_default();
+        let scan_index_forward = false; // newest first
+
+        let paged_records = self
+            .notification_repository
+            .query_notification_records(user_id, &cursor, scan_index_forward)
+            .await?;
+        let last = paged_records.last().cloned();
+
+        let notifications: Vec<LocalizedNotification> = paged_records
+            .into_iter()
+            .map(Notification::from)
+            .map(|n| n.localized(currency, languages))
+            .collect();
+
+        let total = if notifications.is_empty() {
+            0
+        } else {
+            self.notification_repository
+                .count_notification_records(user_id, &cursor, scan_index_forward)
+                .await?
+        };
+
+        Ok(CursoredResult {
+            cursor: Cursor {
+                size: notifications.len() as u64,
+                search_after: last.map(|l| l.origin_event_id),
+            },
+            items: notifications,
+            total: Some(total),
+        })
+    }
+
+    async fn send_externally(
+        &self,
+        user_id: &UserId,
+        origin_event_id: &EventId,
+    ) -> Result<Notification, NotificationError> {
+        let record = self
+            .notification_repository
+            .get_notification_record(user_id, origin_event_id)
+            .await?
+            .ok_or(NotificationError::NotificationNotFound(
+                *user_id,
+                *origin_event_id,
+            ))?;
+
+        let notification: Notification = record.into();
+
+        // Idempotency: if already sent externally, return as-is.
+        if notification.notification_type.is_some() {
+            info!(
+                userId = %user_id,
+                originEventId = %origin_event_id,
+                notificationType = ?notification.notification_type,
+                "Notification has already been sent externally. Skipping."
+            );
+            return Ok(notification);
+        }
+
+        // Only send externally if the user opted in.
+        if !notification.external {
+            debug!(
+                userId = %user_id,
+                originEventId = %origin_event_id,
+                "Notification has external=false. Skipping external send."
+            );
+            return Ok(notification);
+        }
+
+        // Currently always send as email. Later the external type/target will
+        // be determined by user-preferences.
+        self.send_notification_as_email(&notification).await?;
+
+        // Persist that the notification was sent as email.
+        let record_update = NotificationRecordUpdate {
+            seen: None,
+            notification_type: Some(NotificationTypeRecord::Email),
+            updated: OffsetDateTime::now_utc(),
+        };
+
+        let updated_record = self
+            .notification_repository
+            .update_notification_record(user_id, origin_event_id, record_update)
+            .await?
+            .ok_or_else(|| {
+                NotificationError::SdkUpdateItemError(SdkError::construction_failure(
+                    "Failed parsing DynamoDB UpdateItem Response-Payload after send_externally",
+                ))
+            })?;
+
+        let updated_notification: Notification = updated_record.into();
+        info!(
+            userId = %user_id,
+            originEventId = %origin_event_id,
+            "Notification sent externally as email and persisted."
+        );
+
+        Ok(updated_notification)
+    }
+
+    async fn update_notifications(
+        &self,
+        user_id: &UserId,
+        cmd: UpdateNotificationCommand,
+    ) -> Result<CursoredResult<Notification, EventId>, NotificationError> {
+        let all_records = self
+            .notification_repository
+            .query_all_notification_records(user_id)
+            .await?;
+
+        let record_update = NotificationRecordUpdate {
+            seen: cmd.seen,
+            notification_type: None,
+            updated: OffsetDateTime::now_utc(),
+        };
+
+        for record in &all_records {
+            self.notification_repository
+                .update_notification_record(user_id, &record.origin_event_id, record_update.clone())
+                .await?;
+        }
+
+        info!(
+            userId = %user_id,
+            count = all_records.len(),
+            cmd = ?cmd,
+            "All notifications updated."
+        );
+
+        let cursor = Cursor::default();
+        let scan_index_forward = false;
+        let paged_records = self
+            .notification_repository
+            .query_notification_records(user_id, &cursor, scan_index_forward)
+            .await?;
+        let last = paged_records.last().cloned();
+
+        let notifications: Vec<Notification> =
+            paged_records.into_iter().map(Notification::from).collect();
+
+        let total = if notifications.is_empty() {
+            0
+        } else {
+            self.notification_repository
+                .count_notification_records(user_id, &cursor, scan_index_forward)
+                .await?
+        };
+
+        Ok(CursoredResult {
+            cursor: Cursor {
+                size: notifications.len() as u64,
+                search_after: last.map(|l| l.origin_event_id),
+            },
+            items: notifications,
+            total: Some(total),
+        })
+    }
+
+    async fn delete_notification(
+        &self,
+        user_id: &UserId,
+        origin_event_id: &EventId,
+    ) -> Result<(), NotificationError> {
+        self.notification_repository
+            .get_notification_record(user_id, origin_event_id)
+            .await?
+            .ok_or(NotificationError::NotificationNotFound(
+                *user_id,
+                *origin_event_id,
+            ))?;
+
+        self.notification_repository
+            .delete_notification_record(user_id, origin_event_id)
+            .await?;
+
+        info!(
+            userId = %user_id,
+            originEventId = %origin_event_id,
+            "Notification deleted."
+        );
+
+        Ok(())
+    }
+
+    async fn delete_notifications(&self, user_id: &UserId) -> Result<(), NotificationError> {
+        let all_records = self
+            .notification_repository
+            .query_all_notification_records(user_id)
+            .await?;
+
+        if all_records.is_empty() {
+            return Ok(());
+        }
+
+        let ids: Vec<EventId> = all_records.iter().map(|r| r.origin_event_id).collect();
+
+        for batch in Batch::chunked_from(ids.into_iter()) {
+            self.notification_repository
+                .delete_notification_records(user_id, &batch)
+                .await?;
+        }
+
+        info!(
+            userId = %user_id,
+            count = all_records.len(),
+            "All notifications deleted."
+        );
+
+        Ok(())
+    }
+}
+
+#[cfg(feature = "data")]
+mod api_error_impls {
+    use super::NotificationError;
+    use common::api::error::ApiError;
+    use common::api::error_code::{INTERNAL_SERVER_ERROR, NOTIFICATION_NOT_FOUND};
+
+    impl From<NotificationError> for ApiError {
+        fn from(err: NotificationError) -> Self {
+            match err {
+                NotificationError::NotificationNotFound(_, _) => {
+                    ApiError::not_found(NOTIFICATION_NOT_FOUND, Box::new(err))
+                }
+                NotificationError::SdkGetItemError(e) => e.into(),
+                NotificationError::SdkQueryError(e) => e.into(),
+                NotificationError::SdkPutItemError(e) => e.into(),
+                NotificationError::SdkUpdateItemError(e) => e.into(),
+                NotificationError::SdkDeleteItemError(e) => e.into(),
+                NotificationError::SdkBatchDeleteError(e) => e.into(),
+                NotificationError::UserNotFound(_)
+                | NotificationError::UserLookupFailed(_)
+                | NotificationError::SdkSESSendMailError(_)
+                | NotificationError::SdkS3GetObjectError(_)
+                | NotificationError::TemplateRenderError(_) => {
+                    ApiError::internal_server_error(INTERNAL_SERVER_ERROR, Box::new(err))
+                }
+            }
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::service::{s3_adapter::MockS3Adapter, ses_adapter::MockSesAdapter};
+    use crate::{
+        core::{
+            notification::{NotificationPayload, NotificationWatchlistPayload},
+            notification_type::NotificationType,
+        },
+        dynamodb::notification_record::NotificationRecord,
+        dynamodb::repository::MockNotificationDynamoDbRepository,
+    };
+    use aws_sdk_dynamodb::{
+        config::http::HttpResponse,
+        error::{ConnectorError, SdkError as DynamoSdkError},
+        operation::{batch_write_item::BatchWriteItemOutput, put_item::PutItemOutput},
+        types::{PutRequest, WriteRequest},
+    };
+    use aws_sdk_sesv2::operation::send_email::SendEmailOutput;
+    use common::{
+        currency::domain::Currency, language::domain::Language, price::domain::MonetaryAmount,
+        product_state::domain::ProductState, user_id::UserId,
+    };
+    use fake::{Fake, Faker};
+    use std::collections::HashMap;
+    use user::{core::user::User, service::user_service::MockUserService};
+
+    fn make_sender_email() -> Email {
+        "no-reply@aura-historia.com".try_into().unwrap()
+    }
+
+    fn make_service<'a>(
+        repository: &'a MockNotificationDynamoDbRepository,
+        user_service: &'a MockUserService,
+        ses_adapter: &'a MockSesAdapter,
+        s3_adapter: &'a MockS3Adapter,
+    ) -> NotificationServiceImpl<'a> {
+        NotificationServiceImpl::new(
+            repository,
+            user_service,
+            ses_adapter,
+            s3_adapter,
+            "test-bucket",
+            "test-stage",
+            "test-sha",
+            make_sender_email(),
+        )
+    }
+
+    fn make_user(user_id: UserId) -> User {
+        User {
+            user_id,
+            email: "test@example.com".try_into().unwrap(),
+            first_name: None,
+            last_name: None,
+            language: Some(Language::En),
+            currency: Some(Currency::Eur),
+            prohibited_content_consent: false,
+            created: OffsetDateTime::now_utc(),
+            updated: OffsetDateTime::now_utc(),
+        }
+    }
+
+    fn make_notification_record_with_type(
+        user_id: UserId,
+        origin_event_id: EventId,
+        notification_type: Option<NotificationTypeRecord>,
+    ) -> NotificationRecord {
+        let mut record = Faker.fake::<NotificationRecord>();
+        record.user_id = user_id;
+        record.origin_event_id = origin_event_id;
+        record.notification_type = notification_type;
+        record.pk = crate::dynamodb::notification_record::mk_pk(&user_id);
+        record.sk = crate::dynamodb::notification_record::mk_sk(&origin_event_id);
+        record
+    }
+
+    mod create_notifications {
+        use super::*;
+
+        fn make_test_command() -> CreateNotificationCommand {
+            CreateNotificationCommand {
+                user_id: UserId::new(),
+                notification_payload: NotificationPayload::Watchlist {
+                    product_id: Faker.fake(),
+                    shop_id: Faker.fake(),
+                    shops_product_id: "test-product-123".into(),
+                    shop_slug_id: Faker.fake(),
+                    product_slug_id: Faker.fake(),
+                    shop_name: "Test Shop".into(),
+                    title: HashMap::from([(Language::En, "Test Title".into())]),
+                    watchlist_payload: NotificationWatchlistPayload::StateChange {
+                        old_state: ProductState::Listed,
+                        new_state: ProductState::Sold,
+                    },
+                },
+                external: false,
+            }
+        }
+
+        #[tokio::test]
+        async fn should_return_empty_when_no_commands() {
+            // No mock expectations set — any call to the repository would cause a panic.
+            let repository = MockNotificationDynamoDbRepository::default();
+            let user_service = MockUserService::default();
+            let ses_adapter = MockSesAdapter::default();
+            let s3_adapter = MockS3Adapter::default();
+            let service = make_service(&repository, &user_service, &ses_adapter, &s3_adapter);
+
+            let CreateNotificationsResult {
+                processed,
+                unprocessed,
+            } = service.create_notifications(&Faker.fake(), vec![]).await;
+
+            assert!(processed.is_empty());
+            assert!(unprocessed.is_empty());
+        }
+
+        #[tokio::test]
+        async fn should_create_notifications_when_all_succeed() {
+            let cmds: Vec<CreateNotificationCommand> =
+                (0..3).map(|_| make_test_command()).collect();
+
+            let mut repository = MockNotificationDynamoDbRepository::default();
+            repository
+                .expect_put_notification_records()
+                .return_once(|_| Box::pin(async { Ok(BatchWriteItemOutput::builder().build()) }));
+
+            let user_service = MockUserService::default();
+            let ses_adapter = MockSesAdapter::default();
+            let s3_adapter = MockS3Adapter::default();
+            let service = make_service(&repository, &user_service, &ses_adapter, &s3_adapter);
+            let CreateNotificationsResult {
+                processed,
+                unprocessed,
+            } = service.create_notifications(&Faker.fake(), cmds).await;
+
+            assert_eq!(processed.len(), 3);
+            assert!(unprocessed.is_empty());
+        }
+
+        #[tokio::test]
+        async fn should_mark_unprocessed_when_batch_write_returns_unprocessed_items() {
+            use common::batch::Batch;
+
+            let cmd_to_fail = make_test_command();
+            let failing_user_id = cmd_to_fail.user_id;
+            let cmd_to_succeed = make_test_command();
+
+            let cmds = vec![cmd_to_fail, cmd_to_succeed];
+
+            let mut repository = MockNotificationDynamoDbRepository::default();
+            repository.expect_put_notification_records().return_once(
+                move |batch: Batch<NotificationRecord, 25>| {
+                    let failing_item = batch
+                        .iter()
+                        .find(|r| r.user_id == failing_user_id)
+                        .and_then(|r| serde_dynamo::to_item(r).ok())
+                        .expect("failing record must be in the batch");
+
+                    let unprocessed_write_req = WriteRequest::builder()
+                        .put_request(
+                            PutRequest::builder()
+                                .set_item(Some(failing_item))
+                                .build()
+                                .unwrap(),
+                        )
+                        .build();
+                    let output = BatchWriteItemOutput::builder()
+                        .unprocessed_items("irrelevant_table", vec![unprocessed_write_req])
+                        .build();
+
+                    Box::pin(async move { Ok(output) })
+                },
+            );
+
+            let user_service = MockUserService::default();
+            let ses_adapter = MockSesAdapter::default();
+            let s3_adapter = MockS3Adapter::default();
+            let service = make_service(&repository, &user_service, &ses_adapter, &s3_adapter);
+            let CreateNotificationsResult {
+                processed,
+                unprocessed,
+            } = service.create_notifications(&Faker.fake(), cmds).await;
+
+            assert_eq!(processed.len(), 1);
+            assert_eq!(unprocessed.len(), 1);
+            assert_eq!(unprocessed[0].0.user_id, failing_user_id);
+        }
+
+        #[tokio::test]
+        async fn should_propagate_sdk_error_batch_write() {
+            let cmds: Vec<CreateNotificationCommand> =
+                (0..3).map(|_| make_test_command()).collect();
+
+            let mut repository = MockNotificationDynamoDbRepository::default();
+            repository
+                .expect_put_notification_records()
+                .return_once(|_| {
+                    Box::pin(async {
+                        Err(aws_sdk_dynamodb::error::SdkError::construction_failure(
+                            "Simulated BatchWriteItem failure",
+                        ))
+                    })
+                });
+
+            let user_service = MockUserService::default();
+            let ses_adapter = MockSesAdapter::default();
+            let s3_adapter = MockS3Adapter::default();
+            let service = make_service(&repository, &user_service, &ses_adapter, &s3_adapter);
+            let CreateNotificationsResult {
+                processed,
+                unprocessed,
+            } = service.create_notifications(&Faker.fake(), cmds).await;
+
+            assert!(processed.is_empty());
+            assert_eq!(unprocessed.len(), 3);
+        }
+    }
+
+    mod find_notification {
+        use super::*;
+
+        #[tokio::test]
+        async fn should_err_notification_not_found_when_no_notification_exists() {
+            let mut repository = MockNotificationDynamoDbRepository::default();
+            repository
+                .expect_get_notification_record()
+                .return_once(|_, _| Box::pin(async { Ok(None) }));
+
+            let user_service = MockUserService::default();
+            let ses_adapter = MockSesAdapter::default();
+            let s3_adapter = MockS3Adapter::default();
+            let service = make_service(&repository, &user_service, &ses_adapter, &s3_adapter);
+            let user_id = UserId::new();
+            let origin_event_id = EventId::new();
+            let actual = service
+                .find_notification(&user_id, &origin_event_id)
+                .await
+                .unwrap_err();
+
+            match actual {
+                NotificationError::NotificationNotFound(err_user_id, err_origin_event_id) => {
+                    assert_eq!(user_id, err_user_id);
+                    assert_eq!(origin_event_id, err_origin_event_id);
+                }
+                err => {
+                    panic!("Expected 'NotificationError::NotificationNotFound' but got '{err}'")
+                }
+            }
+        }
+
+        #[tokio::test]
+        #[rstest::rstest]
+        #[case::construction_failure(DynamoSdkError::construction_failure("Something went wrong"))]
+        #[case::timeout(DynamoSdkError::timeout_error("Something went wrong"))]
+        #[case::dispatch_failure(DynamoSdkError::dispatch_failure(ConnectorError::user("Something went wrong".into())))]
+        #[case::response_error(DynamoSdkError::response_error(
+            "Something went wrong",
+            HttpResponse::new(500u16.try_into().unwrap(), "{}".into())
+        ))]
+        #[case::service_error(DynamoSdkError::service_error(
+            aws_sdk_dynamodb::operation::get_item::GetItemError::unhandled("Something went wrong"),
+            HttpResponse::new(500u16.try_into().unwrap(), "{}".into())
+        ))]
+        #[trace]
+        async fn should_propagate_sdk_error_get_item(
+            #[case] expected: DynamoSdkError<
+                aws_sdk_dynamodb::operation::get_item::GetItemError,
+                aws_sdk_dynamodb::config::http::HttpResponse,
+            >,
+        ) {
+            let mut repository = MockNotificationDynamoDbRepository::default();
+            repository
+                .expect_get_notification_record()
+                .return_once(|_, _| Box::pin(async { Err(expected) }));
+
+            let user_service = MockUserService::default();
+            let ses_adapter = MockSesAdapter::default();
+            let s3_adapter = MockS3Adapter::default();
+            let service = make_service(&repository, &user_service, &ses_adapter, &s3_adapter);
+            let actual = service
+                .find_notification(&Faker.fake(), &Faker.fake())
+                .await;
+
+            assert!(actual.is_err());
+            match actual.unwrap_err() {
+                NotificationError::SdkGetItemError(_) => {}
+                err => panic!("Expected 'NotificationError::SdkGetItemError', got '{err}'"),
+            }
+        }
+    }
+
+    mod create_notification {
+        use super::*;
+
+        fn make_test_command() -> CreateNotificationCommand {
+            CreateNotificationCommand {
+                user_id: UserId::new(),
+                notification_payload: NotificationPayload::Watchlist {
+                    product_id: Faker.fake(),
+                    shop_id: Faker.fake(),
+                    shops_product_id: "test-product-123".into(),
+                    shop_slug_id: Faker.fake(),
+                    product_slug_id: Faker.fake(),
+                    shop_name: "Test Shop".into(),
+                    title: HashMap::from([(Language::En, "Test Title".into())]),
+                    watchlist_payload: NotificationWatchlistPayload::StateChange {
+                        old_state: ProductState::Listed,
+                        new_state: ProductState::Sold,
+                    },
+                },
+                external: false,
+            }
+        }
+
+        #[tokio::test]
+        async fn should_create_when_success() {
+            let mut repository = MockNotificationDynamoDbRepository::default();
+            repository
+                .expect_put_notification_record()
+                .return_once(|_| Box::pin(async { Ok(PutItemOutput::builder().build()) }));
+
+            let user_service = MockUserService::default();
+            let ses_adapter = MockSesAdapter::default();
+            let s3_adapter = MockS3Adapter::default();
+            let service = make_service(&repository, &user_service, &ses_adapter, &s3_adapter);
+            let result = service
+                .create_notification(&Faker.fake(), make_test_command())
+                .await
+                .unwrap();
+
+            assert!(!result.seen);
+        }
+
+        #[tokio::test]
+        #[rstest::rstest]
+        #[case::construction_failure(DynamoSdkError::construction_failure("Something went wrong"))]
+        #[case::timeout(DynamoSdkError::timeout_error("Something went wrong"))]
+        #[case::dispatch_failure(DynamoSdkError::dispatch_failure(ConnectorError::user("Something went wrong".into())))]
+        #[case::response_error(DynamoSdkError::response_error(
+            "Something went wrong",
+            HttpResponse::new(500u16.try_into().unwrap(), "{}".into())
+        ))]
+        #[case::service_error(DynamoSdkError::service_error(
+            aws_sdk_dynamodb::operation::put_item::PutItemError::unhandled("Something went wrong"),
+            HttpResponse::new(500u16.try_into().unwrap(), "{}".into())
+        ))]
+        #[trace]
+        async fn should_propagate_sdk_error_put_item(
+            #[case] expected: DynamoSdkError<
+                aws_sdk_dynamodb::operation::put_item::PutItemError,
+                aws_sdk_dynamodb::config::http::HttpResponse,
+            >,
+        ) {
+            let mut repository = MockNotificationDynamoDbRepository::default();
+            repository
+                .expect_put_notification_record()
+                .return_once(|_| Box::pin(async { Err(expected) }));
+
+            let user_service = MockUserService::default();
+            let ses_adapter = MockSesAdapter::default();
+            let s3_adapter = MockS3Adapter::default();
+            let service = make_service(&repository, &user_service, &ses_adapter, &s3_adapter);
+            let actual = service
+                .create_notification(&Faker.fake(), make_test_command())
+                .await;
+
+            assert!(actual.is_err());
+            match actual.unwrap_err() {
+                NotificationError::SdkPutItemError(_) => {}
+                err => panic!("Expected 'NotificationError::SdkPutItemError', got '{err}'"),
+            }
+        }
+    }
+
+    mod update_notification {
+        use super::*;
+
+        #[tokio::test]
+        async fn should_update_seen_when_success() {
+            let mut repository = MockNotificationDynamoDbRepository::default();
+            repository
+                .expect_get_notification_record()
+                .return_once(|_, _| {
+                    Box::pin(async {
+                        let mut faked = Faker.fake::<NotificationRecord>();
+                        faked.seen = false;
+                        Ok(Some(faked))
+                    })
+                });
+            repository
+                .expect_update_notification_record()
+                .return_once(|_, _, _| {
+                    Box::pin(async {
+                        let mut faked = Faker.fake::<NotificationRecord>();
+                        faked.seen = true;
+                        Ok(Some(faked))
+                    })
+                });
+
+            let user_service = MockUserService::default();
+            let ses_adapter = MockSesAdapter::default();
+            let s3_adapter = MockS3Adapter::default();
+            let service = make_service(&repository, &user_service, &ses_adapter, &s3_adapter);
+            let result = service
+                .update_notification(
+                    &Faker.fake(),
+                    &Faker.fake(),
+                    UpdateNotificationCommand { seen: Some(true) },
+                )
+                .await
+                .unwrap();
+
+            assert!(result.seen);
+        }
+
+        #[tokio::test]
+        async fn should_err_notification_not_found_when_no_notification_exists() {
+            let mut repository = MockNotificationDynamoDbRepository::default();
+            repository
+                .expect_get_notification_record()
+                .return_once(|_, _| Box::pin(async { Ok(None) }));
+
+            let user_service = MockUserService::default();
+            let ses_adapter = MockSesAdapter::default();
+            let s3_adapter = MockS3Adapter::default();
+            let service = make_service(&repository, &user_service, &ses_adapter, &s3_adapter);
+            let user_id = UserId::new();
+            let origin_event_id = EventId::new();
+            let actual = service
+                .update_notification(
+                    &user_id,
+                    &origin_event_id,
+                    UpdateNotificationCommand { seen: Some(true) },
+                )
+                .await
+                .unwrap_err();
+
+            match actual {
+                NotificationError::NotificationNotFound(err_user_id, err_origin_event_id) => {
+                    assert_eq!(user_id, err_user_id);
+                    assert_eq!(origin_event_id, err_origin_event_id);
+                }
+                err => {
+                    panic!("Expected 'NotificationError::NotificationNotFound' but got '{err}'")
+                }
+            }
+        }
+
+        #[tokio::test]
+        #[rstest::rstest]
+        #[case::construction_failure(DynamoSdkError::construction_failure("Something went wrong"))]
+        #[case::timeout(DynamoSdkError::timeout_error("Something went wrong"))]
+        #[case::dispatch_failure(DynamoSdkError::dispatch_failure(ConnectorError::user("Something went wrong".into())))]
+        #[case::response_error(DynamoSdkError::response_error(
+            "Something went wrong",
+            HttpResponse::new(500u16.try_into().unwrap(), "{}".into())
+        ))]
+        #[case::service_error(DynamoSdkError::service_error(
+            aws_sdk_dynamodb::operation::get_item::GetItemError::unhandled("Something went wrong"),
+            HttpResponse::new(500u16.try_into().unwrap(), "{}".into())
+        ))]
+        #[trace]
+        async fn should_propagate_sdk_error_get_item(
+            #[case] expected: DynamoSdkError<
+                aws_sdk_dynamodb::operation::get_item::GetItemError,
+                aws_sdk_dynamodb::config::http::HttpResponse,
+            >,
+        ) {
+            let mut repository = MockNotificationDynamoDbRepository::default();
+            repository
+                .expect_get_notification_record()
+                .return_once(|_, _| Box::pin(async { Err(expected) }));
+
+            let user_service = MockUserService::default();
+            let ses_adapter = MockSesAdapter::default();
+            let s3_adapter = MockS3Adapter::default();
+            let service = make_service(&repository, &user_service, &ses_adapter, &s3_adapter);
+            let actual = service
+                .update_notification(
+                    &Faker.fake(),
+                    &Faker.fake(),
+                    UpdateNotificationCommand { seen: Some(true) },
+                )
+                .await;
+
+            assert!(actual.is_err());
+            match actual.unwrap_err() {
+                NotificationError::SdkGetItemError(_) => {}
+                err => panic!("Expected 'NotificationError::SdkGetItemError', got '{err}'"),
+            }
+        }
+
+        #[tokio::test]
+        #[rstest::rstest]
+        #[case::construction_failure(DynamoSdkError::construction_failure("Something went wrong"))]
+        #[case::timeout(DynamoSdkError::timeout_error("Something went wrong"))]
+        #[case::dispatch_failure(DynamoSdkError::dispatch_failure(ConnectorError::user("Something went wrong".into())))]
+        #[case::response_error(DynamoSdkError::response_error(
+            "Something went wrong",
+            HttpResponse::new(500u16.try_into().unwrap(), "{}".into())
+        ))]
+        #[case::service_error(DynamoSdkError::service_error(
+            aws_sdk_dynamodb::operation::update_item::UpdateItemError::unhandled("Something went wrong"),
+            HttpResponse::new(500u16.try_into().unwrap(), "{}".into())
+        ))]
+        #[trace]
+        async fn should_propagate_sdk_error_update_item(
+            #[case] expected: DynamoSdkError<
+                aws_sdk_dynamodb::operation::update_item::UpdateItemError,
+                aws_sdk_dynamodb::config::http::HttpResponse,
+            >,
+        ) {
+            let mut repository = MockNotificationDynamoDbRepository::default();
+            repository
+                .expect_get_notification_record()
+                .return_once(|_, _| {
+                    Box::pin(async {
+                        let mut faked = Faker.fake::<NotificationRecord>();
+                        faked.seen = false;
+                        Ok(Some(faked))
+                    })
+                });
+            repository
+                .expect_update_notification_record()
+                .return_once(|_, _, _| Box::pin(async { Err(expected) }));
+
+            let user_service = MockUserService::default();
+            let ses_adapter = MockSesAdapter::default();
+            let s3_adapter = MockS3Adapter::default();
+            let service = make_service(&repository, &user_service, &ses_adapter, &s3_adapter);
+            let actual = service
+                .update_notification(
+                    &Faker.fake(),
+                    &Faker.fake(),
+                    UpdateNotificationCommand { seen: Some(true) },
+                )
+                .await;
+
+            assert!(actual.is_err());
+            match actual.unwrap_err() {
+                NotificationError::SdkUpdateItemError(_) => {}
+                err => panic!("Expected 'NotificationError::SdkUpdateItemError', got '{err}'"),
+            }
+        }
+    }
+
+    mod view_notifications {
+        use super::*;
+
+        #[tokio::test]
+        #[rstest::rstest]
+        #[case::construction_failure(DynamoSdkError::construction_failure("Something went wrong"))]
+        #[case::timeout(DynamoSdkError::timeout_error("Something went wrong"))]
+        #[case::dispatch_failure(DynamoSdkError::dispatch_failure(ConnectorError::user("Something went wrong".into())))]
+        #[case::response_error(DynamoSdkError::response_error(
+            "Something went wrong",
+            HttpResponse::new(500u16.try_into().unwrap(), "{}".into())
+        ))]
+        #[case::service_error(DynamoSdkError::service_error(
+            aws_sdk_dynamodb::operation::query::QueryError::unhandled("Something went wrong"),
+            HttpResponse::new(500u16.try_into().unwrap(), "{}".into())
+        ))]
+        #[trace]
+        async fn should_propagate_sdk_error_query(
+            #[case] expected: DynamoSdkError<
+                aws_sdk_dynamodb::operation::query::QueryError,
+                aws_sdk_dynamodb::config::http::HttpResponse,
+            >,
+        ) {
+            let mut repository = MockNotificationDynamoDbRepository::default();
+            repository
+                .expect_query_notification_records()
+                .return_once(|_, _, _| Box::pin(async { Err(expected) }));
+
+            let user_service = MockUserService::default();
+            let ses_adapter = MockSesAdapter::default();
+            let s3_adapter = MockS3Adapter::default();
+            let service = make_service(&repository, &user_service, &ses_adapter, &s3_adapter);
+            let actual = service
+                .view_notifications(&Faker.fake(), &[Language::De], &Currency::Eur, &None)
+                .await;
+
+            assert!(actual.is_err());
+            match actual.unwrap_err() {
+                NotificationError::SdkQueryError(_) => {}
+                err => panic!("Expected 'NotificationError::SdkQueryError', got '{err}'"),
+            }
+        }
+    }
+
+    mod send_externally {
+        use super::*;
+        use aws_sdk_s3::{
+            operation::get_object::GetObjectOutput,
+            primitives::{ByteStream, SdkBody},
+        };
+
+        fn make_state_change_notification_record(
+            user_id: UserId,
+            origin_event_id: EventId,
+        ) -> NotificationRecord {
+            let mut record = make_notification_record_with_type(user_id, origin_event_id, None);
+            record.external = true;
+            record
+        }
+
+        fn make_already_sent_notification_record(
+            user_id: UserId,
+            origin_event_id: EventId,
+        ) -> NotificationRecord {
+            make_notification_record_with_type(
+                user_id,
+                origin_event_id,
+                Some(NotificationTypeRecord::Email),
+            )
+        }
+
+        fn mock_s3_returns_template(s3_adapter: &mut MockS3Adapter) {
+            s3_adapter.expect_get_object().return_once(|_, _| {
+                Box::pin(async {
+                    Ok(GetObjectOutput::builder()
+                        .body(ByteStream::new(SdkBody::from(
+                            "<html>Hello {{title}}</html>",
+                        )))
+                        .build())
+                })
+            });
+        }
+
+        fn mock_ses_sends_email(ses_adapter: &mut MockSesAdapter) {
+            ses_adapter
+                .expect_send_email()
+                .return_once(|_, _, _| Box::pin(async { Ok(SendEmailOutput::builder().build()) }));
+        }
+
+        #[tokio::test]
+        async fn should_skip_sending_when_already_sent_externally() {
+            let user_id = UserId::new();
+            let origin_event_id = EventId::new();
+
+            let mut repository = MockNotificationDynamoDbRepository::default();
+            let record = make_already_sent_notification_record(user_id, origin_event_id);
+            repository
+                .expect_get_notification_record()
+                .return_once(move |_, _| Box::pin(async move { Ok(Some(record)) }));
+            // No update_notification_record expectation — must not be called.
+            repository.expect_update_notification_record().never();
+
+            let mut user_service = MockUserService::default();
+            user_service.expect_find_user().never();
+
+            let mut ses_adapter = MockSesAdapter::default();
+            ses_adapter.expect_send_email().never();
+
+            let mut s3_adapter = MockS3Adapter::default();
+            s3_adapter.expect_get_object().never();
+
+            let service = make_service(&repository, &user_service, &ses_adapter, &s3_adapter);
+            let result = service
+                .send_externally(&user_id, &origin_event_id)
+                .await
+                .unwrap();
+
+            assert!(result.notification_type.is_some());
+        }
+
+        #[tokio::test]
+        async fn should_skip_sending_when_external_is_false() {
+            let user_id = UserId::new();
+            let origin_event_id = EventId::new();
+
+            let mut repository = MockNotificationDynamoDbRepository::default();
+            let mut record = make_notification_record_with_type(user_id, origin_event_id, None);
+            record.external = false;
+            repository
+                .expect_get_notification_record()
+                .return_once(move |_, _| Box::pin(async move { Ok(Some(record)) }));
+            // Must not update, call SES or S3 when external=false
+            repository.expect_update_notification_record().never();
+
+            let mut user_service = MockUserService::default();
+            user_service.expect_find_user().never();
+
+            let mut ses_adapter = MockSesAdapter::default();
+            ses_adapter.expect_send_email().never();
+
+            let mut s3_adapter = MockS3Adapter::default();
+            s3_adapter.expect_get_object().never();
+
+            let service = make_service(&repository, &user_service, &ses_adapter, &s3_adapter);
+            let result = service
+                .send_externally(&user_id, &origin_event_id)
+                .await
+                .unwrap();
+
+            // Returned as-is without sending
+            assert!(result.notification_type.is_none());
+            assert!(!result.external);
+        }
+
+        #[tokio::test]
+        async fn should_send_email_and_persist_notification_type_when_not_yet_sent() {
+            let user_id = UserId::new();
+            let origin_event_id = EventId::new();
+
+            let mut repository = MockNotificationDynamoDbRepository::default();
+            let record = make_state_change_notification_record(user_id, origin_event_id);
+            repository
+                .expect_get_notification_record()
+                .return_once(move |_, _| Box::pin(async move { Ok(Some(record)) }));
+
+            // After sending, the service persists notification_type = Email
+            let mut updated_record = Faker.fake::<NotificationRecord>();
+            updated_record.notification_type = Some(NotificationTypeRecord::Email);
+            updated_record.user_id = user_id;
+            updated_record.origin_event_id = origin_event_id;
+            repository
+                .expect_update_notification_record()
+                .withf(move |uid, eid, update| {
+                    *uid == user_id
+                        && *eid == origin_event_id
+                        && update.notification_type == Some(NotificationTypeRecord::Email)
+                        && update.seen.is_none()
+                })
+                .return_once(move |_, _, _| Box::pin(async move { Ok(Some(updated_record)) }));
+
+            let mut user_service = MockUserService::default();
+            let user = make_user(user_id);
+            user_service
+                .expect_find_user()
+                .return_once(move |_| Box::pin(async move { Ok(user) }));
+
+            let mut ses_adapter = MockSesAdapter::default();
+            mock_ses_sends_email(&mut ses_adapter);
+
+            let mut s3_adapter = MockS3Adapter::default();
+            mock_s3_returns_template(&mut s3_adapter);
+
+            let service = make_service(&repository, &user_service, &ses_adapter, &s3_adapter);
+            let result = service
+                .send_externally(&user_id, &origin_event_id)
+                .await
+                .unwrap();
+
+            assert_eq!(result.notification_type, Some(NotificationType::Email));
+        }
+
+        #[tokio::test]
+        async fn should_err_notification_not_found_when_notification_does_not_exist() {
+            let user_id = UserId::new();
+            let origin_event_id = EventId::new();
+
+            let mut repository = MockNotificationDynamoDbRepository::default();
+            repository
+                .expect_get_notification_record()
+                .return_once(|_, _| Box::pin(async { Ok(None) }));
+
+            let user_service = MockUserService::default();
+            let ses_adapter = MockSesAdapter::default();
+            let s3_adapter = MockS3Adapter::default();
+            let service = make_service(&repository, &user_service, &ses_adapter, &s3_adapter);
+
+            let actual = service
+                .send_externally(&user_id, &origin_event_id)
+                .await
+                .unwrap_err();
+
+            match actual {
+                NotificationError::NotificationNotFound(uid, eid) => {
+                    assert_eq!(uid, user_id);
+                    assert_eq!(eid, origin_event_id);
+                }
+                err => panic!("Expected 'NotificationNotFound', got '{err}'"),
+            }
+        }
+
+        #[tokio::test]
+        async fn should_err_user_not_found_when_user_does_not_exist() {
+            let user_id = UserId::new();
+            let origin_event_id = EventId::new();
+
+            let mut repository = MockNotificationDynamoDbRepository::default();
+            let record = make_state_change_notification_record(user_id, origin_event_id);
+            repository
+                .expect_get_notification_record()
+                .return_once(move |_, _| Box::pin(async move { Ok(Some(record)) }));
+
+            let mut user_service = MockUserService::default();
+            user_service.expect_find_user().return_once(move |_| {
+                Box::pin(async move { Err(UserServiceError::UserNotFound(user_id)) })
+            });
+
+            let ses_adapter = MockSesAdapter::default();
+            let s3_adapter = MockS3Adapter::default();
+            let service = make_service(&repository, &user_service, &ses_adapter, &s3_adapter);
+
+            let actual = service
+                .send_externally(&user_id, &origin_event_id)
+                .await
+                .unwrap_err();
+
+            match actual {
+                NotificationError::UserNotFound(uid) => {
+                    assert_eq!(uid, user_id);
+                }
+                err => panic!("Expected 'UserNotFound', got '{err}'"),
+            }
+        }
+
+        #[tokio::test]
+        async fn should_err_user_lookup_failed_when_user_service_returns_sdk_error() {
+            let user_id = UserId::new();
+            let origin_event_id = EventId::new();
+
+            let mut repository = MockNotificationDynamoDbRepository::default();
+            let record = make_state_change_notification_record(user_id, origin_event_id);
+            repository
+                .expect_get_notification_record()
+                .return_once(move |_, _| Box::pin(async move { Ok(Some(record)) }));
+
+            let mut user_service = MockUserService::default();
+            user_service.expect_find_user().return_once(move |_| {
+                Box::pin(async move {
+                    Err(UserServiceError::SdkGetItemError(
+                        aws_sdk_dynamodb::error::SdkError::construction_failure(
+                            "Simulated DynamoDB failure",
+                        ),
+                    ))
+                })
+            });
+
+            let ses_adapter = MockSesAdapter::default();
+            let s3_adapter = MockS3Adapter::default();
+            let service = make_service(&repository, &user_service, &ses_adapter, &s3_adapter);
+
+            let actual = service
+                .send_externally(&user_id, &origin_event_id)
+                .await
+                .unwrap_err();
+
+            match actual {
+                NotificationError::UserLookupFailed(_) => {}
+                err => panic!("Expected 'UserLookupFailed', got '{err}'"),
+            }
+        }
+
+        #[tokio::test]
+        async fn should_err_s3_get_object_when_template_resolution_fails() {
+            let user_id = UserId::new();
+            let origin_event_id = EventId::new();
+
+            let mut repository = MockNotificationDynamoDbRepository::default();
+            let record = make_state_change_notification_record(user_id, origin_event_id);
+            repository
+                .expect_get_notification_record()
+                .return_once(move |_, _| Box::pin(async move { Ok(Some(record)) }));
+
+            let mut user_service = MockUserService::default();
+            let user = make_user(user_id);
+            user_service
+                .expect_find_user()
+                .return_once(move |_| Box::pin(async move { Ok(user) }));
+
+            let ses_adapter = MockSesAdapter::default();
+
+            let mut s3_adapter = MockS3Adapter::default();
+            s3_adapter.expect_get_object().return_once(|_, _| {
+                Box::pin(async {
+                    Err(aws_sdk_s3::error::SdkError::construction_failure(
+                        "Simulated S3 failure",
+                    ))
+                })
+            });
+
+            // Clear the template cache so the S3 call is actually made
+            let _ = TEMPLATE_CACHE.get_or_init(|| Arc::new(RwLock::new(HashMap::new())));
+            {
+                let cache = TEMPLATE_CACHE.get().unwrap();
+                cache.write().await.clear();
+            }
+
+            let service = make_service(&repository, &user_service, &ses_adapter, &s3_adapter);
+
+            let actual = service
+                .send_externally(&user_id, &origin_event_id)
+                .await
+                .unwrap_err();
+
+            match actual {
+                NotificationError::SdkS3GetObjectError(_) => {}
+                err => panic!("Expected 'SdkS3GetObjectError', got '{err}'"),
+            }
+        }
+
+        #[tokio::test]
+        async fn should_err_ses_send_mail_when_ses_fails() {
+            let user_id = UserId::new();
+            let origin_event_id = EventId::new();
+
+            let mut repository = MockNotificationDynamoDbRepository::default();
+            let record = make_state_change_notification_record(user_id, origin_event_id);
+            repository
+                .expect_get_notification_record()
+                .return_once(move |_, _| Box::pin(async move { Ok(Some(record)) }));
+
+            let mut user_service = MockUserService::default();
+            let user = make_user(user_id);
+            user_service
+                .expect_find_user()
+                .return_once(move |_| Box::pin(async move { Ok(user) }));
+
+            let mut ses_adapter = MockSesAdapter::default();
+            ses_adapter.expect_send_email().return_once(|_, _, _| {
+                Box::pin(async {
+                    Err(aws_sdk_sesv2::error::SdkError::construction_failure(
+                        "Simulated SES failure",
+                    ))
+                })
+            });
+
+            let mut s3_adapter = MockS3Adapter::default();
+            mock_s3_returns_template(&mut s3_adapter);
+
+            let service = make_service(&repository, &user_service, &ses_adapter, &s3_adapter);
+
+            let actual = service
+                .send_externally(&user_id, &origin_event_id)
+                .await
+                .unwrap_err();
+
+            match actual {
+                NotificationError::SdkSESSendMailError(_) => {}
+                err => panic!("Expected 'SdkSESSendMailError', got '{err}'"),
+            }
+        }
+
+        #[tokio::test]
+        async fn should_propagate_sdk_update_error_when_persisting_notification_type_fails() {
+            let user_id = UserId::new();
+            let origin_event_id = EventId::new();
+
+            let mut repository = MockNotificationDynamoDbRepository::default();
+            let record = make_state_change_notification_record(user_id, origin_event_id);
+            repository
+                .expect_get_notification_record()
+                .return_once(move |_, _| Box::pin(async move { Ok(Some(record)) }));
+            repository
+                .expect_update_notification_record()
+                .return_once(|_, _, _| {
+                    Box::pin(async {
+                        Err(aws_sdk_dynamodb::error::SdkError::construction_failure(
+                            "Simulated UpdateItem failure",
+                        ))
+                    })
+                });
+
+            let mut user_service = MockUserService::default();
+            let user = make_user(user_id);
+            user_service
+                .expect_find_user()
+                .return_once(move |_| Box::pin(async move { Ok(user) }));
+
+            let mut ses_adapter = MockSesAdapter::default();
+            mock_ses_sends_email(&mut ses_adapter);
+
+            let mut s3_adapter = MockS3Adapter::default();
+            mock_s3_returns_template(&mut s3_adapter);
+
+            let service = make_service(&repository, &user_service, &ses_adapter, &s3_adapter);
+
+            let actual = service
+                .send_externally(&user_id, &origin_event_id)
+                .await
+                .unwrap_err();
+
+            match actual {
+                NotificationError::SdkUpdateItemError(_) => {}
+                err => panic!("Expected 'SdkUpdateItemError', got '{err}'"),
+            }
+        }
+
+        #[tokio::test]
+        async fn should_use_default_language_and_currency_when_user_has_no_preferences() {
+            let user_id = UserId::new();
+            let origin_event_id = EventId::new();
+
+            let mut repository = MockNotificationDynamoDbRepository::default();
+            let record = make_state_change_notification_record(user_id, origin_event_id);
+            repository
+                .expect_get_notification_record()
+                .return_once(move |_, _| Box::pin(async move { Ok(Some(record)) }));
+
+            let mut updated_record = Faker.fake::<NotificationRecord>();
+            updated_record.notification_type = Some(NotificationTypeRecord::Email);
+            updated_record.user_id = user_id;
+            updated_record.origin_event_id = origin_event_id;
+            repository
+                .expect_update_notification_record()
+                .return_once(move |_, _, _| Box::pin(async move { Ok(Some(updated_record)) }));
+
+            let mut user_service = MockUserService::default();
+            // User with no language/currency preferences
+            let user = User {
+                user_id,
+                email: "test@example.com".try_into().unwrap(),
+                first_name: None,
+                last_name: None,
+                language: None,
+                currency: None,
+                prohibited_content_consent: false,
+                created: OffsetDateTime::now_utc(),
+                updated: OffsetDateTime::now_utc(),
+            };
+            user_service
+                .expect_find_user()
+                .return_once(move |_| Box::pin(async move { Ok(user) }));
+
+            let mut ses_adapter = MockSesAdapter::default();
+            mock_ses_sends_email(&mut ses_adapter);
+
+            let mut s3_adapter = MockS3Adapter::default();
+            mock_s3_returns_template(&mut s3_adapter);
+
+            let service = make_service(&repository, &user_service, &ses_adapter, &s3_adapter);
+
+            // Should succeed — defaults to Language::En and Currency::Eur
+            let result = service
+                .send_externally(&user_id, &origin_event_id)
+                .await
+                .unwrap();
+
+            assert_eq!(result.notification_type, Some(NotificationType::Email));
+        }
+
+        #[tokio::test]
+        async fn should_not_call_ses_when_already_sent() {
+            let user_id = UserId::new();
+            let origin_event_id = EventId::new();
+
+            let mut repository = MockNotificationDynamoDbRepository::default();
+            let record = make_already_sent_notification_record(user_id, origin_event_id);
+            repository
+                .expect_get_notification_record()
+                .return_once(move |_, _| Box::pin(async move { Ok(Some(record)) }));
+
+            let mut user_service = MockUserService::default();
+            user_service.expect_find_user().never();
+
+            let mut ses_adapter = MockSesAdapter::default();
+            ses_adapter.expect_send_email().never();
+
+            let mut s3_adapter = MockS3Adapter::default();
+            s3_adapter.expect_get_object().never();
+
+            let service = make_service(&repository, &user_service, &ses_adapter, &s3_adapter);
+            let result = service
+                .send_externally(&user_id, &origin_event_id)
+                .await
+                .unwrap();
+
+            // Notification type should be preserved from the existing record.
+            assert!(result.notification_type.is_some());
+        }
+
+        #[tokio::test]
+        async fn should_propagate_sdk_error_get_item_when_fetching_notification_fails() {
+            let user_id = UserId::new();
+            let origin_event_id = EventId::new();
+
+            let mut repository = MockNotificationDynamoDbRepository::default();
+            repository
+                .expect_get_notification_record()
+                .return_once(|_, _| {
+                    Box::pin(async {
+                        Err(aws_sdk_dynamodb::error::SdkError::construction_failure(
+                            "Simulated GetItem failure",
+                        ))
+                    })
+                });
+
+            let user_service = MockUserService::default();
+            let ses_adapter = MockSesAdapter::default();
+            let s3_adapter = MockS3Adapter::default();
+            let service = make_service(&repository, &user_service, &ses_adapter, &s3_adapter);
+
+            let actual = service
+                .send_externally(&user_id, &origin_event_id)
+                .await
+                .unwrap_err();
+
+            match actual {
+                NotificationError::SdkGetItemError(_) => {}
+                err => panic!("Expected 'SdkGetItemError', got '{err}'"),
+            }
+        }
+
+        #[tokio::test]
+        async fn should_err_update_item_when_update_returns_none() {
+            let user_id = UserId::new();
+            let origin_event_id = EventId::new();
+
+            let mut repository = MockNotificationDynamoDbRepository::default();
+            let record = make_state_change_notification_record(user_id, origin_event_id);
+            repository
+                .expect_get_notification_record()
+                .return_once(move |_, _| Box::pin(async move { Ok(Some(record)) }));
+            repository
+                .expect_update_notification_record()
+                .return_once(|_, _, _| Box::pin(async { Ok(None) }));
+
+            let mut user_service = MockUserService::default();
+            let user = make_user(user_id);
+            user_service
+                .expect_find_user()
+                .return_once(move |_| Box::pin(async move { Ok(user) }));
+
+            let mut ses_adapter = MockSesAdapter::default();
+            mock_ses_sends_email(&mut ses_adapter);
+
+            let mut s3_adapter = MockS3Adapter::default();
+            mock_s3_returns_template(&mut s3_adapter);
+
+            let service = make_service(&repository, &user_service, &ses_adapter, &s3_adapter);
+
+            let actual = service
+                .send_externally(&user_id, &origin_event_id)
+                .await
+                .unwrap_err();
+
+            match actual {
+                NotificationError::SdkUpdateItemError(_) => {}
+                err => panic!("Expected 'SdkUpdateItemError', got '{err}'"),
+            }
+        }
+    }
+
+    mod derive_mail_template_tests {
+        use super::*;
+        use common::language::data::LanguageData;
+
+        #[test]
+        fn should_derive_price_change_template_for_price_change_payload() {
+            let payload = NotificationPayload::Watchlist {
+                product_id: Faker.fake(),
+                shop_id: Faker.fake(),
+                shops_product_id: "test".into(),
+                shop_slug_id: Faker.fake(),
+                product_slug_id: Faker.fake(),
+                shop_name: "Shop".into(),
+                title: HashMap::from([(Language::En, "Title".into())]),
+                watchlist_payload: NotificationWatchlistPayload::PriceChange {
+                    old_price: HashMap::new(),
+                    new_price: HashMap::new(),
+                },
+            };
+
+            let template = derive_mail_template(&payload, &Language::De);
+            assert_eq!(
+                template.template_type,
+                MailTemplateType::WatchlistUpdatePrice
+            );
+            assert_eq!(template.language, LanguageData::De);
+        }
+
+        #[test]
+        fn should_derive_state_change_template_for_state_change_payload() {
+            let payload = NotificationPayload::Watchlist {
+                product_id: Faker.fake(),
+                shop_id: Faker.fake(),
+                shops_product_id: "test".into(),
+                shop_slug_id: Faker.fake(),
+                product_slug_id: Faker.fake(),
+                shop_name: "Shop".into(),
+                title: HashMap::from([(Language::En, "Title".into())]),
+                watchlist_payload: NotificationWatchlistPayload::StateChange {
+                    old_state: ProductState::Listed,
+                    new_state: ProductState::Sold,
+                },
+            };
+
+            let template = derive_mail_template(&payload, &Language::Fr);
+            assert_eq!(
+                template.template_type,
+                MailTemplateType::WatchlistUpdateState
+            );
+            assert_eq!(template.language, LanguageData::Fr);
+        }
+
+        #[rstest::rstest]
+        #[case::de(Language::De, LanguageData::De)]
+        #[case::en(Language::En, LanguageData::En)]
+        #[case::fr(Language::Fr, LanguageData::Fr)]
+        #[case::es(Language::Es, LanguageData::Es)]
+        #[case::it(Language::It, LanguageData::It)]
+        fn should_map_language_to_language_data_for_template(
+            #[case] language: Language,
+            #[case] expected_data: LanguageData,
+        ) {
+            let payload = NotificationPayload::Watchlist {
+                product_id: Faker.fake(),
+                shop_id: Faker.fake(),
+                shops_product_id: "test".into(),
+                shop_slug_id: Faker.fake(),
+                product_slug_id: Faker.fake(),
+                shop_name: "Shop".into(),
+                title: HashMap::from([(Language::En, "Title".into())]),
+                watchlist_payload: NotificationWatchlistPayload::StateChange {
+                    old_state: ProductState::Listed,
+                    new_state: ProductState::Sold,
+                },
+            };
+
+            let template = derive_mail_template(&payload, &language);
+            assert_eq!(template.language, expected_data);
+        }
+    }
+
+    mod build_email_subject_tests {
+        use super::*;
+
+        fn make_watchlist_payload_state(
+            title: HashMap<Language, product::core::title::Title>,
+            old_state: ProductState,
+            new_state: ProductState,
+        ) -> NotificationPayload {
+            NotificationPayload::Watchlist {
+                product_id: Faker.fake(),
+                shop_id: Faker.fake(),
+                shops_product_id: "test".into(),
+                shop_slug_id: Faker.fake(),
+                product_slug_id: Faker.fake(),
+                shop_name: "Shop".into(),
+                title,
+                watchlist_payload: NotificationWatchlistPayload::StateChange {
+                    old_state,
+                    new_state,
+                },
+            }
+        }
+
+        fn make_watchlist_payload_price(
+            title: HashMap<Language, product::core::title::Title>,
+        ) -> NotificationPayload {
+            NotificationPayload::Watchlist {
+                product_id: Faker.fake(),
+                shop_id: Faker.fake(),
+                shops_product_id: "test".into(),
+                shop_slug_id: Faker.fake(),
+                product_slug_id: Faker.fake(),
+                shop_name: "Shop".into(),
+                title,
+                watchlist_payload: NotificationWatchlistPayload::PriceChange {
+                    old_price: HashMap::new(),
+                    new_price: HashMap::new(),
+                },
+            }
+        }
+
+        #[test]
+        fn should_build_english_price_change_subject() {
+            let title = HashMap::from([(Language::En, "Antique Vase".into())]);
+            let payload = make_watchlist_payload_price(title);
+            let subject = build_email_subject(&payload, &Language::En);
+            assert_eq!(subject, "Price change: Antique Vase");
+        }
+
+        #[test]
+        fn should_build_german_price_change_subject() {
+            let title = HashMap::from([(Language::De, "Antike Vase".into())]);
+            let payload = make_watchlist_payload_price(title);
+            let subject = build_email_subject(&payload, &Language::De);
+            assert_eq!(subject, "Preisänderung: Antike Vase");
+        }
+
+        #[test]
+        fn should_build_french_price_change_subject() {
+            let title = HashMap::from([(Language::Fr, "Vase antique".into())]);
+            let payload = make_watchlist_payload_price(title);
+            let subject = build_email_subject(&payload, &Language::Fr);
+            assert_eq!(subject, "Changement de prix : Vase antique");
+        }
+
+        #[test]
+        fn should_build_spanish_price_change_subject() {
+            let title = HashMap::from([(Language::Es, "Jarrón antiguo".into())]);
+            let payload = make_watchlist_payload_price(title);
+            let subject = build_email_subject(&payload, &Language::Es);
+            assert_eq!(subject, "Cambio de precio: Jarrón antiguo");
+        }
+
+        #[test]
+        fn should_build_italian_price_change_subject() {
+            let title = HashMap::from([(Language::It, "Vaso antico".into())]);
+            let payload = make_watchlist_payload_price(title);
+            let subject = build_email_subject(&payload, &Language::It);
+            assert_eq!(subject, "Variazione di prezzo: Vaso antico");
+        }
+
+        #[test]
+        fn should_build_english_state_change_subject_with_sold_state() {
+            let title = HashMap::from([(Language::En, "Antique Vase".into())]);
+            let payload =
+                make_watchlist_payload_state(title, ProductState::Listed, ProductState::Sold);
+            let subject = build_email_subject(&payload, &Language::En);
+            assert_eq!(subject, "Status change (Sold): Antique Vase");
+        }
+
+        #[test]
+        fn should_build_german_state_change_subject_with_sold_state() {
+            let title = HashMap::from([(Language::De, "Antike Vase".into())]);
+            let payload =
+                make_watchlist_payload_state(title, ProductState::Listed, ProductState::Sold);
+            let subject = build_email_subject(&payload, &Language::De);
+            assert_eq!(subject, "Statusänderung (Verkauft): Antike Vase");
+        }
+
+        #[test]
+        fn should_fallback_to_unknown_when_title_not_available_for_language() {
+            let title = HashMap::new();
+            let payload = make_watchlist_payload_price(title);
+            let subject = build_email_subject(&payload, &Language::En);
+            assert_eq!(subject, "Price change: Unknown");
+        }
+
+        #[test]
+        fn should_resolve_title_for_english_when_requested_language_unavailable() {
+            let title = HashMap::from([(Language::En, "English Title".into())]);
+            let payload = make_watchlist_payload_price(title);
+            // Requesting French but only English is available
+            let subject = build_email_subject(&payload, &Language::Fr);
+            // Language::resolve falls back to English
+            assert_eq!(subject, "Changement de prix : English Title");
+        }
+    }
+
+    mod build_email_template_data_tests {
+        use super::*;
+
+        #[test]
+        fn should_include_product_fields_for_state_change() {
+            let notification = Notification {
+                user_id: UserId::new(),
+                origin_event_id: EventId::new(),
+                notification_id: NotificationId::new(),
+                notification_type: None,
+                notification_payload: NotificationPayload::Watchlist {
+                    product_id: Faker.fake(),
+                    shop_id: Faker.fake(),
+                    shops_product_id: "test-product-123".into(),
+                    shop_slug_id: Faker.fake(),
+                    product_slug_id: Faker.fake(),
+                    shop_name: "Test Shop".into(),
+                    title: HashMap::from([(Language::En, "Antique Vase".into())]),
+                    watchlist_payload: NotificationWatchlistPayload::StateChange {
+                        old_state: ProductState::Listed,
+                        new_state: ProductState::Sold,
+                    },
+                },
+                seen: false,
+                external: false,
+                created: OffsetDateTime::now_utc(),
+                updated: OffsetDateTime::now_utc(),
+            };
+
+            let data = build_email_template_data(&notification, &Language::En, &Currency::Eur);
+
+            assert_eq!(data["title"], "Antique Vase");
+            assert_eq!(data["shop_name"], "Test Shop");
+            assert_eq!(data["old_state"], "Listed");
+            assert_eq!(data["new_state"], "Sold");
+            assert_eq!(data["notification_type"], "state_change");
+        }
+
+        #[test]
+        fn should_include_price_fields_for_price_change() {
+            let notification = Notification {
+                user_id: UserId::new(),
+                origin_event_id: EventId::new(),
+                notification_id: NotificationId::new(),
+                notification_type: None,
+                notification_payload: NotificationPayload::Watchlist {
+                    product_id: Faker.fake(),
+                    shop_id: Faker.fake(),
+                    shops_product_id: "test-product-123".into(),
+                    shop_slug_id: Faker.fake(),
+                    product_slug_id: Faker.fake(),
+                    shop_name: "Test Shop".into(),
+                    title: HashMap::from([(Language::En, "Antique Vase".into())]),
+                    watchlist_payload: NotificationWatchlistPayload::PriceChange {
+                        old_price: HashMap::from([(Currency::Eur, MonetaryAmount::from(10000u64))]),
+                        new_price: HashMap::from([(Currency::Eur, MonetaryAmount::from(8000u64))]),
+                    },
+                },
+                seen: false,
+                external: false,
+                created: OffsetDateTime::now_utc(),
+                updated: OffsetDateTime::now_utc(),
+            };
+
+            let data = build_email_template_data(&notification, &Language::En, &Currency::Eur);
+
+            assert_eq!(data["notification_type"], "price_change");
+            // old_price and new_price should be present as human-readable strings
+            assert!(data["old_price"].is_string());
+            assert!(data["new_price"].is_string());
+        }
+
+        #[test]
+        fn should_not_include_old_price_when_none_available() {
+            let notification = Notification {
+                user_id: UserId::new(),
+                origin_event_id: EventId::new(),
+                notification_id: NotificationId::new(),
+                notification_type: None,
+                notification_payload: NotificationPayload::Watchlist {
+                    product_id: Faker.fake(),
+                    shop_id: Faker.fake(),
+                    shops_product_id: "test".into(),
+                    shop_slug_id: Faker.fake(),
+                    product_slug_id: Faker.fake(),
+                    shop_name: "Shop".into(),
+                    title: HashMap::from([(Language::En, "Title".into())]),
+                    watchlist_payload: NotificationWatchlistPayload::PriceChange {
+                        old_price: HashMap::new(),
+                        new_price: HashMap::from([(Currency::Eur, MonetaryAmount::from(5000u64))]),
+                    },
+                },
+                seen: false,
+                external: false,
+                created: OffsetDateTime::now_utc(),
+                updated: OffsetDateTime::now_utc(),
+            };
+
+            let data = build_email_template_data(&notification, &Language::En, &Currency::Eur);
+
+            assert!(data.get("old_price").is_none());
+            assert!(data["new_price"].is_string());
+        }
+
+        #[test]
+        fn should_use_localized_state_names_for_german() {
+            let notification = Notification {
+                user_id: UserId::new(),
+                origin_event_id: EventId::new(),
+                notification_id: NotificationId::new(),
+                notification_type: None,
+                notification_payload: NotificationPayload::Watchlist {
+                    product_id: Faker.fake(),
+                    shop_id: Faker.fake(),
+                    shops_product_id: "test".into(),
+                    shop_slug_id: Faker.fake(),
+                    product_slug_id: Faker.fake(),
+                    shop_name: "Shop".into(),
+                    title: HashMap::from([(Language::De, "Antike Vase".into())]),
+                    watchlist_payload: NotificationWatchlistPayload::StateChange {
+                        old_state: ProductState::Listed,
+                        new_state: ProductState::Sold,
+                    },
+                },
+                seen: false,
+                external: false,
+                created: OffsetDateTime::now_utc(),
+                updated: OffsetDateTime::now_utc(),
+            };
+
+            let data = build_email_template_data(&notification, &Language::De, &Currency::Eur);
+
+            assert_eq!(data["old_state"], "Gelistet");
+            assert_eq!(data["new_state"], "Verkauft");
+            assert_eq!(data["title"], "Antike Vase");
+        }
+    }
+
+    mod resolve_template_tests {
+        use super::*;
+        use aws_sdk_s3::{
+            operation::get_object::GetObjectOutput,
+            primitives::{ByteStream, SdkBody},
+        };
+        use common::language::data::LanguageData;
+
+        #[tokio::test]
+        async fn should_reuse_template_when_in_cache() {
+            let repository = MockNotificationDynamoDbRepository::default();
+            let user_service = MockUserService::default();
+            let mut ses_adapter = MockSesAdapter::default();
+            ses_adapter.expect_send_email().never();
+            let mut s3_adapter = MockS3Adapter::default();
+            s3_adapter.expect_get_object().never();
+
+            let service = make_service(&repository, &user_service, &ses_adapter, &s3_adapter);
+
+            let template = MailTemplate {
+                template_type: MailTemplateType::WatchlistUpdatePrice,
+                language: LanguageData::De,
+            };
+
+            // Seed the cache
+            let cache = TEMPLATE_CACHE.get_or_init(|| Arc::new(RwLock::new(HashMap::new())));
+            cache
+                .write()
+                .await
+                .insert(template, "cached-html".to_owned());
+
+            let actual = service.resolve_template(template).await.unwrap();
+            assert_eq!("cached-html", actual);
+        }
+
+        #[tokio::test]
+        async fn should_fetch_from_s3_and_cache_when_not_in_cache() {
+            let repository = MockNotificationDynamoDbRepository::default();
+            let user_service = MockUserService::default();
+            let ses_adapter = MockSesAdapter::default();
+            let mut s3_adapter = MockS3Adapter::default();
+            s3_adapter
+                .expect_get_object()
+                .withf(|bucket, key| {
+                    bucket == "test-bucket"
+                        && key == "test-stage/test-sha/mjml/watchlist/product-update/state/en.html"
+                })
+                .return_once(|_, _| {
+                    Box::pin(async {
+                        Ok(GetObjectOutput::builder()
+                            .body(ByteStream::new(SdkBody::from(
+                                "<html>State Template</html>",
+                            )))
+                            .build())
+                    })
+                });
+
+            let template = MailTemplate {
+                template_type: MailTemplateType::WatchlistUpdateState,
+                language: LanguageData::En,
+            };
+
+            // Clear cache
+            let cache = TEMPLATE_CACHE.get_or_init(|| Arc::new(RwLock::new(HashMap::new())));
+            cache.write().await.remove(&template);
+
+            let service = make_service(&repository, &user_service, &ses_adapter, &s3_adapter);
+            let actual = service.resolve_template(template).await.unwrap();
+
+            assert_eq!("<html>State Template</html>", actual);
+
+            // Verify it's now cached
+            let cached = cache.read().await.get(&template).cloned();
+            assert_eq!(cached, Some("<html>State Template</html>".to_owned()));
+        }
+    }
+
+    mod update_notifications {
+        use super::*;
+
+        #[tokio::test]
+        async fn should_update_all_records() {
+            let user_id = UserId::new();
+            let mut record1: NotificationRecord = Faker.fake();
+            record1.user_id = user_id;
+            let mut record2: NotificationRecord = Faker.fake();
+            record2.user_id = user_id;
+
+            let mut repository = MockNotificationDynamoDbRepository::default();
+            repository
+                .expect_query_all_notification_records()
+                .return_once(move |_| {
+                    Box::pin(async move { Ok(vec![record1.clone(), record2.clone()]) })
+                });
+            repository
+                .expect_update_notification_record()
+                .times(2)
+                .returning(|_, _, _| Box::pin(async { Ok(Some(Faker.fake())) }));
+            repository
+                .expect_query_notification_records()
+                .return_once(|_, _, _| Box::pin(async { Ok(vec![]) }));
+            repository
+                .expect_count_notification_records()
+                .return_once(|_, _, _| Box::pin(async { Ok(0) }));
+
+            let user_service = MockUserService::default();
+            let ses_adapter = MockSesAdapter::default();
+            let s3_adapter = MockS3Adapter::default();
+            let service = make_service(&repository, &user_service, &ses_adapter, &s3_adapter);
+            let result = service
+                .update_notifications(&user_id, UpdateNotificationCommand { seen: Some(true) })
+                .await;
+
+            assert!(result.is_ok());
+        }
+
+        #[tokio::test]
+        async fn should_return_first_page_of_notifications() {
+            let user_id = UserId::new();
+
+            let mut repository = MockNotificationDynamoDbRepository::default();
+            repository
+                .expect_query_all_notification_records()
+                .return_once(|_| Box::pin(async { Ok(vec![]) }));
+            repository
+                .expect_query_notification_records()
+                .return_once(|_, _, _| Box::pin(async { Ok(vec![]) }));
+            repository
+                .expect_count_notification_records()
+                .return_once(|_, _, _| Box::pin(async { Ok(0) }));
+
+            let user_service = MockUserService::default();
+            let ses_adapter = MockSesAdapter::default();
+            let s3_adapter = MockS3Adapter::default();
+            let service = make_service(&repository, &user_service, &ses_adapter, &s3_adapter);
+            let result = service
+                .update_notifications(&user_id, UpdateNotificationCommand::default())
+                .await;
+
+            assert!(result.is_ok());
+            let page = result.unwrap();
+            assert_eq!(Some(0), page.total);
+        }
+    }
+
+    mod delete_notification {
+        use super::*;
+
+        #[tokio::test]
+        async fn should_return_ok_when_exists() {
+            let user_id = UserId::new();
+            let event_id = EventId::new();
+            let mut record: NotificationRecord = Faker.fake();
+            record.user_id = user_id;
+            record.origin_event_id = event_id;
+
+            let mut repository = MockNotificationDynamoDbRepository::default();
+            repository
+                .expect_get_notification_record()
+                .return_once(move |_, _| Box::pin(async move { Ok(Some(record)) }));
+            repository
+                .expect_delete_notification_record()
+                .return_once(|_, _| {
+                    Box::pin(async {
+                        Ok(
+                            aws_sdk_dynamodb::operation::delete_item::DeleteItemOutput::builder()
+                                .build(),
+                        )
+                    })
+                });
+
+            let user_service = MockUserService::default();
+            let ses_adapter = MockSesAdapter::default();
+            let s3_adapter = MockS3Adapter::default();
+            let service = make_service(&repository, &user_service, &ses_adapter, &s3_adapter);
+            let result = service.delete_notification(&user_id, &event_id).await;
+
+            assert!(result.is_ok());
+        }
+
+        #[tokio::test]
+        async fn should_return_not_found_when_not_exists() {
+            let user_id = UserId::new();
+            let event_id = EventId::new();
+
+            let mut repository = MockNotificationDynamoDbRepository::default();
+            repository
+                .expect_get_notification_record()
+                .return_once(|_, _| Box::pin(async { Ok(None) }));
+            repository.expect_delete_notification_record().never();
+
+            let user_service = MockUserService::default();
+            let ses_adapter = MockSesAdapter::default();
+            let s3_adapter = MockS3Adapter::default();
+            let service = make_service(&repository, &user_service, &ses_adapter, &s3_adapter);
+            let result = service.delete_notification(&user_id, &event_id).await;
+
+            assert!(result.is_err());
+            match result.unwrap_err() {
+                NotificationError::NotificationNotFound(_, _) => {}
+                err => panic!("Expected NotificationNotFound, got '{err}'"),
+            }
+        }
+    }
+
+    mod delete_all_notifications {
+        use super::*;
+
+        #[tokio::test]
+        async fn should_delete_all_records() {
+            let user_id = UserId::new();
+            let mut record1: NotificationRecord = Faker.fake();
+            record1.user_id = user_id;
+            let mut record2: NotificationRecord = Faker.fake();
+            record2.user_id = user_id;
+
+            let mut repository = MockNotificationDynamoDbRepository::default();
+            repository
+                .expect_query_all_notification_records()
+                .return_once(move |_| Box::pin(async move { Ok(vec![record1, record2]) }));
+            repository
+                .expect_delete_notification_records()
+                .return_once(|_, _| {
+                    Box::pin(async {
+                        Ok(aws_sdk_dynamodb::operation::batch_write_item::BatchWriteItemOutput::builder()
+                            .build())
+                    })
+                });
+
+            let user_service = MockUserService::default();
+            let ses_adapter = MockSesAdapter::default();
+            let s3_adapter = MockS3Adapter::default();
+            let service = make_service(&repository, &user_service, &ses_adapter, &s3_adapter);
+            let result = service.delete_notifications(&user_id).await;
+
+            assert!(result.is_ok());
+        }
+
+        #[tokio::test]
+        async fn should_succeed_when_no_notifications() {
+            let user_id = UserId::new();
+
+            let mut repository = MockNotificationDynamoDbRepository::default();
+            repository
+                .expect_query_all_notification_records()
+                .return_once(|_| Box::pin(async { Ok(vec![]) }));
+            repository.expect_delete_notification_records().never();
+
+            let user_service = MockUserService::default();
+            let ses_adapter = MockSesAdapter::default();
+            let s3_adapter = MockS3Adapter::default();
+            let service = make_service(&repository, &user_service, &ses_adapter, &s3_adapter);
+            let result = service.delete_notifications(&user_id).await;
+
+            assert!(result.is_ok());
+        }
+    }
+}

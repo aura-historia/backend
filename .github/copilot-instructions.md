@@ -94,7 +94,6 @@ Since this is a serverless backend, manual testing involves:
   - `dynamodb`: User data access layer
   - `service`: User business services
 - **src/user-api**: API Gateway handlers for user operations (2 handlers)
-- **src/user-lambda**: Lambda function implementations for user operations (1 lambda)
 - **src/fxrate**: Foreign exchange rate management system:
   - `service`: FX rate business services
   - `dynamodb`: FX rate data access layer
@@ -103,7 +102,7 @@ Since this is a serverless backend, manual testing involves:
 - **src/cognito-post-confirmation**: Lambda for Cognito post-confirmation trigger
 - **src/mail**: Email notification system:
   - `mail-core`: Email templates and core logic
-- **src/mail-lambda-send**: Lambda for sending emails via SES
+- **src/notification-send**: Lambda for sending notifications externally via SES (triggered by DynamoDB Stream via EventBridge)
 - **src/test-api**: Testing utilities and integration test framework
 - **src/aws-tests**: AWS integration and end-to-end tests:
   - `aws-tests-common`: Common test utilities
@@ -133,14 +132,11 @@ Located in various directories:
 **Shop Lambda Functions** (`src/shop-lambda/src/`):
 - `shop-lambda-opensearch-index`: Index shops to OpenSearch
 
-**User Lambda Functions** (`src/user-lambda/src/`):
-- `user-lambda-fanout-update-watchlist`: Fanout user watchlist updates
-
 **Cognito Lambda Functions**:
 - `cognito-post-confirmation`: Handle Cognito user post-confirmation trigger (`src/cognito-post-confirmation`)
 
 **Mail Lambda Functions**:
-- `mail-lambda-send`: Send emails via AWS SES (`src/mail-lambda-send`)
+- `notification-send`: Send notifications externally via AWS SES (`src/notification-send`)
 
 **FX Rate Lambda Functions**:
 - `fxrate-lambda`: Update foreign exchange rates (`src/fxrate-lambda`)
@@ -265,8 +261,6 @@ src/
 │   ├── src/dynamodb/       # User data access
 │   └── src/service/        # User business services
 ├── user-api/       # API Gateway handlers for user operations (2 handlers)
-├── user-lambda/    # User Lambda functions
-│   └── src/user-lambda-fanout-update-watchlist/  # Lambda for watchlist updates
 ├── fxrate/         # Foreign exchange rate management
 │   ├── src/service/        # FX rate business services
 │   └── src/dynamodb/       # FX rate data access
@@ -275,7 +269,7 @@ src/
 ├── cognito-post-confirmation/  # Cognito post-confirmation Lambda
 ├── mail/           # Email notification system
 │   └── src/mail-core/      # Email templates and core logic
-├── mail-lambda-send/  # Lambda for sending emails via SES
+├── notification-send/  # Lambda for sending notifications externally via SES (DynamoDB Stream → EventBridge → SQS)
 ├── test-api/       # Testing framework and integration test utilities
 └── aws-tests/      # AWS integration and end-to-end tests
     └── src/

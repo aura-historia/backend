@@ -1,0 +1,238 @@
+{
+    "settings": {
+        "analysis": {
+            "filter": {
+                "english_stop": {
+                    "type": "stop",
+                    "stopwords": "_english_"
+                },
+                "english_stemmer": {
+                    "type": "stemmer",
+                    "language": "english"
+                },
+                "english_possessive_stemmer": {
+                    "type": "stemmer",
+                    "language": "possessive_english"
+                },
+                "english_synonyms": {
+                    "type": "synonym_graph",
+                    "synonyms_path": "analysis/english_synonyms.txt",
+                    "updateable": true
+                },
+                "german_stop": {
+                    "type": "stop",
+                    "stopwords": "_german_"
+                },
+                "german_stemmer": {
+                    "type": "stemmer",
+                    "language": "light_german"
+                },
+                "german_synonyms": {
+                    "type": "synonym_graph",
+                    "synonyms_path": "analysis/german_synonyms.txt",
+                    "updateable": true
+                },
+                "french_stop": {
+                    "type": "stop",
+                    "stopwords": "_french_"
+                },
+                "french_stemmer": {
+                    "type": "stemmer",
+                    "language": "light_french"
+                },
+                "french_elision": {
+                    "type": "elision",
+                    "articles_case": true,
+                    "articles": [
+                        "l",
+                        "m",
+                        "t",
+                        "qu",
+                        "n",
+                        "s",
+                        "j",
+                        "d",
+                        "c",
+                        "jusqu",
+                        "quoiqu",
+                        "lorsqu",
+                        "puisqu"
+                    ]
+                },
+                "french_synonyms": {
+                    "type": "synonym_graph",
+                    "synonyms_path": "analysis/french_synonyms.txt",
+                    "updateable": true
+                },
+                "spanish_stop": {
+                    "type": "stop",
+                    "stopwords": "_spanish_"
+                },
+                "spanish_stemmer": {
+                    "type": "stemmer",
+                    "language": "light_spanish"
+                },
+                "spanish_synonyms": {
+                    "type": "synonym_graph",
+                    "synonyms_path": "analysis/spanish_synonyms.txt",
+                    "updateable": true
+                },
+                "italian_stop": {
+                    "type": "stop",
+                    "stopwords": "_italian_"
+                },
+                "italian_stemmer": {
+                    "type": "stemmer",
+                    "language": "light_italian"
+                },
+                "italian_synonyms": {
+                    "type": "synonym_graph",
+                    "synonyms_path": "analysis/italian_synonyms.txt",
+                    "updateable": true
+                }
+            },
+            "analyzer": {
+                "english_with_synonyms": {
+                    "type": "custom",
+                    "tokenizer": "standard",
+                    "filter": [
+                        "english_possessive_stemmer",
+                        "lowercase",
+                        "english_synonyms",
+                        "english_stop",
+                        "english_stemmer"
+                    ]
+                },
+                "german_with_synonyms": {
+                    "type": "custom",
+                    "tokenizer": "standard",
+                    "filter": [
+                        "lowercase",
+                        "german_stop",
+                        "german_synonyms",
+                        "german_normalization",
+                        "german_stemmer"
+                    ]
+                },
+                "french_with_synonyms": {
+                    "type": "custom",
+                    "tokenizer": "standard",
+                    "filter": [
+                        "french_elision",
+                        "lowercase",
+                        "french_synonyms",
+                        "french_stop",
+                        "french_stemmer"
+                    ]
+                },
+                "spanish_with_synonyms": {
+                    "type": "custom",
+                    "tokenizer": "standard",
+                    "filter": [
+                        "lowercase",
+                        "spanish_synonyms",
+                        "spanish_stop",
+                        "spanish_stemmer"
+                    ]
+                },
+                "italian_with_synonyms": {
+                    "type": "custom",
+                    "tokenizer": "standard",
+                    "filter": [
+                        "lowercase",
+                        "italian_synonyms",
+                        "italian_stop",
+                        "italian_stemmer"
+                    ]
+                }
+            }
+        }
+    },
+    "mappings": {
+        "properties": {
+            "userSearchFilterId": { "type": "keyword" },
+            "userId": { "type": "keyword" },
+            "name": { "type": "keyword" },
+            "query": { "type": "percolator" },
+            "categoryId": { "type": "keyword" },
+            "periodId": { "type": "keyword" },
+            "shopName": { "type": "keyword" },
+            "shopType": { "type": "keyword" },
+            "priceEur": { "type": "unsigned_long" },
+            "priceUsd": { "type": "unsigned_long" },
+            "priceGbp": { "type": "unsigned_long" },
+            "priceAud": { "type": "unsigned_long" },
+            "priceCad": { "type": "unsigned_long" },
+            "priceNzd": { "type": "unsigned_long" },
+            "state": { "type": "keyword" },
+            "originYearMin": { "type": "integer" },
+            "originYear": { "type": "integer" },
+            "originYearMax": { "type": "integer" },
+            "authenticity": { "type": "keyword" },
+            "condition": { "type": "keyword" },
+            "provenance": { "type": "keyword" },
+            "restoration": { "type": "keyword" },
+            "titleDe": {
+                "type": "text",
+                "analyzer": "german",
+                "search_analyzer": "german_with_synonyms"
+            },
+            "titleEn": {
+                "type": "text",
+                "analyzer": "english",
+                "search_analyzer": "english_with_synonyms"
+            },
+            "titleFr": {
+                "type": "text",
+                "analyzer": "french",
+                "search_analyzer": "french_with_synonyms"
+            },
+            "titleEs": {
+                "type": "text",
+                "analyzer": "spanish",
+                "search_analyzer": "spanish_with_synonyms"
+            },
+            "titleIt": {
+                "type": "text",
+                "analyzer": "italian",
+                "search_analyzer": "italian_with_synonyms"
+            },
+            "descriptionDe": {
+                "type": "text",
+                "analyzer": "german"
+            },
+            "descriptionEn": {
+                "type": "text",
+                "analyzer": "english"
+            },
+            "descriptionFr": {
+                "type": "text",
+                "analyzer": "french"
+            },
+            "descriptionEs": {
+                "type": "text",
+                "analyzer": "spanish"
+            },
+            "descriptionIt": {
+                "type": "text",
+                "analyzer": "italian"
+            },
+            "auctionStart": {
+                "type": "date",
+                "format": "strict_date_time"
+            },
+            "auctionEnd": {
+                "type": "date",
+                "format": "strict_date_time"
+            },
+            "created": {
+                "type": "date",
+                "format": "strict_date_time"
+            },
+            "updated": {
+                "type": "date",
+                "format": "strict_date_time"
+            }
+        }
+    }
+}

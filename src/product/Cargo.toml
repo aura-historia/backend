@@ -18,10 +18,10 @@ once_cell = { workspace = true }
 html-escape = { workspace = true }
 regex = { workspace = true }
 shop = { workspace = true }
+tracing = { workspace = true}
 
 # Optional
 field = { workspace = true, optional = true }
-tracing = { workspace = true, optional = true }
 fake = { workspace = true, optional = true }
 aws-sdk-dynamodb = { workspace = true, optional = true }
 aws-sdk-sqs = { workspace = true, optional = true }
@@ -43,8 +43,8 @@ tokio = { workspace = true, features = ["macros"] }
 [features]
 default = []
 data = ["common/api", "shop/data"]
-dynamodb = ["aws-sdk-dynamodb", "serde_dynamo", "common/dynamodb", "tracing", "field", "strum", "shop/dynamodb"]
-opensearch = ["dynamodb", "dep:opensearch", "tracing", "strum", "strum_macros", "common/opensearch", "shop/opensearch"]
+dynamodb = ["aws-sdk-dynamodb", "serde_dynamo", "common/dynamodb", "field", "strum", "shop/dynamodb"]
+opensearch = ["dynamodb", "dep:opensearch", "strum", "strum_macros", "common/opensearch", "shop/opensearch"]
 sqs = ["aws-sdk-sqs", "common/sqs"]
 service = ["itertools", "shop/dynamodb", "tokio", "tokio/time"]
 test-data = ["fake", "common/test-data", "shop/test-data"]

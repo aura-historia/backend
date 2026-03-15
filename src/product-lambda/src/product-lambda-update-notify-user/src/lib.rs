@@ -1,18 +1,18 @@
 pub mod service;
 
-use crate::service::ProductEventMailPayloadService;
+use crate::service::ProductEventWatchlistNotificationsService;
 use aws_lambda_events::sqs::{BatchItemFailure, SqsBatchResponse, SqsEvent};
 use common::dynamodb_stream::extract_sqs_event_bridge_dynamodb_record;
 use lambda_runtime::LambdaEvent;
-use mail_core::{payload::MailPayload, queue_service::QueueMailService};
+use notification::service::notification_service::NotificationService;
 use product::core::product_event::ProductDomainEvent;
 use product::dynamodb::product_event_record::domain::ProductDomainEventRecord;
-use tracing::{error, info};
+use tracing::{error, info, warn};
 
-#[tracing::instrument(skip(queue_mail_service, product_event_mail_payload_service, event), fields(requestId = %event.context.request_id))]
+#[tracing::instrument(skip(product_event_notification_service, notification_service, event), fields(requestId = %event.context.request_id))]
 pub async fn handler(
-    queue_mail_service: &impl QueueMailService,
-    product_event_mail_payload_service: &impl ProductEventMailPayloadService,
+    product_event_notification_service: &impl ProductEventWatchlistNotificationsService,
+    notification_service: &impl NotificationService,
     event: LambdaEvent<SqsEvent>,
 ) -> Result<SqsBatchResponse, lambda_runtime::Error> {
     let records_count = event.payload.records.len();
@@ -33,15 +33,29 @@ pub async fn handler(
         ) {
             match ProductDomainEvent::try_from(product_event_record) {
                 Ok(product_event) => {
-                    let mail_payloads_res = product_event_mail_payload_service
-                        .create_mail_payloads(product_event)
+                    let event_id = product_event.event_id;
+                    let notification_cmds_res = product_event_notification_service
+                        .determine_notification_commands(product_event)
                         .await;
-                    match mail_payloads_res {
-                        Ok(mail_payloads) => {
-                            handle_mail_payloads(queue_mail_service, mail_payloads).await
+                    match notification_cmds_res {
+                        Ok(cmds) => {
+                            let create_notifications_res = notification_service
+                                .create_notifications(&event_id, cmds)
+                                .await;
+                            // strictly fail on partial failure
+                            // this is fine as all downstream components dedup on origin_event_id
+                            // this enforces that all targets actually receive the notification for the event
+                            if !create_notifications_res.unprocessed.is_empty() {
+                                warn!(
+                                    messageId = message_id,
+                                    unprocessed = create_notifications_res.unprocessed.len(),
+                                    "Some CreateNotificationCommands were not processed. Marking message as failed to trigger retry for the entire batch.",
+                                );
+                                failed_message_ids.push(message_id);
+                            }
                         }
                         Err(err) => {
-                            error!(messageId = message_id, error = %err, "Failed creating MailPayloads.");
+                            error!(messageId = message_id, error = %err, "Failed creating CreateNotificationCommands.");
                             failed_message_ids.push(message_id);
                         }
                     }
@@ -78,60 +92,34 @@ pub async fn handler(
     Ok(sqs_batch_response)
 }
 
-async fn handle_mail_payloads(
-    queue_mail_service: &impl QueueMailService,
-    mail_payloads: Vec<MailPayload>,
-) {
-    if mail_payloads.is_empty() {
-        return;
-    }
-
-    const MAX_RETRIES: u32 = 5;
-    const BASE_DELAY_MS: u64 = 50;
-
-    let mut mail_payloads = mail_payloads;
-    let mut retry_count = 0;
-    loop {
-        let failed = queue_mail_service.queue_mails(mail_payloads).await;
-        if failed.is_empty() {
-            return;
-        }
-        if retry_count >= MAX_RETRIES {
-            error!(
-                mailCount = failed.len(),
-                "Failed queuing emails after '{MAX_RETRIES}' retries."
-            );
-            return;
-        }
-
-        retry_count += 1;
-        let delay_ms = BASE_DELAY_MS * 2_u64.pow(retry_count - 1);
-        tokio::time::sleep(tokio::time::Duration::from_millis(delay_ms)).await;
-
-        mail_payloads = failed;
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::handler;
-    use crate::service::{MockProductEventMailPayloadService, ProductEventMailPayloadServiceError};
     use aws_lambda_events::dynamodb::{EventRecord, StreamRecord};
     use aws_lambda_events::eventbridge::EventBridgeEvent;
     use aws_lambda_events::sqs::{SqsEvent, SqsMessage};
-    use aws_sdk_dynamodb::error::SdkError;
+    use common::event::Event;
     use fake::{Fake, Faker};
     use lambda_runtime::{Context, LambdaEvent};
-    use mail_core::payload::MailPayload;
-    use mail_core::queue_service::MockQueueMailService;
+    use notification::service::command::CreateNotificationCommand;
+    use notification::service::notification_service::{
+        CreateNotificationsResult, MockNotificationService, NotificationError,
+    };
     use product::core::product_event::ProductDomainEvent;
+    use product::core::product_event::domain::{
+        ProductCreatedDomainEventPayload, ProductDomainEventPayload,
+    };
     use product::dynamodb::product_event_record::domain::ProductDomainEventRecord;
-    use std::ops::SubAssign;
-    use std::sync::Arc;
+    use std::sync::{Arc, Mutex};
     use std::time::SystemTime;
+    use time::OffsetDateTime;
     use uuid::Uuid;
 
-    fn mk_event_bridge_payload(product_event_record: &ProductDomainEventRecord) -> String {
+    use crate::service::MockProductEventWatchlistNotificationsService;
+
+    // ---- Helper functions ----
+
+    fn mk_event_bridge_payload(product_event_record: &impl serde::Serialize) -> String {
         let mut stream_record = StreamRecord::default();
         stream_record.approximate_creation_date_time = SystemTime::now().into();
         stream_record.new_image = serde_dynamo::to_item(product_event_record).unwrap();
@@ -141,7 +129,7 @@ mod tests {
         event_record.aws_region = "eu-central-1".to_string();
         event_record.change = stream_record;
         event_record.event_id = Uuid::new_v4().to_string();
-        event_record.event_name = "UPDATE".to_string();
+        event_record.event_name = "INSERT".to_string();
 
         let mut event = EventBridgeEvent::<EventRecord>::default();
         event.detail_type = "foo".to_string();
@@ -151,11 +139,614 @@ mod tests {
         serde_json::to_string(&event).unwrap()
     }
 
-    fn mk_sqs_message(product_event_record: &ProductDomainEventRecord) -> SqsMessage {
+    fn mk_sqs_message(record: &impl serde::Serialize) -> SqsMessage {
         let mut msg = SqsMessage::default();
         msg.message_id = Some(Faker.fake());
-        msg.body = Some(mk_event_bridge_payload(product_event_record));
+        msg.body = Some(mk_event_bridge_payload(record));
         msg
+    }
+
+    fn mk_sqs_message_with_id(record: &impl serde::Serialize, message_id: String) -> SqsMessage {
+        let mut msg = SqsMessage::default();
+        msg.message_id = Some(message_id);
+        msg.body = Some(mk_event_bridge_payload(record));
+        msg
+    }
+
+    fn mk_domain_event_record() -> ProductDomainEventRecord {
+        let event: ProductDomainEvent = Event {
+            aggregate_id: Faker.fake(),
+            event_id: Faker.fake(),
+            timestamp: OffsetDateTime::now_utc(),
+            payload: ProductDomainEventPayload::Created(
+                Faker.fake::<ProductCreatedDomainEventPayload>(),
+            ),
+        };
+        ProductDomainEventRecord::from(event)
+    }
+
+    fn mk_watchlist_service_error() -> crate::service::ProductEventWatchlistNotificationsServiceError
+    {
+        use crate::service::ProductEventWatchlistNotificationsServiceError;
+        use product_watchlist::service::product_watchlist_service::WatchProductError;
+        ProductEventWatchlistNotificationsServiceError::WatchProductError(
+            WatchProductError::UnprocessedAfterMaxRetries(3),
+        )
+    }
+
+    // ---- Tests ----
+
+    #[tokio::test]
+    async fn should_return_no_failures_when_batch_is_empty() {
+        let sqs_event = SqsEvent::default();
+        let lambda_event = LambdaEvent {
+            payload: sqs_event,
+            context: Context::default(),
+        };
+        let notification_svc = MockProductEventWatchlistNotificationsService::default();
+        let notification_service = MockNotificationService::default();
+
+        let result = handler(&notification_svc, &notification_service, lambda_event)
+            .await
+            .unwrap();
+
+        assert!(result.batch_item_failures.is_empty());
+    }
+
+    #[tokio::test]
+    async fn should_return_no_failures_when_all_messages_succeed_with_no_commands() {
+        let records: Vec<SqsMessage> = (0..3)
+            .map(|_| mk_sqs_message(&mk_domain_event_record()))
+            .collect();
+        let mut sqs_event = SqsEvent::default();
+        sqs_event.records = records;
+        let lambda_event = LambdaEvent {
+            payload: sqs_event,
+            context: Context::default(),
+        };
+
+        let mut notification_svc = MockProductEventWatchlistNotificationsService::default();
+        notification_svc
+            .expect_determine_notification_commands()
+            .returning(|_| Box::pin(async { Ok(vec![]) }));
+        // create_notifications is always called, even with an empty cmds vec
+        let mut notification_service = MockNotificationService::default();
+        notification_service
+            .expect_create_notifications()
+            .returning(|_, _| {
+                Box::pin(async {
+                    CreateNotificationsResult {
+                        processed: vec![],
+                        unprocessed: vec![],
+                    }
+                })
+            });
+
+        let result = handler(&notification_svc, &notification_service, lambda_event)
+            .await
+            .unwrap();
+
+        assert!(result.batch_item_failures.is_empty());
+    }
+
+    #[tokio::test]
+    async fn should_return_no_failures_when_all_messages_succeed_with_processed_commands() {
+        let records: Vec<SqsMessage> = (0..3)
+            .map(|_| mk_sqs_message(&mk_domain_event_record()))
+            .collect();
+        let mut sqs_event = SqsEvent::default();
+        sqs_event.records = records;
+        let lambda_event = LambdaEvent {
+            payload: sqs_event,
+            context: Context::default(),
+        };
+
+        let mut notification_svc = MockProductEventWatchlistNotificationsService::default();
+        notification_svc
+            .expect_determine_notification_commands()
+            .returning(|_| Box::pin(async { Ok(vec![Faker.fake::<CreateNotificationCommand>()]) }));
+        let mut notification_service = MockNotificationService::default();
+        notification_service
+            .expect_create_notifications()
+            .returning(|_, _| {
+                Box::pin(async {
+                    CreateNotificationsResult {
+                        processed: vec![],
+                        unprocessed: vec![],
+                    }
+                })
+            });
+
+        let result = handler(&notification_svc, &notification_service, lambda_event)
+            .await
+            .unwrap();
+
+        assert!(result.batch_item_failures.is_empty());
+    }
+
+    #[tokio::test]
+    async fn should_return_failure_when_determine_notification_commands_fails() {
+        let message_id = Uuid::new_v4().to_string();
+        let record = mk_domain_event_record();
+        let msg = mk_sqs_message_with_id(&record, message_id.clone());
+        let mut sqs_event = SqsEvent::default();
+        sqs_event.records = vec![msg];
+        let lambda_event = LambdaEvent {
+            payload: sqs_event,
+            context: Context::default(),
+        };
+
+        let mut notification_svc = MockProductEventWatchlistNotificationsService::default();
+        notification_svc
+            .expect_determine_notification_commands()
+            .returning(|_| Box::pin(async { Err(mk_watchlist_service_error()) }));
+        let notification_service = MockNotificationService::default();
+
+        let result = handler(&notification_svc, &notification_service, lambda_event)
+            .await
+            .unwrap();
+
+        assert_eq!(1, result.batch_item_failures.len());
+        assert_eq!(message_id, result.batch_item_failures[0].item_identifier);
+    }
+
+    #[tokio::test]
+    async fn should_return_failure_when_create_notifications_has_unprocessed_items() {
+        let message_id = Uuid::new_v4().to_string();
+        let record = mk_domain_event_record();
+        let msg = mk_sqs_message_with_id(&record, message_id.clone());
+        let mut sqs_event = SqsEvent::default();
+        sqs_event.records = vec![msg];
+        let lambda_event = LambdaEvent {
+            payload: sqs_event,
+            context: Context::default(),
+        };
+
+        let mut notification_svc = MockProductEventWatchlistNotificationsService::default();
+        notification_svc
+            .expect_determine_notification_commands()
+            .returning(|_| {
+                Box::pin(async {
+                    Ok(vec![
+                        Faker.fake::<CreateNotificationCommand>(),
+                        Faker.fake::<CreateNotificationCommand>(),
+                    ])
+                })
+            });
+        let mut notification_service = MockNotificationService::default();
+        notification_service
+            .expect_create_notifications()
+            .returning(|_, cmds| {
+                let unprocessed = cmds
+                    .into_iter()
+                    .map(|cmd| {
+                        (
+                            cmd,
+                            NotificationError::SdkPutItemError(
+                                aws_sdk_dynamodb::error::SdkError::construction_failure(
+                                    "test error",
+                                ),
+                            ),
+                        )
+                    })
+                    .collect();
+                Box::pin(async move {
+                    CreateNotificationsResult {
+                        processed: vec![],
+                        unprocessed,
+                    }
+                })
+            });
+
+        let result = handler(&notification_svc, &notification_service, lambda_event)
+            .await
+            .unwrap();
+
+        assert_eq!(1, result.batch_item_failures.len());
+        assert_eq!(message_id, result.batch_item_failures[0].item_identifier);
+    }
+
+    #[tokio::test]
+    async fn should_succeed_when_create_notifications_returns_all_processed() {
+        let record = mk_domain_event_record();
+        let msg = mk_sqs_message(&record);
+        let mut sqs_event = SqsEvent::default();
+        sqs_event.records = vec![msg];
+        let lambda_event = LambdaEvent {
+            payload: sqs_event,
+            context: Context::default(),
+        };
+
+        let mut notification_svc = MockProductEventWatchlistNotificationsService::default();
+        notification_svc
+            .expect_determine_notification_commands()
+            .returning(|_| Box::pin(async { Ok(vec![Faker.fake::<CreateNotificationCommand>()]) }));
+        let mut notification_service = MockNotificationService::default();
+        notification_service
+            .expect_create_notifications()
+            .returning(|_, _| {
+                Box::pin(async {
+                    CreateNotificationsResult {
+                        processed: vec![],
+                        unprocessed: vec![],
+                    }
+                })
+            });
+
+        let result = handler(&notification_svc, &notification_service, lambda_event)
+            .await
+            .unwrap();
+
+        assert!(result.batch_item_failures.is_empty());
+    }
+
+    #[tokio::test]
+    async fn should_skip_message_when_body_is_empty() {
+        let mut msg = SqsMessage::default();
+        msg.message_id = Some(Uuid::new_v4().to_string());
+        msg.body = None;
+
+        let mut sqs_event = SqsEvent::default();
+        sqs_event.records = vec![msg];
+        let lambda_event = LambdaEvent {
+            payload: sqs_event,
+            context: Context::default(),
+        };
+
+        let notification_svc = MockProductEventWatchlistNotificationsService::default();
+        let notification_service = MockNotificationService::default();
+
+        let result = handler(&notification_svc, &notification_service, lambda_event)
+            .await
+            .unwrap();
+
+        // A message with no body is silently skipped, not failed
+        assert!(result.batch_item_failures.is_empty());
+    }
+
+    #[tokio::test]
+    async fn should_fail_message_when_body_is_invalid_json() {
+        let message_id = Uuid::new_v4().to_string();
+        let mut msg = SqsMessage::default();
+        msg.message_id = Some(message_id.clone());
+        msg.body = Some("invalid json {".to_string());
+
+        let mut sqs_event = SqsEvent::default();
+        sqs_event.records = vec![msg];
+        let lambda_event = LambdaEvent {
+            payload: sqs_event,
+            context: Context::default(),
+        };
+
+        let notification_svc = MockProductEventWatchlistNotificationsService::default();
+        let notification_service = MockNotificationService::default();
+
+        let result = handler(&notification_svc, &notification_service, lambda_event)
+            .await
+            .unwrap();
+
+        assert_eq!(1, result.batch_item_failures.len());
+        assert_eq!(message_id, result.batch_item_failures[0].item_identifier);
+    }
+
+    #[tokio::test]
+    async fn should_fail_message_when_body_is_empty_json_object() {
+        let message_id = Uuid::new_v4().to_string();
+        let mut msg = SqsMessage::default();
+        msg.message_id = Some(message_id.clone());
+        // Valid JSON, but not a valid EventBridge event wrapping a DynamoDB stream record
+        msg.body = Some("{}".to_string());
+
+        let mut sqs_event = SqsEvent::default();
+        sqs_event.records = vec![msg];
+        let lambda_event = LambdaEvent {
+            payload: sqs_event,
+            context: Context::default(),
+        };
+
+        let notification_svc = MockProductEventWatchlistNotificationsService::default();
+        let notification_service = MockNotificationService::default();
+
+        let result = handler(&notification_svc, &notification_service, lambda_event)
+            .await
+            .unwrap();
+
+        assert_eq!(1, result.batch_item_failures.len());
+        assert_eq!(message_id, result.batch_item_failures[0].item_identifier);
+    }
+
+    #[tokio::test]
+    async fn should_return_failures_for_all_messages_when_all_fail_determine_notification_commands()
+    {
+        let message_id_1 = Uuid::new_v4().to_string();
+        let message_id_2 = Uuid::new_v4().to_string();
+        let message_id_3 = Uuid::new_v4().to_string();
+
+        let records = vec![
+            mk_sqs_message_with_id(&mk_domain_event_record(), message_id_1.clone()),
+            mk_sqs_message_with_id(&mk_domain_event_record(), message_id_2.clone()),
+            mk_sqs_message_with_id(&mk_domain_event_record(), message_id_3.clone()),
+        ];
+        let mut sqs_event = SqsEvent::default();
+        sqs_event.records = records;
+        let lambda_event = LambdaEvent {
+            payload: sqs_event,
+            context: Context::default(),
+        };
+
+        let mut notification_svc = MockProductEventWatchlistNotificationsService::default();
+        notification_svc
+            .expect_determine_notification_commands()
+            .returning(|_| Box::pin(async { Err(mk_watchlist_service_error()) }));
+        let notification_service = MockNotificationService::default();
+
+        let mut actual_failed_ids: Vec<String> =
+            handler(&notification_svc, &notification_service, lambda_event)
+                .await
+                .unwrap()
+                .batch_item_failures
+                .into_iter()
+                .map(|f| f.item_identifier)
+                .collect();
+        actual_failed_ids.sort();
+
+        let mut expected_failed_ids = vec![message_id_1, message_id_2, message_id_3];
+        expected_failed_ids.sort();
+
+        assert_eq!(expected_failed_ids, actual_failed_ids);
+    }
+
+    #[tokio::test]
+    async fn should_return_only_failed_message_ids_when_some_succeed_and_some_fail() {
+        let succeeding_id_1 = Uuid::new_v4().to_string();
+        let succeeding_id_2 = Uuid::new_v4().to_string();
+        let failing_id = Uuid::new_v4().to_string();
+
+        let records = vec![
+            mk_sqs_message_with_id(&mk_domain_event_record(), succeeding_id_1.clone()),
+            mk_sqs_message_with_id(&mk_domain_event_record(), succeeding_id_2.clone()),
+            mk_sqs_message_with_id(&mk_domain_event_record(), failing_id.clone()),
+        ];
+        let mut sqs_event = SqsEvent::default();
+        sqs_event.records = records;
+        let lambda_event = LambdaEvent {
+            payload: sqs_event,
+            context: Context::default(),
+        };
+
+        // The first two calls succeed (return Ok with empty cmds), the third fails.
+        // determine_notification_commands is called for all three messages;
+        // create_notifications is also called for the two that succeed (even with empty cmds).
+        let call_count = Arc::new(Mutex::new(0u32));
+        let mut notification_svc = MockProductEventWatchlistNotificationsService::default();
+        notification_svc
+            .expect_determine_notification_commands()
+            .returning(move |_| {
+                let call_count = call_count.clone();
+                Box::pin(async move {
+                    let mut count = call_count.lock().unwrap();
+                    *count += 1;
+                    let current = *count;
+                    drop(count);
+                    if current <= 2 {
+                        Ok(vec![])
+                    } else {
+                        Err(mk_watchlist_service_error())
+                    }
+                })
+            });
+        let mut notification_service = MockNotificationService::default();
+        // Called twice for the two succeeding messages
+        notification_service
+            .expect_create_notifications()
+            .returning(|_, _| {
+                Box::pin(async {
+                    CreateNotificationsResult {
+                        processed: vec![],
+                        unprocessed: vec![],
+                    }
+                })
+            });
+
+        let result = handler(&notification_svc, &notification_service, lambda_event)
+            .await
+            .unwrap();
+
+        assert_eq!(1, result.batch_item_failures.len());
+        assert_eq!(failing_id, result.batch_item_failures[0].item_identifier);
+    }
+
+    #[tokio::test]
+    async fn should_return_failure_when_only_some_notification_commands_are_unprocessed() {
+        let message_id = Uuid::new_v4().to_string();
+        let record = mk_domain_event_record();
+        let msg = mk_sqs_message_with_id(&record, message_id.clone());
+        let mut sqs_event = SqsEvent::default();
+        sqs_event.records = vec![msg];
+        let lambda_event = LambdaEvent {
+            payload: sqs_event,
+            context: Context::default(),
+        };
+
+        let mut notification_svc = MockProductEventWatchlistNotificationsService::default();
+        notification_svc
+            .expect_determine_notification_commands()
+            .returning(|_| {
+                Box::pin(async {
+                    Ok(vec![
+                        Faker.fake::<CreateNotificationCommand>(),
+                        Faker.fake::<CreateNotificationCommand>(),
+                        Faker.fake::<CreateNotificationCommand>(),
+                    ])
+                })
+            });
+        let mut notification_service = MockNotificationService::default();
+        notification_service
+            .expect_create_notifications()
+            .returning(|_, mut cmds| {
+                // Only one of three commands fails — the message is still failed (strict mode)
+                let unprocessed_cmd = cmds.pop().unwrap();
+                Box::pin(async move {
+                    CreateNotificationsResult {
+                        processed: vec![],
+                        unprocessed: vec![(
+                            unprocessed_cmd,
+                            NotificationError::SdkPutItemError(
+                                aws_sdk_dynamodb::error::SdkError::construction_failure(
+                                    "partial failure",
+                                ),
+                            ),
+                        )],
+                    }
+                })
+            });
+
+        let result = handler(&notification_svc, &notification_service, lambda_event)
+            .await
+            .unwrap();
+
+        // Strict failure: any unprocessed → whole message fails
+        assert_eq!(1, result.batch_item_failures.len());
+        assert_eq!(message_id, result.batch_item_failures[0].item_identifier);
+    }
+
+    #[tokio::test]
+    async fn should_return_no_failures_when_determine_notification_commands_returns_empty_vec() {
+        let record = mk_domain_event_record();
+        let msg = mk_sqs_message(&record);
+        let mut sqs_event = SqsEvent::default();
+        sqs_event.records = vec![msg];
+        let lambda_event = LambdaEvent {
+            payload: sqs_event,
+            context: Context::default(),
+        };
+
+        let mut notification_svc = MockProductEventWatchlistNotificationsService::default();
+        notification_svc
+            .expect_determine_notification_commands()
+            .times(1)
+            .returning(|_| Box::pin(async { Ok(vec![]) }));
+        // create_notifications is always called, even for an empty cmds vec — the handler does
+        // not short-circuit. An empty unprocessed result means success.
+        let mut notification_service = MockNotificationService::default();
+        notification_service
+            .expect_create_notifications()
+            .times(1)
+            .returning(|_, _| {
+                Box::pin(async {
+                    CreateNotificationsResult {
+                        processed: vec![],
+                        unprocessed: vec![],
+                    }
+                })
+            });
+
+        let result = handler(&notification_svc, &notification_service, lambda_event)
+            .await
+            .unwrap();
+
+        assert!(result.batch_item_failures.is_empty());
+    }
+
+    #[tokio::test]
+    async fn should_process_single_message_with_single_command_successfully() {
+        let record = mk_domain_event_record();
+        let msg = mk_sqs_message(&record);
+        let mut sqs_event = SqsEvent::default();
+        sqs_event.records = vec![msg];
+        let lambda_event = LambdaEvent {
+            payload: sqs_event,
+            context: Context::default(),
+        };
+
+        let mut notification_svc = MockProductEventWatchlistNotificationsService::default();
+        notification_svc
+            .expect_determine_notification_commands()
+            .times(1)
+            .returning(|_| Box::pin(async { Ok(vec![Faker.fake::<CreateNotificationCommand>()]) }));
+        let mut notification_service = MockNotificationService::default();
+        notification_service
+            .expect_create_notifications()
+            .times(1)
+            .returning(|_, _| {
+                Box::pin(async {
+                    CreateNotificationsResult {
+                        processed: vec![],
+                        unprocessed: vec![],
+                    }
+                })
+            });
+
+        let result = handler(&notification_svc, &notification_service, lambda_event)
+            .await
+            .unwrap();
+
+        assert!(result.batch_item_failures.is_empty());
+    }
+
+    #[tokio::test]
+    async fn should_return_mixed_results_when_some_have_unprocessed_and_some_succeed() {
+        let failing_id = Uuid::new_v4().to_string();
+        let succeeding_id = Uuid::new_v4().to_string();
+
+        let records = vec![
+            mk_sqs_message_with_id(&mk_domain_event_record(), failing_id.clone()),
+            mk_sqs_message_with_id(&mk_domain_event_record(), succeeding_id.clone()),
+        ];
+        let mut sqs_event = SqsEvent::default();
+        sqs_event.records = records;
+        let lambda_event = LambdaEvent {
+            payload: sqs_event,
+            context: Context::default(),
+        };
+
+        let mut notification_svc = MockProductEventWatchlistNotificationsService::default();
+        notification_svc
+            .expect_determine_notification_commands()
+            .returning(|_| Box::pin(async { Ok(vec![Faker.fake::<CreateNotificationCommand>()]) }));
+
+        // First call: all unprocessed (failing_id message). Second call: all processed (succeeding_id).
+        let call_count = Arc::new(Mutex::new(0u32));
+        let mut notification_service = MockNotificationService::default();
+        notification_service
+            .expect_create_notifications()
+            .returning(move |_, cmds| {
+                let call_count = call_count.clone();
+                let mut count = call_count.lock().unwrap();
+                *count += 1;
+                let current = *count;
+                drop(count);
+
+                let unprocessed = if current == 1 {
+                    cmds.into_iter()
+                        .map(|cmd| {
+                            (
+                                cmd,
+                                NotificationError::SdkPutItemError(
+                                    aws_sdk_dynamodb::error::SdkError::construction_failure(
+                                        "first call fails",
+                                    ),
+                                ),
+                            )
+                        })
+                        .collect()
+                } else {
+                    vec![]
+                };
+                Box::pin(async move {
+                    CreateNotificationsResult {
+                        processed: vec![],
+                        unprocessed,
+                    }
+                })
+            });
+
+        let result = handler(&notification_svc, &notification_service, lambda_event)
+            .await
+            .unwrap();
+
+        assert_eq!(1, result.batch_item_failures.len());
+        assert_eq!(failing_id, result.batch_item_failures[0].item_identifier);
     }
 
     #[tokio::test]
@@ -164,73 +755,84 @@ mod tests {
     #[case(5)]
     #[case(10)]
     #[case(25)]
-    #[case(47)]
-    #[case(100)]
-    #[case(150)]
-    #[case(453)]
-    #[case(900)]
-    #[case(2874)]
-    #[case(10874)]
     #[trace]
-    async fn should_handle_sqs_message(#[case] record_count: usize) {
-        let records = fake::vec![ProductDomainEvent; record_count]
+    async fn should_return_no_failures_for_large_batch_when_all_messages_succeed(
+        #[case] record_count: usize,
+    ) {
+        let records: Vec<SqsMessage> = fake::vec![ProductCreatedDomainEventPayload; record_count]
             .into_iter()
+            .map(ProductDomainEventPayload::Created)
+            .map(|event_payload| Event {
+                aggregate_id: Faker.fake(),
+                event_id: Faker.fake(),
+                timestamp: OffsetDateTime::now_utc(),
+                payload: event_payload,
+            })
             .map(ProductDomainEventRecord::try_from)
             .map(Result::unwrap)
-            .map(|product_event_record| mk_sqs_message(&product_event_record))
+            .map(|record| mk_sqs_message(&record))
             .collect();
+
         let mut sqs_event = SqsEvent::default();
         sqs_event.records = records;
         let lambda_event = LambdaEvent {
             payload: sqs_event,
             context: Context::default(),
         };
-        let mut product_event_mail_payload_service = MockProductEventMailPayloadService::default();
-        product_event_mail_payload_service
-            .expect_create_mail_payloads()
-            .returning(|_| Box::pin(async move { Ok(fake::vec![MailPayload; 42]) }));
-        let mut queue_mail_service = MockQueueMailService::default();
-        queue_mail_service
-            .expect_queue_mails()
-            .returning(|_| Box::pin(async move { vec![] }));
 
-        let actual = handler(
-            &queue_mail_service,
-            &product_event_mail_payload_service,
-            lambda_event,
-        )
-        .await
-        .unwrap();
-        assert!(actual.batch_item_failures.is_empty());
+        let mut notification_svc = MockProductEventWatchlistNotificationsService::default();
+        notification_svc
+            .expect_determine_notification_commands()
+            .returning(|_| Box::pin(async { Ok(vec![]) }));
+        // create_notifications is always called even with empty cmds
+        let mut notification_service = MockNotificationService::default();
+        notification_service
+            .expect_create_notifications()
+            .returning(|_, _| {
+                Box::pin(async {
+                    CreateNotificationsResult {
+                        processed: vec![],
+                        unprocessed: vec![],
+                    }
+                })
+            });
+
+        let result = handler(&notification_svc, &notification_service, lambda_event)
+            .await
+            .unwrap();
+
+        assert!(result.batch_item_failures.is_empty());
     }
 
     #[tokio::test]
     #[rstest::rstest]
-    #[case(0, 1)]
-    #[case(1, 1)]
-    #[case(2, 5)]
-    #[case(7, 10)]
-    #[case(24, 25)]
-    #[case(0, 47)]
-    #[case(98, 100)]
-    #[case(1, 150)]
-    #[case(0, 453)]
-    #[case(0, 900)]
-    #[case(2874, 2874)]
-    #[case(874, 10874)]
+    #[case(1)]
+    #[case(5)]
+    #[case(10)]
+    #[case(25)]
     #[trace]
-    async fn should_respond_with_partial_failures(
-        #[case] failure_count: usize,
+    async fn should_return_all_failures_for_large_batch_when_all_messages_fail(
         #[case] record_count: usize,
     ) {
-        use std::sync::Mutex;
-
-        let records = fake::vec![ProductDomainEvent; record_count]
+        let mut expected_message_ids: Vec<String> = Vec::with_capacity(record_count);
+        let records: Vec<SqsMessage> = fake::vec![ProductCreatedDomainEventPayload; record_count]
             .into_iter()
+            .map(ProductDomainEventPayload::Created)
+            .map(|event_payload| Event {
+                aggregate_id: Faker.fake(),
+                event_id: Faker.fake(),
+                timestamp: OffsetDateTime::now_utc(),
+                payload: event_payload,
+            })
             .map(ProductDomainEventRecord::try_from)
             .map(Result::unwrap)
-            .map(|product_event_record| mk_sqs_message(&product_event_record))
+            .map(|record| {
+                let message_id = Uuid::new_v4().to_string();
+                expected_message_ids.push(message_id.clone());
+                mk_sqs_message_with_id(&record, message_id)
+            })
             .collect();
+
         let mut sqs_event = SqsEvent::default();
         sqs_event.records = records;
         let lambda_event = LambdaEvent {
@@ -238,37 +840,23 @@ mod tests {
             context: Context::default(),
         };
 
-        let mut product_event_mail_payload_service = MockProductEventMailPayloadService::default();
-        let remaining_failures: Arc<Mutex<usize>> = Arc::new(Mutex::new(failure_count));
-        product_event_mail_payload_service
-            .expect_create_mail_payloads()
-            .returning(move |_| {
-                let mut remaining = remaining_failures.lock().unwrap();
-                if remaining.eq(&0) {
-                    Box::pin(async move { Ok(fake::vec![MailPayload; 187]) })
-                } else {
-                    remaining.sub_assign(1);
-                    Box::pin(async move {
-                        Err(ProductEventMailPayloadServiceError::GetProductError(
-                            product::service::get_service::GetProductError::SdkGetItemError(
-                                SdkError::construction_failure("something went wrong"),
-                            ),
-                        ))
-                    })
-                }
-            });
-        let mut queue_mail_service = MockQueueMailService::default();
-        queue_mail_service
-            .expect_queue_mails()
-            .returning(|_| Box::pin(async move { vec![] }));
+        let mut notification_svc = MockProductEventWatchlistNotificationsService::default();
+        notification_svc
+            .expect_determine_notification_commands()
+            .returning(|_| Box::pin(async { Err(mk_watchlist_service_error()) }));
+        let notification_service = MockNotificationService::default();
 
-        let actual = handler(
-            &queue_mail_service,
-            &product_event_mail_payload_service,
-            lambda_event,
-        )
-        .await
-        .unwrap();
-        assert_eq!(failure_count, actual.batch_item_failures.len());
+        let mut actual_failed_ids: Vec<String> =
+            handler(&notification_svc, &notification_service, lambda_event)
+                .await
+                .unwrap()
+                .batch_item_failures
+                .into_iter()
+                .map(|f| f.item_identifier)
+                .collect();
+        actual_failed_ids.sort();
+        expected_message_ids.sort();
+
+        assert_eq!(expected_message_ids, actual_failed_ids);
     }
 }

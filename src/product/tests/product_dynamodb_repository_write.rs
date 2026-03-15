@@ -262,6 +262,7 @@ async fn should_put_product_event_records_for_single_record(#[case] expected: Pr
 async fn should_put_product_event_records_for_multiple_records() {
     let shop_id = ShopId::new();
     let now1 = OffsetDateTime::now_utc();
+    let event_id1 = EventId::new();
     let shops_product_id1: ShopsProductId = "123465".into();
     let price = Some(PriceRecord {
         amount: 110,
@@ -269,11 +270,11 @@ async fn should_put_product_event_records_for_multiple_records() {
     });
     let expected1 = ProductDomainEventRecord {
         pk: product_event_record::domain::mk_pk(&shop_id, &shops_product_id1),
-        sk: product_event_record::domain::mk_sk(&now1).unwrap(),
+        sk: product_event_record::domain::mk_sk(&event_id1),
         product_id: ProductId::new(),
         product_slug_id: Faker.fake(),
         shop_slug_id: Faker.fake(),
-        event_id: EventId::new(),
+        event_id: event_id1,
         event_type: ProductDomainEventTypeRecord::DomainCreated,
         event_type_schema_version: 0,
         shop_id,
@@ -330,14 +331,15 @@ async fn should_put_product_event_records_for_multiple_records() {
     };
 
     let now2 = OffsetDateTime::now_utc();
+    let event_id2 = EventId::new();
     let shops_product_id2: ShopsProductId = "123465".into();
     let expected2 = ProductDomainEventRecord {
         pk: product_event_record::domain::mk_pk(&shop_id, &shops_product_id2),
-        sk: product_event_record::domain::mk_sk(&now2).unwrap(),
+        sk: product_event_record::domain::mk_sk(&event_id2),
         product_id: ProductId::new(),
         product_slug_id: Faker.fake(),
         shop_slug_id: Faker.fake(),
-        event_id: EventId::new(),
+        event_id: event_id2,
         event_type: ProductDomainEventTypeRecord::DomainCreated,
         event_type_schema_version: 0,
         shop_id,

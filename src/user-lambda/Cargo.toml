@@ -1,7 +1,0 @@
-[package]
-name = "user-lambda"
-version = "0.1.0"
-edition = "2024"
-
-[dependencies]
-user-lambda-fanout-update-watchlist = { workspace = true }
