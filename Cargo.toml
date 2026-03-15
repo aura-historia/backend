@@ -10,6 +10,7 @@ cognito-post-confirmation = { workspace = true }
 common = { workspace = true }
 search-filter = { workspace = true }
 search-filter-api = { workspace = true }
+search-filter-lambda = { workspace = true }
 shop = { workspace = true }
 shop-api = { workspace = true }
 shop-lambda = { workspace = true }
@@ -39,6 +40,7 @@ members = [
     "src/common",
     "src/search-filter",
     "src/search-filter-api",
+    "src/search-filter-lambda",
     "src/product",
     "src/product-api",
     "src/product-classification",
@@ -81,6 +83,8 @@ fake = { version = "4.4.0", features = ["derive", "time", "uuid", "url"] }
 field = "0.1.0"
 search-filter = { path = "src/search-filter" }
 search-filter-api = { path = "src/search-filter-api" }
+search-filter-lambda = { path = "src/search-filter-lambda" }
+search-filter-lambda-opensearch-sync = { path = "src/search-filter-lambda/src/search-filter-lambda-opensearch-sync" }
 shop = { path = "src/shop" }
 shop-lambda = { path = "src/shop-lambda" }
 shop-lambda-opensearch-index = { path = "src/shop-lambda/src/shop-lambda-opensearch-index" }

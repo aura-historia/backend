@@ -42,7 +42,8 @@ test-api = { workspace = true, features = [
     "opensearch",
     "rds",
     "sqs",
-] }
+]}
+rstest = { workspace = true }
 
 [features]
 default = []

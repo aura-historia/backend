@@ -10,6 +10,8 @@ CATEGORIES_INDEX_NAME="categories"
 CATEGORIES_MAPPING_FILE="opensearch/mappings/categories.json"
 PERIODS_INDEX_NAME="periods"
 PERIODS_MAPPING_FILE="opensearch/mappings/periods.json"
+USER_SEARCH_FILTERS_INDEX_NAME="user_search_filters"
+USER_SEARCH_FILTERS_MAPPING_FILE="opensearch/mappings/user_search_filters.json"
 
 # Resolve OpenSearch domain name + endpoint from CloudFormation Outputs
 DOMAIN_NAME=$(aws cloudformation describe-stacks \
@@ -140,3 +142,4 @@ create_index_if_not_exists "$PRODUCTS_INDEX_NAME" "$PRODUCTS_MAPPING_FILE"
 create_index_if_not_exists "$SHOPS_INDEX_NAME" "$SHOPS_MAPPING_FILE"
 create_index_if_not_exists "$CATEGORIES_INDEX_NAME" "$CATEGORIES_MAPPING_FILE"
 create_index_if_not_exists "$PERIODS_INDEX_NAME" "$PERIODS_MAPPING_FILE"
+create_index_if_not_exists "$USER_SEARCH_FILTERS_INDEX_NAME" "$USER_SEARCH_FILTERS_MAPPING_FILE"

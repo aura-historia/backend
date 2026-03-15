@@ -234,6 +234,7 @@ jobs:
       matrix:
         crate:
           - src/search-filter-api
+          - src/search-filter-lambda/src/search-filter-lambda-opensearch-sync
           - src/product-api
           - src/product-classification-api
           - src/product-watchlist-api

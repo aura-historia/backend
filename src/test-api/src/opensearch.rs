@@ -100,6 +100,10 @@ impl IntegrationTestService for OpenSearch {
             .await
             .expect("shouldn't fail clearing OpenSearch index data from 'categories'");
         refresh_index("categories").await;
+        clear_index_data("user_search_filters")
+            .await
+            .expect("shouldn't fail clearing OpenSearch index data from 'user_search_filter'");
+        refresh_index("user_search_filters").await;
         debug!("Cleared OpenSearch index data for test isolation");
     }
 }
@@ -231,9 +235,9 @@ fn parse_synonym_rules(content: &str) -> Vec<String> {
 /// Converts the products mapping from `synonyms_path` to inline `synonyms`
 /// so that LocalStack OpenSearch can create the index without needing
 /// synonym files on the cluster filesystem.
-fn products_mapping_with_inline_synonyms() -> serde_json::Value {
-    let mut mapping: serde_json::Value = serde_json::from_str(PRODUCTS_INDEX_MAPPING_STR)
-        .expect("shouldn't fail parsing PRODUCTS_INDEX_MAPPING_STR as serde_json::Value");
+fn mapping_with_inline_synonyms(mapping: &'static str) -> serde_json::Value {
+    let mut mapping: serde_json::Value = serde_json::from_str(mapping)
+        .unwrap_or_else(|_| panic!("shouldn't fail parsing {mapping} as serde_json::Value"));
 
     let synonym_files = [
         ("english_synonyms", ENGLISH_SYNONYMS_STR),
@@ -273,6 +277,11 @@ static CATEGORIES_INDEX_MAPPING_STR: &str = include_str!(concat!(
     "opensearch/mappings/categories.json"
 ));
 
+static USER_SEARCH_FILTER_INDEX_MAPPING_STR: &str = include_str!(concat!(
+    env!("CARGO_WORKSPACE_DIR"),
+    "opensearch/mappings/user_search_filters.json"
+));
+
 fn check_status_allow_not_found(response: &Response) -> Result<(), Error> {
     if let Err(err) = response.error_for_status_code_ref()
         && err.status_code() != Some(StatusCode::NOT_FOUND)
@@ -305,7 +314,7 @@ async fn set_up_indices() -> Result<Response, Error> {
         .await
         .indices()
         .create(opensearch::indices::IndicesCreateParts::Index("products"))
-        .body(products_mapping_with_inline_synonyms())
+        .body(mapping_with_inline_synonyms(PRODUCTS_INDEX_MAPPING_STR))
         .send()
         .await?
         .error_for_status_code()?;
@@ -362,6 +371,34 @@ async fn set_up_indices() -> Result<Response, Error> {
             serde_json::from_str::<serde_json::Value>(CATEGORIES_INDEX_MAPPING_STR)
                 .expect("shouldn't fail parsing CATEGORIES_INDEX_MAPPING_STR as serde_json::Value"),
         )
+        .send()
+        .await?
+        .error_for_status_code()?;
+
+    // Index 'user_search_filter'
+    let exists_response = client
+        .indices()
+        .exists(IndicesExistsParts::Index(&["user_search_filters"]))
+        .send()
+        .await?;
+    check_status_allow_not_found(&exists_response)?;
+
+    if exists_response.status_code().is_success() {
+        debug!("OpenSearch index 'user_search_filter' already exists, skipping creation");
+        return Ok(exists_response);
+    }
+
+    debug!("OpenSearch index 'user_search_filter' does not exist, creating it");
+
+    get_opensearch_client()
+        .await
+        .indices()
+        .create(opensearch::indices::IndicesCreateParts::Index(
+            "user_search_filters",
+        ))
+        .body(mapping_with_inline_synonyms(
+            USER_SEARCH_FILTER_INDEX_MAPPING_STR,
+        ))
         .send()
         .await?
         .error_for_status_code()
@@ -433,9 +470,11 @@ mod tests {
         assert!(rules.is_empty());
     }
 
-    #[test]
-    fn should_build_products_mapping_with_inline_synonyms_for_all_languages() {
-        let mapping = products_mapping_with_inline_synonyms();
+    #[rstest::rstest]
+    #[case::product(PRODUCTS_INDEX_MAPPING_STR)]
+    #[case::product(USER_SEARCH_FILTER_INDEX_MAPPING_STR)]
+    fn should_build_mapping_with_inline_synonyms_for_all_languages(#[case] mapping: &'static str) {
+        let mapping = mapping_with_inline_synonyms(mapping);
 
         let filter_names = [
             "english_synonyms",
@@ -471,9 +510,13 @@ mod tests {
         }
     }
 
-    #[test]
-    fn should_set_search_analyzer_on_title_fields_in_products_mapping() {
-        let mapping = products_mapping_with_inline_synonyms();
+    #[rstest::rstest]
+    #[case::product(PRODUCTS_INDEX_MAPPING_STR)]
+    #[case::product(USER_SEARCH_FILTER_INDEX_MAPPING_STR)]
+    fn should_set_search_analyzer_on_title_fields_in_products_mapping(
+        #[case] mapping: &'static str,
+    ) {
+        let mapping = mapping_with_inline_synonyms(mapping);
 
         let title_fields = ["titleEn", "titleDe", "titleFr", "titleEs", "titleIt"];
         let expected_search_analyzers = [
