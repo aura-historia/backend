@@ -54,65 +54,81 @@ fn extract_main_fragment(html: &str) -> Option<&str> {
     Some(&html[content_start..content_end])
 }
 
-/// Starts crawling `shop_url` and streams deduplicated pages via an unbounded channel.
-pub async fn start_crawl(shop_url: &str) -> Result<mpsc::Receiver<CrawledPage>, SpiderError> {
-    // Use a bounded channel to prevent memory exhaustion if consumer is slow
-    let (tx, rx) = mpsc::channel(1000);
+#[async_trait::async_trait]
+#[mockall::automock]
+pub trait Crawler: Send + Sync {
+    async fn crawl(&self, shop_url: &str) -> Result<mpsc::Receiver<CrawledPage>, SpiderError>;
+}
 
-    let mut website = Website::new(shop_url);
+pub struct SpiderCrawler;
 
-    // This tells the spider engine to ignore any link with these patterns
-    // to stop the loop before it starts.
-    let blacklist_regex = build_blacklist_url_patterns();
+impl SpiderCrawler {
+    pub fn new() -> Self {
+        Self
+    }
+}
 
-    website
-        .with_blacklist_url(Some(blacklist_regex)) // Prevent fetching junk
-        .with_respect_robots_txt(true);
+impl Default for SpiderCrawler {
+    fn default() -> Self {
+        Self::new()
+    }
+}
 
-    let mut spider_rx = website
-        .subscribe(512)
-        .ok_or_else(|| SpiderError::Spider("Failed to subscribe".to_string()))?;
+#[async_trait::async_trait]
+impl Crawler for SpiderCrawler {
+    async fn crawl(&self, shop_url: &str) -> Result<mpsc::Receiver<CrawledPage>, SpiderError> {
+        let (tx, rx) = mpsc::channel(1000);
 
-    tokio::spawn(async move {
-        website.crawl().await;
-        website.unsubscribe();
-    });
+        let mut website = Website::new(shop_url);
 
-    tokio::spawn(async move {
-        // Bloom Filter (Memory Management)
-        // 100k items capacity with 0.1% false-positive rate
-        let mut bloom = Bloom::new_for_fp_rate(100_000, 0.001).expect("bloom filter init failed");
+        let blacklist_regex = build_blacklist_url_patterns();
 
-        while let Ok(page) = spider_rx.recv().await {
-            let raw_url = page.get_url();
+        website
+            .with_blacklist_url(Some(blacklist_regex))
+            .with_respect_robots_txt(true);
 
-            if is_junk_url(raw_url) {
-                continue;
-            }
+        let mut spider_rx = website
+            .subscribe(512)
+            .ok_or_else(|| SpiderError::Spider("Failed to subscribe".to_string()))?;
 
-            let normalized = normalize_url(raw_url);
-            let main_hash = hash_main_fragment(&page.get_html(), &normalized);
+        tokio::spawn(async move {
+            website.crawl().await;
+            website.unsubscribe();
+        });
 
-            // Deduplicate
-            if !bloom.check(&normalized) {
-                bloom.set(&normalized);
+        tokio::spawn(async move {
+            let mut bloom =
+                Bloom::new_for_fp_rate(100_000, 0.001).expect("bloom filter init failed");
 
-                // Send to consumer (waits if channel is full)
-                if tx
-                    .send(CrawledPage {
-                        url: normalized,
-                        main_hash,
-                    })
-                    .await
-                    .is_err()
-                {
-                    break;
+            while let Ok(page) = spider_rx.recv().await {
+                let raw_url = page.get_url();
+
+                if is_junk_url(raw_url) {
+                    continue;
+                }
+
+                let normalized = normalize_url(raw_url);
+                let main_hash = hash_main_fragment(&page.get_html(), &normalized);
+
+                if !bloom.check(&normalized) {
+                    bloom.set(&normalized);
+
+                    if tx
+                        .send(CrawledPage {
+                            url: normalized,
+                            main_hash,
+                        })
+                        .await
+                        .is_err()
+                    {
+                        break;
+                    }
                 }
             }
-        }
-    });
+        });
 
-    Ok(rx)
+        Ok(rx)
+    }
 }
 
 #[cfg(test)]

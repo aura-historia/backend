@@ -1,5 +1,5 @@
-use url::Url;
 use crate::error::SpiderError;
+use url::Url;
 
 /// Normalizes URLs for stable deduplication and comparison.
 ///
@@ -55,7 +55,6 @@ pub fn normalize_url(raw: &str) -> String {
 
     parsed.to_string()
 }
-
 
 /// Normalizes a shop URL to its origin (scheme + host + optional port) used for scoping/persistence.
 pub fn normalize_shop_url(shop_url: &str) -> Result<String, SpiderError> {

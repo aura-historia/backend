@@ -31,6 +31,15 @@ pub struct GeminiClient {
     model: String,
 }
 
+#[async_trait::async_trait]
+#[mockall::automock]
+pub trait PatternInferenceClient: Send + Sync {
+    async fn infer_product_url_pattern(
+        &self,
+        urls: &[String],
+    ) -> Result<Option<String>, SpiderError>;
+}
+
 impl GeminiClient {
     pub fn new(api_key: String) -> Self {
         Self {
@@ -38,8 +47,11 @@ impl GeminiClient {
             model: DEFAULT_MODEL.to_string(),
         }
     }
+}
 
-    pub async fn find_product_url_pattern(
+#[async_trait::async_trait]
+impl PatternInferenceClient for GeminiClient {
+    async fn infer_product_url_pattern(
         &self,
         urls: &[String],
     ) -> Result<Option<String>, SpiderError> {

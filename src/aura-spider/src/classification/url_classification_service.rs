@@ -3,37 +3,37 @@ use std::collections::HashSet;
 use regex::Regex;
 use tracing::{debug, info, warn};
 
-use crate::classification::gemini_client::GeminiClient;
+use crate::classification::gemini_client::PatternInferenceClient;
 use crate::error::SpiderError;
 use crate::normalization::url::normalize_url;
 
-/// Uses Gemini to infer a product URL regex and compiles it.
+/// Uses a PatternInferenceClient to infer a product URL regex and compiles it.
 pub async fn find_product_url_pattern(
-    gemini_client: &GeminiClient,
+    client: &dyn PatternInferenceClient,
     all_urls: &[String],
 ) -> Result<Option<Regex>, SpiderError> {
     info!(
         urlCount = all_urls.len(),
-        "Analyzing crawled URLs with Gemini"
+        "Analyzing crawled URLs with PatternInferenceClient"
     );
 
-    match gemini_client.find_product_url_pattern(all_urls).await {
+    match client.infer_product_url_pattern(all_urls).await {
         Ok(Some(pattern)) => match Regex::new(&pattern) {
             Ok(regex) => {
-                info!(pattern = %pattern, "Gemini returned a valid URL pattern");
+                info!(pattern = %pattern, "Client returned a valid URL pattern");
                 Ok(Some(regex))
             }
             Err(error) => {
                 warn!(
                     pattern = %pattern,
                     error = %error,
-                    "Gemini returned an invalid regex pattern"
+                    "Client returned an invalid regex pattern"
                 );
                 Ok(None)
             }
         },
         Ok(None) => {
-            info!("Gemini found no consistent product URL pattern");
+            info!("Client found no consistent product URL pattern");
             Ok(None)
         }
         Err(error) => Err(error),

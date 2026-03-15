@@ -20,10 +20,13 @@ use std::process::Command;
 use std::sync::Arc;
 use std::time::Duration;
 
+use aura_spider::classification::gemini_client::GeminiClient;
 use aura_spider::classification::link_metadata_repository::LinkMetadataRepositoryImpl;
 use aura_spider::classification::url_pattern_repository::ShopUrlPatternRepositoryImpl;
+use aura_spider::classification::url_pattern_service::UrlPatternServiceImpl;
+use aura_spider::crawling::crawl_service::SpiderCrawler;
 use aura_spider::error::SpiderError;
-use aura_spider::spider_service::{SpiderRunResult, SpiderService};
+use aura_spider::spider_service::{SpiderRunResult, SpiderService, SpiderServiceImpl};
 use sqlx::PgPool;
 use testcontainers::ImageExt;
 use testcontainers::core::IntoContainerPort;
@@ -69,15 +72,16 @@ async fn main() {
     let pattern_repository = build_pattern_repository(pool.clone());
     let link_repository = build_link_repository(pool.clone());
 
-    let spider = SpiderService::new(
-        shop_url,
-        api_key,
-        DEFAULT_CLASSIFY_THRESHOLD,
-        pattern_repository,
-        link_repository,
-    );
+    let crawler = Box::new(SpiderCrawler::new());
+    let gemini_client = Box::new(GeminiClient::new(api_key));
+    let pattern_service = Box::new(UrlPatternServiceImpl::new(
+        pattern_repository.clone(),
+        gemini_client,
+    ));
 
-    match spider.run().await {
+    let spider = SpiderServiceImpl::new(crawler, pattern_service, link_repository);
+
+    match spider.run(&shop_url, DEFAULT_CLASSIFY_THRESHOLD).await {
         Ok(result) => {
             info!(
                 linkCount = result.links.len(),
