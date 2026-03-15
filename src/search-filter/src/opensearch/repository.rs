@@ -7,7 +7,7 @@ use product::opensearch::product_document::ProductDocument;
 use serde::ser::Error;
 use serde_json::json;
 
-const INDEX_NAME: &str = "user_search_filter";
+const INDEX_NAME: &str = "user_search_filters";
 
 #[async_trait::async_trait]
 #[mockall::automock]

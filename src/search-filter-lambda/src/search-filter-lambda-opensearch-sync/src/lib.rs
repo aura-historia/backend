@@ -212,7 +212,7 @@ mod tests {
         mock_repo.expect_index_document().times(1).returning(|_| {
             Box::pin(async {
                 Ok(common::opensearch::index_response::IndexResponse {
-                    index: "user_search_filter".to_string(),
+                    index: "user_search_filters".to_string(),
                     id: "test".to_string(),
                     version: Some(1),
                     result: "created".to_string(),
@@ -234,7 +234,7 @@ mod tests {
         mock_repo.expect_index_document().times(1).returning(|_| {
             Box::pin(async {
                 Ok(common::opensearch::index_response::IndexResponse {
-                    index: "user_search_filter".to_string(),
+                    index: "user_search_filters".to_string(),
                     id: "test".to_string(),
                     version: Some(2),
                     result: "updated".to_string(),
@@ -258,7 +258,7 @@ mod tests {
         mock_repo.expect_delete_document().times(1).returning(|_| {
             Box::pin(async {
                 Ok(common::opensearch::delete_response::DeleteResponse {
-                    index: "user_search_filter".to_string(),
+                    index: "user_search_filters".to_string(),
                     id: "test".to_string(),
                     version: Some(1),
                     result: "deleted".to_string(),

@@ -167,7 +167,7 @@ pub async fn reset() {
     clear_os_index_data("shops")
         .await
         .expect("shouldn't fail clearing os-index 'shops'");
-    clear_os_index_data("user_search_filter")
+    clear_os_index_data("user_search_filters")
         .await
         .expect("shouldn't fail clearing os-index 'user_search_filter'");
     clear_qs(vec![

@@ -36,10 +36,10 @@ async fn should_index_user_search_filter_document() {
 
     assert_eq!(response.id, expected.user_search_filter_id.to_string());
 
-    refresh_index("user_search_filter").await;
+    refresh_index("user_search_filters").await;
 
     let actual: UserSearchFilterDocument =
-        read_by_id("user_search_filter", expected.user_search_filter_id).await;
+        read_by_id("user_search_filters", expected.user_search_filter_id).await;
 
     assert_eq!(expected, actual);
 }
@@ -57,10 +57,10 @@ async fn should_update_user_search_filter_document_when_indexing_same_id_again()
     repository.index_document(first).await.unwrap();
     repository.index_document(second.clone()).await.unwrap();
 
-    refresh_index("user_search_filter").await;
+    refresh_index("user_search_filters").await;
 
     let actual: UserSearchFilterDocument =
-        read_by_id("user_search_filter", second.user_search_filter_id).await;
+        read_by_id("user_search_filters", second.user_search_filter_id).await;
 
     assert_eq!(second, actual);
 }
@@ -72,7 +72,7 @@ async fn should_delete_user_search_filter_document() {
 
     let document = exact_document();
     repository.index_document(document.clone()).await.unwrap();
-    refresh_index("user_search_filter").await;
+    refresh_index("user_search_filters").await;
 
     let response = repository
         .delete_document(&document.user_search_filter_id)
@@ -81,7 +81,7 @@ async fn should_delete_user_search_filter_document() {
 
     assert_eq!(response.id, document.user_search_filter_id.to_string());
 
-    refresh_index("user_search_filter").await;
+    refresh_index("user_search_filters").await;
 
     let search_response = repository
         .percolate(&base_product_document())
@@ -1314,6 +1314,6 @@ async fn index_document(
 ) -> UserSearchFilterDocument {
     let document: UserSearchFilterDocument = record.try_into().unwrap();
     repository.index_document(document.clone()).await.unwrap();
-    refresh_index("user_search_filter").await;
+    refresh_index("user_search_filters").await;
     document
 }

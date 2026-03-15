@@ -100,10 +100,10 @@ impl IntegrationTestService for OpenSearch {
             .await
             .expect("shouldn't fail clearing OpenSearch index data from 'categories'");
         refresh_index("categories").await;
-        clear_index_data("user_search_filter")
+        clear_index_data("user_search_filters")
             .await
             .expect("shouldn't fail clearing OpenSearch index data from 'user_search_filter'");
-        refresh_index("user_search_filter").await;
+        refresh_index("user_search_filters").await;
         debug!("Cleared OpenSearch index data for test isolation");
     }
 }
@@ -279,7 +279,7 @@ static CATEGORIES_INDEX_MAPPING_STR: &str = include_str!(concat!(
 
 static USER_SEARCH_FILTER_INDEX_MAPPING_STR: &str = include_str!(concat!(
     env!("CARGO_WORKSPACE_DIR"),
-    "opensearch/mappings/user_search_filter.json"
+    "opensearch/mappings/user_search_filters.json"
 ));
 
 fn check_status_allow_not_found(response: &Response) -> Result<(), Error> {
@@ -378,7 +378,7 @@ async fn set_up_indices() -> Result<Response, Error> {
     // Index 'user_search_filter'
     let exists_response = client
         .indices()
-        .exists(IndicesExistsParts::Index(&["user_search_filter"]))
+        .exists(IndicesExistsParts::Index(&["user_search_filters"]))
         .send()
         .await?;
     check_status_allow_not_found(&exists_response)?;
@@ -394,7 +394,7 @@ async fn set_up_indices() -> Result<Response, Error> {
         .await
         .indices()
         .create(opensearch::indices::IndicesCreateParts::Index(
-            "user_search_filter",
+            "user_search_filters",
         ))
         .body(mapping_with_inline_synonyms(
             USER_SEARCH_FILTER_INDEX_MAPPING_STR,

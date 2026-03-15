@@ -63,11 +63,13 @@ async fn wait_until_document_exists(
     let user_search_filter_id = user_search_filter_id.into();
 
     for _ in 0..24 {
-        refresh_index("user_search_filter").await;
+        refresh_index("user_search_filters").await;
 
-        if let Some(document) =
-            try_read_by_id::<UserSearchFilterDocument>("user_search_filter", &user_search_filter_id)
-                .await
+        if let Some(document) = try_read_by_id::<UserSearchFilterDocument>(
+            "user_search_filters",
+            &user_search_filter_id,
+        )
+        .await
         {
             return document;
         }
@@ -85,9 +87,9 @@ async fn wait_until_document_deleted(user_search_filter_id: impl Into<String>) {
     let user_search_filter_id = user_search_filter_id.into();
 
     for _ in 0..24 {
-        refresh_index("user_search_filter").await;
+        refresh_index("user_search_filters").await;
 
-        if try_read_by_id::<UserSearchFilterDocument>("user_search_filter", &user_search_filter_id)
+        if try_read_by_id::<UserSearchFilterDocument>("user_search_filters", &user_search_filter_id)
             .await
             .is_none()
         {
