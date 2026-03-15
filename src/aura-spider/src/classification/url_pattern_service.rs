@@ -7,6 +7,7 @@ use crate::classification::gemini_client::GeminiClient;
 use crate::classification::url_classification_service::find_product_url_pattern;
 use crate::classification::url_pattern_repository::ShopUrlPatternRepository;
 use crate::error::SpiderError;
+use crate::normalization::url::normalize_shop_url;
 
 pub struct UrlPatternService {
     repository: Arc<dyn ShopUrlPatternRepository>,
@@ -25,7 +26,7 @@ impl UrlPatternService {
         &self,
         shop_url: &str,
     ) -> Result<Option<Regex>, SpiderError> {
-        let shop_url = Self::normalize_shop_url(shop_url)?;
+        let shop_url = normalize_shop_url(shop_url)?;
         let record = self.repository.find_pattern(&shop_url).await?;
 
         let Some(record) = record else {
@@ -46,7 +47,7 @@ impl UrlPatternService {
         shop_url: &str,
         pattern: &Regex,
     ) -> Result<(), SpiderError> {
-        let shop_url = Self::normalize_shop_url(shop_url)?;
+        let shop_url = normalize_shop_url(shop_url)?;
         self.repository
             .save_pattern(&shop_url, Some(pattern.as_str()))
             .await?;
@@ -74,27 +75,6 @@ impl UrlPatternService {
         Ok(pattern)
     }
 
-    fn normalize_shop_url(shop_url: &str) -> Result<String, SpiderError> {
-        let parsed = url::Url::parse(shop_url).map_err(|error| {
-            SpiderError::Spider(format!(
-                "Invalid shop URL '{shop_url}' while resolving pattern scope: {error}"
-            ))
-        })?;
-
-        let host = parsed.host_str().ok_or_else(|| {
-            SpiderError::Spider(format!(
-                "Shop URL '{shop_url}' has no host for pattern scope"
-            ))
-        })?;
-
-        let scheme = parsed.scheme().to_ascii_lowercase();
-        let host = host.to_ascii_lowercase();
-
-        Ok(match parsed.port() {
-            Some(port) => format!("{scheme}://{host}:{port}"),
-            None => format!("{scheme}://{host}"),
-        })
-    }
 }
 
 #[cfg(test)]
@@ -103,7 +83,7 @@ mod tests {
 
     #[test]
     fn should_return_origin_when_shop_url_has_default_port_for_scope_key() {
-        let key = UrlPatternService::normalize_shop_url("https://example.com/some/path")
+        let key = normalize_shop_url("https://example.com/some/path")
             .expect("shop url should be resolved");
 
         assert_eq!(key, "https://example.com");
@@ -111,7 +91,7 @@ mod tests {
 
     #[test]
     fn should_return_origin_with_port_when_shop_url_has_explicit_port_for_scope_key() {
-        let key = UrlPatternService::normalize_shop_url("https://example.com:8443/some/path")
+        let key = normalize_shop_url("https://example.com:8443/some/path")
             .expect("shop url should be resolved");
 
         assert_eq!(key, "https://example.com:8443");
@@ -119,7 +99,7 @@ mod tests {
 
     #[test]
     fn should_return_error_when_shop_url_is_invalid_for_scope_key() {
-        let error = UrlPatternService::normalize_shop_url("not-a-valid-url")
+        let error = normalize_shop_url("not-a-valid-url")
             .expect_err("invalid url should fail");
 
         assert!(matches!(error, SpiderError::Spider(_)));

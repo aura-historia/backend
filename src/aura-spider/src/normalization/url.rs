@@ -1,4 +1,5 @@
 use url::Url;
+use crate::error::SpiderError;
 
 /// Normalizes URLs for stable deduplication and comparison.
 ///
@@ -53,6 +54,30 @@ pub fn normalize_url(raw: &str) -> String {
     }
 
     parsed.to_string()
+}
+
+
+/// Normalizes a shop URL to its origin (scheme + host + optional port) used for scoping/persistence.
+pub fn normalize_shop_url(shop_url: &str) -> Result<String, SpiderError> {
+    let parsed = Url::parse(shop_url).map_err(|error| {
+        SpiderError::Spider(format!(
+            "Invalid shop URL '{shop_url}' while resolving pattern scope: {error}"
+        ))
+    })?;
+
+    let host = parsed.host_str().ok_or_else(|| {
+        SpiderError::Spider(format!(
+            "Shop URL '{shop_url}' has no host for pattern scope"
+        ))
+    })?;
+
+    let scheme = parsed.scheme().to_ascii_lowercase();
+    let host = host.to_ascii_lowercase();
+
+    Ok(match parsed.port() {
+        Some(port) => format!("{scheme}://{host}:{port}"),
+        None => format!("{scheme}://{host}"),
+    })
 }
 
 #[cfg(test)]

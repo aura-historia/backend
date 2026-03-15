@@ -251,13 +251,10 @@ impl SpiderService {
             }
         }
 
-        let confirmed_products = match confirmed_products {
-            Ok(urls) => urls,
-            Err(error) => {
-                warn!(error = %error, "No confirmed product URLs after classification");
-                Vec::new()
-            }
-        };
+        let confirmed_products = confirmed_products.unwrap_or_else(|error| {
+            warn!(error = %error, "No confirmed product URLs after classification");
+            Vec::new()
+        });
 
         let product_pattern = pattern.as_ref().map(|regex| regex.as_str().to_string());
 
@@ -280,7 +277,7 @@ impl SpiderService {
         pages: &[CrawledPage],
         pattern: &Option<Regex>,
     ) -> Result<Vec<CrawledLinkMetadata>, SpiderError> {
-        let normalized_shop_url = Self::normalize_shop_url(&self.shop_url)?;
+        let normalized_shop_url = crate::normalization::url::normalize_shop_url(&self.shop_url)?;
         let mut metadata = Vec::with_capacity(pages.len());
 
         for page in pages {
@@ -301,27 +298,6 @@ impl SpiderService {
         Ok(metadata)
     }
 
-    fn normalize_shop_url(shop_url: &str) -> Result<String, SpiderError> {
-        let parsed = url::Url::parse(shop_url).map_err(|error| {
-            SpiderError::Spider(format!(
-                "Invalid shop URL '{shop_url}' while resolving pattern scope: {error}"
-            ))
-        })?;
-
-        let host = parsed.host_str().ok_or_else(|| {
-            SpiderError::Spider(format!(
-                "Shop URL '{shop_url}' has no host for pattern scope"
-            ))
-        })?;
-
-        let scheme = parsed.scheme().to_ascii_lowercase();
-        let host = host.to_ascii_lowercase();
-
-        Ok(match parsed.port() {
-            Some(port) => format!("{scheme}://{host}:{port}"),
-            None => format!("{scheme}://{host}"),
-        })
-    }
 }
 
 fn classify_link(url: &str, product_pattern: &Option<Regex>) -> LinkClass {
