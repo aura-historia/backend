@@ -79,7 +79,7 @@ aws-sdk-cloudwatch = "1.107.0"
 aws_lambda_events = { version = "1.1.1", default-features = false }
 common = { path = "src/common" }
 derive_builder = "0.20.2"
-fake = { version = "4.4.0", features = ["derive", "time", "uuid", "url"] }
+fake = { version = "5.0.0", features = ["derive", "time", "uuid", "url"] }
 field = "0.1.0"
 search-filter = { path = "src/search-filter" }
 search-filter-api = { path = "src/search-filter-api" }
