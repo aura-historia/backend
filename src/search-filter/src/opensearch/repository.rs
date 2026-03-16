@@ -8,6 +8,7 @@ use serde::ser::Error;
 use serde_json::json;
 
 const INDEX_NAME: &str = "user_search_filters";
+const PERCOLATE_MIN_SCORE: f64 = 1.0;
 
 #[async_trait::async_trait]
 #[mockall::automock]
@@ -95,6 +96,7 @@ impl<'a> UserSearchFilterOpenSearchRepository for UserSearchFilterOpenSearchRepo
             ))
         })?;
         let body = json!({
+            "min_score": PERCOLATE_MIN_SCORE,
             "query": {
                 "percolate": {
                     "field": "query",
