@@ -16,8 +16,8 @@ use product::opensearch::repository::{
 use product::service::get_service::GetProductServiceImpl;
 use product::service::semantic_service::SemanticSearchServiceImpl;
 use product_api::get_product_similar::handle;
+use product_personalization::service::ProductPersonalizationServiceImpl;
 use product_watchlist::dynamodb::repository::WatchlistProductDynamoDbRepositoryImpl;
-use product_watchlist::service::personalization_service::ProductPersonalizationServiceImpl;
 use product_watchlist::service::product_watchlist_service::{
     ProductWatchListService, ProductWatchListServiceImpl,
 };

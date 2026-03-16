@@ -4711,6 +4711,7 @@ dependencies = [
  "http 1.4.0",
  "lambda_runtime",
  "product",
+ "product-personalization",
  "product-watchlist",
  "rstest",
  "serde",
@@ -4875,6 +4876,20 @@ dependencies = [
 [[package]]
 name = "product-personalization"
 version = "0.1.0"
+dependencies = [
+ "async-trait",
+ "common",
+ "fake",
+ "mockall",
+ "product",
+ "product-personalization",
+ "product-watchlist",
+ "thiserror",
+ "time",
+ "tokio",
+ "tracing",
+ "user",
+]
 
 [[package]]
 name = "product-pipeline"

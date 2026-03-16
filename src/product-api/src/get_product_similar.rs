@@ -13,7 +13,7 @@ use product::{core::user_state::ProductUserState, data::get_summary_data::GetPro
 use product::{
     data::user_state_data::ProductUserStateData, service::semantic_service::SemanticSearchService,
 };
-use product_watchlist::service::personalization_service::ProductPersonalizationService;
+use product_personalization::service::ProductPersonalizationService;
 
 pub async fn handle(
     event: LambdaEvent<ApiGatewayV2httpRequest>,
@@ -118,7 +118,7 @@ mod tests {
     use lambda_runtime::LambdaEvent;
     use product::service::semantic_service::MockSemanticSearchService;
     use product::service::semantic_service::SemanticSearchProductsError;
-    use product_watchlist::service::personalization_service::MockProductPersonalizationService;
+    use product_personalization::service::MockProductPersonalizationService;
     use test_api::ApiGatewayV2httpRequestProxy;
 
     #[tokio::test]

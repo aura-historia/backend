@@ -1,15 +1,23 @@
-use crate::{
+use common::{api::error::ApiError, personalized::Personalized, user_id::UserId};
+use product::core::{product::LocalizedProductView, user_state::WatchlistUserState};
+use product_watchlist::{
     dynamodb::repository::WatchlistProductDynamoDbRepository,
     service::product_watchlist_service::WatchProductError,
 };
-use common::{personalized::Personalized, user_id::UserId};
-use product::core::{product::LocalizedProductView, user_state::WatchlistUserState};
 use std::collections::HashMap;
 
 #[derive(Debug, thiserror::Error)]
 pub enum ProductPersonalizationError {
     #[error("WatchProductError: {0}")]
     WatchProductError(#[from] WatchProductError),
+}
+
+impl From<ProductPersonalizationError> for ApiError {
+    fn from(value: ProductPersonalizationError) -> Self {
+        match value {
+            ProductPersonalizationError::WatchProductError(e) => e.into(),
+        }
+    }
 }
 
 #[async_trait::async_trait]
@@ -19,13 +27,16 @@ pub trait ProductPersonalizationService {
         &self,
         user_id: &UserId,
         product: LocalizedProductView,
-    ) -> Result<Personalized<LocalizedProductView, WatchlistUserState>, WatchProductError>;
+    ) -> Result<Personalized<LocalizedProductView, WatchlistUserState>, ProductPersonalizationError>;
 
     async fn personalize_all_watchlist(
         &self,
         user_id: &UserId,
         items: Vec<LocalizedProductView>,
-    ) -> Result<Vec<Personalized<LocalizedProductView, WatchlistUserState>>, WatchProductError>;
+    ) -> Result<
+        Vec<Personalized<LocalizedProductView, WatchlistUserState>>,
+        ProductPersonalizationError,
+    >;
 }
 
 pub struct ProductPersonalizationServiceImpl<'a> {
@@ -46,11 +57,13 @@ impl<'a> ProductPersonalizationService for ProductPersonalizationServiceImpl<'a>
         &self,
         user_id: &UserId,
         product: LocalizedProductView,
-    ) -> Result<Personalized<LocalizedProductView, WatchlistUserState>, WatchProductError> {
+    ) -> Result<Personalized<LocalizedProductView, WatchlistUserState>, ProductPersonalizationError>
+    {
         let watchlist_record = self
             .watchlist_repository
             .get_watchlist_record(user_id, &product.shop_id, &product.shops_product_id)
-            .await?;
+            .await
+            .map_err(WatchProductError::from)?;
 
         let personalized = match watchlist_record {
             None => Personalized {
@@ -75,12 +88,15 @@ impl<'a> ProductPersonalizationService for ProductPersonalizationServiceImpl<'a>
         &self,
         user_id: &UserId,
         products: Vec<LocalizedProductView>,
-    ) -> Result<Vec<Personalized<LocalizedProductView, WatchlistUserState>>, WatchProductError>
-    {
+    ) -> Result<
+        Vec<Personalized<LocalizedProductView, WatchlistUserState>>,
+        ProductPersonalizationError,
+    > {
         let watchlist_records = self
             .watchlist_repository
             .query_watchlist_records_all(user_id, true)
-            .await?
+            .await
+            .map_err(WatchProductError::from)?
             .into_iter()
             .map(|watchlist_record| (watchlist_record.product_id, watchlist_record))
             .collect::<HashMap<_, _>>();
@@ -111,18 +127,15 @@ impl<'a> ProductPersonalizationService for ProductPersonalizationServiceImpl<'a>
 
 #[cfg(test)]
 mod tests {
-    use crate::{
-        dynamodb::{
-            record::WatchlistProductRecord, repository::MockWatchlistProductDynamoDbRepository,
-        },
-        service::personalization_service::{
-            ProductPersonalizationService, ProductPersonalizationServiceImpl,
-        },
-    };
     use common::product_id::ProductId;
     use fake::{Fake, Faker};
     use product::core::product::LocalizedProductView;
+    use product_watchlist::dynamodb::{
+        record::WatchlistProductRecord, repository::MockWatchlistProductDynamoDbRepository,
+    };
     use time::OffsetDateTime;
+
+    use crate::service::{ProductPersonalizationService, ProductPersonalizationServiceImpl};
 
     #[tokio::test]
     async fn should_personalize_watchlist_when_watching_notifications_false() {

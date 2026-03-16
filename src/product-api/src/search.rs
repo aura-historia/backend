@@ -22,7 +22,7 @@ use product::{
     },
 };
 use product::{core::user_state::ProductUserState, service::query_service::QueryProductService};
-use product_watchlist::service::personalization_service::ProductPersonalizationService;
+use product_personalization::service::ProductPersonalizationService;
 
 pub async fn handle(
     event: LambdaEvent<ApiGatewayV2httpRequest>,
@@ -134,7 +134,7 @@ mod tests {
     use product::core::product::LocalizedProductView;
     use product::data::product_search_data::ProductSearchData;
     use product::service::query_service::MockQueryProductService;
-    use product_watchlist::service::personalization_service::MockProductPersonalizationService;
+    use product_personalization::service::MockProductPersonalizationService;
     use serde_json::json;
     use test_api::ApiGatewayV2httpRequestProxy;
 

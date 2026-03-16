@@ -7,6 +7,7 @@ edition = "2024"
 common = { workspace = true, features = ["api", "opensearch"] }
 product = { workspace = true, features = ["data", "service", "dynamodb", "opensearch", "sqs"] }
 product-watchlist = { workspace = true, features = ["data", "service", "dynamodb"] }
+product-personalization = { workspace = true }
 user = { workspace = true, features = ["dynamodb"] }
 shop = { workspace = true, features = ["dynamodb"] }
 cognito = { workspace = true }

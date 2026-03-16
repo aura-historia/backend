@@ -26,11 +26,11 @@ use product::{
     data::{get_data::GetProductData, user_state_data::ProductUserStateData},
 };
 use product_api::get_product::handle;
+use product_personalization::service::ProductPersonalizationServiceImpl;
 use product_watchlist::{
     dynamodb::repository::WatchlistProductDynamoDbRepositoryImpl,
     service::{
         command::UpdateWatchlistProductCommand,
-        personalization_service::ProductPersonalizationServiceImpl,
         product_watchlist_service::{ProductWatchListService, ProductWatchListServiceImpl},
     },
 };
