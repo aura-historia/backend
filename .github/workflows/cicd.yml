@@ -101,6 +101,7 @@ jobs:
           - src/product
           - src/product-pipeline/src/product-pipeline-common
           - src/product-api
+          - src/product-personalization
           - src/product-classification
           - src/product-classification-api
           - src/product-watchlist

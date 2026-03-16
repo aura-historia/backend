@@ -320,6 +320,7 @@ dependencies = [
  "product-classification",
  "product-classification-api",
  "product-lambda",
+ "product-personalization",
  "product-pipeline",
  "product-watchlist",
  "product-watchlist-api",
@@ -4870,6 +4871,10 @@ dependencies = [
  "user",
  "uuid",
 ]
+
+[[package]]
+name = "product-personalization"
+version = "0.1.0"
 
 [[package]]
 name = "product-pipeline"
