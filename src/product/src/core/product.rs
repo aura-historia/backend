@@ -14,7 +14,10 @@ use crate::core::product_event::enrichment::{
 use crate::core::product_event::policy::{
     ProductPolicyEventPayload, ProhibitedContentProductPolicyEventPayload,
 };
-use crate::core::product_event::{ProductDomainEvent, ProductEnrichmentEvent, ProductPolicyEvent};
+use crate::core::product_event::{
+    ProductDomainEvent, ProductEnrichmentEvent, ProductEvent, ProductEventPayload,
+    ProductPolicyEvent,
+};
 use crate::core::product_image::ProductImage;
 use crate::core::prohibited_content::{ProhibitedContent, ProhibitedContentReason};
 use crate::core::provenance::Provenance;
@@ -36,6 +39,7 @@ use common::shop_name::ShopName;
 use common::shops_product_id::ShopsProductId;
 use common::slug_id::SlugId;
 use common::string_newtype;
+use common::year::YearRange;
 use shop::core::shop_type::ShopType;
 use std::collections::HashMap;
 use time::OffsetDateTime;
@@ -440,6 +444,88 @@ impl Product {
                 }
                 Some(event)
             }
+        }
+    }
+
+    pub fn apply(&mut self, event: ProductEvent) {
+        self.event_id = event.event_id;
+        self.updated = event.timestamp;
+
+        match event.payload {
+            ProductEventPayload::ProductDomainEvent(payload) => match payload {
+                ProductDomainEventPayload::Created(_) => {}
+                ProductDomainEventPayload::StateListed(_) => self.state = ProductState::Listed,
+                ProductDomainEventPayload::StateAvailable(_) => {
+                    self.state = ProductState::Available;
+                }
+                ProductDomainEventPayload::StateReserved(_) => {
+                    self.state = ProductState::Reserved;
+                }
+                ProductDomainEventPayload::StateSold(_) => self.state = ProductState::Sold,
+                ProductDomainEventPayload::StateRemoved(_) => self.state = ProductState::Removed,
+                ProductDomainEventPayload::StateUnknown(_) => self.state = ProductState::Unknown,
+                ProductDomainEventPayload::PriceDiscovered(p) => {
+                    self.native_price = Some(p.native_price);
+                    self.other_price = p.other_price;
+                }
+                ProductDomainEventPayload::PriceDropped(p)
+                | ProductDomainEventPayload::PriceIncreased(p) => {
+                    self.native_price = Some(p.new_native_price);
+                    self.other_price = p.new_other_price;
+                }
+                ProductDomainEventPayload::PriceRemoved(_) => {
+                    self.native_price = None;
+                    self.other_price.clear();
+                }
+            },
+            ProductEventPayload::ProductEnrichmentEvent(payload) => match payload {
+                ProductEnrichmentEventPayload::TranslatedTitle(p) => {
+                    self.other_title.insert(p.target_language, p.target);
+                }
+                ProductEnrichmentEventPayload::TranslatedDescription(p) => {
+                    self.other_description.insert(p.target_language, p.target);
+                }
+                ProductEnrichmentEventPayload::EmbeddedText(p) => {
+                    self.text_embedding = Some(p.embedding);
+                }
+                ProductEnrichmentEventPayload::ExtractedAttributes(p) => {
+                    if let Some(exact) = p.origin_year {
+                        self.origin_year = Some(OriginYear::ExactYear(exact));
+                    } else if p.origin_year_min.is_some() || p.origin_year_max.is_some() {
+                        self.origin_year = Some(OriginYear::EstimatedRange(YearRange {
+                            min: p.origin_year_min,
+                            max: p.origin_year_max,
+                        }));
+                    }
+                    if let Some(authenticity) = p.authenticity {
+                        self.authenticity = authenticity;
+                    }
+                    if let Some(condition) = p.condition {
+                        self.condition = condition;
+                    }
+                    if let Some(provenance) = p.provenance {
+                        self.provenance = provenance;
+                    }
+                    if let Some(restoration) = p.restoration {
+                        self.restoration = restoration;
+                    }
+                }
+                ProductEnrichmentEventPayload::ClassifiedCategory(p) => {
+                    self.category_id = Some(p.category_id);
+                }
+                ProductEnrichmentEventPayload::ClassifiedPeriod(p) => {
+                    self.period_id = Some(p.period_id);
+                }
+            },
+            ProductEventPayload::ProductPolicyEvent(payload) => match payload {
+                ProductPolicyEventPayload::ProhibitedContentDecision(p) => {
+                    if p.decision != ProhibitedContent::Unknown {
+                        for image in &mut self.images {
+                            image.prohibited_content = p.decision;
+                        }
+                    }
+                }
+            },
         }
     }
 
@@ -2108,6 +2194,464 @@ mod tests {
             assert_eq!(
                 view.price_estimate_max.unwrap().monetary_amount,
                 100u64.into()
+            );
+        }
+    }
+
+    mod apply {
+        use crate::core::authenticity::Authenticity;
+        use crate::core::condition::Condition;
+        use crate::core::origin_year::OriginYear;
+        use crate::core::product::Product;
+        use crate::core::product_event::ProductEventPayload;
+        use crate::core::product_event::domain::{
+            ProductDomainEventPayload, ProductPriceChangeDomainEventPayload,
+            ProductPriceDiscoveryDomainEventPayload, ProductPriceRemovedDomainEventPayload,
+            ProductStateChangeDomainEventPayload,
+        };
+        use crate::core::product_event::enrichment::{
+            ClassifiedCategoryProductEnrichmentEventPayload,
+            ClassifiedPeriodProductEnrichmentEventPayload,
+            EmbeddedTextProductEnrichmentEventPayload,
+            ExtractedAttributesProductEnrichmentEventPayload, ProductEnrichmentEventPayload,
+            TranslationProductEnrichmentEventPayload,
+        };
+        use crate::core::product_event::policy::{
+            ProductPolicyEventPayload, ProhibitedContentProductPolicyEventPayload,
+        };
+        use crate::core::product_image::ProductImage;
+        use crate::core::prohibited_content::{ProhibitedContent, ProhibitedContentReason};
+        use crate::core::provenance::Provenance;
+        use crate::core::restoration::Restoration;
+        use common::category_key::CategoryId;
+        use common::currency::domain::Currency;
+        use common::event::Event;
+        use common::event_id::EventId;
+        use common::language::domain::Language;
+        use common::period_key::PeriodId;
+        use common::price::domain::Price;
+        use common::product_state::domain::ProductState;
+        use common::year::{Year, YearRange};
+        use fake::{Fake, Faker};
+        use std::collections::HashMap;
+        use time::OffsetDateTime;
+        use url::Url;
+
+        fn make_event(
+            product: &Product,
+            payload: ProductEventPayload,
+        ) -> Event<common::product_id::ProductId, ProductEventPayload> {
+            Event {
+                aggregate_id: product.product_id,
+                event_id: EventId::new(),
+                timestamp: OffsetDateTime::now_utc(),
+                payload,
+            }
+        }
+
+        #[test]
+        fn should_update_event_id_and_timestamp_when_any_event_for_apply() {
+            let mut product: Product = Faker.fake();
+            let original_event_id = product.event_id;
+
+            let event_id = EventId::new();
+            let timestamp = OffsetDateTime::now_utc();
+            let event = Event {
+                aggregate_id: product.product_id,
+                event_id,
+                timestamp,
+                payload: ProductEventPayload::ProductDomainEvent(
+                    ProductDomainEventPayload::StateListed(ProductStateChangeDomainEventPayload {
+                        shop_id: product.shop_id,
+                        shops_product_id: product.shops_product_id.clone(),
+                        old_state: product.state,
+                    }),
+                ),
+            };
+
+            product.apply(event);
+
+            assert_eq!(product.event_id, event_id);
+            assert_ne!(product.event_id, original_event_id);
+            assert_eq!(product.updated, timestamp);
+        }
+
+        #[test]
+        fn should_update_state_to_listed_when_state_listed_event_for_apply() {
+            let mut product: Product = Faker.fake();
+            product.state = ProductState::Available;
+
+            let event = make_event(
+                &product,
+                ProductEventPayload::ProductDomainEvent(ProductDomainEventPayload::StateListed(
+                    ProductStateChangeDomainEventPayload {
+                        shop_id: product.shop_id,
+                        shops_product_id: product.shops_product_id.clone(),
+                        old_state: ProductState::Available,
+                    },
+                )),
+            );
+
+            product.apply(event);
+
+            assert_eq!(product.state, ProductState::Listed);
+        }
+
+        #[test]
+        fn should_update_state_to_sold_when_state_sold_event_for_apply() {
+            let mut product: Product = Faker.fake();
+            product.state = ProductState::Available;
+
+            let event = make_event(
+                &product,
+                ProductEventPayload::ProductDomainEvent(ProductDomainEventPayload::StateSold(
+                    ProductStateChangeDomainEventPayload {
+                        shop_id: product.shop_id,
+                        shops_product_id: product.shops_product_id.clone(),
+                        old_state: ProductState::Available,
+                    },
+                )),
+            );
+
+            product.apply(event);
+
+            assert_eq!(product.state, ProductState::Sold);
+        }
+
+        #[test]
+        fn should_set_native_price_when_price_discovered_event_for_apply() {
+            let mut product: Product = Faker.fake();
+            product.native_price = None;
+            product.other_price.clear();
+
+            let price = Price::new(500u64.into(), Currency::Eur);
+            let mut other_price = HashMap::new();
+            other_price.insert(Currency::Usd, 550u64.into());
+
+            let event = make_event(
+                &product,
+                ProductEventPayload::ProductDomainEvent(
+                    ProductDomainEventPayload::PriceDiscovered(
+                        ProductPriceDiscoveryDomainEventPayload {
+                            shop_id: product.shop_id,
+                            shops_product_id: product.shops_product_id.clone(),
+                            native_price: price,
+                            other_price: other_price.clone(),
+                        },
+                    ),
+                ),
+            );
+
+            product.apply(event);
+
+            assert_eq!(product.native_price, Some(price));
+            assert_eq!(product.other_price, other_price);
+        }
+
+        #[test]
+        fn should_update_price_when_price_dropped_event_for_apply() {
+            let mut product: Product = Faker.fake();
+            let old_price = Price::new(1000u64.into(), Currency::Eur);
+            product.native_price = Some(old_price);
+
+            let new_price = Price::new(800u64.into(), Currency::Eur);
+            let mut new_other_price = HashMap::new();
+            new_other_price.insert(Currency::Usd, 880u64.into());
+
+            let event = make_event(
+                &product,
+                ProductEventPayload::ProductDomainEvent(ProductDomainEventPayload::PriceDropped(
+                    ProductPriceChangeDomainEventPayload {
+                        shop_id: product.shop_id,
+                        shops_product_id: product.shops_product_id.clone(),
+                        new_native_price: new_price,
+                        new_other_price: new_other_price.clone(),
+                        old_native_price: old_price,
+                        old_other_price: HashMap::new(),
+                    },
+                )),
+            );
+
+            product.apply(event);
+
+            assert_eq!(product.native_price, Some(new_price));
+            assert_eq!(product.other_price, new_other_price);
+        }
+
+        #[test]
+        fn should_clear_price_when_price_removed_event_for_apply() {
+            let mut product: Product = Faker.fake();
+            let old_price = Price::new(500u64.into(), Currency::Eur);
+            product.native_price = Some(old_price);
+            product.other_price.insert(Currency::Usd, 550u64.into());
+
+            let event = make_event(
+                &product,
+                ProductEventPayload::ProductDomainEvent(ProductDomainEventPayload::PriceRemoved(
+                    ProductPriceRemovedDomainEventPayload {
+                        shop_id: product.shop_id,
+                        shops_product_id: product.shops_product_id.clone(),
+                        old_native_price: old_price,
+                        old_other_price: product.other_price.clone(),
+                    },
+                )),
+            );
+
+            product.apply(event);
+
+            assert_eq!(product.native_price, None);
+            assert!(product.other_price.is_empty());
+        }
+
+        #[test]
+        fn should_insert_translated_title_when_translated_title_event_for_apply() {
+            let mut product: Product = Faker.fake();
+            product.other_title.clear();
+
+            let event = make_event(
+                &product,
+                ProductEventPayload::ProductEnrichmentEvent(
+                    ProductEnrichmentEventPayload::TranslatedTitle(
+                        TranslationProductEnrichmentEventPayload {
+                            shop_id: product.shop_id,
+                            shops_product_id: product.shops_product_id.clone(),
+                            source_language: Language::De,
+                            target_language: Language::En,
+                            target: "English Title".into(),
+                        },
+                    ),
+                ),
+            );
+
+            product.apply(event);
+
+            assert_eq!(
+                product.other_title.get(&Language::En).cloned(),
+                Some("English Title".into())
+            );
+        }
+
+        #[test]
+        fn should_set_embedding_when_embedded_text_event_for_apply() {
+            let mut product: Product = Faker.fake();
+            product.text_embedding = None;
+
+            let embedding = vec![0.1f32, 0.2, 0.3, 0.4];
+
+            let event = make_event(
+                &product,
+                ProductEventPayload::ProductEnrichmentEvent(
+                    ProductEnrichmentEventPayload::EmbeddedText(
+                        EmbeddedTextProductEnrichmentEventPayload {
+                            shop_id: product.shop_id,
+                            shops_product_id: product.shops_product_id.clone(),
+                            embedding: embedding.clone(),
+                        },
+                    ),
+                ),
+            );
+
+            product.apply(event);
+
+            assert_eq!(product.text_embedding, Some(embedding));
+        }
+
+        #[test]
+        fn should_update_attributes_when_extracted_attributes_event_for_apply() {
+            let mut product: Product = Faker.fake();
+            product.origin_year = None;
+            product.authenticity = Authenticity::default();
+            product.condition = Condition::default();
+
+            let year: Year = Faker.fake();
+            let authenticity = Authenticity::LaterCopy;
+            let condition = Condition::Excellent;
+            let provenance = Provenance::Claimed;
+            let restoration = Restoration::Major;
+
+            let event = make_event(
+                &product,
+                ProductEventPayload::ProductEnrichmentEvent(
+                    ProductEnrichmentEventPayload::ExtractedAttributes(
+                        ExtractedAttributesProductEnrichmentEventPayload {
+                            shop_id: product.shop_id,
+                            shops_product_id: product.shops_product_id.clone(),
+                            origin_year_min: None,
+                            origin_year: Some(year),
+                            origin_year_max: None,
+                            authenticity: Some(authenticity),
+                            condition: Some(condition),
+                            provenance: Some(provenance),
+                            restoration: Some(restoration),
+                        },
+                    ),
+                ),
+            );
+
+            product.apply(event);
+
+            assert_eq!(product.origin_year, Some(OriginYear::ExactYear(year)));
+            assert_eq!(product.authenticity, authenticity);
+            assert_eq!(product.condition, condition);
+            assert_eq!(product.provenance, provenance);
+            assert_eq!(product.restoration, restoration);
+        }
+
+        #[test]
+        fn should_set_estimated_range_when_extracted_attributes_with_min_max_for_apply() {
+            let mut product: Product = Faker.fake();
+            product.origin_year = None;
+
+            let min_year: Year = Faker.fake();
+            let max_year: Year = Faker.fake();
+
+            let event = make_event(
+                &product,
+                ProductEventPayload::ProductEnrichmentEvent(
+                    ProductEnrichmentEventPayload::ExtractedAttributes(
+                        ExtractedAttributesProductEnrichmentEventPayload {
+                            shop_id: product.shop_id,
+                            shops_product_id: product.shops_product_id.clone(),
+                            origin_year_min: Some(min_year),
+                            origin_year: None,
+                            origin_year_max: Some(max_year),
+                            authenticity: None,
+                            condition: None,
+                            provenance: None,
+                            restoration: None,
+                        },
+                    ),
+                ),
+            );
+
+            product.apply(event);
+
+            assert_eq!(
+                product.origin_year,
+                Some(OriginYear::EstimatedRange(YearRange {
+                    min: Some(min_year),
+                    max: Some(max_year),
+                }))
+            );
+        }
+
+        #[test]
+        fn should_set_category_when_classified_category_event_for_apply() {
+            let mut product: Product = Faker.fake();
+            product.category_id = None;
+
+            let category_id: CategoryId = Faker.fake();
+
+            let event = make_event(
+                &product,
+                ProductEventPayload::ProductEnrichmentEvent(
+                    ProductEnrichmentEventPayload::ClassifiedCategory(
+                        ClassifiedCategoryProductEnrichmentEventPayload {
+                            shop_id: product.shop_id,
+                            shops_product_id: product.shops_product_id.clone(),
+                            category_id: category_id.clone(),
+                        },
+                    ),
+                ),
+            );
+
+            product.apply(event);
+
+            assert_eq!(product.category_id, Some(category_id));
+        }
+
+        #[test]
+        fn should_set_period_when_classified_period_event_for_apply() {
+            let mut product: Product = Faker.fake();
+            product.period_id = None;
+
+            let period_id: PeriodId = Faker.fake();
+
+            let event = make_event(
+                &product,
+                ProductEventPayload::ProductEnrichmentEvent(
+                    ProductEnrichmentEventPayload::ClassifiedPeriod(
+                        ClassifiedPeriodProductEnrichmentEventPayload {
+                            shop_id: product.shop_id,
+                            shops_product_id: product.shops_product_id.clone(),
+                            period_id: period_id.clone(),
+                        },
+                    ),
+                ),
+            );
+
+            product.apply(event);
+
+            assert_eq!(product.period_id, Some(period_id));
+        }
+
+        #[test]
+        fn should_update_images_when_prohibited_content_event_for_apply() {
+            let mut product: Product = Faker.fake();
+            product.images = vec![
+                ProductImage {
+                    url: Url::parse("https://example.com/img1.jpg").unwrap(),
+                    prohibited_content: ProhibitedContent::Unknown,
+                },
+                ProductImage {
+                    url: Url::parse("https://example.com/img2.jpg").unwrap(),
+                    prohibited_content: ProhibitedContent::Unknown,
+                },
+            ];
+
+            let event = make_event(
+                &product,
+                ProductEventPayload::ProductPolicyEvent(
+                    ProductPolicyEventPayload::ProhibitedContentDecision(
+                        ProhibitedContentProductPolicyEventPayload {
+                            shop_id: product.shop_id,
+                            shops_product_id: product.shops_product_id.clone(),
+                            decision: ProhibitedContent::NaziGermany,
+                            reason: ProhibitedContentReason::ProductText,
+                        },
+                    ),
+                ),
+            );
+
+            product.apply(event);
+
+            assert!(
+                product
+                    .images
+                    .iter()
+                    .all(|i| i.prohibited_content == ProhibitedContent::NaziGermany)
+            );
+        }
+
+        #[test]
+        fn should_not_update_images_when_prohibited_content_unknown_for_apply() {
+            let mut product: Product = Faker.fake();
+            product.images = vec![ProductImage {
+                url: Url::parse("https://example.com/img1.jpg").unwrap(),
+                prohibited_content: ProhibitedContent::None,
+            }];
+
+            let event = make_event(
+                &product,
+                ProductEventPayload::ProductPolicyEvent(
+                    ProductPolicyEventPayload::ProhibitedContentDecision(
+                        ProhibitedContentProductPolicyEventPayload {
+                            shop_id: product.shop_id,
+                            shops_product_id: product.shops_product_id.clone(),
+                            decision: ProhibitedContent::Unknown,
+                            reason: ProhibitedContentReason::ProductText,
+                        },
+                    ),
+                ),
+            );
+
+            product.apply(event);
+
+            assert!(
+                product
+                    .images
+                    .iter()
+                    .all(|i| i.prohibited_content == ProhibitedContent::None)
             );
         }
     }
