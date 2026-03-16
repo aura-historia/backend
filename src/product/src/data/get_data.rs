@@ -248,11 +248,11 @@ mod tests {
             url: Url::parse("https://my-shop.de/item").unwrap(),
             images: vec![
                 ProductImageData {
-                    url: Url::parse("https://my-shop.de/item/images/1").unwrap(),
+                    url: Some(Url::parse("https://my-shop.de/item/images/1").unwrap()),
                     prohibited_content: ProhibitedContentData::None,
                 },
                 ProductImageData {
-                    url: Url::parse("https://my-shop.de/item/images/2").unwrap(),
+                    url: Some(Url::parse("https://my-shop.de/item/images/2").unwrap()),
                     prohibited_content: ProhibitedContentData::NaziGermany,
                 },
             ],

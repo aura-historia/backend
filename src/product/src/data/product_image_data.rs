@@ -7,14 +7,19 @@ use url::Url;
 #[derive(Debug, Clone, Hash, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ProductImageData {
-    pub url: Url,
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub url: Option<Url>,
     pub prohibited_content: ProhibitedContentData,
 }
 
 impl From<ProductImage> for ProductImageData {
     fn from(value: ProductImage) -> Self {
         ProductImageData {
-            url: value.url,
+            url: if value.prohibited_content.is_safe() {
+                Some(value.url)
+            } else {
+                None
+            },
             prohibited_content: value.prohibited_content.into(),
         }
     }
@@ -29,7 +34,11 @@ mod faker {
     impl Dummy<Faker> for ProductImageData {
         fn dummy_with_rng<R: Rng + ?Sized>(config: &Faker, rng: &mut R) -> Self {
             ProductImageData {
-                url: config.fake_with_rng::<ImageUrl, R>(rng).into(),
+                url: if config.fake_with_rng(rng) {
+                    Some(config.fake_with_rng::<ImageUrl, R>(rng).into())
+                } else {
+                    None
+                },
                 prohibited_content: config.fake_with_rng(rng),
             }
         }
