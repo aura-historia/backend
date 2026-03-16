@@ -85,6 +85,7 @@ search-filter = { path = "src/search-filter" }
 search-filter-api = { path = "src/search-filter-api" }
 search-filter-lambda = { path = "src/search-filter-lambda" }
 search-filter-lambda-opensearch-sync = { path = "src/search-filter-lambda/src/search-filter-lambda-opensearch-sync" }
+search-filter-lambda-percolate-product = { path = "src/search-filter-lambda/src/search-filter-lambda-percolate-product" }
 shop = { path = "src/shop" }
 shop-lambda = { path = "src/shop-lambda" }
 shop-lambda-opensearch-index = { path = "src/shop-lambda/src/shop-lambda-opensearch-index" }

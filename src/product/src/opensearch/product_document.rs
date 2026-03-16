@@ -384,6 +384,126 @@ impl ProductDocumentSerdeField {
     }
 }
 
+fn extract_price(
+    native: &Option<common::price::domain::Price>,
+    other: &HashMap<Currency, common::price::domain::MonetaryAmount>,
+    currency: Currency,
+) -> Option<u64> {
+    if let Some(amount) = other.get(&currency) {
+        return Some(u64::from(*amount));
+    }
+    if let Some(price) = native {
+        if price.currency == currency {
+            return Some(u64::from(price.monetary_amount));
+        }
+    }
+    None
+}
+
+impl From<Product> for ProductDocument {
+    fn from(product: Product) -> Self {
+        use crate::core::description::Description;
+        use crate::core::title::Title;
+
+        let category_name_de = product.category_name.get(&Language::De).map(|c| String::from(c.clone()));
+        let category_name_en = product.category_name.get(&Language::En).map(|c| String::from(c.clone()));
+        let category_name_fr = product.category_name.get(&Language::Fr).map(|c| String::from(c.clone()));
+        let category_name_es = product.category_name.get(&Language::Es).map(|c| String::from(c.clone()));
+        let category_name_it = product.category_name.get(&Language::It).map(|c| String::from(c.clone()));
+
+        let period_name_de = product.period_name.get(&Language::De).map(|c| String::from(c.clone()));
+        let period_name_en = product.period_name.get(&Language::En).map(|c| String::from(c.clone()));
+        let period_name_fr = product.period_name.get(&Language::Fr).map(|c| String::from(c.clone()));
+        let period_name_es = product.period_name.get(&Language::Es).map(|c| String::from(c.clone()));
+        let period_name_it = product.period_name.get(&Language::It).map(|c| String::from(c.clone()));
+
+        let title_de = product.other_title.get(&Language::De).map(|t| String::from(t.clone()));
+        let title_en = product.other_title.get(&Language::En).map(|t| String::from(t.clone()));
+        let title_fr = product.other_title.get(&Language::Fr).map(|t| String::from(t.clone()));
+        let title_es = product.other_title.get(&Language::Es).map(|t| String::from(t.clone()));
+        let title_it = product.other_title.get(&Language::It).map(|t| String::from(t.clone()));
+
+        let description_de = product.other_description.get(&Language::De).map(|d| String::from(d.clone()));
+        let description_en = product.other_description.get(&Language::En).map(|d| String::from(d.clone()));
+        let description_fr = product.other_description.get(&Language::Fr).map(|d| String::from(d.clone()));
+        let description_es = product.other_description.get(&Language::Es).map(|d| String::from(d.clone()));
+        let description_it = product.other_description.get(&Language::It).map(|d| String::from(d.clone()));
+
+        let (origin_year_min, origin_year, origin_year_max) = match product.origin_year {
+            Some(OriginYear::ExactYear(y)) => (None, Some(y), None),
+            Some(OriginYear::EstimatedRange(range)) => (range.min, None, range.max),
+            None => (None, None, None),
+        };
+
+        ProductDocument {
+            product_id: product.product_id,
+            product_slug_id: product.product_slug_id,
+            shop_slug_id: product.shop_slug_id,
+            event_id: product.event_id,
+            shop_id: product.shop_id,
+            shops_product_id: product.shops_product_id,
+            shop_name: String::from(product.shop_name),
+            shop_type: product.shop_type.into(),
+            category_id: product.category_id,
+            period_id: product.period_id,
+            category_name_de,
+            category_name_en,
+            category_name_fr,
+            category_name_es,
+            category_name_it,
+            period_name_de,
+            period_name_en,
+            period_name_fr,
+            period_name_es,
+            period_name_it,
+            title_native: product.native_title.into(),
+            title_de,
+            title_en,
+            title_fr,
+            title_es,
+            title_it,
+            description_de,
+            description_en,
+            description_fr,
+            description_es,
+            description_it,
+            price_eur: extract_price(&product.native_price, &product.other_price, Currency::Eur),
+            price_usd: extract_price(&product.native_price, &product.other_price, Currency::Usd),
+            price_gbp: extract_price(&product.native_price, &product.other_price, Currency::Gbp),
+            price_aud: extract_price(&product.native_price, &product.other_price, Currency::Aud),
+            price_cad: extract_price(&product.native_price, &product.other_price, Currency::Cad),
+            price_nzd: extract_price(&product.native_price, &product.other_price, Currency::Nzd),
+            price_estimate_min_eur: extract_price(&product.native_price_estimate_min, &product.other_price_estimate_min, Currency::Eur),
+            price_estimate_min_usd: extract_price(&product.native_price_estimate_min, &product.other_price_estimate_min, Currency::Usd),
+            price_estimate_min_gbp: extract_price(&product.native_price_estimate_min, &product.other_price_estimate_min, Currency::Gbp),
+            price_estimate_min_aud: extract_price(&product.native_price_estimate_min, &product.other_price_estimate_min, Currency::Aud),
+            price_estimate_min_cad: extract_price(&product.native_price_estimate_min, &product.other_price_estimate_min, Currency::Cad),
+            price_estimate_min_nzd: extract_price(&product.native_price_estimate_min, &product.other_price_estimate_min, Currency::Nzd),
+            price_estimate_max_eur: extract_price(&product.native_price_estimate_max, &product.other_price_estimate_max, Currency::Eur),
+            price_estimate_max_usd: extract_price(&product.native_price_estimate_max, &product.other_price_estimate_max, Currency::Usd),
+            price_estimate_max_gbp: extract_price(&product.native_price_estimate_max, &product.other_price_estimate_max, Currency::Gbp),
+            price_estimate_max_aud: extract_price(&product.native_price_estimate_max, &product.other_price_estimate_max, Currency::Aud),
+            price_estimate_max_cad: extract_price(&product.native_price_estimate_max, &product.other_price_estimate_max, Currency::Cad),
+            price_estimate_max_nzd: extract_price(&product.native_price_estimate_max, &product.other_price_estimate_max, Currency::Nzd),
+            state: product.state.into(),
+            url: product.url,
+            images: product.images.into_iter().map(ProductImageDocument::from).collect(),
+            text_embedding: product.text_embedding,
+            origin_year_min,
+            origin_year,
+            origin_year_max,
+            authenticity: product.authenticity.into(),
+            condition: product.condition.into(),
+            provenance: product.provenance.into(),
+            restoration: product.restoration.into(),
+            auction_start: product.auction_start,
+            auction_end: product.auction_end,
+            created: product.created,
+            updated: product.updated,
+        }
+    }
+}
+
 impl From<ProductDocument> for Product {
     fn from(product_document: ProductDocument) -> Self {
         let mut category_name = HashMap::with_capacity(Language::COUNT);
