@@ -7,6 +7,7 @@ use serde::{Deserialize, Serialize};
 pub enum MailTemplateType {
     WatchlistUpdatePrice,
     WatchlistUpdateState,
+    SearchFilterMatch,
 }
 
 #[cfg_attr(feature = "test-data", derive(fake::Dummy))]
@@ -21,6 +22,7 @@ impl MailTemplateType {
         match self {
             MailTemplateType::WatchlistUpdatePrice => "mjml/watchlist/product-update/price",
             MailTemplateType::WatchlistUpdateState => "mjml/watchlist/product-update/state",
+            MailTemplateType::SearchFilterMatch => "mjml/search-filter/match",
         }
     }
 }

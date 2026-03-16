@@ -14,6 +14,8 @@ use common::{
     user_id::UserId,
 };
 use product::core::title::Title;
+use search_filter::core::user_search_filter_id::UserSearchFilterId;
+use search_filter::core::user_search_filter_name::UserSearchFilterName;
 use std::collections::HashMap;
 use time::OffsetDateTime;
 use tracing::error;
@@ -65,6 +67,16 @@ pub enum NotificationPayload {
         title: HashMap<Language, Title>,
         watchlist_payload: NotificationWatchlistPayload,
     },
+    SearchFilter {
+        product_id: ProductId,
+        shop_id: ShopId,
+        shops_product_id: ShopsProductId,
+        shop_slug_id: SlugId<0>,
+        product_slug_id: SlugId<6>,
+        shop_name: ShopName,
+        title: HashMap<Language, Title>,
+        search_filter_payload: NotificationSearchFilterPayload,
+    },
 }
 
 impl NotificationPayload {
@@ -95,6 +107,28 @@ impl NotificationPayload {
                     Localized::new(Language::En, "Unknown title".into())
                 }),
                 watchlist_payload: watchlist_payload.localized(currency),
+            },
+            NotificationPayload::SearchFilter {
+                product_id,
+                shop_id,
+                shops_product_id,
+                shop_slug_id,
+                product_slug_id,
+                shop_name,
+                title,
+                search_filter_payload,
+            } => LocalizedNotificationPayload::SearchFilter {
+                product_id,
+                shop_id,
+                shops_product_id,
+                shop_slug_id,
+                product_slug_id,
+                shop_name,
+                title: Language::resolve(preferred_languages, title).unwrap_or_else(|| {
+                    error!("Failed resolving title. This SHOULD be impossible because the native title always exists.");
+                    Localized::new(Language::En, "Unknown title".into())
+                }),
+                search_filter_payload,
             },
         }
     }
@@ -136,6 +170,13 @@ impl NotificationWatchlistPayload {
 
 #[cfg_attr(feature = "test-data", derive(fake::Dummy))]
 #[derive(Debug, Clone, PartialEq)]
+pub struct NotificationSearchFilterPayload {
+    pub user_search_filter_id: UserSearchFilterId,
+    pub user_search_filter_name: UserSearchFilterName,
+}
+
+#[cfg_attr(feature = "test-data", derive(fake::Dummy))]
+#[derive(Debug, Clone, PartialEq)]
 pub struct LocalizedNotification {
     pub user_id: UserId,
     pub origin_event_id: EventId,
@@ -159,6 +200,16 @@ pub enum LocalizedNotificationPayload {
         shop_name: ShopName,
         title: Localized<Language, Title>,
         watchlist_payload: LocalizedNotificationWatchlistPayload,
+    },
+    SearchFilter {
+        product_id: ProductId,
+        shop_id: ShopId,
+        shops_product_id: ShopsProductId,
+        shop_slug_id: SlugId<0>,
+        product_slug_id: SlugId<6>,
+        shop_name: ShopName,
+        title: Localized<Language, Title>,
+        search_filter_payload: NotificationSearchFilterPayload,
     },
 }
 

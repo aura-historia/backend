@@ -3939,6 +3939,7 @@ dependencies = [
  "once_cell",
  "product",
  "rstest",
+ "search-filter",
  "serde",
  "serde-email",
  "serde_dynamo",

@@ -14,6 +14,7 @@ pub enum NotificationReasonRecord {
     WatchlistPriceDropped,
     WatchlistPriceIncreased,
     WatchlistPriceRemoved,
+    SearchFilterMatch,
 }
 
 impl NotificationReasonRecord {
@@ -31,5 +32,9 @@ impl NotificationReasonRecord {
                 | Self::WatchlistPriceIncreased
                 | Self::WatchlistPriceRemoved
         )
+    }
+
+    pub fn is_search_filter(&self) -> bool {
+        matches!(self, Self::SearchFilterMatch)
     }
 }

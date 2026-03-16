@@ -297,6 +297,7 @@ fn derive_mail_template(payload: &NotificationPayload, language: &Language) -> M
                 MailTemplateType::WatchlistUpdateState
             }
         },
+        NotificationPayload::SearchFilter { .. } => MailTemplateType::SearchFilterMatch,
     };
     MailTemplate {
         template_type,
@@ -341,6 +342,31 @@ fn build_email_subject(payload: &NotificationPayload, language: &Language) -> St
                         _ => format!("Status change ({state_str}): {resolved_title}"),
                     }
                 }
+            }
+        }
+        NotificationPayload::SearchFilter {
+            title,
+            search_filter_payload,
+            ..
+        } => {
+            let resolved_title = Language::resolve(&[*language], title.clone())
+                .map(|l| l.payload.to_string())
+                .unwrap_or_else(|| "Unknown".to_owned());
+            let filter_name = &search_filter_payload.user_search_filter_name;
+            match language {
+                Language::De => {
+                    format!("Neues Ergebnis für \"{filter_name}\": {resolved_title}")
+                }
+                Language::Fr => {
+                    format!("Nouveau résultat pour \"{filter_name}\" : {resolved_title}")
+                }
+                Language::Es => {
+                    format!("Nuevo resultado para \"{filter_name}\": {resolved_title}")
+                }
+                Language::It => {
+                    format!("Nuovo risultato per \"{filter_name}\": {resolved_title}")
+                }
+                _ => format!("New match for \"{filter_name}\": {resolved_title}"),
             }
         }
     }
@@ -406,6 +432,33 @@ fn build_email_template_data(
             }
 
             data
+        }
+        NotificationPayload::SearchFilter {
+            product_id,
+            shop_id,
+            shops_product_id,
+            shop_slug_id,
+            product_slug_id,
+            shop_name,
+            title,
+            search_filter_payload,
+        } => {
+            let resolved_title = Language::resolve(&[*language], title.clone())
+                .map(|l| l.payload.to_string())
+                .unwrap_or_else(|| "Unknown".to_owned());
+            serde_json::json!({
+                "product_id": product_id.to_string(),
+                "shop_id": shop_id.to_string(),
+                "shops_product_id": shops_product_id.to_string(),
+                "shop_slug_id": shop_slug_id.to_string(),
+                "product_slug_id": product_slug_id.to_string(),
+                "shop_name": shop_name.to_string(),
+                "title": resolved_title,
+                "language": format!("{language:?}"),
+                "notification_type": "search_filter_match",
+                "search_filter_id": search_filter_payload.user_search_filter_id.to_string(),
+                "search_filter_name": search_filter_payload.user_search_filter_name.to_string(),
+            })
         }
     }
 }

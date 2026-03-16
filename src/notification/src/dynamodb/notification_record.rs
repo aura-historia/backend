@@ -1,6 +1,9 @@
 use crate::{
     core::{
-        notification::{Notification, NotificationPayload, NotificationWatchlistPayload},
+        notification::{
+            Notification, NotificationPayload, NotificationSearchFilterPayload,
+            NotificationWatchlistPayload,
+        },
         notification_id::NotificationId,
     },
     dynamodb::{
@@ -28,6 +31,8 @@ use product::core::title::Title;
 use product::dynamodb::{
     product_image_record::ProductImageRecord, product_state_record::ProductStateRecord,
 };
+use search_filter::core::user_search_filter_id::UserSearchFilterId;
+use search_filter::core::user_search_filter_name::UserSearchFilterName;
 use serde::{Deserialize, Serialize};
 use serde_fields::SerdeField;
 use std::collections::HashMap;
@@ -109,6 +114,12 @@ pub struct NotificationRecord {
     #[serde(skip_serializing_if = "Option::is_none", default)]
     pub old_state: Option<ProductStateRecord>,
 
+    // search-filter
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub user_search_filter_id: Option<UserSearchFilterId>,
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub user_search_filter_name: Option<String>,
+
     #[serde(with = "time::serde::rfc3339")]
     pub created: OffsetDateTime,
     #[serde(with = "time::serde::rfc3339")]
@@ -141,6 +152,9 @@ pub fn mk_lsi1_sk(
         NotificationReasonRecord::WatchlistPriceDropped => format_watchlist(notification_id),
         NotificationReasonRecord::WatchlistPriceIncreased => format_watchlist(notification_id),
         NotificationReasonRecord::WatchlistPriceRemoved => format_watchlist(notification_id),
+        NotificationReasonRecord::SearchFilterMatch => {
+            format!("user#notification#search_filter#{notification_id}")
+        }
     }
 }
 
@@ -306,6 +320,8 @@ impl From<Notification> for NotificationRecord {
                     title_fr: title.get(&Language::Fr).map(|t| String::from(t.clone())),
                     title_es: title.get(&Language::Es).map(|t| String::from(t.clone())),
                     title_it: title.get(&Language::It).map(|t| String::from(t.clone())),
+                    user_search_filter_id: None,
+                    user_search_filter_name: None,
                     new_price_native,
                     new_price_eur,
                     new_price_usd,
@@ -322,6 +338,66 @@ impl From<Notification> for NotificationRecord {
                     old_price_nzd,
                     new_state,
                     old_state,
+                    created: notification.created,
+                    updated: notification.updated,
+                    ttl: compute_ttl(&notification.created),
+                }
+            }
+            NotificationPayload::SearchFilter {
+                product_id,
+                shop_id,
+                shops_product_id,
+                shop_slug_id,
+                product_slug_id,
+                shop_name,
+                title,
+                search_filter_payload,
+            } => {
+                let notification_reason = NotificationReasonRecord::SearchFilterMatch;
+                let lsi1_sk = mk_lsi1_sk(&notification.notification_id, &notification_reason);
+                NotificationRecord {
+                    pk: mk_pk(&notification.user_id),
+                    sk: mk_sk(&notification.origin_event_id),
+                    lsi1_sk,
+                    user_id: notification.user_id,
+                    origin_event_id: notification.origin_event_id,
+                    notification_id: notification.notification_id,
+                    notification_type: notification.notification_type.map(Into::into),
+                    notification_reason,
+                    seen: notification.seen,
+                    external: notification.external,
+                    image: None,
+                    product_id: Some(product_id),
+                    product_slug_id: Some(product_slug_id),
+                    shop_slug_id: Some(shop_slug_id),
+                    shop_id: Some(shop_id),
+                    shops_product_id: Some(shops_product_id),
+                    shop_name: Some(String::from(shop_name)),
+                    title_de: title.get(&Language::De).map(|t| String::from(t.clone())),
+                    title_en: title.get(&Language::En).map(|t| String::from(t.clone())),
+                    title_fr: title.get(&Language::Fr).map(|t| String::from(t.clone())),
+                    title_es: title.get(&Language::Es).map(|t| String::from(t.clone())),
+                    title_it: title.get(&Language::It).map(|t| String::from(t.clone())),
+                    user_search_filter_id: Some(search_filter_payload.user_search_filter_id),
+                    user_search_filter_name: Some(String::from(
+                        search_filter_payload.user_search_filter_name,
+                    )),
+                    new_price_native: None,
+                    new_price_eur: None,
+                    new_price_usd: None,
+                    new_price_gbp: None,
+                    new_price_aud: None,
+                    new_price_cad: None,
+                    new_price_nzd: None,
+                    old_price_native: None,
+                    old_price_eur: None,
+                    old_price_usd: None,
+                    old_price_gbp: None,
+                    old_price_aud: None,
+                    old_price_cad: None,
+                    old_price_nzd: None,
+                    new_state: None,
+                    old_state: None,
                     created: notification.created,
                     updated: notification.updated,
                     ttl: compute_ttl(&notification.created),
@@ -368,50 +444,6 @@ fn build_price_map(
 
 impl From<NotificationRecord> for Notification {
     fn from(record: NotificationRecord) -> Self {
-        let is_state_change = matches!(
-            record.notification_reason,
-            NotificationReasonRecord::WatchlistStateListed
-                | NotificationReasonRecord::WatchlistStateAvailable
-                | NotificationReasonRecord::WatchlistStateReserved
-                | NotificationReasonRecord::WatchlistStateSold
-                | NotificationReasonRecord::WatchlistStateRemoved
-                | NotificationReasonRecord::WatchlistStateUnknown
-        );
-
-        let watchlist_payload = if is_state_change {
-            NotificationWatchlistPayload::StateChange {
-                old_state: record
-                    .old_state
-                    .map(ProductState::from)
-                    .unwrap_or(ProductState::Unknown),
-                new_state: record
-                    .new_state
-                    .map(ProductState::from)
-                    .unwrap_or(ProductState::Unknown),
-            }
-        } else {
-            NotificationWatchlistPayload::PriceChange {
-                old_price: build_price_map(
-                    record.old_price_native,
-                    record.old_price_eur,
-                    record.old_price_usd,
-                    record.old_price_gbp,
-                    record.old_price_aud,
-                    record.old_price_cad,
-                    record.old_price_nzd,
-                ),
-                new_price: build_price_map(
-                    record.new_price_native,
-                    record.new_price_eur,
-                    record.new_price_usd,
-                    record.new_price_gbp,
-                    record.new_price_aud,
-                    record.new_price_cad,
-                    record.new_price_nzd,
-                ),
-            }
-        };
-
         let mut title = HashMap::new();
         if let Some(t) = record.title_de {
             title.insert(Language::De, Title::from(t));
@@ -429,12 +461,72 @@ impl From<NotificationRecord> for Notification {
             title.insert(Language::It, Title::from(t));
         }
 
-        Notification {
-            user_id: record.user_id,
-            origin_event_id: record.origin_event_id,
-            notification_id: record.notification_id,
-            notification_type: record.notification_type.map(Into::into),
-            notification_payload: NotificationPayload::Watchlist {
+        let notification_payload = if record.notification_reason.is_search_filter() {
+            NotificationPayload::SearchFilter {
+                product_id: record.product_id.unwrap_or_default(),
+                shop_id: record.shop_id.unwrap_or_default(),
+                shops_product_id: record.shops_product_id.unwrap_or_default(),
+                shop_slug_id: record.shop_slug_id.unwrap_or_else(|| SlugId::raw("")),
+                product_slug_id: record.product_slug_id.unwrap_or_else(|| SlugId::raw("")),
+                shop_name: record
+                    .shop_name
+                    .map(ShopName::from)
+                    .unwrap_or_else(|| ShopName::from("")),
+                title,
+                search_filter_payload: NotificationSearchFilterPayload {
+                    user_search_filter_id: record.user_search_filter_id.unwrap_or_default(),
+                    user_search_filter_name: record
+                        .user_search_filter_name
+                        .map(UserSearchFilterName::from)
+                        .unwrap_or_else(|| UserSearchFilterName::from("")),
+                },
+            }
+        } else {
+            let is_state_change = matches!(
+                record.notification_reason,
+                NotificationReasonRecord::WatchlistStateListed
+                    | NotificationReasonRecord::WatchlistStateAvailable
+                    | NotificationReasonRecord::WatchlistStateReserved
+                    | NotificationReasonRecord::WatchlistStateSold
+                    | NotificationReasonRecord::WatchlistStateRemoved
+                    | NotificationReasonRecord::WatchlistStateUnknown
+            );
+
+            let watchlist_payload = if is_state_change {
+                NotificationWatchlistPayload::StateChange {
+                    old_state: record
+                        .old_state
+                        .map(ProductState::from)
+                        .unwrap_or(ProductState::Unknown),
+                    new_state: record
+                        .new_state
+                        .map(ProductState::from)
+                        .unwrap_or(ProductState::Unknown),
+                }
+            } else {
+                NotificationWatchlistPayload::PriceChange {
+                    old_price: build_price_map(
+                        record.old_price_native,
+                        record.old_price_eur,
+                        record.old_price_usd,
+                        record.old_price_gbp,
+                        record.old_price_aud,
+                        record.old_price_cad,
+                        record.old_price_nzd,
+                    ),
+                    new_price: build_price_map(
+                        record.new_price_native,
+                        record.new_price_eur,
+                        record.new_price_usd,
+                        record.new_price_gbp,
+                        record.new_price_aud,
+                        record.new_price_cad,
+                        record.new_price_nzd,
+                    ),
+                }
+            };
+
+            NotificationPayload::Watchlist {
                 product_id: record.product_id.unwrap_or_default(),
                 shop_id: record.shop_id.unwrap_or_default(),
                 shops_product_id: record.shops_product_id.unwrap_or_default(),
@@ -446,7 +538,15 @@ impl From<NotificationRecord> for Notification {
                     .unwrap_or_else(|| ShopName::from("")),
                 title,
                 watchlist_payload,
-            },
+            }
+        };
+
+        Notification {
+            user_id: record.user_id,
+            origin_event_id: record.origin_event_id,
+            notification_id: record.notification_id,
+            notification_type: record.notification_type.map(Into::into),
+            notification_payload,
             seen: record.seen,
             external: record.external,
             created: record.created,
@@ -507,6 +607,8 @@ mod faker {
                 old_price_nzd: None,
                 new_state: Some(config.fake_with_rng(rng)),
                 old_state: Some(config.fake_with_rng(rng)),
+                user_search_filter_id: None,
+                user_search_filter_name: None,
                 created,
                 updated: created,
                 ttl: compute_ttl(&created),
