@@ -160,8 +160,7 @@ pub trait NotificationService {
         &self,
         user_id: &UserId,
         product_id: &ProductId,
-        cursor: &Cursor<EventId>,
-        scan_index_forward: bool,
+        limit: Option<i32>,
     ) -> Result<Vec<Notification>, NotificationError>;
 }
 
@@ -903,12 +902,11 @@ impl<'a> NotificationService for NotificationServiceImpl<'a> {
         &self,
         user_id: &UserId,
         product_id: &ProductId,
-        cursor: &Cursor<EventId>,
-        scan_index_forward: bool,
+        limit: Option<i32>,
     ) -> Result<Vec<Notification>, NotificationError> {
         let records = self
             .notification_repository
-            .query_product_notification_records(user_id, product_id, cursor, scan_index_forward)
+            .query_product_notification_records(user_id, product_id, limit)
             .await?;
 
         let notifications = records
@@ -2704,19 +2702,15 @@ mod tests {
             let mut repository = MockNotificationDynamoDbRepository::default();
             repository
                 .expect_query_product_notification_records()
-                .return_once(|_, _, _, _| Box::pin(async { Ok(vec![]) }));
+                .return_once(|_, _, _| Box::pin(async { Ok(vec![]) }));
 
             let user_service = MockUserService::default();
             let ses_adapter = MockSesAdapter::default();
             let s3_adapter = MockS3Adapter::default();
             let service = make_service(&repository, &user_service, &ses_adapter, &s3_adapter);
 
-            let cursor = common::pagination::cursor::Cursor {
-                size: 10,
-                search_after: None,
-            };
             let actual = service
-                .find_notifications_by_product(&UserId::new(), &ProductId::new(), &cursor, false)
+                .find_notifications_by_product(&UserId::new(), &ProductId::new(), None)
                 .await
                 .unwrap();
 
@@ -2728,7 +2722,7 @@ mod tests {
             let mut repository = MockNotificationDynamoDbRepository::default();
             repository
                 .expect_query_product_notification_records()
-                .return_once(|_, _, _, _| {
+                .return_once(|_, _, _| {
                     Box::pin(async {
                         let record: NotificationRecord = Faker.fake();
                         Ok(vec![record])
@@ -2740,12 +2734,8 @@ mod tests {
             let s3_adapter = MockS3Adapter::default();
             let service = make_service(&repository, &user_service, &ses_adapter, &s3_adapter);
 
-            let cursor = common::pagination::cursor::Cursor {
-                size: 10,
-                search_after: None,
-            };
             let actual = service
-                .find_notifications_by_product(&UserId::new(), &ProductId::new(), &cursor, false)
+                .find_notifications_by_product(&UserId::new(), &ProductId::new(), Some(10))
                 .await
                 .unwrap();
 

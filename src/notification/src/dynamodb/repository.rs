@@ -1,7 +1,5 @@
 use crate::{
-    dynamodb::notification_record::{
-        NotificationRecord, mk_lsi2_sk, mk_lsi2_sk_product_prefix, mk_pk, mk_sk,
-    },
+    dynamodb::notification_record::{NotificationRecord, mk_lsi2_sk_product_prefix, mk_pk, mk_sk},
     dynamodb::notification_record_update::NotificationRecordUpdate,
 };
 use aws_sdk_dynamodb::{
@@ -85,8 +83,7 @@ pub trait NotificationDynamoDbRepository {
         &self,
         user_id: &UserId,
         product_id: &ProductId,
-        cursor: &Cursor<EventId>,
-        scan_index_forward: bool,
+        limit: Option<i32>,
     ) -> Result<Vec<NotificationRecord>, SdkError<QueryError>>;
 }
 
@@ -399,8 +396,7 @@ impl<'a> NotificationDynamoDbRepository for NotificationDynamoDbRepositoryImpl<'
         &self,
         user_id: &UserId,
         product_id: &ProductId,
-        cursor: &Cursor<EventId>,
-        scan_index_forward: bool,
+        limit: Option<i32>,
     ) -> Result<Vec<NotificationRecord>, SdkError<QueryError>> {
         let (prefix, _) = mk_lsi2_sk_product_prefix(product_id);
 
@@ -413,20 +409,10 @@ impl<'a> NotificationDynamoDbRepository for NotificationDynamoDbRepositoryImpl<'
             .expression_attribute_names("#pk", "pk")
             .expression_attribute_names("#lsi2_sk", "lsi2_sk")
             .expression_attribute_values(":pk_val", AttributeValue::S(mk_pk(user_id)))
-            .expression_attribute_values(":prefix", AttributeValue::S(prefix))
-            .limit(cursor.size as i32)
-            .scan_index_forward(scan_index_forward);
+            .expression_attribute_values(":prefix", AttributeValue::S(prefix));
 
-        if let Some(search_after_id) = cursor.search_after {
-            let cursor_sk = mk_lsi2_sk(product_id, &search_after_id);
-            let filter_expr = if scan_index_forward {
-                "#lsi2_sk > :cursor_sk"
-            } else {
-                "#lsi2_sk < :cursor_sk"
-            };
-            query_builder = query_builder
-                .filter_expression(filter_expr)
-                .expression_attribute_values(":cursor_sk", AttributeValue::S(cursor_sk));
+        if let Some(n) = limit {
+            query_builder = query_builder.limit(n);
         }
 
         let records = query_builder

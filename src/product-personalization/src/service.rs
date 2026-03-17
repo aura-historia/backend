@@ -1,6 +1,5 @@
 use common::{
-    api::error::ApiError, pagination::cursor::Cursor, personalized::Personalized,
-    product_id::ProductId, user_id::UserId,
+    api::error::ApiError, personalized::Personalized, product_id::ProductId, user_id::UserId,
 };
 use notification::service::notification_service::{NotificationError, NotificationService};
 use product::core::{
@@ -133,13 +132,9 @@ impl<'a> ProductPersonalizationServiceImpl<'a> {
         user_id: &UserId,
         product_id: &ProductId,
     ) -> Result<NotificationUserState, ProductPersonalizationError> {
-        let cursor = Cursor {
-            size: 1,
-            search_after: None,
-        };
         let notifications = self
             .notification_service
-            .find_notifications_by_product(user_id, product_id, &cursor, false)
+            .find_notifications_by_product(user_id, product_id, Some(1))
             .await?;
 
         let seen = notifications.first().map(|n| n.seen).unwrap_or(true);
@@ -955,7 +950,7 @@ mod tests {
         let mut notification_service = MockNotificationService::default();
         notification_service
             .expect_find_notifications_by_product()
-            .returning(|_, _, _, _| Box::pin(async { Ok(vec![]) }));
+            .returning(|_, _, _| Box::pin(async { Ok(vec![]) }));
         let service = ProductPersonalizationServiceImpl::new(
             &watchlist_repository,
             &notification_service,
@@ -1013,7 +1008,7 @@ mod tests {
         let mut notification_service = MockNotificationService::default();
         notification_service
             .expect_find_notifications_by_product()
-            .returning(|_, _, _, _| Box::pin(async { Ok(vec![]) }));
+            .returning(|_, _, _| Box::pin(async { Ok(vec![]) }));
         let service = ProductPersonalizationServiceImpl::new(
             &watchlist_repository,
             &notification_service,
@@ -1055,7 +1050,7 @@ mod tests {
         let mut notification_service = MockNotificationService::default();
         notification_service
             .expect_find_notifications_by_product()
-            .returning(|_, _, _, _| Box::pin(async { Ok(vec![]) }));
+            .returning(|_, _, _| Box::pin(async { Ok(vec![]) }));
 
         let service = ProductPersonalizationServiceImpl::new(
             &watchlist_repository,
@@ -1079,7 +1074,7 @@ mod tests {
         let mut notification_service = MockNotificationService::default();
         notification_service
             .expect_find_notifications_by_product()
-            .returning(|_, _, _, _| Box::pin(async { Ok(vec![make_test_notification(false)]) }));
+            .returning(|_, _, _| Box::pin(async { Ok(vec![make_test_notification(false)]) }));
 
         let service = ProductPersonalizationServiceImpl::new(
             &watchlist_repository,
@@ -1103,7 +1098,7 @@ mod tests {
         let mut notification_service = MockNotificationService::default();
         notification_service
             .expect_find_notifications_by_product()
-            .returning(|_, _, _, _| Box::pin(async { Ok(vec![make_test_notification(true)]) }));
+            .returning(|_, _, _| Box::pin(async { Ok(vec![make_test_notification(true)]) }));
 
         let service = ProductPersonalizationServiceImpl::new(
             &watchlist_repository,
@@ -1131,7 +1126,7 @@ mod tests {
         let mut notification_service = MockNotificationService::default();
         notification_service
             .expect_find_notifications_by_product()
-            .returning(move |_, product_id, _, _| {
+            .returning(move |_, product_id, _| {
                 let pid = *product_id;
                 let p1 = product1_id;
                 let p2 = product2_id;
