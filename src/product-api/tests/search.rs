@@ -6,6 +6,7 @@ use common::language::document::{LanguageDocument, TextDocument};
 use common::language::domain::Language;
 use common::period_key::PeriodId;
 use common::personalized::api::PersonalizedData;
+use common::user_id::UserId;
 use common::year::Year;
 use common::{pagination::cursor::api::JsonCursoredData, query::range_query::RangeQuery};
 use fake::{Fake, Faker, rand};
@@ -32,7 +33,7 @@ use test_api::*;
 use time::OffsetDateTime;
 use time::macros::datetime;
 use user::dynamodb::repository::UserDynamoDbRepositoryImpl;
-use user::service::user_service::UserServiceImpl;
+use user::service::user_service::{UserService, UserServiceImpl};
 
 #[localstack_test(services = [OpenSearch(), DynamoDB()])]
 async fn should_200_when_no_hits() {
@@ -1535,9 +1536,17 @@ async fn should_200_personalized_when_authenticated_and_not_watching() {
     let opensearch_repository = ProductOpenSearchRepositoryImpl::new(get_opensearch_client().await);
     let query_service = QueryProductServiceImpl::new(&opensearch_repository);
     let mut access_token_verifier_service = MockAccessTokenVerifierService::default();
+    let user_id = UserId::new();
+    user_service
+        .create_user(user::service::command::CreateUserCommand {
+            id: user_id,
+            email: "foo@bar.de".try_into().unwrap(),
+        })
+        .await
+        .unwrap();
     access_token_verifier_service
         .expect_verify_extract_user_id()
-        .returning(|_| Box::pin(async { Ok(Some(Faker.fake())) }));
+        .returning(move |_| Box::pin(async move { Ok(Some(user_id)) }));
 
     let search = ProductSearchData {
         language: common::language::data::LanguageData::De,
