@@ -13,6 +13,7 @@ use crate::{
 };
 use common::{
     currency::domain::Currency,
+    error::missing_field::MissingPersistenceField,
     event_id::EventId,
     language::domain::Language,
     price::{
@@ -27,6 +28,7 @@ use common::{
     slug_id::SlugId,
     user_id::UserId,
 };
+use field::field;
 use product::core::title::Title;
 use product::dynamodb::{
     product_image_record::ProductImageRecord, product_state_record::ProductStateRecord,
@@ -442,8 +444,10 @@ fn build_price_map(
     map
 }
 
-impl From<NotificationRecord> for Notification {
-    fn from(record: NotificationRecord) -> Self {
+impl TryFrom<NotificationRecord> for Notification {
+    type Error = MissingPersistenceField;
+
+    fn try_from(record: NotificationRecord) -> Result<Self, Self::Error> {
         let mut title = HashMap::new();
         if let Some(t) = record.title_de {
             title.insert(Language::De, Title::from(t));
@@ -461,24 +465,53 @@ impl From<NotificationRecord> for Notification {
             title.insert(Language::It, Title::from(t));
         }
 
+        let product_id = record
+            .product_id
+            .ok_or_else(|| MissingPersistenceField::new(field!(product_id@NotificationRecord)))?;
+        let shop_id = record
+            .shop_id
+            .ok_or_else(|| MissingPersistenceField::new(field!(shop_id@NotificationRecord)))?;
+        let shops_product_id = record.shops_product_id.ok_or_else(|| {
+            MissingPersistenceField::new(field!(shops_product_id@NotificationRecord))
+        })?;
+        let shop_slug_id = record
+            .shop_slug_id
+            .ok_or_else(|| MissingPersistenceField::new(field!(shop_slug_id@NotificationRecord)))?;
+        let product_slug_id = record.product_slug_id.ok_or_else(|| {
+            MissingPersistenceField::new(field!(product_slug_id@NotificationRecord))
+        })?;
+        let shop_name = record
+            .shop_name
+            .map(ShopName::from)
+            .ok_or_else(|| MissingPersistenceField::new(field!(shop_name@NotificationRecord)))?;
+
         let notification_payload = if record.notification_reason.is_search_filter() {
+            let user_search_filter_id =
+                record.user_search_filter_id.ok_or_else(|| {
+                    MissingPersistenceField::new(
+                        field!(user_search_filter_id@NotificationRecord),
+                    )
+                })?;
+            let user_search_filter_name = record
+                .user_search_filter_name
+                .map(UserSearchFilterName::from)
+                .ok_or_else(|| {
+                    MissingPersistenceField::new(
+                        field!(user_search_filter_name@NotificationRecord),
+                    )
+                })?;
+
             NotificationPayload::SearchFilter {
-                product_id: record.product_id.unwrap_or_default(),
-                shop_id: record.shop_id.unwrap_or_default(),
-                shops_product_id: record.shops_product_id.unwrap_or_default(),
-                shop_slug_id: record.shop_slug_id.unwrap_or_else(|| SlugId::raw("")),
-                product_slug_id: record.product_slug_id.unwrap_or_else(|| SlugId::raw("")),
-                shop_name: record
-                    .shop_name
-                    .map(ShopName::from)
-                    .unwrap_or_else(|| ShopName::from("")),
+                product_id,
+                shop_id,
+                shops_product_id,
+                shop_slug_id,
+                product_slug_id,
+                shop_name,
                 title,
                 search_filter_payload: NotificationSearchFilterPayload {
-                    user_search_filter_id: record.user_search_filter_id.unwrap_or_default(),
-                    user_search_filter_name: record
-                        .user_search_filter_name
-                        .map(UserSearchFilterName::from)
-                        .unwrap_or_else(|| UserSearchFilterName::from("")),
+                    user_search_filter_id,
+                    user_search_filter_name,
                 },
             }
         } else {
@@ -493,15 +526,21 @@ impl From<NotificationRecord> for Notification {
             );
 
             let watchlist_payload = if is_state_change {
+                let old_state = record
+                    .old_state
+                    .map(ProductState::from)
+                    .ok_or_else(|| {
+                        MissingPersistenceField::new(field!(old_state@NotificationRecord))
+                    })?;
+                let new_state = record
+                    .new_state
+                    .map(ProductState::from)
+                    .ok_or_else(|| {
+                        MissingPersistenceField::new(field!(new_state@NotificationRecord))
+                    })?;
                 NotificationWatchlistPayload::StateChange {
-                    old_state: record
-                        .old_state
-                        .map(ProductState::from)
-                        .unwrap_or(ProductState::Unknown),
-                    new_state: record
-                        .new_state
-                        .map(ProductState::from)
-                        .unwrap_or(ProductState::Unknown),
+                    old_state,
+                    new_state,
                 }
             } else {
                 NotificationWatchlistPayload::PriceChange {
@@ -527,21 +566,18 @@ impl From<NotificationRecord> for Notification {
             };
 
             NotificationPayload::Watchlist {
-                product_id: record.product_id.unwrap_or_default(),
-                shop_id: record.shop_id.unwrap_or_default(),
-                shops_product_id: record.shops_product_id.unwrap_or_default(),
-                shop_slug_id: record.shop_slug_id.unwrap_or_else(|| SlugId::raw("")),
-                product_slug_id: record.product_slug_id.unwrap_or_else(|| SlugId::raw("")),
-                shop_name: record
-                    .shop_name
-                    .map(ShopName::from)
-                    .unwrap_or_else(|| ShopName::from("")),
+                product_id,
+                shop_id,
+                shops_product_id,
+                shop_slug_id,
+                product_slug_id,
+                shop_name,
                 title,
                 watchlist_payload,
             }
         };
 
-        Notification {
+        Ok(Notification {
             user_id: record.user_id,
             origin_event_id: record.origin_event_id,
             notification_id: record.notification_id,
@@ -551,7 +587,7 @@ impl From<NotificationRecord> for Notification {
             external: record.external,
             created: record.created,
             updated: record.updated,
-        }
+        })
     }
 }
 
@@ -565,7 +601,7 @@ mod faker {
             let user_id: UserId = config.fake_with_rng(rng);
             let origin_event_id: EventId = config.fake_with_rng(rng);
             let notification_id = NotificationId::new();
-            let notification_reason: NotificationReasonRecord = config.fake_with_rng(rng);
+            let notification_reason = NotificationReasonRecord::WatchlistPriceDiscovered;
             let created = OffsetDateTime::now_utc();
 
             NotificationRecord {

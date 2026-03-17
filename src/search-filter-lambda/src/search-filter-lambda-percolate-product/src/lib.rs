@@ -5,8 +5,8 @@ use aws_lambda_events::sqs::{BatchItemFailure, SqsBatchResponse, SqsEvent};
 use common::dynamodb_stream::extract_sqs_event_bridge_dynamodb_record;
 use lambda_runtime::LambdaEvent;
 use notification::service::notification_service::NotificationService;
-use product::core::product_event::ProductEvent;
-use product::dynamodb::product_event_record::ProductEventRecord;
+use product::core::product_event::{ProductDomainEvent, ProductEventPayload};
+use product::dynamodb::product_event_record::domain::ProductDomainEventRecord;
 use tracing::{error, info, warn};
 
 #[tracing::instrument(skip(product_event_notification_service, notification_service, event), fields(requestId = %event.context.request_id))]
@@ -28,13 +28,15 @@ pub async fn handler(
             .expect("shouldn't receive an SQS-Message without 'message_id' because AWS sets it.");
 
         if let Some(product_event_record) = extract_sqs_event_bridge_dynamodb_record::<
-            ProductEventRecord,
+            ProductDomainEventRecord,
         >(
             message, &mut failed_message_ids, &mut skipped_count
         ) {
-            match ProductEvent::try_from(product_event_record) {
-                Ok(product_event) => {
-                    let event_id = product_event.event_id;
+            match ProductDomainEvent::try_from(product_event_record) {
+                Ok(domain_event) => {
+                    let event_id = domain_event.event_id;
+                    let product_event =
+                        domain_event.map_payload(ProductEventPayload::from);
                     let notification_cmds_res = product_event_notification_service
                         .determine_notification_commands(product_event)
                         .await;
@@ -64,8 +66,8 @@ pub async fn handler(
                 Err(err) => {
                     error!(
                         error = %err,
-                        fromType = %std::any::type_name::<ProductEventRecord>(),
-                        toType = %std::any::type_name::<ProductEvent>(),
+                        fromType = %std::any::type_name::<ProductDomainEventRecord>(),
+                        toType = %std::any::type_name::<ProductDomainEvent>(),
                         "Failed mapping types. Skipping event."
                     );
                     skipped_count += 1;

@@ -19,7 +19,13 @@ pub async fn handler(
         extract_from_dynamodb_stream::<NotificationRecord>(event.payload.records);
 
     for (message_id, notification_record) in notification_records {
-        let notification: Notification = notification_record.into();
+        let notification: Notification = match notification_record.try_into() {
+            Ok(n) => n,
+            Err(err) => {
+                error!(messageId = message_id, error = %err, "Failed mapping NotificationRecord. Skipping.");
+                continue;
+            }
+        };
         let user_id = notification.user_id;
         let origin_event_id = notification.origin_event_id;
 
@@ -146,7 +152,7 @@ mod tests {
         let origin_event_id = notification.origin_event_id;
 
         let mut mock_service = MockNotificationService::default();
-        let returned_notification: Notification = Faker.fake::<NotificationRecord>().into();
+        let returned_notification: Notification = Faker.fake::<NotificationRecord>().try_into().unwrap();
         mock_service
             .expect_send_externally()
             .withf(move |uid, eid| *uid == user_id && *eid == origin_event_id)
@@ -168,7 +174,7 @@ mod tests {
         let record2 = mk_notification_record();
 
         let mut mock_service = MockNotificationService::default();
-        let returned: Notification = Faker.fake::<NotificationRecord>().into();
+        let returned: Notification = Faker.fake::<NotificationRecord>().try_into().unwrap();
         mock_service
             .expect_send_externally()
             .times(2)
@@ -219,7 +225,7 @@ mod tests {
         let success_message_id = "success-message-id".to_string();
 
         let mut mock_service = MockNotificationService::default();
-        let returned: Notification = Faker.fake::<NotificationRecord>().into();
+        let returned: Notification = Faker.fake::<NotificationRecord>().try_into().unwrap();
 
         mock_service
             .expect_send_externally()
@@ -323,7 +329,7 @@ mod tests {
         let valid_msg_id = "valid-msg".to_string();
 
         let mut mock_service = MockNotificationService::default();
-        let returned: Notification = Faker.fake::<NotificationRecord>().into();
+        let returned: Notification = Faker.fake::<NotificationRecord>().try_into().unwrap();
         mock_service
             .expect_send_externally()
             .times(1)
@@ -365,7 +371,7 @@ mod tests {
             (0..batch_size).map(|_| mk_notification_record()).collect();
 
         let mut mock_service = MockNotificationService::default();
-        let returned: Notification = Faker.fake::<NotificationRecord>().into();
+        let returned: Notification = Faker.fake::<NotificationRecord>().try_into().unwrap();
         mock_service
             .expect_send_externally()
             .times(batch_size)
@@ -388,7 +394,7 @@ mod tests {
 
         let mut mock_service = MockNotificationService::default();
         // The service returns Ok for already-sent notifications (idempotent)
-        let returned: Notification = Faker.fake::<NotificationRecord>().into();
+        let returned: Notification = Faker.fake::<NotificationRecord>().try_into().unwrap();
         mock_service
             .expect_send_externally()
             .times(1)

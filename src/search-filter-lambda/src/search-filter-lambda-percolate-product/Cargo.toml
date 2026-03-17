@@ -8,7 +8,7 @@ name = "search-filter-lambda-percolate-product"
 path = "src/main.rs"
 
 [dependencies]
-common = { workspace = true, features = ["dynamodb", "event_bridge", "opensearch"] }
+common = { workspace = true, features = ["dynamodb", "event_bridge", "opensearch", "api"] }
 search-filter = { workspace = true, features = ["dynamodb", "opensearch", "service"] }
 product = { workspace = true, features = ["dynamodb", "opensearch", "service"] }
 notification = { workspace = true, features = ["dynamodb", "service"] }

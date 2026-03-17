@@ -3933,6 +3933,7 @@ dependencies = [
  "aws-sdk-sesv2",
  "common",
  "fake",
+ "field",
  "handlebars",
  "mockall",
  "notification",

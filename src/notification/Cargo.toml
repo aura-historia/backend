@@ -5,6 +5,7 @@ edition = "2024"
 
 [dependencies]
 common = { workspace = true }
+field = { workspace = true }
 serde = { workspace = true }
 serde-email = { workspace = true }
 serde_fields = { workspace = true }

@@ -88,6 +88,9 @@ pub enum NotificationError {
 
     #[error("Encountered Handlebars-Error for Render: {0}")]
     TemplateRenderError(#[from] handlebars::RenderError),
+
+    #[error("Missing persistence field: {0}")]
+    MissingPersistenceField(#[from] common::error::missing_field::MissingPersistenceField),
 }
 
 #[derive(Debug)]
@@ -479,7 +482,7 @@ impl<'a> NotificationService for NotificationServiceImpl<'a> {
                 *origin_event_id,
             ))?;
 
-        Ok(record.into())
+        Ok(record.try_into()?)
     }
 
     async fn create_notification(
@@ -643,7 +646,7 @@ impl<'a> NotificationService for NotificationServiceImpl<'a> {
             ))?;
 
         if update.is_empty() {
-            Ok(existing_record.into())
+            Ok(existing_record.try_into()?)
         } else {
             let record_update = NotificationRecordUpdate {
                 seen: update.seen,
@@ -661,7 +664,7 @@ impl<'a> NotificationService for NotificationServiceImpl<'a> {
                     ))
                 })?;
 
-            Ok(updated_record.into())
+            Ok(updated_record.try_into()?)
         }
     }
 
@@ -683,7 +686,8 @@ impl<'a> NotificationService for NotificationServiceImpl<'a> {
 
         let notifications: Vec<LocalizedNotification> = paged_records
             .into_iter()
-            .map(Notification::from)
+            .map(|r| Notification::try_from(r))
+            .filter_map(Result::ok)
             .map(|n| n.localized(currency, languages))
             .collect();
 
@@ -719,7 +723,7 @@ impl<'a> NotificationService for NotificationServiceImpl<'a> {
                 *origin_event_id,
             ))?;
 
-        let notification: Notification = record.into();
+        let notification: Notification = record.try_into()?;
 
         // Idempotency: if already sent externally, return as-is.
         if notification.notification_type.is_some() {
@@ -763,7 +767,7 @@ impl<'a> NotificationService for NotificationServiceImpl<'a> {
                 ))
             })?;
 
-        let updated_notification: Notification = updated_record.into();
+        let updated_notification: Notification = updated_record.try_into()?;
         info!(
             userId = %user_id,
             originEventId = %origin_event_id,
@@ -811,7 +815,7 @@ impl<'a> NotificationService for NotificationServiceImpl<'a> {
         let last = paged_records.last().cloned();
 
         let notifications: Vec<Notification> =
-            paged_records.into_iter().map(Notification::from).collect();
+            paged_records.into_iter().filter_map(|r| Notification::try_from(r).ok()).collect();
 
         let total = if notifications.is_empty() {
             0
@@ -907,7 +911,8 @@ mod api_error_impls {
                 | NotificationError::UserLookupFailed(_)
                 | NotificationError::SdkSESSendMailError(_)
                 | NotificationError::SdkS3GetObjectError(_)
-                | NotificationError::TemplateRenderError(_) => {
+                | NotificationError::TemplateRenderError(_)
+                | NotificationError::MissingPersistenceField(_) => {
                     ApiError::internal_server_error(INTERNAL_SERVER_ERROR, Box::new(err))
                 }
             }
