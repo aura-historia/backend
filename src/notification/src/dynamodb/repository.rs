@@ -402,40 +402,34 @@ impl<'a> NotificationDynamoDbRepository for NotificationDynamoDbRepositoryImpl<'
         cursor: &Cursor<EventId>,
         scan_index_forward: bool,
     ) -> Result<Vec<NotificationRecord>, SdkError<QueryError>> {
-        let (lower, upper) = mk_lsi2_sk_product_prefix(product_id);
+        let (prefix, _) = mk_lsi2_sk_product_prefix(product_id);
 
-        let exclusive_guard = if scan_index_forward {
-            cursor
-                .search_after
-                .map(|id| mk_lsi2_sk(product_id, &id))
-                .unwrap_or(lower)
-        } else {
-            cursor
-                .search_after
-                .map(|id| mk_lsi2_sk(product_id, &id))
-                .unwrap_or(upper)
-        };
-        let key_condition_expression = if scan_index_forward {
-            "#pk = :pk_val AND #lsi2_sk > :lsi2_sk_exclusive_guard"
-        } else {
-            "#pk = :pk_val AND #lsi2_sk < :lsi2_sk_exclusive_guard"
-        };
-
-        let records = self
+        let mut query_builder = self
             .client
             .query()
             .table_name(&self.table)
             .index_name("lsi2")
-            .key_condition_expression(key_condition_expression)
+            .key_condition_expression("#pk = :pk_val AND begins_with(#lsi2_sk, :prefix)")
             .expression_attribute_names("#pk", "pk")
             .expression_attribute_names("#lsi2_sk", "lsi2_sk")
             .expression_attribute_values(":pk_val", AttributeValue::S(mk_pk(user_id)))
-            .expression_attribute_values(
-                ":lsi2_sk_exclusive_guard",
-                AttributeValue::S(exclusive_guard),
-            )
+            .expression_attribute_values(":prefix", AttributeValue::S(prefix))
             .limit(cursor.size as i32)
-            .scan_index_forward(scan_index_forward)
+            .scan_index_forward(scan_index_forward);
+
+        if let Some(search_after_id) = cursor.search_after {
+            let cursor_sk = mk_lsi2_sk(product_id, &search_after_id);
+            let filter_expr = if scan_index_forward {
+                "#lsi2_sk > :cursor_sk"
+            } else {
+                "#lsi2_sk < :cursor_sk"
+            };
+            query_builder = query_builder
+                .filter_expression(filter_expr)
+                .expression_attribute_values(":cursor_sk", AttributeValue::S(cursor_sk));
+        }
+
+        let records = query_builder
             .send()
             .await?
             .items
