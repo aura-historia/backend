@@ -250,7 +250,8 @@ impl<'a> NotificationServiceImpl<'a> {
 
         let mail_template = derive_mail_template(&notification.notification_payload, &language);
         let subject = build_email_subject(&notification.notification_payload, &language);
-        let template_data = build_email_template_data(notification, &language, &currency);
+        let template_data =
+            build_email_template_data(notification, &language, &currency, user.first_name.as_ref());
 
         let template_html = self
             .resolve_template(mail_template)
@@ -379,6 +380,7 @@ fn build_email_template_data(
     notification: &Notification,
     language: &Language,
     currency: &Currency,
+    user_first_name: Option<&user::core::first_name::FirstName>,
 ) -> serde_json::Value {
     match &notification.notification_payload {
         NotificationPayload::Watchlist {
@@ -405,6 +407,10 @@ fn build_email_template_data(
                 "title": resolved_title,
                 "language": format!("{language:?}"),
             });
+
+            if let Some(first_name) = user_first_name {
+                data["user_first_name"] = serde_json::json!(first_name.to_string());
+            }
 
             match watchlist_payload {
                 NotificationWatchlistPayload::PriceChange {
@@ -449,7 +455,7 @@ fn build_email_template_data(
             let resolved_title = Language::resolve(&[*language], title.clone())
                 .map(|l| l.payload.to_string())
                 .unwrap_or_else(|| "Unknown".to_owned());
-            serde_json::json!({
+            let mut data = serde_json::json!({
                 "product_id": product_id.to_string(),
                 "shop_id": shop_id.to_string(),
                 "shops_product_id": shops_product_id.to_string(),
@@ -461,7 +467,13 @@ fn build_email_template_data(
                 "notification_type": "search_filter_match",
                 "search_filter_id": search_filter_payload.user_search_filter_id.to_string(),
                 "search_filter_name": search_filter_payload.user_search_filter_name.to_string(),
-            })
+            });
+
+            if let Some(first_name) = user_first_name {
+                data["user_first_name"] = serde_json::json!(first_name.to_string());
+            }
+
+            data
         }
     }
 }
@@ -2288,7 +2300,8 @@ mod tests {
                 updated: OffsetDateTime::now_utc(),
             };
 
-            let data = build_email_template_data(&notification, &Language::En, &Currency::Eur);
+            let data =
+                build_email_template_data(&notification, &Language::En, &Currency::Eur, None);
 
             assert_eq!(data["title"], "Antique Vase");
             assert_eq!(data["shop_name"], "Test Shop");
@@ -2323,7 +2336,8 @@ mod tests {
                 updated: OffsetDateTime::now_utc(),
             };
 
-            let data = build_email_template_data(&notification, &Language::En, &Currency::Eur);
+            let data =
+                build_email_template_data(&notification, &Language::En, &Currency::Eur, None);
 
             assert_eq!(data["notification_type"], "price_change");
             // old_price and new_price should be present as human-readable strings
@@ -2357,7 +2371,8 @@ mod tests {
                 updated: OffsetDateTime::now_utc(),
             };
 
-            let data = build_email_template_data(&notification, &Language::En, &Currency::Eur);
+            let data =
+                build_email_template_data(&notification, &Language::En, &Currency::Eur, None);
 
             assert!(data.get("old_price").is_none());
             assert!(data["new_price"].is_string());
@@ -2389,11 +2404,81 @@ mod tests {
                 updated: OffsetDateTime::now_utc(),
             };
 
-            let data = build_email_template_data(&notification, &Language::De, &Currency::Eur);
+            let data =
+                build_email_template_data(&notification, &Language::De, &Currency::Eur, None);
 
             assert_eq!(data["old_state"], "Gelistet");
             assert_eq!(data["new_state"], "Verkauft");
             assert_eq!(data["title"], "Antike Vase");
+        }
+
+        #[test]
+        fn should_include_user_first_name_when_provided() {
+            let notification = Notification {
+                user_id: UserId::new(),
+                origin_event_id: EventId::new(),
+                notification_id: NotificationId::new(),
+                notification_type: None,
+                notification_payload: NotificationPayload::Watchlist {
+                    product_id: Faker.fake(),
+                    shop_id: Faker.fake(),
+                    shops_product_id: "test".into(),
+                    shop_slug_id: Faker.fake(),
+                    product_slug_id: Faker.fake(),
+                    shop_name: "Shop".into(),
+                    title: HashMap::from([(Language::En, "Title".into())]),
+                    watchlist_payload: NotificationWatchlistPayload::StateChange {
+                        old_state: ProductState::Listed,
+                        new_state: ProductState::Sold,
+                    },
+                },
+                seen: false,
+                external: false,
+                created: OffsetDateTime::now_utc(),
+                updated: OffsetDateTime::now_utc(),
+            };
+
+            let first_name = user::core::first_name::FirstName::from("Thomas");
+            let data = build_email_template_data(
+                &notification,
+                &Language::En,
+                &Currency::Eur,
+                Some(&first_name),
+            );
+
+            assert_eq!(data["user_first_name"], "Thomas");
+        }
+
+        #[test]
+        fn should_not_include_user_first_name_when_none() {
+            let notification = Notification {
+                user_id: UserId::new(),
+                origin_event_id: EventId::new(),
+                notification_id: NotificationId::new(),
+                notification_type: None,
+                notification_payload: NotificationPayload::Watchlist {
+                    product_id: Faker.fake(),
+                    shop_id: Faker.fake(),
+                    shops_product_id: "test".into(),
+                    shop_slug_id: Faker.fake(),
+                    product_slug_id: Faker.fake(),
+                    shop_name: "Shop".into(),
+                    title: HashMap::from([(Language::En, "Title".into())]),
+                    watchlist_payload: NotificationWatchlistPayload::StateChange {
+                        old_state: ProductState::Listed,
+                        new_state: ProductState::Sold,
+                    },
+                },
+                seen: false,
+                external: false,
+                created: OffsetDateTime::now_utc(),
+                updated: OffsetDateTime::now_utc(),
+            };
+
+            let data =
+                build_email_template_data(&notification, &Language::En, &Currency::Eur, None);
+
+            assert!(data.get("user_first_name").is_none());
         }
     }
 
