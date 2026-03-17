@@ -21,6 +21,7 @@ async fn should_update_search_filter_record() {
     let updated = OffsetDateTime::now_utc();
     let update = UserSearchFilterRecordUpdate {
         name: Some("my cool name".into()),
+        notifications: None,
         product_query: Some("boopel boop doop".try_into().unwrap()),
         category_id: None,
         period_id: None,

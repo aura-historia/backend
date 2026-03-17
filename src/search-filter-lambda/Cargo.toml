@@ -5,3 +5,4 @@ edition = "2024"
 
 [dependencies]
 search-filter-lambda-opensearch-sync = { workspace = true }
+search-filter-lambda-percolate-product = { workspace = true }

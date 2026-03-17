@@ -88,6 +88,9 @@ pub enum NotificationError {
 
     #[error("Encountered Handlebars-Error for Render: {0}")]
     TemplateRenderError(#[from] handlebars::RenderError),
+
+    #[error("Missing persistence field: {0}")]
+    MissingPersistenceField(#[from] common::error::missing_field::MissingPersistenceField),
 }
 
 #[derive(Debug)]
@@ -297,6 +300,7 @@ fn derive_mail_template(payload: &NotificationPayload, language: &Language) -> M
                 MailTemplateType::WatchlistUpdateState
             }
         },
+        NotificationPayload::SearchFilter { .. } => MailTemplateType::SearchFilterMatch,
     };
     MailTemplate {
         template_type,
@@ -341,6 +345,31 @@ fn build_email_subject(payload: &NotificationPayload, language: &Language) -> St
                         _ => format!("Status change ({state_str}): {resolved_title}"),
                     }
                 }
+            }
+        }
+        NotificationPayload::SearchFilter {
+            title,
+            search_filter_payload,
+            ..
+        } => {
+            let resolved_title = Language::resolve(&[*language], title.clone())
+                .map(|l| l.payload.to_string())
+                .unwrap_or_else(|| "Unknown".to_owned());
+            let filter_name = &search_filter_payload.user_search_filter_name;
+            match language {
+                Language::De => {
+                    format!("Neues Ergebnis für \"{filter_name}\": {resolved_title}")
+                }
+                Language::Fr => {
+                    format!("Nouveau résultat pour \"{filter_name}\" : {resolved_title}")
+                }
+                Language::Es => {
+                    format!("Nuevo resultado para \"{filter_name}\": {resolved_title}")
+                }
+                Language::It => {
+                    format!("Nuovo risultato per \"{filter_name}\": {resolved_title}")
+                }
+                _ => format!("New match for \"{filter_name}\": {resolved_title}"),
             }
         }
     }
@@ -407,6 +436,33 @@ fn build_email_template_data(
 
             data
         }
+        NotificationPayload::SearchFilter {
+            product_id,
+            shop_id,
+            shops_product_id,
+            shop_slug_id,
+            product_slug_id,
+            shop_name,
+            title,
+            search_filter_payload,
+        } => {
+            let resolved_title = Language::resolve(&[*language], title.clone())
+                .map(|l| l.payload.to_string())
+                .unwrap_or_else(|| "Unknown".to_owned());
+            serde_json::json!({
+                "product_id": product_id.to_string(),
+                "shop_id": shop_id.to_string(),
+                "shops_product_id": shops_product_id.to_string(),
+                "shop_slug_id": shop_slug_id.to_string(),
+                "product_slug_id": product_slug_id.to_string(),
+                "shop_name": shop_name.to_string(),
+                "title": resolved_title,
+                "language": format!("{language:?}"),
+                "notification_type": "search_filter_match",
+                "search_filter_id": search_filter_payload.user_search_filter_id.to_string(),
+                "search_filter_name": search_filter_payload.user_search_filter_name.to_string(),
+            })
+        }
     }
 }
 
@@ -426,7 +482,7 @@ impl<'a> NotificationService for NotificationServiceImpl<'a> {
                 *origin_event_id,
             ))?;
 
-        Ok(record.into())
+        Ok(record.try_into()?)
     }
 
     async fn create_notification(
@@ -590,7 +646,7 @@ impl<'a> NotificationService for NotificationServiceImpl<'a> {
             ))?;
 
         if update.is_empty() {
-            Ok(existing_record.into())
+            Ok(existing_record.try_into()?)
         } else {
             let record_update = NotificationRecordUpdate {
                 seen: update.seen,
@@ -608,7 +664,7 @@ impl<'a> NotificationService for NotificationServiceImpl<'a> {
                     ))
                 })?;
 
-            Ok(updated_record.into())
+            Ok(updated_record.try_into()?)
         }
     }
 
@@ -630,7 +686,8 @@ impl<'a> NotificationService for NotificationServiceImpl<'a> {
 
         let notifications: Vec<LocalizedNotification> = paged_records
             .into_iter()
-            .map(Notification::from)
+            .map(Notification::try_from)
+            .filter_map(Result::ok)
             .map(|n| n.localized(currency, languages))
             .collect();
 
@@ -666,7 +723,7 @@ impl<'a> NotificationService for NotificationServiceImpl<'a> {
                 *origin_event_id,
             ))?;
 
-        let notification: Notification = record.into();
+        let notification: Notification = record.try_into()?;
 
         // Idempotency: if already sent externally, return as-is.
         if notification.notification_type.is_some() {
@@ -710,7 +767,7 @@ impl<'a> NotificationService for NotificationServiceImpl<'a> {
                 ))
             })?;
 
-        let updated_notification: Notification = updated_record.into();
+        let updated_notification: Notification = updated_record.try_into()?;
         info!(
             userId = %user_id,
             originEventId = %origin_event_id,
@@ -757,8 +814,10 @@ impl<'a> NotificationService for NotificationServiceImpl<'a> {
             .await?;
         let last = paged_records.last().cloned();
 
-        let notifications: Vec<Notification> =
-            paged_records.into_iter().map(Notification::from).collect();
+        let notifications: Vec<Notification> = paged_records
+            .into_iter()
+            .filter_map(|r| Notification::try_from(r).ok())
+            .collect();
 
         let total = if notifications.is_empty() {
             0
@@ -854,7 +913,8 @@ mod api_error_impls {
                 | NotificationError::UserLookupFailed(_)
                 | NotificationError::SdkSESSendMailError(_)
                 | NotificationError::SdkS3GetObjectError(_)
-                | NotificationError::TemplateRenderError(_) => {
+                | NotificationError::TemplateRenderError(_)
+                | NotificationError::MissingPersistenceField(_) => {
                     ApiError::internal_server_error(INTERNAL_SERVER_ERROR, Box::new(err))
                 }
             }

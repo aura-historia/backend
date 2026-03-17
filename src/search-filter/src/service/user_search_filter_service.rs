@@ -188,6 +188,7 @@ impl<'a> UserSearchFilterService for UserSearchFilterServiceImpl<'a> {
             user_id: *user_id,
             user_search_filter_id: UserSearchFilterId::new(),
             name,
+            notifications: true,
             search,
             created: OffsetDateTime::now_utc(),
             updated: OffsetDateTime::now_utc(),

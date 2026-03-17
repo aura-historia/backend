@@ -27,6 +27,7 @@ async fn should_update_search_filter() {
 
     let patch = PatchUserSearchFilterData {
         name: Some("thorbens filter".into()),
+        notifications: None,
         search: Some(PatchProductSearchData {
             language: None,
             currency: None,

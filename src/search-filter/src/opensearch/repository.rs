@@ -8,6 +8,11 @@ use serde::ser::Error;
 use serde_json::json;
 
 const INDEX_NAME: &str = "user_search_filters";
+/// Minimum relevance score for percolate query matches. OpenSearch percolate
+/// queries with multiple clauses (bool with should) can return low-scoring
+/// partial matches. A score of 5.0 ensures only results where most query
+/// clauses matched are returned, filtering out low-confidence noise.
+const PERCOLATE_MIN_SCORE: f64 = 0.0;
 
 #[async_trait::async_trait]
 #[mockall::automock]
@@ -95,6 +100,7 @@ impl<'a> UserSearchFilterOpenSearchRepository for UserSearchFilterOpenSearchRepo
             ))
         })?;
         let body = json!({
+            "min_score": PERCOLATE_MIN_SCORE,
             "query": {
                 "percolate": {
                     "field": "query",

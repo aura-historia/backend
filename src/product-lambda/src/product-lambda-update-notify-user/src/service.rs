@@ -254,6 +254,7 @@ mod tests {
             NotificationPayload::Watchlist {
                 watchlist_payload, ..
             } => watchlist_payload,
+            _ => unreachable!("expected Watchlist payload"),
         }
     }
 
@@ -284,6 +285,7 @@ mod tests {
                 product_slug_id.clone(),
                 shop_name.clone(),
             ),
+            _ => unreachable!("expected Watchlist payload"),
         }
     }
 
@@ -721,6 +723,7 @@ mod tests {
 
         let actual_titles = match &cmd.notification_payload {
             NotificationPayload::Watchlist { title, .. } => title.clone(),
+            _ => unreachable!("expected Watchlist payload"),
         };
         assert_eq!(expected_titles, actual_titles, "titles mismatch");
     }

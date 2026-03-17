@@ -1200,6 +1200,7 @@ fn base_record() -> UserSearchFilterRecord {
         user_id,
         user_search_filter_id,
         name: "imperial filter".into(),
+        notifications: true,
         product_query: Some("renaissance".try_into().unwrap()),
         category_id: HashSet::from_iter([CategoryId::from("furniture")]),
         period_id: HashSet::from_iter([PeriodId::from("baroque")]),

@@ -3934,12 +3934,14 @@ dependencies = [
  "aws-sdk-sesv2",
  "common",
  "fake",
+ "field",
  "handlebars",
  "mockall",
  "notification",
  "once_cell",
  "product",
  "rstest",
+ "search-filter",
  "serde",
  "serde-email",
  "serde_dynamo",
@@ -6010,6 +6012,7 @@ name = "search-filter-lambda"
 version = "0.1.0"
 dependencies = [
  "search-filter-lambda-opensearch-sync",
+ "search-filter-lambda-percolate-product",
 ]
 
 [[package]]
@@ -6031,6 +6034,38 @@ dependencies = [
  "tracing",
  "tracing-subscriber",
  "url",
+ "uuid",
+]
+
+[[package]]
+name = "search-filter-lambda-percolate-product"
+version = "0.1.0"
+dependencies = [
+ "async-trait",
+ "aws-config",
+ "aws-sdk-dynamodb",
+ "aws-sdk-s3",
+ "aws-sdk-sesv2",
+ "aws_lambda_events",
+ "common",
+ "fake",
+ "lambda_runtime",
+ "mockall",
+ "notification",
+ "opensearch",
+ "product",
+ "rstest",
+ "search-filter",
+ "serde",
+ "serde-email",
+ "serde_dynamo",
+ "serde_json",
+ "thiserror",
+ "time",
+ "tokio",
+ "tracing",
+ "tracing-subscriber",
+ "user",
  "uuid",
 ]
 

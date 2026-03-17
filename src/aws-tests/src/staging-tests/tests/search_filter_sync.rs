@@ -250,6 +250,7 @@ async fn should_update_search_filter_and_sync_changes_to_opensearch() {
 
     let patch = PatchUserSearchFilterData {
         name: Some("Staging sync update patched".into()),
+        notifications: None,
         search: Some(PatchProductSearchData {
             language: Some(LanguageData::Fr),
             currency: Some(CurrencyData::Usd),

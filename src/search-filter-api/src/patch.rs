@@ -76,6 +76,7 @@ mod tests {
                 .path_parameter("userSearchFilterId", UserSearchFilterId::new())
                 .body_serde(&PatchUserSearchFilterData {
                     name: Some("foo".into()),
+                    notifications: None,
                     search: None,
                 })
                 .jwt_claim("sub", UserId::new())
