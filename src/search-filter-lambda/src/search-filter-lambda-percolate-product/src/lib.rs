@@ -35,8 +35,7 @@ pub async fn handler(
             match ProductDomainEvent::try_from(product_event_record) {
                 Ok(domain_event) => {
                     let event_id = domain_event.event_id;
-                    let product_event =
-                        domain_event.map_payload(ProductEventPayload::from);
+                    let product_event = domain_event.map_payload(ProductEventPayload::from);
                     let notification_cmds_res = product_event_notification_service
                         .determine_notification_commands(product_event)
                         .await;

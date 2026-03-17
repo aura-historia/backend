@@ -686,7 +686,7 @@ impl<'a> NotificationService for NotificationServiceImpl<'a> {
 
         let notifications: Vec<LocalizedNotification> = paged_records
             .into_iter()
-            .map(|r| Notification::try_from(r))
+            .map(Notification::try_from)
             .filter_map(Result::ok)
             .map(|n| n.localized(currency, languages))
             .collect();
@@ -814,8 +814,10 @@ impl<'a> NotificationService for NotificationServiceImpl<'a> {
             .await?;
         let last = paged_records.last().cloned();
 
-        let notifications: Vec<Notification> =
-            paged_records.into_iter().filter_map(|r| Notification::try_from(r).ok()).collect();
+        let notifications: Vec<Notification> = paged_records
+            .into_iter()
+            .filter_map(|r| Notification::try_from(r).ok())
+            .collect();
 
         let total = if notifications.is_empty() {
             0

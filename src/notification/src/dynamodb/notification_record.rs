@@ -486,19 +486,14 @@ impl TryFrom<NotificationRecord> for Notification {
             .ok_or_else(|| MissingPersistenceField::new(field!(shop_name@NotificationRecord)))?;
 
         let notification_payload = if record.notification_reason.is_search_filter() {
-            let user_search_filter_id =
-                record.user_search_filter_id.ok_or_else(|| {
-                    MissingPersistenceField::new(
-                        field!(user_search_filter_id@NotificationRecord),
-                    )
-                })?;
+            let user_search_filter_id = record.user_search_filter_id.ok_or_else(|| {
+                MissingPersistenceField::new(field!(user_search_filter_id@NotificationRecord))
+            })?;
             let user_search_filter_name = record
                 .user_search_filter_name
                 .map(UserSearchFilterName::from)
                 .ok_or_else(|| {
-                    MissingPersistenceField::new(
-                        field!(user_search_filter_name@NotificationRecord),
-                    )
+                    MissingPersistenceField::new(field!(user_search_filter_name@NotificationRecord))
                 })?;
 
             NotificationPayload::SearchFilter {
@@ -526,18 +521,12 @@ impl TryFrom<NotificationRecord> for Notification {
             );
 
             let watchlist_payload = if is_state_change {
-                let old_state = record
-                    .old_state
-                    .map(ProductState::from)
-                    .ok_or_else(|| {
-                        MissingPersistenceField::new(field!(old_state@NotificationRecord))
-                    })?;
-                let new_state = record
-                    .new_state
-                    .map(ProductState::from)
-                    .ok_or_else(|| {
-                        MissingPersistenceField::new(field!(new_state@NotificationRecord))
-                    })?;
+                let old_state = record.old_state.map(ProductState::from).ok_or_else(|| {
+                    MissingPersistenceField::new(field!(old_state@NotificationRecord))
+                })?;
+                let new_state = record.new_state.map(ProductState::from).ok_or_else(|| {
+                    MissingPersistenceField::new(field!(new_state@NotificationRecord))
+                })?;
                 NotificationWatchlistPayload::StateChange {
                     old_state,
                     new_state,

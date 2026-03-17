@@ -131,7 +131,7 @@ mod tests {
     }
 
     fn mk_notification_from_record(record: &NotificationRecord) -> Notification {
-        record.clone().into()
+        record.clone().try_into().unwrap()
     }
 
     #[tokio::test]
@@ -152,7 +152,8 @@ mod tests {
         let origin_event_id = notification.origin_event_id;
 
         let mut mock_service = MockNotificationService::default();
-        let returned_notification: Notification = Faker.fake::<NotificationRecord>().try_into().unwrap();
+        let returned_notification: Notification =
+            Faker.fake::<NotificationRecord>().try_into().unwrap();
         mock_service
             .expect_send_externally()
             .withf(move |uid, eid| *uid == user_id && *eid == origin_event_id)
