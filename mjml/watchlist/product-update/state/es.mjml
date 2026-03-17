@@ -80,20 +80,18 @@
 
         <!-- CTA buttons -->
         <mj-section background-color="#ffffff" padding="8px 32px 32px" border-radius="12px">
-            <mj-column width="50%">
-                <mj-button href="https://aura-historia.com/shops/{{shop_slug_id}}/products/{{product_slug_id}}">
+            <mj-column>
+                <mj-button href="https://aura-historia.com/shops/{{shop_slug_id}}/products/{{product_slug_id}}" width="100%">
                     Ver producto
                 </mj-button>
-            </mj-column>
-            <mj-column width="50%">
-                <mj-button href="https://aura-historia.com/shops/{{shop_slug_id}}" background-color="#EDEDED" color="#4A4338" border="1px solid #CFCFCF">
+                <mj-button href="https://aura-historia.com/shops/{{shop_slug_id}}" background-color="#EDEDED" color="#4A4338" border="1px solid #CFCFCF" width="100%">
                     Visitar tienda
                 </mj-button>
             </mj-column>
         </mj-section>
 
         <!-- Banner -->
-        <mj-section padding="24px 24px 0">
+        <mj-section padding="24px 32px 0">
             <mj-column>
                 <mj-image src="https://assets.aura-historia.com/branding/banner_twitter_slogan.png" alt="Aura Historia" width="600px" border-radius="8px" />
             </mj-column>
@@ -103,7 +101,7 @@
         <mj-section padding="24px 24px 0">
             <mj-column>
                 <mj-text color="#7D7567" font-size="13px" line-height="1.5" align="center">
-                    Recibe este correo porque esta antigüedad se encuentra en su lista de seguimiento.
+                    Recibe este correo porque esta antigüedad se encuentra en su <a href="https://aura-historia.com/watchlist" style="color:#A67C52;">lista de seguimiento</a>.
                 </mj-text>
             </mj-column>
         </mj-section>
@@ -119,10 +117,9 @@
                 <mj-text color="#7D7567" font-size="12px" line-height="1.6" align="center">
                     © 2026 Aura Historia — Todos los derechos reservados.
                     <br />
-                    <a href="mailto:support@aura-historia.com" style="color:#A67C52;text-decoration:none;">support@aura-historia.com</a>&nbsp;&nbsp;·&nbsp;&nbsp;<a href="https://aura-historia.com" style="color:#A67C52;text-decoration:none;">aura-historia.com</a>
+                    <a href="mailto:contact@aura-historia.com" style="color:#A67C52;text-decoration:none;">contact@aura-historia.com</a>&nbsp;&nbsp;·&nbsp;&nbsp;<a href="https://aura-historia.com" style="color:#A67C52;text-decoration:none;">aura-historia.com</a>
                     <br /><br />
-                    Si ya no desea recibir notificaciones sobre antigüedades en su lista de seguimiento,
-                    puede ajustar sus preferencias para cada antigüedad desde su lista.
+                    Si ya no desea recibir notificaciones sobre antigüedades en su lista de seguimiento, puede ajustar sus preferencias para cada antigüedad desde su <a href="https://aura-historia.com/watchlist" style="color:#A67C52;">lista de seguimiento</a>.
                 </mj-text>
             </mj-column>
         </mj-section>
