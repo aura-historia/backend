@@ -297,14 +297,41 @@ pub fn build_search_query(search: &ProductSearch) -> Result<serde_json::Value, s
 
     if let Some(product_query) = search.product_query.as_ref() {
         must.push(json!({
-            "multi_match": {
-                "query": product_query,
-                "fields": [
-                    format!("{title_field}^3"),
-                    format!("{description_field}^1"),
+            "bool": {
+                "must": [
+                    {
+                        "multi_match": {
+                            "query": product_query,
+                            "fields": [
+                                format!("{title_field}^5")
+                            ],
+                            "type": "best_fields",
+                            "operator": "and"
+                        }
+                    }
                 ],
-                "fuzziness": "AUTO",
-                "minimum_should_match": "70%"
+                "should": [
+                    {
+                        "match_phrase": {
+                            title_field.as_str(): {
+                                "query": product_query,
+                                "boost": 6
+                            }
+                        }
+                    },
+                    {
+                        "multi_match": {
+                            "query": product_query,
+                            "fields": [
+                                format!("{title_field}^3"),
+                                format!("{description_field}^1")
+                            ],
+                            "type": "best_fields",
+                            "fuzziness": "AUTO:4,6",
+                            "minimum_should_match": "2<75%"
+                        }
+                    }
+                ]
             }
         }));
     }
