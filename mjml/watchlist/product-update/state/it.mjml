@@ -1,130 +1,126 @@
 <mjml>
     <mj-head>
         <mj-attributes>
-            <mj-all font-family="Inter, Helvetica, Arial, sans-serif"/>
-            <mj-text color="#4A4338" font-size="16px" line-height="1.5"/>
-            <mj-button background-color="#A67C52" color="#ffffff" border-radius="6px" font-size="16px" padding="16px"/>
-            <mj-section padding="0"/>
-            <mj-column padding="0"/>
+            <mj-all font-family="Inter, Helvetica, Arial, sans-serif" />
+            <mj-text color="#4A4338" font-size="15px" line-height="1.6" />
+            <mj-button background-color="#A67C52" color="#ffffff" border-radius="6px" font-size="15px" inner-padding="12px 32px" />
+            <mj-section padding="0" />
+            <mj-column padding="0" />
+            <mj-divider border-color="#E8E0D6" border-width="1px" />
         </mj-attributes>
         <mj-style>
-            .title {
-                font-family: "Cormorant Garamond", Georgia, serif;
-                font-size: 32px !important;
-                color: #2A261F;
-                font-weight: 500;
-                margin-bottom: 12px;
-            }
-
-            .subtitle {
-                font-family: "Cormorant Garamond", Georgia, serif;
-                font-size: 20px !important;
-                color: #2A261F;
-                margin-bottom: 8px;
-            }
-
-            .detail-label {
-                font-weight: 600;
-                color: #2A261F;
-            }
-
-            .price-old {
-                text-decoration: line-through;
-                color: #7D7567;
-            }
-
-            .price-new {
-                color: #A67C52;
-                font-weight: 600;
-            }
-
-            .state-change {
-                color: #A67C52;
-                font-weight: 600;
-            }
+            a { color: #A67C52; }
+            .state-old { text-decoration: line-through; color: #7D7567; }
+            .state-new { color: #A67C52; font-weight: 700; font-size: 18px; }
         </mj-style>
-        <mj-title>Aggiornamento su {{productTitle}}</mj-title>
-        <mj-preview>Aggiornamento di un prodotto nella tua lista di osservazione: {{productTitle}}</mj-preview>
+        <mj-title>Cambio di stato: {{title}}</mj-title>
+        <mj-preview>La disponibilità di «{{title}}» è cambiata — visualizza i dettagli.</mj-preview>
     </mj-head>
 
-    <mj-body background-color="#F8F4EE">
+    <mj-body background-color="#F8F4EE" width="600px">
 
-        <mj-section padding-top="32px" padding-bottom="16px">
-            <mj-column width="100%">
-                <mj-text color="#7D7567" font-size="18px">
-                    Si è verificato un cambiamento nella tua lista di osservazione
-                </mj-text>
-                <mj-text css-class="subtitle" padding-bottom="8px">{{productTitle}}</mj-text>
-            </mj-column>
-        </mj-section>
-
-        <mj-section background-color="#ffffff" padding="32px" border-radius="12px">
+        <!-- Header -->
+        <mj-section padding="32px 24px 20px">
             <mj-column>
-                <mj-text font-size="18px" color="#4A4338">
-                    {{#if userFirstName}}
-                    Gentile {{userFirstName}},
-                    {{else}}
-                    Gentile cliente,
-                    {{/if}}
-                </mj-text>
-                <mj-text>
-                    Uno degli oggetti d'antiquariato che segui è stato aggiornato. La sua <b>disponibilità</b> è cambiata:
-                </mj-text>
-                <mj-text>
-                    <span class="price-old">
-                        {{#if productOldState}}
-                        {{productOldState}}
-                        {{else}}
-                        n. d.
-                        {{/if}}
-                    </span>
-                    →
-                    <span class="price-new">
-                        {{#if productNewState}}
-                        {{productNewState}}
-                        {{else}}
-                        n. d.
-                        {{/if}}
-                    </span>
-                </mj-text>
-            </mj-column>
-        </mj-section>
-
-        <mj-section background-color="#ffffff" padding="0 32px 32px 32px" border-radius="12px">
-            <mj-column width="50%">
-                <mj-button href="{{productAuraHistoriaUrl}}">
-                    Visualizza nella lista di osservazione
-                </mj-button>
-            </mj-column>
-
-            <mj-column width="50%">
-                <mj-button href="{{productShopUrl}}" background-color="#EDEDED" color="#4A4338" border="1px solid #CFCFCF">
-                    Visualizza nel negozio
-                </mj-button>
-            </mj-column>
-        </mj-section>
-
-        <mj-section padding="32px 0 0 0">
-            <mj-column>
-                <mj-text color="#7D7567" font-size="14px">
-                    Ricevi questa e-mail perché questo oggetto d'antiquariato si trova nella tua lista di osservazione.
-                    <br/><br/>
-                    © 2026 Aura Historia — Tutti i diritti riservati.
-                </mj-text>
-            </mj-column>
-        </mj-section>
-
-        <mj-section>
-            <mj-column>
-                <mj-text color="#7D7567" font-size="13px" line-height="1.6">
-                    <strong>Note legali</strong>
-                    <br/>
+                <mj-text font-family="'Cormorant Garamond', Georgia, serif" font-size="28px" font-weight="600" color="#2A261F" align="center">
                     Aura Historia
-                    <br/>
-                    Contatto: support@aura-historia.com
-                    <br/>
-                    Sito web: https://aura-historia.com
-                    <br/><br/>
+                </mj-text>
+            </mj-column>
+        </mj-section>
+
+        <mj-section padding="0 24px">
+            <mj-column>
+                <mj-divider border-color="#A67C52" border-width="2px" padding="0" />
+            </mj-column>
+        </mj-section>
+
+        <!-- Content card -->
+        <mj-section background-color="#ffffff" padding="32px 32px 16px" border-radius="12px">
+            <mj-column>
+                <mj-text font-size="16px" color="#4A4338" padding-bottom="8px">
+                    {{#if user_first_name}}Gentile {{user_first_name}},{{else}}Gentile cliente,{{/if}}
+                </mj-text>
+                <mj-text>
+                    Un oggetto d'antiquariato nella tua lista di osservazione ha un nuovo stato di disponibilità. Ecco i dettagli:
+                </mj-text>
+            </mj-column>
+        </mj-section>
+
+        <!-- Product info -->
+        <mj-section background-color="#ffffff" padding="0 32px" border-radius="12px">
+            <mj-column>
+                <mj-text font-family="'Cormorant Garamond', Georgia, serif" font-size="22px" font-weight="600" color="#2A261F" padding-bottom="4px">
+                    {{title}}
+                </mj-text>
+                <mj-text font-size="14px" color="#7D7567" padding-bottom="16px">
+                    Offerto da <b>{{shop_name}}</b>
+                </mj-text>
+            </mj-column>
+        </mj-section>
+
+        <!-- State change highlight -->
+        <mj-section background-color="#ffffff" padding="0 32px 8px" border-radius="12px">
+            <mj-column>
+                <mj-table font-size="15px" color="#4A4338" cellpadding="6">
+                    <tr>
+                        <td style="font-weight:600;color:#7D7567;padding:6px 12px 6px 0;">Stato precedente</td>
+                        <td style="padding:6px 0;">
+                            <span class="state-old">{{#if old_state}}{{old_state}}{{else}}n.&nbsp;d.{{/if}}</span>
+                        </td>
+                    </tr>
+                    <tr>
+                        <td style="font-weight:600;color:#7D7567;padding:6px 12px 6px 0;">Nuovo stato</td>
+                        <td style="padding:6px 0;">
+                            <span class="state-new">{{#if new_state}}{{new_state}}{{else}}n.&nbsp;d.{{/if}}</span>
+                        </td>
+                    </tr>
+                </mj-table>
+            </mj-column>
+        </mj-section>
+
+        <!-- CTA buttons -->
+        <mj-section background-color="#ffffff" padding="8px 32px 32px" border-radius="12px">
+            <mj-column width="50%">
+                <mj-button href="https://aura-historia.com/shops/{{shop_slug_id}}/products/{{product_slug_id}}">
+                    Visualizza prodotto
+                </mj-button>
+            </mj-column>
+            <mj-column width="50%">
+                <mj-button href="https://aura-historia.com/shops/{{shop_slug_id}}" background-color="#EDEDED" color="#4A4338" border="1px solid #CFCFCF">
+                    Visita il negozio
+                </mj-button>
+            </mj-column>
+        </mj-section>
+
+        <!-- Banner -->
+        <mj-section padding="24px 24px 0">
+            <mj-column>
+                <mj-image src="https://assets.aura-historia.com/branding/banner_twitter_slogan.png" alt="Aura Historia" width="600px" border-radius="8px" />
+            </mj-column>
+        </mj-section>
+
+        <!-- Footer -->
+        <mj-section padding="24px 24px 0">
+            <mj-column>
+                <mj-text color="#7D7567" font-size="13px" line-height="1.5" align="center">
+                    Ricevi questa e-mail perché questo oggetto d'antiquariato si trova nella tua lista di osservazione.
+                </mj-text>
+            </mj-column>
+        </mj-section>
+
+        <mj-section padding="8px 24px 0">
+            <mj-column>
+                <mj-divider />
+            </mj-column>
+        </mj-section>
+
+        <mj-section padding="8px 24px 32px">
+            <mj-column>
+                <mj-text color="#7D7567" font-size="12px" line-height="1.6" align="center">
+                    © 2026 Aura Historia — Tutti i diritti riservati.
+                    <br />
+                    <a href="mailto:support@aura-historia.com" style="color:#A67C52;text-decoration:none;">support@aura-historia.com</a>&nbsp;&nbsp;·&nbsp;&nbsp;<a href="https://aura-historia.com" style="color:#A67C52;text-decoration:none;">aura-historia.com</a>
+                    <br /><br />
                     Se non desideri più ricevere notifiche sugli oggetti d'antiquariato nella tua lista di osservazione,
                     puoi modificare le tue preferenze per ogni oggetto dalla tua lista.
                 </mj-text>
