@@ -11,6 +11,7 @@ use common::year::Year;
 use common::{pagination::cursor::api::JsonCursoredData, query::range_query::RangeQuery};
 use fake::{Fake, Faker, rand};
 use lambda_runtime::LambdaEvent;
+use notification::service::notification_service::MockNotificationService;
 use product::data::authenticity_data::AuthenticityData;
 use product::data::condition_data::ConditionData;
 use product::data::get_summary_data::GetProductSummaryData;
@@ -41,8 +42,12 @@ async fn should_200_when_no_hits() {
     let watchlist_repository = WatchlistProductDynamoDbRepositoryImpl::new(ddb_client, "table_1");
     let user_repository = UserDynamoDbRepositoryImpl::new(ddb_client, "table_1");
     let user_service = UserServiceImpl::new(&user_repository);
-    let product_personalization_service =
-        ProductPersonalizationServiceImpl::new(&watchlist_repository, &user_service);
+    let notification_service = MockNotificationService::default();
+    let product_personalization_service = ProductPersonalizationServiceImpl::new(
+        &watchlist_repository,
+        &notification_service,
+        &user_service,
+    );
     let opensearch_repository = ProductOpenSearchRepositoryImpl::new(get_opensearch_client().await);
     let query_service = QueryProductServiceImpl::new(&opensearch_repository);
     let mut access_token_verifier_service = MockAccessTokenVerifierService::default();
@@ -82,8 +87,12 @@ async fn should_200_when_following_search_after_from_previous_response_for_sort_
     let watchlist_repository = WatchlistProductDynamoDbRepositoryImpl::new(ddb_client, "table_1");
     let user_repository = UserDynamoDbRepositoryImpl::new(ddb_client, "table_1");
     let user_service = UserServiceImpl::new(&user_repository);
-    let product_personalization_service =
-        ProductPersonalizationServiceImpl::new(&watchlist_repository, &user_service);
+    let notification_service = MockNotificationService::default();
+    let product_personalization_service = ProductPersonalizationServiceImpl::new(
+        &watchlist_repository,
+        &notification_service,
+        &user_service,
+    );
     let opensearch_repository = ProductOpenSearchRepositoryImpl::new(get_opensearch_client().await);
     let query_service = QueryProductServiceImpl::new(&opensearch_repository);
     let mut access_token_verifier_service = MockAccessTokenVerifierService::default();
@@ -234,8 +243,12 @@ async fn should_200_when_following_search_after_from_previous_response_for_sort_
     let watchlist_repository = WatchlistProductDynamoDbRepositoryImpl::new(ddb_client, "table_1");
     let user_repository = UserDynamoDbRepositoryImpl::new(ddb_client, "table_1");
     let user_service = UserServiceImpl::new(&user_repository);
-    let product_personalization_service =
-        ProductPersonalizationServiceImpl::new(&watchlist_repository, &user_service);
+    let notification_service = MockNotificationService::default();
+    let product_personalization_service = ProductPersonalizationServiceImpl::new(
+        &watchlist_repository,
+        &notification_service,
+        &user_service,
+    );
     let opensearch_repository = ProductOpenSearchRepositoryImpl::new(get_opensearch_client().await);
     let query_service = QueryProductServiceImpl::new(&opensearch_repository);
     let mut access_token_verifier_service = MockAccessTokenVerifierService::default();
@@ -391,8 +404,12 @@ async fn should_200_when_following_search_after_from_previous_response_for_impli
     let watchlist_repository = WatchlistProductDynamoDbRepositoryImpl::new(ddb_client, "table_1");
     let user_repository = UserDynamoDbRepositoryImpl::new(ddb_client, "table_1");
     let user_service = UserServiceImpl::new(&user_repository);
-    let product_personalization_service =
-        ProductPersonalizationServiceImpl::new(&watchlist_repository, &user_service);
+    let notification_service = MockNotificationService::default();
+    let product_personalization_service = ProductPersonalizationServiceImpl::new(
+        &watchlist_repository,
+        &notification_service,
+        &user_service,
+    );
     let opensearch_repository = ProductOpenSearchRepositoryImpl::new(get_opensearch_client().await);
     let query_service = QueryProductServiceImpl::new(&opensearch_repository);
     let mut access_token_verifier_service = MockAccessTokenVerifierService::default();
@@ -510,8 +527,12 @@ async fn should_200_when_following_search_after_from_previous_response_for_expli
     let watchlist_repository = WatchlistProductDynamoDbRepositoryImpl::new(ddb_client, "table_1");
     let user_repository = UserDynamoDbRepositoryImpl::new(ddb_client, "table_1");
     let user_service = UserServiceImpl::new(&user_repository);
-    let product_personalization_service =
-        ProductPersonalizationServiceImpl::new(&watchlist_repository, &user_service);
+    let notification_service = MockNotificationService::default();
+    let product_personalization_service = ProductPersonalizationServiceImpl::new(
+        &watchlist_repository,
+        &notification_service,
+        &user_service,
+    );
     let opensearch_repository = ProductOpenSearchRepositoryImpl::new(get_opensearch_client().await);
     let query_service = QueryProductServiceImpl::new(&opensearch_repository);
     let mut access_token_verifier_service = MockAccessTokenVerifierService::default();
@@ -633,8 +654,12 @@ async fn should_200_when_following_search_after_from_previous_response_for_sort_
     let watchlist_repository = WatchlistProductDynamoDbRepositoryImpl::new(ddb_client, "table_1");
     let user_repository = UserDynamoDbRepositoryImpl::new(ddb_client, "table_1");
     let user_service = UserServiceImpl::new(&user_repository);
-    let product_personalization_service =
-        ProductPersonalizationServiceImpl::new(&watchlist_repository, &user_service);
+    let notification_service = MockNotificationService::default();
+    let product_personalization_service = ProductPersonalizationServiceImpl::new(
+        &watchlist_repository,
+        &notification_service,
+        &user_service,
+    );
     let opensearch_repository = ProductOpenSearchRepositoryImpl::new(get_opensearch_client().await);
     let query_service = QueryProductServiceImpl::new(&opensearch_repository);
     let mut access_token_verifier_service = MockAccessTokenVerifierService::default();
@@ -757,8 +782,12 @@ async fn should_200_when_following_search_after_from_previous_response_for_sort_
     let watchlist_repository = WatchlistProductDynamoDbRepositoryImpl::new(ddb_client, "table_1");
     let user_repository = UserDynamoDbRepositoryImpl::new(ddb_client, "table_1");
     let user_service = UserServiceImpl::new(&user_repository);
-    let product_personalization_service =
-        ProductPersonalizationServiceImpl::new(&watchlist_repository, &user_service);
+    let notification_service = MockNotificationService::default();
+    let product_personalization_service = ProductPersonalizationServiceImpl::new(
+        &watchlist_repository,
+        &notification_service,
+        &user_service,
+    );
     let opensearch_repository = ProductOpenSearchRepositoryImpl::new(get_opensearch_client().await);
     let query_service = QueryProductServiceImpl::new(&opensearch_repository);
     let mut access_token_verifier_service = MockAccessTokenVerifierService::default();
@@ -890,8 +919,12 @@ async fn should_200_when_created_query(
     let watchlist_repository = WatchlistProductDynamoDbRepositoryImpl::new(ddb_client, "table_1");
     let user_repository = UserDynamoDbRepositoryImpl::new(ddb_client, "table_1");
     let user_service = UserServiceImpl::new(&user_repository);
-    let product_personalization_service =
-        ProductPersonalizationServiceImpl::new(&watchlist_repository, &user_service);
+    let notification_service = MockNotificationService::default();
+    let product_personalization_service = ProductPersonalizationServiceImpl::new(
+        &watchlist_repository,
+        &notification_service,
+        &user_service,
+    );
     let opensearch_repository = ProductOpenSearchRepositoryImpl::new(get_opensearch_client().await);
     let query_service = QueryProductServiceImpl::new(&opensearch_repository);
     let mut access_token_verifier_service = MockAccessTokenVerifierService::default();
@@ -995,8 +1028,12 @@ async fn should_200_when_updated_query(
     let watchlist_repository = WatchlistProductDynamoDbRepositoryImpl::new(ddb_client, "table_1");
     let user_repository = UserDynamoDbRepositoryImpl::new(ddb_client, "table_1");
     let user_service = UserServiceImpl::new(&user_repository);
-    let product_personalization_service =
-        ProductPersonalizationServiceImpl::new(&watchlist_repository, &user_service);
+    let notification_service = MockNotificationService::default();
+    let product_personalization_service = ProductPersonalizationServiceImpl::new(
+        &watchlist_repository,
+        &notification_service,
+        &user_service,
+    );
     let opensearch_repository = ProductOpenSearchRepositoryImpl::new(get_opensearch_client().await);
     let query_service = QueryProductServiceImpl::new(&opensearch_repository);
     let mut access_token_verifier_service = MockAccessTokenVerifierService::default();
@@ -1101,8 +1138,12 @@ async fn should_200_when_year_query(#[case] min: Option<Year>, #[case] max: Opti
     let watchlist_repository = WatchlistProductDynamoDbRepositoryImpl::new(ddb_client, "table_1");
     let user_repository = UserDynamoDbRepositoryImpl::new(ddb_client, "table_1");
     let user_service = UserServiceImpl::new(&user_repository);
-    let product_personalization_service =
-        ProductPersonalizationServiceImpl::new(&watchlist_repository, &user_service);
+    let notification_service = MockNotificationService::default();
+    let product_personalization_service = ProductPersonalizationServiceImpl::new(
+        &watchlist_repository,
+        &notification_service,
+        &user_service,
+    );
     let opensearch_repository = ProductOpenSearchRepositoryImpl::new(get_opensearch_client().await);
     let query_service = QueryProductServiceImpl::new(&opensearch_repository);
     let mut access_token_verifier_service = MockAccessTokenVerifierService::default();
@@ -1188,8 +1229,12 @@ async fn should_200_when_authenticity_query(#[case] query: HashSet<AuthenticityD
     let watchlist_repository = WatchlistProductDynamoDbRepositoryImpl::new(ddb_client, "table_1");
     let user_repository = UserDynamoDbRepositoryImpl::new(ddb_client, "table_1");
     let user_service = UserServiceImpl::new(&user_repository);
-    let product_personalization_service =
-        ProductPersonalizationServiceImpl::new(&watchlist_repository, &user_service);
+    let notification_service = MockNotificationService::default();
+    let product_personalization_service = ProductPersonalizationServiceImpl::new(
+        &watchlist_repository,
+        &notification_service,
+        &user_service,
+    );
     let opensearch_repository = ProductOpenSearchRepositoryImpl::new(get_opensearch_client().await);
     let query_service = QueryProductServiceImpl::new(&opensearch_repository);
     let mut access_token_verifier_service = MockAccessTokenVerifierService::default();
@@ -1278,8 +1323,12 @@ async fn should_200_when_condition_query(#[case] query: HashSet<ConditionData>) 
     let watchlist_repository = WatchlistProductDynamoDbRepositoryImpl::new(ddb_client, "table_1");
     let user_repository = UserDynamoDbRepositoryImpl::new(ddb_client, "table_1");
     let user_service = UserServiceImpl::new(&user_repository);
-    let product_personalization_service =
-        ProductPersonalizationServiceImpl::new(&watchlist_repository, &user_service);
+    let notification_service = MockNotificationService::default();
+    let product_personalization_service = ProductPersonalizationServiceImpl::new(
+        &watchlist_repository,
+        &notification_service,
+        &user_service,
+    );
     let opensearch_repository = ProductOpenSearchRepositoryImpl::new(get_opensearch_client().await);
     let query_service = QueryProductServiceImpl::new(&opensearch_repository);
     let mut access_token_verifier_service = MockAccessTokenVerifierService::default();
@@ -1366,8 +1415,12 @@ async fn should_200_when_provenance_query(#[case] query: HashSet<ProvenanceData>
     let watchlist_repository = WatchlistProductDynamoDbRepositoryImpl::new(ddb_client, "table_1");
     let user_repository = UserDynamoDbRepositoryImpl::new(ddb_client, "table_1");
     let user_service = UserServiceImpl::new(&user_repository);
-    let product_personalization_service =
-        ProductPersonalizationServiceImpl::new(&watchlist_repository, &user_service);
+    let notification_service = MockNotificationService::default();
+    let product_personalization_service = ProductPersonalizationServiceImpl::new(
+        &watchlist_repository,
+        &notification_service,
+        &user_service,
+    );
     let opensearch_repository = ProductOpenSearchRepositoryImpl::new(get_opensearch_client().await);
     let query_service = QueryProductServiceImpl::new(&opensearch_repository);
     let mut access_token_verifier_service = MockAccessTokenVerifierService::default();
@@ -1454,8 +1507,12 @@ async fn should_200_when_restoration_query(#[case] query: HashSet<RestorationDat
     let watchlist_repository = WatchlistProductDynamoDbRepositoryImpl::new(ddb_client, "table_1");
     let user_repository = UserDynamoDbRepositoryImpl::new(ddb_client, "table_1");
     let user_service = UserServiceImpl::new(&user_repository);
-    let product_personalization_service =
-        ProductPersonalizationServiceImpl::new(&watchlist_repository, &user_service);
+    let notification_service = MockNotificationService::default();
+    let product_personalization_service = ProductPersonalizationServiceImpl::new(
+        &watchlist_repository,
+        &notification_service,
+        &user_service,
+    );
     let opensearch_repository = ProductOpenSearchRepositoryImpl::new(get_opensearch_client().await);
     let query_service = QueryProductServiceImpl::new(&opensearch_repository);
     let mut access_token_verifier_service = MockAccessTokenVerifierService::default();
@@ -1531,8 +1588,12 @@ async fn should_200_personalized_when_authenticated_and_not_watching() {
     let watchlist_repository = WatchlistProductDynamoDbRepositoryImpl::new(ddb_client, "table_1");
     let user_repository = UserDynamoDbRepositoryImpl::new(ddb_client, "table_1");
     let user_service = UserServiceImpl::new(&user_repository);
-    let product_personalization_service =
-        ProductPersonalizationServiceImpl::new(&watchlist_repository, &user_service);
+    let notification_service = MockNotificationService::default();
+    let product_personalization_service = ProductPersonalizationServiceImpl::new(
+        &watchlist_repository,
+        &notification_service,
+        &user_service,
+    );
     let opensearch_repository = ProductOpenSearchRepositoryImpl::new(get_opensearch_client().await);
     let query_service = QueryProductServiceImpl::new(&opensearch_repository);
     let mut access_token_verifier_service = MockAccessTokenVerifierService::default();
@@ -1620,8 +1681,12 @@ async fn should_200_with_native_title_when_no_target_titles_exist_and_hit_due_to
     let watchlist_repository = WatchlistProductDynamoDbRepositoryImpl::new(ddb_client, "table_1");
     let user_repository = UserDynamoDbRepositoryImpl::new(ddb_client, "table_1");
     let user_service = UserServiceImpl::new(&user_repository);
-    let product_personalization_service =
-        ProductPersonalizationServiceImpl::new(&watchlist_repository, &user_service);
+    let notification_service = MockNotificationService::default();
+    let product_personalization_service = ProductPersonalizationServiceImpl::new(
+        &watchlist_repository,
+        &notification_service,
+        &user_service,
+    );
     let opensearch_repository = ProductOpenSearchRepositoryImpl::new(get_opensearch_client().await);
     let query_service = QueryProductServiceImpl::new(&opensearch_repository);
     let mut access_token_verifier_service = MockAccessTokenVerifierService::default();
@@ -1752,8 +1817,12 @@ async fn should_respond_200_and_respect_language_query_param(
     let watchlist_repository = WatchlistProductDynamoDbRepositoryImpl::new(ddb_client, "table_1");
     let user_repository = UserDynamoDbRepositoryImpl::new(ddb_client, "table_1");
     let user_service = UserServiceImpl::new(&user_repository);
-    let product_personalization_service =
-        ProductPersonalizationServiceImpl::new(&watchlist_repository, &user_service);
+    let notification_service = MockNotificationService::default();
+    let product_personalization_service = ProductPersonalizationServiceImpl::new(
+        &watchlist_repository,
+        &notification_service,
+        &user_service,
+    );
     let opensearch_repository = ProductOpenSearchRepositoryImpl::new(get_opensearch_client().await);
     let query_service = QueryProductServiceImpl::new(&opensearch_repository);
     let mut access_token_verifier_service = MockAccessTokenVerifierService::default();
@@ -1846,8 +1915,12 @@ async fn should_200_when_shop_type_query(#[case] query: HashSet<ShopTypeData>) {
     let watchlist_repository = WatchlistProductDynamoDbRepositoryImpl::new(ddb_client, "table_1");
     let user_repository = UserDynamoDbRepositoryImpl::new(ddb_client, "table_1");
     let user_service = UserServiceImpl::new(&user_repository);
-    let product_personalization_service =
-        ProductPersonalizationServiceImpl::new(&watchlist_repository, &user_service);
+    let notification_service = MockNotificationService::default();
+    let product_personalization_service = ProductPersonalizationServiceImpl::new(
+        &watchlist_repository,
+        &notification_service,
+        &user_service,
+    );
     let opensearch_repository = ProductOpenSearchRepositoryImpl::new(get_opensearch_client().await);
     let query_service = QueryProductServiceImpl::new(&opensearch_repository);
     let mut access_token_verifier_service = MockAccessTokenVerifierService::default();
@@ -1938,8 +2011,12 @@ async fn should_200_when_shop_name_query_for_keyword_filter(#[case] query: HashS
     let watchlist_repository = WatchlistProductDynamoDbRepositoryImpl::new(ddb_client, "table_1");
     let user_repository = UserDynamoDbRepositoryImpl::new(ddb_client, "table_1");
     let user_service = UserServiceImpl::new(&user_repository);
-    let product_personalization_service =
-        ProductPersonalizationServiceImpl::new(&watchlist_repository, &user_service);
+    let notification_service = MockNotificationService::default();
+    let product_personalization_service = ProductPersonalizationServiceImpl::new(
+        &watchlist_repository,
+        &notification_service,
+        &user_service,
+    );
     let opensearch_repository = ProductOpenSearchRepositoryImpl::new(get_opensearch_client().await);
     let query_service = QueryProductServiceImpl::new(&opensearch_repository);
     let mut access_token_verifier_service = MockAccessTokenVerifierService::default();
@@ -2037,8 +2114,12 @@ async fn should_200_when_exclude_shop_name_query(#[case] query: HashSet<&str>) {
     let watchlist_repository = WatchlistProductDynamoDbRepositoryImpl::new(ddb_client, "table_1");
     let user_repository = UserDynamoDbRepositoryImpl::new(ddb_client, "table_1");
     let user_service = UserServiceImpl::new(&user_repository);
-    let product_personalization_service =
-        ProductPersonalizationServiceImpl::new(&watchlist_repository, &user_service);
+    let notification_service = MockNotificationService::default();
+    let product_personalization_service = ProductPersonalizationServiceImpl::new(
+        &watchlist_repository,
+        &notification_service,
+        &user_service,
+    );
     let opensearch_repository = ProductOpenSearchRepositoryImpl::new(get_opensearch_client().await);
     let query_service = QueryProductServiceImpl::new(&opensearch_repository);
     let mut access_token_verifier_service = MockAccessTokenVerifierService::default();
@@ -2128,8 +2209,12 @@ async fn should_200_when_category_id_filter_is_given() {
     let watchlist_repository = WatchlistProductDynamoDbRepositoryImpl::new(ddb_client, "table_1");
     let user_repository = UserDynamoDbRepositoryImpl::new(ddb_client, "table_1");
     let user_service = UserServiceImpl::new(&user_repository);
-    let product_personalization_service =
-        ProductPersonalizationServiceImpl::new(&watchlist_repository, &user_service);
+    let notification_service = MockNotificationService::default();
+    let product_personalization_service = ProductPersonalizationServiceImpl::new(
+        &watchlist_repository,
+        &notification_service,
+        &user_service,
+    );
     let opensearch_repository = ProductOpenSearchRepositoryImpl::new(get_opensearch_client().await);
     let query_service = QueryProductServiceImpl::new(&opensearch_repository);
     let mut access_token_verifier_service = MockAccessTokenVerifierService::default();
@@ -2214,8 +2299,12 @@ async fn should_200_when_period_id_filter_is_given() {
     let watchlist_repository = WatchlistProductDynamoDbRepositoryImpl::new(ddb_client, "table_1");
     let user_repository = UserDynamoDbRepositoryImpl::new(ddb_client, "table_1");
     let user_service = UserServiceImpl::new(&user_repository);
-    let product_personalization_service =
-        ProductPersonalizationServiceImpl::new(&watchlist_repository, &user_service);
+    let notification_service = MockNotificationService::default();
+    let product_personalization_service = ProductPersonalizationServiceImpl::new(
+        &watchlist_repository,
+        &notification_service,
+        &user_service,
+    );
     let opensearch_repository = ProductOpenSearchRepositoryImpl::new(get_opensearch_client().await);
     let query_service = QueryProductServiceImpl::new(&opensearch_repository);
     let mut access_token_verifier_service = MockAccessTokenVerifierService::default();
@@ -2300,8 +2389,12 @@ async fn should_200_when_auction_start_range_is_given() {
     let watchlist_repository = WatchlistProductDynamoDbRepositoryImpl::new(ddb_client, "table_1");
     let user_repository = UserDynamoDbRepositoryImpl::new(ddb_client, "table_1");
     let user_service = UserServiceImpl::new(&user_repository);
-    let product_personalization_service =
-        ProductPersonalizationServiceImpl::new(&watchlist_repository, &user_service);
+    let notification_service = MockNotificationService::default();
+    let product_personalization_service = ProductPersonalizationServiceImpl::new(
+        &watchlist_repository,
+        &notification_service,
+        &user_service,
+    );
     let opensearch_repository = ProductOpenSearchRepositoryImpl::new(get_opensearch_client().await);
     let query_service = QueryProductServiceImpl::new(&opensearch_repository);
     let mut access_token_verifier_service = MockAccessTokenVerifierService::default();
@@ -2388,8 +2481,12 @@ async fn should_200_when_auction_end_range_is_given() {
     let watchlist_repository = WatchlistProductDynamoDbRepositoryImpl::new(ddb_client, "table_1");
     let user_repository = UserDynamoDbRepositoryImpl::new(ddb_client, "table_1");
     let user_service = UserServiceImpl::new(&user_repository);
-    let product_personalization_service =
-        ProductPersonalizationServiceImpl::new(&watchlist_repository, &user_service);
+    let notification_service = MockNotificationService::default();
+    let product_personalization_service = ProductPersonalizationServiceImpl::new(
+        &watchlist_repository,
+        &notification_service,
+        &user_service,
+    );
     let opensearch_repository = ProductOpenSearchRepositoryImpl::new(get_opensearch_client().await);
     let query_service = QueryProductServiceImpl::new(&opensearch_repository);
     let mut access_token_verifier_service = MockAccessTokenVerifierService::default();

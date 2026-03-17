@@ -5,6 +5,7 @@ use common::language::domain::Language;
 use common::personalized::api::PersonalizedData;
 use fake::{Fake, Faker};
 use lambda_runtime::LambdaEvent;
+use notification::service::notification_service::MockNotificationService;
 use product::data::get_summary_data::GetProductSummaryData;
 use product::data::user_state_data::ProductUserStateData;
 use product::dynamodb::product_record::ProductRecord;
@@ -1065,8 +1066,12 @@ async fn should_202_when_similar_products_have_not_been_computed_for_anon() {
     let user_repository_pp =
         UserDynamoDbRepositoryImpl::new(get_dynamodb_client().await, "table_1");
     let user_service = UserServiceImpl::new(&user_repository_pp);
-    let product_personalization_service =
-        ProductPersonalizationServiceImpl::new(&watchlist_repository, &user_service);
+    let notification_service = MockNotificationService::default();
+    let product_personalization_service = ProductPersonalizationServiceImpl::new(
+        &watchlist_repository,
+        &notification_service,
+        &user_service,
+    );
     let semantic_search_service = SemanticSearchServiceImpl::new(
         &product_dynamodb_repository,
         &product_opensearch_repository,
@@ -1135,8 +1140,12 @@ async fn should_200_when_similar_products_have_been_computed_for_anon() {
     let user_repository_pp =
         UserDynamoDbRepositoryImpl::new(get_dynamodb_client().await, "table_1");
     let user_service = UserServiceImpl::new(&user_repository_pp);
-    let product_personalization_service =
-        ProductPersonalizationServiceImpl::new(&watchlist_repository, &user_service);
+    let notification_service = MockNotificationService::default();
+    let product_personalization_service = ProductPersonalizationServiceImpl::new(
+        &watchlist_repository,
+        &notification_service,
+        &user_service,
+    );
     let semantic_search_service = SemanticSearchServiceImpl::new(
         &product_dynamodb_repository,
         &product_opensearch_repository,
@@ -1236,8 +1245,12 @@ async fn should_200_and_personalize_when_similar_products_have_been_computed_for
     let user_repository_pp =
         UserDynamoDbRepositoryImpl::new(get_dynamodb_client().await, "table_1");
     let user_service = UserServiceImpl::new(&user_repository_pp);
-    let product_personalization_service =
-        ProductPersonalizationServiceImpl::new(&watchlist_repository, &user_service);
+    let notification_service = MockNotificationService::default();
+    let product_personalization_service = ProductPersonalizationServiceImpl::new(
+        &watchlist_repository,
+        &notification_service,
+        &user_service,
+    );
     let semantic_search_service = SemanticSearchServiceImpl::new(
         &product_dynamodb_repository,
         &product_opensearch_repository,
@@ -1416,8 +1429,12 @@ async fn should_respond_200_and_respect_language_query_param(
     let user_repository_pp =
         UserDynamoDbRepositoryImpl::new(get_dynamodb_client().await, "table_1");
     let user_service = UserServiceImpl::new(&user_repository_pp);
-    let product_personalization_service =
-        ProductPersonalizationServiceImpl::new(&watchlist_repository, &user_service);
+    let notification_service = MockNotificationService::default();
+    let product_personalization_service = ProductPersonalizationServiceImpl::new(
+        &watchlist_repository,
+        &notification_service,
+        &user_service,
+    );
     let semantic_search_service = SemanticSearchServiceImpl::new(
         &product_dynamodb_repository,
         &product_opensearch_repository,

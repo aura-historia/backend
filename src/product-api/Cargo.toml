@@ -8,6 +8,7 @@ common = { workspace = true, features = ["api", "opensearch"] }
 product = { workspace = true, features = ["data", "service", "dynamodb", "opensearch", "sqs"] }
 product-watchlist = { workspace = true, features = ["data", "service", "dynamodb"] }
 product-personalization = { workspace = true }
+notification = { workspace = true, features = ["service"] }
 user = { workspace = true, features = ["dynamodb", "service"] }
 shop = { workspace = true, features = ["dynamodb"] }
 cognito = { workspace = true }
@@ -30,6 +31,7 @@ fxrate = { workspace = true }
 [dev-dependencies]
 product = { workspace = true, features = ["test-data"] }
 product-watchlist = { workspace = true, features = ["test-data"] }
+notification = { workspace = true, features = ["test-data"] }
 user = { workspace = true, features = ["test-data"] }
 test-api = { workspace = true, features = ["api-gateway", "dynamodb", "opensearch", "sqs"] }
 serial_test = { workspace = true }

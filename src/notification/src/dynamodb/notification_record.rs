@@ -45,6 +45,8 @@ pub struct NotificationRecord {
     pub pk: String,
     pub sk: String,
     pub lsi1_sk: String,
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub lsi2_sk: Option<String>,
     pub user_id: UserId,
     pub origin_event_id: EventId,
     pub notification_id: NotificationId,
@@ -158,6 +160,18 @@ pub fn mk_lsi1_sk(
             format!("user#notification#search_filter#{notification_id}")
         }
     }
+}
+
+pub fn mk_lsi2_sk(product_id: &ProductId, origin_event_id: &EventId) -> String {
+    format!("user#notification#product_id#{product_id}#origin_event_id#{origin_event_id}")
+}
+
+const LSI2_SK_LOWER_BOUND_PREFIX: &str = "user#notification#product_id#";
+
+pub fn mk_lsi2_sk_product_prefix(product_id: &ProductId) -> (String, String) {
+    let prefix = format!("{LSI2_SK_LOWER_BOUND_PREFIX}{product_id}#origin_event_id#");
+    let upper = format!("{prefix}\u{ffff}");
+    (prefix, upper)
 }
 
 fn derive_notification_reason(
@@ -299,10 +313,13 @@ impl From<Notification> for NotificationRecord {
                     ),
                 };
 
+                let lsi2_sk = mk_lsi2_sk(&product_id, &notification.origin_event_id);
+
                 NotificationRecord {
                     pk: mk_pk(&notification.user_id),
                     sk: mk_sk(&notification.origin_event_id),
                     lsi1_sk,
+                    lsi2_sk: Some(lsi2_sk),
                     user_id: notification.user_id,
                     origin_event_id: notification.origin_event_id,
                     notification_id: notification.notification_id,
@@ -357,10 +374,12 @@ impl From<Notification> for NotificationRecord {
             } => {
                 let notification_reason = NotificationReasonRecord::SearchFilterMatch;
                 let lsi1_sk = mk_lsi1_sk(&notification.notification_id, &notification_reason);
+                let lsi2_sk = mk_lsi2_sk(&product_id, &notification.origin_event_id);
                 NotificationRecord {
                     pk: mk_pk(&notification.user_id),
                     sk: mk_sk(&notification.origin_event_id),
                     lsi1_sk,
+                    lsi2_sk: Some(lsi2_sk),
                     user_id: notification.user_id,
                     origin_event_id: notification.origin_event_id,
                     notification_id: notification.notification_id,
@@ -592,11 +611,13 @@ mod faker {
             let notification_id = NotificationId::new();
             let notification_reason = NotificationReasonRecord::WatchlistPriceDiscovered;
             let created = OffsetDateTime::now_utc();
+            let product_id: ProductId = config.fake_with_rng(rng);
 
             NotificationRecord {
                 pk: mk_pk(&user_id),
                 sk: mk_sk(&origin_event_id),
                 lsi1_sk: mk_lsi1_sk(&notification_id, &notification_reason),
+                lsi2_sk: Some(mk_lsi2_sk(&product_id, &origin_event_id)),
                 user_id,
                 origin_event_id,
                 notification_id,
@@ -605,7 +626,7 @@ mod faker {
                 seen: config.fake_with_rng(rng),
                 external: config.fake_with_rng(rng),
                 image: None,
-                product_id: Some(config.fake_with_rng(rng)),
+                product_id: Some(product_id),
                 product_slug_id: Some(config.fake_with_rng(rng)),
                 shop_slug_id: Some(config.fake_with_rng(rng)),
                 shop_id: Some(config.fake_with_rng(rng)),
