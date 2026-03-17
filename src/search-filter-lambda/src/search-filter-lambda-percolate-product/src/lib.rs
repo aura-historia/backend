@@ -27,13 +27,11 @@ pub async fn handler(
             .clone()
             .expect("shouldn't receive an SQS-Message without 'message_id' because AWS sets it.");
 
-        if let Some(product_event_record) =
-            extract_sqs_event_bridge_dynamodb_record::<ProductEventRecord>(
-                message,
-                &mut failed_message_ids,
-                &mut skipped_count,
-            )
-        {
+        if let Some(product_event_record) = extract_sqs_event_bridge_dynamodb_record::<
+            ProductEventRecord,
+        >(
+            message, &mut failed_message_ids, &mut skipped_count
+        ) {
             match ProductEvent::try_from(product_event_record) {
                 Ok(product_event) => {
                     let event_id = product_event.event_id;

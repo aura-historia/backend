@@ -35,6 +35,9 @@ pub struct PatchUserSearchFilterData {
     pub name: Option<UserSearchFilterName>,
 
     #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub notifications: Option<bool>,
+
+    #[serde(skip_serializing_if = "Option::is_none", default)]
     pub search: Option<PatchProductSearchData>,
 }
 
@@ -122,6 +125,7 @@ impl From<PatchUserSearchFilterData> for UserSearchFilterUpdate {
     fn from(patch: PatchUserSearchFilterData) -> Self {
         UserSearchFilterUpdate {
             name: patch.name,
+            notifications: patch.notifications,
             language: patch
                 .search
                 .as_ref()
@@ -338,6 +342,7 @@ mod tests {
         });
         let expected = PatchUserSearchFilterData {
             name: Some("hugos filter for peppino".into()),
+            notifications: None,
             search: Some(PatchProductSearchData {
                 language: Some(LanguageData::De),
                 currency: Some(CurrencyData::Eur),

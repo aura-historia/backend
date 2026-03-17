@@ -43,7 +43,7 @@ use common::year::YearRange;
 use shop::core::shop_type::ShopType;
 use std::collections::HashMap;
 use time::OffsetDateTime;
-use tracing::error;
+use tracing::{error, warn};
 use url::Url;
 
 string_newtype!(ProductCategory);
@@ -453,7 +453,9 @@ impl Product {
 
         match event.payload {
             ProductEventPayload::ProductDomainEvent(payload) => match payload {
-                ProductDomainEventPayload::Created(_) => {}
+                ProductDomainEventPayload::Created(_) => {
+                    warn!("Received Created event on an existing Product. This should not happen.");
+                }
                 ProductDomainEventPayload::StateListed(_) => self.state = ProductState::Listed,
                 ProductDomainEventPayload::StateAvailable(_) => {
                     self.state = ProductState::Available;

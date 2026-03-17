@@ -14,6 +14,8 @@ pub struct UserSearchFilterData {
     pub user_search_filter_id: UserSearchFilterId,
     pub name: UserSearchFilterName,
 
+    pub notifications: bool,
+
     pub search: ProductSearchData,
 
     #[serde(with = "time::serde::rfc3339")]
@@ -29,6 +31,7 @@ impl From<UserSearchFilter> for UserSearchFilterData {
             user_id: user_search_filter.user_id,
             user_search_filter_id: user_search_filter.user_search_filter_id,
             name: user_search_filter.name,
+            notifications: user_search_filter.notifications,
             search: user_search_filter.search.into(),
             created: user_search_filter.created,
             updated: user_search_filter.updated,
@@ -47,6 +50,7 @@ mod faker {
                 user_id: config.fake_with_rng(rng),
                 user_search_filter_id: config.fake_with_rng(rng),
                 name: config.fake_with_rng(rng),
+                notifications: true,
                 search: config.fake_with_rng(rng),
                 created: OffsetDateTime::now_utc(),
                 updated: OffsetDateTime::now_utc(),
@@ -81,6 +85,7 @@ mod tests {
             user_id,
             user_search_filter_id: search_filter_id,
             name: "My Boop Filter".into(),
+            notifications: true,
             search: ProductSearchData {
                 language: LanguageData::De,
                 currency: CurrencyData::Eur,
@@ -129,6 +134,7 @@ mod tests {
             "userId": user_id.to_string(),
             "userSearchFilterId": search_filter_id.to_string(),
             "name": "My Boop Filter",
+            "notifications": true,
             "search": {
                 "language": "de",
                 "currency": "EUR",
@@ -185,6 +191,7 @@ mod tests {
             "userId": user_id.to_string(),
             "userSearchFilterId": search_filter_id.to_string(),
             "name": "My Boop Filter",
+            "notifications": true,
             "search": {
                 "language": "de",
                 "currency": "EUR",
@@ -232,6 +239,7 @@ mod tests {
             user_id,
             user_search_filter_id: search_filter_id,
             name: "My Boop Filter".into(),
+            notifications: true,
             search: ProductSearchData {
                 language: LanguageData::De,
                 currency: CurrencyData::Eur,

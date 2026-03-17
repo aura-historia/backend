@@ -40,10 +40,10 @@ async fn main() -> Result<(), Error> {
         .expect("shouldn't fail parsing 'SENDER_MAIL' as email");
     let s3_bucket_name_templates = std::env::var("S3_BUCKET_NAME_TEMPLATES")
         .expect("shouldn't fail loading env-var 'S3_BUCKET_NAME_TEMPLATES'");
-    let stage_name = std::env::var("STAGE_NAME")
-        .expect("shouldn't fail loading env-var 'STAGE_NAME'");
-    let commit_sha = std::env::var("COMMIT_SHA")
-        .expect("shouldn't fail loading env-var 'COMMIT_SHA'");
+    let stage_name =
+        std::env::var("STAGE_NAME").expect("shouldn't fail loading env-var 'STAGE_NAME'");
+    let commit_sha =
+        std::env::var("COMMIT_SHA").expect("shouldn't fail loading env-var 'COMMIT_SHA'");
 
     let client = aws_sdk_dynamodb::Client::new(&aws_config);
     let product_repository = ProductDynamoDbRepositoryImpl::new(&client, &table_name);
@@ -82,11 +82,10 @@ async fn main() -> Result<(), Error> {
         &commit_sha,
         sender_email,
     );
-    let product_event_search_filter_service =
-        ProductEventSearchFilterNotificationsServiceImpl::new(
-            &user_search_filter_service,
-            &get_product_service,
-        );
+    let product_event_search_filter_service = ProductEventSearchFilterNotificationsServiceImpl::new(
+        &user_search_filter_service,
+        &get_product_service,
+    );
 
     debug!("Lambda initialized.");
 

@@ -31,6 +31,7 @@ use time::OffsetDateTime;
 #[derive(Debug, Clone, PartialEq)]
 pub struct UserSearchFilterUpdate {
     pub name: Option<UserSearchFilterName>,
+    pub notifications: Option<bool>,
     pub product_query: Option<TextQuery<1>>,
     pub category_id: Option<AnyOfQuery<CategoryId>>,
     pub period_id: Option<AnyOfQuery<PeriodId>>,
@@ -54,6 +55,7 @@ impl UserSearchFilterUpdate {
     pub fn is_empty(&self) -> bool {
         let UserSearchFilterUpdate {
             name: search_filter_name,
+            notifications,
             product_query,
             category_id,
             period_id,
@@ -74,6 +76,7 @@ impl UserSearchFilterUpdate {
         } = self;
 
         search_filter_name.is_none()
+            && notifications.is_none()
             && product_query.is_none()
             && category_id.is_none()
             && period_id.is_none()
@@ -97,6 +100,7 @@ impl From<UserSearchFilterUpdate> for UserSearchFilterRecordUpdate {
     fn from(update: UserSearchFilterUpdate) -> Self {
         UserSearchFilterRecordUpdate {
             name: update.name,
+            notifications: update.notifications,
             product_query: update.product_query,
             category_id: update.category_id.map(HashSet::from),
             period_id: update.period_id.map(HashSet::from),
@@ -143,6 +147,7 @@ mod fake {
         fn dummy_with_rng<R: fake::Rng + ?Sized>(config: &Faker, rng: &mut R) -> Self {
             UserSearchFilterUpdate {
                 name: config.fake_with_rng(rng),
+                notifications: config.fake_with_rng(rng),
                 product_query: config.fake_with_rng(rng),
                 category_id: config.fake_with_rng(rng),
                 period_id: config.fake_with_rng(rng),

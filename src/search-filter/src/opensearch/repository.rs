@@ -8,7 +8,11 @@ use serde::ser::Error;
 use serde_json::json;
 
 const INDEX_NAME: &str = "user_search_filters";
-const PERCOLATE_MIN_SCORE: f64 = 1.0;
+/// Minimum relevance score for percolate query matches. OpenSearch percolate
+/// queries with multiple clauses (bool with should) can return low-scoring
+/// partial matches. A score of 5.0 ensures only results where most query
+/// clauses matched are returned, filtering out low-confidence noise.
+const PERCOLATE_MIN_SCORE: f64 = 5.0;
 
 #[async_trait::async_trait]
 #[mockall::automock]

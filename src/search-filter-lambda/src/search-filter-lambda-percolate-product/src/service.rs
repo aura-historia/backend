@@ -9,7 +9,7 @@ use search_filter::core::user_search_filter::UserSearchFilterSummary;
 use search_filter::service::user_search_filter_service::{
     UserSearchFilterError, UserSearchFilterService,
 };
-use tracing::info;
+use tracing::debug;
 
 #[derive(Debug, thiserror::Error)]
 pub enum ProductEventSearchFilterNotificationsServiceError {
@@ -75,7 +75,7 @@ impl<'a> ProductEventSearchFilterNotificationsService
             return Ok(vec![]);
         }
 
-        info!(
+        debug!(
             matched = matched_filters.len(),
             "Matched search filters for product."
         );
@@ -108,7 +108,7 @@ fn mk_search_filter_notification_command(
                 user_search_filter_name: filter.name,
             },
         },
-        external: true,
+        external: filter.notifications,
     }
 }
 
@@ -123,10 +123,10 @@ mod tests {
     use common::shops_product_id::ShopsProductId;
     use common::user_id::UserId;
     use fake::{Fake, Faker};
+    use product::core::product_event::ProductEventPayload;
     use product::core::product_event::domain::{
         ProductDomainEventPayload, ProductStateChangeDomainEventPayload,
     };
-    use product::core::product_event::ProductEventPayload;
     use product::service::get_service::MockGetProductService;
     use search_filter::core::user_search_filter::UserSearchFilterSummary;
     use search_filter::core::user_search_filter_id::UserSearchFilterId;
@@ -154,6 +154,7 @@ mod tests {
             user_id,
             user_search_filter_id: UserSearchFilterId::new(),
             name: UserSearchFilterName::from("Test Filter"),
+            notifications: true,
             created: OffsetDateTime::now_utc(),
             updated: OffsetDateTime::now_utc(),
         }
@@ -221,12 +222,7 @@ mod tests {
 
         let mut get_service = MockGetProductService::default();
         get_service.expect_find_product().return_once(|_, _| {
-            Box::pin(async {
-                Err(GetProductError::ProductNotFound(
-                    Faker.fake(),
-                    Faker.fake(),
-                ))
-            })
+            Box::pin(async { Err(GetProductError::ProductNotFound(Faker.fake(), Faker.fake())) })
         });
 
         let filter_service = MockUserSearchFilterService::default();
@@ -288,6 +284,7 @@ mod tests {
             user_id: UserId::new(),
             user_search_filter_id: filter_id,
             name: filter_name.clone(),
+            notifications: true,
             created: OffsetDateTime::now_utc(),
             updated: OffsetDateTime::now_utc(),
         };
