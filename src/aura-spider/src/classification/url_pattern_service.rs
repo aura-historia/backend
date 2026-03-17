@@ -7,7 +7,7 @@ use crate::classification::gemini_client::PatternInferenceClient;
 use crate::classification::url_classification_service::find_product_url_pattern;
 use crate::classification::url_pattern_repository::ShopUrlPatternRepository;
 use crate::error::SpiderError;
-use crate::normalization::url::normalize_shop_url;
+use crate::url::normalize_shop_url;
 
 #[async_trait::async_trait]
 #[mockall::automock]

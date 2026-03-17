@@ -111,7 +111,7 @@ impl SpiderServiceImpl {
         pages: &[CrawledPage],
         pattern: &Option<Regex>,
     ) -> Result<Vec<CrawledLinkMetadata>, SpiderError> {
-        let normalized_shop_url = crate::normalization::url::normalize_shop_url(shop_url)?;
+        let normalized_shop_url = crate::url::normalize_shop_url(shop_url)?;
         let mut metadata = Vec::with_capacity(pages.len());
 
         for page in pages {

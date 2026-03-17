@@ -6,7 +6,7 @@ use spider::website::Website;
 use tokio::sync::mpsc;
 
 use crate::error::SpiderError;
-use crate::normalization::url::normalize_url;
+use crate::url::normalize_url;
 
 const BLACKLIST_URL_SUBSTRINGS: &[&str] = &[
     "?add-to-cart=",

@@ -5,7 +5,7 @@ use tracing::{debug, info, warn};
 
 use crate::classification::gemini_client::PatternInferenceClient;
 use crate::error::SpiderError;
-use crate::normalization::url::normalize_url;
+use crate::url::normalize_url;
 
 /// Uses a PatternInferenceClient to infer a product URL regex and compiles it.
 pub async fn find_product_url_pattern(
