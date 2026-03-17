@@ -671,5 +671,44 @@ mod faker {
         fn should_fake_notification_record() {
             let _ = Faker.fake::<NotificationRecord>();
         }
+
+        #[test]
+        fn should_fake_notification_record_with_lsi2_sk() {
+            let record = Faker.fake::<NotificationRecord>();
+            assert!(record.lsi2_sk.is_some());
+            let lsi2_sk = record.lsi2_sk.unwrap();
+            assert!(lsi2_sk.starts_with("user#notification#product_id#"));
+            assert!(lsi2_sk.contains("#origin_event_id#"));
+        }
+    }
+}
+
+#[cfg(test)]
+mod key_tests {
+    use super::*;
+    use common::{event_id::EventId, product_id::ProductId};
+
+    #[test]
+    fn should_format_lsi2_sk_correctly() {
+        let product_id = ProductId::new();
+        let event_id = EventId::new();
+        let lsi2_sk = mk_lsi2_sk(&product_id, &event_id);
+        assert_eq!(
+            lsi2_sk,
+            format!("user#notification#product_id#{product_id}#origin_event_id#{event_id}")
+        );
+    }
+
+    #[test]
+    fn should_produce_prefix_bounds_for_product() {
+        let product_id = ProductId::new();
+        let (lower, upper) = mk_lsi2_sk_product_prefix(&product_id);
+        assert!(lower.starts_with(&format!(
+            "user#notification#product_id#{product_id}#origin_event_id#"
+        )));
+        assert!(upper.starts_with(&format!(
+            "user#notification#product_id#{product_id}#origin_event_id#"
+        )));
+        assert!(lower < upper);
     }
 }

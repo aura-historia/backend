@@ -26,3 +26,20 @@ impl Default for NotificationUserState {
         Self { seen: true }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn should_default_notification_user_state_seen_to_true() {
+        let state = NotificationUserState::default();
+        assert!(state.seen);
+    }
+
+    #[test]
+    fn should_default_product_user_state_notification_seen_to_true() {
+        let state = ProductUserState::default();
+        assert!(state.notification.seen);
+    }
+}
