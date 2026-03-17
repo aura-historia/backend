@@ -253,7 +253,7 @@ mod tests {
         use aws_lambda_events::dynamodb::{EventRecord, StreamRecord};
         use aws_lambda_events::eventbridge::EventBridgeEvent;
 
-        let new_image = serde_dynamo::to_item(record.clone()).unwrap();
+        let new_image = serde_dynamo::to_item(record).unwrap();
 
         let mut stream_record = StreamRecord::default();
         stream_record.new_image = new_image;
