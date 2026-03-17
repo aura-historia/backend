@@ -306,11 +306,15 @@ impl<'a> ProductPersonalizationService for ProductPersonalizationServiceImpl<'a>
         Vec<Personalized<LocalizedProductView, NotificationUserState>>,
         ProductPersonalizationError,
     > {
-        let product_ids: Vec<ProductId> = products.iter().map(|p| p.product_id).collect();
+        let futures: Vec<_> = products
+            .iter()
+            .map(|p| self.resolve_notification_state(user_id, &p.product_id))
+            .collect();
+        let results = futures::future::join_all(futures).await;
+
         let mut notification_states = HashMap::new();
-        for product_id in &product_ids {
-            let state = Self::resolve_notification_state(self, user_id, product_id).await?;
-            notification_states.insert(*product_id, state);
+        for (product, result) in products.iter().zip(results) {
+            notification_states.insert(product.product_id, result?);
         }
 
         let result = products
