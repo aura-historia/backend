@@ -103,6 +103,7 @@ mod tests {
         ProductEventSearchFilterNotificationsServiceError,
     };
     use aws_lambda_events::sqs::{SqsEvent, SqsMessage};
+    use fake::{Fake, Faker};
     use lambda_runtime::Context;
     use notification::service::{
         command::CreateNotificationCommand,
@@ -111,17 +112,17 @@ mod tests {
     use product::dynamodb::product_event_record::domain::ProductDomainEventRecord;
 
     fn mk_sqs_event(messages: Vec<SqsMessage>) -> LambdaEvent<SqsEvent> {
-        let sqs_event = SqsEvent { records: messages };
+        let mut sqs_event = SqsEvent::default();
+        sqs_event.records = messages;
         let context = Context::default();
         LambdaEvent::new(sqs_event, context)
     }
 
     fn mk_sqs_message(body: &str) -> SqsMessage {
-        SqsMessage {
-            message_id: Some("test-message-id".to_string()),
-            body: Some(body.to_string()),
-            ..Default::default()
-        }
+        let mut msg = SqsMessage::default();
+        msg.message_id = Some("test-message-id".to_string());
+        msg.body = Some(body.to_string());
+        msg
     }
 
     #[tokio::test]
@@ -160,8 +161,8 @@ mod tests {
                     Err(
                         ProductEventSearchFilterNotificationsServiceError::GetProductError(
                             product::service::get_service::GetProductError::ProductNotFound(
-                                fake::Faker.fake(),
-                                fake::Faker.fake(),
+                                Faker.fake(),
+                                Faker.fake(),
                             ),
                         ),
                     )
@@ -170,7 +171,7 @@ mod tests {
 
         let notification_service = MockNotificationService::default();
 
-        let domain_event_record: ProductDomainEventRecord = fake::Faker.fake();
+        let domain_event_record: ProductDomainEventRecord = Faker.fake();
         let event_bridge_body = mk_event_bridge_body(&domain_event_record);
         let event = mk_sqs_event(vec![mk_sqs_message(&event_bridge_body)]);
 
@@ -190,7 +191,7 @@ mod tests {
 
         let notification_service = MockNotificationService::default();
 
-        let domain_event_record: ProductDomainEventRecord = fake::Faker.fake();
+        let domain_event_record: ProductDomainEventRecord = Faker.fake();
         let event_bridge_body = mk_event_bridge_body(&domain_event_record);
         let event = mk_sqs_event(vec![mk_sqs_message(&event_bridge_body)]);
 
@@ -204,7 +205,7 @@ mod tests {
     #[tokio::test]
     async fn should_succeed_when_notifications_created() {
         let mut service = MockProductEventSearchFilterNotificationsService::default();
-        let cmd: CreateNotificationCommand = fake::Faker.fake();
+        let cmd: CreateNotificationCommand = Faker.fake();
         service
             .expect_determine_notification_commands()
             .return_once(move |_| Box::pin(async move { Ok(vec![cmd]) }));
@@ -221,7 +222,7 @@ mod tests {
                 })
             });
 
-        let domain_event_record: ProductDomainEventRecord = fake::Faker.fake();
+        let domain_event_record: ProductDomainEventRecord = Faker.fake();
         let event_bridge_body = mk_event_bridge_body(&domain_event_record);
         let event = mk_sqs_event(vec![mk_sqs_message(&event_bridge_body)]);
 
@@ -236,11 +237,10 @@ mod tests {
     async fn should_skip_when_message_body_empty() {
         let service = MockProductEventSearchFilterNotificationsService::default();
         let notification_service = MockNotificationService::default();
-        let event = mk_sqs_event(vec![SqsMessage {
-            message_id: Some("test-message-id".to_string()),
-            body: None,
-            ..Default::default()
-        }]);
+        let mut msg = SqsMessage::default();
+        msg.message_id = Some("test-message-id".to_string());
+        msg.body = None;
+        let event = mk_sqs_event(vec![msg]);
 
         let result = handler(&service, &notification_service, event).await;
 
@@ -250,32 +250,23 @@ mod tests {
     }
 
     fn mk_event_bridge_body(record: &ProductDomainEventRecord) -> String {
-        let new_image = serde_dynamo::to_item(record).unwrap();
-        let new_image_json = serde_json::to_value(&new_image).unwrap();
-        serde_json::json!({
-            "version": "0",
-            "id": "test-event-id",
-            "source": "test-source",
-            "account": "123456789012",
-            "time": "2024-01-01T00:00:00Z",
-            "region": "eu-central-1",
-            "resources": [],
-            "detail-type": "DynamoDBStreamRecord",
-            "detail": {
-                "eventID": "test-event-id",
-                "eventName": "INSERT",
-                "eventVersion": "1.1",
-                "eventSource": "aws:dynamodb",
-                "awsRegion": "eu-central-1",
-                "dynamodb": {
-                    "Keys": {},
-                    "NewImage": new_image_json,
-                    "SequenceNumber": "1",
-                    "SizeBytes": 100,
-                    "StreamViewType": "NEW_IMAGE"
-                }
-            }
-        })
-        .to_string()
+        use aws_lambda_events::dynamodb::{EventRecord, StreamRecord};
+        use aws_lambda_events::eventbridge::EventBridgeEvent;
+
+        let new_image = serde_dynamo::to_item(record.clone()).unwrap();
+
+        let mut stream_record = StreamRecord::default();
+        stream_record.new_image = new_image;
+
+        let mut event_record = EventRecord::default();
+        event_record.event_name = "INSERT".to_string();
+        event_record.change = stream_record;
+
+        let mut event = EventBridgeEvent::<EventRecord>::default();
+        event.detail_type = "DynamoDBStreamRecord".to_string();
+        event.source = "test-source".to_string();
+        event.detail = event_record;
+
+        serde_json::to_string(&event).unwrap()
     }
 }

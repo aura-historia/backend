@@ -2347,8 +2347,9 @@ Resources:
             NewImage:
               event_type:
                 S:
-                  - prefix: "DOMAIN_PRICE_"
-                  - prefix: "DOMAIN_STATE_"
+                  - prefix: "DOMAIN_PRICE"
+                  - prefix: "DOMAIN_STATE"
+                  - prefix: "ENRICHMENT_"
       Targets:
         - Id: SearchFilterPercolateProductQ
           Arn: !GetAtt SearchFilterPercolateProductQ.Arn

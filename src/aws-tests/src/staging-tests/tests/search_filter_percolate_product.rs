@@ -107,5 +107,5 @@ async fn should_send_email_to_user_when_product_matches_search_filter() {
     assert_eq!(200, response.status());
 
     // verify email notification arrived for the matched search filter
-    assert!(wait_for_email("Suchfilter-Treffer").await)
+    assert!(wait_for_email("Neues Ergebnis für").await)
 }

@@ -6032,6 +6032,7 @@ dependencies = [
  "lambda_runtime",
  "mockall",
  "notification",
+ "opensearch",
  "product",
  "rstest",
  "search-filter",

@@ -117,10 +117,7 @@ mod tests {
     use super::*;
     use common::event::Event;
     use common::event_id::EventId;
-    use common::product_id::ProductId;
     use common::product_state::domain::ProductState;
-    use common::shop_id::ShopId;
-    use common::shops_product_id::ShopsProductId;
     use common::user_id::UserId;
     use fake::{Fake, Faker};
     use product::core::product_event::ProductEventPayload;
@@ -132,6 +129,7 @@ mod tests {
     use search_filter::core::user_search_filter_id::UserSearchFilterId;
     use search_filter::core::user_search_filter_name::UserSearchFilterName;
     use search_filter::service::user_search_filter_service::MockUserSearchFilterService;
+    use serde::de::Error as _;
     use time::OffsetDateTime;
 
     fn mk_event(product: &Product) -> ProductEvent {

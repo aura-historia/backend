@@ -1,0 +1,110 @@
+<mjml>
+    <mj-head>
+        <mj-attributes>
+            <mj-all font-family="Inter, Helvetica, Arial, sans-serif"/>
+            <mj-text color="#4A4338" font-size="16px" line-height="1.5"/>
+            <mj-button background-color="#A67C52" color="#ffffff" border-radius="6px" font-size="16px" padding="16px"/>
+            <mj-section padding="0"/>
+            <mj-column padding="0"/>
+        </mj-attributes>
+        <mj-style>
+            .title {
+                font-family: "Cormorant Garamond", Georgia, serif;
+                font-size: 32px !important;
+                color: #2A261F;
+                font-weight: 500;
+                margin-bottom: 12px;
+            }
+
+            .subtitle {
+                font-family: "Cormorant Garamond", Georgia, serif;
+                font-size: 20px !important;
+                color: #2A261F;
+                margin-bottom: 8px;
+            }
+
+            .filter-name {
+                color: #A67C52;
+                font-weight: 600;
+            }
+        </mj-style>
+        <mj-title>Nuovo risultato per "{{search_filter_name}}"</mj-title>
+        <mj-preview>Un nuovo prodotto corrisponde al tuo filtro di ricerca "{{search_filter_name}}": {{title}}</mj-preview>
+    </mj-head>
+
+    <mj-body background-color="#F8F4EE">
+
+        <mj-section padding-top="32px" padding-bottom="16px">
+            <mj-column width="100%">
+                <mj-text color="#7D7567" font-size="18px">
+                    Nuovo risultato per il tuo filtro di ricerca
+                </mj-text>
+                <mj-text css-class="subtitle" padding-bottom="8px">{{title}}</mj-text>
+            </mj-column>
+        </mj-section>
+
+        <mj-section background-color="#ffffff" padding="32px" border-radius="12px">
+            <mj-column>
+                <mj-text font-size="18px" color="#4A4338">
+                    {{#if userFirstName}}
+                    Ciao {{userFirstName}},
+                    {{else}}
+                    Salve,
+                    {{/if}}
+                </mj-text>
+                <mj-text>
+                    Abbiamo trovato un'antiquariato che corrisponde al tuo filtro di ricerca
+                    <span class="filter-name">"{{search_filter_name}}"</span>:
+                </mj-text>
+                <mj-text font-size="18px" font-weight="600" color="#2A261F">
+                    {{title}}
+                </mj-text>
+                <mj-text color="#7D7567">
+                    Offerto da <b>{{shop_name}}</b>
+                </mj-text>
+            </mj-column>
+        </mj-section>
+
+        <mj-section background-color="#ffffff" padding="0 32px 32px 32px" border-radius="12px">
+            <mj-column width="50%">
+                <mj-button href="https://aura-historia.com/product/{{product_slug_id}}">
+                    Visualizza prodotto
+                </mj-button>
+            </mj-column>
+
+            <mj-column width="50%">
+                <mj-button href="{{productShopUrl}}" background-color="#EDEDED" color="#4A4338" border="1px solid #CFCFCF">
+                    Visualizza nel negozio
+                </mj-button>
+            </mj-column>
+        </mj-section>
+
+        <mj-section padding="32px 0 0 0">
+            <mj-column>
+                <mj-text color="#7D7567" font-size="14px">
+                    Ricevi questa email perché questo prodotto corrisponde al tuo filtro di ricerca "{{search_filter_name}}".
+                    <br/><br/>
+                    © 2026 Aura Historia — Tutti i diritti riservati.
+                </mj-text>
+            </mj-column>
+        </mj-section>
+
+        <mj-section>
+            <mj-column>
+                <mj-text color="#7D7567" font-size="13px" line-height="1.6">
+                    <strong>Informazioni legali</strong>
+                    <br/>
+                    Aura Historia
+                    <br/>
+                    Contatto: support@aura-historia.com
+                    <br/>
+                    Sito web: https://aura-historia.com
+                    <br/><br/>
+                    Se non desideri più ricevere notifiche per questo filtro di ricerca,
+                    puoi disattivarle nelle impostazioni dei tuoi filtri di ricerca.
+                </mj-text>
+            </mj-column>
+        </mj-section>
+
+    </mj-body>
+</mjml>

@@ -32,9 +32,10 @@ async-trait = { workspace = true }
 product = { workspace = true, features = ["test-data"] }
 search-filter = { workspace = true, features = ["test-data"] }
 notification = { workspace = true, features = ["test-data"] }
+opensearch = { workspace = true }
 rstest = { workspace = true }
 serde = { workspace = true }
-serde_dynamo = { workspace = true }
+serde_dynamo = { workspace = true, features = ["aws-sdk-dynamodb+1"] }
 fake = { workspace = true }
 time = { workspace = true }
 uuid = { workspace = true }
