@@ -4,16 +4,16 @@ use common::{
     api::{api_gateway_v2_http_response_builder::ApiGatewayV2HttpResponseBuilder, error::ApiError},
     currency::data::api::extract_currency_query,
     language::{data::api::extract_language_query, domain::Language},
-    personalized::{Personalized, api::PersonalizedData},
+    personalized::api::PersonalizedData,
     shop_id::api::extract_shop_id_path,
     shops_product_id::api::extract_shops_product_id_path,
 };
 use lambda_runtime::LambdaEvent;
-use product::{core::user_state::ProductUserState, data::get_summary_data::GetProductSummaryData};
+use product::data::get_summary_data::GetProductSummaryData;
 use product::{
     data::user_state_data::ProductUserStateData, service::semantic_service::SemanticSearchService,
 };
-use product_watchlist::service::personalization_service::ProductPersonalizationService;
+use product_personalization::service::ProductPersonalizationService;
 
 pub async fn handle(
     event: LambdaEvent<ApiGatewayV2httpRequest>,
@@ -48,33 +48,32 @@ pub async fn handle(
             .cache_control("public", Some(300), Some(900))
             .build()),
         Some(localized_similar_products) => {
-            let personalized_similar_products = match user_id_opt {
+            let similar_products_data: Vec<
+                PersonalizedData<GetProductSummaryData, ProductUserStateData>,
+            > = match user_id_opt {
                 None => localized_similar_products
                     .into_iter()
-                    .map(|item| Personalized {
-                        item,
+                    .map(|item| PersonalizedData {
+                        item: GetProductSummaryData::from_view(item, false),
                         user_state: None,
                     })
                     .collect(),
                 Some(user_id) => product_personalization_service
-                    .personalize_all_watchlist(&user_id, localized_similar_products)
+                    .personalize_all(&user_id, localized_similar_products)
                     .await?
                     .into_iter()
-                    .map(|personalized_item| Personalized {
-                        item: personalized_item.item,
-                        user_state: personalized_item
+                    .map(|personalized| {
+                        let consent = personalized
                             .user_state
-                            .map(|watchlist| ProductUserState { watchlist }),
+                            .map(|s| s.prohibited_content.consent)
+                            .unwrap_or(false);
+                        PersonalizedData {
+                            item: GetProductSummaryData::from_view(personalized.item, consent),
+                            user_state: personalized.user_state.map(Into::into),
+                        }
                     })
-                    .collect::<Vec<_>>(),
+                    .collect(),
             };
-
-            let similar_products_data: Vec<
-                PersonalizedData<GetProductSummaryData, ProductUserStateData>,
-            > = personalized_similar_products
-                .into_iter()
-                .map(PersonalizedData::from)
-                .collect();
 
             let cache_control_directive = if user_id_opt.is_some() {
                 "no-store"
@@ -118,7 +117,7 @@ mod tests {
     use lambda_runtime::LambdaEvent;
     use product::service::semantic_service::MockSemanticSearchService;
     use product::service::semantic_service::SemanticSearchProductsError;
-    use product_watchlist::service::personalization_service::MockProductPersonalizationService;
+    use product_personalization::service::MockProductPersonalizationService;
     use test_api::ApiGatewayV2httpRequestProxy;
 
     #[tokio::test]
@@ -326,13 +325,13 @@ mod tests {
             .return_once(|_| Box::pin(async { Ok(Some(UserId::new())) }));
         let mut product_personalization_service = MockProductPersonalizationService::default();
         product_personalization_service
-            .expect_personalize_all_watchlist()
+            .expect_personalize_all()
             .return_once(|_, products| {
                 let personalized: Vec<_> = products
                     .into_iter()
                     .map(|item| Personalized {
                         item,
-                        user_state: None,
+                        user_state: Some(Default::default()),
                     })
                     .collect();
                 Box::pin(async move { Ok(personalized) })

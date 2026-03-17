@@ -14,10 +14,12 @@ use product::service::query_service::QueryProductServiceImpl;
 use product::service::semantic_service::SemanticSearchServiceImpl;
 use product::service::upsert_service::UpsertProductsServiceImpl;
 use product_api::handler;
+use product_personalization::service::ProductPersonalizationServiceImpl;
 use product_watchlist::dynamodb::repository::WatchlistProductDynamoDbRepositoryImpl;
-use product_watchlist::service::personalization_service::ProductPersonalizationServiceImpl;
 use shop::dynamodb::repository::ShopDynamoDbRepositoryImpl;
 use tracing::{error, warn};
+use user::dynamodb::repository::UserDynamoDbRepositoryImpl;
+use user::service::user_service::UserServiceImpl;
 
 #[tokio::main]
 async fn main() -> Result<(), Error> {
@@ -46,6 +48,7 @@ async fn main() -> Result<(), Error> {
         .expect("shouldn't fail loading OpenSearch-Client");
 
     let watchlist_repository = WatchlistProductDynamoDbRepositoryImpl::new(&dynamodb, &table_name);
+    let user_repository = UserDynamoDbRepositoryImpl::new(&dynamodb, &table_name);
     let shop_dynamodb_repository = ShopDynamoDbRepositoryImpl::new(&dynamodb, &table_name);
     let product_dynamodb_repository = ProductDynamoDbRepositoryImpl::new(&dynamodb, &table_name);
     let product_opensearch_repository = ProductOpenSearchRepositoryImpl::new(&opensearch);
@@ -57,8 +60,9 @@ async fn main() -> Result<(), Error> {
         &product_dynamodb_repository,
         &product_opensearch_repository,
     );
+    let user_service = UserServiceImpl::new(&user_repository);
     let product_personalization_service =
-        ProductPersonalizationServiceImpl::new(&watchlist_repository);
+        ProductPersonalizationServiceImpl::new(&watchlist_repository, &user_service);
     let fx_rate = fxrate_repository
         .get_fx_rates_record()
         .await

@@ -86,8 +86,8 @@ impl HasKey for GetProductData {
     }
 }
 
-impl From<LocalizedProductView> for GetProductData {
-    fn from(product_view: LocalizedProductView) -> Self {
+impl GetProductData {
+    pub fn from_view(product_view: LocalizedProductView, prohibited_content_consent: bool) -> Self {
         let estimate = if product_view.price_estimate_min.is_some()
             || product_view.price_estimate_max.is_some()
         {
@@ -136,7 +136,7 @@ impl From<LocalizedProductView> for GetProductData {
             images: product_view
                 .images
                 .into_iter()
-                .map(ProductImageData::from)
+                .map(|img| ProductImageData::from_with_consent(img, prohibited_content_consent))
                 .collect(),
             origin_year: product_view.origin_year.map(Into::into),
             authenticity: product_view.authenticity.into(),
@@ -151,6 +151,12 @@ impl From<LocalizedProductView> for GetProductData {
             created: product_view.created,
             updated: product_view.updated,
         }
+    }
+}
+
+impl From<LocalizedProductView> for GetProductData {
+    fn from(product_view: LocalizedProductView) -> Self {
+        GetProductData::from_view(product_view, false)
     }
 }
 
@@ -248,11 +254,11 @@ mod tests {
             url: Url::parse("https://my-shop.de/item").unwrap(),
             images: vec![
                 ProductImageData {
-                    url: Url::parse("https://my-shop.de/item/images/1").unwrap(),
+                    url: Some(Url::parse("https://my-shop.de/item/images/1").unwrap()),
                     prohibited_content: ProhibitedContentData::None,
                 },
                 ProductImageData {
-                    url: Url::parse("https://my-shop.de/item/images/2").unwrap(),
+                    url: Some(Url::parse("https://my-shop.de/item/images/2").unwrap()),
                     prohibited_content: ProhibitedContentData::NaziGermany,
                 },
             ],

@@ -320,6 +320,7 @@ dependencies = [
  "product-classification",
  "product-classification-api",
  "product-lambda",
+ "product-personalization",
  "product-pipeline",
  "product-watchlist",
  "product-watchlist-api",
@@ -4710,6 +4711,7 @@ dependencies = [
  "http 1.4.0",
  "lambda_runtime",
  "product",
+ "product-personalization",
  "product-watchlist",
  "rstest",
  "serde",
@@ -4869,6 +4871,24 @@ dependencies = [
  "tracing-subscriber",
  "user",
  "uuid",
+]
+
+[[package]]
+name = "product-personalization"
+version = "0.1.0"
+dependencies = [
+ "async-trait",
+ "common",
+ "fake",
+ "mockall",
+ "product",
+ "product-personalization",
+ "product-watchlist",
+ "thiserror",
+ "time",
+ "tokio",
+ "tracing",
+ "user",
 ]
 
 [[package]]
