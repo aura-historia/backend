@@ -414,6 +414,7 @@ Resources:
         - !Ref ShopOpenSearchIndexQ
         - !Ref SearchFilterOpenSearchSyncQ
         - !Ref ProductUpdateNotifyUserQ
+        - !Ref SearchFilterPercolateProductQ
         - !Ref ProductPipelineTranslateQ
         - !Ref ProductPipelineEmbedTextQ
         - !Ref ProductPipelineExtractAttributeQ
@@ -433,6 +434,7 @@ Resources:
               - !GetAtt ShopOpenSearchIndexQ.Arn
               - !GetAtt SearchFilterOpenSearchSyncQ.Arn
               - !GetAtt ProductUpdateNotifyUserQ.Arn
+              - !GetAtt SearchFilterPercolateProductQ.Arn
               - !GetAtt ProductPipelineTranslateQ.Arn
               - !GetAtt ProductPipelineEmbedTextQ.Arn
               - !GetAtt ProductPipelineExtractAttributeQ.Arn
@@ -1704,6 +1706,116 @@ Resources:
       FunctionResponseTypes:
         - ReportBatchItemFailures
 
+  # Search-Filter Percolate Product Lambda
+  SearchFilterPercolateProductDlq:
+    Type: AWS::SQS::Queue
+    Properties:
+      QueueName: !Sub "search-filter-percolate-product-dlq-${StageName}"
+      MessageRetentionPeriod: 1209600
+  SearchFilterPercolateProductQ:
+    Type: AWS::SQS::Queue
+    Properties:
+      QueueName: !Sub "search-filter-percolate-product-queue-${StageName}"
+      RedrivePolicy:
+        deadLetterTargetArn: !GetAtt SearchFilterPercolateProductDlq.Arn
+        maxReceiveCount: 5
+      VisibilityTimeout: 360
+  SearchFilterPercolateProductRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Sub "search-filter-percolate-product-role-${StageName}"
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: lambda.amazonaws.com
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole
+      Policies:
+        - PolicyName: DynamoDBAccess
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: Allow
+                Action:
+                  - dynamodb:GetItem
+                  - dynamodb:Query
+                  - dynamodb:PutItem
+                  - dynamodb:BatchWriteItem
+                Resource:
+                  - !GetAtt TableOne.Arn
+                  - !Sub "${TableOne.Arn}/index/*"
+        - PolicyName: OpenSearchAccess
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: Allow
+                Action:
+                  - es:*
+                Resource: !Sub "arn:aws:es:${AWS::Region}:${AWS::AccountId}:domain/application-${StageName}/*"
+        - PolicyName: SQSPollerAccess
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: Allow
+                Action:
+                  - sqs:ReceiveMessage
+                  - sqs:DeleteMessage
+                  - sqs:GetQueueAttributes
+                  - sqs:GetQueueUrl
+                Resource: !GetAtt SearchFilterPercolateProductQ.Arn
+        - PolicyName: SESAccess
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: Allow
+                Action:
+                  - ses:SendEmail
+                  - ses:SendRawEmail
+                Resource: !Sub "arn:aws:ses:${AWS::Region}:${AWS::AccountId}:identity/*"
+        - PolicyName: S3MailTemplateAccess
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: Allow
+                Action:
+                  - s3:GetObject
+                Resource: !Sub "arn:aws:s3:::${MailTemplateBucket}/*"
+  SearchFilterPercolateProductLambda:
+    Type: AWS::Lambda::Function
+    Properties:
+      FunctionName: !Sub "search-filter-percolate-product-${StageName}"
+      Runtime: provided.al2023
+      Handler: lib.handler
+      Role: !GetAtt SearchFilterPercolateProductRole.Arn
+      Code:
+        S3Bucket: !Ref ArtifactBucket
+        S3Key: !Sub "search-filter-lambda-percolate-product-${StageName}-${CommitSHA}.zip"
+      MemorySize: 512
+      Timeout: 60
+      EphemeralStorage:
+        Size: 512
+      Environment:
+        Variables:
+          DYNAMODB_TABLE_NAME: !Ref TableOne
+          SENDER_MAIL: "no-reply@aura-historia.com"
+          S3_BUCKET_NAME_TEMPLATES: !Ref MailTemplateBucket
+          STAGE_NAME: !Sub "${StageName}"
+          COMMIT_SHA: !Sub "${CommitSHA}"
+          OPENSEARCH_ENDPOINT_URL: !Sub "https://${OpenSearchDomain.DomainEndpoint}"
+  SearchFilterPercolateProductMapping:
+    Type: AWS::Lambda::EventSourceMapping
+    Properties:
+      FunctionName: !Ref SearchFilterPercolateProductLambda
+      EventSourceArn: !GetAtt SearchFilterPercolateProductQ.Arn
+      Enabled: true
+      BatchSize: 10
+      MaximumBatchingWindowInSeconds: 1
+      FunctionResponseTypes:
+        - ReportBatchItemFailures
+
   DynamoDbProductMaterializeDynamoDbEventRule:
     Type: AWS::Events::Rule
     Properties:
@@ -1772,6 +1884,28 @@ Resources:
       Targets:
         - Id: ProductUpdateNotifyUserQ
           Arn: !GetAtt ProductUpdateNotifyUserQ.Arn
+  DynamoDbProductEventRecordPercolateSearchFilterEventRule:
+    Type: AWS::Events::Rule
+    Properties:
+      Name: !Sub "ddb-product-percolate-search-filter-${StageName}"
+      EventBusName: !Ref DynamoDbEventBus
+      EventPattern:
+        source:
+          - !Ref TableOne
+        detail-type:
+          - "DynamoDBStreamRecord"
+        detail:
+          eventName:
+            - "INSERT"
+          dynamodb:
+            NewImage:
+              event_type:
+                S:
+                  - prefix: "DOMAIN_PRICE_"
+                  - prefix: "DOMAIN_STATE_"
+      Targets:
+        - Id: SearchFilterPercolateProductQ
+          Arn: !GetAtt SearchFilterPercolateProductQ.Arn
   DynamoDbPutShopRecordEventRule:
     Type: AWS::Events::Rule
     Properties:
