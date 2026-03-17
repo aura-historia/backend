@@ -25,6 +25,7 @@ use std::time::Duration;
 use test_api::*;
 use user::dynamodb::repository::{UserDynamoDbRepository, UserDynamoDbRepositoryImpl};
 use user::dynamodb::user_record::UserRecord;
+use user::service::user_service::UserServiceImpl;
 
 const EXAMPLE_EMBEDDING: [f32; 1024] = [
     0.0003272566,
@@ -1061,8 +1062,11 @@ async fn should_202_when_similar_products_have_not_been_computed_for_anon() {
         WatchlistProductDynamoDbRepositoryImpl::new(get_dynamodb_client().await, "table_1");
     let product_opensearch_repository =
         ProductOpenSearchRepositoryImpl::new(get_opensearch_client().await);
+    let user_repository_pp =
+        UserDynamoDbRepositoryImpl::new(get_dynamodb_client().await, "table_1");
+    let user_service = UserServiceImpl::new(&user_repository_pp);
     let product_personalization_service =
-        ProductPersonalizationServiceImpl::new(&watchlist_repository);
+        ProductPersonalizationServiceImpl::new(&watchlist_repository, &user_service);
     let semantic_search_service = SemanticSearchServiceImpl::new(
         &product_dynamodb_repository,
         &product_opensearch_repository,
@@ -1128,8 +1132,11 @@ async fn should_200_when_similar_products_have_been_computed_for_anon() {
         WatchlistProductDynamoDbRepositoryImpl::new(get_dynamodb_client().await, "table_1");
     let product_opensearch_repository =
         ProductOpenSearchRepositoryImpl::new(get_opensearch_client().await);
+    let user_repository_pp =
+        UserDynamoDbRepositoryImpl::new(get_dynamodb_client().await, "table_1");
+    let user_service = UserServiceImpl::new(&user_repository_pp);
     let product_personalization_service =
-        ProductPersonalizationServiceImpl::new(&watchlist_repository);
+        ProductPersonalizationServiceImpl::new(&watchlist_repository, &user_service);
     let semantic_search_service = SemanticSearchServiceImpl::new(
         &product_dynamodb_repository,
         &product_opensearch_repository,
@@ -1226,8 +1233,11 @@ async fn should_200_and_personalize_when_similar_products_have_been_computed_for
         WatchlistProductDynamoDbRepositoryImpl::new(get_dynamodb_client().await, "table_1");
     let product_opensearch_repository =
         ProductOpenSearchRepositoryImpl::new(get_opensearch_client().await);
+    let user_repository_pp =
+        UserDynamoDbRepositoryImpl::new(get_dynamodb_client().await, "table_1");
+    let user_service = UserServiceImpl::new(&user_repository_pp);
     let product_personalization_service =
-        ProductPersonalizationServiceImpl::new(&watchlist_repository);
+        ProductPersonalizationServiceImpl::new(&watchlist_repository, &user_service);
     let semantic_search_service = SemanticSearchServiceImpl::new(
         &product_dynamodb_repository,
         &product_opensearch_repository,
@@ -1403,8 +1413,11 @@ async fn should_respond_200_and_respect_language_query_param(
         WatchlistProductDynamoDbRepositoryImpl::new(get_dynamodb_client().await, "table_1");
     let product_opensearch_repository =
         ProductOpenSearchRepositoryImpl::new(get_opensearch_client().await);
+    let user_repository_pp =
+        UserDynamoDbRepositoryImpl::new(get_dynamodb_client().await, "table_1");
+    let user_service = UserServiceImpl::new(&user_repository_pp);
     let product_personalization_service =
-        ProductPersonalizationServiceImpl::new(&watchlist_repository);
+        ProductPersonalizationServiceImpl::new(&watchlist_repository, &user_service);
     let semantic_search_service = SemanticSearchServiceImpl::new(
         &product_dynamodb_repository,
         &product_opensearch_repository,

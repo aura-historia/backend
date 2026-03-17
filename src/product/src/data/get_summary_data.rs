@@ -54,8 +54,8 @@ impl HasKey for GetProductSummaryData {
     }
 }
 
-impl From<LocalizedProductView> for GetProductSummaryData {
-    fn from(product_view: LocalizedProductView) -> Self {
+impl GetProductSummaryData {
+    pub fn from_view(product_view: LocalizedProductView, prohibited_content_consent: bool) -> Self {
         GetProductSummaryData {
             product_id: product_view.product_id,
             product_slug_id: product_view.product_slug_id,
@@ -72,7 +72,7 @@ impl From<LocalizedProductView> for GetProductSummaryData {
             images: product_view
                 .images
                 .into_iter()
-                .map(ProductImageData::from)
+                .map(|img| ProductImageData::from_with_consent(img, prohibited_content_consent))
                 .collect(),
             auction: match (product_view.auction_start, product_view.auction_end) {
                 (start, end @ Some(_)) => Some(AuctionData { start, end }),
@@ -82,6 +82,12 @@ impl From<LocalizedProductView> for GetProductSummaryData {
             created: product_view.created,
             updated: product_view.updated,
         }
+    }
+}
+
+impl From<LocalizedProductView> for GetProductSummaryData {
+    fn from(product_view: LocalizedProductView) -> Self {
+        GetProductSummaryData::from_view(product_view, false)
     }
 }
 

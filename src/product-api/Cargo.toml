@@ -8,7 +8,7 @@ common = { workspace = true, features = ["api", "opensearch"] }
 product = { workspace = true, features = ["data", "service", "dynamodb", "opensearch", "sqs"] }
 product-watchlist = { workspace = true, features = ["data", "service", "dynamodb"] }
 product-personalization = { workspace = true }
-user = { workspace = true, features = ["dynamodb"] }
+user = { workspace = true, features = ["dynamodb", "service"] }
 shop = { workspace = true, features = ["dynamodb"] }
 cognito = { workspace = true }
 tracing = { workspace = true }
