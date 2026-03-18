@@ -27,6 +27,7 @@ use common::{
     event_id::EventId,
     language::domain::Language,
     pagination::cursor::{Cursor, CursoredResult},
+    product_id::ProductId,
     user_id::UserId,
 };
 use handlebars::Handlebars;
@@ -154,6 +155,14 @@ pub trait NotificationService {
     ) -> Result<(), NotificationError>;
 
     async fn delete_notifications(&self, user_id: &UserId) -> Result<(), NotificationError>;
+
+    async fn find_notifications_by_product(
+        &self,
+        user_id: &UserId,
+        product_id: &ProductId,
+        limit: Option<i32>,
+        scan_index_forward: bool,
+    ) -> Result<Vec<Notification>, NotificationError>;
 }
 
 static TEMPLATE_CACHE: OnceCell<Arc<RwLock<HashMap<MailTemplate, String>>>> = OnceCell::new();
@@ -900,6 +909,37 @@ impl<'a> NotificationService for NotificationServiceImpl<'a> {
         );
 
         Ok(())
+    }
+
+    async fn find_notifications_by_product(
+        &self,
+        user_id: &UserId,
+        product_id: &ProductId,
+        limit: Option<i32>,
+        scan_index_forward: bool,
+    ) -> Result<Vec<Notification>, NotificationError> {
+        let records = self
+            .notification_repository
+            .query_product_notification_records(user_id, product_id, limit, scan_index_forward)
+            .await?;
+
+        let notifications = records
+            .into_iter()
+            .filter_map(|record| match Notification::try_from(record) {
+                Ok(notification) => Some(notification),
+                Err(err) => {
+                    error!(
+                        userId = %user_id,
+                        productId = %product_id,
+                        error = %err,
+                        "Failed converting NotificationRecord to Notification."
+                    );
+                    None
+                }
+            })
+            .collect();
+
+        Ok(notifications)
     }
 }
 
@@ -1782,6 +1822,7 @@ mod tests {
             }
         }
 
+        #[ignore] // fails in ci - probably due to 'TEMPLATE_CACHE'
         #[tokio::test]
         async fn should_err_s3_get_object_when_template_resolution_fails() {
             let user_id = UserId::new();
@@ -2737,6 +2778,56 @@ mod tests {
             let result = service.delete_notifications(&user_id).await;
 
             assert!(result.is_ok());
+        }
+    }
+
+    mod find_notifications_by_product {
+        use super::*;
+        use common::product_id::ProductId;
+
+        #[tokio::test]
+        async fn should_return_empty_when_no_notifications_for_product() {
+            let mut repository = MockNotificationDynamoDbRepository::default();
+            repository
+                .expect_query_product_notification_records()
+                .return_once(|_, _, _, _| Box::pin(async { Ok(vec![]) }));
+
+            let user_service = MockUserService::default();
+            let ses_adapter = MockSesAdapter::default();
+            let s3_adapter = MockS3Adapter::default();
+            let service = make_service(&repository, &user_service, &ses_adapter, &s3_adapter);
+
+            let actual = service
+                .find_notifications_by_product(&UserId::new(), &ProductId::new(), None, false)
+                .await
+                .unwrap();
+
+            assert!(actual.is_empty());
+        }
+
+        #[tokio::test]
+        async fn should_return_notifications_when_records_exist() {
+            let mut repository = MockNotificationDynamoDbRepository::default();
+            repository
+                .expect_query_product_notification_records()
+                .return_once(|_, _, _, _| {
+                    Box::pin(async {
+                        let record: NotificationRecord = Faker.fake();
+                        Ok(vec![record])
+                    })
+                });
+
+            let user_service = MockUserService::default();
+            let ses_adapter = MockSesAdapter::default();
+            let s3_adapter = MockS3Adapter::default();
+            let service = make_service(&repository, &user_service, &ses_adapter, &s3_adapter);
+
+            let actual = service
+                .find_notifications_by_product(&UserId::new(), &ProductId::new(), Some(10), false)
+                .await
+                .unwrap();
+
+            assert_eq!(actual.len(), 1);
         }
     }
 

@@ -1,7 +1,12 @@
-use common::{api::error::ApiError, personalized::Personalized, user_id::UserId};
+use common::{
+    api::error::ApiError, personalized::Personalized, product_id::ProductId, user_id::UserId,
+};
+use notification::service::notification_service::{NotificationError, NotificationService};
 use product::core::{
     product::LocalizedProductView,
-    user_state::{ProductUserState, ProhibitedContentUserState, WatchlistUserState},
+    user_state::{
+        NotificationUserState, ProductUserState, ProhibitedContentUserState, WatchlistUserState,
+    },
 };
 use product_watchlist::{
     dynamodb::repository::WatchlistProductDynamoDbRepository,
@@ -16,13 +21,16 @@ pub enum ProductPersonalizationError {
     WatchProductError(#[from] WatchProductError),
     #[error("UserServiceError: {0}")]
     UserServiceError(#[from] UserServiceError),
+    #[error("NotificationError: {0}")]
+    NotificationError(#[from] NotificationError),
 }
 
 impl From<ProductPersonalizationError> for ApiError {
     fn from(value: ProductPersonalizationError) -> Self {
         match value {
             ProductPersonalizationError::WatchProductError(e) => e.into(),
-            ProductPersonalizationError::UserServiceError(_) => ApiError::internal_server_error(
+            ProductPersonalizationError::UserServiceError(_)
+            | ProductPersonalizationError::NotificationError(_) => ApiError::internal_server_error(
                 common::api::error_code::INTERNAL_SERVER_ERROR,
                 Box::new(value),
             ),
@@ -66,6 +74,24 @@ pub trait ProductPersonalizationService {
         ProductPersonalizationError,
     >;
 
+    async fn personalize_product_notification(
+        &self,
+        user_id: &UserId,
+        product: LocalizedProductView,
+    ) -> Result<
+        Personalized<LocalizedProductView, NotificationUserState>,
+        ProductPersonalizationError,
+    >;
+
+    async fn personalize_product_notification_all(
+        &self,
+        user_id: &UserId,
+        products: Vec<LocalizedProductView>,
+    ) -> Result<
+        Vec<Personalized<LocalizedProductView, NotificationUserState>>,
+        ProductPersonalizationError,
+    >;
+
     async fn personalize(
         &self,
         user_id: &UserId,
@@ -84,18 +110,35 @@ pub trait ProductPersonalizationService {
 
 pub struct ProductPersonalizationServiceImpl<'a> {
     watchlist_repository: &'a (dyn WatchlistProductDynamoDbRepository + Sync),
+    notification_service: &'a (dyn NotificationService + Sync),
     user_service: &'a (dyn UserService + Sync),
 }
 
 impl<'a> ProductPersonalizationServiceImpl<'a> {
     pub fn new(
         watchlist_repository: &'a (dyn WatchlistProductDynamoDbRepository + Sync),
+        notification_service: &'a (dyn NotificationService + Sync),
         user_service: &'a (dyn UserService + Sync),
     ) -> Self {
         Self {
             watchlist_repository,
+            notification_service,
             user_service,
         }
+    }
+
+    async fn resolve_notification_state(
+        &self,
+        user_id: &UserId,
+        product_id: &ProductId,
+    ) -> Result<NotificationUserState, ProductPersonalizationError> {
+        let notifications = self
+            .notification_service
+            .find_notifications_by_product(user_id, product_id, Some(1), false)
+            .await?;
+
+        let seen = notifications.first().map(|n| n.seen).unwrap_or(true);
+        Ok(NotificationUserState { seen })
     }
 }
 
@@ -234,6 +277,58 @@ impl<'a> ProductPersonalizationService for ProductPersonalizationServiceImpl<'a>
         Ok(result)
     }
 
+    async fn personalize_product_notification(
+        &self,
+        user_id: &UserId,
+        product: LocalizedProductView,
+    ) -> Result<
+        Personalized<LocalizedProductView, NotificationUserState>,
+        ProductPersonalizationError,
+    > {
+        let notification_state =
+            Self::resolve_notification_state(self, user_id, &product.product_id).await?;
+        Ok(Personalized {
+            item: product,
+            user_state: Some(notification_state),
+        })
+    }
+
+    async fn personalize_product_notification_all(
+        &self,
+        user_id: &UserId,
+        products: Vec<LocalizedProductView>,
+    ) -> Result<
+        Vec<Personalized<LocalizedProductView, NotificationUserState>>,
+        ProductPersonalizationError,
+    > {
+        let futures: Vec<_> = products
+            .iter()
+            .map(|p| self.resolve_notification_state(user_id, &p.product_id))
+            .collect();
+        let results = futures::future::join_all(futures).await;
+
+        let mut notification_states = HashMap::new();
+        for (product, result) in products.iter().zip(results) {
+            notification_states.insert(product.product_id, result?);
+        }
+
+        let result = products
+            .into_iter()
+            .map(|product| {
+                let notification_state = notification_states
+                    .get(&product.product_id)
+                    .copied()
+                    .unwrap_or_default();
+                Personalized {
+                    item: product,
+                    user_state: Some(notification_state),
+                }
+            })
+            .collect();
+
+        Ok(result)
+    }
+
     async fn personalize(
         &self,
         user_id: &UserId,
@@ -244,11 +339,15 @@ impl<'a> ProductPersonalizationService for ProductPersonalizationServiceImpl<'a>
         let prohibited_content = self
             .personalize_prohibited_content(user_id, watchlist.item)
             .await?;
+        let notification = self
+            .personalize_product_notification(user_id, prohibited_content.item)
+            .await?;
         Ok(Personalized {
-            item: prohibited_content.item,
+            item: notification.item,
             user_state: Some(ProductUserState {
                 watchlist: watchlist.user_state.unwrap_or_default(),
                 prohibited_content: prohibited_content.user_state.unwrap_or_default(),
+                notification: notification.user_state.unwrap_or_default(),
             }),
         })
     }
@@ -277,13 +376,28 @@ impl<'a> ProductPersonalizationService for ProductPersonalizationServiceImpl<'a>
             user.prohibited_content_consent
         };
 
-        let result = watchlist_results
+        let items_with_watchlist: Vec<_> = watchlist_results
             .into_iter()
-            .map(|p| Personalized {
-                item: p.item,
+            .map(|p| (p.item, p.user_state.unwrap_or_default()))
+            .collect();
+
+        let products_for_notification: Vec<LocalizedProductView> = items_with_watchlist
+            .iter()
+            .map(|(item, _)| item.clone())
+            .collect();
+        let notification_results = self
+            .personalize_product_notification_all(user_id, products_for_notification)
+            .await?;
+
+        let result = items_with_watchlist
+            .into_iter()
+            .zip(notification_results)
+            .map(|((item, watchlist), notif)| Personalized {
+                item,
                 user_state: Some(ProductUserState {
-                    watchlist: p.user_state.unwrap_or_default(),
+                    watchlist,
                     prohibited_content: ProhibitedContentUserState { consent },
+                    notification: notif.user_state.unwrap_or_default(),
                 }),
             })
             .collect();
@@ -307,6 +421,7 @@ mod tests {
     use user::service::user_service::MockUserService;
 
     use crate::service::{ProductPersonalizationService, ProductPersonalizationServiceImpl};
+    use notification::service::notification_service::MockNotificationService;
 
     #[tokio::test]
     async fn should_personalize_watchlist_when_watching_notifications_false() {
@@ -336,7 +451,12 @@ mod tests {
             });
 
         let user_service = MockUserService::default();
-        let service = ProductPersonalizationServiceImpl::new(&watchlist_repository, &user_service);
+        let notification_service = MockNotificationService::default();
+        let service = ProductPersonalizationServiceImpl::new(
+            &watchlist_repository,
+            &notification_service,
+            &user_service,
+        );
 
         let mut input = Faker.fake::<LocalizedProductView>();
         input.product_id = product_id;
@@ -378,7 +498,12 @@ mod tests {
             });
 
         let user_service = MockUserService::default();
-        let service = ProductPersonalizationServiceImpl::new(&watchlist_repository, &user_service);
+        let notification_service = MockNotificationService::default();
+        let service = ProductPersonalizationServiceImpl::new(
+            &watchlist_repository,
+            &notification_service,
+            &user_service,
+        );
 
         let mut input = Faker.fake::<LocalizedProductView>();
         input.product_id = product_id;
@@ -401,7 +526,12 @@ mod tests {
             .return_once(move |_, _, _| Box::pin(async move { Ok(None) }));
 
         let user_service = MockUserService::default();
-        let service = ProductPersonalizationServiceImpl::new(&watchlist_repository, &user_service);
+        let notification_service = MockNotificationService::default();
+        let service = ProductPersonalizationServiceImpl::new(
+            &watchlist_repository,
+            &notification_service,
+            &user_service,
+        );
 
         let mut input = Faker.fake::<LocalizedProductView>();
         input.product_id = product_id;
@@ -475,7 +605,12 @@ mod tests {
             });
 
         let user_service = MockUserService::default();
-        let service = ProductPersonalizationServiceImpl::new(&watchlist_repository, &user_service);
+        let notification_service = MockNotificationService::default();
+        let service = ProductPersonalizationServiceImpl::new(
+            &watchlist_repository,
+            &notification_service,
+            &user_service,
+        );
 
         let mut watched_in1 = Faker.fake::<LocalizedProductView>();
         watched_in1.product_id = product1_id;
@@ -555,13 +690,48 @@ mod tests {
         }
     }
 
+    fn make_test_notification(seen: bool) -> notification::core::notification::Notification {
+        use notification::core::{
+            notification::{Notification, NotificationPayload, NotificationWatchlistPayload},
+            notification_id::NotificationId,
+        };
+        Notification {
+            user_id: Faker.fake(),
+            origin_event_id: Faker.fake(),
+            notification_id: NotificationId::new(),
+            notification_type: None,
+            notification_payload: NotificationPayload::Watchlist {
+                product_id: Faker.fake(),
+                shop_id: Faker.fake(),
+                shops_product_id: Faker.fake(),
+                shop_slug_id: Faker.fake(),
+                product_slug_id: Faker.fake(),
+                shop_name: Faker.fake(),
+                title: std::collections::HashMap::new(),
+                watchlist_payload: NotificationWatchlistPayload::StateChange {
+                    old_state: common::product_state::domain::ProductState::Listed,
+                    new_state: common::product_state::domain::ProductState::Available,
+                },
+            },
+            seen,
+            external: false,
+            created: OffsetDateTime::now_utc(),
+            updated: OffsetDateTime::now_utc(),
+        }
+    }
+
     #[tokio::test]
     async fn should_personalize_prohibited_content_consent_true_when_all_images_safe() {
         let watchlist_repository = MockWatchlistProductDynamoDbRepository::default();
         let mut user_service = MockUserService::default();
         user_service.expect_find_user().never();
 
-        let service = ProductPersonalizationServiceImpl::new(&watchlist_repository, &user_service);
+        let notification_service = MockNotificationService::default();
+        let service = ProductPersonalizationServiceImpl::new(
+            &watchlist_repository,
+            &notification_service,
+            &user_service,
+        );
 
         let mut input = Faker.fake::<LocalizedProductView>();
         input.images = vec![make_safe_image(), make_safe_image()];
@@ -580,7 +750,12 @@ mod tests {
         let mut user_service = MockUserService::default();
         user_service.expect_find_user().never();
 
-        let service = ProductPersonalizationServiceImpl::new(&watchlist_repository, &user_service);
+        let notification_service = MockNotificationService::default();
+        let service = ProductPersonalizationServiceImpl::new(
+            &watchlist_repository,
+            &notification_service,
+            &user_service,
+        );
 
         let mut input = Faker.fake::<LocalizedProductView>();
         input.images = vec![];
@@ -603,7 +778,12 @@ mod tests {
             .times(1)
             .return_once(move |_| Box::pin(async move { Ok(make_test_user(true)) }));
 
-        let service = ProductPersonalizationServiceImpl::new(&watchlist_repository, &user_service);
+        let notification_service = MockNotificationService::default();
+        let service = ProductPersonalizationServiceImpl::new(
+            &watchlist_repository,
+            &notification_service,
+            &user_service,
+        );
 
         let mut input = Faker.fake::<LocalizedProductView>();
         input.images = vec![make_safe_image(), make_unsafe_image()];
@@ -626,7 +806,12 @@ mod tests {
             .times(1)
             .return_once(move |_| Box::pin(async move { Ok(make_test_user(false)) }));
 
-        let service = ProductPersonalizationServiceImpl::new(&watchlist_repository, &user_service);
+        let notification_service = MockNotificationService::default();
+        let service = ProductPersonalizationServiceImpl::new(
+            &watchlist_repository,
+            &notification_service,
+            &user_service,
+        );
 
         let mut input = Faker.fake::<LocalizedProductView>();
         input.images = vec![make_safe_image(), make_unsafe_image()];
@@ -648,7 +833,12 @@ mod tests {
             .times(1)
             .return_once(move |_| Box::pin(async move { Ok(make_test_user(true)) }));
 
-        let service = ProductPersonalizationServiceImpl::new(&watchlist_repository, &user_service);
+        let notification_service = MockNotificationService::default();
+        let service = ProductPersonalizationServiceImpl::new(
+            &watchlist_repository,
+            &notification_service,
+            &user_service,
+        );
 
         let mut input = Faker.fake::<LocalizedProductView>();
         input.images = vec![make_unknown_image()];
@@ -667,7 +857,12 @@ mod tests {
         let mut user_service = MockUserService::default();
         user_service.expect_find_user().never();
 
-        let service = ProductPersonalizationServiceImpl::new(&watchlist_repository, &user_service);
+        let notification_service = MockNotificationService::default();
+        let service = ProductPersonalizationServiceImpl::new(
+            &watchlist_repository,
+            &notification_service,
+            &user_service,
+        );
 
         let mut input1 = Faker.fake::<LocalizedProductView>();
         input1.images = vec![make_safe_image()];
@@ -693,7 +888,12 @@ mod tests {
             .times(1)
             .return_once(move |_| Box::pin(async move { Ok(make_test_user(false)) }));
 
-        let service = ProductPersonalizationServiceImpl::new(&watchlist_repository, &user_service);
+        let notification_service = MockNotificationService::default();
+        let service = ProductPersonalizationServiceImpl::new(
+            &watchlist_repository,
+            &notification_service,
+            &user_service,
+        );
 
         let mut input1 = Faker.fake::<LocalizedProductView>();
         input1.images = vec![make_safe_image()];
@@ -747,7 +947,15 @@ mod tests {
             .times(1)
             .return_once(move |_| Box::pin(async move { Ok(make_test_user(true)) }));
 
-        let service = ProductPersonalizationServiceImpl::new(&watchlist_repository, &user_service);
+        let mut notification_service = MockNotificationService::default();
+        notification_service
+            .expect_find_notifications_by_product()
+            .returning(|_, _, _, _| Box::pin(async { Ok(vec![]) }));
+        let service = ProductPersonalizationServiceImpl::new(
+            &watchlist_repository,
+            &notification_service,
+            &user_service,
+        );
 
         let mut input = Faker.fake::<LocalizedProductView>();
         input.product_id = product_id;
@@ -759,6 +967,7 @@ mod tests {
         assert!(state.watchlist.watching);
         assert!(state.watchlist.notifications);
         assert!(state.prohibited_content.consent);
+        assert!(state.notification.seen);
     }
 
     #[tokio::test]
@@ -796,7 +1005,15 @@ mod tests {
             .times(1)
             .return_once(move |_| Box::pin(async move { Ok(make_test_user(false)) }));
 
-        let service = ProductPersonalizationServiceImpl::new(&watchlist_repository, &user_service);
+        let mut notification_service = MockNotificationService::default();
+        notification_service
+            .expect_find_notifications_by_product()
+            .returning(|_, _, _, _| Box::pin(async { Ok(vec![]) }));
+        let service = ProductPersonalizationServiceImpl::new(
+            &watchlist_repository,
+            &notification_service,
+            &user_service,
+        );
 
         let mut input1 = Faker.fake::<LocalizedProductView>();
         input1.product_id = product1_id;
@@ -817,10 +1034,134 @@ mod tests {
         assert!(state0.watchlist.watching);
         assert!(state0.watchlist.notifications);
         assert!(!state0.prohibited_content.consent);
+        assert!(state0.notification.seen);
 
         let state1 = actual[1].user_state.unwrap();
         assert!(!state1.watchlist.watching);
         assert!(!state1.watchlist.notifications);
         assert!(!state1.prohibited_content.consent);
+        assert!(state1.notification.seen);
+    }
+
+    #[tokio::test]
+    async fn should_personalize_product_notification_seen_true_when_no_notifications() {
+        let watchlist_repository = MockWatchlistProductDynamoDbRepository::default();
+        let user_service = MockUserService::default();
+        let mut notification_service = MockNotificationService::default();
+        notification_service
+            .expect_find_notifications_by_product()
+            .returning(|_, _, _, _| Box::pin(async { Ok(vec![]) }));
+
+        let service = ProductPersonalizationServiceImpl::new(
+            &watchlist_repository,
+            &notification_service,
+            &user_service,
+        );
+
+        let input = Faker.fake::<LocalizedProductView>();
+        let actual = service
+            .personalize_product_notification(&Faker.fake(), input)
+            .await
+            .unwrap();
+
+        assert!(actual.user_state.unwrap().seen);
+    }
+
+    #[tokio::test]
+    async fn should_personalize_product_notification_seen_false_when_latest_unseen() {
+        let watchlist_repository = MockWatchlistProductDynamoDbRepository::default();
+        let user_service = MockUserService::default();
+        let mut notification_service = MockNotificationService::default();
+        notification_service
+            .expect_find_notifications_by_product()
+            .returning(|_, _, _, _| Box::pin(async { Ok(vec![make_test_notification(false)]) }));
+
+        let service = ProductPersonalizationServiceImpl::new(
+            &watchlist_repository,
+            &notification_service,
+            &user_service,
+        );
+
+        let input = Faker.fake::<LocalizedProductView>();
+        let actual = service
+            .personalize_product_notification(&Faker.fake(), input)
+            .await
+            .unwrap();
+
+        assert!(!actual.user_state.unwrap().seen);
+    }
+
+    #[tokio::test]
+    async fn should_personalize_product_notification_seen_true_when_latest_seen() {
+        let watchlist_repository = MockWatchlistProductDynamoDbRepository::default();
+        let user_service = MockUserService::default();
+        let mut notification_service = MockNotificationService::default();
+        notification_service
+            .expect_find_notifications_by_product()
+            .returning(|_, _, _, _| Box::pin(async { Ok(vec![make_test_notification(true)]) }));
+
+        let service = ProductPersonalizationServiceImpl::new(
+            &watchlist_repository,
+            &notification_service,
+            &user_service,
+        );
+
+        let input = Faker.fake::<LocalizedProductView>();
+        let actual = service
+            .personalize_product_notification(&Faker.fake(), input)
+            .await
+            .unwrap();
+
+        assert!(actual.user_state.unwrap().seen);
+    }
+
+    #[tokio::test]
+    async fn should_personalize_product_notification_all_mixed_states() {
+        let watchlist_repository = MockWatchlistProductDynamoDbRepository::default();
+        let user_service = MockUserService::default();
+        let product1_id = ProductId::new();
+        let product2_id = ProductId::new();
+        let product3_id = ProductId::new();
+
+        let mut notification_service = MockNotificationService::default();
+        notification_service
+            .expect_find_notifications_by_product()
+            .returning(move |_, product_id, _, _| {
+                let pid = *product_id;
+                let p1 = product1_id;
+                let p2 = product2_id;
+                Box::pin(async move {
+                    if pid == p1 {
+                        Ok(vec![make_test_notification(false)])
+                    } else if pid == p2 {
+                        Ok(vec![make_test_notification(true)])
+                    } else {
+                        Ok(vec![])
+                    }
+                })
+            });
+
+        let service = ProductPersonalizationServiceImpl::new(
+            &watchlist_repository,
+            &notification_service,
+            &user_service,
+        );
+
+        let mut input1 = Faker.fake::<LocalizedProductView>();
+        input1.product_id = product1_id;
+        let mut input2 = Faker.fake::<LocalizedProductView>();
+        input2.product_id = product2_id;
+        let mut input3 = Faker.fake::<LocalizedProductView>();
+        input3.product_id = product3_id;
+
+        let actual = service
+            .personalize_product_notification_all(&Faker.fake(), vec![input1, input2, input3])
+            .await
+            .unwrap();
+
+        assert_eq!(actual.len(), 3);
+        assert!(!actual[0].user_state.unwrap().seen);
+        assert!(actual[1].user_state.unwrap().seen);
+        assert!(actual[2].user_state.unwrap().seen);
     }
 }

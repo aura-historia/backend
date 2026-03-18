@@ -6,6 +6,9 @@ use fxrate::dynamodb::record::FxRatesRecord;
 use fxrate::dynamodb::repository::{FxRateDynamoDbRepository, FxRateDynamoDbRepositoryImpl};
 use lambda_runtime::tracing::debug;
 use lambda_runtime::{Error, LambdaEvent, run, service_fn};
+use notification::dynamodb::repository::NotificationDynamoDbRepositoryImpl;
+use notification::service::noop_adapters::{NoopS3Adapter, NoopSesAdapter};
+use notification::service::notification_service::NotificationServiceImpl;
 use product::dynamodb::repository::ProductDynamoDbRepositoryImpl;
 use product::opensearch::repository::ProductOpenSearchRepositoryImpl;
 use product::service::enrichment_service::ProductCommandEnrichmentServiceImpl;
@@ -48,11 +51,15 @@ async fn main() -> Result<(), Error> {
         .expect("shouldn't fail loading OpenSearch-Client");
 
     let watchlist_repository = WatchlistProductDynamoDbRepositoryImpl::new(&dynamodb, &table_name);
+    let notification_repository = NotificationDynamoDbRepositoryImpl::new(&dynamodb, &table_name);
     let user_repository = UserDynamoDbRepositoryImpl::new(&dynamodb, &table_name);
     let shop_dynamodb_repository = ShopDynamoDbRepositoryImpl::new(&dynamodb, &table_name);
     let product_dynamodb_repository = ProductDynamoDbRepositoryImpl::new(&dynamodb, &table_name);
     let product_opensearch_repository = ProductOpenSearchRepositoryImpl::new(&opensearch);
     let fxrate_repository = FxRateDynamoDbRepositoryImpl::new(&dynamodb, &table_name);
+
+    static NOOP_SES: NoopSesAdapter = NoopSesAdapter;
+    static NOOP_S3: NoopS3Adapter = NoopS3Adapter;
 
     let get_product_service = GetProductServiceImpl::new(&product_dynamodb_repository);
     let query_product_service = QueryProductServiceImpl::new(&product_opensearch_repository);
@@ -61,8 +68,23 @@ async fn main() -> Result<(), Error> {
         &product_opensearch_repository,
     );
     let user_service = UserServiceImpl::new(&user_repository);
-    let product_personalization_service =
-        ProductPersonalizationServiceImpl::new(&watchlist_repository, &user_service);
+    let notification_service = NotificationServiceImpl::new(
+        &notification_repository,
+        &user_service,
+        &NOOP_SES,
+        &NOOP_S3,
+        "",
+        "",
+        "",
+        "noreply@example.com"
+            .parse()
+            .expect("shouldn't fail parsing placeholder sender email"),
+    );
+    let product_personalization_service = ProductPersonalizationServiceImpl::new(
+        &watchlist_repository,
+        &notification_service,
+        &user_service,
+    );
     let fx_rate = fxrate_repository
         .get_fx_rates_record()
         .await

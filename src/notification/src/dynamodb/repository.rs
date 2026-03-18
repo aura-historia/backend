@@ -1,5 +1,5 @@
 use crate::{
-    dynamodb::notification_record::{NotificationRecord, mk_pk, mk_sk},
+    dynamodb::notification_record::{NotificationRecord, mk_lsi2_sk_product_prefix, mk_pk, mk_sk},
     dynamodb::notification_record_update::NotificationRecordUpdate,
 };
 use aws_sdk_dynamodb::{
@@ -17,7 +17,7 @@ use aws_sdk_dynamodb::{
 };
 use common::{
     batch::Batch, dynamodb_update::DynamoDbUpdate, event_id::EventId, pagination::cursor::Cursor,
-    user_id::UserId,
+    product_id::ProductId, user_id::UserId,
 };
 use std::collections::HashMap;
 use tracing::error;
@@ -78,6 +78,14 @@ pub trait NotificationDynamoDbRepository {
         user_id: &UserId,
         origin_event_ids: &Batch<EventId, 25>,
     ) -> Result<BatchWriteItemOutput, SdkError<BatchWriteItemError>>;
+
+    async fn query_product_notification_records(
+        &self,
+        user_id: &UserId,
+        product_id: &ProductId,
+        limit: Option<i32>,
+        scan_index_forward: bool,
+    ) -> Result<Vec<NotificationRecord>, SdkError<QueryError>>;
 }
 
 #[derive(Debug, Clone)]
@@ -383,5 +391,55 @@ impl<'a> NotificationDynamoDbRepository for NotificationDynamoDbRepositoryImpl<'
             .set_request_items(Some(HashMap::from([(self.table.clone(), write_requests)])))
             .send()
             .await
+    }
+
+    async fn query_product_notification_records(
+        &self,
+        user_id: &UserId,
+        product_id: &ProductId,
+        limit: Option<i32>,
+        scan_index_forward: bool,
+    ) -> Result<Vec<NotificationRecord>, SdkError<QueryError>> {
+        let (prefix, _) = mk_lsi2_sk_product_prefix(product_id);
+
+        let mut query_builder = self
+            .client
+            .query()
+            .table_name(&self.table)
+            .index_name("lsi2")
+            .key_condition_expression("#pk = :pk_val AND begins_with(#lsi2_sk, :prefix)")
+            .expression_attribute_names("#pk", "pk")
+            .expression_attribute_names("#lsi2_sk", "lsi2_sk")
+            .expression_attribute_values(":pk_val", AttributeValue::S(mk_pk(user_id)))
+            .expression_attribute_values(":prefix", AttributeValue::S(prefix))
+            .scan_index_forward(scan_index_forward);
+
+        if let Some(n) = limit {
+            query_builder = query_builder.limit(n);
+        }
+
+        let records = query_builder
+            .send()
+            .await?
+            .items
+            .unwrap_or_default()
+            .into_iter()
+            .map(serde_dynamo::from_item::<_, NotificationRecord>)
+            .filter_map(|res| match res {
+                Ok(record) => Some(record),
+                Err(err) => {
+                    error!(
+                        userId = %user_id,
+                        productId = %product_id,
+                        error = %err,
+                        r#type = %std::any::type_name::<NotificationRecord>(),
+                        "Failed deserializing."
+                    );
+                    None
+                }
+            })
+            .collect();
+
+        Ok(records)
     }
 }
