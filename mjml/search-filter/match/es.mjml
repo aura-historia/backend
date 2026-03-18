@@ -1,107 +1,106 @@
 <mjml>
     <mj-head>
         <mj-attributes>
-            <mj-all font-family="Inter, Helvetica, Arial, sans-serif"/>
-            <mj-text color="#4A4338" font-size="16px" line-height="1.5"/>
-            <mj-button background-color="#A67C52" color="#ffffff" border-radius="6px" font-size="16px" padding="16px"/>
-            <mj-section padding="0"/>
-            <mj-column padding="0"/>
+            <mj-all font-family="Inter, Helvetica, Arial, sans-serif" />
+            <mj-text color="#4A4338" font-size="15px" line-height="1.6" />
+            <mj-button background-color="#A67C52" color="#ffffff" border-radius="6px" font-size="15px" inner-padding="12px 32px" />
+            <mj-section padding="0" />
+            <mj-column padding="0" />
+            <mj-divider border-color="#E8E0D6" border-width="1px" />
         </mj-attributes>
         <mj-style>
-            .title {
-                font-family: "Cormorant Garamond", Georgia, serif;
-                font-size: 32px !important;
-                color: #2A261F;
-                font-weight: 500;
-                margin-bottom: 12px;
-            }
-
-            .subtitle {
-                font-family: "Cormorant Garamond", Georgia, serif;
-                font-size: 20px !important;
-                color: #2A261F;
-                margin-bottom: 8px;
-            }
-
-            .filter-name {
-                color: #A67C52;
-                font-weight: 600;
-            }
+            a { color: #A67C52; }
+            .filter-name { color: #A67C52; font-weight: 600; }
         </mj-style>
         <mj-title>Nuevo resultado para "{{search_filter_name}}"</mj-title>
-        <mj-preview>Un nuevo producto coincide con su filtro de búsqueda "{{search_filter_name}}": {{title}}</mj-preview>
+        <mj-preview>Una nueva antigüedad coincide con su filtro de búsqueda "{{search_filter_name}}": {{title}}</mj-preview>
     </mj-head>
 
-    <mj-body background-color="#F8F4EE">
+    <mj-body background-color="#F8F4EE" width="600px">
 
-        <mj-section padding-top="32px" padding-bottom="16px">
-            <mj-column width="100%">
-                <mj-text color="#7D7567" font-size="18px">
-                    Nuevo resultado para su filtro de búsqueda
+        <!-- Header -->
+        <mj-section padding="32px 24px 20px">
+            <mj-column>
+                <mj-text font-family="'Cormorant Garamond', Georgia, serif" font-size="28px" font-weight="600" color="#2A261F" align="center">
+                    Aura Historia
                 </mj-text>
-                <mj-text css-class="subtitle" padding-bottom="8px">{{title}}</mj-text>
             </mj-column>
         </mj-section>
 
-        <mj-section background-color="#ffffff" padding="32px" border-radius="12px">
+        <mj-section padding="0 24px">
             <mj-column>
-                <mj-text font-size="18px" color="#4A4338">
-                    {{#if userFirstName}}
-                    Hola {{userFirstName}},
-                    {{else}}
-                    Hola,
-                    {{/if}}
+                <mj-divider border-color="#A67C52" border-width="2px" padding="0" />
+            </mj-column>
+        </mj-section>
+
+        <!-- Content card -->
+        <mj-section background-color="#ffffff" padding="32px 32px 16px" border-radius="12px">
+            <mj-column>
+                <mj-text font-size="16px" color="#4A4338" padding-bottom="8px">
+                    {{#if user_first_name}}Hola {{user_first_name}},{{else}}Hola,{{/if}}
                 </mj-text>
                 <mj-text>
-                    Hemos encontrado una antigüedad que coincide con su filtro de búsqueda
-                    <span class="filter-name">"{{search_filter_name}}"</span>:
+                    Hemos encontrado una antigüedad que coincide con su filtro de búsqueda <span class="filter-name">"{{search_filter_name}}"</span>:
                 </mj-text>
-                <mj-text font-size="18px" font-weight="600" color="#2A261F">
+            </mj-column>
+        </mj-section>
+
+        <!-- Product info -->
+        <mj-section background-color="#ffffff" padding="0 32px" border-radius="12px">
+            <mj-column>
+                <mj-text font-family="'Cormorant Garamond', Georgia, serif" font-size="22px" font-weight="600" color="#2A261F" padding-bottom="4px">
                     {{title}}
                 </mj-text>
-                <mj-text color="#7D7567">
+                <mj-text font-size="14px" color="#7D7567" padding-bottom="16px">
                     Ofrecido por <b>{{shop_name}}</b>
                 </mj-text>
             </mj-column>
         </mj-section>
 
-        <mj-section background-color="#ffffff" padding="0 32px 32px 32px" border-radius="12px">
-            <mj-column width="50%">
-                <mj-button href="https://aura-historia.com/product/{{product_slug_id}}">
+        <!-- CTA buttons -->
+        <mj-section background-color="#ffffff" padding="8px 32px 32px" border-radius="12px">
+            <mj-column>
+                <mj-button href="https://aura-historia.com/shops/{{shop_slug_id}}/products/{{product_slug_id}}" align="center">
                     Ver producto
                 </mj-button>
             </mj-column>
-
-            <mj-column width="50%">
-                <mj-button href="{{productShopUrl}}" background-color="#EDEDED" color="#4A4338" border="1px solid #CFCFCF">
-                    Ver en la tienda
+            <mj-column>
+                <mj-button href="https://aura-historia.com/shops/{{shop_slug_id}}" background-color="#EDEDED" color="#4A4338" border="1px solid #CFCFCF" align="center">
+                    Visitar tienda
                 </mj-button>
             </mj-column>
         </mj-section>
 
-        <mj-section padding="32px 0 0 0">
+        <!-- Banner -->
+        <mj-section padding="24px 0 0">
             <mj-column>
-                <mj-text color="#7D7567" font-size="14px">
-                    Recibe este correo electrónico porque este producto coincide con su filtro de búsqueda "{{search_filter_name}}".
-                    <br/><br/>
-                    © 2026 Aura Historia — Todos los derechos reservados.
+                <mj-image src="https://assets.aura-historia.com/branding/banner_twitter_slogan.png" alt="Aura Historia" width="600px" border-radius="8px" />
+            </mj-column>
+        </mj-section>
+
+        <!-- Footer -->
+        <mj-section padding="24px 24px 0">
+            <mj-column>
+                <mj-text color="#7D7567" font-size="13px" line-height="1.5" align="center">
+                    Recibe este correo electrónico porque este producto coincide con su filtro de búsqueda <a href="https://aura-historia.com/search-filters/{{search_filter_id}}" style="color:#A67C52;">"{{search_filter_name}}"</a>.
                 </mj-text>
             </mj-column>
         </mj-section>
 
-        <mj-section>
+        <mj-section padding="8px 24px 0">
             <mj-column>
-                <mj-text color="#7D7567" font-size="13px" line-height="1.6">
-                    <strong>Aviso legal</strong>
-                    <br/>
-                    Aura Historia
-                    <br/>
-                    Contacto: support@aura-historia.com
-                    <br/>
-                    Sitio web: https://aura-historia.com
-                    <br/><br/>
-                    Si ya no desea recibir notificaciones para este filtro de búsqueda,
-                    puede desactivarlas en la configuración de sus filtros de búsqueda.
+                <mj-divider />
+            </mj-column>
+        </mj-section>
+
+        <mj-section padding="8px 24px 32px">
+            <mj-column>
+                <mj-text color="#7D7567" font-size="12px" line-height="1.6" align="center">
+                    © 2026 Aura Historia — Todos los derechos reservados.
+                    <br />
+                    <a href="mailto:contact@aura-historia.com" style="color:#A67C52;text-decoration:none;">contact@aura-historia.com</a>&nbsp;&nbsp;·&nbsp;&nbsp;<a href="https://aura-historia.com" style="color:#A67C52;text-decoration:none;">aura-historia.com</a>
+                    <br /><br />
+                    Si ya no desea recibir notificaciones para este filtro de búsqueda, puede desactivarlas en la <a href="https://aura-historia.com/search-filters/{{search_filter_id}}" style="color:#A67C52;">configuración de sus filtros de búsqueda</a>.
                 </mj-text>
             </mj-column>
         </mj-section>
