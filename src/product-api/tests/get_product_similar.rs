@@ -1140,7 +1140,10 @@ async fn should_200_when_similar_products_have_been_computed_for_anon() {
     let user_repository_pp =
         UserDynamoDbRepositoryImpl::new(get_dynamodb_client().await, "table_1");
     let user_service = UserServiceImpl::new(&user_repository_pp);
-    let notification_service = MockNotificationService::default();
+    let mut notification_service = MockNotificationService::default();
+    notification_service
+        .expect_find_notifications_by_product()
+        .returning(|_, _, _, _| Box::pin(async { Ok(vec![]) }));
     let product_personalization_service = ProductPersonalizationServiceImpl::new(
         &watchlist_repository,
         &notification_service,
@@ -1248,7 +1251,7 @@ async fn should_200_and_personalize_when_similar_products_have_been_computed_for
     let mut notification_service = MockNotificationService::default();
     notification_service
         .expect_find_notifications_by_product()
-        .return_once(|_, _, _, _| Box::pin(async { Ok(vec![]) }));
+        .returning(|_, _, _, _| Box::pin(async { Ok(vec![]) }));
     let product_personalization_service = ProductPersonalizationServiceImpl::new(
         &watchlist_repository,
         &notification_service,
@@ -1432,7 +1435,10 @@ async fn should_respond_200_and_respect_language_query_param(
     let user_repository_pp =
         UserDynamoDbRepositoryImpl::new(get_dynamodb_client().await, "table_1");
     let user_service = UserServiceImpl::new(&user_repository_pp);
-    let notification_service = MockNotificationService::default();
+    let mut notification_service = MockNotificationService::default();
+    notification_service
+        .expect_find_notifications_by_product()
+        .returning(|_, _, _, _| Box::pin(async { Ok(vec![]) }));
     let product_personalization_service = ProductPersonalizationServiceImpl::new(
         &watchlist_repository,
         &notification_service,

@@ -1591,7 +1591,7 @@ async fn should_200_personalized_when_authenticated_and_not_watching() {
     let mut notification_service = MockNotificationService::default();
     notification_service
         .expect_find_notifications_by_product()
-        .return_once(|_, _, _, _| Box::pin(async { Ok(vec![]) }));
+        .returning(|_, _, _, _| Box::pin(async { Ok(vec![]) }));
     let product_personalization_service = ProductPersonalizationServiceImpl::new(
         &watchlist_repository,
         &notification_service,
