@@ -259,7 +259,8 @@ impl<'a> NotificationServiceImpl<'a> {
 
         let mail_template = derive_mail_template(&notification.notification_payload, &language);
         let subject = build_email_subject(&notification.notification_payload, &language);
-        let template_data = build_email_template_data(notification, &language, &currency);
+        let template_data =
+            build_email_template_data(notification, &language, &currency, user.first_name.as_ref());
 
         let template_html = self
             .resolve_template(mail_template)
@@ -388,6 +389,7 @@ fn build_email_template_data(
     notification: &Notification,
     language: &Language,
     currency: &Currency,
+    user_first_name: Option<&user::core::first_name::FirstName>,
 ) -> serde_json::Value {
     match &notification.notification_payload {
         NotificationPayload::Watchlist {
@@ -414,6 +416,10 @@ fn build_email_template_data(
                 "title": resolved_title,
                 "language": format!("{language:?}"),
             });
+
+            if let Some(first_name) = user_first_name {
+                data["user_first_name"] = serde_json::json!(first_name.to_string());
+            }
 
             match watchlist_payload {
                 NotificationWatchlistPayload::PriceChange {
@@ -458,7 +464,7 @@ fn build_email_template_data(
             let resolved_title = Language::resolve(&[*language], title.clone())
                 .map(|l| l.payload.to_string())
                 .unwrap_or_else(|| "Unknown".to_owned());
-            serde_json::json!({
+            let mut data = serde_json::json!({
                 "product_id": product_id.to_string(),
                 "shop_id": shop_id.to_string(),
                 "shops_product_id": shops_product_id.to_string(),
@@ -470,7 +476,13 @@ fn build_email_template_data(
                 "notification_type": "search_filter_match",
                 "search_filter_id": search_filter_payload.user_search_filter_id.to_string(),
                 "search_filter_name": search_filter_payload.user_search_filter_name.to_string(),
-            })
+            });
+
+            if let Some(first_name) = user_first_name {
+                data["user_first_name"] = serde_json::json!(first_name.to_string());
+            }
+
+            data
         }
     }
 }
@@ -2328,7 +2340,8 @@ mod tests {
                 updated: OffsetDateTime::now_utc(),
             };
 
-            let data = build_email_template_data(&notification, &Language::En, &Currency::Eur);
+            let data =
+                build_email_template_data(&notification, &Language::En, &Currency::Eur, None);
 
             assert_eq!(data["title"], "Antique Vase");
             assert_eq!(data["shop_name"], "Test Shop");
@@ -2363,7 +2376,8 @@ mod tests {
                 updated: OffsetDateTime::now_utc(),
             };
 
-            let data = build_email_template_data(&notification, &Language::En, &Currency::Eur);
+            let data =
+                build_email_template_data(&notification, &Language::En, &Currency::Eur, None);
 
             assert_eq!(data["notification_type"], "price_change");
             // old_price and new_price should be present as human-readable strings
@@ -2397,7 +2411,8 @@ mod tests {
                 updated: OffsetDateTime::now_utc(),
             };
 
-            let data = build_email_template_data(&notification, &Language::En, &Currency::Eur);
+            let data =
+                build_email_template_data(&notification, &Language::En, &Currency::Eur, None);
 
             assert!(data.get("old_price").is_none());
             assert!(data["new_price"].is_string());
@@ -2429,11 +2444,81 @@ mod tests {
                 updated: OffsetDateTime::now_utc(),
             };
 
-            let data = build_email_template_data(&notification, &Language::De, &Currency::Eur);
+            let data =
+                build_email_template_data(&notification, &Language::De, &Currency::Eur, None);
 
             assert_eq!(data["old_state"], "Gelistet");
             assert_eq!(data["new_state"], "Verkauft");
             assert_eq!(data["title"], "Antike Vase");
+        }
+
+        #[test]
+        fn should_include_user_first_name_when_provided() {
+            let notification = Notification {
+                user_id: UserId::new(),
+                origin_event_id: EventId::new(),
+                notification_id: NotificationId::new(),
+                notification_type: None,
+                notification_payload: NotificationPayload::Watchlist {
+                    product_id: Faker.fake(),
+                    shop_id: Faker.fake(),
+                    shops_product_id: "test".into(),
+                    shop_slug_id: Faker.fake(),
+                    product_slug_id: Faker.fake(),
+                    shop_name: "Shop".into(),
+                    title: HashMap::from([(Language::En, "Title".into())]),
+                    watchlist_payload: NotificationWatchlistPayload::StateChange {
+                        old_state: ProductState::Listed,
+                        new_state: ProductState::Sold,
+                    },
+                },
+                seen: false,
+                external: false,
+                created: OffsetDateTime::now_utc(),
+                updated: OffsetDateTime::now_utc(),
+            };
+
+            let first_name = user::core::first_name::FirstName::from("Thomas");
+            let data = build_email_template_data(
+                &notification,
+                &Language::En,
+                &Currency::Eur,
+                Some(&first_name),
+            );
+
+            assert_eq!(data["user_first_name"], "Thomas");
+        }
+
+        #[test]
+        fn should_not_include_user_first_name_when_none() {
+            let notification = Notification {
+                user_id: UserId::new(),
+                origin_event_id: EventId::new(),
+                notification_id: NotificationId::new(),
+                notification_type: None,
+                notification_payload: NotificationPayload::Watchlist {
+                    product_id: Faker.fake(),
+                    shop_id: Faker.fake(),
+                    shops_product_id: "test".into(),
+                    shop_slug_id: Faker.fake(),
+                    product_slug_id: Faker.fake(),
+                    shop_name: "Shop".into(),
+                    title: HashMap::from([(Language::En, "Title".into())]),
+                    watchlist_payload: NotificationWatchlistPayload::StateChange {
+                        old_state: ProductState::Listed,
+                        new_state: ProductState::Sold,
+                    },
+                },
+                seen: false,
+                external: false,
+                created: OffsetDateTime::now_utc(),
+                updated: OffsetDateTime::now_utc(),
+            };
+
+            let data =
+                build_email_template_data(&notification, &Language::En, &Currency::Eur, None);
+
+            assert!(data.get("user_first_name").is_none());
         }
     }
 
@@ -2742,6 +2827,464 @@ mod tests {
                 .unwrap();
 
             assert_eq!(actual.len(), 1);
+    mod template_rendering_tests {
+        use super::*;
+        use crate::core::notification::NotificationSearchFilterPayload;
+        use rstest::rstest;
+        use search_filter::core::user_search_filter_id::UserSearchFilterId;
+
+        fn load_template(relative_path: &str) -> String {
+            let workspace_root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+                .parent()
+                .unwrap()
+                .parent()
+                .unwrap();
+            let path = workspace_root.join(relative_path);
+            std::fs::read_to_string(&path)
+                .unwrap_or_else(|e| panic!("Failed to load template {}: {e}", path.display()))
+        }
+
+        fn assert_no_unreplaced_handlebars(rendered: &str, template_path: &str) {
+            let mut pos = 0;
+            let mut unreplaced = Vec::new();
+            while let Some(start) = rendered[pos..].find("{{") {
+                let abs_start = pos + start;
+                let rest = &rendered[abs_start + 2..];
+                // Skip handlebars block helpers: {{#...}}, {{/...}}, {{!--...}}, {{else}}, {{>...}}
+                if rest.starts_with('#')
+                    || rest.starts_with('/')
+                    || rest.starts_with("!--")
+                    || rest.starts_with("else")
+                    || rest.starts_with('>')
+                {
+                    pos = abs_start + 2;
+                    continue;
+                }
+                let snippet_end = (abs_start + 40).min(rendered.len());
+                unreplaced.push(rendered[abs_start..snippet_end].to_string());
+                pos = abs_start + 2;
+            }
+            assert!(
+                unreplaced.is_empty(),
+                "Template '{template_path}' has unreplaced handlebars: {unreplaced:?}"
+            );
+        }
+
+        fn make_watchlist_price_notification() -> Notification {
+            Notification {
+                user_id: UserId::new(),
+                origin_event_id: EventId::new(),
+                notification_id: NotificationId::new(),
+                notification_type: None,
+                notification_payload: NotificationPayload::Watchlist {
+                    product_id: Faker.fake(),
+                    shop_id: Faker.fake(),
+                    shops_product_id: "antique-vase-001".into(),
+                    shop_slug_id: Faker.fake(),
+                    product_slug_id: Faker.fake(),
+                    shop_name: "Heritage Antiques".into(),
+                    title: HashMap::from([
+                        (Language::En, "Victorian Writing Desk".into()),
+                        (Language::De, "Viktorianischer Schreibtisch".into()),
+                        (Language::Fr, "Bureau d'écriture victorien".into()),
+                        (Language::Es, "Escritorio victoriano".into()),
+                        (Language::It, "Scrivania vittoriana".into()),
+                    ]),
+                    watchlist_payload: NotificationWatchlistPayload::PriceChange {
+                        old_price: HashMap::from([(Currency::Eur, MonetaryAmount::from(10000u64))]),
+                        new_price: HashMap::from([(Currency::Eur, MonetaryAmount::from(8500u64))]),
+                    },
+                },
+                seen: false,
+                external: false,
+                created: OffsetDateTime::now_utc(),
+                updated: OffsetDateTime::now_utc(),
+            }
+        }
+
+        fn make_watchlist_state_notification() -> Notification {
+            Notification {
+                user_id: UserId::new(),
+                origin_event_id: EventId::new(),
+                notification_id: NotificationId::new(),
+                notification_type: None,
+                notification_payload: NotificationPayload::Watchlist {
+                    product_id: Faker.fake(),
+                    shop_id: Faker.fake(),
+                    shops_product_id: "antique-vase-001".into(),
+                    shop_slug_id: Faker.fake(),
+                    product_slug_id: Faker.fake(),
+                    shop_name: "Heritage Antiques".into(),
+                    title: HashMap::from([
+                        (Language::En, "Victorian Writing Desk".into()),
+                        (Language::De, "Viktorianischer Schreibtisch".into()),
+                        (Language::Fr, "Bureau d'écriture victorien".into()),
+                        (Language::Es, "Escritorio victoriano".into()),
+                        (Language::It, "Scrivania vittoriana".into()),
+                    ]),
+                    watchlist_payload: NotificationWatchlistPayload::StateChange {
+                        old_state: ProductState::Listed,
+                        new_state: ProductState::Sold,
+                    },
+                },
+                seen: false,
+                external: false,
+                created: OffsetDateTime::now_utc(),
+                updated: OffsetDateTime::now_utc(),
+            }
+        }
+
+        fn make_search_filter_notification() -> Notification {
+            Notification {
+                user_id: UserId::new(),
+                origin_event_id: EventId::new(),
+                notification_id: NotificationId::new(),
+                notification_type: None,
+                notification_payload: NotificationPayload::SearchFilter {
+                    product_id: Faker.fake(),
+                    shop_id: Faker.fake(),
+                    shops_product_id: "antique-vase-001".into(),
+                    shop_slug_id: Faker.fake(),
+                    product_slug_id: Faker.fake(),
+                    shop_name: "Heritage Antiques".into(),
+                    title: HashMap::from([
+                        (Language::En, "Victorian Writing Desk".into()),
+                        (Language::De, "Viktorianischer Schreibtisch".into()),
+                        (Language::Fr, "Bureau d'écriture victorien".into()),
+                        (Language::Es, "Escritorio victoriano".into()),
+                        (Language::It, "Scrivania vittoriana".into()),
+                    ]),
+                    search_filter_payload: NotificationSearchFilterPayload {
+                        user_search_filter_id: UserSearchFilterId::new(),
+                        user_search_filter_name: "Victorian Furniture".into(),
+                    },
+                },
+                seen: false,
+                external: false,
+                created: OffsetDateTime::now_utc(),
+                updated: OffsetDateTime::now_utc(),
+            }
+        }
+
+        fn language_for_code(code: &str) -> Language {
+            match code {
+                "en" => Language::En,
+                "de" => Language::De,
+                "fr" => Language::Fr,
+                "es" => Language::Es,
+                "it" => Language::It,
+                _ => panic!("Unknown language code: {code}"),
+            }
+        }
+
+        #[rstest]
+        #[case("en")]
+        #[case("de")]
+        #[case("fr")]
+        #[case("es")]
+        #[case("it")]
+        fn should_render_watchlist_price_template_without_unreplaced_handlebars_for(
+            #[case] lang: &str,
+        ) {
+            let template_path = format!("mjml/watchlist/product-update/price/{lang}.mjml");
+            let template = load_template(&template_path);
+            let notification = make_watchlist_price_notification();
+            let language = language_for_code(lang);
+            let first_name = user::core::first_name::FirstName::from("Thomas");
+            let data = build_email_template_data(
+                &notification,
+                &language,
+                &Currency::Eur,
+                Some(&first_name),
+            );
+
+            let handlebars = Handlebars::new();
+            let rendered = handlebars
+                .render_template(&template, &data)
+                .unwrap_or_else(|e| panic!("Handlebars failed for {template_path}: {e}"));
+
+            assert_no_unreplaced_handlebars(&rendered, &template_path);
+        }
+
+        #[rstest]
+        #[case("en")]
+        #[case("de")]
+        #[case("fr")]
+        #[case("es")]
+        #[case("it")]
+        fn should_render_watchlist_state_template_without_unreplaced_handlebars_for(
+            #[case] lang: &str,
+        ) {
+            let template_path = format!("mjml/watchlist/product-update/state/{lang}.mjml");
+            let template = load_template(&template_path);
+            let notification = make_watchlist_state_notification();
+            let language = language_for_code(lang);
+            let first_name = user::core::first_name::FirstName::from("Thomas");
+            let data = build_email_template_data(
+                &notification,
+                &language,
+                &Currency::Eur,
+                Some(&first_name),
+            );
+
+            let handlebars = Handlebars::new();
+            let rendered = handlebars
+                .render_template(&template, &data)
+                .unwrap_or_else(|e| panic!("Handlebars failed for {template_path}: {e}"));
+
+            assert_no_unreplaced_handlebars(&rendered, &template_path);
+        }
+
+        #[rstest]
+        #[case("en")]
+        #[case("de")]
+        #[case("fr")]
+        #[case("es")]
+        #[case("it")]
+        fn should_render_search_filter_template_without_unreplaced_handlebars_for(
+            #[case] lang: &str,
+        ) {
+            let template_path = format!("mjml/search-filter/match/{lang}.mjml");
+            let template = load_template(&template_path);
+            let notification = make_search_filter_notification();
+            let language = language_for_code(lang);
+            let first_name = user::core::first_name::FirstName::from("Thomas");
+            let data = build_email_template_data(
+                &notification,
+                &language,
+                &Currency::Eur,
+                Some(&first_name),
+            );
+
+            let handlebars = Handlebars::new();
+            let rendered = handlebars
+                .render_template(&template, &data)
+                .unwrap_or_else(|e| panic!("Handlebars failed for {template_path}: {e}"));
+
+            assert_no_unreplaced_handlebars(&rendered, &template_path);
+        }
+
+        #[rstest]
+        #[case("en")]
+        #[case("de")]
+        #[case("fr")]
+        #[case("es")]
+        #[case("it")]
+        fn should_render_watchlist_price_template_without_user_first_name_for(#[case] lang: &str) {
+            let template_path = format!("mjml/watchlist/product-update/price/{lang}.mjml");
+            let template = load_template(&template_path);
+            let notification = make_watchlist_price_notification();
+            let language = language_for_code(lang);
+            let data = build_email_template_data(&notification, &language, &Currency::Eur, None);
+
+            let handlebars = Handlebars::new();
+            let rendered = handlebars
+                .render_template(&template, &data)
+                .unwrap_or_else(|e| panic!("Handlebars failed for {template_path}: {e}"));
+
+            assert_no_unreplaced_handlebars(&rendered, &template_path);
+            assert!(
+                !rendered.contains("Thomas"),
+                "Template should not contain user first name when not provided"
+            );
+        }
+
+        #[rstest]
+        #[case("en")]
+        #[case("de")]
+        #[case("fr")]
+        #[case("es")]
+        #[case("it")]
+        fn should_render_watchlist_price_template_with_missing_old_price_for(#[case] lang: &str) {
+            let template_path = format!("mjml/watchlist/product-update/price/{lang}.mjml");
+            let template = load_template(&template_path);
+            let notification = Notification {
+                user_id: UserId::new(),
+                origin_event_id: EventId::new(),
+                notification_id: NotificationId::new(),
+                notification_type: None,
+                notification_payload: NotificationPayload::Watchlist {
+                    product_id: Faker.fake(),
+                    shop_id: Faker.fake(),
+                    shops_product_id: "test".into(),
+                    shop_slug_id: Faker.fake(),
+                    product_slug_id: Faker.fake(),
+                    shop_name: "Shop".into(),
+                    title: HashMap::from([(language_for_code(lang), "Title".into())]),
+                    watchlist_payload: NotificationWatchlistPayload::PriceChange {
+                        old_price: HashMap::new(),
+                        new_price: HashMap::from([(Currency::Eur, MonetaryAmount::from(5000u64))]),
+                    },
+                },
+                seen: false,
+                external: false,
+                created: OffsetDateTime::now_utc(),
+                updated: OffsetDateTime::now_utc(),
+            };
+            let language = language_for_code(lang);
+            let data = build_email_template_data(&notification, &language, &Currency::Eur, None);
+
+            let handlebars = Handlebars::new();
+            let rendered = handlebars
+                .render_template(&template, &data)
+                .unwrap_or_else(|e| panic!("Handlebars failed for {template_path}: {e}"));
+
+            assert_no_unreplaced_handlebars(&rendered, &template_path);
+        }
+
+        #[test]
+        fn should_include_product_url_with_shop_and_product_slugs_in_rendered_price_template() {
+            let template_path = "mjml/watchlist/product-update/price/en.mjml";
+            let template = load_template(template_path);
+            let notification = make_watchlist_price_notification();
+            let data =
+                build_email_template_data(&notification, &Language::En, &Currency::Eur, None);
+
+            let handlebars = Handlebars::new();
+            let rendered = handlebars.render_template(&template, &data).unwrap();
+
+            let shop_slug = data["shop_slug_id"].as_str().unwrap();
+            let product_slug = data["product_slug_id"].as_str().unwrap();
+            let expected_url =
+                format!("https://aura-historia.com/shops/{shop_slug}/products/{product_slug}");
+            assert!(
+                rendered.contains(&expected_url),
+                "Rendered template should contain product URL: {expected_url}"
+            );
+        }
+
+        #[test]
+        fn should_include_product_url_with_shop_and_product_slugs_in_rendered_state_template() {
+            let template_path = "mjml/watchlist/product-update/state/en.mjml";
+            let template = load_template(template_path);
+            let notification = make_watchlist_state_notification();
+            let data =
+                build_email_template_data(&notification, &Language::En, &Currency::Eur, None);
+
+            let handlebars = Handlebars::new();
+            let rendered = handlebars.render_template(&template, &data).unwrap();
+
+            let shop_slug = data["shop_slug_id"].as_str().unwrap();
+            let product_slug = data["product_slug_id"].as_str().unwrap();
+            let expected_url =
+                format!("https://aura-historia.com/shops/{shop_slug}/products/{product_slug}");
+            assert!(
+                rendered.contains(&expected_url),
+                "Rendered template should contain product URL: {expected_url}"
+            );
+        }
+
+        #[test]
+        fn should_include_search_filter_link_in_rendered_search_filter_template() {
+            let template_path = "mjml/search-filter/match/en.mjml";
+            let template = load_template(template_path);
+            let notification = make_search_filter_notification();
+            let data =
+                build_email_template_data(&notification, &Language::En, &Currency::Eur, None);
+
+            let handlebars = Handlebars::new();
+            let rendered = handlebars.render_template(&template, &data).unwrap();
+
+            let filter_id = data["search_filter_id"].as_str().unwrap();
+            let expected_url = format!("https://aura-historia.com/search-filters/{filter_id}");
+            assert!(
+                rendered.contains(&expected_url),
+                "Rendered template should contain search filter URL: {expected_url}"
+            );
+        }
+
+        #[test]
+        fn should_include_watchlist_link_in_rendered_watchlist_template() {
+            let template_path = "mjml/watchlist/product-update/price/en.mjml";
+            let template = load_template(template_path);
+            let notification = make_watchlist_price_notification();
+            let data =
+                build_email_template_data(&notification, &Language::En, &Currency::Eur, None);
+
+            let handlebars = Handlebars::new();
+            let rendered = handlebars.render_template(&template, &data).unwrap();
+
+            assert!(
+                rendered.contains("https://aura-historia.com/watchlist"),
+                "Rendered template should contain watchlist URL"
+            );
+        }
+
+        #[test]
+        fn should_use_contact_email_in_all_templates() {
+            let templates = [
+                "mjml/watchlist/product-update/price/en.mjml",
+                "mjml/watchlist/product-update/state/en.mjml",
+                "mjml/search-filter/match/en.mjml",
+            ];
+
+            for template_path in templates {
+                let template = load_template(template_path);
+                assert!(
+                    template.contains("contact@aura-historia.com"),
+                    "Template '{template_path}' should use contact@aura-historia.com"
+                );
+                assert!(
+                    !template.contains("support@aura-historia.com"),
+                    "Template '{template_path}' should NOT use support@aura-historia.com"
+                );
+            }
+        }
+
+        #[test]
+        fn should_include_user_first_name_in_rendered_template_when_provided() {
+            let template_path = "mjml/watchlist/product-update/price/en.mjml";
+            let template = load_template(template_path);
+            let notification = make_watchlist_price_notification();
+            let first_name = user::core::first_name::FirstName::from("Thomas");
+            let data = build_email_template_data(
+                &notification,
+                &Language::En,
+                &Currency::Eur,
+                Some(&first_name),
+            );
+
+            let handlebars = Handlebars::new();
+            let rendered = handlebars.render_template(&template, &data).unwrap();
+
+            assert!(
+                rendered.contains("Hello Thomas,"),
+                "Rendered template should contain personalized greeting"
+            );
+        }
+
+        #[test]
+        fn should_include_shop_name_in_rendered_template() {
+            let template_path = "mjml/watchlist/product-update/price/en.mjml";
+            let template = load_template(template_path);
+            let notification = make_watchlist_price_notification();
+            let data =
+                build_email_template_data(&notification, &Language::En, &Currency::Eur, None);
+
+            let handlebars = Handlebars::new();
+            let rendered = handlebars.render_template(&template, &data).unwrap();
+
+            assert!(
+                rendered.contains("Heritage Antiques"),
+                "Rendered template should contain shop name"
+            );
+        }
+
+        #[test]
+        fn should_include_search_filter_name_in_rendered_template() {
+            let template_path = "mjml/search-filter/match/en.mjml";
+            let template = load_template(template_path);
+            let notification = make_search_filter_notification();
+            let data =
+                build_email_template_data(&notification, &Language::En, &Currency::Eur, None);
+
+            let handlebars = Handlebars::new();
+            let rendered = handlebars.render_template(&template, &data).unwrap();
+
+            assert!(
+                rendered.contains("Victorian Furniture"),
+                "Rendered template should contain search filter name"
+            );
         }
     }
 }
