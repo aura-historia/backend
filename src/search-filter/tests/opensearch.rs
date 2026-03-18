@@ -112,7 +112,6 @@ async fn should_percolate_document_when_query_is_empty() {
     let repository = UserSearchFilterOpenSearchRepositoryImpl::new(client);
 
     let mut record = base_record();
-    record.product_query = None;
     record.category_id.clear();
     record.period_id.clear();
     record.shop_name_query.clear();
@@ -181,7 +180,6 @@ async fn should_percolate_document_when_category_matches() {
     let repository = UserSearchFilterOpenSearchRepositoryImpl::new(client);
 
     let mut record = base_record();
-    record.product_query = None;
     record.category_id = HashSet::from_iter([CategoryId::from("furniture")]);
 
     let expected = index_document(&repository, record).await;
@@ -199,7 +197,6 @@ async fn should_not_percolate_document_when_category_does_not_match() {
     let repository = UserSearchFilterOpenSearchRepositoryImpl::new(client);
 
     let mut record = base_record();
-    record.product_query = None;
     record.category_id = HashSet::from_iter([CategoryId::from("ceramics")]);
 
     index_document(&repository, record).await;
@@ -218,7 +215,6 @@ async fn should_percolate_document_when_period_matches() {
     let repository = UserSearchFilterOpenSearchRepositoryImpl::new(client);
 
     let mut record = base_record();
-    record.product_query = None;
     record.period_id = HashSet::from_iter([PeriodId::from("baroque")]);
 
     let expected = index_document(&repository, record).await;
@@ -236,7 +232,6 @@ async fn should_not_percolate_document_when_period_does_not_match() {
     let repository = UserSearchFilterOpenSearchRepositoryImpl::new(client);
 
     let mut record = base_record();
-    record.product_query = None;
     record.period_id = HashSet::from_iter([PeriodId::from("modernism")]);
 
     index_document(&repository, record).await;
@@ -255,7 +250,6 @@ async fn should_percolate_document_when_shop_name_matches() {
     let repository = UserSearchFilterOpenSearchRepositoryImpl::new(client);
 
     let mut record = base_record();
-    record.product_query = None;
     record.shop_name_query = HashSet::from_iter(["Imperial Antiques".into()]);
 
     let expected = index_document(&repository, record).await;
@@ -273,7 +267,6 @@ async fn should_not_percolate_document_when_shop_name_does_not_match() {
     let repository = UserSearchFilterOpenSearchRepositoryImpl::new(client);
 
     let mut record = base_record();
-    record.product_query = None;
     record.shop_name_query = HashSet::from_iter(["Other Shop".into()]);
 
     index_document(&repository, record).await;
@@ -292,7 +285,6 @@ async fn should_not_percolate_document_when_excluded_shop_name_matches_product()
     let repository = UserSearchFilterOpenSearchRepositoryImpl::new(client);
 
     let mut record = base_record();
-    record.product_query = None;
     record.exclude_shop_name_query = HashSet::from_iter(["Imperial Antiques".into()]);
 
     index_document(&repository, record).await;
@@ -311,7 +303,6 @@ async fn should_percolate_document_when_excluded_shop_name_does_not_match_produc
     let repository = UserSearchFilterOpenSearchRepositoryImpl::new(client);
 
     let mut record = base_record();
-    record.product_query = None;
     record.exclude_shop_name_query = HashSet::from_iter(["Different Shop".into()]);
 
     let expected = index_document(&repository, record).await;
@@ -329,7 +320,6 @@ async fn should_percolate_document_when_shop_type_matches() {
     let repository = UserSearchFilterOpenSearchRepositoryImpl::new(client);
 
     let mut record = base_record();
-    record.product_query = None;
     record.shop_type_query = HashSet::from_iter([ShopTypeRecord::CommercialDealer]);
 
     let expected = index_document(&repository, record).await;
@@ -347,7 +337,6 @@ async fn should_not_percolate_document_when_shop_type_does_not_match() {
     let repository = UserSearchFilterOpenSearchRepositoryImpl::new(client);
 
     let mut record = base_record();
-    record.product_query = None;
     record.shop_type_query = HashSet::from_iter([ShopTypeRecord::Marketplace]);
 
     index_document(&repository, record).await;
@@ -366,7 +355,6 @@ async fn should_percolate_document_when_state_matches() {
     let repository = UserSearchFilterOpenSearchRepositoryImpl::new(client);
 
     let mut record = base_record();
-    record.product_query = None;
     record.state_query =
         HashSet::from_iter([product::dynamodb::product_state_record::ProductStateRecord::Listed]);
 
@@ -385,7 +373,6 @@ async fn should_not_percolate_document_when_state_does_not_match() {
     let repository = UserSearchFilterOpenSearchRepositoryImpl::new(client);
 
     let mut record = base_record();
-    record.product_query = None;
     record.state_query =
         HashSet::from_iter([product::dynamodb::product_state_record::ProductStateRecord::Sold]);
 
@@ -405,7 +392,6 @@ async fn should_percolate_document_when_price_is_greater_than_or_equal_to_minimu
     let repository = UserSearchFilterOpenSearchRepositoryImpl::new(client);
 
     let mut record = base_record();
-    record.product_query = None;
     record.currency = common::currency::record::CurrencyRecord::Eur;
     record.price_query = Some(RangeQuery {
         min: Some(100),
@@ -427,7 +413,6 @@ async fn should_not_percolate_document_when_price_is_below_minimum_for_currency(
     let repository = UserSearchFilterOpenSearchRepositoryImpl::new(client);
 
     let mut record = base_record();
-    record.product_query = None;
     record.currency = common::currency::record::CurrencyRecord::Eur;
     record.price_query = Some(RangeQuery {
         min: Some(151),
@@ -450,7 +435,6 @@ async fn should_percolate_document_when_price_is_less_than_or_equal_to_maximum_f
     let repository = UserSearchFilterOpenSearchRepositoryImpl::new(client);
 
     let mut record = base_record();
-    record.product_query = None;
     record.currency = common::currency::record::CurrencyRecord::Eur;
     record.price_query = Some(RangeQuery {
         min: None,
@@ -472,7 +456,6 @@ async fn should_not_percolate_document_when_price_is_above_maximum_for_currency(
     let repository = UserSearchFilterOpenSearchRepositoryImpl::new(client);
 
     let mut record = base_record();
-    record.product_query = None;
     record.currency = common::currency::record::CurrencyRecord::Eur;
     record.price_query = Some(RangeQuery {
         min: None,
@@ -495,7 +478,6 @@ async fn should_percolate_document_when_price_is_within_min_and_max_range() {
     let repository = UserSearchFilterOpenSearchRepositoryImpl::new(client);
 
     let mut record = base_record();
-    record.product_query = None;
     record.currency = common::currency::record::CurrencyRecord::Eur;
     record.price_query = Some(RangeQuery {
         min: Some(120),
@@ -517,7 +499,6 @@ async fn should_not_percolate_document_when_price_is_outside_min_and_max_range()
     let repository = UserSearchFilterOpenSearchRepositoryImpl::new(client);
 
     let mut record = base_record();
-    record.product_query = None;
     record.currency = common::currency::record::CurrencyRecord::Eur;
     record.price_query = Some(RangeQuery {
         min: Some(10),
@@ -544,7 +525,6 @@ async fn should_percolate_document_when_usd_price_range_matches_usd_price() {
     product.price_usd = Some(220);
 
     let mut record = base_record();
-    record.product_query = None;
     record.currency = common::currency::record::CurrencyRecord::Usd;
     record.price_query = Some(RangeQuery {
         min: Some(200),
@@ -565,7 +545,6 @@ async fn should_not_percolate_document_when_selected_currency_price_field_is_mis
     let product = base_product_document();
 
     let mut record = base_record();
-    record.product_query = None;
     record.currency = common::currency::record::CurrencyRecord::Usd;
     record.price_query = Some(RangeQuery {
         min: Some(1),
@@ -585,7 +564,6 @@ async fn should_percolate_document_when_origin_year_exactly_matches_stored_exact
     let repository = UserSearchFilterOpenSearchRepositoryImpl::new(client);
 
     let mut record = base_record();
-    record.product_query = None;
     record.origin_year_query = Some(RangeQuery {
         min: Some(Year::from(1780)),
         max: Some(Year::from(1780)),
@@ -606,7 +584,6 @@ async fn should_not_percolate_document_when_origin_year_exact_does_not_match_sto
     let repository = UserSearchFilterOpenSearchRepositoryImpl::new(client);
 
     let mut record = base_record();
-    record.product_query = None;
     record.origin_year_query = Some(RangeQuery {
         min: Some(Year::from(1781)),
         max: Some(Year::from(1781)),
@@ -628,7 +605,6 @@ async fn should_percolate_document_when_origin_year_min_matches_stored_year_rang
     let repository = UserSearchFilterOpenSearchRepositoryImpl::new(client);
 
     let mut record = base_record();
-    record.product_query = None;
     record.origin_year_query = Some(RangeQuery {
         min: Some(Year::from(1770)),
         max: None,
@@ -649,7 +625,6 @@ async fn should_not_percolate_document_when_origin_year_min_exceeds_stored_year_
     let repository = UserSearchFilterOpenSearchRepositoryImpl::new(client);
 
     let mut record = base_record();
-    record.product_query = None;
     record.origin_year_query = Some(RangeQuery {
         min: Some(Year::from(1810)),
         max: None,
@@ -671,7 +646,6 @@ async fn should_percolate_document_when_origin_year_max_matches_stored_year_rang
     let repository = UserSearchFilterOpenSearchRepositoryImpl::new(client);
 
     let mut record = base_record();
-    record.product_query = None;
     record.origin_year_query = Some(RangeQuery {
         min: None,
         max: Some(Year::from(1790)),
@@ -692,7 +666,6 @@ async fn should_not_percolate_document_when_origin_year_max_is_before_stored_yea
     let repository = UserSearchFilterOpenSearchRepositoryImpl::new(client);
 
     let mut record = base_record();
-    record.product_query = None;
     record.origin_year_query = Some(RangeQuery {
         min: None,
         max: Some(Year::from(1700)),
@@ -714,7 +687,6 @@ async fn should_percolate_document_when_origin_year_range_overlaps_stored_year_r
     let repository = UserSearchFilterOpenSearchRepositoryImpl::new(client);
 
     let mut record = base_record();
-    record.product_query = None;
     record.origin_year_query = Some(RangeQuery {
         min: Some(Year::from(1775)),
         max: Some(Year::from(1785)),
@@ -735,7 +707,6 @@ async fn should_not_percolate_document_when_origin_year_range_does_not_overlap_s
     let repository = UserSearchFilterOpenSearchRepositoryImpl::new(client);
 
     let mut record = base_record();
-    record.product_query = None;
     record.origin_year_query = Some(RangeQuery {
         min: Some(Year::from(1600)),
         max: Some(Year::from(1700)),
@@ -757,7 +728,6 @@ async fn should_percolate_document_when_authenticity_matches() {
     let repository = UserSearchFilterOpenSearchRepositoryImpl::new(client);
 
     let mut record = base_record();
-    record.product_query = None;
     record.authenticity_query =
         HashSet::from_iter([product::dynamodb::authenticity_record::AuthenticityRecord::Original]);
 
@@ -776,7 +746,6 @@ async fn should_not_percolate_document_when_authenticity_does_not_match() {
     let repository = UserSearchFilterOpenSearchRepositoryImpl::new(client);
 
     let mut record = base_record();
-    record.product_query = None;
     record.authenticity_query = HashSet::from_iter([
         product::dynamodb::authenticity_record::AuthenticityRecord::Questionable,
     ]);
@@ -797,7 +766,6 @@ async fn should_percolate_document_when_condition_matches() {
     let repository = UserSearchFilterOpenSearchRepositoryImpl::new(client);
 
     let mut record = base_record();
-    record.product_query = None;
     record.condition_query =
         HashSet::from_iter([product::dynamodb::condition_record::ConditionRecord::Good]);
 
@@ -816,7 +784,6 @@ async fn should_not_percolate_document_when_condition_does_not_match() {
     let repository = UserSearchFilterOpenSearchRepositoryImpl::new(client);
 
     let mut record = base_record();
-    record.product_query = None;
     record.condition_query =
         HashSet::from_iter([product::dynamodb::condition_record::ConditionRecord::Poor]);
 
@@ -836,7 +803,6 @@ async fn should_percolate_document_when_provenance_matches() {
     let repository = UserSearchFilterOpenSearchRepositoryImpl::new(client);
 
     let mut record = base_record();
-    record.product_query = None;
     record.provenance_query =
         HashSet::from_iter([product::dynamodb::provenance_record::ProvenanceRecord::Complete]);
 
@@ -855,7 +821,6 @@ async fn should_not_percolate_document_when_provenance_does_not_match() {
     let repository = UserSearchFilterOpenSearchRepositoryImpl::new(client);
 
     let mut record = base_record();
-    record.product_query = None;
     record.provenance_query =
         HashSet::from_iter([product::dynamodb::provenance_record::ProvenanceRecord::None]);
 
@@ -875,7 +840,6 @@ async fn should_percolate_document_when_restoration_matches() {
     let repository = UserSearchFilterOpenSearchRepositoryImpl::new(client);
 
     let mut record = base_record();
-    record.product_query = None;
     record.restoration_query =
         HashSet::from_iter([product::dynamodb::restoration_record::RestorationRecord::Major]);
 
@@ -894,7 +858,6 @@ async fn should_not_percolate_document_when_restoration_does_not_match() {
     let repository = UserSearchFilterOpenSearchRepositoryImpl::new(client);
 
     let mut record = base_record();
-    record.product_query = None;
     record.restoration_query =
         HashSet::from_iter([product::dynamodb::restoration_record::RestorationRecord::None]);
 
@@ -914,7 +877,6 @@ async fn should_percolate_document_when_created_is_within_min_and_max_range() {
     let repository = UserSearchFilterOpenSearchRepositoryImpl::new(client);
 
     let mut record = base_record();
-    record.product_query = None;
     record.created_query = Some(RangeQuery {
         min: Some(datetime!(2024-01-09 00:00:00 UTC)),
         max: Some(datetime!(2024-01-11 00:00:00 UTC)),
@@ -935,7 +897,6 @@ async fn should_not_percolate_document_when_created_is_outside_range() {
     let repository = UserSearchFilterOpenSearchRepositoryImpl::new(client);
 
     let mut record = base_record();
-    record.product_query = None;
     record.created_query = Some(RangeQuery {
         min: Some(datetime!(2024-01-11 00:00:01 UTC)),
         max: Some(datetime!(2024-01-12 00:00:00 UTC)),
@@ -957,7 +918,6 @@ async fn should_percolate_document_when_updated_is_within_min_and_max_range() {
     let repository = UserSearchFilterOpenSearchRepositoryImpl::new(client);
 
     let mut record = base_record();
-    record.product_query = None;
     record.updated_query = Some(RangeQuery {
         min: Some(datetime!(2024-01-14 00:00:00 UTC)),
         max: Some(datetime!(2024-01-16 00:00:00 UTC)),
@@ -978,7 +938,6 @@ async fn should_not_percolate_document_when_updated_is_outside_range() {
     let repository = UserSearchFilterOpenSearchRepositoryImpl::new(client);
 
     let mut record = base_record();
-    record.product_query = None;
     record.updated_query = Some(RangeQuery {
         min: Some(datetime!(2024-01-16 00:00:01 UTC)),
         max: Some(datetime!(2024-01-17 00:00:00 UTC)),
@@ -1000,7 +959,6 @@ async fn should_percolate_document_when_auction_start_is_within_min_and_max_rang
     let repository = UserSearchFilterOpenSearchRepositoryImpl::new(client);
 
     let mut record = base_record();
-    record.product_query = None;
     record.auction_start_query = Some(RangeQuery {
         min: Some(datetime!(2024-01-20 00:00:00 UTC)),
         max: Some(datetime!(2024-01-21 00:00:00 UTC)),
@@ -1021,7 +979,6 @@ async fn should_not_percolate_document_when_auction_start_is_outside_range() {
     let repository = UserSearchFilterOpenSearchRepositoryImpl::new(client);
 
     let mut record = base_record();
-    record.product_query = None;
     record.auction_start_query = Some(RangeQuery {
         min: Some(datetime!(2024-01-21 00:00:01 UTC)),
         max: Some(datetime!(2024-01-22 00:00:00 UTC)),
@@ -1043,7 +1000,6 @@ async fn should_percolate_document_when_auction_end_is_within_min_and_max_range(
     let repository = UserSearchFilterOpenSearchRepositoryImpl::new(client);
 
     let mut record = base_record();
-    record.product_query = None;
     record.auction_end_query = Some(RangeQuery {
         min: Some(datetime!(2024-01-25 00:00:00 UTC)),
         max: Some(datetime!(2024-01-26 00:00:00 UTC)),
@@ -1064,7 +1020,6 @@ async fn should_not_percolate_document_when_auction_end_is_outside_range() {
     let repository = UserSearchFilterOpenSearchRepositoryImpl::new(client);
 
     let mut record = base_record();
-    record.product_query = None;
     record.auction_end_query = Some(RangeQuery {
         min: Some(datetime!(2024-01-26 00:00:01 UTC)),
         max: Some(datetime!(2024-01-27 00:00:00 UTC)),
@@ -1090,7 +1045,6 @@ async fn should_not_percolate_document_when_auction_start_query_is_given_but_pro
     product.auction_start = None;
 
     let mut record = base_record();
-    record.product_query = None;
     record.auction_start_query = Some(RangeQuery {
         min: Some(datetime!(2024-01-20 00:00:00 UTC)),
         max: Some(datetime!(2024-01-21 00:00:00 UTC)),
@@ -1113,7 +1067,6 @@ async fn should_not_percolate_document_when_auction_end_query_is_given_but_produ
     product.auction_end = None;
 
     let mut record = base_record();
-    record.product_query = None;
     record.auction_end_query = Some(RangeQuery {
         min: Some(datetime!(2024-01-25 00:00:00 UTC)),
         max: Some(datetime!(2024-01-26 00:00:00 UTC)),
@@ -1134,7 +1087,7 @@ async fn should_percolate_only_documents_that_match_when_multiple_filters_are_in
     let mut matching_record = base_record();
     matching_record.user_search_filter_id = UserSearchFilterId::new();
     matching_record.name = "matching".into();
-    matching_record.product_query = Some("renaissance".try_into().unwrap());
+    matching_record.product_query = Some("renaissance cabinet".try_into().unwrap());
     matching_record.category_id = HashSet::from_iter([CategoryId::from("furniture")]);
     matching_record.shop_name_query = HashSet::from_iter(["Imperial Antiques".into()]);
     matching_record.price_query = Some(RangeQuery {
@@ -1145,7 +1098,7 @@ async fn should_percolate_only_documents_that_match_when_multiple_filters_are_in
     let mut non_matching_record = base_record();
     non_matching_record.user_search_filter_id = UserSearchFilterId::new();
     non_matching_record.name = "non matching".into();
-    non_matching_record.product_query = Some("renaissance".try_into().unwrap());
+    non_matching_record.product_query = Some("renaissance cabinet".try_into().unwrap());
     non_matching_record.category_id = HashSet::from_iter([CategoryId::from("ceramics")]);
     non_matching_record.shop_name_query = HashSet::from_iter(["Imperial Antiques".into()]);
 
@@ -1168,13 +1121,12 @@ async fn should_percolate_multiple_documents_when_all_match() {
     let mut first_record = base_record();
     first_record.user_search_filter_id = UserSearchFilterId::new();
     first_record.name = "first".into();
-    first_record.product_query = Some("renaissance".try_into().unwrap());
+    first_record.product_query = Some("renaissance cabinet".try_into().unwrap());
     first_record.category_id = HashSet::from_iter([CategoryId::from("furniture")]);
 
     let mut second_record = base_record();
     second_record.user_search_filter_id = UserSearchFilterId::new();
     second_record.name = "second".into();
-    second_record.product_query = None;
     second_record.shop_name_query = HashSet::from_iter(["Imperial Antiques".into()]);
     second_record.state_query =
         HashSet::from_iter([product::dynamodb::product_state_record::ProductStateRecord::Listed]);
@@ -1203,7 +1155,7 @@ fn base_record() -> UserSearchFilterRecord {
         user_search_filter_id,
         name: "imperial filter".into(),
         notifications: true,
-        product_query: Some("renaissance".try_into().unwrap()),
+        product_query: Some("renaissance cabinet".try_into().unwrap()),
         category_id: HashSet::from_iter([CategoryId::from("furniture")]),
         period_id: HashSet::from_iter([PeriodId::from("baroque")]),
         shop_name_query: HashSet::new(),
