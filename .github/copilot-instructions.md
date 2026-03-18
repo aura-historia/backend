@@ -6,6 +6,14 @@ Always reference these instructions first and fallback to search or bash command
 
 ## Working Effectively
 
+## Core development guidelines
+- Prefer **intermediate commits** instead of one big commit to save progress when working on larger tasks.
+- Name branches according to:
+  - fix/#\[ISSUE_NUMBER\]-issue-title for bug-tickets
+  - epic/#\[ISSUE_NUMBER\]-issue-title for epic-tickets
+  - feat/#\[ISSUE_NUMBER\]-issue-title for feature-tickets
+  - task/#\[ISSUE_NUMBER\]-issue-title for task-tickets
+
 ### Bootstrap and Build
 - Install Rust toolchain: `rustup install stable && rustup default stable`
 - Bootstrap the workspace: `cd /home/runner/work/backend/backend`
@@ -17,8 +25,8 @@ Always reference these instructions first and fallback to search or bash command
 - Lint check: `cargo clippy --workspace --all-targets --all-features -- -D warnings` -- takes 15 seconds
 
 ### Testing
-- **Unit tests**: `cargo test --workspace --lib --all-features` -- takes 35 seconds. Set timeout to 2+ minutes. Apply parameterized testing with crate `rstest` when plausible, e.g. for serialization.
-- **Integration tests**: Require additional setup (see Prerequisites section)
+- **Unit tests**: `cargo test --workspace --lib --all-features` -- takes 120 seconds. Set timeout to 5+ minutes. Apply parameterized testing with crate `rstest` when plausible, e.g. for serialization.
+- **Integration tests**: In-house localstack test-api for fully self-contained integration-tests - can be run any time without additional setup (needs docker service running).
 - All test names need to follow a consistent naming convention, e.g., `should_[expectation]_when_[condition]_for_[purpose]`. The placeholders can be replaced with many words, e.g. `should_serialize_data_when_valid_for_storing`. Provide meaningful test-names that describe the purpose of the test.
 - Most types have an instance for `fake::Dummy<fake::Faker>`. Our internal crates provide this functionality via feature-flag `test-data`. You may need to include it for dev-dependencies. Use it to generate test data when plausible.
 
@@ -33,7 +41,7 @@ Always reference these instructions first and fallback to search or bash command
 ### Always Validate Changes
 - **ALWAYS** run format and lint checks before committing: `cargo fmt --all -- --check && cargo clippy --workspace --all-targets --all-features -- -D warnings`
 - **ALWAYS** run unit tests after code changes: `cargo test --workspace --lib --all-features`
-- Run integration tests when changing core functionality: `cargo test --workspace --all-features --test '*'`
+- Run affected integration for changes: `cargo test --workspace --all-features --test '*'`
 
 ### Manual Testing Scenarios
 Since this is a serverless backend, manual testing involves:
@@ -44,7 +52,7 @@ Since this is a serverless backend, manual testing involves:
 
 ### Limitations
 - **Cannot run Lambda functions locally** without cargo-lambda and proper AWS setup
-- **OpenSearch tests often timeout** in CI environments (5+ minutes, often fail)
+- **OpenSearch tests take around 70+s to start**
 - **Full integration testing requires network access** for tool installation
 - **No CLI applications** - all components are Lambda functions or libraries
 

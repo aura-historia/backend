@@ -208,7 +208,7 @@ async fn set_up_table_1() -> Result<(), Error> {
                 )
                 .projection(
                     Projection::builder()
-                        .projection_type(ProjectionType::KeysOnly)
+                        .projection_type(ProjectionType::All)
                         .build(),
                 )
                 .build()?,
