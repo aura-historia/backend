@@ -2827,6 +2827,9 @@ mod tests {
                 .unwrap();
 
             assert_eq!(actual.len(), 1);
+        }
+    }
+
     mod template_rendering_tests {
         use super::*;
         use crate::core::notification::NotificationSearchFilterPayload;
