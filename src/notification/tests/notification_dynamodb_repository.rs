@@ -563,7 +563,7 @@ fn should_query_product_notification_records_when_product_has_notifications() {
     }
 
     let actual = repository
-        .query_product_notification_records(&user_id, &product_id, None)
+        .query_product_notification_records(&user_id, &product_id, None, true)
         .await
         .unwrap();
 
@@ -593,7 +593,7 @@ fn should_query_product_notification_records_empty_when_no_notifications_for_pro
     }
 
     let actual = repository
-        .query_product_notification_records(&user_id, &product_id, None)
+        .query_product_notification_records(&user_id, &product_id, None, true)
         .await
         .unwrap();
 
@@ -622,7 +622,7 @@ fn should_query_product_notification_records_with_limit() {
     }
 
     let actual = repository
-        .query_product_notification_records(&user_id, &product_id, Some(2))
+        .query_product_notification_records(&user_id, &product_id, Some(2), true)
         .await
         .unwrap();
 
@@ -651,11 +651,50 @@ fn should_query_product_notification_records_with_limit_returns_all_when_none() 
     }
 
     let actual = repository
-        .query_product_notification_records(&user_id, &product_id, None)
+        .query_product_notification_records(&user_id, &product_id, None, true)
         .await
         .unwrap();
 
     assert_eq!(5, actual.len());
+}
+
+#[localstack_test(services = [DynamoDB()])]
+fn should_query_product_notification_records_scan_index_forward_false_returns_latest_first() {
+    let repository = get_repository().await;
+    let user_id = UserId::new();
+    let product_id = common::product_id::ProductId::new();
+
+    let mut records = fake::vec![NotificationRecord; 5];
+    for record in &mut records {
+        record.pk = mk_pk(&user_id);
+        record.user_id = user_id;
+        record.product_id = Some(product_id);
+        record.lsi2_sk = Some(notification::dynamodb::notification_record::mk_lsi2_sk(
+            &product_id,
+            &record.origin_event_id,
+        ));
+        let _ = repository
+            .put_notification_record(record.clone())
+            .await
+            .unwrap();
+    }
+
+    let forward = repository
+        .query_product_notification_records(&user_id, &product_id, Some(1), true)
+        .await
+        .unwrap();
+
+    let backward = repository
+        .query_product_notification_records(&user_id, &product_id, Some(1), false)
+        .await
+        .unwrap();
+
+    assert_eq!(1, forward.len());
+    assert_eq!(1, backward.len());
+    assert_ne!(
+        forward[0].origin_event_id, backward[0].origin_event_id,
+        "Forward and backward should return different records (first vs last)"
+    );
 }
 
 #[localstack_test(services = [DynamoDB()])]
@@ -696,12 +735,12 @@ fn should_query_product_notification_records_only_for_matching_product() {
     }
 
     let actual_a = repository
-        .query_product_notification_records(&user_id, &product_id_a, None)
+        .query_product_notification_records(&user_id, &product_id_a, None, true)
         .await
         .unwrap();
 
     let actual_b = repository
-        .query_product_notification_records(&user_id, &product_id_b, None)
+        .query_product_notification_records(&user_id, &product_id_b, None, true)
         .await
         .unwrap();
 

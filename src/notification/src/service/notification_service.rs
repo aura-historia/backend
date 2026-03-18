@@ -161,6 +161,7 @@ pub trait NotificationService {
         user_id: &UserId,
         product_id: &ProductId,
         limit: Option<i32>,
+        scan_index_forward: bool,
     ) -> Result<Vec<Notification>, NotificationError>;
 }
 
@@ -903,10 +904,11 @@ impl<'a> NotificationService for NotificationServiceImpl<'a> {
         user_id: &UserId,
         product_id: &ProductId,
         limit: Option<i32>,
+        scan_index_forward: bool,
     ) -> Result<Vec<Notification>, NotificationError> {
         let records = self
             .notification_repository
-            .query_product_notification_records(user_id, product_id, limit)
+            .query_product_notification_records(user_id, product_id, limit, scan_index_forward)
             .await?;
 
         let notifications = records
@@ -2702,7 +2704,7 @@ mod tests {
             let mut repository = MockNotificationDynamoDbRepository::default();
             repository
                 .expect_query_product_notification_records()
-                .return_once(|_, _, _| Box::pin(async { Ok(vec![]) }));
+                .return_once(|_, _, _, _| Box::pin(async { Ok(vec![]) }));
 
             let user_service = MockUserService::default();
             let ses_adapter = MockSesAdapter::default();
@@ -2710,7 +2712,7 @@ mod tests {
             let service = make_service(&repository, &user_service, &ses_adapter, &s3_adapter);
 
             let actual = service
-                .find_notifications_by_product(&UserId::new(), &ProductId::new(), None)
+                .find_notifications_by_product(&UserId::new(), &ProductId::new(), None, false)
                 .await
                 .unwrap();
 
@@ -2722,7 +2724,7 @@ mod tests {
             let mut repository = MockNotificationDynamoDbRepository::default();
             repository
                 .expect_query_product_notification_records()
-                .return_once(|_, _, _| {
+                .return_once(|_, _, _, _| {
                     Box::pin(async {
                         let record: NotificationRecord = Faker.fake();
                         Ok(vec![record])
@@ -2735,7 +2737,7 @@ mod tests {
             let service = make_service(&repository, &user_service, &ses_adapter, &s3_adapter);
 
             let actual = service
-                .find_notifications_by_product(&UserId::new(), &ProductId::new(), Some(10))
+                .find_notifications_by_product(&UserId::new(), &ProductId::new(), Some(10), false)
                 .await
                 .unwrap();
 

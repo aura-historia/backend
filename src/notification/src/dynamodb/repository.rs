@@ -84,6 +84,7 @@ pub trait NotificationDynamoDbRepository {
         user_id: &UserId,
         product_id: &ProductId,
         limit: Option<i32>,
+        scan_index_forward: bool,
     ) -> Result<Vec<NotificationRecord>, SdkError<QueryError>>;
 }
 
@@ -397,6 +398,7 @@ impl<'a> NotificationDynamoDbRepository for NotificationDynamoDbRepositoryImpl<'
         user_id: &UserId,
         product_id: &ProductId,
         limit: Option<i32>,
+        scan_index_forward: bool,
     ) -> Result<Vec<NotificationRecord>, SdkError<QueryError>> {
         let (prefix, _) = mk_lsi2_sk_product_prefix(product_id);
 
@@ -409,7 +411,8 @@ impl<'a> NotificationDynamoDbRepository for NotificationDynamoDbRepositoryImpl<'
             .expression_attribute_names("#pk", "pk")
             .expression_attribute_names("#lsi2_sk", "lsi2_sk")
             .expression_attribute_values(":pk_val", AttributeValue::S(mk_pk(user_id)))
-            .expression_attribute_values(":prefix", AttributeValue::S(prefix));
+            .expression_attribute_values(":prefix", AttributeValue::S(prefix))
+            .scan_index_forward(scan_index_forward);
 
         if let Some(n) = limit {
             query_builder = query_builder.limit(n);
