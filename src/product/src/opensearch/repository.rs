@@ -299,18 +299,45 @@ pub fn build_search_query(search: &ProductSearch) -> Result<serde_json::Value, s
         must.push(json!({
             "bool": {
                 "must": [
-                    {
-                        "multi_match": {
+                  {
+                    "bool": {
+                      "should": [
+                        // Primary (preferred)
+                        {
+                          "multi_match": {
                             "query": product_query,
                             "fields": [
-                                format!("{title_field}^5")
+                              format!("{title_field}^5")
                             ],
                             "type": "best_fields",
                             "operator": "and"
+                          }
+                        },
+                        // Fallback ONLY
+                        {
+                          "bool": {
+                            "must": [
+                              {
+                                "multi_match": {
+                                  "query": product_query,
+                                  "fields": [
+                                    "titleNative.text^3"
+                                  ],
+                                  "type": "best_fields",
+                                  "operator": "and"
+                                }
+                              }
+                            ],
+                            "boost": 0.7
+                          }
                         }
+                      ],
+                      "minimum_should_match": 1
                     }
+                  }
                 ],
                 "should": [
+                    // Strong exact phrase (language-specific)
                     {
                         "match_phrase": {
                             title_field.as_str(): {
@@ -319,6 +346,18 @@ pub fn build_search_query(search: &ProductSearch) -> Result<serde_json::Value, s
                             }
                         }
                     },
+
+                    // Add native title phrase boost (lower!)
+                    {
+                        "match_phrase": {
+                            "titleNative.text": {
+                                "query": product_query,
+                                "boost": 3
+                            }
+                        }
+                    },
+
+                    // Fuzzy + recall layer (language-specific)
                     {
                         "multi_match": {
                             "query": product_query,
