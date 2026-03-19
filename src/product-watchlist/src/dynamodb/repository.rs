@@ -92,6 +92,13 @@ impl<'a> WatchlistProductDynamoDbRepositoryImpl<'a> {
     }
 }
 
+/// Table sort-key prefix shared by all watchlist records (`product#watch#shop_id#…`).
+/// Used in a `begins_with` filter expression to enforce double-sided bounds: only items
+/// whose `sk` starts with this prefix — i.e. genuine watchlist records — are returned,
+/// preventing other record types in the same partition (e.g. notification records whose
+/// `lsi1_sk` could otherwise fall inside the queried range) from leaking into results.
+const SK_PREFIX: &str = "product#watch#";
+
 #[async_trait::async_trait]
 impl<'a> WatchlistProductDynamoDbRepository for WatchlistProductDynamoDbRepositoryImpl<'a> {
     async fn query_watchlist_records_all(
@@ -159,15 +166,20 @@ impl<'a> WatchlistProductDynamoDbRepository for WatchlistProductDynamoDbReposito
             .table_name(&self.table)
             .index_name("lsi1")
             .key_condition_expression(key_condition_expression)
+            .filter_expression("begins_with(#sk, :sk_prefix)")
             .expression_attribute_names("#pk", "pk")
             .expression_attribute_names("#lsi1_sk", "lsi1_sk")
-            .expression_attribute_values(
-                ":pk_val",
-                AttributeValue::S(mk_pk(user_id)),
-            )
+            .expression_attribute_names("#sk", "sk")
+            .expression_attribute_values(":pk_val", AttributeValue::S(mk_pk(user_id)))
             .expression_attribute_values(
                 ":lsi1_sk_val_exclusive_guard",
-                AttributeValue::S(mk_lsi1_sk(&exclusive_guard).map_err(SdkError::construction_failure)?),
+                AttributeValue::S(
+                    mk_lsi1_sk(&exclusive_guard).map_err(SdkError::construction_failure)?,
+                ),
+            )
+            .expression_attribute_values(
+                ":sk_prefix",
+                AttributeValue::S(SK_PREFIX.to_string()),
             )
             .limit(cursor.size as i32)
             .scan_index_forward(scan_index_forward)
@@ -214,8 +226,10 @@ impl<'a> WatchlistProductDynamoDbRepository for WatchlistProductDynamoDbReposito
             .table_name(&self.table)
             .index_name("lsi1")
             .key_condition_expression(key_condition_expression)
+            .filter_expression("begins_with(#sk, :sk_prefix)")
             .expression_attribute_names("#pk", "pk")
             .expression_attribute_names("#lsi1_sk", "lsi1_sk")
+            .expression_attribute_names("#sk", "sk")
             .expression_attribute_values(":pk_val", AttributeValue::S(mk_pk(user_id)))
             .expression_attribute_values(
                 ":lsi1_sk_val_exclusive_guard",
@@ -223,6 +237,7 @@ impl<'a> WatchlistProductDynamoDbRepository for WatchlistProductDynamoDbReposito
                     mk_lsi1_sk(&exclusive_guard).map_err(SdkError::construction_failure)?,
                 ),
             )
+            .expression_attribute_values(":sk_prefix", AttributeValue::S(SK_PREFIX.to_string()))
             .scan_index_forward(scan_index_forward)
             .select(aws_sdk_dynamodb::types::Select::Count)
             .send()
