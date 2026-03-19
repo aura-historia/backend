@@ -136,15 +136,15 @@ impl<'a> NotificationDynamoDbRepository for NotificationDynamoDbRepositoryImpl<'
             .query()
             .table_name(&self.table)
             .key_condition_expression(key_condition_expression)
-            .filter_expression("#sk >= :sk_lower")
+            .filter_expression("attribute_exists(#origin_event_id)")
             .expression_attribute_names("#pk", "pk")
             .expression_attribute_names("#sk", "sk")
+            .expression_attribute_names("#origin_event_id", "origin_event_id")
             .expression_attribute_values(":pk_val", AttributeValue::S(mk_pk(user_id)))
             .expression_attribute_values(
                 ":sk_val_exclusive_guard",
                 AttributeValue::S(exclusive_guard),
             )
-            .expression_attribute_values(":sk_lower", AttributeValue::S(SK_LOWER_BOUND.to_string()))
             .limit(cursor.size as i32)
             .scan_index_forward(scan_index_forward)
             .send()
@@ -198,15 +198,15 @@ impl<'a> NotificationDynamoDbRepository for NotificationDynamoDbRepositoryImpl<'
             .query()
             .table_name(&self.table)
             .key_condition_expression(key_condition_expression)
-            .filter_expression("#sk >= :sk_lower")
+            .filter_expression("attribute_exists(#origin_event_id)")
             .expression_attribute_names("#pk", "pk")
             .expression_attribute_names("#sk", "sk")
+            .expression_attribute_names("#origin_event_id", "origin_event_id")
             .expression_attribute_values(":pk_val", AttributeValue::S(mk_pk(user_id)))
             .expression_attribute_values(
                 ":sk_val_exclusive_guard",
                 AttributeValue::S(exclusive_guard),
             )
-            .expression_attribute_values(":sk_lower", AttributeValue::S(SK_LOWER_BOUND.to_string()))
             .scan_index_forward(scan_index_forward)
             .select(aws_sdk_dynamodb::types::Select::Count)
             .send()
