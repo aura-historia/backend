@@ -36,6 +36,9 @@ pub trait UrlPatternService: Send + Sync {
         shop_url: &str,
         urls: &[String],
     ) -> Result<Option<Regex>, SpiderError>;
+
+    /// Marks the shop as crawled now.
+    async fn mark_as_crawled(&self, shop_url: &str) -> Result<(), SpiderError>;
 }
 
 pub struct UrlPatternServiceImpl {
@@ -68,7 +71,7 @@ impl UrlPatternService for UrlPatternServiceImpl {
             return Ok(None);
         };
 
-        let Some(raw_pattern) = record.pattern else {
+        let Some(raw_pattern) = record.url_pattern else {
             return Ok(None);
         };
 
@@ -101,6 +104,12 @@ impl UrlPatternService for UrlPatternServiceImpl {
         }
 
         Ok(pattern)
+    }
+
+    async fn mark_as_crawled(&self, shop_url: &str) -> Result<(), SpiderError> {
+        let shop_url = normalize_shop_url(shop_url)?;
+        self.repository.mark_as_crawled(&shop_url).await?;
+        Ok(())
     }
 }
 
@@ -146,7 +155,8 @@ mod service_tests {
             Box::pin(async {
                 Ok(Some(ShopUrlPatternRecord {
                     shop_url: "https://example.com".to_string(),
-                    pattern: Some("/product/".to_string()),
+                    url_pattern: Some("/product/".to_string()),
+                    last_crawled: None,
                     created: time::OffsetDateTime::now_utc(),
                     updated: time::OffsetDateTime::now_utc(),
                 }))

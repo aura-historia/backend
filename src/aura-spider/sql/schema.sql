@@ -1,6 +1,7 @@
 CREATE TABLE IF NOT EXISTS spider_shop_pattern (
     shop_url   TEXT PRIMARY KEY,
-    pattern    TEXT,
+    url_pattern TEXT,
+    last_crawled TIMESTAMPTZ,
     created    TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     updated    TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
@@ -10,6 +11,7 @@ CREATE TABLE IF NOT EXISTS spider_link (
     url        TEXT NOT NULL,
     link_class TEXT NOT NULL,
     main_hash  TEXT NOT NULL,
+    last_scraped TIMESTAMPTZ,
     created    TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     updated    TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     CHECK (char_length(shop_url) > 0),

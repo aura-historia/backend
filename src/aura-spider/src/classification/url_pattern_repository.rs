@@ -14,7 +14,9 @@ pub struct ShopUrlPatternRecord {
     /// The normalised shop origin URL used as the primary key.
     pub shop_url: String,
     /// The stored regex pattern, if any has been confirmed for this shop.
-    pub pattern: Option<String>,
+    pub url_pattern: Option<String>,
+    /// When the shop was last crawled successfully.
+    pub last_crawled: Option<OffsetDateTime>,
     /// When this record was first created.
     pub created: OffsetDateTime,
     /// When this record was last updated.
@@ -25,7 +27,8 @@ impl FromRow<'_, sqlx::postgres::PgRow> for ShopUrlPatternRecord {
     fn from_row(row: &sqlx::postgres::PgRow) -> Result<Self, sqlx::Error> {
         Ok(Self {
             shop_url: row.try_get("shop_url")?,
-            pattern: row.try_get("pattern")?,
+            url_pattern: row.try_get("url_pattern")?,
+            last_crawled: row.try_get("last_crawled")?,
             created: row.try_get("created")?,
             updated: row.try_get("updated")?,
         })
@@ -53,6 +56,9 @@ pub trait ShopUrlPatternRepository: Send + Sync {
     ///
     /// Passing `None` explicitly clears the pattern for the given shop.
     async fn save_pattern(&self, shop_url: &str, pattern: Option<&str>) -> Result<(), sqlx::Error>;
+
+    /// Marks the shop as having been crawled now.
+    async fn mark_as_crawled(&self, shop_url: &str) -> Result<(), sqlx::Error>;
 }
 
 /// PostgreSQL-backed implementation of [`ShopUrlPatternRepository`].
@@ -75,7 +81,7 @@ impl ShopUrlPatternRepository for ShopUrlPatternRepositoryImpl {
         shop_url: &str,
     ) -> Result<Option<ShopUrlPatternRecord>, sqlx::Error> {
         sqlx::query_as::<_, ShopUrlPatternRecord>(
-            "SELECT shop_url, pattern, created, updated
+            "SELECT shop_url, url_pattern, last_crawled, created, updated
              FROM spider_shop_pattern
              WHERE shop_url = $1",
         )
@@ -86,15 +92,31 @@ impl ShopUrlPatternRepository for ShopUrlPatternRepositoryImpl {
 
     async fn save_pattern(&self, shop_url: &str, pattern: Option<&str>) -> Result<(), sqlx::Error> {
         sqlx::query(
-            "INSERT INTO spider_shop_pattern (shop_url, pattern, created, updated)
+            "INSERT INTO spider_shop_pattern (shop_url, url_pattern, created, updated)
              VALUES ($1, $2, NOW(), NOW())
              ON CONFLICT (shop_url)
              DO UPDATE SET
-                 pattern = EXCLUDED.pattern,
+                 url_pattern = EXCLUDED.url_pattern,
                  updated = NOW()",
         )
         .bind(shop_url)
         .bind(pattern)
+        .execute(&self.pool)
+        .await?;
+
+        Ok(())
+    }
+
+    async fn mark_as_crawled(&self, shop_url: &str) -> Result<(), sqlx::Error> {
+        sqlx::query(
+            "INSERT INTO spider_shop_pattern (shop_url, last_crawled, created, updated)
+             VALUES ($1, NOW(), NOW(), NOW())
+             ON CONFLICT (shop_url)
+             DO UPDATE SET
+                 last_crawled = EXCLUDED.last_crawled,
+                 updated = NOW()",
+        )
+        .bind(shop_url)
         .execute(&self.pool)
         .await?;
 

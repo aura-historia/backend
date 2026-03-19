@@ -13,6 +13,7 @@ const RDS: Rds = Rds {
 // ---------------------------------------------------------------------------
 
 #[localstack_test(services = [RDS])]
+#[serial_test::serial]
 async fn should_return_none_when_no_pattern_exists_for_find() {
     let pool = get_postgres_client().await;
     let repository = ShopUrlPatternRepositoryImpl::new(pool);
@@ -26,6 +27,7 @@ async fn should_return_none_when_no_pattern_exists_for_find() {
 }
 
 #[localstack_test(services = [RDS])]
+#[serial_test::serial]
 async fn should_return_pattern_when_exists_for_find() {
     let pool = get_postgres_client().await;
     let repository = ShopUrlPatternRepositoryImpl::new(pool.clone());
@@ -41,7 +43,7 @@ async fn should_return_pattern_when_exists_for_find() {
     let result = repository.find_pattern(shop_url).await.unwrap().unwrap();
 
     assert_eq!(result.shop_url, shop_url);
-    assert_eq!(result.pattern.unwrap(), pattern);
+    assert_eq!(result.url_pattern.unwrap(), pattern);
 }
 
 // ---------------------------------------------------------------------------
@@ -49,6 +51,7 @@ async fn should_return_pattern_when_exists_for_find() {
 // ---------------------------------------------------------------------------
 
 #[localstack_test(services = [RDS])]
+#[serial_test::serial]
 async fn should_persist_and_return_pattern_for_insert() {
     let pool = get_postgres_client().await;
     let repository = ShopUrlPatternRepositoryImpl::new(pool);
@@ -64,10 +67,11 @@ async fn should_persist_and_return_pattern_for_insert() {
     let returned = repository.find_pattern(shop_url).await.unwrap().unwrap();
 
     assert_eq!(returned.shop_url, shop_url);
-    assert_eq!(returned.pattern.unwrap(), pattern);
+    assert_eq!(returned.url_pattern.unwrap(), pattern);
 }
 
 #[localstack_test(services = [RDS])]
+#[serial_test::serial]
 async fn should_preserve_created_and_updated_timestamps_for_insert() {
     let pool = get_postgres_client().await;
     let repository = ShopUrlPatternRepositoryImpl::new(pool);
@@ -100,6 +104,7 @@ async fn should_preserve_created_and_updated_timestamps_for_insert() {
 }
 
 #[localstack_test(services = [RDS])]
+#[serial_test::serial]
 async fn should_allow_clearing_pattern() {
     let pool = get_postgres_client().await;
     let repository = ShopUrlPatternRepositoryImpl::new(pool);
@@ -117,5 +122,29 @@ async fn should_allow_clearing_pattern() {
     let returned = repository.find_pattern(shop_url).await.unwrap().unwrap();
 
     assert_eq!(returned.shop_url, shop_url);
-    assert!(returned.pattern.is_none());
+    assert!(returned.url_pattern.is_none());
+}
+
+#[localstack_test(services = [RDS])]
+#[serial_test::serial]
+async fn should_mark_pattern_as_crawled() {
+    let pool = get_postgres_client().await;
+    let repository = ShopUrlPatternRepositoryImpl::new(pool);
+
+    let shop_url = "https://mark-example.com";
+
+    // Mark as crawled directly without a pattern
+    repository.mark_as_crawled(shop_url).await.unwrap();
+
+    let record = repository.find_pattern(shop_url).await.unwrap().unwrap();
+    assert!(record.last_crawled.is_some());
+    assert!(record.url_pattern.is_none());
+
+    tokio::time::sleep(std::time::Duration::from_millis(5)).await;
+
+    // Mark again
+    repository.mark_as_crawled(shop_url).await.unwrap();
+
+    let record2 = repository.find_pattern(shop_url).await.unwrap().unwrap();
+    assert!(record2.last_crawled.unwrap() > record.last_crawled.unwrap());
 }

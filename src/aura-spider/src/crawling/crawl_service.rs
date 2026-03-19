@@ -14,6 +14,9 @@ const BLACKLIST_URL_SUBSTRINGS: &[&str] = &[
     "?replytocom=",
     "&replytocom=",
     "/wp-admin/",
+    "jpg",
+    "pdf",
+    "png",
 ];
 
 /// Single crawled page represented by its normalized URL.
@@ -85,7 +88,8 @@ impl Crawler for SpiderCrawler {
 
         website
             .with_blacklist_url(Some(blacklist_regex))
-            .with_respect_robots_txt(true);
+            .with_respect_robots_txt(true)
+            .with_delay(std::time::Duration::from_millis(500).as_millis() as u64); // Delay between requests
 
         let mut spider_rx = website
             .subscribe(512)

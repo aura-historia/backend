@@ -13,6 +13,7 @@ const RDS: Rds = Rds {
 // ---------------------------------------------------------------------------
 
 #[localstack_test(services = [RDS])]
+#[serial_test::serial]
 async fn should_persist_and_return_link_metadata_for_insert() {
     let pool = get_postgres_client().await;
     let repository = LinkMetadataRepositoryImpl::new(pool);
@@ -34,6 +35,7 @@ async fn should_persist_and_return_link_metadata_for_insert() {
 }
 
 #[localstack_test(services = [RDS])]
+#[serial_test::serial]
 async fn should_update_existing_link_metadata() {
     let pool = get_postgres_client().await;
     let repository = LinkMetadataRepositoryImpl::new(pool);
@@ -68,4 +70,30 @@ async fn should_update_existing_link_metadata() {
         result2.updated > result1.updated,
         "updated timestamp should be strictly newer after an update"
     );
+}
+
+#[localstack_test(services = [RDS])]
+#[serial_test::serial]
+async fn should_mark_link_as_scraped() {
+    let pool = get_postgres_client().await;
+    let repository = LinkMetadataRepositoryImpl::new(pool);
+
+    let shop_url = "https://example.com";
+    let url = "https://example.com/product/123";
+    let link_class = "product";
+    let main_hash = "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855";
+
+    let result = repository
+        .upsert_link(shop_url, url, link_class, main_hash)
+        .await
+        .unwrap();
+
+    assert!(result.last_scraped.is_none());
+
+    tokio::time::sleep(std::time::Duration::from_millis(5)).await;
+
+    let marked = repository.mark_as_scraped(shop_url, url).await.unwrap();
+
+    assert!(marked.last_scraped.is_some());
+    assert!(marked.updated > result.updated);
 }

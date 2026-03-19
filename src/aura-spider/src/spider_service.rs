@@ -50,6 +50,13 @@ pub struct CrawledLinkMetadata {
     pub class: LinkClass,
     pub hash: String,
 
+    #[serde(
+        with = "time::serde::rfc3339::option",
+        skip_serializing_if = "Option::is_none",
+        default
+    )]
+    pub last_scraped: Option<OffsetDateTime>,
+
     #[serde(with = "time::serde::rfc3339")]
     pub created: OffsetDateTime,
 
@@ -70,6 +77,7 @@ impl From<SpiderLinkRecord> for CrawledLinkMetadata {
             url: value.url,
             class: LinkClass::from_db(&value.link_class),
             hash: value.main_hash,
+            last_scraped: value.last_scraped,
             created: value.created,
             updated: value.updated,
         }
@@ -319,6 +327,11 @@ impl SpiderService for SpiderServiceImpl {
             .persist_link_metadata(shop_url, &all_pages, &pattern)
             .await?;
 
+        // Mark the shop as crawled
+        if let Err(error) = self.pattern_service.mark_as_crawled(shop_url).await {
+            warn!(shopUrl = %shop_url, error = %error, "Failed to mark shop as crawled");
+        }
+
         Ok(SpiderRunResult {
             links,
             product_urls: confirmed_products,
@@ -433,11 +446,19 @@ mod service_tests {
                         url: url_owned,
                         link_class: "other".to_string(),
                         main_hash: "hash".to_string(),
-                        created: time::OffsetDateTime::now_utc(),
-                        updated: time::OffsetDateTime::now_utc(),
+                        last_scraped: None,
+                        created: OffsetDateTime::now_utc(),
+                        updated: OffsetDateTime::now_utc(),
                     })
                 })
             });
+    }
+
+    fn setup_mock_mark_as_crawled(mock: &mut MockUrlPatternService, shop_url: &'static str) {
+        mock.expect_mark_as_crawled()
+            .with(mockall::predicate::eq(shop_url))
+            .times(1)
+            .returning(|_| Box::pin(async { Ok(()) }));
     }
 
     #[tokio::test]
@@ -481,6 +502,8 @@ mod service_tests {
         mock_pattern_service
             .expect_classify_and_save()
             .returning(|_, _| Box::pin(async { Ok(Some(Regex::new(r"/product/").unwrap())) }));
+
+        setup_mock_mark_as_crawled(&mut mock_pattern_service, shop_url);
 
         setup_mock_link_repo(&mut mock_link_repo, 2);
 
@@ -534,6 +557,8 @@ mod service_tests {
             .times(1)
             .returning(|_, _| Box::pin(async { Ok(Some(Regex::new(r"/product/").unwrap())) }));
 
+        setup_mock_mark_as_crawled(&mut mock_pattern_service, shop_url);
+
         setup_mock_link_repo(&mut mock_link_repo, 1);
 
         let service = SpiderServiceImpl::new(
@@ -584,6 +609,8 @@ mod service_tests {
             .expect_classify_and_save()
             .times(1)
             .returning(|_, _| Box::pin(async { Ok(Some(Regex::new(r"/item/").unwrap())) }));
+
+        setup_mock_mark_as_crawled(&mut mock_pattern_service, shop_url);
 
         setup_mock_link_repo(&mut mock_link_repo, 1);
 
