@@ -8,6 +8,8 @@ use common::{
     slug_id::SlugId,
 };
 use product::data::product_state_data::ProductStateData;
+use search_filter::core::user_search_filter_id::UserSearchFilterId;
+use search_filter::core::user_search_filter_name::UserSearchFilterName;
 use serde::{Deserialize, Serialize};
 use time::OffsetDateTime;
 
@@ -42,6 +44,17 @@ pub enum NotificationPayloadData {
         title: LocalizedTextData,
         watchlist_payload: WatchlistPayloadData,
     },
+    #[serde(rename_all = "camelCase")]
+    SearchFilter {
+        product_id: ProductId,
+        shop_id: ShopId,
+        shops_product_id: ShopsProductId,
+        shop_slug_id: SlugId<0>,
+        product_slug_id: SlugId<6>,
+        shop_name: ShopName,
+        title: LocalizedTextData,
+        search_filter_payload: SearchFilterPayloadData,
+    },
 }
 
 #[cfg_attr(feature = "test-data", derive(fake::Dummy))]
@@ -58,6 +71,14 @@ pub enum WatchlistPayloadData {
         old_state: ProductStateData,
         new_state: ProductStateData,
     },
+}
+
+#[cfg_attr(feature = "test-data", derive(fake::Dummy))]
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SearchFilterPayloadData {
+    pub user_search_filter_id: UserSearchFilterId,
+    pub user_search_filter_name: UserSearchFilterName,
 }
 
 impl From<LocalizedNotificationWatchlistPayload> for WatchlistPayloadData {
@@ -102,6 +123,28 @@ impl From<LocalizedNotificationPayload> for NotificationPayloadData {
                 shop_name,
                 title: title.into(),
                 watchlist_payload: watchlist_payload.into(),
+            },
+            LocalizedNotificationPayload::SearchFilter {
+                product_id,
+                shop_id,
+                shops_product_id,
+                shop_slug_id,
+                product_slug_id,
+                shop_name,
+                title,
+                search_filter_payload,
+            } => NotificationPayloadData::SearchFilter {
+                product_id,
+                shop_id,
+                shops_product_id,
+                shop_slug_id,
+                product_slug_id,
+                shop_name,
+                title: title.into(),
+                search_filter_payload: SearchFilterPayloadData {
+                    user_search_filter_id: search_filter_payload.user_search_filter_id,
+                    user_search_filter_name: search_filter_payload.user_search_filter_name,
+                },
             },
         }
     }

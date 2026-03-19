@@ -36,6 +36,8 @@ pub struct UserSearchFilterRecord {
     pub user_id: UserId,
     pub user_search_filter_id: UserSearchFilterId,
     pub name: UserSearchFilterName,
+    #[serde(default = "default_notifications")]
+    pub notifications: bool,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub product_query: Option<TextQuery<1>>,
     #[serde(default, skip_serializing_if = "HashSet::is_empty")]
@@ -102,6 +104,10 @@ pub fn mk_pk(user_id: &UserId) -> String {
     format!("user#{user_id}")
 }
 
+fn default_notifications() -> bool {
+    true
+}
+
 pub fn mk_sk(search_filter_id: &UserSearchFilterId) -> String {
     format!("search_filter#{search_filter_id}")
 }
@@ -112,6 +118,7 @@ impl From<UserSearchFilterRecord> for UserSearchFilter {
             user_id: record.user_id,
             user_search_filter_id: record.user_search_filter_id,
             name: record.name,
+            notifications: record.notifications,
             search: ProductSearch {
                 language: record.language.into(),
                 currency: record.currency.into(),
@@ -173,6 +180,7 @@ impl From<UserSearchFilter> for UserSearchFilterRecord {
             user_id: user_search_filter.user_id,
             user_search_filter_id: user_search_filter.user_search_filter_id,
             name: user_search_filter.name,
+            notifications: user_search_filter.notifications,
             product_query: user_search_filter.search.product_query,
             category_id: user_search_filter.search.category_id.into(),
             period_id: user_search_filter.search.period_id.into(),
@@ -248,6 +256,7 @@ mod fake {
                 user_id,
                 user_search_filter_id: search_filter_id,
                 name: config.fake_with_rng(rng),
+                notifications: true,
                 product_query: config.fake_with_rng(rng),
                 category_id: config.fake_with_rng(rng),
                 period_id: config.fake_with_rng(rng),

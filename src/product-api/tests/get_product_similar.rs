@@ -5,6 +5,7 @@ use common::language::domain::Language;
 use common::personalized::api::PersonalizedData;
 use fake::{Fake, Faker};
 use lambda_runtime::LambdaEvent;
+use notification::service::notification_service::MockNotificationService;
 use product::data::get_summary_data::GetProductSummaryData;
 use product::data::user_state_data::ProductUserStateData;
 use product::dynamodb::product_record::ProductRecord;
@@ -16,8 +17,8 @@ use product::opensearch::repository::{
 use product::service::get_service::GetProductServiceImpl;
 use product::service::semantic_service::SemanticSearchServiceImpl;
 use product_api::get_product_similar::handle;
+use product_personalization::service::ProductPersonalizationServiceImpl;
 use product_watchlist::dynamodb::repository::WatchlistProductDynamoDbRepositoryImpl;
-use product_watchlist::service::personalization_service::ProductPersonalizationServiceImpl;
 use product_watchlist::service::product_watchlist_service::{
     ProductWatchListService, ProductWatchListServiceImpl,
 };
@@ -25,6 +26,7 @@ use std::time::Duration;
 use test_api::*;
 use user::dynamodb::repository::{UserDynamoDbRepository, UserDynamoDbRepositoryImpl};
 use user::dynamodb::user_record::UserRecord;
+use user::service::user_service::UserServiceImpl;
 
 const EXAMPLE_EMBEDDING: [f32; 1024] = [
     0.0003272566,
@@ -1061,8 +1063,15 @@ async fn should_202_when_similar_products_have_not_been_computed_for_anon() {
         WatchlistProductDynamoDbRepositoryImpl::new(get_dynamodb_client().await, "table_1");
     let product_opensearch_repository =
         ProductOpenSearchRepositoryImpl::new(get_opensearch_client().await);
-    let product_personalization_service =
-        ProductPersonalizationServiceImpl::new(&watchlist_repository);
+    let user_repository_pp =
+        UserDynamoDbRepositoryImpl::new(get_dynamodb_client().await, "table_1");
+    let user_service = UserServiceImpl::new(&user_repository_pp);
+    let notification_service = MockNotificationService::default();
+    let product_personalization_service = ProductPersonalizationServiceImpl::new(
+        &watchlist_repository,
+        &notification_service,
+        &user_service,
+    );
     let semantic_search_service = SemanticSearchServiceImpl::new(
         &product_dynamodb_repository,
         &product_opensearch_repository,
@@ -1128,8 +1137,18 @@ async fn should_200_when_similar_products_have_been_computed_for_anon() {
         WatchlistProductDynamoDbRepositoryImpl::new(get_dynamodb_client().await, "table_1");
     let product_opensearch_repository =
         ProductOpenSearchRepositoryImpl::new(get_opensearch_client().await);
-    let product_personalization_service =
-        ProductPersonalizationServiceImpl::new(&watchlist_repository);
+    let user_repository_pp =
+        UserDynamoDbRepositoryImpl::new(get_dynamodb_client().await, "table_1");
+    let user_service = UserServiceImpl::new(&user_repository_pp);
+    let mut notification_service = MockNotificationService::default();
+    notification_service
+        .expect_find_notifications_by_product()
+        .returning(|_, _, _, _| Box::pin(async { Ok(vec![]) }));
+    let product_personalization_service = ProductPersonalizationServiceImpl::new(
+        &watchlist_repository,
+        &notification_service,
+        &user_service,
+    );
     let semantic_search_service = SemanticSearchServiceImpl::new(
         &product_dynamodb_repository,
         &product_opensearch_repository,
@@ -1226,8 +1245,18 @@ async fn should_200_and_personalize_when_similar_products_have_been_computed_for
         WatchlistProductDynamoDbRepositoryImpl::new(get_dynamodb_client().await, "table_1");
     let product_opensearch_repository =
         ProductOpenSearchRepositoryImpl::new(get_opensearch_client().await);
-    let product_personalization_service =
-        ProductPersonalizationServiceImpl::new(&watchlist_repository);
+    let user_repository_pp =
+        UserDynamoDbRepositoryImpl::new(get_dynamodb_client().await, "table_1");
+    let user_service = UserServiceImpl::new(&user_repository_pp);
+    let mut notification_service = MockNotificationService::default();
+    notification_service
+        .expect_find_notifications_by_product()
+        .returning(|_, _, _, _| Box::pin(async { Ok(vec![]) }));
+    let product_personalization_service = ProductPersonalizationServiceImpl::new(
+        &watchlist_repository,
+        &notification_service,
+        &user_service,
+    );
     let semantic_search_service = SemanticSearchServiceImpl::new(
         &product_dynamodb_repository,
         &product_opensearch_repository,
@@ -1403,8 +1432,18 @@ async fn should_respond_200_and_respect_language_query_param(
         WatchlistProductDynamoDbRepositoryImpl::new(get_dynamodb_client().await, "table_1");
     let product_opensearch_repository =
         ProductOpenSearchRepositoryImpl::new(get_opensearch_client().await);
-    let product_personalization_service =
-        ProductPersonalizationServiceImpl::new(&watchlist_repository);
+    let user_repository_pp =
+        UserDynamoDbRepositoryImpl::new(get_dynamodb_client().await, "table_1");
+    let user_service = UserServiceImpl::new(&user_repository_pp);
+    let mut notification_service = MockNotificationService::default();
+    notification_service
+        .expect_find_notifications_by_product()
+        .returning(|_, _, _, _| Box::pin(async { Ok(vec![]) }));
+    let product_personalization_service = ProductPersonalizationServiceImpl::new(
+        &watchlist_repository,
+        &notification_service,
+        &user_service,
+    );
     let semantic_search_service = SemanticSearchServiceImpl::new(
         &product_dynamodb_repository,
         &product_opensearch_repository,

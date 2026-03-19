@@ -71,7 +71,7 @@ mod tests {
         record: NotificationRecord,
     ) -> common::pagination::cursor::CursoredResult<Notification, common::event_id::EventId> {
         common::pagination::cursor::CursoredResult {
-            items: vec![record.into()],
+            items: vec![record.try_into().unwrap()],
             cursor: Default::default(),
             total: Some(1),
         }

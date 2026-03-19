@@ -332,6 +332,7 @@ dependencies = [
  "product-classification",
  "product-classification-api",
  "product-lambda",
+ "product-personalization",
  "product-pipeline",
  "product-watchlist",
  "product-watchlist-api",
@@ -558,9 +559,9 @@ dependencies = [
 
 [[package]]
 name = "aws-sdk-account"
-version = "1.99.0"
+version = "1.100.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "7ef69372e0f67af52adddb29b747a3be873c51e11c70c44feb5c346f021dfd37"
+checksum = "2bbc75bcce5b26fe7e2f37f9ebb51e934cad915924f7c0b88eb48ed07faeeba1"
 dependencies = [
  "aws-credential-types",
  "aws-runtime",
@@ -582,9 +583,9 @@ dependencies = [
 
 [[package]]
 name = "aws-sdk-autoscaling"
-version = "1.111.0"
+version = "1.112.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "a02a606bf7634d19d8f7ebad79ef7aa6554f8e1b87da7fa05c58e97177f6c76f"
+checksum = "4b9477c124bc9c0bff96089d83f354d2d3dc8613f8149f10c592adaadc64ad41"
 dependencies = [
  "aws-credential-types",
  "aws-runtime",
@@ -634,9 +635,9 @@ dependencies = [
 
 [[package]]
 name = "aws-sdk-cloudwatch"
-version = "1.107.0"
+version = "1.108.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "21cd65a785c8d6b21626ee7a08c67a63910424ceb5f68d2cb3e8483d78010637"
+checksum = "b74059630576b811889a65fdfff80c9e2b4b1f0a3af65c84cd5d3f8264e7f9c1"
 dependencies = [
  "aws-credential-types",
  "aws-runtime",
@@ -662,9 +663,9 @@ dependencies = [
 
 [[package]]
 name = "aws-sdk-cognitoidentityprovider"
-version = "1.112.0"
+version = "1.113.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "9aefe1dc0b8d95bbdb1b226c83bbc750d2f44e59d3de7c9112eea93781e15ad7"
+checksum = "6df7edb40b8bf37221da2139b460b80fae93dc95f5801305692a8ed11868386c"
 dependencies = [
  "aws-credential-types",
  "aws-runtime",
@@ -686,9 +687,9 @@ dependencies = [
 
 [[package]]
 name = "aws-sdk-dynamodb"
-version = "1.108.0"
+version = "1.109.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "1aec313992e654999e9106edb2ed5287e73495b05385b4baae9bbed1c999db88"
+checksum = "62ea214e9da6b960547bfd61cc16afc0b064d8070473f1b485b7222eec7dd415"
 dependencies = [
  "aws-credential-types",
  "aws-runtime",
@@ -710,9 +711,9 @@ dependencies = [
 
 [[package]]
 name = "aws-sdk-opensearch"
-version = "1.117.0"
+version = "1.118.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "6caa9806c1334dbeaef5c25b3fdfd783e9ba17c92c44370c86695ec6042d6656"
+checksum = "77dc274e3f05e0d7587df915a9edb997f5f8db8a8f6067084430e5e2485bcf97"
 dependencies = [
  "aws-credential-types",
  "aws-runtime",
@@ -734,9 +735,9 @@ dependencies = [
 
 [[package]]
 name = "aws-sdk-s3"
-version = "1.126.0"
+version = "1.127.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "7878050a2321d215eec9db8be09f8db59418b53860ae86cc7042b4094d6cb2bb"
+checksum = "151783f64e0dcddeb4965d08e36c276b4400a46caa88805a2e36d497deaf031a"
 dependencies = [
  "aws-credential-types",
  "aws-runtime",
@@ -769,9 +770,9 @@ dependencies = [
 
 [[package]]
 name = "aws-sdk-sesv2"
-version = "1.116.0"
+version = "1.117.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "f14902ebaf4f7eb18fd279f9622302e41240f290d808ea0eb3a759e984251d67"
+checksum = "e781e767ea1b8d404c99f5f641284e3afb928e909f04921ffcd8a84d5b969a86"
 dependencies = [
  "aws-credential-types",
  "aws-runtime",
@@ -793,9 +794,9 @@ dependencies = [
 
 [[package]]
 name = "aws-sdk-sqs"
-version = "1.96.0"
+version = "1.97.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "161a1c4332072b8e44a3a0a6f817440f72c00ab1ae9b6b68ed63e882cd97394c"
+checksum = "4d497fb382b906b04167e62848ad00e56c5ad523791a461d5a5611c186531d81"
 dependencies = [
  "aws-credential-types",
  "aws-runtime",
@@ -1111,9 +1112,9 @@ dependencies = [
 
 [[package]]
 name = "aws-smithy-types"
-version = "1.4.6"
+version = "1.4.7"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "d2b1117b3b2bbe166d11199b540ceed0d0f7676e36e7b962b5a437a9971eac75"
+checksum = "9d73dbfbaa8e4bc57b9045137680b958d274823509a360abfd8e1d514d40c95c"
 dependencies = [
  "base64-simd",
  "bytes",
@@ -1178,9 +1179,9 @@ dependencies = [
 
 [[package]]
 name = "aws_lambda_events"
-version = "1.1.0"
+version = "1.1.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "8ef5107ebf7c7fa98b029b3e77d2072a3cd257e7b47b29d143a5d7c4cfa1a67d"
+checksum = "087b1b9233c7fc56623d72bb2f0b1fe915b19a0606aa3c09bcd1b902d9803e6c"
 dependencies = [
  "base64 0.22.1",
  "bytes",
@@ -2318,9 +2319,9 @@ dependencies = [
 
 [[package]]
 name = "ego-tree"
-version = "0.10.0"
+version = "0.11.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "b2972feb8dffe7bc8c5463b1dacda1b0dfbed3710e50f977d965429692d74cd8"
+checksum = "b04dc5a38e4f151a79d9f2451ae6037fb6eaf5cba34771f44781f80e508498e3"
 
 [[package]]
 name = "either"
@@ -3016,12 +3017,12 @@ dependencies = [
 
 [[package]]
 name = "html5ever"
-version = "0.36.1"
+version = "0.39.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "6452c4751a24e1b99c3260d505eaeee76a050573e61f30ac2c924ddc7236f01e"
+checksum = "46a1761807faccc9a19e86944bbf40610014066306f96edcdedc2fb714bcb7b8"
 dependencies = [
  "log",
- "markup5ever 0.36.1",
+ "markup5ever 0.39.0",
 ]
 
 [[package]]
@@ -3609,9 +3610,9 @@ dependencies = [
 
 [[package]]
 name = "lambda_runtime"
-version = "1.0.2"
+version = "1.1.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "dc0b4409eea054e4c06f0101fed547b2cf208e8eca9dc6d41dead4114577852b"
+checksum = "23583c918bee8de7bc005ba2ad8ebd84529894bfd9a863cf24226bb6c7787690"
 dependencies = [
  "async-stream",
  "base64 0.22.1",
@@ -3634,9 +3635,9 @@ dependencies = [
 
 [[package]]
 name = "lambda_runtime_api_client"
-version = "1.0.1"
+version = "1.0.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "2c039f06329949692a81a993ede4cfaa6abab3ac8e72590cf7c5e6a64a9ec7b1"
+checksum = "7b4873061514cb57ffb6a599b77c46c65d6d783efe9bad8fd56b7cba7f0459ef"
 dependencies = [
  "bytes",
  "futures-channel",
@@ -3951,17 +3952,17 @@ dependencies = [
  "phf_codegen 0.8.0",
  "string_cache 0.8.9",
  "string_cache_codegen 0.5.4",
- "tendril",
+ "tendril 0.4.3",
 ]
 
 [[package]]
 name = "markup5ever"
-version = "0.36.1"
+version = "0.39.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "6c3294c4d74d0742910f8c7b466f44dda9eb2d5742c1e430138df290a1e8451c"
+checksum = "7122d987ec5f704ee56f6e5b41a7d93722e9aae27ae07cafa4036c4d3f9757de"
 dependencies = [
  "log",
- "tendril",
+ "tendril 0.5.0",
  "web_atoms",
 ]
 
@@ -4197,12 +4198,14 @@ dependencies = [
  "aws-sdk-sesv2",
  "common",
  "fake",
+ "field",
  "handlebars",
  "mockall",
  "notification",
  "once_cell",
  "product",
  "rstest",
+ "search-filter",
  "serde",
  "serde-email",
  "serde_dynamo",
@@ -5050,7 +5053,9 @@ dependencies = [
  "fxrate",
  "http 1.4.0",
  "lambda_runtime",
+ "notification",
  "product",
+ "product-personalization",
  "product-watchlist",
  "rstest",
  "serde",
@@ -5210,6 +5215,26 @@ dependencies = [
  "tracing-subscriber",
  "user",
  "uuid",
+]
+
+[[package]]
+name = "product-personalization"
+version = "0.1.0"
+dependencies = [
+ "async-trait",
+ "common",
+ "fake",
+ "futures",
+ "mockall",
+ "notification",
+ "product",
+ "product-personalization",
+ "product-watchlist",
+ "thiserror",
+ "time",
+ "tokio",
+ "tracing",
+ "user",
 ]
 
 [[package]]
@@ -6369,17 +6394,17 @@ checksum = "94143f37725109f92c262ed2cf5e59bce7498c01bcc1502d7b9afe439a4e9f49"
 
 [[package]]
 name = "scraper"
-version = "0.25.0"
+version = "0.26.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "93cecd86d6259499c844440546d02f55f3e17bd286e529e48d1f9f67e92315cb"
+checksum = "f0f5297102b8b62b4454ee8561601b2d551b4913148feb4241ca9d1a04bf4526"
 dependencies = [
  "cssparser 0.36.0",
  "ego-tree",
  "getopts",
- "html5ever 0.36.1",
+ "html5ever 0.39.0",
  "precomputed-hash",
- "selectors 0.33.0",
- "tendril",
+ "selectors 0.36.0",
+ "tendril 0.5.0",
 ]
 
 [[package]]
@@ -6458,6 +6483,7 @@ name = "search-filter-lambda"
 version = "0.1.0"
 dependencies = [
  "search-filter-lambda-opensearch-sync",
+ "search-filter-lambda-percolate-product",
 ]
 
 [[package]]
@@ -6479,6 +6505,38 @@ dependencies = [
  "tracing",
  "tracing-subscriber",
  "url",
+ "uuid",
+]
+
+[[package]]
+name = "search-filter-lambda-percolate-product"
+version = "0.1.0"
+dependencies = [
+ "async-trait",
+ "aws-config",
+ "aws-sdk-dynamodb",
+ "aws-sdk-s3",
+ "aws-sdk-sesv2",
+ "aws_lambda_events",
+ "common",
+ "fake",
+ "lambda_runtime",
+ "mockall",
+ "notification",
+ "opensearch",
+ "product",
+ "rstest",
+ "search-filter",
+ "serde",
+ "serde-email",
+ "serde_dynamo",
+ "serde_json",
+ "thiserror",
+ "time",
+ "tokio",
+ "tracing",
+ "tracing-subscriber",
+ "user",
  "uuid",
 ]
 
@@ -6554,9 +6612,9 @@ dependencies = [
 
 [[package]]
 name = "selectors"
-version = "0.33.0"
+version = "0.36.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "feef350c36147532e1b79ea5c1f3791373e61cbd9a6a2615413b3807bb164fb7"
+checksum = "223b960be86f7d302b7168cdbab137f9bdbf7e04a90c185312fab14dff49dc5f"
 dependencies = [
  "bitflags 2.9.1",
  "cssparser 0.36.0",
@@ -7813,6 +7871,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "tendril"
+version = "0.5.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "c4790fc369d5a530f4b544b094e31388b9b3a37c0f4652ade4505945f5660d24"
+dependencies = [
+ "new_debug_unreachable",
+ "utf-8",
+]
+
+[[package]]
 name = "termtree"
 version = "0.5.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -8283,9 +8351,9 @@ dependencies = [
 
 [[package]]
 name = "tracing-subscriber"
-version = "0.3.22"
+version = "0.3.23"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "2f30143827ddab0d256fd843b7a66d164e9f271cfa0dde49142c5ca0ca291f1e"
+checksum = "cb7f578e5945fb242538965c2d0b04418d38ec25c79d160cd279bf0731c8d319"
 dependencies = [
  "matchers",
  "nu-ansi-term",

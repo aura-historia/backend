@@ -16,6 +16,7 @@ shop-api = { workspace = true }
 shop-lambda = { workspace = true }
 product = { workspace = true }
 product-api = { workspace = true }
+product-personalization = { workspace = true }
 product-classification = { workspace = true }
 product-classification-api = { workspace = true }
 product-watchlist = { workspace = true }
@@ -43,6 +44,7 @@ members = [
     "src/search-filter-lambda",
     "src/product",
     "src/product-api",
+    "src/product-personalization",
     "src/product-classification",
     "src/product-classification-api",
     "src/product-watchlist",
@@ -68,16 +70,16 @@ members = [
 async-stream = "0.3.6"
 async-trait = "0.1.89"
 aws-config = "1.8.15"
-aws-sdk-account = "1.99.0"
-aws-sdk-autoscaling = "1.111.0"
-aws-sdk-dynamodb = "1.108.0"
+aws-sdk-account = "1.100.0"
+aws-sdk-autoscaling = "1.112.0"
+aws-sdk-dynamodb = "1.109.0"
 aws-sdk-lambda = "1.100.0"
-aws-sdk-opensearch = "1.117.0"
-aws-sdk-sqs = "1.96.0"
-aws-sdk-sesv2 = "1.116.0"
-aws-sdk-s3 = "1.126.0"
-aws-sdk-cloudwatch = "1.107.0"
-aws_lambda_events = { version = "1.1.0", default-features = false }
+aws-sdk-opensearch = "1.118.0"
+aws-sdk-sqs = "1.97.0"
+aws-sdk-sesv2 = "1.117.0"
+aws-sdk-s3 = "1.127.0"
+aws-sdk-cloudwatch = "1.108.0"
+aws_lambda_events = { version = "1.1.1", default-features = false }
 common = { path = "src/common" }
 derive_builder = "0.20.2"
 fake = { version = "4.4.0", features = ["derive", "time", "uuid", "url"] }
@@ -86,6 +88,7 @@ search-filter = { path = "src/search-filter" }
 search-filter-api = { path = "src/search-filter-api" }
 search-filter-lambda = { path = "src/search-filter-lambda" }
 search-filter-lambda-opensearch-sync = { path = "src/search-filter-lambda/src/search-filter-lambda-opensearch-sync" }
+search-filter-lambda-percolate-product = { path = "src/search-filter-lambda/src/search-filter-lambda-percolate-product" }
 shop = { path = "src/shop" }
 shop-lambda = { path = "src/shop-lambda" }
 shop-lambda-opensearch-index = { path = "src/shop-lambda/src/shop-lambda-opensearch-index" }
@@ -99,6 +102,7 @@ http = "1.4.0"
 httpdate = "1.0.3"
 product = { path = "src/product" }
 product-api = { path = "src/product-api" }
+product-personalization = { path = "src/product-personalization" }
 product-classification = { path = "src/product-classification" }
 product-classification-api = { path = "src/product-classification-api" }
 product-watchlist = { path = "src/product-watchlist" }
@@ -116,7 +120,7 @@ product-lambda-materialize-dynamodb = { path = "src/product-lambda/src/product-l
 product-lambda-materialize-opensearch = { path = "src/product-lambda/src/product-lambda-materialize-opensearch" }
 product-lambda-update-notify-user = { path = "src/product-lambda/src/product-lambda-update-notify-user" }
 itertools = "0.14.0"
-lambda_runtime = "1.0.2"
+lambda_runtime = "1.1.1"
 libc = "0.2.183"
 mockall = "0.14.0"
 opensearch = { version = "2.3.0", default-features = false, features = [
@@ -152,7 +156,7 @@ thiserror = "2.0.18"
 time = "0.3.47"
 tokio = { version = "1.50.0", default-features = false }
 tracing = "0.1.44"
-tracing-subscriber = "0.3.22"
+tracing-subscriber = "0.3.23"
 typed-builder = "0.23.2"
 url = "2.5.8"
 uuid = "1.22.0"
@@ -171,7 +175,7 @@ once_cell = "1.21.4"
 openssl = { version = "0.10.76", default-features = false }
 jsonwebtokens = "1.2.0"
 jsonwebtokens-cognito = "0.1.1"
-aws-sdk-cognitoidentityprovider = "1.112.0"
+aws-sdk-cognitoidentityprovider = "1.113.0"
 html-escape = "0.2.13"
 pyo3 = "0.27.2"
 pyo3-ffi = "0.27.0"
@@ -180,7 +184,7 @@ fxrate = { path = "src/fxrate" }
 fxrate-lambda = { path = "src/fxrate-lambda" }
 slug = "0.1.6"
 aura-scraper = { path = "src/aura-scraper" }
-scraper = "0.25.0"
+scraper = "0.26.0"
 schemars = "1.2.1"
 llm = "1.3.7"
 kuchiki = "0.8.1"

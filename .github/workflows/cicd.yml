@@ -236,6 +236,7 @@ jobs:
         crate:
           - src/search-filter-api
           - src/search-filter-lambda/src/search-filter-lambda-opensearch-sync
+          - src/search-filter-lambda/src/search-filter-lambda-percolate-product
           - src/product-api
           - src/product-classification-api
           - src/product-watchlist-api
@@ -379,6 +380,11 @@ jobs:
           - mjml/watchlist/product-update/state/es.mjml
           - mjml/watchlist/product-update/state/fr.mjml
           - mjml/watchlist/product-update/state/it.mjml
+          - mjml/search-filter/match/de.mjml
+          - mjml/search-filter/match/en.mjml
+          - mjml/search-filter/match/es.mjml
+          - mjml/search-filter/match/fr.mjml
+          - mjml/search-filter/match/it.mjml
 
     steps:
       - uses: actions/checkout@v6

@@ -10,7 +10,7 @@ use product::service::{
     query_service::QueryProductService, semantic_service::SemanticSearchService,
     upsert_service::UpsertProductsService,
 };
-use product_watchlist::service::personalization_service::ProductPersonalizationService;
+use product_personalization::service::ProductPersonalizationService;
 
 pub mod get_product;
 pub mod get_product_history;

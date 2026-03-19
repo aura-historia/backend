@@ -11,6 +11,7 @@ pub struct UserSearchFilterSummary {
     pub user_id: UserId,
     pub user_search_filter_id: UserSearchFilterId,
     pub name: UserSearchFilterName,
+    pub notifications: bool,
     pub created: OffsetDateTime,
     pub updated: OffsetDateTime,
 }
@@ -20,6 +21,7 @@ pub struct UserSearchFilter {
     pub user_id: UserId,
     pub user_search_filter_id: UserSearchFilterId,
     pub name: UserSearchFilterName,
+    pub notifications: bool,
     pub search: ProductSearch,
     pub created: OffsetDateTime,
     pub updated: OffsetDateTime,
@@ -31,6 +33,7 @@ impl From<UserSearchFilter> for UserSearchFilterSummary {
             user_id: filter.user_id,
             user_search_filter_id: filter.user_search_filter_id,
             name: filter.name,
+            notifications: filter.notifications,
             created: filter.created,
             updated: filter.updated,
         }
@@ -48,6 +51,7 @@ mod faker {
                 user_id: config.fake_with_rng(rng),
                 user_search_filter_id: config.fake_with_rng(rng),
                 name: config.fake_with_rng(rng),
+                notifications: true,
                 search: config.fake_with_rng(rng),
                 created: OffsetDateTime::now_utc(),
                 updated: OffsetDateTime::now_utc(),
@@ -61,6 +65,7 @@ mod faker {
                 user_id: config.fake_with_rng(rng),
                 user_search_filter_id: config.fake_with_rng(rng),
                 name: config.fake_with_rng(rng),
+                notifications: true,
                 created: OffsetDateTime::now_utc(),
                 updated: OffsetDateTime::now_utc(),
             }

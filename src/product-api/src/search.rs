@@ -14,6 +14,7 @@ use common::{
 };
 use lambda_runtime::LambdaEvent;
 use product::data::sort_product_field_data::SortProductFieldData;
+use product::service::query_service::QueryProductService;
 use product::{
     core::sort_product_field::SortProductField,
     data::{
@@ -21,8 +22,7 @@ use product::{
         user_state_data::ProductUserStateData,
     },
 };
-use product::{core::user_state::ProductUserState, service::query_service::QueryProductService};
-use product_watchlist::service::personalization_service::ProductPersonalizationService;
+use product_personalization::service::ProductPersonalizationService;
 
 pub async fn handle(
     event: LambdaEvent<ApiGatewayV2httpRequest>,
@@ -81,14 +81,18 @@ pub async fn handle(
     let cursored_result = match user_id_opt {
         Some(user_id) => {
             let personalized_products = product_personalization_service
-                .personalize_all_watchlist(&user_id, search_result.items)
+                .personalize_all(&user_id, search_result.items)
                 .await?
                 .into_iter()
-                .map(|personalized_item| Personalized {
-                    item: personalized_item.item,
-                    user_state: personalized_item
+                .map(|personalized| {
+                    let consent = personalized
                         .user_state
-                        .map(|watchlist| ProductUserState { watchlist }),
+                        .map(|s| s.prohibited_content.consent)
+                        .unwrap_or(false);
+                    Personalized {
+                        item: GetProductSummaryData::from_view(personalized.item, consent),
+                        user_state: personalized.user_state.map(ProductUserStateData::from),
+                    }
                 })
                 .collect();
             CursoredResult {
@@ -98,7 +102,7 @@ pub async fn handle(
             }
         }
         None => search_result.map_item(|item| Personalized {
-            item,
+            item: GetProductSummaryData::from_view(item, false),
             user_state: None,
         }),
     };
@@ -134,7 +138,7 @@ mod tests {
     use product::core::product::LocalizedProductView;
     use product::data::product_search_data::ProductSearchData;
     use product::service::query_service::MockQueryProductService;
-    use product_watchlist::service::personalization_service::MockProductPersonalizationService;
+    use product_personalization::service::MockProductPersonalizationService;
     use serde_json::json;
     use test_api::ApiGatewayV2httpRequestProxy;
 

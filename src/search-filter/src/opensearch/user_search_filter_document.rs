@@ -17,6 +17,7 @@ pub struct UserSearchFilterDocument {
     pub user_search_filter_id: UserSearchFilterId,
     pub user_id: UserId,
     pub name: UserSearchFilterName,
+    pub notifications: bool,
     pub query: ProductPercolatorQuery,
 
     #[serde(with = "time::serde::rfc3339")]
@@ -38,6 +39,7 @@ impl From<UserSearchFilterDocument> for UserSearchFilterSummary {
             user_search_filter_id: document.user_search_filter_id,
             user_id: document.user_id,
             name: document.name,
+            notifications: document.notifications,
             created: document.created,
             updated: document.updated,
         }
@@ -54,6 +56,7 @@ impl TryFrom<UserSearchFilterRecord> for UserSearchFilterDocument {
             user_search_filter_id: user_search_filter.user_search_filter_id,
             user_id: user_search_filter.user_id,
             name: user_search_filter.name,
+            notifications: user_search_filter.notifications,
             query,
             created: user_search_filter.created,
             updated: user_search_filter.updated,

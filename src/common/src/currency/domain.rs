@@ -77,6 +77,22 @@ impl Currency {
             })
     }
 
+    /// Extracts the [`MonetaryAmount`] for the given [`Currency`] from a combined
+    /// native-price / other-price pair. Prefers the `other` map and falls back
+    /// to `native` when its currency matches.
+    pub fn extract_amount(
+        self,
+        native: &Option<Price>,
+        other: &HashMap<Currency, MonetaryAmount>,
+    ) -> Option<MonetaryAmount> {
+        if let Some(amount) = other.get(&self) {
+            return Some(*amount);
+        }
+        native
+            .filter(|p| p.currency == self)
+            .map(|p| p.monetary_amount)
+    }
+
     pub fn currency_symbol(&self) -> &'static str {
         match self {
             Currency::Eur => "€",

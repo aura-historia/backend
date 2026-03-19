@@ -88,6 +88,7 @@ async fn should_create_and_get_and_delete_and_verify_not_exists() {
     );
     let patch = PatchUserSearchFilterData {
         name: None,
+        notifications: None,
         search: Some(PatchProductSearchData {
             language: Some(LanguageData::Fr),
             currency: None,

@@ -10,6 +10,7 @@ use common::{
 };
 use fake::{Fake, Faker};
 use lambda_runtime::LambdaEvent;
+use notification::service::notification_service::MockNotificationService;
 use product::dynamodb::{
     product_record::ProductRecord,
     repository::{ProductDynamoDbRepository, ProductDynamoDbRepositoryImpl},
@@ -26,11 +27,11 @@ use product::{
     data::{get_data::GetProductData, user_state_data::ProductUserStateData},
 };
 use product_api::get_product::handle;
+use product_personalization::service::ProductPersonalizationServiceImpl;
 use product_watchlist::{
     dynamodb::repository::WatchlistProductDynamoDbRepositoryImpl,
     service::{
         command::UpdateWatchlistProductCommand,
-        personalization_service::ProductPersonalizationServiceImpl,
         product_watchlist_service::{ProductWatchListService, ProductWatchListServiceImpl},
     },
 };
@@ -40,6 +41,7 @@ use user::dynamodb::{
     repository::{UserDynamoDbRepository, UserDynamoDbRepositoryImpl},
     user_record::UserRecord,
 };
+use user::service::user_service::UserServiceImpl;
 
 #[localstack_test(services = [DynamoDB()])]
 async fn should_respond_200_without_history_when_anon() {
@@ -47,8 +49,14 @@ async fn should_respond_200_without_history_when_anon() {
     let product_repository = ProductDynamoDbRepositoryImpl::new(ddb_client, "table_1");
     let watchlist_repository = WatchlistProductDynamoDbRepositoryImpl::new(ddb_client, "table_1");
     let get_product_service = GetProductServiceImpl::new(&product_repository);
-    let product_personalization_service =
-        ProductPersonalizationServiceImpl::new(&watchlist_repository);
+    let user_repository = UserDynamoDbRepositoryImpl::new(ddb_client, "table_1");
+    let user_service = UserServiceImpl::new(&user_repository);
+    let notification_service = MockNotificationService::default();
+    let product_personalization_service = ProductPersonalizationServiceImpl::new(
+        &watchlist_repository,
+        &notification_service,
+        &user_service,
+    );
     let mut access_token_verifier_service = MockAccessTokenVerifierService::default();
     access_token_verifier_service
         .expect_verify_extract_user_id()
@@ -139,8 +147,16 @@ async fn should_respond_200_personalized_when_authenticated_and_not_watched() {
     let product_repository = ProductDynamoDbRepositoryImpl::new(ddb_client, "table_1");
     let watchlist_repository = WatchlistProductDynamoDbRepositoryImpl::new(ddb_client, "table_1");
     let get_product_service = GetProductServiceImpl::new(&product_repository);
-    let product_personalization_service =
-        ProductPersonalizationServiceImpl::new(&watchlist_repository);
+    let user_service = UserServiceImpl::new(&user_repository);
+    let mut notification_service = MockNotificationService::default();
+    notification_service
+        .expect_find_notifications_by_product()
+        .return_once(|_, _, _, _| Box::pin(async { Ok(vec![]) }));
+    let product_personalization_service = ProductPersonalizationServiceImpl::new(
+        &watchlist_repository,
+        &notification_service,
+        &user_service,
+    );
 
     let user_record = Faker.fake::<UserRecord>();
     let _ = user_repository
@@ -250,8 +266,16 @@ async fn should_respond_200_personalized_when_authenticated_and_watched() {
         &product_repository,
         &get_product_service,
     );
-    let product_personalization_service =
-        ProductPersonalizationServiceImpl::new(&watchlist_repository);
+    let user_service = UserServiceImpl::new(&user_repository);
+    let mut notification_service = MockNotificationService::default();
+    notification_service
+        .expect_find_notifications_by_product()
+        .return_once(|_, _, _, _| Box::pin(async { Ok(vec![]) }));
+    let product_personalization_service = ProductPersonalizationServiceImpl::new(
+        &watchlist_repository,
+        &notification_service,
+        &user_service,
+    );
 
     let user_record = Faker.fake::<UserRecord>();
     let _ = user_repository
@@ -640,8 +664,14 @@ async fn should_respond_200_and_respect_language_query_param(
     let product_repository = ProductDynamoDbRepositoryImpl::new(ddb_client, "table_1");
     let watchlist_repository = WatchlistProductDynamoDbRepositoryImpl::new(ddb_client, "table_1");
     let get_product_service = GetProductServiceImpl::new(&product_repository);
-    let product_personalization_service =
-        ProductPersonalizationServiceImpl::new(&watchlist_repository);
+    let user_repository = UserDynamoDbRepositoryImpl::new(ddb_client, "table_1");
+    let user_service = UserServiceImpl::new(&user_repository);
+    let notification_service = MockNotificationService::default();
+    let product_personalization_service = ProductPersonalizationServiceImpl::new(
+        &watchlist_repository,
+        &notification_service,
+        &user_service,
+    );
     let mut access_token_verifier_service = MockAccessTokenVerifierService::default();
     access_token_verifier_service
         .expect_verify_extract_user_id()
@@ -725,8 +755,14 @@ async fn should_respond_200_for_path_params_slugs() {
     let product_repository = ProductDynamoDbRepositoryImpl::new(ddb_client, "table_1");
     let watchlist_repository = WatchlistProductDynamoDbRepositoryImpl::new(ddb_client, "table_1");
     let get_product_service = GetProductServiceImpl::new(&product_repository);
-    let product_personalization_service =
-        ProductPersonalizationServiceImpl::new(&watchlist_repository);
+    let user_repository = UserDynamoDbRepositoryImpl::new(ddb_client, "table_1");
+    let user_service = UserServiceImpl::new(&user_repository);
+    let notification_service = MockNotificationService::default();
+    let product_personalization_service = ProductPersonalizationServiceImpl::new(
+        &watchlist_repository,
+        &notification_service,
+        &user_service,
+    );
     let mut access_token_verifier_service = MockAccessTokenVerifierService::default();
     access_token_verifier_service
         .expect_verify_extract_user_id()

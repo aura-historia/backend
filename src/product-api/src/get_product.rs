@@ -6,19 +6,17 @@ use common::api::error_code::INTERNAL_SERVER_ERROR;
 use common::currency::data::api::extract_currency_query;
 use common::language::data::api::extract_language_query;
 use common::language::domain::Language;
-use common::personalized::Personalized;
 use common::personalized::api::PersonalizedData;
 use common::product_id::api::extract_product_slug_id_path;
 use common::shop_id::api::{extract_shop_id_path, extract_shop_slug_id_path};
 use common::shops_product_id::api::extract_shops_product_id_path;
 use lambda_runtime::LambdaEvent;
 use product::core::product::LocalizedProductView;
-use product::core::user_state::ProductUserState;
 use product::data::get_data::GetProductData;
 use product::data::product_state_data::ProductStateData;
 use product::data::user_state_data::ProductUserStateData;
 use product::service::get_service::GetProductService;
-use product_watchlist::service::personalization_service::ProductPersonalizationService;
+use product_personalization::service::ProductPersonalizationService;
 
 pub async fn handle(
     event: LambdaEvent<ApiGatewayV2httpRequest>,
@@ -78,16 +76,19 @@ pub async fn handle(
                 item: GetProductData::from(localized_product),
                 user_state: None,
             },
-            Some(user_id) => product_personalization_service
-                .personalize_watchlist(&user_id, localized_product)
-                .await
-                .map(|personalized_watchlist| Personalized {
-                    item: personalized_watchlist.item,
-                    user_state: personalized_watchlist
-                        .user_state
-                        .map(|watchlist| ProductUserState { watchlist }),
-                })?
-                .into(),
+            Some(user_id) => {
+                let personalized = product_personalization_service
+                    .personalize(&user_id, localized_product)
+                    .await?;
+                let consent = personalized
+                    .user_state
+                    .map(|s| s.prohibited_content.consent)
+                    .unwrap_or(false);
+                PersonalizedData {
+                    item: GetProductData::from_view(personalized.item, consent),
+                    user_state: personalized.user_state.map(ProductUserStateData::from),
+                }
+            }
         };
 
     let (cache_control_directive, cache_control_max_age, cache_control_x_max_age) =
@@ -133,8 +134,9 @@ mod tests {
     use http::header::{CACHE_CONTROL, CONTENT_LANGUAGE, ETAG, LAST_MODIFIED};
     use lambda_runtime::LambdaEvent;
     use product::core::product::LocalizedProductView;
+    use product::core::user_state::ProductUserState;
     use product::service::get_service::{GetProductError, MockGetProductService};
-    use product_watchlist::service::personalization_service::MockProductPersonalizationService;
+    use product_personalization::service::MockProductPersonalizationService;
     use test_api::ApiGatewayV2httpRequestProxy;
     use time::OffsetDateTime;
     use time::macros::datetime;
@@ -477,14 +479,17 @@ mod tests {
             .return_once(|_| Box::pin(async { Ok(Some(UserId::new())) }));
         let mut product_personalization_service = MockProductPersonalizationService::default();
         product_personalization_service
-            .expect_personalize_watchlist()
+            .expect_personalize()
             .return_once(|_, product| {
                 use product::core::user_state::WatchlistUserState;
                 let personalized = Personalized {
                     item: product,
-                    user_state: Some(WatchlistUserState {
-                        watching: true,
-                        notifications: false,
+                    user_state: Some(ProductUserState {
+                        watchlist: WatchlistUserState {
+                            watching: true,
+                            notifications: false,
+                        },
+                        ..Default::default()
                     }),
                 };
                 Box::pin(async move { Ok(personalized) })
