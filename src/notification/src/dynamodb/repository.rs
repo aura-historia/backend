@@ -114,37 +114,26 @@ impl<'a> NotificationDynamoDbRepository for NotificationDynamoDbRepositoryImpl<'
         cursor: &Cursor<EventId>,
         scan_index_forward: bool,
     ) -> Result<Vec<NotificationRecord>, SdkError<QueryError>> {
-        let exclusive_guard = if scan_index_forward {
-            cursor
-                .search_after
-                .map(|id| mk_sk(&id))
-                .unwrap_or_else(|| SK_LOWER_BOUND.to_string())
-        } else {
-            cursor
-                .search_after
-                .map(|id| mk_sk(&id))
-                .unwrap_or_else(|| SK_UPPER_BOUND.to_string())
-        };
-        let key_condition_expression = if scan_index_forward {
-            "#pk = :pk_val AND #sk > :sk_val_exclusive_guard"
-        } else {
-            "#pk = :pk_val AND #sk < :sk_val_exclusive_guard"
-        };
+        let exclusive_start_key: Option<HashMap<String, AttributeValue>> =
+            cursor.search_after.map(|id| {
+                [
+                    ("pk".to_string(), AttributeValue::S(mk_pk(user_id))),
+                    ("sk".to_string(), AttributeValue::S(mk_sk(&id))),
+                ]
+                .into()
+            });
 
         let records = self
             .client
             .query()
             .table_name(&self.table)
-            .key_condition_expression(key_condition_expression)
-            .filter_expression("attribute_exists(#origin_event_id)")
+            .key_condition_expression("#pk = :pk_val AND #sk BETWEEN :sk_lower AND :sk_upper")
             .expression_attribute_names("#pk", "pk")
             .expression_attribute_names("#sk", "sk")
-            .expression_attribute_names("#origin_event_id", "origin_event_id")
             .expression_attribute_values(":pk_val", AttributeValue::S(mk_pk(user_id)))
-            .expression_attribute_values(
-                ":sk_val_exclusive_guard",
-                AttributeValue::S(exclusive_guard),
-            )
+            .expression_attribute_values(":sk_lower", AttributeValue::S(SK_LOWER_BOUND.to_string()))
+            .expression_attribute_values(":sk_upper", AttributeValue::S(SK_UPPER_BOUND.to_string()))
+            .set_exclusive_start_key(exclusive_start_key)
             .limit(cursor.size as i32)
             .scan_index_forward(scan_index_forward)
             .send()
@@ -176,37 +165,26 @@ impl<'a> NotificationDynamoDbRepository for NotificationDynamoDbRepositoryImpl<'
         cursor: &Cursor<EventId>,
         scan_index_forward: bool,
     ) -> Result<u64, SdkError<QueryError>> {
-        let exclusive_guard = if scan_index_forward {
-            cursor
-                .search_after
-                .map(|id| mk_sk(&id))
-                .unwrap_or_else(|| SK_LOWER_BOUND.to_string())
-        } else {
-            cursor
-                .search_after
-                .map(|id| mk_sk(&id))
-                .unwrap_or_else(|| SK_UPPER_BOUND.to_string())
-        };
-        let key_condition_expression = if scan_index_forward {
-            "#pk = :pk_val AND #sk > :sk_val_exclusive_guard"
-        } else {
-            "#pk = :pk_val AND #sk < :sk_val_exclusive_guard"
-        };
+        let exclusive_start_key: Option<HashMap<String, AttributeValue>> =
+            cursor.search_after.map(|id| {
+                [
+                    ("pk".to_string(), AttributeValue::S(mk_pk(user_id))),
+                    ("sk".to_string(), AttributeValue::S(mk_sk(&id))),
+                ]
+                .into()
+            });
 
         let count = self
             .client
             .query()
             .table_name(&self.table)
-            .key_condition_expression(key_condition_expression)
-            .filter_expression("attribute_exists(#origin_event_id)")
+            .key_condition_expression("#pk = :pk_val AND #sk BETWEEN :sk_lower AND :sk_upper")
             .expression_attribute_names("#pk", "pk")
             .expression_attribute_names("#sk", "sk")
-            .expression_attribute_names("#origin_event_id", "origin_event_id")
             .expression_attribute_values(":pk_val", AttributeValue::S(mk_pk(user_id)))
-            .expression_attribute_values(
-                ":sk_val_exclusive_guard",
-                AttributeValue::S(exclusive_guard),
-            )
+            .expression_attribute_values(":sk_lower", AttributeValue::S(SK_LOWER_BOUND.to_string()))
+            .expression_attribute_values(":sk_upper", AttributeValue::S(SK_UPPER_BOUND.to_string()))
+            .set_exclusive_start_key(exclusive_start_key)
             .scan_index_forward(scan_index_forward)
             .select(aws_sdk_dynamodb::types::Select::Count)
             .send()
