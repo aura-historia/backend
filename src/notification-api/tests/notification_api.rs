@@ -23,7 +23,11 @@ use notification_api::{
 };
 use test_api::*;
 use user::{
-    dynamodb::repository::UserDynamoDbRepositoryImpl, service::user_service::UserServiceImpl,
+    dynamodb::{
+        repository::{UserDynamoDbRepository, UserDynamoDbRepositoryImpl},
+        user_record::UserRecord,
+    },
+    service::user_service::UserServiceImpl,
 };
 
 static NOOP_SES: NoopSesAdapter = NoopSesAdapter;
@@ -85,6 +89,56 @@ async fn should_200_with_empty_list_when_no_notifications() {
     assert_eq!(0, body.items.len());
     assert_eq!(Some(0), body.total);
     assert!(body.search_after.is_none());
+}
+
+#[localstack_test(services = [DynamoDB()])]
+async fn should_200_with_correct_total_when_user_record_also_exists() {
+    // Regression test: count_notification_records previously had no lower-bound on the sort
+    // key, so it also counted non-notification records that share the same partition key
+    // (e.g. user records with sk = "user#details"). This caused total to be +1.
+    let client = get_dynamodb_client().await;
+    let notification_repository = NotificationDynamoDbRepositoryImpl::new(client, "table_1");
+    let user_repository = UserDynamoDbRepositoryImpl::new(client, "table_1");
+    let user_service = UserServiceImpl::new(&user_repository);
+    let service = NotificationServiceImpl::new(
+        &notification_repository,
+        &user_service,
+        &NOOP_SES,
+        &NOOP_S3,
+        "",
+        "",
+        "",
+        sender_email(),
+    );
+
+    let user_id = UserId::new();
+
+    // Seed a user record (sk = "user#details") in the same partition – this simulates
+    // a real user created via Cognito post-confirmation.
+    let mut user_record: UserRecord = Faker.fake();
+    user_record.pk = user::dynamodb::user_record::mk_pk(&user_id);
+    user_record.user_id = user_id;
+    user_repository.put_user_record(user_record).await.unwrap();
+
+    // Seed 2 notifications.
+    seed_record(user_id, false, &notification_repository).await;
+    seed_record(user_id, false, &notification_repository).await;
+
+    let lambda_event = LambdaEvent {
+        payload: ApiGatewayV2httpRequestProxy::builder()
+            .http_method(http::Method::GET)
+            .jwt_claim("sub", user_id)
+            .build(),
+        context: Default::default(),
+    };
+
+    let response = get_handle(lambda_event, &service).await.unwrap();
+
+    assert_eq!(200, response.status_code);
+    let body: EventIdCursoredData<GetNotificationData> =
+        serde_json::from_value(extract_apigw_response_json_body!(response)).unwrap();
+    assert_eq!(2, body.items.len());
+    assert_eq!(Some(2), body.total);
 }
 
 #[localstack_test(services = [DynamoDB()])]
