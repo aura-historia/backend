@@ -34,6 +34,10 @@ serde_dynamo = { workspace = true, optional = true, features = [
     "aws-sdk-dynamodb+1",
 ] }
 aws-sdk-sqs = { workspace = true, optional = true }
+aws-sdk-cloudformation = { workspace = true, optional = true }
+aws-sdk-s3 = { workspace = true, optional = true }
+aws-tests-common = { workspace = true, optional = true }
+zip = { workspace = true, optional = true }
 
 [dev-dependencies]
 test-api = { workspace = true, features = [
@@ -52,3 +56,4 @@ dynamodb = ["dep:aws-sdk-dynamodb", "serde_dynamo"]
 opensearch = ["dep:opensearch", "dep:aws-sdk-opensearch"]
 rds = ["dep:sqlx"]
 sqs = ["dep:aws-sdk-sqs"]
+cloudformation = ["dep:aws-sdk-cloudformation", "dep:aws-sdk-s3", "dep:aws-tests-common", "dep:zip"]

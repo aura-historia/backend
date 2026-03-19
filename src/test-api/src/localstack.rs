@@ -6,7 +6,7 @@ use std::sync::OnceLock;
 use testcontainers::core::{IntoContainerPort, Mount};
 use testcontainers::runners::AsyncRunner;
 use testcontainers::{ContainerAsync, ImageExt};
-use testcontainers_modules::localstack::LocalStack;
+use testcontainers_modules::localstack::LocalStackPro;
 use tokio::sync::OnceCell;
 use tracing::{debug, error};
 
@@ -79,9 +79,9 @@ pub async fn get_aws_config() -> &'static SdkConfig {
     cfg
 }
 
-static LOCALSTACK: OnceCell<ContainerAsync<LocalStack>> = OnceCell::const_new();
+static LOCALSTACK: OnceCell<ContainerAsync<LocalStackPro>> = OnceCell::const_new();
 
-pub async fn get_localstack(services: &[&str]) -> &'static ContainerAsync<LocalStack> {
+pub async fn get_localstack(services: &[&str]) -> &'static ContainerAsync<LocalStackPro> {
     LOCALSTACK
         .get_or_init(|| async {
             install_cleanup();
@@ -147,7 +147,7 @@ fn find_free_port() -> u16 {
 ///
 /// # Returns
 ///
-/// A tuple of the running [`ContainerAsync<LocalStack>`] instance and the host port it
+/// A tuple of the running [`ContainerAsync<LocalStackPro>`] instance and the host port it
 /// is bound to, ready for AWS SDK interactions.
 ///
 /// # Panics
@@ -155,7 +155,7 @@ fn find_free_port() -> u16 {
 /// Panics if the container fails to start.
 pub async fn spin_up_localstack(
     env_vars: HashMap<&str, &str>,
-) -> (ContainerAsync<LocalStack>, u16) {
+) -> (ContainerAsync<LocalStackPro>, u16) {
     let _ = tracing_subscriber::fmt()
         .json()
         .with_max_level(tracing::Level::INFO)
@@ -166,10 +166,14 @@ pub async fn spin_up_localstack(
 
     let port = find_free_port();
 
+    let auth_token = std::env::var("LOCALSTACK_AUTH_TOKEN")
+        .or_else(|_| std::env::var("LOCALSTACK_API_KEY"))
+        .ok();
+
     let request = env_vars
         .iter()
         .fold(
-            LocalStack::default()
+            LocalStackPro::with_auth_token(auth_token)
                 .with_container_name(localstack_container_name())
                 .with_tag("latest"),
             |ls, (k, v)| ls.with_env_var(*k, *v),
@@ -203,10 +207,10 @@ pub async fn spin_up_localstack(
 ///
 /// # Returns
 ///
-/// A tuple of the running [`ContainerAsync<LocalStack>`] with only the requested services
+/// A tuple of the running [`ContainerAsync<LocalStackPro>`] with only the requested services
 /// enabled, and the host port it is bound to.
 pub async fn spin_up_localstack_with_services(
     services: &[&str],
-) -> (ContainerAsync<LocalStack>, u16) {
+) -> (ContainerAsync<LocalStackPro>, u16) {
     spin_up_localstack(HashMap::from([("SERVICES", services.join(",").as_str())])).await
 }

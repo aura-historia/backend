@@ -2205,7 +2205,7 @@ Resources:
 # ---------------------------------------------------------------------------
 Outputs:
   CognitoHostedUIDomain:
-    Value: !Sub "https://${PrimaryUserPoolDomain}.auth.eu-central-1.amazoncognito.com"
+    Value: !Sub "https://${PrimaryUserPoolDomain}.auth.${AWS::Region}.amazoncognito.com"
   CognitoUserPoolId:
     Value: !Ref PrimaryUserPool
   CognitoUserPoolClientPublicId:
@@ -2213,7 +2213,7 @@ Outputs:
   CognitoUserPoolClientAdminId:
     Value: !Ref PrimaryUserPoolClientAdmin
   ApiGatewayEndpointUrl:
-    Value: !Sub "https://${Api}.execute-api.eu-central-1.amazonaws.com/${StageName}"
+    Value: !Sub "https://${Api}.execute-api.${AWS::Region}.amazonaws.com/${StageName}"
   OpensearchEndpointUrl:
     Value: !Sub "https://${OpenSearchDomain.DomainEndpoint}"
   DynamodbTable1Name:

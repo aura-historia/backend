@@ -1,5 +1,7 @@
 #[cfg(feature = "api-gateway")]
 mod api_gateway;
+#[cfg(feature = "cloudformation")]
+mod cloudformation;
 #[cfg(feature = "dynamodb")]
 mod dynamodb;
 pub mod localstack;
@@ -14,6 +16,8 @@ mod sqs;
 #[cfg(feature = "api-gateway")]
 pub use api_gateway::*;
 use async_trait::async_trait;
+#[cfg(feature = "cloudformation")]
+pub use cloudformation::Cloudformation;
 #[cfg(feature = "dynamodb")]
 pub use dynamodb::{DynamoDB, get_dynamodb_client, mk_partial_put_batch_failure};
 #[cfg(feature = "opensearch")]

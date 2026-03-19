@@ -38,3 +38,14 @@ pub fn get_cfn_output() -> &'static CloudFormationOutput {
             .expect("shouldn't fail deserializing '$CFN_OUTPUT' to 'CloudFormationOutput'")
     })
 }
+
+/// Sets the CloudFormation output directly (used by LocalStack-based acceptance tests).
+///
+/// # Panics
+///
+/// Panics if the output has already been set (i.e., called more than once).
+pub fn set_cfn_output(output: CloudFormationOutput) {
+    CFN_OUTPUT
+        .set(output)
+        .expect("shouldn't fail setting CFN_OUTPUT; was it already set?");
+}
