@@ -18,7 +18,7 @@ use common::{
     dynamodb_update::DynamoDbUpdate, pagination::cursor::Cursor, product_id::ProductId,
     shop_id::ShopId, shops_product_id::ShopsProductId, user_id::UserId,
 };
-use time::{OffsetDateTime, macros::datetime};
+use time::{Duration, OffsetDateTime};
 use tracing::error;
 
 #[async_trait::async_trait]
@@ -92,6 +92,11 @@ impl<'a> WatchlistProductDynamoDbRepositoryImpl<'a> {
     }
 }
 
+/// Lower bound for the `lsi1_sk` of all watchlist records.
+const LSI1_SK_LOWER_BOUND: &str = "product#watch#created#";
+/// Upper bound for the `lsi1_sk` of all watchlist records.
+const LSI1_SK_UPPER_BOUND: &str = "product#watch#created#\u{ffff}";
+
 #[async_trait::async_trait]
 impl<'a> WatchlistProductDynamoDbRepository for WatchlistProductDynamoDbRepositoryImpl<'a> {
     async fn query_watchlist_records_all(
@@ -140,17 +145,20 @@ impl<'a> WatchlistProductDynamoDbRepository for WatchlistProductDynamoDbReposito
         cursor: &Cursor<OffsetDateTime>,
         scan_index_forward: bool,
     ) -> Result<Vec<WatchlistProductRecord>, SdkError<QueryError>> {
-        let exclusive_guard = if scan_index_forward {
-            cursor
-                .search_after
-                .unwrap_or(datetime!(2000 - 01 - 01 0:00 UTC))
+        let (lsi1_sk_lower, lsi1_sk_upper) = if scan_index_forward {
+            let lower = match cursor.search_after {
+                Some(created) => mk_lsi1_sk(&(created + Duration::NANOSECOND))
+                    .map_err(SdkError::construction_failure)?,
+                None => LSI1_SK_LOWER_BOUND.to_string(),
+            };
+            (lower, LSI1_SK_UPPER_BOUND.to_string())
         } else {
-            cursor.search_after.unwrap_or(OffsetDateTime::now_utc())
-        };
-        let key_condition_expression = if scan_index_forward {
-            "#pk = :pk_val AND #lsi1_sk > :lsi1_sk_val_exclusive_guard"
-        } else {
-            "#pk = :pk_val AND #lsi1_sk < :lsi1_sk_val_exclusive_guard"
+            let upper = match cursor.search_after {
+                Some(created) => mk_lsi1_sk(&(created - Duration::NANOSECOND))
+                    .map_err(SdkError::construction_failure)?,
+                None => LSI1_SK_UPPER_BOUND.to_string(),
+            };
+            (LSI1_SK_LOWER_BOUND.to_string(), upper)
         };
 
         let records = self
@@ -158,16 +166,19 @@ impl<'a> WatchlistProductDynamoDbRepository for WatchlistProductDynamoDbReposito
             .query()
             .table_name(&self.table)
             .index_name("lsi1")
-            .key_condition_expression(key_condition_expression)
+            .key_condition_expression(
+                "#pk = :pk_val AND #lsi1_sk BETWEEN :lsi1_sk_lower AND :lsi1_sk_upper",
+            )
             .expression_attribute_names("#pk", "pk")
             .expression_attribute_names("#lsi1_sk", "lsi1_sk")
+            .expression_attribute_values(":pk_val", AttributeValue::S(mk_pk(user_id)))
             .expression_attribute_values(
-                ":pk_val",
-                AttributeValue::S(mk_pk(user_id)),
+                ":lsi1_sk_lower",
+                AttributeValue::S(lsi1_sk_lower),
             )
             .expression_attribute_values(
-                ":lsi1_sk_val_exclusive_guard",
-                AttributeValue::S(mk_lsi1_sk(&exclusive_guard).map_err(SdkError::construction_failure)?),
+                ":lsi1_sk_upper",
+                AttributeValue::S(lsi1_sk_upper),
             )
             .limit(cursor.size as i32)
             .scan_index_forward(scan_index_forward)
@@ -195,17 +206,20 @@ impl<'a> WatchlistProductDynamoDbRepository for WatchlistProductDynamoDbReposito
         cursor: &Cursor<OffsetDateTime>,
         scan_index_forward: bool,
     ) -> Result<u64, SdkError<QueryError>> {
-        let exclusive_guard = if scan_index_forward {
-            cursor
-                .search_after
-                .unwrap_or(datetime!(2000 - 01 - 01 0:00 UTC))
+        let (lsi1_sk_lower, lsi1_sk_upper) = if scan_index_forward {
+            let lower = match cursor.search_after {
+                Some(created) => mk_lsi1_sk(&(created + Duration::NANOSECOND))
+                    .map_err(SdkError::construction_failure)?,
+                None => LSI1_SK_LOWER_BOUND.to_string(),
+            };
+            (lower, LSI1_SK_UPPER_BOUND.to_string())
         } else {
-            cursor.search_after.unwrap_or(OffsetDateTime::now_utc())
-        };
-        let key_condition_expression = if scan_index_forward {
-            "#pk = :pk_val AND #lsi1_sk > :lsi1_sk_val_exclusive_guard"
-        } else {
-            "#pk = :pk_val AND #lsi1_sk < :lsi1_sk_val_exclusive_guard"
+            let upper = match cursor.search_after {
+                Some(created) => mk_lsi1_sk(&(created - Duration::NANOSECOND))
+                    .map_err(SdkError::construction_failure)?,
+                None => LSI1_SK_UPPER_BOUND.to_string(),
+            };
+            (LSI1_SK_LOWER_BOUND.to_string(), upper)
         };
 
         let count = self
@@ -213,16 +227,14 @@ impl<'a> WatchlistProductDynamoDbRepository for WatchlistProductDynamoDbReposito
             .query()
             .table_name(&self.table)
             .index_name("lsi1")
-            .key_condition_expression(key_condition_expression)
+            .key_condition_expression(
+                "#pk = :pk_val AND #lsi1_sk BETWEEN :lsi1_sk_lower AND :lsi1_sk_upper",
+            )
             .expression_attribute_names("#pk", "pk")
             .expression_attribute_names("#lsi1_sk", "lsi1_sk")
             .expression_attribute_values(":pk_val", AttributeValue::S(mk_pk(user_id)))
-            .expression_attribute_values(
-                ":lsi1_sk_val_exclusive_guard",
-                AttributeValue::S(
-                    mk_lsi1_sk(&exclusive_guard).map_err(SdkError::construction_failure)?,
-                ),
-            )
+            .expression_attribute_values(":lsi1_sk_lower", AttributeValue::S(lsi1_sk_lower))
+            .expression_attribute_values(":lsi1_sk_upper", AttributeValue::S(lsi1_sk_upper))
             .scan_index_forward(scan_index_forward)
             .select(aws_sdk_dynamodb::types::Select::Count)
             .send()
