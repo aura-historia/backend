@@ -1,14 +1,17 @@
+use crate::core::search_filter_product_match::SearchFilterProductMatch;
 use crate::core::user_search_filter::{UserSearchFilter, UserSearchFilterSummary};
 use crate::core::user_search_filter_id::UserSearchFilterId;
 use crate::core::user_search_filter_name::UserSearchFilterName;
 use crate::dynamodb::repository::UserSearchFilterDynamoDbRepository;
+use crate::dynamodb::user_search_filter_match_record::UserSearchFilterMatchRecord;
 use crate::service::user_search_filter_update::UserSearchFilterUpdate;
 use aws_sdk_dynamodb::{config::http::HttpResponse, error::SdkError};
+use common::batch::Batch;
 use common::{sort::SortOrder, user_id::UserId};
 use product::core::product_search::ProductSearch;
 use product::opensearch::product_document::ProductDocument;
 use time::OffsetDateTime;
-use tracing::info;
+use tracing::{error, info};
 
 #[derive(thiserror::Error, Debug)]
 pub enum UserSearchFilterError {
@@ -38,6 +41,12 @@ pub enum UserSearchFilterError {
         #[from] SdkError<aws_sdk_dynamodb::operation::update_item::UpdateItemError, HttpResponse>,
     ),
 
+    #[error("Encountered DynamoDB SdkError for BatchWriteItem: {0}")]
+    SdkBatchWriteItemError(
+        #[from]
+        SdkError<aws_sdk_dynamodb::operation::batch_write_item::BatchWriteItemError, HttpResponse>,
+    ),
+
     #[cfg(feature = "opensearch")]
     #[error("Encountered OpenSearch error: {0}")]
     OpenSearchError(#[from] opensearch::Error),
@@ -60,6 +69,12 @@ pub mod api {
                 UserSearchFilterError::SdkPutItemError(err) => err.into(),
                 UserSearchFilterError::SdkDeleteItemError(err) => err.into(),
                 UserSearchFilterError::SdkUpdateItemError(err) => err.into(),
+                UserSearchFilterError::SdkBatchWriteItemError(err) => {
+                    ApiError::internal_server_error(
+                        common::api::error_code::INTERNAL_SERVER_ERROR,
+                        Box::new(err),
+                    )
+                }
                 #[cfg(feature = "opensearch")]
                 UserSearchFilterError::OpenSearchError(err) => ApiError::internal_server_error(
                     common::api::error_code::INTERNAL_SERVER_ERROR,
@@ -109,6 +124,41 @@ pub trait UserSearchFilterService {
         &self,
         product_document: &product::opensearch::product_document::ProductDocument,
     ) -> Result<Vec<UserSearchFilterSummary>, UserSearchFilterError>;
+
+    async fn find_search_filter_product_match(
+        &self,
+        user_id: &UserId,
+        search_filter_id: &UserSearchFilterId,
+        shop_id: &common::shop_id::ShopId,
+        shops_product_id: &common::shops_product_id::ShopsProductId,
+    ) -> Result<Option<SearchFilterProductMatch>, UserSearchFilterError>;
+
+    async fn find_search_filter_product_matches(
+        &self,
+        user_id: &UserId,
+    ) -> Result<Vec<SearchFilterProductMatch>, UserSearchFilterError>;
+
+    async fn find_search_filter_product_matches_for_filter(
+        &self,
+        user_id: &UserId,
+        search_filter_id: &UserSearchFilterId,
+    ) -> Result<Vec<SearchFilterProductMatch>, UserSearchFilterError>;
+
+    async fn create_search_filter_product_match(
+        &self,
+        product_match: SearchFilterProductMatch,
+    ) -> Result<SearchFilterProductMatch, UserSearchFilterError>;
+
+    async fn create_search_filter_product_matches(
+        &self,
+        product_matches: Vec<SearchFilterProductMatch>,
+    ) -> Result<CreateSearchFilterProductMatchesResult, UserSearchFilterError>;
+}
+
+#[derive(Debug)]
+pub struct CreateSearchFilterProductMatchesResult {
+    pub processed: Vec<SearchFilterProductMatch>,
+    pub unprocessed: Vec<SearchFilterProductMatch>,
 }
 
 pub struct UserSearchFilterServiceImpl<'a> {
@@ -273,6 +323,153 @@ impl<'a> UserSearchFilterService for UserSearchFilterServiceImpl<'a> {
             let _ = product_document;
             unimplemented!("match_user_search_filters requires the 'opensearch' feature")
         }
+    }
+
+    async fn find_search_filter_product_match(
+        &self,
+        user_id: &UserId,
+        search_filter_id: &UserSearchFilterId,
+        shop_id: &common::shop_id::ShopId,
+        shops_product_id: &common::shops_product_id::ShopsProductId,
+    ) -> Result<Option<SearchFilterProductMatch>, UserSearchFilterError> {
+        let record = self
+            .repository
+            .get_user_search_filter_match_record(user_id, search_filter_id, shop_id, shops_product_id)
+            .await?;
+        Ok(record.map(SearchFilterProductMatch::from))
+    }
+
+    async fn find_search_filter_product_matches(
+        &self,
+        user_id: &UserId,
+    ) -> Result<Vec<SearchFilterProductMatch>, UserSearchFilterError> {
+        let records = self
+            .repository
+            .query_user_search_filter_match_records_all(user_id)
+            .await?;
+        Ok(records
+            .into_iter()
+            .map(SearchFilterProductMatch::from)
+            .collect())
+    }
+
+    async fn find_search_filter_product_matches_for_filter(
+        &self,
+        user_id: &UserId,
+        search_filter_id: &UserSearchFilterId,
+    ) -> Result<Vec<SearchFilterProductMatch>, UserSearchFilterError> {
+        let records = self
+            .repository
+            .query_user_search_filter_match_records_for_filter(user_id, search_filter_id)
+            .await?;
+        Ok(records
+            .into_iter()
+            .map(SearchFilterProductMatch::from)
+            .collect())
+    }
+
+    async fn create_search_filter_product_match(
+        &self,
+        product_match: SearchFilterProductMatch,
+    ) -> Result<SearchFilterProductMatch, UserSearchFilterError> {
+        let record = UserSearchFilterMatchRecord::from(product_match.clone());
+        self.repository
+            .put_user_search_filter_match_record(record)
+            .await?;
+        info!(
+            userId = %product_match.user_id,
+            searchFilterId = %product_match.user_search_filter_id,
+            shopId = %product_match.shop_id,
+            shopsProductId = %product_match.shops_product_id,
+            "Created SearchFilterProductMatch."
+        );
+        Ok(product_match)
+    }
+
+    async fn create_search_filter_product_matches(
+        &self,
+        product_matches: Vec<SearchFilterProductMatch>,
+    ) -> Result<CreateSearchFilterProductMatchesResult, UserSearchFilterError> {
+        if product_matches.is_empty() {
+            return Ok(CreateSearchFilterProductMatchesResult {
+                processed: vec![],
+                unprocessed: vec![],
+            });
+        }
+
+        let records: Vec<UserSearchFilterMatchRecord> = product_matches
+            .iter()
+            .cloned()
+            .map(UserSearchFilterMatchRecord::from)
+            .collect();
+
+        let mut processed = Vec::new();
+        let mut unprocessed = Vec::new();
+
+        let batches = Batch::<UserSearchFilterMatchRecord, 25>::chunked_from(records.into_iter());
+        let mut match_iter = product_matches.into_iter();
+
+        for batch in batches {
+            let batch_size = batch.len();
+            let batch_matches: Vec<SearchFilterProductMatch> =
+                (&mut match_iter).take(batch_size).collect();
+
+            match self
+                .repository
+                .put_user_search_filter_match_records(batch)
+                .await
+            {
+                Ok(output) => {
+                    let failed_keys: std::collections::HashSet<String> = output
+                        .unprocessed_items
+                        .unwrap_or_default()
+                        .into_iter()
+                        .flat_map(|(_, write_reqs)| write_reqs)
+                        .filter_map(|req| req.put_request)
+                        .filter_map(|put| {
+                            match serde_dynamo::from_item::<_, UserSearchFilterMatchRecord>(
+                                put.item,
+                            ) {
+                                Ok(record) => Some(record.sk),
+                                Err(err) => {
+                                    error!(
+                                        error = ?err,
+                                        r#type = std::any::type_name::<UserSearchFilterMatchRecord>(),
+                                        "Failed parsing unprocessed item from BatchWriteItem output."
+                                    );
+                                    None
+                                }
+                            }
+                        })
+                        .collect();
+
+                    for m in batch_matches {
+                        let sk = crate::dynamodb::user_search_filter_match_record::mk_sk(
+                            &m.user_search_filter_id,
+                            &m.shop_id,
+                            &m.shops_product_id,
+                        );
+                        if failed_keys.contains(&sk) {
+                            unprocessed.push(m);
+                        } else {
+                            processed.push(m);
+                        }
+                    }
+                }
+                Err(err) => {
+                    error!(
+                        error = ?err,
+                        "Failed writing UserSearchFilterMatchRecord batch."
+                    );
+                    unprocessed.extend(batch_matches);
+                }
+            }
+        }
+
+        Ok(CreateSearchFilterProductMatchesResult {
+            processed,
+            unprocessed,
+        })
     }
 }
 

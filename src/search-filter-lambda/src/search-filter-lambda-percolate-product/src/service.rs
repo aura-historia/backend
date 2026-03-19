@@ -80,7 +80,36 @@ impl<'a> ProductEventSearchFilterNotificationsService
             "Matched search filters for product."
         );
 
-        let commands = matched_filters
+        // Filter out search filters that have already been matched for this product
+        let mut unmatched_filters = Vec::with_capacity(matched_filters.len());
+        for filter in matched_filters {
+            let existing_match = self
+                .user_search_filter_service
+                .find_search_filter_product_match(
+                    &filter.user_id,
+                    &filter.user_search_filter_id,
+                    &product.shop_id,
+                    &product.shops_product_id,
+                )
+                .await?;
+            if existing_match.is_none() {
+                unmatched_filters.push(filter);
+            } else {
+                debug!(
+                    userId = %filter.user_id,
+                    searchFilterId = %filter.user_search_filter_id,
+                    shopId = %product.shop_id,
+                    shopsProductId = %product.shops_product_id,
+                    "Skipping already-matched search filter for product."
+                );
+            }
+        }
+
+        if unmatched_filters.is_empty() {
+            return Ok(vec![]);
+        }
+
+        let commands = unmatched_filters
             .into_iter()
             .map(|filter| mk_search_filter_notification_command(&product, filter))
             .collect();
