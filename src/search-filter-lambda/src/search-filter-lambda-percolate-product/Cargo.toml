@@ -27,6 +27,7 @@ tracing = { workspace = true }
 mockall = { workspace = true }
 thiserror = { workspace = true }
 async-trait = { workspace = true }
+time = { workspace = true }
 
 [dev-dependencies]
 product = { workspace = true, features = ["test-data"] }

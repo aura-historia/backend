@@ -1,3 +1,5 @@
+use std::time::Duration;
+
 use aws_tests_common::get_cfn_output;
 use common::event_id::EventId;
 use fake::{Fake, Faker};
@@ -92,6 +94,7 @@ async fn should_get_and_patch_one_and_patch_all_and_delete_one_and_delete_all_no
         .put_notification_record(record2.clone())
         .await
         .unwrap();
+    tokio::time::sleep(Duration::from_secs(3)).await;
 
     // GET notifications
     let get_url = format!(
@@ -112,6 +115,7 @@ async fn should_get_and_patch_one_and_patch_all_and_delete_one_and_delete_all_no
     assert_eq!(2, gotten.items.len());
     assert_eq!(Some(2), gotten.total);
     assert!(gotten.items.iter().all(|n| !n.seen));
+    tokio::time::sleep(Duration::from_secs(3)).await;
 
     // PATCH one notification (mark as seen)
     let patch_one_url = format!(
@@ -133,6 +137,7 @@ async fn should_get_and_patch_one_and_patch_all_and_delete_one_and_delete_all_no
         .unwrap();
     assert_eq!(record1.origin_event_id, patched_one.origin_event_id);
     assert!(patched_one.seen);
+    tokio::time::sleep(Duration::from_secs(3)).await;
 
     // PATCH all notifications (mark all as seen)
     let patch_all_url = format!(
@@ -151,6 +156,7 @@ async fn should_get_and_patch_one_and_patch_all_and_delete_one_and_delete_all_no
         .await
         .unwrap();
     assert!(patched_all.items.iter().all(|n| n.seen));
+    tokio::time::sleep(Duration::from_secs(3)).await;
 
     // DELETE one notification
     let delete_one_url = format!(
@@ -165,6 +171,7 @@ async fn should_get_and_patch_one_and_patch_all_and_delete_one_and_delete_all_no
         .await
         .unwrap();
     assert_eq!(204, delete_one_response.status());
+    tokio::time::sleep(Duration::from_secs(3)).await;
 
     // GET after delete-one: only 1 remains
     let get_response = reqwest::Client::new()
@@ -179,6 +186,7 @@ async fn should_get_and_patch_one_and_patch_all_and_delete_one_and_delete_all_no
         .await
         .unwrap();
     assert_eq!(1, after_delete_one.items.len());
+    tokio::time::sleep(Duration::from_secs(3)).await;
 
     // PATCH all (mark all as seen - no body needed since service updates all)
     let patch_all_specific_response = reqwest::Client::new()
@@ -188,6 +196,7 @@ async fn should_get_and_patch_one_and_patch_all_and_delete_one_and_delete_all_no
         .await
         .unwrap();
     assert_eq!(200, patch_all_specific_response.status());
+    tokio::time::sleep(Duration::from_secs(3)).await;
 
     // DELETE all notifications
     let delete_all_url = format!(
@@ -201,6 +210,7 @@ async fn should_get_and_patch_one_and_patch_all_and_delete_one_and_delete_all_no
         .await
         .unwrap();
     assert_eq!(204, delete_all_response.status());
+    tokio::time::sleep(Duration::from_secs(3)).await;
 
     // GET after delete-all: none remain
     let get_response = reqwest::Client::new()

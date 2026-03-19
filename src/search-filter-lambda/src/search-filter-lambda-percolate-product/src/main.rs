@@ -93,6 +93,7 @@ async fn main() -> Result<(), Error> {
         handler(
             &product_event_search_filter_service,
             &notification_service,
+            &user_search_filter_service,
             event,
         )
         .await
