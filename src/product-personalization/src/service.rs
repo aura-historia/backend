@@ -137,8 +137,14 @@ impl<'a> ProductPersonalizationServiceImpl<'a> {
             .find_notifications_by_product(user_id, product_id, Some(1), false)
             .await?;
 
-        let seen = notifications.first().map(|n| n.seen).unwrap_or(true);
-        Ok(NotificationUserState { seen })
+        let (seen, origin_event_id) = match notifications.first() {
+            Some(n) => (n.seen, Some(n.origin_event_id)),
+            None => (true, None),
+        };
+        Ok(NotificationUserState {
+            seen,
+            origin_event_id,
+        })
     }
 }
 
@@ -1065,6 +1071,7 @@ mod tests {
             .unwrap();
 
         assert!(actual.user_state.unwrap().seen);
+        assert!(actual.user_state.unwrap().origin_event_id.is_none());
     }
 
     #[tokio::test]
@@ -1089,6 +1096,7 @@ mod tests {
             .unwrap();
 
         assert!(!actual.user_state.unwrap().seen);
+        assert!(actual.user_state.unwrap().origin_event_id.is_some());
     }
 
     #[tokio::test]
@@ -1113,6 +1121,7 @@ mod tests {
             .unwrap();
 
         assert!(actual.user_state.unwrap().seen);
+        assert!(actual.user_state.unwrap().origin_event_id.is_some());
     }
 
     #[tokio::test]
@@ -1161,7 +1170,10 @@ mod tests {
 
         assert_eq!(actual.len(), 3);
         assert!(!actual[0].user_state.unwrap().seen);
+        assert!(actual[0].user_state.unwrap().origin_event_id.is_some());
         assert!(actual[1].user_state.unwrap().seen);
+        assert!(actual[1].user_state.unwrap().origin_event_id.is_some());
         assert!(actual[2].user_state.unwrap().seen);
+        assert!(actual[2].user_state.unwrap().origin_event_id.is_none());
     }
 }

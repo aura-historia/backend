@@ -1,6 +1,7 @@
 use crate::core::user_state::{
     NotificationUserState, ProductUserState, ProhibitedContentUserState, WatchlistUserState,
 };
+use common::event_id::EventId;
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, Copy, PartialEq, Default, Serialize, Deserialize)]
@@ -27,11 +28,16 @@ pub struct ProhibitedContentUserStateData {
 #[serde(rename_all = "camelCase")]
 pub struct NotificationUserStateData {
     pub seen: bool,
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub origin_event_id: Option<EventId>,
 }
 
 impl Default for NotificationUserStateData {
     fn default() -> Self {
-        Self { seen: true }
+        Self {
+            seen: true,
+            origin_event_id: None,
+        }
     }
 }
 
@@ -64,7 +70,10 @@ impl From<WatchlistUserState> for WatchlistUserStateData {
 
 impl From<NotificationUserState> for NotificationUserStateData {
     fn from(value: NotificationUserState) -> Self {
-        NotificationUserStateData { seen: value.seen }
+        NotificationUserStateData {
+            seen: value.seen,
+            origin_event_id: value.origin_event_id,
+        }
     }
 }
 
@@ -80,25 +89,71 @@ mod tests {
                 notifications: false,
             },
             prohibited_content: ProhibitedContentUserStateData { consent: true },
-            notification: NotificationUserStateData { seen: false },
+            notification: NotificationUserStateData {
+                seen: false,
+                origin_event_id: None,
+            },
         };
         let json = serde_json::to_value(data).unwrap();
         assert_eq!(json["notification"]["seen"], false);
         assert_eq!(json["watchlist"]["watching"], true);
         assert_eq!(json["prohibitedContent"]["consent"], true);
+        assert!(json["notification"].get("originEventId").is_none());
     }
 
     #[test]
     fn should_default_notification_user_state_data_seen_to_true() {
         let data = NotificationUserStateData::default();
         assert!(data.seen);
+        assert!(data.origin_event_id.is_none());
     }
 
     #[test]
     fn should_convert_notification_user_state_to_data() {
-        let state = NotificationUserState { seen: false };
+        let state = NotificationUserState {
+            seen: false,
+            origin_event_id: None,
+        };
         let data: NotificationUserStateData = state.into();
         assert!(!data.seen);
+        assert!(data.origin_event_id.is_none());
+    }
+
+    #[test]
+    fn should_convert_notification_user_state_with_event_id_to_data() {
+        let event_id = EventId::new();
+        let state = NotificationUserState {
+            seen: false,
+            origin_event_id: Some(event_id),
+        };
+        let data: NotificationUserStateData = state.into();
+        assert!(!data.seen);
+        assert_eq!(data.origin_event_id, Some(event_id));
+    }
+
+    #[test]
+    fn should_serialize_origin_event_id_when_present() {
+        let event_id = EventId::new();
+        let data = NotificationUserStateData {
+            seen: false,
+            origin_event_id: Some(event_id),
+        };
+        let json = serde_json::to_value(data).unwrap();
+        assert_eq!(json["seen"], false);
+        assert_eq!(
+            json["originEventId"].as_str().unwrap(),
+            event_id.to_string()
+        );
+    }
+
+    #[test]
+    fn should_omit_origin_event_id_when_none() {
+        let data = NotificationUserStateData {
+            seen: true,
+            origin_event_id: None,
+        };
+        let json = serde_json::to_value(data).unwrap();
+        assert!(json.get("originEventId").is_none());
     }
 
     #[test]
@@ -109,12 +164,16 @@ mod tests {
                 notifications: true,
             },
             prohibited_content: ProhibitedContentUserState { consent: false },
-            notification: NotificationUserState { seen: false },
+            notification: NotificationUserState {
+                seen: false,
+                origin_event_id: None,
+            },
         };
         let data: ProductUserStateData = state.into();
         assert!(data.watchlist.watching);
         assert!(data.watchlist.notifications);
         assert!(!data.prohibited_content.consent);
         assert!(!data.notification.seen);
+        assert!(data.notification.origin_event_id.is_none());
     }
 }
