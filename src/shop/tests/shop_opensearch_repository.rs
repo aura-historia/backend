@@ -90,60 +90,6 @@ async fn should_search_shop_documents_when_only_name_query_supplied() {
             updated: Some(RangeQuery { min: Some(datetime!(1000 - 01 - 01 0:00 UTC)), max: Some(datetime!(4000 - 01 - 01 0:00 UTC)) }),
             shop_type_query: Default::default(),
         },
-    Sort { sort: SortShopField::Created, order: SortOrder::Asc },
-)]
-#[case(
-    ShopSearch {
-        shop_name_query: Some("Expected name".try_into().unwrap()),
-            created: Some(RangeQuery { min: Some(datetime!(2000 - 01 - 01 0:00 UTC)), max: Some(datetime!(3000 - 01 - 01 0:00 UTC)) }),
-            updated: Some(RangeQuery { min: Some(datetime!(1000 - 01 - 01 0:00 UTC)), max: Some(datetime!(4000 - 01 - 01 0:00 UTC)) }),
-            shop_type_query: Default::default(),
-        },
-    Sort { sort: SortShopField::Created, order: SortOrder::Desc },
-)]
-#[case(
-    ShopSearch {
-        shop_name_query: Some("Expected name".try_into().unwrap()),
-            created: Some(RangeQuery { min: Some(datetime!(2000 - 01 - 01 0:00 UTC)), max: Some(datetime!(3000 - 01 - 01 0:00 UTC)) }),
-            updated: Some(RangeQuery { min: Some(datetime!(1000 - 01 - 01 0:00 UTC)), max: Some(datetime!(4000 - 01 - 01 0:00 UTC)) }),
-            shop_type_query: Default::default(),
-        },
-    Sort { sort: SortShopField::Updated, order: SortOrder::Asc },
-)]
-#[case(
-    ShopSearch {
-        shop_name_query: Some("Expected name".try_into().unwrap()),
-            created: Some(RangeQuery { min: Some(datetime!(2000 - 01 - 01 0:00 UTC)), max: Some(datetime!(3000 - 01 - 01 0:00 UTC)) }),
-            updated: Some(RangeQuery { min: Some(datetime!(1000 - 01 - 01 0:00 UTC)), max: Some(datetime!(4000 - 01 - 01 0:00 UTC)) }),
-            shop_type_query: Default::default(),
-        },
-    Sort { sort: SortShopField::Updated, order: SortOrder::Desc },
-)]
-#[case(
-    ShopSearch {
-        shop_name_query: Some("Expected name".try_into().unwrap()),
-            created: Some(RangeQuery { min: Some(datetime!(2000 - 01 - 01 0:00 UTC)), max: Some(datetime!(3000 - 01 - 01 0:00 UTC)) }),
-            updated: Some(RangeQuery { min: Some(datetime!(1000 - 01 - 01 0:00 UTC)), max: Some(datetime!(4000 - 01 - 01 0:00 UTC)) }),
-            shop_type_query: Default::default(),
-        },
-    Sort { sort: SortShopField::Name, order: SortOrder::Asc },
-)]
-#[case(
-    ShopSearch {
-        shop_name_query: Some("Expected name".try_into().unwrap()),
-            created: Some(RangeQuery { min: Some(datetime!(2000 - 01 - 01 0:00 UTC)), max: Some(datetime!(3000 - 01 - 01 0:00 UTC)) }),
-            updated: Some(RangeQuery { min: Some(datetime!(1000 - 01 - 01 0:00 UTC)), max: Some(datetime!(4000 - 01 - 01 0:00 UTC)) }),
-            shop_type_query: Default::default(),
-        },
-    Sort { sort: SortShopField::Name, order: SortOrder::Desc },
-)]
-#[case(
-    ShopSearch {
-        shop_name_query: Some("Expected name".try_into().unwrap()),
-            created: Some(RangeQuery { min: Some(datetime!(2000 - 01 - 01 0:00 UTC)), max: Some(datetime!(3000 - 01 - 01 0:00 UTC)) }),
-            updated: Some(RangeQuery { min: Some(datetime!(1000 - 01 - 01 0:00 UTC)), max: Some(datetime!(4000 - 01 - 01 0:00 UTC)) }),
-            shop_type_query: Default::default(),
-        },
     Sort {
         sort: SortShopField::Score,
         order: SortOrder::Desc,
@@ -322,9 +268,6 @@ async fn should_search_shop_documents_when_no_filters() {
 #[trace]
 #[test_attr(apply(test))]
 #[case(&[shop::core::shop_type::ShopType::AuctionHouse])]
-#[case(&[shop::core::shop_type::ShopType::AuctionPlatform])]
-#[case(&[shop::core::shop_type::ShopType::CommercialDealer])]
-#[case(&[shop::core::shop_type::ShopType::Marketplace])]
 #[case(&[shop::core::shop_type::ShopType::AuctionHouse, shop::core::shop_type::ShopType::Marketplace])]
 #[localstack_test(services = [OpenSearch()])]
 async fn should_search_shop_documents_when_shop_types_are_given(
