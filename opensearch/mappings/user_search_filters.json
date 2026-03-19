@@ -172,6 +172,17 @@
             "condition": { "type": "keyword" },
             "provenance": { "type": "keyword" },
             "restoration": { "type": "keyword" },
+            "titleNative": {
+                "type": "object",
+                "properties": {
+                    "text": {
+                        "type": "text"
+                    },
+                    "language": {
+                        "type": "keyword"
+                    }
+                }
+            },
             "titleDe": {
                 "type": "text",
                 "analyzer": "german",
