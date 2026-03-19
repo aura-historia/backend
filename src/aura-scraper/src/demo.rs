@@ -112,6 +112,8 @@ impl From<NormalizedProduct> for DemoProduct {
 
 #[tokio::main]
 async fn main() {
+    dotenvy::dotenv().ok();
+
     let targets: &[ScrapeTarget] = &[
         ScrapeTarget {
             shop_id: "8ded4706-dc72-4b0b-9357-9192e18e3d5a".try_into().unwrap(),
