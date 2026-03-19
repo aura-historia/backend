@@ -229,6 +229,9 @@ mod tests {
         filter_service
             .expect_match_user_search_filters()
             .return_once(move |_| Box::pin(async move { Ok(vec![summary]) }));
+        filter_service
+            .expect_find_search_filter_product_match()
+            .return_once(|_, _, _, _| Box::pin(async { Ok(None) }));
 
         let service =
             ProductEventSearchFilterNotificationsServiceImpl::new(&filter_service, &get_service);
@@ -325,6 +328,9 @@ mod tests {
         filter_service
             .expect_match_user_search_filters()
             .return_once(move |_| Box::pin(async move { Ok(vec![summary]) }));
+        filter_service
+            .expect_find_search_filter_product_match()
+            .return_once(|_, _, _, _| Box::pin(async { Ok(None) }));
 
         let service =
             ProductEventSearchFilterNotificationsServiceImpl::new(&filter_service, &get_service);
@@ -363,6 +369,9 @@ mod tests {
         filter_service
             .expect_match_user_search_filters()
             .return_once(move |_| Box::pin(async move { Ok(vec![summary]) }));
+        filter_service
+            .expect_find_search_filter_product_match()
+            .return_once(|_, _, _, _| Box::pin(async { Ok(None) }));
 
         let service =
             ProductEventSearchFilterNotificationsServiceImpl::new(&filter_service, &get_service);
@@ -381,5 +390,80 @@ mod tests {
             }
             _ => panic!("Expected SearchFilter payload"),
         }
+    }
+
+    #[tokio::test]
+    async fn should_filter_out_already_matched_filters_for_determine_commands() {
+        let product: Product = Faker.fake();
+        let event = mk_event(&product);
+        let product_clone = product.clone();
+        let product_clone2 = product.clone();
+        let user_id = UserId::new();
+        let summary1 = mk_filter_summary(user_id);
+        let summary1_filter_id = summary1.user_search_filter_id;
+        let summary2 = mk_filter_summary(user_id);
+
+        let mut get_service = MockGetProductService::default();
+        get_service
+            .expect_find_product()
+            .return_once(move |_, _| Box::pin(async move { Ok(product_clone) }));
+
+        let mut filter_service = MockUserSearchFilterService::default();
+        filter_service
+            .expect_match_user_search_filters()
+            .return_once(move |_| Box::pin(async move { Ok(vec![summary1, summary2]) }));
+
+        // First filter already matched (return Some), second not matched (return None)
+        let shop_id = product_clone2.shop_id;
+        let shops_product_id = product_clone2.shops_product_id.clone();
+        filter_service
+            .expect_find_search_filter_product_match()
+            .withf(move |_, filter_id, sid, spid| {
+                *filter_id == summary1_filter_id && *sid == shop_id && *spid == shops_product_id
+            })
+            .return_once(|_, _, _, _| Box::pin(async { Ok(Some(Faker.fake())) }));
+        filter_service
+            .expect_find_search_filter_product_match()
+            .return_once(|_, _, _, _| Box::pin(async { Ok(None) }));
+
+        let service =
+            ProductEventSearchFilterNotificationsServiceImpl::new(&filter_service, &get_service);
+
+        let result = service.determine_notification_commands(event).await;
+
+        assert!(result.is_ok());
+        let cmds = result.unwrap();
+        assert_eq!(cmds.len(), 1);
+        assert_eq!(cmds[0].user_id, user_id);
+    }
+
+    #[tokio::test]
+    async fn should_return_empty_when_all_filters_already_matched() {
+        let product: Product = Faker.fake();
+        let event = mk_event(&product);
+        let product_clone = product.clone();
+        let user_id = UserId::new();
+        let summary = mk_filter_summary(user_id);
+
+        let mut get_service = MockGetProductService::default();
+        get_service
+            .expect_find_product()
+            .return_once(move |_, _| Box::pin(async move { Ok(product_clone) }));
+
+        let mut filter_service = MockUserSearchFilterService::default();
+        filter_service
+            .expect_match_user_search_filters()
+            .return_once(move |_| Box::pin(async move { Ok(vec![summary]) }));
+        filter_service
+            .expect_find_search_filter_product_match()
+            .return_once(|_, _, _, _| Box::pin(async { Ok(Some(Faker.fake())) }));
+
+        let service =
+            ProductEventSearchFilterNotificationsServiceImpl::new(&filter_service, &get_service);
+
+        let result = service.determine_notification_commands(event).await;
+
+        assert!(result.is_ok());
+        assert!(result.unwrap().is_empty());
     }
 }

@@ -80,29 +80,38 @@ pub async fn handler(
 
                             // Create search-filter product-matches for every successfully created notification
                             let now = OffsetDateTime::now_utc();
-                            let product_matches: Vec<SearchFilterProductMatch> = create_notifications_res
-                                .processed
-                                .iter()
-                                .filter_map(|notification| {
-                                    match_info
-                                        .iter()
-                                        .find(|(user_id, _, _, _, _)| *user_id == notification.user_id)
-                                        .map(
-                                            |(user_id, search_filter_id, shop_id, shops_product_id, product_id)| {
-                                                SearchFilterProductMatch {
-                                                    user_id: *user_id,
-                                                    user_search_filter_id: *search_filter_id,
-                                                    shop_id: *shop_id,
-                                                    shops_product_id: shops_product_id.clone(),
-                                                    product_id: *product_id,
-                                                    origin_event_id: event_id,
-                                                    created: now,
-                                                    updated: now,
-                                                }
-                                            },
-                                        )
-                                })
-                                .collect();
+                            let product_matches: Vec<SearchFilterProductMatch> =
+                                create_notifications_res
+                                    .processed
+                                    .iter()
+                                    .filter_map(|notification| {
+                                        match_info
+                                            .iter()
+                                            .find(|(user_id, _, _, _, _)| {
+                                                *user_id == notification.user_id
+                                            })
+                                            .map(
+                                                |(
+                                                    user_id,
+                                                    search_filter_id,
+                                                    shop_id,
+                                                    shops_product_id,
+                                                    product_id,
+                                                )| {
+                                                    SearchFilterProductMatch {
+                                                        user_id: *user_id,
+                                                        user_search_filter_id: *search_filter_id,
+                                                        shop_id: *shop_id,
+                                                        shops_product_id: shops_product_id.clone(),
+                                                        product_id: *product_id,
+                                                        origin_event_id: event_id,
+                                                        created: now,
+                                                        updated: now,
+                                                    }
+                                                },
+                                            )
+                                    })
+                                    .collect();
 
                             if !product_matches.is_empty() {
                                 let match_result = search_filter_service
@@ -215,7 +224,13 @@ mod tests {
         let search_filter_service = MockUserSearchFilterService::default();
         let event = mk_sqs_event(vec![]);
 
-        let result = handler(&service, &notification_service, &search_filter_service, event).await;
+        let result = handler(
+            &service,
+            &notification_service,
+            &search_filter_service,
+            event,
+        )
+        .await;
 
         assert!(result.is_ok());
         let response = result.unwrap();
@@ -229,7 +244,13 @@ mod tests {
         let search_filter_service = MockUserSearchFilterService::default();
         let event = mk_sqs_event(vec![mk_sqs_message("{\"not\":\"a valid event\"}")]);
 
-        let result = handler(&service, &notification_service, &search_filter_service, event).await;
+        let result = handler(
+            &service,
+            &notification_service,
+            &search_filter_service,
+            event,
+        )
+        .await;
 
         assert!(result.is_ok());
         let response = result.unwrap();
@@ -261,7 +282,13 @@ mod tests {
         let event_bridge_body = mk_event_bridge_body(&domain_event_record);
         let event = mk_sqs_event(vec![mk_sqs_message(&event_bridge_body)]);
 
-        let result = handler(&service, &notification_service, &search_filter_service, event).await;
+        let result = handler(
+            &service,
+            &notification_service,
+            &search_filter_service,
+            event,
+        )
+        .await;
 
         assert!(result.is_ok());
         let response = result.unwrap();
@@ -282,7 +309,13 @@ mod tests {
         let event_bridge_body = mk_event_bridge_body(&domain_event_record);
         let event = mk_sqs_event(vec![mk_sqs_message(&event_bridge_body)]);
 
-        let result = handler(&service, &notification_service, &search_filter_service, event).await;
+        let result = handler(
+            &service,
+            &notification_service,
+            &search_filter_service,
+            event,
+        )
+        .await;
 
         assert!(result.is_ok());
         let response = result.unwrap();
@@ -315,7 +348,13 @@ mod tests {
         let event_bridge_body = mk_event_bridge_body(&domain_event_record);
         let event = mk_sqs_event(vec![mk_sqs_message(&event_bridge_body)]);
 
-        let result = handler(&service, &notification_service, &search_filter_service, event).await;
+        let result = handler(
+            &service,
+            &notification_service,
+            &search_filter_service,
+            event,
+        )
+        .await;
 
         assert!(result.is_ok());
         let response = result.unwrap();
@@ -332,7 +371,13 @@ mod tests {
         msg.body = None;
         let event = mk_sqs_event(vec![msg]);
 
-        let result = handler(&service, &notification_service, &search_filter_service, event).await;
+        let result = handler(
+            &service,
+            &notification_service,
+            &search_filter_service,
+            event,
+        )
+        .await;
 
         assert!(result.is_ok());
         let response = result.unwrap();

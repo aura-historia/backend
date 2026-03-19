@@ -334,7 +334,12 @@ impl<'a> UserSearchFilterService for UserSearchFilterServiceImpl<'a> {
     ) -> Result<Option<SearchFilterProductMatch>, UserSearchFilterError> {
         let record = self
             .repository
-            .get_user_search_filter_match_record(user_id, search_filter_id, shop_id, shops_product_id)
+            .get_user_search_filter_match_record(
+                user_id,
+                search_filter_id,
+                shop_id,
+                shops_product_id,
+            )
             .await?;
         Ok(record.map(SearchFilterProductMatch::from))
     }
@@ -1491,6 +1496,285 @@ mod tests {
             assert!(actual.is_ok());
             let matched_filters = actual.unwrap();
             assert_eq!(matched_filters.len(), count);
+        }
+    }
+
+    mod find_search_filter_product_match {
+        use crate::core::user_search_filter_id::UserSearchFilterId;
+        use crate::dynamodb::repository::MockUserSearchFilterDynamoDbRepository;
+        use crate::dynamodb::user_search_filter_match_record::UserSearchFilterMatchRecord;
+        use crate::service::user_search_filter_service::{
+            UserSearchFilterService, UserSearchFilterServiceImpl,
+        };
+        use common::shop_id::ShopId;
+        use common::shops_product_id::ShopsProductId;
+        use common::user_id::UserId;
+        use fake::{Fake, Faker};
+
+        #[tokio::test]
+        async fn should_return_none_when_no_match_exists() {
+            let mut repository = MockUserSearchFilterDynamoDbRepository::default();
+            repository
+                .expect_get_user_search_filter_match_record()
+                .return_once(|_, _, _, _| Box::pin(async { Ok(None) }));
+            let service = UserSearchFilterServiceImpl::new(&repository);
+
+            let actual = service
+                .find_search_filter_product_match(
+                    &UserId::new(),
+                    &UserSearchFilterId::new(),
+                    &ShopId::new(),
+                    &ShopsProductId::new(),
+                )
+                .await;
+            assert!(actual.is_ok());
+            assert!(actual.unwrap().is_none());
+        }
+
+        #[tokio::test]
+        async fn should_return_some_when_match_exists() {
+            let mut repository = MockUserSearchFilterDynamoDbRepository::default();
+            repository
+                .expect_get_user_search_filter_match_record()
+                .return_once(|_, _, _, _| {
+                    Box::pin(async { Ok(Some(Faker.fake::<UserSearchFilterMatchRecord>())) })
+                });
+            let service = UserSearchFilterServiceImpl::new(&repository);
+
+            let actual = service
+                .find_search_filter_product_match(
+                    &UserId::new(),
+                    &UserSearchFilterId::new(),
+                    &ShopId::new(),
+                    &ShopsProductId::new(),
+                )
+                .await;
+            assert!(actual.is_ok());
+            assert!(actual.unwrap().is_some());
+        }
+
+        #[tokio::test]
+        async fn should_propagate_sdk_error() {
+            use aws_sdk_dynamodb::error::SdkError;
+            let mut repository = MockUserSearchFilterDynamoDbRepository::default();
+            repository
+                .expect_get_user_search_filter_match_record()
+                .return_once(|_, _, _, _| {
+                    Box::pin(async { Err(SdkError::construction_failure("test error")) })
+                });
+            let service = UserSearchFilterServiceImpl::new(&repository);
+
+            let actual = service
+                .find_search_filter_product_match(
+                    &UserId::new(),
+                    &UserSearchFilterId::new(),
+                    &ShopId::new(),
+                    &ShopsProductId::new(),
+                )
+                .await;
+            assert!(actual.is_err());
+        }
+    }
+
+    mod find_search_filter_product_matches {
+        use crate::dynamodb::repository::MockUserSearchFilterDynamoDbRepository;
+        use crate::dynamodb::user_search_filter_match_record::UserSearchFilterMatchRecord;
+        use crate::service::user_search_filter_service::{
+            UserSearchFilterService, UserSearchFilterServiceImpl,
+        };
+        use common::user_id::UserId;
+
+        #[rstest::rstest]
+        #[case::empty(0)]
+        #[case::non_empty(5)]
+        #[tokio::test]
+        #[trace]
+        async fn should_return_matches(#[case] count: usize) {
+            let mut repository = MockUserSearchFilterDynamoDbRepository::default();
+            repository
+                .expect_query_user_search_filter_match_records_all()
+                .return_once(move |_| {
+                    Box::pin(async move { Ok(fake::vec![UserSearchFilterMatchRecord; count]) })
+                });
+            let service = UserSearchFilterServiceImpl::new(&repository);
+
+            let actual = service
+                .find_search_filter_product_matches(&UserId::new())
+                .await;
+            assert!(actual.is_ok());
+            assert_eq!(actual.unwrap().len(), count);
+        }
+
+        #[tokio::test]
+        async fn should_propagate_sdk_error() {
+            use aws_sdk_dynamodb::error::SdkError;
+            let mut repository = MockUserSearchFilterDynamoDbRepository::default();
+            repository
+                .expect_query_user_search_filter_match_records_all()
+                .return_once(|_| {
+                    Box::pin(async { Err(SdkError::construction_failure("test error")) })
+                });
+            let service = UserSearchFilterServiceImpl::new(&repository);
+
+            let actual = service
+                .find_search_filter_product_matches(&UserId::new())
+                .await;
+            assert!(actual.is_err());
+        }
+    }
+
+    mod find_search_filter_product_matches_for_filter {
+        use crate::core::user_search_filter_id::UserSearchFilterId;
+        use crate::dynamodb::repository::MockUserSearchFilterDynamoDbRepository;
+        use crate::dynamodb::user_search_filter_match_record::UserSearchFilterMatchRecord;
+        use crate::service::user_search_filter_service::{
+            UserSearchFilterService, UserSearchFilterServiceImpl,
+        };
+        use common::user_id::UserId;
+
+        #[rstest::rstest]
+        #[case::empty(0)]
+        #[case::non_empty(3)]
+        #[tokio::test]
+        #[trace]
+        async fn should_return_matches_for_filter(#[case] count: usize) {
+            let mut repository = MockUserSearchFilterDynamoDbRepository::default();
+            repository
+                .expect_query_user_search_filter_match_records_for_filter()
+                .return_once(move |_, _| {
+                    Box::pin(async move { Ok(fake::vec![UserSearchFilterMatchRecord; count]) })
+                });
+            let service = UserSearchFilterServiceImpl::new(&repository);
+
+            let actual = service
+                .find_search_filter_product_matches_for_filter(
+                    &UserId::new(),
+                    &UserSearchFilterId::new(),
+                )
+                .await;
+            assert!(actual.is_ok());
+            assert_eq!(actual.unwrap().len(), count);
+        }
+
+        #[tokio::test]
+        async fn should_propagate_sdk_error() {
+            use aws_sdk_dynamodb::error::SdkError;
+            let mut repository = MockUserSearchFilterDynamoDbRepository::default();
+            repository
+                .expect_query_user_search_filter_match_records_for_filter()
+                .return_once(|_, _| {
+                    Box::pin(async { Err(SdkError::construction_failure("test error")) })
+                });
+            let service = UserSearchFilterServiceImpl::new(&repository);
+
+            let actual = service
+                .find_search_filter_product_matches_for_filter(
+                    &UserId::new(),
+                    &UserSearchFilterId::new(),
+                )
+                .await;
+            assert!(actual.is_err());
+        }
+    }
+
+    mod create_search_filter_product_match {
+        use crate::core::search_filter_product_match::SearchFilterProductMatch;
+        use crate::dynamodb::repository::MockUserSearchFilterDynamoDbRepository;
+        use crate::service::user_search_filter_service::{
+            UserSearchFilterService, UserSearchFilterServiceImpl,
+        };
+        use aws_sdk_dynamodb::operation::put_item::PutItemOutput;
+        use fake::{Fake, Faker};
+
+        #[tokio::test]
+        async fn should_create_match_successfully() {
+            let mut repository = MockUserSearchFilterDynamoDbRepository::default();
+            repository
+                .expect_put_user_search_filter_match_record()
+                .return_once(|_| Box::pin(async { Ok(PutItemOutput::builder().build()) }));
+            let service = UserSearchFilterServiceImpl::new(&repository);
+
+            let product_match: SearchFilterProductMatch = Faker.fake();
+            let actual = service
+                .create_search_filter_product_match(product_match.clone())
+                .await;
+            assert!(actual.is_ok());
+            assert_eq!(actual.unwrap(), product_match);
+        }
+
+        #[tokio::test]
+        async fn should_propagate_sdk_error() {
+            use aws_sdk_dynamodb::error::SdkError;
+            let mut repository = MockUserSearchFilterDynamoDbRepository::default();
+            repository
+                .expect_put_user_search_filter_match_record()
+                .return_once(|_| {
+                    Box::pin(async { Err(SdkError::construction_failure("test error")) })
+                });
+            let service = UserSearchFilterServiceImpl::new(&repository);
+
+            let product_match: SearchFilterProductMatch = Faker.fake();
+            let actual = service
+                .create_search_filter_product_match(product_match)
+                .await;
+            assert!(actual.is_err());
+        }
+    }
+
+    mod create_search_filter_product_matches {
+        use crate::core::search_filter_product_match::SearchFilterProductMatch;
+        use crate::dynamodb::repository::MockUserSearchFilterDynamoDbRepository;
+        use crate::service::user_search_filter_service::{
+            UserSearchFilterService, UserSearchFilterServiceImpl,
+        };
+        use aws_sdk_dynamodb::operation::batch_write_item::BatchWriteItemOutput;
+        use fake::{Fake, Faker};
+
+        #[tokio::test]
+        async fn should_return_empty_when_no_matches() {
+            let repository = MockUserSearchFilterDynamoDbRepository::default();
+            let service = UserSearchFilterServiceImpl::new(&repository);
+
+            let actual = service.create_search_filter_product_matches(vec![]).await;
+            assert!(actual.is_ok());
+            let result = actual.unwrap();
+            assert!(result.processed.is_empty());
+            assert!(result.unprocessed.is_empty());
+        }
+
+        #[tokio::test]
+        async fn should_process_all_matches_when_batch_succeeds() {
+            let mut repository = MockUserSearchFilterDynamoDbRepository::default();
+            repository
+                .expect_put_user_search_filter_match_records()
+                .return_once(|_| Box::pin(async { Ok(BatchWriteItemOutput::builder().build()) }));
+            let service = UserSearchFilterServiceImpl::new(&repository);
+
+            let matches: Vec<SearchFilterProductMatch> = (0..3).map(|_| Faker.fake()).collect();
+            let actual = service.create_search_filter_product_matches(matches).await;
+            assert!(actual.is_ok());
+            let result = actual.unwrap();
+            assert_eq!(result.processed.len(), 3);
+            assert!(result.unprocessed.is_empty());
+        }
+
+        #[tokio::test]
+        async fn should_mark_all_as_unprocessed_when_batch_fails() {
+            use aws_sdk_dynamodb::error::SdkError;
+            let mut repository = MockUserSearchFilterDynamoDbRepository::default();
+            repository
+                .expect_put_user_search_filter_match_records()
+                .return_once(|_| {
+                    Box::pin(async { Err(SdkError::construction_failure("test error")) })
+                });
+            let service = UserSearchFilterServiceImpl::new(&repository);
+
+            let matches: Vec<SearchFilterProductMatch> = (0..3).map(|_| Faker.fake()).collect();
+            let actual = service.create_search_filter_product_matches(matches).await;
+            assert!(actual.is_ok());
+            let result = actual.unwrap();
+            assert!(result.processed.is_empty());
+            assert_eq!(result.unprocessed.len(), 3);
         }
     }
 }

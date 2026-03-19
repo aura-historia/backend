@@ -33,7 +33,9 @@ pub fn mk_sk(
     shop_id: &ShopId,
     shops_product_id: &ShopsProductId,
 ) -> String {
-    format!("search_filter_match#search_filter#{search_filter_id}#shop_id#{shop_id}#shops_product_id#{shops_product_id}")
+    format!(
+        "search_filter_match#search_filter#{search_filter_id}#shop_id#{shop_id}#shops_product_id#{shops_product_id}"
+    )
 }
 
 pub fn mk_sk_prefix_filter(search_filter_id: &UserSearchFilterId) -> String {

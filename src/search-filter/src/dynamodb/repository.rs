@@ -16,7 +16,10 @@ use aws_sdk_dynamodb::{
     },
     types::{AttributeValue, ReturnValue},
 };
-use common::{batch::Batch, dynamodb_update::DynamoDbUpdate, shop_id::ShopId, shops_product_id::ShopsProductId, user_id::UserId};
+use common::{
+    batch::Batch, dynamodb_update::DynamoDbUpdate, shop_id::ShopId,
+    shops_product_id::ShopsProductId, user_id::UserId,
+};
 use std::collections::HashMap;
 use tracing::error;
 
