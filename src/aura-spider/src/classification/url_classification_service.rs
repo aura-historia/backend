@@ -172,4 +172,61 @@ mod tests {
         let products = result.expect("filtering should return matched products");
         assert_eq!(products.len(), 2);
     }
+
+    #[tokio::test]
+    async fn should_return_pattern_when_client_infers_valid_regex() {
+        let mut mock_client = crate::classification::gemini_client::MockPatternInferenceClient::new();
+        mock_client
+            .expect_infer_product_url_pattern()
+            .returning(|_| Box::pin(async { Ok(Some(r"/product/\d+".to_string())) }));
+
+        let urls = vec!["https://example.com/product/1".to_string()];
+        let result = find_product_url_pattern(&mock_client, &urls).await;
+
+        assert!(result.is_ok());
+        let pattern = result.unwrap();
+        assert!(pattern.is_some());
+        assert_eq!(pattern.unwrap().as_str(), r"/product/\d+");
+    }
+
+    #[tokio::test]
+    async fn should_return_none_when_client_infers_invalid_regex() {
+        let mut mock_client = crate::classification::gemini_client::MockPatternInferenceClient::new();
+        mock_client
+            .expect_infer_product_url_pattern()
+            .returning(|_| Box::pin(async { Ok(Some(r"[invalid_regex".to_string())) }));
+
+        let urls = vec!["https://example.com/product/1".to_string()];
+        let result = find_product_url_pattern(&mock_client, &urls).await;
+
+        assert!(result.is_ok());
+        assert!(result.unwrap().is_none());
+    }
+
+    #[tokio::test]
+    async fn should_return_none_when_client_finds_no_pattern() {
+        let mut mock_client = crate::classification::gemini_client::MockPatternInferenceClient::new();
+        mock_client
+            .expect_infer_product_url_pattern()
+            .returning(|_| Box::pin(async { Ok(None) }));
+
+        let urls = vec!["https://example.com/product/1".to_string()];
+        let result = find_product_url_pattern(&mock_client, &urls).await;
+
+        assert!(result.is_ok());
+        assert!(result.unwrap().is_none());
+    }
+
+    #[tokio::test]
+    async fn should_return_error_when_client_fails() {
+        let mut mock_client = crate::classification::gemini_client::MockPatternInferenceClient::new();
+        mock_client
+            .expect_infer_product_url_pattern()
+            .returning(|_| Box::pin(async { Err(SpiderError::Gemini("error".to_string())) }));
+
+        let urls = vec!["https://example.com/product/1".to_string()];
+        let result = find_product_url_pattern(&mock_client, &urls).await;
+
+        assert!(result.is_err());
+    }
 }

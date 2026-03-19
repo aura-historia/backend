@@ -225,3 +225,43 @@ fn parse_pattern_from_json(raw: &str) -> Option<Option<String>> {
 fn should_retry_without_schema(error: &str) -> bool {
     error.contains("400") || error.contains("INVALID_ARGUMENT")
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn should_parse_valid_json() {
+        let json = r#"{"pattern": "/product/\\d+"}"#;
+        let result = parse_pattern_response(json).unwrap();
+        assert_eq!(result, Some("/product/\\d+".to_string()));
+    }
+
+    #[test]
+    fn should_parse_json_with_markdown() {
+        let json = "```json\n{\"pattern\": \"/item/\"}\n```";
+        let result = parse_pattern_response(json).unwrap();
+        assert_eq!(result, Some("/item/".to_string()));
+    }
+
+    #[test]
+    fn should_return_none_for_empty_pattern() {
+        let json = r#"{"pattern": "  "}"#;
+        let result = parse_pattern_response(json).unwrap();
+        assert_eq!(result, None);
+    }
+
+    #[test]
+    fn should_return_none_on_invalid_json() {
+        let json = "not json";
+        let result = parse_pattern_response(json).unwrap();
+        assert_eq!(result, None);
+    }
+
+    #[test]
+    fn should_identify_retryable_errors() {
+        assert!(should_retry_without_schema("Error 400 Bad Request"));
+        assert!(should_retry_without_schema("INVALID_ARGUMENT: some arg"));
+        assert!(!should_retry_without_schema("500 Internal Server Error"));
+    }
+}

@@ -422,6 +422,24 @@ mod service_tests {
     use crate::crawling::crawl_service::MockCrawler;
     use tokio::sync::mpsc;
 
+    fn setup_mock_link_repo(mock: &mut MockLinkMetadataRepository, call_count: usize) {
+        mock.expect_upsert_link()
+            .times(call_count)
+            .returning(|_, url, _, _| {
+                let url_owned = url.to_string();
+                Box::pin(async move {
+                    Ok(SpiderLinkRecord {
+                        shop_url: "https://example.com".to_string(),
+                        url: url_owned,
+                        link_class: "other".to_string(),
+                        main_hash: "hash".to_string(),
+                        created: time::OffsetDateTime::now_utc(),
+                        updated: time::OffsetDateTime::now_utc(),
+                    })
+                })
+            });
+    }
+
     #[tokio::test]
     async fn should_run_spider_and_classify_urls() {
         let mut mock_crawler = MockCrawler::new();
@@ -464,22 +482,7 @@ mod service_tests {
             .expect_classify_and_save()
             .returning(|_, _| Box::pin(async { Ok(Some(Regex::new(r"/product/").unwrap())) }));
 
-        mock_link_repo
-            .expect_upsert_link()
-            .times(2)
-            .returning(|_, url, _, _| {
-                let url_owned = url.to_string();
-                Box::pin(async move {
-                    Ok(SpiderLinkRecord {
-                        shop_url: "https://example.com".to_string(),
-                        url: url_owned,
-                        link_class: "other".to_string(),
-                        main_hash: "hash".to_string(),
-                        created: time::OffsetDateTime::now_utc(),
-                        updated: time::OffsetDateTime::now_utc(),
-                    })
-                })
-            });
+        setup_mock_link_repo(&mut mock_link_repo, 2);
 
         let service = SpiderServiceImpl::new(
             Box::new(mock_crawler),
@@ -493,5 +496,107 @@ mod service_tests {
         assert_eq!(run_result.product_urls.len(), 1);
         assert_eq!(run_result.product_urls[0], "https://example.com/product/1");
         assert_eq!(run_result.links.len(), 2);
+    }
+
+    #[tokio::test]
+    async fn should_classify_at_end_if_threshold_not_reached() {
+        let mut mock_crawler = MockCrawler::new();
+        let mut mock_pattern_service = MockUrlPatternService::new();
+        let mut mock_link_repo = MockLinkMetadataRepository::new();
+
+        let shop_url = "https://example.com";
+
+        mock_crawler
+            .expect_crawl()
+            .with(mockall::predicate::eq(shop_url))
+            .returning(move |_| {
+                let (tx, rx) = mpsc::channel(10);
+                let tx_clone = tx.clone();
+                tokio::spawn(async move {
+                    tx_clone
+                        .send(CrawledPage {
+                            url: "https://example.com/product/1".to_string(),
+                            main_hash: "hash1".to_string(),
+                        })
+                        .await
+                        .unwrap();
+                });
+                Box::pin(async { Ok(rx) })
+            });
+
+        mock_pattern_service
+            .expect_load_pattern_for_shop_url()
+            .returning(|_| Box::pin(async { Ok(None) }));
+
+        // It should classify at the end because threshold is 10
+        mock_pattern_service
+            .expect_classify_and_save()
+            .times(1)
+            .returning(|_, _| Box::pin(async { Ok(Some(Regex::new(r"/product/").unwrap())) }));
+
+        setup_mock_link_repo(&mut mock_link_repo, 1);
+
+        let service = SpiderServiceImpl::new(
+            Box::new(mock_crawler),
+            Box::new(mock_pattern_service),
+            Arc::new(mock_link_repo),
+        );
+
+        let result = service.run(shop_url, 10).await;
+        assert!(result.is_ok());
+        let run_result = result.unwrap();
+        assert_eq!(run_result.product_urls.len(), 1);
+    }
+
+    #[tokio::test]
+    async fn should_reclassify_if_persisted_pattern_fails() {
+        let mut mock_crawler = MockCrawler::new();
+        let mut mock_pattern_service = MockUrlPatternService::new();
+        let mut mock_link_repo = MockLinkMetadataRepository::new();
+
+        let shop_url = "https://example.com";
+
+        mock_crawler
+            .expect_crawl()
+            .with(mockall::predicate::eq(shop_url))
+            .returning(move |_| {
+                let (tx, rx) = mpsc::channel(10);
+                let tx_clone = tx.clone();
+                tokio::spawn(async move {
+                    tx_clone
+                        .send(CrawledPage {
+                            url: "https://example.com/item/1".to_string(),
+                            main_hash: "hash1".to_string(),
+                        })
+                        .await
+                        .unwrap();
+                });
+                Box::pin(async { Ok(rx) })
+            });
+
+        // Persisted pattern expects /product/
+        mock_pattern_service
+            .expect_load_pattern_for_shop_url()
+            .returning(|_| Box::pin(async { Ok(Some(Regex::new(r"/product/").unwrap())) }));
+
+        // Reclassification gives the correct /item/ pattern
+        mock_pattern_service
+            .expect_classify_and_save()
+            .times(1)
+            .returning(|_, _| Box::pin(async { Ok(Some(Regex::new(r"/item/").unwrap())) }));
+
+        setup_mock_link_repo(&mut mock_link_repo, 1);
+
+        let service = SpiderServiceImpl::new(
+            Box::new(mock_crawler),
+            Box::new(mock_pattern_service),
+            Arc::new(mock_link_repo),
+        );
+
+        let result = service.run(shop_url, 10).await;
+        assert!(result.is_ok());
+        let run_result = result.unwrap();
+        assert_eq!(run_result.product_urls.len(), 1);
+        assert_eq!(run_result.product_urls[0], "https://example.com/item/1");
     }
 }
