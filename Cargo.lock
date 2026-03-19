@@ -354,6 +354,7 @@ dependencies = [
  "async-trait",
  "aura-scraper",
  "common",
+ "dotenvy",
  "fake",
  "kuchiki",
  "libc",
