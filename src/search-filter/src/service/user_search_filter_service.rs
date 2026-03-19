@@ -402,22 +402,22 @@ impl<'a> UserSearchFilterService for UserSearchFilterServiceImpl<'a> {
             });
         }
 
-        let records: Vec<UserSearchFilterMatchRecord> = product_matches
-            .iter()
-            .cloned()
-            .map(UserSearchFilterMatchRecord::from)
+        // Pair each match with its record so ordering is guaranteed when chunking.
+        let pairs: Vec<(SearchFilterProductMatch, UserSearchFilterMatchRecord)> = product_matches
+            .into_iter()
+            .map(|m| {
+                let record = UserSearchFilterMatchRecord::from(m.clone());
+                (m, record)
+            })
             .collect();
 
         let mut processed = Vec::new();
         let mut unprocessed = Vec::new();
 
-        let batches = Batch::<UserSearchFilterMatchRecord, 25>::chunked_from(records.into_iter());
-        let mut match_iter = product_matches.into_iter();
-
-        for batch in batches {
-            let batch_size = batch.len();
-            let batch_matches: Vec<SearchFilterProductMatch> =
-                (&mut match_iter).take(batch_size).collect();
+        for chunk in pairs.chunks(25) {
+            let (batch_matches, batch_records): (Vec<_>, Vec<_>) = chunk.iter().cloned().unzip();
+            let batch = Batch::<UserSearchFilterMatchRecord, 25>::try_from(batch_records)
+                .expect("chunk size is at most 25");
 
             match self
                 .repository
@@ -425,28 +425,7 @@ impl<'a> UserSearchFilterService for UserSearchFilterServiceImpl<'a> {
                 .await
             {
                 Ok(output) => {
-                    let failed_keys: std::collections::HashSet<String> = output
-                        .unprocessed_items
-                        .unwrap_or_default()
-                        .into_iter()
-                        .flat_map(|(_, write_reqs)| write_reqs)
-                        .filter_map(|req| req.put_request)
-                        .filter_map(|put| {
-                            match serde_dynamo::from_item::<_, UserSearchFilterMatchRecord>(
-                                put.item,
-                            ) {
-                                Ok(record) => Some(record.sk),
-                                Err(err) => {
-                                    error!(
-                                        error = ?err,
-                                        r#type = std::any::type_name::<UserSearchFilterMatchRecord>(),
-                                        "Failed parsing unprocessed item from BatchWriteItem output."
-                                    );
-                                    None
-                                }
-                            }
-                        })
-                        .collect();
+                    let failed_keys = extract_failed_sort_keys(output);
 
                     for m in batch_matches {
                         let sk = crate::dynamodb::user_search_filter_match_record::mk_sk(
@@ -476,6 +455,31 @@ impl<'a> UserSearchFilterService for UserSearchFilterServiceImpl<'a> {
             unprocessed,
         })
     }
+}
+
+fn extract_failed_sort_keys(
+    output: aws_sdk_dynamodb::operation::batch_write_item::BatchWriteItemOutput,
+) -> std::collections::HashSet<String> {
+    output
+        .unprocessed_items
+        .unwrap_or_default()
+        .into_iter()
+        .flat_map(|(_, write_reqs)| write_reqs)
+        .filter_map(|req| req.put_request)
+        .filter_map(|put| {
+            match serde_dynamo::from_item::<_, UserSearchFilterMatchRecord>(put.item) {
+                Ok(record) => Some(record.sk),
+                Err(err) => {
+                    error!(
+                        error = ?err,
+                        r#type = std::any::type_name::<UserSearchFilterMatchRecord>(),
+                        "Failed parsing unprocessed item from BatchWriteItem output."
+                    );
+                    None
+                }
+            }
+        })
+        .collect()
 }
 
 #[cfg(test)]
