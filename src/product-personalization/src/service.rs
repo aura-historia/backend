@@ -138,8 +138,8 @@ impl<'a> ProductPersonalizationServiceImpl<'a> {
             .await?;
 
         let (seen, origin_event_id) = match notifications.first() {
-            Some(n) if !n.seen => (false, Some(n.origin_event_id)),
-            _ => (true, None),
+            Some(n) => (n.seen, Some(n.origin_event_id)),
+            None => (true, None),
         };
         Ok(NotificationUserState {
             seen,
@@ -1121,7 +1121,7 @@ mod tests {
             .unwrap();
 
         assert!(actual.user_state.unwrap().seen);
-        assert!(actual.user_state.unwrap().origin_event_id.is_none());
+        assert!(actual.user_state.unwrap().origin_event_id.is_some());
     }
 
     #[tokio::test]
@@ -1172,7 +1172,7 @@ mod tests {
         assert!(!actual[0].user_state.unwrap().seen);
         assert!(actual[0].user_state.unwrap().origin_event_id.is_some());
         assert!(actual[1].user_state.unwrap().seen);
-        assert!(actual[1].user_state.unwrap().origin_event_id.is_none());
+        assert!(actual[1].user_state.unwrap().origin_event_id.is_some());
         assert!(actual[2].user_state.unwrap().seen);
         assert!(actual[2].user_state.unwrap().origin_event_id.is_none());
     }
