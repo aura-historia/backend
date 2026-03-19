@@ -5230,7 +5230,7 @@ dependencies = [
  "product",
  "product-personalization",
  "product-watchlist",
- "thiserror",
+ "thiserror 2.0.18",
  "time",
  "tokio",
  "tracing",
@@ -6531,7 +6531,7 @@ dependencies = [
  "serde-email",
  "serde_dynamo",
  "serde_json",
- "thiserror",
+ "thiserror 2.0.18",
  "time",
  "tokio",
  "tracing",
@@ -6608,6 +6608,25 @@ dependencies = [
  "servo_arc 0.1.1",
  "smallvec",
  "thin-slice",
+]
+
+[[package]]
+name = "selectors"
+version = "0.33.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "feef350c36147532e1b79ea5c1f3791373e61cbd9a6a2615413b3807bb164fb7"
+dependencies = [
+ "bitflags 2.9.1",
+ "cssparser 0.36.0",
+ "derive_more 2.1.1",
+ "log",
+ "new_debug_unreachable",
+ "phf 0.13.1",
+ "phf_codegen 0.13.1",
+ "precomputed-hash",
+ "rustc-hash 2.1.1",
+ "servo_arc 0.4.3",
+ "smallvec",
 ]
 
 [[package]]
