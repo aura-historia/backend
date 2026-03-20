@@ -81,14 +81,18 @@ pub async fn get_aws_config() -> &'static SdkConfig {
 
 static LOCALSTACK: OnceCell<ContainerAsync<LocalStackPro>> = OnceCell::const_new();
 
-pub async fn get_localstack(services: &[&str]) -> &'static ContainerAsync<LocalStackPro> {
+pub async fn get_localstack(
+    services: &[&str],
+    extra_env_vars: &[(&str, &str)],
+) -> &'static ContainerAsync<LocalStackPro> {
     LOCALSTACK
         .get_or_init(|| async {
             install_cleanup();
             // Spins up with the first (!) supplied services only.
             // No dealbreaker for now as each test-suite has it's own OnceCell
             // And all tests within a test-suite require the same services
-            let (container, port) = spin_up_localstack_with_services(services).await;
+            let (container, port) =
+                spin_up_localstack_with_services(services, extra_env_vars).await;
             ENDPOINT_URL
                 .set(format!("http://localhost:{port}"))
                 .expect("shouldn't fail setting LocalStack endpoint URL");
@@ -154,7 +158,7 @@ fn find_free_port() -> u16 {
 ///
 /// Panics if the container fails to start.
 pub async fn spin_up_localstack(
-    env_vars: HashMap<&str, &str>,
+    env_vars: HashMap<&str, String>,
 ) -> (ContainerAsync<LocalStackPro>, u16) {
     let _ = tracing_subscriber::fmt()
         .json()
@@ -176,7 +180,7 @@ pub async fn spin_up_localstack(
             LocalStackPro::with_auth_token(auth_token)
                 .with_container_name(localstack_container_name())
                 .with_tag("latest"),
-            |ls, (k, v)| ls.with_env_var(*k, *v),
+            |ls, (k, v)| ls.with_env_var(*k, v.as_str()),
         )
         .with_mount(Mount::bind_mount(
             "/var/run/docker.sock",
@@ -211,6 +215,11 @@ pub async fn spin_up_localstack(
 /// enabled, and the host port it is bound to.
 pub async fn spin_up_localstack_with_services(
     services: &[&str],
+    extra_env_vars: &[(&str, &str)],
 ) -> (ContainerAsync<LocalStackPro>, u16) {
-    spin_up_localstack(HashMap::from([("SERVICES", services.join(",").as_str())])).await
+    let mut env_vars = HashMap::from([("SERVICES", services.join(","))]);
+    for (k, v) in extra_env_vars {
+        env_vars.insert(k, v.to_string());
+    }
+    spin_up_localstack(env_vars).await
 }

@@ -7341,6 +7341,7 @@ dependencies = [
  "aws_lambda_events",
  "common",
  "derive_builder",
+ "futures",
  "hex",
  "libc",
  "opensearch",

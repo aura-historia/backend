@@ -54,6 +54,10 @@ pub use tokio;
 pub trait IntegrationTestService: Sized {
     /// The name of the AWS service as expected by LocalStack (e.g., `"s3"`, `"dynamodb"`)
     fn service_names(&self) -> &'static [&'static str];
+    /// Extra environment variables to set on the LocalStack container.
+    fn env_vars(&self) -> Vec<(&'static str, &'static str)> {
+        vec![]
+    }
     /// Prepares the service for the test (e.g., create buckets, tables, etc.)
     async fn set_up(&self);
     /// Cleans up after the test (defaults to a no-op)

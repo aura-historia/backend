@@ -1,9 +1,10 @@
 use crate::IntegrationTestService;
-use crate::localstack::get_aws_config;
+use crate::localstack::{get_aws_config, get_endpoint_url};
 use async_trait::async_trait;
 use aws_sdk_cloudformation::types::StackStatus;
 use aws_sdk_s3::types::{BucketLocationConstraint, CreateBucketConfiguration};
 use aws_tests_common::{CloudFormationOutput, set_cfn_output};
+use futures::future::join_all;
 use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::process::Command;
@@ -89,6 +90,10 @@ impl IntegrationTestService for Cloudformation {
         ]
     }
 
+    fn env_vars(&self) -> Vec<(&'static str, &'static str)> {
+        vec![("PROVIDER_OVERRIDE_CLOUDFORMATION", "engine-legacy")]
+    }
+
     async fn set_up(&self) {
         build_lambdas();
         create_artifact_bucket().await;
@@ -129,7 +134,7 @@ async fn create_artifact_bucket() {
     debug!("Created S3 artifact bucket '{ARTIFACT_BUCKET}'.");
 }
 
-/// Packages each Lambda binary into a ZIP and uploads it to S3.
+/// Packages each Lambda binary into a ZIP and uploads it to S3 in parallel.
 ///
 /// The ZIP contains a single file named `bootstrap` (required by the `provided.al2023` runtime).
 /// The S3 key follows the pattern: `{binary_name}-{STAGE_NAME}-{COMMIT_SHA}.zip`
@@ -137,30 +142,35 @@ async fn package_and_upload_lambdas() {
     let workspace_dir = PathBuf::from(env!("CARGO_WORKSPACE_DIR"));
     let target_dir = workspace_dir.join("target").join("debug");
 
-    for binary_name in LAMBDA_BINARIES {
-        let binary_path = target_dir.join(binary_name);
-        assert!(
-            binary_path.exists(),
-            "Lambda binary not found at '{}'. Ensure `cargo build --workspace` succeeded.",
-            binary_path.display()
-        );
+    let upload_futures: Vec<_> = LAMBDA_BINARIES
+        .iter()
+        .map(|binary_name| {
+            let binary_path = target_dir.join(binary_name);
+            assert!(
+                binary_path.exists(),
+                "Lambda binary not found at '{}'. Ensure `cargo build --workspace` succeeded.",
+                binary_path.display()
+            );
 
-        let zip_bytes = create_lambda_zip(&binary_path);
-        let s3_key = format!("{binary_name}-{STAGE_NAME}-{COMMIT_SHA}.zip");
+            let zip_bytes = create_lambda_zip(&binary_path);
+            let s3_key = format!("{binary_name}-{STAGE_NAME}-{COMMIT_SHA}.zip");
 
-        get_s3_client()
-            .await
-            .put_object()
-            .bucket(ARTIFACT_BUCKET)
-            .key(&s3_key)
-            .body(zip_bytes.into())
-            .send()
-            .await
-            .unwrap_or_else(|e| panic!("shouldn't fail uploading '{s3_key}' to S3: {e}"));
+            async move {
+                get_s3_client()
+                    .await
+                    .put_object()
+                    .bucket(ARTIFACT_BUCKET)
+                    .key(&s3_key)
+                    .body(zip_bytes.into())
+                    .send()
+                    .await
+                    .unwrap_or_else(|e| panic!("shouldn't fail uploading '{s3_key}' to S3: {e}"));
+                debug!("Uploaded Lambda ZIP '{s3_key}' to S3.");
+            }
+        })
+        .collect();
 
-        debug!("Uploaded Lambda ZIP '{s3_key}' to S3.");
-    }
-
+    join_all(upload_futures).await;
     info!("All {} Lambda ZIPs uploaded to S3.", LAMBDA_BINARIES.len());
 }
 
@@ -192,11 +202,26 @@ static CFN_TEMPLATE: &str = include_str!(concat!(
 /// Deploys the CloudFormation stack on LocalStack and waits for completion.
 async fn deploy_stack() {
     info!("Deploying CloudFormation stack '{STACK_NAME}'...");
+
+    let template_key = "cfn-template.yaml";
+    get_s3_client()
+        .await
+        .put_object()
+        .bucket(ARTIFACT_BUCKET)
+        .key(template_key)
+        .body(CFN_TEMPLATE.as_bytes().to_vec().into())
+        .send()
+        .await
+        .expect("shouldn't fail uploading CFN template to S3");
+    debug!("Uploaded CloudFormation template to S3.");
+
+    let template_url = format!("{}/{ARTIFACT_BUCKET}/{template_key}", get_endpoint_url());
+
     let cfn = get_cfn_client().await;
 
     cfn.create_stack()
         .stack_name(STACK_NAME)
-        .template_body(CFN_TEMPLATE)
+        .template_url(&template_url)
         .parameters(
             aws_sdk_cloudformation::types::Parameter::builder()
                 .parameter_key("Stage")

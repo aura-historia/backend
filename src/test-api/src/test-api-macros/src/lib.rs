@@ -83,6 +83,14 @@ pub fn localstack_test(attr: TokenStream, item: TokenStream) -> TokenStream {
         }
     });
 
+    // Generate code to collect env vars from each service
+    let service_env_vars = (0..service_exprs.len()).map(|i| {
+        let ident = syn::Ident::new(&format!("__svc_{i}"), proc_macro2::Span::call_site());
+        quote! {
+            #ident.env_vars()
+        }
+    });
+
     // Generate setup and teardown calls
     let setup_calls = (0..service_exprs.len()).map(|i| {
         let ident = syn::Ident::new(&format!("__svc_{i}"), proc_macro2::Span::call_site());
@@ -120,8 +128,16 @@ pub fn localstack_test(attr: TokenStream, item: TokenStream) -> TokenStream {
                 result
             };
 
+            let __env_vars: Vec<(&str, &str)> = {
+                let mut result = Vec::new();
+                for pair in [ #( #service_env_vars ),* ].concat() {
+                    result.push(pair);
+                }
+                result
+            };
+
             let __localstack = if !__services.is_empty() {
-                Some(test_api::localstack::get_localstack(&__services).await)
+                Some(test_api::localstack::get_localstack(&__services, &__env_vars).await)
             } else {
                 None
             };
