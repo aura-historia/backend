@@ -1,4 +1,4 @@
-use fake::rand::Rng;
+use fake::rand::RngExt;
 use fake::rand::seq::IndexedRandom;
 use fake::{Dummy, Fake, Faker};
 use url::Url;
@@ -36,7 +36,7 @@ const IMAGE_RATIOS: [&str; 20] = [
 ];
 
 impl Dummy<Faker> for ImageUrl {
-    fn dummy_with_rng<R: Rng + ?Sized>(_: &Faker, rng: &mut R) -> Self {
+    fn dummy_with_rng<R: RngExt + ?Sized>(_: &Faker, rng: &mut R) -> Self {
         let seed = Faker.fake::<String>();
         let ratio: &str = IMAGE_RATIOS.choose(rng).unwrap();
         let image_url = Url::parse(&format!("https://picsum.photos/seed/{seed}/{ratio}")).unwrap();

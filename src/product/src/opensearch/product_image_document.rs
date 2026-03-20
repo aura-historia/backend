@@ -43,10 +43,10 @@ impl From<ProductImageRecord> for ProductImageDocument {
 mod faker {
     use crate::opensearch::product_image_document::ProductImageDocument;
     use common::fake::url::ImageUrl;
-    use fake::{Dummy, Fake, Faker, Rng};
+    use fake::{Dummy, Fake, Faker, RngExt};
 
     impl Dummy<Faker> for ProductImageDocument {
-        fn dummy_with_rng<R: Rng + ?Sized>(config: &Faker, rng: &mut R) -> Self {
+        fn dummy_with_rng<R: RngExt + ?Sized>(config: &Faker, rng: &mut R) -> Self {
             ProductImageDocument {
                 url: config.fake_with_rng::<ImageUrl, R>(rng).into(),
                 prohibited_content: config.fake_with_rng(rng),

@@ -497,10 +497,10 @@ mod faker {
     use crate::core::description::Description;
     use crate::core::title::Title;
     use common::price::domain::MonetaryAmount;
-    use fake::{Dummy, Fake, Faker, Rng};
+    use fake::{Dummy, Fake, Faker, RngExt};
 
     impl Dummy<Faker> for ProductRecord {
-        fn dummy_with_rng<R: Rng + ?Sized>(config: &Faker, rng: &mut R) -> Self {
+        fn dummy_with_rng<R: RngExt + ?Sized>(config: &Faker, rng: &mut R) -> Self {
             let now = OffsetDateTime::now_utc();
             let shop_id: ShopId = config.fake_with_rng(rng);
             let shops_product_id: ShopsProductId = config.fake_with_rng(rng);

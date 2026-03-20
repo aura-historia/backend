@@ -51,7 +51,7 @@ impl AsRef<str> for Description {
 
 #[cfg(feature = "test-data")]
 impl fake::Dummy<fake::Faker> for Description {
-    fn dummy_with_rng<R: fake::rand::Rng + ?Sized>(_config: &fake::Faker, rng: &mut R) -> Self {
+    fn dummy_with_rng<R: fake::rand::RngExt + ?Sized>(_config: &fake::Faker, rng: &mut R) -> Self {
         use fake::Fake;
 
         let paragraphs: Vec<String> = fake::faker::lorem::en::Paragraphs(1..7).fake_with_rng(rng);

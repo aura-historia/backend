@@ -42,10 +42,10 @@ impl From<Price> for PriceData {
 #[cfg(feature = "test-data")]
 mod faker {
     use crate::price::{data::PriceData, domain::Price};
-    use fake::{Dummy, Fake, Faker, Rng};
+    use fake::{Dummy, Fake, Faker, RngExt};
 
     impl Dummy<Faker> for PriceData {
-        fn dummy_with_rng<R: Rng + ?Sized>(config: &Faker, rng: &mut R) -> Self {
+        fn dummy_with_rng<R: RngExt + ?Sized>(config: &Faker, rng: &mut R) -> Self {
             config.fake_with_rng::<Price, R>(rng).into()
         }
     }

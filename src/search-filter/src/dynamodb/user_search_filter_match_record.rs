@@ -81,10 +81,10 @@ impl From<SearchFilterProductMatch> for UserSearchFilterMatchRecord {
 #[cfg(feature = "test-data")]
 mod faker {
     use super::*;
-    use ::fake::{Dummy, Fake, Faker, Rng};
+    use ::fake::{Dummy, Fake, Faker, RngExt};
 
     impl Dummy<Faker> for UserSearchFilterMatchRecord {
-        fn dummy_with_rng<R: Rng + ?Sized>(config: &Faker, rng: &mut R) -> Self {
+        fn dummy_with_rng<R: RngExt + ?Sized>(config: &Faker, rng: &mut R) -> Self {
             let user_id: UserId = config.fake_with_rng(rng);
             let search_filter_id: UserSearchFilterId = config.fake_with_rng(rng);
             let shop_id: ShopId = config.fake_with_rng(rng);

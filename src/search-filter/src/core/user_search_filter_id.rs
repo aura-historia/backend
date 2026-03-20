@@ -99,7 +99,7 @@ mod fake {
     use fake::Dummy;
 
     impl<T> Dummy<T> for UserSearchFilterId {
-        fn dummy_with_rng<R: fake::Rng + ?Sized>(_config: &T, _rng: &mut R) -> Self {
+        fn dummy_with_rng<R: fake::RngExt + ?Sized>(_config: &T, _rng: &mut R) -> Self {
             Default::default()
         }
     }

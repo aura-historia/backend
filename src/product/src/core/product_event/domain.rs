@@ -545,10 +545,10 @@ pub struct LocalizedProductPriceRemovedDomainEventPayloadView {
 mod faker {
     use super::*;
     use common::price::domain::{FixedFxRate, FxRate};
-    use fake::{Dummy, Fake, Faker, Rng};
+    use fake::{Dummy, Fake, Faker, RngExt};
 
     impl Dummy<Faker> for ProductCreatedDomainEventPayload {
-        fn dummy_with_rng<R: Rng + ?Sized>(config: &Faker, rng: &mut R) -> Self {
+        fn dummy_with_rng<R: RngExt + ?Sized>(config: &Faker, rng: &mut R) -> Self {
             let native_price: Option<Price> = config.fake_with_rng(rng);
             let other_price = match native_price {
                 None => HashMap::new(),
@@ -610,7 +610,7 @@ mod faker {
     }
 
     impl Dummy<Faker> for ProductStateChangeDomainEventPayload {
-        fn dummy_with_rng<R: Rng + ?Sized>(config: &Faker, rng: &mut R) -> Self {
+        fn dummy_with_rng<R: RngExt + ?Sized>(config: &Faker, rng: &mut R) -> Self {
             ProductStateChangeDomainEventPayload {
                 shop_id: config.fake_with_rng(rng),
                 shops_product_id: config.fake_with_rng(rng),
@@ -620,7 +620,7 @@ mod faker {
     }
 
     impl Dummy<Faker> for ProductPriceDiscoveryDomainEventPayload {
-        fn dummy_with_rng<R: Rng + ?Sized>(config: &Faker, rng: &mut R) -> Self {
+        fn dummy_with_rng<R: RngExt + ?Sized>(config: &Faker, rng: &mut R) -> Self {
             let native_price: Price = config.fake_with_rng(rng);
             let other_price = FixedFxRate()
                 .exchange_all(native_price.currency, native_price.monetary_amount)
@@ -635,7 +635,7 @@ mod faker {
     }
 
     impl Dummy<Faker> for ProductPriceChangeDomainEventPayload {
-        fn dummy_with_rng<R: Rng + ?Sized>(config: &Faker, rng: &mut R) -> Self {
+        fn dummy_with_rng<R: RngExt + ?Sized>(config: &Faker, rng: &mut R) -> Self {
             let new_native_price: Price = config.fake_with_rng(rng);
             let new_other_price = FixedFxRate()
                 .exchange_all(new_native_price.currency, new_native_price.monetary_amount)
@@ -656,7 +656,7 @@ mod faker {
     }
 
     impl Dummy<Faker> for ProductPriceRemovedDomainEventPayload {
-        fn dummy_with_rng<R: Rng + ?Sized>(config: &Faker, rng: &mut R) -> Self {
+        fn dummy_with_rng<R: RngExt + ?Sized>(config: &Faker, rng: &mut R) -> Self {
             let old_native_price: Price = config.fake_with_rng(rng);
             let old_other_price = FixedFxRate()
                 .exchange_all(old_native_price.currency, old_native_price.monetary_amount)

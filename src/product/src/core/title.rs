@@ -60,7 +60,7 @@ impl AsRef<str> for Title {
 
 #[cfg(feature = "test-data")]
 impl fake::Dummy<fake::Faker> for Title {
-    fn dummy_with_rng<R: fake::rand::Rng + ?Sized>(_config: &fake::Faker, rng: &mut R) -> Self {
+    fn dummy_with_rng<R: fake::rand::RngExt + ?Sized>(_config: &fake::Faker, rng: &mut R) -> Self {
         use fake::Fake;
         let paragraphs: Vec<String> = fake::faker::lorem::en::Words(2..10).fake_with_rng(rng);
         Self(paragraphs.join(" "))

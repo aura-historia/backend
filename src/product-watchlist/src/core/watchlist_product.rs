@@ -23,11 +23,11 @@ pub struct WatchlistProduct {
 #[cfg(feature = "test-data")]
 mod faker {
     use crate::core::watchlist_product::{LocalizedWatchlistProductView, WatchlistProduct};
-    use fake::{Dummy, Fake, Faker, Rng};
+    use fake::{Dummy, Fake, Faker, RngExt};
     use time::OffsetDateTime;
 
     impl Dummy<Faker> for LocalizedWatchlistProductView {
-        fn dummy_with_rng<R: Rng + ?Sized>(config: &Faker, rng: &mut R) -> Self {
+        fn dummy_with_rng<R: RngExt + ?Sized>(config: &Faker, rng: &mut R) -> Self {
             LocalizedWatchlistProductView {
                 product: config.fake_with_rng(rng),
                 notifications: config.fake_with_rng(rng),
@@ -38,7 +38,7 @@ mod faker {
     }
 
     impl Dummy<Faker> for WatchlistProduct {
-        fn dummy_with_rng<R: Rng + ?Sized>(config: &Faker, rng: &mut R) -> Self {
+        fn dummy_with_rng<R: RngExt + ?Sized>(config: &Faker, rng: &mut R) -> Self {
             WatchlistProduct {
                 shop_id: config.fake_with_rng(rng),
                 shops_product_id: config.fake_with_rng(rng),
