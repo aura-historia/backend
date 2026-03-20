@@ -430,10 +430,12 @@ async fn extract_and_set_cfn_outputs() {
     let mut output_map = serde_json::Map::new();
     for output in outputs {
         if let (Some(key), Some(value)) = (output.output_key(), output.output_value()) {
-            output_map.insert(
-                key.to_string(),
-                serde_json::Value::String(value.to_string()),
-            );
+            let value = if key == "ApiGatewayEndpointUrl" {
+                localize_apigw_url(value)
+            } else {
+                value.to_string()
+            };
+            output_map.insert(key.to_string(), serde_json::Value::String(value));
         }
     }
 
@@ -447,4 +449,47 @@ async fn extract_and_set_cfn_outputs() {
 
     set_cfn_output(cfn_output);
     info!("CloudFormation outputs set successfully.");
+}
+
+/// Rewrites a LocalStack-generated API Gateway endpoint URL so it is reachable
+/// from the test process running **outside** the Docker container.
+///
+/// LocalStack computes output URLs using two values that are only valid from
+/// inside the container:
+///
+/// * The **`amazonaws.com` hostname** – not resolvable from the host machine.
+/// * The **container-internal port `4566`** – not the host-mapped random port.
+///
+/// This function replaces both:
+///
+/// * Hostname → `{api-id}.execute-api.localhost.localstack.cloud`
+///   (`*.localhost.localstack.cloud` is a public wildcard DNS record that
+///   resolves to `127.0.0.1`, so no `/etc/hosts` changes are needed.)
+/// * Port → the actual host-mapped port extracted from [`get_endpoint_url()`].
+///
+/// # Example
+///
+/// ```text
+/// input:  "https://46f9640d.execute-api.amazonaws.com:4566/acceptance"
+/// output: "http://46f9640d.execute-api.localhost.localstack.cloud:54321/acceptance"
+/// ```
+fn localize_apigw_url(cfn_url: &str) -> String {
+    // get_endpoint_url() → "http://localhost:{mapped-port}"
+    let mapped_port = get_endpoint_url().rsplit(':').next().unwrap_or("4566");
+
+    // Strip scheme to get "{host}:{internal-port}/{stage}/..."
+    let rest = cfn_url
+        .trim_start_matches("https://")
+        .trim_start_matches("http://");
+
+    // Split host:port from the path
+    let (host_part, path) = rest.split_once('/').unwrap_or((rest, ""));
+
+    // Drop the port from the host label
+    let host = host_part.split(':').next().unwrap_or(host_part);
+
+    // The API ID is the first DNS label (e.g. "46f9640d")
+    let api_id = host.split('.').next().unwrap_or(host);
+
+    format!("http://{api_id}.execute-api.localhost.localstack.cloud:{mapped_port}/{path}")
 }
