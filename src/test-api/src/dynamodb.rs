@@ -57,7 +57,7 @@ impl IntegrationTestService for DynamoDB {
 
     async fn tear_down(&self) {
         // Clear all items from the table to ensure test isolation
-        clear_table_data()
+        clear_table_data("table_1")
             .await
             .expect("shouldn't fail clearing DynamoDB table data");
         debug!("Cleared DynamoDB table data for test isolation");
@@ -331,10 +331,12 @@ async fn set_up_table_1() -> Result<(), Error> {
     Ok(())
 }
 
-/// Clears all items from the DynamoDB table to ensure test isolation.
+/// Clears all items from the given DynamoDB table to ensure test isolation.
 ///
 /// This function scans the table and deletes all items in batches.
-async fn clear_table_data() -> Result<(), Error> {
+/// Accepts a `table_name` parameter so it can be reused for any table,
+/// including those created by a CloudFormation stack with a dynamic name.
+pub(crate) async fn clear_table_data(table_name: &str) -> Result<(), Error> {
     use aws_sdk_dynamodb::types::{AttributeValue, DeleteRequest};
 
     let client = get_dynamodb_client().await;
@@ -343,7 +345,7 @@ async fn clear_table_data() -> Result<(), Error> {
     let mut exclusive_start_key: Option<HashMap<String, AttributeValue>> = None;
 
     loop {
-        let mut scan_request = client.scan().table_name("table_1");
+        let mut scan_request = client.scan().table_name(table_name);
 
         if let Some(start_key) = exclusive_start_key {
             scan_request = scan_request.set_exclusive_start_key(Some(start_key));
@@ -373,7 +375,7 @@ async fn clear_table_data() -> Result<(), Error> {
             // Process deletes in batches of 25 (DynamoDB limit)
             for chunk in delete_requests.chunks(25) {
                 let mut request_items = HashMap::new();
-                request_items.insert("table_1".to_string(), chunk.to_vec());
+                request_items.insert(table_name.to_string(), chunk.to_vec());
 
                 client
                     .batch_write_item()

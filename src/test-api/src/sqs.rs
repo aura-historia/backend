@@ -2,7 +2,7 @@ use crate::IntegrationTestService;
 use crate::localstack::get_aws_config;
 use async_trait::async_trait;
 use aws_sdk_sqs::Client;
-use aws_sdk_sqs::types::QueueAttributeName;
+use aws_sdk_sqs::types::{DeleteMessageBatchRequestEntry, QueueAttributeName};
 use derive_builder::Builder;
 use tokio::sync::OnceCell;
 use tracing::debug;
@@ -119,12 +119,66 @@ impl IntegrationTestService for Sqs {
     }
 
     async fn tear_down(&self) {
-        let sqs_client = get_sqs_client().await;
-        let _ = sqs_client
-            .purge_queue()
-            .queue_url(self.queue_url())
-            .send()
-            .await;
-        debug!("Purged SQS queue '{}' for test isolation", self.name);
+        drain_queue(&self.queue_url()).await;
+        drain_queue(&self.dead_letter_queue_url()).await;
+        debug!("Drained SQS queues '{}' for test isolation", self.name);
     }
+}
+
+/// Drains all messages from each of the given SQS queue URLs using a
+/// receive-and-delete loop.
+///
+/// Unlike `purge_queue`, this approach avoids the AWS-imposed 60-second
+/// cooldown between purge calls, making it suitable for per-test teardown.
+pub(crate) async fn drain_queues(queue_urls: Vec<String>) {
+    for queue_url in queue_urls {
+        drain_queue(&queue_url).await;
+    }
+}
+
+/// Receives and deletes all currently visible messages from a single SQS queue.
+async fn drain_queue(queue_url: &str) {
+    let client = get_sqs_client().await;
+    loop {
+        let resp = client
+            .receive_message()
+            .queue_url(queue_url)
+            .max_number_of_messages(10)
+            .wait_time_seconds(0)
+            .send()
+            .await
+            .unwrap_or_else(|e| {
+                panic!("shouldn't fail receiving messages from SQS queue '{queue_url}': {e}")
+            });
+
+        let messages = resp.messages.unwrap_or_default();
+        if messages.is_empty() {
+            break;
+        }
+
+        let entries: Vec<DeleteMessageBatchRequestEntry> = messages
+            .into_iter()
+            .enumerate()
+            .filter_map(|(idx, m)| {
+                m.receipt_handle.map(|handle| {
+                    DeleteMessageBatchRequestEntry::builder()
+                        .id(idx.to_string())
+                        .receipt_handle(handle)
+                        .build()
+                        .expect("shouldn't fail building DeleteMessageBatchRequestEntry")
+                })
+            })
+            .collect();
+
+        client
+            .delete_message_batch()
+            .queue_url(queue_url)
+            .set_entries(Some(entries))
+            .send()
+            .await
+            .unwrap_or_else(|e| {
+                panic!("shouldn't fail deleting messages from SQS queue '{queue_url}': {e}")
+            });
+    }
+    debug!("Drained SQS queue '{queue_url}'.");
 }

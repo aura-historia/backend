@@ -1,9 +1,13 @@
 use crate::IntegrationTestService;
+use crate::cognito::Cognito;
+use crate::dynamodb::clear_table_data;
 use crate::localstack::{get_aws_config, get_endpoint_url};
+use crate::opensearch::clear_all_indices;
+use crate::sqs::drain_queues;
 use async_trait::async_trait;
 use aws_sdk_cloudformation::types::StackStatus;
 use aws_sdk_s3::types::{BucketLocationConstraint, CreateBucketConfiguration};
-use aws_tests_common::{CloudFormationOutput, set_cfn_output};
+use aws_tests_common::{CloudFormationOutput, get_cfn_output, set_cfn_output};
 use futures::stream::{self, StreamExt};
 use std::io::Write;
 use std::path::{Path, PathBuf};
@@ -40,6 +44,13 @@ const LAMBDA_BINARIES: &[&str] = &[
     "product-lambda-update-notify-user",
     "search-filter-lambda-percolate-product",
 ];
+
+/// Guards the one-time CloudFormation stack setup.
+///
+/// Because the `#[localstack_test]` macro calls `set_up` before every test,
+/// this cell ensures the expensive build → upload → deploy sequence runs only
+/// once per test-process, regardless of how many tests exist.
+static SETUP_ONCE: OnceCell<()> = OnceCell::const_new();
 
 static CFN_CLIENT: OnceCell<aws_sdk_cloudformation::Client> = OnceCell::const_new();
 async fn get_cfn_client() -> &'static aws_sdk_cloudformation::Client {
@@ -92,11 +103,74 @@ impl IntegrationTestService for Cloudformation {
     }
 
     async fn set_up(&self) {
-        build_lambdas();
-        create_artifact_bucket().await;
-        package_and_upload_lambdas().await;
-        deploy_stack().await;
-        extract_and_set_cfn_outputs().await;
+        // Run the full deploy only once; all subsequent per-test calls are no-ops.
+        SETUP_ONCE
+            .get_or_init(|| async {
+                build_lambdas();
+                create_artifact_bucket().await;
+                package_and_upload_lambdas().await;
+                deploy_stack().await;
+                extract_and_set_cfn_outputs().await;
+            })
+            .await;
+    }
+
+    /// Resets all mutable state created by CloudFormation-deployed services so
+    /// that every test starts from a clean slate.
+    ///
+    /// Delegates to the same helpers used by the individual service
+    /// `IntegrationTestService` implementations:
+    ///
+    /// - **DynamoDB** – scans and batch-deletes every item in the main table.
+    /// - **OpenSearch** – deletes all documents from every standard index.
+    /// - **SQS** – drains all queues (and their DLQs) via receive-delete loop,
+    ///   avoiding the 60 s cooldown imposed by `purge_queue`.
+    /// - **Cognito** – deletes every user in the user pool.
+    async fn tear_down(&self) {
+        let cfn = get_cfn_output();
+
+        // ── DynamoDB ─────────────────────────────────────────────────────────
+        clear_table_data(&cfn.dynamodb_table_1_name)
+            .await
+            .expect("shouldn't fail clearing DynamoDB table data");
+        debug!(
+            "Cleared DynamoDB table '{}' for test isolation",
+            cfn.dynamodb_table_1_name
+        );
+
+        // ── OpenSearch ───────────────────────────────────────────────────────
+        clear_all_indices().await;
+
+        // ── SQS ──────────────────────────────────────────────────────────────
+        drain_queues(vec![
+            cfn.notification_send_queue_url.clone(),
+            cfn.notification_send_dead_letter_queue_url.clone(),
+            cfn.product_materialize_dynamodb_queue_url.clone(),
+            cfn.product_materialize_dynamodb_dead_letter_queue_url
+                .clone(),
+            cfn.product_materialize_opensearch_queue_url.clone(),
+            cfn.product_materialize_opensearch_dead_letter_queue_url
+                .clone(),
+            cfn.shop_opensearch_index_queue_url.clone(),
+            cfn.shop_opensearch_index_dead_letter_queue_url.clone(),
+            cfn.search_filter_open_search_sync_queue_url.clone(),
+            cfn.search_filter_open_search_sync_dead_letter_queue_url
+                .clone(),
+            cfn.product_update_notify_user_queue_url.clone(),
+            cfn.product_update_notify_user_dead_letter_queue_url.clone(),
+            cfn.product_pipeline_translate_queue_url.clone(),
+            cfn.product_pipeline_translate_dead_letter_queue_url.clone(),
+            cfn.product_pipeline_embed_text_queue_url.clone(),
+            cfn.product_pipeline_embed_text_dead_letter_queue_url
+                .clone(),
+        ])
+        .await;
+        debug!("Drained all SQS queues for test isolation");
+
+        // ── Cognito ───────────────────────────────────────────────────────────
+        Cognito().tear_down().await;
+
+        debug!("Cloudformation tear_down complete: all state reset for test isolation.");
     }
 }
 

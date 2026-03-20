@@ -87,24 +87,7 @@ impl IntegrationTestService for OpenSearch {
     }
 
     async fn tear_down(&self) {
-        // Clear all documents from the items index to ensure test isolation
-        clear_index_data("products")
-            .await
-            .expect("shouldn't fail clearing OpenSearch index data from 'products'");
-        refresh_index("products").await;
-        clear_index_data("shops")
-            .await
-            .expect("shouldn't fail clearing OpenSearch index data from 'shops'");
-        refresh_index("shops").await;
-        clear_index_data("categories")
-            .await
-            .expect("shouldn't fail clearing OpenSearch index data from 'categories'");
-        refresh_index("categories").await;
-        clear_index_data("user_search_filters")
-            .await
-            .expect("shouldn't fail clearing OpenSearch index data from 'user_search_filter'");
-        refresh_index("user_search_filters").await;
-        debug!("Cleared OpenSearch index data for test isolation");
+        clear_all_indices().await;
     }
 }
 
@@ -402,6 +385,25 @@ async fn set_up_indices() -> Result<Response, Error> {
         .send()
         .await?
         .error_for_status_code()
+}
+
+/// Clears all documents from every standard index to ensure test isolation.
+///
+/// Silently skips any index that does not yet exist (e.g. before the first
+/// test has caused its creation). Reusable from any `IntegrationTestService`
+/// implementation that needs a full OpenSearch reset, including the
+/// `Cloudformation` service.
+pub(crate) async fn clear_all_indices() {
+    const INDICES: &[&str] = &["products", "shops", "categories", "user_search_filters"];
+    for index in INDICES {
+        match clear_index_data(index).await {
+            Ok(_) => refresh_index(index).await,
+            Err(e) => {
+                debug!("Skipping clear for OpenSearch index '{index}' (may not exist yet): {e}")
+            }
+        }
+    }
+    debug!("Cleared all OpenSearch indices for test isolation");
 }
 
 /// Clears all documents from the specified OpenSearch index.
