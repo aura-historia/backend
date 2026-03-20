@@ -2,6 +2,7 @@ use crate::IntegrationTestService;
 use crate::localstack::get_aws_config;
 use async_trait::async_trait;
 use aws_sdk_cloudformation::types::StackStatus;
+use aws_sdk_s3::types::{BucketLocationConstraint, CreateBucketConfiguration};
 use aws_tests_common::{CloudFormationOutput, set_cfn_output};
 use std::io::Write;
 use std::path::{Path, PathBuf};
@@ -49,7 +50,12 @@ async fn get_cfn_client() -> &'static aws_sdk_cloudformation::Client {
 static S3_CLIENT: OnceCell<aws_sdk_s3::Client> = OnceCell::const_new();
 async fn get_s3_client() -> &'static aws_sdk_s3::Client {
     S3_CLIENT
-        .get_or_init(|| async { aws_sdk_s3::Client::new(get_aws_config().await) })
+        .get_or_init(|| async {
+            let s3_config = aws_sdk_s3::config::Builder::from(get_aws_config().await)
+                .force_path_style(true)
+                .build();
+            aws_sdk_s3::Client::from_conf(s3_config)
+        })
         .await
 }
 
@@ -112,6 +118,11 @@ async fn create_artifact_bucket() {
     let s3 = get_s3_client().await;
     s3.create_bucket()
         .bucket(ARTIFACT_BUCKET)
+        .create_bucket_configuration(
+            CreateBucketConfiguration::builder()
+                .location_constraint(BucketLocationConstraint::EuCentral1)
+                .build(),
+        )
         .send()
         .await
         .expect("shouldn't fail creating artifact S3 bucket");
@@ -150,10 +161,7 @@ async fn package_and_upload_lambdas() {
         debug!("Uploaded Lambda ZIP '{s3_key}' to S3.");
     }
 
-    info!(
-        "All {} Lambda ZIPs uploaded to S3.",
-        LAMBDA_BINARIES.len()
-    );
+    info!("All {} Lambda ZIPs uploaded to S3.", LAMBDA_BINARIES.len());
 }
 
 /// Creates a ZIP archive containing the given binary renamed to `bootstrap`.
@@ -171,8 +179,7 @@ fn create_lambda_zip(binary_path: &Path) -> Vec<u8> {
             .expect("shouldn't fail starting ZIP entry");
         zip.write_all(&binary_data)
             .expect("shouldn't fail writing binary to ZIP");
-        zip.finish()
-            .expect("shouldn't fail finishing ZIP archive");
+        zip.finish().expect("shouldn't fail finishing ZIP archive");
     }
     buf
 }
@@ -258,7 +265,9 @@ async fn wait_for_stack_complete() {
                 debug!(remaining_retries = retries, "Stack still creating...");
                 tokio::time::sleep(Duration::from_secs(1)).await;
             }
-            StackStatus::CreateFailed | StackStatus::RollbackComplete | StackStatus::RollbackInProgress => {
+            StackStatus::CreateFailed
+            | StackStatus::RollbackComplete
+            | StackStatus::RollbackInProgress => {
                 let reason = stack.stack_status_reason().unwrap_or("unknown");
                 error!(status = ?status, reason = reason, "Stack creation failed.");
 

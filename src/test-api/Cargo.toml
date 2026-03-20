@@ -42,6 +42,7 @@ zip = { workspace = true, optional = true }
 [dev-dependencies]
 test-api = { workspace = true, features = [
     "api-gateway",
+    "cloudformation",
     "dynamodb",
     "opensearch",
     "rds",
