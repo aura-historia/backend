@@ -76,6 +76,7 @@ impl IntegrationTestService for Cloudformation {
     fn service_names(&self) -> &'static [&'static str] {
         &[
             "cloudformation",
+            "cloudfront",
             "lambda",
             "iam",
             "events",
@@ -105,7 +106,7 @@ fn build_lambdas() {
     let workspace_dir = env!("CARGO_WORKSPACE_DIR");
 
     let status = Command::new("cargo")
-        .args(["build", "--workspace"])
+        .args(["build", "--workspace", "--release"])
         .current_dir(workspace_dir)
         .status()
         .expect("shouldn't fail spawning cargo build");
@@ -147,7 +148,7 @@ const MAX_CONCURRENT_UPLOADS: usize = 3;
 /// excessive memory pressure from loading all binaries simultaneously.
 async fn package_and_upload_lambdas() {
     let workspace_dir = PathBuf::from(env!("CARGO_WORKSPACE_DIR"));
-    let target_dir = workspace_dir.join("target").join("debug");
+    let target_dir = workspace_dir.join("target").join("release");
 
     let tasks: Vec<_> = LAMBDA_BINARIES
         .iter()
