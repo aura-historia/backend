@@ -21,6 +21,24 @@ const STACK_NAME: &str = "acceptance-test-stack";
 const STAGE_NAME: &str = "acceptance";
 const COMMIT_SHA: &str = "local";
 
+/// The value passed as the CloudFormation `Stage` parameter.
+///
+/// This controls the `STAGE` environment variable injected into every Lambda
+/// function by the template (`STAGE: !Ref Stage`).  The Lambda OpenSearch
+/// client (`common::opensearch::client::load_transport`) branches on this
+/// value:
+///
+/// * `"ephemeral"` → uses AWS-signed auth (no username/password needed) —
+///   the correct mode for LocalStack.
+/// * anything else → expects `OPENSEARCH_USERNAME` / `OPENSEARCH_PASSWORD`
+///   env vars, which do not exist in LocalStack, causing an immediate
+///   `Error: NotPresent` panic on startup.
+///
+/// Note: resource *naming* in the template uses the separate `StageName`
+/// parameter (always `STAGE_NAME`), so this constant does not affect queue
+/// names, table names, or any `!Sub "…${StageName}"` substitution.
+const STAGE: &str = "ephemeral";
+
 /// All Lambda binary names that the ephemeral CloudFormation stack requires.
 ///
 /// Each entry corresponds to a Cargo binary target that produces a Lambda handler.
@@ -174,18 +192,34 @@ impl IntegrationTestService for Cloudformation {
     }
 }
 
-/// Builds all Lambda function binaries using `cargo build --workspace`.
+/// Builds all Lambda function binaries using `cargo lambda build --workspace`.
+///
+/// `cargo-lambda` uses `cargo-zigbuild` under the hood to cross-compile against
+/// a glibc version compatible with the `provided.al2023` Lambda runtime
+/// (Amazon Linux 2023, glibc 2.34). A plain `cargo build` on a modern host
+/// (e.g. Ubuntu 24.04 with glibc 2.39) produces binaries that fail to start
+/// inside the Lambda container with "GLIBC_2.38 not found".
+///
+/// # Prerequisite
+///
+/// Install with: `cargo install cargo-lambda`
 fn build_lambdas() {
-    info!("Building Lambda binaries...");
+    info!("Building Lambda binaries with cargo-lambda...");
     let workspace_dir = env!("CARGO_WORKSPACE_DIR");
 
     let status = Command::new("cargo")
-        .args(["build", "--workspace", "--release"])
+        .args(["lambda", "build", "--workspace", "--release"])
         .current_dir(workspace_dir)
         .status()
-        .expect("shouldn't fail spawning cargo build");
+        .expect(
+            "shouldn't fail spawning cargo lambda build; \
+             is cargo-lambda installed? Run: cargo install cargo-lambda",
+        );
 
-    assert!(status.success(), "cargo build --workspace failed");
+    assert!(
+        status.success(),
+        "cargo lambda build --workspace --release failed"
+    );
     info!("Lambda binaries built successfully.");
 }
 
@@ -222,15 +256,18 @@ const MAX_CONCURRENT_UPLOADS: usize = 3;
 /// excessive memory pressure from loading all binaries simultaneously.
 async fn package_and_upload_lambdas() {
     let workspace_dir = PathBuf::from(env!("CARGO_WORKSPACE_DIR"));
-    let target_dir = workspace_dir.join("target").join("release");
+    // cargo-lambda places each binary at target/lambda/{name}/bootstrap,
+    // already named "bootstrap" as required by the provided.al2023 runtime.
+    let target_dir = workspace_dir.join("target").join("lambda");
 
     let tasks: Vec<_> = LAMBDA_BINARIES
         .iter()
         .map(|binary_name| {
-            let binary_path = target_dir.join(binary_name);
+            let binary_path = target_dir.join(binary_name).join("bootstrap");
             assert!(
                 binary_path.exists(),
-                "Lambda binary not found at '{}'. Ensure `cargo build --workspace` succeeded.",
+                "Lambda binary not found at '{}'. \
+                 Ensure `cargo lambda build --workspace --release` succeeded.",
                 binary_path.display()
             );
             let s3_key = format!("{binary_name}-{STAGE_NAME}-{COMMIT_SHA}.zip");
@@ -312,7 +349,7 @@ async fn deploy_stack() {
         .parameters(
             aws_sdk_cloudformation::types::Parameter::builder()
                 .parameter_key("Stage")
-                .parameter_value(STAGE_NAME)
+                .parameter_value(STAGE)
                 .build(),
         )
         .parameters(
