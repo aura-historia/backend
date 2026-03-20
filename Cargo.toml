@@ -35,6 +35,7 @@ aura-scraper = { workspace = true }
 
 [workspace]
 members = [
+    "src/acceptance-tests",
     "src/aws-tests",
     "src/cognito",
     "src/cognito-post-confirmation",
@@ -84,6 +85,7 @@ common = { path = "src/common" }
 derive_builder = "0.20.2"
 fake = { version = "4.4.0", features = ["derive", "time", "uuid", "url"] }
 field = "0.1.0"
+acceptance-tests = { path = "src/acceptance-tests" }
 search-filter = { path = "src/search-filter" }
 search-filter-api = { path = "src/search-filter-api" }
 search-filter-lambda = { path = "src/search-filter-lambda" }

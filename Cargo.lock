@@ -3,6 +3,44 @@
 version = 4
 
 [[package]]
+name = "acceptance-tests"
+version = "0.1.0"
+dependencies = [
+ "aws-config",
+ "aws-sdk-cognitoidentityprovider",
+ "aws-sdk-dynamodb",
+ "aws-sdk-sqs",
+ "aws-tests-common",
+ "common",
+ "fake",
+ "futures-util",
+ "http 1.4.0",
+ "notification",
+ "notification-api",
+ "opensearch",
+ "product",
+ "product-api",
+ "product-classification",
+ "product-watchlist",
+ "product-watchlist-api",
+ "reqwest 0.12.28",
+ "search-filter",
+ "search-filter-api",
+ "serde",
+ "serde_json",
+ "serial_test",
+ "shop",
+ "test-api",
+ "time",
+ "tokio",
+ "tracing",
+ "tracing-subscriber",
+ "url",
+ "user",
+ "uuid",
+]
+
+[[package]]
 name = "actix-codec"
 version = "0.5.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
