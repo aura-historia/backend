@@ -206,10 +206,10 @@ pub mod api {
 #[cfg(feature = "test-data")]
 mod faker {
     use crate::pagination::page::{Page, PaginatedResult};
-    use fake::{Dummy, Fake, Faker, Rng};
+    use fake::{Dummy, Fake, Faker, RngExt};
 
     impl<T: Dummy<Faker>> Dummy<Faker> for PaginatedResult<T> {
-        fn dummy_with_rng<R: Rng + ?Sized>(config: &Faker, rng: &mut R) -> Self {
+        fn dummy_with_rng<R: RngExt + ?Sized>(config: &Faker, rng: &mut R) -> Self {
             let items: Vec<T> = config.fake_with_rng(rng);
             let page = Page {
                 from: config.fake_with_rng(rng),

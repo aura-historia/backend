@@ -144,7 +144,7 @@ mod fake {
     use time::OffsetDateTime;
 
     impl Dummy<Faker> for UserSearchFilterUpdate {
-        fn dummy_with_rng<R: fake::Rng + ?Sized>(config: &Faker, rng: &mut R) -> Self {
+        fn dummy_with_rng<R: fake::RngExt + ?Sized>(config: &Faker, rng: &mut R) -> Self {
             UserSearchFilterUpdate {
                 name: config.fake_with_rng(rng),
                 notifications: config.fake_with_rng(rng),

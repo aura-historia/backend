@@ -52,7 +52,7 @@ impl AsRef<str> for UserSearchFilterName {
 
 #[cfg(feature = "test-data")]
 impl fake::Dummy<fake::Faker> for UserSearchFilterName {
-    fn dummy_with_rng<R: fake::rand::Rng + ?Sized>(_config: &fake::Faker, rng: &mut R) -> Self {
+    fn dummy_with_rng<R: fake::rand::RngExt + ?Sized>(_config: &fake::Faker, rng: &mut R) -> Self {
         use fake::Fake;
 
         fn some_kind_of_uppercase_first_letter(s: &str) -> String {

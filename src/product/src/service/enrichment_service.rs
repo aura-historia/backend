@@ -202,12 +202,12 @@ impl<'a, T: FxRate + Sync> ProductCommandEnrichmentService
 mod faker {
     use super::*;
     use common::price::domain::{FixedFxRate, Price};
-    use fake::{Dummy, Fake, Faker, Rng};
+    use fake::{Dummy, Fake, Faker, RngExt};
     use time::OffsetDateTime;
     use url::Url;
 
     impl Dummy<Faker> for PipedProductCommand {
-        fn dummy_with_rng<R: Rng + ?Sized>(config: &Faker, rng: &mut R) -> Self {
+        fn dummy_with_rng<R: RngExt + ?Sized>(config: &Faker, rng: &mut R) -> Self {
             let native_price: Option<Price> = config.fake_with_rng(rng);
             let other_price = match native_price {
                 None => HashMap::new(),

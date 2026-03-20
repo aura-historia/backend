@@ -37,7 +37,10 @@ mod fake {
     use time::OffsetDateTime;
 
     impl fake::Dummy<fake::Faker> for UserRecordUpdate {
-        fn dummy_with_rng<R: fake::rand::Rng + ?Sized>(config: &fake::Faker, rng: &mut R) -> Self {
+        fn dummy_with_rng<R: fake::rand::RngExt + ?Sized>(
+            config: &fake::Faker,
+            rng: &mut R,
+        ) -> Self {
             UserRecordUpdate {
                 first_name: config.fake_with_rng(rng),
                 last_name: config.fake_with_rng(rng),

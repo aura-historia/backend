@@ -243,10 +243,10 @@ impl From<ProductSearchData> for ProductSearch {
 mod faker {
     use super::*;
     use crate::core::product_search::faker::fake_range_query_datetime;
-    use fake::{Dummy, Fake, Faker, Rng};
+    use fake::{Dummy, Fake, Faker, RngExt};
 
     impl Dummy<Faker> for ProductSearchData {
-        fn dummy_with_rng<R: Rng + ?Sized>(config: &Faker, rng: &mut R) -> Self {
+        fn dummy_with_rng<R: RngExt + ?Sized>(config: &Faker, rng: &mut R) -> Self {
             ProductSearchData {
                 language: config.fake_with_rng(rng),
                 currency: config.fake_with_rng(rng),
