@@ -248,11 +248,11 @@ impl From<PriceRecord> for Price {
 #[cfg(feature = "test-data")]
 mod faker {
     use crate::price::domain::Price;
-    use fake::{Dummy, Fake, Faker, Rng};
+    use fake::{Dummy, Fake, Faker, RngExt};
     use std::ops::Range;
 
     impl Dummy<Faker> for Price {
-        fn dummy_with_rng<R: Rng + ?Sized>(config: &Faker, rng: &mut R) -> Self {
+        fn dummy_with_rng<R: RngExt + ?Sized>(config: &Faker, rng: &mut R) -> Self {
             Price {
                 monetary_amount: rng
                     .random_range(Range {

@@ -42,10 +42,10 @@ pub struct ProductSearch {
 #[cfg(feature = "test-data")]
 pub mod faker {
     use super::*;
-    use fake::{Dummy, Fake, Faker, Rng};
+    use fake::{Dummy, Fake, Faker, RngExt};
 
     impl Dummy<Faker> for ProductSearch {
-        fn dummy_with_rng<R: Rng + ?Sized>(config: &Faker, rng: &mut R) -> Self {
+        fn dummy_with_rng<R: RngExt + ?Sized>(config: &Faker, rng: &mut R) -> Self {
             ProductSearch {
                 language: config.fake_with_rng(rng),
                 currency: config.fake_with_rng(rng),
@@ -70,7 +70,7 @@ pub mod faker {
         }
     }
 
-    pub fn fake_range_query_datetime<R: fake::Rng + ?Sized>(
+    pub fn fake_range_query_datetime<R: fake::RngExt + ?Sized>(
         config: &Faker,
         rng: &mut R,
     ) -> Option<RangeQuery<OffsetDateTime>> {

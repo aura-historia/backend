@@ -11,10 +11,10 @@ pub struct ProductImage {
 mod faker {
     use crate::core::product_image::ProductImage;
     use common::fake::url::ImageUrl;
-    use fake::{Dummy, Fake, Faker, Rng};
+    use fake::{Dummy, Fake, Faker, RngExt};
 
     impl Dummy<Faker> for ProductImage {
-        fn dummy_with_rng<R: Rng + ?Sized>(config: &Faker, rng: &mut R) -> Self {
+        fn dummy_with_rng<R: RngExt + ?Sized>(config: &Faker, rng: &mut R) -> Self {
             ProductImage {
                 url: config.fake_with_rng::<ImageUrl, R>(rng).into(),
                 prohibited_content: config.fake_with_rng(rng),

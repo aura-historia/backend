@@ -135,10 +135,10 @@ impl From<ShopRecord> for Shop {
 #[cfg(feature = "test-data")]
 mod faker {
     use super::*;
-    use fake::{Dummy, Fake, Faker, Rng};
+    use fake::{Dummy, Fake, Faker, RngExt};
 
     impl Dummy<Faker> for ShopRecord {
-        fn dummy_with_rng<R: Rng + ?Sized>(config: &Faker, rng: &mut R) -> Self {
+        fn dummy_with_rng<R: RngExt + ?Sized>(config: &Faker, rng: &mut R) -> Self {
             let shop = config.fake_with_rng::<Shop, _>(rng);
             ShopRecord::from_shop_as_shop_id_record(shop)
         }

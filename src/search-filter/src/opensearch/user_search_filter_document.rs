@@ -69,10 +69,10 @@ impl TryFrom<UserSearchFilterRecord> for UserSearchFilterDocument {
 mod faker {
     use super::*;
     use crate::dynamodb::user_search_filter_record::UserSearchFilterRecord;
-    use fake::{Dummy, Fake, Faker, Rng};
+    use fake::{Dummy, Fake, Faker, RngExt};
 
     impl Dummy<Faker> for UserSearchFilterDocument {
-        fn dummy_with_rng<R: Rng + ?Sized>(config: &Faker, rng: &mut R) -> Self {
+        fn dummy_with_rng<R: RngExt + ?Sized>(config: &Faker, rng: &mut R) -> Self {
             config
                 .fake_with_rng::<UserSearchFilterRecord, _>(rng)
                 .try_into()

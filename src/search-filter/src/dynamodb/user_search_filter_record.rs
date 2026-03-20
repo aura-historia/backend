@@ -247,7 +247,7 @@ mod fake {
     use time::OffsetDateTime;
 
     impl Dummy<Faker> for UserSearchFilterRecord {
-        fn dummy_with_rng<R: fake::Rng + ?Sized>(config: &Faker, rng: &mut R) -> Self {
+        fn dummy_with_rng<R: fake::RngExt + ?Sized>(config: &Faker, rng: &mut R) -> Self {
             let user_id = config.fake_with_rng(rng);
             let search_filter_id = config.fake_with_rng(rng);
             UserSearchFilterRecord {

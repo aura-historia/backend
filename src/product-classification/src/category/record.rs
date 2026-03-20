@@ -150,10 +150,10 @@ impl From<CategoryRecord> for Category {
 #[cfg(feature = "test-data")]
 mod faker {
     use super::*;
-    use fake::{Dummy, Fake, Faker, Rng};
+    use fake::{Dummy, Fake, Faker, RngExt};
 
     impl Dummy<Faker> for CategoryRecord {
-        fn dummy_with_rng<R: Rng + ?Sized>(config: &Faker, rng: &mut R) -> Self {
+        fn dummy_with_rng<R: RngExt + ?Sized>(config: &Faker, rng: &mut R) -> Self {
             config.fake_with_rng::<Category, R>(rng).try_into().unwrap()
         }
     }
