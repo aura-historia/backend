@@ -20,9 +20,8 @@ use search_filter_api::{
     post_types::PostUserSearchFilterData,
 };
 use shop::data::shop_type_data::ShopTypeData;
-use staging_tests::{create_random_test_user, get_opensearch_client, staging_test};
-use std::collections::HashSet;
 use std::time::Duration;
+use test_api::*;
 use time::macros::datetime;
 
 async fn try_read_by_id<T: serde::de::DeserializeOwned>(
@@ -105,7 +104,7 @@ async fn wait_until_document_deleted(user_search_filter_id: impl Into<String>) {
     );
 }
 
-#[staging_test]
+#[localstack_test(services = [Cloudformation()])]
 async fn should_create_search_filter_and_sync_it_to_opensearch() {
     let user = create_random_test_user().await;
 
@@ -181,7 +180,7 @@ async fn should_create_search_filter_and_sync_it_to_opensearch() {
     assert_eq!(posted.updated, document.updated);
 }
 
-#[staging_test]
+#[localstack_test(services = [Cloudformation()])]
 async fn should_update_search_filter_and_sync_changes_to_opensearch() {
     let user = create_random_test_user().await;
 
@@ -334,7 +333,7 @@ async fn should_update_search_filter_and_sync_changes_to_opensearch() {
     assert_ne!(initial_document.query, patched_document.query);
 }
 
-#[staging_test]
+#[localstack_test(services = [Cloudformation()])]
 async fn should_delete_search_filter_and_remove_it_from_opensearch() {
     let user = create_random_test_user().await;
 

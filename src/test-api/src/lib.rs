@@ -2,9 +2,13 @@
 mod api_gateway;
 #[cfg(feature = "cloudformation")]
 mod cloudformation;
+#[cfg(feature = "cognito")]
+mod cognito;
 #[cfg(feature = "dynamodb")]
 mod dynamodb;
 pub mod localstack;
+#[cfg(feature = "mail")]
+mod mail;
 #[cfg(feature = "opensearch")]
 mod opensearch;
 #[cfg(feature = "rds")]
@@ -18,8 +22,12 @@ pub use api_gateway::*;
 use async_trait::async_trait;
 #[cfg(feature = "cloudformation")]
 pub use cloudformation::Cloudformation;
+#[cfg(feature = "cognito")]
+pub use cognito::*;
 #[cfg(feature = "dynamodb")]
 pub use dynamodb::{DynamoDB, get_dynamodb_client, mk_partial_put_batch_failure};
+#[cfg(feature = "mail")]
+pub use mail::*;
 #[cfg(feature = "opensearch")]
 pub use opensearch::{OpenSearch, get_opensearch_client, read_by_id, refresh_index};
 #[cfg(feature = "rds")]

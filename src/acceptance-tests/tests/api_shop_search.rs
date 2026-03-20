@@ -7,11 +7,11 @@ use shop::opensearch::{
     repository::{ShopOpenSearchRepository, ShopOpenSearchRepositoryImpl},
     shop_document::ShopDocument,
 };
-use staging_tests::{get_opensearch_client, staging_test};
-use std::{time::Duration, vec};
+use std::time::Duration;
+use test_api::*;
 use time::macros::datetime;
 
-#[staging_test]
+#[localstack_test(services = [Cloudformation()])]
 async fn should_respond_200_when_hits() {
     let os_client = get_opensearch_client().await;
     let repository = ShopOpenSearchRepositoryImpl::new(os_client);
@@ -61,7 +61,7 @@ async fn should_respond_200_when_hits() {
     assert_eq!(expected.name.to_string(), item["name"]);
 }
 
-#[staging_test]
+#[localstack_test(services = [Cloudformation()])]
 async fn should_respond_200_when_no_hits() {
     let url = format!(
         "{}/api/v1/shops/search",
@@ -85,7 +85,7 @@ async fn should_respond_200_when_no_hits() {
     assert_eq!(200, response.status());
 }
 
-#[staging_test]
+#[localstack_test(services = [Cloudformation()])]
 async fn should_respond_200_when_hits_with_get_simple_search() {
     let url = format!(
         "{}/api/v1/shops?shopNameQuery=test&size=5",

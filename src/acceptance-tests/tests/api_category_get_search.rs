@@ -1,17 +1,17 @@
 use aws_tests_common::get_cfn_output;
-use common::period_key::PeriodId;
-use product_classification::period::{
-    core::Period, data::get_period_summary_data::GetPeriodSummaryData,
-    period_search::PeriodSearchData,
+use common::category_key::CategoryId;
+use product_classification::category::{
+    category_search::CategorySearchData, core::Category,
+    data::get_category_summary_data::GetCategorySummaryData,
 };
-use staging_tests::staging_test;
+use test_api::*;
 
-#[staging_test]
-async fn should_respond_404_when_period_does_not_exist() {
+#[localstack_test(services = [Cloudformation()])]
+async fn should_respond_404_when_category_does_not_exist() {
     let url = format!(
-        "{}/api/v1/periods/{}",
+        "{}/api/v1/categories/{}",
         get_cfn_output().api_gateway_endpoint_url,
-        PeriodId::from("non-existent-period-id")
+        CategoryId::from("non-existent-category-id")
     );
     let response = reqwest::get(url).await.unwrap();
     assert_eq!(404, response.status());
@@ -21,48 +21,54 @@ async fn should_respond_404_when_period_does_not_exist() {
     assert_eq!("NOT_FOUND", body["error"]);
 }
 
-#[staging_test]
-async fn should_get_all_periods() {
+#[localstack_test(services = [Cloudformation()])]
+async fn should_get_all_categories() {
     let url = format!(
-        "{}/api/v1/periods",
+        "{}/api/v1/categories",
         get_cfn_output().api_gateway_endpoint_url
     );
     let response = reqwest::get(url).await.unwrap();
     assert_eq!(200, response.status());
 
-    let body = response.json::<Vec<GetPeriodSummaryData>>().await.unwrap();
+    let body = response
+        .json::<Vec<GetCategorySummaryData>>()
+        .await
+        .unwrap();
     assert!(body.is_empty());
 }
 
-#[staging_test]
-async fn should_search_periods_with_empty_query() {
+#[localstack_test(services = [Cloudformation()])]
+async fn should_search_categories_with_empty_query() {
     let url = format!(
-        "{}/api/v1/periods/search",
+        "{}/api/v1/categories/search",
         get_cfn_output().api_gateway_endpoint_url
     );
     let response = reqwest::Client::new()
         .post(url)
-        .json(&PeriodSearchData::default())
+        .json(&CategorySearchData::default())
         .send()
         .await
         .unwrap();
     assert_eq!(200, response.status());
 
-    let body = response.json::<Vec<GetPeriodSummaryData>>().await.unwrap();
+    let body = response
+        .json::<Vec<GetCategorySummaryData>>()
+        .await
+        .unwrap();
     assert!(body.is_empty());
 }
 
-#[staging_test]
-async fn should_search_periods_with_name_query() {
-    let periods = Period::load_periods();
-    let expected = periods.first().unwrap();
+#[localstack_test(services = [Cloudformation()])]
+async fn should_search_categories_with_name_query() {
+    let categories = Category::load_categories();
+    let expected = categories.first().unwrap();
     let name = expected.display_name.values().next().unwrap().to_string();
 
     let url = format!(
-        "{}/api/v1/periods/search",
+        "{}/api/v1/categories/search",
         get_cfn_output().api_gateway_endpoint_url
     );
-    let search = PeriodSearchData {
+    let search = CategorySearchData {
         language: common::language::data::LanguageData::De,
         name_query: Some(name.try_into().unwrap()),
     };
@@ -74,14 +80,17 @@ async fn should_search_periods_with_name_query() {
         .unwrap();
     assert_eq!(200, response.status());
 
-    let body = response.json::<Vec<GetPeriodSummaryData>>().await.unwrap();
+    let body = response
+        .json::<Vec<GetCategorySummaryData>>()
+        .await
+        .unwrap();
     assert!(body.is_empty());
 }
 
-#[staging_test]
-async fn should_search_periods_with_get_simple_search() {
+#[localstack_test(services = [Cloudformation()])]
+async fn should_search_categories_with_get_simple_search() {
     let url = format!(
-        "{}/api/v1/periods?language=de&nameQuery=baroque",
+        "{}/api/v1/categories?language=de&nameQuery=furniture",
         get_cfn_output().api_gateway_endpoint_url
     );
     let response = reqwest::get(url).await.unwrap();

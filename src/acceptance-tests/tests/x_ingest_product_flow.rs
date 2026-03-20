@@ -52,8 +52,8 @@ use shop::dynamodb::{
     repository::{ShopDynamoDbRepository, ShopDynamoDbRepositoryImpl},
     shop_record::ShopRecord,
 };
-use staging_tests::{get_dynamodb_client, get_opensearch_client, staging_test};
 use std::time::{Duration, Instant};
+use test_api::*;
 use time::OffsetDateTime;
 
 const EXAMPLE_EMBEDDING: [f32; 1024] = [
@@ -1126,7 +1126,7 @@ async fn prepare_test_shop() -> Shop {
     shop
 }
 
-#[staging_test]
+#[localstack_test(services = [Cloudformation()])]
 async fn should_materialize_product_in_dynamodb_when_put_new_item() {
     let stack = get_cfn_output();
     let shop = prepare_test_shop().await;
@@ -1179,7 +1179,7 @@ async fn should_materialize_product_in_dynamodb_when_put_new_item() {
     }
 }
 
-#[staging_test]
+#[localstack_test(services = [Cloudformation()])]
 async fn should_materialize_product_in_dynamodb_for_domain_event() {
     let stack = get_cfn_output();
     let dynamodb_client = get_dynamodb_client().await;
@@ -1268,7 +1268,7 @@ async fn should_materialize_product_in_dynamodb_for_domain_event() {
     }
 }
 
-#[staging_test]
+#[localstack_test(services = [Cloudformation()])]
 async fn should_materialize_product_in_dynamodb_for_enrichment_event() {
     let stack = get_cfn_output();
     let dynamodb_client = get_dynamodb_client().await;
@@ -1339,7 +1339,7 @@ async fn should_materialize_product_in_dynamodb_for_enrichment_event() {
     }
 }
 
-#[staging_test]
+#[localstack_test(services = [Cloudformation()])]
 async fn should_materialize_product_in_dynamodb_for_policy_event() {
     let stack = get_cfn_output();
     let dynamodb_client = get_dynamodb_client().await;
@@ -1424,7 +1424,7 @@ async fn should_materialize_product_in_dynamodb_for_policy_event() {
     }
 }
 
-#[staging_test]
+#[localstack_test(services = [Cloudformation()])]
 async fn should_materialize_product_in_opensearch_for_create_product_command() {
     let stack = get_cfn_output();
     let mut put_product_data: PutProductData = Faker.fake();
@@ -1513,7 +1513,7 @@ async fn should_materialize_product_in_opensearch_for_create_product_command() {
     }
 }
 
-#[staging_test]
+#[localstack_test(services = [Cloudformation()])]
 async fn should_materialize_product_in_opensearch_for_domain_event() {
     let stack = get_cfn_output();
     let shop = prepare_test_shop().await;
@@ -1646,7 +1646,7 @@ async fn should_materialize_product_in_opensearch_for_domain_event() {
     }
 }
 
-#[staging_test]
+#[localstack_test(services = [Cloudformation()])]
 async fn should_materialize_product_in_opensearch_for_enrichmment_event() {
     let stack = get_cfn_output();
     let shop = prepare_test_shop().await;
@@ -1760,7 +1760,7 @@ async fn should_materialize_product_in_opensearch_for_enrichmment_event() {
     }
 }
 
-#[staging_test]
+#[localstack_test(services = [Cloudformation()])]
 async fn should_materialize_product_in_opensearch_for_policy_event() {
     let stack = get_cfn_output();
     let shop = prepare_test_shop().await;

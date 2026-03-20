@@ -8,10 +8,8 @@ use shop::dynamodb::{
     repository::{ShopDynamoDbRepository, ShopDynamoDbRepositoryImpl},
     shop_record::ShopRecord,
 };
-use staging_tests::{
-    create_test_user, get_dynamodb_client, get_test_mail, staging_test, wait_for_email,
-};
 use std::time::Duration;
+use test_api::*;
 use time::OffsetDateTime;
 use user::dynamodb::repository::{UserDynamoDbRepository, UserDynamoDbRepositoryImpl};
 use user::dynamodb::user_record_update::UserRecordUpdate;
@@ -32,7 +30,7 @@ async fn prepare_test_shop() -> Shop {
     shop
 }
 
-#[staging_test]
+#[localstack_test(services = [Cloudformation()])]
 async fn should_send_email_to_user_when_product_matches_search_filter() {
     let stack = get_cfn_output();
     let shop = prepare_test_shop().await;

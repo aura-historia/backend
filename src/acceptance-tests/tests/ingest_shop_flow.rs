@@ -10,8 +10,8 @@ use shop::{
     data::get_shop_data::GetShopData,
     dynamodb::repository::{ShopDynamoDbRepository, ShopDynamoDbRepositoryImpl},
 };
-use staging_tests::{get_dynamodb_client, get_opensearch_client, staging_test};
 use std::time::Duration;
+use test_api::*;
 use url::Url;
 
 pub async fn read_by_id<T: DeserializeOwned>(index: &str, id: impl Into<String>) -> T {
@@ -41,7 +41,7 @@ pub async fn refresh_index(index: &str) {
         .unwrap();
 }
 
-#[staging_test]
+#[localstack_test(services = [Cloudformation()])]
 async fn should_create_shop_dynamodb_and_index_opensearch_when_post_shop_then_patch() {
     let stack = get_cfn_output();
     let dynamodb_client = get_dynamodb_client().await;

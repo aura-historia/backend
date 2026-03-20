@@ -11,9 +11,9 @@ use product::dynamodb::{
 use product_watchlist::data::watchlist_product_data::WatchlistProductData;
 use product_watchlist_api::watchlist_get::WatchlistProductDataView;
 use product_watchlist_api::watchlist_patch::WatchlistProductPatch;
-use staging_tests::{create_random_test_user, get_dynamodb_client, staging_test};
+use test_api::*;
 
-#[staging_test]
+#[localstack_test(services = [Cloudformation()])]
 async fn should_401_when_unauthorized_for_post() {
     let url = format!(
         "{}/api/v1/me/watchlist",
@@ -23,7 +23,7 @@ async fn should_401_when_unauthorized_for_post() {
     assert_eq!(401, response.status());
 }
 
-#[staging_test]
+#[localstack_test(services = [Cloudformation()])]
 async fn should_401_when_unauthorized_for_delete() {
     let url = format!(
         "{}/api/v1/me/watchlist/{}/{}",
@@ -35,7 +35,7 @@ async fn should_401_when_unauthorized_for_delete() {
     assert_eq!(401, response.status());
 }
 
-#[staging_test]
+#[localstack_test(services = [Cloudformation()])]
 async fn should_401_when_unauthorized_for_get() {
     let url = format!(
         "{}/api/v1/me/watchlist",
@@ -45,7 +45,7 @@ async fn should_401_when_unauthorized_for_get() {
     assert_eq!(401, response.status());
 }
 
-#[staging_test]
+#[localstack_test(services = [Cloudformation()])]
 async fn should_put_and_get_and_patch_and_delete_watchlist_product_and_verify_not_exists() {
     let user = create_random_test_user().await;
 

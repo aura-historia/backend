@@ -26,10 +26,10 @@ use product_watchlist::{
     dynamodb::repository::WatchlistProductDynamoDbRepositoryImpl,
     service::product_watchlist_service::{ProductWatchListService, ProductWatchListServiceImpl},
 };
-use staging_tests::{create_random_test_user, get_dynamodb_client, staging_test};
 use std::time::{Duration, SystemTime};
+use test_api::*;
 
-#[staging_test]
+#[localstack_test(services = [Cloudformation()])]
 async fn should_respond_200_when_anon_and_product_does_exist_for_ids() {
     let ddb_client = get_dynamodb_client().await;
     let repository =
@@ -68,7 +68,7 @@ async fn should_respond_200_when_anon_and_product_does_exist_for_ids() {
     assert_eq!("GBP", body["item"]["price"]["offer"]["currency"]);
 }
 
-#[staging_test]
+#[localstack_test(services = [Cloudformation()])]
 async fn should_respond_200_when_anon_and_product_does_exist_for_slug_ids() {
     let ddb_client = get_dynamodb_client().await;
     let repository =
@@ -107,7 +107,7 @@ async fn should_respond_200_when_anon_and_product_does_exist_for_slug_ids() {
     assert_eq!("GBP", body["item"]["price"]["offer"]["currency"]);
 }
 
-#[staging_test]
+#[localstack_test(services = [Cloudformation()])]
 async fn should_respond_200_personalized_when_authenticated_and_product_does_exist_and_watched() {
     let user = create_random_test_user().await;
     let ddb_client = get_dynamodb_client().await;
@@ -177,7 +177,7 @@ async fn should_respond_200_personalized_when_authenticated_and_product_does_exi
     );
 }
 
-#[staging_test]
+#[localstack_test(services = [Cloudformation()])]
 async fn should_respond_404_when_product_does_not_exist() {
     let response = reqwest::get(format!(
         "{}/api/v1/shops/{}/products/bar",
@@ -193,7 +193,7 @@ async fn should_respond_404_when_product_does_not_exist() {
     assert_eq!("PRODUCT_NOT_FOUND", body["error"]);
 }
 
-#[staging_test]
+#[localstack_test(services = [Cloudformation()])]
 async fn should_respond_200_for_history() {
     let ddb_client = get_dynamodb_client().await;
     let product_repository =

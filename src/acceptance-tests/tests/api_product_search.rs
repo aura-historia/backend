@@ -26,17 +26,15 @@ use product_watchlist::dynamodb::repository::WatchlistProductDynamoDbRepositoryI
 use product_watchlist::service::product_watchlist_service::{
     ProductWatchListService, ProductWatchListServiceImpl,
 };
-use staging_tests::{
-    create_random_test_user, get_dynamodb_client, get_opensearch_client, staging_test,
-};
 use std::{
     time::{Duration, SystemTime},
     vec,
 };
+use test_api::*;
 use time::macros::datetime;
 use url::Url;
 
-#[staging_test]
+#[localstack_test(services = [Cloudformation()])]
 async fn should_respond_200_when_hits_authenticated() {
     let cfn = get_cfn_output();
     let dynamodb_client = get_dynamodb_client().await;
@@ -306,7 +304,7 @@ async fn should_respond_200_when_hits_authenticated() {
     assert!(!user_state["watchlist"]["notifications"].as_bool().unwrap());
 }
 
-#[staging_test]
+#[localstack_test(services = [Cloudformation()])]
 async fn should_respond_200_when_hits_anon() {
     let os_client = get_opensearch_client().await;
     let repository = ProductOpenSearchRepositoryImpl::new(os_client);
@@ -452,7 +450,7 @@ async fn should_respond_200_when_hits_anon() {
     assert!(body["items"].as_array().unwrap()[0]["userState"].is_null());
 }
 
-#[staging_test]
+#[localstack_test(services = [Cloudformation()])]
 async fn should_respond_200_when_no_hits_anon() {
     let url = format!(
         "{}/api/v1/products/search",
@@ -467,7 +465,7 @@ async fn should_respond_200_when_no_hits_anon() {
     assert_eq!(200, response.status());
 }
 
-#[staging_test]
+#[localstack_test(services = [Cloudformation()])]
 async fn should_respond_200_when_hits_with_get_simple_search() {
     let url = format!(
         "{}/api/v1/products?language=de&currency=EUR&productQuery=test&size=5",

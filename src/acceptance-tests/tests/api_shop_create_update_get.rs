@@ -4,11 +4,11 @@ use fake::{Fake, Faker};
 use shop::data::{
     get_shop_data::GetShopData, patch_shop_data::PatchShopData, post_shop_data::PostShopData,
 };
-use staging_tests::staging_test;
 use std::time::Duration;
+use test_api::*;
 use url::Url;
 
-#[staging_test]
+#[localstack_test(services = [Cloudformation()])]
 async fn should_create_update_get_shop() {
     let post_shop_data = PostShopData {
         name: "Woobl woop".into(),
@@ -83,7 +83,7 @@ async fn should_create_update_get_shop() {
     assert_eq!(updated.created, gotten.created);
 }
 
-#[staging_test]
+#[localstack_test(services = [Cloudformation()])]
 async fn should_respond_404_when_shop_does_not_exist() {
     let response = reqwest::get(format!(
         "{}/api/v1/shops/{}",

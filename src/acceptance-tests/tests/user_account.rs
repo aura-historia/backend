@@ -1,16 +1,14 @@
 use aws_tests_common::get_cfn_output;
 use common::{currency::data::CurrencyData, language::data::LanguageData, user_id::UserId};
 use fake::Fake;
-use staging_tests::{
-    create_random_test_user, get_cognito_client, get_dynamodb_client, staging_test,
-};
 use std::time::Duration;
+use test_api::*;
 use user::{
     data::{get_user_data::GetUserAccountData, patch_user_data::PatchUserAccountData},
     dynamodb::repository::{UserDynamoDbRepository, UserDynamoDbRepositoryImpl},
 };
 
-#[staging_test]
+#[localstack_test(services = [Cloudformation()])]
 async fn should_create_dynamodb_user_record_on_signup() {
     let cfn = get_cfn_output();
     let cognito = get_cognito_client().await;
@@ -56,7 +54,7 @@ async fn should_create_dynamodb_user_record_on_signup() {
     assert!(res.is_some_and(|user_record| user_record.email == email));
 }
 
-#[staging_test]
+#[localstack_test(services = [Cloudformation()])]
 async fn should_200_for_get_patch_get() {
     let user = create_random_test_user().await;
     let url = format!(

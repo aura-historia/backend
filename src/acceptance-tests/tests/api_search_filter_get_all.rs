@@ -8,10 +8,9 @@ use search_filter::dynamodb::repository::UserSearchFilterDynamoDbRepositoryImpl;
 use search_filter::service::user_search_filter_service::{
     UserSearchFilterService, UserSearchFilterServiceImpl,
 };
-use staging_tests::{create_random_test_user, get_dynamodb_client};
-use staging_tests_macros::staging_test;
+use test_api::*;
 
-#[staging_test]
+#[localstack_test(services = [Cloudformation()])]
 async fn should_401_when_unauthorized() {
     let url = format!(
         "{}/api/v1/me/search-filters?sort=created&order=asc",
@@ -21,7 +20,7 @@ async fn should_401_when_unauthorized() {
     assert_eq!(401, response.status());
 }
 
-#[staging_test]
+#[localstack_test(services = [Cloudformation()])]
 async fn should_return_actual_search_filters_when_authorized() {
     let repository = UserSearchFilterDynamoDbRepositoryImpl::new(
         get_dynamodb_client().await,

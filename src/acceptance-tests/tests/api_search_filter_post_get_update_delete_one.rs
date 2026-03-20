@@ -6,10 +6,9 @@ use search_filter_api::{
     patch_types::{PatchProductSearchData, PatchUserSearchFilterData},
     post_types::PostUserSearchFilterData,
 };
-use staging_tests::create_random_test_user;
-use staging_tests_macros::staging_test;
+use test_api::*;
 
-#[staging_test]
+#[localstack_test(services = [Cloudformation()])]
 async fn should_401_when_unauthorized_for_post() {
     let url = format!(
         "{}/api/v1/me/search-filters",
@@ -19,7 +18,7 @@ async fn should_401_when_unauthorized_for_post() {
     assert_eq!(401, response.status());
 }
 
-#[staging_test]
+#[localstack_test(services = [Cloudformation()])]
 async fn should_401_when_unauthorized_for_delete() {
     let url = format!(
         "{}/api/v1/me/search-filters/foo",
@@ -29,7 +28,7 @@ async fn should_401_when_unauthorized_for_delete() {
     assert_eq!(401, response.status());
 }
 
-#[staging_test]
+#[localstack_test(services = [Cloudformation()])]
 async fn should_401_when_unauthorized_for_get_one() {
     let url = format!(
         "{}/api/v1/me/search-filters/foo",
@@ -39,7 +38,7 @@ async fn should_401_when_unauthorized_for_get_one() {
     assert_eq!(401, response.status());
 }
 
-#[staging_test]
+#[localstack_test(services = [Cloudformation()])]
 async fn should_create_and_get_and_delete_and_verify_not_exists() {
     let user = create_random_test_user().await;
 

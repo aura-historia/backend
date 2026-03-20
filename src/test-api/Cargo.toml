@@ -24,6 +24,8 @@ tracing = { workspace = true }
 typed-builder = { workspace = true }
 walkdir = { workspace = true }
 libc = { workspace = true }
+fake = { workspace = true }
+uuid = { workspace = true }
 
 # Optional deps
 aws_lambda_events = { workspace = true, optional = true, features = ["apigw"] }
@@ -36,9 +38,12 @@ serde_dynamo = { workspace = true, optional = true, features = [
 aws-sdk-sqs = { workspace = true, optional = true }
 aws-sdk-cloudformation = { workspace = true, optional = true }
 aws-sdk-s3 = { workspace = true, optional = true }
+aws-sdk-cognitoidentityprovider = { workspace = true, optional = true}
 aws-tests-common = { workspace = true, optional = true }
 zip = { workspace = true, optional = true }
 futures = { workspace = true, optional = true }
+user = { workspace = true, optional = true }
+reqwest = { workspace = true, optional = true }
 
 [dev-dependencies]
 test-api = { workspace = true, features = [
@@ -48,6 +53,8 @@ test-api = { workspace = true, features = [
     "opensearch",
     "rds",
     "sqs",
+    "mail",
+    "cognito"
 ]}
 rstest = { workspace = true }
 
@@ -58,4 +65,6 @@ dynamodb = ["dep:aws-sdk-dynamodb", "serde_dynamo"]
 opensearch = ["dep:opensearch", "dep:aws-sdk-opensearch"]
 rds = ["dep:sqlx"]
 sqs = ["dep:aws-sdk-sqs"]
-cloudformation = ["dep:aws-sdk-cloudformation", "dep:aws-sdk-s3", "dep:aws-tests-common", "dep:zip", "dep:futures"]
+cognito = ["dep:aws-sdk-cognitoidentityprovider", "user/full"]
+mail = ["reqwest"]
+cloudformation = ["dep:aws-sdk-cloudformation", "dep:aws-sdk-s3", "dep:aws-tests-common", "dep:zip", "dep:futures", "cognito"]

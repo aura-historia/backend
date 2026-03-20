@@ -8,7 +8,7 @@ use notification::dynamodb::repository::{
     NotificationDynamoDbRepository, NotificationDynamoDbRepositoryImpl,
 };
 use notification_api::notification_get::EventIdCursoredData;
-use staging_tests::{create_random_test_user, get_dynamodb_client, staging_test};
+use test_api::*;
 
 async fn get_notification_repository() -> NotificationDynamoDbRepositoryImpl<'static> {
     NotificationDynamoDbRepositoryImpl::new(
@@ -17,7 +17,7 @@ async fn get_notification_repository() -> NotificationDynamoDbRepositoryImpl<'st
     )
 }
 
-#[staging_test]
+#[localstack_test(services = [Cloudformation()])]
 async fn should_401_when_unauthorized_for_get() {
     let url = format!(
         "{}/api/v1/me/notifications",
@@ -27,7 +27,7 @@ async fn should_401_when_unauthorized_for_get() {
     assert_eq!(401, response.status());
 }
 
-#[staging_test]
+#[localstack_test(services = [Cloudformation()])]
 async fn should_401_when_unauthorized_for_patch_all() {
     let url = format!(
         "{}/api/v1/me/notifications",
@@ -37,7 +37,7 @@ async fn should_401_when_unauthorized_for_patch_all() {
     assert_eq!(401, response.status());
 }
 
-#[staging_test]
+#[localstack_test(services = [Cloudformation()])]
 async fn should_401_when_unauthorized_for_patch_one() {
     let url = format!(
         "{}/api/v1/me/notifications/{}",
@@ -48,7 +48,7 @@ async fn should_401_when_unauthorized_for_patch_one() {
     assert_eq!(401, response.status());
 }
 
-#[staging_test]
+#[localstack_test(services = [Cloudformation()])]
 async fn should_401_when_unauthorized_for_delete_all() {
     let url = format!(
         "{}/api/v1/me/notifications",
@@ -58,7 +58,7 @@ async fn should_401_when_unauthorized_for_delete_all() {
     assert_eq!(401, response.status());
 }
 
-#[staging_test]
+#[localstack_test(services = [Cloudformation()])]
 async fn should_401_when_unauthorized_for_delete_one() {
     let url = format!(
         "{}/api/v1/me/notifications/{}",
@@ -69,7 +69,7 @@ async fn should_401_when_unauthorized_for_delete_one() {
     assert_eq!(401, response.status());
 }
 
-#[staging_test]
+#[localstack_test(services = [Cloudformation()])]
 async fn should_get_and_patch_one_and_patch_all_and_delete_one_and_delete_all_notifications() {
     let user = create_random_test_user().await;
     let repository = get_notification_repository().await;

@@ -18,10 +18,8 @@ use product_watchlist::dynamodb::repository::WatchlistProductDynamoDbRepositoryI
 use product_watchlist::service::product_watchlist_service::{
     ProductWatchListService, ProductWatchListServiceImpl,
 };
-use staging_tests::{
-    create_random_test_user, get_dynamodb_client, get_opensearch_client, staging_test,
-};
 use std::time::Duration;
+use test_api::*;
 
 const EXAMPLE_EMBEDDING: [f32; 1024] = [
     0.0003272566,
@@ -1050,7 +1048,7 @@ const EXAMPLE_EMBEDDING: [f32; 1024] = [
     0.016079217,
 ];
 
-#[staging_test]
+#[localstack_test(services = [Cloudformation()])]
 async fn should_202_when_similar_products_have_not_been_computed_for_anon() {
     let product_dynamodb_repository = ProductDynamoDbRepositoryImpl::new(
         get_dynamodb_client().await,
@@ -1105,7 +1103,7 @@ async fn should_202_when_similar_products_have_not_been_computed_for_anon() {
     assert_eq!(202, response.status().as_u16());
 }
 
-#[staging_test]
+#[localstack_test(services = [Cloudformation()])]
 async fn should_200_when_similar_products_have_been_computed_for_anon() {
     let product_dynamodb_repository = ProductDynamoDbRepositoryImpl::new(
         get_dynamodb_client().await,
@@ -1192,7 +1190,7 @@ async fn should_200_when_similar_products_have_been_computed_for_anon() {
     assert!(actual.iter().all(|actual| actual.user_state.is_none()));
 }
 
-#[staging_test]
+#[localstack_test(services = [Cloudformation()])]
 async fn should_200_and_personalize_when_similar_products_have_been_computed_for_authenticated() {
     let user = create_random_test_user().await;
     let user_id: UserId = user.sub.into();
