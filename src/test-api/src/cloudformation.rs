@@ -4,7 +4,7 @@ use async_trait::async_trait;
 use aws_sdk_cloudformation::types::StackStatus;
 use aws_sdk_s3::types::{BucketLocationConstraint, CreateBucketConfiguration};
 use aws_tests_common::{CloudFormationOutput, set_cfn_output};
-use futures::future::join_all;
+use futures::stream::{self, StreamExt};
 use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::process::Command;
@@ -90,10 +90,6 @@ impl IntegrationTestService for Cloudformation {
         ]
     }
 
-    fn env_vars(&self) -> Vec<(&'static str, &'static str)> {
-        vec![("PROVIDER_OVERRIDE_CLOUDFORMATION", "engine-legacy")]
-    }
-
     async fn set_up(&self) {
         build_lambdas();
         create_artifact_bucket().await;
@@ -134,15 +130,26 @@ async fn create_artifact_bucket() {
     debug!("Created S3 artifact bucket '{ARTIFACT_BUCKET}'.");
 }
 
-/// Packages each Lambda binary into a ZIP and uploads it to S3 in parallel.
+/// Maximum number of concurrent S3 uploads.
+///
+/// LocalStack's S3 runs on a single reactor thread, so too many simultaneous
+/// large uploads can stall the connection pipeline. Limiting concurrency keeps
+/// throughput stable while still being significantly faster than sequential.
+const MAX_CONCURRENT_UPLOADS: usize = 3;
+
+/// Packages each Lambda binary into a ZIP and uploads it to S3 with bounded concurrency.
 ///
 /// The ZIP contains a single file named `bootstrap` (required by the `provided.al2023` runtime).
 /// The S3 key follows the pattern: `{binary_name}-{STAGE_NAME}-{COMMIT_SHA}.zip`
+///
+/// ZIP creation is deferred into each async task (via `spawn_blocking`) so that only
+/// `MAX_CONCURRENT_UPLOADS` binaries are read and compressed at any given time, avoiding
+/// excessive memory pressure from loading all binaries simultaneously.
 async fn package_and_upload_lambdas() {
     let workspace_dir = PathBuf::from(env!("CARGO_WORKSPACE_DIR"));
     let target_dir = workspace_dir.join("target").join("debug");
 
-    let upload_futures: Vec<_> = LAMBDA_BINARIES
+    let tasks: Vec<_> = LAMBDA_BINARIES
         .iter()
         .map(|binary_name| {
             let binary_path = target_dir.join(binary_name);
@@ -151,26 +158,31 @@ async fn package_and_upload_lambdas() {
                 "Lambda binary not found at '{}'. Ensure `cargo build --workspace` succeeded.",
                 binary_path.display()
             );
-
-            let zip_bytes = create_lambda_zip(&binary_path);
             let s3_key = format!("{binary_name}-{STAGE_NAME}-{COMMIT_SHA}.zip");
-
-            async move {
-                get_s3_client()
-                    .await
-                    .put_object()
-                    .bucket(ARTIFACT_BUCKET)
-                    .key(&s3_key)
-                    .body(zip_bytes.into())
-                    .send()
-                    .await
-                    .unwrap_or_else(|e| panic!("shouldn't fail uploading '{s3_key}' to S3: {e}"));
-                debug!("Uploaded Lambda ZIP '{s3_key}' to S3.");
-            }
+            (binary_path, s3_key)
         })
         .collect();
 
-    join_all(upload_futures).await;
+    stream::iter(tasks.into_iter().map(|(binary_path, s3_key)| async move {
+        let zip_bytes = tokio::task::spawn_blocking(move || create_lambda_zip(&binary_path))
+            .await
+            .expect("shouldn't fail spawning blocking ZIP task");
+
+        get_s3_client()
+            .await
+            .put_object()
+            .bucket(ARTIFACT_BUCKET)
+            .key(&s3_key)
+            .body(zip_bytes.into())
+            .send()
+            .await
+            .unwrap_or_else(|e| panic!("shouldn't fail uploading '{s3_key}' to S3: {e}"));
+        debug!("Uploaded Lambda ZIP '{s3_key}' to S3.");
+    }))
+    .buffer_unordered(MAX_CONCURRENT_UPLOADS)
+    .collect::<Vec<()>>()
+    .await;
+
     info!("All {} Lambda ZIPs uploaded to S3.", LAMBDA_BINARIES.len());
 }
 
