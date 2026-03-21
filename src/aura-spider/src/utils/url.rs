@@ -8,11 +8,13 @@ pub fn clean_and_normalize_url(raw: &str) -> String {
         return raw.trim().trim_end_matches('/').to_string();
     }
 
-    let mut options = Options::default();
-    options.strip_hash = true;
-    options.remove_trailing_slash = true;
-    options.remove_single_slash = false;
-    options.strip_www = false;
+    let options = Options {
+        strip_hash: true,
+        remove_trailing_slash: true,
+        remove_single_slash: false,
+        strip_www: false,
+        ..Default::default()
+    };
 
     match url_normalize::normalize_url(raw.trim(), &options) {
         Ok(normalized) => normalized,
