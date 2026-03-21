@@ -410,6 +410,7 @@ dependencies = [
  "tracing",
  "tracing-subscriber",
  "url",
+ "url-normalize",
 ]
 
 [[package]]
@@ -7180,7 +7181,7 @@ dependencies = [
  "auto_encoder",
  "bytes",
  "case_insensitive_string",
- "cookie 0.16.2",
+ "cookie 0.18.1",
  "fastrand",
  "h2 0.4.11",
  "hashbrown 0.16.1",
@@ -8548,6 +8549,15 @@ dependencies = [
  "percent-encoding",
  "serde",
  "serde_derive",
+]
+
+[[package]]
+name = "url-normalize"
+version = "0.1.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "a1db355d41377ce831ea473e279ee3214fd6cce3e4e512567e9f6834ce85d5a3"
+dependencies = [
+ "idna",
 ]
 
 [[package]]

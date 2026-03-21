@@ -7,7 +7,7 @@ use crate::classification::gemini_client::PatternInferenceClient;
 use crate::classification::url_classification_service::find_product_url_pattern;
 use crate::classification::url_pattern_repository::ShopUrlPatternRepository;
 use crate::error::SpiderError;
-use crate::url::normalize_shop_url;
+use crate::utils::url::extract_shop_base_url;
 
 #[async_trait::async_trait]
 #[mockall::automock]
@@ -64,7 +64,7 @@ impl UrlPatternService for UrlPatternServiceImpl {
         &self,
         shop_url: &str,
     ) -> Result<Option<Regex>, SpiderError> {
-        let shop_url = normalize_shop_url(shop_url)?;
+        let shop_url = extract_shop_base_url(shop_url)?;
         let record = self.repository.find_pattern(&shop_url).await?;
 
         let Some(record) = record else {
@@ -84,7 +84,7 @@ impl UrlPatternService for UrlPatternServiceImpl {
         shop_url: &str,
         pattern: &Regex,
     ) -> Result<(), SpiderError> {
-        let shop_url = normalize_shop_url(shop_url)?;
+        let shop_url = extract_shop_base_url(shop_url)?;
         self.repository
             .save_pattern(&shop_url, Some(pattern.as_str()))
             .await?;
@@ -107,37 +107,9 @@ impl UrlPatternService for UrlPatternServiceImpl {
     }
 
     async fn mark_as_crawled(&self, shop_url: &str) -> Result<(), SpiderError> {
-        let shop_url = normalize_shop_url(shop_url)?;
+        let shop_url = extract_shop_base_url(shop_url)?;
         self.repository.mark_as_crawled(&shop_url).await?;
         Ok(())
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn should_return_origin_when_shop_url_has_default_port_for_scope_key() {
-        let key = normalize_shop_url("https://example.com/some/path")
-            .expect("shop url should be resolved");
-
-        assert_eq!(key, "https://example.com");
-    }
-
-    #[test]
-    fn should_return_origin_with_port_when_shop_url_has_explicit_port_for_scope_key() {
-        let key = normalize_shop_url("https://example.com:8443/some/path")
-            .expect("shop url should be resolved");
-
-        assert_eq!(key, "https://example.com:8443");
-    }
-
-    #[test]
-    fn should_return_error_when_shop_url_is_invalid_for_scope_key() {
-        let error = normalize_shop_url("not-a-valid-url").expect_err("invalid url should fail");
-
-        assert!(matches!(error, SpiderError::Spider(_)));
     }
 }
 

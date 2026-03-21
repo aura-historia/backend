@@ -9,7 +9,7 @@ use crate::classification::url_classification_service::{
     filter_product_urls, matches_product_pattern,
 };
 use crate::classification::url_pattern_service::UrlPatternService;
-use crate::crawling::crawl_service::{CrawledPage, Crawler};
+use crate::discovery::website_spider::{CrawledPage, Crawler};
 use crate::error::SpiderError;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -119,7 +119,7 @@ impl SpiderServiceImpl {
         pages: &[CrawledPage],
         pattern: &Option<Regex>,
     ) -> Result<Vec<CrawledLinkMetadata>, SpiderError> {
-        let normalized_shop_url = crate::url::normalize_shop_url(shop_url)?;
+        let normalized_shop_url = crate::utils::url::extract_shop_base_url(shop_url)?;
         let mut metadata = Vec::with_capacity(pages.len());
 
         for page in pages {
@@ -432,7 +432,7 @@ mod service_tests {
     use crate::classification::link_metadata_repository::MockLinkMetadataRepository;
     use crate::classification::link_metadata_repository::SpiderLinkRecord;
     use crate::classification::url_pattern_service::MockUrlPatternService;
-    use crate::crawling::crawl_service::MockCrawler;
+    use crate::discovery::website_spider::MockCrawler;
     use tokio::sync::mpsc;
 
     fn setup_mock_link_repo(mock: &mut MockLinkMetadataRepository, call_count: usize) {

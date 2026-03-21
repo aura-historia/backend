@@ -6,11 +6,11 @@ use spider::website::Website;
 use tokio::sync::mpsc;
 
 use crate::error::SpiderError;
-use crate::url::normalize_url;
+use crate::utils::url::clean_and_normalize_url;
 
 const BLACKLIST_URL_SUBSTRINGS: &[&str] = &[
-    "?add-to-cart=",
-    "&add-to-cart=",
+    "cart",
+    "wishlist",
     "?replytocom=",
     "&replytocom=",
     "/wp-admin/",
@@ -89,6 +89,7 @@ impl Crawler for SpiderCrawler {
         website
             .with_blacklist_url(Some(blacklist_regex))
             .with_respect_robots_txt(true)
+            .with_request_timeout(Some(std::time::Duration::from_secs(15)))
             .with_delay(std::time::Duration::from_millis(500).as_millis() as u64); // Delay between requests
 
         let mut spider_rx = website
@@ -111,7 +112,7 @@ impl Crawler for SpiderCrawler {
                     continue;
                 }
 
-                let normalized = normalize_url(raw_url);
+                let normalized = clean_and_normalize_url(raw_url);
                 let main_hash = hash_main_fragment(&page.get_html(), &normalized);
 
                 if !bloom.check(&normalized) {

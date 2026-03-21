@@ -1,7 +1,7 @@
 pub mod classification;
-pub mod crawling;
+pub mod discovery;
 pub mod error;
-pub mod spider_service;
-pub mod url;
+pub mod service;
+pub mod utils;
 
-pub use spider_service::{CrawledLinkMetadata, LinkClass, SpiderRunResult, SpiderService};
+pub use service::{CrawledLinkMetadata, LinkClass, SpiderRunResult, SpiderService};

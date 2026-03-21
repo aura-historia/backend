@@ -5,7 +5,7 @@ use tracing::{debug, info, warn};
 
 use crate::classification::gemini_client::PatternInferenceClient;
 use crate::error::SpiderError;
-use crate::url::normalize_url;
+use crate::utils::url::clean_and_normalize_url;
 
 /// Uses a PatternInferenceClient to infer a product URL regex and compiles it.
 pub async fn find_product_url_pattern(
@@ -82,7 +82,7 @@ fn dedupe_urls(urls: Vec<String>) -> Vec<String> {
     let mut unique = Vec::new();
 
     for raw in urls {
-        let normalized = normalize_url(&raw);
+        let normalized = clean_and_normalize_url(&raw);
         if seen.insert(normalized.clone()) {
             unique.push(normalized);
         }
