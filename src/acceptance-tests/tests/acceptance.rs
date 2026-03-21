@@ -1189,18 +1189,22 @@ async fn refresh_index(index: &str) {
         .unwrap();
 }
 
-async fn read_by_id<T: DeserializeOwned>(index: &str, id: impl Into<String>) -> T {
-    let get_response = get_opensearch_client()
-        .await
-        .get(GetParts::IndexId(index, &id.into()))
-        .send()
-        .await
-        .unwrap()
-        .error_for_status_code()
-        .unwrap();
-    assert!(get_response.status_code().is_success());
-    let response_doc: serde_json::Value = get_response.json().await.unwrap();
-    serde_json::from_value(response_doc["_source"].clone()).unwrap()
+/// Polls OpenSearch until a document with the given `id` appears in `index`, issuing an explicit
+/// index refresh before each attempt. This is necessary because Localstack's OpenSearch requires
+/// a refresh before documents become visible — even via direct GET by ID.
+async fn wait_for_document<T: DeserializeOwned>(index: &'static str, id: impl Into<String>) -> T {
+    let id = id.into();
+    for _ in 0..24 {
+        refresh_index(index).await;
+        if let Some(doc) = try_read_by_id::<T>(index, &id).await {
+            return doc;
+        }
+        tokio::time::sleep(Duration::from_secs(5)).await;
+    }
+    panic!(
+        "Expected document '{}' in index '{}' but it never appeared after 120s",
+        id, index
+    );
 }
 
 async fn try_read_by_id<T: DeserializeOwned>(index: &str, id: impl Into<String>) -> Option<T> {
@@ -2026,9 +2030,7 @@ async fn should_create_shop_dynamodb_and_index_opensearch_when_post_shop_then_pa
             .unwrap()
             .is_some()
     );
-    refresh_index("shops").await;
-    tokio::time::sleep(Duration::from_secs(30)).await;
-    let shop_document = read_by_id::<ShopDocument>("shops", post_res.shop_id).await;
+    let shop_document = wait_for_document::<ShopDocument>("shops", post_res.shop_id).await;
     assert_eq!(post_res.name, shop_document.name);
 
     // PATCH
@@ -2055,9 +2057,7 @@ async fn should_create_shop_dynamodb_and_index_opensearch_when_post_shop_then_pa
         patch_shop_data.image.unwrap(),
         patched_record.image.unwrap()
     );
-    refresh_index("shops").await;
-    tokio::time::sleep(Duration::from_secs(30)).await;
-    let patched_document = read_by_id::<ShopDocument>("shops", patch_res.shop_id).await;
+    let patched_document = wait_for_document::<ShopDocument>("shops", patch_res.shop_id).await;
     assert_eq!(patch_res.name, patched_document.name);
 }
 
