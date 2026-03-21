@@ -4,7 +4,6 @@ use serde::{Deserialize, Serialize};
 use std::collections::HashSet;
 use url::Url;
 
-#[cfg_attr(feature = "test-data", derive(fake::Dummy))]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct PostShopData {
@@ -13,4 +12,21 @@ pub struct PostShopData {
     pub domains: HashSet<Domain>,
     #[serde(skip_serializing_if = "Option::is_none", default)]
     pub image: Option<Url>,
+}
+
+#[cfg(feature = "test-data")]
+mod faker {
+    use super::*;
+    use fake::{Dummy, Fake, Faker};
+
+    impl Dummy<Faker> for PostShopData {
+        fn dummy_with_rng<R: fake::Rng + ?Sized>(config: &Faker, rng: &mut R) -> Self {
+            PostShopData {
+                name: config.fake_with_rng(rng),
+                shop_type: config.fake_with_rng(rng),
+                domains: vec![config.fake_with_rng(rng)].into_iter().collect(),
+                image: None,
+            }
+        }
+    }
 }

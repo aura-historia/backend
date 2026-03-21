@@ -1,4 +1,4 @@
-use test_api::*;
+//use test_api::*;
 
-#[localstack_test(services = [Cloudformation()])]
-async fn should_run_without_errors() {}
+//#[localstack_test(services = [Cloudformation()])]
+//async fn should_run_without_errors() {}

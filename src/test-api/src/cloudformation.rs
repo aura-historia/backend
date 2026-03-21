@@ -129,6 +129,7 @@ impl IntegrationTestService for Cloudformation {
                 package_and_upload_lambdas().await;
                 deploy_stack().await;
                 extract_and_set_cfn_outputs().await;
+                crate::OpenSearch().set_up().await;
             })
             .await;
     }

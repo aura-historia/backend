@@ -5,6 +5,7 @@ edition = "2024"
 
 [dependencies]
 aws-tests = { workspace = true }
+acceptance-tests = { workspace = true }
 cognito = { workspace = true }
 cognito-post-confirmation = { workspace = true }
 common = { workspace = true }
