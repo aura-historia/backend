@@ -44,11 +44,36 @@ impl LinkClass {
     }
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "SCREAMING_SNAKE_CASE")]
+pub enum ProductState {
+    Listed,
+    Available,
+    Reserved,
+    Sold,
+    Removed,
+    Unknown,
+}
+
+impl ProductState {
+    fn from_db(value: &str) -> Self {
+        match value {
+            "LISTED" => ProductState::Listed,
+            "AVAILABLE" => ProductState::Available,
+            "RESERVED" => ProductState::Reserved,
+            "SOLD" => ProductState::Sold,
+            "REMOVED" => ProductState::Removed,
+            _ => ProductState::Unknown,
+        }
+    }
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct CrawledLinkMetadata {
     pub url: String,
     pub class: LinkClass,
     pub hash: String,
+    pub state: ProductState,
 
     #[serde(
         with = "time::serde::rfc3339::option",
@@ -77,6 +102,7 @@ impl From<SpiderLinkRecord> for CrawledLinkMetadata {
             url: value.url,
             class: LinkClass::from_db(&value.link_class),
             hash: value.main_hash,
+            state: ProductState::from_db(&value.state),
             last_scraped: value.last_scraped,
             created: value.created,
             updated: value.updated,
@@ -446,6 +472,7 @@ mod service_tests {
                         url: url_owned,
                         link_class: "other".to_string(),
                         main_hash: "hash".to_string(),
+                        state: "UNKNOWN".to_string(),
                         last_scraped: None,
                         created: OffsetDateTime::now_utc(),
                         updated: OffsetDateTime::now_utc(),

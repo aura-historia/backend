@@ -11,6 +11,7 @@ CREATE TABLE IF NOT EXISTS spider_link (
     url        TEXT NOT NULL,
     link_class TEXT NOT NULL,
     main_hash  TEXT NOT NULL,
+    state      TEXT NOT NULL DEFAULT 'UNKNOWN',
     last_scraped TIMESTAMPTZ,
     created    TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     updated    TIMESTAMPTZ NOT NULL DEFAULT NOW(),
@@ -18,6 +19,7 @@ CREATE TABLE IF NOT EXISTS spider_link (
     CHECK (char_length(url) > 0),
     CHECK (char_length(main_hash) = 64),
     CHECK (link_class IN ('product', 'category', 'imprint', 'info', 'other')),
+    CHECK (state IN ('LISTED', 'AVAILABLE', 'RESERVED', 'SOLD', 'REMOVED', 'UNKNOWN')),
     PRIMARY KEY (shop_url, url)
 );
 

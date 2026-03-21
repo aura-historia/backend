@@ -47,12 +47,21 @@ fn hash_main_fragment(html: &str, fallback: &str) -> String {
     digest.iter().map(|byte| format!("{byte:02x}")).collect()
 }
 
+fn find_case_insensitive(text: &str, search: &str) -> Option<usize> {
+    let search_bytes = search.as_bytes();
+    if search_bytes.is_empty() {
+        return Some(0);
+    }
+    text.as_bytes()
+        .windows(search_bytes.len())
+        .position(|window| window.eq_ignore_ascii_case(search_bytes))
+}
+
 fn extract_main_fragment(html: &str) -> Option<&str> {
-    let lower = html.to_ascii_lowercase();
-    let main_start = lower.find("<main")?;
-    let tag_end_rel = lower[main_start..].find('>')?;
+    let main_start = find_case_insensitive(html, "<main")?;
+    let tag_end_rel = html[main_start..].find('>')?;
     let content_start = main_start + tag_end_rel + 1;
-    let main_end_rel = lower[content_start..].find("</main>")?;
+    let main_end_rel = find_case_insensitive(&html[content_start..], "</main>")?;
     let content_end = content_start + main_end_rel;
     Some(&html[content_start..content_end])
 }
@@ -113,9 +122,9 @@ impl Crawler for SpiderCrawler {
                 }
 
                 let normalized = clean_and_normalize_url(raw_url);
-                let main_hash = hash_main_fragment(&page.get_html(), &normalized);
 
                 if !bloom.check(&normalized) {
+                    let main_hash = hash_main_fragment(&page.get_html(), &normalized);
                     bloom.set(&normalized);
 
                     if tx
