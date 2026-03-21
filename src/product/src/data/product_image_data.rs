@@ -35,10 +35,10 @@ impl From<ProductImage> for ProductImageData {
 mod faker {
     use crate::data::product_image_data::ProductImageData;
     use common::fake::url::ImageUrl;
-    use fake::{Dummy, Fake, Faker, Rng};
+    use fake::{Dummy, Fake, Faker, RngExt};
 
     impl Dummy<Faker> for ProductImageData {
-        fn dummy_with_rng<R: Rng + ?Sized>(config: &Faker, rng: &mut R) -> Self {
+        fn dummy_with_rng<R: RngExt + ?Sized>(config: &Faker, rng: &mut R) -> Self {
             ProductImageData {
                 url: if config.fake_with_rng(rng) {
                     Some(config.fake_with_rng::<ImageUrl, R>(rng).into())

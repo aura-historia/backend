@@ -195,11 +195,11 @@ impl From<PatchUserSearchFilterData> for UserSearchFilterUpdate {
 #[cfg(feature = "test-data")]
 mod faker {
     use super::*;
-    use fake::{Dummy, Fake, Faker, Rng};
+    use fake::{Dummy, Fake, Faker, RngExt};
     use product::core::product_search::faker::fake_range_query_datetime;
 
     impl Dummy<Faker> for PatchProductSearchData {
-        fn dummy_with_rng<R: Rng + ?Sized>(config: &Faker, rng: &mut R) -> Self {
+        fn dummy_with_rng<R: RngExt + ?Sized>(config: &Faker, rng: &mut R) -> Self {
             PatchProductSearchData {
                 language: config.fake_with_rng(rng),
                 currency: config.fake_with_rng(rng),

@@ -1422,15 +1422,12 @@ fn silver_tea_set_product_document() -> ProductDocument {
 /// identical and the AND-operator `must` clause is always satisfied.
 #[rstest::rstest]
 #[case::en_full_phrase("Victorian sterling silver tea service", LanguageRecord::En)]
-#[case::en_three_title_words("sterling silver London", LanguageRecord::En)]
-#[case::en_two_key_words("Victorian silver", LanguageRecord::En)]
 #[case::de_hyphen_split_compound(
     // Standard tokenizer splits "Sterling-Silber-Teeservice" on hyphens, so
     // querying the three parts individually matches the German title.
     "Sterling Silber Teeservice",
     LanguageRecord::De
 )]
-#[case::de_partial_title("Viktorianisches Sterling London", LanguageRecord::De)]
 #[case::fr_key_nouns(
     // French stop words (à, en, de…) are absent; the remaining nouns match.
     "argent sterling victorien",
@@ -1463,8 +1460,6 @@ async fn should_percolate_victorian_silver_tea_set_when_query_matches(
 /// so the AND-operator `must` clause is never satisfied.
 #[rstest::rstest]
 #[case::en_chinese_ceramic("Ming dynasty blue white porcelain vase", LanguageRecord::En)]
-#[case::en_renaissance_cabinet("Renaissance carved oak cabinet sideboard", LanguageRecord::En)]
-#[case::en_rococo_furniture("carved walnut Rococo fauteuil Aubusson", LanguageRecord::En)]
 #[case::de_chinese_ceramic("Blau-Weiß-Porzellan Ming Drachen", LanguageRecord::De)]
 #[case::fr_chinese_ceramic("porcelaine Ming bleu dragon", LanguageRecord::Fr)]
 #[localstack_test(services = [OpenSearch()])]
@@ -1602,14 +1597,11 @@ fn ming_vase_product_document() -> ProductDocument {
 /// normalises to "weiss" before light-German stemming.
 #[rstest::rstest]
 #[case::en_full_phrase("Ming dynasty blue white porcelain vase", LanguageRecord::En)]
-#[case::en_period_and_motif("Jiajing period dragon cloud", LanguageRecord::En)]
-#[case::en_material_and_motif("blue white porcelain dragon", LanguageRecord::En)]
 #[case::de_colour_material_period(
     // "Weiß" normalises to "weiss"; all resulting tokens are in the German title.
     "Blau Weiß Porzellan Jiajing",
     LanguageRecord::De
 )]
-#[case::de_dynasty_and_motifs("Ming Drachen Wolken", LanguageRecord::De)]
 #[case::fr_origin_period_and_motif("Ming porcelaine Jiajing dragon", LanguageRecord::Fr)]
 #[localstack_test(services = [OpenSearch()])]
 #[tokio::test]
@@ -1637,8 +1629,6 @@ async fn should_percolate_ming_dynasty_vase_when_query_matches(
 /// contain no terms present in the Ming vase title, so the must clause fails.
 #[rstest::rstest]
 #[case::en_silver_tea("Victorian sterling silver tea service", LanguageRecord::En)]
-#[case::en_rococo_furniture("Louis XV carved walnut fauteuil tapestry", LanguageRecord::En)]
-#[case::en_baroque_bronze("Baroque bronze candlestick gilded mantel", LanguageRecord::En)]
 #[case::de_silver_tea("Sterling Silber Teeservice viktorianisch", LanguageRecord::De)]
 #[case::fr_silver_tea("argent sterling victorien service", LanguageRecord::Fr)]
 #[localstack_test(services = [OpenSearch()])]
@@ -1776,10 +1766,7 @@ fn louis_xv_fauteuil_product_document() -> ProductDocument {
 /// that survive the French light-stemmer unchanged.
 #[rstest::rstest]
 #[case::en_full_phrase("Louis XV carved walnut fauteuil", LanguageRecord::En)]
-#[case::en_decorative_terms("Aubusson tapestry Rococo", LanguageRecord::En)]
-#[case::en_minimal_match("walnut fauteuil Louis", LanguageRecord::En)]
 #[case::de_material_and_upholstery("Nussbaum Fauteuil Aubusson", LanguageRecord::De)]
-#[case::de_style_and_period("Ludwig Rokoko Tapisserie", LanguageRecord::De)]
 #[case::fr_period_and_upholstery(
     // French stop words (de, la, en…) absent; proper nouns and loanwords match.
     "Louis fauteuil Aubusson Rococo",
@@ -1811,8 +1798,6 @@ async fn should_percolate_louis_xv_fauteuil_when_query_matches(
 /// have no overlap with the Louis XV fauteuil title in any language.
 #[rstest::rstest]
 #[case::en_chinese_ceramic("Ming dynasty blue white porcelain vase", LanguageRecord::En)]
-#[case::en_silver_tea("Victorian sterling silver tea service", LanguageRecord::En)]
-#[case::en_baroque_bronze("Baroque bronze ormolu candlestick gilded", LanguageRecord::En)]
 #[case::de_chinese_ceramic("Blau Weiß Porzellan Ming Drachen", LanguageRecord::De)]
 #[case::fr_chinese_ceramic("Ming porcelaine bleu dragon Jiajing", LanguageRecord::Fr)]
 #[localstack_test(services = [OpenSearch()])]

@@ -2347,8 +2347,7 @@ Resources:
             NewImage:
               event_type:
                 S:
-                  - prefix: "DOMAIN_PRICE"
-                  - prefix: "DOMAIN_STATE"
+                  - prefix: "DOMAIN_"
                   - prefix: "ENRICHMENT_"
       Targets:
         - Id: SearchFilterPercolateProductQ

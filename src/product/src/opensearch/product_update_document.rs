@@ -257,10 +257,10 @@ mod faker {
     use super::*;
     use crate::core::{description::Description, title::Title};
     use common::price::domain::MonetaryAmount;
-    use fake::{Dummy, Fake, Faker, Rng};
+    use fake::{Dummy, Fake, Faker, RngExt};
 
     impl Dummy<Faker> for ProductUpdateDocument {
-        fn dummy_with_rng<R: Rng + ?Sized>(config: &Faker, rng: &mut R) -> Self {
+        fn dummy_with_rng<R: RngExt + ?Sized>(config: &Faker, rng: &mut R) -> Self {
             let state = config.fake_with_rng(rng);
             ProductUpdateDocument {
                 event_id: config.fake_with_rng(rng),

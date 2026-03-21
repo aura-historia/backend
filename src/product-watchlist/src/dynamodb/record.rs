@@ -74,10 +74,10 @@ impl From<WatchlistProductRecord> for WatchlistProduct {
 #[cfg(feature = "test-data")]
 mod faker {
     use super::*;
-    use fake::{Dummy, Fake, Faker, Rng};
+    use fake::{Dummy, Fake, Faker, RngExt};
 
     impl Dummy<Faker> for WatchlistProductRecord {
-        fn dummy_with_rng<R: Rng + ?Sized>(config: &Faker, rng: &mut R) -> Self {
+        fn dummy_with_rng<R: RngExt + ?Sized>(config: &Faker, rng: &mut R) -> Self {
             let created = OffsetDateTime::now_utc();
             let product_id = config.fake_with_rng(rng);
             let shop_id: ShopId = config.fake_with_rng(rng);

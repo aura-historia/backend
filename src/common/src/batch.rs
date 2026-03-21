@@ -249,10 +249,10 @@ pub mod sqs {
 #[cfg(feature = "test-data")]
 mod faker {
     use super::*;
-    use fake::{Dummy, Faker, Rng};
+    use fake::{Dummy, Faker, RngExt};
 
     impl<T: Dummy<Faker>, const N: usize> Dummy<Faker> for Batch<T, N> {
-        fn dummy_with_rng<R: Rng + ?Sized>(_config: &Faker, rng: &mut R) -> Self {
+        fn dummy_with_rng<R: RngExt + ?Sized>(_config: &Faker, rng: &mut R) -> Self {
             let count = rng.random_range(1..=N);
             Batch(fake::vec![T; count])
         }

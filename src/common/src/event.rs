@@ -27,12 +27,12 @@ impl<AggregateId, Payload> Event<AggregateId, Payload> {
 #[cfg(feature = "test-data")]
 mod faker {
     use super::*;
-    use fake::{Dummy, Fake, Faker, Rng};
+    use fake::{Dummy, Fake, Faker, RngExt};
 
     impl<AggregateId: Dummy<Faker>, Payload: Dummy<Faker>> Dummy<Faker>
         for Event<AggregateId, Payload>
     {
-        fn dummy_with_rng<R: Rng + ?Sized>(config: &Faker, rng: &mut R) -> Self {
+        fn dummy_with_rng<R: RngExt + ?Sized>(config: &Faker, rng: &mut R) -> Self {
             Event {
                 aggregate_id: config.fake_with_rng(rng),
                 event_id: config.fake_with_rng(rng),

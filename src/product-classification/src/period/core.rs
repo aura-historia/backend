@@ -82,7 +82,7 @@ pub struct LocalizedPeriod {
 #[cfg(feature = "test-data")]
 pub mod faker {
     use super::*;
-    use fake::{Dummy, Fake, Faker, Rng};
+    use fake::{Dummy, Fake, Faker, RngExt};
     use serde::{Deserialize, Serialize};
     use strum::{EnumCount, IntoEnumIterator};
 
@@ -170,7 +170,7 @@ pub mod faker {
     }
 
     impl Dummy<Faker> for Period {
-        fn dummy_with_rng<R: Rng + ?Sized>(config: &Faker, rng: &mut R) -> Self {
+        fn dummy_with_rng<R: RngExt + ?Sized>(config: &Faker, rng: &mut R) -> Self {
             let mut display_name = HashMap::new();
             for language in Language::iter() {
                 display_name.insert(language, config.fake_with_rng(rng));

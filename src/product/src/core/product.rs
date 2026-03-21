@@ -678,10 +678,10 @@ pub struct LocalizedProductView {
 mod faker {
     use super::*;
     use common::price::domain::FixedFxRate;
-    use fake::{Dummy, Fake, Faker, Rng};
+    use fake::{Dummy, Fake, Faker, RngExt};
 
     impl Dummy<Faker> for Product {
-        fn dummy_with_rng<R: Rng + ?Sized>(config: &Faker, rng: &mut R) -> Self {
+        fn dummy_with_rng<R: RngExt + ?Sized>(config: &Faker, rng: &mut R) -> Self {
             let native_price: Option<Price> = config.fake_with_rng(rng);
             let other_price = match native_price {
                 None => HashMap::new(),
@@ -759,7 +759,7 @@ mod faker {
     }
 
     impl Dummy<Faker> for LocalizedProductView {
-        fn dummy_with_rng<R: Rng + ?Sized>(config: &Faker, rng: &mut R) -> Self {
+        fn dummy_with_rng<R: RngExt + ?Sized>(config: &Faker, rng: &mut R) -> Self {
             let title: Localized<Language, Title> = config.fake_with_rng(rng);
             let shop_name: ShopName = config.fake_with_rng(rng);
             LocalizedProductView {

@@ -1,0 +1,140 @@
+use crate::core::search_filter_product_match::SearchFilterProductMatch;
+use crate::core::user_search_filter_id::UserSearchFilterId;
+use common::event_id::EventId;
+use common::product_id::ProductId;
+use common::shop_id::ShopId;
+use common::shops_product_id::ShopsProductId;
+use common::user_id::UserId;
+use serde::{Deserialize, Serialize};
+use time::OffsetDateTime;
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct UserSearchFilterMatchRecord {
+    pub pk: String,
+    pub sk: String,
+    pub user_id: UserId,
+    pub user_search_filter_id: UserSearchFilterId,
+    pub shop_id: ShopId,
+    pub shops_product_id: ShopsProductId,
+    pub product_id: ProductId,
+    pub origin_event_id: EventId,
+    #[serde(with = "time::serde::rfc3339")]
+    pub created: OffsetDateTime,
+    #[serde(with = "time::serde::rfc3339")]
+    pub updated: OffsetDateTime,
+}
+
+pub fn mk_pk(user_id: &UserId) -> String {
+    format!("user#{user_id}")
+}
+
+pub fn mk_sk(
+    search_filter_id: &UserSearchFilterId,
+    shop_id: &ShopId,
+    shops_product_id: &ShopsProductId,
+) -> String {
+    format!(
+        "search_filter_match#search_filter#{search_filter_id}#shop_id#{shop_id}#shops_product_id#{shops_product_id}"
+    )
+}
+
+pub fn mk_sk_prefix_filter(search_filter_id: &UserSearchFilterId) -> String {
+    format!("search_filter_match#search_filter#{search_filter_id}#")
+}
+
+pub fn mk_sk_prefix_all() -> &'static str {
+    "search_filter_match#"
+}
+
+impl From<UserSearchFilterMatchRecord> for SearchFilterProductMatch {
+    fn from(record: UserSearchFilterMatchRecord) -> Self {
+        SearchFilterProductMatch {
+            user_id: record.user_id,
+            user_search_filter_id: record.user_search_filter_id,
+            shop_id: record.shop_id,
+            shops_product_id: record.shops_product_id,
+            product_id: record.product_id,
+            origin_event_id: record.origin_event_id,
+            created: record.created,
+            updated: record.updated,
+        }
+    }
+}
+
+impl From<SearchFilterProductMatch> for UserSearchFilterMatchRecord {
+    fn from(m: SearchFilterProductMatch) -> Self {
+        UserSearchFilterMatchRecord {
+            pk: mk_pk(&m.user_id),
+            sk: mk_sk(&m.user_search_filter_id, &m.shop_id, &m.shops_product_id),
+            user_id: m.user_id,
+            user_search_filter_id: m.user_search_filter_id,
+            shop_id: m.shop_id,
+            shops_product_id: m.shops_product_id,
+            product_id: m.product_id,
+            origin_event_id: m.origin_event_id,
+            created: m.created,
+            updated: m.updated,
+        }
+    }
+}
+
+#[cfg(feature = "test-data")]
+mod faker {
+    use super::*;
+    use ::fake::{Dummy, Fake, Faker, RngExt};
+
+    impl Dummy<Faker> for UserSearchFilterMatchRecord {
+        fn dummy_with_rng<R: RngExt + ?Sized>(config: &Faker, rng: &mut R) -> Self {
+            let user_id: UserId = config.fake_with_rng(rng);
+            let search_filter_id: UserSearchFilterId = config.fake_with_rng(rng);
+            let shop_id: ShopId = config.fake_with_rng(rng);
+            let shops_product_id: ShopsProductId = config.fake_with_rng(rng);
+            UserSearchFilterMatchRecord {
+                pk: mk_pk(&user_id),
+                sk: mk_sk(&search_filter_id, &shop_id, &shops_product_id),
+                user_id,
+                user_search_filter_id: search_filter_id,
+                shop_id,
+                shops_product_id,
+                product_id: config.fake_with_rng(rng),
+                origin_event_id: config.fake_with_rng(rng),
+                created: OffsetDateTime::now_utc(),
+                updated: OffsetDateTime::now_utc(),
+            }
+        }
+    }
+
+    #[cfg(test)]
+    mod tests {
+        use super::*;
+        use ::fake::{Fake, Faker};
+
+        #[test]
+        fn should_fake_user_search_filter_match_record() {
+            let _ = Faker.fake::<UserSearchFilterMatchRecord>();
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn should_format_sk_correctly() {
+        let filter_id = UserSearchFilterId::new();
+        let shop_id = ShopId::new();
+        let shops_product_id = ShopsProductId::new();
+        let sk = mk_sk(&filter_id, &shop_id, &shops_product_id);
+        assert!(sk.starts_with("search_filter_match#search_filter#"));
+        assert!(sk.contains("#shop_id#"));
+        assert!(sk.contains("#shops_product_id#"));
+    }
+
+    #[test]
+    fn should_format_pk_correctly() {
+        let user_id = UserId::new();
+        let pk = mk_pk(&user_id);
+        assert_eq!(pk, format!("user#{user_id}"));
+    }
+}

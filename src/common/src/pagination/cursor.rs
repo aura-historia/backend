@@ -239,11 +239,11 @@ pub mod api {
 #[cfg(feature = "test-data")]
 mod faker {
     use crate::pagination::cursor::{Cursor, CursoredResult};
-    use fake::{Dummy, Fake, Faker, Rng};
+    use fake::{Dummy, Fake, Faker, RngExt};
     use time::OffsetDateTime;
 
     impl<T: Dummy<Faker>> Dummy<Faker> for CursoredResult<T, OffsetDateTime> {
-        fn dummy_with_rng<R: Rng + ?Sized>(config: &Faker, rng: &mut R) -> Self {
+        fn dummy_with_rng<R: RngExt + ?Sized>(config: &Faker, rng: &mut R) -> Self {
             let items: Vec<T> = config.fake_with_rng(rng);
             let cursor = Cursor {
                 search_after: if config.fake_with_rng(rng) {
@@ -262,7 +262,7 @@ mod faker {
     }
 
     impl<T: Dummy<Faker>> Dummy<Faker> for CursoredResult<T, crate::event_id::EventId> {
-        fn dummy_with_rng<R: Rng + ?Sized>(config: &Faker, rng: &mut R) -> Self {
+        fn dummy_with_rng<R: RngExt + ?Sized>(config: &Faker, rng: &mut R) -> Self {
             let items: Vec<T> = config.fake_with_rng(rng);
             let cursor = Cursor {
                 search_after: if config.fake_with_rng::<bool, _>(rng) {

@@ -27,7 +27,10 @@ mod fake {
     use fake::Fake;
 
     impl fake::Dummy<fake::Faker> for PatchUserAccountData {
-        fn dummy_with_rng<R: fake::rand::Rng + ?Sized>(config: &fake::Faker, rng: &mut R) -> Self {
+        fn dummy_with_rng<R: fake::rand::RngExt + ?Sized>(
+            config: &fake::Faker,
+            rng: &mut R,
+        ) -> Self {
             PatchUserAccountData {
                 first_name: config.fake_with_rng(rng),
                 last_name: config.fake_with_rng(rng),

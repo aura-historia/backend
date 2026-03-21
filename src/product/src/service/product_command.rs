@@ -114,10 +114,10 @@ impl TryFrom<PipedProductCommand> for UpsertProductCommand {
 mod faker {
     use super::*;
     use common::price::domain::{FixedFxRate, FxRate};
-    use fake::{Dummy, Fake, Faker, Rng};
+    use fake::{Dummy, Fake, Faker, RngExt};
 
     impl Dummy<Faker> for UpsertProductCommand {
-        fn dummy_with_rng<R: Rng + ?Sized>(config: &Faker, rng: &mut R) -> Self {
+        fn dummy_with_rng<R: RngExt + ?Sized>(config: &Faker, rng: &mut R) -> Self {
             let native_price = config.fake_with_rng::<Option<Price>, R>(rng);
             let other_price = native_price.map(|price| {
                 FixedFxRate()
