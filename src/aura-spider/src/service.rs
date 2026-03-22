@@ -4,10 +4,8 @@ use std::sync::Arc;
 use time::OffsetDateTime;
 use tracing::{debug, info, warn};
 
-use crate::classification::link_metadata_repository::{LinkMetadataRepository, SpiderLinkRecord};
-use crate::classification::url_classification_service::{
-    filter_product_urls, matches_product_pattern,
-};
+use crate::classification::link_metadata_repository::LinkMetadataRepository;
+use crate::classification::url_classification_service::matches_product_pattern;
 use crate::classification::url_pattern_service::UrlPatternService;
 use crate::discovery::website_spider::{CrawledPage, Crawler};
 use crate::error::SpiderError;
@@ -33,7 +31,7 @@ impl LinkClass {
         }
     }
 
-    fn from_db(value: &str) -> Self {
+    pub fn from_db(value: &str) -> Self {
         match value {
             "product" => LinkClass::Product,
             "category" => LinkClass::Category,
@@ -56,7 +54,7 @@ pub enum ProductState {
 }
 
 impl ProductState {
-    fn from_db(value: &str) -> Self {
+    pub fn from_db(value: &str) -> Self {
         match value {
             "LISTED" => ProductState::Listed,
             "AVAILABLE" => ProductState::Available,
@@ -91,23 +89,9 @@ pub struct CrawledLinkMetadata {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SpiderRunResult {
-    pub links: Vec<CrawledLinkMetadata>,
-    pub product_urls: Vec<String>,
+    pub total_links: usize,
+    pub product_urls_count: usize,
     pub product_pattern: Option<String>,
-}
-
-impl From<SpiderLinkRecord> for CrawledLinkMetadata {
-    fn from(value: SpiderLinkRecord) -> Self {
-        Self {
-            url: value.url,
-            class: LinkClass::from_db(&value.link_class),
-            hash: value.main_hash,
-            state: ProductState::from_db(&value.state),
-            last_scraped: value.last_scraped,
-            created: value.created,
-            updated: value.updated,
-        }
-    }
 }
 
 #[async_trait::async_trait]
@@ -120,7 +104,23 @@ pub trait SpiderService: Send + Sync {
     ) -> Result<SpiderRunResult, SpiderError>;
 }
 
+#[derive(Debug, Clone)]
+pub struct SpiderServiceConfig {
+    pub db_batch_size: usize,
+    pub max_sample_urls: usize,
+}
+
+impl Default for SpiderServiceConfig {
+    fn default() -> Self {
+        Self {
+            db_batch_size: 100,
+            max_sample_urls: 500,
+        }
+    }
+}
+
 pub struct SpiderServiceImpl {
+    config: SpiderServiceConfig,
     crawler: Box<dyn Crawler>,
     pattern_service: Box<dyn UrlPatternService>,
     link_metadata_repository: Arc<dyn LinkMetadataRepository>,
@@ -128,42 +128,63 @@ pub struct SpiderServiceImpl {
 
 impl SpiderServiceImpl {
     pub fn new(
+        config: SpiderServiceConfig,
         crawler: Box<dyn Crawler>,
         pattern_service: Box<dyn UrlPatternService>,
         link_metadata_repository: Arc<dyn LinkMetadataRepository>,
     ) -> Self {
         Self {
+            config,
             crawler,
             pattern_service,
             link_metadata_repository,
         }
     }
 
-    async fn persist_link_metadata(
+    async fn persist_link_metadata_batch(
         &self,
         shop_url: &str,
         pages: &[CrawledPage],
         pattern: &Option<Regex>,
-    ) -> Result<Vec<CrawledLinkMetadata>, SpiderError> {
-        let normalized_shop_url = crate::utils::url::extract_shop_base_url(shop_url)?;
-        let mut metadata = Vec::with_capacity(pages.len());
-
-        for page in pages {
-            let link_class = classify_link(&page.url, pattern);
-            let record = self
-                .link_metadata_repository
-                .upsert_link(
-                    &normalized_shop_url,
-                    &page.url,
-                    link_class.as_str(),
-                    &page.main_hash,
-                )
-                .await?;
-
-            metadata.push(record.into());
+    ) -> Result<usize, SpiderError> {
+        if pages.is_empty() {
+            return Ok(0);
         }
 
-        Ok(metadata)
+        let normalized_shop_url = crate::utils::url::extract_shop_base_url(shop_url)?;
+
+        let mut urls = Vec::with_capacity(pages.len());
+        let mut classes = Vec::with_capacity(pages.len());
+        let mut hashes = Vec::with_capacity(pages.len());
+
+        for page in pages {
+            urls.push(page.url.clone());
+            classes.push(classify_link(&page.url, pattern).as_str().to_string());
+            hashes.push(page.main_hash.clone());
+        }
+
+        let records = self
+            .link_metadata_repository
+            .upsert_links_batch(&normalized_shop_url, &urls, &classes, &hashes)
+            .await?;
+
+        Ok(records.len())
+    }
+
+    async fn process_buffer(
+        &self,
+        buffer: &mut Vec<CrawledPage>,
+        shop_url: &str,
+        pattern: &Option<Regex>,
+    ) -> Result<usize, SpiderError> {
+        let count = buffer
+            .iter()
+            .filter(|p| matches_product_pattern(pattern, &p.url))
+            .count();
+        self.persist_link_metadata_batch(shop_url, buffer, pattern)
+            .await?;
+        buffer.clear();
+        Ok(count)
     }
 }
 
@@ -180,189 +201,194 @@ impl SpiderService for SpiderServiceImpl {
             "Configured one-time classification threshold"
         );
 
-        let mut crawl_rx = self.crawler.crawl(shop_url).await?;
-
-        let mut all_pages: Vec<CrawledPage> = Vec::new();
-        let mut all_urls: Vec<String> = Vec::new();
-        let mut total_crawled: usize = 0;
-
-        // Check the store first; only fall back to inference client when nothing is persisted.
-        let mut pattern: Option<Regex> = self
-            .pattern_service
-            .load_pattern_for_shop_url(shop_url)
-            .await?;
-
-        // Flag to track whether we have successfully inferred/loaded a pattern
-        let mut classification_done = pattern.is_some();
-        let mut pattern_loaded_from_store = pattern.is_some();
-
-        if pattern_loaded_from_store {
-            info!(
-                shopUrl = %shop_url,
-                "Loaded persisted product URL pattern"
-            );
+        if !self.pattern_service.try_lock_shop(shop_url).await? {
+            warn!(shopUrl = %shop_url, "Shop is already being crawled by another worker");
+            return Ok(SpiderRunResult {
+                total_links: 0,
+                product_urls_count: 0,
+                product_pattern: None,
+            });
         }
 
-        // Process pages as they are discovered by the crawler
-        while let Some(page) = crawl_rx.recv().await {
-            total_crawled += 1;
-            all_urls.push(page.url.clone());
-            all_pages.push(page.clone());
+        let run_result = async {
+            let mut crawl_rx = self.crawler.crawl(shop_url).await?;
 
-            // If we don't have a pattern yet, try to infer one once we hit the threshold
-            if !classification_done && all_urls.len() >= classify_threshold {
+            let mut total_crawled: usize = 0;
+            let mut products_found: usize = 0;
+
+            let mut pattern: Option<Regex> = self
+                .pattern_service
+                .load_pattern_for_shop_url(shop_url)
+                .await?;
+
+            let mut classification_done = pattern.is_some();
+            let mut pattern_loaded_from_store = pattern.is_some();
+
+            if pattern_loaded_from_store {
                 info!(
-                    urlCount = all_urls.len(),
-                    "Threshold reached, requesting product URL pattern"
+                    shopUrl = %shop_url,
+                    "Loaded persisted product URL pattern"
                 );
+            }
 
-                // Attempt to classify the collected URLs to find the product URL pattern
+            let mut page_buffer: Vec<CrawledPage> = Vec::new();
+            let mut inference_sample: Vec<String> = Vec::new();
+
+            while let Some(page) = crawl_rx.recv().await {
+                total_crawled += 1;
+
+                if inference_sample.len() < self.config.max_sample_urls {
+                    inference_sample.push(page.url.clone());
+                }
+
+                page_buffer.push(page.clone());
+
+                if !classification_done && total_crawled >= classify_threshold {
+                    info!(
+                        urlCount = inference_sample.len(),
+                        "Threshold reached, requesting product URL pattern"
+                    );
+
+                    pattern = self
+                        .pattern_service
+                        .classify_and_save(shop_url, &inference_sample)
+                        .await?;
+
+                    if pattern.is_none() {
+                        warn!(
+                            shopUrl = %shop_url,
+                            "Found no product URL pattern at threshold classification"
+                        );
+                    } else {
+                        let matched_count = inference_sample
+                            .iter()
+                            .filter(|url| matches_product_pattern(&pattern, url))
+                            .count();
+                        info!(
+                            matchedCount = matched_count,
+                            urlCount = inference_sample.len(),
+                            "Classified threshold sample URLs"
+                        );
+                    }
+
+                    classification_done = true;
+                    pattern_loaded_from_store = false;
+                }
+
+                if classification_done {
+                    if let Some(last_url) = inference_sample.last().or(Some(&page.url)) {
+                        if matches_product_pattern(&pattern, last_url) {
+                            debug!(index = total_crawled, url = %last_url, "URL matches product pattern");
+                        } else {
+                            debug!(
+                                index = total_crawled,
+                                url = %last_url,
+                                "URL does not match product pattern"
+                            );
+                        }
+                    }
+
+                    if page_buffer.len() >= self.config.db_batch_size {
+                        products_found +=
+                            self.process_buffer(&mut page_buffer, shop_url, &pattern).await?;
+                    }
+                } else if let Some(last_url) = inference_sample.last().or(Some(&page.url)) {
+                    debug!(index = total_crawled, url = %last_url, "Crawled URL");
+                }
+
+                if total_crawled.is_multiple_of(100) {
+                    info!(
+                        totalCrawled = total_crawled,
+                        productsSoFar = products_found,
+                        "Crawl progress"
+                    );
+                }
+            }
+
+            info!(totalCrawled = total_crawled, "Crawl complete");
+
+            if !classification_done && !page_buffer.is_empty() {
+                info!(
+                    urlCount = inference_sample.len(),
+                    "Threshold not reached, classifying collected URLs"
+                );
                 pattern = self
                     .pattern_service
-                    .classify_and_save(shop_url, &all_urls)
+                    .classify_and_save(shop_url, &inference_sample)
                     .await?;
-
                 if pattern.is_none() {
                     warn!(
                         shopUrl = %shop_url,
-                        "Found no product URL pattern at threshold classification"
+                        "Found no product URL pattern in collected URLs"
                     );
-                    // Mark as done even if it failed, so we don't repeatedly ask the LLM
-                    classification_done = true;
-                    pattern_loaded_from_store = false;
-                    continue;
+                } else {
+                    let matched_count = inference_sample
+                        .iter()
+                        .filter(|url| matches_product_pattern(&pattern, url))
+                        .count();
+                    info!(
+                        matchedCount = matched_count,
+                        urlCount = inference_sample.len(),
+                        "Classified collected URLs"
+                    );
                 }
-
-                classification_done = true;
-                pattern_loaded_from_store = false;
-
-                let matched_count = all_urls
-                    .iter()
-                    .filter(|url| matches_product_pattern(&pattern, url))
-                    .count();
-                info!(
-                    matchedCount = matched_count,
-                    urlCount = all_urls.len(),
-                    "Classified threshold sample URLs"
-                );
             }
 
-            // Log whether the current URL matches the pattern
-            if classification_done {
-                if let Some(last_url) = all_urls.last() {
-                    if matches_product_pattern(&pattern, last_url) {
-                        debug!(index = total_crawled, url = %last_url, "URL matches product pattern");
-                    } else {
-                        debug!(
-                            index = total_crawled,
-                            url = %last_url,
-                            "URL does not match product pattern"
-                        );
-                    }
-                }
-            } else if let Some(last_url) = all_urls.last() {
-                debug!(index = total_crawled, url = %last_url, "Crawled URL");
-            }
-
-            // Periodically log progress
-            if total_crawled.is_multiple_of(100) {
-                let products_so_far = all_urls
-                    .iter()
-                    .filter(|url| matches_product_pattern(&pattern, url))
-                    .count();
-                info!(
-                    totalCrawled = total_crawled,
-                    productsSoFar = products_so_far,
-                    "Crawl progress"
-                );
-            }
-        }
-
-        info!(totalCrawled = total_crawled, "Crawl complete");
-
-        // If the crawl finished before hitting the threshold, we still need to classify
-        if !classification_done && !all_urls.is_empty() {
-            info!(
-                urlCount = all_urls.len(),
-                "Threshold not reached, classifying collected URLs"
-            );
-            pattern = self
-                .pattern_service
-                .classify_and_save(shop_url, &all_urls)
-                .await?;
-            if pattern.is_none() {
+            if pattern_loaded_from_store && products_found == 0 && !inference_sample.is_empty() {
                 warn!(
                     shopUrl = %shop_url,
-                    "Found no product URL pattern in collected URLs"
+                    "Persisted product URL pattern did not match crawl results, reclassifying"
                 );
+                pattern = self
+                    .pattern_service
+                    .classify_and_save(shop_url, &inference_sample)
+                    .await?;
+                if pattern.is_none() {
+                    warn!(
+                        shopUrl = %shop_url,
+                        "Found no product URL pattern while refreshing persisted pattern"
+                    );
+                } else {
+                    let matched_count = inference_sample
+                        .iter()
+                        .filter(|url| matches_product_pattern(&pattern, url))
+                        .count();
+                    info!(
+                        matchedCount = matched_count,
+                        urlCount = inference_sample.len(),
+                        "Classified refreshed collected URLs"
+                    );
+                }
             }
 
-            let matched_count = all_urls
-                .iter()
-                .filter(|url| matches_product_pattern(&pattern, url))
-                .count();
+            if !page_buffer.is_empty() {
+                products_found += self.process_buffer(&mut page_buffer, shop_url, &pattern).await?;
+            }
+
+            let product_pattern = pattern.as_ref().map(|regex| regex.as_str().to_string());
+
             info!(
-                matchedCount = matched_count,
-                urlCount = all_urls.len(),
-                "Classified collected URLs"
+                confirmedProductCount = products_found,
+                "Collected confirmed product URLs"
             );
-        }
 
-        // Extract all confirmed product URLs using the inferred/loaded pattern
-        let mut confirmed_products = if pattern.is_some() {
-            filter_product_urls(&pattern, &all_urls)
-        } else {
-            Ok(Vec::new())
-        };
-
-        // If the stored pattern is stale and fails to match anything, we must reclassify
-        if pattern_loaded_from_store && confirmed_products.is_err() {
-            warn!(
-                shopUrl = %shop_url,
-                "Persisted product URL pattern did not match crawl results, reclassifying"
-            );
-            pattern = self
-                .pattern_service
-                .classify_and_save(shop_url, &all_urls)
-                .await?;
-            if pattern.is_none() {
-                warn!(
-                    shopUrl = %shop_url,
-                    "Found no product URL pattern while refreshing persisted pattern"
-                );
-                confirmed_products = Ok(Vec::new());
-            } else {
-                confirmed_products = filter_product_urls(&pattern, &all_urls);
+            if let Err(error) = self.pattern_service.mark_as_crawled(shop_url).await {
+                warn!(shopUrl = %shop_url, error = %error, "Failed to mark shop as crawled");
             }
+
+            Ok(SpiderRunResult {
+                total_links: total_crawled,
+                product_urls_count: products_found,
+                product_pattern,
+            })
+        }
+        .await;
+
+        if let Err(error) = self.pattern_service.unlock_shop(shop_url).await {
+            warn!(shopUrl = %shop_url, error = %error, "Failed to release shop crawl lock");
         }
 
-        let confirmed_products = confirmed_products.unwrap_or_else(|error| {
-            warn!(error = %error, "No confirmed product URLs after classification");
-            Vec::new()
-        });
-
-        let product_pattern = pattern.as_ref().map(|regex| regex.as_str().to_string());
-
-        info!(
-            confirmedProductCount = confirmed_products.len(),
-            "Collected confirmed product URLs"
-        );
-
-        // Save all discovered links and their classifications to the DB
-        let links = self
-            .persist_link_metadata(shop_url, &all_pages, &pattern)
-            .await?;
-
-        // Mark the shop as crawled
-        if let Err(error) = self.pattern_service.mark_as_crawled(shop_url).await {
-            warn!(shopUrl = %shop_url, error = %error, "Failed to mark shop as crawled");
-        }
-
-        Ok(SpiderRunResult {
-            links,
-            product_urls: confirmed_products,
-            product_pattern,
-        })
+        run_result
     }
 }
 
@@ -456,33 +482,30 @@ mod tests {
 mod service_tests {
     use super::*;
     use crate::classification::link_metadata_repository::MockLinkMetadataRepository;
-    use crate::classification::link_metadata_repository::SpiderLinkRecord;
     use crate::classification::url_pattern_service::MockUrlPatternService;
     use crate::discovery::website_spider::MockCrawler;
     use tokio::sync::mpsc;
 
     fn setup_mock_link_repo(mock: &mut MockLinkMetadataRepository, call_count: usize) {
-        mock.expect_upsert_link()
+        mock.expect_upsert_links_batch()
             .times(call_count)
-            .returning(|_, url, _, _| {
-                let url_owned = url.to_string();
-                Box::pin(async move {
-                    Ok(SpiderLinkRecord {
-                        shop_url: "https://example.com".to_string(),
-                        url: url_owned,
-                        link_class: "other".to_string(),
-                        main_hash: "hash".to_string(),
-                        state: "UNKNOWN".to_string(),
-                        last_scraped: None,
-                        created: OffsetDateTime::now_utc(),
-                        updated: OffsetDateTime::now_utc(),
-                    })
-                })
-            });
+            .returning(|_, _, _, _| Box::pin(async move { Ok(Vec::new()) }));
     }
 
     fn setup_mock_mark_as_crawled(mock: &mut MockUrlPatternService, shop_url: &'static str) {
         mock.expect_mark_as_crawled()
+            .with(mockall::predicate::eq(shop_url))
+            .times(1)
+            .returning(|_| Box::pin(async { Ok(()) }));
+    }
+
+    fn setup_mock_lock_lifecycle(mock: &mut MockUrlPatternService, shop_url: &'static str) {
+        mock.expect_try_lock_shop()
+            .with(mockall::predicate::eq(shop_url))
+            .times(1)
+            .returning(|_| Box::pin(async { Ok(true) }));
+
+        mock.expect_unlock_shop()
             .with(mockall::predicate::eq(shop_url))
             .times(1)
             .returning(|_| Box::pin(async { Ok(()) }));
@@ -530,11 +553,13 @@ mod service_tests {
             .expect_classify_and_save()
             .returning(|_, _| Box::pin(async { Ok(Some(Regex::new(r"/product/").unwrap())) }));
 
+        setup_mock_lock_lifecycle(&mut mock_pattern_service, shop_url);
         setup_mock_mark_as_crawled(&mut mock_pattern_service, shop_url);
 
-        setup_mock_link_repo(&mut mock_link_repo, 2);
+        setup_mock_link_repo(&mut mock_link_repo, 1);
 
         let service = SpiderServiceImpl::new(
+            SpiderServiceConfig::default(),
             Box::new(mock_crawler),
             Box::new(mock_pattern_service),
             Arc::new(mock_link_repo),
@@ -543,9 +568,8 @@ mod service_tests {
         let result = service.run(shop_url, 1).await;
         assert!(result.is_ok());
         let run_result = result.unwrap();
-        assert_eq!(run_result.product_urls.len(), 1);
-        assert_eq!(run_result.product_urls[0], "https://example.com/product/1");
-        assert_eq!(run_result.links.len(), 2);
+        assert_eq!(run_result.product_urls_count, 1);
+        assert_eq!(run_result.total_links, 2);
     }
 
     #[tokio::test]
@@ -584,11 +608,13 @@ mod service_tests {
             .times(1)
             .returning(|_, _| Box::pin(async { Ok(Some(Regex::new(r"/product/").unwrap())) }));
 
+        setup_mock_lock_lifecycle(&mut mock_pattern_service, shop_url);
         setup_mock_mark_as_crawled(&mut mock_pattern_service, shop_url);
 
         setup_mock_link_repo(&mut mock_link_repo, 1);
 
         let service = SpiderServiceImpl::new(
+            SpiderServiceConfig::default(),
             Box::new(mock_crawler),
             Box::new(mock_pattern_service),
             Arc::new(mock_link_repo),
@@ -597,7 +623,7 @@ mod service_tests {
         let result = service.run(shop_url, 10).await;
         assert!(result.is_ok());
         let run_result = result.unwrap();
-        assert_eq!(run_result.product_urls.len(), 1);
+        assert_eq!(run_result.product_urls_count, 1);
     }
 
     #[tokio::test]
@@ -637,11 +663,13 @@ mod service_tests {
             .times(1)
             .returning(|_, _| Box::pin(async { Ok(Some(Regex::new(r"/item/").unwrap())) }));
 
+        setup_mock_lock_lifecycle(&mut mock_pattern_service, shop_url);
         setup_mock_mark_as_crawled(&mut mock_pattern_service, shop_url);
 
         setup_mock_link_repo(&mut mock_link_repo, 1);
 
         let service = SpiderServiceImpl::new(
+            SpiderServiceConfig::default(),
             Box::new(mock_crawler),
             Box::new(mock_pattern_service),
             Arc::new(mock_link_repo),
@@ -650,7 +678,6 @@ mod service_tests {
         let result = service.run(shop_url, 10).await;
         assert!(result.is_ok());
         let run_result = result.unwrap();
-        assert_eq!(run_result.product_urls.len(), 1);
-        assert_eq!(run_result.product_urls[0], "https://example.com/item/1");
+        assert_eq!(run_result.product_urls_count, 1);
     }
 }

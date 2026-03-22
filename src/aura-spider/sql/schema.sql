@@ -2,9 +2,12 @@ CREATE TABLE IF NOT EXISTS spider_shop_pattern (
     shop_url   TEXT PRIMARY KEY,
     url_pattern TEXT,
     last_crawled TIMESTAMPTZ,
+    locked_at  TIMESTAMPTZ,
     created    TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     updated    TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
+
+ALTER TABLE spider_shop_pattern ADD COLUMN IF NOT EXISTS locked_at TIMESTAMPTZ;
 
 CREATE TABLE IF NOT EXISTS spider_link (
     shop_url   TEXT NOT NULL,

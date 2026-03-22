@@ -66,30 +66,53 @@ fn extract_main_fragment(html: &str) -> Option<&str> {
     Some(&html[content_start..content_end])
 }
 
+#[derive(Debug, Clone)]
+pub struct CrawlerConfig {
+    pub delay_millis: u64,
+    pub request_timeout_secs: u64,
+    pub bloom_capacity: usize,
+    pub bloom_fp_rate: f64,
+    pub channel_size: usize,
+}
+
+impl Default for CrawlerConfig {
+    fn default() -> Self {
+        Self {
+            delay_millis: 500,
+            request_timeout_secs: 15,
+            bloom_capacity: 100_000,
+            bloom_fp_rate: 0.001,
+            channel_size: 1000,
+        }
+    }
+}
+
 #[async_trait::async_trait]
 #[mockall::automock]
 pub trait Crawler: Send + Sync {
     async fn crawl(&self, shop_url: &str) -> Result<mpsc::Receiver<CrawledPage>, SpiderError>;
 }
 
-pub struct SpiderCrawler;
+pub struct SpiderCrawler {
+    config: CrawlerConfig,
+}
 
 impl SpiderCrawler {
-    pub fn new() -> Self {
-        Self
+    pub fn new(config: CrawlerConfig) -> Self {
+        Self { config }
     }
 }
 
 impl Default for SpiderCrawler {
     fn default() -> Self {
-        Self::new()
+        Self::new(CrawlerConfig::default())
     }
 }
 
 #[async_trait::async_trait]
 impl Crawler for SpiderCrawler {
     async fn crawl(&self, shop_url: &str) -> Result<mpsc::Receiver<CrawledPage>, SpiderError> {
-        let (tx, rx) = mpsc::channel(1000);
+        let (tx, rx) = mpsc::channel(self.config.channel_size);
 
         let mut website = Website::new(shop_url);
 
@@ -98,8 +121,13 @@ impl Crawler for SpiderCrawler {
         website
             .with_blacklist_url(Some(blacklist_regex))
             .with_respect_robots_txt(true)
-            .with_request_timeout(Some(std::time::Duration::from_secs(15)))
-            .with_delay(std::time::Duration::from_millis(500).as_millis() as u64); // Delay between requests
+            .with_request_timeout(Some(std::time::Duration::from_secs(
+                self.config.request_timeout_secs,
+            )))
+            .with_delay(
+                std::time::Duration::from_millis(self.config.delay_millis).as_millis() as u64,
+            )
+            .with_caching(false);
 
         let mut spider_rx = website
             .subscribe(512)
@@ -110,9 +138,10 @@ impl Crawler for SpiderCrawler {
             website.unsubscribe();
         });
 
+        let config = self.config.clone();
         tokio::spawn(async move {
-            let mut bloom =
-                Bloom::new_for_fp_rate(100_000, 0.001).expect("bloom filter init failed");
+            let mut bloom = Bloom::new_for_fp_rate(config.bloom_capacity, config.bloom_fp_rate)
+                .expect("bloom filter init failed");
 
             while let Ok(page) = spider_rx.recv().await {
                 let raw_url = page.get_url();

@@ -26,7 +26,9 @@ use aura_spider::classification::url_pattern_repository::ShopUrlPatternRepositor
 use aura_spider::classification::url_pattern_service::UrlPatternServiceImpl;
 use aura_spider::discovery::website_spider::SpiderCrawler;
 use aura_spider::error::SpiderError;
-use aura_spider::service::{SpiderRunResult, SpiderService, SpiderServiceImpl};
+use aura_spider::service::{
+    SpiderRunResult, SpiderService, SpiderServiceConfig, SpiderServiceImpl,
+};
 use sqlx::PgPool;
 use testcontainers::ImageExt;
 use testcontainers::core::IntoContainerPort;
@@ -72,20 +74,25 @@ async fn main() {
     let pattern_repository = build_pattern_repository(pool.clone());
     let link_repository = build_link_repository(pool.clone());
 
-    let crawler = Box::new(SpiderCrawler::new());
+    let crawler = Box::new(SpiderCrawler::default());
     let gemini_client = Box::new(GeminiClient::new(api_key));
     let pattern_service = Box::new(UrlPatternServiceImpl::new(
         pattern_repository.clone(),
         gemini_client,
     ));
 
-    let spider = SpiderServiceImpl::new(crawler, pattern_service, link_repository);
+    let spider = SpiderServiceImpl::new(
+        SpiderServiceConfig::default(),
+        crawler,
+        pattern_service,
+        link_repository,
+    );
 
     match spider.run(&shop_url, DEFAULT_CLASSIFY_THRESHOLD).await {
         Ok(result) => {
             info!(
-                linkCount = result.links.len(),
-                productCount = result.product_urls.len(),
+                linkCount = result.total_links,
+                productCount = result.product_urls_count,
                 "Spider run finished successfully"
             );
             if let Err(error) = write_output(&result) {

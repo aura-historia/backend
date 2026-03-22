@@ -39,6 +39,12 @@ pub trait UrlPatternService: Send + Sync {
 
     /// Marks the shop as crawled now.
     async fn mark_as_crawled(&self, shop_url: &str) -> Result<(), SpiderError>;
+
+    /// Attempts to acquire a lock for this shop crawl.
+    async fn try_lock_shop(&self, shop_url: &str) -> Result<bool, SpiderError>;
+
+    /// Releases a previously acquired shop crawl lock.
+    async fn unlock_shop(&self, shop_url: &str) -> Result<(), SpiderError>;
 }
 
 pub struct UrlPatternServiceImpl {
@@ -109,6 +115,17 @@ impl UrlPatternService for UrlPatternServiceImpl {
     async fn mark_as_crawled(&self, shop_url: &str) -> Result<(), SpiderError> {
         let shop_url = extract_shop_base_url(shop_url)?;
         self.repository.mark_as_crawled(&shop_url).await?;
+        Ok(())
+    }
+
+    async fn try_lock_shop(&self, shop_url: &str) -> Result<bool, SpiderError> {
+        let shop_url = extract_shop_base_url(shop_url)?;
+        Ok(self.repository.try_lock_shop(&shop_url).await?)
+    }
+
+    async fn unlock_shop(&self, shop_url: &str) -> Result<(), SpiderError> {
+        let shop_url = extract_shop_base_url(shop_url)?;
+        self.repository.unlock_shop(&shop_url).await?;
         Ok(())
     }
 }

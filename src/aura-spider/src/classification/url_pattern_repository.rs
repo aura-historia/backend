@@ -59,6 +59,12 @@ pub trait ShopUrlPatternRepository: Send + Sync {
 
     /// Marks the shop as having been crawled now.
     async fn mark_as_crawled(&self, shop_url: &str) -> Result<(), sqlx::Error>;
+
+    /// Attempts to acquire an application-level lock for the shop.
+    async fn try_lock_shop(&self, shop_url: &str) -> Result<bool, sqlx::Error>;
+
+    /// Releases the application-level lock for the shop.
+    async fn unlock_shop(&self, shop_url: &str) -> Result<(), sqlx::Error>;
 }
 
 /// PostgreSQL-backed implementation of [`ShopUrlPatternRepository`].
@@ -115,6 +121,42 @@ impl ShopUrlPatternRepository for ShopUrlPatternRepositoryImpl {
              DO UPDATE SET
                  last_crawled = EXCLUDED.last_crawled,
                  updated = NOW()",
+        )
+        .bind(shop_url)
+        .execute(&self.pool)
+        .await?;
+
+        Ok(())
+    }
+
+    async fn try_lock_shop(&self, shop_url: &str) -> Result<bool, sqlx::Error> {
+        sqlx::query(
+            "INSERT INTO spider_shop_pattern (shop_url, created, updated)
+             VALUES ($1, NOW(), NOW())
+             ON CONFLICT (shop_url) DO NOTHING",
+        )
+        .bind(shop_url)
+        .execute(&self.pool)
+        .await?;
+
+        let result = sqlx::query(
+            "UPDATE spider_shop_pattern
+             SET locked_at = NOW(), updated = NOW()
+             WHERE shop_url = $1
+               AND (locked_at IS NULL OR locked_at < NOW() - INTERVAL '30 minutes')",
+        )
+        .bind(shop_url)
+        .execute(&self.pool)
+        .await?;
+
+        Ok(result.rows_affected() == 1)
+    }
+
+    async fn unlock_shop(&self, shop_url: &str) -> Result<(), sqlx::Error> {
+        sqlx::query(
+            "UPDATE spider_shop_pattern
+             SET locked_at = NULL, updated = NOW()
+             WHERE shop_url = $1",
         )
         .bind(shop_url)
         .execute(&self.pool)

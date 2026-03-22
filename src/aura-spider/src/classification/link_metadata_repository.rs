@@ -40,6 +40,14 @@ pub trait LinkMetadataRepository: Send + Sync {
         main_hash: &str,
     ) -> Result<SpiderLinkRecord, sqlx::Error>;
 
+    async fn upsert_links_batch(
+        &self,
+        shop_url: &str,
+        urls: &[String],
+        link_classes: &[String],
+        main_hashes: &[String],
+    ) -> Result<Vec<SpiderLinkRecord>, sqlx::Error>;
+
     async fn mark_as_scraped(
         &self,
         shop_url: &str,
@@ -88,6 +96,35 @@ impl LinkMetadataRepository for LinkMetadataRepositoryImpl {
         .bind(link_class)
         .bind(main_hash)
         .fetch_one(&self.pool)
+        .await
+    }
+
+    async fn upsert_links_batch(
+        &self,
+        shop_url: &str,
+        urls: &[String],
+        link_classes: &[String],
+        main_hashes: &[String],
+    ) -> Result<Vec<SpiderLinkRecord>, sqlx::Error> {
+        if urls.is_empty() {
+            return Ok(Vec::new());
+        }
+
+        sqlx::query_as::<_, SpiderLinkRecord>(
+            "INSERT INTO spider_link (shop_url, url, link_class, main_hash, created, updated)
+             SELECT $1, * FROM UNNEST($2::text[], $3::text[], $4::text[]) AS t(url, link_class, main_hash)
+             ON CONFLICT (shop_url, url)
+             DO UPDATE SET
+                 link_class = EXCLUDED.link_class,
+                 main_hash = EXCLUDED.main_hash,
+                 updated = NOW()
+             RETURNING shop_url, url, link_class, main_hash, state, last_scraped, created, updated",
+        )
+        .bind(shop_url)
+        .bind(urls)
+        .bind(link_classes)
+        .bind(main_hashes)
+        .fetch_all(&self.pool)
         .await
     }
 
