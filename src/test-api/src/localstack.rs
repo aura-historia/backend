@@ -217,7 +217,13 @@ pub async fn spin_up_localstack_with_services(
     services: &[&str],
     extra_env_vars: &[(&str, &str)],
 ) -> (ContainerAsync<LocalStackPro>, u16) {
-    let mut env_vars = HashMap::from([("SERVICES", services.join(","))]);
+    let mut env_vars = HashMap::from([
+        ("SERVICES", services.join(",")),
+        (
+            "LAMBDA_DOCKER_FLAGS",
+            "--add-host=host.docker.internal:host-gateway".to_owned(),
+        ),
+    ]);
     for (k, v) in extra_env_vars {
         env_vars.insert(k, v.to_string());
     }

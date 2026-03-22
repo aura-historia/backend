@@ -371,6 +371,12 @@ async fn deploy_stack() {
                 .parameter_value(COMMIT_SHA)
                 .build(),
         )
+        .parameters(
+            aws_sdk_cloudformation::types::Parameter::builder()
+                .parameter_key("LocalStackMappedPort")
+                .parameter_value(get_endpoint_url().rsplit(':').next().unwrap_or("4566"))
+                .build(),
+        )
         .capabilities(aws_sdk_cloudformation::types::Capability::CapabilityNamedIam)
         .send()
         .await
