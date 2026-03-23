@@ -5,6 +5,7 @@ edition = "2024"
 
 [dependencies]
 aws-tests = { workspace = true }
+acceptance-tests = { workspace = true }
 cognito = { workspace = true }
 cognito-post-confirmation = { workspace = true }
 common = { workspace = true }
@@ -35,6 +36,7 @@ aura-scraper = { workspace = true }
 
 [workspace]
 members = [
+    "src/acceptance-tests",
     "src/aws-tests",
     "src/cognito",
     "src/cognito-post-confirmation",
@@ -71,6 +73,7 @@ async-trait = "0.1.89"
 aws-config = "1.8.15"
 aws-sdk-account = "1.100.0"
 aws-sdk-autoscaling = "1.112.0"
+aws-sdk-cloudformation = "1.110.0"
 aws-sdk-dynamodb = "1.110.0"
 aws-sdk-lambda = "1.100.0"
 aws-sdk-opensearch = "1.119.0"
@@ -83,6 +86,7 @@ common = { path = "src/common" }
 derive_builder = "0.20.2"
 fake = { version = "5.1.0", features = ["derive", "time", "uuid", "url"] }
 field = "0.1.0"
+acceptance-tests = { path = "src/acceptance-tests" }
 search-filter = { path = "src/search-filter" }
 search-filter-api = { path = "src/search-filter-api" }
 search-filter-lambda = { path = "src/search-filter-lambda" }
@@ -122,6 +126,7 @@ itertools = "0.14.0"
 lambda_runtime = "1.1.2"
 libc = "0.2.183"
 mockall = "0.14.0"
+mrml = { version = "5.1.0", default-features = false, features = ["parse", "render"] }
 opensearch = { version = "2.3.0", default-features = false, features = [
     "aws-auth",
     "rustls-tls",
@@ -160,6 +165,7 @@ typed-builder = "0.23.2"
 url = "2.5.8"
 uuid = "1.22.0"
 walkdir = "2.5.0"
+zip = { version = "8.3.0", default-features = false, features = ["deflate"] }
 futures-util = "0.3.32"
 proc-macro2 = "1.0.106"
 smoking-tests-macros = { path = "src/aws-tests/src/smoking-tests/src/smoking-tests-macros" }

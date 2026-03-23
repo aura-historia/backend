@@ -14,12 +14,12 @@ pub async fn handler(
 ) -> Result<CognitoEventUserPoolsPostConfirmation, lambda_runtime::Error> {
     let id: UserId = event
         .payload
-        .cognito_event_user_pools_header
-        .user_name
-        .as_deref()
-        .expect("shouldn't miss 'user_name' which actually is the 'sub' and therefore required according to AWS-Docs")
+        .request
+        .user_attributes
+        .get("sub")
+        .expect("shouldn't miss 'user_attribute.sub'")
         .try_into()
-        .expect("shouldn't fail parsing 'user_name' aka 'sub' as UUID because it is a UUID according to AWS-Docs");
+        .expect("shouldn't fail parsing 'user_attribute.sub' as UUID because it is a UUID according to AWS-Docs");
     let email: Email = event
         .payload
         .request
