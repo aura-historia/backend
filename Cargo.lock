@@ -698,9 +698,9 @@ dependencies = [
 
 [[package]]
 name = "aws-sdk-dynamodb"
-version = "1.109.0"
+version = "1.110.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "62ea214e9da6b960547bfd61cc16afc0b064d8070473f1b485b7222eec7dd415"
+checksum = "0c597424385739456cd04535982831c15bd58f97ca28c5bcb232c0d730d5cb39"
 dependencies = [
  "aws-credential-types",
  "aws-runtime",
@@ -722,9 +722,9 @@ dependencies = [
 
 [[package]]
 name = "aws-sdk-opensearch"
-version = "1.118.0"
+version = "1.119.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "77dc274e3f05e0d7587df915a9edb997f5f8db8a8f6067084430e5e2485bcf97"
+checksum = "4b96b2d4eaf6b5874407fda96d6d2f2f1afdfc265ac8844f74a7d6d42f7d1a40"
 dependencies = [
  "aws-credential-types",
  "aws-runtime",
@@ -6432,9 +6432,9 @@ dependencies = [
 
 [[package]]
 name = "serde_qs"
-version = "1.0.0"
+version = "1.1.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "ac22439301a0b6f45a037681518e3169e8db1db76080e2e9600a08d1027df037"
+checksum = "3c742cd44662647326f86b514eadcc227fff4ce684dbbdaf1943f758d5ea058c"
 dependencies = [
  "itoa 1.0.17",
  "percent-encoding",
