@@ -7,12 +7,16 @@ use lambda_runtime::LambdaEvent;
 use notification::service::notification_service::NotificationService;
 use product::core::product_event::{ProductDomainEvent, ProductEventPayload};
 use product::dynamodb::product_event_record::domain::ProductDomainEventRecord;
+use search_filter::core::search_filter_product_match::SearchFilterProductMatch;
+use search_filter::service::user_search_filter_service::UserSearchFilterService;
+use time::OffsetDateTime;
 use tracing::{error, info, warn};
 
-#[tracing::instrument(skip(product_event_notification_service, notification_service, event), fields(requestId = %event.context.request_id))]
+#[tracing::instrument(skip(product_event_notification_service, notification_service, search_filter_service, event), fields(requestId = %event.context.request_id))]
 pub async fn handler(
     product_event_notification_service: &impl ProductEventSearchFilterNotificationsService,
     notification_service: &impl NotificationService,
+    search_filter_service: &impl UserSearchFilterService,
     event: LambdaEvent<SqsEvent>,
 ) -> Result<SqsBatchResponse, lambda_runtime::Error> {
     let records_count = event.payload.records.len();
@@ -44,9 +48,96 @@ pub async fn handler(
                             if cmds.is_empty() {
                                 continue;
                             }
+
+                            // Collect product match info before creating notifications
+                            let match_info: Vec<_> = cmds
+                                .iter()
+                                .filter_map(|cmd| {
+                                    if let notification::core::notification::NotificationPayload::SearchFilter {
+                                        product_id,
+                                        shop_id,
+                                        shops_product_id,
+                                        search_filter_payload,
+                                        ..
+                                    } = &cmd.notification_payload
+                                    {
+                                        Some((
+                                            cmd.user_id,
+                                            search_filter_payload.user_search_filter_id,
+                                            *shop_id,
+                                            shops_product_id.clone(),
+                                            *product_id,
+                                        ))
+                                    } else {
+                                        None
+                                    }
+                                })
+                                .collect();
+
                             let create_notifications_res = notification_service
                                 .create_notifications(&event_id, cmds)
                                 .await;
+
+                            // Create search-filter product-matches for every successfully created notification
+                            let now = OffsetDateTime::now_utc();
+                            let product_matches: Vec<SearchFilterProductMatch> =
+                                create_notifications_res
+                                    .processed
+                                    .iter()
+                                    .filter_map(|notification| {
+                                        match_info
+                                            .iter()
+                                            .find(|(user_id, _, _, _, _)| {
+                                                *user_id == notification.user_id
+                                            })
+                                            .map(
+                                                |(
+                                                    user_id,
+                                                    search_filter_id,
+                                                    shop_id,
+                                                    shops_product_id,
+                                                    product_id,
+                                                )| {
+                                                    SearchFilterProductMatch {
+                                                        user_id: *user_id,
+                                                        user_search_filter_id: *search_filter_id,
+                                                        shop_id: *shop_id,
+                                                        shops_product_id: shops_product_id.clone(),
+                                                        product_id: *product_id,
+                                                        origin_event_id: event_id,
+                                                        created: now,
+                                                        updated: now,
+                                                    }
+                                                },
+                                            )
+                                    })
+                                    .collect();
+
+                            if !product_matches.is_empty() {
+                                let match_result = search_filter_service
+                                    .create_search_filter_product_matches(product_matches)
+                                    .await;
+                                match match_result {
+                                    Ok(result) if !result.unprocessed.is_empty() => {
+                                        warn!(
+                                            messageId = message_id,
+                                            unprocessed = result.unprocessed.len(),
+                                            "Some SearchFilterProductMatches were not persisted. Marking message as failed."
+                                        );
+                                        failed_message_ids.push(message_id.clone());
+                                    }
+                                    Err(err) => {
+                                        warn!(
+                                            messageId = message_id,
+                                            error = %err,
+                                            "Failed creating SearchFilterProductMatches. Marking message as failed."
+                                        );
+                                        failed_message_ids.push(message_id.clone());
+                                    }
+                                    _ => {}
+                                }
+                            }
+
                             if !create_notifications_res.unprocessed.is_empty() {
                                 warn!(
                                     messageId = message_id,
@@ -110,6 +201,7 @@ mod tests {
         notification_service::{CreateNotificationsResult, MockNotificationService},
     };
     use product::dynamodb::product_event_record::domain::ProductDomainEventRecord;
+    use search_filter::service::user_search_filter_service::MockUserSearchFilterService;
 
     fn mk_sqs_event(messages: Vec<SqsMessage>) -> LambdaEvent<SqsEvent> {
         let mut sqs_event = SqsEvent::default();
@@ -129,9 +221,16 @@ mod tests {
     async fn should_return_empty_batch_response_when_no_records() {
         let service = MockProductEventSearchFilterNotificationsService::default();
         let notification_service = MockNotificationService::default();
+        let search_filter_service = MockUserSearchFilterService::default();
         let event = mk_sqs_event(vec![]);
 
-        let result = handler(&service, &notification_service, event).await;
+        let result = handler(
+            &service,
+            &notification_service,
+            &search_filter_service,
+            event,
+        )
+        .await;
 
         assert!(result.is_ok());
         let response = result.unwrap();
@@ -142,9 +241,16 @@ mod tests {
     async fn should_return_failed_batch_when_deserialization_fails() {
         let service = MockProductEventSearchFilterNotificationsService::default();
         let notification_service = MockNotificationService::default();
+        let search_filter_service = MockUserSearchFilterService::default();
         let event = mk_sqs_event(vec![mk_sqs_message("{\"not\":\"a valid event\"}")]);
 
-        let result = handler(&service, &notification_service, event).await;
+        let result = handler(
+            &service,
+            &notification_service,
+            &search_filter_service,
+            event,
+        )
+        .await;
 
         assert!(result.is_ok());
         let response = result.unwrap();
@@ -170,12 +276,19 @@ mod tests {
             });
 
         let notification_service = MockNotificationService::default();
+        let search_filter_service = MockUserSearchFilterService::default();
 
         let domain_event_record: ProductDomainEventRecord = Faker.fake();
         let event_bridge_body = mk_event_bridge_body(&domain_event_record);
         let event = mk_sqs_event(vec![mk_sqs_message(&event_bridge_body)]);
 
-        let result = handler(&service, &notification_service, event).await;
+        let result = handler(
+            &service,
+            &notification_service,
+            &search_filter_service,
+            event,
+        )
+        .await;
 
         assert!(result.is_ok());
         let response = result.unwrap();
@@ -190,12 +303,19 @@ mod tests {
             .return_once(|_| Box::pin(async { Ok(vec![]) }));
 
         let notification_service = MockNotificationService::default();
+        let search_filter_service = MockUserSearchFilterService::default();
 
         let domain_event_record: ProductDomainEventRecord = Faker.fake();
         let event_bridge_body = mk_event_bridge_body(&domain_event_record);
         let event = mk_sqs_event(vec![mk_sqs_message(&event_bridge_body)]);
 
-        let result = handler(&service, &notification_service, event).await;
+        let result = handler(
+            &service,
+            &notification_service,
+            &search_filter_service,
+            event,
+        )
+        .await;
 
         assert!(result.is_ok());
         let response = result.unwrap();
@@ -222,11 +342,19 @@ mod tests {
                 })
             });
 
+        let search_filter_service = MockUserSearchFilterService::default();
+
         let domain_event_record: ProductDomainEventRecord = Faker.fake();
         let event_bridge_body = mk_event_bridge_body(&domain_event_record);
         let event = mk_sqs_event(vec![mk_sqs_message(&event_bridge_body)]);
 
-        let result = handler(&service, &notification_service, event).await;
+        let result = handler(
+            &service,
+            &notification_service,
+            &search_filter_service,
+            event,
+        )
+        .await;
 
         assert!(result.is_ok());
         let response = result.unwrap();
@@ -237,12 +365,19 @@ mod tests {
     async fn should_skip_when_message_body_empty() {
         let service = MockProductEventSearchFilterNotificationsService::default();
         let notification_service = MockNotificationService::default();
+        let search_filter_service = MockUserSearchFilterService::default();
         let mut msg = SqsMessage::default();
         msg.message_id = Some("test-message-id".to_string());
         msg.body = None;
         let event = mk_sqs_event(vec![msg]);
 
-        let result = handler(&service, &notification_service, event).await;
+        let result = handler(
+            &service,
+            &notification_service,
+            &search_filter_service,
+            event,
+        )
+        .await;
 
         assert!(result.is_ok());
         let response = result.unwrap();

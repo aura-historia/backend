@@ -87,7 +87,10 @@ mod fake {
     use fake::Fake;
 
     impl fake::Dummy<fake::Faker> for UserRecord {
-        fn dummy_with_rng<R: fake::rand::Rng + ?Sized>(config: &fake::Faker, rng: &mut R) -> Self {
+        fn dummy_with_rng<R: fake::rand::RngExt + ?Sized>(
+            config: &fake::Faker,
+            rng: &mut R,
+        ) -> Self {
             config.fake_with_rng::<User, R>(rng).into()
         }
     }

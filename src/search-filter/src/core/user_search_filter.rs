@@ -43,10 +43,10 @@ impl From<UserSearchFilter> for UserSearchFilterSummary {
 #[cfg(feature = "test-data")]
 mod faker {
     use super::*;
-    use fake::{Dummy, Fake, Faker, Rng};
+    use fake::{Dummy, Fake, Faker, RngExt};
 
     impl Dummy<Faker> for UserSearchFilter {
-        fn dummy_with_rng<R: Rng + ?Sized>(config: &Faker, rng: &mut R) -> Self {
+        fn dummy_with_rng<R: RngExt + ?Sized>(config: &Faker, rng: &mut R) -> Self {
             UserSearchFilter {
                 user_id: config.fake_with_rng(rng),
                 user_search_filter_id: config.fake_with_rng(rng),
@@ -60,7 +60,7 @@ mod faker {
     }
 
     impl Dummy<Faker> for UserSearchFilterSummary {
-        fn dummy_with_rng<R: Rng + ?Sized>(config: &Faker, rng: &mut R) -> Self {
+        fn dummy_with_rng<R: RngExt + ?Sized>(config: &Faker, rng: &mut R) -> Self {
             UserSearchFilterSummary {
                 user_id: config.fake_with_rng(rng),
                 user_search_filter_id: config.fake_with_rng(rng),

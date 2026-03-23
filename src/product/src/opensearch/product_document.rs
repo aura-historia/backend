@@ -784,10 +784,10 @@ mod faker {
     use crate::core::description::Description;
     use crate::core::title::Title;
     use common::price::domain::MonetaryAmount;
-    use fake::{Dummy, Fake, Faker, Rng};
+    use fake::{Dummy, Fake, Faker, RngExt};
 
     impl Dummy<Faker> for ProductDocument {
-        fn dummy_with_rng<R: Rng + ?Sized>(config: &Faker, rng: &mut R) -> Self {
+        fn dummy_with_rng<R: RngExt + ?Sized>(config: &Faker, rng: &mut R) -> Self {
             let state: ProductStateDocument = config.fake_with_rng(rng);
             let origin_year_min = fake::rand::random_range(1807..=1815).into();
             let origin_year_max = fake::rand::random_range(1815..=1819).into();

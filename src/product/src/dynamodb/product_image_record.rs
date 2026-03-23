@@ -32,10 +32,10 @@ impl From<ProductImageRecord> for ProductImage {
 mod faker {
     use crate::dynamodb::product_image_record::ProductImageRecord;
     use common::fake::url::ImageUrl;
-    use fake::{Dummy, Fake, Faker, Rng};
+    use fake::{Dummy, Fake, Faker, RngExt};
 
     impl Dummy<Faker> for ProductImageRecord {
-        fn dummy_with_rng<R: Rng + ?Sized>(config: &Faker, rng: &mut R) -> Self {
+        fn dummy_with_rng<R: RngExt + ?Sized>(config: &Faker, rng: &mut R) -> Self {
             ProductImageRecord {
                 url: config.fake_with_rng::<ImageUrl, R>(rng).into(),
                 prohibited_content: config.fake_with_rng(rng),

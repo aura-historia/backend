@@ -81,10 +81,10 @@ aws-sdk-sqs = "1.97.0"
 aws-sdk-sesv2 = "1.117.0"
 aws-sdk-s3 = "1.127.0"
 aws-sdk-cloudwatch = "1.108.0"
-aws_lambda_events = { version = "1.1.1", default-features = false }
+aws_lambda_events = { version = "1.1.2", default-features = false }
 common = { path = "src/common" }
 derive_builder = "0.20.2"
-fake = { version = "4.4.0", features = ["derive", "time", "uuid", "url"] }
+fake = { version = "5.1.0", features = ["derive", "time", "uuid", "url"] }
 field = "0.1.0"
 acceptance-tests = { path = "src/acceptance-tests" }
 search-filter = { path = "src/search-filter" }
@@ -123,7 +123,7 @@ product-lambda-materialize-dynamodb = { path = "src/product-lambda/src/product-l
 product-lambda-materialize-opensearch = { path = "src/product-lambda/src/product-lambda-materialize-opensearch" }
 product-lambda-update-notify-user = { path = "src/product-lambda/src/product-lambda-update-notify-user" }
 itertools = "0.14.0"
-lambda_runtime = "1.1.1"
+lambda_runtime = "1.1.2"
 libc = "0.2.183"
 mockall = "0.14.0"
 mrml = { version = "5.1.0", default-features = false, features = ["parse", "render"] }

@@ -67,10 +67,10 @@ impl From<ShopSearchData> for ShopSearch {
 #[cfg(feature = "test-data")]
 mod faker {
     use super::*;
-    use fake::{Dummy, Fake, Faker, Rng};
+    use fake::{Dummy, Fake, Faker, RngExt};
 
     impl Dummy<Faker> for ShopSearchData {
-        fn dummy_with_rng<R: Rng + ?Sized>(config: &Faker, rng: &mut R) -> Self {
+        fn dummy_with_rng<R: RngExt + ?Sized>(config: &Faker, rng: &mut R) -> Self {
             ShopSearchData {
                 shop_name_query: Faker.fake(),
                 shop_type_query: config.fake_with_rng(rng),
@@ -80,7 +80,7 @@ mod faker {
         }
     }
 
-    pub fn fake_range_query_datetime<R: fake::Rng + ?Sized>(
+    pub fn fake_range_query_datetime<R: fake::RngExt + ?Sized>(
         config: &Faker,
         rng: &mut R,
     ) -> Option<RangeQuery<OffsetDateTime>> {

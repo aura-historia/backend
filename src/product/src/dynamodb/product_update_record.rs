@@ -261,10 +261,10 @@ mod faker {
     use super::*;
     use crate::core::{description::Description, title::Title};
     use common::price::domain::{MonetaryAmount, Price};
-    use fake::{Dummy, Fake, Faker, Rng};
+    use fake::{Dummy, Fake, Faker, RngExt};
 
     impl Dummy<Faker> for ProductRecordUpdate {
-        fn dummy_with_rng<R: Rng + ?Sized>(config: &Faker, rng: &mut R) -> Self {
+        fn dummy_with_rng<R: RngExt + ?Sized>(config: &Faker, rng: &mut R) -> Self {
             let price_native: Option<PriceRecord> =
                 Some(config.fake_with_rng::<Price, _>(rng).into());
             let state: ProductStateRecord = config.fake_with_rng(rng);

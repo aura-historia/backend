@@ -161,10 +161,10 @@ pub mod api {
 #[cfg(feature = "test-data")]
 mod faker {
     use crate::language::data::LocalizedTextData;
-    use fake::{Dummy, Fake, Faker, Rng};
+    use fake::{Dummy, Fake, Faker, RngExt};
 
     impl Dummy<Faker> for LocalizedTextData {
-        fn dummy_with_rng<R: Rng + ?Sized>(config: &Faker, rng: &mut R) -> Self {
+        fn dummy_with_rng<R: RngExt + ?Sized>(config: &Faker, rng: &mut R) -> Self {
             LocalizedTextData {
                 text: fake::faker::lorem::en::Sentence(5..20).fake_with_rng(rng),
                 language: config.fake_with_rng(rng),

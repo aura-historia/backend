@@ -52,10 +52,10 @@ mod faker {
     use super::*;
     use crate::core::{description::Description, title::Title};
     use common::{fake::url::ImageUrl, language::data::LanguageData};
-    use fake::{Dummy, Fake, Faker, Rng};
+    use fake::{Dummy, Fake, Faker, RngExt};
 
     impl Dummy<Faker> for PutProductData {
-        fn dummy_with_rng<R: Rng + ?Sized>(config: &Faker, rng: &mut R) -> Self {
+        fn dummy_with_rng<R: RngExt + ?Sized>(config: &Faker, rng: &mut R) -> Self {
             let image_count = rng.random_range(0..=7);
             PutProductData {
                 shops_product_id: config.fake_with_rng(rng),
