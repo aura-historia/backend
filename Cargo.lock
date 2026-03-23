@@ -7408,6 +7408,7 @@ dependencies = [
  "aws-sdk-dynamodb",
  "aws-sdk-opensearch",
  "aws-sdk-s3",
+ "aws-sdk-sesv2",
  "aws-sdk-sqs",
  "aws-tests-common",
  "aws_lambda_events",

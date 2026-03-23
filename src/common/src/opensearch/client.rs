@@ -34,8 +34,8 @@ pub async fn load_transport() -> Result<Transport, lambda_runtime::Error> {
     //     OpenSearch proxy is plain HTTP.
     let endpoint_url_str = match std::env::var("LOCALSTACK_HOSTNAME") {
         Ok(_) => {
-            let mapped_port = std::env::var("LOCALSTACK_MAPPED_PORT")
-                .unwrap_or_else(|_| "4566".to_owned());
+            let mapped_port =
+                std::env::var("LOCALSTACK_MAPPED_PORT").unwrap_or_else(|_| "4566".to_owned());
             endpoint_url_str
                 .replace("https://", "http://")
                 .replace("localhost", "host.docker.internal")

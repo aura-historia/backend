@@ -14,6 +14,8 @@ mod opensearch;
 #[cfg(feature = "rds")]
 mod rds;
 mod s3;
+#[cfg(feature = "ses")]
+mod ses;
 #[cfg(feature = "sqs")]
 mod sqs;
 
@@ -34,6 +36,8 @@ pub use opensearch::{OpenSearch, get_opensearch_client, read_by_id, refresh_inde
 pub use rds::{Rds, get_postgres_client};
 pub use s3::S3;
 pub use serial_test::serial;
+#[cfg(feature = "ses")]
+pub use ses::*;
 #[cfg(feature = "sqs")]
 pub use sqs::{Sqs, SqsBuilder, SqsBuilderError, get_sqs_client};
 pub use test_api_macros::localstack_test;

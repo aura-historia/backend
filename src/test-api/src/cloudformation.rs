@@ -3,6 +3,7 @@ use crate::cognito::Cognito;
 use crate::dynamodb::clear_table_data;
 use crate::localstack::{get_aws_config, get_endpoint_url};
 use crate::opensearch::clear_all_indices;
+use crate::ses::{Ses, clear_sent_emails};
 use crate::sqs::drain_queues;
 use async_trait::async_trait;
 use aws_sdk_cloudformation::types::StackStatus;
@@ -116,7 +117,7 @@ impl IntegrationTestService for Cloudformation {
             "opensearch",
             "apigatewayv2",
             "s3",
-            "ses",
+            "sesv2",
         ]
     }
 
@@ -128,6 +129,7 @@ impl IntegrationTestService for Cloudformation {
                 create_artifact_bucket().await;
                 package_and_upload_lambdas().await;
                 crate::S3().set_up().await;
+                Ses().set_up().await;
                 deploy_stack().await;
                 extract_and_set_cfn_outputs().await;
                 crate::OpenSearch().set_up().await;
@@ -146,6 +148,7 @@ impl IntegrationTestService for Cloudformation {
     /// - **SQS** – drains all queues (and their DLQs) via receive-delete loop,
     ///   avoiding the 60 s cooldown imposed by `purge_queue`.
     /// - **Cognito** – deletes every user in the user pool.
+    /// - **SES** – clears all sent emails from LocalStack's in-memory store.
     async fn tear_down(&self) {
         let cfn = get_cfn_output();
 
@@ -189,6 +192,10 @@ impl IntegrationTestService for Cloudformation {
 
         // ── Cognito ───────────────────────────────────────────────────────────
         Cognito().tear_down().await;
+
+        // ── SES ──────────────────────────────────────────────────────────────
+        clear_sent_emails().await;
+        debug!("Cleared all sent SES emails for test isolation");
 
         debug!("Cloudformation tear_down complete: all state reset for test isolation.");
     }

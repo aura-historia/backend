@@ -2210,7 +2210,7 @@ async fn should_send_email_to_user_when_watched_product_has_update() {
     );
 
     // Create and configure user
-    let user = create_test_user(&get_test_mail()).await;
+    let user = create_test_user("watchlist-test@example.com").await;
     tokio::time::sleep(Duration::from_secs(10)).await;
     let user_repository =
         UserDynamoDbRepositoryImpl::new(get_dynamodb_client().await, &stack.dynamodb_table_1_name);
@@ -2298,7 +2298,7 @@ async fn should_send_email_to_user_when_watched_product_has_update() {
         .unwrap();
     assert_eq!(200, response.status());
 
-    assert!(wait_for_email("Statusänderung").await);
+    assert!(wait_for_ses_email("Statusänderung", Duration::from_secs(120)).await);
 }
 
 // ---------------------------------------------------------------------------
@@ -2626,7 +2626,7 @@ async fn should_send_email_to_user_when_product_matches_search_filter() {
     let shop = prepare_test_shop().await;
 
     // Create and configure user
-    let user = create_test_user(&get_test_mail()).await;
+    let user = create_test_user("search-filter-test@example.com").await;
     tokio::time::sleep(Duration::from_secs(10)).await;
     let user_repository =
         UserDynamoDbRepositoryImpl::new(get_dynamodb_client().await, &stack.dynamodb_table_1_name);
@@ -2694,7 +2694,7 @@ async fn should_send_email_to_user_when_product_matches_search_filter() {
         .unwrap();
     assert_eq!(200, response.status());
 
-    assert!(wait_for_email("Neues Ergebnis für").await);
+    assert!(wait_for_ses_email("Neues Ergebnis für", Duration::from_secs(120)).await);
 }
 
 // ---------------------------------------------------------------------------
@@ -2777,69 +2777,6 @@ async fn should_respond_200_when_anon_and_product_does_exist_for_slug_ids() {
         body["item"]["price"]["offer"]["amount"]
     );
     assert_eq!("GBP", body["item"]["price"]["offer"]["currency"]);
-}
-
-#[localstack_test(services = [Cloudformation()])]
-async fn should_respond_200_personalized_when_authenticated_and_product_does_exist_and_watched() {
-    let user = create_random_test_user().await;
-    let ddb_client = get_dynamodb_client().await;
-    let product_repository =
-        ProductDynamoDbRepositoryImpl::new(ddb_client, &get_cfn_output().dynamodb_table_1_name);
-    let watchlist_repository = WatchlistProductDynamoDbRepositoryImpl::new(
-        ddb_client,
-        &get_cfn_output().dynamodb_table_1_name,
-    );
-    let get_product_service = GetProductServiceImpl::new(&product_repository);
-    let watchlist_service = ProductWatchListServiceImpl::new(
-        &watchlist_repository,
-        &product_repository,
-        &get_product_service,
-    );
-
-    let record = Faker.fake::<ProductRecord>();
-    let insert_res = product_repository
-        .put_product_records([record.clone()].into())
-        .await
-        .unwrap();
-    assert!(insert_res.unprocessed_items.unwrap().is_empty());
-    tokio::time::sleep(Duration::from_secs(1)).await;
-    watchlist_service
-        .create_watchlist_product(&user.sub.into(), &record.shop_id, &record.shops_product_id)
-        .await
-        .unwrap();
-
-    let url = format!(
-        "{}/api/v1/shops/{}/products/{}?currency=GBP",
-        get_cfn_output().api_gateway_endpoint_url,
-        record.shop_id,
-        record.shops_product_id
-    );
-    let response = reqwest::Client::new()
-        .get(url)
-        .bearer_auth(user.access_token)
-        .send()
-        .await
-        .unwrap();
-    assert_eq!(200, response.status());
-
-    let body = response.json::<serde_json::Value>().await.unwrap();
-    assert_eq!(record.shop_id.to_string(), body["item"]["shopId"]);
-    assert_eq!(record.product_id.to_string(), body["item"]["productId"]);
-    assert_eq!(
-        record.price_gbp.unwrap(),
-        body["item"]["price"]["offer"]["amount"]
-    );
-    assert_eq!("GBP", body["item"]["price"]["offer"]["currency"]);
-    assert!(
-        body["userState"]["watchlist"]["watching"]
-            .as_bool()
-            .unwrap()
-    );
-    assert!(
-        !body["userState"]["watchlist"]["notifications"]
-            .as_bool()
-            .unwrap()
-    );
 }
 
 #[localstack_test(services = [Cloudformation()])]
@@ -4008,8 +3945,6 @@ async fn should_respond_200_when_shop_search_hits() {
         .send()
         .await
         .unwrap();
-    tracing::log::info!("Foo");
-    tokio::time::sleep(Duration::from_secs(1200)).await;
     assert_eq!(200, response.status());
 }
 

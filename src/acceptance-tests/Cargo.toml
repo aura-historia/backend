@@ -5,7 +5,7 @@ edition = "2024"
 
 [dependencies]
 common = { workspace = true, features = ["opensearch"] }
-test-api = { workspace = true, features = ["cloudformation", "dynamodb", "opensearch", "sqs", "api-gateway", "mail"] }
+test-api = { workspace = true, features = ["cloudformation", "dynamodb", "opensearch", "sqs", "api-gateway"] }
 aws-tests-common = { workspace = true }
 tokio = { workspace = true, features = ["full"] }
 product = { workspace = true, features = ["full"] }
