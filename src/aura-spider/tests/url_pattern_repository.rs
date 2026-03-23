@@ -148,3 +148,23 @@ async fn should_mark_pattern_as_crawled() {
     let record2 = repository.find_pattern(shop_url).await.unwrap().unwrap();
     assert!(record2.last_crawled.unwrap() > record.last_crawled.unwrap());
 }
+
+#[localstack_test(services = [RDS])]
+#[serial_test::serial]
+async fn should_lock_and_unlock_shop() {
+    let pool = get_postgres_client().await;
+    let repository = ShopUrlPatternRepositoryImpl::new(pool);
+
+    let shop_url = "https://lock-example.com";
+
+    let first_lock = repository.try_lock_shop(shop_url).await.unwrap();
+    let second_lock = repository.try_lock_shop(shop_url).await.unwrap();
+
+    assert!(first_lock);
+    assert!(!second_lock);
+
+    repository.unlock_shop(shop_url).await.unwrap();
+
+    let lock_after_unlock = repository.try_lock_shop(shop_url).await.unwrap();
+    assert!(lock_after_unlock);
+}

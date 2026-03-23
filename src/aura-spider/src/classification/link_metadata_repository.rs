@@ -112,7 +112,8 @@ impl LinkMetadataRepository for LinkMetadataRepositoryImpl {
 
         sqlx::query_as::<_, SpiderLinkRecord>(
             "INSERT INTO spider_link (shop_url, url, link_class, main_hash, created, updated)
-             SELECT $1, * FROM UNNEST($2::text[], $3::text[], $4::text[]) AS t(url, link_class, main_hash)
+             SELECT $1, t.url, t.link_class, t.main_hash, NOW(), NOW()
+             FROM UNNEST($2::text[], $3::text[], $4::text[]) AS t(url, link_class, main_hash)
              ON CONFLICT (shop_url, url)
              DO UPDATE SET
                  link_class = EXCLUDED.link_class,

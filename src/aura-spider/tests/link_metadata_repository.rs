@@ -125,3 +125,52 @@ async fn should_set_state() {
     assert_eq!(marked.state, "SOLD");
     assert!(marked.updated > result.updated);
 }
+
+#[localstack_test(services = [RDS])]
+#[serial_test::serial]
+async fn should_upsert_links_batch() {
+    let pool = get_postgres_client().await;
+    let repository = LinkMetadataRepositoryImpl::new(pool);
+
+    let shop_url = "https://example.com";
+    let urls = vec![
+        "https://example.com/product/1".to_string(),
+        "https://example.com/product/2".to_string(),
+    ];
+    let classes = vec!["product".to_string(), "product".to_string()];
+    let hashes = vec![
+        "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855".to_string(),
+        "8a32a6886d3e387cfce5e9d936166ab2dd0bf3bbcd37f594539ef8a183594df5".to_string(),
+    ];
+
+    let inserted = repository
+        .upsert_links_batch(shop_url, &urls, &classes, &hashes)
+        .await
+        .unwrap();
+
+    assert_eq!(inserted.len(), 2);
+    assert!(inserted.iter().any(|r| r.url == urls[0]));
+    assert!(inserted.iter().any(|r| r.url == urls[1]));
+
+    let updated_hashes = vec![
+        "4e07408562bedb8b60ce05c1decfe3ad16b72230967de01f640b7e4729b49fce".to_string(),
+        "ef2d127de37b94285b7b67f2f2f1e9f6b8e0f58f2f8f8be6ed7d5d4fcbf0f915".to_string(),
+    ];
+
+    let updated = repository
+        .upsert_links_batch(shop_url, &urls, &classes, &updated_hashes)
+        .await
+        .unwrap();
+
+    assert_eq!(updated.len(), 2);
+    assert!(
+        updated
+            .iter()
+            .any(|r| r.url == urls[0] && r.main_hash == updated_hashes[0])
+    );
+    assert!(
+        updated
+            .iter()
+            .any(|r| r.url == urls[1] && r.main_hash == updated_hashes[1])
+    );
+}
