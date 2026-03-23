@@ -1,5 +1,9 @@
 #[cfg(feature = "api-gateway")]
 mod api_gateway;
+#[cfg(feature = "cloudformation")]
+mod cloudformation;
+#[cfg(feature = "cognito")]
+mod cognito;
 #[cfg(feature = "dynamodb")]
 mod dynamodb;
 pub mod localstack;
@@ -8,12 +12,18 @@ mod opensearch;
 #[cfg(feature = "rds")]
 mod rds;
 mod s3;
+#[cfg(feature = "ses")]
+mod ses;
 #[cfg(feature = "sqs")]
 mod sqs;
 
 #[cfg(feature = "api-gateway")]
 pub use api_gateway::*;
 use async_trait::async_trait;
+#[cfg(feature = "cloudformation")]
+pub use cloudformation::Cloudformation;
+#[cfg(feature = "cognito")]
+pub use cognito::*;
 #[cfg(feature = "dynamodb")]
 pub use dynamodb::{DynamoDB, get_dynamodb_client, mk_partial_put_batch_failure};
 #[cfg(feature = "opensearch")]
@@ -22,6 +32,8 @@ pub use opensearch::{OpenSearch, get_opensearch_client, read_by_id, refresh_inde
 pub use rds::{Rds, get_postgres_client};
 pub use s3::S3;
 pub use serial_test::serial;
+#[cfg(feature = "ses")]
+pub use ses::*;
 #[cfg(feature = "sqs")]
 pub use sqs::{Sqs, SqsBuilder, SqsBuilderError, get_sqs_client};
 pub use test_api_macros::localstack_test;
@@ -50,6 +62,10 @@ pub use tokio;
 pub trait IntegrationTestService: Sized {
     /// The name of the AWS service as expected by LocalStack (e.g., `"s3"`, `"dynamodb"`)
     fn service_names(&self) -> &'static [&'static str];
+    /// Extra environment variables to set on the LocalStack container.
+    fn env_vars(&self) -> Vec<(&'static str, &'static str)> {
+        vec![]
+    }
     /// Prepares the service for the test (e.g., create buckets, tables, etc.)
     async fn set_up(&self);
     /// Cleans up after the test (defaults to a no-op)

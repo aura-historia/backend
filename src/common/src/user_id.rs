@@ -51,6 +51,13 @@ impl TryFrom<&str> for UserId {
     }
 }
 
+impl TryFrom<&String> for UserId {
+    type Error = uuid::Error;
+    fn try_from(s: &String) -> Result<Self, Self::Error> {
+        Uuid::parse_str(s).map(Self)
+    }
+}
+
 #[cfg(feature = "api")]
 pub mod api {
     use crate::{

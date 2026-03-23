@@ -1,3 +1,4 @@
+pub use acceptance_tests;
 pub use aws_tests;
 pub use common;
 pub use product;

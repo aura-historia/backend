@@ -87,29 +87,14 @@ impl IntegrationTestService for OpenSearch {
     }
 
     async fn tear_down(&self) {
-        // Clear all documents from the items index to ensure test isolation
-        clear_index_data("products")
-            .await
-            .expect("shouldn't fail clearing OpenSearch index data from 'products'");
-        refresh_index("products").await;
-        clear_index_data("shops")
-            .await
-            .expect("shouldn't fail clearing OpenSearch index data from 'shops'");
-        refresh_index("shops").await;
-        clear_index_data("categories")
-            .await
-            .expect("shouldn't fail clearing OpenSearch index data from 'categories'");
-        refresh_index("categories").await;
-        clear_index_data("user_search_filters")
-            .await
-            .expect("shouldn't fail clearing OpenSearch index data from 'user_search_filter'");
-        refresh_index("user_search_filters").await;
-        debug!("Cleared OpenSearch index data for test isolation");
+        clear_all_indices().await;
     }
 }
 
 async fn set_up_domain() -> Result<CreateDomainOutput, SdkError<CreateDomainError>> {
     let client = aws_sdk_opensearch::Client::new(get_aws_config().await);
+    let custom_endpoint =
+        format!("http://localhost:{LOCALSTACK_CONTAINER_PORT}/{TEST_DOMAIN_NAME}");
 
     match client
         .describe_domain()
@@ -118,11 +103,34 @@ async fn set_up_domain() -> Result<CreateDomainOutput, SdkError<CreateDomainErro
         .await
     {
         Ok(_response) => {
+            // Domain already exists — it may have been created by CloudFormation without
+            // path-based routing registered. Call update_domain_config to ensure the
+            // custom endpoint is set so LocalStack routes /test-domain/* correctly.
             debug!(
-                "OpenSearch domain '{}' already exists, skipping creation",
-                TEST_DOMAIN_NAME
+                "OpenSearch domain '{}' already exists; updating custom endpoint to '{}'",
+                TEST_DOMAIN_NAME, custom_endpoint
             );
-            // Return a fake response since the domain exists
+            let update_result = client
+                .update_domain_config()
+                .domain_name(TEST_DOMAIN_NAME)
+                .domain_endpoint_options(
+                    DomainEndpointOptions::builder()
+                        .custom_endpoint(&custom_endpoint)
+                        .custom_endpoint_enabled(true)
+                        .build(),
+                )
+                .send()
+                .await;
+            match update_result {
+                Ok(_) => debug!(
+                    "Custom endpoint for '{}' updated successfully.",
+                    TEST_DOMAIN_NAME
+                ),
+                Err(e) => debug!(
+                    "Could not update custom endpoint for '{}' (may already be set): {e}",
+                    TEST_DOMAIN_NAME
+                ),
+            }
             return Ok(CreateDomainOutput::builder().build());
         }
         Err(_) => {
@@ -141,9 +149,7 @@ async fn set_up_domain() -> Result<CreateDomainOutput, SdkError<CreateDomainErro
                 // Must use the container-internal port (not the host-mapped port) so that
                 // LocalStack can resolve this URL from inside the container when registering
                 // the domain. The OpenSearch client uses get_endpoint_url() for host access.
-                .custom_endpoint(format!(
-                    "http://localhost:{LOCALSTACK_CONTAINER_PORT}/{TEST_DOMAIN_NAME}"
-                ))
+                .custom_endpoint(custom_endpoint)
                 .custom_endpoint_enabled(true)
                 .build(),
         )
@@ -402,6 +408,25 @@ async fn set_up_indices() -> Result<Response, Error> {
         .send()
         .await?
         .error_for_status_code()
+}
+
+/// Clears all documents from every standard index to ensure test isolation.
+///
+/// Silently skips any index that does not yet exist (e.g. before the first
+/// test has caused its creation). Reusable from any `IntegrationTestService`
+/// implementation that needs a full OpenSearch reset, including the
+/// `Cloudformation` service.
+pub(crate) async fn clear_all_indices() {
+    const INDICES: &[&str] = &["products", "shops", "categories", "user_search_filters"];
+    for index in INDICES {
+        match clear_index_data(index).await {
+            Ok(_) => refresh_index(index).await,
+            Err(e) => {
+                debug!("Skipping clear for OpenSearch index '{index}' (may not exist yet): {e}")
+            }
+        }
+    }
+    debug!("Cleared all OpenSearch indices for test isolation");
 }
 
 /// Clears all documents from the specified OpenSearch index.
