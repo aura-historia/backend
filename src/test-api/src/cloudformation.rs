@@ -127,6 +127,7 @@ impl IntegrationTestService for Cloudformation {
                 build_lambdas();
                 create_artifact_bucket().await;
                 package_and_upload_lambdas().await;
+                crate::S3().set_up().await;
                 deploy_stack().await;
                 extract_and_set_cfn_outputs().await;
                 crate::OpenSearch().set_up().await;

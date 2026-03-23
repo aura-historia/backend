@@ -1734,7 +1734,7 @@ Resources:
               - Effect: Allow
                 Action:
                   - s3:GetObject
-                Resource: "arn:aws:s3:::localstack-mail-templates/*"
+                Resource: "arn:aws:s3:::aura-historia-mail-templates-eu-central-1/*"
   NotificationSendLambda:
     Type: AWS::Lambda::Function
     Properties:
@@ -1752,7 +1752,7 @@ Resources:
       Environment:
         Variables:
           DYNAMODB_TABLE_NAME: !Ref TableOne
-          S3_BUCKET_NAME_TEMPLATES: "localstack-mail-templates"
+          S3_BUCKET_NAME_TEMPLATES: "aura-historia-mail-templates-eu-central-1"
           STAGE_NAME: !Sub "${StageName}"
           COMMIT_SHA: !Sub "${CommitSHA}"
           SENDER_MAIL: "no-reply@aura-historia.com"
@@ -2081,7 +2081,7 @@ Resources:
               - Effect: Allow
                 Action:
                   - s3:GetObject
-                Resource: "arn:aws:s3:::localstack-mail-templates/*"
+                Resource: "arn:aws:s3:::aura-historia-mail-templates-eu-central-1/*"
   ProductUpdateNotifyUserLambda:
     Type: AWS::Lambda::Function
     Properties:
@@ -2100,7 +2100,7 @@ Resources:
         Variables:
           DYNAMODB_TABLE_NAME: !Ref TableOne
           SENDER_MAIL: "no-reply@aura-historia.com"
-          S3_BUCKET_NAME_TEMPLATES: "localstack-mail-templates"
+          S3_BUCKET_NAME_TEMPLATES: "aura-historia-mail-templates-eu-central-1"
           STAGE_NAME: !Sub "${StageName}"
           COMMIT_SHA: !Sub "${CommitSHA}"
   ProductUpdateNotifyUserMapping:
@@ -2177,7 +2177,7 @@ Resources:
               - Effect: Allow
                 Action:
                   - s3:GetObject
-                Resource: "arn:aws:s3:::localstack-mail-templates/*"
+                Resource: "arn:aws:s3:::aura-historia-mail-templates-eu-central-1/*"
   SearchFilterPercolateProductLambda:
     Type: AWS::Lambda::Function
     Properties:
@@ -2196,7 +2196,7 @@ Resources:
         Variables:
           DYNAMODB_TABLE_NAME: !Ref TableOne
           SENDER_MAIL: "no-reply@aura-historia.com"
-          S3_BUCKET_NAME_TEMPLATES: "localstack-mail-templates"
+          S3_BUCKET_NAME_TEMPLATES: "aura-historia-mail-templates-eu-central-1"
           STAGE_NAME: !Sub "${StageName}"
           COMMIT_SHA: !Sub "${CommitSHA}"
           OPENSEARCH_ENDPOINT_URL: !Sub "https://${OpenSearchDomain.DomainEndpoint}"
