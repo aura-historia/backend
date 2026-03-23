@@ -142,6 +142,30 @@ jobs:
 
       - uses: Swatinem/rust-cache@v2
 
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - name: Cache cargo-lambda and Zig
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/bin/cargo-lambda
+            ~/.cache/zig
+          key: ${{ runner.os }}-cargo-lambda-zig-${{ hashFiles('**/Cargo.lock') }}
+
+      - name: Install Zig
+        run: |
+          if ! command -v zig >/dev/null 2>&1; then
+            npm install -g @ziglang/cli
+          fi
+
+      - name: Install cargo-lambda
+        run: |
+          if ! command -v cargo-lambda >/dev/null 2>&1; then
+            cargo install cargo-lambda
+          fi
       - name: Test acceptance-tests
         run: cargo test --locked --package acceptance-tests -- --nocapture
 
