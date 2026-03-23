@@ -41,7 +41,7 @@ pub struct Ses();
 #[async_trait]
 impl IntegrationTestService for Ses {
     fn service_names(&self) -> &'static [&'static str] {
-        &["ses"]
+        &["sesv2"]
     }
 
     async fn set_up(&self) {
