@@ -2,31 +2,15 @@ use aws_tests_common::get_cfn_output;
 use common::{
     api::collection::PutCollectionData,
     batch::Batch,
-    category_key::CategoryId,
-    currency::{data::CurrencyData, domain::Currency, record::CurrencyRecord},
+    currency::{data::CurrencyData, domain::Currency},
     domain::Domain,
     event::Event,
     event_id::EventId,
-    language::{
-        data::{LanguageData, LocalizedTextData},
-        document::{LanguageDocument, TextDocument},
-        record::{LanguageRecord, TextRecord},
-    },
+    language::data::LanguageData,
     pagination::{cursor::api::TimeCursoredData, page::api::PaginatedData},
-    period_key::PeriodId,
-    personalized::api::PersonalizedData,
-    price::{
-        domain::{FixedFxRate, FxRate, Price},
-        record::PriceRecord,
-    },
-    product_id::{ProductId, api::ProductKeyData},
+    price::domain::{FixedFxRate, FxRate, Price},
+    product_id::api::ProductKeyData,
     product_state::domain::ProductState,
-    query::range_query::RangeQuery,
-    shop_id::ShopId,
-    shop_name::ShopName,
-    shops_product_id::ShopsProductId,
-    slug_id::SlugId,
-    sort::{Sort, SortOrder},
     user_id::UserId,
 };
 use fake::{Fake, Faker};
@@ -40,7 +24,7 @@ use notification::{
     },
 };
 use notification_api::notification_get::EventIdCursoredData;
-use opensearch::{GetParts, indices::IndicesRefreshParts};
+use opensearch::GetParts;
 use product::{
     core::{
         product_event::{
@@ -54,39 +38,23 @@ use product::{
             },
             policy::{ProductPolicyEventPayload, ProhibitedContentProductPolicyEventPayload},
         },
-        product_search::ProductSearch,
         prohibited_content::{ProhibitedContent, ProhibitedContentReason},
-        sort_product_field::SortProductField,
     },
-    data::{
-        authenticity_data::AuthenticityData, condition_data::ConditionData,
-        get_summary_data::GetProductSummaryData, product_search_data::ProductSearchData,
-        product_state_data::ProductStateData, provenance_data::ProvenanceData,
-        put_data::PutProductData, restoration_data::RestorationData,
-        user_state_data::ProductUserStateData,
-    },
+    data::{product_state_data::ProductStateData, put_data::PutProductData},
     dynamodb::{
         product_event_record::ProductEventRecord,
         product_image_record::ProductImageRecord,
-        product_record::{self as product_record, ProductRecord, mk_gsi2_pk, mk_gsi2_sk, mk_pk},
+        product_record::{ProductRecord, mk_pk},
         product_state_record::ProductStateRecord,
         prohibited_content_record::ProhibitedContentRecord,
         repository::{ProductDynamoDbRepository, ProductDynamoDbRepositoryImpl},
     },
-    opensearch::{
-        product_document::ProductDocument,
-        product_state_document::ProductStateDocument,
-        prohibited_content_document::ProhibitedContentDocument,
-        repository::{ProductOpenSearchRepository, ProductOpenSearchRepositoryImpl},
-    },
-    service::get_service::GetProductServiceImpl,
 };
 use product_watchlist::{
     data::watchlist_product_data::WatchlistProductData,
     dynamodb::repository::{
         WatchlistProductDynamoDbRepository, WatchlistProductDynamoDbRepositoryImpl,
     },
-    service::product_watchlist_service::{ProductWatchListService, ProductWatchListServiceImpl},
 };
 use product_watchlist_api::{
     watchlist_get::WatchlistProductDataView, watchlist_patch::WatchlistProductPatch,
@@ -107,20 +75,15 @@ use shop::{
     core::shop::Shop,
     data::{
         get_shop_data::GetShopData, patch_shop_data::PatchShopData, post_shop_data::PostShopData,
-        shop_search_data::ShopSearchData, shop_type_data::ShopTypeData,
     },
     dynamodb::{
         repository::{ShopDynamoDbRepository, ShopDynamoDbRepositoryImpl},
         shop_record::ShopRecord,
     },
-    opensearch::{
-        repository::{ShopOpenSearchRepository, ShopOpenSearchRepositoryImpl},
-        shop_document::ShopDocument,
-    },
 };
 use std::time::{Duration, Instant, SystemTime};
 use test_api::*;
-use time::{OffsetDateTime, macros::datetime};
+use time::OffsetDateTime;
 use url::Url;
 use user::{
     data::{get_user_data::GetUserAccountData, patch_user_data::PatchUserAccountData},
@@ -132,6 +95,7 @@ use user::{
 
 // Shared 1024-dimensional text embedding used across multiple tests.
 // Values are real embedding coordinates that produce meaningful ANN results in OpenSearch.
+#[allow(dead_code)]
 const EXAMPLE_EMBEDDING: [f32; 1024] = [
     0.0003272566,
     0.057399165,
@@ -1180,6 +1144,7 @@ async fn prepare_test_shop() -> Shop {
 /// Polls OpenSearch until a document with the given `id` appears in `index`, issuing an explicit
 /// index refresh before each attempt. This is necessary because Localstack's OpenSearch requires
 /// a refresh before documents become visible — even via direct GET by ID.
+#[allow(dead_code)]
 async fn wait_for_document<T: DeserializeOwned>(index: &'static str, id: impl Into<String>) -> T {
     let id = id.into();
     for _ in 0..24 {
@@ -1195,6 +1160,7 @@ async fn wait_for_document<T: DeserializeOwned>(index: &'static str, id: impl In
     );
 }
 
+#[allow(dead_code)]
 async fn try_read_by_id<T: DeserializeOwned>(index: &str, id: impl Into<String>) -> Option<T> {
     let get_response = get_opensearch_client()
         .await
@@ -1210,6 +1176,7 @@ async fn try_read_by_id<T: DeserializeOwned>(index: &str, id: impl Into<String>)
     Some(serde_json::from_value(response_doc["_source"].clone()).unwrap())
 }
 
+#[allow(dead_code)]
 async fn wait_until_document_exists(
     user_search_filter_id: impl Into<String>,
 ) -> UserSearchFilterDocument {
@@ -1232,6 +1199,7 @@ async fn wait_until_document_exists(
     );
 }
 
+#[allow(dead_code)]
 async fn wait_until_document_deleted(user_search_filter_id: impl Into<String>) {
     let user_search_filter_id = user_search_filter_id.into();
     for _ in 0..24 {
@@ -1544,6 +1512,7 @@ async fn should_materialize_product_in_dynamodb_for_policy_event() {
 // Verifies EventBridge routing and Lambda IAM access for each event type.
 // ---------------------------------------------------------------------------
 
+/**
 #[ignore = "Cannot get Localstack-Lambda to reach OpenSearch"]
 #[localstack_test(services = [Cloudformation()])]
 async fn should_materialize_product_in_opensearch_for_create_product_command() {
@@ -1991,6 +1960,7 @@ async fn should_materialize_product_in_opensearch_for_policy_event() {
         tokio::time::sleep(Duration::from_secs(5)).await;
     }
 }
+*/
 
 // ---------------------------------------------------------------------------
 // Shop ingest flow
@@ -1998,6 +1968,7 @@ async fn should_materialize_product_in_opensearch_for_policy_event() {
 // and has the necessary IAM access to index into OpenSearch.
 // ---------------------------------------------------------------------------
 
+/**
 #[ignore = "Cannot get Localstack-Lambda to reach OpenSearch"]
 #[localstack_test(services = [Cloudformation()])]
 async fn should_create_shop_dynamodb_and_index_opensearch_when_post_shop_then_patch() {
@@ -2053,7 +2024,7 @@ async fn should_create_shop_dynamodb_and_index_opensearch_when_post_shop_then_pa
     let patched_document = wait_for_document::<ShopDocument>("shops", patch_res.shop_id).await;
     assert_eq!(patch_res.name, patched_document.name);
 }
-
+*/
 // ---------------------------------------------------------------------------
 // User account
 // Verifies the Cognito post-confirmation Lambda trigger writes to DynamoDB,
@@ -2307,6 +2278,7 @@ async fn should_send_email_to_user_when_watched_product_has_update() {
 // for create, update, and delete operations on user search filters.
 // ---------------------------------------------------------------------------
 
+/**
 #[ignore = "Cannot get Localstack-Lambda to reach OpenSearch"]
 #[localstack_test(services = [Cloudformation()])]
 async fn should_create_search_filter_and_sync_it_to_opensearch() {
@@ -2612,6 +2584,7 @@ async fn should_delete_search_filter_and_remove_it_from_opensearch() {
 
     wait_until_document_deleted(posted.user_search_filter_id.to_string()).await;
 }
+*/
 
 // ---------------------------------------------------------------------------
 // Search filter percolation
@@ -2619,6 +2592,7 @@ async fn should_delete_search_filter_and_remove_it_from_opensearch() {
 // filters and that a notification email is sent to the filter owner.
 // ---------------------------------------------------------------------------
 
+/**
 #[ignore = "Cannot get Localstack-Lambda to reach OpenSearch"]
 #[localstack_test(services = [Cloudformation()])]
 async fn should_send_email_to_user_when_product_matches_search_filter() {
@@ -2696,6 +2670,7 @@ async fn should_send_email_to_user_when_product_matches_search_filter() {
 
     assert!(wait_for_ses_email("Neues Ergebnis für", Duration::from_secs(120)).await);
 }
+*/
 
 // ---------------------------------------------------------------------------
 // API: Product get
@@ -2864,6 +2839,7 @@ async fn should_respond_200_for_product_history() {
 // and correct currency/language serialization.
 // ---------------------------------------------------------------------------
 
+/**
 #[ignore = "Cannot get Localstack-Lambda to reach OpenSearch"]
 #[localstack_test(services = [Cloudformation()])]
 async fn should_respond_200_when_product_search_hits_authenticated() {
@@ -3264,6 +3240,7 @@ async fn should_respond_200_when_product_search_hits_anon() {
     assert_eq!("EUR", item["price"]["currency"]);
     assert!(body["items"].as_array().unwrap()[0]["userState"].is_null());
 }
+*/
 
 // ---------------------------------------------------------------------------
 // API: Product similar
@@ -3271,6 +3248,7 @@ async fn should_respond_200_when_product_search_hits_anon() {
 // watchlist personalization for authenticated users.
 // ---------------------------------------------------------------------------
 
+/**
 #[ignore = "Cannot get Localstack-Lambda to reach OpenSearch"]
 #[localstack_test(services = [Cloudformation()])]
 async fn should_respond_202_when_similar_products_embedding_not_computed() {
@@ -3533,6 +3511,7 @@ async fn should_respond_200_and_personalize_similar_products_for_authenticated()
             .all(|a| a.user_state.unwrap().watchlist.watching)
     );
 }
+*/
 
 // ---------------------------------------------------------------------------
 // API: Product watchlist
@@ -3903,6 +3882,7 @@ async fn should_create_update_get_shop() {
     assert_eq!(updated.image, gotten_slug.image);
 }
 
+/**
 #[ignore = "Cannot get Localstack-Lambda to reach OpenSearch"]
 #[localstack_test(services = [Cloudformation()])]
 async fn should_respond_200_when_shop_search_hits() {
@@ -3947,6 +3927,7 @@ async fn should_respond_200_when_shop_search_hits() {
         .unwrap();
     assert_eq!(200, response.status());
 }
+*/
 
 // ---------------------------------------------------------------------------
 // API: Notification
