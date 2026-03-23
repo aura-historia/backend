@@ -20,7 +20,7 @@ mod faker {
     use fake::{Dummy, Fake, Faker};
 
     impl Dummy<Faker> for PostShopData {
-        fn dummy_with_rng<R: fake::Rng + ?Sized>(config: &Faker, rng: &mut R) -> Self {
+        fn dummy_with_rng<R: fake::RngExt + ?Sized>(config: &Faker, rng: &mut R) -> Self {
             PostShopData {
                 name: config.fake_with_rng(rng),
                 shop_type: config.fake_with_rng(rng),
