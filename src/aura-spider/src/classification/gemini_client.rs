@@ -187,7 +187,7 @@ fn build_prompt(urls: &[String]) -> String {
 }
 
 fn parse_pattern_response(response_text: &str) -> Result<Option<String>, SpiderError> {
-    if let Some(pattern) = parse_pattern_from_json(response_text) {
+    if let Ok(pattern) = parse_pattern_from_json(response_text) {
         return Ok(pattern);
     }
 
@@ -198,7 +198,7 @@ fn parse_pattern_response(response_text: &str) -> Result<Option<String>, SpiderE
         .trim()
         .to_string();
 
-    if let Some(pattern) = parse_pattern_from_json(&cleaned) {
+    if let Ok(pattern) = parse_pattern_from_json(&cleaned) {
         return Ok(pattern);
     }
 
@@ -209,16 +209,16 @@ fn parse_pattern_response(response_text: &str) -> Result<Option<String>, SpiderE
     Ok(None)
 }
 
-fn parse_pattern_from_json(raw: &str) -> Option<Option<String>> {
-    let parsed = serde_json::from_str::<PatternResponse>(raw).ok()?;
+fn parse_pattern_from_json(raw: &str) -> Result<Option<String>, serde_json::Error> {
+    let parsed: PatternResponse = serde_json::from_str(raw)?;
     let pattern = parsed.pattern.trim().to_string();
 
     if pattern.is_empty() {
         debug!("Gemini returned empty product URL pattern");
-        Some(None)
+        Ok(None)
     } else {
         debug!(pattern = %pattern, "Gemini returned product URL pattern");
-        Some(Some(pattern))
+        Ok(Some(pattern))
     }
 }
 
