@@ -37,7 +37,7 @@ mod mail_templates {
     /// The S3 bucket name used by Lambdas to fetch compiled mail templates.
     ///
     /// Must match the `S3_BUCKET_NAME_TEMPLATES` value hard-coded in
-    /// `cfn/ephemeral-localstack.yaml`.
+    /// `cfn/ephemeral.yaml`.
     const MAIL_TEMPLATE_BUCKET: &str = "aura-historia-mail-templates-eu-central-1";
 
     /// Stage name injected into the S3 key prefix.

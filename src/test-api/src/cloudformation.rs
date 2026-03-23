@@ -327,10 +327,8 @@ fn create_lambda_zip(binary_path: &Path) -> Vec<u8> {
     buf
 }
 
-static CFN_TEMPLATE: &str = include_str!(concat!(
-    env!("CARGO_WORKSPACE_DIR"),
-    "cfn/ephemeral-localstack.yaml"
-));
+static CFN_TEMPLATE: &str =
+    include_str!(concat!(env!("CARGO_WORKSPACE_DIR"), "cfn/ephemeral.yaml"));
 
 /// Deploys the CloudFormation stack on LocalStack and waits for completion.
 async fn deploy_stack() {

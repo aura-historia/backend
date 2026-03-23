@@ -11,7 +11,7 @@ use tracing::{debug, info, warn};
 /// ephemeral LocalStack stack.
 ///
 /// Must match the `SENDER_MAIL` environment variable set in
-/// `cfn/ephemeral-localstack.yaml`.
+/// `cfn/ephemeral.yaml`.
 const SENDER_EMAIL: &str = "no-reply@aura-historia.com";
 
 /// A lazily-initialized, globally shared SESv2 client for integration testing.
