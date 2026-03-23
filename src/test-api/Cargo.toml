@@ -56,7 +56,6 @@ test-api = { workspace = true, features = [
     "rds",
     "ses",
     "sqs",
-    "mail",
     "cognito"
 ]}
 rstest = { workspace = true }
@@ -69,6 +68,5 @@ opensearch = ["dep:opensearch", "dep:aws-sdk-opensearch"]
 rds = ["dep:sqlx"]
 sqs = ["dep:aws-sdk-sqs"]
 cognito = ["dep:aws-sdk-cognitoidentityprovider", "user/full"]
-mail = ["reqwest"]
 ses = ["dep:aws-sdk-sesv2", "reqwest"]
 cloudformation = ["dep:aws-sdk-cloudformation", "dep:aws-sdk-s3", "dep:aws-tests-common", "dep:zip", "dep:futures", "dep:mrml", "cognito", "dynamodb", "opensearch", "sqs", "ses"]
