@@ -50,10 +50,7 @@ pub fn mk_sk_prefix_all() -> &'static str {
 }
 
 pub fn mk_lsi1_sk(created: &OffsetDateTime) -> Result<String, Format> {
-    Ok(format!(
-        "search_filter_match#{}",
-        created.format(&Rfc3339)?
-    ))
+    Ok(format!("search_filter_match#{}", created.format(&Rfc3339)?))
 }
 
 /// Lower bound for the `lsi1_sk` of all search filter match records.

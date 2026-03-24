@@ -9,8 +9,8 @@ use crate::service::user_search_filter_update::UserSearchFilterUpdate;
 use aws_sdk_dynamodb::{config::http::HttpResponse, error::SdkError};
 use common::batch::Batch;
 use common::pagination::cursor::{Cursor, CursoredResult};
-use common::{sort::SortOrder, user_id::UserId};
 use common::sort::Sort;
+use common::{sort::SortOrder, user_id::UserId};
 use product::core::product_search::ProductSearch;
 use product::opensearch::product_document::ProductDocument;
 use time::OffsetDateTime;
@@ -1881,12 +1881,7 @@ mod tests {
             let service = UserSearchFilterServiceImpl::new(&repository);
 
             let actual = service
-                .view_search_filter_matches(
-                    &UserId::new(),
-                    &UserSearchFilterId::new(),
-                    &None,
-                    None,
-                )
+                .view_search_filter_matches(&UserId::new(), &UserSearchFilterId::new(), &None, None)
                 .await;
             assert!(actual.is_ok());
             let result = actual.unwrap();
@@ -1910,12 +1905,7 @@ mod tests {
             let service = UserSearchFilterServiceImpl::new(&repository);
 
             let actual = service
-                .view_search_filter_matches(
-                    &UserId::new(),
-                    &UserSearchFilterId::new(),
-                    &None,
-                    None,
-                )
+                .view_search_filter_matches(&UserId::new(), &UserSearchFilterId::new(), &None, None)
                 .await;
             assert!(actual.is_ok());
             let result = actual.unwrap();
@@ -1937,12 +1927,7 @@ mod tests {
             let service = UserSearchFilterServiceImpl::new(&repository);
 
             let actual = service
-                .view_search_filter_matches(
-                    &UserId::new(),
-                    &UserSearchFilterId::new(),
-                    &None,
-                    None,
-                )
+                .view_search_filter_matches(&UserId::new(), &UserSearchFilterId::new(), &None, None)
                 .await;
             assert!(actual.is_err());
         }

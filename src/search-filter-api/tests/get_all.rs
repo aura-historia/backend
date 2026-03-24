@@ -2,6 +2,8 @@ use common::user_id::UserId;
 use fake::{Fake, Faker};
 use lambda_runtime::LambdaEvent;
 use product::core::product_search::ProductSearch;
+use product::service::get_service::MockGetProductService;
+use product_personalization::service::MockProductPersonalizationService;
 use search_filter::core::user_search_filter_id::UserSearchFilterId;
 use search_filter::dynamodb::repository::UserSearchFilterDynamoDbRepositoryImpl;
 use search_filter::service::user_search_filter_service::{
@@ -15,6 +17,8 @@ async fn should_return_actual_search_filters_sortet_oldest_for_order_asc() {
     let repository =
         UserSearchFilterDynamoDbRepositoryImpl::new(get_dynamodb_client().await, "table_1");
     let service = UserSearchFilterServiceImpl::new(&repository);
+    let get_product_service = MockGetProductService::default();
+    let personalization_service = MockProductPersonalizationService::default();
 
     let user_id = UserId::new();
     let mut expected = vec![];
@@ -41,7 +45,14 @@ async fn should_return_actual_search_filters_sortet_oldest_for_order_asc() {
         context: Default::default(),
     };
 
-    let response = handle(lambda_event, &service).await.unwrap();
+    let response = handle(
+        lambda_event,
+        &service,
+        &get_product_service,
+        &personalization_service,
+    )
+    .await
+    .unwrap();
     assert_eq!(200, response.status_code);
     let json = extract_apigw_response_json_body!(response);
 
@@ -66,6 +77,8 @@ async fn should_return_actual_search_filters_sortet_latest_for_order_desc() {
     let repository =
         UserSearchFilterDynamoDbRepositoryImpl::new(get_dynamodb_client().await, "table_1");
     let service = UserSearchFilterServiceImpl::new(&repository);
+    let get_product_service = MockGetProductService::default();
+    let personalization_service = MockProductPersonalizationService::default();
 
     let user_id = UserId::new();
     let mut expected = vec![];
@@ -92,7 +105,14 @@ async fn should_return_actual_search_filters_sortet_latest_for_order_desc() {
         context: Default::default(),
     };
 
-    let response = handle(lambda_event, &service).await.unwrap();
+    let response = handle(
+        lambda_event,
+        &service,
+        &get_product_service,
+        &personalization_service,
+    )
+    .await
+    .unwrap();
     assert_eq!(200, response.status_code);
     let json = extract_apigw_response_json_body!(response);
 

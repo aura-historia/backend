@@ -6,8 +6,12 @@ edition = "2024"
 [dependencies]
 common = { workspace = true, features = ["api"] }
 search-filter = { workspace = true, features = ["data", "service", "dynamodb"] }
-shop = { workspace = true }
-product = { workspace = true, features = ["data"] }
+shop = { workspace = true, features = ["dynamodb"] }
+product = { workspace = true, features = ["data", "service", "dynamodb"] }
+product-watchlist = { workspace = true, features = ["data", "service", "dynamodb"] }
+product-personalization = { workspace = true }
+notification = { workspace = true, features = ["service"] }
+user = { workspace = true, features = ["dynamodb", "service"] }
 tracing = { workspace = true }
 tracing-subscriber = { workspace = true, features = ["json"] }
 tokio = { workspace = true, features = ["macros"] }
@@ -26,6 +30,10 @@ fake = { workspace = true, optional = true }
 [dev-dependencies]
 search-filter-api = { workspace = true, features = ["test-data"] }
 test-api = { workspace = true, features = ["api-gateway", "dynamodb"] }
+product = { workspace = true, features = ["test-data"] }
+product-personalization = { workspace = true }
+notification = { workspace = true, features = ["test-data"] }
+user = { workspace = true, features = ["test-data"] }
 url = { workspace = true }
 serial_test = { workspace = true }
 rstest = { workspace = true }

@@ -318,15 +318,19 @@ impl<'a> UserSearchFilterDynamoDbRepository for UserSearchFilterDynamoDbReposito
             Some(cursor) => {
                 let (lsi1_sk_lower, lsi1_sk_upper) = if scan_index_forward {
                     let lower = match cursor.search_after {
-                        Some(created) => match_record::mk_lsi1_sk(&(created + Duration::NANOSECOND))
-                            .map_err(SdkError::construction_failure)?,
+                        Some(created) => {
+                            match_record::mk_lsi1_sk(&(created + Duration::NANOSECOND))
+                                .map_err(SdkError::construction_failure)?
+                        }
                         None => match_record::LSI1_SK_LOWER_BOUND.to_string(),
                     };
                     (lower, match_record::LSI1_SK_UPPER_BOUND.to_string())
                 } else {
                     let upper = match cursor.search_after {
-                        Some(created) => match_record::mk_lsi1_sk(&(created - Duration::NANOSECOND))
-                            .map_err(SdkError::construction_failure)?,
+                        Some(created) => {
+                            match_record::mk_lsi1_sk(&(created - Duration::NANOSECOND))
+                                .map_err(SdkError::construction_failure)?
+                        }
                         None => match_record::LSI1_SK_UPPER_BOUND.to_string(),
                     };
                     (match_record::LSI1_SK_LOWER_BOUND.to_string(), upper)
@@ -428,15 +432,19 @@ impl<'a> UserSearchFilterDynamoDbRepository for UserSearchFilterDynamoDbReposito
             Some(cursor) => {
                 let (lsi1_sk_lower, lsi1_sk_upper) = if scan_index_forward {
                     let lower = match cursor.search_after {
-                        Some(created) => match_record::mk_lsi1_sk(&(created + Duration::NANOSECOND))
-                            .map_err(SdkError::construction_failure)?,
+                        Some(created) => {
+                            match_record::mk_lsi1_sk(&(created + Duration::NANOSECOND))
+                                .map_err(SdkError::construction_failure)?
+                        }
                         None => match_record::LSI1_SK_LOWER_BOUND.to_string(),
                     };
                     (lower, match_record::LSI1_SK_UPPER_BOUND.to_string())
                 } else {
                     let upper = match cursor.search_after {
-                        Some(created) => match_record::mk_lsi1_sk(&(created - Duration::NANOSECOND))
-                            .map_err(SdkError::construction_failure)?,
+                        Some(created) => {
+                            match_record::mk_lsi1_sk(&(created - Duration::NANOSECOND))
+                                .map_err(SdkError::construction_failure)?
+                        }
                         None => match_record::LSI1_SK_UPPER_BOUND.to_string(),
                     };
                     (match_record::LSI1_SK_LOWER_BOUND.to_string(), upper)
@@ -458,14 +466,8 @@ impl<'a> UserSearchFilterDynamoDbRepository for UserSearchFilterDynamoDbReposito
                         ":pk_val",
                         AttributeValue::S(match_record::mk_pk(user_id)),
                     )
-                    .expression_attribute_values(
-                        ":lsi1_sk_lower",
-                        AttributeValue::S(lsi1_sk_lower),
-                    )
-                    .expression_attribute_values(
-                        ":lsi1_sk_upper",
-                        AttributeValue::S(lsi1_sk_upper),
-                    )
+                    .expression_attribute_values(":lsi1_sk_lower", AttributeValue::S(lsi1_sk_lower))
+                    .expression_attribute_values(":lsi1_sk_upper", AttributeValue::S(lsi1_sk_upper))
                     .expression_attribute_values(
                         ":sk_prefix",
                         AttributeValue::S(match_record::mk_sk_prefix_filter(search_filter_id)),
