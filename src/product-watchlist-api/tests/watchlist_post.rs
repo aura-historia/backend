@@ -24,7 +24,7 @@ use product_watchlist::{
 use product_watchlist_api::watchlist_post::handle;
 use test_api::*;
 use time::OffsetDateTime;
-use user::dynamodb::repository::UserDynamoDbRepositoryImpl;
+use user::dynamodb::repository::{UserDynamoDbRepository, UserDynamoDbRepositoryImpl};
 use user::dynamodb::user_record::UserRecord;
 use user::service::user_service::UserServiceImpl;
 
@@ -37,6 +37,10 @@ async fn should_201_when_new_watchlist_entry_would_not_exceed_quota() {
     let watchlist_repository = WatchlistProductDynamoDbRepositoryImpl::new(client, "table_1");
     let notification_repository = NotificationDynamoDbRepositoryImpl::new(client, "table_1");
     let user_repository = UserDynamoDbRepositoryImpl::new(client, "table_1");
+    user_repository
+        .put_user_record(user_record.clone())
+        .await
+        .unwrap();
     let get_product_service = GetProductServiceImpl::new(&product_repository);
     let noop_ses = NoopSesAdapter;
     let noop_s3 = NoopS3Adapter;

@@ -1,7 +1,8 @@
 use common::language::domain::Language;
 use common::language::record::{LanguageRecord, TextRecord};
+use common::pagination::cursor::api::TimeCursoredData;
 use common::personalized::api::PersonalizedData;
-use common::{pagination::cursor::api::TimeCursoredData, user_id::UserId};
+use fake::{Fake, Faker};
 use lambda_runtime::LambdaEvent;
 use notification::dynamodb::repository::NotificationDynamoDbRepositoryImpl;
 use notification::service::noop_adapters::{NoopS3Adapter, NoopSesAdapter};
@@ -25,7 +26,7 @@ use product_watchlist_api::watchlist_get::handle;
 use test_api::*;
 use time::{OffsetDateTime, format_description::well_known::Rfc3339};
 use user::dynamodb::repository::UserDynamoDbRepositoryImpl;
-use user::service::user_service::UserServiceImpl;
+use user::service::user_service::{UserService, UserServiceImpl};
 
 #[localstack_test(services = [DynamoDB()])]
 async fn should_200_when_sort_created_asc() {
@@ -62,7 +63,11 @@ async fn should_200_when_sort_created_asc() {
         .unwrap();
     assert!(put_res.unprocessed_items.unwrap_or_default().is_empty());
 
-    let user_id = UserId::new();
+    let user_id = user_service
+        .create_user(Faker.fake())
+        .await
+        .unwrap()
+        .user_id;
     for product_record in product_records.clone() {
         let created = OffsetDateTime::now_utc();
         let watchlist_record = WatchlistProductRecord {
@@ -164,7 +169,11 @@ async fn should_200_when_sort_created_asc_search_after() {
         .unwrap();
     assert!(put_res.unprocessed_items.unwrap_or_default().is_empty());
 
-    let user_id = UserId::new();
+    let user_id = user_service
+        .create_user(Faker.fake())
+        .await
+        .unwrap()
+        .user_id;
     let mut from = None;
     let mut expected_next_after = None;
     for (i, product_record) in product_records.iter().cloned().enumerate() {
@@ -276,7 +285,11 @@ async fn should_200_when_sort_created_desc() {
         .unwrap();
     assert!(put_res.unprocessed_items.unwrap_or_default().is_empty());
 
-    let user_id = UserId::new();
+    let user_id = user_service
+        .create_user(Faker.fake())
+        .await
+        .unwrap()
+        .user_id;
     for product_record in product_records.clone() {
         let created = OffsetDateTime::now_utc();
         let watchlist_record = WatchlistProductRecord {
@@ -379,7 +392,11 @@ async fn should_200_when_sort_created_desc_search_after() {
         .unwrap();
     assert!(put_res.unprocessed_items.unwrap_or_default().is_empty());
 
-    let user_id = UserId::new();
+    let user_id = user_service
+        .create_user(Faker.fake())
+        .await
+        .unwrap()
+        .user_id;
     let mut from = None;
     let mut expected_next_after = None;
     for (i, product_record) in product_records.iter().cloned().enumerate() {
@@ -543,7 +560,11 @@ async fn should_respond_200_and_respect_language_query_param(
         .unwrap();
     assert!(put_res.unprocessed_items.unwrap_or_default().is_empty());
 
-    let user_id = UserId::new();
+    let user_id = user_service
+        .create_user(Faker.fake())
+        .await
+        .unwrap()
+        .user_id;
     for product_record in product_records.clone() {
         let created = OffsetDateTime::now_utc();
         let watchlist_record = WatchlistProductRecord {
