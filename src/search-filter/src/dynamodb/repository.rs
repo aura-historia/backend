@@ -112,6 +112,7 @@ impl<'a> UserSearchFilterDynamoDbRepositoryImpl<'a> {
     }
 }
 
+#[allow(clippy::result_large_err)]
 fn compute_lsi1_sk_bounds(
     cursor: &Cursor<OffsetDateTime>,
     scan_index_forward: bool,
@@ -339,25 +340,8 @@ impl<'a> UserSearchFilterDynamoDbRepository for UserSearchFilterDynamoDbReposito
 
         match created_cursor {
             Some(cursor) => {
-                let (lsi1_sk_lower, lsi1_sk_upper) = if scan_index_forward {
-                    let lower = match cursor.search_after {
-                        Some(created) => {
-                            match_record::mk_lsi1_sk(&(created + Duration::NANOSECOND))
-                                .map_err(SdkError::construction_failure)?
-                        }
-                        None => match_record::LSI1_SK_LOWER_BOUND.to_string(),
-                    };
-                    (lower, match_record::LSI1_SK_UPPER_BOUND.to_string())
-                } else {
-                    let upper = match cursor.search_after {
-                        Some(created) => {
-                            match_record::mk_lsi1_sk(&(created - Duration::NANOSECOND))
-                                .map_err(SdkError::construction_failure)?
-                        }
-                        None => match_record::LSI1_SK_UPPER_BOUND.to_string(),
-                    };
-                    (match_record::LSI1_SK_LOWER_BOUND.to_string(), upper)
-                };
+                let (lsi1_sk_lower, lsi1_sk_upper) =
+                    compute_lsi1_sk_bounds(&cursor, scan_index_forward)?;
 
                 let records = self
                     .client
@@ -453,25 +437,8 @@ impl<'a> UserSearchFilterDynamoDbRepository for UserSearchFilterDynamoDbReposito
 
         match created_cursor {
             Some(cursor) => {
-                let (lsi1_sk_lower, lsi1_sk_upper) = if scan_index_forward {
-                    let lower = match cursor.search_after {
-                        Some(created) => {
-                            match_record::mk_lsi1_sk(&(created + Duration::NANOSECOND))
-                                .map_err(SdkError::construction_failure)?
-                        }
-                        None => match_record::LSI1_SK_LOWER_BOUND.to_string(),
-                    };
-                    (lower, match_record::LSI1_SK_UPPER_BOUND.to_string())
-                } else {
-                    let upper = match cursor.search_after {
-                        Some(created) => {
-                            match_record::mk_lsi1_sk(&(created - Duration::NANOSECOND))
-                                .map_err(SdkError::construction_failure)?
-                        }
-                        None => match_record::LSI1_SK_UPPER_BOUND.to_string(),
-                    };
-                    (match_record::LSI1_SK_LOWER_BOUND.to_string(), upper)
-                };
+                let (lsi1_sk_lower, lsi1_sk_upper) =
+                    compute_lsi1_sk_bounds(&cursor, scan_index_forward)?;
 
                 let count = self
                     .client

@@ -31,6 +31,7 @@ fake = { workspace = true, optional = true }
 search-filter-api = { workspace = true, features = ["test-data"] }
 test-api = { workspace = true, features = ["api-gateway", "dynamodb"] }
 product = { workspace = true, features = ["test-data"] }
+product-watchlist = { workspace = true, features = ["dynamodb"] }
 product-personalization = { workspace = true }
 notification = { workspace = true, features = ["test-data"] }
 user = { workspace = true, features = ["test-data"] }
