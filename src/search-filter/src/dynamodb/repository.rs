@@ -17,10 +17,11 @@ use aws_sdk_dynamodb::{
     types::{AttributeValue, ReturnValue},
 };
 use common::{
-    batch::Batch, dynamodb_update::DynamoDbUpdate, shop_id::ShopId,
+    batch::Batch, dynamodb_update::DynamoDbUpdate, pagination::cursor::Cursor, shop_id::ShopId,
     shops_product_id::ShopsProductId, user_id::UserId,
 };
 use std::collections::HashMap;
+use time::{Duration, OffsetDateTime};
 use tracing::error;
 
 #[async_trait::async_trait]
@@ -73,7 +74,17 @@ pub trait UserSearchFilterDynamoDbRepository {
         &self,
         user_id: &UserId,
         search_filter_id: &UserSearchFilterId,
+        created_cursor: Option<Cursor<OffsetDateTime>>,
+        scan_index_forward: bool,
     ) -> Result<Vec<UserSearchFilterMatchRecord>, SdkError<QueryError, HttpResponse>>;
+
+    async fn count_user_search_filter_match_records_for_filter(
+        &self,
+        user_id: &UserId,
+        search_filter_id: &UserSearchFilterId,
+        created_cursor: Option<Cursor<OffsetDateTime>>,
+        scan_index_forward: bool,
+    ) -> Result<u64, SdkError<QueryError, HttpResponse>>;
 
     async fn put_user_search_filter_match_record(
         &self,
@@ -298,39 +309,204 @@ impl<'a> UserSearchFilterDynamoDbRepository for UserSearchFilterDynamoDbReposito
         &self,
         user_id: &UserId,
         search_filter_id: &UserSearchFilterId,
+        created_cursor: Option<Cursor<OffsetDateTime>>,
+        scan_index_forward: bool,
     ) -> Result<Vec<UserSearchFilterMatchRecord>, SdkError<QueryError, HttpResponse>> {
         use crate::dynamodb::user_search_filter_match_record as match_record;
-        let records = self
-            .client
-            .query()
-            .table_name(&self.table)
-            .key_condition_expression("#pk = :pk_val AND begins_with(#sk, :sk_prefix)")
-            .expression_attribute_names("#pk", "pk")
-            .expression_attribute_names("#sk", "sk")
-            .expression_attribute_values(
-                ":pk_val",
-                AttributeValue::S(match_record::mk_pk(user_id)),
-            )
-            .expression_attribute_values(
-                ":sk_prefix",
-                AttributeValue::S(match_record::mk_sk_prefix_filter(search_filter_id)),
-            )
-            .into_paginator()
-            .send()
-            .try_collect()
-            .await?
-            .into_iter()
-            .flat_map(|qo| qo.items.unwrap_or_default())
-            .map(serde_dynamo::from_item::<_, UserSearchFilterMatchRecord>)
-            .filter_map(|result| match result {
-                Ok(record) => Some(record),
-                Err(err) => {
-                    error!(error = %err, type = %std::any::type_name::<UserSearchFilterMatchRecord>(), "Failed deserializing UserSearchFilterMatchRecord.");
-                    None
-                }
-            })
-            .collect::<Vec<_>>();
-        Ok(records)
+
+        match created_cursor {
+            Some(cursor) => {
+                let (lsi1_sk_lower, lsi1_sk_upper) = if scan_index_forward {
+                    let lower = match cursor.search_after {
+                        Some(created) => match_record::mk_lsi1_sk(&(created + Duration::NANOSECOND))
+                            .map_err(SdkError::construction_failure)?,
+                        None => match_record::LSI1_SK_LOWER_BOUND.to_string(),
+                    };
+                    (lower, match_record::LSI1_SK_UPPER_BOUND.to_string())
+                } else {
+                    let upper = match cursor.search_after {
+                        Some(created) => match_record::mk_lsi1_sk(&(created - Duration::NANOSECOND))
+                            .map_err(SdkError::construction_failure)?,
+                        None => match_record::LSI1_SK_UPPER_BOUND.to_string(),
+                    };
+                    (match_record::LSI1_SK_LOWER_BOUND.to_string(), upper)
+                };
+
+                let records = self
+                    .client
+                    .query()
+                    .table_name(&self.table)
+                    .index_name("lsi1")
+                    .key_condition_expression(
+                        "#pk = :pk_val AND #lsi1_sk BETWEEN :lsi1_sk_lower AND :lsi1_sk_upper",
+                    )
+                    .filter_expression("begins_with(#sk, :sk_prefix)")
+                    .expression_attribute_names("#pk", "pk")
+                    .expression_attribute_names("#lsi1_sk", "lsi1_sk")
+                    .expression_attribute_names("#sk", "sk")
+                    .expression_attribute_values(
+                        ":pk_val",
+                        AttributeValue::S(match_record::mk_pk(user_id)),
+                    )
+                    .expression_attribute_values(
+                        ":lsi1_sk_lower",
+                        AttributeValue::S(lsi1_sk_lower),
+                    )
+                    .expression_attribute_values(
+                        ":lsi1_sk_upper",
+                        AttributeValue::S(lsi1_sk_upper),
+                    )
+                    .expression_attribute_values(
+                        ":sk_prefix",
+                        AttributeValue::S(match_record::mk_sk_prefix_filter(search_filter_id)),
+                    )
+                    .limit(cursor.size as i32)
+                    .scan_index_forward(scan_index_forward)
+                    .send()
+                    .await?
+                    .items
+                    .unwrap_or_default()
+                    .into_iter()
+                    .map(serde_dynamo::from_item::<_, UserSearchFilterMatchRecord>)
+                    .filter_map(|result| match result {
+                        Ok(record) => Some(record),
+                        Err(err) => {
+                            error!(error = %err, type = %std::any::type_name::<UserSearchFilterMatchRecord>(), "Failed deserializing UserSearchFilterMatchRecord.");
+                            None
+                        }
+                    })
+                    .collect::<Vec<_>>();
+                Ok(records)
+            }
+            None => {
+                let records = self
+                    .client
+                    .query()
+                    .table_name(&self.table)
+                    .key_condition_expression("#pk = :pk_val AND begins_with(#sk, :sk_prefix)")
+                    .expression_attribute_names("#pk", "pk")
+                    .expression_attribute_names("#sk", "sk")
+                    .expression_attribute_values(
+                        ":pk_val",
+                        AttributeValue::S(match_record::mk_pk(user_id)),
+                    )
+                    .expression_attribute_values(
+                        ":sk_prefix",
+                        AttributeValue::S(match_record::mk_sk_prefix_filter(search_filter_id)),
+                    )
+                    .scan_index_forward(scan_index_forward)
+                    .into_paginator()
+                    .send()
+                    .try_collect()
+                    .await?
+                    .into_iter()
+                    .flat_map(|qo| qo.items.unwrap_or_default())
+                    .map(serde_dynamo::from_item::<_, UserSearchFilterMatchRecord>)
+                    .filter_map(|result| match result {
+                        Ok(record) => Some(record),
+                        Err(err) => {
+                            error!(error = %err, type = %std::any::type_name::<UserSearchFilterMatchRecord>(), "Failed deserializing UserSearchFilterMatchRecord.");
+                            None
+                        }
+                    })
+                    .collect::<Vec<_>>();
+                Ok(records)
+            }
+        }
+    }
+
+    async fn count_user_search_filter_match_records_for_filter(
+        &self,
+        user_id: &UserId,
+        search_filter_id: &UserSearchFilterId,
+        created_cursor: Option<Cursor<OffsetDateTime>>,
+        scan_index_forward: bool,
+    ) -> Result<u64, SdkError<QueryError, HttpResponse>> {
+        use crate::dynamodb::user_search_filter_match_record as match_record;
+
+        match created_cursor {
+            Some(cursor) => {
+                let (lsi1_sk_lower, lsi1_sk_upper) = if scan_index_forward {
+                    let lower = match cursor.search_after {
+                        Some(created) => match_record::mk_lsi1_sk(&(created + Duration::NANOSECOND))
+                            .map_err(SdkError::construction_failure)?,
+                        None => match_record::LSI1_SK_LOWER_BOUND.to_string(),
+                    };
+                    (lower, match_record::LSI1_SK_UPPER_BOUND.to_string())
+                } else {
+                    let upper = match cursor.search_after {
+                        Some(created) => match_record::mk_lsi1_sk(&(created - Duration::NANOSECOND))
+                            .map_err(SdkError::construction_failure)?,
+                        None => match_record::LSI1_SK_UPPER_BOUND.to_string(),
+                    };
+                    (match_record::LSI1_SK_LOWER_BOUND.to_string(), upper)
+                };
+
+                let count = self
+                    .client
+                    .query()
+                    .table_name(&self.table)
+                    .index_name("lsi1")
+                    .key_condition_expression(
+                        "#pk = :pk_val AND #lsi1_sk BETWEEN :lsi1_sk_lower AND :lsi1_sk_upper",
+                    )
+                    .filter_expression("begins_with(#sk, :sk_prefix)")
+                    .expression_attribute_names("#pk", "pk")
+                    .expression_attribute_names("#lsi1_sk", "lsi1_sk")
+                    .expression_attribute_names("#sk", "sk")
+                    .expression_attribute_values(
+                        ":pk_val",
+                        AttributeValue::S(match_record::mk_pk(user_id)),
+                    )
+                    .expression_attribute_values(
+                        ":lsi1_sk_lower",
+                        AttributeValue::S(lsi1_sk_lower),
+                    )
+                    .expression_attribute_values(
+                        ":lsi1_sk_upper",
+                        AttributeValue::S(lsi1_sk_upper),
+                    )
+                    .expression_attribute_values(
+                        ":sk_prefix",
+                        AttributeValue::S(match_record::mk_sk_prefix_filter(search_filter_id)),
+                    )
+                    .scan_index_forward(scan_index_forward)
+                    .select(aws_sdk_dynamodb::types::Select::Count)
+                    .send()
+                    .await?
+                    .count;
+
+                Ok(count as u64)
+            }
+            None => {
+                let items = self
+                    .client
+                    .query()
+                    .table_name(&self.table)
+                    .key_condition_expression("#pk = :pk_val AND begins_with(#sk, :sk_prefix)")
+                    .expression_attribute_names("#pk", "pk")
+                    .expression_attribute_names("#sk", "sk")
+                    .expression_attribute_values(
+                        ":pk_val",
+                        AttributeValue::S(match_record::mk_pk(user_id)),
+                    )
+                    .expression_attribute_values(
+                        ":sk_prefix",
+                        AttributeValue::S(match_record::mk_sk_prefix_filter(search_filter_id)),
+                    )
+                    .scan_index_forward(scan_index_forward)
+                    .select(aws_sdk_dynamodb::types::Select::Count)
+                    .into_paginator()
+                    .send()
+                    .try_collect()
+                    .await?
+                    .into_iter()
+                    .map(|qo| qo.count as u64)
+                    .sum();
+
+                Ok(items)
+            }
+        }
     }
 
     async fn put_user_search_filter_match_record(

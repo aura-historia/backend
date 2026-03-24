@@ -4,10 +4,13 @@ use crate::core::user_search_filter_id::UserSearchFilterId;
 use crate::core::user_search_filter_name::UserSearchFilterName;
 use crate::dynamodb::repository::UserSearchFilterDynamoDbRepository;
 use crate::dynamodb::user_search_filter_match_record::UserSearchFilterMatchRecord;
+use crate::service::sort_search_filter_match_field::SortSearchFilterMatchField;
 use crate::service::user_search_filter_update::UserSearchFilterUpdate;
 use aws_sdk_dynamodb::{config::http::HttpResponse, error::SdkError};
 use common::batch::Batch;
+use common::pagination::cursor::{Cursor, CursoredResult};
 use common::{sort::SortOrder, user_id::UserId};
+use common::sort::Sort;
 use product::core::product_search::ProductSearch;
 use product::opensearch::product_document::ProductDocument;
 use time::OffsetDateTime;
@@ -142,7 +145,17 @@ pub trait UserSearchFilterService {
         &self,
         user_id: &UserId,
         search_filter_id: &UserSearchFilterId,
+        sort: &Option<Sort<SortSearchFilterMatchField>>,
+        cursor: Option<Cursor<OffsetDateTime>>,
     ) -> Result<Vec<SearchFilterProductMatch>, UserSearchFilterError>;
+
+    async fn view_search_filter_matches(
+        &self,
+        user_id: &UserId,
+        search_filter_id: &UserSearchFilterId,
+        sort: &Option<Sort<SortSearchFilterMatchField>>,
+        cursor: Option<Cursor<OffsetDateTime>>,
+    ) -> Result<CursoredResult<SearchFilterProductMatch, OffsetDateTime>, UserSearchFilterError>;
 
     async fn create_search_filter_product_match(
         &self,
@@ -362,15 +375,79 @@ impl<'a> UserSearchFilterService for UserSearchFilterServiceImpl<'a> {
         &self,
         user_id: &UserId,
         search_filter_id: &UserSearchFilterId,
+        sort: &Option<Sort<SortSearchFilterMatchField>>,
+        cursor: Option<Cursor<OffsetDateTime>>,
     ) -> Result<Vec<SearchFilterProductMatch>, UserSearchFilterError> {
+        let sort = sort.unwrap_or(Sort {
+            sort: SortSearchFilterMatchField::Created,
+            order: SortOrder::Asc,
+        });
+        let scan_index_forward = matches!(sort.order, SortOrder::Asc);
         let records = self
             .repository
-            .query_user_search_filter_match_records_for_filter(user_id, search_filter_id)
+            .query_user_search_filter_match_records_for_filter(
+                user_id,
+                search_filter_id,
+                cursor,
+                scan_index_forward,
+            )
             .await?;
         Ok(records
             .into_iter()
             .map(SearchFilterProductMatch::from)
             .collect())
+    }
+
+    async fn view_search_filter_matches(
+        &self,
+        user_id: &UserId,
+        search_filter_id: &UserSearchFilterId,
+        sort: &Option<Sort<SortSearchFilterMatchField>>,
+        cursor: Option<Cursor<OffsetDateTime>>,
+    ) -> Result<CursoredResult<SearchFilterProductMatch, OffsetDateTime>, UserSearchFilterError>
+    {
+        let sort = sort.unwrap_or(Sort {
+            sort: SortSearchFilterMatchField::Created,
+            order: SortOrder::Asc,
+        });
+        let scan_index_forward = matches!(sort.order, SortOrder::Asc);
+        let cursor = cursor.unwrap_or_default();
+        let paged_records = self
+            .repository
+            .query_user_search_filter_match_records_for_filter(
+                user_id,
+                search_filter_id,
+                Some(cursor),
+                scan_index_forward,
+            )
+            .await?;
+        let last = paged_records.last().cloned();
+        let matches: Vec<SearchFilterProductMatch> = paged_records
+            .into_iter()
+            .map(SearchFilterProductMatch::from)
+            .collect();
+
+        let total = if matches.is_empty() {
+            0
+        } else {
+            self.repository
+                .count_user_search_filter_match_records_for_filter(
+                    user_id,
+                    search_filter_id,
+                    Some(cursor),
+                    scan_index_forward,
+                )
+                .await?
+        };
+
+        Ok(CursoredResult {
+            cursor: Cursor {
+                size: matches.len() as u64,
+                search_after: last.map(|last| last.created),
+            },
+            items: matches,
+            total: Some(total),
+        })
     }
 
     async fn create_search_filter_product_match(
@@ -1645,7 +1722,7 @@ mod tests {
             let mut repository = MockUserSearchFilterDynamoDbRepository::default();
             repository
                 .expect_query_user_search_filter_match_records_for_filter()
-                .return_once(move |_, _| {
+                .return_once(move |_, _, _, _| {
                     Box::pin(async move { Ok(fake::vec![UserSearchFilterMatchRecord; count]) })
                 });
             let service = UserSearchFilterServiceImpl::new(&repository);
@@ -1654,6 +1731,8 @@ mod tests {
                 .find_search_filter_product_matches_for_filter(
                     &UserId::new(),
                     &UserSearchFilterId::new(),
+                    &None,
+                    None,
                 )
                 .await;
             assert!(actual.is_ok());
@@ -1666,7 +1745,7 @@ mod tests {
             let mut repository = MockUserSearchFilterDynamoDbRepository::default();
             repository
                 .expect_query_user_search_filter_match_records_for_filter()
-                .return_once(|_, _| {
+                .return_once(|_, _, _, _| {
                     Box::pin(async { Err(SdkError::construction_failure("test error")) })
                 });
             let service = UserSearchFilterServiceImpl::new(&repository);
@@ -1675,6 +1754,8 @@ mod tests {
                 .find_search_filter_product_matches_for_filter(
                     &UserId::new(),
                     &UserSearchFilterId::new(),
+                    &None,
+                    None,
                 )
                 .await;
             assert!(actual.is_err());
@@ -1779,6 +1860,91 @@ mod tests {
             let result = actual.unwrap();
             assert!(result.processed.is_empty());
             assert_eq!(result.unprocessed.len(), 3);
+        }
+    }
+
+    mod view_search_filter_matches {
+        use crate::core::user_search_filter_id::UserSearchFilterId;
+        use crate::dynamodb::repository::MockUserSearchFilterDynamoDbRepository;
+        use crate::dynamodb::user_search_filter_match_record::UserSearchFilterMatchRecord;
+        use crate::service::user_search_filter_service::{
+            UserSearchFilterService, UserSearchFilterServiceImpl,
+        };
+        use common::user_id::UserId;
+
+        #[tokio::test]
+        async fn should_return_empty_cursored_result_when_no_matches() {
+            let mut repository = MockUserSearchFilterDynamoDbRepository::default();
+            repository
+                .expect_query_user_search_filter_match_records_for_filter()
+                .return_once(|_, _, _, _| Box::pin(async { Ok(vec![]) }));
+            let service = UserSearchFilterServiceImpl::new(&repository);
+
+            let actual = service
+                .view_search_filter_matches(
+                    &UserId::new(),
+                    &UserSearchFilterId::new(),
+                    &None,
+                    None,
+                )
+                .await;
+            assert!(actual.is_ok());
+            let result = actual.unwrap();
+            assert!(result.items.is_empty());
+            assert_eq!(result.total, Some(0));
+            assert_eq!(result.cursor.size, 0);
+            assert!(result.cursor.search_after.is_none());
+        }
+
+        #[tokio::test]
+        async fn should_return_cursored_result_with_matches() {
+            let mut repository = MockUserSearchFilterDynamoDbRepository::default();
+            repository
+                .expect_query_user_search_filter_match_records_for_filter()
+                .return_once(|_, _, _, _| {
+                    Box::pin(async { Ok(fake::vec![UserSearchFilterMatchRecord; 3]) })
+                });
+            repository
+                .expect_count_user_search_filter_match_records_for_filter()
+                .return_once(|_, _, _, _| Box::pin(async { Ok(5) }));
+            let service = UserSearchFilterServiceImpl::new(&repository);
+
+            let actual = service
+                .view_search_filter_matches(
+                    &UserId::new(),
+                    &UserSearchFilterId::new(),
+                    &None,
+                    None,
+                )
+                .await;
+            assert!(actual.is_ok());
+            let result = actual.unwrap();
+            assert_eq!(result.items.len(), 3);
+            assert_eq!(result.total, Some(5));
+            assert_eq!(result.cursor.size, 3);
+            assert!(result.cursor.search_after.is_some());
+        }
+
+        #[tokio::test]
+        async fn should_propagate_sdk_error() {
+            use aws_sdk_dynamodb::error::SdkError;
+            let mut repository = MockUserSearchFilterDynamoDbRepository::default();
+            repository
+                .expect_query_user_search_filter_match_records_for_filter()
+                .return_once(|_, _, _, _| {
+                    Box::pin(async { Err(SdkError::construction_failure("test error")) })
+                });
+            let service = UserSearchFilterServiceImpl::new(&repository);
+
+            let actual = service
+                .view_search_filter_matches(
+                    &UserId::new(),
+                    &UserSearchFilterId::new(),
+                    &None,
+                    None,
+                )
+                .await;
+            assert!(actual.is_err());
         }
     }
 }
