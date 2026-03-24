@@ -3,6 +3,9 @@ use common::language::record::{LanguageRecord, TextRecord};
 use common::personalized::api::PersonalizedData;
 use common::{pagination::cursor::api::TimeCursoredData, user_id::UserId};
 use lambda_runtime::LambdaEvent;
+use notification::dynamodb::repository::NotificationDynamoDbRepositoryImpl;
+use notification::service::noop_adapters::{NoopS3Adapter, NoopSesAdapter};
+use notification::service::notification_service::NotificationServiceImpl;
 use product::data::get_data::GetProductData;
 use product::data::user_state_data::ProductUserStateData;
 use product::dynamodb::{
@@ -10,8 +13,9 @@ use product::dynamodb::{
     repository::{ProductDynamoDbRepository, ProductDynamoDbRepositoryImpl},
 };
 use product::service::get_service::GetProductServiceImpl;
+use product_personalization::service::ProductPersonalizationServiceImpl;
 use product_watchlist::{
-    dynamodb::record::{WatchlistProductRecord, mk_gsi1_pk, mk_gsi1_sk, mk_lsi1_sk, mk_pk, mk_sk},
+    dynamodb::record::{mk_gsi1_pk, mk_gsi1_sk, mk_lsi1_sk, mk_pk, mk_sk, WatchlistProductRecord},
     dynamodb::repository::{
         WatchlistProductDynamoDbRepository, WatchlistProductDynamoDbRepositoryImpl,
     },
@@ -19,15 +23,37 @@ use product_watchlist::{
 };
 use product_watchlist_api::watchlist_get::handle;
 use test_api::*;
-use time::{OffsetDateTime, format_description::well_known::Rfc3339};
+use time::{format_description::well_known::Rfc3339, OffsetDateTime};
+use user::dynamodb::repository::UserDynamoDbRepositoryImpl;
+use user::service::user_service::UserServiceImpl;
 
 #[localstack_test(services = [DynamoDB()])]
 async fn should_200_when_sort_created_asc() {
     let client = get_dynamodb_client().await;
     let product_repository = ProductDynamoDbRepositoryImpl::new(client, "table_1");
     let watchlist_repository = WatchlistProductDynamoDbRepositoryImpl::new(client, "table_1");
+    let notification_repository = NotificationDynamoDbRepositoryImpl::new(client, "table_1");
+    let user_repository = UserDynamoDbRepositoryImpl::new(client, "table_1");
     let get_product_service = GetProductServiceImpl::new(&product_repository);
-    let service = ProductWatchListServiceImpl::new(&watchlist_repository, &get_product_service);
+    let noop_ses = NoopSesAdapter;
+    let noop_s3 = NoopS3Adapter;
+    let user_service = UserServiceImpl::new(&user_repository);
+    let notification_service = NotificationServiceImpl::new(
+        &notification_repository,
+        &user_service,
+        &noop_ses,
+        &noop_s3,
+        "",
+        "",
+        "",
+        "noreply@example.com".parse().unwrap(),
+    );
+    let personalization_service = ProductPersonalizationServiceImpl::new(
+        &watchlist_repository,
+        &notification_service,
+        &user_service,
+    );
+    let service = ProductWatchListServiceImpl::new(&watchlist_repository, &product_repository);
 
     let product_records = fake::vec![ProductRecord; 23];
     let put_res = product_repository
@@ -78,7 +104,14 @@ async fn should_200_when_sort_created_asc() {
         context: Default::default(),
     };
 
-    let response = handle(lambda_event, &service).await.unwrap();
+    let response = handle(
+        lambda_event,
+        &service,
+        &get_product_service,
+        &personalization_service,
+    )
+    .await
+    .unwrap();
     assert_eq!(200, response.status_code);
 
     let actual: TimeCursoredData<PersonalizedData<GetProductData, ProductUserStateData>> =
@@ -101,8 +134,28 @@ async fn should_200_when_sort_created_asc_search_after() {
     let client = get_dynamodb_client().await;
     let product_repository = ProductDynamoDbRepositoryImpl::new(client, "table_1");
     let watchlist_repository = WatchlistProductDynamoDbRepositoryImpl::new(client, "table_1");
+    let notification_repository = NotificationDynamoDbRepositoryImpl::new(client, "table_1");
+    let user_repository = UserDynamoDbRepositoryImpl::new(client, "table_1");
     let get_product_service = GetProductServiceImpl::new(&product_repository);
-    let service = ProductWatchListServiceImpl::new(&watchlist_repository, &get_product_service);
+    let noop_ses = NoopSesAdapter;
+    let noop_s3 = NoopS3Adapter;
+    let user_service = UserServiceImpl::new(&user_repository);
+    let notification_service = NotificationServiceImpl::new(
+        &notification_repository,
+        &user_service,
+        &noop_ses,
+        &noop_s3,
+        "",
+        "",
+        "",
+        "noreply@example.com".parse().unwrap(),
+    );
+    let personalization_service = ProductPersonalizationServiceImpl::new(
+        &watchlist_repository,
+        &notification_service,
+        &user_service,
+    );
+    let service = ProductWatchListServiceImpl::new(&watchlist_repository, &product_repository);
 
     let product_records = fake::vec![ProductRecord; 23];
     let put_res = product_repository
@@ -162,7 +215,14 @@ async fn should_200_when_sort_created_asc_search_after() {
         context: Default::default(),
     };
 
-    let response = handle(lambda_event, &service).await.unwrap();
+    let response = handle(
+        lambda_event,
+        &service,
+        &get_product_service,
+        &personalization_service,
+    )
+    .await
+    .unwrap();
     assert_eq!(200, response.status_code);
 
     let actual: TimeCursoredData<PersonalizedData<GetProductData, ProductUserStateData>> =
@@ -186,8 +246,28 @@ async fn should_200_when_sort_created_desc() {
     let client = get_dynamodb_client().await;
     let product_repository = ProductDynamoDbRepositoryImpl::new(client, "table_1");
     let watchlist_repository = WatchlistProductDynamoDbRepositoryImpl::new(client, "table_1");
+    let notification_repository = NotificationDynamoDbRepositoryImpl::new(client, "table_1");
+    let user_repository = UserDynamoDbRepositoryImpl::new(client, "table_1");
     let get_product_service = GetProductServiceImpl::new(&product_repository);
-    let service = ProductWatchListServiceImpl::new(&watchlist_repository, &get_product_service);
+    let noop_ses = NoopSesAdapter;
+    let noop_s3 = NoopS3Adapter;
+    let user_service = UserServiceImpl::new(&user_repository);
+    let notification_service = NotificationServiceImpl::new(
+        &notification_repository,
+        &user_service,
+        &noop_ses,
+        &noop_s3,
+        "",
+        "",
+        "",
+        "noreply@example.com".parse().unwrap(),
+    );
+    let personalization_service = ProductPersonalizationServiceImpl::new(
+        &watchlist_repository,
+        &notification_service,
+        &user_service,
+    );
+    let service = ProductWatchListServiceImpl::new(&watchlist_repository, &product_repository);
 
     let product_records = fake::vec![ProductRecord; 23];
     let put_res = product_repository
@@ -239,7 +319,14 @@ async fn should_200_when_sort_created_desc() {
         context: Default::default(),
     };
 
-    let response = handle(lambda_event, &service).await.unwrap();
+    let response = handle(
+        lambda_event,
+        &service,
+        &get_product_service,
+        &personalization_service,
+    )
+    .await
+    .unwrap();
     assert_eq!(200, response.status_code);
 
     let actual: TimeCursoredData<PersonalizedData<GetProductData, ProductUserStateData>> =
@@ -262,8 +349,28 @@ async fn should_200_when_sort_created_desc_search_after() {
     let client = get_dynamodb_client().await;
     let product_repository = ProductDynamoDbRepositoryImpl::new(client, "table_1");
     let watchlist_repository = WatchlistProductDynamoDbRepositoryImpl::new(client, "table_1");
+    let notification_repository = NotificationDynamoDbRepositoryImpl::new(client, "table_1");
+    let user_repository = UserDynamoDbRepositoryImpl::new(client, "table_1");
     let get_product_service = GetProductServiceImpl::new(&product_repository);
-    let service = ProductWatchListServiceImpl::new(&watchlist_repository, &get_product_service);
+    let noop_ses = NoopSesAdapter;
+    let noop_s3 = NoopS3Adapter;
+    let user_service = UserServiceImpl::new(&user_repository);
+    let notification_service = NotificationServiceImpl::new(
+        &notification_repository,
+        &user_service,
+        &noop_ses,
+        &noop_s3,
+        "",
+        "",
+        "",
+        "noreply@example.com".parse().unwrap(),
+    );
+    let personalization_service = ProductPersonalizationServiceImpl::new(
+        &watchlist_repository,
+        &notification_service,
+        &user_service,
+    );
+    let service = ProductWatchListServiceImpl::new(&watchlist_repository, &product_repository);
 
     let product_records = fake::vec![ProductRecord; 23];
     let put_res = product_repository
@@ -323,7 +430,14 @@ async fn should_200_when_sort_created_desc_search_after() {
         context: Default::default(),
     };
 
-    let response = handle(lambda_event, &service).await.unwrap();
+    let response = handle(
+        lambda_event,
+        &service,
+        &get_product_service,
+        &personalization_service,
+    )
+    .await
+    .unwrap();
     assert_eq!(200, response.status_code);
 
     let actual: TimeCursoredData<PersonalizedData<GetProductData, ProductUserStateData>> =
@@ -379,8 +493,28 @@ async fn should_respond_200_and_respect_language_query_param(
     let client = get_dynamodb_client().await;
     let product_repository = ProductDynamoDbRepositoryImpl::new(client, "table_1");
     let watchlist_repository = WatchlistProductDynamoDbRepositoryImpl::new(client, "table_1");
+    let notification_repository = NotificationDynamoDbRepositoryImpl::new(client, "table_1");
+    let user_repository = UserDynamoDbRepositoryImpl::new(client, "table_1");
     let get_product_service = GetProductServiceImpl::new(&product_repository);
-    let service = ProductWatchListServiceImpl::new(&watchlist_repository, &get_product_service);
+    let noop_ses = NoopSesAdapter;
+    let noop_s3 = NoopS3Adapter;
+    let user_service = UserServiceImpl::new(&user_repository);
+    let notification_service = NotificationServiceImpl::new(
+        &notification_repository,
+        &user_service,
+        &noop_ses,
+        &noop_s3,
+        "",
+        "",
+        "",
+        "noreply@example.com".parse().unwrap(),
+    );
+    let personalization_service = ProductPersonalizationServiceImpl::new(
+        &watchlist_repository,
+        &notification_service,
+        &user_service,
+    );
+    let service = ProductWatchListServiceImpl::new(&watchlist_repository, &product_repository);
 
     let mut product_records = fake::vec![ProductRecord; 23];
     for product_record in &mut product_records {
@@ -450,36 +584,35 @@ async fn should_respond_200_and_respect_language_query_param(
         context: Default::default(),
     };
 
-    let response = handle(lambda_event, &service).await.unwrap();
+    let response = handle(
+        lambda_event,
+        &service,
+        &get_product_service,
+        &personalization_service,
+    )
+    .await
+    .unwrap();
     assert_eq!(200, response.status_code);
 
     let actual: TimeCursoredData<PersonalizedData<GetProductData, ProductUserStateData>> =
         serde_json::from_value(extract_apigw_response_json_body!(response)).unwrap();
     assert!(actual.size > 0);
     assert!(!actual.items.is_empty());
-    assert!(
-        actual
-            .items
-            .iter()
-            .all(|item| item.item.title.text == expected_title)
-    );
-    assert!(
-        actual
-            .items
-            .iter()
-            .all(|item| item.item.title.language == expected_title_lang.into())
-    );
-    assert!(
-        actual
-            .items
-            .iter()
-            .all(|item| item.item.description.as_ref().unwrap().text == expected_description)
-    );
-    assert!(
-        actual
-            .items
-            .iter()
-            .all(|item| item.item.description.as_ref().unwrap().language
-                == expected_description_lang.into())
-    );
+    assert!(actual
+        .items
+        .iter()
+        .all(|item| item.item.title.text == expected_title));
+    assert!(actual
+        .items
+        .iter()
+        .all(|item| item.item.title.language == expected_title_lang.into()));
+    assert!(actual
+        .items
+        .iter()
+        .all(|item| item.item.description.as_ref().unwrap().text == expected_description));
+    assert!(actual
+        .items
+        .iter()
+        .all(|item| item.item.description.as_ref().unwrap().language
+            == expected_description_lang.into()));
 }

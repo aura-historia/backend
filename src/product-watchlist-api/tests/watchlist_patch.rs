@@ -2,23 +2,28 @@ use common::personalized::api::PersonalizedData;
 use fake::Fake;
 use fake::Faker;
 use lambda_runtime::LambdaEvent;
+use notification::dynamodb::repository::NotificationDynamoDbRepositoryImpl;
+use notification::service::noop_adapters::{NoopS3Adapter, NoopSesAdapter};
+use notification::service::notification_service::NotificationServiceImpl;
 use product::data::get_data::GetProductData;
 use product::data::user_state_data::ProductUserStateData;
 use product::dynamodb::product_record::ProductRecord;
 use product::dynamodb::repository::ProductDynamoDbRepository;
 use product::dynamodb::repository::ProductDynamoDbRepositoryImpl;
 use product::service::get_service::GetProductServiceImpl;
+use product_personalization::service::ProductPersonalizationServiceImpl;
 use product_watchlist::dynamodb::record::WatchlistProductRecord;
 use product_watchlist::dynamodb::repository::WatchlistProductDynamoDbRepository;
 use product_watchlist::dynamodb::repository::WatchlistProductDynamoDbRepositoryImpl;
 use product_watchlist::service::product_watchlist_service::ProductWatchListServiceImpl;
-use product_watchlist_api::watchlist_patch::WatchlistProductPatch;
 use product_watchlist_api::watchlist_patch::handle;
+use product_watchlist_api::watchlist_patch::WatchlistProductPatch;
 use test_api::*;
 use time::OffsetDateTime;
 use user::dynamodb::repository::UserDynamoDbRepository;
 use user::dynamodb::repository::UserDynamoDbRepositoryImpl;
 use user::dynamodb::user_record::UserRecord;
+use user::service::user_service::UserServiceImpl;
 
 #[rstest::rstest]
 #[test_attr(apply(test))]
@@ -39,8 +44,28 @@ async fn should_respond_with_patched_notifications(
         WatchlistProductDynamoDbRepositoryImpl::new(get_dynamodb_client().await, "table_1");
     let product_repository =
         ProductDynamoDbRepositoryImpl::new(get_dynamodb_client().await, "table_1");
+    let notification_repository =
+        NotificationDynamoDbRepositoryImpl::new(get_dynamodb_client().await, "table_1");
     let get_product_service = GetProductServiceImpl::new(&product_repository);
-    let service = ProductWatchListServiceImpl::new(&watchlist_repository, &get_product_service);
+    let noop_ses = NoopSesAdapter;
+    let noop_s3 = NoopS3Adapter;
+    let user_service = UserServiceImpl::new(&user_repository);
+    let notification_service = NotificationServiceImpl::new(
+        &notification_repository,
+        &user_service,
+        &noop_ses,
+        &noop_s3,
+        "",
+        "",
+        "",
+        "noreply@example.com".parse().unwrap(),
+    );
+    let personalization_service = ProductPersonalizationServiceImpl::new(
+        &watchlist_repository,
+        &notification_service,
+        &user_service,
+    );
+    let service = ProductWatchListServiceImpl::new(&watchlist_repository, &product_repository);
 
     let user_record = Faker.fake::<UserRecord>();
     let _ = user_repository
@@ -53,12 +78,10 @@ async fn should_respond_with_patched_notifications(
         .put_product_records([product_record.clone()].into())
         .await
         .unwrap();
-    assert!(
-        put_product_res
-            .unprocessed_items
-            .unwrap_or_default()
-            .is_empty()
-    );
+    assert!(put_product_res
+        .unprocessed_items
+        .unwrap_or_default()
+        .is_empty());
 
     let created = OffsetDateTime::now_utc();
     let watchlist_record = WatchlistProductRecord {
@@ -98,7 +121,14 @@ async fn should_respond_with_patched_notifications(
         context: Default::default(),
     };
 
-    let response = handle(lambda_event, &service).await.unwrap();
+    let response = handle(
+        lambda_event,
+        &service,
+        &get_product_service,
+        &personalization_service,
+    )
+    .await
+    .unwrap();
     assert_eq!(200, response.status_code);
 
     let patched: PersonalizedData<GetProductData, ProductUserStateData> =
