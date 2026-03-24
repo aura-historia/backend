@@ -152,7 +152,7 @@ Resources:
   TableOne:
     Type: AWS::DynamoDB::Table
     Properties:
-      TableName: "table_1-dev"
+      TableName: "table_1-dev-v2"
       AttributeDefinitions:
         - AttributeName: pk
           AttributeType: S

@@ -1,11 +1,17 @@
+use common::personalized::api::PersonalizedData;
 use fake::Fake;
 use fake::Faker;
 use lambda_runtime::LambdaEvent;
+use notification::dynamodb::repository::NotificationDynamoDbRepositoryImpl;
+use notification::service::noop_adapters::{NoopS3Adapter, NoopSesAdapter};
+use notification::service::notification_service::NotificationServiceImpl;
+use product::data::get_data::GetProductData;
+use product::data::user_state_data::ProductUserStateData;
 use product::dynamodb::product_record::ProductRecord;
 use product::dynamodb::repository::ProductDynamoDbRepository;
 use product::dynamodb::repository::ProductDynamoDbRepositoryImpl;
 use product::service::get_service::GetProductServiceImpl;
-use product_watchlist::data::watchlist_product_data::WatchlistProductData;
+use product_personalization::service::ProductPersonalizationServiceImpl;
 use product_watchlist::dynamodb::record::WatchlistProductRecord;
 use product_watchlist::dynamodb::repository::WatchlistProductDynamoDbRepository;
 use product_watchlist::dynamodb::repository::WatchlistProductDynamoDbRepositoryImpl;
@@ -17,6 +23,7 @@ use time::OffsetDateTime;
 use user::dynamodb::repository::UserDynamoDbRepository;
 use user::dynamodb::repository::UserDynamoDbRepositoryImpl;
 use user::dynamodb::user_record::UserRecord;
+use user::service::user_service::UserServiceImpl;
 
 #[rstest::rstest]
 #[test_attr(apply(test))]
@@ -37,12 +44,28 @@ async fn should_respond_with_patched_notifications(
         WatchlistProductDynamoDbRepositoryImpl::new(get_dynamodb_client().await, "table_1");
     let product_repository =
         ProductDynamoDbRepositoryImpl::new(get_dynamodb_client().await, "table_1");
+    let notification_repository =
+        NotificationDynamoDbRepositoryImpl::new(get_dynamodb_client().await, "table_1");
     let get_product_service = GetProductServiceImpl::new(&product_repository);
-    let service = ProductWatchListServiceImpl::new(
-        &watchlist_repository,
-        &product_repository,
-        &get_product_service,
+    let noop_ses = NoopSesAdapter;
+    let noop_s3 = NoopS3Adapter;
+    let user_service = UserServiceImpl::new(&user_repository);
+    let notification_service = NotificationServiceImpl::new(
+        &notification_repository,
+        &user_service,
+        &noop_ses,
+        &noop_s3,
+        "",
+        "",
+        "",
+        "noreply@example.com".parse().unwrap(),
     );
+    let personalization_service = ProductPersonalizationServiceImpl::new(
+        &watchlist_repository,
+        &notification_service,
+        &user_service,
+    );
+    let service = ProductWatchListServiceImpl::new(&watchlist_repository, &product_repository);
 
     let user_record = Faker.fake::<UserRecord>();
     let _ = user_repository
@@ -90,6 +113,8 @@ async fn should_respond_with_patched_notifications(
             .http_method(http::Method::PATCH)
             .path_parameter("shopId", product_record.shop_id)
             .path_parameter("shopsProductId", product_record.shops_product_id.clone())
+            .query_string_parameter("language", "de")
+            .query_string_parameter("currency", "EUR")
             .body_serde(&WatchlistProductPatch {
                 notifications: Some(new_notifications),
             })
@@ -98,12 +123,22 @@ async fn should_respond_with_patched_notifications(
         context: Default::default(),
     };
 
-    let response = handle(lambda_event, &service).await.unwrap();
+    let response = handle(
+        lambda_event,
+        &service,
+        &get_product_service,
+        &personalization_service,
+    )
+    .await
+    .unwrap();
     assert_eq!(200, response.status_code);
 
-    let patched_watchlist_product: WatchlistProductData =
+    let patched: PersonalizedData<GetProductData, ProductUserStateData> =
         serde_json::from_value(extract_apigw_response_json_body!(response)).unwrap();
-    assert_eq!(new_notifications, patched_watchlist_product.notifications);
+    assert_eq!(
+        new_notifications,
+        patched.user_state.unwrap().watchlist.notifications
+    );
 
     let updated_watchlist_product_record = watchlist_repository
         .get_watchlist_record(

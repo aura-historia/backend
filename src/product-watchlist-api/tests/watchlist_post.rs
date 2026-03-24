@@ -1,11 +1,15 @@
 use common::product_id::api::ProductKeyData;
 use fake::{Fake, Faker};
 use lambda_runtime::LambdaEvent;
+use notification::dynamodb::repository::NotificationDynamoDbRepositoryImpl;
+use notification::service::noop_adapters::{NoopS3Adapter, NoopSesAdapter};
+use notification::service::notification_service::NotificationServiceImpl;
 use product::dynamodb::{
     product_record::ProductRecord,
     repository::{ProductDynamoDbRepository, ProductDynamoDbRepositoryImpl},
 };
 use product::service::get_service::GetProductServiceImpl;
+use product_personalization::service::ProductPersonalizationServiceImpl;
 use product_watchlist::{
     dynamodb::record::{WatchlistProductRecord, mk_lsi1_sk, mk_pk, mk_sk},
     dynamodb::repository::{
@@ -20,7 +24,9 @@ use product_watchlist::{
 use product_watchlist_api::watchlist_post::handle;
 use test_api::*;
 use time::OffsetDateTime;
+use user::dynamodb::repository::{UserDynamoDbRepository, UserDynamoDbRepositoryImpl};
 use user::dynamodb::user_record::UserRecord;
+use user::service::user_service::UserServiceImpl;
 
 #[localstack_test(services = [DynamoDB()])]
 async fn should_201_when_new_watchlist_entry_would_not_exceed_quota() {
@@ -29,12 +35,32 @@ async fn should_201_when_new_watchlist_entry_would_not_exceed_quota() {
 
     let product_repository = ProductDynamoDbRepositoryImpl::new(client, "table_1");
     let watchlist_repository = WatchlistProductDynamoDbRepositoryImpl::new(client, "table_1");
+    let notification_repository = NotificationDynamoDbRepositoryImpl::new(client, "table_1");
+    let user_repository = UserDynamoDbRepositoryImpl::new(client, "table_1");
+    user_repository
+        .put_user_record(user_record.clone())
+        .await
+        .unwrap();
     let get_product_service = GetProductServiceImpl::new(&product_repository);
-    let service = ProductWatchListServiceImpl::new(
-        &watchlist_repository,
-        &product_repository,
-        &get_product_service,
+    let noop_ses = NoopSesAdapter;
+    let noop_s3 = NoopS3Adapter;
+    let user_service = UserServiceImpl::new(&user_repository);
+    let notification_service = NotificationServiceImpl::new(
+        &notification_repository,
+        &user_service,
+        &noop_ses,
+        &noop_s3,
+        "",
+        "",
+        "",
+        "noreply@example.com".parse().unwrap(),
     );
+    let personalization_service = ProductPersonalizationServiceImpl::new(
+        &watchlist_repository,
+        &notification_service,
+        &user_service,
+    );
+    let service = ProductWatchListServiceImpl::new(&watchlist_repository, &product_repository);
 
     let product_records = fake::vec![ProductRecord; MAX_WATCHLIST_QUOTA - 1];
     let put_res = product_repository
@@ -86,11 +112,20 @@ async fn should_201_when_new_watchlist_entry_would_not_exceed_quota() {
                 shops_product_id: new_product_record.shops_product_id.clone(),
             })
             .jwt_claim("sub", user_id)
+            .query_string_parameter("language", "de")
+            .query_string_parameter("currency", "EUR")
             .build(),
         context: Default::default(),
     };
 
-    let response = handle(lambda_event, &service).await.unwrap();
+    let response = handle(
+        lambda_event,
+        &service,
+        &get_product_service,
+        &personalization_service,
+    )
+    .await
+    .unwrap();
     assert_eq!(201, response.status_code);
 }
 
@@ -101,12 +136,28 @@ async fn should_422_when_new_watchlist_entry_would_exceed_quota() {
 
     let product_repository = ProductDynamoDbRepositoryImpl::new(client, "table_1");
     let watchlist_repository = WatchlistProductDynamoDbRepositoryImpl::new(client, "table_1");
+    let notification_repository = NotificationDynamoDbRepositoryImpl::new(client, "table_1");
+    let user_repository = UserDynamoDbRepositoryImpl::new(client, "table_1");
     let get_product_service = GetProductServiceImpl::new(&product_repository);
-    let service = ProductWatchListServiceImpl::new(
-        &watchlist_repository,
-        &product_repository,
-        &get_product_service,
+    let noop_ses = NoopSesAdapter;
+    let noop_s3 = NoopS3Adapter;
+    let user_service = UserServiceImpl::new(&user_repository);
+    let notification_service = NotificationServiceImpl::new(
+        &notification_repository,
+        &user_service,
+        &noop_ses,
+        &noop_s3,
+        "",
+        "",
+        "",
+        "noreply@example.com".parse().unwrap(),
     );
+    let personalization_service = ProductPersonalizationServiceImpl::new(
+        &watchlist_repository,
+        &notification_service,
+        &user_service,
+    );
+    let service = ProductWatchListServiceImpl::new(&watchlist_repository, &product_repository);
 
     let product_records = fake::vec![ProductRecord; MAX_WATCHLIST_QUOTA];
     let put_res = product_repository
@@ -158,10 +209,19 @@ async fn should_422_when_new_watchlist_entry_would_exceed_quota() {
                 shops_product_id: overflowing_product_record.shops_product_id.clone(),
             })
             .jwt_claim("sub", user_id)
+            .query_string_parameter("language", "de")
+            .query_string_parameter("currency", "EUR")
             .build(),
         context: Default::default(),
     };
 
-    let actual = handle(lambda_event, &service).await.unwrap_err();
+    let actual = handle(
+        lambda_event,
+        &service,
+        &get_product_service,
+        &personalization_service,
+    )
+    .await
+    .unwrap_err();
     assert_eq!(422, actual.status);
 }
