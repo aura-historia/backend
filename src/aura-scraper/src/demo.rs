@@ -37,7 +37,7 @@ use aura_scraper::normalization::product::NormalizedProduct;
 use aura_scraper::normalization::product_normalization_service::ProductNormalizationServiceImpl;
 use aura_scraper::normalization::state_mapping_repository::ProductStateMappingRepositoryImpl;
 use aura_scraper::normalization::state_mapping_service::ProductStateMappingServiceImpl;
-use aura_scraper::scraper_service::{ReqwestHtmlFetcher, ScraperService, ScraperServiceImpl};
+use aura_scraper::scraper_service::{ScraperService, ScraperServiceImpl, SpiderHtmlFetcher};
 use common::language::data::LocalizedTextData;
 use common::price::data::PriceData;
 use common::shop_id::ShopId;
@@ -46,9 +46,9 @@ use llm::builder::{LLMBackend, LLMBuilder};
 use product::data::product_image_data::ProductImageData;
 use product::data::product_state_data::ProductStateData;
 use sqlx::PgPool;
-use testcontainers::ImageExt;
 use testcontainers::core::IntoContainerPort;
 use testcontainers::runners::AsyncRunner;
+use testcontainers::ImageExt;
 use testcontainers_modules::postgres::Postgres as PgImage;
 use time::OffsetDateTime;
 use tracing::{error, info};
@@ -103,7 +103,11 @@ impl From<NormalizedProduct> for DemoProduct {
             price_estimate_max: p.price_estimate_max.map(Into::into),
             state: p.state.into(),
             url: p.url,
-            images: p.images.into_iter().map(Into::into).collect(),
+            images: p
+                .images
+                .into_iter()
+                .map(|img| ProductImageData::from_with_consent(img, true))
+                .collect(),
             auction_start: p.auction_start,
             auction_end: p.auction_end,
         }
@@ -112,6 +116,7 @@ impl From<NormalizedProduct> for DemoProduct {
 
 #[tokio::main]
 async fn main() {
+    dotenvy::dotenv().ok();
     let targets: &[ScrapeTarget] = &[
         ScrapeTarget {
             shop_id: "8ded4706-dc72-4b0b-9357-9192e18e3d5a".try_into().unwrap(),
@@ -322,13 +327,7 @@ fn build_scraper_service(pool: &'static PgPool) -> ScraperServiceImpl {
     let schema_svc = ProductSchemaServiceImpl::new(schema_llm_builder, schema_repo)
         .expect("failed to build ProductSchemaServiceImpl");
 
-    // HTTP fetcher with a sensible timeout and user-agent.
-    let http_client = reqwest::Client::builder()
-        .user_agent("aura-historia-scraper-demo/1.0")
-        .timeout(Duration::from_secs(30))
-        .build()
-        .expect("failed to build reqwest::Client");
-    let fetcher = Box::new(ReqwestHtmlFetcher::new(http_client));
+    let fetcher = Box::new(SpiderHtmlFetcher::new());
 
     ScraperServiceImpl::new(fetcher, Box::new(schema_svc), Box::new(normalization_svc))
 }
