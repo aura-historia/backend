@@ -281,7 +281,7 @@ Resources:
   TableOneStreamToEventBusPipe:
     Type: AWS::Pipes::Pipe
     Properties:
-      Name: "tableone-stream-to-eventbus-dev"
+      Name: "tableone-v2-stream-to-eventbus-dev"
       RoleArn: !GetAtt PipeRole.Arn
       Source: !GetAtt TableOne.StreamArn
       SourceParameters:
