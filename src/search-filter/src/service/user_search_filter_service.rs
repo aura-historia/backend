@@ -427,18 +427,15 @@ impl<'a> UserSearchFilterService for UserSearchFilterServiceImpl<'a> {
             .map(SearchFilterProductMatch::from)
             .collect();
 
-        let total = if matches.is_empty() {
-            0
-        } else {
-            self.repository
-                .count_user_search_filter_match_records_for_filter(
-                    user_id,
-                    search_filter_id,
-                    Some(cursor),
-                    scan_index_forward,
-                )
-                .await?
-        };
+        let total = self
+            .repository
+            .count_user_search_filter_match_records_for_filter(
+                user_id,
+                search_filter_id,
+                Some(cursor),
+                scan_index_forward,
+            )
+            .await?;
 
         Ok(CursoredResult {
             cursor: Cursor {
@@ -1878,6 +1875,9 @@ mod tests {
             repository
                 .expect_query_user_search_filter_match_records_for_filter()
                 .return_once(|_, _, _, _| Box::pin(async { Ok(vec![]) }));
+            repository
+                .expect_count_user_search_filter_match_records_for_filter()
+                .return_once(|_, _, _, _| Box::pin(async { Ok(0) }));
             let service = UserSearchFilterServiceImpl::new(&repository);
 
             let actual = service
