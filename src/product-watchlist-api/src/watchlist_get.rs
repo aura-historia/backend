@@ -3,6 +3,7 @@ use common::api::error::ApiError;
 use common::currency::data::api::extract_currency_query;
 use common::language::data::api::extract_language_query;
 use common::pagination::cursor::api::{TimeCursoredData, extract_time_cursor_query};
+use common::personalized::api::PersonalizedData;
 use common::user_id::api::extract_user_id_request_context;
 use common::{
     api::api_gateway_v2_http_response_builder::ApiGatewayV2HttpResponseBuilder,
@@ -10,35 +11,24 @@ use common::{
 };
 use lambda_runtime::LambdaEvent;
 use product::data::get_data::GetProductData;
+use product::data::user_state_data::{ProductUserStateData, WatchlistUserStateData};
 use product_watchlist::core::watchlist_product::LocalizedWatchlistProductView;
 use product_watchlist::data::sort_watchlist_product_field_data::SortWatchlistProductFieldData;
 use product_watchlist::service::product_watchlist_service::ProductWatchListService;
 use product_watchlist::service::sort_watchlist_product_field::SortWatchlistProductField;
-use serde::{Deserialize, Serialize};
-use time::OffsetDateTime;
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct WatchlistProductDataView {
-    pub product: GetProductData,
-
-    pub notifications: bool,
-
-    #[serde(with = "time::serde::rfc3339")]
-    pub created: OffsetDateTime,
-
-    #[serde(with = "time::serde::rfc3339")]
-    pub updated: OffsetDateTime,
-}
-
-impl From<LocalizedWatchlistProductView> for WatchlistProductDataView {
-    fn from(view: LocalizedWatchlistProductView) -> Self {
-        WatchlistProductDataView {
-            product: view.product.into(),
-            notifications: view.notifications,
-            created: view.created,
-            updated: view.updated,
-        }
+fn to_personalized_data(
+    view: LocalizedWatchlistProductView,
+) -> PersonalizedData<GetProductData, ProductUserStateData> {
+    PersonalizedData {
+        item: GetProductData::from(view.product),
+        user_state: Some(ProductUserStateData {
+            watchlist: WatchlistUserStateData {
+                watching: true,
+                notifications: view.notifications,
+            },
+            ..Default::default()
+        }),
     }
 }
 
@@ -65,7 +55,7 @@ pub async fn handle(
             &cursor,
         )
         .await?
-        .map_item(WatchlistProductDataView::from);
+        .map_item(to_personalized_data);
 
     Ok(ApiGatewayV2HttpResponseBuilder::json(200)
         .cache_control("no-store", None, None)

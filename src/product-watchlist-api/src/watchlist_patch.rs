@@ -2,15 +2,17 @@ use aws_lambda_events::apigw::{ApiGatewayV2httpRequest, ApiGatewayV2httpResponse
 use common::api::api_gateway_v2_http_response_builder::ApiGatewayV2HttpResponseBuilder;
 use common::api::error::ApiError;
 use common::api::error_code::BAD_BODY_VALUE;
+use common::currency::data::api::extract_currency_query;
+use common::language::data::api::extract_language_query;
+use common::personalized::api::PersonalizedData;
 use common::shop_id::api::extract_shop_id_path;
 use common::shops_product_id::api::extract_shops_product_id_path;
 use common::user_id::api::extract_user_id_request_context;
 use lambda_runtime::LambdaEvent;
-use product_watchlist::{
-    data::watchlist_product_data::WatchlistProductData,
-    service::{
-        command::UpdateWatchlistProductCommand, product_watchlist_service::ProductWatchListService,
-    },
+use product::data::get_data::GetProductData;
+use product::data::user_state_data::{ProductUserStateData, WatchlistUserStateData};
+use product_watchlist::service::{
+    command::UpdateWatchlistProductCommand, product_watchlist_service::ProductWatchListService,
 };
 use serde::{Deserialize, Serialize};
 
@@ -37,6 +39,8 @@ pub async fn handle(
     tracing::Span::current().record("userId", user_id.to_string());
     let shop_id = extract_shop_id_path(&event.payload.path_parameters)?;
     let shops_product_id = extract_shops_product_id_path(&event.payload.path_parameters)?;
+    let language = extract_language_query(&event.payload.query_string_parameters)?;
+    let currency = extract_currency_query(&event.payload.query_string_parameters)?;
     let body = event
         .payload
         .body
@@ -51,12 +55,29 @@ pub async fn handle(
     })?;
 
     let watchlist_product = service
-        .update_watchlist_product(&user_id, &shop_id, &shops_product_id, patch.into())
+        .update_watchlist_product(
+            &user_id,
+            &shop_id,
+            &shops_product_id,
+            patch.into(),
+            &[language.into()],
+            &currency.into(),
+        )
         .await?;
 
+    let personalized = PersonalizedData {
+        item: GetProductData::from(watchlist_product.product),
+        user_state: Some(ProductUserStateData {
+            watchlist: WatchlistUserStateData {
+                watching: true,
+                notifications: watchlist_product.notifications,
+            },
+            ..Default::default()
+        }),
+    };
+
     Ok(ApiGatewayV2HttpResponseBuilder::json(200)
-        .last_modified(watchlist_product.updated)
-        .body_serde(WatchlistProductData::from(watchlist_product))?
+        .body_serde(personalized)?
         .build())
 }
 
@@ -76,7 +97,7 @@ mod tests {
         let mut service = MockProductWatchListService::default();
         service
             .expect_update_watchlist_product()
-            .return_once(|_, _, _, _| Box::pin(async { Ok(Faker.fake()) }));
+            .return_once(|_, _, _, _, _, _| Box::pin(async { Ok(Faker.fake()) }));
 
         let lambda_event = LambdaEvent {
             payload: ApiGatewayV2httpRequestProxy::builder()
@@ -87,6 +108,8 @@ mod tests {
                     "created",
                     OffsetDateTime::now_utc().format(&Rfc3339).unwrap(),
                 )
+                .query_string_parameter("language", "de")
+                .query_string_parameter("currency", "EUR")
                 .body_serde(&WatchlistProductPatch {
                     notifications: Some(true),
                 })

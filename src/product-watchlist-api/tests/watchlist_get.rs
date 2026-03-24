@@ -1,7 +1,10 @@
 use common::language::domain::Language;
 use common::language::record::{LanguageRecord, TextRecord};
+use common::personalized::api::PersonalizedData;
 use common::{pagination::cursor::api::TimeCursoredData, user_id::UserId};
 use lambda_runtime::LambdaEvent;
+use product::data::get_data::GetProductData;
+use product::data::user_state_data::ProductUserStateData;
 use product::dynamodb::{
     product_record::ProductRecord,
     repository::{ProductDynamoDbRepository, ProductDynamoDbRepositoryImpl},
@@ -14,7 +17,7 @@ use product_watchlist::{
     },
     service::product_watchlist_service::ProductWatchListServiceImpl,
 };
-use product_watchlist_api::watchlist_get::{WatchlistProductDataView, handle};
+use product_watchlist_api::watchlist_get::handle;
 use test_api::*;
 use time::{OffsetDateTime, format_description::well_known::Rfc3339};
 
@@ -24,11 +27,7 @@ async fn should_200_when_sort_created_asc() {
     let product_repository = ProductDynamoDbRepositoryImpl::new(client, "table_1");
     let watchlist_repository = WatchlistProductDynamoDbRepositoryImpl::new(client, "table_1");
     let get_product_service = GetProductServiceImpl::new(&product_repository);
-    let service = ProductWatchListServiceImpl::new(
-        &watchlist_repository,
-        &product_repository,
-        &get_product_service,
-    );
+    let service = ProductWatchListServiceImpl::new(&watchlist_repository, &get_product_service);
 
     let product_records = fake::vec![ProductRecord; 23];
     let put_res = product_repository
@@ -82,7 +81,7 @@ async fn should_200_when_sort_created_asc() {
     let response = handle(lambda_event, &service).await.unwrap();
     assert_eq!(200, response.status_code);
 
-    let actual: TimeCursoredData<WatchlistProductDataView> =
+    let actual: TimeCursoredData<PersonalizedData<GetProductData, ProductUserStateData>> =
         serde_json::from_value(extract_apigw_response_json_body!(response)).unwrap();
     assert_eq!(10, actual.size);
     assert_eq!(10, actual.items.len());
@@ -91,7 +90,7 @@ async fn should_200_when_sort_created_asc() {
         actual
             .items
             .into_iter()
-            .map(|item| item.product.product_id)
+            .map(|item| item.item.product_id)
             .collect::<Vec<_>>()
     );
     assert_eq!(23, actual.total.unwrap());
@@ -103,11 +102,7 @@ async fn should_200_when_sort_created_asc_search_after() {
     let product_repository = ProductDynamoDbRepositoryImpl::new(client, "table_1");
     let watchlist_repository = WatchlistProductDynamoDbRepositoryImpl::new(client, "table_1");
     let get_product_service = GetProductServiceImpl::new(&product_repository);
-    let service = ProductWatchListServiceImpl::new(
-        &watchlist_repository,
-        &product_repository,
-        &get_product_service,
-    );
+    let service = ProductWatchListServiceImpl::new(&watchlist_repository, &get_product_service);
 
     let product_records = fake::vec![ProductRecord; 23];
     let put_res = product_repository
@@ -170,7 +165,7 @@ async fn should_200_when_sort_created_asc_search_after() {
     let response = handle(lambda_event, &service).await.unwrap();
     assert_eq!(200, response.status_code);
 
-    let actual: TimeCursoredData<WatchlistProductDataView> =
+    let actual: TimeCursoredData<PersonalizedData<GetProductData, ProductUserStateData>> =
         serde_json::from_value(extract_apigw_response_json_body!(response)).unwrap();
     assert_eq!(12, actual.size);
     assert_eq!(12, actual.items.len());
@@ -179,7 +174,7 @@ async fn should_200_when_sort_created_asc_search_after() {
         actual
             .items
             .into_iter()
-            .map(|item| item.product.product_id)
+            .map(|item| item.item.product_id)
             .collect::<Vec<_>>()
     );
     assert_eq!(expected_next_after.unwrap(), actual.search_after.unwrap());
@@ -192,11 +187,7 @@ async fn should_200_when_sort_created_desc() {
     let product_repository = ProductDynamoDbRepositoryImpl::new(client, "table_1");
     let watchlist_repository = WatchlistProductDynamoDbRepositoryImpl::new(client, "table_1");
     let get_product_service = GetProductServiceImpl::new(&product_repository);
-    let service = ProductWatchListServiceImpl::new(
-        &watchlist_repository,
-        &product_repository,
-        &get_product_service,
-    );
+    let service = ProductWatchListServiceImpl::new(&watchlist_repository, &get_product_service);
 
     let product_records = fake::vec![ProductRecord; 23];
     let put_res = product_repository
@@ -251,7 +242,7 @@ async fn should_200_when_sort_created_desc() {
     let response = handle(lambda_event, &service).await.unwrap();
     assert_eq!(200, response.status_code);
 
-    let actual: TimeCursoredData<WatchlistProductDataView> =
+    let actual: TimeCursoredData<PersonalizedData<GetProductData, ProductUserStateData>> =
         serde_json::from_value(extract_apigw_response_json_body!(response)).unwrap();
     assert_eq!(7, actual.size);
     assert_eq!(7, actual.items.len());
@@ -260,7 +251,7 @@ async fn should_200_when_sort_created_desc() {
         actual
             .items
             .into_iter()
-            .map(|item| item.product.product_id)
+            .map(|item| item.item.product_id)
             .collect::<Vec<_>>()
     );
     assert_eq!(23, actual.total.unwrap());
@@ -272,11 +263,7 @@ async fn should_200_when_sort_created_desc_search_after() {
     let product_repository = ProductDynamoDbRepositoryImpl::new(client, "table_1");
     let watchlist_repository = WatchlistProductDynamoDbRepositoryImpl::new(client, "table_1");
     let get_product_service = GetProductServiceImpl::new(&product_repository);
-    let service = ProductWatchListServiceImpl::new(
-        &watchlist_repository,
-        &product_repository,
-        &get_product_service,
-    );
+    let service = ProductWatchListServiceImpl::new(&watchlist_repository, &get_product_service);
 
     let product_records = fake::vec![ProductRecord; 23];
     let put_res = product_repository
@@ -339,7 +326,7 @@ async fn should_200_when_sort_created_desc_search_after() {
     let response = handle(lambda_event, &service).await.unwrap();
     assert_eq!(200, response.status_code);
 
-    let actual: TimeCursoredData<WatchlistProductDataView> =
+    let actual: TimeCursoredData<PersonalizedData<GetProductData, ProductUserStateData>> =
         serde_json::from_value(extract_apigw_response_json_body!(response)).unwrap();
     assert_eq!(7, actual.size);
     assert_eq!(7, actual.items.len());
@@ -348,7 +335,7 @@ async fn should_200_when_sort_created_desc_search_after() {
         actual
             .items
             .into_iter()
-            .map(|item| item.product.product_id)
+            .map(|item| item.item.product_id)
             .collect::<Vec<_>>()
     );
     assert_eq!(expected_next_after.unwrap(), actual.search_after.unwrap());
@@ -393,11 +380,7 @@ async fn should_respond_200_and_respect_language_query_param(
     let product_repository = ProductDynamoDbRepositoryImpl::new(client, "table_1");
     let watchlist_repository = WatchlistProductDynamoDbRepositoryImpl::new(client, "table_1");
     let get_product_service = GetProductServiceImpl::new(&product_repository);
-    let service = ProductWatchListServiceImpl::new(
-        &watchlist_repository,
-        &product_repository,
-        &get_product_service,
-    );
+    let service = ProductWatchListServiceImpl::new(&watchlist_repository, &get_product_service);
 
     let mut product_records = fake::vec![ProductRecord; 23];
     for product_record in &mut product_records {
@@ -470,7 +453,7 @@ async fn should_respond_200_and_respect_language_query_param(
     let response = handle(lambda_event, &service).await.unwrap();
     assert_eq!(200, response.status_code);
 
-    let actual: TimeCursoredData<WatchlistProductDataView> =
+    let actual: TimeCursoredData<PersonalizedData<GetProductData, ProductUserStateData>> =
         serde_json::from_value(extract_apigw_response_json_body!(response)).unwrap();
     assert!(actual.size > 0);
     assert!(!actual.items.is_empty());
@@ -478,25 +461,25 @@ async fn should_respond_200_and_respect_language_query_param(
         actual
             .items
             .iter()
-            .all(|item| item.product.title.text == expected_title)
+            .all(|item| item.item.title.text == expected_title)
     );
     assert!(
         actual
             .items
             .iter()
-            .all(|item| item.product.title.language == expected_title_lang.into())
+            .all(|item| item.item.title.language == expected_title_lang.into())
     );
     assert!(
         actual
             .items
             .iter()
-            .all(|item| item.product.description.as_ref().unwrap().text == expected_description)
+            .all(|item| item.item.description.as_ref().unwrap().text == expected_description)
     );
     assert!(
         actual
             .items
             .iter()
-            .all(|item| item.product.description.as_ref().unwrap().language
+            .all(|item| item.item.description.as_ref().unwrap().language
                 == expected_description_lang.into())
     );
 }

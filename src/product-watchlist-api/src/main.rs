@@ -24,11 +24,8 @@ async fn main() -> Result<(), Error> {
     let product_dynamodb_repository = ProductDynamoDbRepositoryImpl::new(&dynamodb, &table_name);
 
     let get_product_service = GetProductServiceImpl::new(&product_dynamodb_repository);
-    let product_watchlist_service = ProductWatchListServiceImpl::new(
-        &watchlist_repository,
-        &product_dynamodb_repository,
-        &get_product_service,
-    );
+    let product_watchlist_service =
+        ProductWatchListServiceImpl::new(&watchlist_repository, &get_product_service);
 
     debug!("Lambda initialized.");
 

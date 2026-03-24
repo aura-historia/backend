@@ -30,11 +30,7 @@ async fn should_201_when_new_watchlist_entry_would_not_exceed_quota() {
     let product_repository = ProductDynamoDbRepositoryImpl::new(client, "table_1");
     let watchlist_repository = WatchlistProductDynamoDbRepositoryImpl::new(client, "table_1");
     let get_product_service = GetProductServiceImpl::new(&product_repository);
-    let service = ProductWatchListServiceImpl::new(
-        &watchlist_repository,
-        &product_repository,
-        &get_product_service,
-    );
+    let service = ProductWatchListServiceImpl::new(&watchlist_repository, &get_product_service);
 
     let product_records = fake::vec![ProductRecord; MAX_WATCHLIST_QUOTA - 1];
     let put_res = product_repository
@@ -86,6 +82,8 @@ async fn should_201_when_new_watchlist_entry_would_not_exceed_quota() {
                 shops_product_id: new_product_record.shops_product_id.clone(),
             })
             .jwt_claim("sub", user_id)
+            .query_string_parameter("language", "de")
+            .query_string_parameter("currency", "EUR")
             .build(),
         context: Default::default(),
     };
@@ -102,11 +100,7 @@ async fn should_422_when_new_watchlist_entry_would_exceed_quota() {
     let product_repository = ProductDynamoDbRepositoryImpl::new(client, "table_1");
     let watchlist_repository = WatchlistProductDynamoDbRepositoryImpl::new(client, "table_1");
     let get_product_service = GetProductServiceImpl::new(&product_repository);
-    let service = ProductWatchListServiceImpl::new(
-        &watchlist_repository,
-        &product_repository,
-        &get_product_service,
-    );
+    let service = ProductWatchListServiceImpl::new(&watchlist_repository, &get_product_service);
 
     let product_records = fake::vec![ProductRecord; MAX_WATCHLIST_QUOTA];
     let put_res = product_repository
@@ -158,6 +152,8 @@ async fn should_422_when_new_watchlist_entry_would_exceed_quota() {
                 shops_product_id: overflowing_product_record.shops_product_id.clone(),
             })
             .jwt_claim("sub", user_id)
+            .query_string_parameter("language", "de")
+            .query_string_parameter("currency", "EUR")
             .build(),
         context: Default::default(),
     };

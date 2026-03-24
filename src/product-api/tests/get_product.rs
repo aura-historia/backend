@@ -261,11 +261,8 @@ async fn should_respond_200_personalized_when_authenticated_and_watched() {
     let product_repository = ProductDynamoDbRepositoryImpl::new(ddb_client, "table_1");
     let get_product_service = GetProductServiceImpl::new(&product_repository);
     let watchlist_repository = WatchlistProductDynamoDbRepositoryImpl::new(ddb_client, "table_1");
-    let watchlist_service = ProductWatchListServiceImpl::new(
-        &watchlist_repository,
-        &product_repository,
-        &get_product_service,
-    );
+    let watchlist_service =
+        ProductWatchListServiceImpl::new(&watchlist_repository, &get_product_service);
     let user_service = UserServiceImpl::new(&user_repository);
     let mut notification_service = MockNotificationService::default();
     notification_service
@@ -300,6 +297,8 @@ async fn should_respond_200_personalized_when_authenticated_and_watched() {
             &user_record.user_id,
             &record.shop_id,
             &record.shops_product_id,
+            &[Language::De],
+            &Currency::Eur,
         )
         .await
         .unwrap();
@@ -311,6 +310,8 @@ async fn should_respond_200_personalized_when_authenticated_and_watched() {
             UpdateWatchlistProductCommand {
                 notifications: Some(true),
             },
+            &[Language::De],
+            &Currency::Eur,
         )
         .await
         .unwrap();

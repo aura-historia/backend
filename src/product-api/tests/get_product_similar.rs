@@ -1,5 +1,6 @@
 use cognito::access_token_verifier_service::MockAccessTokenVerifierService;
 use common::currency::data::CurrencyData;
+use common::currency::domain::Currency;
 use common::language::document::{LanguageDocument, TextDocument};
 use common::language::domain::Language;
 use common::personalized::api::PersonalizedData;
@@ -1267,11 +1268,8 @@ async fn should_200_and_personalize_when_similar_products_have_been_computed_for
         .return_once(move |_| Box::pin(async move { Ok(Some(user_id)) }));
     let get_product_service = GetProductServiceImpl::new(&product_dynamodb_repository);
     let user_repository = UserDynamoDbRepositoryImpl::new(get_dynamodb_client().await, "table_1");
-    let watchlist_service = ProductWatchListServiceImpl::new(
-        &watchlist_repository,
-        &product_dynamodb_repository,
-        &get_product_service,
-    );
+    let watchlist_service =
+        ProductWatchListServiceImpl::new(&watchlist_repository, &get_product_service);
 
     let _ = user_repository.put_user_record(user_record).await.unwrap();
 
@@ -1300,6 +1298,8 @@ async fn should_200_and_personalize_when_similar_products_have_been_computed_for
                 &user_id,
                 &product_record.shop_id,
                 &product_record.shops_product_id,
+                &[Language::De],
+                &Currency::Eur,
             )
             .await
             .unwrap();
