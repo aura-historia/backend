@@ -4,6 +4,8 @@ use common::api::{
     error_code::INTERNAL_SERVER_ERROR,
 };
 use lambda_runtime::LambdaEvent;
+use product::service::get_service::GetProductService;
+use product_personalization::service::ProductPersonalizationService;
 use product_watchlist::service::product_watchlist_service::ProductWatchListService;
 
 pub mod watchlist_delete;
@@ -12,7 +14,7 @@ pub mod watchlist_patch;
 pub mod watchlist_post;
 
 #[tracing::instrument(
-    skip(event, product_watchlist_service),
+    skip(event, product_watchlist_service, get_product_service, product_personalization_service),
     fields(
         requestId = %event.context.request_id,
         method = event.payload.request_context.http.method.as_str(),
@@ -28,8 +30,17 @@ pub mod watchlist_post;
 pub async fn handler(
     event: LambdaEvent<ApiGatewayV2httpRequest>,
     product_watchlist_service: &impl ProductWatchListService,
+    get_product_service: &(impl GetProductService + Sync),
+    product_personalization_service: &(impl ProductPersonalizationService + Sync),
 ) -> Result<ApiGatewayV2httpResponse, lambda_runtime::Error> {
-    match handle(event, product_watchlist_service).await {
+    match handle(
+        event,
+        product_watchlist_service,
+        get_product_service,
+        product_personalization_service,
+    )
+    .await
+    {
         Ok(response) => Ok(response),
         Err(err) => {
             log_api_error(&err);
@@ -42,19 +53,39 @@ pub async fn handler(
 pub async fn handle(
     event: LambdaEvent<ApiGatewayV2httpRequest>,
     product_watchlist_service: &impl ProductWatchListService,
+    get_product_service: &(impl GetProductService + Sync),
+    product_personalization_service: &(impl ProductPersonalizationService + Sync),
 ) -> Result<ApiGatewayV2httpResponse, ApiError> {
     match event.payload.route_key.as_deref() {
         Some("DELETE /api/v1/me/watchlist/{shopId}/{shopsProductId}") => {
             watchlist_delete::handle(event, product_watchlist_service).await
         }
         Some("GET /api/v1/me/watchlist") => {
-            watchlist_get::handle(event, product_watchlist_service).await
+            watchlist_get::handle(
+                event,
+                product_watchlist_service,
+                get_product_service,
+                product_personalization_service,
+            )
+            .await
         }
         Some("PATCH /api/v1/me/watchlist/{shopId}/{shopsProductId}") => {
-            watchlist_patch::handle(event, product_watchlist_service).await
+            watchlist_patch::handle(
+                event,
+                product_watchlist_service,
+                get_product_service,
+                product_personalization_service,
+            )
+            .await
         }
         Some("POST /api/v1/me/watchlist") => {
-            watchlist_post::handle(event, product_watchlist_service).await
+            watchlist_post::handle(
+                event,
+                product_watchlist_service,
+                get_product_service,
+                product_personalization_service,
+            )
+            .await
         }
         Some(unknown) => Err(ApiError::internal_server_error(
             INTERNAL_SERVER_ERROR,

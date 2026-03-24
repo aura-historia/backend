@@ -2852,7 +2852,7 @@ async fn should_respond_200_when_product_search_hits_authenticated() {
     let get_product_service = GetProductServiceImpl::new(&product_repository);
     let product_watchlist_service = ProductWatchListServiceImpl::new(
         &watchlist_repository,
-        &get_product_service,
+        &product_repository,
     );
 
     let now = SystemTime::now();
@@ -3038,8 +3038,6 @@ async fn should_respond_200_when_product_search_hits_authenticated() {
             &user.sub.into(),
             &expected.shop_id,
             &expected.shops_product_id,
-            &[common::language::domain::Language::De],
-            &Currency::Eur,
         )
         .await
         .unwrap();
@@ -3411,7 +3409,7 @@ async fn should_respond_200_and_personalize_similar_products_for_authenticated()
     let get_product_service = GetProductServiceImpl::new(&product_dynamodb_repository);
     let watchlist_service = ProductWatchListServiceImpl::new(
         &watchlist_repository,
-        &get_product_service,
+        &product_dynamodb_repository,
     );
 
     let mut product_record: ProductRecord = Faker.fake();
@@ -3439,8 +3437,6 @@ async fn should_respond_200_and_personalize_similar_products_for_authenticated()
                 &user_id,
                 &pr.shop_id,
                 &pr.shops_product_id,
-                &[common::language::domain::Language::De],
-                &Currency::Eur,
             )
             .await
             .unwrap();
