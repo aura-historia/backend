@@ -82,7 +82,6 @@ pub enum WatchProductError {
     WatchlistEntryCountExceeded(u32),
 }
 
-
 #[cfg(feature = "data")]
 pub mod api {
     use crate::service::product_watchlist_service::WatchProductError;
@@ -502,12 +501,7 @@ mod tests {
             let service =
                 ProductWatchListServiceImpl::new(&watchlist_repository, &product_repository);
             service
-                .create_watchlist_product(
-                    &Faker.fake(),
-                    &Faker.fake(),
-                    &Faker.fake(),
-                    
-                )
+                .create_watchlist_product(&Faker.fake(), &Faker.fake(), &Faker.fake())
                 .await
                 .unwrap();
         }
@@ -526,12 +520,7 @@ mod tests {
             let shop_id = ShopId::new();
             let shops_product_id = ShopsProductId::new();
             let actual = service
-                .create_watchlist_product(
-                    &Faker.fake(),
-                    &shop_id,
-                    &shops_product_id,
-                    
-                )
+                .create_watchlist_product(&Faker.fake(), &shop_id, &shops_product_id)
                 .await
                 .unwrap_err();
 
@@ -556,18 +545,12 @@ mod tests {
                 .expect_count_watchlist_records()
                 .return_once(|_, _, _| Box::pin(async { Ok(MAX_WATCHLIST_QUOTA as u64) }));
 
-
             let service =
                 ProductWatchListServiceImpl::new(&watchlist_repository, &product_repository);
             let shop_id = ShopId::new();
             let shops_product_id = ShopsProductId::new();
             let actual = service
-                .create_watchlist_product(
-                    &Faker.fake(),
-                    &shop_id,
-                    &shops_product_id,
-                    
-                )
+                .create_watchlist_product(&Faker.fake(), &shop_id, &shops_product_id)
                 .await
                 .unwrap_err();
 
@@ -612,12 +595,7 @@ mod tests {
                 ProductWatchListServiceImpl::new(&watchlist_repository, &product_repository);
 
             let actual = service
-                .create_watchlist_product(
-                    &Faker.fake(),
-                    &Faker.fake(),
-                    &Faker.fake(),
-                    
-                )
+                .create_watchlist_product(&Faker.fake(), &Faker.fake(), &Faker.fake())
                 .await;
 
             assert!(actual.is_err());
@@ -666,12 +644,7 @@ mod tests {
                 ProductWatchListServiceImpl::new(&watchlist_repository, &product_repository);
 
             let actual = service
-                .create_watchlist_product(
-                    &Faker.fake(),
-                    &Faker.fake(),
-                    &Faker.fake(),
-                    
-                )
+                .create_watchlist_product(&Faker.fake(), &Faker.fake(), &Faker.fake())
                 .await;
 
             assert!(actual.is_err());

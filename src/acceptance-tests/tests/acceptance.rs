@@ -1,4 +1,5 @@
 use aws_tests_common::get_cfn_output;
+use common::personalized::api::PersonalizedData;
 use common::{
     api::collection::PutCollectionData,
     batch::Batch,
@@ -25,6 +26,7 @@ use notification::{
 };
 use notification_api::notification_get::EventIdCursoredData;
 use opensearch::GetParts;
+use product::data::{get_data::GetProductData, user_state_data::ProductUserStateData};
 use product::{
     core::{
         product_event::{
@@ -54,8 +56,6 @@ use product_watchlist::dynamodb::repository::{
     WatchlistProductDynamoDbRepository, WatchlistProductDynamoDbRepositoryImpl,
 };
 use product_watchlist_api::watchlist_patch::WatchlistProductPatch;
-use common::personalized::api::PersonalizedData;
-use product::data::{get_data::GetProductData, user_state_data::ProductUserStateData};
 use search_filter::{
     core::user_search_filter_name::UserSearchFilterName,
     data::user_search_filter_data::UserSearchFilterData,
@@ -3570,10 +3570,7 @@ async fn should_post_get_patch_delete_watchlist_product() {
         .await
         .unwrap();
     assert_eq!(1, gotten.items.len());
-    assert_eq!(
-        &materialized.product_id,
-        &gotten.items[0].item.product_id
-    );
+    assert_eq!(&materialized.product_id, &gotten.items[0].item.product_id);
     assert_eq!(&materialized.shop_id, &gotten.items[0].item.shop_id);
     assert_eq!(
         &materialized.shops_product_id,
@@ -3603,7 +3600,10 @@ async fn should_post_get_patch_delete_watchlist_product() {
         .await
         .unwrap();
     assert_eq!(materialized.shop_id, patch_res.item.shop_id);
-    assert_eq!(materialized.shops_product_id, patch_res.item.shops_product_id);
+    assert_eq!(
+        materialized.shops_product_id,
+        patch_res.item.shops_product_id
+    );
     assert_eq!(materialized.product_id, patch_res.item.product_id);
 
     // DELETE

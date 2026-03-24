@@ -88,7 +88,9 @@ mod tests {
     use common::{personalized::Personalized, product_id::api::ProductKeyData, user_id::UserId};
     use fake::{Fake, Faker};
     use lambda_runtime::LambdaEvent;
-    use product::{core::product::LocalizedProductView, service::get_service::MockGetProductService};
+    use product::{
+        core::product::LocalizedProductView, service::get_service::MockGetProductService,
+    };
     use product_personalization::service::MockProductPersonalizationService;
     use product_watchlist::service::product_watchlist_service::MockProductWatchListService;
     use test_api::ApiGatewayV2httpRequestProxy;
@@ -128,7 +130,14 @@ mod tests {
             context: Default::default(),
         };
 
-        let response = handle(lambda_event, &watchlist_service, &get_product_service, &personalization_service).await.unwrap();
+        let response = handle(
+            lambda_event,
+            &watchlist_service,
+            &get_product_service,
+            &personalization_service,
+        )
+        .await
+        .unwrap();
 
         assert_eq!(201, response.status_code);
     }
@@ -148,7 +157,14 @@ mod tests {
             context: Default::default(),
         };
 
-        let actual = handle(lambda_event, &watchlist_service, &get_product_service, &personalization_service).await.unwrap_err();
+        let actual = handle(
+            lambda_event,
+            &watchlist_service,
+            &get_product_service,
+            &personalization_service,
+        )
+        .await
+        .unwrap_err();
         assert_eq!(401, actual.status);
     }
 }

@@ -15,7 +15,7 @@ use product::dynamodb::{
 use product::service::get_service::GetProductServiceImpl;
 use product_personalization::service::ProductPersonalizationServiceImpl;
 use product_watchlist::{
-    dynamodb::record::{mk_gsi1_pk, mk_gsi1_sk, mk_lsi1_sk, mk_pk, mk_sk, WatchlistProductRecord},
+    dynamodb::record::{WatchlistProductRecord, mk_gsi1_pk, mk_gsi1_sk, mk_lsi1_sk, mk_pk, mk_sk},
     dynamodb::repository::{
         WatchlistProductDynamoDbRepository, WatchlistProductDynamoDbRepositoryImpl,
     },
@@ -23,7 +23,7 @@ use product_watchlist::{
 };
 use product_watchlist_api::watchlist_get::handle;
 use test_api::*;
-use time::{format_description::well_known::Rfc3339, OffsetDateTime};
+use time::{OffsetDateTime, format_description::well_known::Rfc3339};
 use user::dynamodb::repository::UserDynamoDbRepositoryImpl;
 use user::service::user_service::UserServiceImpl;
 
@@ -598,21 +598,29 @@ async fn should_respond_200_and_respect_language_query_param(
         serde_json::from_value(extract_apigw_response_json_body!(response)).unwrap();
     assert!(actual.size > 0);
     assert!(!actual.items.is_empty());
-    assert!(actual
-        .items
-        .iter()
-        .all(|item| item.item.title.text == expected_title));
-    assert!(actual
-        .items
-        .iter()
-        .all(|item| item.item.title.language == expected_title_lang.into()));
-    assert!(actual
-        .items
-        .iter()
-        .all(|item| item.item.description.as_ref().unwrap().text == expected_description));
-    assert!(actual
-        .items
-        .iter()
-        .all(|item| item.item.description.as_ref().unwrap().language
-            == expected_description_lang.into()));
+    assert!(
+        actual
+            .items
+            .iter()
+            .all(|item| item.item.title.text == expected_title)
+    );
+    assert!(
+        actual
+            .items
+            .iter()
+            .all(|item| item.item.title.language == expected_title_lang.into())
+    );
+    assert!(
+        actual
+            .items
+            .iter()
+            .all(|item| item.item.description.as_ref().unwrap().text == expected_description)
+    );
+    assert!(
+        actual
+            .items
+            .iter()
+            .all(|item| item.item.description.as_ref().unwrap().language
+                == expected_description_lang.into())
+    );
 }

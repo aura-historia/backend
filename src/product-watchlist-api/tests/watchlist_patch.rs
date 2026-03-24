@@ -16,8 +16,8 @@ use product_watchlist::dynamodb::record::WatchlistProductRecord;
 use product_watchlist::dynamodb::repository::WatchlistProductDynamoDbRepository;
 use product_watchlist::dynamodb::repository::WatchlistProductDynamoDbRepositoryImpl;
 use product_watchlist::service::product_watchlist_service::ProductWatchListServiceImpl;
-use product_watchlist_api::watchlist_patch::handle;
 use product_watchlist_api::watchlist_patch::WatchlistProductPatch;
+use product_watchlist_api::watchlist_patch::handle;
 use test_api::*;
 use time::OffsetDateTime;
 use user::dynamodb::repository::UserDynamoDbRepository;
@@ -78,10 +78,12 @@ async fn should_respond_with_patched_notifications(
         .put_product_records([product_record.clone()].into())
         .await
         .unwrap();
-    assert!(put_product_res
-        .unprocessed_items
-        .unwrap_or_default()
-        .is_empty());
+    assert!(
+        put_product_res
+            .unprocessed_items
+            .unwrap_or_default()
+            .is_empty()
+    );
 
     let created = OffsetDateTime::now_utc();
     let watchlist_record = WatchlistProductRecord {

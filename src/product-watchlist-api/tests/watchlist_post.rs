@@ -11,15 +11,15 @@ use product::dynamodb::{
 use product::service::get_service::GetProductServiceImpl;
 use product_personalization::service::ProductPersonalizationServiceImpl;
 use product_watchlist::{
-    dynamodb::record::{mk_gsi1_pk, mk_gsi1_sk},
-    service::product_watchlist_service::MAX_WATCHLIST_QUOTA,
-};
-use product_watchlist::{
-    dynamodb::record::{mk_lsi1_sk, mk_pk, mk_sk, WatchlistProductRecord},
+    dynamodb::record::{WatchlistProductRecord, mk_lsi1_sk, mk_pk, mk_sk},
     dynamodb::repository::{
         WatchlistProductDynamoDbRepository, WatchlistProductDynamoDbRepositoryImpl,
     },
     service::product_watchlist_service::ProductWatchListServiceImpl,
+};
+use product_watchlist::{
+    dynamodb::record::{mk_gsi1_pk, mk_gsi1_sk},
+    service::product_watchlist_service::MAX_WATCHLIST_QUOTA,
 };
 use product_watchlist_api::watchlist_post::handle;
 use test_api::*;
@@ -70,10 +70,12 @@ async fn should_201_when_new_watchlist_entry_would_not_exceed_quota() {
         .put_product_records(vec![new_product_record.clone()].try_into().unwrap())
         .await
         .unwrap();
-    assert!(put_overflowing_res
-        .unprocessed_items
-        .unwrap_or_default()
-        .is_empty());
+    assert!(
+        put_overflowing_res
+            .unprocessed_items
+            .unwrap_or_default()
+            .is_empty()
+    );
 
     let user_id = user_record.user_id;
     for product_record in product_records {
@@ -165,10 +167,12 @@ async fn should_422_when_new_watchlist_entry_would_exceed_quota() {
         .put_product_records(vec![overflowing_product_record.clone()].try_into().unwrap())
         .await
         .unwrap();
-    assert!(put_overflowing_res
-        .unprocessed_items
-        .unwrap_or_default()
-        .is_empty());
+    assert!(
+        put_overflowing_res
+            .unprocessed_items
+            .unwrap_or_default()
+            .is_empty()
+    );
 
     let user_id = user_record.user_id;
     for product_record in product_records {

@@ -65,7 +65,12 @@ pub async fn handle(
 
     // 2. Get localized product view
     let localized_product = get_product_service
-        .view_product(&shop_id, &shops_product_id, &[language.into()], &currency.into())
+        .view_product(
+            &shop_id,
+            &shops_product_id,
+            &[language.into()],
+            &currency.into(),
+        )
         .await?;
 
     // 3. Personalize for the authenticated user
@@ -146,7 +151,14 @@ mod tests {
             context: Default::default(),
         };
 
-        let response = handle(lambda_event, &watchlist_service, &get_product_service, &personalization_service).await.unwrap();
+        let response = handle(
+            lambda_event,
+            &watchlist_service,
+            &get_product_service,
+            &personalization_service,
+        )
+        .await
+        .unwrap();
 
         assert_eq!(200, response.status_code);
     }
@@ -174,7 +186,14 @@ mod tests {
             context: Default::default(),
         };
 
-        let actual = handle(lambda_event, &watchlist_service, &get_product_service, &personalization_service).await.unwrap_err();
+        let actual = handle(
+            lambda_event,
+            &watchlist_service,
+            &get_product_service,
+            &personalization_service,
+        )
+        .await
+        .unwrap_err();
         assert_eq!(400, actual.status);
     }
 
@@ -201,7 +220,14 @@ mod tests {
             context: Default::default(),
         };
 
-        let actual = handle(lambda_event, &watchlist_service, &get_product_service, &personalization_service).await.unwrap_err();
+        let actual = handle(
+            lambda_event,
+            &watchlist_service,
+            &get_product_service,
+            &personalization_service,
+        )
+        .await
+        .unwrap_err();
         assert_eq!(400, actual.status);
     }
 
@@ -226,7 +252,14 @@ mod tests {
             context: Default::default(),
         };
 
-        let actual = handle(lambda_event, &watchlist_service, &get_product_service, &personalization_service).await.unwrap_err();
+        let actual = handle(
+            lambda_event,
+            &watchlist_service,
+            &get_product_service,
+            &personalization_service,
+        )
+        .await
+        .unwrap_err();
         assert_eq!(400, actual.status);
     }
 
@@ -252,7 +285,14 @@ mod tests {
             context: Default::default(),
         };
 
-        let actual = handle(lambda_event, &watchlist_service, &get_product_service, &personalization_service).await.unwrap_err();
+        let actual = handle(
+            lambda_event,
+            &watchlist_service,
+            &get_product_service,
+            &personalization_service,
+        )
+        .await
+        .unwrap_err();
         assert_eq!(400, actual.status);
     }
 
@@ -279,7 +319,14 @@ mod tests {
             context: Default::default(),
         };
 
-        let actual = handle(lambda_event, &watchlist_service, &get_product_service, &personalization_service).await.unwrap_err();
+        let actual = handle(
+            lambda_event,
+            &watchlist_service,
+            &get_product_service,
+            &personalization_service,
+        )
+        .await
+        .unwrap_err();
         assert_eq!(401, actual.status);
     }
 }

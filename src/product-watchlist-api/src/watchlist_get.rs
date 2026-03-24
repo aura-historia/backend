@@ -83,7 +83,10 @@ pub async fn handle(
     let items: Vec<PersonalizedData<GetProductData, ProductUserStateData>> = personalized
         .into_iter()
         .map(|p| {
-            let consent = p.user_state.map(|s| s.prohibited_content.consent).unwrap_or(false);
+            let consent = p
+                .user_state
+                .map(|s| s.prohibited_content.consent)
+                .unwrap_or(false);
             PersonalizedData {
                 item: GetProductData::from_view(p.item, consent),
                 user_state: p.user_state.map(ProductUserStateData::from),
@@ -148,7 +151,14 @@ mod tests {
             context: Default::default(),
         };
 
-        let response = handle(lambda_event, &watchlist_service, &get_product_service, &personalization_service).await.unwrap();
+        let response = handle(
+            lambda_event,
+            &watchlist_service,
+            &get_product_service,
+            &personalization_service,
+        )
+        .await
+        .unwrap();
 
         assert_eq!(200, response.status_code);
     }
@@ -171,7 +181,14 @@ mod tests {
             context: Default::default(),
         };
 
-        let actual = handle(lambda_event, &watchlist_service, &get_product_service, &personalization_service).await.unwrap_err();
+        let actual = handle(
+            lambda_event,
+            &watchlist_service,
+            &get_product_service,
+            &personalization_service,
+        )
+        .await
+        .unwrap_err();
         assert_eq!(401, actual.status);
     }
 
@@ -204,7 +221,14 @@ mod tests {
             context: Default::default(),
         };
 
-        let response = handle(lambda_event, &watchlist_service, &get_product_service, &personalization_service).await.unwrap();
+        let response = handle(
+            lambda_event,
+            &watchlist_service,
+            &get_product_service,
+            &personalization_service,
+        )
+        .await
+        .unwrap();
 
         assert_eq!(200, response.status_code);
         assert_eq!(
