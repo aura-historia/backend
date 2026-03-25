@@ -6,7 +6,7 @@ use aws_sdk_s3::{
 use aws_sdk_sesv2::{
     error::SdkError as SesSdkError,
     operation::send_email::{SendEmailError, SendEmailOutput},
-    types::EmailContent,
+    types::{EmailContent, MessageTag},
 };
 use serde_email::Email;
 
@@ -20,6 +20,7 @@ impl SesAdapter for NoopSesAdapter {
         _from: Email,
         _to: Email,
         _content: EmailContent,
+        _tags: Vec<MessageTag>,
     ) -> Result<SendEmailOutput, SesSdkError<SendEmailError>> {
         unimplemented!("NoopSesAdapter does not support send_email")
     }
