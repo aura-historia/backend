@@ -1,6 +1,9 @@
 use aws_config::BehaviorVersion;
 use aws_lambda_events::apigw::ApiGatewayV2httpRequest;
-use cognito::access_token_verifier_service::AccessTokenVerifierServiceImpl;
+use cognito::access_token_verifier_service::{
+    AccessTokenVerifierService, AccessTokenVerifierServiceImpl,
+};
+use cognito::localstack_access_token_verifier_service::LocalStackAccessTokenVerifierServiceImpl;
 use common::price::domain::FixedFxRate;
 use fxrate::dynamodb::record::FxRatesRecord;
 use fxrate::dynamodb::repository::{FxRateDynamoDbRepository, FxRateDynamoDbRepositoryImpl};
@@ -100,27 +103,33 @@ async fn main() -> Result<(), Error> {
     let enrich_service =
         ProductCommandEnrichmentServiceImpl::new(&shop_dynamodb_repository, &fx_rate);
 
-    let access_token_verifier_service = match std::env::var("LOCALSTACK_HOSTNAME") {
-        Ok(_) => {
-            let mapped_port =
-                std::env::var("LOCALSTACK_MAPPED_PORT").unwrap_or_else(|_| "4566".to_owned());
-            // `host.docker.internal` resolves inside the Lambda container thanks to
-            // `--add-host=host.docker.internal:host-gateway` in LAMBDA_DOCKER_FLAGS.
-            let cognito_idp_endpoint = format!("http://host.docker.internal:{mapped_port}");
-            AccessTokenVerifierServiceImpl::new_with_cognito_idp_endpoint(
-                &cognito_idp_endpoint,
-                "eu-central-1",
-                &user_pool_id,
-                user_pool_client_ids.as_slice(),
-            )
-        }
-        Err(_) => AccessTokenVerifierServiceImpl::new(
-            "eu-central-1",
-            &user_pool_id,
-            user_pool_client_ids.as_slice(),
-        ),
-    }
-    .expect("shouldn't fail creating 'AccessTokenVerifierServiceImpl'");
+    let access_token_verifier_service: Box<dyn AccessTokenVerifierService + Sync + Send> =
+        match std::env::var("LOCALSTACK_HOSTNAME") {
+            Ok(_) => {
+                let mapped_port =
+                    std::env::var("LOCALSTACK_MAPPED_PORT").unwrap_or_else(|_| "4566".to_owned());
+                // `host.docker.internal` resolves inside the Lambda container thanks to
+                // `--add-host=host.docker.internal:host-gateway` in LAMBDA_DOCKER_FLAGS.
+                let cognito_idp_endpoint = format!("http://host.docker.internal:{mapped_port}");
+                Box::new(
+                    LocalStackAccessTokenVerifierServiceImpl::new(
+                        &cognito_idp_endpoint,
+                        "eu-central-1",
+                        &user_pool_id,
+                        user_pool_client_ids.as_slice(),
+                    )
+                    .expect("shouldn't fail creating 'LocalStackAccessTokenVerifierServiceImpl'"),
+                )
+            }
+            Err(_) => Box::new(
+                AccessTokenVerifierServiceImpl::new(
+                    "eu-central-1",
+                    &user_pool_id,
+                    user_pool_client_ids.as_slice(),
+                )
+                .expect("shouldn't fail creating 'AccessTokenVerifierServiceImpl'"),
+            ),
+        };
 
     debug!("Lambda initialized.");
 
@@ -134,7 +143,7 @@ async fn main() -> Result<(), Error> {
                 &product_personalization_service,
                 &upsert_service,
                 &enrich_service,
-                &access_token_verifier_service,
+                &*access_token_verifier_service,
             )
             .await
         },

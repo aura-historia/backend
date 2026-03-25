@@ -1,1 +1,2 @@
 pub mod access_token_verifier_service;
+pub mod localstack_access_token_verifier_service;

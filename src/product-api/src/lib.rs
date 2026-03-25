@@ -41,7 +41,7 @@ pub mod search;
     )
 )]
 #[allow(clippy::too_many_arguments)]
-pub async fn handler(
+pub async fn handler<ATV: AccessTokenVerifierService + Sync + ?Sized>(
     event: LambdaEvent<ApiGatewayV2httpRequest>,
     get_product_service: &impl GetProductService,
     query_product_service: &impl QueryProductService,
@@ -49,7 +49,7 @@ pub async fn handler(
     product_personalization_service: &impl ProductPersonalizationService,
     upsert_service: &impl UpsertProductsService,
     enrich_service: &(impl ProductCommandEnrichmentService + Sync),
-    access_token_verifier_service: &(impl AccessTokenVerifierService + Sync),
+    access_token_verifier_service: &ATV,
 ) -> Result<ApiGatewayV2httpResponse, lambda_runtime::Error> {
     match handle(
         event,
@@ -72,7 +72,7 @@ pub async fn handler(
 }
 
 #[allow(clippy::too_many_arguments)]
-pub async fn handle(
+pub async fn handle<ATV: AccessTokenVerifierService + Sync + ?Sized>(
     event: LambdaEvent<ApiGatewayV2httpRequest>,
     get_product_service: &impl GetProductService,
     query_product_service: &impl QueryProductService,
@@ -80,7 +80,7 @@ pub async fn handle(
     product_personalization_service: &impl ProductPersonalizationService,
     upsert_service: &impl UpsertProductsService,
     enrich_service: &(impl ProductCommandEnrichmentService + Sync),
-    access_token_verifier_service: &(impl AccessTokenVerifierService + Sync),
+    access_token_verifier_service: &ATV,
 ) -> Result<ApiGatewayV2httpResponse, ApiError> {
     match event.payload.route_key.as_deref() {
         Some("GET /api/v1/shops/{shopId}/products/{shopsProductId}")

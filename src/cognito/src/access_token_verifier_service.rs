@@ -1,6 +1,3 @@
-use std::collections::HashMap;
-use std::sync::{Arc, RwLock};
-
 use common::{
     api::{
         error::ApiError,
@@ -12,23 +9,9 @@ use http::{
     HeaderMap,
     header::{AUTHORIZATION, ToStrError},
 };
-use jsonwebtokens::{Algorithm, AlgorithmID, Verifier};
+use jsonwebtokens::Verifier;
 use jsonwebtokens_cognito::KeySet;
-use serde::Deserialize;
 use serde_json::Value;
-
-#[derive(Debug, Deserialize)]
-struct JwkRsaKey {
-    kid: String,
-    alg: String,
-    n: String,
-    e: String,
-}
-
-#[derive(Debug, Deserialize)]
-struct JwkSet {
-    keys: Vec<JwkRsaKey>,
-}
 
 #[derive(Debug, thiserror::Error)]
 pub enum AccessTokenVerifierError {
@@ -119,8 +102,6 @@ pub struct AccessTokenVerifierServiceImpl<'a> {
     pub client_ids: &'a [&'a str],
     pub keyset: KeySet,
     pub verifier: Verifier,
-    custom_jwks_url: Option<String>,
-    jwks_cache: Arc<RwLock<HashMap<String, Arc<Algorithm>>>>,
 }
 
 impl<'a> AccessTokenVerifierServiceImpl<'a> {
@@ -131,108 +112,14 @@ impl<'a> AccessTokenVerifierServiceImpl<'a> {
     ) -> Result<Self, AccessTokenVerifierError> {
         let keyset = KeySet::new(region, user_pool_id)?;
         let verifier = keyset.new_access_token_verifier(client_ids).build()?;
-        Ok(Self {
+        let val = Self {
             region,
             user_pool_id,
             client_ids,
             keyset,
             verifier,
-            custom_jwks_url: None,
-            jwks_cache: Arc::new(RwLock::new(HashMap::new())),
-        })
-    }
-
-    /// Creates an instance that fetches JWKS from a custom endpoint instead of
-    /// the standard AWS Cognito endpoint.
-    ///
-    /// Inside a LocalStack Lambda container the real
-    /// `https://cognito-idp.{region}.amazonaws.com` is unreachable.
-    /// Pass the LocalStack-reachable base URL (e.g.
-    /// `http://host.docker.internal:{port}`) so that the JWKS can be fetched
-    /// from `{cognito_idp_endpoint}/{user_pool_id}/.well-known/jwks.json`.
-    pub fn new_with_cognito_idp_endpoint(
-        cognito_idp_endpoint: &str,
-        region: &'a str,
-        user_pool_id: &'a str,
-        client_ids: &'a [&'a str],
-    ) -> Result<Self, AccessTokenVerifierError> {
-        let jwks_url = format!(
-            "{}/{}/.well-known/jwks.json",
-            cognito_idp_endpoint.trim_end_matches('/'),
-            user_pool_id
-        );
-        let keyset = KeySet::new(region, user_pool_id)?;
-        let verifier = keyset.new_access_token_verifier(client_ids).build()?;
-        Ok(Self {
-            region,
-            user_pool_id,
-            client_ids,
-            keyset,
-            verifier,
-            custom_jwks_url: Some(jwks_url),
-            jwks_cache: Arc::new(RwLock::new(HashMap::new())),
-        })
-    }
-
-    async fn fetch_and_cache_jwks(&self, jwks_url: &str) -> Result<(), AccessTokenVerifierError> {
-        let resp = reqwest::get(jwks_url)
-            .await
-            .map_err(|e| AccessTokenVerifierError::JwksFetchError(e.to_string()))?;
-        let jwks: JwkSet = resp
-            .json()
-            .await
-            .map_err(|e| AccessTokenVerifierError::JwksFetchError(e.to_string()))?;
-
-        let mut cache = self
-            .jwks_cache
-            .write()
-            .expect("JWKS cache lock should not be poisoned");
-        for key in jwks.keys {
-            if key.alg != "RS256" {
-                continue;
-            }
-            let mut algorithm =
-                Algorithm::new_rsa_n_e_b64_verifier(AlgorithmID::RS256, &key.n, &key.e)?;
-            algorithm.set_kid(&key.kid);
-            cache.insert(key.kid, Arc::new(algorithm));
-        }
-
-        Ok(())
-    }
-
-    async fn verify_with_custom_jwks(
-        &self,
-        access_token: &str,
-        jwks_url: &str,
-    ) -> Result<Value, AccessTokenVerifierError> {
-        let header = jsonwebtokens::raw::decode_header_only(access_token)?;
-        let kid = header
-            .get("kid")
-            .and_then(|v| v.as_str())
-            .ok_or(AccessTokenVerifierError::MissingClaim("kid"))?;
-
-        // Try cache first.
-        {
-            let cache = self
-                .jwks_cache
-                .read()
-                .expect("JWKS cache lock should not be poisoned");
-            if let Some(alg) = cache.get(kid) {
-                return Ok(self.verifier.verify(access_token, alg)?);
-            }
-        }
-
-        // Cache miss — fetch from remote JWKS endpoint and retry.
-        self.fetch_and_cache_jwks(jwks_url).await?;
-
-        let cache = self
-            .jwks_cache
-            .read()
-            .expect("JWKS cache lock should not be poisoned");
-        let alg = cache
-            .get(kid)
-            .ok_or(AccessTokenVerifierError::MissingClaim("kid"))?;
-        Ok(self.verifier.verify(access_token, alg)?)
+        };
+        Ok(val)
     }
 }
 
@@ -242,23 +129,21 @@ impl<'a> AccessTokenVerifierService for AccessTokenVerifierServiceImpl<'a> {
         &self,
         access_token: &str,
     ) -> Result<UserId, AccessTokenVerifierError> {
-        let claims_value: Value = match &self.custom_jwks_url {
-            Some(jwks_url) => self.verify_with_custom_jwks(access_token, jwks_url).await?,
-            None => self.keyset.verify(access_token, &self.verifier).await?,
-        };
-
-        let user_id = claims_value
-            .get("sub")
-            .map(|sub_val| match sub_val.as_str() {
-                Some(sub) => Ok(sub),
-                None => Err(AccessTokenVerifierError::ClaimIsNotString("sub")),
-            })
-            .ok_or(AccessTokenVerifierError::MissingClaim("sub"))?
-            .map(UserId::try_from)?
-            .map_err(|err| AccessTokenVerifierError::InvalidUuid("sub", err))?;
-
-        Ok(user_id)
+        let claims_value: Value = self.keyset.verify(access_token, &self.verifier).await?;
+        extract_sub_claim(&claims_value)
     }
+}
+
+pub(crate) fn extract_sub_claim(claims: &Value) -> Result<UserId, AccessTokenVerifierError> {
+    claims
+        .get("sub")
+        .map(|sub_val| match sub_val.as_str() {
+            Some(sub) => Ok(sub),
+            None => Err(AccessTokenVerifierError::ClaimIsNotString("sub")),
+        })
+        .ok_or(AccessTokenVerifierError::MissingClaim("sub"))?
+        .map(UserId::try_from)?
+        .map_err(|err| AccessTokenVerifierError::InvalidUuid("sub", err))
 }
 
 pub fn extract_access_token(headers: &HeaderMap) -> Result<Option<String>, ToStrError> {
