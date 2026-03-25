@@ -100,11 +100,24 @@ async fn main() -> Result<(), Error> {
     let enrich_service =
         ProductCommandEnrichmentServiceImpl::new(&shop_dynamodb_repository, &fx_rate);
 
-    let access_token_verifier_service = AccessTokenVerifierServiceImpl::new(
-        "eu-central-1",
-        &user_pool_id,
-        user_pool_client_ids.as_slice(),
-    )
+    let access_token_verifier_service = match std::env::var("LOCALSTACK_HOSTNAME") {
+        Ok(_) => {
+            let mapped_port =
+                std::env::var("LOCALSTACK_MAPPED_PORT").unwrap_or_else(|_| "4566".to_owned());
+            let cognito_idp_endpoint = format!("http://host.docker.internal:{mapped_port}");
+            AccessTokenVerifierServiceImpl::new_with_cognito_idp_endpoint(
+                &cognito_idp_endpoint,
+                "eu-central-1",
+                &user_pool_id,
+                user_pool_client_ids.as_slice(),
+            )
+        }
+        Err(_) => AccessTokenVerifierServiceImpl::new(
+            "eu-central-1",
+            &user_pool_id,
+            user_pool_client_ids.as_slice(),
+        ),
+    }
     .expect("shouldn't fail creating 'AccessTokenVerifierServiceImpl'");
 
     debug!("Lambda initialized.");

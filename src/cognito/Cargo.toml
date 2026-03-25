@@ -16,3 +16,4 @@ mockall = { workspace = true }
 jsonwebtokens = { workspace = true }
 jsonwebtokens-cognito = { workspace = true }
 openssl = { workspace = true, features = ["vendored"] } # we unfortunately need this as crates "jsonwebtokens*" cannot do rust-tls
+reqwest = { workspace = true, features = ["json"] }
