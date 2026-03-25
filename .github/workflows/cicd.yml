@@ -96,6 +96,7 @@ jobs:
     outputs:
       integration_test_crates: ${{ steps.determine.outputs.integration_test_crates }}
       test_pipeline_crates: ${{ steps.determine.outputs.test_pipeline_crates }}
+      acceptance_test_crates: ${{ steps.determine.outputs.acceptance_test_crates }}
     steps:
       - uses: actions/checkout@v6
         with:
@@ -124,6 +125,7 @@ jobs:
           result=$(./target/release/ci-determinator "${{ steps.base-ref.outputs.sha }}")
           echo "integration_test_crates=$(echo "$result" | jq -c '.integration_test')" >> "$GITHUB_OUTPUT"
           echo "test_pipeline_crates=$(echo "$result" | jq -c '.test_pipeline')" >> "$GITHUB_OUTPUT"
+          echo "acceptance_test_crates=$(echo "$result" | jq -c '.acceptance_test')" >> "$GITHUB_OUTPUT"
 
   integration-test:
     name: Integration-Test ${{ matrix.crate }}
@@ -152,6 +154,8 @@ jobs:
 
   acceptance-test:
     name: Acceptance-Test
+    needs: [determine-affected-crates]
+    if: needs.determine-affected-crates.outputs.acceptance_test_crates != '[]'
     permissions:
       contents: read
     runs-on: self-hosted
@@ -299,7 +303,7 @@ jobs:
       needs.unit-test.result == 'success' &&
       (needs.integration-test.result == 'success' || needs.integration-test.result == 'skipped') &&
       (needs.test-product-pipeline.result == 'success' || needs.test-product-pipeline.result == 'skipped') &&
-      needs.acceptance-test.result == 'success'
+      (needs.acceptance-test.result == 'success' || needs.acceptance-test.result == 'skipped')
     needs: [unit-test, integration-test, test-product-pipeline, acceptance-test]
     runs-on: ubuntu-latest
     permissions:
@@ -391,7 +395,7 @@ jobs:
       needs.unit-test.result == 'success' &&
       (needs.integration-test.result == 'success' || needs.integration-test.result == 'skipped') &&
       (needs.test-product-pipeline.result == 'success' || needs.test-product-pipeline.result == 'skipped') &&
-      needs.acceptance-test.result == 'success'
+      (needs.acceptance-test.result == 'success' || needs.acceptance-test.result == 'skipped')
     needs: [unit-test, integration-test, test-product-pipeline, acceptance-test]
     runs-on: ubuntu-24.04
     permissions:
@@ -450,7 +454,7 @@ jobs:
       needs.unit-test.result == 'success' &&
       (needs.integration-test.result == 'success' || needs.integration-test.result == 'skipped') &&
       (needs.test-product-pipeline.result == 'success' || needs.test-product-pipeline.result == 'skipped') &&
-      needs.acceptance-test.result == 'success'
+      (needs.acceptance-test.result == 'success' || needs.acceptance-test.result == 'skipped')
     needs: [unit-test, integration-test, test-product-pipeline, acceptance-test]
     runs-on: ubuntu-latest
     permissions:
