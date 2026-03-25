@@ -25,6 +25,14 @@ impl MailTemplateType {
             MailTemplateType::SearchFilterMatch => "mjml/search-filter/match",
         }
     }
+
+    pub fn as_message_tag_value(&self) -> &'static str {
+        match self {
+            MailTemplateType::WatchlistUpdatePrice => "WATCHLIST_UPDATE_PRICE",
+            MailTemplateType::WatchlistUpdateState => "WATCHLIST_UPDATE_STATE",
+            MailTemplateType::SearchFilterMatch => "SEARCH_FILTER_MATCH",
+        }
+    }
 }
 
 impl MailTemplate {
