@@ -83,6 +83,13 @@ impl<'a> PipeProcessor for ClassifyCategoryPipeProcesserImpl<'a> {
             }
         }
 
+        // Sort by prompt length so each batch contains items of similar length,
+        // reducing padding overhead in transformer models.
+        tie_breaker_inputs.sort_by_key(|(product, category_ids)| {
+            product.native_title.payload.len()
+                + category_ids.iter().map(|id| id.len()).sum::<usize>()
+        });
+
         // Choose candidate
         for batch in Batch::chunked_from(tie_breaker_inputs.into_iter()) {
             let batch: Batch<_, 64> = batch;
