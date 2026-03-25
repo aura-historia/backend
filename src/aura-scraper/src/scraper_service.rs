@@ -30,6 +30,7 @@ pub trait HtmlFetcher: Send + Sync {
 
 use spider::website::Website;
 
+#[derive(Default)]
 pub struct SpiderHtmlFetcher {}
 
 impl SpiderHtmlFetcher {
