@@ -1,4 +1,5 @@
 use aws_tests_common::get_cfn_output;
+use common::personalized::api::PersonalizedData;
 use common::{
     api::collection::PutCollectionData,
     batch::Batch,
@@ -25,6 +26,7 @@ use notification::{
 };
 use notification_api::notification_get::EventIdCursoredData;
 use opensearch::GetParts;
+use product::data::{get_data::GetProductData, user_state_data::ProductUserStateData};
 use product::{
     core::{
         product_event::{
@@ -50,15 +52,10 @@ use product::{
         repository::{ProductDynamoDbRepository, ProductDynamoDbRepositoryImpl},
     },
 };
-use product_watchlist::{
-    data::watchlist_product_data::WatchlistProductData,
-    dynamodb::repository::{
-        WatchlistProductDynamoDbRepository, WatchlistProductDynamoDbRepositoryImpl,
-    },
+use product_watchlist::dynamodb::repository::{
+    WatchlistProductDynamoDbRepository, WatchlistProductDynamoDbRepositoryImpl,
 };
-use product_watchlist_api::{
-    watchlist_get::WatchlistProductDataView, watchlist_patch::WatchlistProductPatch,
-};
+use product_watchlist_api::watchlist_patch::WatchlistProductPatch;
 use search_filter::{
     core::user_search_filter_name::UserSearchFilterName,
     data::user_search_filter_data::UserSearchFilterData,
@@ -2237,7 +2234,10 @@ async fn should_send_email_to_user_when_watched_product_has_update() {
         .await
         .unwrap();
     assert_eq!(200, patch_response.status());
-    let patched = patch_response.json::<WatchlistProductData>().await.unwrap();
+    let patched = patch_response
+        .json::<PersonalizedData<GetProductData, ProductUserStateData>>()
+        .await
+        .unwrap();
     tokio::time::sleep(Duration::from_secs(10)).await;
 
     let watchlist_repository = WatchlistProductDynamoDbRepositoryImpl::new(
@@ -2245,7 +2245,7 @@ async fn should_send_email_to_user_when_watched_product_has_update() {
         &stack.dynamodb_table_1_name,
     );
     let eligible = watchlist_repository
-        .query_user_ids_watching_product(&patched.product_id)
+        .query_user_ids_watching_product(&patched.item.product_id)
         .await
         .unwrap();
     let eligible_user_ids: Vec<UserId> = eligible.into_iter().map(|(user_id, _)| user_id).collect();
@@ -2853,7 +2853,6 @@ async fn should_respond_200_when_product_search_hits_authenticated() {
     let product_watchlist_service = ProductWatchListServiceImpl::new(
         &watchlist_repository,
         &product_repository,
-        &get_product_service,
     );
 
     let now = SystemTime::now();
@@ -3411,7 +3410,6 @@ async fn should_respond_200_and_personalize_similar_products_for_authenticated()
     let watchlist_service = ProductWatchListServiceImpl::new(
         &watchlist_repository,
         &product_dynamodb_repository,
-        &get_product_service,
     );
 
     let mut product_record: ProductRecord = Faker.fake();
@@ -3435,7 +3433,11 @@ async fn should_respond_200_and_personalize_similar_products_for_authenticated()
 
     for pr in product_records.iter() {
         watchlist_service
-            .create_watchlist_product(&user_id, &pr.shop_id, &pr.shops_product_id)
+            .create_watchlist_product(
+                &user_id,
+                &pr.shop_id,
+                &pr.shops_product_id,
+            )
             .await
             .unwrap();
     }
@@ -3564,18 +3566,15 @@ async fn should_post_get_patch_delete_watchlist_product() {
         .unwrap();
     assert_eq!(200, get_response.status());
     let gotten = get_response
-        .json::<TimeCursoredData<WatchlistProductDataView>>()
+        .json::<TimeCursoredData<PersonalizedData<GetProductData, ProductUserStateData>>>()
         .await
         .unwrap();
     assert_eq!(1, gotten.items.len());
-    assert_eq!(
-        &materialized.product_id,
-        &gotten.items[0].product.product_id
-    );
-    assert_eq!(&materialized.shop_id, &gotten.items[0].product.shop_id);
+    assert_eq!(&materialized.product_id, &gotten.items[0].item.product_id);
+    assert_eq!(&materialized.shop_id, &gotten.items[0].item.shop_id);
     assert_eq!(
         &materialized.shops_product_id,
-        &gotten.items[0].product.shops_product_id
+        &gotten.items[0].item.shops_product_id
     );
     assert_eq!(1, gotten.total.unwrap());
 
@@ -3590,17 +3589,22 @@ async fn should_post_get_patch_delete_watchlist_product() {
         .patch(patch_url.clone())
         .bearer_auth(&user.access_token)
         .json(&WatchlistProductPatch {
-            notifications: Some(!gotten.items[0].notifications),
+            notifications: Some(!gotten.items[0].user_state.unwrap().watchlist.notifications),
         })
         .send()
         .await
         .unwrap();
     assert_eq!(200, patch_response.status());
-    let patch_res = patch_response.json::<WatchlistProductData>().await.unwrap();
-    assert_eq!(gotten.items[0].created, patch_res.created);
-    assert_eq!(materialized.shop_id, patch_res.shop_id);
-    assert_eq!(materialized.shops_product_id, patch_res.shops_product_id);
-    assert_eq!(materialized.product_id, patch_res.product_id);
+    let patch_res = patch_response
+        .json::<PersonalizedData<GetProductData, ProductUserStateData>>()
+        .await
+        .unwrap();
+    assert_eq!(materialized.shop_id, patch_res.item.shop_id);
+    assert_eq!(
+        materialized.shops_product_id,
+        patch_res.item.shops_product_id
+    );
+    assert_eq!(materialized.product_id, patch_res.item.product_id);
 
     // DELETE
     let delete_url = format!(
@@ -3626,7 +3630,7 @@ async fn should_post_get_patch_delete_watchlist_product() {
         .unwrap();
     assert_eq!(200, get_response.status());
     let gotten = get_response
-        .json::<TimeCursoredData<WatchlistProductDataView>>()
+        .json::<TimeCursoredData<PersonalizedData<GetProductData, ProductUserStateData>>>()
         .await
         .unwrap();
     assert!(gotten.items.is_empty());
@@ -3796,6 +3800,45 @@ async fn should_post_get_patch_delete_search_filter() {
         .await
         .unwrap();
     assert_eq!(404, get_after_delete.status());
+}
+
+#[localstack_test(services = [Cloudformation()])]
+async fn should_get_search_filter_products_when_authorized() {
+    let repository = UserSearchFilterDynamoDbRepositoryImpl::new(
+        get_dynamodb_client().await,
+        &get_cfn_output().dynamodb_table_1_name,
+    );
+    let service = UserSearchFilterServiceImpl::new(&repository);
+
+    let user = create_random_test_user().await;
+    let search_filter = service
+        .save_user_search_filter(
+            &user.sub.into(),
+            Faker.fake(),
+            Faker.fake::<product::core::product_search::ProductSearch>(),
+        )
+        .await
+        .unwrap();
+
+    let url = format!(
+        "{}/api/v1/me/search-filters/{}/products?language=de&currency=EUR&sort=created&order=asc&size=10",
+        get_cfn_output().api_gateway_endpoint_url,
+        search_filter.user_search_filter_id,
+    );
+    let response = reqwest::Client::new()
+        .get(url)
+        .bearer_auth(user.access_token)
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(200, response.status());
+
+    let actual = response
+        .json::<TimeCursoredData<PersonalizedData<GetProductData, ProductUserStateData>>>()
+        .await
+        .unwrap();
+    assert_eq!(0, actual.total.unwrap());
+    assert!(actual.items.is_empty());
 }
 
 // ---------------------------------------------------------------------------

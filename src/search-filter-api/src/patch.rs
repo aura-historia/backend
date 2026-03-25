@@ -61,6 +61,8 @@ mod tests {
     use common::user_id::UserId;
     use fake::{Fake, Faker};
     use lambda_runtime::LambdaEvent;
+    use product::service::get_service::MockGetProductService;
+    use product_personalization::service::MockProductPersonalizationService;
     use search_filter::core::user_search_filter_id::UserSearchFilterId;
     use search_filter::service::user_search_filter_service::{
         MockUserSearchFilterService, UserSearchFilterError,
@@ -89,7 +91,16 @@ mod tests {
             .expect_update_user_search_filter()
             .return_once(|_, _, _| Box::pin(async { Ok(Faker.fake()) }));
 
-        let response = handler(lambda_event, &service).await.unwrap();
+        let get_product_service = MockGetProductService::default();
+        let personalization_service = MockProductPersonalizationService::default();
+        let response = handler(
+            lambda_event,
+            &service,
+            &get_product_service,
+            &personalization_service,
+        )
+        .await
+        .unwrap();
 
         assert_eq!(200, response.status_code);
     }
@@ -112,7 +123,16 @@ mod tests {
             .expect_find_user_search_filter()
             .return_once(|_, _| Box::pin(async { Ok(Faker.fake()) }));
 
-        let response = handler(lambda_event, &service).await.unwrap();
+        let get_product_service = MockGetProductService::default();
+        let personalization_service = MockProductPersonalizationService::default();
+        let response = handler(
+            lambda_event,
+            &service,
+            &get_product_service,
+            &personalization_service,
+        )
+        .await
+        .unwrap();
 
         assert_eq!(200, response.status_code);
     }
@@ -136,7 +156,16 @@ mod tests {
             .expect_find_user_search_filter()
             .return_once(|_, _| Box::pin(async { Ok(Faker.fake()) }));
 
-        let response = handler(lambda_event, &service).await.unwrap();
+        let get_product_service = MockGetProductService::default();
+        let personalization_service = MockProductPersonalizationService::default();
+        let response = handler(
+            lambda_event,
+            &service,
+            &get_product_service,
+            &personalization_service,
+        )
+        .await
+        .unwrap();
 
         assert_eq!(200, response.status_code);
     }
@@ -156,7 +185,16 @@ mod tests {
         let mut service = MockUserSearchFilterService::default();
         service.expect_update_user_search_filter().never();
 
-        let response = handler(lambda_event, &service).await.unwrap();
+        let get_product_service = MockGetProductService::default();
+        let personalization_service = MockProductPersonalizationService::default();
+        let response = handler(
+            lambda_event,
+            &service,
+            &get_product_service,
+            &personalization_service,
+        )
+        .await
+        .unwrap();
         let json = extract_apigw_response_json_body!(response);
 
         assert_eq!(400, response.status_code);
@@ -189,7 +227,16 @@ mod tests {
                 })
             });
 
-        let response = handler(lambda_event, &service).await.unwrap();
+        let get_product_service = MockGetProductService::default();
+        let personalization_service = MockProductPersonalizationService::default();
+        let response = handler(
+            lambda_event,
+            &service,
+            &get_product_service,
+            &personalization_service,
+        )
+        .await
+        .unwrap();
         let json = extract_apigw_response_json_body!(response);
 
         assert_eq!(400, response.status_code);
@@ -230,7 +277,16 @@ mod tests {
                 })
             });
 
-        let response = handler(lambda_event, &service).await.unwrap();
+        let get_product_service = MockGetProductService::default();
+        let personalization_service = MockProductPersonalizationService::default();
+        let response = handler(
+            lambda_event,
+            &service,
+            &get_product_service,
+            &personalization_service,
+        )
+        .await
+        .unwrap();
         let json = extract_apigw_response_json_body!(response);
 
         assert_eq!(404, response.status_code);

@@ -126,7 +126,7 @@ async fn should_query_match_records_for_specific_filter() {
     }
 
     let actual = repository
-        .query_user_search_filter_match_records_for_filter(&user_id, &filter_id)
+        .query_user_search_filter_match_records_for_filter(&user_id, &filter_id, None, true)
         .await
         .unwrap();
 

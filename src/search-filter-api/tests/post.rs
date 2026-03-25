@@ -1,6 +1,8 @@
 use common::user_id::UserId;
 use fake::{Fake, Faker};
 use lambda_runtime::LambdaEvent;
+use product::service::get_service::MockGetProductService;
+use product_personalization::service::MockProductPersonalizationService;
 use search_filter::data::user_search_filter_data::UserSearchFilterData;
 use search_filter::dynamodb::repository::{
     UserSearchFilterDynamoDbRepository, UserSearchFilterDynamoDbRepositoryImpl,
@@ -26,7 +28,16 @@ async fn should_save_search_filter() {
     let repository =
         UserSearchFilterDynamoDbRepositoryImpl::new(get_dynamodb_client().await, "table_1");
     let service = UserSearchFilterServiceImpl::new(&repository);
-    let response = handle(lambda_event, &service).await.unwrap();
+    let get_product_service = MockGetProductService::default();
+    let personalization_service = MockProductPersonalizationService::default();
+    let response = handle(
+        lambda_event,
+        &service,
+        &get_product_service,
+        &personalization_service,
+    )
+    .await
+    .unwrap();
     assert_eq!(201, response.status_code);
 
     let json = extract_apigw_response_json_body!(response);

@@ -1,5 +1,5 @@
 use crate::{
-    core::watchlist_product::{LocalizedWatchlistProductView, WatchlistProduct},
+    core::watchlist_product::WatchlistProduct,
     dynamodb::record::{WatchlistProductRecord, mk_gsi1_pk, mk_gsi1_sk, mk_lsi1_sk, mk_pk, mk_sk},
     dynamodb::record_update::WatchlistProductRecordUpdate,
     dynamodb::repository::WatchlistProductDynamoDbRepository,
@@ -11,19 +11,15 @@ use aws_sdk_dynamodb::{
 };
 use common::slug_id::SlugId;
 use common::{
-    currency::domain::Currency,
-    language::domain::Language,
     pagination::cursor::{Cursor, CursoredResult},
     price::domain::MonetaryAmountOverflowError,
-    product_id::{ProductId, ProductKey},
+    product_id::ProductId,
     shop_id::ShopId,
     shops_product_id::ShopsProductId,
     sort::{Sort, SortOrder},
     user_id::UserId,
 };
 use product::dynamodb::repository::ProductDynamoDbRepository;
-use product::service::get_service::{GetProductError, GetProductService};
-use std::collections::HashMap;
 use time::OffsetDateTime;
 
 pub const MAX_WATCHLIST_QUOTA: usize = 5;
@@ -84,28 +80,6 @@ pub enum WatchProductError {
         "Exceeded the maximum amount of watchlist entries. There are already {0}/{MAX_WATCHLIST_QUOTA} watchlist entries occupied."
     )]
     WatchlistEntryCountExceeded(u32),
-}
-
-impl From<GetProductError> for WatchProductError {
-    fn from(err: GetProductError) -> Self {
-        match err {
-            GetProductError::ProductNotFound(shop_id, shops_product_id) => {
-                WatchProductError::ProductNotFound(shop_id, shops_product_id)
-            }
-            GetProductError::ProductSlugNotFound(shop_slug_id, product_slug_id) => {
-                WatchProductError::ProductSlugNotFound(shop_slug_id, product_slug_id)
-            }
-            GetProductError::MonetaryAmountOverflowError(e) => {
-                WatchProductError::MonetaryAmountOverflowError(e)
-            }
-            GetProductError::SdkGetItemError(e) => WatchProductError::SdkGetItemError(e),
-            GetProductError::SdkBatchGetItemError(e) => WatchProductError::SdkBatchGetItemError(e),
-            GetProductError::SdkQueryError(e) => WatchProductError::SdkQueryError(e),
-            GetProductError::UnprocessedAfterMaxRetries(e) => {
-                WatchProductError::UnprocessedAfterMaxRetries(e)
-            }
-        }
-    }
 }
 
 #[cfg(feature = "data")]
@@ -187,11 +161,9 @@ pub trait ProductWatchListService {
     async fn view_watchlist(
         &self,
         user_id: &UserId,
-        languages: &[Language],
-        currency: &Currency,
         sort: &Option<Sort<SortWatchlistProductField>>,
         cursor: &Option<Cursor<OffsetDateTime>>,
-    ) -> Result<CursoredResult<LocalizedWatchlistProductView, OffsetDateTime>, WatchProductError>;
+    ) -> Result<CursoredResult<WatchlistProduct, OffsetDateTime>, WatchProductError>;
 
     async fn find_user_ids_watching_product(
         &self,
@@ -202,19 +174,16 @@ pub trait ProductWatchListService {
 pub struct ProductWatchListServiceImpl<'a> {
     watchlist_repository: &'a (dyn WatchlistProductDynamoDbRepository + Sync),
     product_repository: &'a (dyn ProductDynamoDbRepository + Sync),
-    get_product_service: &'a (dyn GetProductService + Sync),
 }
 
 impl<'a> ProductWatchListServiceImpl<'a> {
     pub fn new(
         watchlist_repository: &'a (dyn WatchlistProductDynamoDbRepository + Sync),
         product_repository: &'a (dyn ProductDynamoDbRepository + Sync),
-        get_product_service: &'a (dyn GetProductService + Sync),
     ) -> Self {
         Self {
             watchlist_repository,
             product_repository,
-            get_product_service,
         }
     }
 }
@@ -355,12 +324,9 @@ impl<'a> ProductWatchListService for ProductWatchListServiceImpl<'a> {
     async fn view_watchlist(
         &self,
         user_id: &UserId,
-        languages: &[Language],
-        currency: &Currency,
         sort: &Option<Sort<SortWatchlistProductField>>,
         cursor: &Option<Cursor<OffsetDateTime>>,
-    ) -> Result<CursoredResult<LocalizedWatchlistProductView, OffsetDateTime>, WatchProductError>
-    {
+    ) -> Result<CursoredResult<WatchlistProduct, OffsetDateTime>, WatchProductError> {
         let sort = sort.unwrap_or(Sort {
             sort: SortWatchlistProductField::Created,
             order: SortOrder::Asc,
@@ -372,43 +338,10 @@ impl<'a> ProductWatchListService for ProductWatchListServiceImpl<'a> {
             .query_watchlist_records(user_id, &cursor, scan_index_forward)
             .await?;
         let last = paged_watchlist_records.last().cloned();
-
-        let mut watchlist_records_created = paged_watchlist_records
-            .iter()
-            .map(|record| (record.product_id, record.clone()))
-            .collect::<HashMap<_, _>>();
-        let watchlist_record_keys = paged_watchlist_records
+        let products: Vec<WatchlistProduct> = paged_watchlist_records
             .into_iter()
-            .map(|record| ProductKey::new(record.shop_id, record.shops_product_id))
+            .map(WatchlistProduct::from)
             .collect();
-        let mut products = self
-                    .get_product_service
-                    .view_products(watchlist_record_keys, languages, currency)
-                    .await?
-                    .into_iter()
-                    .filter_map(
-                        |item| match watchlist_records_created.remove(&item.product_id) {
-                            Some(watchlist_record) => Some(LocalizedWatchlistProductView {
-                                product: item,
-                                notifications: watchlist_record.notifications,
-                                created: watchlist_record.created,
-                                updated: watchlist_record.updated,
-                            }),
-                            None => {
-                                tracing::error!("Could not find timestamp 'created' for Watchlist-Product after Batch-Get. This is a bug. Skipping Product.");
-                                None
-                            },
-                        },
-                    )
-                    .collect::<Vec<_>>();
-        // BatchGetItem responds with any order, so we need to restore the order from the query manually
-        products.sort_by(|l, r| {
-            if scan_index_forward {
-                l.created.cmp(&r.created)
-            } else {
-                l.created.cmp(&r.created).reverse()
-            }
-        });
 
         let total = if products.is_empty() {
             0
@@ -454,7 +387,6 @@ mod tests {
         use common::{shop_id::ShopId, shops_product_id::ShopsProductId, user_id::UserId};
         use fake::{Fake, Faker};
         use product::dynamodb::repository::MockProductDynamoDbRepository;
-        use product::service::get_service::GetProductServiceImpl;
 
         #[tokio::test]
         async fn should_err_watchlist_timestamp_not_found_when_no_watched_product_with_timestamp_exists()
@@ -464,13 +396,9 @@ mod tests {
             watchlist_repository
                 .expect_get_watchlist_record()
                 .return_once(|_, _, _| Box::pin(async { Ok(None) }));
-            let get_product_service = GetProductServiceImpl::new(&product_repository);
 
-            let service = ProductWatchListServiceImpl::new(
-                &watchlist_repository,
-                &product_repository,
-                &get_product_service,
-            );
+            let service =
+                ProductWatchListServiceImpl::new(&watchlist_repository, &product_repository);
             let user_id = UserId::new();
             let shop_id = ShopId::new();
             let shops_product_id = ShopsProductId::new();
@@ -522,13 +450,9 @@ mod tests {
             watchlist_repository
                 .expect_get_watchlist_record()
                 .return_once(|_, _, _| Box::pin(async { Err(expected) }));
-            let get_product_service = GetProductServiceImpl::new(&product_repository);
 
-            let service = ProductWatchListServiceImpl::new(
-                &watchlist_repository,
-                &product_repository,
-                &get_product_service,
-            );
+            let service =
+                ProductWatchListServiceImpl::new(&watchlist_repository, &product_repository);
 
             let actual = service
                 .find_watchlist_product(&Faker.fake(), &Faker.fake(), &Faker.fake())
@@ -558,7 +482,6 @@ mod tests {
         use common::{shop_id::ShopId, shops_product_id::ShopsProductId};
         use fake::{Fake, Faker};
         use product::dynamodb::repository::MockProductDynamoDbRepository;
-        use product::service::get_service::GetProductServiceImpl;
 
         #[tokio::test]
         async fn should_watch_when_success() {
@@ -574,13 +497,9 @@ mod tests {
             watchlist_repository
                 .expect_put_watchlist_record()
                 .return_once(|_| Box::pin(async { Ok(PutItemOutput::builder().build()) }));
-            let get_product_service = GetProductServiceImpl::new(&product_repository);
 
-            let service = ProductWatchListServiceImpl::new(
-                &watchlist_repository,
-                &product_repository,
-                &get_product_service,
-            );
+            let service =
+                ProductWatchListServiceImpl::new(&watchlist_repository, &product_repository);
             service
                 .create_watchlist_product(&Faker.fake(), &Faker.fake(), &Faker.fake())
                 .await
@@ -595,13 +514,9 @@ mod tests {
                 .return_once(|_, _| Box::pin(async { Ok(None) }));
 
             let watchlist_repository = MockWatchlistProductDynamoDbRepository::default();
-            let get_product_service = GetProductServiceImpl::new(&product_repository);
 
-            let service = ProductWatchListServiceImpl::new(
-                &watchlist_repository,
-                &product_repository,
-                &get_product_service,
-            );
+            let service =
+                ProductWatchListServiceImpl::new(&watchlist_repository, &product_repository);
             let shop_id = ShopId::new();
             let shops_product_id = ShopsProductId::new();
             let actual = service
@@ -630,13 +545,8 @@ mod tests {
                 .expect_count_watchlist_records()
                 .return_once(|_, _, _| Box::pin(async { Ok(MAX_WATCHLIST_QUOTA as u64) }));
 
-            let get_product_service = GetProductServiceImpl::new(&product_repository);
-
-            let service = ProductWatchListServiceImpl::new(
-                &watchlist_repository,
-                &product_repository,
-                &get_product_service,
-            );
+            let service =
+                ProductWatchListServiceImpl::new(&watchlist_repository, &product_repository);
             let shop_id = ShopId::new();
             let shops_product_id = ShopsProductId::new();
             let actual = service
@@ -680,13 +590,9 @@ mod tests {
                 .return_once(|_, _| Box::pin(async { Err(expected) }));
 
             let watchlist_repository = MockWatchlistProductDynamoDbRepository::default();
-            let get_product_service = GetProductServiceImpl::new(&product_repository);
 
-            let service = ProductWatchListServiceImpl::new(
-                &watchlist_repository,
-                &product_repository,
-                &get_product_service,
-            );
+            let service =
+                ProductWatchListServiceImpl::new(&watchlist_repository, &product_repository);
 
             let actual = service
                 .create_watchlist_product(&Faker.fake(), &Faker.fake(), &Faker.fake())
@@ -733,13 +639,9 @@ mod tests {
             watchlist_repository
                 .expect_put_watchlist_record()
                 .return_once(|_| Box::pin(async { Err(expected) }));
-            let get_product_service = GetProductServiceImpl::new(&product_repository);
 
-            let service = ProductWatchListServiceImpl::new(
-                &watchlist_repository,
-                &product_repository,
-                &get_product_service,
-            );
+            let service =
+                ProductWatchListServiceImpl::new(&watchlist_repository, &product_repository);
 
             let actual = service
                 .create_watchlist_product(&Faker.fake(), &Faker.fake(), &Faker.fake())
@@ -768,7 +670,6 @@ mod tests {
         use common::{shop_id::ShopId, shops_product_id::ShopsProductId, user_id::UserId};
         use fake::{Fake, Faker};
         use product::dynamodb::repository::MockProductDynamoDbRepository;
-        use product::service::get_service::GetProductServiceImpl;
 
         #[tokio::test]
         async fn should_unwatch_when_success() {
@@ -780,13 +681,9 @@ mod tests {
             watchlist_repository
                 .expect_delete_watchlist_record()
                 .return_once(|_, _, _| Box::pin(async { Ok(DeleteItemOutput::builder().build()) }));
-            let get_product_service = GetProductServiceImpl::new(&product_repository);
 
-            let service = ProductWatchListServiceImpl::new(
-                &watchlist_repository,
-                &product_repository,
-                &get_product_service,
-            );
+            let service =
+                ProductWatchListServiceImpl::new(&watchlist_repository, &product_repository);
             service
                 .delete_watchlist_product(&Faker.fake(), &Faker.fake(), &Faker.fake())
                 .await
@@ -801,13 +698,9 @@ mod tests {
             watchlist_repository
                 .expect_get_watchlist_record()
                 .return_once(|_, _, _| Box::pin(async { Ok(None) }));
-            let get_product_service = GetProductServiceImpl::new(&product_repository);
 
-            let service = ProductWatchListServiceImpl::new(
-                &watchlist_repository,
-                &product_repository,
-                &get_product_service,
-            );
+            let service =
+                ProductWatchListServiceImpl::new(&watchlist_repository, &product_repository);
             let user_id = UserId::new();
             let shop_id = ShopId::new();
             let shops_product_id = ShopsProductId::new();
@@ -859,13 +752,9 @@ mod tests {
             watchlist_repository
                 .expect_get_watchlist_record()
                 .return_once(|_, _, _| Box::pin(async { Err(expected) }));
-            let get_product_service = GetProductServiceImpl::new(&product_repository);
 
-            let service = ProductWatchListServiceImpl::new(
-                &watchlist_repository,
-                &product_repository,
-                &get_product_service,
-            );
+            let service =
+                ProductWatchListServiceImpl::new(&watchlist_repository, &product_repository);
 
             let actual = service
                 .delete_watchlist_product(&Faker.fake(), &Faker.fake(), &Faker.fake())
@@ -906,13 +795,9 @@ mod tests {
             watchlist_repository
                 .expect_delete_watchlist_record()
                 .return_once(|_, _, _| Box::pin(async { Err(expected) }));
-            let get_product_service = GetProductServiceImpl::new(&product_repository);
 
-            let service = ProductWatchListServiceImpl::new(
-                &watchlist_repository,
-                &product_repository,
-                &get_product_service,
-            );
+            let service =
+                ProductWatchListServiceImpl::new(&watchlist_repository, &product_repository);
 
             let actual = service
                 .delete_watchlist_product(&Faker.fake(), &Faker.fake(), &Faker.fake())
@@ -942,7 +827,6 @@ mod tests {
         use common::{shop_id::ShopId, shops_product_id::ShopsProductId, user_id::UserId};
         use fake::{Fake, Faker};
         use product::dynamodb::repository::MockProductDynamoDbRepository;
-        use product::service::get_service::GetProductServiceImpl;
 
         #[tokio::test]
         async fn should_toggle_notifications_when_success() {
@@ -960,13 +844,9 @@ mod tests {
             watchlist_repository
                 .expect_update_watchlist_record()
                 .return_once(|_, _, _, _| Box::pin(async { Ok(Some(Faker.fake())) }));
-            let get_product_service = GetProductServiceImpl::new(&product_repository);
 
-            let service = ProductWatchListServiceImpl::new(
-                &watchlist_repository,
-                &product_repository,
-                &get_product_service,
-            );
+            let service =
+                ProductWatchListServiceImpl::new(&watchlist_repository, &product_repository);
             service
                 .update_watchlist_product(
                     &Faker.fake(),
@@ -988,13 +868,9 @@ mod tests {
             watchlist_repository
                 .expect_get_watchlist_record()
                 .return_once(|_, _, _| Box::pin(async { Ok(None) }));
-            let get_product_service = GetProductServiceImpl::new(&product_repository);
 
-            let service = ProductWatchListServiceImpl::new(
-                &watchlist_repository,
-                &product_repository,
-                &get_product_service,
-            );
+            let service =
+                ProductWatchListServiceImpl::new(&watchlist_repository, &product_repository);
             let user_id = UserId::new();
             let shop_id = ShopId::new();
             let shops_product_id = ShopsProductId::new();
@@ -1004,7 +880,7 @@ mod tests {
                     &shop_id,
                     &shops_product_id,
                     UpdateWatchlistProductCommand {
-                        notifications: Some(false),
+                        notifications: Some(true),
                     },
                 )
                 .await
@@ -1053,13 +929,9 @@ mod tests {
             watchlist_repository
                 .expect_get_watchlist_record()
                 .return_once(|_, _, _| Box::pin(async { Err(expected) }));
-            let get_product_service = GetProductServiceImpl::new(&product_repository);
 
-            let service = ProductWatchListServiceImpl::new(
-                &watchlist_repository,
-                &product_repository,
-                &get_product_service,
-            );
+            let service =
+                ProductWatchListServiceImpl::new(&watchlist_repository, &product_repository);
 
             let actual = service
                 .update_watchlist_product(
@@ -1113,13 +985,9 @@ mod tests {
             watchlist_repository
                 .expect_update_watchlist_record()
                 .return_once(|_, _, _, _| Box::pin(async { Err(expected) }));
-            let get_product_service = GetProductServiceImpl::new(&product_repository);
 
-            let service = ProductWatchListServiceImpl::new(
-                &watchlist_repository,
-                &product_repository,
-                &get_product_service,
-            );
+            let service =
+                ProductWatchListServiceImpl::new(&watchlist_repository, &product_repository);
 
             let actual = service
                 .update_watchlist_product(
@@ -1151,10 +1019,8 @@ mod tests {
             config::http::HttpResponse,
             error::{ConnectorError, SdkError},
         };
-        use common::{currency::domain::Currency, language::domain::Language};
         use fake::{Fake, Faker};
         use product::dynamodb::repository::MockProductDynamoDbRepository;
-        use product::service::get_service::MockGetProductService;
 
         #[tokio::test]
         #[rstest::rstest]
@@ -1181,15 +1047,9 @@ mod tests {
             watchlist_repository
                 .expect_query_watchlist_records()
                 .return_once(|_, _, _| Box::pin(async { Err(expected) }));
-            let get_product_service = MockGetProductService::default();
-            let service = ProductWatchListServiceImpl::new(
-                &watchlist_repository,
-                &product_repository,
-                &get_product_service,
-            );
-            let actual = service
-                .view_watchlist(&Faker.fake(), &[Language::De], &Currency::Eur, &None, &None)
-                .await;
+            let service =
+                ProductWatchListServiceImpl::new(&watchlist_repository, &product_repository);
+            let actual = service.view_watchlist(&Faker.fake(), &None, &None).await;
 
             assert!(actual.is_err());
             match actual.unwrap_err() {

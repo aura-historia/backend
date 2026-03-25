@@ -88,33 +88,55 @@ jobs:
       - name: Test Workspace
         run: cargo test --locked --workspace --lib --all-features -- --nocapture
 
+  determine-affected-crates:
+    name: Determine Affected Crates
+    permissions:
+      contents: read
+    runs-on: ubuntu-latest
+    outputs:
+      integration_test_crates: ${{ steps.determine.outputs.integration_test_crates }}
+      test_pipeline_crates: ${{ steps.determine.outputs.test_pipeline_crates }}
+      acceptance_test_crates: ${{ steps.determine.outputs.acceptance_test_crates }}
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+
+      - name: Set up Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - uses: Swatinem/rust-cache@v2
+
+      - name: Build ci-determinator
+        run: cargo build --locked --release --package ci-determinator
+
+      - name: Compute base ref
+        id: base-ref
+        run: |
+          if [ "${{ github.event_name }}" = "pull_request" ]; then
+            echo "sha=${{ github.event.pull_request.base.sha }}" >> "$GITHUB_OUTPUT"
+          else
+            echo "sha=HEAD~1" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Determine affected crates
+        id: determine
+        run: |
+          result=$(./target/release/ci-determinator "${{ steps.base-ref.outputs.sha }}")
+          echo "integration_test_crates=$(echo "$result" | jq -c '.integration_test')" >> "$GITHUB_OUTPUT"
+          echo "test_pipeline_crates=$(echo "$result" | jq -c '.test_pipeline')" >> "$GITHUB_OUTPUT"
+          echo "acceptance_test_crates=$(echo "$result" | jq -c '.acceptance_test')" >> "$GITHUB_OUTPUT"
+
   integration-test:
     name: Integration-Test ${{ matrix.crate }}
+    needs: [determine-affected-crates]
+    if: needs.determine-affected-crates.outputs.integration_test_crates != '[]'
     permissions:
       contents: read
     runs-on: ubuntu-latest
     strategy:
       matrix:
-        crate:
-          - src/aura-scraper
-          - src/aura-spider
-          - src/search-filter
-          - src/search-filter-api
-          - src/product
-          - src/product-pipeline/src/product-pipeline-common
-          - src/product-api
-          - src/product-classification
-          - src/product-classification-api
-          - src/product-watchlist
-          - src/product-watchlist-api
-          - src/notification
-          - src/notification-api
-          - src/shop
-          - src/shop-api
-          - src/shop-lambda/src/shop-lambda-opensearch-index
-          - src/test-api
-          - src/user
-          - src/user-api
+        crate: ${{ fromJson(needs.determine-affected-crates.outputs.integration_test_crates) }}
     steps:
       - uses: actions/checkout@v6
 
@@ -132,6 +154,8 @@ jobs:
 
   acceptance-test:
     name: Acceptance-Test
+    needs: [determine-affected-crates]
+    if: needs.determine-affected-crates.outputs.acceptance_test_crates != '[]'
     permissions:
       contents: read
     runs-on: self-hosted
@@ -144,12 +168,12 @@ jobs:
       - uses: Swatinem/rust-cache@v2
 
       - name: Set up Node.js
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v6
         with:
           node-version: "20"
 
       - name: Cache cargo-lambda and Zig
-        uses: actions/cache@v4
+        uses: actions/cache@v5
         with:
           path: |
             ~/.cargo/bin/cargo-lambda
@@ -175,17 +199,14 @@ jobs:
 
   test-product-pipeline:
     name: Test product-pipeline
+    needs: [determine-affected-crates]
+    if: needs.determine-affected-crates.outputs.test_pipeline_crates != '[]'
     permissions:
       contents: read
     runs-on: self-hosted
     strategy:
       matrix:
-        crate:
-          - src/product-pipeline/src/product-pipeline-classify-category
-          - src/product-pipeline/src/product-pipeline-classify-period
-          - src/product-pipeline/src/product-pipeline-embed-text
-          - src/product-pipeline/src/product-pipeline-extract-attribute
-          - src/product-pipeline/src/product-pipeline-translate
+        crate: ${{ fromJson(needs.determine-affected-crates.outputs.test_pipeline_crates) }}
     steps:
       - uses: actions/checkout@v6
         with:
@@ -215,7 +236,12 @@ jobs:
   sonar:
     name: SonarQube-Cloud Analysis
     needs: [unit-test, integration-test, test-product-pipeline]
-    if: github.actor != 'dependabot[bot]'
+    if: >-
+      !cancelled() &&
+      github.ref == 'refs/heads/develop' &&
+      needs.unit-test.result == 'success' &&
+      (needs.integration-test.result == 'success' || needs.integration-test.result == 'skipped') &&
+      (needs.test-product-pipeline.result == 'success' || needs.test-product-pipeline.result == 'skipped')
     permissions:
       contents: read
     runs-on: self-hosted
@@ -270,7 +296,14 @@ jobs:
 
   aws-push-lambda:
     name: Push Lambda to S3 ${{ matrix.crate }}
-    if: github.event_name == 'push' && (github.ref == 'refs/heads/prod' || github.ref == 'refs/heads/develop')
+    if: >-
+      !cancelled() &&
+      github.event_name == 'push' &&
+      (github.ref == 'refs/heads/prod' || github.ref == 'refs/heads/develop') &&
+      needs.unit-test.result == 'success' &&
+      (needs.integration-test.result == 'success' || needs.integration-test.result == 'skipped') &&
+      (needs.test-product-pipeline.result == 'success' || needs.test-product-pipeline.result == 'skipped') &&
+      (needs.acceptance-test.result == 'success' || needs.acceptance-test.result == 'skipped')
     needs: [unit-test, integration-test, test-product-pipeline, acceptance-test]
     runs-on: ubuntu-latest
     permissions:
@@ -355,7 +388,14 @@ jobs:
 
   aws-push-ec2-x86:
     name: Push EC2 to S3 ${{ matrix.crate }}
-    if: github.event_name == 'push' && (github.ref == 'refs/heads/prod' || github.ref == 'refs/heads/develop')
+    if: >-
+      !cancelled() &&
+      github.event_name == 'push' &&
+      (github.ref == 'refs/heads/prod' || github.ref == 'refs/heads/develop') &&
+      needs.unit-test.result == 'success' &&
+      (needs.integration-test.result == 'success' || needs.integration-test.result == 'skipped') &&
+      (needs.test-product-pipeline.result == 'success' || needs.test-product-pipeline.result == 'skipped') &&
+      (needs.acceptance-test.result == 'success' || needs.acceptance-test.result == 'skipped')
     needs: [unit-test, integration-test, test-product-pipeline, acceptance-test]
     runs-on: ubuntu-24.04
     permissions:
@@ -407,7 +447,14 @@ jobs:
 
   aws-push-mail-templates:
     name: Compile & push Mail-Templates to S3 ${{ matrix.resource }}
-    if: github.event_name == 'push' && (github.ref == 'refs/heads/prod' || github.ref == 'refs/heads/develop')
+    if: >-
+      !cancelled() &&
+      github.event_name == 'push' &&
+      (github.ref == 'refs/heads/prod' || github.ref == 'refs/heads/develop') &&
+      needs.unit-test.result == 'success' &&
+      (needs.integration-test.result == 'success' || needs.integration-test.result == 'skipped') &&
+      (needs.test-product-pipeline.result == 'success' || needs.test-product-pipeline.result == 'skipped') &&
+      (needs.acceptance-test.result == 'success' || needs.acceptance-test.result == 'skipped')
     needs: [unit-test, integration-test, test-product-pipeline, acceptance-test]
     runs-on: ubuntu-latest
     permissions:

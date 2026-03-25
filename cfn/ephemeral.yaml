@@ -1232,6 +1232,14 @@ Resources:
       AuthorizationType: JWT
       AuthorizerId: !Ref ApiCognitoAuthorizer
       Target: !Sub "integrations/${SearchFilterApiLambdaIntegration}"
+  SearchFilterApiGetSearchFilterProductsRoute:
+    Type: AWS::ApiGatewayV2::Route
+    Properties:
+      ApiId: !Ref Api
+      RouteKey: "GET /api/v1/me/search-filters/{userSearchFilterId}/products"
+      AuthorizationType: JWT
+      AuthorizerId: !Ref ApiCognitoAuthorizer
+      Target: !Sub "integrations/${SearchFilterApiLambdaIntegration}"
   SearchFilterApiLambdaIntegration:
     Type: AWS::ApiGatewayV2::Integration
     Properties:
@@ -1754,7 +1762,6 @@ Resources:
           S3_BUCKET_NAME_TEMPLATES: "aura-historia-mail-templates-eu-central-1"
           STAGE_NAME: !Sub "${StageName}"
           COMMIT_SHA: !Sub "${CommitSHA}"
-          SENDER_MAIL: "no-reply@aura-historia.com"
   NotificationSendMapping:
     Type: AWS::Lambda::EventSourceMapping
     Properties:
@@ -2098,7 +2105,6 @@ Resources:
       Environment:
         Variables:
           DYNAMODB_TABLE_NAME: !Ref TableOne
-          SENDER_MAIL: "no-reply@aura-historia.com"
           S3_BUCKET_NAME_TEMPLATES: "aura-historia-mail-templates-eu-central-1"
           STAGE_NAME: !Sub "${StageName}"
           COMMIT_SHA: !Sub "${CommitSHA}"
@@ -2194,7 +2200,6 @@ Resources:
       Environment:
         Variables:
           DYNAMODB_TABLE_NAME: !Ref TableOne
-          SENDER_MAIL: "no-reply@aura-historia.com"
           S3_BUCKET_NAME_TEMPLATES: "aura-historia-mail-templates-eu-central-1"
           STAGE_NAME: !Sub "${StageName}"
           COMMIT_SHA: !Sub "${CommitSHA}"

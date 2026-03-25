@@ -1,8 +1,8 @@
 use crate::shop_id::ShopId;
 use crate::shops_product_id::ShopsProductId;
-use serde::{Deserialize, Serialize};
 use std::fmt::{Display, Formatter};
-use uuid::Uuid;
+
+crate::uuid_v4_newtype!(ProductId);
 
 #[cfg_attr(feature = "test-data", derive(fake::Dummy))]
 #[derive(Debug, Clone, PartialEq, PartialOrd, Eq, Ord, Hash)]
@@ -90,55 +90,6 @@ pub mod api {
             .with_path_field("productSlugId")
             .with_detail("Missing field 'productSlugId'."),
         )
-    }
-}
-
-#[cfg_attr(feature = "test-data", derive(fake::Dummy))]
-#[derive(Debug, Clone, Copy, PartialEq, PartialOrd, Eq, Ord, Hash, Serialize, Deserialize)]
-#[serde(into = "String", try_from = "String")]
-pub struct ProductId(Uuid);
-
-impl Default for ProductId {
-    fn default() -> Self {
-        Self::new()
-    }
-}
-
-impl ProductId {
-    pub fn new() -> Self {
-        Self(Uuid::new_v4())
-    }
-}
-
-impl Display for ProductId {
-    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{}", self.0)
-    }
-}
-
-impl From<Uuid> for ProductId {
-    fn from(uuid: Uuid) -> Self {
-        ProductId(uuid)
-    }
-}
-
-impl TryFrom<String> for ProductId {
-    type Error = uuid::Error;
-    fn try_from(s: String) -> Result<Self, Self::Error> {
-        Uuid::parse_str(&s).map(Self)
-    }
-}
-
-impl From<ProductId> for String {
-    fn from(id: ProductId) -> Self {
-        id.0.to_string()
-    }
-}
-
-impl TryFrom<&str> for ProductId {
-    type Error = uuid::Error;
-    fn try_from(s: &str) -> Result<Self, Self::Error> {
-        Uuid::parse_str(s).map(Self)
     }
 }
 
