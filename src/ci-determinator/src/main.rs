@@ -28,6 +28,10 @@ const INTEGRATION_TEST_CRATES: &[&str] = &[
     "src/user-api",
 ];
 
+/// Acceptance test crates that run on self-hosted runners with cargo-lambda.
+/// These paths are relative to the workspace root.
+const ACCEPTANCE_TEST_CRATES: &[&str] = &["src/acceptance-tests"];
+
 /// Product pipeline test crates that run on self-hosted runners with Python deps.
 /// These paths are relative to the workspace root.
 const PIPELINE_TEST_CRATES: &[&str] = &[
@@ -49,6 +53,7 @@ fn main() -> Result<()> {
         let output = serde_json::json!({
             "integration_test": Vec::<&str>::new(),
             "test_pipeline": Vec::<&str>::new(),
+            "acceptance_test": Vec::<&str>::new(),
         });
         println!("{output}");
         return Ok(());
@@ -88,9 +93,16 @@ fn main() -> Result<()> {
         .filter(|c| affected_dirs.contains(*c))
         .collect();
 
+    let acceptance_test: Vec<&str> = ACCEPTANCE_TEST_CRATES
+        .iter()
+        .copied()
+        .filter(|c| affected_dirs.contains(*c))
+        .collect();
+
     let output = serde_json::json!({
         "integration_test": integration_test,
         "test_pipeline": test_pipeline,
+        "acceptance_test": acceptance_test,
     });
     println!("{output}");
 
