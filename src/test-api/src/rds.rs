@@ -5,6 +5,7 @@ use sqlx::{ConnectOptions, Executor, PgConnection, PgPool};
 use std::path::Path;
 use std::process::{Command, Stdio};
 use std::str::FromStr;
+use std::sync::atomic::{AtomicUsize, Ordering};
 use tokio::sync::OnceCell;
 use tracing::debug;
 
@@ -85,10 +86,51 @@ extern "C" fn cleanup() {
         .status();
 }
 
+/// Stores the previous `SIGINT` handler so it can be chained in [`signal_handler`].
+static PREV_SIGINT: AtomicUsize = AtomicUsize::new(0);
+/// Stores the previous `SIGTERM` handler so it can be chained in [`signal_handler`].
+static PREV_SIGTERM: AtomicUsize = AtomicUsize::new(0);
+
+/// Signal handler for `SIGINT` and `SIGTERM`.
+///
+/// Runs [`cleanup`] so that the Postgres container is removed even when the test process
+/// is interrupted (e.g. `CTRL+C` or CI cancellation).
+/// After cleanup it restores the previous handler and re-raises the signal, preserving
+/// default termination behaviour and allowing other modules to chain their own handlers.
+extern "C" fn signal_handler(sig: libc::c_int) {
+    cleanup();
+
+    let prev = if sig == libc::SIGINT {
+        PREV_SIGINT.load(Ordering::SeqCst)
+    } else {
+        PREV_SIGTERM.load(Ordering::SeqCst)
+    };
+
+    unsafe {
+        if prev == libc::SIG_DFL {
+            libc::signal(sig, libc::SIG_DFL);
+            libc::raise(sig);
+        } else if prev != libc::SIG_IGN {
+            let handler: extern "C" fn(libc::c_int) = std::mem::transmute(prev);
+            handler(sig);
+        }
+    }
+}
+
 fn install_cleanup() {
     static INIT: std::sync::Once = std::sync::Once::new();
     INIT.call_once(|| unsafe {
         libc::atexit(cleanup);
+        let prev = libc::signal(
+            libc::SIGINT,
+            signal_handler as *const () as libc::sighandler_t,
+        );
+        PREV_SIGINT.store(prev, Ordering::SeqCst);
+        let prev = libc::signal(
+            libc::SIGTERM,
+            signal_handler as *const () as libc::sighandler_t,
+        );
+        PREV_SIGTERM.store(prev, Ordering::SeqCst);
     });
 }
 
