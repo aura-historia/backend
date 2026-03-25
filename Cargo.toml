@@ -65,6 +65,7 @@ members = [
     "src/fxrate",
     "src/fxrate-lambda",
     "src/aura-scraper",
+    "src/ci-determinator",
 ]
 
 [workspace.dependencies]
@@ -127,7 +128,7 @@ lambda_runtime = "1.1.2"
 libc = "0.2.183"
 mockall = "0.14.0"
 mrml = { version = "5.1.0", default-features = false, features = ["parse", "render"] }
-opensearch = { version = "2.3.0", default-features = false, features = [
+opensearch = { version = "2.4.0", default-features = false, features = [
     "aws-auth",
     "rustls-tls",
 ] }
@@ -165,7 +166,7 @@ typed-builder = "0.23.2"
 url = "2.5.8"
 uuid = "1.22.0"
 walkdir = "2.5.0"
-zip = { version = "8.3.0", default-features = false, features = ["deflate"] }
+zip = { version = "8.4.0", default-features = false, features = ["deflate"] }
 futures-util = "0.3.32"
 proc-macro2 = "1.0.106"
 smoking-tests-macros = { path = "src/aws-tests/src/smoking-tests/src/smoking-tests-macros" }

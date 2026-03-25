@@ -53,7 +53,6 @@ async fn should_201_when_new_watchlist_entry_would_not_exceed_quota() {
         "",
         "",
         "",
-        "noreply@example.com".parse().unwrap(),
     );
     let personalization_service = ProductPersonalizationServiceImpl::new(
         &watchlist_repository,
@@ -150,7 +149,6 @@ async fn should_422_when_new_watchlist_entry_would_exceed_quota() {
         "",
         "",
         "",
-        "noreply@example.com".parse().unwrap(),
     );
     let personalization_service = ProductPersonalizationServiceImpl::new(
         &watchlist_repository,

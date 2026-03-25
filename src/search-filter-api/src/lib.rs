@@ -4,18 +4,21 @@ use common::api::{
     error_code::INTERNAL_SERVER_ERROR,
 };
 use lambda_runtime::LambdaEvent;
+use product::service::get_service::GetProductService;
+use product_personalization::service::ProductPersonalizationService;
 use search_filter::service::user_search_filter_service::UserSearchFilterService;
 
 mod delete;
 mod get_all;
 mod get_one;
+pub mod get_products;
 mod patch;
 pub mod patch_types;
 mod post;
 pub mod post_types;
 
 #[tracing::instrument(
-    skip(event, service),
+    skip(event, service, get_product_service, product_personalization_service),
     fields(
         requestId = %event.context.request_id,
         method = event.payload.request_context.http.method.as_str(),
@@ -27,11 +30,21 @@ pub mod post_types;
         userId = tracing::field::Empty,
     )
 )]
+#[allow(clippy::too_many_arguments)]
 pub async fn handler(
     event: LambdaEvent<ApiGatewayV2httpRequest>,
     service: &impl UserSearchFilterService,
+    get_product_service: &(impl GetProductService + Sync),
+    product_personalization_service: &(impl ProductPersonalizationService + Sync),
 ) -> Result<ApiGatewayV2httpResponse, lambda_runtime::Error> {
-    match handle(event, service).await {
+    match handle(
+        event,
+        service,
+        get_product_service,
+        product_personalization_service,
+    )
+    .await
+    {
         Ok(response) => Ok(response),
         Err(err) => {
             log_api_error(&err);
@@ -40,9 +53,12 @@ pub async fn handler(
     }
 }
 
+#[allow(clippy::too_many_arguments)]
 pub async fn handle(
     event: LambdaEvent<ApiGatewayV2httpRequest>,
     service: &impl UserSearchFilterService,
+    get_product_service: &(impl GetProductService + Sync),
+    product_personalization_service: &(impl ProductPersonalizationService + Sync),
 ) -> Result<ApiGatewayV2httpResponse, ApiError> {
     match event.payload.route_key.as_deref() {
         Some("GET /api/v1/me/search-filters") => get_all::handle(event, service).await,
@@ -55,6 +71,15 @@ pub async fn handle(
         }
         Some("DELETE /api/v1/me/search-filters/{userSearchFilterId}") => {
             delete::handle(event, service).await
+        }
+        Some("GET /api/v1/me/search-filters/{userSearchFilterId}/products") => {
+            get_products::handle(
+                event,
+                service,
+                get_product_service,
+                product_personalization_service,
+            )
+            .await
         }
         Some(unknown) => Err(ApiError::internal_server_error(
             INTERNAL_SERVER_ERROR,

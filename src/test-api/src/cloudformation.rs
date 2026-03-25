@@ -217,7 +217,43 @@ fn build_lambdas() {
     let workspace_dir = env!("CARGO_WORKSPACE_DIR");
 
     let status = Command::new("cargo")
-        .args(["lambda", "build", "--workspace", "--release"])
+        .args([
+            "lambda",
+            "build",
+            "--workspace",
+            "--release",
+            "--locked",
+            "--exclude",
+            "aura-scraper",
+            "--exclude",
+            "acceptance-tests",
+            "--exclude",
+            "product-pipeline-asg-scale-control",
+            "--exclude",
+            "product-pipeline-translate",
+            "--exclude",
+            "product-pipeline-embed-text",
+            "--exclude",
+            "product-pipeline-extract-attribute",
+            "--exclude",
+            "product-pipeline-classify-category",
+            "--exclude",
+            "product-pipeline-classify-period",
+            "--exclude",
+            "product-pipeline-common",
+            "--exclude",
+            "aws-tests",
+            "--exclude",
+            "aws-tests-common",
+            "--exclude",
+            "smoking-tests",
+            "--exclude",
+            "staging-data",
+            "--exclude",
+            "staging-tests",
+            "--exclude",
+            "ci-determinator",
+        ])
         .current_dir(workspace_dir)
         .status()
         .expect(

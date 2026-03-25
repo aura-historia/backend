@@ -1,0 +1,15 @@
+[package]
+name = "ci-determinator"
+version = "0.1.0"
+edition = "2024"
+
+[[bin]]
+name = "ci-determinator"
+path = "src/main.rs"
+
+[dependencies]
+anyhow = "1"
+camino = "1"
+determinator = "0.12"
+guppy = "0.17"
+serde_json = { workspace = true }

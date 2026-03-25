@@ -223,6 +223,7 @@ pub async fn spin_up_localstack_with_services(
             "LAMBDA_DOCKER_FLAGS",
             "--add-host=host.docker.internal:host-gateway".to_owned(),
         ),
+        ("ENFORCE_IAM", "1".to_owned()),
     ]);
     for (k, v) in extra_env_vars {
         env_vars.insert(k, v.to_string());

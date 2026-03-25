@@ -49,6 +49,8 @@ mod tests {
     use common::user_id::UserId;
     use http::header::CACHE_CONTROL;
     use lambda_runtime::LambdaEvent;
+    use product::service::get_service::MockGetProductService;
+    use product_personalization::service::MockProductPersonalizationService;
     use search_filter::core::user_search_filter::UserSearchFilter;
     use search_filter::service::user_search_filter_service::MockUserSearchFilterService;
     use test_api::ApiGatewayV2httpRequestProxy;
@@ -69,7 +71,16 @@ mod tests {
             .expect_find_user_search_filters()
             .return_once(|_, _| Box::pin(async { Ok(fake::vec![UserSearchFilter; 42]) }));
 
-        let response = handle(lambda_event, &service).await.unwrap();
+        let get_product_service = MockGetProductService::default();
+        let personalization_service = MockProductPersonalizationService::default();
+        let response = handle(
+            lambda_event,
+            &service,
+            &get_product_service,
+            &personalization_service,
+        )
+        .await
+        .unwrap();
 
         assert_eq!(200, response.status_code);
     }
@@ -90,7 +101,16 @@ mod tests {
             .expect_find_user_search_filters()
             .return_once(|_, _| Box::pin(async { Ok(fake::vec![UserSearchFilter; 42]) }));
 
-        let response = handle(lambda_event, &service).await.unwrap();
+        let get_product_service = MockGetProductService::default();
+        let personalization_service = MockProductPersonalizationService::default();
+        let response = handle(
+            lambda_event,
+            &service,
+            &get_product_service,
+            &personalization_service,
+        )
+        .await
+        .unwrap();
 
         assert_eq!(200, response.status_code);
         assert_eq!(

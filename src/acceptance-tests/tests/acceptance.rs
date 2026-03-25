@@ -3802,6 +3802,45 @@ async fn should_post_get_patch_delete_search_filter() {
     assert_eq!(404, get_after_delete.status());
 }
 
+#[localstack_test(services = [Cloudformation()])]
+async fn should_get_search_filter_products_when_authorized() {
+    let repository = UserSearchFilterDynamoDbRepositoryImpl::new(
+        get_dynamodb_client().await,
+        &get_cfn_output().dynamodb_table_1_name,
+    );
+    let service = UserSearchFilterServiceImpl::new(&repository);
+
+    let user = create_random_test_user().await;
+    let search_filter = service
+        .save_user_search_filter(
+            &user.sub.into(),
+            Faker.fake(),
+            Faker.fake::<product::core::product_search::ProductSearch>(),
+        )
+        .await
+        .unwrap();
+
+    let url = format!(
+        "{}/api/v1/me/search-filters/{}/products?language=de&currency=EUR&sort=created&order=asc&size=10",
+        get_cfn_output().api_gateway_endpoint_url,
+        search_filter.user_search_filter_id,
+    );
+    let response = reqwest::Client::new()
+        .get(url)
+        .bearer_auth(user.access_token)
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(200, response.status());
+
+    let actual = response
+        .json::<TimeCursoredData<PersonalizedData<GetProductData, ProductUserStateData>>>()
+        .await
+        .unwrap();
+    assert_eq!(0, actual.total.unwrap());
+    assert!(actual.items.is_empty());
+}
+
 // ---------------------------------------------------------------------------
 // API: Shop
 // Verifies API Gateway routing and Lambda IAM access for shop CRUD and
