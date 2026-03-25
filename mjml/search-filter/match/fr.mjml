@@ -20,11 +20,6 @@
 
         <!-- Header -->
         <mj-section padding="32px 24px 20px">
-            <mj-column>
-                <mj-text font-family="'Cormorant Garamond', Georgia, serif" font-size="28px" font-weight="600" color="#2A261F" align="center">
-                    Aura Historia
-                </mj-text>
-            </mj-column>
         </mj-section>
 
         <mj-section padding="0 24px">
