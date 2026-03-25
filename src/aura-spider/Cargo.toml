@@ -12,7 +12,7 @@ serde_json = { workspace = true }
 thiserror = { workspace = true }
 regex = { workspace = true }
 llm = { workspace = true, features = ["google", "rustls-tls"] }
-dotenvy = "0.15"
+dotenvy = "0.15.7"
 tracing = { workspace = true }
 tracing-subscriber = { workspace = true }
 url = { workspace = true }
