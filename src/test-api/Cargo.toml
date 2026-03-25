@@ -24,6 +24,7 @@ tracing = { workspace = true }
 typed-builder = { workspace = true }
 walkdir = { workspace = true }
 libc = { workspace = true }
+ctrlc = { workspace = true }
 fake = { workspace = true }
 uuid = { workspace = true }
 
