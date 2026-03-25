@@ -40,4 +40,5 @@ pub mod slug_id;
 pub mod sort;
 pub mod string_newtype;
 pub mod user_id;
+pub mod uuid_newtype;
 pub mod year;
