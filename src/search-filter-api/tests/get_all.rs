@@ -13,7 +13,7 @@ use search_filter_api::handle;
 use test_api::*;
 
 #[localstack_test(services = [DynamoDB()])]
-async fn should_return_actual_search_filters_sortet_oldest_for_order_asc() {
+async fn should_return_actual_search_filters_sorted_oldest_for_order_asc() {
     let repository =
         UserSearchFilterDynamoDbRepositoryImpl::new(get_dynamodb_client().await, "table_1");
     let service = UserSearchFilterServiceImpl::new(&repository);
@@ -23,6 +23,7 @@ async fn should_return_actual_search_filters_sortet_oldest_for_order_asc() {
     let user_id = UserId::new();
     let mut expected = vec![];
     for search_filter in fake::vec![ProductSearch; 81] {
+        tokio::time::sleep(std::time::Duration::from_millis(10)).await;
         let saved = service
             .save_user_search_filter(&user_id, Faker.fake(), search_filter)
             .await
@@ -83,6 +84,7 @@ async fn should_return_actual_search_filters_sortet_latest_for_order_desc() {
     let user_id = UserId::new();
     let mut expected = vec![];
     for search_filter in fake::vec![ProductSearch; 81] {
+        tokio::time::sleep(std::time::Duration::from_millis(10)).await;
         let saved = service
             .save_user_search_filter(&user_id, Faker.fake(), search_filter)
             .await

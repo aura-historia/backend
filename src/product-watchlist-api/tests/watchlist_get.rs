@@ -69,6 +69,7 @@ async fn should_200_when_sort_created_asc() {
         .unwrap()
         .user_id;
     for product_record in product_records.clone() {
+        tokio::time::sleep(std::time::Duration::from_millis(10)).await;
         let created = OffsetDateTime::now_utc();
         let watchlist_record = WatchlistProductRecord {
             pk: mk_pk(&user_id),
@@ -177,6 +178,7 @@ async fn should_200_when_sort_created_asc_search_after() {
     let mut from = None;
     let mut expected_next_after = None;
     for (i, product_record) in product_records.iter().cloned().enumerate() {
+        tokio::time::sleep(std::time::Duration::from_millis(10)).await;
         let created = OffsetDateTime::now_utc();
         if i == 7 {
             from = Some(created);
@@ -291,6 +293,7 @@ async fn should_200_when_sort_created_desc() {
         .unwrap()
         .user_id;
     for product_record in product_records.clone() {
+        tokio::time::sleep(std::time::Duration::from_millis(10)).await;
         let created = OffsetDateTime::now_utc();
         let watchlist_record = WatchlistProductRecord {
             pk: mk_pk(&user_id),
@@ -400,6 +403,7 @@ async fn should_200_when_sort_created_desc_search_after() {
     let mut from = None;
     let mut expected_next_after = None;
     for (i, product_record) in product_records.iter().cloned().enumerate() {
+        tokio::time::sleep(std::time::Duration::from_millis(10)).await;
         let created = OffsetDateTime::now_utc();
         if i == 7 {
             from = Some(created);

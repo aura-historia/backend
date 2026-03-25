@@ -95,6 +95,7 @@ async fn seed_match_records(
     let repository = UserSearchFilterDynamoDbRepositoryImpl::new(client, "table_1");
     let mut timestamps = Vec::with_capacity(product_records.len());
     for product_record in product_records {
+        tokio::time::sleep(std::time::Duration::from_millis(10)).await;
         let created = OffsetDateTime::now_utc();
         timestamps.push(created);
         let record = UserSearchFilterMatchRecord {
