@@ -28,6 +28,8 @@ mod tests {
     use common::user_id::UserId;
     use fake::{Fake, Faker};
     use lambda_runtime::LambdaEvent;
+    use product::service::get_service::MockGetProductService;
+    use product_personalization::service::MockProductPersonalizationService;
     use search_filter::core::user_search_filter_id::UserSearchFilterId;
     use search_filter::service::user_search_filter_service::{
         MockUserSearchFilterService, UserSearchFilterError,
@@ -51,7 +53,16 @@ mod tests {
             .expect_delete_user_search_filter()
             .return_once(|_, _| Box::pin(async { Ok(()) }));
 
-        let response = handle(lambda_event, &service).await.unwrap();
+        let get_product_service = MockGetProductService::default();
+        let personalization_service = MockProductPersonalizationService::default();
+        let response = handle(
+            lambda_event,
+            &service,
+            &get_product_service,
+            &personalization_service,
+        )
+        .await
+        .unwrap();
 
         assert_eq!(204, response.status_code);
     }
@@ -70,7 +81,16 @@ mod tests {
         let mut service = MockUserSearchFilterService::default();
         service.expect_delete_user_search_filter().never();
 
-        let expected = handle(lambda_event, &service).await.unwrap_err();
+        let get_product_service = MockGetProductService::default();
+        let personalization_service = MockProductPersonalizationService::default();
+        let expected = handle(
+            lambda_event,
+            &service,
+            &get_product_service,
+            &personalization_service,
+        )
+        .await
+        .unwrap_err();
         assert_eq!(400, expected.status);
     }
 
@@ -98,7 +118,16 @@ mod tests {
                 })
             });
 
-        let expected = handle(lambda_event, &service).await.unwrap_err();
+        let get_product_service = MockGetProductService::default();
+        let personalization_service = MockProductPersonalizationService::default();
+        let expected = handle(
+            lambda_event,
+            &service,
+            &get_product_service,
+            &personalization_service,
+        )
+        .await
+        .unwrap_err();
         assert_eq!(400, expected.status);
     }
 
@@ -126,7 +155,16 @@ mod tests {
                 })
             });
 
-        let expected = handle(lambda_event, &service).await.unwrap_err();
+        let get_product_service = MockGetProductService::default();
+        let personalization_service = MockProductPersonalizationService::default();
+        let expected = handle(
+            lambda_event,
+            &service,
+            &get_product_service,
+            &personalization_service,
+        )
+        .await
+        .unwrap_err();
         assert_eq!(404, expected.status);
     }
 }

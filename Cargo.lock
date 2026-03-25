@@ -6140,7 +6140,10 @@ dependencies = [
  "fake",
  "http 1.4.0",
  "lambda_runtime",
+ "notification",
  "product",
+ "product-personalization",
+ "product-watchlist",
  "rstest",
  "search-filter",
  "search-filter-api",
@@ -6154,6 +6157,7 @@ dependencies = [
  "tracing",
  "tracing-subscriber",
  "url",
+ "user",
 ]
 
 [[package]]

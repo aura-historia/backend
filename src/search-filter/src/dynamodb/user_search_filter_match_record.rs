@@ -7,11 +7,14 @@ use common::shops_product_id::ShopsProductId;
 use common::user_id::UserId;
 use serde::{Deserialize, Serialize};
 use time::OffsetDateTime;
+use time::error::Format;
+use time::format_description::well_known::Rfc3339;
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct UserSearchFilterMatchRecord {
     pub pk: String,
     pub sk: String,
+    pub lsi1_sk: String,
     pub user_id: UserId,
     pub user_search_filter_id: UserSearchFilterId,
     pub shop_id: ShopId,
@@ -46,6 +49,15 @@ pub fn mk_sk_prefix_all() -> &'static str {
     "search_filter_match#"
 }
 
+pub fn mk_lsi1_sk(created: &OffsetDateTime) -> Result<String, Format> {
+    Ok(format!("search_filter_match#{}", created.format(&Rfc3339)?))
+}
+
+/// Lower bound for the `lsi1_sk` of all search filter match records.
+pub const LSI1_SK_LOWER_BOUND: &str = "search_filter_match#";
+/// Upper bound for the `lsi1_sk` of all search filter match records.
+pub const LSI1_SK_UPPER_BOUND: &str = "search_filter_match#\u{ffff}";
+
 impl From<UserSearchFilterMatchRecord> for SearchFilterProductMatch {
     fn from(record: UserSearchFilterMatchRecord) -> Self {
         SearchFilterProductMatch {
@@ -66,6 +78,7 @@ impl From<SearchFilterProductMatch> for UserSearchFilterMatchRecord {
         UserSearchFilterMatchRecord {
             pk: mk_pk(&m.user_id),
             sk: mk_sk(&m.user_search_filter_id, &m.shop_id, &m.shops_product_id),
+            lsi1_sk: mk_lsi1_sk(&m.created).expect("created should be a valid timestamp"),
             user_id: m.user_id,
             user_search_filter_id: m.user_search_filter_id,
             shop_id: m.shop_id,
@@ -89,16 +102,18 @@ mod faker {
             let search_filter_id: UserSearchFilterId = config.fake_with_rng(rng);
             let shop_id: ShopId = config.fake_with_rng(rng);
             let shops_product_id: ShopsProductId = config.fake_with_rng(rng);
+            let created = OffsetDateTime::now_utc();
             UserSearchFilterMatchRecord {
                 pk: mk_pk(&user_id),
                 sk: mk_sk(&search_filter_id, &shop_id, &shops_product_id),
+                lsi1_sk: mk_lsi1_sk(&created).expect("created should be a valid timestamp"),
                 user_id,
                 user_search_filter_id: search_filter_id,
                 shop_id,
                 shops_product_id,
                 product_id: config.fake_with_rng(rng),
                 origin_event_id: config.fake_with_rng(rng),
-                created: OffsetDateTime::now_utc(),
+                created,
                 updated: OffsetDateTime::now_utc(),
             }
         }
@@ -136,5 +151,13 @@ mod tests {
         let user_id = UserId::new();
         let pk = mk_pk(&user_id);
         assert_eq!(pk, format!("user#{user_id}"));
+    }
+
+    #[test]
+    fn should_format_lsi1_sk_correctly() {
+        let created = OffsetDateTime::now_utc();
+        let lsi1_sk = mk_lsi1_sk(&created).unwrap();
+        assert!(lsi1_sk.starts_with("search_filter_match#"));
+        assert!(lsi1_sk.contains(&created.format(&Rfc3339).unwrap()));
     }
 }

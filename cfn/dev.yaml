@@ -1090,6 +1090,14 @@ Resources:
       AuthorizationType: JWT
       AuthorizerId: !Ref ApiCognitoAuthorizer
       Target: !Sub "integrations/${SearchFilterApiLambdaIntegration}"
+  SearchFilterApiGetSearchFilterProductsRoute:
+    Type: AWS::ApiGatewayV2::Route
+    Properties:
+      ApiId: !Ref Api
+      RouteKey: "GET /api/v1/me/search-filters/{userSearchFilterId}/products"
+      AuthorizationType: JWT
+      AuthorizerId: !Ref ApiCognitoAuthorizer
+      Target: !Sub "integrations/${SearchFilterApiLambdaIntegration}"
   SearchFilterApiLambdaIntegration:
     Type: AWS::ApiGatewayV2::Integration
     Properties:
