@@ -32,13 +32,15 @@ use common::{
 };
 use handlebars::Handlebars;
 use once_cell::sync::OnceCell;
-use serde_email::Email;
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 use time::OffsetDateTime;
 use tokio::sync::RwLock;
 use tracing::{debug, error, info};
 use user::service::user_service::{UserService, UserServiceError};
+
+const SENDER_MAIL: &str = "no-reply@notify.aura-historia.com";
+const REPLY_TO_MAIL: &str = "contact@aura-historia.com";
 
 #[derive(thiserror::Error, Debug)]
 #[allow(clippy::large_enum_variant)]
@@ -175,7 +177,6 @@ pub struct NotificationServiceImpl<'a> {
     s3_bucket: &'a str,
     stage_name: &'a str,
     commit_sha: &'a str,
-    sender_email: Email,
     handlebars: Handlebars<'a>,
 }
 
@@ -189,7 +190,6 @@ impl<'a> NotificationServiceImpl<'a> {
         s3_bucket: &'a str,
         stage_name: &'a str,
         commit_sha: &'a str,
-        sender_email: Email,
     ) -> Self {
         Self {
             notification_repository,
@@ -199,7 +199,6 @@ impl<'a> NotificationServiceImpl<'a> {
             s3_bucket,
             stage_name,
             commit_sha,
-            sender_email,
             handlebars: Handlebars::new(),
         }
     }
@@ -297,8 +296,9 @@ impl<'a> NotificationServiceImpl<'a> {
 
         self.ses_adapter
             .send_email(
-                self.sender_email.clone(),
+                SENDER_MAIL.try_into().expect("valid sender email"),
                 user.email,
+                REPLY_TO_MAIL.try_into().expect("valid reply-to email"),
                 content,
                 vec![message_tag],
             )
@@ -1012,10 +1012,6 @@ mod tests {
     use std::collections::HashMap;
     use user::{core::user::User, service::user_service::MockUserService};
 
-    fn make_sender_email() -> Email {
-        "no-reply@aura-historia.com".try_into().unwrap()
-    }
-
     fn make_service<'a>(
         repository: &'a MockNotificationDynamoDbRepository,
         user_service: &'a MockUserService,
@@ -1030,7 +1026,6 @@ mod tests {
             "test-bucket",
             "test-stage",
             "test-sha",
-            make_sender_email(),
         )
     }
 
@@ -1617,9 +1612,11 @@ mod tests {
         }
 
         fn mock_ses_sends_email(ses_adapter: &mut MockSesAdapter) {
-            ses_adapter.expect_send_email().return_once(|_, _, _, _| {
-                Box::pin(async { Ok(SendEmailOutput::builder().build()) })
-            });
+            ses_adapter
+                .expect_send_email()
+                .return_once(|_, _, _, _, _| {
+                    Box::pin(async { Ok(SendEmailOutput::builder().build()) })
+                });
         }
 
         #[tokio::test]
@@ -1900,13 +1897,15 @@ mod tests {
                 .return_once(move |_| Box::pin(async move { Ok(user) }));
 
             let mut ses_adapter = MockSesAdapter::default();
-            ses_adapter.expect_send_email().return_once(|_, _, _, _| {
-                Box::pin(async {
-                    Err(aws_sdk_sesv2::error::SdkError::construction_failure(
-                        "Simulated SES failure",
-                    ))
-                })
-            });
+            ses_adapter
+                .expect_send_email()
+                .return_once(|_, _, _, _, _| {
+                    Box::pin(async {
+                        Err(aws_sdk_sesv2::error::SdkError::construction_failure(
+                            "Simulated SES failure",
+                        ))
+                    })
+                });
 
             let mut s3_adapter = MockS3Adapter::default();
             mock_s3_returns_template(&mut s3_adapter);
@@ -2213,12 +2212,12 @@ mod tests {
             let mut ses_adapter = MockSesAdapter::default();
             ses_adapter
                 .expect_send_email()
-                .withf(move |_, _, _, tags| {
+                .withf(move |_, _, _, _, tags| {
                     tags.len() == 1
                         && tags[0].name == "template_type"
                         && tags[0].value == expected_tag_value
                 })
-                .return_once(|_, _, _, _| {
+                .return_once(|_, _, _, _, _| {
                     Box::pin(async { Ok(SendEmailOutput::builder().build()) })
                 });
 

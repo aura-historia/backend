@@ -76,9 +76,6 @@ async fn main() -> Result<(), Error> {
         "",
         "",
         "",
-        "noreply@example.com"
-            .parse()
-            .expect("shouldn't fail parsing placeholder sender email"),
     );
     let product_personalization_service = ProductPersonalizationServiceImpl::new(
         &watchlist_repository,

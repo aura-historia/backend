@@ -33,10 +33,6 @@ use user::{
 static NOOP_SES: NoopSesAdapter = NoopSesAdapter;
 static NOOP_S3: NoopS3Adapter = NoopS3Adapter;
 
-fn sender_email() -> serde_email::Email {
-    "noreply@example.com".try_into().unwrap()
-}
-
 async fn seed_record(
     user_id: UserId,
     seen: bool,
@@ -69,7 +65,6 @@ async fn should_200_with_empty_list_when_no_notifications() {
         "",
         "",
         "",
-        sender_email(),
     );
 
     let user_id = UserId::new();
@@ -108,7 +103,6 @@ async fn should_200_with_correct_total_when_user_record_also_exists() {
         "",
         "",
         "",
-        sender_email(),
     );
 
     let user_id = UserId::new();
@@ -155,7 +149,6 @@ async fn should_200_with_seeded_notifications() {
         "",
         "",
         "",
-        sender_email(),
     );
 
     let user_id = UserId::new();
@@ -201,7 +194,6 @@ async fn should_200_with_cursor_pagination() {
         "",
         "",
         "",
-        sender_email(),
     );
 
     let user_id = UserId::new();
@@ -273,7 +265,6 @@ async fn should_200_when_patch_one_updates_seen() {
         "",
         "",
         "",
-        sender_email(),
     );
 
     let user_id = UserId::new();
@@ -313,7 +304,6 @@ async fn should_404_when_patch_one_notification_not_found() {
         "",
         "",
         "",
-        sender_email(),
     );
 
     let lambda_event = LambdaEvent {
@@ -346,7 +336,6 @@ async fn should_200_when_patch_all_marks_all_seen() {
         "",
         "",
         "",
-        sender_email(),
     );
 
     let user_id = UserId::new();
@@ -389,7 +378,6 @@ async fn should_200_when_patch_all_without_body() {
         "",
         "",
         "",
-        sender_email(),
     );
 
     let user_id = UserId::new();
@@ -423,7 +411,6 @@ async fn should_204_when_delete_one_removes_notification() {
         "",
         "",
         "",
-        sender_email(),
     );
 
     let user_id = UserId::new();
@@ -469,7 +456,6 @@ async fn should_404_when_delete_one_notification_not_found() {
         "",
         "",
         "",
-        sender_email(),
     );
 
     let lambda_event = LambdaEvent {
@@ -501,7 +487,6 @@ async fn should_204_when_delete_all_removes_all_notifications() {
         "",
         "",
         "",
-        sender_email(),
     );
 
     let user_id = UserId::new();
@@ -548,7 +533,6 @@ async fn should_204_when_delete_all_with_no_notifications() {
         "",
         "",
         "",
-        sender_email(),
     );
 
     let lambda_event = LambdaEvent {

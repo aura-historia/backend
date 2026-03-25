@@ -13,6 +13,7 @@ pub trait SesAdapter {
         &self,
         from: Email,
         to: Email,
+        reply_to: Email,
         content: EmailContent,
         tags: Vec<MessageTag>,
     ) -> Result<SendEmailOutput, SdkError<SendEmailError>>;
@@ -35,12 +36,14 @@ impl<'a> SesAdapter for SesAdapterImpl<'a> {
         &self,
         from: Email,
         to: Email,
+        reply_to: Email,
         content: EmailContent,
         tags: Vec<MessageTag>,
     ) -> Result<SendEmailOutput, SdkError<SendEmailError>> {
         self.client
             .send_email()
             .from_email_address(from)
+            .reply_to_addresses(reply_to)
             .destination(Destination::builder().to_addresses(to).build())
             .content(content)
             .set_email_tags(Some(tags))

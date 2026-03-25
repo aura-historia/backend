@@ -58,7 +58,6 @@ async fn should_respond_with_patched_notifications(
         "",
         "",
         "",
-        "noreply@example.com".parse().unwrap(),
     );
     let personalization_service = ProductPersonalizationServiceImpl::new(
         &watchlist_repository,

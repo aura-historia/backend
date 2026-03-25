@@ -1654,7 +1654,6 @@ Resources:
           S3_BUCKET_NAME_TEMPLATES: !Ref MailTemplateBucket
           STAGE_NAME: "prod"
           COMMIT_SHA: !Sub "${CommitSHA}"
-          SENDER_MAIL: "no-reply@aura-historia.com"
   NotificationSendMapping:
     Type: AWS::Lambda::EventSourceMapping
     Properties:
@@ -2135,7 +2134,6 @@ Resources:
       Environment:
         Variables:
           DYNAMODB_TABLE_NAME: !Ref TableOne
-          SENDER_MAIL: "no-reply@aura-historia.com"
           S3_BUCKET_NAME_TEMPLATES: !Ref MailTemplateBucket
           STAGE_NAME: "prod"
           COMMIT_SHA: !Sub "${CommitSHA}"
@@ -2252,7 +2250,6 @@ Resources:
       Environment:
         Variables:
           DYNAMODB_TABLE_NAME: !Ref TableOne
-          SENDER_MAIL: "no-reply@aura-historia.com"
           S3_BUCKET_NAME_TEMPLATES: !Ref MailTemplateBucket
           STAGE_NAME: "prod"
           COMMIT_SHA: !Sub "${CommitSHA}"

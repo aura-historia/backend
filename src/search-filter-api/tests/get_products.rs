@@ -65,7 +65,6 @@ fn setup_services(
             "",
             "",
             "",
-            "noreply@example.com".parse().unwrap(),
         )));
     let personalization_service = ProductPersonalizationServiceImpl::new(
         watchlist_repository,

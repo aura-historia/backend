@@ -47,7 +47,6 @@ async fn should_200_when_sort_created_asc() {
         "",
         "",
         "",
-        "noreply@example.com".parse().unwrap(),
     );
     let personalization_service = ProductPersonalizationServiceImpl::new(
         &watchlist_repository,
@@ -154,7 +153,6 @@ async fn should_200_when_sort_created_asc_search_after() {
         "",
         "",
         "",
-        "noreply@example.com".parse().unwrap(),
     );
     let personalization_service = ProductPersonalizationServiceImpl::new(
         &watchlist_repository,
@@ -271,7 +269,6 @@ async fn should_200_when_sort_created_desc() {
         "",
         "",
         "",
-        "noreply@example.com".parse().unwrap(),
     );
     let personalization_service = ProductPersonalizationServiceImpl::new(
         &watchlist_repository,
@@ -379,7 +376,6 @@ async fn should_200_when_sort_created_desc_search_after() {
         "",
         "",
         "",
-        "noreply@example.com".parse().unwrap(),
     );
     let personalization_service = ProductPersonalizationServiceImpl::new(
         &watchlist_repository,
@@ -528,7 +524,6 @@ async fn should_respond_200_and_respect_language_query_param(
         "",
         "",
         "",
-        "noreply@example.com".parse().unwrap(),
     );
     let personalization_service = ProductPersonalizationServiceImpl::new(
         &watchlist_repository,
