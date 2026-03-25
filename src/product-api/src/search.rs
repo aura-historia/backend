@@ -24,10 +24,10 @@ use product::{
 };
 use product_personalization::service::ProductPersonalizationService;
 
-pub async fn handle<ATV: AccessTokenVerifierService + Sync + ?Sized>(
+pub async fn handle(
     event: LambdaEvent<ApiGatewayV2httpRequest>,
     service: &impl QueryProductService,
-    access_token_verifier_service: &ATV,
+    access_token_verifier_service: &(impl AccessTokenVerifierService + Sync),
     product_personalization_service: &impl ProductPersonalizationService,
 ) -> Result<ApiGatewayV2httpResponse, ApiError> {
     let user_id_opt = access_token_verifier_service

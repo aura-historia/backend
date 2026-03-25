@@ -146,6 +146,18 @@ pub(crate) fn extract_sub_claim(claims: &Value) -> Result<UserId, AccessTokenVer
         .map_err(|err| AccessTokenVerifierError::InvalidUuid("sub", err))
 }
 
+#[async_trait::async_trait]
+impl<T: AccessTokenVerifierService + Send + Sync + ?Sized> AccessTokenVerifierService for Box<T> {
+    async fn verify_extract_user_id_from_access_token(
+        &self,
+        access_token: &str,
+    ) -> Result<UserId, AccessTokenVerifierError> {
+        (**self)
+            .verify_extract_user_id_from_access_token(access_token)
+            .await
+    }
+}
+
 pub fn extract_access_token(headers: &HeaderMap) -> Result<Option<String>, ToStrError> {
     let access_token = headers
         .get(AUTHORIZATION)
