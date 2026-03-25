@@ -1,4 +1,4 @@
-use crate::service::sort_search_filter_match_field::SortSearchFilterMatchField;
+use crate::core::sort_search_filter_match_field::SortSearchFilterMatchField;
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]

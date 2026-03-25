@@ -17,9 +17,9 @@ use product::data::get_data::GetProductData;
 use product::data::user_state_data::ProductUserStateData;
 use product::service::get_service::GetProductService;
 use product_personalization::service::ProductPersonalizationService;
+use search_filter::core::sort_search_filter_match_field::SortSearchFilterMatchField;
 use search_filter::core::user_search_filter_id::api::extract_user_search_filter_id_path;
 use search_filter::data::sort_search_filter_match_field_data::SortSearchFilterMatchFieldData;
-use search_filter::service::sort_search_filter_match_field::SortSearchFilterMatchField;
 use search_filter::service::user_search_filter_service::UserSearchFilterService;
 use std::collections::HashMap;
 

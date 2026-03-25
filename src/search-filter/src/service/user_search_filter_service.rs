@@ -1,10 +1,10 @@
 use crate::core::search_filter_product_match::SearchFilterProductMatch;
+use crate::core::sort_search_filter_match_field::SortSearchFilterMatchField;
 use crate::core::user_search_filter::{UserSearchFilter, UserSearchFilterSummary};
 use crate::core::user_search_filter_id::UserSearchFilterId;
 use crate::core::user_search_filter_name::UserSearchFilterName;
 use crate::dynamodb::repository::UserSearchFilterDynamoDbRepository;
 use crate::dynamodb::user_search_filter_match_record::UserSearchFilterMatchRecord;
-use crate::service::sort_search_filter_match_field::SortSearchFilterMatchField;
 use crate::service::user_search_filter_update::UserSearchFilterUpdate;
 use aws_sdk_dynamodb::{config::http::HttpResponse, error::SdkError};
 use common::batch::Batch;
