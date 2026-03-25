@@ -183,7 +183,10 @@ impl<'a> AccessTokenVerifierServiceImpl<'a> {
             .await
             .map_err(|e| AccessTokenVerifierError::JwksFetchError(e.to_string()))?;
 
-        let mut cache = self.jwks_cache.write().unwrap();
+        let mut cache = self
+            .jwks_cache
+            .write()
+            .expect("JWKS cache lock should not be poisoned");
         for key in jwks.keys {
             if key.alg != "RS256" {
                 continue;
@@ -210,7 +213,10 @@ impl<'a> AccessTokenVerifierServiceImpl<'a> {
 
         // Try cache first.
         {
-            let cache = self.jwks_cache.read().unwrap();
+            let cache = self
+                .jwks_cache
+                .read()
+                .expect("JWKS cache lock should not be poisoned");
             if let Some(alg) = cache.get(kid) {
                 return Ok(self.verifier.verify(access_token, alg)?);
             }
@@ -219,7 +225,10 @@ impl<'a> AccessTokenVerifierServiceImpl<'a> {
         // Cache miss — fetch from remote JWKS endpoint and retry.
         self.fetch_and_cache_jwks(jwks_url).await?;
 
-        let cache = self.jwks_cache.read().unwrap();
+        let cache = self
+            .jwks_cache
+            .read()
+            .expect("JWKS cache lock should not be poisoned");
         let alg = cache
             .get(kid)
             .ok_or(AccessTokenVerifierError::MissingClaim("kid"))?;

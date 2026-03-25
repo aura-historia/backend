@@ -104,6 +104,8 @@ async fn main() -> Result<(), Error> {
         Ok(_) => {
             let mapped_port =
                 std::env::var("LOCALSTACK_MAPPED_PORT").unwrap_or_else(|_| "4566".to_owned());
+            // `host.docker.internal` resolves inside the Lambda container thanks to
+            // `--add-host=host.docker.internal:host-gateway` in LAMBDA_DOCKER_FLAGS.
             let cognito_idp_endpoint = format!("http://host.docker.internal:{mapped_port}");
             AccessTokenVerifierServiceImpl::new_with_cognito_idp_endpoint(
                 &cognito_idp_endpoint,
