@@ -128,7 +128,7 @@ lambda_runtime = "1.1.2"
 libc = "0.2.183"
 mockall = "0.14.0"
 mrml = { version = "5.1.0", default-features = false, features = ["parse", "render"] }
-opensearch = { version = "2.3.0", default-features = false, features = [
+opensearch = { version = "2.4.0", default-features = false, features = [
     "aws-auth",
     "rustls-tls",
 ] }
