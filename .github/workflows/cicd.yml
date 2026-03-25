@@ -234,7 +234,7 @@ jobs:
     needs: [unit-test, integration-test, test-product-pipeline]
     if: >-
       !cancelled() &&
-      github.actor != 'dependabot[bot]' &&
+      github.ref == 'refs/heads/develop' &&
       needs.unit-test.result == 'success' &&
       (needs.integration-test.result == 'success' || needs.integration-test.result == 'skipped') &&
       (needs.test-product-pipeline.result == 'success' || needs.test-product-pipeline.result == 'skipped')
