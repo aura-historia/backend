@@ -87,7 +87,6 @@ macro_rules! uuid_v4_newtype {
 #[macro_export]
 macro_rules! uuid_v7_newtype {
     ($name:ident) => {
-        #[cfg_attr(feature = "test-data", derive(::fake::Dummy))]
         #[derive(
             Debug,
             Clone,
@@ -151,6 +150,13 @@ macro_rules! uuid_v7_newtype {
             type Error = ::uuid::Error;
             fn try_from(s: &String) -> Result<Self, Self::Error> {
                 ::uuid::Uuid::parse_str(s).map(Self)
+            }
+        }
+
+        #[cfg(feature = "test-data")]
+        impl<T> ::fake::Dummy<T> for $name {
+            fn dummy_with_rng<R: ::fake::RngExt + ?Sized>(_config: &T, _rng: &mut R) -> Self {
+                Self::new()
             }
         }
     };
