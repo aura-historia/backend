@@ -4,8 +4,7 @@ use crate::core::description::Description;
 use crate::core::origin_year::OriginYear;
 use crate::core::product_event::domain::{
     ProductCreatedDomainEventPayload, ProductDomainEventPayload,
-    ProductPriceChangeDomainEventPayload, ProductPriceDiscoveryDomainEventPayload,
-    ProductPriceRemovedDomainEventPayload, ProductStateChangeDomainEventPayload,
+    ProductPriceChangeDomainEventPayload, ProductStateChangeDomainEventPayload,
 };
 use crate::core::product_event::enrichment::{
     EmbeddedTextProductEnrichmentEventPayload, ExtractedAttributesProductEnrichmentEventPayload,
@@ -144,23 +143,18 @@ impl Product {
         } else {
             let old_state = self.state;
             self.state = new_state;
-            let event_payload_constructor = match new_state {
-                ProductState::Listed => ProductDomainEventPayload::StateListed,
-                ProductState::Available => ProductDomainEventPayload::StateAvailable,
-                ProductState::Reserved => ProductDomainEventPayload::StateReserved,
-                ProductState::Sold => ProductDomainEventPayload::StateSold,
-                ProductState::Removed => ProductDomainEventPayload::StateRemoved,
-                ProductState::Unknown => ProductDomainEventPayload::StateUnknown,
-            };
             let event = Event {
                 aggregate_id: self.product_id,
                 event_id: EventId::new(),
                 timestamp: OffsetDateTime::now_utc(),
-                payload: event_payload_constructor(ProductStateChangeDomainEventPayload {
-                    shop_id: self.shop_id,
-                    shops_product_id: self.shops_product_id.clone(),
-                    old_state,
-                }),
+                payload: ProductDomainEventPayload::StateChanged(
+                    ProductStateChangeDomainEventPayload {
+                        shop_id: self.shop_id,
+                        shops_product_id: self.shops_product_id.clone(),
+                        old_state,
+                        new_state,
+                    },
+                ),
             };
             Some(event)
         }
@@ -186,12 +180,14 @@ impl Product {
                     aggregate_id: self.product_id,
                     event_id: EventId::new(),
                     timestamp: OffsetDateTime::now_utc(),
-                    payload: ProductDomainEventPayload::PriceDiscovered(
-                        ProductPriceDiscoveryDomainEventPayload {
+                    payload: ProductDomainEventPayload::PriceChanged(
+                        ProductPriceChangeDomainEventPayload {
                             shop_id: self.shop_id,
                             shops_product_id: self.shops_product_id.clone(),
-                            native_price: new_native_price,
-                            other_price: new_other_price,
+                            old_native_price: None,
+                            old_other_price: HashMap::new(),
+                            new_native_price: Some(new_native_price),
+                            new_other_price,
                         },
                     ),
                 };
@@ -201,35 +197,25 @@ impl Product {
                 let old_price_for_new_currency = old_native_price
                     .into_exchanged(fx_rate, new_native_price.currency)
                     .unwrap_or(old_native_price);
-                let payload = ProductPriceChangeDomainEventPayload {
-                    shop_id: self.shop_id,
-                    shops_product_id: self.shops_product_id.clone(),
-                    new_native_price,
-                    new_other_price,
-                    old_native_price,
-                    old_other_price,
-                };
-                if old_price_for_new_currency.monetary_amount < new_native_price.monetary_amount {
-                    let event = Event {
-                        aggregate_id: self.product_id,
-                        event_id: EventId::new(),
-                        timestamp: OffsetDateTime::now_utc(),
-                        payload: ProductDomainEventPayload::PriceIncreased(payload),
-                    };
-                    Some(event)
-                } else if old_price_for_new_currency.monetary_amount
-                    > new_native_price.monetary_amount
-                {
-                    let event = Event {
-                        aggregate_id: self.product_id,
-                        event_id: EventId::new(),
-                        timestamp: OffsetDateTime::now_utc(),
-                        payload: ProductDomainEventPayload::PriceDropped(payload),
-                    };
-                    Some(event)
-                } else {
-                    None
+                if old_price_for_new_currency.monetary_amount == new_native_price.monetary_amount {
+                    return None;
                 }
+                let event = Event {
+                    aggregate_id: self.product_id,
+                    event_id: EventId::new(),
+                    timestamp: OffsetDateTime::now_utc(),
+                    payload: ProductDomainEventPayload::PriceChanged(
+                        ProductPriceChangeDomainEventPayload {
+                            shop_id: self.shop_id,
+                            shops_product_id: self.shops_product_id.clone(),
+                            old_native_price: Some(old_native_price),
+                            old_other_price,
+                            new_native_price: Some(new_native_price),
+                            new_other_price,
+                        },
+                    ),
+                };
+                Some(event)
             }
         }
     }
@@ -239,17 +225,20 @@ impl Product {
             Some(old_native_price) => {
                 self.native_price = None;
                 let old_other_price = self.other_price.drain().collect();
-                let payload = ProductPriceRemovedDomainEventPayload {
-                    shop_id: self.shop_id,
-                    shops_product_id: self.shops_product_id.clone(),
-                    old_native_price,
-                    old_other_price,
-                };
                 let event = Event {
                     aggregate_id: self.product_id,
                     event_id: EventId::new(),
                     timestamp: OffsetDateTime::now_utc(),
-                    payload: ProductDomainEventPayload::PriceRemoved(payload),
+                    payload: ProductDomainEventPayload::PriceChanged(
+                        ProductPriceChangeDomainEventPayload {
+                            shop_id: self.shop_id,
+                            shops_product_id: self.shops_product_id.clone(),
+                            old_native_price: Some(old_native_price),
+                            old_other_price,
+                            new_native_price: None,
+                            new_other_price: HashMap::new(),
+                        },
+                    ),
                 };
                 Some(event)
             }
@@ -456,28 +445,10 @@ impl Product {
                 ProductDomainEventPayload::Created(_) => {
                     warn!("Received Created event on an existing Product. This should not happen.");
                 }
-                ProductDomainEventPayload::StateListed(_) => self.state = ProductState::Listed,
-                ProductDomainEventPayload::StateAvailable(_) => {
-                    self.state = ProductState::Available;
-                }
-                ProductDomainEventPayload::StateReserved(_) => {
-                    self.state = ProductState::Reserved;
-                }
-                ProductDomainEventPayload::StateSold(_) => self.state = ProductState::Sold,
-                ProductDomainEventPayload::StateRemoved(_) => self.state = ProductState::Removed,
-                ProductDomainEventPayload::StateUnknown(_) => self.state = ProductState::Unknown,
-                ProductDomainEventPayload::PriceDiscovered(p) => {
-                    self.native_price = Some(p.native_price);
-                    self.other_price = p.other_price;
-                }
-                ProductDomainEventPayload::PriceDropped(p)
-                | ProductDomainEventPayload::PriceIncreased(p) => {
-                    self.native_price = Some(p.new_native_price);
+                ProductDomainEventPayload::StateChanged(p) => self.state = p.new_state,
+                ProductDomainEventPayload::PriceChanged(p) => {
+                    self.native_price = p.new_native_price;
                     self.other_price = p.new_other_price;
-                }
-                ProductDomainEventPayload::PriceRemoved(_) => {
-                    self.native_price = None;
-                    self.other_price.clear();
                 }
             },
             ProductEventPayload::ProductEnrichmentEvent(payload) => match payload {
@@ -1176,14 +1147,16 @@ mod tests {
             let actual = product.new_price(Some(to_price), &IdentityFxRate).unwrap();
 
             match actual.payload {
-                ProductDomainEventPayload::PriceDiscovered(payload) => {
-                    assert_eq!(to_price, payload.native_price);
+                ProductDomainEventPayload::PriceChanged(payload) => {
+                    assert_eq!(to_price, payload.new_native_price.unwrap());
                     assert!(
                         payload
-                            .other_price
+                            .new_other_price
                             .iter()
                             .all(|(_, amount)| &to_price.monetary_amount == amount)
                     );
+                    assert!(payload.old_native_price.is_none());
+                    assert!(payload.old_other_price.is_empty());
                     assert_eq!(product.native_price, Some(to_price));
                     assert!(
                         product
@@ -1192,7 +1165,7 @@ mod tests {
                             .all(|(_, amount)| &to_price.monetary_amount == amount)
                     );
                 }
-                _ => panic!("Expected ProductEventPayload::PriceDiscovered"),
+                _ => panic!("Expected ProductEventPayload::PriceChanged"),
             }
         }
 
@@ -1248,8 +1221,8 @@ mod tests {
             let actual = product.new_price(Some(to_price), &IdentityFxRate).unwrap();
 
             match actual.payload {
-                ProductDomainEventPayload::PriceDropped(payload) => {
-                    assert_eq!(to_price, payload.new_native_price);
+                ProductDomainEventPayload::PriceChanged(payload) => {
+                    assert_eq!(to_price, payload.new_native_price.unwrap());
                     assert!(
                         payload
                             .new_other_price
@@ -1258,7 +1231,7 @@ mod tests {
                     );
                     assert_eq!(
                         Price::new(700u64.into(), Currency::Eur),
-                        payload.old_native_price
+                        payload.old_native_price.unwrap()
                     );
                     assert_eq!(product.native_price, Some(to_price));
                     assert!(
@@ -1268,7 +1241,7 @@ mod tests {
                             .all(|(_, amount)| &to_price.monetary_amount == amount)
                     );
                 }
-                _ => panic!("Expected ProductEventPayload::PriceDropped"),
+                _ => panic!("Expected ProductEventPayload::PriceChanged"),
             }
         }
 
@@ -1324,8 +1297,8 @@ mod tests {
             let actual = product.new_price(Some(to_price), &IdentityFxRate).unwrap();
 
             match actual.payload {
-                ProductDomainEventPayload::PriceIncreased(payload) => {
-                    assert_eq!(to_price, payload.new_native_price);
+                ProductDomainEventPayload::PriceChanged(payload) => {
+                    assert_eq!(to_price, payload.new_native_price.unwrap());
                     assert!(
                         payload
                             .new_other_price
@@ -1334,11 +1307,11 @@ mod tests {
                     );
                     assert_eq!(
                         Price::new(169u64.into(), Currency::Eur),
-                        payload.old_native_price
+                        payload.old_native_price.unwrap()
                     );
                     assert_eq!(product.native_price, Some(to_price));
                 }
-                _ => panic!("Expected ProductEventPayload::PriceIncreased"),
+                _ => panic!("Expected ProductEventPayload::PriceChanged"),
             }
         }
 
@@ -1402,12 +1375,14 @@ mod tests {
             let actual = product.new_price(None, &IdentityFxRate).unwrap();
 
             match actual.payload {
-                ProductDomainEventPayload::PriceRemoved(payload) => {
+                ProductDomainEventPayload::PriceChanged(payload) => {
                     assert!(product.native_price.is_none());
                     assert!(product.other_price.is_empty());
-                    assert_eq!(price, payload.old_native_price);
+                    assert_eq!(price, payload.old_native_price.unwrap());
+                    assert!(payload.new_native_price.is_none());
+                    assert!(payload.new_other_price.is_empty());
                 }
-                _ => panic!("Expected ProductEventPayload::PriceRemoved"),
+                _ => panic!("Expected ProductEventPayload::PriceChanged"),
             }
         }
     }
@@ -2208,7 +2183,6 @@ mod tests {
         use crate::core::product_event::ProductEventPayload;
         use crate::core::product_event::domain::{
             ProductDomainEventPayload, ProductPriceChangeDomainEventPayload,
-            ProductPriceDiscoveryDomainEventPayload, ProductPriceRemovedDomainEventPayload,
             ProductStateChangeDomainEventPayload,
         };
         use crate::core::product_event::enrichment::{
@@ -2263,10 +2237,11 @@ mod tests {
                 event_id,
                 timestamp,
                 payload: ProductEventPayload::ProductDomainEvent(
-                    ProductDomainEventPayload::StateListed(ProductStateChangeDomainEventPayload {
+                    ProductDomainEventPayload::StateChanged(ProductStateChangeDomainEventPayload {
                         shop_id: product.shop_id,
                         shops_product_id: product.shops_product_id.clone(),
                         old_state: product.state,
+                        new_state: ProductState::Listed,
                     }),
                 ),
             };
@@ -2285,11 +2260,12 @@ mod tests {
 
             let event = make_event(
                 &product,
-                ProductEventPayload::ProductDomainEvent(ProductDomainEventPayload::StateListed(
+                ProductEventPayload::ProductDomainEvent(ProductDomainEventPayload::StateChanged(
                     ProductStateChangeDomainEventPayload {
                         shop_id: product.shop_id,
                         shops_product_id: product.shops_product_id.clone(),
                         old_state: ProductState::Available,
+                        new_state: ProductState::Listed,
                     },
                 )),
             );
@@ -2306,11 +2282,12 @@ mod tests {
 
             let event = make_event(
                 &product,
-                ProductEventPayload::ProductDomainEvent(ProductDomainEventPayload::StateSold(
+                ProductEventPayload::ProductDomainEvent(ProductDomainEventPayload::StateChanged(
                     ProductStateChangeDomainEventPayload {
                         shop_id: product.shop_id,
                         shops_product_id: product.shops_product_id.clone(),
                         old_state: ProductState::Available,
+                        new_state: ProductState::Sold,
                     },
                 )),
             );
@@ -2333,12 +2310,14 @@ mod tests {
             let event = make_event(
                 &product,
                 ProductEventPayload::ProductDomainEvent(
-                    ProductDomainEventPayload::PriceDiscovered(
-                        ProductPriceDiscoveryDomainEventPayload {
+                    ProductDomainEventPayload::PriceChanged(
+                        ProductPriceChangeDomainEventPayload {
                             shop_id: product.shop_id,
                             shops_product_id: product.shops_product_id.clone(),
-                            native_price: price,
-                            other_price: other_price.clone(),
+                            old_native_price: None,
+                            old_other_price: HashMap::new(),
+                            new_native_price: Some(price),
+                            new_other_price: other_price.clone(),
                         },
                     ),
                 ),
@@ -2362,14 +2341,14 @@ mod tests {
 
             let event = make_event(
                 &product,
-                ProductEventPayload::ProductDomainEvent(ProductDomainEventPayload::PriceDropped(
+                ProductEventPayload::ProductDomainEvent(ProductDomainEventPayload::PriceChanged(
                     ProductPriceChangeDomainEventPayload {
                         shop_id: product.shop_id,
                         shops_product_id: product.shops_product_id.clone(),
-                        new_native_price: new_price,
-                        new_other_price: new_other_price.clone(),
-                        old_native_price: old_price,
+                        old_native_price: Some(old_price),
                         old_other_price: HashMap::new(),
+                        new_native_price: Some(new_price),
+                        new_other_price: new_other_price.clone(),
                     },
                 )),
             );
@@ -2389,12 +2368,14 @@ mod tests {
 
             let event = make_event(
                 &product,
-                ProductEventPayload::ProductDomainEvent(ProductDomainEventPayload::PriceRemoved(
-                    ProductPriceRemovedDomainEventPayload {
+                ProductEventPayload::ProductDomainEvent(ProductDomainEventPayload::PriceChanged(
+                    ProductPriceChangeDomainEventPayload {
                         shop_id: product.shop_id,
                         shops_product_id: product.shops_product_id.clone(),
-                        old_native_price: old_price,
+                        old_native_price: Some(old_price),
                         old_other_price: product.other_price.clone(),
+                        new_native_price: None,
+                        new_other_price: HashMap::new(),
                     },
                 )),
             );
