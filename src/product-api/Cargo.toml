@@ -29,6 +29,7 @@ product = { workspace = true, features = ["test-data"] }
 product-watchlist = { workspace = true, features = ["test-data"] }
 notification = { workspace = true, features = ["test-data"] }
 user = { workspace = true, features = ["test-data"] }
+shop = { workspace = true, features = ["data"] }
 test-api = { workspace = true, features = ["api-gateway", "dynamodb", "opensearch", "sqs"] }
 serial_test = { workspace = true }
 rstest = { workspace = true }

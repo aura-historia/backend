@@ -27,7 +27,9 @@ use product::{
         repository::{ProductOpenSearchRepository, ProductOpenSearchRepositoryImpl},
     },
     service::{
-        enrichment_service::{ProductCommandEnrichmentService, ProductCommandEnrichmentServiceImpl},
+        enrichment_service::{
+            ProductCommandEnrichmentService, ProductCommandEnrichmentServiceImpl,
+        },
         product_command::{PipedProductCommand, UpsertProductCommand},
         upsert_service::{UpsertProductsService, UpsertProductsServiceImpl},
     },

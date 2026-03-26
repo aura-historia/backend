@@ -83,13 +83,9 @@ mod tests {
                 .build(),
             context: Default::default(),
         };
-        let response = handle(
-            lambda_event,
-            &service,
-            &MockQueryShopService::default(),
-        )
-        .await
-        .unwrap();
+        let response = handle(lambda_event, &service, &MockQueryShopService::default())
+            .await
+            .unwrap();
         assert_eq!(200, response.status_code);
         assert_eq!(
             "Wed, 01 Jan 2020 00:00:00 GMT",
@@ -114,13 +110,9 @@ mod tests {
                 .build(),
             context: Default::default(),
         };
-        let response = handle(
-            lambda_event,
-            &service,
-            &MockQueryShopService::default(),
-        )
-        .await
-        .unwrap();
+        let response = handle(lambda_event, &service, &MockQueryShopService::default())
+            .await
+            .unwrap();
         assert_eq!(200, response.status_code);
         assert_eq!(
             "Wed, 01 Jan 2020 00:00:00 GMT",
@@ -140,13 +132,9 @@ mod tests {
             context: Default::default(),
         };
 
-        let response = handle(
-            lambda_event,
-            &service,
-            &MockQueryShopService::default(),
-        )
-        .await
-        .unwrap_err();
+        let response = handle(lambda_event, &service, &MockQueryShopService::default())
+            .await
+            .unwrap_err();
         assert_eq!(400, response.status);
     }
 
@@ -162,13 +150,9 @@ mod tests {
             context: Default::default(),
         };
 
-        let response = handle(
-            lambda_event,
-            &service,
-            &MockQueryShopService::default(),
-        )
-        .await
-        .unwrap_err();
+        let response = handle(lambda_event, &service, &MockQueryShopService::default())
+            .await
+            .unwrap_err();
         assert_eq!(400, response.status);
     }
 
@@ -192,13 +176,9 @@ mod tests {
                 Box::pin(async move { Err(GetShopError::ShopNotFound(shop_identifier)) })
             });
 
-        let response = handle(
-            lambda_event,
-            &service,
-            &MockQueryShopService::default(),
-        )
-        .await
-        .unwrap_err();
+        let response = handle(lambda_event, &service, &MockQueryShopService::default())
+            .await
+            .unwrap_err();
         assert_eq!(404, response.status);
     }
 
@@ -221,13 +201,9 @@ mod tests {
                 Box::pin(async move { Err(GetShopError::ShopNotFound(shop_identifier)) })
             });
 
-        let response = handle(
-            lambda_event,
-            &service,
-            &MockQueryShopService::default(),
-        )
-        .await
-        .unwrap_err();
+        let response = handle(lambda_event, &service, &MockQueryShopService::default())
+            .await
+            .unwrap_err();
         assert_eq!(404, response.status);
     }
 
@@ -248,13 +224,9 @@ mod tests {
             context: Default::default(),
         };
 
-        let response = handle(
-            lambda_event,
-            &service,
-            &MockQueryShopService::default(),
-        )
-        .await
-        .unwrap();
+        let response = handle(lambda_event, &service, &MockQueryShopService::default())
+            .await
+            .unwrap();
 
         assert_eq!(200, response.status_code);
         assert_eq!(

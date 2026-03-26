@@ -5263,6 +5263,7 @@ dependencies = [
  "serde_json",
  "serde_qs",
  "serial_test",
+ "shop",
  "test-api",
  "time",
  "tokio",

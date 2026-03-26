@@ -3,7 +3,6 @@ use common::personalized::api::PersonalizedData;
 use common::{
     batch::Batch,
     currency::{data::CurrencyData, domain::Currency},
-    domain::Domain,
     event::Event,
     event_id::EventId,
     language::data::LanguageData,
@@ -51,7 +50,9 @@ use product::{
         repository::{ProductDynamoDbRepository, ProductDynamoDbRepositoryImpl},
     },
     service::{
-        enrichment_service::{ProductCommandEnrichmentService, ProductCommandEnrichmentServiceImpl},
+        enrichment_service::{
+            ProductCommandEnrichmentService, ProductCommandEnrichmentServiceImpl,
+        },
         product_command::{PipedProductCommand, UpsertProductCommand},
         upsert_service::{UpsertProductsService, UpsertProductsServiceImpl},
     },
@@ -74,7 +75,6 @@ use search_filter_api::{
 use serde::de::DeserializeOwned;
 use shop::{
     core::shop::Shop,
-    data::get_shop_data::GetShopData,
     dynamodb::{
         repository::{ShopDynamoDbRepository, ShopDynamoDbRepositoryImpl},
         shop_record::ShopRecord,
@@ -83,7 +83,6 @@ use shop::{
 use std::time::{Duration, Instant, SystemTime};
 use test_api::*;
 use time::OffsetDateTime;
-use url::Url;
 use user::{
     data::{get_user_data::GetUserAccountData, patch_user_data::PatchUserAccountData},
     dynamodb::{
