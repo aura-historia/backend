@@ -2828,10 +2828,10 @@ async fn should_respond_200_for_product_history() {
     let history = body.as_array().cloned().unwrap();
     assert_eq!(2, history.len());
     assert_eq!(event_1_id.to_string(), history[0]["eventId"]);
-    assert_eq!("PRICE_DROPPED", history[0]["eventType"]);
+    assert_eq!("PRICE_CHANGED", history[0]["eventType"]);
     assert_eq!("USD", history[0]["payload"]["newPrice"]["currency"]);
     assert_eq!(event_2_id.to_string(), history[1]["eventId"]);
-    assert_eq!("STATE_REMOVED", history[1]["eventType"]);
+    assert_eq!("STATE_CHANGED", history[1]["eventType"]);
 }
 
 // ---------------------------------------------------------------------------
