@@ -1,14 +1,17 @@
 use async_trait::async_trait;
+use common::shop_id::ShopId;
 use sqlx::{FromRow, PgPool, Row};
 use time::OffsetDateTime;
 
 #[derive(Debug, Clone)]
 pub struct SpiderLinkRecord {
-    pub shop_url: String,
+    pub shop_id: ShopId,
     pub url: String,
     pub link_class: String,
     pub main_hash: String,
     pub state: String,
+    pub price_currency: Option<String>,
+    pub price_value: Option<i32>,
     pub last_scraped: Option<OffsetDateTime>,
     pub created: OffsetDateTime,
     pub updated: OffsetDateTime,
@@ -16,12 +19,15 @@ pub struct SpiderLinkRecord {
 
 impl FromRow<'_, sqlx::postgres::PgRow> for SpiderLinkRecord {
     fn from_row(row: &sqlx::postgres::PgRow) -> Result<Self, sqlx::Error> {
+        let shop_id: uuid::Uuid = row.try_get("shop_id")?;
         Ok(Self {
-            shop_url: row.try_get("shop_url")?,
+            shop_id: shop_id.into(),
             url: row.try_get("url")?,
             link_class: row.try_get("link_class")?,
             main_hash: row.try_get("main_hash")?,
             state: row.try_get("state")?,
+            price_currency: row.try_get("price_currency")?,
+            price_value: row.try_get("price_value")?,
             last_scraped: row.try_get("last_scraped")?,
             created: row.try_get("created")?,
             updated: row.try_get("updated")?,
@@ -34,7 +40,7 @@ impl FromRow<'_, sqlx::postgres::PgRow> for SpiderLinkRecord {
 pub trait LinkMetadataRepository: Send + Sync {
     async fn upsert_link(
         &self,
-        shop_url: &str,
+        shop_id: &ShopId,
         url: &str,
         link_class: &str,
         main_hash: &str,
@@ -42,7 +48,7 @@ pub trait LinkMetadataRepository: Send + Sync {
 
     async fn upsert_links_batch(
         &self,
-        shop_url: &str,
+        shop_id: &ShopId,
         urls: &[String],
         link_classes: &[String],
         main_hashes: &[String],
@@ -50,13 +56,13 @@ pub trait LinkMetadataRepository: Send + Sync {
 
     async fn mark_as_scraped(
         &self,
-        shop_url: &str,
+        shop_id: &ShopId,
         url: &str,
     ) -> Result<SpiderLinkRecord, sqlx::Error>;
 
     async fn set_state(
         &self,
-        shop_url: &str,
+        shop_id: &ShopId,
         url: &str,
         state: &str,
     ) -> Result<SpiderLinkRecord, sqlx::Error>;
@@ -76,22 +82,23 @@ impl LinkMetadataRepositoryImpl {
 impl LinkMetadataRepository for LinkMetadataRepositoryImpl {
     async fn upsert_link(
         &self,
-        shop_url: &str,
+        shop_id: &ShopId,
         url: &str,
         link_class: &str,
         main_hash: &str,
     ) -> Result<SpiderLinkRecord, sqlx::Error> {
+        let shop_id_uuid: uuid::Uuid = (*shop_id).into();
         sqlx::query_as::<_, SpiderLinkRecord>(
-            "INSERT INTO spider_link (shop_url, url, link_class, main_hash, created, updated)
+            "INSERT INTO spider_link (shop_id, url, link_class, main_hash, created, updated)
              VALUES ($1, $2, $3, $4, NOW(), NOW())
-             ON CONFLICT (shop_url, url)
+             ON CONFLICT (shop_id, url)
              DO UPDATE SET
                  link_class = EXCLUDED.link_class,
                  main_hash = EXCLUDED.main_hash,
                  updated = NOW()
-             RETURNING shop_url, url, link_class, main_hash, state, last_scraped, created, updated",
+             RETURNING shop_id, url, link_class, main_hash, state, price_currency, price_value, last_scraped, created, updated",
         )
-        .bind(shop_url)
+        .bind(shop_id_uuid)
         .bind(url)
         .bind(link_class)
         .bind(main_hash)
@@ -101,7 +108,7 @@ impl LinkMetadataRepository for LinkMetadataRepositoryImpl {
 
     async fn upsert_links_batch(
         &self,
-        shop_url: &str,
+        shop_id: &ShopId,
         urls: &[String],
         link_classes: &[String],
         main_hashes: &[String],
@@ -110,18 +117,19 @@ impl LinkMetadataRepository for LinkMetadataRepositoryImpl {
             return Ok(Vec::new());
         }
 
+        let shop_id_uuid: uuid::Uuid = (*shop_id).into();
         sqlx::query_as::<_, SpiderLinkRecord>(
-            "INSERT INTO spider_link (shop_url, url, link_class, main_hash, created, updated)
+            "INSERT INTO spider_link (shop_id, url, link_class, main_hash, created, updated)
              SELECT $1, t.url, t.link_class, t.main_hash, NOW(), NOW()
              FROM UNNEST($2::text[], $3::text[], $4::text[]) AS t(url, link_class, main_hash)
-             ON CONFLICT (shop_url, url)
+             ON CONFLICT (shop_id, url)
              DO UPDATE SET
                  link_class = EXCLUDED.link_class,
                  main_hash = EXCLUDED.main_hash,
                  updated = NOW()
-             RETURNING shop_url, url, link_class, main_hash, state, last_scraped, created, updated",
+             RETURNING shop_id, url, link_class, main_hash, state, price_currency, price_value, last_scraped, created, updated",
         )
-        .bind(shop_url)
+        .bind(shop_id_uuid)
         .bind(urls)
         .bind(link_classes)
         .bind(main_hashes)
@@ -131,16 +139,17 @@ impl LinkMetadataRepository for LinkMetadataRepositoryImpl {
 
     async fn mark_as_scraped(
         &self,
-        shop_url: &str,
+        shop_id: &ShopId,
         url: &str,
     ) -> Result<SpiderLinkRecord, sqlx::Error> {
+        let shop_id_uuid: uuid::Uuid = (*shop_id).into();
         sqlx::query_as::<_, SpiderLinkRecord>(
             "UPDATE spider_link
              SET last_scraped = NOW(), updated = NOW()
-             WHERE shop_url = $1 AND url = $2
-             RETURNING shop_url, url, link_class, main_hash, state, last_scraped, created, updated",
+             WHERE shop_id = $1 AND url = $2
+             RETURNING shop_id, url, link_class, main_hash, state, price_currency, price_value, last_scraped, created, updated",
         )
-        .bind(shop_url)
+        .bind(shop_id_uuid)
         .bind(url)
         .fetch_one(&self.pool)
         .await
@@ -148,17 +157,18 @@ impl LinkMetadataRepository for LinkMetadataRepositoryImpl {
 
     async fn set_state(
         &self,
-        shop_url: &str,
+        shop_id: &ShopId,
         url: &str,
         state: &str,
     ) -> Result<SpiderLinkRecord, sqlx::Error> {
+        let shop_id_uuid: uuid::Uuid = (*shop_id).into();
         sqlx::query_as::<_, SpiderLinkRecord>(
             "UPDATE spider_link
              SET state = $3, updated = NOW()
-             WHERE shop_url = $1 AND url = $2
-             RETURNING shop_url, url, link_class, main_hash, state, last_scraped, created, updated",
+             WHERE shop_id = $1 AND url = $2
+             RETURNING shop_id, url, link_class, main_hash, state, price_currency, price_value, last_scraped, created, updated",
         )
-        .bind(shop_url)
+        .bind(shop_id_uuid)
         .bind(url)
         .bind(state)
         .fetch_one(&self.pool)

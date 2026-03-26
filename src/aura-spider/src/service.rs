@@ -3,6 +3,7 @@ use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 use time::OffsetDateTime;
 use tracing::{debug, info, warn};
+use common::shop_id::ShopId;
 
 use crate::classification::link_metadata_repository::LinkMetadataRepository;
 use crate::classification::url_classification_service::matches_product_pattern;
@@ -99,6 +100,7 @@ pub struct SpiderRunResult {
 pub trait SpiderService: Send + Sync {
     async fn run(
         &self,
+        shop_id: &ShopId,
         shop_url: &str,
         classify_threshold: usize,
     ) -> Result<SpiderRunResult, SpiderError>;
@@ -143,15 +145,13 @@ impl SpiderServiceImpl {
 
     async fn persist_link_metadata_batch(
         &self,
-        shop_url: &str,
+        shop_id: &ShopId,
         pages: &[CrawledPage],
         pattern: &Option<Regex>,
     ) -> Result<usize, SpiderError> {
         if pages.is_empty() {
             return Ok(0);
         }
-
-        let normalized_shop_url = crate::utils::url::extract_shop_base_url(shop_url)?;
 
         let mut urls = Vec::with_capacity(pages.len());
         let mut classes = Vec::with_capacity(pages.len());
@@ -165,7 +165,7 @@ impl SpiderServiceImpl {
 
         let records = self
             .link_metadata_repository
-            .upsert_links_batch(&normalized_shop_url, &urls, &classes, &hashes)
+            .upsert_links_batch(shop_id, &urls, &classes, &hashes)
             .await?;
 
         Ok(records.len())
@@ -174,14 +174,14 @@ impl SpiderServiceImpl {
     async fn process_buffer(
         &self,
         buffer: &mut Vec<CrawledPage>,
-        shop_url: &str,
+        shop_id: &ShopId,
         pattern: &Option<Regex>,
     ) -> Result<usize, SpiderError> {
         let count = buffer
             .iter()
             .filter(|p| matches_product_pattern(pattern, &p.url))
             .count();
-        self.persist_link_metadata_batch(shop_url, buffer, pattern)
+        self.persist_link_metadata_batch(shop_id, buffer, pattern)
             .await?;
         buffer.clear();
         Ok(count)
@@ -192,6 +192,7 @@ impl SpiderServiceImpl {
 impl SpiderService for SpiderServiceImpl {
     async fn run(
         &self,
+        shop_id: &ShopId,
         shop_url: &str,
         classify_threshold: usize,
     ) -> Result<SpiderRunResult, SpiderError> {
@@ -201,7 +202,7 @@ impl SpiderService for SpiderServiceImpl {
             "Configured one-time classification threshold"
         );
 
-        if !self.pattern_service.try_lock_shop(shop_url).await? {
+        if !self.pattern_service.try_lock_shop(shop_id, shop_url).await? {
             warn!(shopUrl = %shop_url, "Shop is already being crawled by another worker");
             return Ok(SpiderRunResult {
                 total_links: 0,
@@ -218,7 +219,7 @@ impl SpiderService for SpiderServiceImpl {
 
             let mut pattern: Option<Regex> = self
                 .pattern_service
-                .load_pattern_for_shop_url(shop_url)
+                .load_pattern_for_shop(shop_id)
                 .await?;
 
             let mut classification_done = pattern.is_some();
@@ -251,7 +252,7 @@ impl SpiderService for SpiderServiceImpl {
 
                     pattern = self
                         .pattern_service
-                        .classify_and_save(shop_url, &inference_sample)
+                        .classify_and_save(shop_id, shop_url, &inference_sample)
                         .await?;
 
                     if pattern.is_none() {
@@ -290,7 +291,7 @@ impl SpiderService for SpiderServiceImpl {
 
                     if page_buffer.len() >= self.config.db_batch_size {
                         products_found +=
-                            self.process_buffer(&mut page_buffer, shop_url, &pattern).await?;
+                            self.process_buffer(&mut page_buffer, shop_id, &pattern).await?;
                     }
                 } else if let Some(last_url) = inference_sample.last().or(Some(&page.url)) {
                     debug!(index = total_crawled, url = %last_url, "Crawled URL");
@@ -314,7 +315,7 @@ impl SpiderService for SpiderServiceImpl {
                 );
                 pattern = self
                     .pattern_service
-                    .classify_and_save(shop_url, &inference_sample)
+                    .classify_and_save(shop_id, shop_url, &inference_sample)
                     .await?;
                 if pattern.is_none() {
                     warn!(
@@ -341,7 +342,7 @@ impl SpiderService for SpiderServiceImpl {
                 );
                 pattern = self
                     .pattern_service
-                    .classify_and_save(shop_url, &inference_sample)
+                    .classify_and_save(shop_id, shop_url, &inference_sample)
                     .await?;
                 if pattern.is_none() {
                     warn!(
@@ -362,7 +363,7 @@ impl SpiderService for SpiderServiceImpl {
             }
 
             if !page_buffer.is_empty() {
-                products_found += self.process_buffer(&mut page_buffer, shop_url, &pattern).await?;
+                products_found += self.process_buffer(&mut page_buffer, shop_id, &pattern).await?;
             }
 
             let product_pattern = pattern.as_ref().map(|regex| regex.as_str().to_string());
@@ -372,7 +373,7 @@ impl SpiderService for SpiderServiceImpl {
                 "Collected confirmed product URLs"
             );
 
-            if let Err(error) = self.pattern_service.mark_as_crawled(shop_url).await {
+            if let Err(error) = self.pattern_service.mark_as_crawled(shop_id, shop_url).await {
                 warn!(shopUrl = %shop_url, error = %error, "Failed to mark shop as crawled");
             }
 
@@ -384,7 +385,7 @@ impl SpiderService for SpiderServiceImpl {
         }
         .await;
 
-        if let Err(error) = self.pattern_service.unlock_shop(shop_url).await {
+        if let Err(error) = self.pattern_service.unlock_shop(shop_id).await {
             warn!(shopUrl = %shop_url, error = %error, "Failed to release shop crawl lock");
         }
 
@@ -494,19 +495,19 @@ mod service_tests {
 
     fn setup_mock_mark_as_crawled(mock: &mut MockUrlPatternService, shop_url: &'static str) {
         mock.expect_mark_as_crawled()
-            .with(mockall::predicate::eq(shop_url))
+            .with(mockall::predicate::always(), mockall::predicate::eq(shop_url))
             .times(1)
-            .returning(|_| Box::pin(async { Ok(()) }));
+            .returning(|_, _| Box::pin(async { Ok(()) }));
     }
 
     fn setup_mock_lock_lifecycle(mock: &mut MockUrlPatternService, shop_url: &'static str) {
         mock.expect_try_lock_shop()
-            .with(mockall::predicate::eq(shop_url))
+            .with(mockall::predicate::always(), mockall::predicate::eq(shop_url))
             .times(1)
-            .returning(|_| Box::pin(async { Ok(true) }));
+            .returning(|_, _| Box::pin(async { Ok(true) }));
 
         mock.expect_unlock_shop()
-            .with(mockall::predicate::eq(shop_url))
+            .with(mockall::predicate::always())
             .times(1)
             .returning(|_| Box::pin(async { Ok(()) }));
     }
@@ -517,6 +518,7 @@ mod service_tests {
         let mut mock_pattern_service = MockUrlPatternService::new();
         let mut mock_link_repo = MockLinkMetadataRepository::new();
 
+        let shop_id: ShopId = uuid::Uuid::new_v4().into();
         let shop_url = "https://example.com";
 
         mock_crawler
@@ -546,12 +548,12 @@ mod service_tests {
             });
 
         mock_pattern_service
-            .expect_load_pattern_for_shop_url()
+            .expect_load_pattern_for_shop()
             .returning(|_| Box::pin(async { Ok(None) }));
 
         mock_pattern_service
             .expect_classify_and_save()
-            .returning(|_, _| Box::pin(async { Ok(Some(Regex::new(r"/product/").unwrap())) }));
+            .returning(|_, _, _| Box::pin(async { Ok(Some(Regex::new(r"/product/").unwrap())) }));
 
         setup_mock_lock_lifecycle(&mut mock_pattern_service, shop_url);
         setup_mock_mark_as_crawled(&mut mock_pattern_service, shop_url);
@@ -565,7 +567,7 @@ mod service_tests {
             Arc::new(mock_link_repo),
         );
 
-        let result = service.run(shop_url, 1).await;
+        let result = service.run(&shop_id, shop_url, 1).await;
         assert!(result.is_ok());
         let run_result = result.unwrap();
         assert_eq!(run_result.product_urls_count, 1);
@@ -578,6 +580,7 @@ mod service_tests {
         let mut mock_pattern_service = MockUrlPatternService::new();
         let mut mock_link_repo = MockLinkMetadataRepository::new();
 
+        let shop_id: ShopId = uuid::Uuid::new_v4().into();
         let shop_url = "https://example.com";
 
         mock_crawler
@@ -599,14 +602,14 @@ mod service_tests {
             });
 
         mock_pattern_service
-            .expect_load_pattern_for_shop_url()
+            .expect_load_pattern_for_shop()
             .returning(|_| Box::pin(async { Ok(None) }));
 
         // It should classify at the end because threshold is 10
         mock_pattern_service
             .expect_classify_and_save()
             .times(1)
-            .returning(|_, _| Box::pin(async { Ok(Some(Regex::new(r"/product/").unwrap())) }));
+            .returning(|_, _, _| Box::pin(async { Ok(Some(Regex::new(r"/product/").unwrap())) }));
 
         setup_mock_lock_lifecycle(&mut mock_pattern_service, shop_url);
         setup_mock_mark_as_crawled(&mut mock_pattern_service, shop_url);
@@ -620,7 +623,7 @@ mod service_tests {
             Arc::new(mock_link_repo),
         );
 
-        let result = service.run(shop_url, 10).await;
+        let result = service.run(&shop_id, shop_url, 10).await;
         assert!(result.is_ok());
         let run_result = result.unwrap();
         assert_eq!(run_result.product_urls_count, 1);
@@ -632,6 +635,7 @@ mod service_tests {
         let mut mock_pattern_service = MockUrlPatternService::new();
         let mut mock_link_repo = MockLinkMetadataRepository::new();
 
+        let shop_id: ShopId = uuid::Uuid::new_v4().into();
         let shop_url = "https://example.com";
 
         mock_crawler
@@ -654,14 +658,14 @@ mod service_tests {
 
         // Persisted pattern expects /product/
         mock_pattern_service
-            .expect_load_pattern_for_shop_url()
+            .expect_load_pattern_for_shop()
             .returning(|_| Box::pin(async { Ok(Some(Regex::new(r"/product/").unwrap())) }));
 
         // Reclassification gives the correct /item/ pattern
         mock_pattern_service
             .expect_classify_and_save()
             .times(1)
-            .returning(|_, _| Box::pin(async { Ok(Some(Regex::new(r"/item/").unwrap())) }));
+            .returning(|_, _, _| Box::pin(async { Ok(Some(Regex::new(r"/item/").unwrap())) }));
 
         setup_mock_lock_lifecycle(&mut mock_pattern_service, shop_url);
         setup_mock_mark_as_crawled(&mut mock_pattern_service, shop_url);
@@ -675,7 +679,7 @@ mod service_tests {
             Arc::new(mock_link_repo),
         );
 
-        let result = service.run(shop_url, 10).await;
+        let result = service.run(&shop_id, shop_url, 10).await;
         assert!(result.is_ok());
         let run_result = result.unwrap();
         assert_eq!(run_result.product_urls_count, 1);

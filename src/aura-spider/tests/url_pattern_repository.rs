@@ -1,6 +1,7 @@
 use aura_spider::classification::url_pattern_repository::{
     ShopUrlPatternRepository, ShopUrlPatternRepositoryImpl,
 };
+use common::shop_id::ShopId;
 
 use test_api::*;
 
@@ -17,9 +18,10 @@ const RDS: Rds = Rds {
 async fn should_return_none_when_no_pattern_exists_for_find() {
     let pool = get_postgres_client().await;
     let repository = ShopUrlPatternRepositoryImpl::new(pool);
+    let shop_id: ShopId = uuid::Uuid::new_v4().into();
 
     let result = repository
-        .find_pattern("https://nonexistent.com")
+        .find_pattern(&shop_id)
         .await
         .unwrap();
 
@@ -31,18 +33,19 @@ async fn should_return_none_when_no_pattern_exists_for_find() {
 async fn should_return_pattern_when_exists_for_find() {
     let pool = get_postgres_client().await;
     let repository = ShopUrlPatternRepositoryImpl::new(pool.clone());
-
-    let shop_url = "https://example.com";
+    let shop_id: ShopId = uuid::Uuid::new_v4().into();
+    let shop_domain = "example.com";
     let pattern = r"/product/\d+";
 
     repository
-        .save_pattern(shop_url, Some(pattern))
+        .save_pattern(&shop_id, shop_domain, Some(pattern))
         .await
         .unwrap();
 
-    let result = repository.find_pattern(shop_url).await.unwrap().unwrap();
+    let result = repository.find_pattern(&shop_id).await.unwrap().unwrap();
 
-    assert_eq!(result.shop_url, shop_url);
+    assert_eq!(result.shop_id, shop_id);
+    assert_eq!(result.shop_domain, shop_domain);
     assert_eq!(result.url_pattern.unwrap(), pattern);
 }
 
@@ -56,17 +59,19 @@ async fn should_persist_and_return_pattern_for_insert() {
     let pool = get_postgres_client().await;
     let repository = ShopUrlPatternRepositoryImpl::new(pool);
 
-    let shop_url = "https://insert-example.com";
+    let shop_id: ShopId = uuid::Uuid::new_v4().into();
+    let shop_domain = "insert-example.com";
     let pattern = r"/item/\w+";
 
     repository
-        .save_pattern(shop_url, Some(pattern))
+        .save_pattern(&shop_id, shop_domain, Some(pattern))
         .await
         .unwrap();
 
-    let returned = repository.find_pattern(shop_url).await.unwrap().unwrap();
+    let returned = repository.find_pattern(&shop_id).await.unwrap().unwrap();
 
-    assert_eq!(returned.shop_url, shop_url);
+    assert_eq!(returned.shop_id, shop_id);
+    assert_eq!(returned.shop_domain, shop_domain);
     assert_eq!(returned.url_pattern.unwrap(), pattern);
 }
 
@@ -76,22 +81,23 @@ async fn should_preserve_created_and_updated_timestamps_for_insert() {
     let pool = get_postgres_client().await;
     let repository = ShopUrlPatternRepositoryImpl::new(pool);
 
-    let shop_url = "https://ts-example.com";
+    let shop_id: ShopId = uuid::Uuid::new_v4().into();
+    let shop_domain = "ts-example.com";
     let pattern = "/ts-item";
 
     repository
-        .save_pattern(shop_url, Some(pattern))
+        .save_pattern(&shop_id, shop_domain, Some(pattern))
         .await
         .unwrap();
-    let record1 = repository.find_pattern(shop_url).await.unwrap().unwrap();
+    let record1 = repository.find_pattern(&shop_id).await.unwrap().unwrap();
 
     tokio::time::sleep(std::time::Duration::from_millis(5)).await;
 
     repository
-        .save_pattern(shop_url, Some("/ts-item-new"))
+        .save_pattern(&shop_id, shop_domain, Some("/ts-item-new"))
         .await
         .unwrap();
-    let record2 = repository.find_pattern(shop_url).await.unwrap().unwrap();
+    let record2 = repository.find_pattern(&shop_id).await.unwrap().unwrap();
 
     assert!(
         (record2.created - record1.created).abs() < time::Duration::microseconds(1000),
@@ -109,21 +115,27 @@ async fn should_allow_clearing_pattern() {
     let pool = get_postgres_client().await;
     let repository = ShopUrlPatternRepositoryImpl::new(pool);
 
-    let shop_url = "https://clear-example.com";
+    let shop_id: ShopId = uuid::Uuid::new_v4().into();
+    let shop_domain = "clear-example.com";
 
     repository
-        .save_pattern(shop_url, Some("/clear-item"))
+        .save_pattern(&shop_id, shop_domain, Some("/clear-item"))
         .await
         .unwrap();
 
     // Explicitly clear pattern
-    repository.save_pattern(shop_url, None).await.unwrap();
+    repository.save_pattern(&shop_id, shop_domain, None).await.unwrap();
 
-    let returned = repository.find_pattern(shop_url).await.unwrap().unwrap();
+    let returned = repository.find_pattern(&shop_id).await.unwrap().unwrap();
 
-    assert_eq!(returned.shop_url, shop_url);
+    assert_eq!(returned.shop_id, shop_id);
+    assert_eq!(returned.shop_domain, shop_domain);
     assert!(returned.url_pattern.is_none());
 }
+
+// ---------------------------------------------------------------------------
+// mark_as_crawled
+// ---------------------------------------------------------------------------
 
 #[localstack_test(services = [RDS])]
 #[serial_test::serial]
@@ -131,23 +143,28 @@ async fn should_mark_pattern_as_crawled() {
     let pool = get_postgres_client().await;
     let repository = ShopUrlPatternRepositoryImpl::new(pool);
 
-    let shop_url = "https://mark-example.com";
+    let shop_id: ShopId = uuid::Uuid::new_v4().into();
+    let shop_domain = "mark-example.com";
 
     // Mark as crawled directly without a pattern
-    repository.mark_as_crawled(shop_url).await.unwrap();
+    repository.mark_as_crawled(&shop_id, shop_domain).await.unwrap();
 
-    let record = repository.find_pattern(shop_url).await.unwrap().unwrap();
+    let record = repository.find_pattern(&shop_id).await.unwrap().unwrap();
     assert!(record.last_crawled.is_some());
     assert!(record.url_pattern.is_none());
 
     tokio::time::sleep(std::time::Duration::from_millis(5)).await;
 
     // Mark again
-    repository.mark_as_crawled(shop_url).await.unwrap();
+    repository.mark_as_crawled(&shop_id, shop_domain).await.unwrap();
 
-    let record2 = repository.find_pattern(shop_url).await.unwrap().unwrap();
+    let record2 = repository.find_pattern(&shop_id).await.unwrap().unwrap();
     assert!(record2.last_crawled.unwrap() > record.last_crawled.unwrap());
 }
+
+// ---------------------------------------------------------------------------
+// lock / unlock
+// ---------------------------------------------------------------------------
 
 #[localstack_test(services = [RDS])]
 #[serial_test::serial]
@@ -155,16 +172,17 @@ async fn should_lock_and_unlock_shop() {
     let pool = get_postgres_client().await;
     let repository = ShopUrlPatternRepositoryImpl::new(pool);
 
-    let shop_url = "https://lock-example.com";
+    let shop_id: ShopId = uuid::Uuid::new_v4().into();
+    let shop_domain = "lock-example.com";
 
-    let first_lock = repository.try_lock_shop(shop_url).await.unwrap();
-    let second_lock = repository.try_lock_shop(shop_url).await.unwrap();
+    let first_lock = repository.try_lock_shop(&shop_id, shop_domain).await.unwrap();
+    let second_lock = repository.try_lock_shop(&shop_id, shop_domain).await.unwrap();
 
     assert!(first_lock);
     assert!(!second_lock);
 
-    repository.unlock_shop(shop_url).await.unwrap();
+    repository.unlock_shop(&shop_id).await.unwrap();
 
-    let lock_after_unlock = repository.try_lock_shop(shop_url).await.unwrap();
+    let lock_after_unlock = repository.try_lock_shop(&shop_id, shop_domain).await.unwrap();
     assert!(lock_after_unlock);
 }

@@ -1,12 +1,22 @@
 use aura_spider::classification::link_metadata_repository::{
     LinkMetadataRepository, LinkMetadataRepositoryImpl,
 };
+use common::shop_id::ShopId;
 
 use test_api::*;
 
 const RDS: Rds = Rds {
     sql_setup_file: "src/aura-spider/sql/schema.sql",
 };
+
+async fn insert_shop_dummy(pool: &sqlx::PgPool, shop_id: &ShopId) {
+    let shop_id_uuid: uuid::Uuid = (*shop_id).into();
+    sqlx::query("INSERT INTO spider_shop_pattern (shop_id, shop_domain) VALUES ($1, 'example.com')")
+        .bind(shop_id_uuid)
+        .execute(pool)
+        .await
+        .unwrap();
+}
 
 // ---------------------------------------------------------------------------
 // upsert_link
@@ -16,19 +26,20 @@ const RDS: Rds = Rds {
 #[serial_test::serial]
 async fn should_persist_and_return_link_metadata_for_insert() {
     let pool = get_postgres_client().await;
-    let repository = LinkMetadataRepositoryImpl::new(pool);
+    let repository = LinkMetadataRepositoryImpl::new(pool.clone());
 
-    let shop_url = "https://example.com";
+    let shop_id: ShopId = uuid::Uuid::new_v4().into();
+    insert_shop_dummy(&pool, &shop_id).await;
     let url = "https://example.com/product/123";
     let link_class = "product";
     let main_hash = "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855";
 
     let result = repository
-        .upsert_link(shop_url, url, link_class, main_hash)
+        .upsert_link(&shop_id, url, link_class, main_hash)
         .await
         .unwrap();
 
-    assert_eq!(result.shop_url, shop_url);
+    assert_eq!(result.shop_id, shop_id);
     assert_eq!(result.url, url);
     assert_eq!(result.link_class, link_class);
     assert_eq!(result.main_hash, main_hash);
@@ -39,26 +50,27 @@ async fn should_persist_and_return_link_metadata_for_insert() {
 #[serial_test::serial]
 async fn should_update_existing_link_metadata() {
     let pool = get_postgres_client().await;
-    let repository = LinkMetadataRepositoryImpl::new(pool);
+    let repository = LinkMetadataRepositoryImpl::new(pool.clone());
 
-    let shop_url = "https://example.com";
+    let shop_id: ShopId = uuid::Uuid::new_v4().into();
+    insert_shop_dummy(&pool, &shop_id).await;
     let url = "https://example.com/product/123";
     let old_hash = "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855";
     let new_hash = "8a32a6886d3e387cfce5e9d936166ab2dd0bf3bbcd37f594539ef8a183594df5";
 
     let result1 = repository
-        .upsert_link(shop_url, url, "other", old_hash)
+        .upsert_link(&shop_id, url, "other", old_hash)
         .await
         .unwrap();
 
     tokio::time::sleep(std::time::Duration::from_millis(5)).await;
 
     let result2 = repository
-        .upsert_link(shop_url, url, "product", new_hash)
+        .upsert_link(&shop_id, url, "product", new_hash)
         .await
         .unwrap();
 
-    assert_eq!(result2.shop_url, shop_url);
+    assert_eq!(result2.shop_id, shop_id);
     assert_eq!(result2.url, url);
     assert_eq!(result2.link_class, "product");
     assert_eq!(result2.main_hash, new_hash);
@@ -78,15 +90,16 @@ async fn should_update_existing_link_metadata() {
 #[serial_test::serial]
 async fn should_mark_link_as_scraped() {
     let pool = get_postgres_client().await;
-    let repository = LinkMetadataRepositoryImpl::new(pool);
+    let repository = LinkMetadataRepositoryImpl::new(pool.clone());
 
-    let shop_url = "https://example.com";
+    let shop_id: ShopId = uuid::Uuid::new_v4().into();
+    insert_shop_dummy(&pool, &shop_id).await;
     let url = "https://example.com/product/123";
     let link_class = "product";
     let main_hash = "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855";
 
     let result = repository
-        .upsert_link(shop_url, url, link_class, main_hash)
+        .upsert_link(&shop_id, url, link_class, main_hash)
         .await
         .unwrap();
 
@@ -94,7 +107,7 @@ async fn should_mark_link_as_scraped() {
 
     tokio::time::sleep(std::time::Duration::from_millis(5)).await;
 
-    let marked = repository.mark_as_scraped(shop_url, url).await.unwrap();
+    let marked = repository.mark_as_scraped(&shop_id, url).await.unwrap();
 
     assert!(marked.last_scraped.is_some());
     assert!(marked.updated > result.updated);
@@ -104,15 +117,16 @@ async fn should_mark_link_as_scraped() {
 #[serial_test::serial]
 async fn should_set_state() {
     let pool = get_postgres_client().await;
-    let repository = LinkMetadataRepositoryImpl::new(pool);
+    let repository = LinkMetadataRepositoryImpl::new(pool.clone());
 
-    let shop_url = "https://example.com";
+    let shop_id: ShopId = uuid::Uuid::new_v4().into();
+    insert_shop_dummy(&pool, &shop_id).await;
     let url = "https://example.com/product/123";
     let link_class = "product";
     let main_hash = "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855";
 
     let result = repository
-        .upsert_link(shop_url, url, link_class, main_hash)
+        .upsert_link(&shop_id, url, link_class, main_hash)
         .await
         .unwrap();
 
@@ -120,7 +134,7 @@ async fn should_set_state() {
 
     tokio::time::sleep(std::time::Duration::from_millis(5)).await;
 
-    let marked = repository.set_state(shop_url, url, "SOLD").await.unwrap();
+    let marked = repository.set_state(&shop_id, url, "SOLD").await.unwrap();
 
     assert_eq!(marked.state, "SOLD");
     assert!(marked.updated > result.updated);
@@ -130,9 +144,10 @@ async fn should_set_state() {
 #[serial_test::serial]
 async fn should_upsert_links_batch() {
     let pool = get_postgres_client().await;
-    let repository = LinkMetadataRepositoryImpl::new(pool);
+    let repository = LinkMetadataRepositoryImpl::new(pool.clone());
 
-    let shop_url = "https://example.com";
+    let shop_id: ShopId = uuid::Uuid::new_v4().into();
+    insert_shop_dummy(&pool, &shop_id).await;
     let urls = vec![
         "https://example.com/product/1".to_string(),
         "https://example.com/product/2".to_string(),
@@ -144,7 +159,7 @@ async fn should_upsert_links_batch() {
     ];
 
     let inserted = repository
-        .upsert_links_batch(shop_url, &urls, &classes, &hashes)
+        .upsert_links_batch(&shop_id, &urls, &classes, &hashes)
         .await
         .unwrap();
 
@@ -158,7 +173,7 @@ async fn should_upsert_links_batch() {
     ];
 
     let updated = repository
-        .upsert_links_batch(shop_url, &urls, &classes, &updated_hashes)
+        .upsert_links_batch(&shop_id, &urls, &classes, &updated_hashes)
         .await
         .unwrap();
 

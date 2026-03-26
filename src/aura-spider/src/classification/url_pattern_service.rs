@@ -8,20 +8,22 @@ use crate::classification::url_classification_service::find_product_url_pattern;
 use crate::classification::url_pattern_repository::ShopUrlPatternRepository;
 use crate::error::SpiderError;
 use crate::utils::url::extract_shop_base_url;
+use common::shop_id::ShopId;
 
 #[async_trait::async_trait]
 #[mockall::automock]
 pub trait UrlPatternService: Send + Sync {
-    /// Loads the persisted pattern for `shop_url` from the repository.
+    /// Loads the persisted pattern for `shop_id` from the repository.
     ///
     /// Returns `None` when no pattern has been stored yet or when the stored
     /// value is `NULL` in the database.
-    async fn load_pattern_for_shop_url(&self, shop_url: &str)
+    async fn load_pattern_for_shop(&self, shop_id: &ShopId)
     -> Result<Option<Regex>, SpiderError>;
 
-    /// Persists `pattern` for `shop_url`.
-    async fn save_pattern_for_shop_url(
+    /// Persists `pattern` for `shop_id` with its `shop_url` origin as domain.
+    async fn save_pattern_for_shop(
         &self,
+        shop_id: &ShopId,
         shop_url: &str,
         pattern: &Regex,
     ) -> Result<(), SpiderError>;
@@ -33,18 +35,19 @@ pub trait UrlPatternService: Send + Sync {
     /// the stored pattern must be refreshed after a failed crawl.
     async fn classify_and_save(
         &self,
+        shop_id: &ShopId,
         shop_url: &str,
         urls: &[String],
     ) -> Result<Option<Regex>, SpiderError>;
 
     /// Marks the shop as crawled now.
-    async fn mark_as_crawled(&self, shop_url: &str) -> Result<(), SpiderError>;
+    async fn mark_as_crawled(&self, shop_id: &ShopId, shop_url: &str) -> Result<(), SpiderError>;
 
     /// Attempts to acquire a lock for this shop crawl.
-    async fn try_lock_shop(&self, shop_url: &str) -> Result<bool, SpiderError>;
+    async fn try_lock_shop(&self, shop_id: &ShopId, shop_url: &str) -> Result<bool, SpiderError>;
 
     /// Releases a previously acquired shop crawl lock.
-    async fn unlock_shop(&self, shop_url: &str) -> Result<(), SpiderError>;
+    async fn unlock_shop(&self, shop_id: &ShopId) -> Result<(), SpiderError>;
 }
 
 pub struct UrlPatternServiceImpl {
@@ -66,12 +69,11 @@ impl UrlPatternServiceImpl {
 
 #[async_trait::async_trait]
 impl UrlPatternService for UrlPatternServiceImpl {
-    async fn load_pattern_for_shop_url(
+    async fn load_pattern_for_shop(
         &self,
-        shop_url: &str,
+        shop_id: &ShopId,
     ) -> Result<Option<Regex>, SpiderError> {
-        let shop_url = extract_shop_base_url(shop_url)?;
-        let record = self.repository.find_pattern(&shop_url).await?;
+        let record = self.repository.find_pattern(shop_id).await?;
 
         let Some(record) = record else {
             return Ok(None);
@@ -85,47 +87,48 @@ impl UrlPatternService for UrlPatternServiceImpl {
         Ok(Some(pattern))
     }
 
-    async fn save_pattern_for_shop_url(
+    async fn save_pattern_for_shop(
         &self,
+        shop_id: &ShopId,
         shop_url: &str,
         pattern: &Regex,
     ) -> Result<(), SpiderError> {
-        let shop_url = extract_shop_base_url(shop_url)?;
+        let extracted_domain = extract_shop_base_url(shop_url)?;
         self.repository
-            .save_pattern(&shop_url, Some(pattern.as_str()))
+            .save_pattern(shop_id, &extracted_domain, Some(pattern.as_str()))
             .await?;
         Ok(())
     }
 
     async fn classify_and_save(
         &self,
+        shop_id: &ShopId,
         shop_url: &str,
         urls: &[String],
     ) -> Result<Option<Regex>, SpiderError> {
         let pattern = find_product_url_pattern(self.inference_client.as_ref(), urls).await?;
 
         if let Some(ref p) = pattern {
-            self.save_pattern_for_shop_url(shop_url, p).await?;
-            info!(shopUrl = %shop_url, "Persisted product URL pattern");
+            self.save_pattern_for_shop(shop_id, shop_url, p).await?;
+            info!(shopId = %shop_id, "Persisted product URL pattern");
         }
 
         Ok(pattern)
     }
 
-    async fn mark_as_crawled(&self, shop_url: &str) -> Result<(), SpiderError> {
-        let shop_url = extract_shop_base_url(shop_url)?;
-        self.repository.mark_as_crawled(&shop_url).await?;
+    async fn mark_as_crawled(&self, shop_id: &ShopId, shop_url: &str) -> Result<(), SpiderError> {
+        let extracted_domain = extract_shop_base_url(shop_url)?;
+        self.repository.mark_as_crawled(shop_id, &extracted_domain).await?;
         Ok(())
     }
 
-    async fn try_lock_shop(&self, shop_url: &str) -> Result<bool, SpiderError> {
-        let shop_url = extract_shop_base_url(shop_url)?;
-        Ok(self.repository.try_lock_shop(&shop_url).await?)
+    async fn try_lock_shop(&self, shop_id: &ShopId, shop_url: &str) -> Result<bool, SpiderError> {
+        let extracted_domain = extract_shop_base_url(shop_url)?;
+        Ok(self.repository.try_lock_shop(shop_id, &extracted_domain).await?)
     }
 
-    async fn unlock_shop(&self, shop_url: &str) -> Result<(), SpiderError> {
-        let shop_url = extract_shop_base_url(shop_url)?;
-        self.repository.unlock_shop(&shop_url).await?;
+    async fn unlock_shop(&self, shop_id: &ShopId) -> Result<(), SpiderError> {
+        self.repository.unlock_shop(shop_id).await?;
         Ok(())
     }
 }
@@ -143,7 +146,8 @@ mod service_tests {
         mock_repo.expect_find_pattern().returning(|_| {
             Box::pin(async {
                 Ok(Some(ShopUrlPatternRecord {
-                    shop_url: "https://example.com".to_string(),
+                    shop_id: uuid::Uuid::new_v4().into(),
+                    shop_domain: "example.com".to_string(),
                     url_pattern: Some("/product/".to_string()),
                     last_crawled: None,
                     created: time::OffsetDateTime::now_utc(),
@@ -155,8 +159,9 @@ mod service_tests {
         let mock_client = MockPatternInferenceClient::new();
         let service = UrlPatternServiceImpl::new(Arc::new(mock_repo), Box::new(mock_client));
 
+        let shop_id = uuid::Uuid::new_v4().into();
         let result = service
-            .load_pattern_for_shop_url("https://example.com")
+            .load_pattern_for_shop(&shop_id)
             .await;
         assert!(result.is_ok());
         let pattern = result.unwrap();
@@ -174,8 +179,9 @@ mod service_tests {
         let mock_client = MockPatternInferenceClient::new();
         let service = UrlPatternServiceImpl::new(Arc::new(mock_repo), Box::new(mock_client));
 
+        let shop_id = uuid::Uuid::new_v4().into();
         let result = service
-            .load_pattern_for_shop_url("https://example.com")
+            .load_pattern_for_shop(&shop_id)
             .await;
         assert!(result.is_ok());
         assert!(result.unwrap().is_none());
@@ -186,14 +192,15 @@ mod service_tests {
         let mut mock_repo = MockShopUrlPatternRepository::new();
         mock_repo
             .expect_save_pattern()
-            .returning(|_, _| Box::pin(async { Ok(()) }));
+            .returning(|_, _, _| Box::pin(async { Ok(()) }));
 
         let mock_client = MockPatternInferenceClient::new();
         let service = UrlPatternServiceImpl::new(Arc::new(mock_repo), Box::new(mock_client));
 
         let regex = Regex::new("/product/").unwrap();
+        let shop_id = uuid::Uuid::new_v4().into();
         let result = service
-            .save_pattern_for_shop_url("https://example.com", &regex)
+            .save_pattern_for_shop(&shop_id, "https://example.com", &regex)
             .await;
         assert!(result.is_ok());
     }
@@ -203,7 +210,7 @@ mod service_tests {
         let mut mock_repo = MockShopUrlPatternRepository::new();
         mock_repo
             .expect_save_pattern()
-            .returning(|_, _| Box::pin(async { Ok(()) }));
+            .returning(|_, _, _| Box::pin(async { Ok(()) }));
 
         let mut mock_client = MockPatternInferenceClient::new();
         mock_client
@@ -212,8 +219,10 @@ mod service_tests {
 
         let service = UrlPatternServiceImpl::new(Arc::new(mock_repo), Box::new(mock_client));
 
+        let shop_id = uuid::Uuid::new_v4().into();
         let result = service
             .classify_and_save(
+                &shop_id,
                 "https://example.com",
                 &["https://example.com/product/1".to_string()],
             )
