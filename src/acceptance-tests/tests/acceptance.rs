@@ -50,11 +50,8 @@ use product::{
         repository::{ProductDynamoDbRepository, ProductDynamoDbRepositoryImpl},
     },
     service::{
-        enrichment_service::{
-            ProductCommandEnrichmentService, ProductCommandEnrichmentServiceImpl,
-        },
-        product_command::{PipedProductCommand, UpsertProductCommand},
-        upsert_service::{UpsertProductsService, UpsertProductsServiceImpl},
+        command_service::{CommandProductService, CommandProductServiceImpl},
+        product_command::{CreateProductCommand, PipedProductCommand},
     },
 };
 use product_watchlist::dynamodb::repository::{
@@ -1144,36 +1141,16 @@ async fn upsert_products(put_products: Vec<PutProductData>) {
     let dynamodb_client = get_dynamodb_client().await;
     let product_repository =
         ProductDynamoDbRepositoryImpl::new(dynamodb_client, &stack.dynamodb_table_1_name);
-    let shop_repository =
-        ShopDynamoDbRepositoryImpl::new(dynamodb_client, &stack.dynamodb_table_1_name);
     let fx_rate = FixedFxRate();
-    let enrichment_service = ProductCommandEnrichmentServiceImpl::new(&shop_repository, &fx_rate);
-    let upsert_service = UpsertProductsServiceImpl::new(&product_repository, &fx_rate);
+    let command_service = CommandProductServiceImpl::new(&product_repository, &fx_rate);
 
-    let commands: Vec<PipedProductCommand> = put_products
+    let commands: Vec<CreateProductCommand> = put_products
         .into_iter()
         .map(PipedProductCommand::from)
+        .map(|cmd| CreateProductCommand::try_from(cmd).unwrap())
         .collect();
-    let enriched = enrichment_service.enrich(commands).await;
-    assert!(
-        enriched.failed.is_empty(),
-        "Enrichment failed for some products"
-    );
-    assert!(
-        enriched.unprocessed.is_empty(),
-        "Some products were not enriched"
-    );
-
-    let upsert_commands: Vec<UpsertProductCommand> = enriched
-        .enriched
-        .into_iter()
-        .map(|cmd| UpsertProductCommand::try_from(cmd).unwrap())
-        .collect();
-    let result = upsert_service.upsert(upsert_commands).await;
-    assert!(
-        result.unprocessed.is_empty(),
-        "Some products were not upserted"
-    );
+    let result = command_service.create(commands).await;
+    assert!(result.is_empty(), "Some products failed to create");
 }
 
 /// Polls OpenSearch until a document with the given `id` appears in `index`, issuing an explicit

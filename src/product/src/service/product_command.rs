@@ -19,7 +19,7 @@ use time::OffsetDateTime;
 use url::Url;
 
 #[derive(Debug, Clone, PartialEq)]
-pub struct UpsertProductCommand {
+pub struct CreateProductCommand {
     pub shop_id: ShopId,
     pub shops_product_id: ShopsProductId,
     pub shop_name: ShopName,
@@ -41,7 +41,7 @@ pub struct UpsertProductCommand {
     pub auction_end: Option<OffsetDateTime>,
 }
 
-impl HasKey for UpsertProductCommand {
+impl HasKey for CreateProductCommand {
     type Key = ProductKey;
 
     fn key(&self) -> Self::Key {
@@ -50,6 +50,12 @@ impl HasKey for UpsertProductCommand {
             shops_product_id: self.shops_product_id.clone(),
         }
     }
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct UpdateProductCommand {
+    pub native_price: Option<Price>,
+    pub state: ProductState,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -112,20 +118,20 @@ impl From<crate::data::put_data::PutProductData> for PipedProductCommand {
     }
 }
 
-impl TryFrom<PipedProductCommand> for UpsertProductCommand {
+impl TryFrom<PipedProductCommand> for CreateProductCommand {
     type Error = MissingRequiredField;
 
     fn try_from(piped_cmd: PipedProductCommand) -> Result<Self, Self::Error> {
-        let cmd = UpsertProductCommand {
+        let cmd = CreateProductCommand {
             shop_id: piped_cmd.shop_id.ok_or(MissingRequiredField::from(
-                field!(shop_id@UpsertProductCommand),
+                field!(shop_id@CreateProductCommand),
             ))?,
             shops_product_id: piped_cmd.shops_product_id,
             shop_name: piped_cmd.shop_name.ok_or(MissingRequiredField::from(
-                field!(shop_name@UpsertProductCommand),
+                field!(shop_name@CreateProductCommand),
             ))?,
             shop_type: piped_cmd.shop_type.ok_or(MissingRequiredField::from(
-                field!(shop_type@UpsertProductCommand),
+                field!(shop_type@CreateProductCommand),
             ))?,
             native_title: piped_cmd.native_title,
             other_title: piped_cmd.other_title,
@@ -153,7 +159,7 @@ mod faker {
     use common::price::domain::{FixedFxRate, FxRate};
     use fake::{Dummy, Fake, Faker, RngExt};
 
-    impl Dummy<Faker> for UpsertProductCommand {
+    impl Dummy<Faker> for CreateProductCommand {
         fn dummy_with_rng<R: RngExt + ?Sized>(config: &Faker, rng: &mut R) -> Self {
             let native_price = config.fake_with_rng::<Option<Price>, R>(rng);
             let other_price = native_price.map(|price| {
@@ -176,7 +182,7 @@ mod faker {
                     .unwrap()
             });
 
-            UpsertProductCommand {
+            CreateProductCommand {
                 shop_id: config.fake_with_rng(rng),
                 shops_product_id: config.fake_with_rng(rng),
                 shop_name: config.fake_with_rng(rng),
@@ -208,14 +214,95 @@ mod faker {
         }
     }
 
+    impl Dummy<Faker> for UpdateProductCommand {
+        fn dummy_with_rng<R: RngExt + ?Sized>(config: &Faker, rng: &mut R) -> Self {
+            UpdateProductCommand {
+                native_price: config.fake_with_rng(rng),
+                state: config.fake_with_rng(rng),
+            }
+        }
+    }
+
+    impl Dummy<Faker> for PipedProductCommand {
+        fn dummy_with_rng<R: RngExt + ?Sized>(config: &Faker, rng: &mut R) -> Self {
+            let native_price: Option<Price> = config.fake_with_rng(rng);
+            let other_price = match native_price {
+                None => HashMap::new(),
+                Some(price) => FixedFxRate()
+                    .exchange_all(price.currency, price.monetary_amount)
+                    .unwrap(),
+            };
+            let native_price_estimate_min: Option<Price> = config.fake_with_rng(rng);
+            let other_price_estimate_min = match native_price_estimate_min {
+                None => HashMap::new(),
+                Some(price) => FixedFxRate()
+                    .exchange_all(price.currency, price.monetary_amount)
+                    .unwrap(),
+            };
+            let native_price_estimate_max: Option<Price> = config.fake_with_rng(rng);
+            let other_price_estimate_max = match native_price_estimate_max {
+                None => HashMap::new(),
+                Some(price) => FixedFxRate()
+                    .exchange_all(price.currency, price.monetary_amount)
+                    .unwrap(),
+            };
+            let state = config.fake_with_rng(rng);
+            PipedProductCommand {
+                shop_id: config.fake_with_rng(rng),
+                shops_product_id: config.fake_with_rng(rng),
+                shop_name: config.fake_with_rng(rng),
+                shop_type: config.fake_with_rng(rng),
+                native_title: config.fake_with_rng(rng),
+                other_title: config.fake_with_rng(rng),
+                native_description: config.fake_with_rng(rng),
+                other_description: config.fake_with_rng(rng),
+                native_price,
+                other_price,
+                native_price_estimate_min,
+                other_price_estimate_min,
+                native_price_estimate_max,
+                other_price_estimate_max,
+                state,
+                url: Url::parse(&format!(
+                    "https://foo.bar/item/{}",
+                    config.fake_with_rng::<u16, _>(rng)
+                ))
+                .unwrap(),
+                images: Faker.fake(),
+                auction_start: if config.fake_with_rng(rng) {
+                    Some(OffsetDateTime::now_utc())
+                } else {
+                    None
+                },
+                auction_end: if config.fake_with_rng(rng) {
+                    Some(OffsetDateTime::now_utc())
+                } else {
+                    None
+                },
+            }
+        }
+    }
+
     #[cfg(test)]
     mod tests {
-        use crate::service::product_command::UpsertProductCommand;
+        use crate::service::product_command::{
+            CreateProductCommand, PipedProductCommand, UpdateProductCommand,
+        };
         use fake::{Fake, Faker};
 
         #[test]
         fn should_fake_create_product_command() {
-            let _ = Faker.fake::<UpsertProductCommand>();
+            let _ = Faker.fake::<CreateProductCommand>();
+        }
+
+        #[test]
+        fn should_fake_update_product_command() {
+            let _ = Faker.fake::<UpdateProductCommand>();
+        }
+
+        #[test]
+        fn should_fake_piped_product_command() {
+            let _ = Faker.fake::<PipedProductCommand>();
         }
     }
 }
